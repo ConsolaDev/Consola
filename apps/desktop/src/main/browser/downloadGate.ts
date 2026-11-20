@@ -1,52 +1,57 @@
-import type { DownloadItem, WebContents } from 'electron';
+import type { DownloadItem } from 'electron';
 import {
   type DownloadGate,
-  type DownloadPageFacts,
   type DownloadPlaces,
   downloadRefusal,
   downloadSource,
+  type SessionDownloadFacts,
 } from './sessionPolicy';
 
 /** What the gate needs of a download: whether it is past its save dialog. */
 type FollowedItem = Pick<DownloadItem, 'getSavePath' | 'on' | 'removeListener'>;
 
 /**
- * Which pages have put a save dialog on the person's screen, and which have
- * one waiting there now, by the page's web contents id (read once, as each
- * download starts). A download is past its dialog once the person has chosen
- * where it goes (it has a save path), or once it is done: cancelled at the
- * dialog, or by anyone, or finished. A page is forgotten when it is destroyed.
+ * The uninvited downloads each session's browser has put on the person's
+ * screen: ones from a tab the person gave no input on just before. Per
+ * session, not per page, because a page can open tabs with no input, each a
+ * page of its own (`downloadRefusal` says why there is one at all). It knows
+ * which have a save dialog waiting now, and which sessions have shown one
+ * since the person's last input on any of their tabs (`personInput`). A
+ * download is past its dialog once the person has chosen where it goes (it
+ * has a save path), or once it is done: cancelled at the dialog, or by
+ * anyone, or finished.
  */
-export class DownloadDialogs {
-  private readonly waiting = new Map<number, number>();
-  private readonly downloaded = new Set<number>();
+export class UninvitedDownloads {
+  /** Dialogs waiting, by session. */
+  private readonly waiting = new Map<string, number>();
+  /** Sessions that have shown one since the person's last input in them. */
+  private readonly shownSinceInput = new Set<string>();
 
-  public factsFor(pageId: number): DownloadPageFacts {
+  /** What the sessions a download may be from have shown: either one counts. */
+  public factsFor(sessionIds: readonly string[]): SessionDownloadFacts {
     return {
-      dialogWaiting: (this.waiting.get(pageId) ?? 0) > 0,
-      downloadedBefore: this.downloaded.has(pageId),
+      uninvitedWaiting: sessionIds.some((id) => (this.waiting.get(id) ?? 0) > 0),
+      uninvitedSincePersonInput: sessionIds.some((id) => this.shownSinceInput.has(id)),
     };
   }
 
-  /** A download of this page goes on to its save dialog. */
-  public opened(page: WebContents, pageId: number, item: FollowedItem): void {
-    if (!this.downloaded.has(pageId)) {
-      this.downloaded.add(pageId);
-      page.once('destroyed', () => {
-        this.downloaded.delete(pageId);
-        this.waiting.delete(pageId);
-      });
+  /** An uninvited download goes on to its save dialog: it counts against each of these sessions. */
+  public shown(sessionIds: readonly string[], item: FollowedItem): void {
+    for (const id of sessionIds) {
+      this.shownSinceInput.add(id);
+      this.waiting.set(id, (this.waiting.get(id) ?? 0) + 1);
     }
-    this.waiting.set(pageId, (this.waiting.get(pageId) ?? 0) + 1);
     let past = false;
     const pastDialog = () => {
       if (past) return;
       past = true;
       item.removeListener('updated', onUpdated);
       item.removeListener('done', pastDialog);
-      const left = (this.waiting.get(pageId) ?? 1) - 1;
-      if (left > 0) this.waiting.set(pageId, left);
-      else this.waiting.delete(pageId);
+      for (const id of sessionIds) {
+        const left = (this.waiting.get(id) ?? 1) - 1;
+        if (left > 0) this.waiting.set(id, left);
+        else this.waiting.delete(id);
+      }
     };
     const onUpdated = () => {
       if (item.getSavePath() !== '') pastDialog();
@@ -54,33 +59,43 @@ export class DownloadDialogs {
     item.on('updated', onUpdated);
     item.on('done', pastDialog);
   }
+
+  /** The person gave input on one of the session's tabs: its one uninvited download is back. */
+  public personInput(sessionId: string): void {
+    this.shownSinceInput.delete(sessionId);
+  }
+
+  /** Forgets the sessions that are gone, and with them their tabs. */
+  public prune(liveSessionIds: ReadonlySet<string>): void {
+    for (const id of [...this.waiting.keys()]) if (!liveSessionIds.has(id)) this.waiting.delete(id);
+    for (const id of [...this.shownSinceInput]) {
+      if (!liveSessionIds.has(id)) this.shownSinceInput.delete(id);
+    }
+  }
 }
 
 /**
  * The gate on every download of the browser partitions (`gateDownloads`):
- * places its page (`downloadSource`), reads what that page has already put
- * on screen (`DownloadDialogs`), and decides (`downloadRefusal`), logging why
- * it cancels one. What it lets through, it follows to the end of its dialog.
+ * places its page (`downloadSource`), reads what that page's session has
+ * already shown unasked (`UninvitedDownloads`), and decides
+ * (`downloadRefusal`), logging why it cancels one. An uninvited download it
+ * lets through counts against its session until its dialog is past, and
+ * until the person's next input there.
  */
 export function createDownloadGate(
   places: DownloadPlaces,
+  uninvited: UninvitedDownloads,
   log: (message: string) => void = console.info,
-  dialogs: DownloadDialogs = new DownloadDialogs(),
 ): DownloadGate {
   return (from, item) => {
     const source = downloadSource(from, places);
-    // Read once, and only of a page that is there: a destroyed one throws on `.id`.
-    const pageId = source.kind === 'tabs' && from ? from.id : undefined;
-    const page =
-      pageId === undefined
-        ? { dialogWaiting: false, downloadedBefore: false }
-        : dialogs.factsFor(pageId);
-    const refusal = downloadRefusal(source, page);
+    const sessionIds = source.kind === 'tabs' ? source.sessionIds : [];
+    const refusal = downloadRefusal(source, uninvited.factsFor(sessionIds));
     if (refusal) {
       log(refusal);
       return 'cancel';
     }
-    if (from && pageId !== undefined) dialogs.opened(from, pageId, item);
+    if (source.kind === 'tabs' && !source.personUsing) uninvited.shown(sessionIds, item);
     return 'allow';
   };
 }

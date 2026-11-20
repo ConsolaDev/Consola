@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import type { WebContents } from 'electron';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   PERSON_INPUT_GUARD_MS,
   PERSON_USING_TAB_MESSAGE,
@@ -46,11 +46,16 @@ describe('the person comes first', () => {
 });
 
 describe('whose hands a tab is in', () => {
-  /** What the gate decides for a page's first download from the tab, by its hands now. */
+  /** What the gate decides for a page's first download, with nobody's input, from the tab, by its hands now. */
   const download = (person: PersonInput, tabId: string, openedBy: 'person' | 'agent') =>
     decideDownload(
-      { kind: 'tabs', hands: [person.handsOf(tabId, openedBy)], personUsing: false },
-      { dialogWaiting: false, downloadedBefore: false },
+      {
+        kind: 'tabs',
+        hands: [person.handsOf(tabId, openedBy)],
+        personUsing: false,
+        sessionIds: ['s'],
+      },
+      { uninvitedWaiting: false, uninvitedSincePersonInput: false },
     );
 
   it("starts in its opener's: an agent's tab is the agent's, also after a restart nobody touched it in", () => {
@@ -177,5 +182,34 @@ describe('hearing the person', () => {
       { type: 'keyDown', key: 'a' },
     );
     expect(prevented).toBe(false);
+  });
+});
+
+describe('hearing the person', () => {
+  it('tells its listeners of each input, a toolbar move included, until they stop listening', () => {
+    const person = new PersonInput(() => T0);
+    const heard: string[] = [];
+    const stop = person.onInput((tabId) => heard.push(tabId));
+    person.noteInput('tab1');
+    person.notePersonNavigation('tab2');
+    // An agent's use is not the person's.
+    person.noteAgentUse('tab3');
+    stop();
+    person.noteInput('tab4');
+    expect(heard).toEqual(['tab1', 'tab2']);
+  });
+
+  it('records the input even when a listener throws, and tells the rest', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const person = new PersonInput(() => T0);
+    person.onInput(() => {
+      throw new Error('gone');
+    });
+    const heard: string[] = [];
+    person.onInput((tabId) => heard.push(tabId));
+    person.noteInput('tab1');
+    expect(heard).toEqual(['tab1']);
+    expect(person.refusal('tab1')).not.toBeNull();
+    warn.mockRestore();
   });
 });

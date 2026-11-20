@@ -1,5 +1,6 @@
 import type { WebContents } from 'electron';
 import type { BrowserTab } from '../../shared/browser';
+import { isolated } from './isolated';
 
 /**
  * How long after the person last pressed a key or a mouse button in a tab an
@@ -55,6 +56,7 @@ export type TabHands = 'agent' | 'person';
 export class PersonInput {
   private readonly lastInputAt = new Map<string, number>();
   private readonly hands = new Map<string, TabHands>();
+  private readonly listeners = new Set<(tabId: string) => void>();
 
   constructor(
     private readonly now: () => number = Date.now,
@@ -66,6 +68,19 @@ export class PersonInput {
     this.forgetStale();
     this.lastInputAt.set(tabId, this.now());
     this.hands.set(tabId, 'person');
+    for (const listener of this.listeners) {
+      isolated("A listener of the person's input", () => listener(tabId));
+    }
+  }
+
+  /**
+   * Calls `listener` with the tab of each input of the person's, a toolbar
+   * move included (the download gate gives a session's browser back its one
+   * uninvited download). Returns the unsubscribe.
+   */
+  public onInput(listener: (tabId: string) => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
   }
 
   /**

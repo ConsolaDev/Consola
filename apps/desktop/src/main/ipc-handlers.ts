@@ -40,7 +40,7 @@ import { installPopupPolicy } from './browser/popupWindows';
 import { exposeToTests, isBackgroundTest } from './test-mode';
 import { forwardGuestShortcuts } from './browser/guestShortcuts';
 import { type DownloadPlaces, gateDownloads, partitionFor } from './browser/sessionPolicy';
-import { createDownloadGate } from './browser/downloadGate';
+import { createDownloadGate, UninvitedDownloads } from './browser/downloadGate';
 import { PersonInput, watchPersonInput } from './browser/PersonInput';
 import { PageDialogs } from './browser/PageDialogs';
 import { browserRefusal, closeConnectionsWithoutAccess } from './browser/browserToolAccess';
@@ -383,9 +383,10 @@ export function setupIpcHandlers(): boolean {
     },
     onScreen: (tabId) => browser.isShown(tabId),
   });
-  // Whose hands the page's tab is in decides its downloads (Ruling PP): a
-  // popup window by its opener's tab, a page not bound yet by each tab its
-  // window has a page coming for, any other page in a browser partition not at all.
+  // A page's downloads are decided by its tab (`downloadRefusal`): whose
+  // hands it is in, the person's input on it, and its session. A popup
+  // window by its opener's tab, a page not bound yet by each tab its window
+  // has a page coming for, any other page in a browser partition not at all.
   const downloadPlaces: DownloadPlaces = {
     tabsForPage: (contents) => {
       const host = contents.hostWebContents;
@@ -398,8 +399,16 @@ export function setupIpcHandlers(): boolean {
     },
     handsOf: (tab) => personInput.handsOf(tab.id, tab.openedBy),
     personUsing: (tab) => personInput.refusal(tab.id) !== null,
+    sessionOf: (tab) => browser.sessionIdForTab(tab.id),
   };
-  gateDownloads(createDownloadGate(downloadPlaces));
+  // A session's browser gets one download nobody asked for per stretch
+  // without the person's input; their next input in it gives that one back.
+  const uninvitedDownloads = new UninvitedDownloads();
+  const stopHearingPerson = personInput.onInput((tabId) => {
+    const sessionId = browser.sessionIdForTab(tabId);
+    if (sessionId) uninvitedDownloads.personInput(sessionId);
+  });
+  gateDownloads(createDownloadGate(downloadPlaces, uninvitedDownloads));
   exposeToTests('browserAgent', { calls: agentPages, driver, personInput, pageDialogs });
   // Watch each page from the moment it attaches: the renderer binds it only
   // after dom-ready, when its first load may already have finished or failed.
@@ -491,6 +500,7 @@ export function setupIpcHandlers(): boolean {
       registered.remove();
       stopWatchingGuests();
       stopForgettingPages();
+      stopHearingPerson();
       gateDownloads(null);
     },
   };
@@ -507,12 +517,13 @@ export function setupIpcHandlers(): boolean {
     viewMemory.prune(liveIds);
     // The browser's steps each on their own: a throw from either must not
     // cut short a workspace delete whose record is already gone.
-    isolated("Pruning the browser's tabs", () =>
-      browser.prune(
-        new Set(all.flatMap((workspace) => workspace.sessions.map((session) => session.id))),
-        liveIds,
-      ),
-    );
+    isolated("Pruning the browser's tabs", () => {
+      const liveSessionIds = new Set(
+        all.flatMap((workspace) => workspace.sessions.map((session) => session.id)),
+      );
+      browser.prune(liveSessionIds, liveIds);
+      uninvitedDownloads.prune(liveSessionIds);
+    });
     attentionLedger.prune(
       new Set(all.flatMap((workspace) => workspace.sessions.map((session) => session.id))),
     );

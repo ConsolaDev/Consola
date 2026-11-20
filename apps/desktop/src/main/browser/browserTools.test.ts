@@ -243,11 +243,16 @@ function afterNote(text: string): unknown {
   return JSON.parse(text.slice(UNTRUSTED_NOTE.length + 2));
 }
 
-/** What the download gate decides for a page's first download from one of the caller's tabs now. */
+/** What the download gate decides for a page's first download, with nobody's input, from one of the caller's tabs now. */
 function downloadFrom(tabId: string, openedBy: 'person' | 'agent') {
   return decideDownload(
-    { kind: 'tabs', hands: [person.handsOf(tabId, openedBy)], personUsing: false },
-    { dialogWaiting: false, downloadedBefore: false },
+    {
+      kind: 'tabs',
+      hands: [person.handsOf(tabId, openedBy)],
+      personUsing: false,
+      sessionIds: ['s'],
+    },
+    { uninvitedWaiting: false, uninvitedSincePersonInput: false },
   );
 }
 

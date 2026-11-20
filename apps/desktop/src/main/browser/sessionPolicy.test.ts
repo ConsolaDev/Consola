@@ -1,4 +1,5 @@
-import type { Session, WebContents } from 'electron';
+import { EventEmitter } from 'node:events';
+import type { DownloadItem, Session, WebContents } from 'electron';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { type BrowserTab, browserPartitionFor } from '../../shared/browser';
 import {
@@ -6,73 +7,160 @@ import {
   decideDownload,
   decidePermission,
   downloadDialogTitle,
-  type DownloadPageFacts,
   type DownloadPlaces,
   downloadRefusal,
   type DownloadSource,
   downloadSource,
   gateDownloads,
   partitionFor,
+  type SessionDownloadFacts,
 } from './sessionPolicy';
+import { UninvitedDownloads } from './downloadGate';
 
-/** A page that has put up no save dialog yet. */
-const FIRST: DownloadPageFacts = { dialogWaiting: false, downloadedBefore: false };
-/** One whose earlier download is past its dialog. */
-const LATER: DownloadPageFacts = { dialogWaiting: false, downloadedBefore: true };
-/** One whose earlier download still waits at its dialog. */
-const WAITING: DownloadPageFacts = { dialogWaiting: true, downloadedBefore: true };
+/** A session that has shown no uninvited save dialog since the person's last input in it. */
+const QUIET: SessionDownloadFacts = { uninvitedWaiting: false, uninvitedSincePersonInput: false };
+/** One that has shown one since, now past its dialog. */
+const SPENT: SessionDownloadFacts = { uninvitedWaiting: false, uninvitedSincePersonInput: true };
+/** One whose uninvited dialog still waits; the person has given input in it since. */
+const WAITING: SessionDownloadFacts = { uninvitedWaiting: true, uninvitedSincePersonInput: false };
 
-const fromTabs = (hands: Array<'agent' | 'person'>, personUsing = false): DownloadSource => ({
-  kind: 'tabs',
-  hands,
-  personUsing,
-});
+const fromTabs = (
+  hands: Array<'agent' | 'person'>,
+  personUsing = false,
+  sessionIds: string[] = ['s1'],
+): DownloadSource => ({ kind: 'tabs', hands, personUsing, sessionIds });
 
 describe('decideDownload', () => {
   it("cancels a download from a page of a tab in the agent's hands, at any time", () => {
-    expect(decideDownload(fromTabs(['agent']), FIRST)).toBe('cancel');
+    expect(decideDownload(fromTabs(['agent']), QUIET)).toBe('cancel');
     // Whatever else is true: the agent's hands come first.
-    expect(decideDownload(fromTabs(['agent'], true), FIRST)).toBe('cancel');
-  });
-
-  it("allows a page's first download from a tab in the person's hands", () => {
-    expect(decideDownload(fromTabs(['person']), FIRST)).toBe('allow');
-    expect(decideDownload(fromTabs(['person'], true), FIRST)).toBe('allow');
+    expect(decideDownload(fromTabs(['agent'], true), QUIET)).toBe('cancel');
   });
 
   it("cancels for a page not bound yet when any tab it may be is in the agent's hands", () => {
-    expect(decideDownload(fromTabs(['person', 'agent']), FIRST)).toBe('cancel');
-    expect(decideDownload(fromTabs(['person', 'person']), FIRST)).toBe('allow');
+    expect(decideDownload(fromTabs(['person', 'agent']), QUIET)).toBe('cancel');
+    expect(decideDownload(fromTabs(['person', 'person']), QUIET)).toBe('allow');
   });
 
-  // At most one save dialog waits per page: a page cannot stack them on the person's screen.
-  it('cancels a download while the same page has a save dialog waiting, even on the person’s input', () => {
-    expect(decideDownload(fromTabs(['person'], true), WAITING)).toBe('cancel');
+  it('allows one right after the person’s input on its tab, whatever the session has shown', () => {
+    expect(decideDownload(fromTabs(['person'], true), QUIET)).toBe('allow');
+    expect(decideDownload(fromTabs(['person'], true), SPENT)).toBe('allow');
+    expect(decideDownload(fromTabs(['person'], true), WAITING)).toBe('allow');
   });
 
-  it('cancels a later download unless the person used the tab just now', () => {
-    expect(decideDownload(fromTabs(['person']), LATER)).toBe('cancel');
-    expect(decideDownload(fromTabs(['person'], true), LATER)).toBe('allow');
+  // A download nobody asked for: the session's browser gets one at a time, and one
+  // per stretch without the person's input, however many tabs its pages open.
+  it('allows a session one uninvited download while it is quiet', () => {
+    expect(decideDownload(fromTabs(['person']), QUIET)).toBe('allow');
+  });
+
+  it('cancels an uninvited one while another’s dialog waits in the session', () => {
+    expect(decideDownload(fromTabs(['person']), WAITING)).toBe('cancel');
+  });
+
+  it('cancels an uninvited one once one was shown since the person’s last input in the session', () => {
+    expect(decideDownload(fromTabs(['person']), SPENT)).toBe('cancel');
   });
 
   // Consola starts no download in a browser partition itself, so one with no page hid where it came from.
   it('cancels one from a page main cannot place, and one with no page at all', () => {
-    expect(decideDownload({ kind: 'unknown' }, FIRST)).toBe('cancel');
-    expect(decideDownload(fromTabs([]), FIRST)).toBe('cancel');
-    expect(decideDownload({ kind: 'none' }, FIRST)).toBe('cancel');
+    expect(decideDownload({ kind: 'unknown' }, QUIET)).toBe('cancel');
+    expect(decideDownload(fromTabs([]), QUIET)).toBe('cancel');
+    expect(decideDownload({ kind: 'none' }, QUIET)).toBe('cancel');
   });
 
   it('says why it cancels, and nothing when it allows', () => {
-    expect(downloadRefusal(fromTabs(['person']), FIRST)).toBeNull();
-    for (const [source, page] of [
-      [fromTabs(['agent']), FIRST],
-      [fromTabs(['person'], true), WAITING],
-      [fromTabs(['person']), LATER],
-      [{ kind: 'unknown' }, FIRST],
-      [{ kind: 'none' }, FIRST],
-    ] as Array<[DownloadSource, DownloadPageFacts]>) {
-      expect(downloadRefusal(source, page)).toMatch(/^Cancelled a/);
+    expect(downloadRefusal(fromTabs(['person']), QUIET)).toBeNull();
+    for (const [source, session] of [
+      [fromTabs(['agent']), QUIET],
+      [fromTabs(['person']), WAITING],
+      [fromTabs(['person']), SPENT],
+      [{ kind: 'unknown' }, QUIET],
+      [{ kind: 'none' }, QUIET],
+    ] as Array<[DownloadSource, SessionDownloadFacts]>) {
+      expect(downloadRefusal(source, session)).toMatch(/^Cancelled a/);
     }
+  });
+});
+
+describe('UninvitedDownloads', () => {
+  /** A download item: at its save dialog until a path is chosen, or it is done. */
+  class FakeItem extends EventEmitter {
+    savePath = '';
+    getSavePath() {
+      return this.savePath;
+    }
+    saved() {
+      this.savePath = '/Users/me/Downloads/report.csv';
+      this.emit('updated', {}, 'progressing');
+    }
+    asItem() {
+      return this as unknown as DownloadItem;
+    }
+  }
+
+  /** What the decision says now of an uninvited download from a tab of `sessionIds`. */
+  const uninvited = (downloads: UninvitedDownloads, sessionIds = ['s1']) =>
+    decideDownload(fromTabs(['person'], false, sessionIds), downloads.factsFor(sessionIds));
+  /** And of one right after the person's input on its own tab. */
+  const invited = (downloads: UninvitedDownloads, sessionIds = ['s1']) =>
+    decideDownload(fromTabs(['person'], true, sessionIds), downloads.factsFor(sessionIds));
+
+  it('allows a page’s first uninvited download, and cancels a second from the same page', () => {
+    const downloads = new UninvitedDownloads();
+    expect(uninvited(downloads)).toBe('allow');
+    const first = new FakeItem();
+    downloads.shown(['s1'], first.asItem());
+    expect(uninvited(downloads)).toBe('cancel');
+    // Still none once its dialog is past: the person has given no input since.
+    first.saved();
+    expect(uninvited(downloads)).toBe('cancel');
+  });
+
+  it('cancels a second from another tab of the same session, as a page’s own new tab would be', () => {
+    const downloads = new UninvitedDownloads();
+    downloads.shown(['s1'], new FakeItem().asItem());
+    // Any other page of the session, the tab the first page opened by script included.
+    expect(uninvited(downloads, ['s1'])).toBe('cancel');
+  });
+
+  it('gives the session one more after the person’s input in any of its tabs', () => {
+    const downloads = new UninvitedDownloads();
+    const first = new FakeItem();
+    downloads.shown(['s1'], first.asItem());
+    first.emit('done', {}, 'cancelled');
+    downloads.personInput('s1');
+    expect(uninvited(downloads)).toBe('allow');
+    downloads.shown(['s1'], new FakeItem().asItem());
+    expect(uninvited(downloads)).toBe('cancel');
+  });
+
+  it('keeps one waiting dialog at a time, even past the person’s input', () => {
+    const downloads = new UninvitedDownloads();
+    downloads.shown(['s1'], new FakeItem().asItem());
+    downloads.personInput('s1');
+    expect(uninvited(downloads)).toBe('cancel');
+  });
+
+  it('allows one right after the person’s press on its own tab while an uninvited dialog waits', () => {
+    const downloads = new UninvitedDownloads();
+    downloads.shown(['s1'], new FakeItem().asItem());
+    expect(invited(downloads)).toBe('allow');
+  });
+
+  it('leaves another session unaffected', () => {
+    const downloads = new UninvitedDownloads();
+    downloads.shown(['s1'], new FakeItem().asItem());
+    expect(uninvited(downloads, ['s2'])).toBe('allow');
+    // A page that may be either session's is judged by both.
+    expect(uninvited(downloads, ['s2', 's1'])).toBe('cancel');
+  });
+
+  it('forgets a session once it is gone', () => {
+    const downloads = new UninvitedDownloads();
+    downloads.shown(['s1'], new FakeItem().asItem());
+    downloads.prune(new Set(['s2']));
+    expect(uninvited(downloads)).toBe('allow');
   });
 });
 
@@ -88,7 +176,8 @@ describe('downloadSource', () => {
   /**
    * Tab 1's page is bound; popup window 20 was opened by tab 2's; page 30 is
    * not bound yet, and page 40 not bound either, with two tabs it may be. The
-   * person used tabs 1 and 4 just now.
+   * person used tabs 1 and 4 just now. Tab 4 is session s2's, the rest s1's;
+   * page 50's tab has no session left.
    */
   const places: DownloadPlaces = {
     tabsForPage: (contents) =>
@@ -98,39 +187,47 @@ describe('downloadSource', () => {
           ? [tab('t3')]
           : contents.id === 40
             ? [tab('t1'), tab('t4')]
-            : [],
+            : contents.id === 50
+              ? [tab('t5')]
+              : [],
     popupOpener: (contents) => (contents.id === 20 ? tab('t2', 'agent') : undefined),
     handsOf: (of) => (of.id === 't1' || of.id === 't4' ? 'person' : 'agent'),
     personUsing: (of) => of.id === 't1' || of.id === 't4',
+    sessionOf: (of) => (of.id === 't4' ? 's2' : of.id === 't5' ? undefined : 's1'),
   };
 
-  it('places a tab’s page by its tab, and a page not bound yet by each tab it may be', () => {
+  it('places a tab’s page by its tab and session, and a page not bound yet by each tab it may be', () => {
     expect(downloadSource(page(1), places)).toEqual(fromTabs(['person'], true));
     expect(downloadSource(page(30), places)).toEqual(fromTabs(['agent']));
-    expect(downloadSource(page(40), places)).toEqual(fromTabs(['person', 'person'], true));
+    expect(downloadSource(page(40), places)).toEqual(
+      fromTabs(['person', 'person'], true, ['s1', 's2']),
+    );
   });
 
   it('counts the person as using a page not bound yet only when they used every tab it may be', () => {
     const one: DownloadPlaces = { ...places, personUsing: (of) => of.id === 't1' };
-    expect(downloadSource(page(40), one)).toEqual(fromTabs(['person', 'person'], false));
+    expect(downloadSource(page(40), one)).toEqual(
+      fromTabs(['person', 'person'], false, ['s1', 's2']),
+    );
   });
 
-  it('places a popup window by the tab whose page opened it', () => {
+  it('places a popup window by the tab whose page opened it, and so by its session', () => {
     expect(downloadSource(page(20), places)).toEqual(fromTabs(['agent']));
     const personsOpener: DownloadPlaces = { ...places, handsOf: () => 'person' };
-    expect(decideDownload(downloadSource(page(20), personsOpener), FIRST)).toBe('allow');
-    expect(decideDownload(downloadSource(page(20), places), FIRST)).toBe('cancel');
+    expect(decideDownload(downloadSource(page(20), personsOpener), QUIET)).toBe('allow');
+    expect(decideDownload(downloadSource(page(20), places), QUIET)).toBe('cancel');
   });
 
   it('fails closed for a page in a browser partition that is no tab’s or popup’s, or is gone', () => {
     expect(downloadSource(page(99), places)).toEqual({ kind: 'unknown' });
     expect(downloadSource(page(1, true), places)).toEqual({ kind: 'unknown' });
-    expect(decideDownload(downloadSource(page(99), places), FIRST)).toBe('cancel');
+    expect(downloadSource(page(50), places)).toEqual({ kind: 'unknown' });
+    expect(decideDownload(downloadSource(page(99), places), QUIET)).toBe('cancel');
   });
 
   it('cancels a download with no page: none comes from Consola in a browser partition', () => {
     expect(downloadSource(undefined, places)).toEqual({ kind: 'none' });
-    expect(decideDownload(downloadSource(undefined, places), FIRST)).toBe('cancel');
+    expect(decideDownload(downloadSource(undefined, places), QUIET)).toBe('cancel');
   });
 });
 

@@ -287,11 +287,16 @@ async function call(name: string, args: Record<string, unknown>, sessionId = 'w-
 const act = (args: Record<string, unknown>) =>
   call('consola_browser_act', { tabId: 'mine', ...args });
 
-/** What the download gate decides now for a page's first download from one of the caller's tabs. */
+/** What the download gate decides now for a page's first download, with nobody's input, from one of the caller's tabs. */
 function downloadFrom(tabId: string, openedBy: 'person' | 'agent' = 'person') {
   return decideDownload(
-    { kind: 'tabs', hands: [person.handsOf(tabId, openedBy)], personUsing: false },
-    { dialogWaiting: false, downloadedBefore: false },
+    {
+      kind: 'tabs',
+      hands: [person.handsOf(tabId, openedBy)],
+      personUsing: false,
+      sessionIds: ['s'],
+    },
+    { uninvitedWaiting: false, uninvitedSincePersonInput: false },
   );
 }
 

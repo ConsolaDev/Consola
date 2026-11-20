@@ -2,17 +2,14 @@ import { EventEmitter } from 'node:events';
 import type { DownloadItem, WebContents } from 'electron';
 import { describe, expect, it, vi } from 'vitest';
 import type { BrowserTab } from '../../shared/browser';
-import { createDownloadGate } from './downloadGate';
+import { createDownloadGate, UninvitedDownloads } from './downloadGate';
 import type { DownloadPlaces } from './sessionPolicy';
 
-/** A page; Electron reads its id once, as each download starts. */
-class FakePage extends EventEmitter {
-  destroyed = false;
-  constructor(public readonly id: number) {
-    super();
-  }
+/** A tab's page. */
+class FakePage {
+  constructor(public readonly id: number) {}
   isDestroyed() {
-    return this.destroyed;
+    return false;
   }
   asWebContents() {
     return this as unknown as WebContents;
@@ -22,12 +19,8 @@ class FakePage extends EventEmitter {
 /** A download: at its save dialog until a path is chosen, or it is done. */
 class FakeItem extends EventEmitter {
   savePath = '';
-  state = 'progressing';
   getSavePath() {
     return this.savePath;
-  }
-  getState() {
-    return this.state;
   }
   /** The person chose where it goes; it carries on. */
   saved() {
@@ -36,7 +29,6 @@ class FakeItem extends EventEmitter {
   }
   /** It ended: finished, cancelled at its dialog, or interrupted. */
   done(state = 'cancelled') {
-    this.state = state;
     this.emit('done', {}, state);
   }
   asItem() {
@@ -44,94 +36,86 @@ class FakeItem extends EventEmitter {
   }
 }
 
-const tab: BrowserTab = {
-  id: 't1',
+const tab = (id: string): BrowserTab => ({
+  id,
   url: 'https://files.example.com/',
   title: '',
   openedBy: 'person',
-};
+});
 
+/**
+ * Session s1's tabs: t1 the person opened, and t2, which t1's page opened by
+ * script with no input. Session s2 has t3. Page n is tab tn's.
+ */
 function setup() {
-  let personUsing = false;
+  const inUse = new Set<string>();
   const places: DownloadPlaces = {
-    tabsForPage: () => [tab],
+    tabsForPage: (contents) => [tab(`t${contents.id}`)],
     popupOpener: () => undefined,
     handsOf: () => 'person',
-    personUsing: () => personUsing,
+    personUsing: (of) => inUse.has(of.id),
+    sessionOf: (of) => (of.id === 't3' ? 's2' : 's1'),
   };
   const log = vi.fn();
-  const gate = createDownloadGate(places, log);
-  const page = new FakePage(7);
-  const download = () => {
+  const uninvited = new UninvitedDownloads();
+  const gate = createDownloadGate(places, uninvited, log);
+  const download = (pageId: number) => {
     const item = new FakeItem();
-    return { item, decision: gate(page.asWebContents(), item.asItem()) };
+    return { item, decision: gate(new FakePage(pageId).asWebContents(), item.asItem()) };
   };
-  return { gate, page, download, log, usedNow: () => (personUsing = true) };
+  /** The person presses in tab `tabId`: their input on it, and in its session. */
+  const press = (tabId: string) => {
+    inUse.add(tabId);
+    uninvited.personInput(places.sessionOf(tab(tabId)) as string);
+  };
+  /** The person-input guard has passed. */
+  const later = () => inUse.clear();
+  return { download, press, later, log };
 }
 
 describe('the download gate', () => {
-  it("lets a page's first download through, with nobody's input", () => {
+  it('gives a session one uninvited download, which a tab its page opened cannot get round', () => {
     const { download, log } = setup();
-    expect(download().decision).toBe('allow');
-    expect(log).not.toHaveBeenCalled();
-  });
-
-  it('cancels another from the same page while its save dialog waits, saying why', () => {
-    const { download, usedNow, log } = setup();
-    usedNow();
-    expect(download().decision).toBe('allow');
-    expect(download().decision).toBe('cancel');
-    expect(download().decision).toBe('cancel');
-    expect(log).toHaveBeenCalledWith(expect.stringContaining('save dialog is still open'));
-  });
-
-  it('lets the next through once the dialog is past, only on the person’s input', () => {
-    const { download, usedNow } = setup();
-    const first = download();
+    const first = download(1);
+    expect(first.decision).toBe('allow');
+    // The page's own new tab, a page of its own: still the session's one.
+    expect(download(2).decision).toBe('cancel');
+    expect(log).toHaveBeenCalledWith(expect.stringContaining('save dialog is open'));
     first.item.saved();
-    expect(download().decision).toBe('cancel');
-    usedNow();
-    expect(download().decision).toBe('allow');
+    expect(download(2).decision).toBe('cancel');
+    expect(log).toHaveBeenLastCalledWith(expect.stringContaining('since the person last used'));
+    // Another session's browser has its own.
+    expect(download(3).decision).toBe('allow');
   });
 
-  it('counts a download cancelled at its dialog, or by anyone, as past it', () => {
-    const { download, usedNow } = setup();
-    usedNow();
-    download().item.done('cancelled');
-    const second = download();
-    expect(second.decision).toBe('allow');
-    second.item.done('interrupted');
-    expect(download().decision).toBe('allow');
-  });
-
-  it('judges each page by its own dialogs, and follows only what it let through', () => {
-    const { download, page, gate, usedNow } = setup();
-    usedNow();
-    download();
-    const cancelled = download();
-    expect(cancelled.decision).toBe('cancel');
-    expect(cancelled.item.listenerCount('done')).toBe(0);
-    // Another page's first download is its own: this page's dialog does not count against it.
-    const other = new FakePage(8);
-    expect(gate(other.asWebContents(), new FakeItem().asItem())).toBe('allow');
-    // One watch on the page, however many of its downloads went through.
-    download().item.done();
-    expect(page.listenerCount('destroyed')).toBe(1);
-  });
-
-  it('forgets a page once it is destroyed', () => {
-    const { download, page, usedNow } = setup();
-    usedNow();
-    download();
-    page.destroyed = true;
-    page.emit('destroyed');
-    page.destroyed = false;
-    // The same id would be a new page; it starts afresh.
-    expect(download().decision).toBe('allow');
+  it('lets the person’s own click through, and gives back one uninvited download for their next input', () => {
+    const { download, press, later } = setup();
+    const first = download(1);
+    // Their press on the tab: their click, even with the uninvited dialog waiting.
+    press('t2');
+    const theirs = download(2);
+    expect(theirs.decision).toBe('allow');
+    later();
+    first.item.done();
+    theirs.item.done('completed');
+    // Their input in the session gave it one more uninvited download, and only one.
+    expect(download(2).decision).toBe('allow');
+    expect(download(1).decision).toBe('cancel');
   });
 
   it('cancels a download that names no page, and logs why', () => {
-    const { gate, log } = setup();
+    const { log } = setup();
+    const gate = createDownloadGate(
+      {
+        tabsForPage: () => [],
+        popupOpener: () => undefined,
+        handsOf: () => 'person',
+        personUsing: () => false,
+        sessionOf: () => 's1',
+      },
+      new UninvitedDownloads(),
+      log,
+    );
     expect(gate(undefined, new FakeItem().asItem())).toBe('cancel');
     expect(log).toHaveBeenCalledWith(expect.stringContaining('named no page'));
   });
