@@ -40,6 +40,15 @@ orchestrates builds, tests, and typechecking. Paths below beginning with `src/`,
 `scripts/`, or `dist/` are relative to `apps/desktop`. Use
 `pnpm --filter consola exec <tool>` for app-specific tools.
 
+Tooling runs on one exact Node version, named in three places that move
+together: `engines.node` (which Vercel reads), CI and the release build. Pin
+an exact version, never a range: Vercel resolves a range to the newest major
+it offers, so a range can move the website onto a new Node unannounced.
+Node 26 ships without corepack, so `vercel.json`
+runs pnpm through `npx pnpm@<version>`: keep that version equal to
+`packageManager`. Electron bundles its own Node, so none of this changes the
+app's runtime.
+
 ## Architecture Overview
 
 ### Three-Process Structure
