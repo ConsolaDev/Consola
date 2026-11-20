@@ -5,6 +5,7 @@ function harness(
   deleteRecord: (workspaceId: string, sessionId: string) => void = () => {},
   removeHandoffs: (sessionId: string) => Promise<void> = async () => {},
   removeCaptures: (sessionId: string) => Promise<void> = async () => {},
+  destroyBrowser: (sessionId: string) => void = () => {},
 ) {
   const calls: string[] = [];
   const remover = new SessionRemover({
@@ -14,7 +15,10 @@ function harness(
     }),
     destroyTerminal: (id) => calls.push(`terminal ${id}`),
     destroyShell: (id) => calls.push(`shell ${id}`),
-    destroyBrowser: (id) => calls.push(`browser ${id}`),
+    destroyBrowser: (id) => {
+      calls.push(`browser ${id}`);
+      destroyBrowser(id);
+    },
     removeCaptures: (id) => {
       calls.push(`captures ${id}`);
       return removeCaptures(id);
@@ -104,6 +108,17 @@ describe('SessionRemover', () => {
     });
     expect(() => remover.discard(session)).not.toThrow();
     expect(calls).toContain('handoffs s-1');
+    error.mockRestore();
+  });
+
+  it('a browser teardown that throws is logged, and the later steps still run', () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { remover, calls } = harness(undefined, undefined, undefined, () => {
+      throw new Error('Object has been destroyed');
+    });
+    expect(() => remover.discard(session)).not.toThrow();
+    expect(calls).toEqual(expect.arrayContaining(['captures s-1', 'handoffs s-1']));
+    expect(error).toHaveBeenCalled();
     error.mockRestore();
   });
 });

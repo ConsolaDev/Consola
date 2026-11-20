@@ -67,7 +67,13 @@ export class SessionRemover {
   public discard(session: Pick<Session, 'id' | 'instanceId' | 'removedWorktree'>): void {
     this.stop(session);
     // Not in stop(): a stopped session keeps its record, and its tabs with it.
-    this.deps.destroyBrowser(session.id);
+    // On its own, so a browser teardown that throws cannot skip what follows,
+    // nor a workspace delete's clearing of its logins after it.
+    try {
+      this.deps.destroyBrowser(session.id);
+    } catch (error) {
+      console.error(`Could not close the browser tabs of session ${session.id}:`, error);
+    }
     try {
       this.deps.removeCaptures(session.id).catch((error) => {
         console.error(`Could not delete the browser captures of session ${session.id}:`, error);

@@ -5,6 +5,7 @@ import { MAX_TABS_PER_SESSION, type BrowserSessionSnapshot } from '../../shared/
 import { IPC_CHANNELS } from '../../shared/constants';
 import { BrowserService, CRASH_RETRY_LIMIT, CRASH_RETRY_WINDOW_MS } from './BrowserService';
 import { BrowserStateStore, MAX_STORED_ADDRESS_CHARS } from './BrowserStateStore';
+import { CertificateTrust } from './CertificateTrust';
 
 class FakeGuest extends EventEmitter {
   destroyed = false;
@@ -105,6 +106,27 @@ function left(guest: FakeGuest) {
 }
 
 const last = () => sent[sent.length - 1];
+
+describe('deleting a workspace', () => {
+  it('clears its logins even when ending its pages fails part way', () => {
+    const certificates = new CertificateTrust();
+    vi.spyOn(certificates, 'clearWorkspace').mockImplementation(() => {
+      throw new Error('broken');
+    });
+    const failing = new BrowserService({
+      store,
+      workspaceIdForSession: (id) => sessionWorkspace[id],
+      findWindowForWorkspace: () => winA,
+      send: () => {},
+      clearPartition,
+      certificates,
+      now: () => now,
+      newId: () => `tab${++ids}`,
+    });
+    expect(() => failing.destroyWorkspace('w1', ['s1'])).toThrow('broken');
+    expect(clearPartition).toHaveBeenCalledWith('w1');
+  });
+});
 
 describe('tabs', () => {
   it('opens a tab, activates it and snapshots to the workspace window only', () => {

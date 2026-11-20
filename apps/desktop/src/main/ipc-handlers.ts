@@ -625,13 +625,17 @@ export function setupIpcHandlers(): boolean {
     // and leaves the workspace, and its terminals, intact. destroy() clears
     // the session's attention goes with it, so the PTY and the
     // badge close together; the MCP endpoint goes with them.
-    stranded.forEach((session) => sessionRemover.discard(session));
     // Its tabs, history and logins go the same way: not before the delete
-    // has succeeded, or a failed write would leave a workspace without them.
-    browser.destroyWorkspace(
-      id,
-      stranded.map((session) => session.id),
-    );
+    // has succeeded, or a failed write would leave a workspace without them;
+    // and even if a session's teardown throws, or its logins stay on disk.
+    try {
+      stranded.forEach((session) => sessionRemover.discard(session));
+    } finally {
+      browser.destroyWorkspace(
+        id,
+        stranded.map((session) => session.id),
+      );
+    }
   });
 
   const sessionCheckouts = new SessionCheckoutService();

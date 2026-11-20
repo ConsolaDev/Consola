@@ -557,14 +557,23 @@ export class BrowserService {
    * so this runs only once the delete has succeeded.
    */
   public destroyWorkspace(workspaceId: string, sessionIds: readonly string[]): void {
-    for (const sessionId of sessionIds) this.destroySession(sessionId);
-    // Every page of the workspace is closed before its storage is cleared: a
-    // live page could otherwise write it again afterwards.
-    this.destroyGuestsWhere((entry) => entry.workspaceId === workspaceId);
-    this.popups.closeWhere((owner) => owner.workspaceId === workspaceId);
-    this.deps.store.deleteHistory(workspaceId);
-    this.certificates.clearWorkspace(workspaceId);
-    void Promise.resolve(this.deps.clearPartition(workspaceId)).catch(() => {});
+    try {
+      for (const sessionId of sessionIds) this.destroySession(sessionId);
+      // Every page of the workspace is closed before its storage is cleared:
+      // a live page could otherwise write it again afterwards.
+      this.destroyGuestsWhere((entry) => entry.workspaceId === workspaceId);
+      this.popups.closeWhere((owner) => owner.workspaceId === workspaceId);
+      this.deps.store.deleteHistory(workspaceId);
+      this.certificates.clearWorkspace(workspaceId);
+    } finally {
+      // Whatever failed above, the logins go: a deleted workspace must not
+      // leave them on disk. (The wiring logs a failure to clear.)
+      try {
+        void Promise.resolve(this.deps.clearPartition(workspaceId)).catch(() => {});
+      } catch {
+        // A clear that throws at once was logged where it failed.
+      }
+    }
   }
 
   /**
