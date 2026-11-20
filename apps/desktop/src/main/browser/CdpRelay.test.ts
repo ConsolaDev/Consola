@@ -53,19 +53,33 @@ afterEach(() => {
   for (const relay of relays.splice(0)) relay.close();
 });
 
-/** A stand-in for the guest's `WebContents`. */
+/**
+ * A stand-in for the guest's `WebContents`. Like Electron's, a destroyed one
+ * throws on everything read from it but `isDestroyed`.
+ */
 class FakeGuest extends EventEmitter {
   devToolsOpen = false;
-  readonly debugger: FakeDebugger;
-  constructor(pageDebugger: FakeDebugger) {
+  destroyed = false;
+  constructor(private readonly pageDebugger: FakeDebugger) {
     super();
-    this.debugger = pageDebugger;
+  }
+  get debugger() {
+    if (this.destroyed) throw new Error('Object has been destroyed');
+    return this.pageDebugger;
   }
   getUserAgent() {
     return 'Mozilla/5.0 Consola';
   }
   isDevToolsOpened() {
     return this.devToolsOpen;
+  }
+  isDestroyed() {
+    return this.destroyed;
+  }
+  /** As Electron destroys it: marked first, then its `destroyed` event. */
+  destroy() {
+    this.destroyed = true;
+    this.emit('destroyed');
   }
 }
 
@@ -322,6 +336,29 @@ describe('CdpRelay lifetime', () => {
 
   // `webContents.debugger` is shared: once Chromium has ended the relay's
   // attachment, a detach from the relay could only end someone else's.
+  it('closes when its page is destroyed, reading nothing off it', () => {
+    const { guest, relay, onClose, onclose, fake } = open();
+    expect(() => guest.destroy()).not.toThrow();
+    expect(relay.isClosed).toBe(true);
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(onclose).toHaveBeenCalledOnce();
+    // The attachment ended with the page.
+    expect(fake.detachCalls).toBe(0);
+    expect(fake.listenerCount('message')).toBe(0);
+  });
+
+  it('closes without touching a page destroyed before it heard, when main closes it first', () => {
+    // As a page-gone watcher runs before the relay's own `destroyed` listener.
+    const { guest, relay, onClose, onclose, fake } = open();
+    guest.destroyed = true;
+    expect(() => relay.close('The tab’s page went away.')).not.toThrow();
+    expect(onClose).toHaveBeenCalledWith('The tab’s page went away.');
+    expect(onclose).toHaveBeenCalledOnce();
+    expect(fake.listenerCount('message')).toBe(0);
+    expect(fake.detachCalls).toBe(0);
+    expect(() => guest.emit('destroyed')).not.toThrow();
+  });
+
   it('closes when the debugger detaches on its own, without detaching it again', () => {
     const { relay, fake, onclose, onClose } = open();
     fake.emit('detach', {}, 'Replaced by DevTools');

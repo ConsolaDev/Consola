@@ -1,10 +1,13 @@
-import type { WebPreferences } from 'electron';
-import { describe, expect, it } from 'vitest';
+import { EventEmitter } from 'node:events';
+import type { BrowserWindow, Session, WebContents, WebPreferences } from 'electron';
+import { describe, expect, it, vi } from 'vitest';
 import { browserPartitionFor } from '../../shared/browser';
 import {
   decideAppNavigation,
   decideAttach,
   decideNavigation,
+  installGuestPolicy,
+  onGuestAttached,
   shouldRevertNavigation,
 } from './guestPolicy';
 
@@ -224,5 +227,54 @@ describe('shouldRevertNavigation', () => {
 
   it('ignores sub-frames, which cannot replace the page', () => {
     expect(shouldRevertNavigation('data:text/html,hi', false)).toBe(false);
+  });
+});
+
+describe('installGuestPolicy', () => {
+  /** A window holding workspace `ws-1`, and a guest it attaches in that workspace's partition. */
+  function attaching() {
+    const host = new EventEmitter();
+    const window = { webContents: host, isDestroyed: () => false } as unknown as BrowserWindow;
+    const session = {} as Session;
+    installGuestPolicy(window, { workspaceOf: () => 'ws-1', prepare: () => session });
+    const guest = Object.assign(new EventEmitter(), {
+      id: 41,
+      session,
+      setWindowOpenHandler: vi.fn(),
+      stop: vi.fn(),
+      close: vi.fn(),
+    });
+    const attach = () => host.emit('did-attach-webview', {}, guest);
+    return { window, guest, attach };
+  }
+
+  it('tells every listener of an attached guest, even past one that throws', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const heard: number[] = [];
+    const stops = [
+      onGuestAttached(() => {
+        throw new Error('Object has been destroyed');
+      }),
+      onGuestAttached((_guest, _window, _workspaceId, guestId) => heard.push(guestId)),
+    ];
+    const { attach, guest } = attaching();
+    attach();
+    expect(heard).toEqual([41]);
+    expect(guest.close).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('failed'), expect.anything());
+    for (const stop of stops) stop();
+    warn.mockRestore();
+  });
+
+  it('secures the guest before any listener hears of it', () => {
+    let secured = false;
+    const stop = onGuestAttached((guest) => {
+      secured = (guest as unknown as EventEmitter).listenerCount('will-navigate') > 0;
+    });
+    const { attach, guest } = attaching();
+    attach();
+    expect(secured).toBe(true);
+    expect((guest as unknown as WebContents).setWindowOpenHandler).toHaveBeenCalled();
+    stop();
   });
 });

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { closeConnectionsWithoutAccess } from './browserToolAccess';
 
 describe('closeConnectionsWithoutAccess', () => {
@@ -31,5 +31,24 @@ describe('closeConnectionsWithoutAccess', () => {
       () => null,
     );
     expect(closed).toEqual([]);
+  });
+
+  it('closes the rest when one cannot be closed', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const closed: string[] = [];
+    const result = closeConnectionsWithoutAccess(
+      {
+        connectedTabs: () => ['a', 'b', 'c'],
+        disconnect: (tabId) => {
+          if (tabId === 'a') throw new Error('Object has been destroyed');
+          closed.push(tabId);
+        },
+      },
+      () => 'This session no longer exists.',
+    );
+    expect(closed).toEqual(['b', 'c']);
+    expect(result).toEqual(['b', 'c']);
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
   });
 });

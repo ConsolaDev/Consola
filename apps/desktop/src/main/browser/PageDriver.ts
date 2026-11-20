@@ -1,4 +1,4 @@
-import type { WebContents } from 'electron';
+import type { Debugger, WebContents } from 'electron';
 import type { Browser, ConnectOverCDPTransport, Page } from 'playwright-core';
 import type { AgentCall } from './AgentPages';
 import { CdpRelay, type CdpRelayOptions, type RelayGuest } from './CdpRelay';
@@ -175,6 +175,11 @@ interface ConnectionOptions {
 class Connection {
   public readonly ready: Promise<Page>;
   private readonly relay: DriverRelay;
+  /**
+   * The page's debugger, read once as the connection opens: a destroyed page
+   * throws on `.debugger`, and its connection is closed just then.
+   */
+  private readonly pageDebugger: Debugger;
   private closedReason: string | null = null;
   private readonly closing = new AbortController();
   /** Calls on this page that have focus emulation on. */
@@ -189,13 +194,14 @@ class Connection {
     public readonly guest: WebContents,
     private readonly options: ConnectionOptions,
   ) {
+    this.pageDebugger = guest.debugger;
     // Listening starts before Playwright enables the page's domains, since
     // enabling them replays what the page logged before anyone connected.
-    guest.debugger.on('message', this.onMessage);
+    this.pageDebugger.on('message', this.onMessage);
     try {
       this.relay = options.openRelay(guest, { onClose: (reason) => this.onRelayClosed(reason) });
     } catch (error) {
-      guest.debugger.removeListener('message', this.onMessage);
+      this.pageDebugger.removeListener('message', this.onMessage);
       throw error;
     }
     this.ready = this.connect();
@@ -255,7 +261,7 @@ class Connection {
     this.loggingSessions.clear();
     this.loggedSinceRelease = 0;
     if (!this.isOpen) return;
-    const pageDebugger = this.guest.debugger;
+    const { pageDebugger } = this;
     const params = { objectGroup: 'console' };
     for (const sessionId of sessions) {
       const sent = sessionId
@@ -291,7 +297,7 @@ class Connection {
   private onRelayClosed(reason: string): void {
     if (this.closedReason) return;
     this.closedReason = reason;
-    this.guest.debugger.removeListener('message', this.onMessage);
+    this.pageDebugger.removeListener('message', this.onMessage);
     this.closing.abort(new Error(reason));
     this.options.closed(this);
   }

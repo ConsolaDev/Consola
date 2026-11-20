@@ -52,8 +52,14 @@ class FakeDebugger extends EventEmitter {
 }
 
 class FakeGuest extends EventEmitter {
-  readonly debugger = new FakeDebugger();
+  private readonly pageDebugger = new FakeDebugger();
   devToolsOpen = false;
+  /** Like Electron's, a destroyed one throws on what is read from it. */
+  destroyed = false;
+  get debugger() {
+    if (this.destroyed) throw new Error('Object has been destroyed');
+    return this.pageDebugger;
+  }
   /** The title main reads from the page, without asking the page. */
   title = 'Fixture';
   constructor(public readonly id: number) {
@@ -318,6 +324,18 @@ describe('letting go', () => {
 
     driver.forget('tab1', guest.asWebContents());
     expect(relays[0].isClosed).toBe(true);
+  });
+
+  it('lets go of a page destroyed under its open connection, reading nothing off it', async () => {
+    await driver.withPage('tab1', async () => {});
+    const pageDebugger = guest.debugger;
+    // A window closing destroys its pages, with the agent's connection still open.
+    guest.destroyed = true;
+    expect(() => driver.forget('tab1', guest.asWebContents())).not.toThrow();
+    expect(relays[0].isClosed).toBe(true);
+    expect(pageDebugger.listenerCount('message')).toBe(0);
+    expect(driver.connectedTabs()).toEqual([]);
+    expect(disconnected).toEqual([guest.asWebContents()]);
   });
 
   it('forgetting a tab that is still connecting closes it and fails the call', async () => {

@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { BrowserTabSnapshot } from '../../shared/browser';
 import type { Session, Workspace } from '../../shared/workspace';
 import type { BrowserService } from './BrowserService';
+import { isolated } from './isolated';
 import type { HeldDialog, PageDialogs } from './PageDialogs';
 import type { BrowserToolContent } from './browserToolResults';
 
@@ -56,8 +57,11 @@ export function closeConnectionsWithoutAccess(
   for (const tabId of connections.connectedTabs()) {
     const refusal = refusalFor(tabId);
     if (refusal === null) continue;
-    connections.disconnect(tabId, refusal);
-    closed.push(tabId);
+    // Each on its own: one that cannot be closed must not keep the rest open.
+    isolated('Closing an agent’s connection to a page', () => {
+      connections.disconnect(tabId, refusal);
+      closed.push(tabId);
+    });
   }
   return closed;
 }

@@ -49,6 +49,7 @@ import {
 import { PersonInput, watchPersonInput } from './browser/PersonInput';
 import { PageDialogs } from './browser/PageDialogs';
 import { browserRefusal, closeConnectionsWithoutAccess } from './browser/browserToolAccess';
+import { isolated } from './browser/isolated';
 import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -519,16 +520,22 @@ export function setupIpcHandlers(): boolean {
     // already refuses to surface it, so this is housekeeping rather than
     // correctness — it stops the file growing forever.
     viewMemory.prune(liveIds);
-    browser.prune(
-      new Set(all.flatMap((workspace) => workspace.sessions.map((session) => session.id))),
-      liveIds,
+    // The browser's steps each on their own: a throw from either must not
+    // cut short a workspace delete whose record is already gone.
+    isolated("Pruning the browser's tabs", () =>
+      browser.prune(
+        new Set(all.flatMap((workspace) => workspace.sessions.map((session) => session.id))),
+        liveIds,
+      ),
     );
     attentionLedger.prune(
       new Set(all.flatMap((workspace) => workspace.sessions.map((session) => session.id))),
     );
     // Access turned off, or a session gone or no longer eligible: its agent
     // lets go of its pages, and of any dialog held on them.
-    closeConnectionsWithoutAccess(driver, refusalForTab);
+    isolated("Closing agents' connections without access", () =>
+      closeConnectionsWithoutAccess(driver, refusalForTab),
+    );
 
     for (const window of consolaWindows()) {
       if (window.isDestroyed()) continue;

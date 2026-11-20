@@ -18,6 +18,7 @@ import type { BrowserStateStore } from './BrowserStateStore';
 import { CertificateTrust, offersContinue } from './CertificateTrust';
 import { AuthPrompts } from './HttpAuth';
 import { LivePages } from './LivePages';
+import { isolated } from './isolated';
 import { findListeners, PageTools, sendFound } from './PageTools';
 import { PopupRegistry } from './popupWindows';
 
@@ -390,7 +391,9 @@ export class BrowserService {
     // its element was attaching: the element exists, so the set must say so.
     this.pages.add(tabId, host);
     this.applyLiveRule([found.sessionId]);
-    for (const watcher of this.boundWatchers) watcher(tabId, guest);
+    for (const watcher of this.boundWatchers) {
+      isolated('A watcher of a page binding', () => watcher(tabId, guest));
+    }
     return true;
   }
 
@@ -402,7 +405,7 @@ export class BrowserService {
     this.auth.cancelGuest(entry.guestId);
     entry.unsubscribe();
     this.guests.delete(tabId);
-    for (const watcher of this.goneWatchers) watcher(tabId, entry.guest);
+    this.tellGone(tabId, entry.guest);
     // The guest is gone (destroyed, or its window let go): no page to keep.
     this.pages.drop(tabId);
     const found = this.find(tabId);
@@ -692,6 +695,17 @@ export class BrowserService {
     return guest && !guest.isDestroyed() ? guest : undefined;
   }
 
+  /**
+   * Tells each gone watcher, each on its own: one that throws (one that reads
+   * the destroyed page, say) must not leave the page half let go of, nor keep
+   * the others from hearing.
+   */
+  private tellGone(tabId: string, guest: WebContents): void {
+    for (const watcher of this.goneWatchers) {
+      isolated('A watcher of a page going', () => watcher(tabId, guest));
+    }
+  }
+
   private destroyGuestsWhere(match: (entry: LiveGuest) => boolean): void {
     for (const [tabId, entry] of [...this.guests]) {
       if (!match(entry)) continue;
@@ -717,7 +731,7 @@ export class BrowserService {
     entry.unsubscribe();
     this.guests.delete(tabId);
     // Before the page is blanked, so whoever drives it lets go of it first.
-    for (const watcher of this.goneWatchers) watcher(tabId, entry.guest);
+    this.tellGone(tabId, entry.guest);
     const { guest } = entry;
     if (guest.isDestroyed()) return;
     try {

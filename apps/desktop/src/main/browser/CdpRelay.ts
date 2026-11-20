@@ -10,7 +10,7 @@ import {
 /** The guest page the relay serves; a `WebContents` is one. */
 export type RelayGuest = Pick<
   WebContents,
-  'debugger' | 'getUserAgent' | 'isDevToolsOpened' | 'on' | 'removeListener'
+  'debugger' | 'getUserAgent' | 'isDestroyed' | 'isDevToolsOpened' | 'on' | 'removeListener'
 >;
 
 /** What the relay answers when the person has DevTools open on the tab. */
@@ -61,7 +61,14 @@ function detachQuietly(pageDebugger: Debugger): void {
  * a `<webview>` guest (despite its docs, opening DevTools does not end the
  * attachment), so the relay steps aside itself: it will not open while
  * DevTools is open on the page, and it closes when DevTools opens. Electron's
- * own `detach` (the page closing, its renderer going away) closes it too.
+ * own `detach` (the page closing, its renderer going away) closes it too,
+ * and so does the page being destroyed.
+ *
+ * A destroyed web contents throws on everything read from it, and inside an
+ * event handler that throw is swallowed, leaving the close half done (the
+ * ordinary case: an agent's connection stays open between calls, and a window
+ * closing destroys its pages). So the debugger is read once, as the relay
+ * opens, and nothing is read off the page once it is destroyed.
  *
  * Memory: nothing is queued. Events go to Playwright as Electron delivers
  * them (but for what the page logs, which Playwright would keep), and
@@ -79,6 +86,8 @@ export class CdpRelay implements ConnectOverCDPTransport {
   private closed = false;
   /** Chromium ended the attachment itself, so there is nothing left to detach. */
   private dropped = false;
+  /** The page was destroyed: nothing more is read off it, and the attachment went with it. */
+  private guestGone = false;
 
   /**
    * Attaches to the page's debugger. Throws, leaving nothing attached, if the
@@ -96,11 +105,12 @@ export class CdpRelay implements ConnectOverCDPTransport {
     } catch (error) {
       throw new Error(`Could not attach to the page: ${messageOf(error)}`);
     }
-    return new CdpRelay(guest, options);
+    return new CdpRelay(guest, pageDebugger, options);
   }
 
   private constructor(
     private readonly guest: RelayGuest,
+    private readonly pageDebugger: Debugger,
     private readonly options: CdpRelayOptions,
   ) {
     this.connection = createRelayConnection(
@@ -115,9 +125,10 @@ export class CdpRelay implements ConnectOverCDPTransport {
       },
       { maxCommandsInFlight: options.maxCommandsInFlight ?? MAX_COMMANDS_IN_FLIGHT },
     );
-    guest.debugger.on('message', this.onDebuggerMessage);
-    guest.debugger.on('detach', this.onDebuggerDetach);
+    pageDebugger.on('message', this.onDebuggerMessage);
+    pageDebugger.on('detach', this.onDebuggerDetach);
     guest.on('devtools-opened', this.onDevToolsOpened);
+    guest.on('destroyed', this.onGuestDestroyed);
   }
 
   public get isClosed(): boolean {
@@ -137,12 +148,17 @@ export class CdpRelay implements ConnectOverCDPTransport {
     if (this.closed) return;
     this.closed = true;
     this.connection.close();
-    const pageDebugger = this.guest.debugger;
+    // Asked, not read: `isDestroyed` is the one call a destroyed page answers.
+    // A page-gone watcher can close the relay before its own listener hears.
+    if (!this.guestGone && this.guest.isDestroyed()) this.guestGone = true;
     // The listeners come off first, so this detach never reads as Chromium's own.
-    pageDebugger.removeListener('message', this.onDebuggerMessage);
-    pageDebugger.removeListener('detach', this.onDebuggerDetach);
-    this.guest.removeListener('devtools-opened', this.onDevToolsOpened);
-    if (!this.dropped) detachQuietly(pageDebugger);
+    this.pageDebugger.removeListener('message', this.onDebuggerMessage);
+    this.pageDebugger.removeListener('detach', this.onDebuggerDetach);
+    if (!this.guestGone) {
+      this.guest.removeListener('devtools-opened', this.onDevToolsOpened);
+      this.guest.removeListener('destroyed', this.onGuestDestroyed);
+    }
+    if (!this.dropped && !this.guestGone) detachQuietly(this.pageDebugger);
     // Main first, so it knows why before Playwright reports the disconnect;
     // each on its own, so one that throws cannot keep the other from hearing.
     for (const notify of [this.options.onClose, this.onclose]) {
@@ -171,11 +187,11 @@ export class CdpRelay implements ConnectOverCDPTransport {
    */
   public async setFocusEmulation(enabled: boolean): Promise<void> {
     if (this.closed) throw new Error('The relay is closed.');
-    await this.guest.debugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled });
+    await this.pageDebugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled });
   }
 
   private page(): RelayPage {
-    const pageDebugger = this.guest.debugger;
+    const { pageDebugger } = this;
     const chrome = process.versions.chrome;
     return {
       send: (method, params, sessionId) =>
@@ -216,5 +232,10 @@ export class CdpRelay implements ConnectOverCDPTransport {
 
   private readonly onDevToolsOpened = (): void => {
     this.close(DEVTOOLS_OPEN_MESSAGE);
+  };
+
+  private readonly onGuestDestroyed = (): void => {
+    this.guestGone = true;
+    this.close("The tab's page went away.");
   };
 }

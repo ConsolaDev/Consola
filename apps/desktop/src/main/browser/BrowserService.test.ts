@@ -1179,6 +1179,53 @@ describe('agent calls', () => {
       service.closeTab('tab2');
       expect(gone).toEqual([]);
     });
+
+    // A watcher that throws, as one that reads a destroyed page would.
+    describe('and one that throws stops neither the others nor the letting go', () => {
+      let warn: ReturnType<typeof vi.spyOn>;
+      let after: string[];
+      beforeEach(() => {
+        warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        service.onGuestGone(() => {
+          throw new Error('Object has been destroyed');
+        });
+        after = [];
+        service.onGuestGone((tabId) => after.push(tabId));
+      });
+
+      it('as the page is destroyed', () => {
+        g1.destroyed = true;
+        g1.emit('destroyed');
+        expect(gone).toEqual(['tab1']);
+        expect(after).toEqual(['tab1']);
+        // Let go of all the way: the tab no longer has a live page.
+        expect(service.guestFor('tab1')).toBeUndefined();
+        expect(service.snapshotFor('s1').tabs[0]).toMatchObject({ live: false, loading: false });
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining('failed'), expect.anything());
+        warn.mockRestore();
+      });
+
+      it('as main ends the page, which is still blanked', () => {
+        service.closeTab('tab1');
+        expect(after).toEqual(['tab1']);
+        blanked(g1);
+        expect(service.snapshotFor('s1').tabs).toEqual([]);
+        warn.mockRestore();
+      });
+    });
+  });
+
+  it('tells every bound watcher, even past one that throws', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    service.openTab('s1', 'https://a.com', 'agent');
+    service.onGuestBound(() => {
+      throw new Error('Object has been destroyed');
+    });
+    const bound: string[] = [];
+    service.onGuestBound((tabId) => bound.push(tabId));
+    expect(service.bindGuest('tab1', new FakeGuest(11).asWebContents(), winA)).toBe(true);
+    expect(bound).toEqual(['tab1']);
+    warn.mockRestore();
   });
 });
 

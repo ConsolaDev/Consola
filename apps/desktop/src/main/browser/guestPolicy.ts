@@ -1,5 +1,6 @@
 import type { BrowserWindow, Session, WebContents, WebPreferences } from 'electron';
 import { browserPartitionFor, isAllowedPageUrl } from '../../shared/browser';
+import { isolated } from './isolated';
 import { refusePageRequests } from './pageRequests';
 
 /**
@@ -249,8 +250,11 @@ export function installGuestPolicy(
       guest.close();
       return;
     }
+    // Each on its own: one that throws must not leave the guest unwatched by the rest.
     for (const listener of guestAttachedListeners) {
-      listener(guest, window, workspaceId, guestId);
+      isolated('A listener of an attached page', () =>
+        listener(guest, window, workspaceId, guestId),
+      );
     }
   });
 }
