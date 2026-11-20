@@ -39,13 +39,8 @@ import { placePopupTab } from './browser/popupPolicy';
 import { installPopupPolicy } from './browser/popupWindows';
 import { exposeToTests, isBackgroundTest } from './test-mode';
 import { forwardGuestShortcuts } from './browser/guestShortcuts';
-import {
-  decideDownload,
-  type DownloadPlaces,
-  downloadSource,
-  gateDownloads,
-  partitionFor,
-} from './browser/sessionPolicy';
+import { type DownloadPlaces, gateDownloads, partitionFor } from './browser/sessionPolicy';
+import { createDownloadGate } from './browser/downloadGate';
 import { PersonInput, watchPersonInput } from './browser/PersonInput';
 import { PageDialogs } from './browser/PageDialogs';
 import { browserRefusal, closeConnectionsWithoutAccess } from './browser/browserToolAccess';
@@ -402,19 +397,9 @@ export function setupIpcHandlers(): boolean {
       return tabId ? browser.tabFor(tabId) : undefined;
     },
     handsOf: (tab) => personInput.handsOf(tab.id, tab.openedBy),
+    personUsing: (tab) => personInput.refusal(tab.id) !== null,
   };
-  gateDownloads((from) => {
-    const source = downloadSource(from, downloadPlaces);
-    const decision = decideDownload(source);
-    if (decision === 'cancel') {
-      console.info(
-        source.kind === 'unknown'
-          ? 'Cancelled a download from a page that is no tab of a session.'
-          : "Cancelled a download from a tab in an agent's hands.",
-      );
-    }
-    return decision;
-  });
+  gateDownloads(createDownloadGate(downloadPlaces));
   exposeToTests('browserAgent', { calls: agentPages, driver, personInput, pageDialogs });
   // Watch each page from the moment it attaches: the renderer binds it only
   // after dom-ready, when its first load may already have finished or failed.

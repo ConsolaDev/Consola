@@ -1,4 +1,4 @@
-import type { Session, Streams, WebContents } from 'electron';
+import type { DownloadItem, Session, Streams, WebContents } from 'electron';
 import { type BrowserTab, browserPartitionFor } from '../../shared/browser';
 import type { TabHands } from './PersonInput';
 
@@ -31,39 +31,71 @@ export type DownloadDecision = 'allow' | 'cancel';
 
 /** Where a download came from, as the gate placed its page (`downloadSource`). */
 export type DownloadSource =
-  /** Electron named no page: the app's own download, not a page's. */
+  /** Electron named no page. */
   | { kind: 'none' }
   /**
    * A tab's page, or a popup window a tab's page opened: whose hands that tab
-   * is in. A page not bound to its tab yet may be any of several.
+   * is in, and whether the person gave input on it within
+   * `PERSON_INPUT_GUARD_MS`. A page not bound to its tab yet may be any of
+   * several, and counts as in use only when every one of them is.
    */
-  | { kind: 'tabs'; hands: readonly TabHands[] }
+  | { kind: 'tabs'; hands: readonly TabHands[]; personUsing: boolean }
   /** A page in a browser partition that is no tab's and no popup's main made. */
   | { kind: 'unknown' };
 
+/** What the page a download came from has already put on the person's screen (`DownloadDialogs`). */
+export interface DownloadPageFacts {
+  /** One of its downloads waits at its save dialog now. */
+  dialogWaiting: boolean;
+  /** It has put up a save dialog before. */
+  downloadedBefore: boolean;
+}
+
 /**
- * Whether a download may go on to the save dialog (Ruling PP).
+ * Why a download is cancelled before its save dialog, or null when it may go
+ * on to it. In this order:
  *
- * An agent must not start downloads nobody clicked, and each would put a
- * save dialog in front of the person. So a download from a tab in the
- * agent's hands (`PersonInput.handsOf`) is cancelled, however long after the
- * agent's last move or act it comes, and one from the person's tab goes on.
- * The person takes a tab back by pressing in it, so their own click on a
- * download link is always theirs. A page main cannot place is nobody's, so
- * its download is cancelled; one with no page at all is left as before.
- * Cost if wrong: after an agent uses one of the person's tabs, a download
- * that tab starts on its own is cancelled until the person next clicks or
- * types in it.
+ * - A tab in the agent's hands (`PersonInput.handsOf`): an agent must not
+ *   start downloads nobody clicked, each of which would put a save dialog in
+ *   front of the person. However long after the agent's last move or act it
+ *   comes; the person takes a tab back by pressing in it, so their own click
+ *   on a download link is always theirs. Cost if wrong: after an agent uses
+ *   one of the person's tabs, a download that tab starts on its own is
+ *   cancelled until the person next clicks or types in it.
+ * - A page main cannot place, or no page at all: Consola starts no download
+ *   in a browser partition itself, so one with no page is a page's that hid
+ *   where it came from (a service worker, a frame that went). Cost if wrong:
+ *   such a download is cancelled.
+ * - At most one save dialog waits per page, and a page's later downloads
+ *   need the person's input on its tab within `PERSON_INPUT_GUARD_MS`: a page
+ *   could otherwise loop downloads and stack dialogs on the person's screen,
+ *   from a tab they opened and are not even looking at. A page's first
+ *   download needs nothing more than the person's hands. Cost if wrong: a
+ *   site that starts several downloads from one click delivers only the first.
  */
-export function decideDownload(source: DownloadSource): DownloadDecision {
+export function downloadRefusal(source: DownloadSource, page: DownloadPageFacts): string | null {
   switch (source.kind) {
     case 'none':
-      return 'allow';
+      return 'Cancelled a download that named no page.';
     case 'unknown':
-      return 'cancel';
+      return 'Cancelled a download from a page that is no tab of a session.';
     case 'tabs':
-      return source.hands.length === 0 || source.hands.includes('agent') ? 'cancel' : 'allow';
+      if (source.hands.length === 0 || source.hands.includes('agent')) {
+        return "Cancelled a download from a tab in an agent's hands.";
+      }
+      if (page.dialogWaiting) {
+        return 'Cancelled a download from a page whose save dialog is still open.';
+      }
+      if (page.downloadedBefore && !source.personUsing) {
+        return 'Cancelled a further download from a page the person has not used just now.';
+      }
+      return null;
   }
+}
+
+/** Whether a download may go on to its save dialog (`downloadRefusal`). */
+export function decideDownload(source: DownloadSource, page: DownloadPageFacts): DownloadDecision {
+  return downloadRefusal(source, page) === null ? 'allow' : 'cancel';
 }
 
 /** What the gate places a download's page with. */
@@ -73,6 +105,8 @@ export interface DownloadPlaces {
   /** The tab whose page opened this popup window, when it is one main made. */
   popupOpener(contents: WebContents): BrowserTab | undefined;
   handsOf(tab: BrowserTab): TabHands;
+  /** Whether the person gave input on the tab within `PERSON_INPUT_GUARD_MS` (`PersonInput`). */
+  personUsing(tab: BrowserTab): boolean;
 }
 
 /**
@@ -91,16 +125,23 @@ export function downloadSource(
   const opener = places.popupOpener(from);
   const tabs = opener ? [opener] : places.tabsForPage(from);
   if (tabs.length === 0) return { kind: 'unknown' };
-  return { kind: 'tabs', hands: tabs.map((tab) => places.handsOf(tab)) };
+  return {
+    kind: 'tabs',
+    hands: tabs.map((tab) => places.handsOf(tab)),
+    personUsing: tabs.every((tab) => places.personUsing(tab)),
+  };
 }
 
-/** Decides each download by the page it came from (undefined when Electron names none). */
-export type DownloadGate = (from: WebContents | undefined) => DownloadDecision;
+/**
+ * Decides each download by the page it came from (undefined when Electron
+ * names none), told the item so it can follow its save dialog.
+ */
+export type DownloadGate = (from: WebContents | undefined, item: DownloadItem) => DownloadDecision;
 
 /**
  * Set once main can tell which tab a page is and whose hands it is in
- * (`ipc-handlers`), and cleared when it stops; until then every download
- * goes on to its save dialog, as before.
+ * (`ipc-handlers`, `createDownloadGate`), and cleared when it stops; until
+ * then every download goes on to its save dialog, as before.
  */
 let downloadGate: DownloadGate | null = null;
 
@@ -167,7 +208,7 @@ export function configurePartition(partition: string, session: Session): void {
   // site is offering the file, since the page names the file itself. One an
   // agent started is cancelled before that (`decideDownload`).
   session.on('will-download', (event, item, from) => {
-    if (downloadGate?.(from) === 'cancel') {
+    if (downloadGate?.(from, item) === 'cancel') {
       event.preventDefault();
       return;
     }

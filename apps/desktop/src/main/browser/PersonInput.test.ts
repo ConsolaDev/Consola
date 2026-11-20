@@ -46,9 +46,12 @@ describe('the person comes first', () => {
 });
 
 describe('whose hands a tab is in', () => {
-  /** What the gate decides for a download from the tab, by its hands now. */
+  /** What the gate decides for a page's first download from the tab, by its hands now. */
   const download = (person: PersonInput, tabId: string, openedBy: 'person' | 'agent') =>
-    decideDownload({ kind: 'tabs', hands: [person.handsOf(tabId, openedBy)] });
+    decideDownload(
+      { kind: 'tabs', hands: [person.handsOf(tabId, openedBy)], personUsing: false },
+      { dialogWaiting: false, downloadedBefore: false },
+    );
 
   it("starts in its opener's: an agent's tab is the agent's, also after a restart nobody touched it in", () => {
     // A fresh record is what a restart leaves.
