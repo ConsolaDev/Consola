@@ -36,9 +36,8 @@ export type TabHands = 'agent' | 'person';
  * the person by pressing in it or moving it from the toolbar. Looking at a
  * page takes nothing. There is no clock in this: a page the agent sent the
  * tab to can start a download long after it loads, and that is still the
- * agent's doing until the person takes the tab back. Only what differs from
- * a tab's opener is kept, so a tab nobody touched since a restart is in its
- * opener's hands.
+ * agent's doing until the person takes the tab back. Nothing of this is
+ * kept on disk, so after a restart every tab is back in its opener's hands.
  *
  * Holds two facts per tab, and drops each once it no longer matters: input
  * after the guard, a tab's hands once `tabExists` says the tab is gone.
@@ -78,7 +77,11 @@ export class PersonInput {
     return personIsUsing(this.lastInputAt.get(tabId), this.now()) ? PERSON_USING_TAB_MESSAGE : null;
   }
 
-  /** When the person last pressed in this tab or moved it from the toolbar, while that counts. */
+  /**
+   * When the person last pressed in this tab or moved it from the toolbar.
+   * Undefined once it is long past (dropped some time after the guard), so
+   * read it with `personIsUsing`.
+   */
   public lastInput(tabId: string): number | undefined {
     return this.lastInputAt.get(tabId);
   }

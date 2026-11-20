@@ -107,8 +107,9 @@ export function registerBrowserHandlers(deps: BrowserIpcDeps): { remove(): void 
   ipc.handle(IPC_CHANNELS.BROWSER_ACTIVATE, (event, tabId: string) => {
     if (ownedTab(event, tabId)) service.activateTab(tabId);
   });
-  // The person's own moves of a tab: what its page loads next, and a download
-  // it starts in the next 3 s, are theirs (`decideDownload`).
+  // The person's own moves of a tab: input of theirs on it, so the tab is in
+  // their hands for its downloads (`decideDownload`), and an agent's act gives
+  // way to them for 3 s.
   ipc.handle(IPC_CHANNELS.BROWSER_NAVIGATE, (event, tabId: string, url: string): boolean =>
     movedByPerson(event, tabId) ? service.navigate(tabId, String(url ?? '')) : false,
   );
