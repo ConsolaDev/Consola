@@ -89,6 +89,12 @@ export function BrowserTabStrip({ sessionId, snapshot }: BrowserTabStripProps) {
   );
 }
 
+/**
+ * One tab. Its × is for the pointer only: a tab's content is presentational,
+ * so a button inside it would be a control nobody's assistive technology
+ * could reach. The keyboard closes the focused tab with Delete (Backspace on
+ * a Mac keyboard), on every platform, as a tab list's own key for it.
+ */
 function StripTab({ tab, active }: { tab: BrowserTabSnapshot; active: boolean }) {
   const label = tabLabel(tab);
   return (
@@ -96,6 +102,7 @@ function StripTab({ tab, active }: { tab: BrowserTabSnapshot; active: boolean })
       role="tab"
       tabIndex={0}
       aria-selected={active}
+      aria-keyshortcuts="Delete Backspace"
       className="browser-tab"
       data-tab-id={tab.id}
       onClick={() => noteFailure(browserBridge.activate(tab.id))}
@@ -103,6 +110,9 @@ function StripTab({ tab, active }: { tab: BrowserTabSnapshot; active: boolean })
         if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault();
           noteFailure(browserBridge.activate(tab.id));
+        } else if (event.key === 'Delete' || event.key === 'Backspace') {
+          event.preventDefault();
+          noteFailure(browserBridge.close(tab.id));
         }
       }}
       // A middle press would start the platform's autoscroll; the close is on release.
@@ -121,17 +131,17 @@ function StripTab({ tab, active }: { tab: BrowserTabSnapshot; active: boolean })
         </span>
       )}
       <span className="browser-tab-label">{label}</span>
-      <button
-        type="button"
+      <span
         className="browser-tab-close"
-        aria-label={`Close ${label}`}
+        aria-hidden="true"
+        title="Close tab"
         onClick={(event) => {
           event.stopPropagation();
           noteFailure(browserBridge.close(tab.id));
         }}
       >
         <X size={12} />
-      </button>
+      </span>
     </div>
   );
 }

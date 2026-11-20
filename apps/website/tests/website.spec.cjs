@@ -381,12 +381,20 @@ test('the browser panel keeps typed tabs in memory and its settings render', asy
   expect(back).not.toBeNull();
   expect(more).not.toBeNull();
   expect(more.y).toBeCloseTo(back.y, 0);
+  // The address field keeps to its own cell, short of the button after it.
+  const field = await address.boundingBox();
+  const outward = await panel
+    .getByRole('button', { name: 'Open in system browser', exact: true })
+    .boundingBox();
+  expect(field.x + field.width).toBeLessThanOrEqual(outward.x);
 
-  // A second tab starts empty and offers what the first one visited.
-  await tabs.getByRole('button', { name: 'New tab', exact: true }).click();
+  // A second tab starts empty, with the caret in its address, and offers what
+  // the first one visited. Delete on the focused tab closes it.
+  await panel.getByRole('button', { name: 'New tab', exact: true }).click();
   await expect(tabs.getByRole('tab')).toHaveCount(2);
+  await expect(address).toBeFocused();
   await expect(panel.getByTestId('browser-recent-page')).toContainText('localhost:5173');
-  await tabs.getByRole('button', { name: 'Close New tab', exact: true }).click();
+  await tabs.getByRole('tab', { selected: true }).press('Delete');
   await expect(tabs.getByRole('tab')).toHaveCount(1);
 
   // Hiding the panel keeps the session's tabs.
@@ -412,7 +420,7 @@ test('the browser panel keeps typed tabs in memory and its settings render', asy
   await dialog.getByRole('button', { name: 'Close', exact: true }).click();
 
   // Cleared: a new tab has no recent pages to offer.
-  await tabs.getByRole('button', { name: 'New tab', exact: true }).click();
+  await panel.getByRole('button', { name: 'New tab', exact: true }).click();
   await expect(panel.getByTestId('browser-empty-tab')).toBeVisible();
   await expect(panel.getByTestId('browser-recent-page')).toHaveCount(0);
 

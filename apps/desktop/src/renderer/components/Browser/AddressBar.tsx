@@ -45,6 +45,7 @@ export function AddressBar({ tabId, address, onOpen }: AddressBarProps) {
   const [highlighted, setHighlighted] = useState(-1);
 
   const suggestions = suggestFromHistory(history, draft ?? '', { exclude: address });
+  const listShown = suggestions.length > 0 && inputRef.current !== null;
 
   // The one place focus moves into the panel, and only for the person's own
   // ⌘L, "+" or palette row (an agent's doing never reaches this store). A
@@ -102,7 +103,8 @@ export function AddressBar({ tabId, address, onOpen }: AddressBarProps) {
         aria-invalid={message !== null}
         aria-describedby={message ? messageId : undefined}
         // Stays a textbox: existing tests and assistive tech find it by that role.
-        aria-controls={listId}
+        // It names the list only while there is one.
+        aria-controls={listShown ? listId : undefined}
         aria-autocomplete="list"
         aria-activedescendant={highlighted >= 0 ? `${listId}-${highlighted}` : undefined}
         spellCheck={false}
@@ -151,7 +153,7 @@ export function AddressBar({ tabId, address, onOpen }: AddressBarProps) {
         }}
         onBlur={reset}
       />
-      {suggestions.length > 0 &&
+      {listShown &&
         inputRef.current &&
         createPortal(
           <SuggestionList

@@ -366,10 +366,34 @@ test.describe('in-app browser tabs', () => {
       await page.evaluate((id) => window.browserAPI.open(id, ''), ids.alpha.sessionId),
     ).toBeNull();
 
-    // The close button on the active tab.
-    await page.getByRole('button', { name: 'Close New tab' }).last().click();
+    // The × on the active tab.
+    await tabs(page).last().locator('.browser-tab-close').click();
     await expect(tabs(page)).toHaveCount(11);
     await expect(newTab(page)).toBeEnabled();
+
+    // From the keyboard, on any platform: Enter shows the focused tab, and
+    // Delete (or a Mac's Backspace) closes it. Its × shows while it has the keyboard.
+    await tabs(page).first().focus();
+    await page.keyboard.press('Enter');
+    await expect(tabs(page).first()).toHaveAttribute('aria-selected', 'true');
+    await expect(tabs(page).first()).toContainText('Page B');
+    await page.keyboard.press('Tab');
+    await expect(tabs(page).nth(1)).toBeFocused();
+    await expect(tabs(page).nth(1)).toHaveAttribute('aria-selected', 'false');
+    await expect
+      .poll(() =>
+        tabs(page)
+          .nth(1)
+          .locator('.browser-tab-close')
+          .evaluate((close) => getComputedStyle(close).opacity),
+      )
+      .toBe('1');
+    await page.keyboard.press('Delete');
+    await expect(tabs(page)).toHaveCount(10);
+    await tabs(page).first().focus();
+    await page.keyboard.press('Backspace');
+    await expect(tabs(page)).toHaveCount(9);
+    await expect(tabs(page).first()).toContainText('New tab');
   });
 
   test('"+" puts the caret in the new tab’s address bar', async () => {

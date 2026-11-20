@@ -51,10 +51,10 @@ export function BrowserToolbar({ tab, onOpen, instanceId, cwd }: BrowserToolbarP
       await flight.current(async () => {
         const file = await browserBridge.capture(tab.id);
         if (file) terminalBridge.paste(instanceId, formatDroppedPaths([file], cwd));
-        else showToast("Couldn't capture this page");
+        else showToast('Could not capture this page');
       });
     } catch {
-      showToast("Couldn't capture this page");
+      showToast('Could not capture this page');
     } finally {
       setCapturing(false);
     }
