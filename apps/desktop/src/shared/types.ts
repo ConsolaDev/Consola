@@ -25,7 +25,7 @@ import type { InboxSnapshot, WorkItemLaunchAction, WorkItemRef } from './workIte
 import type { TerminalStatus } from './terminalStatus';
 
 /** Agent CLI a harness drives. One driver per supported CLI. */
-export type HarnessDriverId = 'claude' | 'codex';
+export type HarnessDriverId = 'claude' | 'codex' | 'antigravity';
 
 /**
  * How a session's harness is described across the IPC boundary.

@@ -1,6 +1,7 @@
 import type { HarnessDriverId, HarnessLaunchFields } from '../../shared/types';
 import type { SessionToolPolicy } from '../../shared/workspace';
 import { toHarnessConfig, type HarnessDriver } from './HarnessDriver';
+import { AntigravityDriver } from './AntigravityDriver';
 import { ClaudeDriver } from './ClaudeDriver';
 import { CodexDriver } from './CodexDriver';
 
@@ -13,6 +14,7 @@ import { CodexDriver } from './CodexDriver';
 const DRIVERS: Record<HarnessDriverId, HarnessDriver> = {
   claude: new ClaudeDriver(),
   codex: new CodexDriver(),
+  antigravity: new AntigravityDriver(),
 };
 
 export const DEFAULT_DRIVER_ID: HarnessDriverId = 'claude';

@@ -250,10 +250,12 @@ export const HARNESS_DRIVERS: ReadonlyArray<{
   available: boolean;
   /** Binary this CLI installs as, shown as the binary-path placeholder. */
   binaryName: string;
-  /** Environment variable that redirects this CLI's profile directory. */
-  configDirEnvVar: string;
+  /** Environment variable that redirects this CLI's profile directory, when supported. */
+  configDirEnvVar?: string;
   /** Where that CLI keeps its profile when the variable is unset. */
   defaultConfigDir: string;
+  /** Example launch arguments shown as the extra-args placeholder. */
+  launchArgsPlaceholder: string;
   /**
    * Whether this CLI can describe its own commands, agents and models.
    *
@@ -278,6 +280,7 @@ export const HARNESS_DRIVERS: ReadonlyArray<{
     binaryName: 'claude',
     configDirEnvVar: 'CLAUDE_CONFIG_DIR',
     defaultConfigDir: '~/.claude',
+    launchArgsPlaceholder: 'e.g. --permission-mode plan',
     supportsCapabilities: true,
     defaultTitleModel: 'haiku',
     supportsConversationReading: true,
@@ -290,6 +293,18 @@ export const HARNESS_DRIVERS: ReadonlyArray<{
     binaryName: 'codex',
     configDirEnvVar: 'CODEX_HOME',
     defaultConfigDir: '~/.codex',
+    launchArgsPlaceholder: 'e.g. --sandbox read-only',
+    supportsCapabilities: true,
+    supportsConversationReading: true,
+  },
+  {
+    id: 'antigravity',
+    label: 'Antigravity',
+    description: "Google's Antigravity CLI.",
+    available: true,
+    binaryName: 'agy',
+    defaultConfigDir: '~/.gemini/antigravity-cli',
+    launchArgsPlaceholder: 'e.g. --mode plan',
     supportsCapabilities: true,
     supportsConversationReading: true,
   },

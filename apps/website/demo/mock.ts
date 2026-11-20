@@ -192,9 +192,13 @@ function write(instanceId: string, text: string) {
 const cyan = (text: string) => `\x1b[36m${text}\x1b[0m`;
 const green = (text: string) => `\x1b[32m${text}\x1b[0m`;
 function initialTerminal(options: TerminalCreateOptions) {
-  const codex = options.driverId === 'codex';
   const prompt = prompts.get(options.instanceId) || options.initialPrompt;
-  const title = codex ? '›_ Codex' : '✳ Claude Code';
+  const title =
+    options.driverId === 'codex'
+      ? '›_ Codex'
+      : options.driverId === 'antigravity'
+        ? '▲ Antigravity'
+        : '✳ Claude Code';
   if (options.instanceId === 'demo-retry')
     return `${cyan(title)}\r\n${options.cwd}\r\n\r\n❯ Review PR #248 and fix the retry guard.\r\n\r\n${green('✓')} Read the PR diff and traced error handling.\r\n${green('✓')} Added a guard for non-retryable errors.\r\n${green('✓')} Added a regression test.\r\n${green('✓')} 8 tests passed (sample result).\r\n\r\nThe changes are ready for your review.\r\nInspect the diff, approve files, and try a commit.\r\n\r\n${cyan('Interactive demo · simulated agent output')}\r\nTry "run tests" or "help".\r\n\r\n❯ `;
   return `\x1b[1m${cyan(title)}\x1b[0m\r\n${options.cwd}\r\n\r\n${prompt ? `❯ ${prompt}\r\n\r\n` : ''}${prompt ? `${green('✓')} Read the pull request and related tests.\r\n\r\nFound an edge case: client errors are retried.\r\nAdd an isRetryable guard and a regression test.\r\n\r\n` : `${green('✓')} Your session is ready.\r\n\r\n`}${cyan('Interactive demo · simulated agent output')}\r\nTry "fix the retry guard", "run tests", or "help".\r\n\r\n❯ `;

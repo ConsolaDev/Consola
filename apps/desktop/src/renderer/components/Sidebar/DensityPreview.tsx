@@ -107,7 +107,7 @@ const SAMPLE_ROWS: SampleRow[] = [
     state: 'needs-attention',
     age: '',
   },
-  { driver: 'claude', name: 'Map the cache layer', model: 'Opus 4.6', age: '2h' },
+  { driver: 'antigravity', name: 'Map the cache layer', model: 'Gemini 4 Neon', age: '2h' },
 ];
 
 /** The trailing edge of a sample row, in the list's own status vocabulary. */
