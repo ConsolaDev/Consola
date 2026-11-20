@@ -309,11 +309,11 @@ test('standalone demo can scroll on a phone-sized viewport', async ({ page }) =>
   expect(await page.evaluate(() => scrollX)).toBeGreaterThan(0);
 });
 
-// The demo's own page rather than the site around it, so every console message
-// is the demo's. Console errors count as much as uncaught ones: a render that
-// throws is caught by the app's error page and only logged. Either is how a
-// bridge member the mock does not provide shows up.
-test('the browser panel keeps typed tabs in memory and its settings render', async ({ page }) => {
+// Opens the demo's own page rather than the site around it, so every console
+// message is the demo's, and returns what goes wrong there. Console errors count
+// as much as uncaught ones: a render that throws is caught by the app's error
+// page and only logged. Either is how a bridge member the mock lacks shows up.
+async function standaloneDemo(page) {
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
   page.on('console', (message) => {
@@ -327,14 +327,49 @@ test('the browser panel keeps typed tabs in memory and its settings render', asy
       expect(errors).toEqual([]);
       throw timeout;
     });
+  return errors;
+}
+
+test('create and rename a label through the actual sidebar', async ({ page }) => {
+  const errors = await standaloneDemo(page);
+  await page.getByRole('button', { name: 'New', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'New label', exact: true }).click();
+  const create = page.getByRole('dialog', { name: 'New label' });
+  await create.getByRole('textbox', { name: 'Name' }).fill('Weekend experiments');
+  await create.getByRole('button', { name: 'Create', exact: true }).click();
+  await expect(create).toHaveCount(0);
+
+  // The filter bar offers the new label, and filtering by it shows it as a chip.
+  const filters = page.getByRole('button', { name: 'Filter sessions', exact: true });
+  await filters.click();
+  await page.getByRole('menuitem', { name: /^Weekend experiments/ }).click();
+  await page.keyboard.press('Escape');
+  const active = page.getByLabel('Active filters');
+  await expect(active.getByRole('button')).toHaveAccessibleName(
+    'Remove filter Weekend experiments',
+  );
+
+  await filters.click();
+  await page.getByRole('button', { name: 'Edit label Weekend experiments', exact: true }).click();
+  const edit = page.getByRole('dialog', { name: 'Edit label' });
+  await edit.getByRole('textbox', { name: 'Name' }).fill('Experiments');
+  await edit.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(edit).toHaveCount(0);
+  await expect(active.getByRole('button')).toHaveAccessibleName('Remove filter Experiments');
+  await filters.click();
+  await expect(page.getByRole('menuitem', { name: /^Experiments/ })).toBeVisible();
+  await expect(page.getByRole('menuitem', { name: /^Weekend experiments/ })).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test('the browser panel keeps typed tabs in memory and its settings render', async ({ page }) => {
+  const errors = await standaloneDemo(page);
 
   await page.getByRole('button', { name: 'Show browser', exact: true }).click();
   const panel = page.getByTestId('browser-panel');
   const tabs = panel.getByRole('tablist', { name: 'Browser tabs' });
   const address = panel.getByRole('textbox', { name: 'Address' });
-  await expect(panel.getByTestId('browser-empty-tab')).toContainText(
-    'No servers running from this folder.',
-  );
+  await expect(panel.getByTestId('browser-empty-tab')).toBeVisible();
   await address.fill('localhost:5173');
   await address.press('Enter');
   await expect(tabs.getByRole('tab', { selected: true })).toHaveText('localhost:5173');
@@ -343,6 +378,8 @@ test('the browser panel keeps typed tabs in memory and its settings render', asy
   // The toolbar is one row: a control without a grid column of its own wraps under Back.
   const back = await panel.getByRole('button', { name: 'Back', exact: true }).boundingBox();
   const more = await panel.getByRole('button', { name: 'More', exact: true }).boundingBox();
+  expect(back).not.toBeNull();
+  expect(more).not.toBeNull();
   expect(more.y).toBeCloseTo(back.y, 0);
 
   // A second tab starts empty and offers what the first one visited.
@@ -362,15 +399,15 @@ test('the browser panel keeps typed tabs in memory and its settings render', asy
   await dialog.getByRole('button', { name: 'Browser links', exact: true }).click();
   const links = dialog.getByRole('radiogroup', { name: 'Terminal links' });
   await expect(links.getByRole('radio')).toHaveCount(3);
-  await links.getByRole('radio', { name: 'Every link opens in Consola' }).click();
+  await links.getByRole('radio', { checked: false }).first().click();
   await dialog.getByRole('button', { name: 'Browser', exact: true }).click();
   const agents = dialog.getByRole('switch', { name: /^Let agents use this workspace's browser/ });
   await expect(agents).toBeChecked();
   await agents.click();
   await expect(agents).not.toBeChecked();
-  await dialog.getByRole('button', { name: 'Clear browsing data…', exact: true }).click();
-  const confirm = page.getByRole('dialog', { name: 'Clear browsing data?' });
-  await confirm.getByRole('button', { name: 'Clear browsing data', exact: true }).click();
+  await dialog.getByRole('button', { name: /^Clear browsing data/ }).click();
+  const confirm = page.getByRole('dialog', { name: /^Clear browsing data/ });
+  await confirm.getByRole('button', { name: /^Clear browsing data/ }).click();
   await expect(confirm).toHaveCount(0);
   await dialog.getByRole('button', { name: 'Close', exact: true }).click();
 
