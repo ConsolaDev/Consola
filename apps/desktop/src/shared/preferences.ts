@@ -59,6 +59,12 @@ export const DEFAULT_PREFERENCES: Preferences = {
 export interface SettleResult {
   settled: boolean;
   memento: SettleMemento;
+  /**
+   * Sessions the settle deleted instead of shelving, because they never got
+   * a message (`EmptySessionReaper`). They are left out of `memento`: no Undo
+   * brings a deleted session back.
+   */
+  removed?: string[];
 }
 
 /** What undoing a settle (or un-settle) restores: each session's ledger entry as it was, null for none. */
@@ -81,6 +87,11 @@ export interface BatchResult {
   applied: string[];
   refused: Refusal[];
   memento: SettleMemento;
+}
+
+/** A batch settle, and what it deleted instead of shelving, as `SettleResult.removed`. */
+export interface SettleBatchResult extends BatchResult {
+  removed?: string[];
 }
 
 /** A batch snooze, and the one time every applied session comes back at; null when they differ. */

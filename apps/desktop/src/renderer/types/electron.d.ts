@@ -12,6 +12,7 @@ import type { AttentionChange, AttentionState } from '../../shared/attention';
 import type {
   BatchResult,
   Preferences,
+  SettleBatchResult,
   SettleMemento,
   SettleResult,
   SnoozeBatchResult,
@@ -84,7 +85,7 @@ export interface AttentionAPI {
     when: SnoozeWhen,
   ) => Promise<SnoozeBatchResult>;
   wake: (workspaceId: string, sessionIds: string[]) => Promise<BatchResult>;
-  settleMany: (workspaceId: string, sessionIds: string[]) => Promise<BatchResult>;
+  settleMany: (workspaceId: string, sessionIds: string[]) => Promise<SettleBatchResult>;
   unsettleMany: (workspaceId: string, sessionIds: string[]) => Promise<BatchResult>;
 }
 

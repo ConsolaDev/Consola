@@ -5,11 +5,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { activityOf, type Attention } from '../../shared/attention';
 import { DEFAULT_PREFERENCES } from '../../shared/preferences';
 import type { TerminalStatus } from '../../shared/terminalStatus';
+import { NEW_SESSION_NAME } from '../../shared/workspace';
 import { makeSession, makeWorkspace } from '../conductor/ConductorTools.test-helpers';
 import { JsonStateFile } from '../state/JsonStateFile';
 import { PreferencesService } from '../state/PreferencesService';
 import { JsonAttentionLedger, type AttentionLedgerStateFile } from './AttentionLedger';
-import { AutoSettler, FIRST_SWEEP_GRACE_MS, SWEEP_INTERVAL_MS } from './AutoSettler';
+import {
+  AutoSettler,
+  FIRST_SWEEP_GRACE_MS,
+  SWEEP_INTERVAL_MS,
+  type AutoSettlerDeps,
+} from './AutoSettler';
 import { SessionSource } from './SessionSource';
 import { settleSession, unsettleSession } from './settling';
 
@@ -40,7 +46,7 @@ const old = (id: string, extra = {}) =>
     ...extra,
   });
 
-function settler(sessions: ReturnType<typeof old>[]) {
+function settler(sessions: ReturnType<typeof old>[], extra: Partial<AutoSettlerDeps> = {}) {
   const workspace = makeWorkspace({ id: 'w1', sessions });
   return new AutoSettler({
     getWorkspaces: () => [workspace],
@@ -59,6 +65,7 @@ function settler(sessions: ReturnType<typeof old>[]) {
       };
     },
     now: () => NOW,
+    ...extra,
   });
 }
 
@@ -164,6 +171,18 @@ describe('AutoSettler eligibility', () => {
     preferences.setAutoSettleDays(0);
     expect(settler([old('a')]).sweep()).toEqual([]);
     expect(changed).toBe(0);
+  });
+
+  it('says it swept after every sweep, moved or not, once the settle is written', () => {
+    attention.set('a', 'ready');
+    const settledWhenTold: (number | undefined)[] = [];
+    const sweeper = settler([old('a')], {
+      swept: () => settledWhenTold.push(ledger.get('a')?.settledAt),
+    });
+    sweeper.sweep();
+    preferences.setAutoSettleDays(0);
+    sweeper.sweep();
+    expect(settledWhenTold).toEqual([NOW, NOW]);
   });
 
   it('honours a custom threshold', () => {
@@ -314,6 +333,14 @@ describe('the first-run explanation', () => {
     settler([old('c')]).sweep();
     expect(preferences.get().pendingAutoSettle).toEqual([]);
     expect(ledger.get('c')?.settledAt).toBe(NOW); // it still settles, quietly, once explained
+  });
+
+  it('does not name a session that may never have had a message: it is removed, not shelved', () => {
+    attention.set('a', 'ready');
+    attention.set('b', 'ready');
+    settler([old('a'), old('b', { name: NEW_SESSION_NAME })]).sweep();
+    expect(ledger.get('b')?.settledAt).toBe(NOW);
+    expect(preferences.get().pendingAutoSettle).toEqual(['a']);
   });
 
   it('is announced to every window, once per install', () => {
