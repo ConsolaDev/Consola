@@ -32,16 +32,30 @@ export type DownloadDecision = 'allow' | 'cancel';
 /**
  * Whether a download a tab's page started may go on to the save dialog.
  *
- * An agent acting on a page must not start downloads nobody clicked, and
- * each would put a save dialog in front of the person. So a download is
- * cancelled when it starts while an act is under way on its tab, or within
- * `ACT_AFTERMATH_MS` of one (what a click starts reaches main after the click
- * returns), unless the person pressed a key or a button in that tab within
- * the last 3 s: then it is theirs. Cost if wrong: a download the person
- * started during an agent's act is cancelled, and they start it again.
+ * An agent must not start downloads nobody clicked, and each would put a
+ * save dialog in front of the person. A download is the person's when they
+ * pressed a key or a button in that tab, or navigated it from the toolbar,
+ * within the last 3 s. Otherwise it is cancelled when the tab is an agent's
+ * (Ruling LL: whatever its page does on its own is the agent's doing), or
+ * when an agent's act or move is under way on it, or ended within
+ * `ACT_AFTERMATH_MS` (what a click starts reaches main after the click
+ * returns). Cost if wrong: a download the person started during an agent's
+ * act, or one a page in an agent's tab starts more than 3 s after their
+ * click, is cancelled, and they start it again.
  */
 export function decideDownload(facts: DownloadFacts): DownloadDecision {
-  return agentActing(facts) && !personIsUsing(facts.personInputAt, facts.now) ? 'cancel' : 'allow';
+  if (personIsUsing(facts.personInputAt, facts.now)) return 'allow';
+  return facts.openedByAgent || agentActing(facts) ? 'cancel' : 'allow';
+}
+
+/**
+ * A download from a page that may be any of these tabs: the one it is bound
+ * to, or, before its window has bound it, each tab the window has a page
+ * coming for. Cancelled when any of them would cancel it; a page that can be
+ * no tab is allowed, as before.
+ */
+export function decideDownloadFrom(candidates: readonly DownloadFacts[]): DownloadDecision {
+  return candidates.some((facts) => decideDownload(facts) === 'cancel') ? 'cancel' : 'allow';
 }
 
 /** Decides each download by the page it came from (undefined when Electron names none). */
@@ -96,7 +110,7 @@ export function configurePartition(partition: string, session: Session): void {
   // A file is never saved without asking where. With no save path set,
   // Electron shows its save dialog for every download; the title says which
   // site is offering the file, since the page names the file itself. One an
-  // agent's act started is cancelled before that (`decideDownload`).
+  // agent started is cancelled before that (`decideDownload`).
   session.on('will-download', (event, item, from) => {
     if (downloadGate?.(from) === 'cancel') {
       event.preventDefault();

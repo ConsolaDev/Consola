@@ -39,8 +39,8 @@ import { placePopupTab } from './browser/popupPolicy';
 import { installPopupPolicy } from './browser/popupWindows';
 import { exposeToTests, isBackgroundTest } from './test-mode';
 import { forwardGuestShortcuts } from './browser/guestShortcuts';
-import { decideDownload, gateDownloads, partitionFor } from './browser/sessionPolicy';
-import { PersonInput, watchPersonInput } from './browser/PersonInput';
+import { decideDownloadFrom, gateDownloads, partitionFor } from './browser/sessionPolicy';
+import { PersonInput, watchLoadsSettling, watchPersonInput } from './browser/PersonInput';
 import { PageDialogs } from './browser/PageDialogs';
 import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
@@ -348,8 +348,11 @@ export function setupIpcHandlers(): boolean {
   const stopForgettingPages = browser.onGuestGone((tabId, guest) => driver.forget(tabId, guest));
   pageDriver = driver;
   // The person's input per tab, which an agent's acts give way to, and the
-  // acts themselves: a download one starts is cancelled.
-  const personInput = new PersonInput();
+  // agent's acts and moves themselves: a download one starts is cancelled.
+  const personInput = new PersonInput(
+    Date.now,
+    (tabId) => browser.pageAvailability(tabId) !== 'missing',
+  );
   // A page's alerts and confirms, held for the agent while one drives it.
   const pageDialogs = new PageDialogs({
     tabIdFor: (guestId) => browser.tabIdForGuest(guestId),
@@ -357,11 +360,23 @@ export function setupIpcHandlers(): boolean {
     personIsUsing: (tabId) => personInput.refusal(tabId) !== null,
   });
   gateDownloads((from) => {
-    const tabId = from && !from.isDestroyed() ? browser.tabIdForGuest(from.id) : null;
-    if (!tabId) return 'allow';
-    const decision = decideDownload(personInput.downloadFacts(tabId));
+    if (!from || from.isDestroyed()) return 'allow';
+    // The tab the page is bound to, or each its window has a page coming for:
+    // a page's first load can start a download before the window binds it.
+    const host = from.hostWebContents;
+    const window = host && !host.isDestroyed() ? BrowserWindow.fromWebContents(host) : null;
+    const tabs = browser.tabsForPage(from.id, window ?? undefined);
+    const decision = decideDownloadFrom(
+      tabs.map((tab) => ({
+        ...personInput.downloadFacts(tab.id),
+        openedByAgent: tab.openedBy === 'agent',
+      })),
+    );
     if (decision === 'cancel') {
-      console.info(`Cancelled a download that started while an agent acted on tab ${tabId}.`);
+      const which = tabs.map((tab) => tab.id).join(' or ');
+      console.info(
+        `Cancelled a download of an agent's, with no press of the person's, on tab ${which}.`,
+      );
     }
     return decision;
   });
@@ -383,6 +398,12 @@ export function setupIpcHandlers(): boolean {
         // A page waiting on a dialog held for the agent looks frozen: it is the person's now.
         pageDialogs.handToPerson(tabId);
       },
+    );
+    // What settles an agent's move: the page has loaded what it asked for.
+    watchLoadsSettling(
+      guest,
+      () => browser.tabIdForGuest(guestId),
+      (tabId) => personInput.noteLoadSettled(tabId),
     );
     installPopupPolicy(guest, {
       host: window,
@@ -445,6 +466,7 @@ export function setupIpcHandlers(): boolean {
     saveCapture: (sessionId, png) => captures.write(sessionId, png),
     webContentsFromId: (id) => electronWebContents.fromId(id),
     sessionForWorkspace: (workspaceId) => electronSession.fromPartition(partitionFor(workspaceId)),
+    personNavigated: (tabId) => personInput.notePersonNavigation(tabId),
   });
   browserHandlers = {
     remove: () => {

@@ -20,6 +20,7 @@ import { UNTRUSTED_NOTE } from './browserToolResults';
 import type { PageSnapshot } from './PageDriver';
 import type { HeldDialog } from './PageDialogs';
 import { PersonInput } from './PersonInput';
+import { decideDownload } from './sessionPolicy';
 
 /** The parts of `BrowserService` the tools use: an in-memory tab list, with what was asked of it. */
 class FakeBrowser implements BrowserToolsBrowser {
@@ -140,6 +141,8 @@ let snapshot: ReturnType<
 let localServers: ReturnType<typeof vi.fn<(folder: string | undefined) => Promise<LocalServer[]>>>;
 /** Dialogs main holds, by tab. */
 let held: Record<string, HeldDialog>;
+let now: number;
+let person: PersonInput;
 const clients: Client[] = [];
 
 beforeEach(() => {
@@ -168,6 +171,8 @@ beforeEach(() => {
   browser.add('w-2', { id: 'theirs', openedBy: 'agent', title: 'Not yours' });
   snapshot = vi.fn(async () => page());
   held = {};
+  now = 1_700_000_000_000;
+  person = new PersonInput(() => now);
   localServers = vi.fn(async () => [{ port: 5173, command: 'node', url: 'http://localhost:5173' }]);
 });
 
@@ -184,7 +189,7 @@ async function clientFor(sessionId: string): Promise<Client> {
       getWorkspaces: () => workspaces,
       browser,
       driver: { snapshot, withPage: vi.fn() },
-      person: new PersonInput(),
+      person,
       dialogs: {
         pendingFor: (tabId) => held[tabId],
         opened: () => new Promise(() => {}),
@@ -397,6 +402,18 @@ describe('consola_browser_open', () => {
     });
   });
 
+  it("opens a tab that is the agent's, so a download its page starts with no press of the person's is cancelled", async () => {
+    const { text } = await call('w-1', 'consola_browser_open', { url: 'example.org/report.csv' });
+    const { tabId } = JSON.parse(text) as { tabId: string };
+    const tab = browser.listFor('w-1').find((candidate) => candidate.id === tabId);
+    expect(tab?.openedBy).toBe('agent');
+    // What the gate in main decides it by: the tab's owner, and the person's input on it.
+    const facts = { ...person.downloadFacts(tabId), openedByAgent: tab?.openedBy === 'agent' };
+    expect(decideDownload(facts)).toBe('cancel');
+    person.noteInput(tabId);
+    expect(decideDownload({ ...person.downloadFacts(tabId), openedByAgent: true })).toBe('allow');
+  });
+
   it('refuses an address that is not a web page', async () => {
     const result = await call('w-1', 'consola_browser_open', { url: 'file:///etc/passwd' });
     expect(result).toMatchObject({
@@ -474,6 +491,27 @@ describe('consola_browser_navigate', () => {
       expect(browser.log).toEqual(['hold mine-agent mount=false', expect.any(String)]);
       page.emit('did-stop-loading');
       expect(browser.log.at(-1)).toBe('release mine-agent');
+    }
+  });
+
+  it("makes the tab's next load the agent's, so a download from it is cancelled, and is never the person's input", async () => {
+    browser.live['mine-person'] = { live: true, canGoBack: true };
+    for (const args of [
+      { url: 'example.org/report.csv' },
+      { action: 'back' },
+      { action: 'reload' },
+    ]) {
+      person = new PersonInput(() => now);
+      await call('w-1', 'consola_browser_navigate', { tabId: 'mine-person', ...args });
+      const facts = person.downloadFacts('mine-person');
+      expect(facts).toEqual({ actInFlight: true, now });
+      expect(decideDownload(facts)).toBe('cancel');
+      // Not the person's: they are not using the tab, and a download is not theirs.
+      expect(person.refusal('mine-person')).toBeNull();
+      // Once the page has loaded and 3 s have passed, the tab is the person's again.
+      person.noteLoadSettled('mine-person');
+      now += 3_100;
+      expect(decideDownload(person.downloadFacts('mine-person'))).toBe('allow');
     }
   });
 

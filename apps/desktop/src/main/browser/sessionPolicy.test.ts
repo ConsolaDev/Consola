@@ -4,6 +4,7 @@ import { browserPartitionFor } from '../../shared/browser';
 import {
   configurePartition,
   decideDownload,
+  decideDownloadFrom,
   decidePermission,
   downloadDialogTitle,
   gateDownloads,
@@ -29,6 +30,47 @@ describe('decideDownload', () => {
   it('allows it when no agent acted on the tab just now', () => {
     expect(decideDownload({ actInFlight: false, now: T0 })).toBe('allow');
     expect(decideDownload({ actInFlight: false, actEndedAt: T0 - 3_100, now: T0 })).toBe('allow');
+    expect(decideDownload({ actInFlight: false, openedByAgent: false, now: T0 })).toBe('allow');
+  });
+
+  it('cancels one from a tab an agent opened unless the person pressed in it within 3 s', () => {
+    // Nothing in flight: a page in an agent's tab starting a download on its own.
+    expect(decideDownload({ actInFlight: false, openedByAgent: true, now: T0 })).toBe('cancel');
+    expect(
+      decideDownload({
+        actInFlight: false,
+        openedByAgent: true,
+        personInputAt: T0 - 2_900,
+        now: T0,
+      }),
+    ).toBe('allow');
+    expect(
+      decideDownload({
+        actInFlight: false,
+        openedByAgent: true,
+        personInputAt: T0 - 3_100,
+        now: T0,
+      }),
+    ).toBe('cancel');
+  });
+});
+
+describe('decideDownloadFrom', () => {
+  const quiet = { actInFlight: false, now: T0 };
+  const agents = { actInFlight: false, openedByAgent: true, now: T0 };
+
+  it('decides by the one tab a page is bound to', () => {
+    expect(decideDownloadFrom([quiet])).toBe('allow');
+    expect(decideDownloadFrom([agents])).toBe('cancel');
+  });
+
+  it('cancels for a page not bound yet when any tab it may be would cancel', () => {
+    expect(decideDownloadFrom([quiet, agents])).toBe('cancel');
+    expect(decideDownloadFrom([quiet, quiet])).toBe('allow');
+  });
+
+  it('allows a page that can be no tab at all, as before', () => {
+    expect(decideDownloadFrom([])).toBe('allow');
   });
 });
 

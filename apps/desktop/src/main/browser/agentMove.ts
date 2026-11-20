@@ -1,12 +1,14 @@
 import type { WebContents } from 'electron';
 import type { BrowserService } from './BrowserService';
 import { CALL_DEADLINE_MS } from './PageDriver';
+import type { PersonInput } from './PersonInput';
 
 /** What an agent's move needs of `BrowserService`. */
 export type AgentMoveBrowser = Pick<BrowserService, 'holdForToolCall' | 'guestFor'>;
 
 export interface AgentMoveDeps {
   browser: AgentMoveBrowser;
+  person: Pick<PersonInput, 'noteAgentMove'>;
 }
 
 /**
@@ -21,8 +23,13 @@ export interface AgentMoveDeps {
  * stays marked until that page has loaded what the move asked for (its
  * `did-stop-loading`), or goes, and at most `CALL_DEADLINE_MS`, like any
  * call. Nothing is focused.
+ *
+ * Before anything loads, the move is noted (Ruling II): the tab's next load
+ * is the agent's, so a download it starts is cancelled like one an act
+ * starts (`decideDownload`), whenever that load happens.
  */
 export function moveAsAgent<T>(deps: AgentMoveDeps, tabId: string, move: () => T): T {
+  deps.person.noteAgentMove(tabId);
   const release = deps.browser.holdForToolCall(tabId, { mount: false }) ?? (() => {});
   const guest = deps.browser.guestFor(tabId);
   let moved: T;

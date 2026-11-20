@@ -1020,6 +1020,28 @@ describe('agent calls', () => {
     }
   });
 
+  it('names the tabs a page may be: the one it is bound to, or before that each its window mounts', () => {
+    service.openTab('s1', 'https://a.com', 'person');
+    service.openTab('s1', 'https://b.com', 'agent');
+    service.openTab('s1', 'https://c.com', 'person');
+    service.openTab('s3', 'https://d.com', 'agent');
+    // tab1 bound; tab2 and tab4 live with no page bound yet, in two windows; tab3 not live.
+    service.bindGuest('tab1', new FakeGuest(11).asWebContents(), winA);
+    service.holdForToolCall('tab2');
+    service.holdForToolCall('tab4');
+    const ids = (tabs: Array<{ id: string }>) => tabs.map((tab) => tab.id);
+
+    expect(service.tabsForPage(11, winA)).toEqual([
+      expect.objectContaining({ id: 'tab1', openedBy: 'person' }),
+    ]);
+    // A page that attached in window A and is not bound yet is one A has a page coming for.
+    expect(service.tabsForPage(12, winA)).toEqual([
+      expect.objectContaining({ id: 'tab2', openedBy: 'agent' }),
+    ]);
+    expect(ids(service.tabsForPage(12, winB))).toEqual(['tab4']);
+    expect(service.tabsForPage(12, undefined)).toEqual([]);
+  });
+
   it('a call ending on a closed tab pushes nothing', () => {
     service.openTab('s1', 'https://a.com', 'agent');
     const release = service.holdForToolCall('tab1');

@@ -9,7 +9,7 @@ import {
 } from '../../shared/browser';
 import { checkoutPathForSession, type Workspace } from '../../shared/workspace';
 import { BLANK_TAB_MESSAGE, NO_TAB_MESSAGE } from './AgentPages';
-import { type AgentMoveBrowser, moveAsAgent } from './agentMove';
+import { type AgentMoveBrowser, type AgentMoveDeps, moveAsAgent } from './agentMove';
 import type { BrowserService } from './BrowserService';
 import { addActTools, type BrowserActToolsDeps } from './browserActTools';
 import {
@@ -45,6 +45,8 @@ export type BrowserToolsBrowser = Pick<
 export interface BrowserToolsDeps extends BrowserActToolsDeps {
   getWorkspaces(): Workspace[];
   browser: BrowserToolsBrowser;
+  /** Also hears an agent's moves, for the download rule (`moveAsAgent`). */
+  person: BrowserActToolsDeps['person'] & AgentMoveDeps['person'];
   driver: Pick<PageDriver, 'snapshot' | 'withPage'>;
   dialogs: ToolDialogs;
   /** Servers listening from a folder (`LocalServers.listFor`, bounded at 2 s). */

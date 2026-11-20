@@ -630,6 +630,22 @@ export class BrowserService {
     return null;
   }
 
+  /**
+   * The tabs a page may be, to decide what it did (a download): the one it
+   * is bound to, or, while it is not bound yet, each tab its window has a
+   * page coming for. A page's first load can get there first: the window
+   * binds a page only once it has attached, and it is already loading by then.
+   */
+  public tabsForPage(guestId: number, host: BrowserWindow | undefined): BrowserTab[] {
+    const bound = this.tabIdForGuest(guestId);
+    const tabIds = bound
+      ? [bound]
+      : host
+        ? this.pages.tabsIn(host).filter((tabId) => !this.guests.has(tabId))
+        : [];
+    return tabIds.flatMap((tabId) => this.find(tabId)?.tab ?? []);
+  }
+
   /** The session whose tab a guest is bound to, or undefined while it is not. */
   public sessionIdForGuest(guestId: number): string | undefined {
     for (const entry of this.guests.values()) if (entry.guestId === guestId) return entry.sessionId;

@@ -26,9 +26,12 @@ class FakeBrowser implements AgentMoveBrowser {
 }
 
 let browser: FakeBrowser;
+/** Hears the move for the download rule, into the same record. */
+let person: { noteAgentMove(tabId: string): void };
 
 beforeEach(() => {
   browser = new FakeBrowser();
+  person = { noteAgentMove: (tabId) => browser.events.push(`move noted ${tabId}`) };
 });
 
 afterEach(() => {
@@ -36,24 +39,34 @@ afterEach(() => {
 });
 
 describe('moveAsAgent', () => {
-  it('marks a tab with no page for the move alone, mounting nothing', () => {
-    const result = moveAsAgent({ browser }, 'tab1', () => {
+  it('notes the move for the download rule first, and marks a tab with no page for the move alone', () => {
+    const result = moveAsAgent({ browser, person }, 'tab1', () => {
       browser.events.push('moved');
       return 'went';
     });
     expect(result).toBe('went');
-    expect(browser.events).toEqual(['hold tab1 mount=false', 'moved', 'release tab1']);
+    expect(browser.events).toEqual([
+      'move noted tab1',
+      'hold tab1 mount=false',
+      'moved',
+      'release tab1',
+    ]);
   });
 
   it('marks a loaded tab until its page has loaded what the move asked for', () => {
     const guest = new FakeGuest();
     browser.guest = guest;
-    moveAsAgent({ browser }, 'tab1', () => browser.events.push('moved'));
-    expect(browser.events).toEqual(['hold tab1 mount=false', 'moved']);
+    moveAsAgent({ browser, person }, 'tab1', () => browser.events.push('moved'));
+    expect(browser.events).toEqual(['move noted tab1', 'hold tab1 mount=false', 'moved']);
 
     guest.emit('did-stop-loading');
     guest.emit('did-stop-loading');
-    expect(browser.events).toEqual(['hold tab1 mount=false', 'moved', 'release tab1']);
+    expect(browser.events).toEqual([
+      'move noted tab1',
+      'hold tab1 mount=false',
+      'moved',
+      'release tab1',
+    ]);
     expect(guest.listenerCount('did-stop-loading')).toBe(0);
     expect(guest.listenerCount('destroyed')).toBe(0);
   });
@@ -61,7 +74,7 @@ describe('moveAsAgent', () => {
   it('lets go when the page goes before it has loaded', () => {
     const guest = new FakeGuest();
     browser.guest = guest;
-    moveAsAgent({ browser }, 'tab1', () => {});
+    moveAsAgent({ browser, person }, 'tab1', () => {});
     guest.emit('destroyed');
     expect(browser.events.at(-1)).toBe('release tab1');
     expect(guest.listenerCount('did-stop-loading')).toBe(0);
@@ -71,7 +84,7 @@ describe('moveAsAgent', () => {
     vi.useFakeTimers();
     const guest = new FakeGuest();
     browser.guest = guest;
-    moveAsAgent({ browser }, 'tab1', () => {});
+    moveAsAgent({ browser, person }, 'tab1', () => {});
     vi.advanceTimersByTime(CALL_DEADLINE_MS - 1);
     expect(browser.events).not.toContain('release tab1');
     vi.advanceTimersByTime(1);
@@ -82,11 +95,11 @@ describe('moveAsAgent', () => {
   it('lets go at once of a move that throws, and throws', () => {
     browser.guest = new FakeGuest();
     expect(() =>
-      moveAsAgent({ browser }, 'tab1', () => {
+      moveAsAgent({ browser, person }, 'tab1', () => {
         throw new Error('There is no such tab.');
       }),
     ).toThrow('There is no such tab.');
-    expect(browser.events).toEqual(['hold tab1 mount=false', 'release tab1']);
+    expect(browser.events).toEqual(['move noted tab1', 'hold tab1 mount=false', 'release tab1']);
     expect(browser.guest.listenerCount('did-stop-loading')).toBe(0);
   });
 });

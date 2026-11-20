@@ -13,6 +13,7 @@ const partition = { name: 'partition of w1' };
 let handlers: Map<string, Handler>;
 let service: Record<string, ReturnType<typeof vi.fn>>;
 let authAnswer: ReturnType<typeof vi.fn>;
+let personNavigated: ReturnType<typeof vi.fn<(tabId: string) => void>>;
 let workspace: string | undefined;
 let window: { once: ReturnType<typeof vi.fn> } | undefined;
 let contents: Map<number, Partial<WebContents>>;
@@ -62,6 +63,7 @@ beforeEach(() => {
     clearBrowsingData: vi.fn(async () => {}),
   };
   authAnswer = vi.fn(() => true);
+  personNavigated = vi.fn<(tabId: string) => void>();
   deps = {
     ipc: {
       handle: (channel, listener) => handlers.set(channel, listener as Handler),
@@ -75,6 +77,7 @@ beforeEach(() => {
     sessionForWorkspace: () => partition,
     saveCapture: async (sessionId) => `/captures/${sessionId}/x.png`,
     localServersFor: async () => [{ port: 5173, command: 'vite', url: 'http://localhost:5173' }],
+    personNavigated,
   };
   registerBrowserHandlers(deps);
 });
@@ -173,6 +176,41 @@ describe('tab-scoped handlers', () => {
   it('navigate answers false when refused', () => {
     expect(call(IPC_CHANNELS.BROWSER_NAVIGATE, 't-foreign', 'https://a.com')).toBe(false);
     expect(call(IPC_CHANNELS.BROWSER_NAVIGATE, 't-mine', 'https://a.com')).toBe(true);
+  });
+
+  const moving: readonly string[] = [
+    IPC_CHANNELS.BROWSER_NAVIGATE,
+    IPC_CHANNELS.BROWSER_BACK,
+    IPC_CHANNELS.BROWSER_FORWARD,
+    IPC_CHANNELS.BROWSER_RELOAD,
+    IPC_CHANNELS.BROWSER_HARD_RELOAD,
+  ];
+  const toolbarMoves = tabCalls.filter(([channel]) => moving.includes(channel));
+
+  it.each(toolbarMoves)(
+    "%s is the person's input on the tab, heard before the tab moves",
+    (channel, method, extra) => {
+      service[method].mockImplementation(() => {
+        expect(personNavigated).toHaveBeenCalledWith('t-mine');
+        return true;
+      });
+      call(channel, 't-mine', ...extra);
+      expect(personNavigated).toHaveBeenCalledTimes(1);
+      expect(service[method]).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it.each(toolbarMoves)('%s on a foreign tab is nobody’s input', (channel, _method, extra) => {
+    call(channel, 't-foreign', ...extra);
+    expect(personNavigated).not.toHaveBeenCalled();
+  });
+
+  it('nothing but a move from the toolbar counts as the person navigating', () => {
+    for (const [channel, , extra] of tabCalls) {
+      if (moving.includes(channel)) continue;
+      call(channel, 't-mine', ...extra);
+    }
+    expect(personNavigated).not.toHaveBeenCalled();
   });
 });
 

@@ -56,6 +56,11 @@ export class LivePages {
     this.calls.delete(tabId);
   }
 
+  /** The live tabs a window mounts the pages of. */
+  public tabsIn(window: BrowserWindow): string[] {
+    return [...this.pages].filter(([, owner]) => owner === window).map(([tabId]) => tabId);
+  }
+
   /** The window showing this tab right now, if any. */
   public windowShowing(tabId: string): BrowserWindow | undefined {
     for (const [window, shown] of this.visible) if (shown === tabId) return window;

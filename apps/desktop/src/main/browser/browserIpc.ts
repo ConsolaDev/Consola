@@ -26,6 +26,12 @@ export interface BrowserIpcDeps {
   webContentsFromId(id: number): WebContents | undefined;
   /** The Electron session of a workspace's browser partition. */
   sessionForWorkspace(workspaceId: string): unknown;
+  /**
+   * The person moved a tab from Consola's toolbar: their input on it, as a
+   * press in its page is (`PersonInput.notePersonNavigation`). Only these
+   * handlers call it; an agent's moves never come through here.
+   */
+  personNavigated(tabId: string): void;
 }
 
 const CHANNELS = [
@@ -74,6 +80,12 @@ export function registerBrowserHandlers(deps: BrowserIpcDeps): { remove(): void 
     const workspaceId = deps.workspaceForSender(event.sender);
     return !!workspaceId && deps.sessionInWorkspace(sessionId, workspaceId);
   };
+  /** One of the window's own tabs, which the person is moving: heard as theirs first. */
+  const movedByPerson = (event: IpcMainInvokeEvent, tabId: string): boolean => {
+    if (!ownedTab(event, tabId)) return false;
+    deps.personNavigated(tabId);
+    return true;
+  };
 
   ipc.handle(
     IPC_CHANNELS.BROWSER_GET,
@@ -95,24 +107,26 @@ export function registerBrowserHandlers(deps: BrowserIpcDeps): { remove(): void 
   ipc.handle(IPC_CHANNELS.BROWSER_ACTIVATE, (event, tabId: string) => {
     if (ownedTab(event, tabId)) service.activateTab(tabId);
   });
+  // The person's own moves of a tab: what its page loads next, and a download
+  // it starts in the next 3 s, are theirs (`decideDownload`).
   ipc.handle(IPC_CHANNELS.BROWSER_NAVIGATE, (event, tabId: string, url: string): boolean =>
-    ownedTab(event, tabId) ? service.navigate(tabId, String(url ?? '')) : false,
+    movedByPerson(event, tabId) ? service.navigate(tabId, String(url ?? '')) : false,
   );
   ipc.handle(IPC_CHANNELS.BROWSER_BACK, (event, tabId: string) => {
-    if (ownedTab(event, tabId)) service.goBack(tabId);
+    if (movedByPerson(event, tabId)) service.goBack(tabId);
   });
   ipc.handle(IPC_CHANNELS.BROWSER_FORWARD, (event, tabId: string) => {
-    if (ownedTab(event, tabId)) service.goForward(tabId);
+    if (movedByPerson(event, tabId)) service.goForward(tabId);
   });
   ipc.handle(IPC_CHANNELS.BROWSER_RELOAD, (event, tabId: string) => {
-    if (ownedTab(event, tabId)) service.reload(tabId);
+    if (movedByPerson(event, tabId)) service.reload(tabId);
   });
   ipc.handle(IPC_CHANNELS.BROWSER_STOP, (event, tabId: string) => {
     if (ownedTab(event, tabId)) service.stop(tabId);
   });
 
   ipc.handle(IPC_CHANNELS.BROWSER_HARD_RELOAD, (event, tabId: string) => {
-    if (ownedTab(event, tabId)) service.hardReload(tabId);
+    if (movedByPerson(event, tabId)) service.hardReload(tabId);
   });
   ipc.handle(
     IPC_CHANNELS.BROWSER_FIND,
