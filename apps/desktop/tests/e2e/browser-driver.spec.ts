@@ -92,12 +92,23 @@ async function unseenTab(page: Page, seeded: Seeded): Promise<string> {
   return tab!.id;
 }
 
-/** Main's globals as these tests use them: the test hook, and a call a test holds open. */
+/** The part of Playwright's page in main these tests use. */
+interface DriverPage {
+  locator(selector: string): { click(options?: { timeout?: number }): Promise<void> };
+  waitForFunction(
+    expression: string,
+    arg?: unknown,
+    options?: { timeout?: number },
+  ): Promise<unknown>;
+}
+
+/** Main's globals as these tests use them: the test hook, and calls a test holds open. */
 interface MainGlobals {
   __consolaTest: {
     browserAgent: {
       calls: { beginToolCall(tabId: string): Promise<{ end(): void }> };
       driver: {
+        withPage(tabId: string, use: (page: DriverPage) => Promise<unknown>): Promise<unknown>;
         snapshot(
           tabId: string,
           options: { screenshot?: boolean },
@@ -113,6 +124,7 @@ interface MainGlobals {
     };
   };
   __heldCall?: { end(): void };
+  __waiting?: { started: boolean; outcome?: string };
 }
 
 /** Starts an agent call on the tab and leaves it open, as a slow tool would. */
@@ -208,6 +220,86 @@ function pageHasFocus(app: ElectronApplication, urlPrefix: string): Promise<bool
   }, urlPrefix);
 }
 
+/** Clicks the element an outline's ref names, through the driver, as an agent's act would; the error, if any. */
+function clickRef(app: ElectronApplication, tabId: string, ref: string): Promise<string | null> {
+  return app.evaluate(
+    async (_electron, args) => {
+      const { driver } = (globalThis as unknown as MainGlobals).__consolaTest.browserAgent;
+      try {
+        await driver.withPage(args.tabId, (page) =>
+          page.locator(`aria-ref=${args.ref}`).click({ timeout: 5_000 }),
+        );
+        return null;
+      } catch (error) {
+        return error instanceof Error ? error.message : String(error);
+      }
+    },
+    { tabId, ref },
+  );
+}
+
+/**
+ * Starts a call whose step waits on the page, as a slow tool's would, and
+ * leaves it running; `waitingOutcome` reads how it ended.
+ */
+async function startWaitingCall(app: ElectronApplication, tabId: string): Promise<void> {
+  await app.evaluate((_electron, id) => {
+    const main = globalThis as unknown as MainGlobals;
+    const waiting: { started: boolean; outcome?: string } = { started: false };
+    main.__waiting = waiting;
+    void main.__consolaTest.browserAgent.driver
+      .withPage(id, (page) => {
+        waiting.started = true;
+        return page.waitForFunction('false', undefined, { timeout: 9_000 });
+      })
+      .then(
+        () => {
+          waiting.outcome = 'finished';
+        },
+        (error: unknown) => {
+          waiting.outcome = error instanceof Error ? error.message : String(error);
+        },
+      );
+  }, tabId);
+  await expect
+    .poll(() => app.evaluate(() => (globalThis as unknown as MainGlobals).__waiting?.started))
+    .toBe(true);
+}
+
+function waitingOutcome(app: ElectronApplication): Promise<string | undefined> {
+  return app.evaluate(() => (globalThis as unknown as MainGlobals).__waiting?.outcome);
+}
+
+/**
+ * The person opens or closes DevTools on the page, as main sees it. A real
+ * DevTools window would appear on screen in a run that must stay hidden
+ * (Electron has no way to open one unseen, and DevTools drawn into a hidden
+ * window of our own never counts as open), so the page says what Electron 43
+ * says when the person opens it: `isDevToolsOpened()` answers true, and the
+ * guest emits `devtools-opened`. That is all main reads; the debugger, the
+ * relay and the driver underneath are the real ones.
+ */
+function setDevToolsOpen(app: ElectronApplication, urlPrefix: string, open: boolean) {
+  return app.evaluate(
+    ({ webContents }, args) => {
+      const guest = webContents
+        .getAllWebContents()
+        .find((c) => c.getType() === 'webview' && c.getURL().startsWith(args.prefix));
+      if (!guest) throw new Error(`no guest at ${args.prefix}`);
+      const asked = guest as unknown as { isDevToolsOpened?: () => boolean };
+      if (args.open) {
+        // Its own property, over the prototype's, on the one object main holds for this page.
+        asked.isDevToolsOpened = () => true;
+        guest.emit('devtools-opened');
+      } else {
+        delete asked.isDevToolsOpened;
+        guest.emit('devtools-closed');
+      }
+    },
+    { prefix: urlPrefix, open },
+  );
+}
+
 /** What has the keyboard in the host document, as a short description. */
 function hostFocus(page: Page): Promise<string> {
   return page.evaluate(() => {
@@ -244,8 +336,10 @@ test.describe('an agent call on a page', () => {
     const focusBefore = await hostFocus(page);
 
     await beginCall(app, tabId);
-    // The window mounted it for the call: painting but unseen, and the panel stays shut.
+    // The window mounted it for the call: painting but unseen, and the panel
+    // stays shut. Out of the person's reach: it covers the window, invisibly.
     await expect(pageElement(page, tabId)).toHaveAttribute('data-presence', 'painting');
+    await expect(pageElement(page, tabId)).toHaveAttribute('inert', '');
     await expect(panel(page)).toBeHidden();
     await expect.poll(async () => (await guestFacts(app, url)).title).toBe('Agent fixture');
     // Everything the page does as it loads happens before the agent connects.
@@ -306,9 +400,17 @@ test.describe('an agent call on a page', () => {
     expect(again.consoleErrors).toEqual([]);
     expect(again.failedRequests).toEqual([]);
 
+    // Inert keeps the person out, not the agent: its input still reaches the page.
+    const greet = seen.outline?.match(/button "Greet" \[ref=(e\d+)\]/)?.[1] ?? '';
+    expect(await clickRef(app, tabId, greet)).toBeNull();
+    // "Hi, " with an empty name, which Chromium trims.
+    await expect.poll(async () => (await guestFacts(app, url)).title).toBe('Hi,');
+    await expect(pageElement(page, tabId)).toHaveAttribute('inert', '');
+
     // The call ends: the page stays live but stops painting, and the agent's mark goes.
     await endCall(app);
     await expect(pageElement(page, tabId)).toHaveAttribute('data-presence', 'hidden');
+    await expect(pageElement(page, tabId)).not.toHaveAttribute('inert');
     expect(
       (await page.evaluate((id) => window.browserAPI.get(id), seeded.alpha)).tabs[0],
     ).toMatchObject({ live: true, agentActive: false });
@@ -319,7 +421,8 @@ test.describe('an agent call on a page', () => {
     // and a painted image, since a hidden guest keeps its size.
     const hiddenRead = await snapshotOf(app, tabId, true);
     expect(hiddenRead.error).toBeUndefined();
-    expect(hiddenRead.outline).toMatch(/button "Greet" \[ref=e\d+\]/);
+    // `[active]` since the click: the button has the page's own focus.
+    expect(hiddenRead.outline).toMatch(/button "Greet" \[active\] \[ref=e\d+\]/);
     expect(hiddenRead.screenshotError).toBeUndefined();
     expect(Math.max(...(hiddenRead.image?.centre ?? [0]))).toBeGreaterThan(200);
     await expect(pageElement(page, tabId)).toHaveAttribute('data-presence', 'hidden');
@@ -345,39 +448,30 @@ test.describe('an agent call on a page', () => {
     const tabId = await unseenTab(page, seeded);
     const url = fixtures.url('/agent.html');
 
+    const devToolsOpen = 'DevTools is open on this tab; close it to let the agent use the page.';
+
     const first = await snapshotOf(app, tabId);
     expect(first.error).toBeUndefined();
     expect(first.consoleErrors).toContain('fixture: something broke');
     expect((await guestFacts(app, url)).debuggerAttached).toBe(true);
 
-    // The person opens DevTools on the page, detached as the More menu does
-    // it, without activating it. (DevTools drawn into a hidden window of our
-    // own fires `devtools-opened` but never counts as open, so it cannot
-    // stand in for the person's.)
-    await app.evaluate(({ webContents }, prefix) => {
-      const guest = webContents
-        .getAllWebContents()
-        .find((c) => c.getType() === 'webview' && c.getURL().startsWith(prefix));
-      if (!guest) throw new Error('no guest');
-      guest.openDevTools({ mode: 'detach', activate: false });
-    }, url);
-    await expect.poll(async () => (await guestFacts(app, url)).devToolsOpen).toBe(true);
-    // The person wins: the agent's attachment is gone.
+    // The person opens DevTools on the page while a call is waiting on it.
+    await startWaitingCall(app, tabId);
+    await setDevToolsOpen(app, url, true);
+    expect((await guestFacts(app, url)).devToolsOpen).toBe(true);
+    // The person wins: the agent's attachment is gone, and its waiting step
+    // is cut off with the reason rather than Playwright's "Target closed".
     await expect.poll(async () => (await guestFacts(app, url)).debuggerAttached).toBe(false);
+    await expect.poll(() => waitingOutcome(app)).toBe(devToolsOpen);
 
+    // While it stays open, every call is refused, and none attaches.
     const refused = await snapshotOf(app, tabId);
-    expect(refused.error).toBe(
-      'DevTools is open on this tab; close it to let the agent use the page.',
-    );
+    expect(refused.error).toBe(devToolsOpen);
+    expect((await guestFacts(app, url)).debuggerAttached).toBe(false);
 
     // Closed again, the agent can connect, and is not told twice what it was told.
-    await app.evaluate(({ webContents }, prefix) => {
-      const guest = webContents
-        .getAllWebContents()
-        .find((c) => c.getType() === 'webview' && c.getURL().startsWith(prefix));
-      guest?.closeDevTools();
-    }, url);
-    await expect.poll(async () => (await guestFacts(app, url)).devToolsOpen).toBe(false);
+    await setDevToolsOpen(app, url, false);
+    expect((await guestFacts(app, url)).devToolsOpen).toBe(false);
     const after = await snapshotOf(app, tabId);
     expect(after.error).toBeUndefined();
     expect(after.outline).toMatch(/button "Greet" \[ref=e\d+\]/);

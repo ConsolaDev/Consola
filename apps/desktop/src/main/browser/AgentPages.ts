@@ -1,5 +1,6 @@
 import type { WebContents } from 'electron';
 import type { BrowserService, PageAvailability } from './BrowserService';
+import { DEVTOOLS_OPEN_MESSAGE } from './CdpRelay';
 
 /** How long a call waits for the window to mount a tab's page and bind it. */
 export const ENSURE_LIVE_TIMEOUT_MS = 15_000;
@@ -54,12 +55,18 @@ export class AgentPages {
 
   /**
    * Starts a call on a tab and resolves once its page is bound. Refuses a
-   * tab with no page to have, and gives up after `ENSURE_LIVE_TIMEOUT_MS`.
-   * The tab is held from the start, so it is exempt from unloading and
-   * marked as the agent's; a refusal or a timeout lets go of it again.
+   * tab with no page to have, or one whose page has DevTools open, and gives
+   * up after `ENSURE_LIVE_TIMEOUT_MS`. Refusals come before anything is held.
+   * From then on the tab is held, so it is exempt from unloading and marked
+   * as the agent's; a timeout lets go of it again.
    */
   public async beginToolCall(tabId: string): Promise<AgentCall> {
-    const refusal = refusalFor(this.browser.pageAvailability(tabId));
+    const refusal =
+      refusalFor(this.browser.pageAvailability(tabId)) ??
+      // The person has the page (the relay would refuse too, but only once
+      // the hold had marked the tab as the agent's). A tab with no page has
+      // no DevTools.
+      (this.browser.guestFor(tabId)?.isDevToolsOpened() ? DEVTOOLS_OPEN_MESSAGE : null);
     if (refusal) throw new Error(refusal);
     const end = this.browser.holdForToolCall(tabId);
     if (!end) throw new Error(NO_TAB_MESSAGE);

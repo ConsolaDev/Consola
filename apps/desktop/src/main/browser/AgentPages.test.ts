@@ -10,6 +10,7 @@ import {
   type AgentPagesBrowser,
 } from './AgentPages';
 import type { PageAvailability } from './BrowserService';
+import { DEVTOOLS_OPEN_MESSAGE } from './CdpRelay';
 
 /** The parts of `BrowserService` a call uses, with what it did recorded. */
 class FakeBrowser implements AgentPagesBrowser {
@@ -55,7 +56,8 @@ class FakeBrowser implements AgentPagesBrowser {
   }
 }
 
-const guest = (id: number) => ({ id }) as unknown as WebContents;
+const guest = (id: number, devToolsOpen = false) =>
+  ({ id, isDevToolsOpened: () => devToolsOpen }) as unknown as WebContents;
 
 let browser: FakeBrowser;
 let pages: AgentPages;
@@ -132,6 +134,20 @@ describe('AgentPages.beginToolCall', () => {
     await expect(pages.beginToolCall('tab1')).rejects.toThrow(message);
     expect(browser.holds.tab1 ?? 0).toBe(0);
     expect(browser.watching).toBe(0);
+  });
+
+  it('refuses a page the person has DevTools open on, before holding its tab', async () => {
+    browser.availability.tab1 = 'ready';
+    browser.guests.tab1 = guest(7, true);
+    await expect(pages.beginToolCall('tab1')).rejects.toThrow(DEVTOOLS_OPEN_MESSAGE);
+    // Never held, so the tab was never marked as the agent's, even for a moment.
+    expect(browser.holds.tab1 ?? 0).toBe(0);
+    expect(browser.releases).toEqual([]);
+    expect(browser.watching).toBe(0);
+
+    browser.guests.tab1 = guest(7, false);
+    (await pages.beginToolCall('tab1')).end();
+    expect(browser.releases).toEqual(['tab1']);
   });
 
   it('asks a person to open the workspace when no window holds it', () => {
