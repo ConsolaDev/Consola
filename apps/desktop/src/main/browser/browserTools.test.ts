@@ -13,7 +13,7 @@ import type { Workspace } from '../../shared/workspace';
 import { makeSession, makeWorkspace } from '../conductor/ConductorTools.test-helpers';
 import { buildSessionServer } from '../mcp/buildSessionServer';
 import { ToolRegistry } from '../tools/Tool';
-import { NO_WINDOW_MESSAGE } from './AgentPages';
+import { BLANK_TAB_MESSAGE, NO_WINDOW_MESSAGE } from './AgentPages';
 import { ANOTHER_SESSION_MESSAGE } from './browserToolAccess';
 import { browserTools, type BrowserToolsBrowser } from './browserTools';
 import { UNTRUSTED_NOTE } from './browserToolResults';
@@ -383,6 +383,15 @@ describe('consola_browser_status', () => {
     expect(snapshot).not.toHaveBeenCalled();
   });
 
+  it('lists no servers, and still the tabs, when the scan fails', async () => {
+    localServers.mockRejectedValue(new Error('lsof went away'));
+    const { text, isError } = await call('w-1', 'consola_browser_status');
+    expect(isError).toBe(false);
+    const status = afterNote(text) as { tabs: unknown[]; localServers: unknown[] };
+    expect(status.localServers).toEqual([]);
+    expect(status.tabs).toHaveLength(2);
+  });
+
   it('lists a dialog a page is waiting on, under the note, on its tab only', async () => {
     held['mine-agent'] = { type: 'confirm', message: 'Delete everything?' };
     const { text } = await call('w-1', 'consola_browser_status');
@@ -415,6 +424,18 @@ describe('consola_browser_open', () => {
     expect(downloadFrom(tabId, 'agent')).toBe('cancel');
     person.noteInput(tabId);
     expect(downloadFrom(tabId, 'agent')).toBe('allow');
+  });
+
+  it('opens a search for words that are not an address, and says it did', async () => {
+    const { text, isError } = await call('w-1', 'consola_browser_open', {
+      url: 'vite config docs',
+    });
+    expect(isError).toBe(false);
+    expect(JSON.parse(text)).toEqual({
+      tabId: 'opened-1',
+      url: 'https://duckduckgo.com/?q=vite%20config%20docs',
+      summary: 'Not an address, so it opened a search. Take a snapshot to read the page.',
+    });
   });
 
   it('refuses an address that is not a web page', async () => {
@@ -519,6 +540,27 @@ describe('consola_browser_navigate', () => {
   it('marks nothing for a move it refuses', async () => {
     await call('w-1', 'consola_browser_navigate', { tabId: 'mine-agent', action: 'forward' });
     await call('w-1', 'consola_browser_navigate', { tabId: 'mine-agent', url: 'file:///etc' });
+    expect(browser.log).toEqual([]);
+  });
+
+  it('refuses an address that is not a web page, and moves nothing', async () => {
+    const result = await call('w-1', 'consola_browser_navigate', {
+      tabId: 'mine-person',
+      url: 'file:///etc/passwd',
+    });
+    expect(result).toMatchObject({
+      isError: true,
+      text: 'Consola only opens web pages, not file: addresses.',
+    });
+    expect(browser.navigated).toEqual([]);
+  });
+
+  it.each(['back', 'forward', 'reload'])('refuses %s on a blank tab', async (action) => {
+    browser.add('w-1', { id: 'mine-blank', url: '' });
+    browser.live['mine-blank'] = { live: false, canGoBack: true, canGoForward: true };
+    const result = await call('w-1', 'consola_browser_navigate', { tabId: 'mine-blank', action });
+    expect(result).toMatchObject({ isError: true, text: BLANK_TAB_MESSAGE });
+    expect(browser.moves).toEqual([]);
     expect(browser.log).toEqual([]);
   });
 
