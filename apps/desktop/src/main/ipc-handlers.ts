@@ -1260,7 +1260,7 @@ export function setupIpcHandlers(): boolean {
   usageLimitService = usageLimits;
   usageLimits.load();
   usageLimits.onChange((state) => {
-    for (const window of BrowserWindow.getAllWindows()) {
+    for (const window of consolaWindows()) {
       if (!window.isDestroyed()) window.webContents.send(IPC_CHANNELS.USAGE_LIMITS_CHANGED, state);
     }
   });
