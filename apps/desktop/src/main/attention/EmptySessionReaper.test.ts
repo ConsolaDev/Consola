@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type { Attention } from '../../shared/attention';
 import { NEW_SESSION_NAME, type Session, type Workspace } from '../../shared/workspace';
 import { makeSession, makeWorkspace } from '../conductor/ConductorTools.test-helpers';
+import { BrowserService } from '../browser/BrowserService';
+import { BrowserStateStore } from '../browser/BrowserStateStore';
 import { browsedIn, EmptySessionReaper, mayBeEmpty } from './EmptySessionReaper';
 
 const blank = (id: string, extra: Partial<Session> = {}) =>
@@ -138,6 +140,35 @@ describe('EmptySessionReaper and the browser', () => {
     });
     expect(await failing.sweep()).toEqual([]);
     expect(removed).toEqual([]);
+    expect(reads).toEqual([]);
+  });
+
+  it('keeps every empty session when the browser’s state file could not be read', async () => {
+    // As main wires it: the stored tabs, through the real store and service.
+    const browserOver = (read: () => unknown) => {
+      const store = new BrowserStateStore({ read, write: () => {} });
+      store.load();
+      return new BrowserService({
+        store,
+        workspaceIdForSession: () => 'w1',
+        findWindowForWorkspace: () => undefined,
+        send: () => {},
+        clearPartition: () => {},
+        every: () => () => {},
+      });
+    };
+    const lost = browserOver(() => {
+      throw new Error('Could not read browser-state.json or its backup');
+    });
+    given(blank('a'));
+    const afterLoss = reaper({ browserTabs: (session) => lost.storedTabsFor(session.id) });
+    expect(await afterLoss.sweep()).toEqual([]);
+    expect(reads).toEqual([]);
+
+    // A file that was never written is no loss: nothing was there to keep.
+    const none = browserOver(() => null);
+    const firstRun = reaper({ browserTabs: (session) => none.storedTabsFor(session.id) });
+    expect(await firstRun.sweep()).toEqual(['a']);
   });
 
   it('keeps a session that got a page while its transcript was read', async () => {

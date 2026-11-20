@@ -1,3 +1,6 @@
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   MAX_HISTORY_PER_WORKSPACE,
@@ -12,6 +15,7 @@ import {
   normalizeBrowserState,
   normalizeSessionBrowser,
 } from './BrowserStateStore';
+import { JsonStateFile } from '../state/JsonStateFile';
 
 /** A web address of exactly `length` characters. */
 const addressOf = (length: number, origin = 'https://long.example.com') =>
@@ -162,6 +166,44 @@ describe('BrowserStateStore', () => {
     });
     expect(() => broken.load()).not.toThrow();
     expect(broken.sessionIds()).toEqual([]);
+  });
+
+  it('remembers a load that failed, for the rest of the run', () => {
+    const broken = new BrowserStateStore({
+      read: () => {
+        throw new Error('corrupt');
+      },
+      write: () => {},
+    });
+    broken.load();
+    expect(broken.loadFailed).toBe(true);
+    // The tabs it held are not in memory, whatever is written from now on.
+    broken.setSession('s', session('a'));
+    broken.flush();
+    expect(broken.loadFailed).toBe(true);
+  });
+
+  it('does not count a file that was never written as a failed load', () => {
+    expect(store.loadFailed).toBe(false);
+  });
+
+  it('counts a state file nothing in which parses, and not a missing one', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-browser-state-'));
+    try {
+      const file = path.join(dir, 'browser-state.json');
+      const fresh = new BrowserStateStore(new JsonStateFile<BrowserStateFile>(file));
+      fresh.load();
+      expect(fresh.loadFailed).toBe(false);
+
+      fs.writeFileSync(file, '{"sessions": {');
+      fs.writeFileSync(`${file}.bak`, 'not json either');
+      const corrupt = new BrowserStateStore(new JsonStateFile<BrowserStateFile>(file));
+      corrupt.load();
+      expect(corrupt.loadFailed).toBe(true);
+      expect(corrupt.sessionIds()).toEqual([]);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('loads normalised state', () => {

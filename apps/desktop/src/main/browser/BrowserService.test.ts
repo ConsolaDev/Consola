@@ -128,6 +128,35 @@ describe('deleting a workspace', () => {
   });
 });
 
+describe('stored tabs, for a decision', () => {
+  it('answers a session’s stored tabs, none for a session without', () => {
+    service.openTab('s1', 'https://example.com/', 'person');
+    expect(service.storedTabsFor('s1')?.map((tab) => tab.url)).toEqual(['https://example.com/']);
+    expect(service.storedTabsFor('s2')).toEqual([]);
+  });
+
+  it('answers null after a failed load: the list is known to be wrong', () => {
+    const lost = new BrowserStateStore({
+      read: () => {
+        throw new Error('corrupt');
+      },
+      write: () => {},
+    });
+    lost.load();
+    const afterLoss = new BrowserService({
+      store: lost,
+      workspaceIdForSession: (id) => sessionWorkspace[id],
+      findWindowForWorkspace: () => undefined,
+      send: () => {},
+      clearPartition,
+      every: () => () => {},
+    });
+    afterLoss.openTab('s1', 'https://example.com/', 'person');
+    expect(afterLoss.storedTabsFor('s1')).toBeNull();
+    expect(afterLoss.storedTabsFor('s2')).toBeNull();
+  });
+});
+
 describe('tabs', () => {
   it('opens a tab, activates it and snapshots to the workspace window only', () => {
     const tab = service.openTab('s1', 'https://example.com/', 'person');

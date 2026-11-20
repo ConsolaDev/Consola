@@ -157,6 +157,15 @@ export class BrowserService {
   }
 
   /**
+   * A session's stored tabs, for a decision about the session: null while
+   * this run's load of the state file had failed, since the list is then
+   * known to be wrong (`BrowserStateStore.loadFailed`).
+   */
+  public storedTabsFor(sessionId: string): BrowserTab[] | null {
+    return this.deps.store.loadFailed ? null : this.listFor(sessionId);
+  }
+
+  /**
    * Opens a tab and makes it the one showing. An empty address is a tab for
    * the address bar to fill. Null when the session is unknown, the address is
    * not a web page, or the session is at its cap.

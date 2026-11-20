@@ -1257,7 +1257,8 @@ export function setupIpcHandlers(): boolean {
 
   // A settled session that never got a message is deleted rather than kept on
   // the shelf, where it would only be an empty row. Its CLI's own transcript
-  // says whether it ever got one.
+  // says whether it ever got one. One with a browser tab on an address was
+  // used all the same, and is kept.
   const emptySessions = new EmptySessionReaper({
     getWorkspaces: () => workspaces.getAll(),
     attention: () => attention.snapshot(),
@@ -1279,8 +1280,9 @@ export function setupIpcHandlers(): boolean {
       // What happens to a worktree is in the cleanup history; no window asked to hear it.
       await worktreeCleanupService.deleteForPerson(workspace, session, remove, () => {});
     },
-    // A session the person only browsed in was used: its tabs keep it.
-    browserTabs: (session) => browser.snapshotFor(session.id).tabs,
+    // A session the person only browsed in was used: its tabs keep it. Null,
+    // keeping every session, while the stored tab list is known to be wrong.
+    browserTabs: (session) => browser.storedTabsFor(session.id),
   });
   /** A hand settle, with what it shelved that never got a message deleted instead. */
   const removingEmpty = async <T extends SettleResult | SettleBatchResult>(

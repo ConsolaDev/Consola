@@ -141,8 +141,20 @@ export class BrowserStateStore {
   private sessions = new Map<string, SessionBrowser>();
   private history = new Map<string, BrowserHistoryEntry[]>();
   private timer: ReturnType<typeof setTimeout> | null = null;
+  private failedLoad = false;
 
   constructor(private readonly file: BrowserStateIO) {}
+
+  /**
+   * The file was there but could not be read or parsed (nor its backup), so
+   * the tabs in memory are not the ones the person had. A file never written
+   * is no failure. Held for the rest of the run: tabs opened from now on do
+   * not bring back the lost ones, so nothing that judges a session by its
+   * tabs (`EmptySessionReaper`) should trust the list until the next launch.
+   */
+  public get loadFailed(): boolean {
+    return this.failedLoad;
+  }
 
   /** Never fatal: losing this file costs open tabs, not transcripts. */
   public load(): void {
@@ -150,8 +162,10 @@ export class BrowserStateStore {
     try {
       stored = this.file.read();
     } catch {
+      this.failedLoad = true;
       return;
     }
+    this.failedLoad = false;
     const state = normalizeBrowserState(stored);
     this.sessions = new Map(Object.entries(state.sessions));
     this.history = new Map(Object.entries(state.history));
