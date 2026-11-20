@@ -470,6 +470,43 @@ test.describe('Home scopes and groups', () => {
     await expect(page.locator('.session-nav-item-scope')).toHaveCount(0);
   });
 
+  test("a conductor's children sit inside its tree, indented past it, never level with the list", async () => {
+    await app.close();
+    const file = path.join(`${userDataDir} Test`, 'workspaces.json');
+    const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const sessions: Array<{ id: string; kind: string; parentSessionId?: string }> =
+      data.workspaces[0].sessions;
+    sessions.find((candidate) => candidate.id === 's1')!.kind = 'conductor';
+    sessions.find((candidate) => candidate.id === 's2')!.parentSessionId = 's1';
+    fs.writeFileSync(file, JSON.stringify(data), 'utf8');
+    ({ app, page } = await launchElectron({ userDataDir }));
+    await holdWorkspace(page);
+
+    const tree = topList(page).locator('.tree-row');
+    await expect(tree).toHaveCount(1);
+    await expect(tree.locator('.tree-row-children')).toContainText('Fix flaky test');
+    const boxOf = async (name: string, selector: string) => {
+      const box = await rowFor(page, name).first().locator(selector).first().boundingBox();
+      if (!box) throw new Error(`${name} has no ${selector}`);
+      return box;
+    };
+    const nameOf = (name: string) => boxOf(name, '.session-nav-item-name');
+    const [root, conductor, child] = await Promise.all([
+      nameOf('Bump deps'),
+      nameOf('Controller boot'),
+      nameOf('Fix flaky test'),
+    ]);
+    // Each level one step further in. A child level with the list, or left of
+    // its own conductor, reads as a row of the list rather than of the tree.
+    expect(conductor.x).toBeGreaterThan(root.x);
+    expect(child.x).toBeGreaterThan(conductor.x);
+    // The child's row, hover and active background included, starts where its
+    // conductor's does rather than out at the list's edge.
+    const conductorRow = await rowFor(page, 'Controller boot').first().boundingBox();
+    const childRow = await rowFor(page, 'Fix flaky test').first().boundingBox();
+    expect(childRow!.x).toBeGreaterThanOrEqual(conductorRow!.x);
+  });
+
   test('session options share the selected scope without creating a session early', async () => {
     await chooseScope(page, 'shared-lib');
     await page.keyboard.press(
