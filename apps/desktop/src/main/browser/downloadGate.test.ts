@@ -2,12 +2,16 @@ import { EventEmitter } from 'node:events';
 import type { DownloadItem, WebContents } from 'electron';
 import { describe, expect, it, vi } from 'vitest';
 import type { BrowserTab } from '../../shared/browser';
-import { createDownloadGate, UninvitedDownloads } from './downloadGate';
+import { createDownloadGate, SessionDownloads } from './downloadGate';
 import type { DownloadPlaces } from './sessionPolicy';
 
-/** A tab's page. */
-class FakePage {
-  constructor(public readonly id: number) {}
+const T0 = 1_700_000_000_000;
+
+/** A tab's page: page n is tab tn's. */
+class FakePage extends EventEmitter {
+  constructor(public readonly id: number) {
+    super();
+  }
   isDestroyed() {
     return false;
   }
@@ -22,14 +26,10 @@ class FakeItem extends EventEmitter {
   getSavePath() {
     return this.savePath;
   }
-  /** The person chose where it goes; it carries on. */
+  /** The person answered the dialog with a place to save it. */
   saved() {
     this.savePath = '/Users/me/Downloads/report.csv';
     this.emit('updated', {}, 'progressing');
-  }
-  /** It ended: finished, cancelled at its dialog, or interrupted. */
-  done(state = 'cancelled') {
-    this.emit('done', {}, state);
   }
   asItem() {
     return this as unknown as DownloadItem;
@@ -44,33 +44,34 @@ const tab = (id: string): BrowserTab => ({
 });
 
 /**
- * Session s1's tabs: t1 the person opened, and t2, which t1's page opened by
- * script with no input. Session s2 has t3. Page n is tab tn's.
+ * Session s1's tabs: t1, which the person opened, and t2, which t1's page
+ * opened by script with no input. Session s2 has t3.
  */
 function setup() {
-  const inUse = new Set<string>();
+  const inputs = new Map<string, number>();
   const places: DownloadPlaces = {
     tabsForPage: (contents) => [tab(`t${contents.id}`)],
     popupOpener: () => undefined,
     handsOf: () => 'person',
-    personUsing: (of) => inUse.has(of.id),
+    personInputAt: (of) => inputs.get(of.id),
     sessionOf: (of) => (of.id === 't3' ? 's2' : 's1'),
   };
   const log = vi.fn();
-  const uninvited = new UninvitedDownloads();
-  const gate = createDownloadGate(places, uninvited, log);
+  const downloads = new SessionDownloads(() => T0);
+  const gate = createDownloadGate(places, downloads, log);
+  const pages = new Map<number, FakePage>();
   const download = (pageId: number) => {
+    const page = pages.get(pageId) ?? new FakePage(pageId);
+    pages.set(pageId, page);
     const item = new FakeItem();
-    return { item, decision: gate(new FakePage(pageId).asWebContents(), item.asItem()) };
+    return { item, decision: gate(page.asWebContents(), item.asItem()) };
   };
   /** The person presses in tab `tabId`: their input on it, and in its session. */
   const press = (tabId: string) => {
-    inUse.add(tabId);
-    uninvited.personInput(places.sessionOf(tab(tabId)) as string);
+    inputs.set(tabId, T0);
+    downloads.personInput(places.sessionOf(tab(tabId)) as string);
   };
-  /** The person-input guard has passed. */
-  const later = () => inUse.clear();
-  return { download, press, later, log };
+  return { download, press, log };
 }
 
 describe('the download gate', () => {
@@ -80,7 +81,7 @@ describe('the download gate', () => {
     expect(first.decision).toBe('allow');
     // The page's own new tab, a page of its own: still the session's one.
     expect(download(2).decision).toBe('cancel');
-    expect(log).toHaveBeenCalledWith(expect.stringContaining('save dialog is open'));
+    expect(log).toHaveBeenLastCalledWith(expect.stringContaining('save dialog is open'));
     first.item.saved();
     expect(download(2).decision).toBe('cancel');
     expect(log).toHaveBeenLastCalledWith(expect.stringContaining('since the person last used'));
@@ -88,19 +89,16 @@ describe('the download gate', () => {
     expect(download(3).decision).toBe('allow');
   });
 
-  it('lets the person’s own click through, and gives back one uninvited download for their next input', () => {
-    const { download, press, later } = setup();
-    const first = download(1);
-    // Their press on the tab: their click, even with the uninvited dialog waiting.
-    press('t2');
-    const theirs = download(2);
+  it('lets one of a burst after the person’s press through, and spends the press on it', () => {
+    const { download, press } = setup();
+    press('t1');
+    const theirs = download(1);
     expect(theirs.decision).toBe('allow');
-    later();
-    first.item.done();
-    theirs.item.done('completed');
-    // Their input in the session gave it one more uninvited download, and only one.
-    expect(download(2).decision).toBe('allow');
     expect(download(1).decision).toBe('cancel');
+    expect(download(1).decision).toBe('cancel');
+    theirs.item.saved();
+    // The press is spent: the next is the session's one uninvited download.
+    expect(download(1).decision).toBe('allow');
   });
 
   it('cancels a download that names no page, and logs why', () => {
@@ -110,10 +108,10 @@ describe('the download gate', () => {
         tabsForPage: () => [],
         popupOpener: () => undefined,
         handsOf: () => 'person',
-        personUsing: () => false,
+        personInputAt: () => undefined,
         sessionOf: () => 's1',
       },
-      new UninvitedDownloads(),
+      new SessionDownloads(),
       log,
     );
     expect(gate(undefined, new FakeItem().asItem())).toBe('cancel');

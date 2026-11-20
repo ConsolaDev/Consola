@@ -17,7 +17,7 @@ import { UNTRUSTED_NOTE } from './browserToolResults';
 import { NO_DIALOG_MESSAGE, type HeldDialog } from './PageDialogs';
 import { type DriverRelay, PAGE_CALL_TIMEOUT_MS, PageDriver } from './PageDriver';
 import { PERSON_INPUT_GUARD_MS, PERSON_USING_TAB_MESSAGE, PersonInput } from './PersonInput';
-import { decideDownload } from './sessionPolicy';
+import { decideDownload, QUIET_SESSION } from './sessionPolicy';
 
 const T0 = 1_700_000_000_000;
 
@@ -292,11 +292,12 @@ function downloadFrom(tabId: string, openedBy: 'person' | 'agent' = 'person') {
   return decideDownload(
     {
       kind: 'tabs',
+      tabIds: [tabId],
       hands: [person.handsOf(tabId, openedBy)],
-      personUsing: false,
+      personInputAt: [undefined],
       sessionIds: ['s'],
     },
-    { uninvitedWaiting: false, uninvitedSincePersonInput: false },
+    QUIET_SESSION,
   );
 }
 

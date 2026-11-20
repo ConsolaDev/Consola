@@ -20,7 +20,7 @@ import { UNTRUSTED_NOTE } from './browserToolResults';
 import type { PageSnapshot } from './PageDriver';
 import type { HeldDialog } from './PageDialogs';
 import { PersonInput } from './PersonInput';
-import { decideDownload } from './sessionPolicy';
+import { decideDownload, QUIET_SESSION } from './sessionPolicy';
 
 /** The parts of `BrowserService` the tools use: an in-memory tab list, with what was asked of it. */
 class FakeBrowser implements BrowserToolsBrowser {
@@ -248,11 +248,12 @@ function downloadFrom(tabId: string, openedBy: 'person' | 'agent') {
   return decideDownload(
     {
       kind: 'tabs',
+      tabIds: [tabId],
       hands: [person.handsOf(tabId, openedBy)],
-      personUsing: false,
+      personInputAt: [undefined],
       sessionIds: ['s'],
     },
-    { uninvitedWaiting: false, uninvitedSincePersonInput: false },
+    QUIET_SESSION,
   );
 }
 

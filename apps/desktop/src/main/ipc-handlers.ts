@@ -40,7 +40,7 @@ import { installPopupPolicy } from './browser/popupWindows';
 import { exposeToTests, isBackgroundTest } from './test-mode';
 import { forwardGuestShortcuts } from './browser/guestShortcuts';
 import { type DownloadPlaces, gateDownloads, partitionFor } from './browser/sessionPolicy';
-import { createDownloadGate, UninvitedDownloads } from './browser/downloadGate';
+import { createDownloadGate, SessionDownloads } from './browser/downloadGate';
 import { PersonInput, watchPersonInput } from './browser/PersonInput';
 import { PageDialogs } from './browser/PageDialogs';
 import { browserRefusal, closeConnectionsWithoutAccess } from './browser/browserToolAccess';
@@ -398,17 +398,20 @@ export function setupIpcHandlers(): boolean {
       return tabId ? browser.tabFor(tabId) : undefined;
     },
     handsOf: (tab) => personInput.handsOf(tab.id, tab.openedBy),
-    personUsing: (tab) => personInput.refusal(tab.id) !== null,
+    // Only an input within the guard counts; an older one names no click.
+    personInputAt: (tab) =>
+      personInput.refusal(tab.id) === null ? undefined : personInput.lastInput(tab.id),
     sessionOf: (tab) => browser.sessionIdForTab(tab.id),
   };
-  // A session's browser gets one download nobody asked for per stretch
-  // without the person's input; their next input in it gives that one back.
-  const uninvitedDownloads = new UninvitedDownloads();
+  // One save dialog at a time per session, one download per input of the
+  // person's, and one nobody asked for per stretch without their input; their
+  // next input in the session's browser gives that one back.
+  const sessionDownloads = new SessionDownloads();
   const stopHearingPerson = personInput.onInput((tabId) => {
     const sessionId = browser.sessionIdForTab(tabId);
-    if (sessionId) uninvitedDownloads.personInput(sessionId);
+    if (sessionId) sessionDownloads.personInput(sessionId);
   });
-  gateDownloads(createDownloadGate(downloadPlaces, uninvitedDownloads));
+  gateDownloads(createDownloadGate(downloadPlaces, sessionDownloads));
   exposeToTests('browserAgent', { calls: agentPages, driver, personInput, pageDialogs });
   // Watch each page from the moment it attaches: the renderer binds it only
   // after dom-ready, when its first load may already have finished or failed.
@@ -522,7 +525,7 @@ export function setupIpcHandlers(): boolean {
         all.flatMap((workspace) => workspace.sessions.map((session) => session.id)),
       );
       browser.prune(liveSessionIds, liveIds);
-      uninvitedDownloads.prune(liveSessionIds);
+      sessionDownloads.prune(liveSessionIds);
     });
     attentionLedger.prune(
       new Set(all.flatMap((workspace) => workspace.sessions.map((session) => session.id))),

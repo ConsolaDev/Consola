@@ -34,30 +34,49 @@ export type DownloadSource =
   /** Electron named no page. */
   | { kind: 'none' }
   /**
-   * A tab's page, or a popup window a tab's page opened: whose hands that tab
-   * is in, whether the person gave input on it within `PERSON_INPUT_GUARD_MS`,
-   * and its session. A page not bound to its tab yet may be any of several:
-   * it counts as in use only when every one of them is, and is judged by
-   * each of their sessions.
+   * A tab's page, or a popup window a tab's page opened: the tabs it may be
+   * (one once its page is bound; each its window has a page coming for until
+   * then), with whose hands each is in, when the person last gave input on
+   * each within `PERSON_INPUT_GUARD_MS` (undefined for none), and the sessions
+   * they are of.
    */
   | {
       kind: 'tabs';
+      tabIds: readonly string[];
       hands: readonly TabHands[];
-      personUsing: boolean;
+      personInputAt: ReadonlyArray<number | undefined>;
       sessionIds: readonly string[];
     }
   /** A page in a browser partition that is no tab's and no popup's main made. */
   | { kind: 'unknown' };
 
-/**
- * What a session's browser has already put on the person's screen unasked
- * (`UninvitedDownloads`), for the sessions a download may be from.
- */
-export interface SessionDownloadFacts {
-  /** An uninvited download's save dialog waits in the session now. */
-  uninvitedWaiting: boolean;
-  /** One has been shown in it since the person's last input on any of its tabs. */
+/** What the gate knows of a download's session and tabs (`SessionDownloads`). */
+export interface DownloadFacts {
+  /** A save dialog of a download this session's browser started waits now, invited or not. */
+  dialogWaiting: boolean;
+  /** A download was already allowed on the person's latest input on one of its tabs. */
+  inputSpent: boolean;
+  /** An uninvited download has been shown in the session since the person's last input on any of its tabs. */
   uninvitedSincePersonInput: boolean;
+}
+
+/** A session that has shown nothing, and spent nothing of the person's input. */
+export const QUIET_SESSION: DownloadFacts = {
+  dialogWaiting: false,
+  inputSpent: false,
+  uninvitedSincePersonInput: false,
+};
+
+/**
+ * Whether a download is the person's own: they gave input on its tab (every
+ * tab it may be) within `PERSON_INPUT_GUARD_MS`, and no download has been
+ * allowed on that input yet. One input pays for one download.
+ */
+export function isInvited(
+  source: Extract<DownloadSource, { kind: 'tabs' }>,
+  facts: DownloadFacts,
+): boolean {
+  return source.personInputAt.every((at) => at !== undefined) && !facts.inputSpent;
 }
 
 /**
@@ -75,24 +94,25 @@ export interface SessionDownloadFacts {
  *   in a browser partition itself, so one with no page is a page's that hid
  *   where it came from (a service worker, a frame that went). Cost if wrong:
  *   such a download is cancelled.
- * - The person's input on its tab within `PERSON_INPUT_GUARD_MS`: their own
+ * - A save dialog already waiting anywhere in the session, invited or not:
+ *   one at a time. A waiting dialog holds the window, so the person cannot
+ *   have clicked for a second one, and a page cannot stack them.
+ * - The person's input on its tab, not yet spent (`isInvited`): their own
  *   click, which goes on.
- * - Anything else is uninvited, and a session's browser gets one at a time
- *   and one per stretch without the person's input: none while another's
- *   dialog waits anywhere in the session, and none once one has been shown
- *   since the person's last input on any of its tabs. Per session, not per
- *   page: a page can open tabs with no input, each a page of its own, and
- *   would otherwise stack dialogs on the person's screen one tab at a time.
- *   One at all, since a page that starts its download after a countdown, or
- *   a server that answers the person's click late, is common. Cost if wrong:
- *   a site that starts a second delayed download more than 6 s after the
- *   person's last click in that session's browser has it cancelled; they
- *   click again.
+ * - Anything else is uninvited, and a session's browser gets one per
+ *   stretch without the person's input: none once one has been shown since
+ *   the person's last input on any of its tabs. Per session, not per page,
+ *   since a page can open tabs with no input, each a page of its own. One at
+ *   all, since a page that starts its download after a countdown, or a
+ *   server that answers the person's click late, is common.
+ *
+ * Cost if wrong: a page that offers two files from one click delivers the
+ * second only after the first dialog is answered, and a third needs another
+ * click; a site that starts a second delayed download more than 6 s after
+ * the person's last click in that session's browser has it cancelled, and
+ * they click again.
  */
-export function downloadRefusal(
-  source: DownloadSource,
-  session: SessionDownloadFacts,
-): string | null {
+export function downloadRefusal(source: DownloadSource, facts: DownloadFacts): string | null {
   switch (source.kind) {
     case 'none':
       return 'Cancelled a download that named no page.';
@@ -102,11 +122,11 @@ export function downloadRefusal(
       if (source.hands.length === 0 || source.hands.includes('agent')) {
         return "Cancelled a download from a tab in an agent's hands.";
       }
-      if (source.personUsing) return null;
-      if (session.uninvitedWaiting) {
-        return "Cancelled a download nobody asked for while another's save dialog is open in the session.";
+      if (facts.dialogWaiting) {
+        return 'Cancelled a download while another’s save dialog is open in the session.';
       }
-      if (session.uninvitedSincePersonInput) {
+      if (isInvited(source, facts)) return null;
+      if (facts.uninvitedSincePersonInput) {
         return 'Cancelled a download nobody asked for: the session has had one since the person last used its browser.';
       }
       return null;
@@ -114,11 +134,8 @@ export function downloadRefusal(
 }
 
 /** Whether a download may go on to its save dialog (`downloadRefusal`). */
-export function decideDownload(
-  source: DownloadSource,
-  session: SessionDownloadFacts,
-): DownloadDecision {
-  return downloadRefusal(source, session) === null ? 'allow' : 'cancel';
+export function decideDownload(source: DownloadSource, facts: DownloadFacts): DownloadDecision {
+  return downloadRefusal(source, facts) === null ? 'allow' : 'cancel';
 }
 
 /** What the gate places a download's page with. */
@@ -128,18 +145,18 @@ export interface DownloadPlaces {
   /** The tab whose page opened this popup window, when it is one main made. */
   popupOpener(contents: WebContents): BrowserTab | undefined;
   handsOf(tab: BrowserTab): TabHands;
-  /** Whether the person gave input on the tab within `PERSON_INPUT_GUARD_MS` (`PersonInput`). */
-  personUsing(tab: BrowserTab): boolean;
+  /** When the person last gave input on the tab, if within `PERSON_INPUT_GUARD_MS` (`PersonInput`). */
+  personInputAt(tab: BrowserTab): number | undefined;
   /** The session the tab belongs to, or undefined when none has it now. */
   sessionOf(tab: BrowserTab): string | undefined;
 }
 
 /**
  * Places the page a download came from. A popup window is judged by the tab
- * whose page opened it; a page of a tab by that tab, or, while its window has
- * not bound it yet (its first load can get there first), by each tab the
- * window has a page coming for. A page that is none of these, or is gone, or
- * whose tabs no session has, is `unknown`.
+ * whose page opened it, and so by its session; a page of a tab by that tab,
+ * or, while its window has not bound it yet (its first load can get there
+ * first), by each tab the window has a page coming for. A page that is none
+ * of these, or is gone, or whose tabs no session has, is `unknown`.
  */
 export function downloadSource(
   from: WebContents | undefined,
@@ -155,8 +172,9 @@ export function downloadSource(
   if (placed.length === 0) return { kind: 'unknown' };
   return {
     kind: 'tabs',
+    tabIds: placed.map(({ tab }) => tab.id),
     hands: placed.map(({ tab }) => places.handsOf(tab)),
-    personUsing: placed.every(({ tab }) => places.personUsing(tab)),
+    personInputAt: placed.map(({ tab }) => places.personInputAt(tab)),
     sessionIds: [...new Set(placed.map(({ sessionId }) => sessionId))],
   };
 }

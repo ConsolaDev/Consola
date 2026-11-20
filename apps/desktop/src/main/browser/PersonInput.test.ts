@@ -8,7 +8,7 @@ import {
   personIsUsing,
   watchPersonInput,
 } from './PersonInput';
-import { decideDownload } from './sessionPolicy';
+import { decideDownload, QUIET_SESSION } from './sessionPolicy';
 
 const T0 = 1_700_000_000_000;
 
@@ -51,11 +51,12 @@ describe('whose hands a tab is in', () => {
     decideDownload(
       {
         kind: 'tabs',
+        tabIds: [tabId],
         hands: [person.handsOf(tabId, openedBy)],
-        personUsing: false,
+        personInputAt: [undefined],
         sessionIds: ['s'],
       },
-      { uninvitedWaiting: false, uninvitedSincePersonInput: false },
+      QUIET_SESSION,
     );
 
   it("starts in its opener's: an agent's tab is the agent's, also after a restart nobody touched it in", () => {
