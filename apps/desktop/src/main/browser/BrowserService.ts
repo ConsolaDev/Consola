@@ -120,7 +120,7 @@ export class BrowserService {
   private readonly guests = new Map<string, LiveGuest>();
   private readonly live = new Map<string, LiveFields>();
   private readonly boundWatchers = new Set<(tabId: string, guest: WebContents) => void>();
-  private readonly goneWatchers = new Set<(tabId: string) => void>();
+  private readonly goneWatchers = new Set<(tabId: string, guest: WebContents) => void>();
   /** Guests attached but not yet bound, by guest id. */
   private readonly pending = new Map<number, PendingGuest>();
   /** The popup windows pages opened, closed with whatever owns them. */
@@ -330,10 +330,11 @@ export class BrowserService {
 
   /**
    * Calls `watcher` each time a tab's bound page is let go of, for whatever
-   * reason: closed, unloaded, destroyed, replaced, or its window gone.
+   * reason: closed, unloaded, destroyed, replaced, or its window gone. It is
+   * told which page went, so it can tell that from one the tab has now.
    * Returns the unsubscribe.
    */
-  public onGuestGone(watcher: (tabId: string) => void): () => void {
+  public onGuestGone(watcher: (tabId: string, guest: WebContents) => void): () => void {
     this.goneWatchers.add(watcher);
     return () => this.goneWatchers.delete(watcher);
   }
@@ -395,7 +396,7 @@ export class BrowserService {
     this.auth.cancelGuest(entry.guestId);
     entry.unsubscribe();
     this.guests.delete(tabId);
-    for (const watcher of this.goneWatchers) watcher(tabId);
+    for (const watcher of this.goneWatchers) watcher(tabId, entry.guest);
     // The guest is gone (destroyed, or its window let go): no page to keep.
     this.pages.drop(tabId);
     const found = this.find(tabId);
@@ -658,7 +659,7 @@ export class BrowserService {
     entry.unsubscribe();
     this.guests.delete(tabId);
     // Before the page is blanked, so whoever drives it lets go of it first.
-    for (const watcher of this.goneWatchers) watcher(tabId);
+    for (const watcher of this.goneWatchers) watcher(tabId, entry.guest);
     const { guest } = entry;
     if (guest.isDestroyed()) return;
     try {

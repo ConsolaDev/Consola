@@ -15,6 +15,19 @@ export const RELEASE_CONSOLE_EVERY = 200;
 export const CONNECT_TIMEOUT_MS = 15_000;
 /** How long one Playwright step on a page may take, unless a caller says otherwise. */
 export const PAGE_CALL_TIMEOUT_MS = 10_000;
+/**
+ * How long one call may run on its page in all, unless its caller allows
+ * longer (`CallOptions.deadlineMs`). A backstop for a step with no bound of
+ * its own, such as an `evaluate` or a page that stops answering: every
+ * bounded step of a snapshot fits within it (three at `PAGE_CALL_TIMEOUT_MS`),
+ * so only a stuck call meets it.
+ */
+export const CALL_DEADLINE_MS = 40_000;
+
+/** What a call stopped at its deadline answers. */
+export function pastDeadlineMessage(deadlineMs: number): string {
+  return `A call on this tab's page did not finish within ${deadlineMs / 1000} seconds, so it was stopped.`;
+}
 
 const NO_PAGE_MESSAGE = "Could not reach the tab's page.";
 const PAGE_GONE_MESSAGE = "The tab's page went away.";
@@ -36,6 +49,15 @@ export interface PageControl {
    * is not looking at must not believe it has focus.
    */
   setFocusEmulation(enabled: boolean): Promise<void>;
+}
+
+export interface CallOptions {
+  /**
+   * How long the call may run once its page is reached; `CALL_DEADLINE_MS`
+   * unless given. A call that waits on purpose (a `wait_for` with its own
+   * timeout) asks for more than that wait.
+   */
+  deadlineMs?: number;
 }
 
 export interface PageSnapshot {
@@ -69,10 +91,17 @@ export interface PageDriverDeps {
   /** Tests replace it; Playwright's `connectOverCDP` otherwise. */
   connect?(relay: DriverRelay): Promise<Browser>;
   now?(): number;
+  /** Tests replace it: calls `fire` after `ms` unless the stop it answers is called first. */
+  startTimer?(ms: number, fire: () => void): () => void;
 }
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function startTimer(ms: number, fire: () => void): () => void {
+  const timer = setTimeout(fire, ms);
+  return () => clearTimeout(timer);
 }
 
 async function connectPlaywright(relay: DriverRelay): Promise<Browser> {
@@ -144,6 +173,11 @@ class Connection {
   /** What a failed step means: the connection's end, if it ended, explains it best. */
   public explain(error: unknown): unknown {
     return this.closedReason ? new Error(this.closedReason) : error;
+  }
+
+  /** Throws the reason the connection ended, if it has. */
+  public ensureOpen(): void {
+    if (this.closedReason) throw new Error(this.closedReason);
   }
 
   public drain(): Pick<PageSnapshot, 'consoleErrors' | 'failedRequests' | 'dropped'> {
@@ -235,36 +269,52 @@ class Connection {
  * `BrowserService.onGuestGone`), the tab gets another page, the app quits
  * (`closeAll`), or its relay closes itself: when the person opens DevTools on
  * the page (the person wins, and the next call is refused while DevTools
- * stays open) or the page stops answering.
+ * stays open), the page stops answering, or a call on it runs past its
+ * deadline.
+ *
+ * What it keeps for a tab belongs to one page of it, the connection and what
+ * was reported alike, so news that arrives after the tab moved on to another
+ * page, or after a call was given up on, changes nothing.
  *
  * Nothing here focuses anything or brings a page to the front (Invariant 6).
  */
 export class PageDriver {
   private readonly connections = new Map<string, Connection>();
-  /** Per tab, the newest entry a snapshot reported, so a reconnect's replay is not reported twice. */
-  private readonly reportedUntil = new Map<string, number>();
+  /**
+   * Per tab, the page a snapshot last reported on and the newest entry it
+   * reported, so a reconnect's replay of that page is not reported twice.
+   */
+  private readonly reported = new Map<string, { guest: WebContents; until: number }>();
   private readonly openRelay: (guest: RelayGuest, options: CdpRelayOptions) => DriverRelay;
   private readonly connect: (relay: DriverRelay) => Promise<Browser>;
   private readonly now: () => number;
+  private readonly startTimer: (ms: number, fire: () => void) => () => void;
 
   constructor(private readonly deps: PageDriverDeps) {
     this.openRelay = deps.openRelay ?? ((guest, options) => CdpRelay.open(guest, options));
     this.connect = deps.connect ?? connectPlaywright;
     this.now = deps.now ?? Date.now;
+    this.startTimer = deps.startTimer ?? startTimer;
   }
 
   /**
    * Runs `use` on the tab's page during one agent call, and returns what it
-   * returns. Refuses as `AgentPages` does (no window, a blank tab, a page
-   * that does not start), and with `DEVTOOLS_OPEN_MESSAGE` while DevTools is
-   * open on the page. A step cut off because the connection ended fails with
-   * the reason it ended.
+   * returns. Refuses as `AgentPages` does (no window, a blank tab, DevTools
+   * open on the page, a page that does not start). A step cut off because the
+   * connection ended fails with the reason it ended, and a call still running
+   * at its deadline (`options.deadlineMs`, `CALL_DEADLINE_MS` by default)
+   * fails with `pastDeadlineMessage`.
    */
   public withPage<T>(
     tabId: string,
     use: (page: Page, control: PageControl) => Promise<T>,
+    options: CallOptions = {},
   ): Promise<T> {
-    return this.run(tabId, (page, connection) => use(page, connection.control));
+    return this.run(
+      tabId,
+      (page, connection) => use(page, connection.control),
+      options.deadlineMs ?? CALL_DEADLINE_MS,
+    );
   }
 
   /**
@@ -273,62 +323,84 @@ export class PageDriver {
    * asked, a PNG of it. A screenshot that fails still answers with the rest.
    */
   public snapshot(tabId: string, options: { screenshot?: boolean } = {}): Promise<PageSnapshot> {
-    return this.run(tabId, async (page, connection) => {
-      // A page the call just mounted is usually still loading. Its document
-      // is worth the wait; a page that never finishes parsing is read as is.
-      await page
-        .waitForLoadState('domcontentloaded', { timeout: PAGE_CALL_TIMEOUT_MS })
-        .catch(() => {});
-      const outline = await page.ariaSnapshot({ mode: 'ai', timeout: PAGE_CALL_TIMEOUT_MS });
-      let png: Buffer | undefined;
-      let screenshotError: string | undefined;
-      if (options.screenshot) {
-        try {
-          // CSS pixels: the page as laid out, at a size an agent can take in.
-          png = await page.screenshot({ type: 'png', scale: 'css', timeout: PAGE_CALL_TIMEOUT_MS });
-        } catch (error) {
-          if (!connection.isOpen) throw error;
-          screenshotError = messageOf(error);
+    return this.run(
+      tabId,
+      async (page, connection) => {
+        // A page the call just mounted is usually still loading. Its document
+        // is worth the wait; a page that never finishes parsing is read as is.
+        await page
+          .waitForLoadState('domcontentloaded', { timeout: PAGE_CALL_TIMEOUT_MS })
+          .catch(() => {});
+        const outline = await page.ariaSnapshot({ mode: 'ai', timeout: PAGE_CALL_TIMEOUT_MS });
+        let png: Buffer | undefined;
+        let screenshotError: string | undefined;
+        if (options.screenshot) {
+          try {
+            // CSS pixels: the page as laid out, at a size an agent can take in.
+            png = await page.screenshot({
+              type: 'png',
+              scale: 'css',
+              timeout: PAGE_CALL_TIMEOUT_MS,
+            });
+          } catch (error) {
+            if (!connection.isOpen) throw error;
+            screenshotError = messageOf(error);
+          }
         }
-      }
-      const title = await page.title();
-      const report = connection.drain();
-      this.noteReported(tabId, [...report.consoleErrors, ...report.failedRequests]);
-      connection.releaseLoggedObjects();
-      return {
-        url: page.url(),
-        title,
-        outline,
-        ...report,
-        ...(png ? { png } : {}),
-        ...(screenshotError ? { screenshotError } : {}),
-      };
-    });
+        // A call given up on at its deadline, or whose connection ended while
+        // it waited, reports nothing: what it collected stays unreported, and
+        // the next connection's replay still carries it.
+        connection.ensureOpen();
+        const report = connection.drain();
+        this.noteReported(tabId, connection.guest, [
+          ...report.consoleErrors,
+          ...report.failedRequests,
+        ]);
+        connection.releaseLoggedObjects();
+        return {
+          url: page.url(),
+          // From main, at once: Playwright's `page.title()` is a round trip
+          // to the page with no timeout of its own.
+          title: connection.guest.getTitle(),
+          outline,
+          ...report,
+          ...(png ? { png } : {}),
+          ...(screenshotError ? { screenshotError } : {}),
+        };
+      },
+      CALL_DEADLINE_MS,
+    );
   }
 
-  /** The tab's page is gone: its connection closes, and its report starts afresh. */
-  public forget(tabId: string): void {
-    this.reportedUntil.delete(tabId);
-    this.connections.get(tabId)?.close(PAGE_GONE_MESSAGE);
+  /**
+   * The tab's page `guest` is gone: its connection closes, and the tab's
+   * report starts afresh. News of a page the tab has since replaced changes
+   * nothing.
+   */
+  public forget(tabId: string, guest: WebContents): void {
+    if (this.reported.get(tabId)?.guest === guest) this.reported.delete(tabId);
+    const connection = this.connections.get(tabId);
+    if (connection?.guest === guest) connection.close(PAGE_GONE_MESSAGE);
   }
 
   /** The app is quitting. */
   public closeAll(): void {
     for (const connection of [...this.connections.values()]) connection.close(CLOSING_MESSAGE);
     this.connections.clear();
-    this.reportedUntil.clear();
+    this.reported.clear();
   }
 
   private async run<T>(
     tabId: string,
     use: (page: Page, connection: Connection) => Promise<T>,
+    deadlineMs: number,
   ): Promise<T> {
     const call = await this.deps.calls.beginToolCall(tabId);
     try {
       const connection = this.connectionFor(tabId, call.guest);
       const page = await connection.ready;
       try {
-        return await use(page, connection);
+        return await this.beforeDeadline(connection, deadlineMs, () => use(page, connection));
       } catch (error) {
         throw connection.explain(error);
       }
@@ -337,19 +409,47 @@ export class PageDriver {
     }
   }
 
+  /**
+   * What `work` answers, unless `deadlineMs` pass first. A promise cannot be
+   * cancelled, so giving up closes the connection the work runs on: every
+   * step still pending there fails at once instead of acting on the page
+   * after its call has let go of the tab, and the next call connects anew.
+   * Only that connection: if the tab has moved on to another, it stays.
+   */
+  private async beforeDeadline<T>(
+    connection: Connection,
+    deadlineMs: number,
+    work: () => Promise<T>,
+  ): Promise<T> {
+    let stop = () => {};
+    const deadline = new Promise<never>((_resolve, reject) => {
+      stop = this.startTimer(deadlineMs, () => {
+        const reason = pastDeadlineMessage(deadlineMs);
+        connection.close(reason);
+        reject(new Error(reason));
+      });
+    });
+    try {
+      const running = work();
+      // Once given up on, what it does is nobody's concern.
+      running.catch(() => {});
+      return await Promise.race([running, deadline]);
+    } finally {
+      stop();
+    }
+  }
+
   /** The tab's open connection to this page, or a new one (throws when the relay cannot open). */
   private connectionFor(tabId: string, guest: WebContents): Connection {
     const current = this.connections.get(tabId);
     if (current?.guest === guest && current.isOpen) return current;
-    if (current) {
-      current.close(NEW_PAGE_MESSAGE);
-      this.reportedUntil.delete(tabId);
-    }
+    current?.close(NEW_PAGE_MESSAGE);
+    if (this.reported.get(tabId)?.guest !== guest) this.reported.delete(tabId);
     const connection = new Connection(guest, {
       openRelay: this.openRelay,
       connect: this.connect,
       now: this.now,
-      reportedUntil: () => this.reportedUntil.get(tabId) ?? Number.NEGATIVE_INFINITY,
+      reportedUntil: () => this.reportedUntil(tabId, guest),
       closed: (closed) => {
         if (this.connections.get(tabId) === closed) this.connections.delete(tabId);
       },
@@ -358,9 +458,19 @@ export class PageDriver {
     return connection;
   }
 
-  private noteReported(tabId: string, entries: ReadonlyArray<{ at: number }>): void {
-    let newest = this.reportedUntil.get(tabId) ?? Number.NEGATIVE_INFINITY;
-    for (const entry of entries) newest = Math.max(newest, entry.at);
-    if (newest > Number.NEGATIVE_INFINITY) this.reportedUntil.set(tabId, newest);
+  /** The newest entry already reported for this page of the tab. */
+  private reportedUntil(tabId: string, guest: WebContents): number {
+    const reported = this.reported.get(tabId);
+    return reported?.guest === guest ? reported.until : Number.NEGATIVE_INFINITY;
+  }
+
+  private noteReported(
+    tabId: string,
+    guest: WebContents,
+    entries: ReadonlyArray<{ at: number }>,
+  ): void {
+    let until = this.reportedUntil(tabId, guest);
+    for (const entry of entries) until = Math.max(until, entry.at);
+    if (until > Number.NEGATIVE_INFINITY) this.reported.set(tabId, { guest, until });
   }
 }

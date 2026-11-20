@@ -337,7 +337,7 @@ export function setupIpcHandlers(): boolean {
   // connection ends with the page it drives.
   const agentPages = new AgentPages(browser);
   const driver = new PageDriver({ calls: agentPages });
-  const stopForgettingPages = browser.onGuestGone((tabId) => driver.forget(tabId));
+  const stopForgettingPages = browser.onGuestGone((tabId, guest) => driver.forget(tabId, guest));
   pageDriver = driver;
   exposeToTests('browserAgent', { calls: agentPages, driver });
   // Watch each page from the moment it attaches: the renderer binds it only

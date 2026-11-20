@@ -6,6 +6,7 @@ import type { AgentCall } from './AgentPages';
 import type { CdpRelayOptions } from './CdpRelay';
 import { DEVTOOLS_OPEN_MESSAGE } from './CdpRelay';
 import {
+  CALL_DEADLINE_MS,
   CONSOLE_ERRORS_KEPT,
   type DriverRelay,
   FAILED_REQUESTS_KEPT,
@@ -49,8 +50,13 @@ class FakeDebugger extends EventEmitter {
 class FakeGuest extends EventEmitter {
   readonly debugger = new FakeDebugger();
   devToolsOpen = false;
+  /** The title main reads from the page, without asking the page. */
+  title = 'Fixture';
   constructor(public readonly id: number) {
     super();
+  }
+  getTitle() {
+    return this.title;
   }
   asWebContents() {
     return this as unknown as WebContents;
@@ -84,7 +90,8 @@ class FakePage {
   ariaSnapshot = vi.fn(async (_options?: unknown) => this.outline);
   screenshot = vi.fn(async (_options?: unknown) => Buffer.from([0x89, 0x50, 0x4e, 0x47]));
   waitForLoadState = vi.fn(async (_state?: string, _options?: unknown) => {});
-  title = vi.fn(async () => 'Fixture');
+  /** A round trip to the page, which Playwright does not bound: never answers here. */
+  title = vi.fn(() => new Promise<string>(() => {}));
   bringToFront = vi.fn();
   url() {
     return 'http://127.0.0.1:3000/';
@@ -124,11 +131,29 @@ class FakeCalls {
   }
 }
 
+/** The timers the driver starts, fired by hand. */
+class FakeTimers {
+  readonly pending: Array<{ ms: number; fire: () => void }> = [];
+  readonly start = (ms: number, fire: () => void): (() => void) => {
+    const timer = { ms, fire };
+    this.pending.push(timer);
+    return () => {
+      const at = this.pending.indexOf(timer);
+      if (at >= 0) this.pending.splice(at, 1);
+    };
+  };
+  /** Every timer still pending, as if its time had come. */
+  fireAll() {
+    for (const timer of this.pending.splice(0)) timer.fire();
+  }
+}
+
 let calls: FakeCalls;
 let relays: FakeRelay[];
 let page: FakePage;
 let connect: ReturnType<typeof vi.fn<(relay: DriverRelay) => Promise<Browser>>>;
 let now: number;
+let timers: FakeTimers;
 let driver: PageDriver;
 let guest: FakeGuest;
 
@@ -137,6 +162,7 @@ beforeEach(() => {
   relays = [];
   page = new FakePage();
   now = T0 + 60_000;
+  timers = new FakeTimers();
   connect = vi.fn(async (_relay: DriverRelay) => fakeBrowser(page));
   driver = new PageDriver({
     calls,
@@ -149,6 +175,7 @@ beforeEach(() => {
     },
     connect,
     now: () => now,
+    startTimer: timers.start,
   });
   guest = new FakeGuest(1);
   calls.guests.tab1 = guest;
@@ -240,7 +267,7 @@ describe('letting go', () => {
   it('closes the connection when the tab’s page goes, and stops listening to it', async () => {
     await driver.withPage('tab1', async () => {});
     expect(listening(guest)).toBe(1);
-    driver.forget('tab1');
+    driver.forget('tab1', guest.asWebContents());
     expect(relays[0].isClosed).toBe(true);
     expect(listening(guest)).toBe(0);
     await driver.withPage('tab1', async () => {});
@@ -265,12 +292,27 @@ describe('letting go', () => {
     expect(relays.map((relay) => relay.isClosed)).toEqual([true, true]);
   });
 
+  it('a page that went is forgotten only while it is the one connected', async () => {
+    await driver.withPage('tab1', async () => {});
+    guest.debugger.consoleError('reported', T0 + 10);
+    await driver.snapshot('tab1');
+    // Late news of another page this tab once had changes nothing.
+    driver.forget('tab1', new FakeGuest(2).asWebContents());
+    expect(relays[0].isClosed).toBe(false);
+    // The tab still knows what it reported, so a replay of it is not new.
+    guest.debugger.consoleError('reported', T0 + 10);
+    expect((await driver.snapshot('tab1')).consoleErrors).toEqual([]);
+
+    driver.forget('tab1', guest.asWebContents());
+    expect(relays[0].isClosed).toBe(true);
+  });
+
   it('forgetting a tab that is still connecting closes it and fails the call', async () => {
     let resolve!: (browser: Browser) => void;
     connect.mockImplementationOnce(() => new Promise((r) => (resolve = r)));
     const pending = driver.withPage('tab1', async () => 'never');
     await vi.waitFor(() => expect(relays).toHaveLength(1));
-    driver.forget('tab1');
+    driver.forget('tab1', guest.asWebContents());
     resolve(fakeBrowser(page));
     await expect(pending).rejects.toThrow("The tab's page went away.");
     expect(calls.ended).toBe(1);
@@ -301,6 +343,95 @@ describe('DevTools', () => {
   });
 });
 
+describe('the deadline', () => {
+  const pastDeadline = `did not finish within ${CALL_DEADLINE_MS / 1000} seconds`;
+  const never = () => new Promise<never>(() => {});
+
+  it('fails a call still running at its deadline, closes its connection, and lets go of the tab', async () => {
+    const stuck = driver.withPage('tab1', never);
+    await vi.waitFor(() => expect(timers.pending).toHaveLength(1));
+    expect(timers.pending[0].ms).toBe(CALL_DEADLINE_MS);
+    expect(calls.ended).toBe(0);
+
+    timers.fireAll();
+    await expect(stuck).rejects.toThrow(pastDeadline);
+    // Closed, so no step still under way acts on a page its call let go of.
+    expect(relays[0].isClosed).toBe(true);
+    expect(listening(guest)).toBe(0);
+    expect(calls.ended).toBe(1);
+    await driver.withPage('tab1', async () => {});
+    expect(relays).toHaveLength(2);
+  });
+
+  it('leaves nothing behind for a call that ends in time, however it ends', async () => {
+    await driver.withPage('tab1', async () => 'done');
+    await expect(
+      driver.withPage('tab1', async () => {
+        throw new Error('element not found');
+      }),
+    ).rejects.toThrow('element not found');
+    expect(timers.pending).toEqual([]);
+    expect(relays[0].isClosed).toBe(false);
+  });
+
+  it('allows a caller a longer call', async () => {
+    const waiting = driver.withPage('tab1', never, { deadlineMs: 75_000 });
+    await vi.waitFor(() => expect(timers.pending).toHaveLength(1));
+    expect(timers.pending[0].ms).toBe(75_000);
+    timers.fireAll();
+    await expect(waiting).rejects.toThrow('did not finish within 75 seconds');
+  });
+
+  it('bounds a snapshot whose page stops answering', async () => {
+    page.ariaSnapshot.mockImplementationOnce(never);
+    const stuck = driver.snapshot('tab1');
+    await vi.waitFor(() => expect(timers.pending).toHaveLength(1));
+    timers.fireAll();
+    await expect(stuck).rejects.toThrow(pastDeadline);
+    expect(calls.ended).toBe(1);
+  });
+
+  it('closes only the connection its call used', async () => {
+    const stuck = driver.withPage('tab1', never);
+    await vi.waitFor(() => expect(timers.pending).toHaveLength(1));
+    // The tab's page is replaced under the call, and another call connects to the new one.
+    driver.forget('tab1', guest.asWebContents());
+    const next = new FakeGuest(2);
+    calls.guests.tab1 = next;
+    const other = driver.withPage('tab1', never);
+    await vi.waitFor(() => expect(relays).toHaveLength(2));
+
+    await vi.waitFor(() => expect(timers.pending).toHaveLength(2));
+    timers.pending[0].fire();
+    // It fails with what happened to its page, the better explanation.
+    await expect(stuck).rejects.toThrow("The tab's page went away.");
+    expect(relays[1].isClosed).toBe(false);
+    timers.fireAll();
+    await expect(other).rejects.toThrow(pastDeadline);
+  });
+
+  it('a step that answers after its deadline changes nothing', async () => {
+    await driver.withPage('tab1', async () => {});
+    let answer!: (outline: string) => void;
+    page.ariaSnapshot.mockImplementationOnce(() => new Promise((resolve) => (answer = resolve)));
+    const stuck = driver.snapshot('tab1');
+    await vi.waitFor(() => expect(page.ariaSnapshot).toHaveBeenCalled());
+    guest.debugger.consoleError('never reported', T0 + 5);
+    timers.fireAll();
+    await expect(stuck).rejects.toThrow(pastDeadline);
+    answer(page.outline);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    // Nobody was told, so the next connection's replay still reports it.
+    connect.mockImplementationOnce(async () => {
+      guest.debugger.consoleError('never reported', T0 + 5);
+      return fakeBrowser(page);
+    });
+    const next = await driver.snapshot('tab1');
+    expect(next.consoleErrors.map((entry) => entry.text)).toEqual(['never reported']);
+  });
+});
+
 describe('snapshot', () => {
   it('reads the page’s outline with refs, its address and title, and no image unless asked', async () => {
     const snapshot = await driver.snapshot('tab1');
@@ -316,6 +447,13 @@ describe('snapshot', () => {
     expect(snapshot.png).toBeUndefined();
     expect(page.screenshot).not.toHaveBeenCalled();
     expect(calls.ended).toBe(1);
+  });
+
+  it('reads the title from main, never waiting on the page for it', async () => {
+    guest.title = 'Read by main';
+    const snapshot = await driver.snapshot('tab1');
+    expect(snapshot.title).toBe('Read by main');
+    expect(page.title).not.toHaveBeenCalled();
   });
 
   it('adds a PNG when asked, taken without bringing anything to the front', async () => {
@@ -397,7 +535,7 @@ describe('snapshot', () => {
     await driver.withPage('tab1', async () => {});
     guest.debugger.consoleError('old page', T0 + 100);
     await driver.snapshot('tab1');
-    driver.forget('tab1');
+    driver.forget('tab1', guest.asWebContents());
     const next = new FakeGuest(2);
     calls.guests.tab1 = next;
     await driver.withPage('tab1', async () => {});
@@ -409,7 +547,7 @@ describe('snapshot', () => {
 
   it('nothing is collected for a tab once its connection is gone', async () => {
     await driver.withPage('tab1', async () => {});
-    driver.forget('tab1');
+    driver.forget('tab1', guest.asWebContents());
     guest.debugger.consoleError('after', T0 + 1);
     expect(listening(guest)).toBe(0);
   });

@@ -1069,6 +1069,15 @@ describe('agent calls', () => {
       expect(gone).toEqual(['tab1']);
     });
 
+    it('naming the page that went, so news of a replaced page can be told apart', () => {
+      const pages: WebContents[] = [];
+      service.onGuestGone((_tabId, guest) => pages.push(guest));
+      const g2 = new FakeGuest(12);
+      service.bindGuest('tab1', g2.asWebContents(), winA);
+      service.closeTab('tab1');
+      expect(pages).toEqual([g1.asWebContents(), g2.asWebContents()]);
+    });
+
     it('when its window lets go of it', () => {
       service.detachWindow(winA);
       expect(gone).toEqual(['tab1']);
