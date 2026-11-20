@@ -5,7 +5,10 @@ import { useEffect } from 'react';
 import { useNavigationStore } from '../stores/navigationStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { usePreviewTabStore } from '../stores/previewTabStore';
-import { closeTarget, isCloseShortcut } from '../utils/closeShortcut';
+import { useBrowserSlotStore } from '../stores/browserSlotStore';
+import { useBrowserStore } from '../stores/browserStore';
+import { requestBrowserPanelFocus } from '../stores/browserPanelFocusStore';
+import { closeTarget, isCloseShortcut, type KeyboardPlace } from '../utils/closeShortcut';
 import {
   isBrowserShortcut,
   isCommandPaletteShortcut,
@@ -17,6 +20,7 @@ import {
 import { windowBridge } from '../services/windowBridge';
 import { browserBridge } from '../services/browserBridge';
 import { handleBrowserAction } from '../components/Browser/handleBrowserAction';
+import { visibleTabId } from '../components/Browser/browserView';
 import type { PaletteScope } from '../components/CommandPalette/types';
 
 interface UseKeyboardShortcutsOptions {
@@ -114,7 +118,7 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
       // ⌘W closes the nearest thing on screen; held, it closes one.
       if (isCloseShortcut(event)) {
         event.preventDefault();
-        if (!event.repeat) closeNearest();
+        if (!event.repeat) closeNearest(keyboardPlaceOf(document.activeElement));
         return;
       }
 
@@ -192,6 +196,10 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
         case 'browser':
           toggleBrowser();
           return;
+        // Main sends a held ⌘W once, so this is one press.
+        case 'close':
+          closeNearest({ in: 'page', tabId });
+          return;
         default:
           handleBrowserAction(tabId, action);
       }
@@ -214,17 +222,42 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
   ]);
 }
 
+/**
+ * The browser's own controls: the panel (toolbar, tab strip, find bar) and
+ * what is drawn over a page (a sign-in, an error). A page's own keys never
+ * reach this document: main forwards them, and says so.
+ */
+const BROWSER_CONTROLS = '.browser-panel, .browser-host';
+
+/** Where the keyboard is, for a ⌘W this document heard itself. */
+function keyboardPlaceOf(focused: Element | null): KeyboardPlace {
+  return focused?.closest(BROWSER_CONTROLS) ? { in: 'browser-panel' } : { in: 'elsewhere' };
+}
+
 /** Close whatever `closeTarget` names, if anything. */
-function closeNearest(): void {
+function closeNearest(keyboard: KeyboardPlace): void {
   const navigation = useNavigationStore.getState();
   const preview = usePreviewTabStore.getState();
+  const shownBrowserTabId = visibleTabId(
+    useBrowserSlotStore.getState().sessionId,
+    useBrowserStore.getState().snapshots,
+  );
   const target = closeTarget({
     overlay: navigation.overlay,
     activeSessionId: navigation.activeSessionId,
     activePreviewTabId: preview.activeTabId,
+    shownBrowserTabId,
+    keyboard,
   });
   // Leaving the overlay returns to the session it lay over, exactly as
   // clicking that session's row does.
   if (target === 'overlay') navigation.setActiveSession(navigation.activeSessionId);
-  else if (target === 'preview-tab' && preview.activeTabId) preview.closeTab(preview.activeTabId);
+  else if (target === 'browser-tab' && shownBrowserTabId) {
+    // What the tab's close button does. The keyboard was in the browser and
+    // stays there, so a second ⌘W closes the next tab.
+    requestBrowserPanelFocus();
+    browserBridge
+      .close(shownBrowserTabId)
+      .catch((error: unknown) => console.warn('In-app browser action failed:', error));
+  } else if (target === 'preview-tab' && preview.activeTabId) preview.closeTab(preview.activeTabId);
 }

@@ -1,4 +1,5 @@
-import { isMac } from './platform';
+import { isCloseShortcut as isClose } from '../../shared/shortcuts';
+import { chordOf, PLATFORM } from './platform';
 
 /**
  * ⌘W closes the nearest thing on screen, never the window and never a session.
@@ -11,30 +12,55 @@ import { isMac } from './platform';
  * it is delete-word-backwards in every shell and in Claude's composer.
  */
 export function isCloseShortcut(event: KeyboardEvent): boolean {
-  return (
-    isMac &&
-    event.metaKey &&
-    !event.ctrlKey &&
-    !event.altKey &&
-    !event.shiftKey &&
-    event.key.toLowerCase() === 'w'
-  );
+  return isClose(chordOf(event), PLATFORM);
 }
 
-export type CloseTarget = 'overlay' | 'preview-tab';
+export type CloseTarget = 'overlay' | 'browser-tab' | 'preview-tab';
+
+/**
+ * Where the keyboard was when ⌘W was pressed: in a page (main forwards the
+ * chord with the tab it bound the page to, or null before it has), in the
+ * browser panel's own controls, or anywhere else.
+ */
+export type KeyboardPlace =
+  | { in: 'page'; tabId: string | null }
+  | { in: 'browser-panel' }
+  | { in: 'elsewhere' };
+
+export interface CloseState {
+  overlay: string | null;
+  activeSessionId: string | null;
+  activePreviewTabId: string | null;
+  /** The browser tab showing beside the session, while its panel is on screen. */
+  shownBrowserTabId: string | null;
+  keyboard: KeyboardPlace;
+}
 
 /**
  * What ⌘W would close right now, front to back.
  *
  * The Inbox or Automations lies over the session pane, so it goes first; the
  * preview panel lives inside that pane and is only on screen without one.
+ * The browser tab showing beside the session comes between them, but only
+ * while the keyboard is in the browser: in a page, or in the panel's toolbar
+ * or tab strip. Anywhere else (the terminal, say) a page is not the nearest
+ * thing, and ⌘W leaves it alone. The panel itself never closes.
  */
-export function closeTarget(state: {
-  overlay: string | null;
-  activeSessionId: string | null;
-  activePreviewTabId: string | null;
-}): CloseTarget | null {
+export function closeTarget(state: CloseState): CloseTarget | null {
   if (state.overlay !== null) return 'overlay';
-  if (state.activeSessionId !== null && state.activePreviewTabId !== null) return 'preview-tab';
+  if (state.activeSessionId === null) return null;
+  if (keyboardIsOnShownTab(state.keyboard, state.shownBrowserTabId)) return 'browser-tab';
+  if (state.activePreviewTabId !== null) return 'preview-tab';
   return null;
+}
+
+/**
+ * A page out of sight cannot hold the keyboard (it is `display: none`, or
+ * `inert` while an agent reads it), so a page key names the shown tab; one
+ * that names another tab is about no browser beside the session.
+ */
+function keyboardIsOnShownTab(keyboard: KeyboardPlace, shown: string | null): boolean {
+  if (shown === null) return false;
+  if (keyboard.in === 'browser-panel') return true;
+  return keyboard.in === 'page' && (keyboard.tabId === null || keyboard.tabId === shown);
 }

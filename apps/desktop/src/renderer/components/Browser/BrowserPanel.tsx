@@ -1,9 +1,10 @@
-import { useEffect, useLayoutEffect, type KeyboardEvent } from 'react';
+import { useEffect, useLayoutEffect, useRef, type KeyboardEvent } from 'react';
 import { browserBridge } from '../../services/browserBridge';
 import { matchBrowserFocusedShortcut } from '../../../shared/shortcuts';
 import { closeFind, useBrowserFindStore } from '../../stores/browserFindStore';
 import { chordOf, PLATFORM } from '../../utils/platform';
 import { clearAgentDot } from '../../stores/browserAgentDotStore';
+import { useBrowserPanelFocusStore } from '../../stores/browserPanelFocusStore';
 import { showBrowserSlot } from '../../stores/browserSlotStore';
 import { activeTabOf, loadBrowser, useBrowserSnapshot } from '../../stores/browserStore';
 import { isBlankUrl } from './browserView';
@@ -38,6 +39,17 @@ export function BrowserPanel({ sessionId, instanceId, cwd }: BrowserPanelProps) 
 
   const findOpen = useBrowserFindStore((state) => state.open);
 
+  // ⌘W closed the tab the keyboard was in: the keyboard stays in the browser,
+  // so the next ⌘W closes the next tab rather than something elsewhere.
+  const panelRef = useRef<HTMLDivElement>(null);
+  useEffect(
+    () =>
+      useBrowserPanelFocusStore.subscribe((state, previous) => {
+        if (state.requests !== previous.requests) panelRef.current?.focus({ preventScroll: true });
+      }),
+    [],
+  );
+
   // A search belongs to one page: another tab, or the panel going away, ends it.
   // biome-ignore lint/correctness/useExhaustiveDependencies: the tab's id is the trigger, not a value read
   useEffect(() => {
@@ -71,7 +83,14 @@ export function BrowserPanel({ sessionId, instanceId, cwd }: BrowserPanelProps) 
 
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: it only listens for keys bubbling from the controls inside
-    <div className="browser-panel" data-testid="browser-panel" onKeyDown={onKeyDown}>
+    <div
+      ref={panelRef}
+      className="browser-panel"
+      data-testid="browser-panel"
+      // Focusable from code only, so the keyboard can stay here after ⌘W.
+      tabIndex={-1}
+      onKeyDown={onKeyDown}
+    >
       <BrowserTabStrip sessionId={sessionId} snapshot={snapshot} />
       <BrowserToolbar
         key={`${sessionId}:${tab?.id ?? ''}`}

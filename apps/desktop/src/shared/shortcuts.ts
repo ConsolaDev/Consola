@@ -134,6 +134,22 @@ export const BROWSER_SHORTCUT_LABELS: Record<ShortcutPlatform, string> = {
   other: 'Ctrl+Shift+L',
 };
 
+/**
+ * Cmd+W closes the nearest thing on screen (`renderer/utils/closeShortcut`).
+ * macOS only: elsewhere it would be Ctrl+W, which the terminal needs, as
+ * delete-word-backwards in every shell and in Claude's composer. Shift+Cmd+W
+ * is not it: that closes the window, from the menu.
+ */
+export function isCloseShortcut(chord: KeyChord, platform: ShortcutPlatform): boolean {
+  return (
+    platform === 'mac' &&
+    hasPrimary(chord, platform) &&
+    !chord.alt &&
+    !chord.shift &&
+    chord.key.toLowerCase() === 'w'
+  );
+}
+
 /** What a chord pressed inside a page asks the browser panel to do. */
 export type BrowserFocusedAction =
   | 'focus-address'
@@ -181,6 +197,7 @@ export type ForwardedShortcut =
   | { kind: 'sidebar' }
   | { kind: 'terminal' }
   | { kind: 'browser' }
+  | { kind: 'close' }
   | { kind: BrowserFocusedAction };
 
 /**
@@ -202,6 +219,7 @@ export function forwardedShortcutFor(
   if (isSidebarShortcut(chord)) return { kind: 'sidebar' };
   if (isShellShortcut(chord)) return { kind: 'terminal' };
   if (isBrowserShortcut(chord, platform)) return { kind: 'browser' };
+  if (isCloseShortcut(chord, platform)) return { kind: 'close' };
   const action = matchBrowserFocusedShortcut(chord, platform);
   return action ? { kind: action } : null;
 }

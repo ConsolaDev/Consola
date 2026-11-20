@@ -46,6 +46,23 @@ describe('decideGuestShortcut', () => {
     expect(decideGuestShortcut(input('k', { meta: true, type: 'keyUp' }), 'darwin')).toBeNull();
   });
 
+  it('takes ⌘W on macOS and leaves Ctrl+W to the page elsewhere', () => {
+    expect(decideGuestShortcut(input('w', { meta: true }), 'darwin')).toEqual({
+      action: { kind: 'close' },
+      send: true,
+    });
+    expect(decideGuestShortcut(input('w', { control: true }), 'linux')).toBeNull();
+    // ⇧⌘W is the window's, through the menu.
+    expect(decideGuestShortcut(input('W', { meta: true, shift: true }), 'darwin')).toBeNull();
+  });
+
+  it('keeps a held ⌘W from the page and sends it once: held, it closes one thing', () => {
+    expect(decideGuestShortcut(input('w', { meta: true, isAutoRepeat: true }), 'darwin')).toEqual({
+      action: { kind: 'close' },
+      send: false,
+    });
+  });
+
   it('keeps a held chord from the page but sends it once', () => {
     expect(decideGuestShortcut(input('r', { meta: true, isAutoRepeat: true }), 'darwin')).toEqual({
       action: { kind: 'reload' },

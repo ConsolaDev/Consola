@@ -1,6 +1,7 @@
 import type { BrowserWindow, BrowserWindowConstructorOptions, WebContents } from 'electron';
 import type { CertificateTrust } from './CertificateTrust';
 import { guardNavigation } from './guestPolicy';
+import { decideGuestShortcut } from './guestShortcuts';
 import { decidePopup, PersonInputClock, popupTitle } from './popupPolicy';
 
 /** What the registry needs of a window; a `BrowserWindow` is one. */
@@ -182,6 +183,7 @@ export function installPopupPolicy(guest: WebContents, deps: PopupPolicyDeps): v
         openPopup = popup;
         hardenPopup(popup, deps.certificates, deps.workspaceId);
         deps.guardQuit?.(popup.webContents);
+        closeOnCloseShortcut(popup);
         const owner: PopupOwner = {
           sessionId,
           workspaceId: deps.workspaceId,
@@ -197,6 +199,23 @@ export function installPopupPolicy(guest: WebContents, deps: PopupPolicyDeps): v
         return popup.webContents;
       },
     };
+  });
+}
+
+/**
+ * ⌘W closes the popup: with the keyboard in it, it is the nearest thing, and
+ * the window's own close moved to ⇧⌘W (which the menu still does here). The
+ * chord is taken from the page, as in a tab's page. Held, it closes the popup
+ * once; the repeats land wherever the keyboard goes next, which drops them.
+ */
+function closeOnCloseShortcut(popup: BrowserWindow): void {
+  popup.webContents.on('before-input-event', (event, input) => {
+    const decision = decideGuestShortcut(input);
+    if (decision?.action.kind !== 'close') return;
+    event.preventDefault();
+    // As the window's own close button would: the page's `beforeunload` may
+    // still keep it open.
+    if (decision.send && !popup.isDestroyed()) popup.close();
   });
 }
 

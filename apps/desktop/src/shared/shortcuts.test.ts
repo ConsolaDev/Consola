@@ -3,6 +3,7 @@ import {
   BROWSER_SHORTCUT_LABELS,
   forwardedShortcutFor,
   isBrowserShortcut,
+  isCloseShortcut,
   isCommandPaletteShortcut,
   isShellShortcut,
   isSidebarShortcut,
@@ -104,6 +105,25 @@ describe('browser toggle chord', () => {
   });
 });
 
+describe('close chord', () => {
+  it('is Cmd+W on macOS', () => {
+    expect(isCloseShortcut(cmd('w'), 'mac')).toBe(true);
+    expect(isCloseShortcut(cmd('W'), 'mac')).toBe(true);
+  });
+
+  it('is nothing elsewhere: Ctrl+W deletes a word in the terminal', () => {
+    expect(isCloseShortcut(ctrl('w'), 'other')).toBe(false);
+    expect(isCloseShortcut(cmd('w'), 'other')).toBe(false);
+  });
+
+  it('leaves Shift+Cmd+W to the window, and other modifiers alone', () => {
+    expect(isCloseShortcut(cmd('W', { shift: true }), 'mac')).toBe(false);
+    expect(isCloseShortcut(cmd('w', { alt: true }), 'mac')).toBe(false);
+    expect(isCloseShortcut(cmd('w', { ctrl: true }), 'mac')).toBe(false);
+    expect(isCloseShortcut(ctrl('w'), 'mac')).toBe(false);
+  });
+});
+
 describe('browser-focused chords', () => {
   it('maps each chord to its action on macOS', () => {
     expect(matchBrowserFocusedShortcut(cmd('l'), 'mac')).toBe('focus-address');
@@ -148,6 +168,12 @@ describe('forwardedShortcutFor', () => {
   it('forwards the browser chords as their action', () => {
     expect(forwardedShortcutFor(cmd('l'), 'mac')).toEqual({ kind: 'focus-address' });
     expect(forwardedShortcutFor(cmd('0'), 'mac')).toEqual({ kind: 'zoom-reset' });
+  });
+
+  it('forwards the close chord on macOS only', () => {
+    expect(forwardedShortcutFor(cmd('w'), 'mac')).toEqual({ kind: 'close' });
+    expect(forwardedShortcutFor(cmd('W', { shift: true }), 'mac')).toBeNull();
+    expect(forwardedShortcutFor(ctrl('w'), 'other')).toBeNull();
   });
 
   it('prefers the toggle over the focus-address chord that shares its letter', () => {
