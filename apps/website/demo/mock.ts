@@ -318,9 +318,65 @@ export function installMock() {
     },
     // The demo has no model to write a title with; the name stays as it is.
     regenerateSessionTitle: async () => {},
+    // The demo makes no worktrees, so a delete is only a delete: nothing to report.
+    previewSessionDelete: async () => ({ worktree: null }),
     deleteSession: async (id, sessionId) => {
       const w = workspace(id);
       w.sessions = w.sessions.filter((s) => s.id !== sessionId);
+      publish();
+      return undefined;
+    },
+    // Carrying a conversation to another CLI needs the CLIs, so every harness says no.
+    previewHarnessSwitch: async (id, sessionId) => {
+      const current = workspace(id).sessions.find((s) => s.id === sessionId)?.harnessId;
+      return harnesses
+        .filter((h) => h.id !== current && h.enabled && !h.archived)
+        .map((h) => ({
+          harnessId: h.id,
+          ok: false as const,
+          reason: 'Switching harnesses runs in the desktop app.',
+        }));
+    },
+    switchHarness: async () => {
+      throw new Error('Switching harnesses runs in the desktop app.');
+    },
+    createLabel: async (id, fields) => {
+      const label = { id: crypto.randomUUID(), ...fields };
+      workspace(id).labels.push(label);
+      publish();
+      return structuredClone(label);
+    },
+    updateLabel: async (id, labelId, fields) => {
+      Object.assign(workspace(id).labels.find((l) => l.id === labelId)!, fields);
+      publish();
+    },
+    deleteLabel: async (id, labelId) => {
+      const w = workspace(id);
+      const index = w.labels.findIndex((l) => l.id === labelId);
+      if (index < 0) return null;
+      const carriers = w.sessions.filter((s) => s.labelIds?.includes(labelId));
+      const [label] = w.labels.splice(index, 1);
+      for (const s of carriers) s.labelIds = s.labelIds!.filter((l) => l !== labelId);
+      publish();
+      return { label, index, sessionIds: carriers.map((s) => s.id) };
+    },
+    restoreLabel: async (id, removed) => {
+      const w = workspace(id);
+      if (!w.labels.some((l) => l.id === removed.label.id))
+        w.labels.splice(Math.min(removed.index, w.labels.length), 0, removed.label);
+      for (const s of w.sessions)
+        if (removed.sessionIds.includes(s.id) && !s.labelIds?.includes(removed.label.id))
+          s.labelIds = [...(s.labelIds || []), removed.label.id];
+      publish();
+    },
+    assignLabel: async (id, sessionId, labelId) => {
+      const s = workspace(id).sessions.find((s) => s.id === sessionId);
+      if (s && !s.labelIds?.includes(labelId)) s.labelIds = [...(s.labelIds || []), labelId];
+      publish();
+    },
+    unassignLabel: async (id, sessionId, labelId) => {
+      const s = workspace(id).sessions.find((s) => s.id === sessionId);
+      if (s?.labelIds) s.labelIds = s.labelIds.filter((l) => l !== labelId);
       publish();
     },
     createGroup: async (id, fields) => {
