@@ -62,6 +62,24 @@ export class CallerAccess {
   }
 
   /**
+   * What `step` gave once the caller is asked again: access can be turned
+   * off, or the session deleted or made read-only, while a page answered,
+   * and then nothing read from it may reach the agent. A failure gives way
+   * to the refusal as well, since its text can be the page's.
+   */
+  public async stillAllowed<T>(step: Promise<T>): Promise<T> {
+    let value: T;
+    try {
+      value = await step;
+    } catch (error) {
+      this.check();
+      throw error;
+    }
+    this.check();
+    return value;
+  }
+
+  /**
    * One of the caller's own tabs, live state included. Any other id is
    * refused in the same words, so an agent cannot learn what another session
    * holds.

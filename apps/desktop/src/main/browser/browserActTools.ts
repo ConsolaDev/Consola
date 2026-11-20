@@ -371,7 +371,8 @@ async function runAct(page: Page, plan: ActPlan, element: ReturnType<Page['locat
  * as the call ends). While either runs, and just after, a download the page
  * starts is cancelled (`decideDownload`). A failure from the page reaches
  * the agent as one line after the untrusted note, since Playwright's text
- * can carry the page's.
+ * can carry the page's. Whatever the page answered reaches the agent only
+ * if it may still use the browser once the page has (`stillAllowed`).
  */
 export function addActTools(
   server: McpServer,
@@ -502,13 +503,15 @@ async function evaluate(
   giveWay(deps, tab.id);
   const endAct = deps.person.beginAct(tab.id);
   try {
-    const outcome = await deps.driver.withPage(tab.id, async (page, control) => {
-      giveWay(deps, tab.id);
-      const evaluated = page.evaluate(args.expression).catch((error: unknown) => {
-        throw evaluateFailure(error);
-      });
-      return unlessDialog(deps.dialogs, tab.id, control.signal, evaluated);
-    });
+    const outcome = await access.stillAllowed(
+      deps.driver.withPage(tab.id, async (page, control) => {
+        giveWay(deps, tab.id);
+        const evaluated = page.evaluate(args.expression).catch((error: unknown) => {
+          throw evaluateFailure(error);
+        });
+        return unlessDialog(deps.dialogs, tab.id, control.signal, evaluated);
+      }),
+    );
     if ('dialog' in outcome) {
       throw new PageTextError(
         openedDialogContent(
@@ -546,28 +549,30 @@ async function waitFor(
   const plan = planWait(args);
   refuseWhileDialog(deps.dialogs, tab.id);
   const words = waitWords(plan);
-  const outcome = await deps.driver.withPage(
-    tab.id,
-    async (page, control) => {
-      const waited = (async () => {
-        if (plan.kind === 'ref' && (await page.locator(`aria-ref=${plan.ref}`).count()) === 0) {
-          throw new Error(staleRefMessage(plan.ref));
-        }
-        try {
-          await runWait(page, plan);
-        } catch (error) {
-          if (error instanceof Error && error.name === 'TimeoutError') {
-            throw new Error(
-              `Waited ${plan.timeoutMs / 1000} seconds for ${words.awaited}; it was not.`,
-            );
+  const outcome = await access.stillAllowed(
+    deps.driver.withPage(
+      tab.id,
+      async (page, control) => {
+        const waited = (async () => {
+          if (plan.kind === 'ref' && (await page.locator(`aria-ref=${plan.ref}`).count()) === 0) {
+            throw new Error(staleRefMessage(plan.ref));
           }
-          throw pageStepFailure(error);
-        }
-      })();
-      return unlessDialog(deps.dialogs, tab.id, control.signal, waited);
-    },
-    // Longer than the wait, so the wait's own timeout is what ends it.
-    { deadlineMs: plan.timeoutMs + PAGE_CALL_TIMEOUT_MS },
+          try {
+            await runWait(page, plan);
+          } catch (error) {
+            if (error instanceof Error && error.name === 'TimeoutError') {
+              throw new Error(
+                `Waited ${plan.timeoutMs / 1000} seconds for ${words.awaited}; it was not.`,
+              );
+            }
+            throw pageStepFailure(error);
+          }
+        })();
+        return unlessDialog(deps.dialogs, tab.id, control.signal, waited);
+      },
+      // Longer than the wait, so the wait's own timeout is what ends it.
+      { deadlineMs: plan.timeoutMs + PAGE_CALL_TIMEOUT_MS },
+    ),
   );
   if ('dialog' in outcome) {
     throw new PageTextError(
@@ -609,25 +614,27 @@ async function act(
   giveWay(deps, tab.id);
   const endAct = deps.person.beginAct(tab.id);
   try {
-    const outcome = await deps.driver.withPage(tab.id, async (page, control) => {
-      // Mounting the page can take a while; the person may have started on it since.
-      giveWay(deps, tab.id);
-      const acted = (async () => {
-        const element = plan.ref ? page.locator(`aria-ref=${plan.ref}`) : null;
-        if (element && plan.ref && (await element.count()) === 0) {
-          throw new Error(staleRefMessage(plan.ref));
-        }
-        control.signal.throwIfAborted();
-        await control.setFocusEmulation(true);
-        control.signal.throwIfAborted();
-        try {
-          return await runAct(page, plan, element);
-        } catch (error) {
-          throw actFailure(error, plan);
-        }
-      })();
-      return unlessDialog(deps.dialogs, tab.id, control.signal, acted);
-    });
+    const outcome = await access.stillAllowed(
+      deps.driver.withPage(tab.id, async (page, control) => {
+        // Mounting the page can take a while; the person may have started on it since.
+        giveWay(deps, tab.id);
+        const acted = (async () => {
+          const element = plan.ref ? page.locator(`aria-ref=${plan.ref}`) : null;
+          if (element && plan.ref && (await element.count()) === 0) {
+            throw new Error(staleRefMessage(plan.ref));
+          }
+          control.signal.throwIfAborted();
+          await control.setFocusEmulation(true);
+          control.signal.throwIfAborted();
+          try {
+            return await runAct(page, plan, element);
+          } catch (error) {
+            throw actFailure(error, plan);
+          }
+        })();
+        return unlessDialog(deps.dialogs, tab.id, control.signal, acted);
+      }),
+    );
     const done = { tabId: tab.id, action: plan.action, ...(plan.ref ? { ref: plan.ref } : {}) };
     if ('dialog' in outcome) {
       return openedDialogContent(done, 'While acting', outcome.dialog, ', then take a snapshot.');

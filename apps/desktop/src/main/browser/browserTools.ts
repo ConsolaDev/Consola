@@ -161,9 +161,9 @@ async function status(deps: BrowserToolsDeps, access: CallerAccess): Promise<Bro
   const { workspace, session } = access.check();
   const { tabs, activeTabId } = deps.browser.snapshotFor(access.sessionId);
   // A scan that fails or runs out of time lists nothing; the tabs still answer.
-  const localServers = await deps
-    .localServers(checkoutPathForSession(workspace, session))
-    .catch(() => []);
+  const localServers = await access.stillAllowed(
+    deps.localServers(checkoutPathForSession(workspace, session)).catch(() => []),
+  );
   return statusContent({
     tabs: tabs.map((tab) => {
       const pendingDialog = deps.dialogs.pendingFor(tab.id);
@@ -261,7 +261,9 @@ async function snapshot(
 ): Promise<BrowserToolContent[]> {
   const tab = access.tab(args.tabId);
   refuseWhileDialog(deps.dialogs, tab.id);
-  const page = await deps.driver.snapshot(tab.id, { screenshot: args.screenshot ?? false });
+  const page = await access.stillAllowed(
+    deps.driver.snapshot(tab.id, { screenshot: args.screenshot ?? false }),
+  );
   return snapshotContent(tab.id, page);
 }
 

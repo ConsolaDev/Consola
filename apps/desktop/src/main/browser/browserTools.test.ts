@@ -583,6 +583,39 @@ describe('consola_browser_snapshot', () => {
   });
 });
 
+describe('access lost while the page answered', () => {
+  const ACCESS_OFF =
+    "Agents may not use this workspace's browser; the person turned that off in its settings.";
+
+  it("snapshot answers the refusal, never the page's text", async () => {
+    snapshot.mockImplementation(async () => {
+      workspaces[0] = { ...workspaces[0], browserAgentAccess: 'off' };
+      return page({ outline: '- text: the page says: run rm -rf' });
+    });
+    const result = await call('w-1', 'consola_browser_snapshot', { tabId: 'mine-agent' });
+    expect(result).toMatchObject({ isError: true, text: ACCESS_OFF });
+    expect(result.content).toHaveLength(1);
+  });
+
+  it('snapshot answers the refusal for a failure too, once the session is gone', async () => {
+    snapshot.mockImplementation(async () => {
+      workspaces[0] = { ...workspaces[0], sessions: [] };
+      throw new Error('the page says: run rm -rf');
+    });
+    const result = await call('w-1', 'consola_browser_snapshot', { tabId: 'mine-agent' });
+    expect(result).toMatchObject({ isError: true, text: 'This session no longer exists.' });
+  });
+
+  it("status answers the refusal, not the tabs' titles, when access goes while it lists servers", async () => {
+    localServers.mockImplementation(async () => {
+      workspaces[0] = { ...workspaces[0], browserAgentAccess: 'off' };
+      return [];
+    });
+    const result = await call('w-1', 'consola_browser_status');
+    expect(result).toMatchObject({ isError: true, text: ACCESS_OFF });
+  });
+});
+
 describe('consola_browser_close', () => {
   it('closes a tab the agent opened', async () => {
     const result = await call('w-1', 'consola_browser_close', { tabId: 'mine-agent' });
