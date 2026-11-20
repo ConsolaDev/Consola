@@ -202,7 +202,9 @@ leave a macOS guest blank for good. DevTools open in a window of their own
   least recently shown goes, never the visible page or one an agent's call
   holds. Tabs go with the session, logins with the workspace
   (`destroyWorkspace`), its pages ended first (`destroyGuest`) so none writes
-  the cleared partition.
+  the cleared partition. A tab on an address also keeps a session that never
+  had a message from being removed as empty (`browsedIn`,
+  `EmptySessionReaper`): the person used it.
 - **A page ends when its window removes the element**, once a snapshot stops
   calling the tab `live`; until then main blanks it (`destroyGuest`). Never
   `close()` a loaded guest: on Electron 43 that ends only main's handle while
