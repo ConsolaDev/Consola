@@ -34,7 +34,7 @@ export function BrowserSettingsPanel({ workspace }: { workspace: Workspace }) {
         />
         <span className="ws-switch-text">
           <span className="ws-switch-label">Let agents use this workspace's browser</span>
-          {/* A session's tools are given when its agent starts (Ruling EE), so on reaches it then. */}
+          {/* A session's tools are given as its agent starts, so turning this on reaches it at its next start. */}
           <span className="ws-switch-hint">
             A session's agent can open, read and use pages in its own session's tabs. It never opens
             the panel or takes your keyboard. Read-only sessions never can. Turning this off stops

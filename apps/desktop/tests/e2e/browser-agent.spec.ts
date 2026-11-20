@@ -20,8 +20,9 @@ import { afterNote, openTab, refIn, UNTRUSTED_NOTE } from './helpers/toolAnswers
  * A session's agent and its browser, through the session's real MCP
  * endpoint: the test connects to the socket and token main wrote for the
  * session, as the CLI does, so what it may do is decided by which session's
- * socket the call arrived on (Invariant 5) and by `buildSessionServer`'s
- * gating, not by anything the test passes.
+ * socket the call arrived on (a tool's authority comes from its endpoint,
+ * never from an argument) and by `buildSessionServer`'s gating, not by
+ * anything the test passes.
  */
 
 let fixtures: FixtureServer;
