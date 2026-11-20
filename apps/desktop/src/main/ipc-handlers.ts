@@ -38,7 +38,8 @@ import { onGuestAttached } from './browser/guestPolicy';
 import { installPopupPolicy } from './browser/popupWindows';
 import { exposeToTests, isBackgroundTest } from './test-mode';
 import { forwardGuestShortcuts } from './browser/guestShortcuts';
-import { partitionFor } from './browser/sessionPolicy';
+import { decideDownload, gateDownloads, partitionFor } from './browser/sessionPolicy';
+import { PersonInput, watchPersonInput } from './browser/PersonInput';
 import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -340,7 +341,19 @@ export function setupIpcHandlers(): boolean {
   const driver = new PageDriver({ calls: agentPages });
   const stopForgettingPages = browser.onGuestGone((tabId, guest) => driver.forget(tabId, guest));
   pageDriver = driver;
-  exposeToTests('browserAgent', { calls: agentPages, driver });
+  // The person's input per tab, which an agent's acts give way to, and the
+  // acts themselves: a download one starts is cancelled.
+  const personInput = new PersonInput();
+  gateDownloads((from) => {
+    const tabId = from && !from.isDestroyed() ? browser.tabIdForGuest(from.id) : null;
+    if (!tabId) return 'allow';
+    const decision = decideDownload(personInput.downloadFacts(tabId));
+    if (decision === 'cancel') {
+      console.info(`Cancelled a download that started while an agent acted on tab ${tabId}.`);
+    }
+    return decision;
+  });
+  exposeToTests('browserAgent', { calls: agentPages, driver, personInput });
   // Watch each page from the moment it attaches: the renderer binds it only
   // after dom-ready, when its first load may already have finished or failed.
   // Here rather than in `secureGuest` because only an accepted guest has a
@@ -349,6 +362,11 @@ export function setupIpcHandlers(): boolean {
     browser.noteAttached(guest, guestId);
     browser.guardGuest(guest, window, workspaceId, guestId);
     forwardGuestShortcuts(guest, window, () => browser.tabIdForGuest(guestId));
+    watchPersonInput(
+      guest,
+      () => browser.tabIdForGuest(guestId),
+      (tabId) => personInput.noteInput(tabId),
+    );
     installPopupPolicy(guest, {
       host: window,
       guestId,
@@ -402,6 +420,7 @@ export function setupIpcHandlers(): boolean {
       registered.remove();
       stopWatchingGuests();
       stopForgettingPages();
+      gateDownloads(null);
     },
   };
 

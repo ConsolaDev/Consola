@@ -1,5 +1,6 @@
-import type { Session, Streams } from 'electron';
+import type { Session, Streams, WebContents } from 'electron';
 import { browserPartitionFor } from '../../shared/browser';
+import { ACT_AFTERMATH_MS, type DownloadFacts, personIsUsing } from './PersonInput';
 
 /**
  * What a page may ask the person's machine for.
@@ -24,6 +25,40 @@ export function decidePermission(permission: string): boolean {
 /** The partition a workspace's pages live in. */
 export function partitionFor(workspaceId: string): string {
   return browserPartitionFor(workspaceId);
+}
+
+export type DownloadDecision = 'allow' | 'cancel';
+
+/**
+ * Whether a download a tab's page started may go on to the save dialog.
+ *
+ * An agent acting on a page must not start downloads nobody clicked, and
+ * each would put a save dialog in front of the person. So a download is
+ * cancelled when it starts while an act is under way on its tab, or within
+ * `ACT_AFTERMATH_MS` of one (what a click starts reaches main after the click
+ * returns), unless the person pressed a key or a button in that tab within
+ * the last 3 s: then it is theirs. Cost if wrong: a download the person
+ * started during an agent's act is cancelled, and they start it again.
+ */
+export function decideDownload(facts: DownloadFacts): DownloadDecision {
+  const agentActing =
+    facts.actInFlight ||
+    (facts.actEndedAt !== undefined && facts.now - facts.actEndedAt < ACT_AFTERMATH_MS);
+  return agentActing && !personIsUsing(facts.personInputAt, facts.now) ? 'cancel' : 'allow';
+}
+
+/** Decides each download by the page it came from (undefined when Electron names none). */
+export type DownloadGate = (from: WebContents | undefined) => DownloadDecision;
+
+/**
+ * Set once main can tell which tab a page is and what was done on it
+ * (`ipc-handlers`), and cleared when it stops; until then every download
+ * goes on to its save dialog, as before.
+ */
+let downloadGate: DownloadGate | null = null;
+
+export function gateDownloads(gate: DownloadGate | null): void {
+  downloadGate = gate;
 }
 
 /**
@@ -63,8 +98,13 @@ export function configurePartition(partition: string, session: Session): void {
   });
   // A file is never saved without asking where. With no save path set,
   // Electron shows its save dialog for every download; the title says which
-  // site is offering the file, since the page names the file itself.
-  session.on('will-download', (_event, item) => {
+  // site is offering the file, since the page names the file itself. One an
+  // agent's act started is cancelled before that (`decideDownload`).
+  session.on('will-download', (event, item, from) => {
+    if (downloadGate?.(from) === 'cancel') {
+      event.preventDefault();
+      return;
+    }
     item.setSaveDialogOptions({ title: downloadDialogTitle(item.getURL()) });
   });
 }

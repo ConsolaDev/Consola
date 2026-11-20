@@ -1,12 +1,36 @@
-import type { Session } from 'electron';
-import { describe, expect, it, vi } from 'vitest';
+import type { Session, WebContents } from 'electron';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { browserPartitionFor } from '../../shared/browser';
 import {
   configurePartition,
+  decideDownload,
   decidePermission,
   downloadDialogTitle,
+  gateDownloads,
   partitionFor,
 } from './sessionPolicy';
+
+const T0 = 1_700_000_000_000;
+
+describe('decideDownload', () => {
+  it('cancels a download that starts while an agent acts on its tab and the person did not touch it', () => {
+    expect(decideDownload({ actInFlight: true, now: T0 })).toBe('cancel');
+    // A click's download reaches main after the click returns.
+    expect(decideDownload({ actInFlight: false, actEndedAt: T0 - 2_900, now: T0 })).toBe('cancel');
+  });
+
+  it('allows it when the person pressed in that tab within 3 s, act or not', () => {
+    expect(decideDownload({ actInFlight: true, personInputAt: T0 - 2_900, now: T0 })).toBe('allow');
+    expect(decideDownload({ actInFlight: true, personInputAt: T0 - 3_100, now: T0 })).toBe(
+      'cancel',
+    );
+  });
+
+  it('allows it when no agent acted on the tab just now', () => {
+    expect(decideDownload({ actInFlight: false, now: T0 })).toBe('allow');
+    expect(decideDownload({ actInFlight: false, actEndedAt: T0 - 3_100, now: T0 })).toBe('allow');
+  });
+});
 
 describe('decidePermission', () => {
   it.each(['fullscreen', 'pointerLock', 'clipboard-sanitized-write'])('allows %s', (permission) => {
@@ -88,6 +112,50 @@ describe('configurePartition', () => {
     expect(item.setSavePath).not.toHaveBeenCalled();
     expect(item.setSaveDialogOptions).toHaveBeenCalledWith({
       title: 'Save a file from files.example.com',
+    });
+  });
+
+  describe('with a gate on downloads', () => {
+    afterEach(() => gateDownloads(null));
+
+    function download(listeners: Map<string, (...args: never[]) => void>, from: unknown) {
+      const item = {
+        getURL: () => 'https://files.example.com/a.zip',
+        setSaveDialogOptions: vi.fn(),
+        setSavePath: vi.fn(),
+        cancel: vi.fn(),
+      };
+      const event = { preventDefault: vi.fn() };
+      (listeners.get('will-download') as unknown as (e: unknown, i: unknown, w: unknown) => void)(
+        event,
+        item,
+        from,
+      );
+      return { item, event };
+    }
+
+    it('cancels what the gate cancels, before any save dialog is asked for', () => {
+      const { session, listeners } = fakeSession();
+      configurePartition('persist:test-gate', session as unknown as Session);
+      const page = { id: 7 } as unknown as WebContents;
+      const seen: unknown[] = [];
+      gateDownloads((from) => {
+        seen.push(from);
+        return 'cancel';
+      });
+      const { item, event } = download(listeners, page);
+      expect(seen).toEqual([page]);
+      expect(event.preventDefault).toHaveBeenCalled();
+      expect(item.setSaveDialogOptions).not.toHaveBeenCalled();
+    });
+
+    it('lets the rest through to the save dialog', () => {
+      const { session, listeners } = fakeSession();
+      configurePartition('persist:test-gate-allow', session as unknown as Session);
+      gateDownloads(() => 'allow');
+      const { item, event } = download(listeners, undefined);
+      expect(event.preventDefault).not.toHaveBeenCalled();
+      expect(item.setSaveDialogOptions).toHaveBeenCalled();
     });
   });
 
