@@ -117,3 +117,30 @@ describe('AttentionService', () => {
     quiet.mockRestore();
   });
 });
+
+describe('AttentionService snoozes', () => {
+  it('sends snooze views in the same broadcast, diffed by value, null once gone', () => {
+    const service = new AttentionService();
+    let views = new Map([['a', { until: 50 }]]);
+    const fake = fakeSource({ a: 'snoozed' });
+    fake.source.snoozes = () => new Map(views);
+    service.register(fake.source);
+    const changes: AttentionChange[] = [];
+    service.onChange((change) => changes.push(change));
+    vi.advanceTimersByTime(BROADCAST_MS);
+    expect(changes).toEqual([
+      { changed: { a: 'snoozed' }, removed: [], snoozes: { a: { until: 50 } } },
+    ]);
+
+    views = new Map([['a', { until: 50 }]]);
+    fake.set({ a: 'snoozed' });
+    vi.advanceTimersByTime(BROADCAST_MS);
+    expect(changes).toHaveLength(1);
+
+    views = new Map();
+    fake.set({ a: 'ready' });
+    vi.advanceTimersByTime(BROADCAST_MS);
+    expect(changes[1]).toEqual({ changed: { a: 'ready' }, removed: [], snoozes: { a: null } });
+    expect(Object.fromEntries(service.snoozes())).toEqual({});
+  });
+});

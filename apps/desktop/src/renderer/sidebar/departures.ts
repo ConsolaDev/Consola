@@ -14,7 +14,7 @@ export interface Departure {
 
 /**
  * The moves that travel: a row leaving the top of the list because the person
- * set it going (Working) or put it away (Settled). Each is the person's own
+ * set it going (Working) or put it away (Snoozed, Settled). Each is the person's own
  * move, or the AutoSettler's on their behalf, and the row goes somewhere the
  * eye has to follow: down the sidebar, into the dock.
  *
@@ -22,7 +22,8 @@ export interface Departure {
  * the list, where the person is looking, with the list's own arrival.
  */
 const TRAVELS: Partial<Record<Bucket, readonly Bucket[]>> = {
-  waiting: ['working', 'settled'],
+  waiting: ['working', 'snoozed', 'settled'],
+  working: ['snoozed'],
 };
 
 export function placementOf(placed: Record<Bucket, TreeNode[]>): Placement {

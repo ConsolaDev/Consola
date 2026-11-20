@@ -37,7 +37,15 @@ export type AttentionSignal =
    * `backgroundAgents` counts those that are its own subagents, which it waits
    * for and takes a turn on when they finish.
    */
-  | { kind: 'turn-ended'; backgroundWork: number; backgroundAgents: number };
+  | { kind: 'turn-ended'; backgroundWork: number; backgroundAgents: number }
+  /**
+   * The turn ended on an error instead of finishing: `limit` when the error
+   * was a usage limit. Ends a turn as `turn-ended` does, with nothing left
+   * running (the CLI reports this instead of a normal stop).
+   */
+  | { kind: 'turn-failed'; limit: boolean }
+  /** A usage limit's wait is over: the CLI resumed by itself, or gave up waiting. */
+  | { kind: 'limit-over' };
 
 /** What the hooks currently say about one terminal. Only ever an input to `deriveAttention`. */
 export interface HookInputs {
@@ -140,6 +148,17 @@ export class HookSignals {
         // one's hold outright; nothing else ends it but the process exiting.
         state.holdingBackgroundWork = signal.backgroundWork > 0;
         state.awaitingAgents = signal.backgroundAgents > 0;
+        break;
+      case 'turn-failed':
+        // Without this, a turn that died on an API error left whatever it
+        // had latched (a question, a hold) in place: no Stop ever came.
+        state.needsInput = false;
+        state.turn = 'over';
+        state.holdingBackgroundWork = false;
+        state.awaitingAgents = false;
+        break;
+      case 'limit-over':
+        // Says nothing about the screen; the usage-limit service hears it.
         break;
     }
     this.notifyIfChanged(instanceId, before);

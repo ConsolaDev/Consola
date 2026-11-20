@@ -39,7 +39,8 @@ vi.mock('./TerminalService', async () => {
   return { TerminalService: FakeTerminalService };
 });
 
-import { TerminalManager } from './TerminalManager';
+import { OUTPUT_BATCH_MS, TerminalManager } from './TerminalManager';
+import { IPC_CHANNELS } from '../shared/constants';
 
 const options = { cwd: '/tmp', claudeSessionId: 'abc', resume: true };
 const owner = { send: () => {}, isDestroyed: () => false } as never;
@@ -124,5 +125,101 @@ describe('TerminalManager listeners', () => {
     created[0].emit('exit', { exitCode: 0 });
     expect(status).not.toHaveBeenCalled();
     expect(exit).not.toHaveBeenCalled();
+  });
+});
+
+describe('TerminalManager output', () => {
+  /** A window that records what crosses to it. */
+  function window() {
+    const sent: Array<{ channel: string; payload: { instanceId: string; data?: string } }> = [];
+    return {
+      sent,
+      contents: {
+        send: (channel: string, payload: { instanceId: string; data?: string }) =>
+          sent.push({ channel, payload }),
+        isDestroyed: () => false,
+      } as never,
+    };
+  }
+  const data = (w: ReturnType<typeof window>) =>
+    w.sent.filter((m) => m.channel === IPC_CHANNELS.TERMINAL_DATA).map((m) => m.payload.data);
+
+  it('sends one repaint’s many reads as one message', () => {
+    vi.useFakeTimers();
+    created.length = 0;
+    const manager = new TerminalManager(() => []);
+    const view = window();
+    manager.ensure('inst-1', options, view.contents);
+    for (let i = 0; i < 12; i++) created[0].emit('data', `read ${i};`);
+    expect(data(view)).toEqual([]);
+    vi.advanceTimersByTime(OUTPUT_BATCH_MS);
+    expect(data(view)).toEqual([Array.from({ length: 12 }, (_, i) => `read ${i};`).join('')]);
+    vi.useRealTimers();
+  });
+
+  it('sends nothing for a terminal whose view unmounted, and resumes on the next mount', () => {
+    vi.useFakeTimers();
+    created.length = 0;
+    const manager = new TerminalManager(() => []);
+    const view = window();
+    manager.ensure('inst-1', options, view.contents);
+    created[0].emit('data', 'gathered, then unmounted');
+    manager.release('inst-1', view.contents);
+    created[0].emit('data', 'while nobody looks');
+    vi.advanceTimersByTime(OUTPUT_BATCH_MS);
+    expect(data(view)).toEqual([]);
+
+    manager.ensure('inst-1', options, view.contents);
+    created[0].emit('data', 'after the snapshot');
+    vi.advanceTimersByTime(OUTPUT_BATCH_MS);
+    expect(data(view)).toEqual(['after the snapshot']);
+    vi.useRealTimers();
+  });
+
+  it('drops what was gathered when a view attaches: its snapshot holds it', () => {
+    vi.useFakeTimers();
+    created.length = 0;
+    const manager = new TerminalManager(() => []);
+    const view = window();
+    manager.ensure('inst-1', options, view.contents);
+    created[0].emit('data', 'already in the screen');
+    manager.ensure('inst-1', options, view.contents);
+    vi.advanceTimersByTime(OUTPUT_BATCH_MS);
+    expect(data(view)).toEqual([]);
+    vi.useRealTimers();
+  });
+
+  it('lets only the window that owns a terminal release it', () => {
+    vi.useFakeTimers();
+    created.length = 0;
+    const manager = new TerminalManager(() => []);
+    const first = window();
+    const second = window();
+    manager.ensure('inst-1', options, first.contents);
+    // The session moved to another window before the first one's view unmounted.
+    manager.ensure('inst-1', options, second.contents);
+    manager.release('inst-1', first.contents);
+    created[0].emit('data', 'for the second window');
+    vi.advanceTimersByTime(OUTPUT_BATCH_MS);
+    expect(data(second)).toEqual(['for the second window']);
+    expect(data(first)).toEqual([]);
+    vi.useRealTimers();
+  });
+
+  it('sends the last output before saying the CLI exited', () => {
+    vi.useFakeTimers();
+    created.length = 0;
+    const view = window();
+    const manager = new TerminalManager(() => [
+      { isDestroyed: () => false, webContents: view.contents } as never,
+    ]);
+    manager.ensure('inst-1', options, view.contents);
+    created[0].emit('data', 'goodbye');
+    created[0].emit('exit', { exitCode: 0 });
+    expect(view.sent.map((m) => m.channel)).toEqual([
+      IPC_CHANNELS.TERMINAL_DATA,
+      IPC_CHANNELS.TERMINAL_EXIT,
+    ]);
+    vi.useRealTimers();
   });
 });

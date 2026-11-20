@@ -1,0 +1,6 @@
+{
+  "now": "2026-11-19T14:00:00.000Z",
+  "stoppedAt": "2026-11-19T13:59:00.000Z",
+  "resetsAt": "2026-11-26T17:55:13.000Z",
+  "resetPath": ["rateLimits", "rateLimitsByLimitId", "codex", "primary", "resetsAt"]
+}

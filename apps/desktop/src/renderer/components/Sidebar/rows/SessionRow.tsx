@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react';
-import { Check, FolderGit2, FolderSync, Lock, Undo2 } from 'lucide-react';
+import { AlarmClockOff, Check, FolderGit2, FolderSync, Lock, Undo2 } from 'lucide-react';
 import { sessionLabel } from '../../../../shared/sessionLabel';
 import { checkoutRef } from '../../../../shared/sessionCheckout';
 import { checkoutPathForSession } from '../../../../shared/workspace';
@@ -11,12 +11,27 @@ import { SessionHarnessIcon } from '../SessionHarnessIcon';
 import { RowStatus, isLive } from './RowStatus';
 import { useWorkspaceStore, type Session } from '../../../stores/workspaceStore';
 import { SessionActionsMenu } from '../SessionActionsMenu';
+import { BatchActionsMenu } from '../BatchActionsMenu';
+import { useSelectionFrame } from '../../../sidebar/selectionContext';
+import { selectionGesture } from '../../../sidebar/selection';
+import {
+  clearSelection,
+  selectRange,
+  toggleSelected,
+  useSessionSelectionStore,
+} from '../../../stores/sessionSelectionStore';
+import { isMac } from '../../../utils/platform';
+import { idOfKey as sessionIdOfKey } from '../../../sidebar/entries';
 import { startSessionDrag } from '../sessionDrag';
 import { renameSession } from '../../../utils/sessionActions';
 import { SessionNameEditor } from '../../SessionName/SessionNameEditor';
 import { markRenaming } from '../../../stores/renamingStore';
 import { requestSessionDelete } from '../../Dialogs/DeleteSessionDialog';
 import { settleWithUndo, unsettleWithUndo } from '../../../utils/settleActions';
+import { WAKE_CAUSE_WORDS, wakeWithUndo } from '../../../utils/snoozeActions';
+import { WakeCountdown } from '../../Snooze/WakeCountdown';
+import { useSessionUsageLimit } from '../../../stores/usageLimitsStore';
+import { formatClock } from '../../../../shared/snooze';
 import type { Attention } from '../../../../shared/attention';
 import { useSessionAttention } from '../../../stores/attentionStore';
 import { useNavigationStore } from '../../../stores/navigationStore';
@@ -38,6 +53,7 @@ const STATUS_LABELS: Record<Attention, string> = {
   'needs-attention': 'needs attention',
   done: 'done',
   exited: 'exited',
+  snoozed: 'snoozed',
   settled: 'settled',
 };
 
@@ -52,7 +68,7 @@ const STATUS_WORDS: Partial<Record<Attention, string>> = {
 };
 
 /** States whose title has stopped being live, and reads a step back. */
-const PAST: ReadonlySet<Attention> = new Set<Attention>(['exited', 'settled']);
+const PAST: ReadonlySet<Attention> = new Set<Attention>(['exited', 'settled', 'snoozed']);
 
 /**
  * The row for a session entry: looks its record up by the entry's key, since an
@@ -77,6 +93,7 @@ function SessionRowBody({
   onActivate: onClick,
   trailing,
   settle,
+  snooze,
   bucket,
 }: RowProps & { session: Session }) {
   const [isRenaming, setIsRenaming] = useState(false);
@@ -96,7 +113,9 @@ function SessionRowBody({
   // than how it ran: one line, its name and its age, with no harness, model,
   // worktree or labels, whatever the settings say for the rest of the list.
   // An archive is scanned for a name; two-line rows made it a wall.
-  const compact = bucket === 'settled';
+  // A snoozed row is the same: put away, with only its countdown to say.
+  const compact = bucket === 'settled' || bucket === 'snoozed';
+  const snoozedUntil = bucket === 'snoozed' ? entry.snoozedUntil : undefined;
   const showHarness = showHarnessSetting && !compact;
   const showWorktreeLine = showWorktree && !compact;
   const model = useSessionModel(session, showModel && !compact);
@@ -147,6 +166,37 @@ function SessionRowBody({
       : undefined;
 
   const derivedStatus = useSessionAttention(session.id);
+  const frame = useSelectionFrame();
+  const selected = useSessionSelectionStore(
+    (state) => state.workspaceId === workspaceId && state.keys.includes(entry.key),
+  );
+  // Only while this row is part of a selection of several does its menu act on all of them.
+  const selectedKeys = useSessionSelectionStore((state) =>
+    selected && state.keys.length > 1 ? state.keys : null,
+  );
+  const selectedSessions = useWorkspaceStore((state) => {
+    if (!selectedKeys) return null;
+    const sessions = state.workspaces.find((candidate) => candidate.id === workspaceId)?.sessions;
+    return sessions ?? null;
+  });
+  const batch =
+    selectedKeys && selectedSessions
+      ? selectedKeys
+          .map((key) => selectedSessions.find((candidate) => candidate.id === sessionIdOfKey(key)))
+          .filter((candidate): candidate is Session => candidate !== undefined)
+      : null;
+  /** A click: ⌘ toggles the row in the selection, ⇧ extends it, a plain click opens the row and ends it. */
+  const handleClick = (event: React.MouseEvent) => {
+    const gesture = frame ? selectionGesture(event, isMac) : null;
+    if (gesture && frame) {
+      event.preventDefault();
+      if (gesture === 'toggle') toggleSelected(workspaceId, entry.key, frame.order);
+      else selectRange(workspaceId, entry.key, frame.order, frame.openKey);
+      return;
+    }
+    clearSelection();
+    onClick();
+  };
   // Exactly what `useViewingReport` reports as viewed, not bare `isActive`: an
   // overlay or an unfocused window is not looking, and its `done` is real.
   const windowFocused = useWindowFocusStore((state) => state.focused);
@@ -158,7 +208,21 @@ function SessionRowBody({
   // ~100ms broadcast coalesce) on a row the person just opened, which would
   // otherwise flash `done` once. Main's value is untouched.
   const displayStatus: Attention = isViewed && derivedStatus === 'done' ? 'ready' : derivedStatus;
-  const statusWord = STATUS_WORDS[displayStatus];
+  // Stopped on its harness's usage limit: said in the status column, over
+  // Woke, with the reset when the CLI gave one. Not while it works again.
+  const usageLimit = useSessionUsageLimit(session.id);
+  const limited = usageLimit && displayStatus !== 'working' && !compact ? usageLimit : undefined;
+  const limitWord = limited
+    ? `Limited${limited.resetsAt !== undefined ? ` · resets ${formatClock(limited.resetsAt)}` : ''}`
+    : undefined;
+  // Back from a snooze by itself, until the person looks. A question outranks
+  // it (the row already says Waiting), and so does looking at it now.
+  const woke =
+    entry.wakeMark !== undefined && !isViewed && displayStatus !== 'needs-attention'
+      ? entry.wakeMark
+      : undefined;
+  // The quiet word ("exited") gives way to what the status column already says.
+  const statusWord = woke || limited ? undefined : STATUS_WORDS[displayStatus];
   // The hover action is a toggle, and only where it works: the tree decides
   // (`settleOffer`), because a child or a busy session cannot reach the shelf.
   const isSettled = settle?.kind === 'unsettle';
@@ -183,6 +247,8 @@ function SessionRowBody({
     scopeLabel && `in ${scopeLabel.parent ? `${scopeLabel.parent} / ` : ''}${scopeLabel.label}`,
     readOnly && 'read-only',
     STATUS_LABELS[displayStatus],
+    limitWord,
+    !limitWord && woke && `woke: ${WAKE_CAUSE_WORDS[woke]}`,
     age && `last active ${age}`,
     removedWorktree
       ? 'worktree removed, rebuilt when opened'
@@ -256,14 +322,16 @@ function SessionRowBody({
   // label entries are its keyboard twin, so nothing is reachable only by dragging.
   // Renaming turns it off so the pointer can select text in the input, and a
   // conductor is never draggable — its tree is the fleet it orchestrates.
-  const draggable = !isRenaming && session.kind !== 'conductor';
+  // A snoozed row (a conductor's included) can also be dragged to the list, to wake it.
+  const labelable = session.kind !== 'conductor';
+  const draggable = !isRenaming && (labelable || bucket === 'snoozed');
 
   // What is happening now, at the line's trailing edge. `working` counts from
   // the turn's own start — `activityAt` is written on the edge into working —
   // and shows the number instead of an age, because a turn that started eight
   // seconds ago has no meaningful age.
   const live = isLive(displayStatus);
-  const showAge = age && displayStatus !== 'working';
+  const showAge = age && displayStatus !== 'working' && !woke && !limited;
   // The meta line carries everything that used to sit on the title's line and
   // eat its width: the glyphs, where the row runs, its state, its age. Rendered
   // whenever it has anything to say, which with an age is always.
@@ -276,6 +344,8 @@ function SessionRowBody({
     subtitle ||
     statusWord ||
     live ||
+    woke ||
+    limited ||
     age;
 
   return (
@@ -284,8 +354,9 @@ function SessionRowBody({
       role="button"
       tabIndex={0}
       data-entry-key={entry.key}
-      className={`session-nav-item ${child ? 'session-nav-item--child' : ''} ${compact ? 'session-nav-item--compact' : ''} ${isActive ? 'active' : ''} ${isDragging ? 'dragging' : ''} ${PAST.has(displayStatus) ? 'session-nav-item--past' : ''}`}
-      onClick={isRenaming ? undefined : onClick}
+      className={`session-nav-item ${child ? 'session-nav-item--child' : ''} ${compact ? 'session-nav-item--compact' : ''} ${isActive ? 'active' : ''} ${isDragging ? 'dragging' : ''} ${PAST.has(displayStatus) ? 'session-nav-item--past' : ''} ${selected ? 'session-nav-item--selected' : ''}`}
+      aria-selected={selected || undefined}
+      onClick={isRenaming ? undefined : handleClick}
       onDoubleClick={handleDoubleClick}
       onKeyDown={handleRowKeyDown}
       // A press that is about to open the menu does not move focus onto the
@@ -300,6 +371,8 @@ function SessionRowBody({
         event.preventDefault();
         event.stopPropagation();
         menuReturnFocus.current = document.activeElement;
+        // A right-click outside the selection is about this row alone.
+        if (!selected) clearSelection();
         // At the pointer, like a native context menu. Anywhere else, the item
         // that happens to land under it is picked when the button comes up.
         const box = event.currentTarget.getBoundingClientRect();
@@ -308,7 +381,7 @@ function SessionRowBody({
       }}
       draggable={draggable}
       onDragStart={(event) => {
-        startSessionDrag(event, session);
+        startSessionDrag(event, session, { labelable, snoozed: bucket === 'snoozed' });
         setIsDragging(true);
       }}
       onDragEnd={() => setIsDragging(false)}
@@ -347,7 +420,11 @@ function SessionRowBody({
               <FolderSync size={10} aria-hidden="true" />
             </span>
           )}
-          {age && <span className="session-row-age">{age}</span>}
+          {snoozedUntil !== undefined ? (
+            <WakeCountdown until={snoozedUntil} />
+          ) : (
+            age && <span className="session-row-age">{age}</span>
+          )}
         </span>
       ) : (
         <span className="session-nav-item-text">
@@ -392,8 +469,25 @@ function SessionRowBody({
                   "exited" rides in the same column, before the age, where it
                   reads as "exited 47m" rather than running into the model. */}
               <span className="session-row-meta-spacer" />
-              {live && (
+              {limitWord && (
+                <span
+                  className="session-row-status session-row-status--limited"
+                  title="Stopped on its harness's usage limit"
+                >
+                  <span className="session-row-status-word">{limitWord}</span>
+                </span>
+              )}
+              {!limitWord && live && !(woke && displayStatus !== 'working') && (
                 <RowStatus key={displayStatus} status={displayStatus} since={entry.activityAt} />
+              )}
+              {!limitWord && woke && displayStatus !== 'working' && (
+                <span
+                  className="session-row-status session-row-status--woke"
+                  title={WAKE_CAUSE_WORDS[woke]}
+                >
+                  <span className="session-row-status-mark" aria-hidden="true" />
+                  <span className="session-row-status-word">Woke</span>
+                </span>
               )}
               {(statusWord || showAge) && (
                 <span className="session-row-age">
@@ -450,7 +544,23 @@ function SessionRowBody({
               person makes constantly and can undo from the toast; destroying a
               session and its history is rare and permanent, so it stays in the
               row's right-click menu where a mis-aimed click cannot reach it. */}
-          {(settle?.kind === 'settle' || settle?.kind === 'unsettle') && (
+          {/* On the Snoozed shelf the one-click move is Wake, in Settle's place. */}
+          {bucket === 'snoozed' && snooze?.kind === 'wake' && (
+            <button
+              type="button"
+              className="session-settle-action"
+              aria-label={`Wake ${label}`}
+              title="Wake — bring it back to the list now"
+              onClick={(event) => {
+                event.stopPropagation();
+                void wakeWithUndo(workspaceId, [session.id], { [session.id]: label });
+              }}
+            >
+              <AlarmClockOff size={12} aria-hidden="true" />
+              <span>Wake</span>
+            </button>
+          )}
+          {bucket !== 'snoozed' && (settle?.kind === 'settle' || settle?.kind === 'unsettle') && (
             <button
               type="button"
               className="session-settle-action"
@@ -475,7 +585,17 @@ function SessionRowBody({
           )}
         </div>
       )}
-      {!isRenaming && (
+      {!isRenaming && batch && batch.length > 1 && (
+        <BatchActionsMenu
+          open={actionsOpen}
+          onOpenChange={setActionsOpen}
+          at={menuAt}
+          returnFocus={menuReturnFocus}
+          workspaceId={workspaceId}
+          sessions={batch}
+        />
+      )}
+      {!isRenaming && !(batch && batch.length > 1) && (
         <SessionActionsMenu
           open={actionsOpen}
           onOpenChange={setActionsOpen}
@@ -487,6 +607,9 @@ function SessionRowBody({
           onRename={() => startRename(menuAt === null)}
           onDelete={handleDelete}
           settle={settle}
+          snooze={snooze}
+          label={label}
+          limitResetsAt={usageLimit?.resetsAt}
         />
       )}
     </div>

@@ -7,6 +7,7 @@ import type { HookInputs } from './hookSignals';
 const TERMINALS: TerminalStatus[] = ['working', 'ready', 'needs-attention', 'exited'];
 const LAST_ACTIVE = 100;
 const FINISHED = 200;
+const NOW = 1_000;
 
 // finished: none | at FINISHED. seen: none | before the finish | after it.
 // settled: none | before activity | exactly at activity | after it.
@@ -59,20 +60,31 @@ describe('deriveAttention', () => {
           record: record(finished, seen, settled),
           isViewedInFocusedWindow: false,
           heldByOpenRun: false,
+          now: NOW,
         }),
       ).toBe(expected(terminal, finished, seen, settled));
     },
   );
 
   it('is ready, never done, for a session the ledger has not heard of', () => {
-    const inputs = { record: undefined, isViewedInFocusedWindow: false, heldByOpenRun: false };
+    const inputs = {
+      record: undefined,
+      isViewedInFocusedWindow: false,
+      heldByOpenRun: false,
+      now: NOW,
+    };
     expect(deriveAttention({ ...inputs, terminal: 'ready' })).toBe('ready');
     expect(deriveAttention({ ...inputs, terminal: 'exited' })).toBe('exited');
   });
 
   it('never calls working or needs-attention work done or settled, however the record reads', () => {
     const everything = record(FINISHED, undefined, 300);
-    const inputs = { record: everything, isViewedInFocusedWindow: false, heldByOpenRun: false };
+    const inputs = {
+      record: everything,
+      isViewedInFocusedWindow: false,
+      heldByOpenRun: false,
+      now: NOW,
+    };
     expect(deriveAttention({ ...inputs, terminal: 'working' })).toBe('working');
     expect(deriveAttention({ ...inputs, terminal: 'needs-attention' })).toBe('needs-attention');
   });
@@ -85,6 +97,7 @@ describe('deriveAttention with hooks', () => {
     isViewedInFocusedWindow: false,
     heldByOpenRun: false,
     hook,
+    now: NOW,
   });
   const says: HookInputs = {
     needsInput: true,
@@ -150,7 +163,7 @@ describe('deriveAttention with hooks', () => {
 });
 
 describe('deriveAttention for held and finished sessions', () => {
-  const base = { isViewedInFocusedWindow: false };
+  const base = { isViewedInFocusedWindow: false, now: NOW };
   it('does not settle a session an open run holds', () => {
     const settled = record(undefined, undefined, 300);
     expect(
@@ -181,5 +194,45 @@ describe('deriveAttention for held and finished sessions', () => {
         heldByOpenRun: false,
       }),
     ).toBe('exited');
+  });
+});
+
+describe('deriveAttention for snoozed sessions', () => {
+  const snoozed = (until: number): AttentionRecord => ({
+    ...record(FINISHED, undefined, 300),
+    snoozedUntil: until,
+    snoozedAt: 500,
+  });
+  const base = { isViewedInFocusedWindow: false, heldByOpenRun: false, now: NOW };
+
+  it('beats every status while its time is ahead: finishing, asking, exiting, settled', () => {
+    for (const terminal of TERMINALS) {
+      expect(deriveAttention({ ...base, terminal, record: snoozed(NOW + 1) })).toBe('snoozed');
+    }
+    const says: HookInputs = {
+      needsInput: true,
+      holdingBackgroundWork: false,
+      awaitingAgents: false,
+    };
+    expect(
+      deriveAttention({ ...base, terminal: 'ready', record: snoozed(NOW + 1), hook: says }),
+    ).toBe('snoozed');
+  });
+
+  it('is suspended while an open run holds the session', () => {
+    expect(
+      deriveAttention({
+        ...base,
+        terminal: 'working',
+        record: snoozed(NOW + 1),
+        heldByOpenRun: true,
+      }),
+    ).toBe('working');
+  });
+
+  it('ends once its time is not ahead, leaving the rest of the rules', () => {
+    const due = { ...snoozed(NOW), settledAt: undefined };
+    expect(deriveAttention({ ...base, terminal: 'ready', record: due })).toBe('done');
+    expect(deriveAttention({ ...base, terminal: 'working', record: due })).toBe('working');
   });
 });

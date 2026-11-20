@@ -87,7 +87,7 @@ export class HarnessCapabilitiesCache {
  * the config directory, so the same harness answers identically from every
  * workspace.
  */
-function signature(driverId: string, config: HarnessConfig): string {
+export function signature(driverId: string, config: HarnessConfig): string {
   return JSON.stringify([
     driverId,
     config.binaryPath ?? null,

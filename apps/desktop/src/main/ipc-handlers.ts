@@ -169,13 +169,28 @@ import { AttentionService } from './attention/AttentionService';
 import { SessionSource } from './attention/SessionSource';
 import { RunSource } from './automations/RunSource';
 import { AttentionEndpoint } from './attention/AttentionEndpoint';
-import { HookSignals } from './attention/hookSignals';
+import { HookSignals, type AttentionSignal } from './attention/hookSignals';
 import { SteadyStatus } from './attention/steadyStatus';
 import { ViewingTracker } from './attention/ViewingTracker';
 import { AutoSettler } from './attention/AutoSettler';
-import { settleAndVerify, unsettleSession } from './attention/settling';
+import { settleAndVerify, settleMany, unsettleMany, unsettleSession } from './attention/settling';
+import { Snoozer } from './attention/Snoozer';
+import { HarnessLimitsCache } from './usageLimits/HarnessLimitsCache';
+import {
+  type HarnessTarget,
+  UsageLimitService,
+  type UsageLimitsStateFile,
+} from './usageLimits/UsageLimitService';
+import type { UsageLimitsState } from '../shared/usageLimits';
+import { launchFieldsFor as harnessLaunchFields } from '../shared/harness';
 import { PreferencesService } from './state/PreferencesService';
-import type { SettleMemento, SettleResult } from '../shared/preferences';
+import type {
+  BatchResult,
+  SettleMemento,
+  SettleResult,
+  SnoozeBatchResult,
+} from '../shared/preferences';
+import type { SnoozeWhen } from '../shared/snooze';
 import { activityOf, type AttentionState } from '../shared/attention';
 import type { ActivateWorkspaceResult, WorkspaceView } from '../shared/types';
 
@@ -194,6 +209,9 @@ let attentionLedgerService: JsonAttentionLedger | null = null;
 let autoSettler: AutoSettler | null = null;
 let worktreeSweeper: WorktreeCleanupSweeper | null = null;
 let worktreeCleanupService: WorktreeCleanupService | null = null;
+let snoozer: Snoozer | null = null;
+let usageLimitService: UsageLimitService | null = null;
+let onSnoozeResume: (() => void) | null = null;
 
 // The single writer for workspaces and sessions, shared by every window
 let workspaceService: WorkspaceService | null = null;
@@ -1055,9 +1073,10 @@ export function setupIpcHandlers(): boolean {
   // What an agent CLI's own hooks say, as one more input to that derivation:
   // they never write a status. The screen heuristic runs regardless.
   const hookSignals = new HookSignals();
-  const attentionEndpoint = new AttentionEndpoint((instanceId, signal) =>
-    hookSignals.apply(instanceId, signal),
-  );
+  const attentionEndpoint = new AttentionEndpoint((instanceId, signal) => {
+    hookSignals.apply(instanceId, signal);
+    hookFanOut(instanceId, signal);
+  });
   manager.attentionEndpoint = attentionEndpoint;
   app.on('will-quit', () => attentionEndpoint.close());
   const attentionSessions = new SessionSource({
@@ -1068,6 +1087,11 @@ export function setupIpcHandlers(): boolean {
     isViewedInFocusedWindow: (instanceId) => viewing.isViewedInFocusedWindow(instanceId),
     // An open automation run keeps the session it uses from being settled.
     heldSessionIds: () => new Set(attention.holds().keys()),
+    // A new question ends a snooze before anything derives from it.
+    hands: {
+      raised: (instanceId) => snoozer?.raisedHand(instanceId),
+      lowered: (instanceId) => snoozer?.loweredHand(instanceId),
+    },
   });
   // Looking at a finished session is what clears `done`. Main decides what
   // looking means: a window must be focused as well as showing it.
@@ -1085,13 +1109,14 @@ export function setupIpcHandlers(): boolean {
       viewing.closed(id);
     });
   };
-  ipcMain.handle(
-    IPC_CHANNELS.ATTENTION_SNAPSHOT,
-    (): AttentionState => ({
+  ipcMain.handle(IPC_CHANNELS.ATTENTION_SNAPSHOT, (): AttentionState => {
+    const derived = attention.snapshot();
+    return {
       records: attentionLedger.snapshot(),
-      attention: Object.fromEntries(attention.snapshot()),
-    }),
-  );
+      attention: Object.fromEntries(derived),
+      snoozes: Object.fromEntries(attention.snoozes(derived)),
+    };
+  });
   ipcMain.on(IPC_CHANNELS.ATTENTION_VIEWING, (event, instanceId: unknown) => {
     watch(event.sender);
     viewing.viewing(event.sender.id, typeof instanceId === 'string' ? instanceId : null);
@@ -1115,6 +1140,27 @@ export function setupIpcHandlers(): boolean {
     onWindowReport: (listener) => viewing.onReport(listener),
   });
   autoSettler = settler;
+
+  // Parks sessions until a time, and brings them back when it comes or when
+  // they need the person sooner. The only writer of the ledger's snooze fields.
+  const sessionSnoozer = new Snoozer({
+    getWorkspaces: () => workspaces.getAll(),
+    ledger: attentionLedger,
+    attention: () => attention.snapshot(),
+    isViewedInFocusedWindow: (instanceId) => viewing.isViewedInFocusedWindow(instanceId),
+    isAsking: (instanceId) => attentionSessions.isAsking(instanceId),
+    preferences,
+    changed: () => attentionSessions.refresh(),
+  });
+  snoozer = sessionSnoozer;
+  // A laptop asleep past a snooze's time wakes into it: check at once.
+  onSnoozeResume = () => {
+    sessionSnoozer.recheck();
+    usageLimitService?.recheck();
+  };
+  powerMonitor.on('resume', onSnoozeResume);
+  // Quitting stops terminals, and their exits are not failures to wake for.
+  app.once('before-quit', () => sessionSnoozer.stop());
   let sweptDays = preferences.get().autoSettleDays;
   preferences.onChange((next) => {
     for (const window of consolaWindows()) {
@@ -1142,6 +1188,12 @@ export function setupIpcHandlers(): boolean {
   /** The cleanup rules that apply in a workspace now: its own, none, or the global ones. */
   const cleanupRulesFor = (workspace: Workspace) =>
     effectiveWorktreeCleanup(preferences.get().worktreeCleanup, workspace.worktreeCleanup);
+  ipcMain.handle(IPC_CHANNELS.PREFERENCES_SET_SNOOZE_PRESETS, (_event, presets: unknown) =>
+    preferences.setSnoozePresets(presets),
+  );
+  ipcMain.handle(IPC_CHANNELS.PREFERENCES_SET_SNOOZE_AT_USAGE_LIMIT, (_event, on: unknown) => {
+    if (typeof on === 'boolean') preferences.setSnoozeAtUsageLimit(on);
+  });
 
   const withWorkspace =
     <T>(empty: T, run: (workspace: Workspace, sessionId: string) => T) =>
@@ -1150,6 +1202,8 @@ export function setupIpcHandlers(): boolean {
       const workspace = workspaces.getAll().find((candidate) => candidate.id === workspaceId);
       if (!workspace) return empty;
       const result = run(workspace, sessionId);
+      // Settling ends a snooze: the timer waits for the next one instead.
+      snoozer?.rearm();
       attentionSessions.refresh();
       return result;
     };
@@ -1174,8 +1228,99 @@ export function setupIpcHandlers(): boolean {
   ipcMain.handle(IPC_CHANNELS.ATTENTION_RESTORE, (_event, memento: unknown) => {
     if (typeof memento !== 'object' || memento === null) return;
     attentionLedger.restore(memento as SettleMemento);
+    // An undo can put a snooze back, or take one away.
+    sessionSnoozer.rearm();
     attentionSessions.refresh();
   });
+
+  // Which sessions stopped on a usage limit, and when each resets, as its
+  // harness's own CLI says. The CLI is asked, never the screen.
+  const harnessLimits = new HarnessLimitsCache();
+  const harnessTarget = (harnessId: string | undefined): HarnessTarget => {
+    const fields = harnessLaunchFields(
+      harnesses.getAll().find((candidate) => candidate.id === harnessId),
+    );
+    return {
+      harnessId: harnessId ?? 'default',
+      driver: getDriver(fields.driverId),
+      config: toHarnessConfig(fields),
+    };
+  };
+  const usageLimits = new UsageLimitService({
+    getWorkspaces: () => workspaces.getAll(),
+    harnessOf: (session) => harnessTarget(session.harnessId),
+    cache: harnessLimits,
+    snoozer: sessionSnoozer,
+    // The steady status, as attention reads it: a flicker is not coming to rest.
+    terminalStatus: (instanceId) => steadySessionStatus(instanceId),
+    file: new JsonStateFile<UsageLimitsStateFile>(
+      path.join(app.getPath('userData'), 'usage-limits.json'),
+    ),
+  });
+  usageLimitService = usageLimits;
+  usageLimits.load();
+  usageLimits.onChange((state) => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed()) window.webContents.send(IPC_CHANNELS.USAGE_LIMITS_CHANGED, state);
+    }
+  });
+  ipcMain.handle(IPC_CHANNELS.USAGE_LIMITS_SNAPSHOT, (): UsageLimitsState => usageLimits.state());
+  workspaces.onChange(() => usageLimits.sync());
+  const limitResetFor = (sessionId: string) => usageLimits.resetFor(sessionId);
+
+  /** A batch request's session ids, or null when the payload is not one. */
+  const idList = (value: unknown): string[] | null =>
+    Array.isArray(value) && value.every((id) => typeof id === 'string') ? value : null;
+  const emptyBatch: BatchResult = { applied: [], refused: [], memento: {} };
+  ipcMain.handle(
+    IPC_CHANNELS.ATTENTION_SNOOZE,
+    (_event, workspaceId: unknown, sessionIds: unknown, when: unknown): SnoozeBatchResult => {
+      const ids = idList(sessionIds);
+      if (typeof workspaceId !== 'string' || !ids) return { ...emptyBatch, until: null };
+      const snoozeWhen = when as SnoozeWhen | null;
+      // A reset time is main's to know: the renderer only says "until it resets".
+      if (snoozeWhen && 'untilLimitResets' in snoozeWhen && snoozeWhen.untilLimitResets === true)
+        return sessionSnoozer.snooze(workspaceId, ids, (rootId) => limitResetFor(rootId), {
+          by: 'person',
+          reason: 'usage-limit',
+        });
+      const until = snoozeWhen && 'until' in snoozeWhen ? snoozeWhen.until : undefined;
+      if (typeof until !== 'number' || !Number.isFinite(until))
+        return { ...emptyBatch, until: null };
+      return sessionSnoozer.snooze(workspaceId, ids, until, { by: 'person' });
+    },
+  );
+  /** A batch run against one workspace, then the derivation told and the snooze timer re-armed. */
+  const inWorkspace =
+    (run: (workspace: Workspace, ids: string[]) => BatchResult) =>
+    (_event: Electron.IpcMainInvokeEvent, workspaceId: unknown, sessionIds: unknown) => {
+      const ids = idList(sessionIds);
+      const workspace = workspaces.getAll().find((candidate) => candidate.id === workspaceId);
+      if (!workspace || !ids) return emptyBatch;
+      const result = run(workspace, ids);
+      // Settling ends a snooze, and its undo can bring one back.
+      sessionSnoozer.rearm();
+      attentionSessions.refresh();
+      return result;
+    };
+  ipcMain.handle(
+    IPC_CHANNELS.ATTENTION_SETTLE_MANY,
+    inWorkspace((workspace, ids) =>
+      settleMany(workspace, ids, attentionLedger, () => attentionSessions.read(), Date.now()),
+    ),
+  );
+  ipcMain.handle(
+    IPC_CHANNELS.ATTENTION_UNSETTLE_MANY,
+    inWorkspace((workspace, ids) => unsettleMany(workspace, ids, attentionLedger, Date.now())),
+  );
+  ipcMain.handle(
+    IPC_CHANNELS.ATTENTION_WAKE,
+    (_event, workspaceId: unknown, sessionIds: unknown): BatchResult => {
+      const ids = idList(sessionIds);
+      if (typeof workspaceId !== 'string' || !ids) return emptyBatch;
+      return sessionSnoozer.wake(workspaceId, ids, { by: 'person' });
+    },
+  );
   // The steady status first: a turn boundary can release a status it was
   // holding back, and the attention read that follows should see it.
   hookSignals.subscribe((instanceId) => {
@@ -1210,6 +1355,8 @@ export function setupIpcHandlers(): boolean {
     emit: (instanceId, status) => {
       turnActivity.statusChanged(instanceId, status);
       attentionSessions.statusChanged(instanceId, status);
+      // A limited session at rest may be parked until its reset.
+      usageLimitService?.statusChanged(instanceId, status);
     },
   });
   /** What attention reads for a terminal. A terminal that is gone is exited, whatever was last shown. */
@@ -1245,6 +1392,30 @@ export function setupIpcHandlers(): boolean {
     },
   });
   manager.addStatusListener((instanceId, status) => sessionNamer.statusChanged(instanceId, status));
+  // A notice on screen prompts a read of the harness's limits.
+  manager.addLimitNoticeListener((instanceId, showing) =>
+    usageLimitService?.noticeChanged(instanceId, showing),
+  );
+
+  /**
+   * What a hook says beyond the screen's state, to whoever acts on it: a turn
+   * that failed ends a snooze, and one that stopped on a usage limit does too
+   * unless the person asked to sit limits out.
+   */
+  function hookFanOut(instanceId: string, signal: AttentionSignal): void {
+    if (signal.kind === 'turn-ended' || signal.kind === 'limit-over') {
+      usageLimitService?.hookCleared(instanceId);
+      return;
+    }
+    if (signal.kind !== 'turn-failed') return;
+    // The usage-limit service tells the Snoozer once it has recorded the stop.
+    if (signal.limit) {
+      usageLimitService?.hookStopped(instanceId);
+      return;
+    }
+    const located = findSessionByInstanceId(workspaces.getAll(), instanceId);
+    if (located) snoozer?.turnFailed(located.session.id, { at: Date.now() });
+  }
 
   /**
    * What every attention source knows about a terminal's current process,
@@ -1309,6 +1480,14 @@ export function setupIpcHandlers(): boolean {
     if (ended?.completed) attentionSessions.runCompleted(instanceId);
     // "Its automation run ended" may now apply; a little later, once it has settled.
     worktreeSweeper?.kick(RUN_ENDED_DEBOUNCE_MS);
+  });
+  // A CLI that quits on an error needs the person: it ends a snooze. Exit 0
+  // never does (it covers /exit, Ctrl+C and a death by signal), nor a turn
+  // Consola stopped, nor a failed resume, which retries without exiting.
+  manager.addExitListener((instanceId, info) => {
+    if (info.exitCode === 0 || info.stopped) return;
+    const located = findSessionByInstanceId(workspaces.getAll(), instanceId);
+    if (located) snoozer?.turnFailed(located.session.id, { at: Date.now() });
   });
 
   // An agent can move itself into another checkout (Claude's EnterWorktree)
@@ -1553,6 +1732,8 @@ export function setupIpcHandlers(): boolean {
     getWorkspaces: () => workspaces.getAll(),
     status: sessionStatus,
     attention: (sessionId) => attention.get(sessionId),
+    snoozer: () => sessionSnoozer,
+    snoozes: () => attention.snoozes(),
     isManagedPath: (dir) => worktrees.isManagedPath(dir),
     automations: () => automations,
     // Fetched here, with the token only main holds: a read-only session
@@ -1826,16 +2007,34 @@ export function setupIpcHandlers(): boolean {
     launcher,
     handoffs,
     forgetAttention: forgetTerminalAttention,
+    limitedUntil: (harnessId) => usageLimitService?.limitedUntil(harnessId),
   });
   ipcMain.handle(
     IPC_CHANNELS.WORKSPACE_SESSION_SWITCH_PREVIEW,
-    (_event, workspaceId: string, sessionId: string) =>
-      harnessSwitcher.preview(String(workspaceId), String(sessionId)),
+    async (_event, workspaceId: string, sessionId: string) => {
+      // Each target's limits, asked again when the last answer is over a
+      // minute old, but never holding the dialog more than three seconds.
+      await usageLimitService?.refreshHarnesses(
+        harnesses
+          .getAll()
+          .filter((harness) => !harness.archived)
+          .map((harness) => harnessTarget(harness.id)),
+      );
+      return harnessSwitcher.preview(String(workspaceId), String(sessionId));
+    },
   );
   ipcMain.handle(
     IPC_CHANNELS.WORKSPACE_SESSION_SWITCH_HARNESS,
-    (_event, workspaceId: string, sessionId: string, harnessId: string) =>
-      harnessSwitcher.switch(String(workspaceId), String(sessionId), String(harnessId)),
+    async (_event, workspaceId: string, sessionId: string, harnessId: string) => {
+      const result = await harnessSwitcher.switch(
+        String(workspaceId),
+        String(sessionId),
+        String(harnessId),
+      );
+      // Waiting out the old harness's limit is over once another carries on.
+      snoozer?.harnessSwitched(String(sessionId));
+      return result;
+    },
   );
 
   ipcMain.handle(
@@ -1942,8 +2141,12 @@ export function setupIpcHandlers(): boolean {
     );
   });
 
+  // The only path the person's own keys take (a queued prompt, a paste and a
+  // dropped file each have their own), so it is where answering a snoozed
+  // session is heard.
   ipcMain.on(IPC_CHANNELS.TERMINAL_INPUT, (_event, instanceId: string, data: string) => {
     manager.get(instanceId)?.write(data);
+    if (typeof data === 'string') snoozer?.personInput(instanceId, data);
   });
 
   ipcMain.on(IPC_CHANNELS.TERMINAL_PASTE, (_event, instanceId: string, text: string) => {
@@ -1968,6 +2171,10 @@ export function setupIpcHandlers(): boolean {
         (located.session.cwd ?? scopeForSession(located.workspace, located.session)?.path);
       manager.get(instanceId)?.restartClaude(cwd ?? undefined, notice);
     })();
+  });
+
+  ipcMain.on(IPC_CHANNELS.TERMINAL_DETACH, (event, instanceId: string) => {
+    manager.release(instanceId, event.sender);
   });
 
   ipcMain.on(IPC_CHANNELS.TERMINAL_DESTROY, (_event, instanceId: string) => {
@@ -2287,6 +2494,9 @@ ${truncatedDiff}`;
   // session's terminal status, and the windows' own reports. The first sweep
   // itself waits for a window to say what it is showing, so a session a
   // restoring window is about to open is not settled out from under it.
+  // Before the sweep: a snooze that ran out while Consola was closed comes
+  // back first, so the sweep sees it in play.
+  snoozer?.start();
   autoSettler?.start();
   worktreeSweeper?.start();
 
@@ -2351,6 +2561,21 @@ export function cleanupIpcHandlers(): void {
   ipcMain.removeHandler(IPC_CHANNELS.WORKTREE_CLEANUP_RUN);
   ipcMain.removeHandler(IPC_CHANNELS.WORKTREE_CLEANUP_HISTORY);
   ipcMain.removeHandler(IPC_CHANNELS.WORKTREE_CLEANUP_IS_MANAGED);
+  snoozer?.stop();
+  snoozer = null;
+  usageLimitService?.stop();
+  usageLimitService = null;
+  ipcMain.removeHandler(IPC_CHANNELS.USAGE_LIMITS_SNAPSHOT);
+  if (onSnoozeResume) {
+    powerMonitor.removeListener('resume', onSnoozeResume);
+    onSnoozeResume = null;
+  }
+  ipcMain.removeHandler(IPC_CHANNELS.ATTENTION_SNOOZE);
+  ipcMain.removeHandler(IPC_CHANNELS.ATTENTION_WAKE);
+  ipcMain.removeHandler(IPC_CHANNELS.ATTENTION_SETTLE_MANY);
+  ipcMain.removeHandler(IPC_CHANNELS.ATTENTION_UNSETTLE_MANY);
+  ipcMain.removeHandler(IPC_CHANNELS.PREFERENCES_SET_SNOOZE_PRESETS);
+  ipcMain.removeHandler(IPC_CHANNELS.PREFERENCES_SET_SNOOZE_AT_USAGE_LIMIT);
   ipcMain.removeHandler(IPC_CHANNELS.ATTENTION_SETTLE);
   ipcMain.removeHandler(IPC_CHANNELS.ATTENTION_UNSETTLE);
   ipcMain.removeHandler(IPC_CHANNELS.ATTENTION_RESTORE);
@@ -2457,6 +2682,7 @@ export function cleanupIpcHandlers(): void {
   ipcMain.removeAllListeners(IPC_CHANNELS.TERMINAL_PASTE);
   ipcMain.removeAllListeners(IPC_CHANNELS.TERMINAL_RESIZE);
   ipcMain.removeAllListeners(IPC_CHANNELS.TERMINAL_RESTART);
+  ipcMain.removeAllListeners(IPC_CHANNELS.TERMINAL_DETACH);
   ipcMain.removeAllListeners(IPC_CHANNELS.TERMINAL_DESTROY);
   ipcMain.removeHandler(IPC_CHANNELS.CONDUCTOR_CREATE);
   ipcMain.removeHandler(IPC_CHANNELS.SESSION_FAN_OUT);

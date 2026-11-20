@@ -16,6 +16,7 @@ export const IPC_CHANNELS = {
   TERMINAL_RESIZE: 'terminal:resize', // Terminal dimension changes
   TERMINAL_RESTART: 'terminal:restart', // Relaunch claude after it exited
   TERMINAL_DESTROY: 'terminal:destroy', // Tear down a session terminal
+  TERMINAL_DETACH: 'terminal:detach', // A view unmounted; stop sending it output
   TERMINAL_STATUS_SNAPSHOT: 'terminal:status-snapshot', // Live status of every terminal
 
   // Terminal events (main -> renderer)
@@ -72,9 +73,17 @@ export const IPC_CHANNELS = {
   ATTENTION_SETTLE: 'attention:settle', // renderer -> main: settle a session and its descendants; answers the memento
   ATTENTION_UNSETTLE: 'attention:unsettle', // renderer -> main: bring a session back, holding auto-settle off
   ATTENTION_RESTORE: 'attention:restore', // renderer -> main: undo, from a memento
+  ATTENTION_SNOOZE: 'attention:snooze', // renderer -> main: snooze sessions (and their trees) until a time; answers a SnoozeBatchResult
+  ATTENTION_WAKE: 'attention:wake', // renderer -> main: the person brings snoozed sessions back; answers a BatchResult
+  ATTENTION_SETTLE_MANY: 'attention:settle-many', // renderer -> main: settle several sessions in one write
+  ATTENTION_UNSETTLE_MANY: 'attention:unsettle-many', // renderer -> main: bring several settled sessions back in one write
   PREFERENCES_GET: 'preferences:get',
   PREFERENCES_SET_AUTO_SETTLE_DAYS: 'preferences:set-auto-settle-days',
   PREFERENCES_ACKNOWLEDGE_AUTO_SETTLE: 'preferences:acknowledge-auto-settle',
+  PREFERENCES_SET_SNOOZE_PRESETS: 'preferences:set-snooze-presets',
+  USAGE_LIMITS_SNAPSHOT: 'usage-limits:snapshot', // Which sessions stopped on a usage limit, and which harnesses are limited
+  USAGE_LIMITS_CHANGED: 'usage-limits:changed', // main -> renderer: the full usage-limit state, coalesced
+  PREFERENCES_SET_SNOOZE_AT_USAGE_LIMIT: 'preferences:set-snooze-at-usage-limit',
   PREFERENCES_CHANGED: 'preferences:changed', // main -> renderer: the full preferences, to every window
   PREFERENCES_SET_WORKTREE_CLEANUP: 'preferences:set-worktree-cleanup',
   PREFERENCES_SET_TERMINAL_LINKS: 'preferences:set-terminal-links',

@@ -1,7 +1,15 @@
 import type { WorkItemMutation } from '../shared/workItemDetails';
 import { UPDATE_CHANNELS, type AppUpdateAPI } from '../shared/appUpdates';
 import type { AttentionChange, AttentionState } from '../shared/attention';
-import type { Preferences, SettleMemento, SettleResult } from '../shared/preferences';
+import type {
+  BatchResult,
+  Preferences,
+  SettleMemento,
+  SettleResult,
+  SnoozeBatchResult,
+} from '../shared/preferences';
+import type { SnoozePresetSetting, SnoozeWhen } from '../shared/snooze';
+import type { UsageLimitsState } from '../shared/usageLimits';
 import type {
   CleanupHistoryEntry,
   CleanupPreview,
@@ -148,6 +156,11 @@ contextBridge.exposeInMainWorld('terminalAPI', {
   // Relaunch claude after it exited
   restart: (instanceId: string): void => {
     ipcRenderer.send(IPC_CHANNELS.TERMINAL_RESTART, instanceId);
+  },
+
+  // The view unmounted; the terminal keeps running
+  detach: (instanceId: string): void => {
+    ipcRenderer.send(IPC_CHANNELS.TERMINAL_DETACH, instanceId);
   },
 
   // Tear down a session's terminal
@@ -510,6 +523,33 @@ contextBridge.exposeInMainWorld('attentionAPI', {
   restore: (memento: SettleMemento): Promise<void> => {
     return ipcRenderer.invoke(IPC_CHANNELS.ATTENTION_RESTORE, memento);
   },
+  snooze: (
+    workspaceId: string,
+    sessionIds: string[],
+    when: SnoozeWhen,
+  ): Promise<SnoozeBatchResult> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.ATTENTION_SNOOZE, workspaceId, sessionIds, when);
+  },
+  wake: (workspaceId: string, sessionIds: string[]): Promise<BatchResult> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.ATTENTION_WAKE, workspaceId, sessionIds);
+  },
+  settleMany: (workspaceId: string, sessionIds: string[]): Promise<BatchResult> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.ATTENTION_SETTLE_MANY, workspaceId, sessionIds);
+  },
+  unsettleMany: (workspaceId: string, sessionIds: string[]): Promise<BatchResult> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.ATTENTION_UNSETTLE_MANY, workspaceId, sessionIds);
+  },
+});
+
+contextBridge.exposeInMainWorld('usageLimitsAPI', {
+  getSnapshot: (): Promise<UsageLimitsState> =>
+    ipcRenderer.invoke(IPC_CHANNELS.USAGE_LIMITS_SNAPSHOT),
+  onChanged: (callback: (state: UsageLimitsState) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, state: UsageLimitsState) =>
+      callback(state);
+    ipcRenderer.on(IPC_CHANNELS.USAGE_LIMITS_CHANGED, listener);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.USAGE_LIMITS_CHANGED, listener);
+  },
 });
 
 contextBridge.exposeInMainWorld('worktreeCleanupAPI', {
@@ -544,6 +584,10 @@ contextBridge.exposeInMainWorld('preferencesAPI', {
     ipcRenderer.invoke(IPC_CHANNELS.PREFERENCES_SET_AUTO_SETTLE_DAYS, days),
   acknowledgeAutoSettle: (): Promise<void> =>
     ipcRenderer.invoke(IPC_CHANNELS.PREFERENCES_ACKNOWLEDGE_AUTO_SETTLE),
+  setSnoozePresets: (presets: SnoozePresetSetting[]): Promise<void> =>
+    ipcRenderer.invoke(IPC_CHANNELS.PREFERENCES_SET_SNOOZE_PRESETS, presets),
+  setSnoozeAtUsageLimit: (on: boolean): Promise<void> =>
+    ipcRenderer.invoke(IPC_CHANNELS.PREFERENCES_SET_SNOOZE_AT_USAGE_LIMIT, on),
   onChanged: (callback: (preferences: Preferences) => void): (() => void) => {
     const listener = (_event: Electron.IpcRendererEvent, preferences: Preferences) =>
       callback(preferences);

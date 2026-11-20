@@ -9,7 +9,15 @@ import type {
 import type { AppUpdateAPI } from '../../shared/appUpdates';
 import type { BrowserAPI, TerminalLinkRule } from '../../shared/browser';
 import type { AttentionChange, AttentionState } from '../../shared/attention';
-import type { Preferences, SettleMemento, SettleResult } from '../../shared/preferences';
+import type {
+  BatchResult,
+  Preferences,
+  SettleMemento,
+  SettleResult,
+  SnoozeBatchResult,
+} from '../../shared/preferences';
+import type { SnoozePresetSetting, SnoozeWhen } from '../../shared/snooze';
+import type { UsageLimitsState } from '../../shared/usageLimits';
 import type { CheckoutInfo } from '../../shared/sessionCheckout';
 export interface FolderInfo {
   path: string;
@@ -70,6 +78,19 @@ export interface AttentionAPI {
   settle: (workspaceId: string, sessionId: string) => Promise<SettleResult>;
   unsettle: (workspaceId: string, sessionId: string) => Promise<SettleMemento>;
   restore: (memento: SettleMemento) => Promise<void>;
+  snooze: (
+    workspaceId: string,
+    sessionIds: string[],
+    when: SnoozeWhen,
+  ) => Promise<SnoozeBatchResult>;
+  wake: (workspaceId: string, sessionIds: string[]) => Promise<BatchResult>;
+  settleMany: (workspaceId: string, sessionIds: string[]) => Promise<BatchResult>;
+  unsettleMany: (workspaceId: string, sessionIds: string[]) => Promise<BatchResult>;
+}
+
+export interface UsageLimitsAPI {
+  getSnapshot: () => Promise<UsageLimitsState>;
+  onChanged: (callback: (state: UsageLimitsState) => void) => () => void;
 }
 
 export interface WorktreeCleanupAPI {
@@ -87,6 +108,8 @@ export interface PreferencesAPI {
   setTerminalLinks: (rule: TerminalLinkRule) => Promise<void>;
   setAutoSettleDays: (days: number) => Promise<void>;
   acknowledgeAutoSettle: () => Promise<void>;
+  setSnoozePresets: (presets: SnoozePresetSetting[]) => Promise<void>;
+  setSnoozeAtUsageLimit: (on: boolean) => Promise<void>;
   onChanged: (callback: (preferences: Preferences) => void) => () => void;
 }
 
@@ -110,6 +133,7 @@ declare global {
     attentionAPI: AttentionAPI;
     preferencesAPI: PreferencesAPI;
     worktreeCleanupAPI: WorktreeCleanupAPI;
+    usageLimitsAPI?: UsageLimitsAPI;
     gitAPI: GitAPI;
   }
 }

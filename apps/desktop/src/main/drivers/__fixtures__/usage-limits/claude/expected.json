@@ -1,0 +1,6 @@
+{
+  "now": "2026-11-19T14:00:00.000Z",
+  "stoppedAt": "2026-11-19T13:59:00.000Z",
+  "resetsAt": "2026-11-19T18:10:00.196Z",
+  "resetPath": ["rate_limits", "five_hour", "resets_at"]
+}

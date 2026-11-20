@@ -58,6 +58,7 @@ describe('hydrateAttention', () => {
     vi.mocked(attentionBridge.getSnapshot).mockResolvedValue({
       records: { a: { sessionId: 'a', workspaceId: 'w', lastActiveAt: 1, finishedAt: 5 } },
       attention: { a: 'done' },
+      snoozes: {},
     });
 
     await hydrateAttention();

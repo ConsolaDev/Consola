@@ -2,6 +2,7 @@ import { DeleteSessionDialog } from './components/Dialogs/DeleteSessionDialog';
 import { createHashRouter } from 'react-router-dom';
 import { Layout } from './components/Layout';
 import { LinkSessionDialog } from './components/Dialogs/LinkSessionDialog';
+import { CustomSnoozeDialog } from './components/Snooze/CustomSnoozeDialog';
 import { SettingsProvider } from './contexts/SettingsContext';
 import { CommandPaletteProvider } from './contexts/CommandPaletteContext';
 
@@ -17,6 +18,7 @@ function LayoutWithProviders() {
             hidden, and the dialog is opened from three unrelated trees. */}
         <LinkSessionDialog />
         <DeleteSessionDialog />
+        <CustomSnoozeDialog />
       </CommandPaletteProvider>
     </SettingsProvider>
   );

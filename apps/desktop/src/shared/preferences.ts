@@ -1,6 +1,7 @@
 import type { AttentionRecord } from './attention';
 import type { TerminalLinkRule } from './browser';
 import { DEFAULT_WORKTREE_CLEANUP_RULES, type WorktreeCleanupRules } from './worktreeCleanup';
+import { DEFAULT_SNOOZE_PRESETS, type SnoozePresetSetting } from './snooze';
 
 /**
  * Preferences main itself has to read. The renderer's settings live in
@@ -19,6 +20,10 @@ export interface Preferences {
   pendingAutoSettle: string[];
   /** When a session's worktree is removed on its own. Every rule is off by default. */
   worktreeCleanup: WorktreeCleanupRules;
+  /** The choices in every window's Snooze menu, in the order the person put them. Up to 8; may be empty. */
+  snoozePresets: SnoozePresetSetting[];
+  /** A session that stops on a usage limit snoozes itself until the limit resets. Off by default. */
+  snoozeAtUsageLimit: boolean;
   /** Where a link clicked in a terminal opens. Shift does the opposite for one click. */
   terminalLinks: TerminalLinkRule;
 }
@@ -41,6 +46,8 @@ export const DEFAULT_PREFERENCES: Preferences = {
   hasExplainedAutoSettle: false,
   pendingAutoSettle: [],
   worktreeCleanup: DEFAULT_WORKTREE_CLEANUP_RULES,
+  snoozePresets: [...DEFAULT_SNOOZE_PRESETS],
+  snoozeAtUsageLimit: false,
   terminalLinks: 'local',
 };
 
@@ -56,3 +63,27 @@ export interface SettleResult {
 
 /** What undoing a settle (or un-settle) restores: each session's ledger entry as it was, null for none. */
 export type SettleMemento = Record<string /* sessionId */, AttentionRecord | null>;
+
+/** Why one session of a batch was not acted on, in words a toast can show. */
+export interface Refusal {
+  sessionId: string;
+  /** A stable code (`child`, `in-use`, `too-soon`, `not-snoozed`…), for callers that branch. */
+  reason: string;
+  message: string;
+}
+
+/**
+ * What acting on several sessions at once did. One write, one memento, so one
+ * Undo puts every session back. `applied` lists the sessions asked for that
+ * were acted on; members carried along with a conductor are in the memento only.
+ */
+export interface BatchResult {
+  applied: string[];
+  refused: Refusal[];
+  memento: SettleMemento;
+}
+
+/** A batch snooze, and the one time every applied session comes back at; null when they differ. */
+export interface SnoozeBatchResult extends BatchResult {
+  until: number | null;
+}

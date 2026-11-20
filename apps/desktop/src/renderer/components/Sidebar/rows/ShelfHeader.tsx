@@ -12,6 +12,8 @@ interface ShelfHeaderProps {
   shortcutHint?: string;
   /** Whether what is on the shelf is running: the header turns the same arc its rows do. */
   live?: boolean;
+  /** What the shelf is for, on hover. */
+  tooltip?: string;
 }
 
 /**
@@ -31,6 +33,7 @@ export function ShelfHeader({
   onToggle,
   shortcutHint,
   live,
+  tooltip,
 }: ShelfHeaderProps) {
   return (
     <button
@@ -41,7 +44,7 @@ export function ShelfHeader({
       // is never drawn empty; the sidebar drops it instead.
       data-empty={count === 0 || undefined}
       aria-expanded={open}
-      title={shortcutHint ? `${title} (${shortcutHint})` : undefined}
+      title={shortcutHint ? `${title} (${shortcutHint})` : tooltip}
       onClick={onToggle}
     >
       <span className="shelf-header-title">{title}</span>

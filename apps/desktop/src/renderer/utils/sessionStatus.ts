@@ -1,4 +1,4 @@
-import { worstStatus, type Attention } from '../../shared/attention';
+import { isParked, worstStatus, type Attention } from '../../shared/attention';
 import type { Workspace } from '../../shared/workspace';
 
 /**
@@ -10,10 +10,10 @@ export type AttentionMap = Record<string /* sessionId */, Attention>;
 
 /** The most urgent attention among a workspace's sessions; `ready` when it has none that count. */
 export function workspaceStatusFor(workspace: Workspace, attention: AttentionMap): Attention {
-  // `settled` asks nothing of anyone, so it never colours a workspace.
+  // Put away, for good or until a time, asks nothing of anyone, so it never colours a workspace.
   const live = workspace.sessions
     .map((session) => attention[session.id] ?? 'ready')
-    .filter((status) => status !== 'settled');
+    .filter((status) => !isParked(status));
   return worstStatus(live) ?? 'ready';
 }
 

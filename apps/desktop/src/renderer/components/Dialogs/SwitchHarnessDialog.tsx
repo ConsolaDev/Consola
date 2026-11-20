@@ -1,3 +1,4 @@
+import { describeWake } from '../../../shared/snooze';
 import { useEffect, useRef, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { ArrowLeftRight, Loader2, X } from 'lucide-react';
@@ -43,7 +44,13 @@ export function SwitchHarnessDialog({ workspaceId, session, onClose }: SwitchHar
       .then((next) => {
         if (!live) return;
         setPreviews(next);
-        setSelected(next.find((preview) => preview.ok)?.harnessId);
+        // A harness at its own usage limit is a poor way out of another's.
+        setSelected(
+          (
+            next.find((preview) => preview.ok && preview.limitedUntil === undefined) ??
+            next.find((preview) => preview.ok)
+          )?.harnessId,
+        );
       })
       .catch((reason) => {
         if (live) setError(ipcErrorMessage(reason));
@@ -136,7 +143,11 @@ export function SwitchHarnessDialog({ workspaceId, session, onClose }: SwitchHar
                       <span className="switch-harness-option-copy">
                         <span className="switch-harness-option-name">{harness.name}</span>
                         <span className="switch-harness-option-detail">
-                          {preview.ok ? preview.summary : preview.reason}
+                          {preview.ok
+                            ? preview.limitedUntil !== undefined
+                              ? `Limited until ${describeWake(preview.limitedUntil, Date.now())}. ${preview.summary}`
+                              : preview.summary
+                            : preview.reason}
                         </span>
                       </span>
                     </label>

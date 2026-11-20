@@ -57,7 +57,9 @@ const CONSOLA_TOOLS = [
   'consola_list_sessions',
   'consola_run_automation',
   'consola_save_automation',
+  'consola_snooze_session',
   'consola_start_session',
+  'consola_wake_session',
   'consola_work_item_context',
 ];
 const CONDUCTOR_TOOLS = [
@@ -154,6 +156,8 @@ beforeEach(() => {
     getWorkspaces: workspaces,
     status: () => 'ready',
     attention: () => 'done',
+    snoozer: () => ({ snooze: vi.fn(), wake: vi.fn() }),
+    snoozes: () => new Map(),
     isManagedPath: () => false,
     automations: () => ({
       list: () => [],

@@ -158,6 +158,29 @@ describe('parseClaudeHookEvent', () => {
   });
 });
 
+describe('a turn that ends on an error', () => {
+  it('is a failed turn, and a usage limit when Claude says rate_limit', () => {
+    expect(parseClaudeHookEvent({ hook_event_name: 'StopFailure', error: 'rate_limit' })).toEqual({
+      kind: 'turn-failed',
+      limit: true,
+    });
+    expect(
+      parseClaudeHookEvent({ hook_event_name: 'StopFailure', error: 'authentication_failed' }),
+    ).toEqual({ kind: 'turn-failed', limit: false });
+    expect(parseClaudeHookEvent({ hook_event_name: 'StopFailure' })).toEqual({
+      kind: 'turn-failed',
+      limit: false,
+    });
+  });
+
+  it('hears that a limit’s wait is over, by notification type', () => {
+    for (const type of ['quota_auto_resume_fired', 'quota_auto_resume_stale'])
+      expect(
+        parseClaudeHookEvent({ hook_event_name: 'Notification', notification_type: type }),
+      ).toEqual({ kind: 'limit-over' });
+  });
+});
+
 describe('hook registration', () => {
   it('registers an http handler on loopback for the three events', () => {
     const settings = JSON.parse(claudeHookSettings(URL));
@@ -166,6 +189,7 @@ describe('hook registration', () => {
       'PermissionRequest',
       'PostToolUse',
       'Stop',
+      'StopFailure',
       'UserPromptSubmit',
     ]);
     for (const groups of Object.values<any>(settings.hooks)) {
@@ -173,7 +197,7 @@ describe('hook registration', () => {
       expect(groups[0].hooks).toEqual([expect.objectContaining({ type: 'http', url: URL })]);
     }
     expect(settings.hooks.Notification[0].matcher).toBe(
-      'permission_prompt|elicitation_dialog|agent_needs_input|agent_completed|idle_prompt',
+      'permission_prompt|elicitation_dialog|agent_needs_input|agent_completed|idle_prompt|quota_auto_resume_fired|quota_auto_resume_stale',
     );
   });
 

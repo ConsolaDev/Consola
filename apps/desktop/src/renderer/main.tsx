@@ -8,6 +8,7 @@ import { hydrateHarnessStore } from './stores/harnessStore';
 import { hydrateTerminalStatus } from './stores/terminalStore';
 import { hydrateAttention, subscribeToAttention } from './stores/attentionStore';
 import { hydratePreferences, subscribeToPreferences } from './stores/preferencesStore';
+import { hydrateUsageLimits, subscribeToUsageLimits } from './stores/usageLimitsStore';
 import { subscribeToBrowser } from './stores/browserStore';
 import '@fontsource-variable/jetbrains-mono';
 import '@radix-ui/themes/styles.css';
@@ -44,6 +45,7 @@ async function bootstrap() {
   // The window never closes this: it lives as long as the page does.
   subscribeToAttention();
   subscribeToPreferences();
+  subscribeToUsageLimits();
   // Before any panel reads a session's pages, so no push is missed.
   subscribeToBrowser();
 
@@ -59,6 +61,7 @@ async function bootstrap() {
       hydrateTerminalStatus(),
       hydrateAttention(),
       hydratePreferences(),
+      hydrateUsageLimits(),
     ]);
   } catch (error) {
     // A blank window is the one outcome worse than an error message: it looks

@@ -4,6 +4,7 @@ import {
   type Preferences,
 } from '../../shared/preferences';
 import { normalizeRules, type WorktreeCleanupRules } from '../../shared/worktreeCleanup';
+import { normalizeSnoozePresets, type SnoozePresetSetting } from '../../shared/snooze';
 import type { JsonStateFile } from './JsonStateFile';
 
 /** Read stored preferences, falling back per field so one bad value costs only itself. */
@@ -21,6 +22,8 @@ export function normalizePreferences(value: unknown): Preferences {
       ? pending.filter((id): id is string => typeof id === 'string')
       : [],
     worktreeCleanup: normalizeRules(row.worktreeCleanup),
+    snoozePresets: normalizeSnoozePresets(row.snoozePresets),
+    snoozeAtUsageLimit: row.snoozeAtUsageLimit === true,
     terminalLinks: isTerminalLinkRule(row.terminalLinks)
       ? row.terminalLinks
       : DEFAULT_PREFERENCES.terminalLinks,
@@ -56,7 +59,20 @@ export class PreferencesService {
       ...this.preferences,
       pendingAutoSettle: [...this.preferences.pendingAutoSettle],
       worktreeCleanup: { ...worktreeCleanup, runFinished: { ...worktreeCleanup.runFinished } },
+      snoozePresets: this.preferences.snoozePresets.map((preset) => ({ ...preset })),
     };
+  }
+
+  /** The person's Snooze menu, as Settings sent it. Bad entries are dropped one by one, as on load. */
+  public setSnoozePresets(presets: unknown): void {
+    if (!Array.isArray(presets)) return;
+    const next: SnoozePresetSetting[] = normalizeSnoozePresets(presets);
+    this.update({ snoozePresets: next });
+  }
+
+  /** Whether a session that stops on a usage limit snoozes itself until the reset. */
+  public setSnoozeAtUsageLimit(on: boolean): void {
+    this.update({ snoozeAtUsageLimit: on === true });
   }
 
   /** The person's worktree cleanup rules, rebuilt from known keys. */

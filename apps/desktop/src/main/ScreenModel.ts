@@ -29,8 +29,24 @@ export class ScreenModel {
     this.terminal.loadAddon(this.serializer);
   }
 
+  /**
+   * Parse `data` now, not on a later tick.
+   *
+   * A view that mounts repaints from `snapshot()`, and main stops sending a
+   * terminal's output while no view is mounted, so a byte the snapshot
+   * missed would never reach the screen at all. xterm's own `write` parses
+   * on a timer; its core's `writeSync` (what Orca's headless emulator uses)
+   * parses in the same turn, at about 0.2 ms per 10 KB. `callback` still runs
+   * asynchronously, as xterm's would.
+   */
   public write(data: string, callback?: () => void): void {
-    this.terminal.write(data, callback);
+    const core = (this.terminal as unknown as { _core?: { writeSync?(data: string): void } })._core;
+    if (typeof core?.writeSync !== 'function') {
+      this.terminal.write(data, callback);
+      return;
+    }
+    core.writeSync(data);
+    if (callback) queueMicrotask(callback);
   }
 
   public resize(cols: number, rows: number): void {
@@ -45,8 +61,12 @@ export class ScreenModel {
    * the whole session. Into a view of any other size it does not.
    */
   public snapshot(): ScreenReplay {
+    const replay = this.serializer.serialize();
     return {
-      replay: this.serializer.serialize(),
+      // The serializer leaves out DEC 2026. Caught mid-frame, the view would
+      // paint the half-drawn frame; reopened, it holds until the live end
+      // marker arrives (xterm lets go after a second regardless).
+      replay: this.terminal.modes.synchronizedOutputMode ? `\x1b[?2026h${replay}` : replay,
       cols: this.terminal.cols,
       rows: this.terminal.rows,
     };

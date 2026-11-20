@@ -590,6 +590,7 @@ export function installMock() {
       transcripts.delete(id);
       inputs.delete(id);
     },
+    detach: () => {},
     pathForFile: () => '',
     onData: dataEvents.subscribe,
     onActivity: noSubscription,

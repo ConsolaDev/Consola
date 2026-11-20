@@ -16,7 +16,8 @@ import type {
  * built from — commands, agents, models, output styles and the signed-in
  * account — before running any turn at all. That makes this a free, fast
  * question rather than a conversation: no tokens, no API call, and no
- * transcript written anywhere Consola later reads back.
+ * transcript written anywhere Consola later reads back. Asked `get_usage`
+ * once initialised, the same process answers with the account's usage limits.
  *
  * The wire format is the CLI's own, not a documented contract, so parsing is
  * strict: an unrecognised shape throws rather than yielding a plausible-looking
@@ -43,7 +44,10 @@ const HANDSHAKE_ARGS = [
  */
 const HANDSHAKE_TIMEOUT_MS = 15000;
 
-const CONTROL_REQUEST_ID = 'consola-initialize';
+const INITIALIZE: ControlRequest = {
+  requestId: 'consola-initialize',
+  request: { subtype: 'initialize' },
+};
 
 /** Keep enough stderr to explain a failure without buffering a runaway log. */
 const MAX_STDERR_CHARS = 4096;
@@ -65,25 +69,41 @@ function asStringArray(value: unknown): string[] | undefined {
   return value.filter((entry): entry is string => typeof entry === 'string');
 }
 
+/** One control request, and the id its answer comes back under. */
+export interface ControlRequest {
+  requestId: string;
+  request: Record<string, unknown>;
+}
+
 /**
- * Ask the CLI to describe itself and return the raw `response` payload.
+ * Ask the CLI a sequence of control requests and return each raw `response`
+ * payload, in order.
+ *
+ * Each request is written only once the one before it is answered — the second
+ * question is about a CLI the first has finished setting up — and stdin stays
+ * open until the last is written. `extraArgs` follow the protocol flags.
  *
  * Resolves exactly once, and always kills the child on the way out: this
- * process is asked one question and is of no further use, so it must never be
+ * process is asked its questions and is of no further use, so it must never be
  * left running because a later line never arrived.
  */
-export function requestInitializeHandshake(
+export function requestControl(
   binary: string,
   cwd: string,
   env: NodeJS.ProcessEnv,
-  timeoutMs: number = HANDSHAKE_TIMEOUT_MS,
-): Promise<unknown> {
+  requests: readonly ControlRequest[],
+  {
+    timeoutMs = HANDSHAKE_TIMEOUT_MS,
+    extraArgs = [],
+  }: { timeoutMs?: number; extraArgs?: readonly string[] } = {},
+): Promise<unknown[]> {
   return new Promise((resolve, reject) => {
     let child: ChildProcessWithoutNullStreams;
     let settled = false;
     let timer: NodeJS.Timeout | undefined;
+    const answers: unknown[] = [];
 
-    const finish = (error: Error | null, payload?: unknown) => {
+    const finish = (error: Error | null) => {
       if (settled) return;
       settled = true;
       if (timer) clearTimeout(timer);
@@ -91,11 +111,20 @@ export function requestInitializeHandshake(
       // waiting for, and a wedged one is exactly the case being escaped.
       if (child && !child.killed) child.kill('SIGKILL');
       if (error) reject(error);
-      else resolve(payload);
+      else resolve(answers);
     };
 
+    if (requests.length === 0) {
+      resolve(answers);
+      return;
+    }
+
     try {
-      child = spawn(binary, HANDSHAKE_ARGS, { cwd, env, stdio: ['pipe', 'pipe', 'pipe'] });
+      child = spawn(binary, [...HANDSHAKE_ARGS, ...extraArgs], {
+        cwd,
+        env,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
     } catch (error) {
       reject(error instanceof Error ? error : new Error(String(error)));
       return;
@@ -124,6 +153,8 @@ export function requestInitializeHandshake(
     let pending = '';
     child.stdout.setEncoding('utf8');
     child.stdout.on('data', (chunk: string) => {
+      // Output still buffered after the last answer has no request to match.
+      if (settled) return;
       pending += chunk;
       // Pull whole lines off an accumulating buffer rather than
       // splitting each chunk: a JSON line routinely straddles two reads,
@@ -147,13 +178,18 @@ export function requestInitializeHandshake(
         if (!isRecord(parsed) || parsed.type !== 'control_response') continue;
 
         const response = parsed.response;
-        if (!isRecord(response) || response.request_id !== CONTROL_REQUEST_ID) continue;
+        const awaited = requests[answers.length];
+        if (!isRecord(response) || response.request_id !== awaited.requestId) continue;
         if (response.subtype === 'error') {
           finish(new Error(asString(response.error) ?? 'The CLI rejected the request.'));
           return;
         }
-        finish(null, response.response);
-        return;
+        answers.push(response.response);
+        if (answers.length === requests.length) {
+          finish(null);
+          return;
+        }
+        send(answers.length);
       }
     });
 
@@ -166,21 +202,34 @@ export function requestInitializeHandshake(
       );
     });
 
-    try {
-      child.stdin.write(
-        `${JSON.stringify({
-          type: 'control_request',
-          request_id: CONTROL_REQUEST_ID,
-          request: { subtype: 'initialize' },
-        })}\n`,
-      );
-      // Nothing further is coming. Leaving stdin open would have the CLI
-      // wait for a conversation that never starts.
-      child.stdin.end();
-    } catch (error) {
-      finish(error instanceof Error ? error : new Error(String(error)));
+    function send(index: number): void {
+      const { requestId, request } = requests[index];
+      try {
+        child.stdin.write(
+          `${JSON.stringify({ type: 'control_request', request_id: requestId, request })}\n`,
+        );
+        // After the last request nothing further is coming. Leaving stdin
+        // open would have the CLI wait for a conversation that never starts;
+        // a request already written is still answered.
+        if (index === requests.length - 1) child.stdin.end();
+      } catch (error) {
+        finish(error instanceof Error ? error : new Error(String(error)));
+      }
     }
+
+    send(0);
   });
+}
+
+/** Ask the CLI to describe itself and return the raw `initialize` payload. */
+export async function requestInitializeHandshake(
+  binary: string,
+  cwd: string,
+  env: NodeJS.ProcessEnv,
+  timeoutMs: number = HANDSHAKE_TIMEOUT_MS,
+): Promise<unknown> {
+  const [answer] = await requestControl(binary, cwd, env, [INITIALIZE], { timeoutMs });
+  return answer;
 }
 
 function toCommand(raw: unknown): HarnessCommand | null {
@@ -267,6 +316,34 @@ export function mapInitializeResponse(raw: unknown): HarnessCapabilities {
     outputStyles: asStringArray(raw.available_output_styles) ?? [],
     account: toAccount(raw.account),
   };
+}
+
+/**
+ * Ask the CLI for its usage limits and return the raw `get_usage` payload.
+ *
+ * Hooks are off: unlike the `/` menu, nothing in this answer depends on them,
+ * and asking must never run the person's SessionStart hooks. `skip_behaviors`
+ * keeps the CLI from first scanning a week of transcripts for a summary that
+ * is not read here. The deadline is tighter than the menu's, since there are
+ * no hooks to wait out.
+ */
+export async function requestUsage(
+  binary: string,
+  cwd: string,
+  env: NodeJS.ProcessEnv,
+  timeoutMs = 10000,
+): Promise<unknown> {
+  const [, usage] = await requestControl(
+    binary,
+    cwd,
+    env,
+    [
+      INITIALIZE,
+      { requestId: 'consola-get-usage', request: { subtype: 'get_usage', skip_behaviors: true } },
+    ],
+    { timeoutMs, extraArgs: ['--settings', JSON.stringify({ disableAllHooks: true })] },
+  );
+  return usage;
 }
 
 export async function probeClaudeCapabilities(

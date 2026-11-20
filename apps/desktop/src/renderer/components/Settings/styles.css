@@ -1,0 +1,112 @@
+/* --- Settings → Sessions → Snooze options ---------------------------------- */
+.snooze-options {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* One choice per card, as the worktree rules beside it are: its controls on
+   one line, and what the menu will say for it beneath. */
+.snooze-option {
+  display: grid;
+  grid-template-columns: auto auto auto 1fr auto;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+/* Sized to what they hold, not stretched across the card. */
+.snooze-option .dialog-input {
+  width: auto;
+}
+
+.snooze-option-amount {
+  max-width: 72px;
+}
+
+.snooze-option-preview {
+  grid-column: 1 / -1;
+  margin-top: -2px;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+}
+
+.snooze-option-preview--error {
+  color: var(--color-error, var(--color-warning));
+}
+
+.snooze-option-remove {
+  grid-column: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+}
+
+.snooze-option-remove:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.snooze-options-empty {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+}
+
+.snooze-options-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.snooze-options-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.snooze-rule {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.snooze-rule input[type="checkbox"] {
+  margin: 2px 0 0;
+  accent-color: var(--color-accent);
+  flex-shrink: 0;
+}
+
+.snooze-rule-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.snooze-rule-label {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+}
+
+.snooze-rule-hint {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+}

@@ -31,6 +31,7 @@ const EXPECTED: Record<Attention, Bucket> = {
   ready: 'waiting',
   exited: 'waiting',
   working: 'working',
+  snoozed: 'snoozed',
   settled: 'settled',
 };
 
@@ -46,7 +47,7 @@ describe('bucketize', () => {
   );
 
   it('returns every bucket, empty when nothing belongs in it', () => {
-    expect(bucketize([])).toEqual({ waiting: [], working: [], settled: [] });
+    expect(bucketize([])).toEqual({ waiting: [], working: [], snoozed: [], settled: [] });
   });
 
   describe('the top of the list', () => {

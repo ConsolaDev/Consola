@@ -141,13 +141,19 @@ export class AutoSettler {
     now: number,
     held: ReadonlySet<string>,
   ): boolean {
+    // Snoozed is not idle: it has a time to come back at.
     if (attention !== 'ready' && attention !== 'exited') return false;
     if (held.has(session.id)) return false;
     if (this.deps.isShown(session.instanceId)) return false;
     if (session.autoSettle === 'never') return false;
     const record = this.deps.ledger.get(session.id);
+    // Back from a snooze and not yet looked at: it came back to be seen, not
+    // to be put away again. Once seen, its idle time counts from the wake.
+    const woke = record?.wokeAt;
+    const marked = woke !== undefined && record?.wakeCause !== undefined;
+    if (marked && (record?.seenAt === undefined || record.seenAt < woke)) return false;
     const lastActiveAt = activityOf(session, record);
-    if (now - lastActiveAt <= thresholdMs) return false;
+    if (now - Math.max(lastActiveAt, woke ?? 0) <= thresholdMs) return false;
     // An explicit un-settle holds off the sweep until new activity.
     return record?.settleHoldAt === undefined || record.settleHoldAt <= lastActiveAt;
   }

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Terminal as HeadlessTerminal } from '@xterm/headless';
 import { ScreenModel } from '../../../main/ScreenModel';
-import { PANE_SETTLE_MS, restoreScreen, whenSettled } from './restoreScreen';
+import { PANE_SETTLE_MS, REPLAY_CHUNK, restoreScreen, whenSettled } from './restoreScreen';
 
 const COLS = 80;
 const ROWS = 24;
@@ -113,6 +113,46 @@ describe('restoreScreen', () => {
     expect(prompt).toBe('❯');
     model.dispose();
     view.dispose();
+  });
+
+  it('replays a long conversation in slices and still reproduces it exactly', async () => {
+    const model = new ScreenModel(COLS, ROWS);
+    let history = '';
+    // Colour on every line and an emoji per line: many cuts fall inside an
+    // escape sequence or between the halves of a surrogate pair.
+    for (let i = 0; i < 3000; i++) history += `\x1b[38;2;${i % 256};90;90m${i} 🙂 line\x1b[0m\r\n`;
+    await write(model, history + PROMPT);
+    const snapshot = model.snapshot();
+    expect(snapshot.replay.length).toBeGreaterThan(REPLAY_CHUNK * 4);
+
+    const view = new HeadlessTerminal({
+      cols: COLS,
+      rows: ROWS,
+      scrollback: 5000,
+      allowProposedApi: true,
+    });
+    const writes = vi.spyOn(view, 'write');
+    await new Promise<void>((resolve) => restoreScreen(view, snapshot, resolve));
+
+    expect(writes.mock.calls.length).toBe(Math.ceil(snapshot.replay.length / REPLAY_CHUNK));
+    const whole = new HeadlessTerminal({
+      cols: COLS,
+      rows: ROWS,
+      scrollback: 5000,
+      allowProposedApi: true,
+    });
+    await write(whole, snapshot.replay);
+    const text = (t: HeadlessTerminal) => {
+      const lines: string[] = [];
+      for (let y = 0; y < t.buffer.active.length; y++) {
+        lines.push(t.buffer.active.getLine(y)?.translateToString(true) ?? '');
+      }
+      return lines.join('\n');
+    };
+    expect(text(view)).toBe(text(whole));
+    model.dispose();
+    view.dispose();
+    whole.dispose();
   });
 });
 

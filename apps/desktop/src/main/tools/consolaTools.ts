@@ -3,7 +3,9 @@ import { z } from 'zod';
 import type { RunRecord } from '@consola/factory-spec';
 import type { AutomationView, SavedAutomation } from '../../shared/automations';
 import type { AutomationCapabilities } from '../automations/capabilities';
-import type { Attention } from '../../shared/attention';
+import type { Attention, SnoozeView } from '../../shared/attention';
+import type { BatchResult, SnoozeBatchResult } from '../../shared/preferences';
+import type { SnoozeActor } from '../attention/Snoozer';
 import type { TerminalStatus } from '../../shared/terminalStatus';
 import type { InboxSnapshot } from '../../shared/workItems';
 import { generateSessionInstanceId, type Session, type Workspace } from '../../shared/workspace';
@@ -60,6 +62,70 @@ export interface ConsolaToolDeps {
   inbox(workspaceId: string): InboxSnapshot | null;
   /** Record and start a session headlessly (SessionLauncher.launchSession). */
   launchSession(workspaceId: string, fields: LaunchSessionFields): Promise<Session>;
+  /** Parks and wakes sessions; resolved lazily, as the snoozer is built beside the tools. */
+  snoozer(): SnoozeControl;
+  /** Every session's snooze view, for listing. */
+  snoozes(): ReadonlyMap<string, SnoozeView>;
+}
+
+/** The slice of the Snoozer the tools need. */
+export interface SnoozeControl {
+  snooze(
+    workspaceId: string,
+    sessionIds: string[],
+    until: number,
+    opts: { by: SnoozeActor },
+  ): SnoozeBatchResult;
+  wake(workspaceId: string, sessionIds: string[], opts: { by: SnoozeActor }): BatchResult;
+}
+
+/** The most sessions one snooze or wake call names. */
+const MAX_SNOOZE_BATCH = 50;
+/** An agent's furthest snooze, in minutes: 30 days, as main enforces too. */
+const MAX_AGENT_SNOOZE_MINUTES = 43_200;
+
+const snoozeIds = z
+  .array(z.string().min(1))
+  .min(1)
+  .max(MAX_SNOOZE_BATCH)
+  .optional()
+  .describe('Sessions to act on, by id from consola_list_sessions. Default: you.');
+
+/** A batch's outcome as a tool result: what was done, and why anything was not. */
+function batchData(result: BatchResult) {
+  return {
+    applied: result.applied,
+    refused: result.refused.map(({ sessionId, reason, message }) => ({
+      sessionId,
+      reason,
+      message,
+    })),
+  };
+}
+
+/**
+ * When `until` means. ISO 8601; a date and time with no offset is the
+ * person's local time, which is how JavaScript reads it. A bare date is
+ * refused rather than guessed at (JavaScript would read it as UTC midnight).
+ */
+function parseUntil(until: string): number {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(until.trim()))
+    throw new Error('Give a time as well as a date, e.g. 2026-11-20T09:00.');
+  const at = Date.parse(until);
+  if (!Number.isFinite(at))
+    throw new Error(`Could not read "${until}" as an ISO 8601 date and time.`);
+  return at;
+}
+
+/** The sessions a snooze or wake call names: those given, or the caller itself. */
+function snoozeTargets(
+  args: { session_ids?: string[] },
+  context: ToolContext,
+): { workspaceId: string; ids: string[] } {
+  const workspaceId = callerWorkspace(context);
+  if (args.session_ids) return { workspaceId, ids: args.session_ids };
+  if (context.caller.kind !== 'agent') throw new Error('Name the sessions with session_ids.');
+  return { workspaceId, ids: [context.caller.sessionId] };
 }
 
 /** Diffs past this are cut, with a note: the files are in the session's folder to read. */
@@ -122,13 +188,15 @@ export function consolaTools(deps: ConsolaToolDeps): ToolDefinition[] {
       name: 'list_sessions',
       description:
         'List the sessions in your Consola workspace: id, name, status (working | ready | ' +
-        'needs-attention | exited), attention (needs-attention | done | working | ready | exited | ' +
-        'settled: done is finished work nobody has looked at yet), the pull request or issue it is linked to, its working ' +
+        'needs-attention | exited), attention (needs-attention | snoozed | done | working | ready | exited | ' +
+        'settled: done is finished work nobody has looked at yet; snoozed is put away until snoozedUntil), ' +
+        'the pull request or issue it is linked to, its working ' +
         'directory, and whether that is a Consola-managed worktree. Read-only.',
       input: {},
       mutating: false,
       automatable: false,
       async run(_args, context: ToolContext) {
+        const snoozes = deps.snoozes();
         const sessions = workspacesInScope(deps.getWorkspaces(), context.scope).flatMap(
           (workspace) =>
             workspace.sessions.map((session) => ({
@@ -137,6 +205,7 @@ export function consolaTools(deps: ConsolaToolDeps): ToolDefinition[] {
               workspace: workspace.name,
               status: deps.status(session.instanceId),
               attention: deps.attention(session.id),
+              ...snoozeFields(deps.attention(session.id), snoozes.get(session.id)),
               kind: session.kind,
               ...(session.groupId
                 ? { group: workspace.groups.find((group) => group.id === session.groupId)?.name }
@@ -460,7 +529,79 @@ export function consolaTools(deps: ConsolaToolDeps): ToolDefinition[] {
         };
       },
     }),
+
+    defineTool({
+      name: 'snooze_session',
+      description:
+        'Snooze sessions in your workspace until a time: they leave the person’s list and come back ' +
+        'by themselves then, or sooner if they ask something, fail, or the person answers them. ' +
+        'They keep running while snoozed. Give exactly one of until (ISO 8601; with no offset it ' +
+        'is the person’s local time) or minutes (at most 30 days). A session waiting for the person ' +
+        'to answer cannot be snoozed, and a conductor is snoozed with its children. With no ' +
+        'session_ids it snoozes you, e.g. while you wait on CI.',
+      input: {
+        session_ids: snoozeIds,
+        until: z.string().min(1).optional().describe('When they come back, ISO 8601.'),
+        minutes: z
+          .number()
+          .int()
+          .min(1)
+          .max(MAX_AGENT_SNOOZE_MINUTES)
+          .optional()
+          .describe('How long from now they come back, in minutes.'),
+      },
+      mutating: true,
+      automatable: false,
+      async run(args, context) {
+        if ((args.until === undefined) === (args.minutes === undefined))
+          throw new Error('Give exactly one of until or minutes.');
+        // Snoozing yourself is allowed, unlike the destructive tools that
+        // `excludeSessionIds` guards: parking a session hides nothing for good,
+        // and an agent waiting on CI is the case this is for.
+        const { workspaceId, ids } = snoozeTargets(args, context);
+        const until =
+          args.minutes !== undefined ? Date.now() + args.minutes * 60_000 : parseUntil(args.until!);
+        const result = deps.snoozer().snooze(workspaceId, ids, until, { by: 'agent' });
+        const when = new Date(until).toString();
+        return {
+          summary:
+            result.applied.length === 0
+              ? `Snoozed nothing: ${result.refused.map((refused) => refused.message).join(' ')}`
+              : `Snoozed ${result.applied.length} of ${ids.length} until ${when}.`,
+          data: { ...batchData(result), until: new Date(until).toISOString() },
+          actionable: result.applied.length,
+        };
+      },
+    }),
+
+    defineTool({
+      name: 'wake_session',
+      description:
+        'Bring snoozed sessions in your workspace back to the person’s list now. They are marked as ' +
+        'woken by an agent. With no session_ids it wakes you.',
+      input: { session_ids: snoozeIds },
+      mutating: true,
+      automatable: false,
+      async run(args, context) {
+        const { workspaceId, ids } = snoozeTargets(args, context);
+        const result = deps.snoozer().wake(workspaceId, ids, { by: 'agent' });
+        return {
+          summary:
+            result.applied.length === 0
+              ? `Woke nothing: ${result.refused.map((refused) => refused.message).join(' ')}`
+              : `Woke ${result.applied.length} of ${ids.length}.`,
+          data: batchData(result),
+          actionable: result.applied.length,
+        };
+      },
+    }),
   ];
+}
+
+/** A listed session's snooze, when it has one: put away, and until when. */
+function snoozeFields(attention: Attention | undefined, view: SnoozeView | undefined) {
+  if (attention !== 'snoozed' || view?.until === undefined) return {};
+  return { snoozed: true, snoozedUntil: new Date(view.until).toISOString() };
 }
 
 /**

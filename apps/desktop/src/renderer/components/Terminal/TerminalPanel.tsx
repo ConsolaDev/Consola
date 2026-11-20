@@ -7,6 +7,7 @@ import { useTerminal } from './useTerminal';
 import { useTerminalFileDrop } from './useTerminalFileDrop';
 import { activateSession, restartSession } from '../../utils/sessionActions';
 import '@xterm/xterm/css/xterm.css';
+import { UsageLimitNotice } from '../UsageLimits/UsageLimitNotice';
 import './styles.css';
 
 interface TerminalPanelProps {
@@ -89,6 +90,7 @@ export function TerminalPanel({
 
   return (
     <div className="terminal-panel">
+      <UsageLimitNotice workspaceId={workspaceId} sessionId={sessionId} />
       {/*
        * Holds the restart action, so it appears with it — and, on a
        * read-only session, says so for as long as it is one. A bar that

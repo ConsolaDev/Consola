@@ -12,6 +12,18 @@ import type { AttentionEndpoint } from './attention/AttentionEndpoint';
 import { getDriver } from './drivers';
 
 /**
+ * How long a terminal's output gathers before it crosses to its window.
+ *
+ * A PTY hands over at most 1 KiB per read, so one repaint of a fullscreen
+ * CLI — a wheel tick, a keystroke — arrives as five to thirty reads within
+ * a fraction of a millisecond. Sent one by one they cost as many IPC
+ * messages and renderer tasks, and a frame boundary can fall between them,
+ * painting half a repaint. Gathered for 2 ms they cross as one, which is
+ * still far below a frame.
+ */
+export const OUTPUT_BATCH_MS = 2;
+
+/**
  * Owns one TerminalService per session tab and forwards its events.
  *
  * Terminals are kept alive for every open session, not just the visible one, so
@@ -22,8 +34,15 @@ import { getDriver } from './drivers';
  */
 export class TerminalManager {
   private readonly terminals = new Map<string, TerminalService>();
-  /** Where this instance's output goes. Reassigned on every reattach. */
+  /**
+   * Where this instance's output goes: the window whose view is mounted.
+   * Set on every attach, cleared when the view unmounts. Without one,
+   * output stays in the terminal's screen, which the next mount repaints.
+   */
   private readonly owners = new Map<string, WebContents>();
+  /** Output gathered for the next send, per instance. See OUTPUT_BATCH_MS. */
+  private readonly pendingOutput = new Map<string, string[]>();
+  private outputFlush: ReturnType<typeof setTimeout> | null = null;
 
   constructor(private readonly getWindows: () => BrowserWindow[]) {}
 
@@ -31,6 +50,7 @@ export class TerminalManager {
     (instanceId: string, status: TerminalStatus) => void
   >();
   private readonly exitListeners = new Set<(instanceId: string, info: TerminalExitInfo) => void>();
+  private readonly limitNoticeListeners = new Set<(instanceId: string, showing: boolean) => void>();
 
   /**
    * Hear every status transition, after the broadcast. Many listeners may
@@ -57,6 +77,19 @@ export class TerminalManager {
     this.exitListeners.add(listener);
     return () => {
       this.exitListeners.delete(listener);
+    };
+  }
+
+  /**
+   * Hear a session's screen start or stop showing its CLI's usage-limit
+   * notice, as its driver recognises it. Returns the unsubscribe.
+   */
+  public addLimitNoticeListener(
+    listener: (instanceId: string, showing: boolean) => void,
+  ): () => void {
+    this.limitNoticeListeners.add(listener);
+    return () => {
+      this.limitNoticeListeners.delete(listener);
     };
   }
 
@@ -102,6 +135,10 @@ export class TerminalManager {
     // Set before starting: a terminal that emits during start() would
     // otherwise have nowhere to send its first bytes.
     this.owners.set(instanceId, owner);
+    // What was gathered but not sent is already in the screen this returns,
+    // so sending it too would paint it twice. The view drops anything that
+    // reaches it before this snapshot does.
+    this.pendingOutput.delete(instanceId);
 
     let terminal = this.terminals.get(instanceId);
 
@@ -204,6 +241,21 @@ export class TerminalManager {
     terminal.switchHarness({ ...change, attentionUrl });
   }
 
+  /**
+   * A view of this terminal unmounted: stop sending it output.
+   *
+   * Nothing in that window is listening any more, and a busy background
+   * agent's every byte would still cross IPC to be dropped there. The next
+   * view to mount goes through ensure(), takes ownership again, and repaints
+   * from the screen. Only the window that owns the terminal can release it:
+   * a view that moved to another window has already taken it over.
+   */
+  public release(instanceId: string, owner: WebContents): void {
+    if (this.owners.get(instanceId) !== owner) return;
+    this.owners.delete(instanceId);
+    this.pendingOutput.delete(instanceId);
+  }
+
   public destroy(instanceId: string): void {
     const terminal = this.terminals.get(instanceId);
     if (!terminal) return;
@@ -211,6 +263,7 @@ export class TerminalManager {
     this.attentionEndpoint?.unregister(instanceId);
     this.terminals.delete(instanceId);
     this.owners.delete(instanceId);
+    this.pendingOutput.delete(instanceId);
     // destroy() removes the terminal's listeners in the same tick, so no
     // status edge follows. Whoever derives from terminals (the attention
     // service) is told by the caller that destroyed it.
@@ -228,6 +281,26 @@ export class TerminalManager {
     if (owner && !owner.isDestroyed()) {
       owner.send(channel, payload);
     }
+  }
+
+  /** Gather output for its view; none mounted, and the screen alone keeps it. */
+  private queueOutput(instanceId: string, data: string): void {
+    if (!this.owners.has(instanceId)) return;
+    const parts = this.pendingOutput.get(instanceId);
+    if (parts) parts.push(data);
+    else this.pendingOutput.set(instanceId, [data]);
+    this.outputFlush ??= setTimeout(() => {
+      this.outputFlush = null;
+      for (const id of [...this.pendingOutput.keys()]) this.flushOutput(id);
+    }, OUTPUT_BATCH_MS);
+  }
+
+  /** Send what this instance has gathered, as one message. */
+  private flushOutput(instanceId: string): void {
+    const parts = this.pendingOutput.get(instanceId);
+    if (!parts) return;
+    this.pendingOutput.delete(instanceId);
+    this.sendToOwner(instanceId, IPC_CHANNELS.TERMINAL_DATA, { instanceId, data: parts.join('') });
   }
 
   /**
@@ -257,9 +330,7 @@ export class TerminalManager {
   }
 
   private wireEvents(instanceId: string, terminal: TerminalService): void {
-    terminal.on('data', (data: string) => {
-      this.sendToOwner(instanceId, IPC_CHANNELS.TERMINAL_DATA, { instanceId, data });
-    });
+    terminal.on('data', (data: string) => this.queueOutput(instanceId, data));
 
     terminal.on('activity', (busy: boolean) => {
       this.broadcast(IPC_CHANNELS.TERMINAL_ACTIVITY, { instanceId, busy });
@@ -269,7 +340,13 @@ export class TerminalManager {
       this.broadcast(IPC_CHANNELS.TERMINAL_AWAITING_CONFIRMATION, { instanceId, awaiting });
     });
 
+    terminal.on('limit-notice', (showing: boolean) => {
+      this.notify(this.limitNoticeListeners, (listener) => listener(instanceId, showing));
+    });
+
     terminal.on('exit', (info: TerminalExitInfo) => {
+      // The pane shows the last thing the CLI printed before it says it exited.
+      this.flushOutput(instanceId);
       this.broadcast(IPC_CHANNELS.TERMINAL_EXIT, { instanceId, ...info });
       this.notify(this.exitListeners, (listener) => listener(instanceId, info));
     });

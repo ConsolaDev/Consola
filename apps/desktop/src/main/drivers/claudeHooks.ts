@@ -14,6 +14,8 @@ import type { AttentionHooks } from './HarnessDriver';
  *   message text is prose and changes.
  * - `Stop` ends a turn and lists `background_tasks` still running, each with
  *   a `type` (`subagent` for the agent's own background agents).
+ * - `StopFailure` fires instead of `Stop` when an API error ended the turn,
+ *   with `error` naming which (`rate_limit` for a usage limit).
  *
  * Passed through `--settings`, hooks add to the user's own and managed
  * settings outrank them: nothing is written to any settings file, other
@@ -23,9 +25,13 @@ import type { AttentionHooks } from './HarnessDriver';
  * trust-gate markers must stay.
  */
 
-/** Every notification type that says something about attention. */
+/**
+ * Every notification type that says something about attention, and the two
+ * that say a usage limit's wait is over (Claude resumed by itself, or its
+ * planned resume went stale).
+ */
 const NOTIFICATION_MATCHER =
-  'permission_prompt|elicitation_dialog|agent_needs_input|agent_completed|idle_prompt';
+  'permission_prompt|elicitation_dialog|agent_needs_input|agent_completed|idle_prompt|quota_auto_resume_fired|quota_auto_resume_stale';
 
 /** A hook that must never hold the CLI up if Consola is not answering. */
 const HOOK_TIMEOUT_SECONDS = 5;
@@ -41,6 +47,7 @@ export function claudeHookSettings(url: string): string {
       PostToolUse: [{ matcher: '', hooks: handler }],
       UserPromptSubmit: [{ matcher: '', hooks: handler }],
       Stop: [{ matcher: '', hooks: handler }],
+      StopFailure: [{ matcher: '', hooks: handler }],
     },
   });
 }
@@ -66,6 +73,8 @@ const NOTIFICATION_SIGNALS = new Map<string, AttentionSignal>(
     agent_needs_input: { kind: 'needs-input', origin: 'subagent' },
     idle_prompt: { kind: 'idle' },
     agent_completed: { kind: 'subagent-finished' },
+    quota_auto_resume_fired: { kind: 'limit-over' },
+    quota_auto_resume_stale: { kind: 'limit-over' },
   } satisfies Record<string, AttentionSignal>),
 );
 
@@ -117,6 +126,10 @@ export function parseClaudeHookEvent(body: unknown): AttentionSignal | null {
         backgroundAgents: agents.length,
       };
     }
+    case 'StopFailure':
+      // Fires instead of Stop. Which error is a word Claude defines; only
+      // `rate_limit` is a usage limit, and anything else is a failed turn.
+      return { kind: 'turn-failed', limit: event.error === 'rate_limit' };
     default:
       return null;
   }
