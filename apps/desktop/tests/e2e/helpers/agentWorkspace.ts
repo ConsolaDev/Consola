@@ -2,7 +2,7 @@ import { expect, type ElectronApplication, type Page } from '@playwright/test';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { launchElectron } from './electron';
+import { createProfileDir, launchElectron, removeProfile } from './electron';
 import { keepOffScreen, type ScreenGuard } from './screenGuard';
 import { sessionEndpoint } from './sessionMcp';
 
@@ -124,8 +124,9 @@ export async function launchAgentWorkspace(
   sessionNames: string[],
 ): Promise<AgentWorkspace> {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-browser-agent-'));
+  const userDataDir = createProfileDir();
   try {
-    const { app, page, screen, userDataDir } = await launchGuarded();
+    const { app, page, screen } = await launchGuarded(userDataDir);
     const seeded = await closingOnFailure(app, async () => {
       const made = await seedWorkspace(page, root, workspace, sessionNames);
       for (const name of sessionNames) {
@@ -135,6 +136,7 @@ export async function launchAgentWorkspace(
     });
     return { app, page, screen, root, userDataDir, ...seeded };
   } catch (error) {
+    removeProfile(userDataDir);
     fs.rmSync(root, { recursive: true, force: true });
     throw error;
   }
@@ -143,6 +145,7 @@ export async function launchAgentWorkspace(
 export async function closeAgentWorkspace(workspace: AgentWorkspace | undefined): Promise<void> {
   if (!workspace) return;
   await workspace.app.close();
+  removeProfile(workspace.userDataDir);
   fs.rmSync(workspace.root, { recursive: true, force: true });
 }
 

@@ -3,7 +3,7 @@ import type { ElectronApplication, Page } from '@playwright/test';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { launchElectron, settingsChord } from './helpers/electron';
+import { launchElectron, removeProfile, settingsChord } from './helpers/electron';
 import { type FixtureServer, startFixtureServer } from './helpers/fixtureServer';
 import { startTlsFixture, type TlsFixture } from './helpers/tlsFixture';
 
@@ -105,16 +105,20 @@ test.describe('in-app browser safety', () => {
   let page: Page;
   let workspaceId: string;
   let sessionId: string;
+  let root: string;
+  let userDataDir: string;
 
   test.beforeEach(async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-browser-safety-'));
-    ({ app, page } = await launchElectron());
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-browser-safety-'));
+    ({ app, page, userDataDir } = await launchElectron());
     ({ workspaceId, sessionId } = await seed(page, root));
     await showBrowser(page);
   });
 
   test.afterEach(async () => {
     await app.close();
+    removeProfile(userDataDir);
+    fs.rmSync(root, { recursive: true, force: true });
   });
 
   test('a self-signed certificate on this machine is refused, then trusted only on request', async () => {

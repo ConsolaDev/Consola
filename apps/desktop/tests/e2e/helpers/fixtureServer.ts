@@ -15,9 +15,10 @@ export interface FixtureServer {
  * Reports every `*API` the page can see, plus the Node globals a page must
  * never see, into `window.__probe` and the title. The names listed cover what
  * the preload hands the host window, in case an exposed one is not matched by
- * the `API` suffix scan.
+ * the `API` suffix scan. Exported so a test can run it in the host window
+ * too, where it must find the bridge.
  */
-const PROBE_SCRIPT = `
+export const PROBE_SCRIPT = `
   const found = [];
   for (const key of Object.getOwnPropertyNames(window)) {
     if (/API$/.test(key)) found.push(key);

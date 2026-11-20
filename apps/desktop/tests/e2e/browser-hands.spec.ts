@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { PERSON_INPUT_GUARD_MS } from '../../src/main/browser/PersonInput';
-import { launchElectron } from './helpers/electron';
+import { launchElectron, removeProfile } from './helpers/electron';
 import { type FixtureServer, startFixtureServer } from './helpers/fixtureServer';
 
 /**
@@ -236,17 +236,20 @@ test.describe('whose hands a tab is in', () => {
   let app: ElectronApplication;
   let page: Page;
   let root: string;
+  let userDataDir: string;
   let sessionId: string;
 
   test.beforeEach(async () => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-browser-hands-'));
-    ({ app, page } = await launchElectron());
+    ({ app, page, userDataDir } = await launchElectron());
     sessionId = await seed(page, root);
     await openSession(page);
   });
 
   test.afterEach(async () => {
     await app.close();
+    removeProfile(userDataDir);
+    fs.rmSync(root, { recursive: true, force: true });
   });
 
   test('a tab a page opens with nobody’s press opens behind, as the person’s, and neither shows the panel nor takes focus', async () => {

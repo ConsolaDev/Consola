@@ -3,7 +3,7 @@ import type { ElectronApplication, Locator, Page } from '@playwright/test';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { launchElectron, settingsChord } from './helpers/electron';
+import { launchElectron, removeProfile, settingsChord } from './helpers/electron';
 import { type FixtureServer, startFixtureServer } from './helpers/fixtureServer';
 
 /**
@@ -124,11 +124,12 @@ test.describe('terminal links and the session browser', () => {
   let app: ElectronApplication;
   let page: Page;
   let root: string;
+  let userDataDir: string;
   let ids: { workspaceId: string; sessionId: string };
 
   test.beforeEach(async () => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-links-'));
-    ({ app, page } = await launchElectron());
+    ({ app, page, userDataDir } = await launchElectron());
     ids = await seed(page, root);
     await recordSystemOpens(app);
     await page
@@ -144,6 +145,8 @@ test.describe('terminal links and the session browser', () => {
 
   test.afterEach(async () => {
     await app.close();
+    removeProfile(userDataDir);
+    fs.rmSync(root, { recursive: true, force: true });
   });
 
   test('a local link opens in the session browser, Shift sends it to the system, and an outside link goes out', async () => {

@@ -3,8 +3,8 @@ import type { ElectronApplication, Page } from '@playwright/test';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { commandPaletteChord, launchElectron } from './helpers/electron';
-import { type FixtureServer, startFixtureServer } from './helpers/fixtureServer';
+import { commandPaletteChord, launchElectron, removeProfile } from './helpers/electron';
+import { type FixtureServer, PROBE_SCRIPT, startFixtureServer } from './helpers/fixtureServer';
 
 /**
  * The in-app browser. A page is a `<webview>` guest, so Playwright's `page`
@@ -142,16 +142,19 @@ test.describe('in-app browser', () => {
   let app: ElectronApplication;
   let page: Page;
   let root: string;
+  let userDataDir: string;
   let ids: Seeded;
 
   test.beforeEach(async () => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-browser-'));
-    ({ app, page } = await launchElectron());
+    ({ app, page, userDataDir } = await launchElectron());
     ids = await seed(page, root);
   });
 
   test.afterEach(async () => {
     await app.close();
+    removeProfile(userDataDir);
+    fs.rmSync(root, { recursive: true, force: true });
   });
 
   test('the globe, the chord and the palette each toggle the panel', async () => {
@@ -237,9 +240,17 @@ test.describe('in-app browser', () => {
     );
     expect(probe.found).toEqual([]);
 
-    // And the host does have them, so the probe's list is not vacuous.
-    const hostHas = await page.evaluate(() => typeof window.browserAPI);
-    expect(hostHas).toBe('object');
+    // The same script in the host window finds the bridge there, so an empty
+    // list from the page means the page has none, not that the probe is blind.
+    const inHost = await page.evaluate(`(() => {
+      const title = document.title;
+      ${PROBE_SCRIPT}
+      document.title = title;
+      const probe = window.__probe;
+      delete window.__probe;
+      return probe;
+    })()`);
+    expect(inHost).toMatchObject({ ran: true, found: expect.arrayContaining(['browserAPI']) });
   });
 
   test('a cookie set in one workspace is absent from another', async () => {
@@ -333,6 +344,47 @@ test.describe('in-app browser', () => {
     ).toBeGreaterThan(0);
   });
 
+  test('a drag across a page lets the pointer through, and only while it lasts', async () => {
+    await openSession(page, 'Alpha');
+    if (!(await panel(page).isVisible())) await globe(page).click();
+    await typeAddress(page, `${fixtures.host}/a.html`);
+    await expect.poll(() => guestUrls(app)).toEqual([fixtures.url('/a.html')]);
+    const host = page.locator('.browser-host');
+    const shown = page.locator('.browser-page[data-presence="shown"]');
+    await expect(shown).toBeVisible();
+    const pointerEvents = () =>
+      shown.evaluate((element) => getComputedStyle(element).pointerEvents);
+    expect(await pointerEvents()).toBe('auto');
+    await expect(host).not.toHaveAttribute('data-dragging');
+
+    // The person takes the browser panel's edge, which lies against the page.
+    const separator = page.locator('.resize-handle:has(+ [data-testid="browser"])');
+    const width = async () => (await panel(page).boundingBox())?.width ?? 0;
+    const grab = async () => {
+      const box = await separator.boundingBox();
+      if (!box) throw new Error('no separator before the browser panel');
+      const at = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+      await page.mouse.move(at.x, at.y);
+      await page.mouse.down();
+      return at;
+    };
+    // First wider, over the terminal, so the drag over the page has room to shrink it.
+    const start = await grab();
+    await page.mouse.move(start.x - 200, start.y, { steps: 4 });
+    await page.mouse.up();
+    const before = await width();
+
+    const at = await grab();
+    await expect(host).toHaveAttribute('data-dragging', '');
+    expect(await pointerEvents()).toBe('none');
+    // Dragged over the page, the edge keeps following the pointer.
+    await page.mouse.move(at.x + 150, at.y, { steps: 8 });
+    await expect.poll(width).toBeLessThan(before - 100);
+    await page.mouse.up();
+    await expect(host).not.toHaveAttribute('data-dragging');
+    expect(await pointerEvents()).toBe('auto');
+  });
+
   test('switching workspace and back returns the page at its latest address', async () => {
     await openSession(page, 'Alpha');
     if (!(await panel(page).isVisible())) await globe(page).click();
@@ -356,36 +408,45 @@ test('tabs and the address come back after a relaunch', async () => {
   test.setTimeout(90_000);
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-browser-'));
   const first = await launchElectron();
-  const ids = await seed(first.page, root);
-  await openSession(first.page, 'Alpha');
-  if (!(await panel(first.page).isVisible())) await globe(first.page).click();
-  await typeAddress(first.page, `${fixtures.host}/b.html`);
-  await expect.poll(() => guestUrls(first.app)).toEqual([fixtures.url('/b.html')]);
-
-  // State is written about a second after the last change; closing sooner
-  // would lose it, so wait for it to be on disk.
-  const userData = await first.app.evaluate(({ app }) => app.getPath('userData'));
-  const stateFile = path.join(userData, 'browser-state.json');
-  const stateFiles = () => (fs.existsSync(stateFile) ? fs.readFileSync(stateFile, 'utf8') : '');
-  await expect.poll(stateFiles, { timeout: 10_000 }).toContain(fixtures.url('/b.html'));
-  await first.app.close();
-
-  const second = await launchElectron({ userDataDir: first.userDataDir });
   try {
-    await openSession(second.page, 'Alpha');
-    if (!(await panel(second.page).isVisible())) await globe(second.page).click();
-    await expect(address(second.page)).toHaveValue(fixtures.url('/b.html'));
-    await expect.poll(() => guestUrls(second.app)).toEqual([fixtures.url('/b.html')]);
-    const snapshot = await tabsOf(second.page, ids.alpha.sessionId);
-    expect(snapshot.tabs.map((tab) => tab.url)).toEqual([fixtures.url('/b.html')]);
+    let ids: Seeded;
+    try {
+      ids = await seed(first.page, root);
+      await openSession(first.page, 'Alpha');
+      if (!(await panel(first.page).isVisible())) await globe(first.page).click();
+      await typeAddress(first.page, `${fixtures.host}/b.html`);
+      await expect.poll(() => guestUrls(first.app)).toEqual([fixtures.url('/b.html')]);
+
+      // State is written about a second after the last change; closing sooner
+      // would lose it, so wait for it to be on disk.
+      const userData = await first.app.evaluate(({ app }) => app.getPath('userData'));
+      const stateFile = path.join(userData, 'browser-state.json');
+      const stateFiles = () => (fs.existsSync(stateFile) ? fs.readFileSync(stateFile, 'utf8') : '');
+      await expect.poll(stateFiles, { timeout: 10_000 }).toContain(fixtures.url('/b.html'));
+    } finally {
+      await first.app.close();
+    }
+
+    const second = await launchElectron({ userDataDir: first.userDataDir });
+    try {
+      await openSession(second.page, 'Alpha');
+      if (!(await panel(second.page).isVisible())) await globe(second.page).click();
+      await expect(address(second.page)).toHaveValue(fixtures.url('/b.html'));
+      await expect.poll(() => guestUrls(second.app)).toEqual([fixtures.url('/b.html')]);
+      const snapshot = await tabsOf(second.page, ids.alpha.sessionId);
+      expect(snapshot.tabs.map((tab) => tab.url)).toEqual([fixtures.url('/b.html')]);
+    } finally {
+      await second.app.close();
+    }
   } finally {
-    await second.app.close();
+    removeProfile(first.userDataDir);
+    fs.rmSync(root, { recursive: true, force: true });
   }
 });
 
 test('a guest paints in the hidden test window', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-browser-'));
-  const { app, page } = await launchElectron();
+  const { app, page, userDataDir } = await launchElectron();
   try {
     await seed(page, root);
     await openSession(page, 'Alpha');
@@ -402,7 +463,19 @@ test('a guest paints in the hidden test window', async () => {
               .getAllWebContents()
               .find((contents) => contents.getType() === 'webview');
             if (!guest) return null;
-            const image = await guest.capturePage();
+            // Under load the compositor can fail a capture once
+            // (UnknownVizError): that one is tried again, a few times at most.
+            const capture = async (): Promise<Electron.NativeImage> => {
+              for (let attempt = 1; ; attempt += 1) {
+                try {
+                  return await guest.capturePage();
+                } catch (error) {
+                  if (attempt >= 3 || !String(error).includes('UnknownVizError')) throw error;
+                  await new Promise((resolve) => setTimeout(resolve, 250));
+                }
+              }
+            };
+            const image = await capture();
             const { width, height } = image.getSize();
             if (width === 0 || height === 0) return null;
             const bitmap = image.toBitmap();
@@ -414,5 +487,7 @@ test('a guest paints in the hidden test window', async () => {
       .toEqual([255, 0, 0]);
   } finally {
     await app.close();
+    removeProfile(userDataDir);
+    fs.rmSync(root, { recursive: true, force: true });
   }
 });

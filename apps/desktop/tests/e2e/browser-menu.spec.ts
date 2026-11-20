@@ -3,7 +3,7 @@ import type { ElectronApplication, Page } from '@playwright/test';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { launchElectron } from './helpers/electron';
+import { launchElectron, removeProfile } from './helpers/electron';
 import { type FixtureServer, startFixtureServer } from './helpers/fixtureServer';
 
 /**
@@ -99,16 +99,20 @@ function zoomLevelAt(app: ElectronApplication, urlPrefix: string): Promise<numbe
 test.describe('in-app browser menu', () => {
   let app: ElectronApplication;
   let page: Page;
+  let root: string;
+  let userDataDir: string;
 
   test.beforeEach(async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-browser-menu-'));
-    ({ app, page } = await launchElectron());
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-browser-menu-'));
+    ({ app, page, userDataDir } = await launchElectron());
     await seed(page, root);
     await showBrowser(page);
   });
 
   test.afterEach(async () => {
     await app.close();
+    removeProfile(userDataDir);
+    fs.rmSync(root, { recursive: true, force: true });
   });
 
   test('find on page reports how many matches there are', async () => {
@@ -153,7 +157,7 @@ test.describe('in-app browser menu', () => {
   test('zoom changes the page and shows its level', async () => {
     await typeAddress(page, `${fixtures.host}/a.html`);
     await expect.poll(() => guestUrls(app)).toEqual([fixtures.url('/a.html')]);
-    expect(await zoomLevelAt(app, fixtures.url('/a.html'))).toBe(0);
+    await expect.poll(() => zoomLevelAt(app, fixtures.url('/a.html'))).toBe(0);
 
     await page.getByRole('button', { name: 'More', exact: true }).click();
     await page.getByRole('menuitem', { name: 'Zoom in' }).click();
@@ -182,12 +186,13 @@ test.describe('in-app browser menu', () => {
     await typeAddress(page, `${fixtures.host}/b.html`);
     const b = fixtures.url('/b.html');
     await expect.poll(() => guestUrls(app)).toContain(b);
-    expect(await zoomLevelAt(app, b)).toBe(0.5);
+    // Read until Chromium has applied the host's level to the new page.
+    await expect.poll(() => zoomLevelAt(app, b)).toBe(0.5);
 
     // Another host has its own level.
     await typeAddress(page, `localhost:${fixtures.port}/a.html`);
     await expect.poll(() => guestUrls(app)).toContain(`http://localhost:${fixtures.port}/a.html`);
-    expect(await zoomLevelAt(app, `http://localhost:${fixtures.port}/`)).toBe(0);
+    await expect.poll(() => zoomLevelAt(app, `http://localhost:${fixtures.port}/`)).toBe(0);
     await typeAddress(page, `${fixtures.host}/c.html`);
     await expect.poll(() => guestUrls(app)).toContain(fixtures.url('/c.html'));
     // And going back to the first host finds its level again.
@@ -237,35 +242,43 @@ test("a host's zoom level is kept across a relaunch", async () => {
   test.setTimeout(90_000);
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-browser-menu-'));
   const first = await launchElectron();
-  await seed(first.page, root);
-  await showBrowser(first.page);
-  await typeAddress(first.page, `${fixtures.host}/a.html`);
-  await expect.poll(() => guestUrls(first.app)).toEqual([fixtures.url('/a.html')]);
-  await first.page.getByRole('button', { name: 'More', exact: true }).click();
-  await first.page.getByRole('menuitem', { name: 'Zoom in' }).click();
-  await expect.poll(() => zoomLevelAt(first.app, fixtures.url('/a.html'))).toBe(0.5);
-  await first.page.keyboard.press('Escape');
-  const userData = await first.app.evaluate(({ app }) => app.getPath('userData'));
-  const stateFile = path.join(userData, 'browser-state.json');
-  await expect
-    .poll(() => (fs.existsSync(stateFile) ? fs.readFileSync(stateFile, 'utf8') : ''), {
-      timeout: 10_000,
-    })
-    .toContain(fixtures.url('/a.html'));
-  await first.app.close();
-
-  const second = await launchElectron({ userDataDir: first.userDataDir });
   try {
-    await second.page
-      .getByRole('navigation', { name: 'Workspaces', exact: true })
-      .getByRole('button', { name: /Menu/ })
-      .click();
-    await second.page.locator('.session-nav-item').filter({ hasText: 'Menu session' }).click();
-    await showBrowser(second.page);
-    await expect.poll(() => guestUrls(second.app)).toEqual([fixtures.url('/a.html')]);
-    // Chromium keeps a host's zoom in the workspace's persistent partition.
-    await expect.poll(() => zoomLevelAt(second.app, fixtures.url('/a.html'))).toBe(0.5);
+    try {
+      await seed(first.page, root);
+      await showBrowser(first.page);
+      await typeAddress(first.page, `${fixtures.host}/a.html`);
+      await expect.poll(() => guestUrls(first.app)).toEqual([fixtures.url('/a.html')]);
+      await first.page.getByRole('button', { name: 'More', exact: true }).click();
+      await first.page.getByRole('menuitem', { name: 'Zoom in' }).click();
+      await expect.poll(() => zoomLevelAt(first.app, fixtures.url('/a.html'))).toBe(0.5);
+      await first.page.keyboard.press('Escape');
+      const userData = await first.app.evaluate(({ app }) => app.getPath('userData'));
+      const stateFile = path.join(userData, 'browser-state.json');
+      await expect
+        .poll(() => (fs.existsSync(stateFile) ? fs.readFileSync(stateFile, 'utf8') : ''), {
+          timeout: 10_000,
+        })
+        .toContain(fixtures.url('/a.html'));
+    } finally {
+      await first.app.close();
+    }
+
+    const second = await launchElectron({ userDataDir: first.userDataDir });
+    try {
+      await second.page
+        .getByRole('navigation', { name: 'Workspaces', exact: true })
+        .getByRole('button', { name: /Menu/ })
+        .click();
+      await second.page.locator('.session-nav-item').filter({ hasText: 'Menu session' }).click();
+      await showBrowser(second.page);
+      await expect.poll(() => guestUrls(second.app)).toEqual([fixtures.url('/a.html')]);
+      // Chromium keeps a host's zoom in the workspace's persistent partition.
+      await expect.poll(() => zoomLevelAt(second.app, fixtures.url('/a.html'))).toBe(0.5);
+    } finally {
+      await second.app.close();
+    }
   } finally {
-    await second.app.close();
+    removeProfile(first.userDataDir);
+    fs.rmSync(root, { recursive: true, force: true });
   }
 });

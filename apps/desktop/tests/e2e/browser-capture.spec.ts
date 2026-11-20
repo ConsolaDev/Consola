@@ -3,7 +3,7 @@ import type { ElectronApplication, Page } from '@playwright/test';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { launchElectron } from './helpers/electron';
+import { launchElectron, removeProfile } from './helpers/electron';
 import { type FixtureServer, startFixtureServer } from './helpers/fixtureServer';
 
 /**
@@ -89,11 +89,12 @@ test.describe('screenshot to the session', () => {
   let app: ElectronApplication;
   let page: Page;
   let root: string;
+  let userDataDir: string;
   let ids: { workspaceId: string; sessionId: string };
 
   test.beforeEach(async () => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-browser-capture-'));
-    ({ app, page } = await launchElectron());
+    ({ app, page, userDataDir } = await launchElectron());
     ids = await seed(page, root);
     await page.getByRole('button', { name: /^(Show|Hide) browser$/ }).click();
     await expect(panel(page)).toBeVisible();
@@ -101,6 +102,8 @@ test.describe('screenshot to the session', () => {
 
   test.afterEach(async () => {
     await app.close();
+    removeProfile(userDataDir);
+    fs.rmSync(root, { recursive: true, force: true });
   });
 
   test('writes a PNG, pastes its path without submitting, and goes with the session', async () => {
@@ -129,6 +132,8 @@ test.describe('screenshot to the session', () => {
     // with no Enter after it: nothing was submitted for the person.
     const received = () => (fs.existsSync(typed(root)) ? fs.readFileSync(typed(root), 'utf8') : '');
     await expect.poll(received).toContain(`${path.join(folder, file)}"`);
+    // Give an Enter sent after the path every chance to arrive before saying none did.
+    await page.waitForTimeout(1000);
     expect(received()).not.toMatch(/[\r\n]/);
 
     // Deleting the session removes its captures.

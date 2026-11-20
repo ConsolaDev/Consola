@@ -3,7 +3,7 @@ import type { ElectronApplication, Locator, Page } from '@playwright/test';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { launchElectron } from './helpers/electron';
+import { launchElectron, removeProfile } from './helpers/electron';
 import { type FixtureServer, startFixtureServer } from './helpers/fixtureServer';
 
 /**
@@ -281,16 +281,19 @@ test.describe('in-app browser tabs', () => {
   let app: ElectronApplication;
   let page: Page;
   let root: string;
+  let userDataDir: string;
   let ids: Seeded;
 
   test.beforeEach(async () => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-browser-tabs-'));
-    ({ app, page } = await launchElectron());
+    ({ app, page, userDataDir } = await launchElectron());
     ids = await seed(page, root);
   });
 
   test.afterEach(async () => {
     await app.close();
+    removeProfile(userDataDir);
+    fs.rmSync(root, { recursive: true, force: true });
   });
 
   test('two sessions keep separate tabs', async () => {
@@ -664,9 +667,14 @@ test.describe('in-app browser tabs', () => {
     await expect(tabs(page)).toHaveCount(12);
 
     // Twelve tabs, eight pages: the first tab was shown longest ago, so its
-    // page is gone while its tab (and address) remain.
-    await expect.poll(async () => (await guestUrls(app)).length).toBe(8);
-    expect(await guestUrls(app)).not.toContain(fixtures.url('/a.html'));
+    // page is gone while its tab (and address) remain. Both read together:
+    // the count can reach eight a moment before the first page has gone.
+    await expect
+      .poll(async () => {
+        const urls = await guestUrls(app);
+        return { pages: urls.length, first: urls.includes(fixtures.url('/a.html')) };
+      })
+      .toEqual({ pages: 8, first: false });
     const first = (await tabsOf(page, ids.alpha.sessionId)).tabs[0];
     expect(first.url).toBe(fixtures.url('/a.html'));
     expect(first.live).toBe(false);
@@ -692,13 +700,22 @@ test.describe('in-app browser tabs', () => {
       .poll(() => guestUrls(app))
       .toEqual(expect.arrayContaining([fixtures.url('/opener.html')]));
 
-    await inGuest(
-      app,
-      fixtures.url('/opener.html'),
-      `document.getElementById('blank-link').click()`,
-    );
+    const clickLink = () =>
+      inGuest(app, fixtures.url('/opener.html'), `document.getElementById('blank-link').click()`);
+    await clickLink();
     // Give a wrongly accepted tab time to show up.
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(1500);
+    const capped = (await tabsOf(page, ids.alpha.sessionId)).tabs;
+    expect(capped).toHaveLength(12);
+    expect(capped.map((tab) => tab.url)).not.toContain(fixtures.url('/b.html'));
+
+    // With room for one, the same click opens its tab: the refusal was the cap's.
+    await page.evaluate((tabId) => window.browserAPI.close(tabId), capped[11].id);
+    await expect(tabs(page)).toHaveCount(11);
+    await clickLink();
+    await expect
+      .poll(async () => (await tabsOf(page, ids.alpha.sessionId)).tabs.map((tab) => tab.url))
+      .toContain(fixtures.url('/b.html'));
     expect((await tabsOf(page, ids.alpha.sessionId)).tabs).toHaveLength(12);
   });
 });

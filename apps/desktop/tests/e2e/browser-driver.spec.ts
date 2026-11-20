@@ -3,7 +3,7 @@ import type { ElectronApplication, Page } from '@playwright/test';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { launchElectron } from './helpers/electron';
+import { launchElectron, removeProfile } from './helpers/electron';
 import { type FixtureServer, startFixtureServer } from './helpers/fixtureServer';
 
 /**
@@ -323,14 +323,16 @@ test.describe('an agent call on a page', () => {
   let app: ElectronApplication;
   let page: Page;
   let root: string;
+  let userDataDir: string;
 
   test.beforeEach(async () => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-driver-'));
-    ({ app, page } = await launchElectron());
+    ({ app, page, userDataDir } = await launchElectron());
   });
 
   test.afterEach(async () => {
     await app.close();
+    removeProfile(userDataDir);
     fs.rmSync(root, { recursive: true, force: true });
   });
 
