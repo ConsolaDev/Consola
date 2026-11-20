@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { cutCopy, ownCopy } from './ownCopy';
-import { MB, retainedBy } from './retainedHeap.test-support';
+import { MB, retainedBy } from './retainedHeap.test-helpers';
 
 describe('ownCopy', () => {
   it('gives the same text, every code unit as it was', () => {

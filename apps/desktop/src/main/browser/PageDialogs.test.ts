@@ -8,7 +8,7 @@ import {
   PageDialogs,
   shouldHoldDialog,
 } from './PageDialogs';
-import { MB, retainedBy } from './retainedHeap.test-support';
+import { MB, retainedBy } from './retainedHeap.test-helpers';
 
 /** Electron's own `-run-dialog` listener, which would show a message box. */
 type Callback = (success: boolean, input: string) => void;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { MAX_ENTRY_CHARS, readPageEvent } from './pageEvents';
-import { MB, retainedBy } from './retainedHeap.test-support';
+import { MB, retainedBy } from './retainedHeap.test-helpers';
 
 const NOW = 1_700_000_000_000;
 
