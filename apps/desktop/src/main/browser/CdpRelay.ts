@@ -64,9 +64,10 @@ function detachQuietly(pageDebugger: Debugger): void {
  * own `detach` (the page closing, its renderer going away) closes it too.
  *
  * Memory: nothing is queued. Events go to Playwright as Electron delivers
- * them, and answers as the page gives them. What can grow is the set of
- * commands waiting on a page that has stopped answering, and that is capped
- * (`MAX_COMMANDS_IN_FLIGHT`); past it the relay closes.
+ * them (but for what the page logs, which Playwright would keep), and
+ * answers as the page gives them. A page that sends more than a connection
+ * may carry (`relayBudget`), or leaves too many commands waiting
+ * (`MAX_COMMANDS_IN_FLIGHT`), closes the relay.
  */
 export class CdpRelay implements ConnectOverCDPTransport {
   /** Set by Playwright when it takes the transport. */
@@ -112,7 +113,7 @@ export class CdpRelay implements ConnectOverCDPTransport {
         write: (message) => this.onmessage?.(message),
         fail: (reason) => this.close(reason),
       },
-      options.maxCommandsInFlight ?? MAX_COMMANDS_IN_FLIGHT,
+      { maxCommandsInFlight: options.maxCommandsInFlight ?? MAX_COMMANDS_IN_FLIGHT },
     );
     guest.debugger.on('message', this.onDebuggerMessage);
     guest.debugger.on('detach', this.onDebuggerDetach);

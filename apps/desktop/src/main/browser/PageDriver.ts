@@ -137,6 +137,12 @@ function startTimer(ms: number, fire: () => void): () => void {
   return () => clearTimeout(timer);
 }
 
+/** Whether a `Log.entryAdded` names objects of the page's. */
+function hasArgs(params: unknown): boolean {
+  const entry = (params as { entry?: { args?: unknown } } | null)?.entry;
+  return Array.isArray(entry?.args) && entry.args.length > 0;
+}
+
 async function connectPlaywright(relay: DriverRelay): Promise<Browser> {
   // Loaded on first use: Playwright is large, and most launches never drive a page.
   const { chromium } = await import('playwright-core');
@@ -157,13 +163,14 @@ interface ConnectionOptions {
  * page's problems collected beside it.
  *
  * The problems are read from the debugger's own events, not from
- * Playwright's: a `console` listener in Playwright keeps a handle on every
- * object a page logs until it is disposed, one command per object, which is
- * the unbounded growth the spec warns of. Here they become plain text in two
- * fixed-size rings. Playwright still holds the last 200 console messages it
- * saw, with handles on their arguments; those objects are freed in the page
- * by releasing the `console` object group (as T3 Code does), after a
- * snapshot and every `RELEASE_CONSOLE_EVERY` console calls.
+ * Playwright's, and become plain text in two fixed-size rings, each entry
+ * cut to a copy of its own (`pageEvents`). Playwright never hears them: it
+ * would keep a page's last 200 console messages and errors with their whole
+ * values, and the relay keeps those events from it (`cdpRelayProtocol`).
+ * What the page's own inspector keeps for the console (the objects a page
+ * logged) is freed in the page by releasing the `console` object group (as
+ * T3 Code does), after a snapshot and every `RELEASE_CONSOLE_EVERY` logged
+ * calls.
  */
 class Connection {
   public readonly ready: Promise<Page>;
@@ -295,7 +302,8 @@ class Connection {
     params: unknown,
     sessionId: string,
   ): void => {
-    if (method === 'Runtime.consoleAPICalled') {
+    // A log entry can carry objects too (Playwright released them when it heard them).
+    if (method === 'Runtime.consoleAPICalled' || (method === 'Log.entryAdded' && hasArgs(params))) {
       this.loggingSessions.add(sessionId ?? '');
       this.loggedSinceRelease += 1;
       if (this.loggedSinceRelease >= RELEASE_CONSOLE_EVERY) this.releaseLoggedObjects();

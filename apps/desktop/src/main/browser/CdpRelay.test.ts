@@ -184,16 +184,15 @@ describe('CdpRelay as Playwright’s transport', () => {
       waitingForDebugger: true,
     });
     fake.emitEvent('Page.loadEventFired', { timestamp: 1 });
-    fake.emitEvent('Runtime.consoleAPICalled', { type: 'log' }, 'IFRAME-SESSION');
+    fake.emitEvent('Runtime.executionContextCreated', { context: { id: 2 } }, 'IFRAME-SESSION');
     expect(await until((message) => message.method === 'Page.loadEventFired')).toEqual({
       method: 'Page.loadEventFired',
       params: { timestamp: 1 },
       sessionId: PAGE_SESSION_ID,
     });
-    expect(await until((message) => message.method === 'Runtime.consoleAPICalled')).toHaveProperty(
-      'sessionId',
-      'IFRAME-SESSION',
-    );
+    expect(
+      await until((message) => message.method === 'Runtime.executionContextCreated'),
+    ).toHaveProperty('sessionId', 'IFRAME-SESSION');
   });
 
   // The reviewer's escape.js and files.js probes, against the fake: none of

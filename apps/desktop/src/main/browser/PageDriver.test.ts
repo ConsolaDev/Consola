@@ -594,6 +594,19 @@ describe('logged objects', () => {
     }
     expect(releases(guest)).toHaveLength(3);
   });
+
+  it('counts a log entry that names objects of the page, which Playwright no longer frees', async () => {
+    await driver.withPage('tab1', async () => {});
+    const entry = { level: 'verbose', source: 'violation', text: 'x', timestamp: T0 };
+    for (let i = 0; i < RELEASE_CONSOLE_EVERY; i++) {
+      guest.debugger.event('Log.entryAdded', { entry });
+    }
+    expect(releases(guest)).toHaveLength(0);
+    for (let i = 0; i < RELEASE_CONSOLE_EVERY; i++) {
+      guest.debugger.event('Log.entryAdded', { entry: { ...entry, args: [{ objectId: '1' }] } });
+    }
+    expect(releases(guest)).toHaveLength(1);
+  });
 });
 
 describe('a deadline is a sane length', () => {

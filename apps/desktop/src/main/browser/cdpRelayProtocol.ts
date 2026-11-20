@@ -1,4 +1,5 @@
 import { isAllowedPageUrl } from '../../shared/browser';
+import { EventBudget } from './relayBudget';
 
 /**
  * The Chrome DevTools Protocol that `CdpRelay` speaks to Playwright, with no IO.
@@ -40,13 +41,14 @@ export const PAGE_SESSION_ID = 'consola-page';
 /** Playwright requires every page to name a browser context; this one is made up. */
 const BROWSER_CONTEXT_ID = 'consola-browser-context';
 /**
- * How many commands may wait on the page at once. Nothing else in the relay
- * holds anything: events go to Playwright as they arrive. But each command
- * holds a callback here and in Playwright until the page answers, and a page
- * stuck in a loop answers nothing while its console output keeps Playwright
- * sending (it releases each logged object). Playwright has a few dozen in
- * flight when it attaches, so only a page that has stopped answering reaches
- * this, and the connection is ended rather than left to grow.
+ * How many commands may wait on the page at once. Events are never queued:
+ * each goes to Playwright as it arrives, or stops here, within the
+ * connection's budget (`relayBudget`). But each command holds a callback
+ * here and in Playwright until the page answers, and a page stuck in a loop
+ * answers nothing while Playwright may keep sending. Playwright has a few
+ * dozen in flight when it attaches, so only a page that has stopped
+ * answering reaches this, and the connection is ended rather than left to
+ * grow.
  */
 export const MAX_COMMANDS_IN_FLIGHT = 10_000;
 /** JSON-RPC's "server error", the code Chromium itself uses for a refused command. */
@@ -134,6 +136,20 @@ const TYPING_COMMANDS = new Set([
 
 /** The dialogs main holds for the agent; a `beforeunload` is Playwright's to accept, as ever. */
 const HELD_DIALOG_TYPES = new Set(['alert', 'confirm', 'prompt']);
+
+/**
+ * What a page logs, throws and reports, which Playwright keeps and Consola
+ * never reads from it: Playwright holds a page's last 200 console messages
+ * and 200 errors with their values, and turns every log entry into a console
+ * message. So a page logging one large string over and over would have main
+ * keep hundreds of copies of it, each parsed afresh. Main reads these from
+ * the debugger itself (`pageEvents`, in `PageDriver`), and they stop here.
+ */
+const UNFORWARDED_EVENTS = new Set([
+  'Runtime.consoleAPICalled',
+  'Runtime.exceptionThrown',
+  'Log.entryAdded',
+]);
 
 /** Every site's cookies in the workspace's partition; a page's script reaches only its own. */
 const COOKIE_COMMANDS = new Set([
@@ -243,11 +259,20 @@ interface Answer {
   followUp?: Message;
 }
 
+export interface RelayConnectionOptions {
+  /** Tests lower it; the default is `MAX_COMMANDS_IN_FLIGHT`. */
+  maxCommandsInFlight?: number;
+  /** What the page may send the connection (`relayBudget`); tests give it a clock. */
+  budget?: EventBudget;
+}
+
 export function createRelayConnection(
   page: RelayPage,
   output: RelayOutput,
-  maxCommandsInFlight: number = MAX_COMMANDS_IN_FLIGHT,
+  options: RelayConnectionOptions = {},
 ): RelayConnection {
+  const maxCommandsInFlight = options.maxCommandsInFlight ?? MAX_COMMANDS_IN_FLIGHT;
+  const budget = options.budget ?? new EventBudget();
   let closed = false;
   // Page events wait until Playwright has been told the page exists: before
   // that it has no session to file them under.
@@ -257,8 +282,14 @@ export function createRelayConnection(
   // The relay's own sessions.
   const sessions = new Map<string, 'browser' | 'page'>([[PAGE_SESSION_ID, 'page']]);
   // The page's iframes and workers, by the session id Chromium announced for
-  // each on the page's own sessions. Only these are forwarded to.
-  const children = new Set<string>();
+  // each on the page's own sessions, with the session it was announced on
+  // ('' for the page). Only these are forwarded to. One that goes takes the
+  // ones announced under it: Chromium reports their end only on its session.
+  const children = new Map<string, string>();
+  const forgetChild = (sessionId: string) => {
+    if (!children.delete(sessionId)) return;
+    for (const [child, parent] of [...children]) if (parent === sessionId) forgetChild(child);
+  };
   // Sessions ('' for the page itself) showing a dialog main holds.
   const heldDialogs = new Set<string>();
   let sequence = 0;
@@ -488,12 +519,18 @@ export function createRelayConnection(
 
     event(method, params, sessionId) {
       if (closed) return;
+      // Every event counts, passed on or not: main has parsed it either way.
+      const overBudget = budget.spend(params);
+      if (overBudget) {
+        fail(overBudget);
+        return;
+      }
       // Only the page's own sessions are heard, and an iframe or worker
       // becomes one when Chromium announces it on one of them.
       if (sessionId && !children.has(sessionId)) return;
       if (isRecord(params) && typeof params.sessionId === 'string') {
-        if (method === 'Target.attachedToTarget') children.add(params.sessionId);
-        if (method === 'Target.detachedFromTarget') children.delete(params.sessionId);
+        if (method === 'Target.attachedToTarget') children.set(params.sessionId, sessionId || '');
+        if (method === 'Target.detachedFromTarget') forgetChild(params.sessionId);
       }
       const dialogSession = sessionId || '';
       if (method === 'Page.javascriptDialogOpening') {
@@ -508,7 +545,7 @@ export function createRelayConnection(
         heldDialogs.delete(dialogSession);
       }
       if (method === 'Page.javascriptDialogClosed' && heldDialogs.delete(dialogSession)) return;
-      if (!announced) return;
+      if (UNFORWARDED_EVENTS.has(method) || !announced) return;
       if (sessionId) {
         write({ method, params, sessionId });
         return;

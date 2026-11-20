@@ -1,11 +1,16 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createRelayConnection, PAGE_SESSION_ID, type RelayPage } from './cdpRelayProtocol';
+import { EventBudget, TOO_MANY_BYTES_MESSAGE, TOO_MANY_EVENTS_MESSAGE } from './relayBudget';
 
 type Message = Record<string, unknown>;
 
 const TARGET = { targetId: 'GUEST-TARGET', url: 'http://localhost:4719/', title: 'Fixture' };
 
-function setup(send: RelayPage['send'] = vi.fn(async () => ({})), maxCommandsInFlight?: number) {
+function setup(
+  send: RelayPage['send'] = vi.fn(async () => ({})),
+  maxCommandsInFlight?: number,
+  budget?: EventBudget,
+) {
   const written: Message[] = [];
   const fail = vi.fn();
   const page: RelayPage = {
@@ -17,7 +22,7 @@ function setup(send: RelayPage['send'] = vi.fn(async () => ({})), maxCommandsInF
   const relay = createRelayConnection(
     page,
     { write: (message) => written.push(message), fail },
-    maxCommandsInFlight,
+    { maxCommandsInFlight, budget },
   );
   // Shaped as Playwright's CRConnection sends them: sessionId only when there is one.
   const command = (id: number, method: string, params?: Message, sessionId?: string) =>
@@ -42,8 +47,12 @@ const attachedEvent = (sessionId: string) => ({
 });
 
 /** A connection whose page has been announced, with one iframe Chromium attached under it. */
-async function announced(send?: RelayPage['send'], maxCommandsInFlight?: number) {
-  const context = setup(send, maxCommandsInFlight);
+async function announced(
+  send?: RelayPage['send'],
+  maxCommandsInFlight?: number,
+  budget?: EventBudget,
+) {
+  const context = setup(send, maxCommandsInFlight, budget);
   context.command(1, 'Target.setAutoAttach', {
     autoAttach: true,
     waitForDebuggerOnStart: true,
@@ -605,11 +614,32 @@ describe('the page’s iframes and workers', () => {
 
   it('passes on events only from sessions it knows', async () => {
     const { relay, written } = await announced();
-    relay.event('Runtime.consoleAPICalled', { type: 'log' }, 'STRANGER');
-    relay.event('Runtime.consoleAPICalled', { type: 'log' }, CHILD);
+    relay.event('Runtime.executionContextCreated', { context: { id: 1 } }, 'STRANGER');
+    relay.event('Runtime.executionContextCreated', { context: { id: 2 } }, CHILD);
     expect(written).toEqual([
-      { method: 'Runtime.consoleAPICalled', params: { type: 'log' }, sessionId: CHILD },
+      {
+        method: 'Runtime.executionContextCreated',
+        params: { context: { id: 2 } },
+        sessionId: CHILD,
+      },
     ]);
+  });
+
+  it('forgets the iframes announced under one that went, which Chromium never reports', async () => {
+    const send = vi.fn(async () => ({}));
+    const { command, reply, relay } = await announced(send);
+    relay.event('Target.attachedToTarget', attachedEvent('NESTED'), CHILD);
+    relay.event('Target.attachedToTarget', attachedEvent('DEEPER'), 'NESTED');
+    relay.event('Target.attachedToTarget', attachedEvent('SIBLING'), '');
+    // Only the iframe's own end is reported, on the page's session.
+    relay.event('Target.detachedFromTarget', { sessionId: CHILD }, '');
+    command(5, 'Runtime.enable', {}, 'NESTED');
+    command(6, 'Runtime.enable', {}, 'DEEPER');
+    command(7, 'Runtime.enable', {}, 'SIBLING');
+    await settle();
+    expect(reply(5)).toHaveProperty('error');
+    expect(reply(6)).toHaveProperty('error');
+    expect(reply(7)).toEqual({ id: 7, result: {}, sessionId: 'SIBLING' });
   });
 });
 
@@ -623,11 +653,62 @@ describe('page events', () => {
   it('routes the page’s own events to the page session and keeps a child’s session id', async () => {
     const { relay, written } = await announced();
     relay.event('Page.loadEventFired', { timestamp: 1 }, '');
-    relay.event('Runtime.consoleAPICalled', { type: 'log' }, 'IFRAME-SESSION');
+    relay.event('Page.frameNavigated', { frame: { id: 'f' } }, 'IFRAME-SESSION');
     expect(written).toEqual([
       { method: 'Page.loadEventFired', params: { timestamp: 1 }, sessionId: PAGE_SESSION_ID },
-      { method: 'Runtime.consoleAPICalled', params: { type: 'log' }, sessionId: 'IFRAME-SESSION' },
+      {
+        method: 'Page.frameNavigated',
+        params: { frame: { id: 'f' } },
+        sessionId: 'IFRAME-SESSION',
+      },
     ]);
+  });
+
+  // Playwright keeps a page's last 200 console messages and errors with their
+  // values, and Consola reads none of them from it.
+  it.each([
+    ['Runtime.consoleAPICalled', { type: 'error', args: [{ type: 'string', value: 'x' }] }],
+    ['Runtime.exceptionThrown', { exceptionDetails: { text: 'Uncaught' } }],
+    ['Log.entryAdded', { entry: { level: 'error', source: 'network', text: 'x' } }],
+  ])('keeps %s from Playwright, in the page and in its iframes', async (method, params) => {
+    const { relay, written } = await announced();
+    relay.event(method, params, '');
+    relay.event(method, params, CHILD);
+    relay.event('Page.loadEventFired', { timestamp: 1 }, '');
+    expect(written).toEqual([
+      { method: 'Page.loadEventFired', params: { timestamp: 1 }, sessionId: PAGE_SESSION_ID },
+    ]);
+  });
+});
+
+describe('what a page may send the connection', () => {
+  it('closes it, saying why, once the page sends more events than it may', async () => {
+    const { relay, fail, written } = await announced(
+      undefined,
+      undefined,
+      new EventBudget(() => 0),
+    );
+    for (let i = 0; i < 25_000 && fail.mock.calls.length === 0; i++) {
+      relay.event('Network.dataReceived', { requestId: '1', dataLength: 1 }, '');
+    }
+    expect(fail).toHaveBeenCalledOnce();
+    expect(fail).toHaveBeenCalledWith(TOO_MANY_EVENTS_MESSAGE);
+    written.length = 0;
+    relay.event('Page.loadEventFired', { timestamp: 1 }, '');
+    expect(written).toEqual([]);
+  });
+
+  it('counts what it keeps from Playwright too, by its size', async () => {
+    const { relay, fail } = await announced(undefined, undefined, new EventBudget(() => 0));
+    const logged = {
+      type: 'error',
+      args: [{ type: 'string', value: 'x'.repeat(30 * 1024 * 1024) }],
+    };
+    relay.event('Runtime.consoleAPICalled', logged, '');
+    relay.event('Runtime.consoleAPICalled', logged, '');
+    expect(fail).not.toHaveBeenCalled();
+    relay.event('Runtime.consoleAPICalled', logged, '');
+    expect(fail).toHaveBeenCalledWith(TOO_MANY_BYTES_MESSAGE);
   });
 });
 
