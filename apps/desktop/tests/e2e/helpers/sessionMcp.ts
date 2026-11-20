@@ -77,13 +77,18 @@ export async function sessionEndpoint(
 ): Promise<Endpoint> {
   const userData = await app.evaluate(({ app: electronApp }) => electronApp.getPath('userData'));
   const configPath = path.join(userData, 'session-mcp', `${sessionId}.json`);
+  // The read that found it whole is the answer: no second read of the file.
+  let endpoint = null as Endpoint | null;
   await expect
-    .poll(() => readEndpoint(configPath) !== null, {
-      message: `no whole MCP config for session ${sessionId}`,
-    })
+    .poll(
+      () => {
+        endpoint = readEndpoint(configPath);
+        return endpoint !== null;
+      },
+      { message: `no whole MCP config for session ${sessionId}` },
+    )
     .toBe(true);
-  // Written once per run, so whole once read whole.
-  return readEndpoint(configPath) as Endpoint;
+  return endpoint as Endpoint;
 }
 
 /** One content block of a tool's answer. */

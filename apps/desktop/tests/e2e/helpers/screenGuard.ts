@@ -28,6 +28,20 @@ interface GuardGlobals {
 /** What the guard check says when Electron is not as the app's dialog takeover expects. */
 const UNEXPECTED_ELECTRON = "Electron's page dialog event is not what the app expects";
 
+/**
+ * The Electron major on which the app's dialog takeover (`PageDialogs.takeOver`,
+ * over Electron's internal `-run-dialog` event) was checked by hand. A test
+ * that raises a dialog stops on any other major before anything is raised:
+ * the guard here can see Electron's listener count, but not whether a new
+ * Electron also shows dialogs some other way. Move it only after doing the
+ * hand check in CLAUDE.md ("A dialog is held for the agent, not shown") on
+ * the new major.
+ */
+const DIALOG_TAKEOVER_VERIFIED_ELECTRON_MAJOR = 43;
+
+/** What a test is about to make the page raise: each needs its own guard. */
+export type OffScreenRisk = 'dialog' | 'download';
+
 export interface ScreenGuard {
   record(): Promise<ScreenRecord>;
   /**
@@ -130,16 +144,23 @@ export async function keepOffScreen(app: ElectronApplication): Promise<ScreenGua
  * dialog, or null when it is: Electron's one dialog listener was swapped for
  * the recorder as the page was created, the app has since taken the recorder
  * over (one listener, and not the recorder itself), and its partition has the
- * download canceller.
+ * download canceller. Before a dialog, Electron must also be the major the
+ * takeover was checked on by hand (`DIALOG_TAKEOVER_VERIFIED_ELECTRON_MAJOR`);
+ * a download relies on no Electron internals, so a new major does not stop it.
  */
 export function offScreenProblem(
   app: ElectronApplication,
   urlPrefix: string,
+  risk: OffScreenRisk,
 ): Promise<string | null> {
   return app.evaluate(
     ({ webContents }, args) => {
       const guard = (globalThis as unknown as GuardGlobals).__screenGuard;
       if (!guard) return 'The screen guard was never installed.';
+      const major = Number(process.versions.electron.split('.')[0]);
+      if (args.risk === 'dialog' && major !== args.verifiedMajor) {
+        return `The app's page dialog takeover was checked by hand on Electron ${args.verifiedMajor}, and this is Electron ${major}, so no dialog may be raised yet. Do the hand check in CLAUDE.md ("A dialog is held for the agent, not shown") on Electron ${major}, then move DIALOG_TAKEOVER_VERIFIED_ELECTRON_MAJOR (tests/e2e/helpers/screenGuard.ts) to ${major}.`;
+      }
       const guest = webContents
         .getAllWebContents()
         .find(
@@ -149,8 +170,11 @@ export function offScreenProblem(
       if (!guest) return `There is no page at ${args.prefix}.`;
       const found = guard.dialogListenersFound[guest.id];
       const recorder = guard.recorders.get(guest);
+      if (found === undefined) {
+        return `The screen guard never saw the page at ${args.prefix} being created: it was installed after the page existed (a set-up ordering fault in the test), so nothing was swapped and no dialog may be raised on it.`;
+      }
       if (found !== 1 || !recorder) {
-        return `${args.unexpected}: the page had ${found ?? 'an unknown number of'} "-run-dialog" listeners as it was created, not Electron's one, so nothing was swapped and no dialog may be raised on it.`;
+        return `${args.unexpected}: the page had ${found} "-run-dialog" listeners as it was created, not Electron's one, so nothing was swapped and no dialog may be raised on it.`;
       }
       const now = (guest as unknown as NodeJS.EventEmitter).listeners('-run-dialog');
       if (now.length !== 1) {
@@ -164,15 +188,25 @@ export function offScreenProblem(
       }
       return null;
     },
-    { prefix: urlPrefix, unexpected: UNEXPECTED_ELECTRON },
+    {
+      prefix: urlPrefix,
+      unexpected: UNEXPECTED_ELECTRON,
+      risk,
+      verifiedMajor: DIALOG_TAKEOVER_VERIFIED_ELECTRON_MAJOR,
+    },
   );
 }
 
 /**
  * Stops the test unless the page at `urlPrefix` is kept off the screen
- * (`offScreenProblem`). Called before a test raises a dialog or a download.
+ * (`offScreenProblem`). Called before a test raises a dialog or a download,
+ * saying which.
  */
-export async function expectOffScreen(app: ElectronApplication, urlPrefix: string): Promise<void> {
-  const problem = await offScreenProblem(app, urlPrefix);
+export async function expectOffScreen(
+  app: ElectronApplication,
+  urlPrefix: string,
+  risk: OffScreenRisk,
+): Promise<void> {
+  const problem = await offScreenProblem(app, urlPrefix, risk);
   expect(problem, 'the page must be kept off the screen before anything is raised').toBeNull();
 }
