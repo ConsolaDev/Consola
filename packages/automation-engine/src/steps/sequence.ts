@@ -44,7 +44,7 @@ const own = (object: object, key: string): boolean =>
 
 /** A value a step's record holds, by path; `undefined` when it holds none. */
 function recorded(record: StepRun | undefined, name: string, file: boolean): ExprValue | undefined {
-  if (!record || record.status !== 'completed') return undefined;
+  if (record?.status !== 'completed') return undefined;
   const hasArtifact = (record.artifacts ?? []).some((artifact) => artifact.name === name);
   if (file) return hasArtifact ? name : undefined;
   if (record.outputs && own(record.outputs, name)) return record.outputs[name];
@@ -217,7 +217,7 @@ export function advanceSteps(input: {
 
   for (const step of steps) {
     const mine = now.get(step.id);
-    if (!mine || mine.status !== 'pending') continue;
+    if (mine?.status !== 'pending') continue;
 
     const skip = (reason: string): void => {
       mine.status = 'skipped';

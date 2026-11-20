@@ -21,10 +21,10 @@ import {
   protocol,
   shell,
 } from 'electron';
-import { randomUUID } from 'crypto';
-import * as fs from 'fs';
-import * as path from 'path';
-import { exec } from 'child_process';
+import { randomUUID } from 'node:crypto';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { exec } from 'node:child_process';
 import { TerminalManager } from './TerminalManager';
 import { SessionLauncher, launchFieldsFor } from './SessionLauncher';
 import { fanOut } from './fanOut';
@@ -87,7 +87,7 @@ import {
 import { createConductor } from './conductor/createConductor';
 import { scaffold } from './conductor/ConductorScaffold';
 import { commit, readDiff, readStatus, stageFile, unstageFile } from './gitWorkingTree';
-import { TerminalCreateOptions, HarnessLaunchFields } from '../shared/types';
+import type { TerminalCreateOptions, HarnessLaunchFields } from '../shared/types';
 import type { ConductorCreateRequest, SessionFanOutIntent } from '../shared/types';
 import { deriveTerminalStatus, type TerminalStatus } from '../shared/terminalStatus';
 import { IPC_CHANNELS } from '../shared/constants';
@@ -152,7 +152,7 @@ let viewMemoryService: ViewMemoryService | null = null;
 let workspaceService: WorkspaceService | null = null;
 
 // The single writer for harness records, shared by every window
-let harnessService: HarnessService | null = null;
+let _harnessService: HarnessService | null = null;
 
 // Provider organs: one inbox fetcher, one worktree owner — both main-side.
 // The drivers themselves live in the registry under ./providers.
@@ -519,7 +519,7 @@ export function setupIpcHandlers(): boolean {
   );
   const harnesses = new HarnessService(harnessFile);
   if (!loadOrExit(() => harnesses.load(), 'harnesses')) return false;
-  harnessService = harnesses;
+  _harnessService = harnesses;
 
   harnesses.onChange((all) => {
     for (const window of BrowserWindow.getAllWindows()) {
@@ -754,7 +754,7 @@ export function setupIpcHandlers(): boolean {
   manager.onAttentionChanged = () => {
     if (typeof app.setBadgeCount === 'function') {
       const count = manager.getAttentionCount();
-      app.setBadgeCount(count > 0 ? count : 0);
+      app.setBadgeCount(Math.max(count, 0));
     }
   };
 
@@ -1855,7 +1855,7 @@ export function cleanupIpcHandlers(): void {
   ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_GROUP_ARCHIVE);
   ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_GROUP_RESTORE);
 
-  harnessService = null;
+  _harnessService = null;
   ipcMain.removeHandler(IPC_CHANNELS.HARNESS_GET_SNAPSHOT);
   ipcMain.removeHandler(IPC_CHANNELS.HARNESS_IMPORT);
   ipcMain.removeHandler(IPC_CHANNELS.HARNESS_ADD);

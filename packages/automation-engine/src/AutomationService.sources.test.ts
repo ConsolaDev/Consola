@@ -1,6 +1,6 @@
-import { createHash } from 'crypto';
-import * as fs from 'fs';
-import * as path from 'path';
+import { createHash } from 'node:crypto';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import {
   automationVersion,
@@ -2396,7 +2396,7 @@ describe('on a chosen item', () => {
 });
 
 describe('previous', () => {
-  const KEY = `${WORKSPACE_ID} ${RE_REVIEW_NAME}`;
+  const _KEY = `${WORKSPACE_ID} ${RE_REVIEW_NAME}`;
   const DAY = 24 * 60 * 60_000;
   const at = (head: string) => ({ ...PR_51_ROW, head });
   /** The spec's template, its publish step also handing the earlier review to its command. */

@@ -1,4 +1,4 @@
-import * as path from 'path';
+import * as path from 'node:path';
 import { parseAutomationEntry, type RunRecord } from '@consola/factory-spec';
 import { reReviewEntry, RE_REVIEW_NAME } from '../factoryTemplates';
 import { itemKey } from '../inboxItems.test-helpers';
