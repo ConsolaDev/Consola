@@ -21,10 +21,10 @@ import {
   protocol,
   shell,
 } from 'electron';
-import { randomUUID } from 'crypto';
-import * as fs from 'fs';
-import * as path from 'path';
-import { exec } from 'child_process';
+import { randomUUID } from 'node:crypto';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { exec } from 'node:child_process';
 import { TerminalManager } from './TerminalManager';
 import { SessionLauncher, launchFieldsFor } from './SessionLauncher';
 import { fanOut } from './fanOut';
@@ -85,7 +85,7 @@ import {
 import { createConductor } from './conductor/createConductor';
 import { scaffold } from './conductor/ConductorScaffold';
 import { commit, readDiff, readStatus, stageFile, unstageFile } from './gitWorkingTree';
-import { TerminalCreateOptions, HarnessLaunchFields } from '../shared/types';
+import type { TerminalCreateOptions, HarnessLaunchFields } from '../shared/types';
 import type { ConductorCreateRequest, SessionFanOutIntent } from '../shared/types';
 import { deriveTerminalStatus, type TerminalStatus } from '../shared/terminalStatus';
 import { IPC_CHANNELS } from '../shared/constants';

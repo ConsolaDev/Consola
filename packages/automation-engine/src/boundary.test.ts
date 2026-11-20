@@ -1,6 +1,6 @@
-import * as fs from 'fs';
-import { builtinModules } from 'module';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import { builtinModules } from 'node:module';
+import * as path from 'node:path';
 import * as ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 

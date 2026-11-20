@@ -1,4 +1,4 @@
-import * as fs from 'fs';
+import * as fs from 'node:fs';
 import { SessionOpenedError } from '@consola/automation-engine';
 import type { Harness } from '../shared/harness';
 import type { HarnessLaunchFields } from '../shared/types';

@@ -30,10 +30,10 @@ import type {
   WorkItemMutation,
 } from '../../../shared/workItemDetails';
 import { workItemMutationSchema } from '../../../shared/workItemDetails';
-import { execFile } from 'child_process';
-import * as fs from 'fs';
-import * as path from 'path';
-import { promisify } from 'util';
+import { execFile } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { promisify } from 'node:util';
 import { PROVIDER_META } from '../../../shared/providers';
 import type {
   GitProviderId,

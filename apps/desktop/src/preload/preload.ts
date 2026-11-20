@@ -3,7 +3,7 @@ import { UPDATE_CHANNELS, type AppUpdateAPI } from '../shared/appUpdates';
 import type { ShellAPI } from '../shared/shell';
 import type { SessionCheckout, CheckoutContext, CheckoutInfo } from '../shared/sessionCheckout';
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
-import {
+import type {
   TerminalCreateOptions,
   TerminalSnapshot,
   TerminalDataMessage,

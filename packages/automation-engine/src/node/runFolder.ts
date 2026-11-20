@@ -1,5 +1,5 @@
-import * as fs from 'fs';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { ARTIFACT_NAME_PATTERN, STEP_ID_PATTERN } from '@consola/factory-spec';
 import type { RunFolderPort } from '../ports';
 import { MAX_ARTIFACT_BYTES, type RunDefinition } from '../steps/definition';

@@ -151,9 +151,9 @@ describe('RunStore history', () => {
   });
 
   it('keeps the order of runs created in the same instant across a migration and a compaction', async () => {
-    const fs = await import('fs');
-    const os = await import('os');
-    const path = await import('path');
+    const fs = await import('node:fs');
+    const os = await import('node:os');
+    const path = await import('node:path');
     const { RunHistoryFiles } = await import('./node/RunHistoryFiles');
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'run-ties-'));
     try {

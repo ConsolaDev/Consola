@@ -160,7 +160,7 @@ function RunList({
     const items = Array.from(
       listRef.current?.querySelectorAll<HTMLButtonElement>('.automations-run-item') ?? [],
     );
-    const index = items.findIndex((item) => item === document.activeElement);
+    const index = items.indexOf(document.activeElement as HTMLButtonElement);
     if (index === -1) return;
     event.preventDefault();
     items[

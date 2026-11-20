@@ -3,8 +3,8 @@ import {
   withoutGitHooks,
   type AgentLaunchRequest,
 } from '@consola/automation-engine';
-import * as fs from 'fs';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import type { GitProviderId } from '../../shared/providers';
 import type { WorkItemRef } from '../../shared/workItems';
 import { sameWorkItem, workItemKey } from '../../shared/workItems';

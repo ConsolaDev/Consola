@@ -231,7 +231,7 @@ class Parser {
         if (token.value !== '(') throw new ParseError(`unexpected \`${token.value}\``);
         const inner = this.or();
         const close = this.next();
-        if (!close || close.type !== 'punct' || close.value !== ')') {
+        if (close?.type !== 'punct' || close.value !== ')') {
           throw new ParseError('missing `)` to close the parenthesis');
         }
         return inner;
@@ -281,7 +281,7 @@ class Parser {
 
   private segment(shape: string): string {
     const token = this.next();
-    if (!token || token.type !== 'word') throw new ParseError(`a path is ${shape}`);
+    if (token?.type !== 'word') throw new ParseError(`a path is ${shape}`);
     return token.value;
   }
 }

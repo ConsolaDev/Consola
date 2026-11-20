@@ -1,6 +1,6 @@
-import { spawn } from 'child_process';
-import * as fs from 'fs';
-import * as path from 'path';
+import { spawn } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import type { CommandResult, CommandSpec, RunningCommand } from '../ports';
 import { LOG_CAP_BYTES, clipText, maskSecrets } from '../steps/commandIO';
 
@@ -30,7 +30,7 @@ const MASK = Buffer.from('***');
 const EMPTY = Buffer.alloc(0);
 
 /** CSI and OSC sequences, then any other escape. */
-const ESCAPES = /\x1b\[[0-?]*[ -\/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?|\x1b[@-_]?/g;
+const ESCAPES = /\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?|\x1b[@-_]?/g;
 /** Every control character but tab (newlines are already split on). */
 const CONTROLS = /[\x00-\x08\x0b-\x1f\x7f]/g;
 
