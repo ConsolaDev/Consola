@@ -102,4 +102,27 @@ describe('moveAsAgent', () => {
     expect(browser.events).toEqual(['move noted tab1', 'hold tab1 mount=false', 'release tab1']);
     expect(browser.guest.listenerCount('did-stop-loading')).toBe(0);
   });
+
+  it('ends the last move’s wait as a new move on the tab begins, so a page that never loads piles nothing up', () => {
+    const guest = new FakeGuest();
+    browser.guest = guest;
+    for (let move = 0; move < 20; move++) moveAsAgent({ browser, person }, 'tab1', () => {});
+    expect(guest.listenerCount('did-stop-loading')).toBe(1);
+    expect(guest.listenerCount('destroyed')).toBe(1);
+    // Every earlier move let go of its mark; the last one waits.
+    expect(browser.events.filter((event) => event === 'release tab1')).toHaveLength(19);
+    guest.emit('did-stop-loading');
+    expect(browser.events.filter((event) => event === 'release tab1')).toHaveLength(20);
+    expect(guest.listenerCount('did-stop-loading')).toBe(0);
+  });
+
+  it('leaves another tab’s wait alone', () => {
+    const first = new FakeGuest();
+    browser.guest = first;
+    moveAsAgent({ browser, person }, 'tab1', () => {});
+    browser.guest = new FakeGuest();
+    moveAsAgent({ browser, person }, 'tab2', () => {});
+    expect(first.listenerCount('did-stop-loading')).toBe(1);
+    expect(browser.events).not.toContain('release tab1');
+  });
 });

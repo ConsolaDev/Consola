@@ -31,6 +31,9 @@ export interface AgentMoveDeps {
  */
 export function moveAsAgent<T>(deps: AgentMoveDeps, tabId: string, move: () => T): T {
   deps.person.noteAgentUse(tabId);
+  // A page that never stops loading would otherwise keep every earlier
+  // move's listeners on it until each one's deadline.
+  waits.get(tabId)?.();
   const release = deps.browser.holdForToolCall(tabId, { mount: false }) ?? (() => {});
   const guest = deps.browser.guestFor(tabId);
   let moved: T;
@@ -40,19 +43,30 @@ export function moveAsAgent<T>(deps: AgentMoveDeps, tabId: string, move: () => T
     release();
     throw error;
   }
-  if (guest) untilLoaded(guest, release);
+  if (guest) untilLoaded(tabId, guest, release);
   else release();
   return moved;
 }
 
-/** Calls `done` once, when the page stops loading or goes, or after `CALL_DEADLINE_MS`. */
-function untilLoaded(guest: WebContents, done: () => void): void {
+/** Each tab's move still waiting on its page, by what ends that wait. */
+const waits = new Map<string, () => void>();
+
+/**
+ * Calls `done` once, when the page stops loading or goes, after
+ * `CALL_DEADLINE_MS`, or when the next move on the tab begins.
+ */
+function untilLoaded(tabId: string, guest: WebContents, done: () => void): void {
+  let finished = false;
   const finish = () => {
+    if (finished) return;
+    finished = true;
     clearTimeout(timer);
     guest.removeListener('did-stop-loading', finish);
     guest.removeListener('destroyed', finish);
+    if (waits.get(tabId) === finish) waits.delete(tabId);
     done();
   };
+  waits.set(tabId, finish);
   guest.on('did-stop-loading', finish);
   guest.on('destroyed', finish);
   const timer = setTimeout(finish, CALL_DEADLINE_MS);
