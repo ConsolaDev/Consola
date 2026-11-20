@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { MAX_ENTRY_CHARS, readPageEvent } from './pageEvents';
+import { MB, retainedBy } from './retainedHeap.test-support';
 
 const NOW = 1_700_000_000_000;
 
@@ -206,6 +207,39 @@ describe('readPageEvent', () => {
     if (failed?.kind !== 'failed-request') throw new Error('expected a failed request');
     expect(failed.entry.url.length).toBe(MAX_ENTRY_CHARS);
     expect(failed.entry.reason.length).toBe(MAX_ENTRY_CHARS);
+  });
+
+  it('keeps a copy of what it cuts, never the whole of what the page logged', () => {
+    // Each entry would otherwise hold its whole 5 MB message, its address and its source.
+    const consoleErrors = retainedBy((text) =>
+      readPageEvent(
+        'Runtime.consoleAPICalled',
+        {
+          type: 'error',
+          args: [{ type: 'string', value: text }],
+          timestamp: NOW,
+          stackTrace: { callFrames: [{ url: text, lineNumber: 0 }] },
+        },
+        NOW,
+      ),
+    );
+    expect(consoleErrors).toBeLessThan(10 * MB);
+    const exceptions = retainedBy((text) =>
+      readPageEvent(
+        'Runtime.exceptionThrown',
+        { exceptionDetails: { text, url: text, exception: { description: text } } },
+        NOW,
+      ),
+    );
+    expect(exceptions).toBeLessThan(10 * MB);
+    const failedRequests = retainedBy((text) =>
+      readPageEvent(
+        'Log.entryAdded',
+        { entry: { source: 'network', level: 'error', text, url: text, timestamp: NOW } },
+        NOW,
+      ),
+    );
+    expect(failedRequests).toBeLessThan(10 * MB);
   });
 
   it('takes the time it was read for an entry the page did not date', () => {

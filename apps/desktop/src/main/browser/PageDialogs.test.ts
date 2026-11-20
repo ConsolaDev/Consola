@@ -8,6 +8,7 @@ import {
   PageDialogs,
   shouldHoldDialog,
 } from './PageDialogs';
+import { MB, retainedBy } from './retainedHeap.test-support';
 
 /** Electron's own `-run-dialog` listener, which would show a message box. */
 type Callback = (success: boolean, input: string) => void;
@@ -254,6 +255,15 @@ describe('a page’s dialog', () => {
     const message = dialogs.pendingFor('tab1')?.message ?? '';
     expect(message.length).toBeLessThan(MAX_DIALOG_MESSAGE_CHARS + 100);
     expect(message).toMatch(/\(500 more characters\)$/);
+  });
+
+  it('keeps a copy of what it cuts, never the whole of what the page wrote', () => {
+    // What the agent was told outlives the hold; it must not hold the page's whole message.
+    const told = retainedBy((text) => {
+      guest.raise('alert', text);
+      return dialogs.answer('tab1', true);
+    });
+    expect(told).toBeLessThan(10 * MB);
   });
 });
 

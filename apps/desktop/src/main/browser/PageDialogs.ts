@@ -1,4 +1,5 @@
 import type { WebContents } from 'electron';
+import { cutCopy } from './ownCopy';
 
 /** A dialog held for the agent is dismissed on its own after this long (Ruling Z). */
 export const DIALOG_HOLD_MS = 60_000;
@@ -107,11 +108,17 @@ function dialogTypeOf(value: unknown): DialogType | null {
   return value === 'alert' || value === 'confirm' || value === 'prompt' ? value : null;
 }
 
+/**
+ * What the agent is told of a dialog's message: at most
+ * `MAX_DIALOG_MESSAGE_CHARS` of it, the cut copied (`cutCopy`), since what
+ * the agent was told can outlive the hold, and a cut that pointed into the
+ * page's whole message would keep all of it.
+ */
 function boundedMessage(value: unknown): string {
   const message = typeof value === 'string' ? value : '';
   if (message.length <= MAX_DIALOG_MESSAGE_CHARS) return message;
-  const more = message.length - MAX_DIALOG_MESSAGE_CHARS;
-  return `${message.slice(0, MAX_DIALOG_MESSAGE_CHARS)}… (${more} more characters)`;
+  const kept = cutCopy(message, MAX_DIALOG_MESSAGE_CHARS);
+  return `${kept}… (${message.length - kept.length} more characters)`;
 }
 
 /**

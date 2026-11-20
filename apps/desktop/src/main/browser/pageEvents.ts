@@ -17,6 +17,8 @@
  *   frame) are console errors, as DevTools shows them.
  */
 
+import { cutCopy } from './ownCopy';
+
 /** What one entry may hold, in characters: a page decides how much it logs. */
 export const MAX_ENTRY_CHARS = 2_000;
 
@@ -46,8 +48,13 @@ function isFields(value: unknown): value is Fields {
   return typeof value === 'object' && value !== null;
 }
 
+/**
+ * At most `MAX_ENTRY_CHARS` of the text. What is cut is copied (`cutCopy`):
+ * an entry is kept until the agent's next snapshot, and a cut that pointed
+ * into the page's whole message would keep all of it that long.
+ */
 function clip(text: string): string {
-  return text.length > MAX_ENTRY_CHARS ? `${text.slice(0, MAX_ENTRY_CHARS - 1)}…` : text;
+  return text.length > MAX_ENTRY_CHARS ? `${cutCopy(text, MAX_ENTRY_CHARS - 1)}…` : text;
 }
 
 /** A CDP `RemoteObject` as console text, the way DevTools prints a value it did not expand. */
@@ -94,7 +101,9 @@ export function readPageEvent(method: string, params: unknown, now: number): Pag
   if (method === 'Runtime.consoleAPICalled') {
     if (params.type !== 'error' && params.type !== 'assert') return null;
     const args = Array.isArray(params.args) ? params.args : [];
-    const text = args.map(remoteText).join(' ');
+    // Each argument is cut before they are joined, so a call with many long
+    // ones never builds their whole text only to cut it.
+    const text = args.map((arg) => clip(remoteText(arg))).join(' ');
     const frames = isFields(params.stackTrace) ? params.stackTrace.callFrames : undefined;
     const top = Array.isArray(frames) && isFields(frames[0]) ? frames[0] : undefined;
     return consoleError(
@@ -108,7 +117,10 @@ export function readPageEvent(method: string, params: unknown, now: number): Pag
     const details = params.exceptionDetails;
     if (!isFields(details)) return null;
     const what = details.exception === undefined ? '' : remoteText(details.exception);
-    const text = [details.text, what].filter((part) => typeof part === 'string' && part).join(' ');
+    const text = [details.text, what]
+      .filter((part): part is string => typeof part === 'string' && part !== '')
+      .map(clip)
+      .join(' ');
     return consoleError(
       text,
       sourceOf(details.url, details.lineNumber),
