@@ -335,6 +335,82 @@ test('standalone demo can scroll on a phone-sized viewport', async ({ page }) =>
   expect(await page.evaluate(() => scrollX)).toBeGreaterThan(0);
 });
 
+// The demo's own page rather than the site around it, so every console message
+// is the demo's. Console errors count as much as uncaught ones: a render that
+// throws is caught by the app's error page and only logged. Either is how a
+// bridge member the mock does not provide shows up.
+test('the browser panel keeps typed tabs in memory and its settings render', async ({ page }) => {
+  const errors = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  page.on('console', (message) => {
+    if (message.type() === 'error') errors.push(message.text());
+  });
+  await page.goto('/demo/index.html');
+  await expect(page.getByRole('button', { name: 'Home', exact: true }))
+    .toHaveAttribute('aria-current', 'page')
+    // An app that never mounts fails with its own error, not with this wait.
+    .catch((timeout) => {
+      expect(errors).toEqual([]);
+      throw timeout;
+    });
+
+  await page.getByRole('button', { name: 'Show browser', exact: true }).click();
+  const panel = page.getByTestId('browser-panel');
+  const tabs = panel.getByRole('tablist', { name: 'Browser tabs' });
+  const address = panel.getByRole('textbox', { name: 'Address' });
+  await expect(panel.getByTestId('browser-empty-tab')).toContainText(
+    'No servers running from this folder.',
+  );
+  await address.fill('localhost:5173');
+  await address.press('Enter');
+  await expect(tabs.getByRole('tab', { selected: true })).toHaveText('localhost:5173');
+  await expect(address).toHaveValue('http://localhost:5173/');
+  await expect(panel.getByTestId('browser-empty-tab')).toHaveCount(0);
+
+  // A second tab starts empty and offers what the first one visited.
+  await tabs.getByRole('button', { name: 'New tab', exact: true }).click();
+  await expect(tabs.getByRole('tab')).toHaveCount(2);
+  await expect(panel.getByTestId('browser-recent-page')).toContainText('localhost:5173');
+  await tabs.getByRole('button', { name: 'Close New tab', exact: true }).click();
+  await expect(tabs.getByRole('tab')).toHaveCount(1);
+
+  // Hiding the panel keeps the session's tabs.
+  await page.getByRole('button', { name: 'Hide browser', exact: true }).click();
+  await expect(panel).toHaveCount(0);
+  await page.getByRole('button', { name: 'Show browser', exact: true }).click();
+  await expect(tabs.getByRole('tab', { selected: true })).toHaveText('localhost:5173');
+
+  const dialog = await settings(page);
+  await dialog.getByRole('button', { name: 'Browser links', exact: true }).click();
+  const links = dialog.getByRole('radiogroup', { name: 'Terminal links' });
+  await expect(links.getByRole('radio')).toHaveCount(3);
+  await links.getByRole('radio', { name: 'Every link opens in Consola' }).click();
+  await dialog.getByRole('button', { name: 'Browser', exact: true }).click();
+  const agents = dialog.getByRole('switch', { name: /^Let agents use this workspace's browser/ });
+  await expect(agents).toBeChecked();
+  await agents.click();
+  await expect(agents).not.toBeChecked();
+  await dialog.getByRole('button', { name: 'Clear browsing data…', exact: true }).click();
+  const confirm = page.getByRole('dialog', { name: 'Clear browsing data?' });
+  await confirm.getByRole('button', { name: 'Clear browsing data', exact: true }).click();
+  await expect(confirm).toHaveCount(0);
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+
+  // Cleared: a new tab has no recent pages to offer.
+  await tabs.getByRole('button', { name: 'New tab', exact: true }).click();
+  await expect(panel.getByTestId('browser-empty-tab')).toBeVisible();
+  await expect(panel.getByTestId('browser-recent-page')).toHaveCount(0);
+
+  // Everything lives in the page: reloading it, as Reset demo does, forgets it.
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'Show browser', exact: true })).toBeVisible();
+  await expect(panel).toHaveCount(0);
+  await page.getByRole('button', { name: 'Show browser', exact: true }).click();
+  await expect(tabs.getByRole('tab')).toHaveCount(0);
+  await expect(panel.getByTestId('browser-empty-tab')).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
 for (const arch of ['arm64', 'x64']) {
   test(`download thank-you page starts the ${arch} installer and offers a retry`, async ({
     page,

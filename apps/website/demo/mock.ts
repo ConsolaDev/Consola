@@ -16,6 +16,26 @@ import type { WorkspaceView, TerminalCreateOptions } from '../../desktop/src/sha
 import type { WorkItemRef } from '../../desktop/src/shared/workItems';
 import type { WorkItemDetails, WorkItemMutation } from '../../desktop/src/shared/workItemDetails';
 import type { GitStatusResult } from '../../desktop/src/renderer/types/electron';
+import type { BrowserSnapshotMessage } from '../../desktop/src/shared/browser';
+import { browserMock } from './mockBrowser';
+
+/**
+ * Every `window.*API` the desktop declares, less those the demo leaves out, so
+ * a bridge added to the app is a type error here before it is an error page on
+ * the site. `installMock` assigns them all from one object of this type.
+ */
+type DemoBridge = Omit<Pick<Window, Extract<keyof Window, `${string}API`>>, Unprovided>;
+/**
+ * Left out because each renderer bridge for them checks they exist and answers
+ * as if nothing were there: no attention records, default preferences, no
+ * worktree cleanup, no usage limits, no update checks.
+ */
+type Unprovided =
+  | 'attentionAPI'
+  | 'preferencesAPI'
+  | 'worktreeCleanupAPI'
+  | 'usageLimitsAPI'
+  | 'appUpdateAPI';
 
 function channel<T>() {
   const listeners = new Set<(value: T) => void>();
@@ -38,6 +58,7 @@ const dataEvents = channel<{ instanceId: string; data: string }>();
 const inboxEvents = channel<any>();
 const harnessEvents = channel<any>();
 const workspaceChanged = channel<string | null>();
+const browserEvents = channel<BrowserSnapshotMessage>();
 const workspaces = structuredClone(seedWorkspaces);
 const harnesses = structuredClone(seedHarnesses);
 const views = new Map<string, WorkspaceView>();
@@ -47,6 +68,8 @@ const prompts = new Map<string, string>();
 const changes = new Map<string, GitStatusResult['files']>();
 const itemDetails = new Map<string, WorkItemDetails>();
 let sequence = 0;
+/** The workspace the demo's one window shows, as main would know it. */
+let windowWorkspace: string | null = 'acme';
 function workspace(id: string) {
   const value = workspaces.find((w) => w.id === id);
   if (!value) throw new Error('Choose a demo workspace.');
@@ -243,15 +266,18 @@ export function installMock() {
     JSON.stringify({ state: { theme: 'dark', terminalFontSize: 12 }, version: 0 }),
   );
 
-  window.windowAPI = {
-    context: { workspaceId: 'acme', activeSessionId: 'onboarding', overlay: null },
-    activateWorkspace: async (id) => ({
-      verdict: 'took',
-      view: views.get(id || '') || {
-        activeSessionId: workspaces.find((w) => w.id === id)?.sessions[0]?.id || null,
-        overlay: 'inbox',
-      },
-    }),
+  const windowAPI: Window['windowAPI'] = {
+    context: { workspaceId: windowWorkspace, activeSessionId: 'onboarding', overlay: null },
+    activateWorkspace: async (id) => {
+      windowWorkspace = id;
+      return {
+        verdict: 'took',
+        view: views.get(id || '') || {
+          activeSessionId: workspaces.find((w) => w.id === id)?.sessions[0]?.id || null,
+          overlay: 'inbox',
+        },
+      };
+    },
     setView: (id, view) => {
       if (id) views.set(id, view);
     },
@@ -260,14 +286,17 @@ export function installMock() {
     onOpenSettings: noSubscription,
     onShowAutomations: noSubscription,
     openWindow: async (id) => {
-      if (id) workspaceChanged.emit(id);
-      else
+      if (id) {
+        windowWorkspace = id;
+        workspaceChanged.emit(id);
+      } else {
         notify(
           'The desktop app can open additional windows. This demo stays in one browser frame.',
         );
+      }
     },
   };
-  window.workspaceAPI = {
+  const workspaceAPI: Window['workspaceAPI'] = {
     getSnapshot: async () => ({ workspaces: structuredClone(workspaces), needsImport: false }),
     importState: async () => false,
     onChanged: workspaceEvents.subscribe,
@@ -450,7 +479,7 @@ export function installMock() {
       return fork;
     },
     fanOut: async (intent) => {
-      const group = await window.workspaceAPI.createGroup(intent.workspaceId, {
+      const group = await workspaceAPI.createGroup(intent.workspaceId, {
         name: intent.groupName,
       });
       const created = intent.targetPaths.map((path) =>
@@ -464,7 +493,7 @@ export function installMock() {
       return { group, created, failed: [] };
     },
   };
-  window.harnessStateAPI = {
+  const harnessStateAPI: Window['harnessStateAPI'] = {
     getSnapshot: async () => ({ harnesses: structuredClone(harnesses), needsImport: false }),
     importState: async () => false,
     onChanged: harnessEvents.subscribe,
@@ -495,7 +524,7 @@ export function installMock() {
       harnessEvents.emit(harnesses);
     },
   };
-  window.harnessAPI = {
+  const harnessAPI: Window['harnessAPI'] = {
     probe: async (fields) => ({
       available: true,
       version: 'Demo',
@@ -507,7 +536,7 @@ export function installMock() {
       reason: 'Live CLI discovery is available in the desktop app.',
     }),
   };
-  window.inboxAPI = {
+  const inboxAPI: Window['inboxAPI'] = {
     getInbox: async (id) => snapshot(id),
     refreshInbox: async (id) => {
       inboxEvents.emit(snapshot(id));
@@ -516,7 +545,7 @@ export function installMock() {
     getDetails: async (id, ref) => structuredClone(detailsFor(id, ref)),
     mutateItem: async (id, ref, mutation) => mutate(detailsFor(id, ref), mutation),
   };
-  window.providerAPI = {
+  const providerAPI: Window['providerAPI'] = {
     probe: async () => ({
       available: true,
       version: 'Demo',
@@ -558,7 +587,7 @@ export function installMock() {
     { path: 'src/lib/retry.ts', status: 'modified' },
     { path: 'src/lib/retry.test.ts', status: 'untracked' },
   ]);
-  window.gitAPI = {
+  const gitAPI: Window['gitAPI'] = {
     getStatus: async (path) => ({
       files: structuredClone(changes.get(path) || []),
       stats: {
@@ -606,7 +635,7 @@ export function installMock() {
       message: 'fix: stop retrying non-retryable client errors',
     }),
   };
-  window.fileAPI = {
+  const fileAPI: Window['fileAPI'] = {
     readFile: async (path) =>
       Object.entries(files).find(([name]) => path.endsWith(name))?.[1] || '# Sample file\n',
     listDirectory: async (path) => {
@@ -625,7 +654,7 @@ export function installMock() {
       }));
     },
   };
-  window.terminalAPI = {
+  const terminalAPI: Window['terminalAPI'] = {
     create: async (options) => {
       if (!transcripts.has(options.instanceId))
         transcripts.set(options.instanceId, initialTerminal(options));
@@ -656,7 +685,7 @@ export function installMock() {
     getStatusSnapshot: async () => ({}),
   };
   const shellEvents = channel<any>();
-  window.shellAPI = {
+  const shellAPI: Window['shellAPI'] = {
     attach: async ({ instanceId, cols, rows }) => ({
       replay: 'Demo shell · commands are simulated.\r\n$ ',
       cols,
@@ -665,7 +694,7 @@ export function installMock() {
       exited: false,
       cwd: cwdFor(instanceId),
     }),
-    restart: async (options) => window.shellAPI.attach(options),
+    restart: async (options) => shellAPI.attach(options),
     input: (instanceId, data) => {
       shellEvents.emit({
         instanceId,
@@ -677,7 +706,7 @@ export function installMock() {
     onData: shellEvents.subscribe,
     onExit: noSubscription,
   };
-  window.dialogAPI = {
+  const dialogAPI: Window['dialogAPI'] = {
     selectFolder: async () => {
       notify('A sample folder is selected. The demo cannot access your files.');
       return { name: 'sample-project', path: '/demo/sample/project', isGitRepo: true };
@@ -686,16 +715,16 @@ export function installMock() {
       { name: 'sample-project', path: '/demo/sample/project', isGitRepo: true },
     ],
   };
-  window.conductorAPI = {
+  const conductorAPI: Window['conductorAPI'] = {
     create: async (request) => {
       notify('Sample group created. Automated orchestration is available in the desktop app.');
-      return window.workspaceAPI.createGroup(request.workspaceId, { name: request.name });
+      return workspaceAPI.createGroup(request.workspaceId, { name: request.name });
     },
   };
   const automationsUnavailable = async (): Promise<never> => {
     throw new Error('Automations run in the desktop app.');
   };
-  window.automationsAPI = {
+  const automationsAPI: Window['automationsAPI'] = {
     getSnapshot: async () => ({
       filePath: '',
       fileExists: false,
@@ -772,6 +801,30 @@ export function installMock() {
     getEntry: async () => null,
     onChanged: () => () => {},
   };
+  const browserAPI = browserMock({
+    snapshots: browserEvents,
+    workspaceOf: (sessionId) =>
+      workspaces.find((w) => w.sessions.some((s) => s.id === sessionId))?.id,
+    windowWorkspace: () => windowWorkspace,
+    notify,
+  });
+  const bridge: DemoBridge = {
+    windowAPI,
+    workspaceAPI,
+    harnessStateAPI,
+    harnessAPI,
+    inboxAPI,
+    providerAPI,
+    gitAPI,
+    fileAPI,
+    terminalAPI,
+    shellAPI,
+    dialogAPI,
+    conductorAPI,
+    automationsAPI,
+    browserAPI,
+  };
+  Object.assign(window, bridge);
   // Sample repository links are illustrative; do not take visitors to invented PRs.
   document.addEventListener('click', (event) => {
     const link = (event.target as Element).closest?.('a');
