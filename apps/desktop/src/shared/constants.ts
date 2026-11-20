@@ -160,6 +160,7 @@ export const IPC_CHANNELS = {
   WINDOW_OPEN_SETTINGS: 'window:open-settings',
   WINDOW_SHOW_AUTOMATIONS: 'window:show-automations', // A notification click chose the Automations dashboard
   WINDOW_ACTIVATE_SESSION: 'window:activate-session', // A notification click chose a session
+  WINDOW_QUIT_SHORTCUT: 'window:quit-shortcut', // ⌘Q is down ('down') or let go ('up'): show the hold-to-quit hint
 
   // Personal automations, one factory.yml per workspace (renderer -> main; main runs them)
   AUTOMATIONS_GET_SNAPSHOT: 'automations:get-snapshot', // A workspace's parsed factory.yml, schedule and runs

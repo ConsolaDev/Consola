@@ -60,6 +60,7 @@ import {
   type WorkspaceSectionId,
 } from './settingsSections';
 import { SnoozeOptions } from '../Settings/SnoozeOptions';
+import { SessionRowsOption } from '../Settings/SessionRowsOption';
 import './styles.css';
 // The workspace panels' own rules (ws-*) live with the panels.
 import '../WorkspaceSettings/styles.css';
@@ -336,6 +337,7 @@ function SessionsSection() {
   return (
     <div className="settings-modal-section">
       <h2 className="settings-modal-section-title">Sessions</h2>
+      <SessionRowsOption />
       <div className="settings-modal-option">
         <div className="settings-modal-option-info">
           <span className="settings-modal-option-label">Settle idle sessions</span>

@@ -24,6 +24,7 @@ import { useTerminalStore } from '../../stores/terminalStore';
 import { useAutomationsStore } from '../../stores/automationsStore';
 import { useInboxStore } from '../../stores/inboxStore';
 import { Toaster } from '../Toast/Toaster';
+import { QuitHint } from '../QuitHint/QuitHint';
 import { AutoSettleExplanation } from '../AutoSettle/AutoSettleExplanation';
 import { BrowserHost } from '../Browser';
 import './styles.css';
@@ -98,6 +99,7 @@ export function Layout() {
       <NewSessionDialog />
       <AutoSettleExplanation />
       <Toaster />
+      <QuitHint />
       <AppHeader />
       <WorkspaceRail />
       <Sidebar />

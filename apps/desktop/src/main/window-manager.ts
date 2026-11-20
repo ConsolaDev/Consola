@@ -8,6 +8,7 @@ import { isBackgroundTest } from './test-mode';
 import { decideAppNavigation, installGuestPolicy } from './browser/guestPolicy';
 import { configurePartition } from './browser/sessionPolicy';
 import { forgetConsolaContents, registerConsolaContents } from './windowRegistry';
+import { createQuitShortcut } from './quitShortcut';
 
 const DEV_SERVER_ORIGIN = 'http://localhost:5173';
 
@@ -114,6 +115,24 @@ export function createWindow(
     const own = isDev ? { devOrigin: DEV_SERVER_ORIGIN } : { pageFileUrl };
     if (!decideAppNavigation(url, own)) event.preventDefault();
   });
+
+  // ⌘Q quits only when held or pressed twice (quitShortcut.ts). macOS only:
+  // elsewhere the quit chord is Ctrl+Q, which the terminal needs as a byte.
+  if (process.platform === 'darwin') {
+    const quitShortcut = createQuitShortcut({
+      notify: (state) => {
+        if (!window.isDestroyed())
+          window.webContents.send(IPC_CHANNELS.WINDOW_QUIT_SHORTCUT, state);
+      },
+      conceal: () => {
+        if (window.isDestroyed()) return;
+        if (window.isFullScreen()) window.setFullScreen(false);
+        window.setOpacity(0);
+      },
+      quit: () => app.quit(),
+    });
+    window.webContents.on('before-input-event', quitShortcut);
+  }
 
   // Captured now, not in the handler: by the time 'closed' fires Electron has
   // destroyed webContents, and reading .id off it throws — silently, because

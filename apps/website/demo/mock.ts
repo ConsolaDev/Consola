@@ -289,6 +289,7 @@ export function installMock() {
     },
     onWorkspaceChanged: workspaceChanged.subscribe,
     onActivateSession: noSubscription,
+    onQuitShortcut: noSubscription,
     onOpenSettings: noSubscription,
     onShowAutomations: noSubscription,
     openWindow: async (id) => {
