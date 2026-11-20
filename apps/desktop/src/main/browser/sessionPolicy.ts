@@ -143,6 +143,25 @@ export function configurePartition(partition: string, session: Session): void {
   session.setDisplayMediaRequestHandler((_request, callback) => {
     callback(null as unknown as Streams);
   });
+  // The person's devices. Asking for one is already refused by the permission
+  // check above (`hid`, `serial`, `usb`), and Electron cancels a chooser
+  // nobody prevents; these say no again, so no later listener's default
+  // (the first device) or grant could hand one to a page.
+  session.setDevicePermissionHandler(() => false);
+  session.on('select-hid-device', (event, _details, callback) => {
+    event.preventDefault();
+    callback();
+  });
+  session.on('select-serial-port', (event, _ports, _contents, callback) => {
+    event.preventDefault();
+    callback('');
+  });
+  session.on('select-usb-device', (event, _details, callback) => {
+    event.preventDefault();
+    callback();
+  });
+  // Windows and Linux only (macOS pairs by itself, after its own prompt).
+  session.setBluetoothPairingHandler?.((_details, callback) => callback({ confirmed: false }));
   // A file is never saved without asking where. With no save path set,
   // Electron shows its save dialog for every download; the title says which
   // site is offering the file, since the page names the file itself. One an

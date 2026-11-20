@@ -2,6 +2,7 @@ import type { BrowserWindow, BrowserWindowConstructorOptions, WebContents } from
 import type { CertificateTrust } from './CertificateTrust';
 import { guardNavigation } from './guestPolicy';
 import { decideGuestShortcut } from './guestShortcuts';
+import { refusePageRequests } from './pageRequests';
 import { decidePopup, PersonInputClock, popupTitle } from './popupPolicy';
 
 /** What the registry needs of a window; a `BrowserWindow` is one. */
@@ -229,9 +230,10 @@ function closeOnCloseShortcut(popup: BrowserWindow): void {
  * cancels its requests. A dialog drawn over the opener's window would ask for a
  * password while the page that wants it is in a different window, and a popup
  * is the shape a phishing page takes; a sign-in that needs one can be done in
- * a tab.
+ * a tab. The person's client certificates and Bluetooth devices: none, as in
+ * a tab (`refusePageRequests`).
  */
-function hardenPopup(
+export function hardenPopup(
   popup: BrowserWindow,
   certificates: CertificateTrust,
   workspaceId: string | undefined,
@@ -240,6 +242,7 @@ function hardenPopup(
   const contents = popup.webContents;
   if (workspaceId) certificates.guard(contents, workspaceId, contents.id);
   guardNavigation(contents);
+  refusePageRequests(contents);
   // Nothing opens from a popup. The page keeps `window.opener`, but it gets
   // no windows of its own.
   contents.setWindowOpenHandler(() => ({ action: 'deny' }));

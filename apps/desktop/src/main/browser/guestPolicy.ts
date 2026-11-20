@@ -1,5 +1,6 @@
 import type { BrowserWindow, Session, WebContents, WebPreferences } from 'electron';
 import { browserPartitionFor, isAllowedPageUrl } from '../../shared/browser';
+import { refusePageRequests } from './pageRequests';
 
 /**
  * What the renderer asked for when it created a `<webview>`. Nothing in it is
@@ -155,12 +156,14 @@ export function onGuestAttached(listener: GuestAttachedListener): () => void {
 
 /**
  * The floor every guest gets, before any feature looks at it: navigation
- * limited to web pages, and no popups until `installPopupPolicy` decides which
- * are allowed (a guest it never reaches keeps this refusal).
+ * limited to web pages, no popups until `installPopupPolicy` decides which
+ * are allowed (a guest it never reaches keeps this refusal), and none of the
+ * person's certificates or devices (`refusePageRequests`).
  */
 export function secureGuest(guest: WebContents): void {
   guardNavigation(guest);
   guest.setWindowOpenHandler(() => ({ action: 'deny' }));
+  refusePageRequests(guest);
 }
 
 /**

@@ -120,12 +120,44 @@ describe('configurePartition', () => {
       setPermissionCheckHandler: vi.fn(),
       setDisplayMediaRequestHandler: vi.fn(),
       setCertificateVerifyProc: vi.fn(),
+      setDevicePermissionHandler: vi.fn(),
+      setBluetoothPairingHandler: vi.fn(),
       on: vi.fn((event: string, listener: (...args: never[]) => void) =>
         listeners.set(event, listener),
       ),
     };
     return { session, listeners };
   }
+
+  // Each chooser for the person's devices: the default prevented, and nothing chosen.
+  it.each<[string, unknown[], unknown[]]>([
+    ['select-hid-device', [{ deviceList: [{ deviceId: 'pad' }] }], []],
+    ['select-serial-port', [[{ portId: 'port' }], {}], ['']],
+    ['select-usb-device', [{ deviceList: [{ deviceId: 'key' }] }], []],
+  ])('chooses nothing for %s', (event, args, answered) => {
+    const { session, listeners } = fakeSession();
+    configurePartition(`persist:test-${event}`, session as unknown as Session);
+    const preventDefault = vi.fn();
+    const callback = vi.fn();
+    (listeners.get(event) as unknown as (...given: unknown[]) => void)(
+      { preventDefault },
+      ...args,
+      callback,
+    );
+    expect(preventDefault).toHaveBeenCalled();
+    expect(callback).toHaveBeenCalledWith(...answered);
+  });
+
+  it('grants no device without a chooser, and pairs none', () => {
+    const { session } = fakeSession();
+    configurePartition('persist:test-devices', session as unknown as Session);
+    const permits = session.setDevicePermissionHandler.mock.calls[0][0];
+    expect(permits({ deviceType: 'hid', origin: 'https://example.com' })).toBe(false);
+    const pair = session.setBluetoothPairingHandler.mock.calls[0][0];
+    const callback = vi.fn();
+    pair({ deviceId: 'phone', pairingKind: 'confirm' }, callback);
+    expect(callback).toHaveBeenCalledWith({ confirmed: false });
+  });
 
   it('refuses display capture with null, since an empty answer throws in main', () => {
     const { session } = fakeSession();
