@@ -6,11 +6,15 @@ import type { AgentCall } from './AgentPages';
 import type { CdpRelayOptions } from './CdpRelay';
 import { DEVTOOLS_OPEN_MESSAGE } from './CdpRelay';
 import {
+  ANOTHER_CALL_PAST_DEADLINE_MESSAGE,
   CALL_DEADLINE_MS,
+  clampDeadline,
   CONSOLE_ERRORS_KEPT,
   type DriverRelay,
   FAILED_REQUESTS_KEPT,
+  MAX_CALL_DEADLINE_MS,
   PageDriver,
+  pastDeadlineMessage,
   RELEASE_CONSOLE_EVERY,
 } from './PageDriver';
 
@@ -68,6 +72,10 @@ class FakeRelay implements DriverRelay {
   onmessage?: (message: object) => void;
   onclose?: (reason?: string) => void;
   readonly focus: boolean[] = [];
+  /** A page blocked by a dialog never answers the switch going off. */
+  answersFocusOff = true;
+  /** As a relay whose page went away mid-close might. */
+  throwOnClose = false;
   constructor(
     public readonly guest: FakeGuest,
     private readonly options: CdpRelayOptions,
@@ -78,10 +86,12 @@ class FakeRelay implements DriverRelay {
     this.isClosed = true;
     this.onclose?.(reason);
     this.options.onClose?.(reason);
+    if (this.throwOnClose) throw new Error('Object has been destroyed');
   }
   async setFocusEmulation(enabled: boolean) {
     if (this.isClosed) throw new Error('The relay is closed.');
     this.focus.push(enabled);
+    if (!enabled && !this.answersFocusOff) await new Promise(() => {});
   }
 }
 
@@ -150,6 +160,7 @@ class FakeTimers {
 
 let calls: FakeCalls;
 let relays: FakeRelay[];
+let disconnected: WebContents[];
 let page: FakePage;
 let connect: ReturnType<typeof vi.fn<(relay: DriverRelay) => Promise<Browser>>>;
 let now: number;
@@ -164,7 +175,9 @@ beforeEach(() => {
   now = T0 + 60_000;
   timers = new FakeTimers();
   connect = vi.fn(async (_relay: DriverRelay) => fakeBrowser(page));
+  disconnected = [];
   driver = new PageDriver({
+    disconnected: (gone) => disconnected.push(gone),
     calls,
     openRelay: (relayGuest, options) => {
       const fake = relayGuest as unknown as FakeGuest;
@@ -580,5 +593,166 @@ describe('logged objects', () => {
       guest.debugger.event('Runtime.consoleAPICalled', { type: 'log', args: [], timestamp: T0 });
     }
     expect(releases(guest)).toHaveLength(3);
+  });
+});
+
+describe('a deadline is a sane length', () => {
+  it('clamps what a caller asks for to a finite range', () => {
+    expect(clampDeadline(undefined)).toBe(CALL_DEADLINE_MS);
+    expect(clampDeadline(Number.NaN)).toBe(CALL_DEADLINE_MS);
+    expect(clampDeadline(Number.POSITIVE_INFINITY)).toBe(MAX_CALL_DEADLINE_MS);
+    // Past 2^31 - 1 ms, Node's setTimeout fires after 1 ms.
+    expect(clampDeadline(2 ** 40)).toBe(MAX_CALL_DEADLINE_MS);
+    expect(clampDeadline(0)).toBe(1);
+    expect(clampDeadline(-5)).toBe(1);
+    expect(clampDeadline(70_000)).toBe(70_000);
+    expect(MAX_CALL_DEADLINE_MS).toBeLessThan(2 ** 31 - 1);
+  });
+
+  it('starts the timer at the clamped length', async () => {
+    const never = () => new Promise<never>(() => {});
+    void driver.withPage('tab1', never, { deadlineMs: Number.POSITIVE_INFINITY }).catch(() => {});
+    await vi.waitFor(() => expect(timers.pending).toHaveLength(1));
+    expect(timers.pending[0].ms).toBe(MAX_CALL_DEADLINE_MS);
+  });
+});
+
+describe('a call given up on', () => {
+  const never = () => new Promise<never>(() => {});
+
+  it('still fails, and lets go of the tab, when closing its connection throws', async () => {
+    const stuck = driver.withPage('tab1', never);
+    await vi.waitFor(() => expect(timers.pending).toHaveLength(1));
+    relays[0].throwOnClose = true;
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(() => timers.fireAll()).not.toThrow();
+    await expect(stuck).rejects.toThrow(pastDeadlineMessage(CALL_DEADLINE_MS));
+    expect(calls.ended).toBe(1);
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it('is told by its signal, so a step it has not started yet never runs', async () => {
+    let signal: AbortSignal | undefined;
+    let stepAfterDeadline = false;
+    let resume!: () => void;
+    const stuck = driver.withPage('tab1', async (_page, control) => {
+      signal = control.signal;
+      await new Promise<void>((resolve) => (resume = resolve));
+      if (control.signal.aborted) return;
+      stepAfterDeadline = true;
+    });
+    await vi.waitFor(() => expect(timers.pending).toHaveLength(1));
+    expect(signal?.aborted).toBe(false);
+    timers.fireAll();
+    await expect(stuck).rejects.toThrow(pastDeadlineMessage(CALL_DEADLINE_MS));
+    expect(signal?.aborted).toBe(true);
+    resume();
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(stepAfterDeadline).toBe(false);
+  });
+
+  it('is told by its signal when its page goes, and once it has ended', async () => {
+    let during: AbortSignal | undefined;
+    const pending = driver.withPage('tab1', async (_page, control) => {
+      during = control.signal;
+      await new Promise((resolve) => setImmediate(resolve));
+      driver.forget('tab1', guest.asWebContents());
+      expect(control.signal.aborted).toBe(true);
+    });
+    await pending;
+    let ended: AbortSignal | undefined;
+    await driver.withPage('tab1', async (_page, control) => {
+      ended = control.signal;
+    });
+    expect(during?.aborted).toBe(true);
+    expect(ended?.aborted).toBe(true);
+  });
+
+  it('fails with its own deadline, while a call it cut short is told it was another call’s', async () => {
+    const own = driver.withPage('tab1', never, { deadlineMs: 5_000 });
+    // Cut short when the connection closes, as Playwright's steps are.
+    const other = driver.withPage('tab1', (_page, control) => {
+      return new Promise<never>((_resolve, reject) => {
+        control.signal.addEventListener('abort', () =>
+          reject(new Error('Target page, context or browser has been closed')),
+        );
+      });
+    });
+    await vi.waitFor(() => expect(timers.pending).toHaveLength(2));
+    timers.pending.find((timer) => timer.ms === 5_000)?.fire();
+    await expect(own).rejects.toThrow(pastDeadlineMessage(5_000));
+    await expect(other).rejects.toThrow(ANOTHER_CALL_PAST_DEADLINE_MESSAGE);
+  });
+});
+
+describe('focus emulation', () => {
+  it('is turned off by the driver when a call leaves it on, however the call ends', async () => {
+    await driver.withPage('tab1', async (_page, control) => {
+      await control.setFocusEmulation(true);
+    });
+    expect(relays[0].focus).toEqual([true, false]);
+
+    await expect(
+      driver.withPage('tab1', async (_page, control) => {
+        await control.setFocusEmulation(true);
+        throw new Error('element not found');
+      }),
+    ).rejects.toThrow('element not found');
+    expect(relays[0].focus).toEqual([true, false, true, false]);
+  });
+
+  it('stays on while any overlapping call wants it', async () => {
+    let finishFirst!: () => void;
+    const first = driver.withPage('tab1', async (_page, control) => {
+      await control.setFocusEmulation(true);
+      await new Promise<void>((resolve) => (finishFirst = resolve));
+    });
+    await vi.waitFor(() => expect(relays[0]?.focus).toEqual([true]));
+    let finishSecond!: () => void;
+    const second = driver.withPage('tab1', async (_page, control) => {
+      await control.setFocusEmulation(true);
+      await new Promise<void>((resolve) => (finishSecond = resolve));
+    });
+    await vi.waitFor(() => expect(finishSecond).toBeDefined());
+    finishFirst();
+    await first;
+    expect(relays[0].focus).toEqual([true]);
+    finishSecond();
+    await second;
+    expect(relays[0].focus).toEqual([true, false]);
+  });
+
+  it('never holds a call open waiting for the page to answer the switch going off', async () => {
+    await driver.withPage('tab1', async () => {});
+    relays[0].answersFocusOff = false;
+    await driver.withPage('tab1', async (_page, control) => {
+      await control.setFocusEmulation(true);
+    });
+    expect(relays[0].focus).toEqual([true, false]);
+    expect(calls.ended).toBe(2);
+  });
+
+  it('is left alone on a connection a deadline closed, since detaching ends it', async () => {
+    const stuck = driver.withPage('tab1', async (_page, control) => {
+      await control.setFocusEmulation(true);
+      await new Promise<never>(() => {});
+    });
+    await vi.waitFor(() => expect(timers.pending).toHaveLength(1));
+    timers.fireAll();
+    await expect(stuck).rejects.toThrow(pastDeadlineMessage(CALL_DEADLINE_MS));
+    expect(relays[0].focus).toEqual([true]);
+  });
+});
+
+describe('who is connected', () => {
+  it('knows which pages an agent connection is open on, and says when one ends', async () => {
+    expect(driver.isConnected(guest.asWebContents())).toBe(false);
+    await driver.withPage('tab1', async () => {});
+    expect(driver.isConnected(guest.asWebContents())).toBe(true);
+    expect(driver.isConnected(new FakeGuest(9).asWebContents())).toBe(false);
+    driver.forget('tab1', guest.asWebContents());
+    expect(driver.isConnected(guest.asWebContents())).toBe(false);
+    expect(disconnected).toEqual([guest.asWebContents()]);
   });
 });

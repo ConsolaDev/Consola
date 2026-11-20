@@ -21,8 +21,12 @@ export class LivePages {
   private nextLoad = 0;
   /** The tab each window is showing. */
   private readonly visible = new Map<BrowserWindow, string>();
-  /** Tool calls in flight, per tab: calls can overlap. */
-  private readonly calls = new Map<string, number>();
+  /**
+   * Tool calls in flight, per tab: calls can overlap. Each call holds its own
+   * token, so a call from before the tab's page went (`drop`) cannot let go
+   * of a newer one.
+   */
+  private readonly calls = new Map<string, Set<symbol>>();
 
   constructor(private readonly now: () => number) {}
 
@@ -76,16 +80,18 @@ export class LivePages {
     window: BrowserWindow | undefined,
   ): { added: boolean; release(): void } {
     const added = this.add(tabId, window);
-    this.calls.set(tabId, (this.calls.get(tabId) ?? 0) + 1);
+    const token = Symbol(tabId);
+    const held = this.calls.get(tabId) ?? new Set<symbol>();
+    held.add(token);
+    this.calls.set(tabId, held);
     let released = false;
     return {
       added,
       release: () => {
         if (released) return;
         released = true;
-        const left = (this.calls.get(tabId) ?? 1) - 1;
-        if (left > 0) this.calls.set(tabId, left);
-        else this.calls.delete(tabId);
+        const current = this.calls.get(tabId);
+        if (current?.delete(token) && current.size === 0) this.calls.delete(tabId);
         if (this.pages.has(tabId)) this.shownAt.set(tabId, this.now());
       },
     };
@@ -93,7 +99,7 @@ export class LivePages {
 
   /** Whether a tool call is under way on this tab. */
   public inCall(tabId: string): boolean {
-    return (this.calls.get(tabId) ?? 0) > 0;
+    return (this.calls.get(tabId)?.size ?? 0) > 0;
   }
 
   /** The window stopped holding its workspace or closed: its pages go with it. */

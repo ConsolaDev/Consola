@@ -23,11 +23,30 @@ export const PAGE_CALL_TIMEOUT_MS = 10_000;
  * so only a stuck call meets it.
  */
 export const CALL_DEADLINE_MS = 40_000;
+/**
+ * The longest any call may run on its page, whatever its caller asks: a
+ * `wait_for` at its longest fits, and Node's timers fire at once past 2^31 - 1
+ * ms, so an unbounded wish would have the opposite effect.
+ */
+export const MAX_CALL_DEADLINE_MS = 120_000;
 
 /** What a call stopped at its deadline answers. */
 export function pastDeadlineMessage(deadlineMs: number): string {
   return `A call on this tab's page did not finish within ${deadlineMs / 1000} seconds, so it was stopped.`;
 }
+
+/** What a call answers when another call on its page ran past its deadline and closed the connection they shared. */
+export const ANOTHER_CALL_PAST_DEADLINE_MESSAGE =
+  "Another call on this tab's page ran past its deadline, so the connection it was using was closed; try again.";
+
+/** A caller's deadline, held to a finite range (`CALL_DEADLINE_MS` when none or not a number). */
+export function clampDeadline(deadlineMs: number | undefined): number {
+  if (deadlineMs === undefined || Number.isNaN(deadlineMs)) return CALL_DEADLINE_MS;
+  return Math.min(Math.max(Math.round(deadlineMs), 1), MAX_CALL_DEADLINE_MS);
+}
+
+/** This call's own deadline, told apart from a connection another call's deadline closed. */
+class PastDeadlineError extends Error {}
 
 const NO_PAGE_MESSAGE = "Could not reach the tab's page.";
 const PAGE_GONE_MESSAGE = "The tab's page went away.";
@@ -41,21 +60,33 @@ export interface DriverRelay extends ConnectOverCDPTransport {
   setFocusEmulation(enabled: boolean): Promise<void>;
 }
 
-/** What a call may do to the page besides what Playwright does. */
+/** What a call may do to the page besides what Playwright does, and what it is told. */
 export interface PageControl {
   /**
-   * Main's switch for focus emulation (`CdpRelay.setFocusEmulation`). Turned
-   * on only for as long as the agent acts, never left on: a page the person
-   * is not looking at must not believe it has focus.
+   * Main's switch for focus emulation (`CdpRelay.setFocusEmulation`), for
+   * this call. Turned on only for as long as the agent acts: whatever the
+   * call does, the driver turns it off as the call ends (without waiting for
+   * the page, which answers it only once any dialog it shows is closed), and
+   * overlapping calls on the page share it, so it stays on while any of them
+   * wants it. A page the person is not looking at must not believe it has
+   * focus for longer than that.
    */
   setFocusEmulation(enabled: boolean): Promise<void>;
+  /**
+   * Aborted once the call is given up on at its deadline, its connection
+   * ends, or the call has ended. A promise cannot be cancelled, so a step the
+   * call has not started yet must check it: past this point the call no
+   * longer holds the tab.
+   */
+  readonly signal: AbortSignal;
 }
 
 export interface CallOptions {
   /**
    * How long the call may run once its page is reached; `CALL_DEADLINE_MS`
-   * unless given. A call that waits on purpose (a `wait_for` with its own
-   * timeout) asks for more than that wait.
+   * unless given, and never more than `MAX_CALL_DEADLINE_MS`. A call that
+   * waits on purpose (a `wait_for` with its own timeout) asks for more than
+   * that wait.
    */
   deadlineMs?: number;
 }
@@ -93,6 +124,8 @@ export interface PageDriverDeps {
   now?(): number;
   /** Tests replace it: calls `fire` after `ms` unless the stop it answers is called first. */
   startTimer?(ms: number, fire: () => void): () => void;
+  /** An agent's connection to this page has ended, for whatever reason. */
+  disconnected?(guest: WebContents): void;
 }
 
 function messageOf(error: unknown): string {
@@ -134,9 +167,11 @@ interface ConnectionOptions {
  */
 class Connection {
   public readonly ready: Promise<Page>;
-  public readonly control: PageControl;
   private readonly relay: DriverRelay;
   private closedReason: string | null = null;
+  private readonly closing = new AbortController();
+  /** Calls on this page that have focus emulation on. */
+  private focusHolders = 0;
   private readonly consoleErrors = new RingBuffer<ConsoleError>(CONSOLE_ERRORS_KEPT);
   private readonly failedRequests = new RingBuffer<FailedRequest>(FAILED_REQUESTS_KEPT);
   /** Sessions that logged since the last release ('' is the page itself). */
@@ -156,7 +191,6 @@ class Connection {
       guest.debugger.removeListener('message', this.onMessage);
       throw error;
     }
-    this.control = { setFocusEmulation: (enabled) => this.relay.setFocusEmulation(enabled) };
     this.ready = this.connect();
     // Every caller awaits it; this only keeps a failure nobody waits on quiet.
     this.ready.catch(() => {});
@@ -164,6 +198,24 @@ class Connection {
 
   public get isOpen(): boolean {
     return this.closedReason === null;
+  }
+
+  /** Aborted, with the reason, once the connection has ended. */
+  public get closedSignal(): AbortSignal {
+    return this.closing.signal;
+  }
+
+  /** One more call wants focus emulation: the first turns it on. */
+  public async holdFocus(): Promise<void> {
+    this.focusHolders += 1;
+    if (this.focusHolders === 1) await this.relay.setFocusEmulation(true);
+  }
+
+  /** One call is done with focus emulation: the last turns it off, unless the connection is gone (detaching ended it). */
+  public async releaseFocus(): Promise<void> {
+    if (this.focusHolders === 0) return;
+    this.focusHolders -= 1;
+    if (this.focusHolders === 0 && this.isOpen) await this.relay.setFocusEmulation(false);
   }
 
   public close(reason: string): void {
@@ -233,6 +285,7 @@ class Connection {
     if (this.closedReason) return;
     this.closedReason = reason;
     this.guest.debugger.removeListener('message', this.onMessage);
+    this.closing.abort(new Error(reason));
     this.options.closed(this);
   }
 
@@ -310,11 +363,7 @@ export class PageDriver {
     use: (page: Page, control: PageControl) => Promise<T>,
     options: CallOptions = {},
   ): Promise<T> {
-    return this.run(
-      tabId,
-      (page, connection) => use(page, connection.control),
-      options.deadlineMs ?? CALL_DEADLINE_MS,
-    );
+    return this.run(tabId, (page, _connection, control) => use(page, control), options.deadlineMs);
   }
 
   /**
@@ -377,6 +426,14 @@ export class PageDriver {
    * report starts afresh. News of a page the tab has since replaced changes
    * nothing.
    */
+  /** Whether an agent's connection is open on this page now. */
+  public isConnected(guest: WebContents): boolean {
+    for (const connection of this.connections.values()) {
+      if (connection.guest === guest && connection.isOpen) return true;
+    }
+    return false;
+  }
+
   public forget(tabId: string, guest: WebContents): void {
     if (this.reported.get(tabId)?.guest === guest) this.reported.delete(tabId);
     const connection = this.connections.get(tabId);
@@ -392,41 +449,71 @@ export class PageDriver {
 
   private async run<T>(
     tabId: string,
-    use: (page: Page, connection: Connection) => Promise<T>,
-    deadlineMs: number,
+    use: (page: Page, connection: Connection, control: PageControl) => Promise<T>,
+    requestedDeadlineMs: number | undefined,
   ): Promise<T> {
+    const deadlineMs = clampDeadline(requestedDeadlineMs);
     const call = await this.deps.calls.beginToolCall(tabId);
+    const ended = new AbortController();
+    let connection: Connection | undefined;
+    let holdsFocus = false;
     try {
-      const connection = this.connectionFor(tabId, call.guest);
-      const page = await connection.ready;
+      const current = this.connectionFor(tabId, call.guest);
+      connection = current;
+      const page = await current.ready;
+      const control: PageControl = {
+        signal: AbortSignal.any([ended.signal, current.closedSignal]),
+        setFocusEmulation: async (enabled) => {
+          if (enabled === holdsFocus) return;
+          holdsFocus = enabled;
+          await (enabled ? current.holdFocus() : current.releaseFocus());
+        },
+      };
       try {
-        return await this.beforeDeadline(connection, deadlineMs, () => use(page, connection));
+        return await this.beforeDeadline(current, deadlineMs, ended, () =>
+          use(page, current, control),
+        );
       } catch (error) {
-        throw connection.explain(error);
+        throw error instanceof PastDeadlineError ? error : current.explain(error);
       }
     } finally {
+      ended.abort(new Error('The call has ended.'));
+      // Never waited on: a page showing a dialog answers it only once the
+      // dialog is closed, and the call must not hold the tab until then.
+      if (holdsFocus) connection?.releaseFocus().catch(() => {});
       call.end();
     }
   }
 
   /**
    * What `work` answers, unless `deadlineMs` pass first. A promise cannot be
-   * cancelled, so giving up closes the connection the work runs on: every
-   * step still pending there fails at once instead of acting on the page
-   * after its call has let go of the tab, and the next call connects anew.
-   * Only that connection: if the tab has moved on to another, it stays.
+   * cancelled, so giving up tells the call (`ended`) and closes the
+   * connection the work runs on: every step still pending there fails at
+   * once instead of acting on the page after its call has let go of the tab,
+   * and the next call connects anew. Only that connection: if the tab has
+   * moved on to another, it stays. A connection that had already ended
+   * explains the call better than its deadline does.
    */
   private async beforeDeadline<T>(
     connection: Connection,
     deadlineMs: number,
+    ended: AbortController,
     work: () => Promise<T>,
   ): Promise<T> {
     let stop = () => {};
     const deadline = new Promise<never>((_resolve, reject) => {
       stop = this.startTimer(deadlineMs, () => {
-        const reason = pastDeadlineMessage(deadlineMs);
-        connection.close(reason);
-        reject(new Error(reason));
+        const failure = connection.isOpen
+          ? new PastDeadlineError(pastDeadlineMessage(deadlineMs))
+          : connection.explain(new Error(pastDeadlineMessage(deadlineMs)));
+        ended.abort(failure);
+        try {
+          connection.close(ANOTHER_CALL_PAST_DEADLINE_MESSAGE);
+        } catch (error) {
+          console.warn('Could not close a page connection past its deadline:', messageOf(error));
+        } finally {
+          reject(failure);
+        }
       });
     });
     try {
@@ -452,6 +539,7 @@ export class PageDriver {
       reportedUntil: () => this.reportedUntil(tabId, guest),
       closed: (closed) => {
         if (this.connections.get(tabId) === closed) this.connections.delete(tabId);
+        this.deps.disconnected?.(closed.guest);
       },
     });
     this.connections.set(tabId, connection);
