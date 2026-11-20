@@ -213,6 +213,7 @@ class FakeDocument {
 
   execCommand(command: string, _ui?: boolean, value?: string) {
     this.log.push(value === undefined ? `exec:${command}` : `exec:${command}:${value}`);
+    this.edits.push(`${command}@${this.anchorNode?.id ?? 'nowhere'}`);
     const field = this.activeElement;
     if (!this.editingWorks || !field) return false;
     const held = field.value;
@@ -228,13 +229,22 @@ class FakeDocument {
 
   /** Where the selection starts, once a range is added. */
   anchorNode: FakeElement | null = null;
+  /** Where it ends, when that is not where it starts. */
+  focusAt: FakeElement | null = null;
+  /** Each editing command with where the selection began as it ran. */
+  readonly edits: string[] = [];
 
   createRange() {
     const range = {
       node: null as FakeElement | null,
+      collapsed: false,
       selectNodeContents: (node: FakeElement) => {
         range.node = node;
         this.log.push('range:all');
+      },
+      collapse: (toStart: boolean) => {
+        range.collapsed = true;
+        this.log.push(toStart ? 'range:start' : 'range:end');
       },
     };
     return range;
@@ -249,11 +259,15 @@ class FakeDocument {
       get anchorNode() {
         return doc.anchorNode;
       },
+      get focusNode() {
+        return doc.focusAt ?? doc.anchorNode;
+      },
       removeAllRanges: () => {
         this.anchorNode = null;
+        this.focusAt = null;
       },
-      addRange: (range: { node: FakeElement | null }) => {
-        this.selectedAll = true;
+      addRange: (range: { node: FakeElement | null; collapsed: boolean }) => {
+        this.selectedAll = !range.collapsed;
         this.anchorNode = range.node;
       },
     };
@@ -569,6 +583,113 @@ describe('pressInPage', () => {
     expect(doc.log.filter((entry) => entry.startsWith('key') || entry.startsWith('exec:'))).toEqual(
       [],
     );
+  });
+
+  // I3: in editable text the page's editing acts at the caret, wherever it is in the
+  // editing host, so a press named at one paragraph must have its caret there.
+  const editorWith = (doc: FakeDocument, ...ids: string[]) => {
+    const host = doc.element('DIV', 'editor', { isContentEditable: true, tabIndex: 0 });
+    const paragraphs = ids.map((id) => {
+      const paragraph = host.append(new FakeElement(doc, 'P', id));
+      // A paragraph inside an editor is editable but cannot take focus itself: its host does.
+      return Object.assign(paragraph, { isContentEditable: true, focusable: false });
+    });
+    return { host, paragraphs };
+  };
+
+  it('in editable text, focuses the editing host and moves the caret into the paragraph named', () => {
+    const doc = new FakeDocument();
+    const {
+      host,
+      paragraphs: [first, second],
+    } = editorWith(doc, 'p1', 'p2');
+    host.focus();
+    doc.anchorNode = first;
+    doc.log.length = 0;
+    expect(pressInPage(page(second), key({ text: 'x' }))).toBe('typed');
+    expect(doc.log.slice(0, 4)).toEqual(['focus@editor', 'range:all', 'range:end', 'keydown@p2']);
+    expect(doc.edits).toEqual(['insertText@p2']);
+  });
+
+  it('in editable text, keeps a caret that is already in the paragraph named', () => {
+    const doc = new FakeDocument();
+    const {
+      host,
+      paragraphs: [, second],
+    } = editorWith(doc, 'p1', 'p2');
+    host.focus();
+    doc.anchorNode = second;
+    doc.log.length = 0;
+    expect(pressInPage(page(second), key({ key: 'Enter', code: 'Enter', keyCode: 13 }))).toBe(
+      'new-line',
+    );
+    expect(doc.log).not.toContain('range:all');
+    expect(doc.edits).toEqual(['insertParagraph@p2']);
+  });
+
+  it('in editable text, brings a selection that runs out of the paragraph named back into it', () => {
+    const doc = new FakeDocument();
+    const {
+      host,
+      paragraphs: [first, second],
+    } = editorWith(doc, 'p1', 'p2');
+    host.focus();
+    // From inside the paragraph to its sibling: a delete there would take both.
+    doc.anchorNode = second;
+    doc.focusAt = first;
+    expect(
+      pressInPage(page(second), key({ key: 'Backspace', code: 'Backspace', keyCode: 8 })),
+    ).toBe('deleted');
+    expect(doc.edits).toEqual(['delete@p2']);
+    expect(doc.focusAt).toBeNull();
+  });
+
+  it('in editable text, presses nothing when the editing host did not take the focus, even with body focused', () => {
+    const doc = new FakeDocument();
+    const {
+      host,
+      paragraphs: [first, second],
+    } = editorWith(doc, 'p1', 'p2');
+    host.focusable = false;
+    doc.anchorNode = first;
+    expect(doc.activeElement).toBe(doc.body);
+    doc.log.length = 0;
+    expect(refusalOf(() => pressInPage(page(second), key({ text: 'x' })))).toBe('not-focused');
+    expect(doc.log.filter((entry) => entry.startsWith('key') || entry.startsWith('range'))).toEqual(
+      [],
+    );
+    expect(doc.edits).toEqual([]);
+    // The caret the page had is left where it was.
+    expect(doc.anchorNode).toBe(first);
+  });
+
+  it('in editable text, presses nothing when the page will not let the caret into the paragraph', () => {
+    const doc = new FakeDocument();
+    const {
+      host,
+      paragraphs: [first, second],
+    } = editorWith(doc, 'p1', 'p2');
+    host.focus();
+    doc.anchorNode = first;
+    const selection = doc.getSelection.bind(doc);
+    // A page whose selection handling puts the caret back where it was.
+    doc.getSelection = () => ({ ...selection(), addRange: () => {} }) as never;
+    expect(refusalOf(() => pressInPage(page(second), key({ text: 'x' })))).toBe('not-focused');
+    expect(doc.edits).toEqual([]);
+  });
+
+  it('fills editable text inside an editor through its host, not through body', () => {
+    const doc = new FakeDocument();
+    const {
+      host,
+      paragraphs: [, second],
+    } = editorWith(doc, 'p1', 'p2');
+    expect(fillInPage(page(second), 'rich')).toEqual({ how: 'typed' });
+    expect(doc.activeElement).toBe(host);
+    expect(doc.edits).toEqual(['insertText@p2']);
+    host.blur();
+    host.focusable = false;
+    expect(refusalOf(() => fillInPage(page(second), 'rich'))).toBe('not-focused');
   });
 
   it('lets the page’s own handler take a key, with nothing else following', () => {

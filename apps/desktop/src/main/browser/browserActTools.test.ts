@@ -455,7 +455,7 @@ describe('consola_browser_act', () => {
     ['is-select', 'e5 is a list of options; use select with its value or label.'],
     [
       'not-focused',
-      "e5 did not take the page's focus (the page moved it, or e5 can no longer take it), so nothing reached it; take a new snapshot.",
+      "e5 did not take the page's focus, or in editable text its caret (the page moved it, or e5 can no longer take it), so nothing reached it; take a new snapshot.",
     ],
   ])('words the page’s %s refusal', async (reason, message) => {
     fakePage.failures.fillInPage = new Error(

@@ -121,7 +121,7 @@ function refusalMessage(reason: ActRefusal, ref: string): string {
     case 'is-select':
       return `${ref} is a list of options; use select with its value or label.`;
     case 'not-focused':
-      return `${ref} did not take the page's focus (the page moved it, or ${ref} can no longer take it), so nothing reached it; take a new snapshot.`;
+      return `${ref} did not take the page's focus, or in editable text its caret (the page moved it, or ${ref} can no longer take it), so nothing reached it; take a new snapshot.`;
   }
 }
 

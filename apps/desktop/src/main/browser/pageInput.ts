@@ -228,11 +228,15 @@ export function fillInPage(element: Element, text: string): FillOutcome {
     return self.value === text ? { how: 'set', kind: type } : { how: 'not-set', kind: type };
   }
 
-  self.focus();
   const root = element.getRootNode() as Document | ShadowRoot;
   if (!field) {
-    // Editable text: the page's focus on it (or on the editing host around it).
-    if (!root.activeElement?.contains(element)) refuse('not-focused');
+    // Editable text takes the page's focus through its editing host, the
+    // outermost editable element around it (body only where body is that
+    // host): a paragraph inside an editor cannot take focus itself.
+    let host = element as HTMLElement;
+    while (host.parentElement?.isContentEditable) host = host.parentElement;
+    host.focus();
+    if (root.activeElement !== host) refuse('not-focused');
     const range = doc.createRange();
     range.selectNodeContents(element);
     const selection = doc.getSelection();
@@ -243,6 +247,7 @@ export function fillInPage(element: Element, text: string): FillOutcome {
     else doc.execCommand('insertText', false, text);
     return { how: 'typed' };
   }
+  self.focus();
   if (root.activeElement !== element) refuse('not-focused');
   try {
     self.select();
@@ -304,15 +309,46 @@ export function pressInPage(element: Element, press: PageKeyPress): KeyOutcome {
       if (!inner || inner === target) break;
       target = inner;
     }
+  } else if (target.isContentEditable) {
+    // Editable text: the page's editing acts at the caret, wherever it is in
+    // the editing host (the outermost editable element around it, which is
+    // what takes the focus; body only where body is that host). So the host
+    // must take the page's focus, and the caret must be in the element named:
+    // one elsewhere, or a selection running out of it, goes to the element's
+    // end, as a click there would put it. Else nothing is pressed.
+    let host = target as HTMLElement;
+    while (host.parentElement?.isContentEditable) host = host.parentElement;
+    host.focus();
+    if ((element.getRootNode() as Document | ShadowRoot).activeElement !== host) {
+      throw new Error('consola-act:not-focused');
+    }
+    const doc = element.ownerDocument;
+    const caretInside = () => {
+      const selection = doc.getSelection();
+      return (
+        !!selection?.anchorNode &&
+        !!selection.focusNode &&
+        element.contains(selection.anchorNode) &&
+        element.contains(selection.focusNode)
+      );
+    };
+    if (!caretInside()) {
+      const range = doc.createRange();
+      range.selectNodeContents(element);
+      range.collapse(false);
+      const selection = doc.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+      if (!caretInside()) throw new Error('consola-act:not-focused');
+    }
   } else {
     // The page's own focus: where a person's keys would go once they were on
     // it. The page's editing acts on whatever has it, so nothing is pressed
-    // unless the element really took it (or, in editable text, its host did).
+    // unless the element really took it.
     target.focus();
-    const active = (element.getRootNode() as Document | ShadowRoot).activeElement;
-    const focused =
-      active === element || (!!active && active.contains(element) && target.isContentEditable);
-    if (!focused) throw new Error('consola-act:not-focused');
+    if ((element.getRootNode() as Document | ShadowRoot).activeElement !== element) {
+      throw new Error('consola-act:not-focused');
+    }
   }
   const doc = target.ownerDocument;
   const view = doc.defaultView as Window & typeof globalThis;
