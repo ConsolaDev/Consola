@@ -301,6 +301,13 @@ test.describe('in-app browser safety', () => {
     const toggle = modal.getByRole('switch', { name: "Let agents use this workspace's browser" });
     await expect(toggle).toBeChecked();
     expect(await access()).toBe('on');
+    // When each way takes effect: off at once, on from a session's next start.
+    await expect(
+      modal.getByText(
+        'Turning this off stops agents at once; turning it on reaches a session the next time it starts.',
+        { exact: false },
+      ),
+    ).toBeVisible();
 
     await toggle.click();
     await expect(toggle).not.toBeChecked();
