@@ -361,14 +361,6 @@ describe('attach', () => {
     expect(service.bindGuest).toHaveBeenCalledWith('t-mine', contents.get(7), window);
   });
 
-  it('hooks the window close once, however many guests attach', () => {
-    contents.set(7, guest());
-    call(IPC_CHANNELS.BROWSER_ATTACH, 't-mine', 7);
-    call(IPC_CHANNELS.BROWSER_ATTACH, 't-mine', 7);
-    expect(window?.once).toHaveBeenCalledTimes(1);
-    expect(window?.once.mock.calls[0][0]).toBe('closed');
-  });
-
   it.each<[string, () => void, number]>([
     ['no workspace', () => (workspace = undefined), 7],
     ['no window', () => (window = undefined), 7],

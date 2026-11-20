@@ -1,8 +1,11 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import type { BrowserWindow } from 'electron';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { isTrustedSender, type IpcSenderEvent } from './ipcSenderGuard';
 import {
+  consolaWindowClosed,
   forgetConsolaContents,
   isConsolaContents,
+  onConsolaWindowClosed,
   registerConsolaContents,
 } from './windowRegistry';
 
@@ -29,5 +32,25 @@ describe('the window registry', () => {
     expect(isTrustedSender(windowEvent(), isConsolaContents(99))).toBe(false);
     registerConsolaContents(7);
     expect(isTrustedSender(windowEvent(), isConsolaContents(7))).toBe(true);
+  });
+});
+
+describe('a Consola window closing', () => {
+  it('is told to every listener, even past one that throws, until each stops listening', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const window = { name: 'A' } as unknown as BrowserWindow;
+    const heard: unknown[] = [];
+    const stops = [
+      onConsolaWindowClosed(() => {
+        throw new Error('Object has been destroyed');
+      }),
+      onConsolaWindowClosed((closed) => heard.push(closed)),
+    ];
+    consolaWindowClosed(window);
+    expect(heard).toEqual([window]);
+    for (const stop of stops) stop();
+    consolaWindowClosed(window);
+    expect(heard).toEqual([window]);
+    warn.mockRestore();
   });
 });

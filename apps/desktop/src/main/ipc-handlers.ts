@@ -165,6 +165,7 @@ import {
   viewsFromStoredLayout,
   type ViewMemoryAccess,
 } from './window-manager';
+import { onConsolaWindowClosed } from './windowRegistry';
 import {
   EMPTY_VIEW,
   ViewMemoryService,
@@ -352,6 +353,9 @@ export function setupIpcHandlers(): boolean {
     disconnected: (guest) => pageDialogs.letGo(guest),
   });
   const stopForgettingPages = browser.onGuestGone((tabId, guest) => driver.forget(tabId, guest));
+  // Every Consola window lets go of its pages as it closes, and of what it
+  // reported showing, whether or not a page ever bound in it.
+  const stopDetachingWindows = onConsolaWindowClosed((window) => browser.detachWindow(window));
   pageDriver = driver;
   // The person's input per tab, which an agent's acts give way to, and whose
   // hands each tab is in: a download from one in the agent's is cancelled.
@@ -503,6 +507,7 @@ export function setupIpcHandlers(): boolean {
       registered.remove();
       stopWatchingGuests();
       stopForgettingPages();
+      stopDetachingWindows();
       stopHearingPerson();
       gateDownloads(null);
     },

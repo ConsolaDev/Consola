@@ -7,7 +7,11 @@ import { IPC_CHANNELS } from '../shared/constants';
 import { isBackgroundTest } from './test-mode';
 import { decideAppNavigation, installGuestPolicy } from './browser/guestPolicy';
 import { configurePartition } from './browser/sessionPolicy';
-import { forgetConsolaContents, registerConsolaContents } from './windowRegistry';
+import {
+  consolaWindowClosed,
+  forgetConsolaContents,
+  registerConsolaContents,
+} from './windowRegistry';
 import { createQuitShortcut } from './quitShortcut';
 
 const DEV_SERVER_ORIGIN = 'http://localhost:5173';
@@ -173,6 +177,7 @@ export function createWindow(
     contexts.delete(windowId);
     quitGuards.delete(windowId);
     forgetConsolaContents(windowId);
+    consolaWindowClosed(window);
   });
 
   return window;

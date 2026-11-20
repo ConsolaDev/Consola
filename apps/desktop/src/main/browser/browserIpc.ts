@@ -83,9 +83,6 @@ const EMPTY: BrowserSessionSnapshot = { tabs: [], activeTabId: null };
  */
 export function registerBrowserHandlers(deps: BrowserIpcDeps): { remove(): void } {
   const { ipc, service } = deps;
-  // A window's guests are let go when it closes. Hooked at the window's first
-  // attach, since a window that never attached has nothing to let go.
-  const watched = new WeakSet<BrowserWindow>();
 
   const ownedTab = (event: IpcMainInvokeEvent, tabId: string): boolean => {
     const workspaceId = deps.workspaceForSender(event.sender);
@@ -231,10 +228,6 @@ export function registerBrowserHandlers(deps: BrowserIpcDeps): { remove(): void 
       if (!decision.ok) {
         console.warn(`Refused to bind a page to tab ${tabId}: ${decision.reason}`);
         return false;
-      }
-      if (!watched.has(window)) {
-        watched.add(window);
-        window.once('closed', () => service.detachWindow(window));
       }
       return service.bindGuest(tabId, guest, window);
     },
