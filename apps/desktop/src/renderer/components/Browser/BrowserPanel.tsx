@@ -101,7 +101,11 @@ export function BrowserPanel({ sessionId, instanceId, cwd }: BrowserPanelProps) 
       />
       {findOpen && tab && <FindBar key={tab.id} tabId={tab.id} onClose={closeFind} />}
       <div className="browser-slot" data-testid="browser-slot">
-        {(!tab || isBlankUrl(tab.url)) && <BrowserEmptyTab sessionId={sessionId} onOpen={open} />}
+        {/* Keyed by session: the panel stays mounted across a session switch, and
+            one session's server list, or its scan still in flight, is not another's. */}
+        {(!tab || isBlankUrl(tab.url)) && (
+          <BrowserEmptyTab key={sessionId} sessionId={sessionId} onOpen={open} />
+        )}
       </div>
     </div>
   );

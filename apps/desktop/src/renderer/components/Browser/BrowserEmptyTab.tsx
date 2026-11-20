@@ -14,6 +14,10 @@ interface BrowserEmptyTabProps {
  * What a tab with nowhere to be shows instead of a page: the servers running
  * from this session's folder, which is usually what the agent just started,
  * and the pages this workspace visited lately. Choosing one navigates the tab.
+ *
+ * Mount it keyed by its session: the list it shows and a scan it has in
+ * flight are that session's, and an answer arriving after it is gone is
+ * dropped (`mounted`), never written for the session shown next.
  */
 export function BrowserEmptyTab({ sessionId, onOpen }: BrowserEmptyTabProps) {
   const [servers, setServers] = useState<LocalServer[]>([]);

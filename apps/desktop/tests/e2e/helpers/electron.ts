@@ -29,6 +29,16 @@ export function createProfileDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'consola-e2e-'));
 }
 
+/**
+ * Removes a profile once the app on it has closed. Main keeps its data beside
+ * the folder it was given, under its " Test" suffix (main/index.ts), so both go.
+ */
+export function removeProfile(userDataDir: string): void {
+  for (const folder of [userDataDir, `${userDataDir} Test`]) {
+    fs.rmSync(folder, { recursive: true, force: true });
+  }
+}
+
 export async function launchElectron(
   options: LaunchOptions = {},
 ): Promise<{ app: ElectronApplication; page: Page; userDataDir: string }> {
