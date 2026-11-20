@@ -390,19 +390,33 @@
   padding: var(--space-1) var(--space-2);
   background: var(--color-bg-secondary);
   border-bottom: 1px solid var(--color-border);
-  overflow-x: auto;
   min-height: 32px;
+}
+
+/*
+ * Only the tabs scroll. As wide as they are until the strip runs out of room,
+ * so the "+" after them sits beside the last tab, then pinned at the end.
+ */
+.browser-tabs {
+  display: flex;
+  align-items: center;
+  flex: 0 1 auto;
+  gap: var(--space-1);
+  min-width: 0;
+  overflow-x: auto;
   scrollbar-width: none;
 }
 
-.browser-tab-strip::-webkit-scrollbar {
+.browser-tabs::-webkit-scrollbar {
   display: none;
 }
 
+/* Shrinks to a few letters of its title before the strip has to scroll. */
 .browser-tab {
   display: flex;
   align-items: center;
-  flex-shrink: 0;
+  flex: 0 1 auto;
+  min-width: 56px;
   gap: var(--space-1);
   height: 24px;
   padding: 0 var(--space-2);
@@ -440,6 +454,8 @@
 }
 
 .browser-tab-label {
+  flex: 0 1 auto;
+  min-width: 0;
   max-width: 120px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -460,6 +476,7 @@
 }
 
 .browser-tab-close {
+  flex-shrink: 0;
   width: 14px;
   height: 14px;
   margin-left: var(--space-1);

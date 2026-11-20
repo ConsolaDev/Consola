@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import type { ElectronApplication, Page } from '@playwright/test';
+import type { ElectronApplication, Locator, Page } from '@playwright/test';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -370,6 +370,77 @@ test.describe('in-app browser tabs', () => {
     await page.getByRole('button', { name: 'Close New tab' }).last().click();
     await expect(tabs(page)).toHaveCount(11);
     await expect(newTab(page)).toBeEnabled();
+  });
+
+  test('with twelve tabs, "+" and the active tab stay in view, narrow or wide', async () => {
+    await openSession(page, 'Alpha');
+    await showBrowser(page);
+    await page.evaluate(async (sessionId) => {
+      for (let i = 0; i < 12; i += 1) await window.browserAPI.open(sessionId, '');
+    }, ids.alpha.sessionId);
+    await expect(tabs(page)).toHaveCount(12);
+    const strip = page.locator('.browser-tab-strip');
+    const tabList = page.getByRole('tablist', { name: 'Browser tabs' });
+    const active = page.getByRole('tab', { selected: true });
+
+    /** Whether all of `inner` lies inside `outer`'s box, give or take a pixel. */
+    const inside = async (inner: Locator, outer: Locator): Promise<boolean> => {
+      const [a, b] = [await inner.boundingBox(), await outer.boundingBox()];
+      if (!a || !b) return false;
+      return (
+        a.x >= b.x - 1 &&
+        a.y >= b.y - 1 &&
+        a.x + a.width <= b.x + b.width + 1 &&
+        a.y + a.height <= b.y + b.height + 1
+      );
+    };
+    const expectInView = async () => {
+      await expect.poll(() => inside(newTab(page), strip)).toBe(true);
+      await expect.poll(() => inside(strip, panel(page))).toBe(true);
+      await expect.poll(() => inside(active, tabList)).toBe(true);
+    };
+    const panelWidth = async () => (await panel(page).boundingBox())?.width ?? 0;
+    /** Drags the separator before the browser panel to `x`, as the person does. */
+    const dragSeparatorTo = async (x: number) => {
+      const separator = page.locator('.resize-handle:has(+ [data-testid="browser"])');
+      const box = await separator.boundingBox();
+      if (!box) throw new Error('no separator before the browser panel');
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(x, box.y + box.height / 2, { steps: 8 });
+      await page.mouse.up();
+    };
+
+    // At the panel's narrowest: the last tab, made active as it opened, is
+    // scrolled into view, and "+" is beside the strip, not scrolled away.
+    const windowWidth = await page.evaluate(() => window.innerWidth);
+    await dragSeparatorTo(windowWidth - 1);
+    await expect.poll(panelWidth).toBeLessThan(330);
+    await expectInView();
+    expect(await tabList.evaluate((list) => list.scrollLeft)).toBeGreaterThan(0);
+
+    // A mouse wheel turns vertically; over the strip it scrolls the tabs sideways.
+    const listBox = await tabList.boundingBox();
+    await page.mouse.move(listBox!.x + listBox!.width / 2, listBox!.y + listBox!.height / 2);
+    await page.mouse.wheel(0, -2000);
+    await expect.poll(() => tabList.evaluate((list) => list.scrollLeft)).toBe(0);
+    await expect.poll(() => inside(tabs(page).first(), tabList)).toBe(true);
+
+    // A tab "+" opens lands at the end, and is brought into view.
+    await page.evaluate(async (sessionId) => {
+      const snapshot = await window.browserAPI.get(sessionId);
+      await window.browserAPI.close(snapshot.tabs[0].id);
+    }, ids.alpha.sessionId);
+    await expect(tabs(page)).toHaveCount(11);
+    await newTab(page).click();
+    await expect(tabs(page)).toHaveCount(12);
+    await expect(tabs(page).last()).toHaveAttribute('aria-selected', 'true');
+    await expectInView();
+
+    // At a comfortable width, the same.
+    await dragSeparatorTo(windowWidth - 560);
+    await expect.poll(panelWidth).toBeGreaterThan(500);
+    await expectInView();
   });
 
   test('switching between two tabs keeps both pages alive, not reloaded', async () => {

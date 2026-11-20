@@ -18,6 +18,8 @@ import {
   recentPages,
   RETRY_MAX_MS,
   retryDelayMs,
+  stripScrollToShow,
+  stripWheelDelta,
   tabLabel,
   visibleTabId,
 } from './browserView';
@@ -275,5 +277,43 @@ describe('recentPages', () => {
 
   it('is empty for no history', () => {
     expect(recentPages([])).toEqual([]);
+  });
+});
+
+describe('stripScrollToShow', () => {
+  const view = { scrollLeft: 100, width: 300 };
+
+  it('leaves the strip where it is when the tab is already in view', () => {
+    expect(stripScrollToShow(view, { start: 120, end: 380 })).toBe(100);
+    expect(stripScrollToShow(view, { start: 100, end: 400 })).toBe(100);
+  });
+
+  it('scrolls back just far enough for a tab cut off on the left', () => {
+    expect(stripScrollToShow(view, { start: 40, end: 120 })).toBe(40);
+  });
+
+  it('scrolls on just far enough for a tab cut off on the right', () => {
+    expect(stripScrollToShow(view, { start: 380, end: 460 })).toBe(160);
+  });
+
+  it('shows the start of a tab wider than the strip', () => {
+    expect(stripScrollToShow(view, { start: 380, end: 800 })).toBe(380);
+  });
+});
+
+describe('stripWheelDelta', () => {
+  it('turns a vertical wheel into a sideways scroll', () => {
+    expect(stripWheelDelta({ deltaX: 0, deltaY: 40, deltaMode: 0 }, 300)).toBe(40);
+    expect(stripWheelDelta({ deltaX: 2, deltaY: -40, deltaMode: 0 }, 300)).toBe(-40);
+  });
+
+  it('leaves a sideways gesture to the strip’s own scrolling', () => {
+    expect(stripWheelDelta({ deltaX: 30, deltaY: 4, deltaMode: 0 }, 300)).toBe(0);
+    expect(stripWheelDelta({ deltaX: 0, deltaY: 0, deltaMode: 0 }, 300)).toBe(0);
+  });
+
+  it('reads a wheel that counts lines or pages in pixels', () => {
+    expect(stripWheelDelta({ deltaX: 0, deltaY: 3, deltaMode: 1 }, 300)).toBe(48);
+    expect(stripWheelDelta({ deltaX: 0, deltaY: 1, deltaMode: 2 }, 300)).toBe(300);
   });
 });

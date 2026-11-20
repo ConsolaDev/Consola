@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef } from 'react';
 import { Bot, Plus, X } from 'lucide-react';
 import {
   MAX_TABS_PER_SESSION,
@@ -5,7 +6,7 @@ import {
   type BrowserTabSnapshot,
 } from '../../../shared/browser';
 import { browserBridge } from '../../services/browserBridge';
-import { tabLabel } from './browserView';
+import { stripScrollToShow, stripWheelDelta, tabLabel } from './browserView';
 import './styles.css';
 
 interface BrowserTabStripProps {
@@ -24,14 +25,48 @@ function noteFailure(action: Promise<unknown>): void {
  * strip holds no state of its own. The `+` opens a blank tab for the address
  * bar to fill, and stops at the cap. A tab an agent's call is on carries a
  * small marker for as long as the call runs.
+ *
+ * Tabs shrink to a narrow minimum before the strip scrolls, and the `+` sits
+ * outside the scrolling part, so it is always in reach: it is the only way to
+ * a blank tab. The active tab is kept in view, since a new tab, or one a link
+ * opened, lands at the end.
  */
 export function BrowserTabStrip({ sessionId, snapshot }: BrowserTabStripProps) {
   const atCap = snapshot.tabs.length >= MAX_TABS_PER_SESSION;
+  const tabsRef = useRef<HTMLDivElement>(null);
+  const activeTabId = snapshot.activeTabId;
+
+  // Before paint, so a new tab never shows cut off for a frame.
+  useLayoutEffect(() => {
+    const strip = tabsRef.current;
+    if (!strip || !activeTabId) return;
+    const active = strip.querySelector(`[data-tab-id="${CSS.escape(activeTabId)}"]`);
+    if (!active) return;
+    const stripBox = strip.getBoundingClientRect();
+    const box = active.getBoundingClientRect();
+    const start = box.left - stripBox.left + strip.scrollLeft;
+    strip.scrollLeft = stripScrollToShow(
+      { scrollLeft: strip.scrollLeft, width: strip.clientWidth },
+      { start, end: start + box.width },
+    );
+  }, [activeTabId]);
+
   return (
-    <div className="browser-tab-strip" role="tablist" aria-label="Browser tabs">
-      {snapshot.tabs.map((tab) => (
-        <StripTab key={tab.id} tab={tab} active={tab.id === snapshot.activeTabId} />
-      ))}
+    <div className="browser-tab-strip">
+      <div
+        ref={tabsRef}
+        className="browser-tabs"
+        role="tablist"
+        aria-label="Browser tabs"
+        onWheel={(event) => {
+          const strip = event.currentTarget;
+          strip.scrollLeft += stripWheelDelta(event, strip.clientWidth);
+        }}
+      >
+        {snapshot.tabs.map((tab) => (
+          <StripTab key={tab.id} tab={tab} active={tab.id === activeTabId} />
+        ))}
+      </div>
       <button
         type="button"
         className="browser-tab-new"

@@ -179,6 +179,42 @@ export function addressText(
   return url === 'about:blank' ? '' : url;
 }
 
+/**
+ * Where the tab strip scrolls to so a tab is in view: nowhere when it already
+ * is, else just far enough, the nearest edge first. A tab wider than the
+ * strip shows its start, where its title begins.
+ */
+export function stripScrollToShow(
+  view: { scrollLeft: number; width: number },
+  tab: { start: number; end: number },
+): number {
+  if (tab.start < view.scrollLeft) return tab.start;
+  if (tab.end > view.scrollLeft + view.width) {
+    return Math.min(tab.start, tab.end - view.width);
+  }
+  return view.scrollLeft;
+}
+
+/** Pixels a wheel "line" is taken for, as Chromium scrolls a page. */
+const WHEEL_LINE_PX = 16;
+
+/**
+ * How far sideways a wheel over the tab strip scrolls it. A mouse wheel only
+ * turns vertically and the strip only scrolls sideways, so a mostly vertical
+ * turn is taken sideways. A sideways gesture (a trackpad swipe) the strip
+ * already scrolls by itself, so it adds nothing.
+ */
+export function stripWheelDelta(
+  wheel: { deltaX: number; deltaY: number; deltaMode: number },
+  stripWidth: number,
+): number {
+  if (Math.abs(wheel.deltaY) <= Math.abs(wheel.deltaX)) return 0;
+  // WheelEvent.DOM_DELTA_LINE and DOM_DELTA_PAGE.
+  if (wheel.deltaMode === 1) return wheel.deltaY * WHEEL_LINE_PX;
+  if (wheel.deltaMode === 2) return wheel.deltaY * stripWidth;
+  return wheel.deltaY;
+}
+
 /** How many recent pages the empty tab offers. */
 const RECENT_PAGES_SHOWN = 5;
 
