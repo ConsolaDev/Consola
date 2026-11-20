@@ -11,7 +11,7 @@ import { GitHubDriver } from './github/GitHubDriver';
  * through `getProviderDriver`.
  */
 const DRIVERS: Record<GitProviderId, GitProviderDriver> = {
-    github: new GitHubDriver(),
+  github: new GitHubDriver(),
 };
 
 /**
@@ -24,9 +24,9 @@ const DRIVERS: Record<GitProviderId, GitProviderDriver> = {
  * degrade path it has for the provider CLI failing.
  */
 export function getProviderDriver(id: GitProviderId): GitProviderDriver {
-    const driver = DRIVERS[id];
-    if (!driver) throw new Error(`Unknown git provider "${id}".`);
-    return driver;
+  const driver = DRIVERS[id];
+  if (!driver) throw new Error(`Unknown git provider "${id}".`);
+  return driver;
 }
 
 /**
@@ -37,11 +37,11 @@ export function getProviderDriver(id: GitProviderId): GitProviderDriver {
  * mutating it would leak one workspace's token into every other spawn.
  */
 export function layerProviderToken(
-    env: NodeJS.ProcessEnv,
-    tokenEnvVar: string | null,
-    token: string | null
+  env: NodeJS.ProcessEnv,
+  tokenEnvVar: string | null,
+  token: string | null,
 ): NodeJS.ProcessEnv {
-    return tokenEnvVar && token ? { ...env, [tokenEnvVar]: token } : { ...env };
+  return tokenEnvVar && token ? { ...env, [tokenEnvVar]: token } : { ...env };
 }
 
 /**
@@ -50,10 +50,10 @@ export function layerProviderToken(
  * Rejects when the token cannot be borrowed; the caller labels the failure.
  */
 export async function composeProviderEnv(
-    driver: GitProviderDriver,
-    accountLogin: string
+  driver: GitProviderDriver,
+  accountLogin: string,
 ): Promise<NodeJS.ProcessEnv> {
-    return (await borrowProviderEnv(driver, accountLogin)).env;
+  return (await borrowProviderEnv(driver, accountLogin)).env;
 }
 
 /**
@@ -62,14 +62,14 @@ export async function composeProviderEnv(
  * Never put on IPC.
  */
 export async function borrowProviderEnv(
-    driver: GitProviderDriver,
-    accountLogin: string
+  driver: GitProviderDriver,
+  accountLogin: string,
 ): Promise<{ env: NodeJS.ProcessEnv; token: string }> {
-    // The driver finds its CLI on the login PATH, so a probe still being
-    // retried is waited for rather than reported as a missing CLI.
-    await loginEnvRetry();
-    const token = await driver.token(accountLogin);
-    return { env: layerProviderToken(getLoginEnv(), driver.tokenEnvVar, token), token };
+  // The driver finds its CLI on the login PATH, so a probe still being
+  // retried is waited for rather than reported as a missing CLI.
+  await loginEnvRetry();
+  const token = await driver.token(accountLogin);
+  return { env: layerProviderToken(getLoginEnv(), driver.tokenEnvVar, token), token };
 }
 
 export type { GitProviderDriver } from './GitProviderDriver';

@@ -1,4 +1,10 @@
-import { isAgentRunPreview, isStepsRunPreview, type RunRecord, type StepRun, type StepRunStatus } from '../../../shared/automations';
+import {
+  isAgentRunPreview,
+  isStepsRunPreview,
+  type RunRecord,
+  type StepRun,
+  type StepRunStatus,
+} from '../../../shared/automations';
 import type { ConversationEntry } from '../../../shared/conversation';
 import { formatElapsed, type RunFacts } from './presentation';
 
@@ -19,22 +25,31 @@ export type RunStageKey = 'trigger' | 'preview' | 'approval' | 'queue' | 'run' |
  * it, broke there, turned down there, standing in it now, or never reached
  * it — `skipped` once the run is over, `pending` while it may still come.
  */
-export type RunStageState = 'passed' | 'failed' | 'stopped' | 'waiting' | 'queued' | 'running' | 'skipped' | 'pending' | 'reported';
+export type RunStageState =
+  | 'passed'
+  | 'failed'
+  | 'stopped'
+  | 'waiting'
+  | 'queued'
+  | 'running'
+  | 'skipped'
+  | 'pending'
+  | 'reported';
 
 export interface RunStage {
-    key: RunStageKey;
-    state: RunStageState;
-    /** For a `step` stage: the step this node is, as the record has it. */
-    step?: {
-        id: string;
-        kind: 'agent' | 'run';
-        status: StepRunStatus;
-        skipped?: string;
-        error?: string;
-        attempt: number;
-    };
-    /** How long the run spent in it, when the record says; still counting while the run is in it. */
-    ms: number | null;
+  key: RunStageKey;
+  state: RunStageState;
+  /** For a `step` stage: the step this node is, as the record has it. */
+  step?: {
+    id: string;
+    kind: 'agent' | 'run';
+    status: StepRunStatus;
+    skipped?: string;
+    error?: string;
+    attempt: number;
+  };
+  /** How long the run spent in it, when the record says; still counting while the run is in it. */
+  ms: number | null;
 }
 
 /**
@@ -51,42 +66,44 @@ export interface RunStage {
  * approval when it asked for one.
  */
 export function runStages(run: RunRecord, now: Date): RunStage[] {
-    if (isStepsRunPreview(run.result)) return stepsRunStages(run, now);
-    const agent = isAgentRunPreview(run.result);
-    const keys: RunStageKey[] = ['trigger'];
-    if (!agent && run.mode !== 'auto') keys.push('preview');
-    if (run.mode === 'notify') {
-        keys.push('notify');
-    } else {
-        if (run.mode === 'confirm') keys.push('approval');
-        if (agent) keys.push('queue');
-        keys.push('run');
-    }
+  if (isStepsRunPreview(run.result)) return stepsRunStages(run, now);
+  const agent = isAgentRunPreview(run.result);
+  const keys: RunStageKey[] = ['trigger'];
+  if (!agent && run.mode !== 'auto') keys.push('preview');
+  if (run.mode === 'notify') {
+    keys.push('notify');
+  } else {
+    if (run.mode === 'confirm') keys.push('approval');
+    if (agent) keys.push('queue');
+    keys.push('run');
+  }
 
-    const here = stopPoint(run, keys, agent);
-    const at = keys.indexOf(here.key);
-    const open = !ENDED.has(run.status);
-    const time = (iso: string | undefined) => (iso ? Date.parse(iso) : NaN);
-    const created = time(run.createdAt);
-    const approved = time(run.approvedAt);
-    const started = time(run.startedAt);
-    const finished = time(run.finishedAt);
-    const nowMs = now.getTime();
+  const here = stopPoint(run, keys, agent);
+  const at = keys.indexOf(here.key);
+  const open = !ENDED.has(run.status);
+  const time = (iso: string | undefined) => (iso ? Date.parse(iso) : NaN);
+  const created = time(run.createdAt);
+  const approved = time(run.approvedAt);
+  const started = time(run.startedAt);
+  const finished = time(run.finishedAt);
+  const nowMs = now.getTime();
 
-    return keys.map((key, index) => {
-        const state: RunStageState = index < at ? 'passed' : index === at ? here.state : open ? 'pending' : 'skipped';
-        if (state === 'skipped' || state === 'pending') return { key, state, ms: null };
-        const isHere = index === at;
-        // Where the run is now, the stage runs to now; where it ended, to its end.
-        const until = (otherwise: number) => (isHere ? (open ? nowMs : finished) : otherwise);
-        let ms: number | null = null;
-        if (key === 'preview') ms = isHere ? span(created, until(NaN)) : null;
-        // A tool run starts the moment it is approved, so its start ends the wait for an older record too.
-        if (key === 'approval') ms = span(created, until(firstOf(approved, agent ? NaN : started)));
-        if (key === 'queue') ms = span(firstOf(approved, run.mode === 'confirm' ? NaN : created), until(started));
-        if (key === 'run') ms = span(started, until(finished));
-        return { key, state, ms };
-    });
+  return keys.map((key, index) => {
+    const state: RunStageState =
+      index < at ? 'passed' : index === at ? here.state : open ? 'pending' : 'skipped';
+    if (state === 'skipped' || state === 'pending') return { key, state, ms: null };
+    const isHere = index === at;
+    // Where the run is now, the stage runs to now; where it ended, to its end.
+    const until = (otherwise: number) => (isHere ? (open ? nowMs : finished) : otherwise);
+    let ms: number | null = null;
+    if (key === 'preview') ms = isHere ? span(created, until(NaN)) : null;
+    // A tool run starts the moment it is approved, so its start ends the wait for an older record too.
+    if (key === 'approval') ms = span(created, until(firstOf(approved, agent ? NaN : started)));
+    if (key === 'queue')
+      ms = span(firstOf(approved, run.mode === 'confirm' ? NaN : created), until(started));
+    if (key === 'run') ms = span(started, until(finished));
+    return { key, state, ms };
+  });
 }
 
 /**
@@ -95,60 +112,68 @@ export function runStages(run: RunRecord, now: Date): RunStage[] {
  * only a `pending` step reads the run: once the run is over it never came.
  */
 function stepsRunStages(run: RunRecord, now: Date): RunStage[] {
-    const open = !ENDED.has(run.status);
-    const nowMs = now.getTime();
-    const stages: RunStage[] = [{ key: 'trigger', state: 'passed', ms: null }];
-    if (run.mode === 'confirm') {
-        const waiting = run.status === 'needs-approval';
-        const turnedDown = run.status === 'rejected' && !run.approvedAt;
-        const created = Date.parse(run.createdAt);
-        const until = waiting ? nowMs : turnedDown ? Date.parse(run.finishedAt ?? '') : firstOf(Date.parse(run.approvedAt ?? ''), Date.parse(run.startedAt ?? ''));
-        stages.push({ key: 'approval', state: waiting ? 'waiting' : turnedDown ? 'stopped' : 'passed', ms: span(created, until) });
-    }
-    for (const step of run.steps ?? []) {
-        const state = stepStageState(step.status, open);
-        const from = firstOf(Date.parse(step.queuedAt ?? ''), Date.parse(step.startedAt ?? ''));
-        const live = step.status === 'running' || step.status === 'queued';
-        const to = step.finishedAt ? Date.parse(step.finishedAt) : live ? nowMs : NaN;
-        stages.push({
-            key: 'step',
-            state,
-            ms: span(from, to),
-            step: {
-                id: step.id,
-                kind: step.kind,
-                status: step.status,
-                ...(step.skipped ? { skipped: step.skipped } : {}),
-                ...(step.error ? { error: step.error } : {}),
-                attempt: step.attempt,
-            },
-        });
-    }
-    return stages;
+  const open = !ENDED.has(run.status);
+  const nowMs = now.getTime();
+  const stages: RunStage[] = [{ key: 'trigger', state: 'passed', ms: null }];
+  if (run.mode === 'confirm') {
+    const waiting = run.status === 'needs-approval';
+    const turnedDown = run.status === 'rejected' && !run.approvedAt;
+    const created = Date.parse(run.createdAt);
+    const until = waiting
+      ? nowMs
+      : turnedDown
+        ? Date.parse(run.finishedAt ?? '')
+        : firstOf(Date.parse(run.approvedAt ?? ''), Date.parse(run.startedAt ?? ''));
+    stages.push({
+      key: 'approval',
+      state: waiting ? 'waiting' : turnedDown ? 'stopped' : 'passed',
+      ms: span(created, until),
+    });
+  }
+  for (const step of run.steps ?? []) {
+    const state = stepStageState(step.status, open);
+    const from = firstOf(Date.parse(step.queuedAt ?? ''), Date.parse(step.startedAt ?? ''));
+    const live = step.status === 'running' || step.status === 'queued';
+    const to = step.finishedAt ? Date.parse(step.finishedAt) : live ? nowMs : NaN;
+    stages.push({
+      key: 'step',
+      state,
+      ms: span(from, to),
+      step: {
+        id: step.id,
+        kind: step.kind,
+        status: step.status,
+        ...(step.skipped ? { skipped: step.skipped } : {}),
+        ...(step.error ? { error: step.error } : {}),
+        attempt: step.attempt,
+      },
+    });
+  }
+  return stages;
 }
 
 function stepStageState(status: StepRunStatus, open: boolean): RunStageState {
-    switch (status) {
-        case 'pending':
-            return open ? 'pending' : 'skipped';
-        case 'queued':
-            return 'queued';
-        case 'running':
-            return 'running';
-        case 'completed':
-            return 'passed';
-        case 'failed':
-            return 'failed';
-        case 'reported':
-            return 'reported';
-        case 'skipped':
-        case 'not-run':
-            return 'skipped';
-        default:
-            // Statuses only grow: one this build does not know is not drawn as an outcome,
-            // and once the run is over it never came, like a pending step.
-            return open ? 'pending' : 'skipped';
-    }
+  switch (status) {
+    case 'pending':
+      return open ? 'pending' : 'skipped';
+    case 'queued':
+      return 'queued';
+    case 'running':
+      return 'running';
+    case 'completed':
+      return 'passed';
+    case 'failed':
+      return 'failed';
+    case 'reported':
+      return 'reported';
+    case 'skipped':
+    case 'not-run':
+      return 'skipped';
+    default:
+      // Statuses only grow: one this build does not know is not drawn as an outcome,
+      // and once the run is over it never came, like a pending step.
+      return open ? 'pending' : 'skipped';
+  }
 }
 
 /**
@@ -157,7 +182,10 @@ function stepStageState(status: StepRunStatus, open: boolean): RunStageState {
  * first) the first it did not run.
  */
 export function retryTargetOf(steps: StepRun[]): StepRun | undefined {
-    return steps.find((step) => step.status === 'failed') ?? steps.find((step) => step.status === 'not-run');
+  return (
+    steps.find((step) => step.status === 'failed') ??
+    steps.find((step) => step.status === 'not-run')
+  );
 }
 
 /**
@@ -166,7 +194,7 @@ export function retryTargetOf(steps: StepRun[]): StepRun | undefined {
  * approval or turned away in line never started, so it is run again instead.
  */
 export function runRetryTarget(run: RunRecord): StepRun | undefined {
-    return run.status === 'failed' && run.startedAt ? retryTargetOf(run.steps ?? []) : undefined;
+  return run.status === 'failed' && run.startedAt ? retryTargetOf(run.steps ?? []) : undefined;
 }
 
 /**
@@ -175,13 +203,13 @@ export function runRetryTarget(run: RunRecord): StepRun | undefined {
  * done its work, which is why retrying it warns first.
  */
 export function isInterruptedCommand(step: StepRun): boolean {
-    return (
-        step.kind === 'run' &&
-        step.status === 'failed' &&
-        Boolean(step.command?.intentAt) &&
-        step.command?.exitCode === undefined &&
-        step.command?.signal === undefined
-    );
+  return (
+    step.kind === 'run' &&
+    step.status === 'failed' &&
+    Boolean(step.command?.intentAt) &&
+    step.command?.exitCode === undefined &&
+    step.command?.signal === undefined
+  );
 }
 
 /** The error of a command Consola stopped, word for word: the engine's `describeFailure` (`stepWords.parity.test.ts`). */
@@ -196,14 +224,15 @@ export const COMMAND_TIMED_OUT = /^timed out after /;
  * result at all): either may have done its work, so retrying either warns.
  */
 export function endedWhileRunning(step: StepRun): 'stopped' | 'timed-out' | 'killed' | null {
-    if (step.kind !== 'run' || step.status !== 'failed') return null;
-    if (step.error === COMMAND_STOPPED) return 'stopped';
-    if (COMMAND_TIMED_OUT.test(step.error ?? '')) return 'timed-out';
-    return step.command?.signal !== undefined ? 'killed' : null;
+  if (step.kind !== 'run' || step.status !== 'failed') return null;
+  if (step.error === COMMAND_STOPPED) return 'stopped';
+  if (COMMAND_TIMED_OUT.test(step.error ?? '')) return 'timed-out';
+  return step.command?.signal !== undefined ? 'killed' : null;
 }
 
 /** The retry warning for a command Consola quit on, word for word. */
-const INTERRUPTED_WARNING = 'Consola quit while this command ran; check the pull request first — it may already be posted.';
+const INTERRUPTED_WARNING =
+  'Consola quit while this command ran; check the pull request first — it may already be posted.';
 
 /**
  * What Retry warns before it retries a step that may have done its work, or
@@ -211,62 +240,86 @@ const INTERRUPTED_WARNING = 'Consola quit while this command ran; check the pull
  * command ended while it ran, saying how, and what to check first (the run's
  * item, if it has one).
  */
-export function retryWarningOf(step: StepRun, item: { type?: 'pr' | 'issue' } | undefined): string | null {
-    if (isInterruptedCommand(step)) return INTERRUPTED_WARNING;
-    const ended = endedWhileRunning(step);
-    if (!ended) return null;
-    const how = { stopped: 'It was stopped', 'timed-out': 'It timed out', killed: 'It was killed' }[ended];
-    const check = item?.type === 'pr' ? 'the pull request' : item?.type === 'issue' ? 'the issue' : 'what it did';
-    return `${how} while it ran and may have done its work; check ${check} first.`;
+export function retryWarningOf(
+  step: StepRun,
+  item: { type?: 'pr' | 'issue' } | undefined,
+): string | null {
+  if (isInterruptedCommand(step)) return INTERRUPTED_WARNING;
+  const ended = endedWhileRunning(step);
+  if (!ended) return null;
+  const how = { stopped: 'It was stopped', 'timed-out': 'It timed out', killed: 'It was killed' }[
+    ended
+  ];
+  const check =
+    item?.type === 'pr' ? 'the pull request' : item?.type === 'issue' ? 'the issue' : 'what it did';
+  return `${how} while it ran and may have done its work; check ${check} first.`;
 }
 
 /** The stage the run is in now, or ended in, and how. */
-function stopPoint(run: RunRecord, keys: RunStageKey[], agent: boolean): { key: RunStageKey; state: RunStageState } {
-    const last = keys[keys.length - 1];
-    const has = (key: RunStageKey) => keys.includes(key);
-    switch (run.status) {
-        case 'needs-approval':
-            return { key: 'approval', state: 'waiting' };
-        case 'queued':
-            return { key: has('queue') ? 'queue' : last, state: 'queued' };
-        case 'running':
-            return run.startedAt || !has('preview') ? { key: 'run', state: 'running' } : { key: 'preview', state: 'running' };
-        case 'completed':
-            // A preview with nothing to do finishes there; approval and the run are not needed.
-            if (has('approval') && !agent && !run.startedAt) return { key: 'preview', state: 'passed' };
-            return { key: last, state: 'passed' };
-        case 'failed':
-            if (run.startedAt || (!has('approval') && !has('preview') && !has('queue'))) return { key: last, state: 'failed' };
-            if (agent) {
-                return run.approvedAt || !has('approval') ? { key: 'queue', state: 'failed' } : { key: 'approval', state: 'failed' };
-            }
-            // Asked, then refused when approved (the file changed meanwhile); else its preview failed.
-            if (run.approval && has('approval')) return { key: 'approval', state: 'failed' };
-            return { key: has('preview') ? 'preview' : last, state: 'failed' };
-        case 'rejected':
-            if (agent && (run.approvedAt || !has('approval'))) return { key: 'queue', state: 'stopped' };
-            return { key: has('approval') ? 'approval' : last, state: 'stopped' };
-    }
+function stopPoint(
+  run: RunRecord,
+  keys: RunStageKey[],
+  agent: boolean,
+): { key: RunStageKey; state: RunStageState } {
+  const last = keys[keys.length - 1];
+  const has = (key: RunStageKey) => keys.includes(key);
+  switch (run.status) {
+    case 'needs-approval':
+      return { key: 'approval', state: 'waiting' };
+    case 'queued':
+      return { key: has('queue') ? 'queue' : last, state: 'queued' };
+    case 'running':
+      return run.startedAt || !has('preview')
+        ? { key: 'run', state: 'running' }
+        : { key: 'preview', state: 'running' };
+    case 'completed':
+      // A preview with nothing to do finishes there; approval and the run are not needed.
+      if (has('approval') && !agent && !run.startedAt) return { key: 'preview', state: 'passed' };
+      return { key: last, state: 'passed' };
+    case 'failed':
+      if (run.startedAt || (!has('approval') && !has('preview') && !has('queue')))
+        return { key: last, state: 'failed' };
+      if (agent) {
+        return run.approvedAt || !has('approval')
+          ? { key: 'queue', state: 'failed' }
+          : { key: 'approval', state: 'failed' };
+      }
+      // Asked, then refused when approved (the file changed meanwhile); else its preview failed.
+      if (run.approval && has('approval')) return { key: 'approval', state: 'failed' };
+      return { key: has('preview') ? 'preview' : last, state: 'failed' };
+    case 'rejected':
+      if (agent && (run.approvedAt || !has('approval'))) return { key: 'queue', state: 'stopped' };
+      return { key: has('approval') ? 'approval' : last, state: 'stopped' };
+  }
 }
 
 /** Whether a completed run stopped at its preview: there was nothing to approve or run. */
 export function foundNothingToDo(run: RunRecord): boolean {
-    return run.status === 'completed' && run.mode === 'confirm' && !isAgentRunPreview(run.result) && !run.startedAt;
+  return (
+    run.status === 'completed' &&
+    run.mode === 'confirm' &&
+    !isAgentRunPreview(run.result) &&
+    !run.startedAt
+  );
 }
 
 function firstOf(...values: number[]): number {
-    return values.find((value) => Number.isFinite(value)) ?? NaN;
+  return values.find((value) => Number.isFinite(value)) ?? NaN;
 }
 
 function span(from: number, to: number): number | null {
-    return Number.isFinite(from) && Number.isFinite(to) && to >= from ? to - from : null;
+  return Number.isFinite(from) && Number.isFinite(to) && to >= from ? to - from : null;
 }
 
 /** How long a run worked: from its start to its end, or to now while it works. Null before it started. */
 export function workedMs(run: RunFacts, now: Date): number | null {
-    if (!run.startedAt) return null;
-    const end = run.finishedAt ? Date.parse(run.finishedAt) : run.status === 'running' ? now.getTime() : NaN;
-    return span(Date.parse(run.startedAt), end);
+  if (!run.startedAt) return null;
+  const end = run.finishedAt
+    ? Date.parse(run.finishedAt)
+    : run.status === 'running'
+      ? now.getTime()
+      : NaN;
+  return span(Date.parse(run.startedAt), end);
 }
 
 /**
@@ -275,8 +328,8 @@ export function workedMs(run: RunFacts, now: Date): number | null {
  * after a good run of passes, a personal best.
  */
 export interface RunNote {
-    tone: 'good' | 'bad' | 'neutral';
-    text: string;
+  tone: 'good' | 'bad' | 'neutral';
+  text: string;
 }
 
 /** Below this many runs to compare with, "fastest" says nothing. */
@@ -287,43 +340,53 @@ const FASTEST_AFTER = 5;
  * run itself among them; only those that worked to an end count.
  */
 export function runNotes(run: RunFacts, history: RunFacts[]): RunNote[] {
-    if (run.status !== 'completed' && run.status !== 'failed') return [];
-    const ended = history.filter((candidate) => candidate.status === 'completed' || candidate.status === 'failed');
-    const index = ended.findIndex((candidate) => candidate.id === run.id);
-    if (index === -1) return [];
-    const before = ended.slice(index + 1);
-    const leading = (status: RunFacts['status']) => {
-        const broken = before.findIndex((candidate) => candidate.status !== status);
-        return broken === -1 ? before.length : broken;
-    };
-    const notes: RunNote[] = [];
+  if (run.status !== 'completed' && run.status !== 'failed') return [];
+  const ended = history.filter(
+    (candidate) => candidate.status === 'completed' || candidate.status === 'failed',
+  );
+  const index = ended.findIndex((candidate) => candidate.id === run.id);
+  if (index === -1) return [];
+  const before = ended.slice(index + 1);
+  const leading = (status: RunFacts['status']) => {
+    const broken = before.findIndex((candidate) => candidate.status !== status);
+    return broken === -1 ? before.length : broken;
+  };
+  const notes: RunNote[] = [];
 
-    if (run.status === 'completed') {
-        const failures = leading('failed');
-        if (failures > 0) {
-            notes.push({
-                tone: 'good',
-                text: failures === 1 ? 'Passing again after a failure' : `Passing again after ${failures} failures`,
-            });
-        }
-        // Ended runs only, so "now" never counts.
-        const took = (candidate: RunFacts) => workedMs(candidate, new Date(0));
-        const timed = ended.filter((candidate) => candidate.status === 'completed' && took(candidate) !== null);
-        const mine = took(run);
-        if (mine !== null && timed.length >= FASTEST_AFTER) {
-            const fastest = timed.every((candidate) => candidate.id === run.id || mine < (took(candidate) ?? Infinity));
-            if (fastest) notes.push({ tone: 'good', text: `Fastest of ${timed.length} runs` });
-        }
-    } else {
-        const failures = leading('failed') + 1;
-        if (failures >= 2) {
-            notes.push({ tone: 'bad', text: `${failures} failures in a row` });
-        } else {
-            const passes = leading('completed');
-            if (passes >= 3) notes.push({ tone: 'neutral', text: `First failure after ${passes} passing runs` });
-        }
+  if (run.status === 'completed') {
+    const failures = leading('failed');
+    if (failures > 0) {
+      notes.push({
+        tone: 'good',
+        text:
+          failures === 1
+            ? 'Passing again after a failure'
+            : `Passing again after ${failures} failures`,
+      });
     }
-    return notes;
+    // Ended runs only, so "now" never counts.
+    const took = (candidate: RunFacts) => workedMs(candidate, new Date(0));
+    const timed = ended.filter(
+      (candidate) => candidate.status === 'completed' && took(candidate) !== null,
+    );
+    const mine = took(run);
+    if (mine !== null && timed.length >= FASTEST_AFTER) {
+      const fastest = timed.every(
+        (candidate) => candidate.id === run.id || mine < (took(candidate) ?? Infinity),
+      );
+      if (fastest) notes.push({ tone: 'good', text: `Fastest of ${timed.length} runs` });
+    }
+  } else {
+    const failures = leading('failed') + 1;
+    if (failures >= 2) {
+      notes.push({ tone: 'bad', text: `${failures} failures in a row` });
+    } else {
+      const passes = leading('completed');
+      if (passes >= 3)
+        notes.push({ tone: 'neutral', text: `First failure after ${passes} passing runs` });
+    }
+  }
+  return notes;
 }
 
 /** Below this many other runs, there is no "usual" to compare with. */
@@ -335,43 +398,57 @@ const USUAL_AFTER = 3;
  * or just "usual 1m 20s". A running run compares as it goes.
  */
 export function durationAgainstUsual(
-    run: RunFacts,
-    history: RunFacts[],
-    now: Date,
+  run: RunFacts,
+  history: RunFacts[],
+  now: Date,
 ): { text: string; tone: 'slow' | 'fast' | 'usual' } | null {
-    const mine = workedMs(run, now);
-    if (mine === null) return null;
-    const others = history
-        .filter((candidate) => candidate.id !== run.id && (candidate.status === 'completed' || candidate.status === 'failed'))
-        .map((candidate) => workedMs(candidate, now))
-        .filter((ms): ms is number => ms !== null)
-        .sort((a, b) => a - b);
-    if (others.length < USUAL_AFTER) return null;
-    const middle = Math.floor(others.length / 2);
-    const median = others.length % 2 === 1 ? others[middle] : (others[middle - 1] + others[middle]) / 2;
-    const usual = formatElapsed(median);
-    // Under two seconds either way is the same run to a person.
-    if (Math.abs(mine - median) < 2000 || median === 0) return { text: `usual ${usual}`, tone: 'usual' };
-    const ratio = mine / median;
-    if (ratio >= 1.5) return { text: `${ratio >= 10 ? Math.round(ratio) : ratio.toFixed(1)}× its usual ${usual}`, tone: 'slow' };
-    if (ratio <= 0.67) return { text: `faster than its usual ${usual}`, tone: 'fast' };
+  const mine = workedMs(run, now);
+  if (mine === null) return null;
+  const others = history
+    .filter(
+      (candidate) =>
+        candidate.id !== run.id &&
+        (candidate.status === 'completed' || candidate.status === 'failed'),
+    )
+    .map((candidate) => workedMs(candidate, now))
+    .filter((ms): ms is number => ms !== null)
+    .sort((a, b) => a - b);
+  if (others.length < USUAL_AFTER) return null;
+  const middle = Math.floor(others.length / 2);
+  const median =
+    others.length % 2 === 1 ? others[middle] : (others[middle - 1] + others[middle]) / 2;
+  const usual = formatElapsed(median);
+  // Under two seconds either way is the same run to a person.
+  if (Math.abs(mine - median) < 2000 || median === 0)
     return { text: `usual ${usual}`, tone: 'usual' };
+  const ratio = mine / median;
+  if (ratio >= 1.5)
+    return {
+      text: `${ratio >= 10 ? Math.round(ratio) : ratio.toFixed(1)}× its usual ${usual}`,
+      tone: 'slow',
+    };
+  if (ratio <= 0.67) return { text: `faster than its usual ${usual}`, tone: 'fast' };
+  return { text: `usual ${usual}`, tone: 'usual' };
 }
 
 /** The runs either side of this one in its automation's history (newest first), to step through them. */
-export function adjacentRuns(runId: string, history: RunFacts[]): { newer: string | null; older: string | null } {
-    const index = history.findIndex((candidate) => candidate.id === runId);
-    if (index === -1) return { newer: null, older: null };
-    return { newer: history[index - 1]?.id ?? null, older: history[index + 1]?.id ?? null };
+export function adjacentRuns(
+  runId: string,
+  history: RunFacts[],
+): { newer: string | null; older: string | null } {
+  const index = history.findIndex((candidate) => candidate.id === runId);
+  if (index === -1) return { newer: null, older: null };
+  return { newer: history[index - 1]?.id ?? null, older: history[index + 1]?.id ?? null };
 }
 
 /** The tools a run's steps called, most-called first, as "Read 12 · Bash 6". */
 export function toolCounts(entries: ConversationEntry[]): Array<{ tool: string; count: number }> {
-    const counts = new Map<string, number>();
-    for (const entry of entries) if (entry.kind === 'step') counts.set(entry.tool, (counts.get(entry.tool) ?? 0) + 1);
-    return [...counts]
-        .map(([tool, count]) => ({ tool, count }))
-        .sort((a, b) => b.count - a.count || a.tool.localeCompare(b.tool));
+  const counts = new Map<string, number>();
+  for (const entry of entries)
+    if (entry.kind === 'step') counts.set(entry.tool, (counts.get(entry.tool) ?? 0) + 1);
+  return [...counts]
+    .map(([tool, count]) => ({ tool, count }))
+    .sort((a, b) => b.count - a.count || a.tool.localeCompare(b.tool));
 }
 
 /**
@@ -383,21 +460,21 @@ export function toolCounts(entries: ConversationEntry[]): Array<{ tool: string; 
 export type StepState = 'passed' | 'failed' | 'running' | 'cut' | 'unknown';
 
 export function stepState(
-    entry: Extract<ConversationEntry, { kind: 'step' }>,
-    isLastStep: boolean,
-    runStatus: RunFacts['status'],
+  entry: Extract<ConversationEntry, { kind: 'step' }>,
+  isLastStep: boolean,
+  runStatus: RunFacts['status'],
 ): StepState {
-    if (entry.failed) return 'failed';
-    if (entry.endedAt) return 'passed';
-    if (isLastStep && runStatus === 'running') return 'running';
-    if (isLastStep && runStatus === 'failed') return 'cut';
-    return 'unknown';
+  if (entry.failed) return 'failed';
+  if (entry.endedAt) return 'passed';
+  if (isLastStep && runStatus === 'running') return 'running';
+  if (isLastStep && runStatus === 'failed') return 'cut';
+  return 'unknown';
 }
 
 /** The run's working time a step list draws its bars against, in epoch ms. */
 export interface Timeline {
-    start: number;
-    end: number;
+  start: number;
+  end: number;
 }
 
 /**
@@ -405,19 +482,28 @@ export interface Timeline {
  * on the transcript's first and last timestamps. Null when there is nothing
  * to measure against.
  */
-export function stepTimeline(run: RunFacts, entries: ConversationEntry[], now: Date): Timeline | null {
-    const stamps = entries.flatMap((entry) => {
-        const times = [entry.at, entry.kind === 'step' ? entry.endedAt : undefined];
-        return times.flatMap((iso) => (iso && Number.isFinite(Date.parse(iso)) ? [Date.parse(iso)] : []));
-    });
-    const start = firstOf(Date.parse(run.startedAt ?? ''), stamps.length > 0 ? Math.min(...stamps) : NaN);
-    const end = firstOf(
-        Date.parse(run.finishedAt ?? ''),
-        run.status === 'running' ? now.getTime() : NaN,
-        stamps.length > 0 ? Math.max(...stamps) : NaN,
+export function stepTimeline(
+  run: RunFacts,
+  entries: ConversationEntry[],
+  now: Date,
+): Timeline | null {
+  const stamps = entries.flatMap((entry) => {
+    const times = [entry.at, entry.kind === 'step' ? entry.endedAt : undefined];
+    return times.flatMap((iso) =>
+      iso && Number.isFinite(Date.parse(iso)) ? [Date.parse(iso)] : [],
     );
-    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null;
-    return { start, end };
+  });
+  const start = firstOf(
+    Date.parse(run.startedAt ?? ''),
+    stamps.length > 0 ? Math.min(...stamps) : NaN,
+  );
+  const end = firstOf(
+    Date.parse(run.finishedAt ?? ''),
+    run.status === 'running' ? now.getTime() : NaN,
+    stamps.length > 0 ? Math.max(...stamps) : NaN,
+  );
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null;
+  return { start, end };
 }
 
 /**
@@ -426,18 +512,22 @@ export function stepTimeline(run: RunFacts, entries: ConversationEntry[], now: D
  * tick where it began.
  */
 export function stepBar(
-    entry: Extract<ConversationEntry, { kind: 'step' }>,
-    state: StepState,
-    timeline: Timeline,
-    now: Date,
+  entry: Extract<ConversationEntry, { kind: 'step' }>,
+  state: StepState,
+  timeline: Timeline,
+  now: Date,
 ): { left: number; width: number; ms: number | null } | null {
-    const at = Date.parse(entry.at ?? '');
-    if (!Number.isFinite(at)) return null;
-    const ended = entry.endedAt ? Date.parse(entry.endedAt) : state === 'running' ? now.getTime() : NaN;
-    const ms = span(at, ended);
-    const length = timeline.end - timeline.start;
-    const clamp = (value: number) => Math.min(1, Math.max(0, value));
-    const left = clamp((at - timeline.start) / length);
-    const width = ms === null ? 0 : Math.min(1 - left, ms / length);
-    return { left, width, ms };
+  const at = Date.parse(entry.at ?? '');
+  if (!Number.isFinite(at)) return null;
+  const ended = entry.endedAt
+    ? Date.parse(entry.endedAt)
+    : state === 'running'
+      ? now.getTime()
+      : NaN;
+  const ms = span(at, ended);
+  const length = timeline.end - timeline.start;
+  const clamp = (value: number) => Math.min(1, Math.max(0, value));
+  const left = clamp((at - timeline.start) / length);
+  const width = ms === null ? 0 : Math.min(1 - left, ms / length);
+  return { left, width, ms };
 }

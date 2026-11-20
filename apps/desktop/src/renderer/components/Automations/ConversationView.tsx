@@ -1,12 +1,26 @@
 import { useEffect, useState } from 'react';
-import { CircleCheck, CircleDashed, CircleSlash, CircleX, LoaderCircle, type LucideIcon } from 'lucide-react';
+import {
+  CircleCheck,
+  CircleDashed,
+  CircleSlash,
+  CircleX,
+  LoaderCircle,
+  type LucideIcon,
+} from 'lucide-react';
 import type { RunRecord } from '../../../shared/automations';
 import type { ConversationEntry, RunConversation } from '../../../shared/conversation';
 import { automationsBridge } from '../../services/automationsBridge';
 import { ipcErrorMessage } from '../../utils/ipcErrorMessage';
 import { MarkdownRenderer } from '../Markdown';
 import { collapseSteps, finalAnswer, formatElapsed } from './presentation';
-import { stepBar, stepState, stepTimeline, toolCounts, type StepState, type Timeline } from './runPage';
+import {
+  stepBar,
+  stepState,
+  stepTimeline,
+  toolCounts,
+  type StepState,
+  type Timeline,
+} from './runPage';
 
 /** How often a running run's transcript is read again. */
 const FOLLOW_INTERVAL_MS = 2000;
@@ -102,9 +116,14 @@ export function useRunConversation(
 }
 
 /** The step a failed run broke at: the one it was in when it stopped, else its last failed step. */
-export function brokenStep(entries: ConversationEntry[], run: RunRecord): { index: number; step: Step; cut: boolean } | null {
+export function brokenStep(
+  entries: ConversationEntry[],
+  run: RunRecord,
+): { index: number; step: Step; cut: boolean } | null {
   if (run.status !== 'failed') return null;
-  const steps = entries.flatMap((entry, index) => (entry.kind === 'step' ? [{ index, step: entry }] : []));
+  const steps = entries.flatMap((entry, index) =>
+    entry.kind === 'step' ? [{ index, step: entry }] : [],
+  );
   const last = steps[steps.length - 1];
   if (last && stepState(last.step, true, run.status) === 'cut') return { ...last, cut: true };
   const failed = [...steps].reverse().find(({ step }) => step.failed);
@@ -185,7 +204,9 @@ export function RunSteps({
               </span>
             ))}
             {tools.length > TOOLS_NAMED && <span>+{tools.length - TOOLS_NAMED} more</span>}
-            {failed > 0 && <span className="automations-steplog-failed-count">{failed} failed</span>}
+            {failed > 0 && (
+              <span className="automations-steplog-failed-count">{failed} failed</span>
+            )}
           </>
         ) : (
           <span>{following ? 'No steps yet.' : 'It answered without calling a tool.'}</span>
@@ -200,7 +221,9 @@ export function RunSteps({
           <pre className="automations-prompt">{prompt}</pre>
         </details>
       )}
-      {truncated && <p className="automations-hint">A long transcript: its earliest steps are left out.</p>}
+      {truncated && (
+        <p className="automations-hint">A long transcript: its earliest steps are left out.</p>
+      )}
       {shown.length > 0 && (
         <ol className={`automations-steplog ${timeline ? '' : 'automations-steplog-untimed'}`}>
           {timeline && (
@@ -213,13 +236,20 @@ export function RunSteps({
           )}
           {shown.map((entry, position) => {
             if (entry.kind === 'more') {
-              const hiddenFailed = entry.hidden.filter((hidden) => hidden.kind === 'step' && hidden.failed).length;
+              const hiddenFailed = entry.hidden.filter(
+                (hidden) => hidden.kind === 'step' && hidden.failed,
+              ).length;
               return (
                 <li key={`more-${position}`} className="automations-steplog-more">
                   <button type="button" className="automations-link-button" onClick={onExpand}>
                     {entry.count} more steps
                   </button>
-                  {hiddenFailed > 0 && <span className="automations-steplog-failed-count"> · {hiddenFailed} failed</span>}
+                  {hiddenFailed > 0 && (
+                    <span className="automations-steplog-failed-count">
+                      {' '}
+                      · {hiddenFailed} failed
+                    </span>
+                  )}
                 </li>
               );
             }
@@ -265,9 +295,20 @@ function StepRow({
   const bar = timeline ? stepBar(step, state, timeline, now) : null;
   const took = bar?.ms ?? null;
   const call = step.detail ? `${step.tool} ${step.detail}` : step.tool;
-  const when = step.at ? new Date(step.at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : null;
+  const when = step.at
+    ? new Date(step.at).toLocaleTimeString(undefined, {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      })
+    : null;
   return (
-    <li id={id} tabIndex={-1} className={`automations-steplog-row automations-steplog-${state}`} title={call}>
+    <li
+      id={id}
+      tabIndex={-1}
+      className={`automations-steplog-row automations-steplog-${state}`}
+      title={call}
+    >
       <Icon size={14} className="automations-steplog-icon" aria-label={STEP_WORDS[state]} />
       <span className="automations-steplog-call">
         <span className="automations-steplog-tool">{step.tool}</span>
@@ -281,12 +322,19 @@ function StepRow({
       <span
         className="automations-steplog-track"
         aria-hidden="true"
-        title={when ? `Started ${when}${took !== null ? `, took ${formatElapsed(took)}` : ''}` : undefined}
+        title={
+          when
+            ? `Started ${when}${took !== null ? `, took ${formatElapsed(took)}` : ''}`
+            : undefined
+        }
       >
         {bar && (
           <span
             className="automations-steplog-bar"
-            style={{ left: `${(bar.left * 100).toFixed(2)}%`, width: `${(bar.width * 100).toFixed(2)}%` }}
+            style={{
+              left: `${(bar.left * 100).toFixed(2)}%`,
+              width: `${(bar.width * 100).toFixed(2)}%`,
+            }}
           />
         )}
       </span>
@@ -301,7 +349,11 @@ export function RunAnswer({ entries }: { entries: ConversationEntry[] }) {
   if (answer === null) return null;
   return (
     <div className="automations-answer">
-      <MarkdownRenderer content={answer} enableCommandHighlighting={false} resolveImageSrc={dropImage} />
+      <MarkdownRenderer
+        content={answer}
+        enableCommandHighlighting={false}
+        resolveImageSrc={dropImage}
+      />
     </div>
   );
 }

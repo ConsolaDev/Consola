@@ -10,7 +10,7 @@ import type { EngineToolCaller, EngineToolContext } from './ports';
 
 /** A caught value as a label. Deliberately shallow: never reads `.stderr` or argv. */
 export function describeError(error: unknown): string {
-    return error instanceof Error ? error.message : String(error);
+  return error instanceof Error ? error.message : String(error);
 }
 
 export const CONSOLA_NAMESPACE = 'consola';
@@ -20,25 +20,30 @@ export const CONSOLA_NAMESPACE = 'consola';
  * Resolved from the session at the moment of the call.
  */
 export function agentToolContext(
-    sessionId: string,
-    workspaces: WorkspaceView[]
+  sessionId: string,
+  workspaces: WorkspaceView[],
 ): EngineToolContext & { caller: Extract<EngineToolCaller, { kind: 'agent' }> } {
-    const workspace = workspaces.find((candidate) => candidate.sessions.some((session) => session.id === sessionId));
-    if (!workspace) throw new Error('Calling session no longer exists.');
-    return {
-        caller: { kind: 'agent', sessionId, workspaceId: workspace.id },
-        scope: { workspaceIds: [workspace.id], excludeSessionIds: [sessionId] },
-    };
+  const workspace = workspaces.find((candidate) =>
+    candidate.sessions.some((session) => session.id === sessionId),
+  );
+  if (!workspace) throw new Error('Calling session no longer exists.');
+  return {
+    caller: { kind: 'agent', sessionId, workspaceId: workspace.id },
+    scope: { workspaceIds: [workspace.id], excludeSessionIds: [sessionId] },
+  };
 }
 
 /** The first action that applies to `itemType`, in the person's own order. */
-export function firstActionFor(actions: ActionView[], itemType: 'pr' | 'issue'): ActionView | undefined {
-    return actions.find((action) => action.appliesTo.includes(itemType));
+export function firstActionFor(
+  actions: ActionView[],
+  itemType: 'pr' | 'issue',
+): ActionView | undefined {
+  return actions.find((action) => action.appliesTo.includes(itemType));
 }
 
 /** The workspace's first scope, which is its "workspace folder". */
 export function firstScope(workspace: Pick<WorkspaceView, 'scopes'>): ScopeView | undefined {
-    return workspace.scopes[0];
+  return workspace.scopes[0];
 }
 
 const PLACEHOLDER_PATTERN = /\{\{\s*(number|repo|title|url|type)\s*\}\}/g;
@@ -48,17 +53,17 @@ const PLACEHOLDER_PATTERN = /\{\{\s*(number|repo|title|url|type)\s*\}\}/g;
  * as typed. A template with no placeholders comes back untouched.
  */
 export function fillActionPlaceholders(
-    template: string,
-    item: { workItem: ItemRef; title: string; url: string }
+  template: string,
+  item: { workItem: ItemRef; title: string; url: string },
 ): string {
-    const values: Record<string, string> = {
-        number: String(item.workItem.number),
-        repo: item.workItem.repo,
-        title: item.title,
-        url: item.url,
-        type: item.workItem.type === 'pr' ? 'pull request' : 'issue',
-    };
-    return template.replace(PLACEHOLDER_PATTERN, (_match, key: string) => values[key]);
+  const values: Record<string, string> = {
+    number: String(item.workItem.number),
+    repo: item.workItem.repo,
+    title: item.title,
+    url: item.url,
+    type: item.workItem.type === 'pr' ? 'pull request' : 'issue',
+  };
+  return template.replace(PLACEHOLDER_PATTERN, (_match, key: string) => values[key]);
 }
 
 /**
@@ -66,10 +71,10 @@ export function fillActionPlaceholders(
  * on its way: their session is the review, and the automation's run is moot.
  */
 export class StartedByHandError extends Error {
-    constructor(readonly sessionName: string) {
-        super(`Already started by hand: “${sessionName}”.`);
-        this.name = 'StartedByHandError';
-    }
+  constructor(readonly sessionName: string) {
+    super(`Already started by hand: “${sessionName}”.`);
+    this.name = 'StartedByHandError';
+  }
 }
 
 /** What a run says when the person opened its session before Consola could resume it. */
@@ -81,8 +86,8 @@ export const SESSION_OPENED_MESSAGE = 'You opened its session before Consola cou
  * would fork it. Typed, so the runner tells it from any other failed resume.
  */
 export class SessionOpenedError extends Error {
-    constructor() {
-        super(SESSION_OPENED_MESSAGE);
-        this.name = 'SessionOpenedError';
-    }
+  constructor() {
+    super(SESSION_OPENED_MESSAGE);
+    this.name = 'SessionOpenedError';
+  }
 }

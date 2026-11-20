@@ -1,5 +1,10 @@
 import { useState } from 'react';
-import { isAgentRunPreview, isStepsRunPreview, runTitle, type RunRecord } from '../../../shared/automations';
+import {
+  isAgentRunPreview,
+  isStepsRunPreview,
+  runTitle,
+  type RunRecord,
+} from '../../../shared/automations';
 import { automationsBridge } from '../../services/automationsBridge';
 import { ipcErrorMessage } from '../../utils/ipcErrorMessage';
 import { AgentRunDetails, CleanupDetails } from '../Automations/parts';
@@ -48,7 +53,11 @@ export function AssistantTray({ requests, onHide }: { requests: RunRecord[]; onH
         {requests.map((run) => {
           const agentRun = isAgentRunPreview(run.result) ? run.result : null;
           return (
-            <article key={run.id} className="automations-card automations-card-waiting assistant-tray-card" aria-label={runTitle(run)}>
+            <article
+              key={run.id}
+              className="automations-card automations-card-waiting assistant-tray-card"
+              aria-label={runTitle(run)}
+            >
               <div className="automations-card-heading">
                 <span className="automations-name">{runTitle(run)}</span>
                 <span className="automations-meta">{formatTime(run.createdAt)}</span>
@@ -58,21 +67,35 @@ export function AssistantTray({ requests, onHide }: { requests: RunRecord[]; onH
                 <StepsApprovalCard runId={run.id} itemType={run.trigger.item?.type ?? null} />
               ) : (
                 <>
-                  {agentRun ? <AgentRunDetails preview={agentRun} /> : <CleanupDetails result={run.result} />}
+                  {agentRun ? (
+                    <AgentRunDetails preview={agentRun} />
+                  ) : (
+                    <CleanupDetails result={run.result} />
+                  )}
                   <div className="automations-card-actions">
                     <button
                       type="button"
                       className="dialog-button-primary automations-small-button"
                       disabled={busy !== null}
-                      onClick={() => void act(`approve:${run.id}`, () => automationsBridge.approve(run.id))}
+                      onClick={() =>
+                        void act(`approve:${run.id}`, () => automationsBridge.approve(run.id))
+                      }
                     >
-                      {busy === `approve:${run.id}` ? (agentRun ? 'Starting…' : 'Running…') : agentRun ? 'Start' : 'Approve'}
+                      {busy === `approve:${run.id}`
+                        ? agentRun
+                          ? 'Starting…'
+                          : 'Running…'
+                        : agentRun
+                          ? 'Start'
+                          : 'Approve'}
                     </button>
                     <button
                       type="button"
                       className="dialog-button-secondary automations-small-button"
                       disabled={busy !== null}
-                      onClick={() => void act(`dismiss:${run.id}`, () => automationsBridge.dismiss(run.id))}
+                      onClick={() =>
+                        void act(`dismiss:${run.id}`, () => automationsBridge.dismiss(run.id))
+                      }
                     >
                       Dismiss
                     </button>

@@ -7,8 +7,11 @@ export const ASSIGNED_REVIEWS_NAME = 'review-assigned-prs';
  * reads as something else, so they are quoted too.
  */
 export function yamlName(name: string): string {
-    const plain = /^[A-Za-z][A-Za-z0-9 _-]*$/.test(name) && !/^(true|false|null)$/i.test(name) && name === name.trim();
-    return plain ? name : JSON.stringify(name);
+  const plain =
+    /^[A-Za-z][A-Za-z0-9 _-]*$/.test(name) &&
+    !/^(true|false|null)$/i.test(name) &&
+    name === name.trim();
+  return plain ? name : JSON.stringify(name);
 }
 
 /**
@@ -26,7 +29,7 @@ export function yamlName(name: string): string {
  * approves (decision 7). The spec's entry, verbatim.
  */
 export function assignedReviewsEntry(): string {
-    return ASSIGNED_REVIEWS_ENTRY;
+  return ASSIGNED_REVIEWS_ENTRY;
 }
 
 const ASSIGNED_REVIEWS_ENTRY = String.raw`- name: review-assigned-prs
@@ -69,10 +72,10 @@ const ASSIGNED_REVIEWS_ENTRY = String.raw`- name: review-assigned-prs
         BODY_FILE: "{{steps.review.handover.file}}"`;
 
 const indent = (text: string, prefix: string) =>
-    text
-        .split('\n')
-        .map((line) => `${prefix}${line}`)
-        .join('\n');
+  text
+    .split('\n')
+    .map((line) => `${prefix}${line}`)
+    .join('\n');
 
 /**
  * A file with no automations yet: what saving an entry starts from when there
@@ -91,11 +94,11 @@ automations:
 
 /** What review-assigned-prs does, said where a person reading the file meets it. */
 const ASSIGNED_REVIEWS_DESCRIPTION = [
-    'When a pull request asks for your review or is assigned to you, a',
-    'read-only agent reviews it in a checkout of its own, and Consola posts the',
-    'review on GitHub as you, as a comment or a request for changes, never an',
-    'approval. It skips a commit it already reviewed. "auto" asks you once',
-    'first, with every command shown.',
+  'When a pull request asks for your review or is assigned to you, a',
+  'read-only agent reviews it in a checkout of its own, and Consola posts the',
+  'review on GitHub as you, as a comment or a request for changes, never an',
+  'approval. It skips a commit it already reviewed. "auto" asks you once',
+  'first, with every command shown.',
 ].join('\n');
 
 /**
@@ -103,7 +106,8 @@ const ASSIGNED_REVIEWS_DESCRIPTION = [
  * file" writes it either way — and it stays in the file after the banner's Add
  * appends a live copy, so it warns off turning this one on as well.
  */
-const TURN_ON_HINT = 'Needs a GitHub account. Turn it on here by uncommenting it, or with Add on the Automations page — not both.';
+const TURN_ON_HINT =
+  'Needs a GitHub account. Turn it on here by uncommenting it, or with Add on the Automations page — not both.';
 
 const CLEANUP_EXAMPLE = `  # - name: clean-up-stale-sessions
   #   # Every morning, remove sessions whose pull request was merged or closed,
@@ -126,9 +130,9 @@ const CLEANUP_EXAMPLE = `  # - name: clean-up-stale-sessions
  * level as the YAML would become YAML, and the file would stop loading.
  */
 export function factoryTemplate(options: { reviewsLive: boolean }): string {
-    const [name, ...rest] = assignedReviewsEntry().split('\n');
-    const review = options.reviewsLive
-        ? `${indent(ASSIGNED_REVIEWS_DESCRIPTION, '  # ')}\n${indent(assignedReviewsEntry(), '  ')}\n`
-        : `${indent([name, `  # ${TURN_ON_HINT}`, indent(ASSIGNED_REVIEWS_DESCRIPTION, '  # '), ...rest].join('\n'), '  # ')}\n`;
-    return `${EMPTY_FACTORY_FILE}${review}${CLEANUP_EXAMPLE}`;
+  const [name, ...rest] = assignedReviewsEntry().split('\n');
+  const review = options.reviewsLive
+    ? `${indent(ASSIGNED_REVIEWS_DESCRIPTION, '  # ')}\n${indent(assignedReviewsEntry(), '  ')}\n`
+    : `${indent([name, `  # ${TURN_ON_HINT}`, indent(ASSIGNED_REVIEWS_DESCRIPTION, '  # '), ...rest].join('\n'), '  # ')}\n`;
+  return `${EMPTY_FACTORY_FILE}${review}${CLEANUP_EXAMPLE}`;
 }

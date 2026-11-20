@@ -1,6 +1,11 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { SquareTerminal } from 'lucide-react';
-import type { LogTail, RunRecord, StepDetail as StepDetailData, StepRun } from '../../../shared/automations';
+import type {
+  LogTail,
+  RunRecord,
+  StepDetail as StepDetailData,
+  StepRun,
+} from '../../../shared/automations';
 import type { Workspace } from '../../../shared/workspace';
 import { automationsBridge } from '../../services/automationsBridge';
 import { ipcErrorMessage } from '../../utils/ipcErrorMessage';
@@ -9,7 +14,14 @@ import { MarkdownRenderer } from '../Markdown';
 import { RunSteps, useRunConversation } from './ConversationView';
 import { useNow } from './parts';
 import { formatElapsed } from './presentation';
-import { attemptsLine, durationOf, logWasCapped, stepHeading, variableRows, visibleTail } from './stepDetail';
+import {
+  attemptsLine,
+  durationOf,
+  logWasCapped,
+  stepHeading,
+  variableRows,
+  visibleTail,
+} from './stepDetail';
 
 /** What a log read said when the file's own cap cut it short. */
 export const LOG_CAPPED = 'The command wrote more than this; Consola kept the first 1 MB.';
@@ -17,7 +29,10 @@ export const LOG_CAPPED = 'The command wrote more than this; Consola kept the fi
 /** An image in an artifact is never fetched: someone else's text could point it anywhere. */
 const dropImage = () => undefined;
 
-type Read<T> = { state: 'loading' } | { state: 'ready'; value: T } | { state: 'failed'; reason: string };
+type Read<T> =
+  | { state: 'loading' }
+  | { state: 'ready'; value: T }
+  | { state: 'failed'; reason: string };
 
 /**
  * One step of a run, read from its folder: an agent's session, transcript,
@@ -28,7 +43,15 @@ type Read<T> = { state: 'loading' } | { state: 'ready'; value: T } | { state: 'f
  * The caller keys it by run and step, so a step switch starts clean and a
  * late answer for the old step has nowhere to land.
  */
-export function StepDetail({ workspace, run, step }: { workspace: Workspace; run: RunRecord; step: StepRun }) {
+export function StepDetail({
+  workspace,
+  run,
+  step,
+}: {
+  workspace: Workspace;
+  run: RunRecord;
+  step: StepRun;
+}) {
   const [detail, setDetail] = useState<Read<StepDetailData | null>>({ state: 'loading' });
   const requests = useRef(0);
 
@@ -40,7 +63,8 @@ export function StepDetail({ workspace, run, step }: { workspace: Workspace; run
         if (request === requests.current) setDetail({ state: 'ready', value });
       },
       (failure: unknown) => {
-        if (request === requests.current) setDetail({ state: 'failed', reason: ipcErrorMessage(failure) });
+        if (request === requests.current)
+          setDetail({ state: 'failed', reason: ipcErrorMessage(failure) });
       },
     );
     return () => {
@@ -52,7 +76,10 @@ export function StepDetail({ workspace, run, step }: { workspace: Workspace; run
   const attempts = attemptsLine(record);
 
   return (
-    <section className="automations-detail-section automations-run-section automations-step-detail" aria-label={`Step ${step.id}`}>
+    <section
+      className="automations-detail-section automations-run-section automations-step-detail"
+      aria-label={`Step ${step.id}`}
+    >
       <div className="automations-detail-section-head">
         <h3 className="automations-section-title">{stepHeading(record, run.dryRun === true)}</h3>
         <span className="automations-hint">
@@ -71,7 +98,12 @@ export function StepDetail({ workspace, run, step }: { workspace: Workspace; run
       {record.kind === 'agent' ? (
         <AgentBody workspace={workspace} run={run} step={record} />
       ) : (
-        <CommandBody run={run} step={record} detail={detail.state === 'ready' ? detail.value : null} loaded={detail.state === 'ready'} />
+        <CommandBody
+          run={run}
+          step={record}
+          detail={detail.state === 'ready' ? detail.value : null}
+          loaded={detail.state === 'ready'}
+        />
       )}
       <Outputs outputs={record.outputs} />
     </section>
@@ -98,12 +130,22 @@ function Outputs({ outputs }: { outputs: StepRun['outputs'] }) {
 }
 
 /** The session, its transcript while it works and after, and the artifacts it wrote. */
-function AgentBody({ workspace, run, step }: { workspace: Workspace; run: RunRecord; step: StepRun }) {
+function AgentBody({
+  workspace,
+  run,
+  step,
+}: {
+  workspace: Workspace;
+  run: RunRecord;
+  step: StepRun;
+}) {
   const ids = useId();
   const [expanded, setExpanded] = useState(false);
   const following = step.status === 'running';
   const now = useNow(following ? 1000 : null);
-  const session = step.sessionId ? workspace.sessions.find((candidate) => candidate.id === step.sessionId) : undefined;
+  const session = step.sessionId
+    ? workspace.sessions.find((candidate) => candidate.id === step.sessionId)
+    : undefined;
   const hasConversation = step.conversation !== undefined || step.sessionId !== undefined;
   const { conversation, error } = useRunConversation(run.id, hasConversation, following, step.id);
   const transcript = conversation?.readable ? conversation.conversation : null;
@@ -143,9 +185,15 @@ function AgentBody({ workspace, run, step }: { workspace: Workspace; run: RunRec
           ) : !conversation ? (
             <p className="automations-hint">Reading its transcript…</p>
           ) : !conversation.readable ? (
-            <p className="automations-hint">This harness’s transcripts can’t be read here. Open the session to see what it did.</p>
+            <p className="automations-hint">
+              This harness’s transcripts can’t be read here. Open the session to see what it did.
+            </p>
           ) : !transcript ? (
-            <p className="automations-hint">{following ? 'Nothing in its transcript yet.' : 'Its transcript is no longer on disk.'}</p>
+            <p className="automations-hint">
+              {following
+                ? 'Nothing in its transcript yet.'
+                : 'Its transcript is no longer on disk.'}
+            </p>
           ) : (
             <>
               {error && (
@@ -173,7 +221,10 @@ function AgentBody({ workspace, run, step }: { workspace: Workspace; run: RunRec
 
 /** Artifacts by name and size; one opens in the sanitizing renderer under its label. */
 function Artifacts({ runId, step }: { runId: string; step: StepRun }) {
-  const [open, setOpen] = useState<{ name: string; read: Read<{ content: string; bytes: number } | null> } | null>(null);
+  const [open, setOpen] = useState<{
+    name: string;
+    read: Read<{ content: string; bytes: number } | null>;
+  } | null>(null);
   const requests = useRef(0);
   useEffect(
     () => () => {
@@ -192,7 +243,8 @@ function Artifacts({ runId, step }: { runId: string; step: StepRun }) {
         if (request === requests.current) setOpen({ name, read: { state: 'ready', value } });
       },
       (failure: unknown) => {
-        if (request === requests.current) setOpen({ name, read: { state: 'failed', reason: ipcErrorMessage(failure) } });
+        if (request === requests.current)
+          setOpen({ name, read: { state: 'failed', reason: ipcErrorMessage(failure) } });
       },
     );
   };
@@ -203,7 +255,11 @@ function Artifacts({ runId, step }: { runId: string; step: StepRun }) {
       <ul className="automations-step-list">
         {artifacts.map((artifact) => (
           <li key={artifact.name}>
-            <button type="button" className="automations-link-button" onClick={() => show(artifact.name)}>
+            <button
+              type="button"
+              className="automations-link-button"
+              onClick={() => show(artifact.name)}
+            >
               {artifact.name}
             </button>{' '}
             <span className="automations-hint">{formatBytes(artifact.bytes)}</span>
@@ -223,7 +279,11 @@ function Artifacts({ runId, step }: { runId: string; step: StepRun }) {
             <p className="automations-hint">{open.name} is no longer on disk.</p>
           ) : (
             <div className="automations-answer">
-              <MarkdownRenderer content={open.read.value.content} enableCommandHighlighting={false} resolveImageSrc={dropImage} />
+              <MarkdownRenderer
+                content={open.read.value.content}
+                enableCommandHighlighting={false}
+                resolveImageSrc={dropImage}
+              />
             </div>
           )}
         </div>
@@ -309,11 +369,23 @@ function CommandBody({
 }
 
 /** One stream's tail as plain text, with Show all for the rest of the file. */
-function Log({ runId, step, stream, initial }: { runId: string; step: StepRun; stream: 'stdout' | 'stderr'; initial: LogTail | undefined }) {
+function Log({
+  runId,
+  step,
+  stream,
+  initial,
+}: {
+  runId: string;
+  step: StepRun;
+  stream: 'stdout' | 'stderr';
+  initial: LogTail | undefined;
+}) {
   // What Show all read; it wins only while the file is the size it was read at.
   const [full, setFull] = useState<LogTail | undefined>(undefined);
   const tail = visibleTail(initial, full);
-  const [all, setAll] = useState<{ state: 'idle' | 'loading' } | { state: 'failed'; reason: string } | { state: 'gone' }>({ state: 'idle' });
+  const [all, setAll] = useState<
+    { state: 'idle' | 'loading' } | { state: 'failed'; reason: string } | { state: 'gone' }
+  >({ state: 'idle' });
   const requests = useRef(0);
   useEffect(
     () => () => {
@@ -333,7 +405,8 @@ function Log({ runId, step, stream, initial }: { runId: string; step: StepRun; s
         setAll({ state: 'idle' });
       },
       (failure: unknown) => {
-        if (request === requests.current) setAll({ state: 'failed', reason: ipcErrorMessage(failure) });
+        if (request === requests.current)
+          setAll({ state: 'failed', reason: ipcErrorMessage(failure) });
       },
     );
   };
@@ -356,7 +429,12 @@ function Log({ runId, step, stream, initial }: { runId: string; step: StepRun; s
       {tail?.truncated && (
         <p className="automations-hint">
           Showing the end of the log.{' '}
-          <button type="button" className="automations-link-button" disabled={all.state === 'loading'} onClick={showAll}>
+          <button
+            type="button"
+            className="automations-link-button"
+            disabled={all.state === 'loading'}
+            onClick={showAll}
+          >
             {all.state === 'loading' ? 'Reading…' : 'Show all'}
           </button>
         </p>

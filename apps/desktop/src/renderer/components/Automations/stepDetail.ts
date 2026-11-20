@@ -47,7 +47,9 @@ export function attemptsLine(record: StepRun): string | null {
   if (record.attempt > 1 || previous.length > 0) {
     let line = `Attempt ${record.attempt}`;
     if (previous.length > 0) {
-      const listed = [...previous].sort((a, b) => a.attempt - b.attempt).map((earlier) => `${earlier.attempt} ${earlierWords(earlier.status)}`);
+      const listed = [...previous]
+        .sort((a, b) => a.attempt - b.attempt)
+        .map((earlier) => `${earlier.attempt} ${earlierWords(earlier.status)}`);
       line += ` · earlier: ${listed.join(', ')}`;
     }
     parts.push(line);
@@ -62,7 +64,11 @@ export function attemptsLine(record: StepRun): string | null {
 export function durationOf(record: StepRun, now: Date): number | null {
   if (!record.startedAt) return null;
   const start = Date.parse(record.startedAt);
-  const end = record.finishedAt ? Date.parse(record.finishedAt) : record.status === 'running' ? now.getTime() : NaN;
+  const end = record.finishedAt
+    ? Date.parse(record.finishedAt)
+    : record.status === 'running'
+      ? now.getTime()
+      : NaN;
   if (Number.isNaN(start) || Number.isNaN(end)) return null;
   return Math.max(0, end - start);
 }
@@ -80,6 +86,9 @@ export function logWasCapped(wrote: number | undefined): boolean {
  * was read at; else the latest tail. A refetch hands back a fresh object, so
  * identity is no signal; the size is.
  */
-export function visibleTail(initial: LogTail | undefined, full: LogTail | undefined): LogTail | undefined {
+export function visibleTail(
+  initial: LogTail | undefined,
+  full: LogTail | undefined,
+): LogTail | undefined {
   return full && (!initial || initial.bytes === full.bytes) ? full : initial;
 }

@@ -2,11 +2,23 @@ import { useId, type MouseEvent } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import * as Tooltip from '@radix-ui/react-tooltip';
 import { AlertTriangle, Bot, Clock, Ellipsis, Hand, History, Inbox, Wrench } from 'lucide-react';
-import type { AutomationsSnapshot, AutomationView, RunListEntry } from '../../../shared/automations';
+import type {
+  AutomationsSnapshot,
+  AutomationView,
+  RunListEntry,
+} from '../../../shared/automations';
 import type { Workspace } from '../../../shared/workspace';
 import { automationsBridge } from '../../services/automationsBridge';
 import { useAutomationsStore, WINDOW_LOADED_AT } from '../../stores/automationsStore';
-import { RunNowButton, StatusDot, useArrivals, useArrivedOnMount, useIntent, useMarkRunsSeen, useNow } from './parts';
+import {
+  RunNowButton,
+  StatusDot,
+  useArrivals,
+  useArrivedOnMount,
+  useIntent,
+  useMarkRunsSeen,
+  useNow,
+} from './parts';
 import {
   ASSIGNED_REVIEWS_OFFER,
   formatAgo,
@@ -47,10 +59,18 @@ import { GetStarted } from './TemplatesTab';
  * then the next run. How the last run went stays at every width — it is
  * what the table is opened for, and what counts as seeing a failure.
  */
-export function AutomationsTab({ workspace, snapshot }: { workspace: Workspace; snapshot: AutomationsSnapshot }) {
+export function AutomationsTab({
+  workspace,
+  snapshot,
+}: {
+  workspace: Workspace;
+  snapshot: AutomationsSnapshot;
+}) {
   const openPanel = useAutomationsStore((state) => state.openPanel);
   const showAutomationRuns = useAutomationsStore((state) => state.showAutomationRuns);
-  const openName = useAutomationsStore((state) => (state.panel?.kind === 'automation' ? state.panel.name : null));
+  const openName = useAutomationsStore((state) =>
+    state.panel?.kind === 'automation' ? state.panel.name : null,
+  );
   const lastSeen = useAutomationsStore((state) => state.lastSeen[workspace.id] ?? WINDOW_LOADED_AT);
   const { busy, error, act } = useIntent();
   const arrivals = useArrivals(snapshot.runs);
@@ -62,13 +82,25 @@ export function AutomationsTab({ workspace, snapshot }: { workspace: Workspace; 
 
   return (
     <div className="automations-activity">
-      {error && <div className="automations-error" role="alert">{error}</div>}
+      {error && (
+        <div className="automations-error" role="alert">
+          {error}
+        </div>
+      )}
       {snapshot.issues.length > 0 && <FileIssues snapshot={snapshot} />}
       {waiting.length > 0 && (
-        <WaitingForYou runs={waiting} now={now} onReview={(runId) => openPanel({ kind: 'run', runId })} />
+        <WaitingForYou
+          runs={waiting}
+          now={now}
+          onReview={(runId) => openPanel({ kind: 'run', runId })}
+        />
       )}
       {snapshot.suggestAssignedReviews && (
-        <div className="automations-callout" role="region" aria-label="Review PRs assigned to me automatically">
+        <div
+          className="automations-callout"
+          role="region"
+          aria-label="Review PRs assigned to me automatically"
+        >
           <div className="automations-callout-text">
             <div className="automations-callout-title">Review PRs assigned to me automatically</div>
             <p className="automations-hint">
@@ -78,7 +110,9 @@ export function AutomationsTab({ workspace, snapshot }: { workspace: Workspace; 
           <button
             type="button"
             className="dialog-button-primary automations-small-button"
-            onClick={() => void act('add-reviews', () => automationsBridge.addAssignedReviews(workspace.id))}
+            onClick={() =>
+              void act('add-reviews', () => automationsBridge.addAssignedReviews(workspace.id))
+            }
             disabled={busy === 'add-reviews'}
           >
             Add
@@ -117,7 +151,9 @@ export function AutomationsTab({ workspace, snapshot }: { workspace: Workspace; 
                       disabled={busy !== null}
                       onOpen={() => openPanel({ kind: 'automation', name })}
                       onOpenRun={(runId) => openPanel({ kind: 'run', runId })}
-                      onRun={() => void act(`run:${name}`, () => automationsBridge.runNow(workspace.id, name))}
+                      onRun={() =>
+                        void act(`run:${name}`, () => automationsBridge.runNow(workspace.id, name))
+                      }
                       onShowRuns={() => showAutomationRuns(workspace.id, name)}
                       onChange={() => openPanel({ kind: 'new', basis: { automation: name } })}
                     />
@@ -141,7 +177,9 @@ function FileIssues({ snapshot }: { snapshot: AutomationsSnapshot }) {
     <div className="automations-issues" role="status">
       <div className="automations-issues-title">
         <AlertTriangle size={13} />
-        {snapshot.automations.length === 0 ? 'factory.yml did not load' : 'Some entries did not load'}
+        {snapshot.automations.length === 0
+          ? 'factory.yml did not load'
+          : 'Some entries did not load'}
       </div>
       <ul>
         {snapshot.issues.map((issue, index) => (
@@ -160,7 +198,15 @@ function FileIssues({ snapshot }: { snapshot: AutomationsSnapshot }) {
  * CircleCI holds a workflow at an approval: amber, above the table, each
  * with its Review. The sidebar's "N waiting" opens the dashboard on it.
  */
-function WaitingForYou({ runs, now, onReview }: { runs: RunListEntry[]; now: Date; onReview: (runId: string) => void }) {
+function WaitingForYou({
+  runs,
+  now,
+  onReview,
+}: {
+  runs: RunListEntry[];
+  now: Date;
+  onReview: (runId: string) => void;
+}) {
   const headingId = useId();
   return (
     <section className="automations-waiting" aria-labelledby={headingId}>
@@ -236,10 +282,18 @@ function AutomationRow({
   return (
     <li className="automations-row-item">
       {/* The row opens the panel for a pointer; the name is the same action for a keyboard. */}
-      <div className="automations-row" aria-current={selected ? 'true' : undefined} onClick={onOpen}>
+      <div
+        className="automations-row"
+        aria-current={selected ? 'true' : undefined}
+        onClick={onOpen}
+      >
         <div className="automations-cell automations-cell-name">
           <div className="automations-row-line">
-            <button type="button" className="automations-link-button automations-name" onClick={inside(onOpen)}>
+            <button
+              type="button"
+              className="automations-link-button automations-name"
+              onClick={inside(onOpen)}
+            >
               {automation.name}
             </button>
             <span
@@ -249,7 +303,10 @@ function AutomationRow({
               {automation.mode}
             </span>
             {automation.addedBy?.isNew && (
-              <span className="automations-new-pill" title={`Added by ${automation.addedBy.sessionName}`}>
+              <span
+                className="automations-new-pill"
+                title={`Added by ${automation.addedBy.sessionName}`}
+              >
                 New
               </span>
             )}
@@ -257,7 +314,9 @@ function AutomationRow({
           {/* Wide: where it is written (a problem names its own line). Narrower, without the trigger and target columns: what it does. */}
           {!automation.problem && (automation.line !== undefined || automation.addedBy) && (
             <div className="automations-row-sub automations-row-meta">
-              {automation.line !== undefined && <span className="automations-row-file">factory.yml:{automation.line}</span>}
+              {automation.line !== undefined && (
+                <span className="automations-row-file">factory.yml:{automation.line}</span>
+              )}
               {automation.line !== undefined && automation.addedBy && ' · '}
               {automation.addedBy && `added by ${automation.addedBy.sessionName}`}
             </div>
@@ -283,7 +342,9 @@ function AutomationRow({
             <span className="sr-only">Trigger: </span>
             <span className="automations-row-text">{automation.trigger}</span>
           </div>
-          {automation.schedule && <code className="automations-row-sub automations-cron">{automation.schedule}</code>}
+          {automation.schedule && (
+            <code className="automations-row-sub automations-cron">{automation.schedule}</code>
+          )}
         </div>
 
         <div className="automations-cell automations-col-target">
@@ -292,7 +353,9 @@ function AutomationRow({
             <span className="sr-only">Runs: </span>
             <span className="automations-row-text">{automation.runs}</span>
           </div>
-          <div className="automations-row-sub">{isAgent ? 'Agent session, read-only' : 'Consola tool'}</div>
+          <div className="automations-row-sub">
+            {isAgent ? 'Agent session, read-only' : 'Consola tool'}
+          </div>
         </div>
 
         <div className="automations-cell automations-col-history">
@@ -308,10 +371,19 @@ function AutomationRow({
         </div>
 
         <div className="automations-cell automations-row-actions" onClick={inside()}>
-          <RunNowButton automation={automation} running={running} disabled={disabled} onRun={onRun} />
+          <RunNowButton
+            automation={automation}
+            running={running}
+            disabled={disabled}
+            onRun={onRun}
+          />
           <DropdownMenu.Root>
             <DropdownMenu.Trigger asChild>
-              <button type="button" className="automations-icon-button" aria-label={`More for ${automation.name}`}>
+              <button
+                type="button"
+                className="automations-icon-button"
+                aria-label={`More for ${automation.name}`}
+              >
                 <Ellipsis size={15} aria-hidden="true" />
               </button>
             </DropdownMenu.Trigger>
@@ -395,11 +467,17 @@ function HistoryBar({
         />
       </Tooltip.Trigger>
       <Tooltip.Portal>
-        <Tooltip.Content className="tooltip-content automations-bar-tooltip" side="top" sideOffset={6}>
+        <Tooltip.Content
+          className="tooltip-content automations-bar-tooltip"
+          side="top"
+          sideOffset={6}
+        >
           <span className="automations-bar-tooltip-head">
             <StatusDot status={run.status} />
             <strong>{statusLabel(run.status)}</strong>
-            <span className="automations-bar-tooltip-when">{formatRunWhen(run.createdAt, now)}</span>
+            <span className="automations-bar-tooltip-when">
+              {formatRunWhen(run.createdAt, now)}
+            </span>
           </span>
           {/* With nothing to say about itself, a run's "about" is its status, already shown. */}
           {about !== run.status && <span className="automations-bar-tooltip-about">{about}</span>}
@@ -429,7 +507,9 @@ function LastRunCell({ latest }: { latest: LatestRun | null }) {
       <div className="automations-row-line">
         <StatusDot status={latest.tone} />
         <span className="sr-only">Last run: </span>
-        <span className={`automations-last-label automations-tone-${latest.tone}`}>{latest.label}</span>
+        <span className={`automations-last-label automations-tone-${latest.tone}`}>
+          {latest.label}
+        </span>
       </div>
       <div className="automations-row-sub automations-row-number">{latest.detail}</div>
     </>

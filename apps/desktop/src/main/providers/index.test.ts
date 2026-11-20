@@ -9,7 +9,12 @@ vi.mock('../LoginEnvironment', () => ({
 }));
 
 import type { GitProviderDriver } from './GitProviderDriver';
-import { borrowProviderEnv, composeProviderEnv, getProviderDriver, layerProviderToken } from './index';
+import {
+  borrowProviderEnv,
+  composeProviderEnv,
+  getProviderDriver,
+  layerProviderToken,
+} from './index';
 
 function fakeDriver(overrides: Partial<GitProviderDriver> = {}): GitProviderDriver {
   return {

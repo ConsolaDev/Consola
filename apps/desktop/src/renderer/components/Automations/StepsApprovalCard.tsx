@@ -6,7 +6,11 @@ import { ipcErrorMessage } from '../../utils/ipcErrorMessage';
 import { approvalNotes, dryRunCommands } from './approvalCard';
 import { useIntent } from './parts';
 
-type Loaded = { state: 'loading' } | { state: 'gone' } | { state: 'failed'; reason: string } | { state: 'ready'; definition: RunDefinition };
+type Loaded =
+  | { state: 'loading' }
+  | { state: 'gone' }
+  | { state: 'failed'; reason: string }
+  | { state: 'ready'; definition: RunDefinition };
 
 /** The copy for a definition the run folder no longer has. */
 export const DEFINITION_GONE = "This run's definition is gone, so it cannot be shown or started.";
@@ -75,7 +79,9 @@ export function StepsApprovalCard({
               {note}
             </p>
           ))}
-          {dryRun.length > 0 && <p className="automations-hint">Also runs in a dry run: {dryRun.join(', ')}</p>}
+          {dryRun.length > 0 && (
+            <p className="automations-hint">Also runs in a dry run: {dryRun.join(', ')}</p>
+          )}
         </>
       )}
       <div className="automations-card-actions">
@@ -118,7 +124,9 @@ function ApprovalStep({
       <div className="automations-approval-head">
         <Icon size={13} aria-hidden="true" />
         <span className="automations-approval-id">{step.id}</span>
-        <span className="automations-meta">{step.kind === 'agent' ? 'Agent, read-only' : 'Command'}</span>
+        <span className="automations-meta">
+          {step.kind === 'agent' ? 'Agent, read-only' : 'Command'}
+        </span>
       </div>
       {step.if !== undefined && (
         <div className="automations-approval-field">
@@ -133,7 +141,11 @@ function ApprovalStep({
               <span className="automations-approval-label">action</span>
               <span>{action?.name ?? step.action}</span>
             </div>
-            {action ? <Folded label="The action's body" text={action.body} /> : <p className="automations-hint">Its body was not kept.</p>}
+            {action ? (
+              <Folded label="The action's body" text={action.body} />
+            ) : (
+              <p className="automations-hint">Its body was not kept.</p>
+            )}
           </>
         ) : (
           <Folded label="The prompt it will send" text={step.prompt ?? ''} />
@@ -157,7 +169,9 @@ function ApprovalStep({
 
 /** Plain text, line breaks kept; folded into a disclosure when long. Never rendered as Markdown or HTML. */
 function Folded({ label, text, mono = false }: { label: string; text: string; mono?: boolean }) {
-  const body = <pre className={`automations-prompt ${mono ? 'automations-approval-command' : ''}`}>{text}</pre>;
+  const body = (
+    <pre className={`automations-prompt ${mono ? 'automations-approval-command' : ''}`}>{text}</pre>
+  );
   if (text.length <= FOLD_CHARS && text.split('\n').length <= FOLD_LINES) return body;
   return (
     <details className="automations-details">

@@ -9,11 +9,11 @@ export type NoticeTarget = { kind: 'session'; sessionId: string } | { kind: 'aut
  * it; otherwise the workspace's Automations dashboard.
  */
 export function noticeTarget(notice: AutomationNotice, workspaces: Workspace[]): NoticeTarget {
-    if (notice.sessionId) return { kind: 'session', sessionId: notice.sessionId };
-    const workspace = workspaces.find((candidate) => candidate.id === notice.workspaceId);
-    const assistant = workspace && assistantSession(workspace);
-    if (notice.needsApproval && assistant && notice.actorId === assistant.id) {
-        return { kind: 'session', sessionId: assistant.id };
-    }
-    return { kind: 'automations' };
+  if (notice.sessionId) return { kind: 'session', sessionId: notice.sessionId };
+  const workspace = workspaces.find((candidate) => candidate.id === notice.workspaceId);
+  const assistant = workspace && assistantSession(workspace);
+  if (notice.needsApproval && assistant && notice.actorId === assistant.id) {
+    return { kind: 'session', sessionId: assistant.id };
+  }
+  return { kind: 'automations' };
 }

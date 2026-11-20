@@ -5,304 +5,417 @@ import * as path from 'path';
 import { StartedByHandError } from '@consola/automation-engine';
 import type { Session, Workspace } from '../../shared/workspace';
 import type { GitProviderDriver } from '../providers/GitProviderDriver';
-import { launchAgentRun, prepareItemWorktree, refreshIdleWorktree, worktreeHeld, type AgentLaunchDeps } from './launchAgentRun';
+import {
+  launchAgentRun,
+  prepareItemWorktree,
+  refreshIdleWorktree,
+  worktreeHeld,
+  type AgentLaunchDeps,
+} from './launchAgentRun';
 
 let root: string;
 beforeEach(() => {
-    root = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-agent-launch-'));
+  root = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-agent-launch-'));
 });
 afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
 
-const workItem = { provider: 'github' as const, repo: 'acme/api', type: 'pr' as const, number: 123 };
+const workItem = {
+  provider: 'github' as const,
+  repo: 'acme/api',
+  type: 'pr' as const,
+  number: 123,
+};
 
 function workspace(): Workspace {
-    return {
-        id: 'ws-1',
-        name: 'Acme',
-        defaultHarnessId: 'work',
-        provider: { id: 'github', accountLogin: 'me' },
-        scopes: [
-            { id: 'scope-code', name: 'code', path: '/code', isGitRepo: false, createdAt: 0 },
-            { id: 'scope-api', name: 'api', path: '/code/api', isGitRepo: true, createdAt: 0 },
-        ],
-        groups: [{ id: 'g-reviews', name: 'Reviews', createdAt: 0, archivedAt: 5 }],
-        actions: [],
-        sectionDefaults: {},
-        sessions: [],
-        createdAt: 0,
-        updatedAt: 0,
-    } as Workspace;
+  return {
+    id: 'ws-1',
+    name: 'Acme',
+    defaultHarnessId: 'work',
+    provider: { id: 'github', accountLogin: 'me' },
+    scopes: [
+      { id: 'scope-code', name: 'code', path: '/code', isGitRepo: false, createdAt: 0 },
+      { id: 'scope-api', name: 'api', path: '/code/api', isGitRepo: true, createdAt: 0 },
+    ],
+    groups: [{ id: 'g-reviews', name: 'Reviews', createdAt: 0, archivedAt: 5 }],
+    actions: [],
+    sectionDefaults: {},
+    sessions: [],
+    createdAt: 0,
+    updatedAt: 0,
+  } as Workspace;
 }
 
 function deps(overrides: Partial<AgentLaunchDeps> = {}) {
-    const launchSession = vi.fn(async (_id: string, fields: { name: string }) => ({ id: 's-1', name: fields.name }) as Session);
-    const worktree = path.join(root, 'api-pr-123');
-    return {
-        getWorkspace: () => workspace(),
-        resolveDriver: () => ({}) as GitProviderDriver,
-        resolveRepo: () => '/code/api',
-        worktreePathFor: () => worktree,
-        ensureWorktree: vi.fn(async () => {
-            fs.mkdirSync(path.join(worktree, '.git'), { recursive: true });
-            return worktree;
-        }),
-        refreshWorktree: vi.fn(async () => true),
-        worktreeInUse: vi.fn(() => false),
-        composeEnv: async () => ({ GH_TOKEN: 'token' }),
-        restoreGroup: vi.fn(),
-        ...overrides,
-        // Last, and never overridden: the tests read its calls.
-        launchSession,
-    };
+  const launchSession = vi.fn(
+    async (_id: string, fields: { name: string }) => ({ id: 's-1', name: fields.name }) as Session,
+  );
+  const worktree = path.join(root, 'api-pr-123');
+  return {
+    getWorkspace: () => workspace(),
+    resolveDriver: () => ({}) as GitProviderDriver,
+    resolveRepo: () => '/code/api',
+    worktreePathFor: () => worktree,
+    ensureWorktree: vi.fn(async () => {
+      fs.mkdirSync(path.join(worktree, '.git'), { recursive: true });
+      return worktree;
+    }),
+    refreshWorktree: vi.fn(async () => true),
+    worktreeInUse: vi.fn(() => false),
+    composeEnv: async () => ({ GH_TOKEN: 'token' }),
+    restoreGroup: vi.fn(),
+    ...overrides,
+    // Last, and never overridden: the tests read its calls.
+    launchSession,
+  };
 }
 
 const itemRun = {
-    workspaceId: 'ws-1',
-    run: { id: 'run-1', automation: 'review-requests' },
-    prompt: 'Review it.',
-    item: { workItem, title: 'Add retries', label: 'Review', groupId: 'g-reviews' },
+  workspaceId: 'ws-1',
+  run: { id: 'run-1', automation: 'review-requests' },
+  prompt: 'Review it.',
+  item: { workItem, title: 'Add retries', label: 'Review', groupId: 'g-reviews' },
 };
 
 describe('launchAgentRun', () => {
-    it('starts a read-only session in the item’s worktree, named and grouped like an Inbox launch', async () => {
-        const d = deps();
-        await launchAgentRun(d, itemRun);
-        expect(d.launchSession).toHaveBeenCalledWith('ws-1', {
-            name: 'Add retries',
-            workspaceId: 'ws-1',
-            instanceId: expect.stringMatching(/^workspace-ws-1-session-/),
-            harnessId: 'work',
-            kind: 'interactive',
-            scopeId: 'scope-api',
-            cwd: path.join(root, 'api-pr-123'),
-            workItem,
-            workItemAction: 'Review',
-            groupId: 'g-reviews',
-            toolPolicy: 'read-only',
-            automation: { name: 'review-requests', runId: 'run-1' },
-            initialPrompt: 'Review it.',
-            // Its first turn runs with nobody watching, so it has no composer to type into.
-            unattended: true,
-        });
-        // An archived target group is restored so its arrival is visible.
-        expect(d.restoreGroup).toHaveBeenCalledWith('ws-1', 'g-reviews');
-        // Just made: nothing to bring up to date.
-        expect(d.refreshWorktree).not.toHaveBeenCalled();
+  it('starts a read-only session in the item’s worktree, named and grouped like an Inbox launch', async () => {
+    const d = deps();
+    await launchAgentRun(d, itemRun);
+    expect(d.launchSession).toHaveBeenCalledWith('ws-1', {
+      name: 'Add retries',
+      workspaceId: 'ws-1',
+      instanceId: expect.stringMatching(/^workspace-ws-1-session-/),
+      harnessId: 'work',
+      kind: 'interactive',
+      scopeId: 'scope-api',
+      cwd: path.join(root, 'api-pr-123'),
+      workItem,
+      workItemAction: 'Review',
+      groupId: 'g-reviews',
+      toolPolicy: 'read-only',
+      automation: { name: 'review-requests', runId: 'run-1' },
+      initialPrompt: 'Review it.',
+      // Its first turn runs with nobody watching, so it has no composer to type into.
+      unattended: true,
     });
+    // An archived target group is restored so its arrival is visible.
+    expect(d.restoreGroup).toHaveBeenCalledWith('ws-1', 'g-reviews');
+    // Just made: nothing to bring up to date.
+    expect(d.refreshWorktree).not.toHaveBeenCalled();
+  });
 
-    it('brings an existing worktree up to the PR’s head, unless someone is working in it', async () => {
-        fs.mkdirSync(path.join(root, 'api-pr-123', '.git'), { recursive: true });
-        const free = deps();
-        await launchAgentRun(free, itemRun);
-        expect(free.refreshWorktree).toHaveBeenCalledWith(
-            path.join(root, 'api-pr-123'),
-            workItem,
-            expect.objectContaining({ GH_TOKEN: 'token' })
-        );
+  it('brings an existing worktree up to the PR’s head, unless someone is working in it', async () => {
+    fs.mkdirSync(path.join(root, 'api-pr-123', '.git'), { recursive: true });
+    const free = deps();
+    await launchAgentRun(free, itemRun);
+    expect(free.refreshWorktree).toHaveBeenCalledWith(
+      path.join(root, 'api-pr-123'),
+      workItem,
+      expect.objectContaining({ GH_TOKEN: 'token' }),
+    );
 
-        const busy = deps({ worktreeInUse: () => true });
-        await launchAgentRun(busy, itemRun);
-        expect(busy.refreshWorktree).not.toHaveBeenCalled();
+    const busy = deps({ worktreeInUse: () => true });
+    await launchAgentRun(busy, itemRun);
+    expect(busy.refreshWorktree).not.toHaveBeenCalled();
+  });
+
+  it('checks the item out with git hooks turned off', async () => {
+    const d = deps({
+      composeEnv: async () => ({
+        GH_TOKEN: 'token',
+        GIT_CONFIG_COUNT: '1',
+        GIT_CONFIG_KEY_0: 'a.b',
+        GIT_CONFIG_VALUE_0: 'c',
+      }),
     });
-
-    it('checks the item out with git hooks turned off', async () => {
-        const d = deps({ composeEnv: async () => ({ GH_TOKEN: 'token', GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'a.b', GIT_CONFIG_VALUE_0: 'c' }) });
-        fs.mkdirSync(path.join(root, 'api-pr-123', '.git'), { recursive: true });
-        await launchAgentRun(d, itemRun);
-        const hooksOff = expect.objectContaining({
-            GH_TOKEN: 'token',
-            GIT_CONFIG_COUNT: '2',
-            GIT_CONFIG_KEY_0: 'a.b',
-            GIT_CONFIG_KEY_1: 'core.hooksPath',
-            GIT_CONFIG_VALUE_1: '/dev/null',
-        });
-        expect(d.ensureWorktree).toHaveBeenCalledWith('/code/api', workItem, hooksOff);
-        expect(d.refreshWorktree).toHaveBeenCalledWith(path.join(root, 'api-pr-123'), workItem, hooksOff);
+    fs.mkdirSync(path.join(root, 'api-pr-123', '.git'), { recursive: true });
+    await launchAgentRun(d, itemRun);
+    const hooksOff = expect.objectContaining({
+      GH_TOKEN: 'token',
+      GIT_CONFIG_COUNT: '2',
+      GIT_CONFIG_KEY_0: 'a.b',
+      GIT_CONFIG_KEY_1: 'core.hooksPath',
+      GIT_CONFIG_VALUE_1: '/dev/null',
     });
+    expect(d.ensureWorktree).toHaveBeenCalledWith('/code/api', workItem, hooksOff);
+    expect(d.refreshWorktree).toHaveBeenCalledWith(
+      path.join(root, 'api-pr-123'),
+      workItem,
+      hooksOff,
+    );
+  });
 
-    it('says to clone a repo it cannot find, and creates nothing', async () => {
-        const d = deps({ resolveRepo: () => null });
-        await expect(launchAgentRun(d, itemRun)).rejects.toThrow(
-            'Clone acme/api into one of this workspace’s scopes to review its pull requests automatically.'
-        );
-        expect(d.ensureWorktree).not.toHaveBeenCalled();
-        expect(d.launchSession).not.toHaveBeenCalled();
+  it('says to clone a repo it cannot find, and creates nothing', async () => {
+    const d = deps({ resolveRepo: () => null });
+    await expect(launchAgentRun(d, itemRun)).rejects.toThrow(
+      'Clone acme/api into one of this workspace’s scopes to review its pull requests automatically.',
+    );
+    expect(d.ensureWorktree).not.toHaveBeenCalled();
+    expect(d.launchSession).not.toHaveBeenCalled();
+  });
+
+  it("refuses with StartedByHandError when a person's session appeared since", async () => {
+    const ws = workspace();
+    ws.sessions = [
+      // The automation's own earlier session is not one started by hand.
+      {
+        id: 'auto',
+        name: 'Add retries',
+        automation: { name: 'review-requests', runId: 'run-0' },
+        workItem,
+        workItemAction: 'Review',
+        createdAt: 2_000,
+      },
+      { id: 'old', name: 'Mine, before', workItem, workItemAction: 'Review', createdAt: 500 },
+    ] as unknown as Session[];
+    const d = deps({ getWorkspace: () => ws });
+    const since = new Date(1_000).toISOString();
+    const request = { ...itemRun, item: { ...itemRun.item, startedByHandSince: since } };
+    await launchAgentRun(d, request);
+    expect(d.launchSession).toHaveBeenCalledTimes(1);
+
+    ws.sessions.push({
+      id: 'mine',
+      name: 'My review',
+      workItem,
+      workItemAction: 'Review',
+      createdAt: 3_000,
+    } as unknown as Session);
+    const refused = launchAgentRun(d, request);
+    await expect(refused).rejects.toBeInstanceOf(StartedByHandError);
+    await expect(refused).rejects.toMatchObject({ sessionName: 'My review' });
+    expect(d.launchSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("a step launch uses the engine's folder and records the step", async () => {
+    const checkout = '/worktrees/api-pr-123-automation';
+    const d = deps();
+    const step = {
+      id: 'review',
+      attempt: 2,
+      cwd: checkout,
+      scopeId: 'scope-api',
+      name: 'Add retries · review',
+    };
+    await launchAgentRun(d, { ...itemRun, step });
+    expect(d.launchSession).toHaveBeenCalledWith('ws-1', {
+      name: 'Add retries · review',
+      workspaceId: 'ws-1',
+      instanceId: expect.stringMatching(/^workspace-ws-1-session-/),
+      harnessId: 'work',
+      kind: 'interactive',
+      scopeId: 'scope-api',
+      cwd: checkout,
+      workItem,
+      workItemAction: 'Review',
+      groupId: 'g-reviews',
+      toolPolicy: 'read-only',
+      automation: { name: 'review-requests', runId: 'run-1', step: { id: 'review', attempt: 2 } },
+      initialPrompt: 'Review it.',
+      unattended: true,
     });
+    // The engine prepared the folder: the Inbox's worktree is neither made nor moved.
+    expect(d.ensureWorktree).not.toHaveBeenCalled();
+    expect(d.refreshWorktree).not.toHaveBeenCalled();
 
-    it('refuses with StartedByHandError when a person\'s session appeared since', async () => {
-        const ws = workspace();
-        ws.sessions = [
-            // The automation's own earlier session is not one started by hand.
-            { id: 'auto', name: 'Add retries', automation: { name: 'review-requests', runId: 'run-0' }, workItem, workItemAction: 'Review', createdAt: 2_000 },
-            { id: 'old', name: 'Mine, before', workItem, workItemAction: 'Review', createdAt: 500 },
-        ] as unknown as Session[];
-        const d = deps({ getWorkspace: () => ws });
-        const since = new Date(1_000).toISOString();
-        const request = { ...itemRun, item: { ...itemRun.item, startedByHandSince: since } };
-        await launchAgentRun(d, request);
-        expect(d.launchSession).toHaveBeenCalledTimes(1);
-
-        ws.sessions.push({ id: 'mine', name: 'My review', workItem, workItemAction: 'Review', createdAt: 3_000 } as unknown as Session);
-        const refused = launchAgentRun(d, request);
-        await expect(refused).rejects.toBeInstanceOf(StartedByHandError);
-        await expect(refused).rejects.toMatchObject({ sessionName: 'My review' });
-        expect(d.launchSession).toHaveBeenCalledTimes(1);
+    // A schedule's step runs in its scope's folder.
+    const scheduled = deps();
+    const inScope = {
+      id: 'digest',
+      attempt: 1,
+      cwd: '/code/api',
+      scopeId: 'scope-api',
+      name: 'morning · digest',
+    };
+    await launchAgentRun(scheduled, {
+      workspaceId: 'ws-1',
+      run: { id: 'run-2', automation: 'morning' },
+      prompt: 'Sum up.',
+      step: inScope,
     });
+    expect(scheduled.launchSession).toHaveBeenCalledWith(
+      'ws-1',
+      expect.objectContaining({
+        name: 'morning · digest',
+        scopeId: 'scope-api',
+        cwd: '/code/api',
+        automation: { name: 'morning', runId: 'run-2', step: { id: 'digest', attempt: 1 } },
+        toolPolicy: 'read-only',
+        unattended: true,
+      }),
+    );
+    expect(scheduled.launchSession.mock.calls[0][1]).not.toHaveProperty('workItem');
+    expect(scheduled.ensureWorktree).not.toHaveBeenCalled();
+  });
 
-    it("a step launch uses the engine's folder and records the step", async () => {
-        const checkout = '/worktrees/api-pr-123-automation';
-        const d = deps();
-        const step = { id: 'review', attempt: 2, cwd: checkout, scopeId: 'scope-api', name: 'Add retries · review' };
-        await launchAgentRun(d, { ...itemRun, step });
-        expect(d.launchSession).toHaveBeenCalledWith('ws-1', {
-            name: 'Add retries · review',
-            workspaceId: 'ws-1',
-            instanceId: expect.stringMatching(/^workspace-ws-1-session-/),
-            harnessId: 'work',
-            kind: 'interactive',
-            scopeId: 'scope-api',
-            cwd: checkout,
-            workItem,
-            workItemAction: 'Review',
-            groupId: 'g-reviews',
-            toolPolicy: 'read-only',
-            automation: { name: 'review-requests', runId: 'run-1', step: { id: 'review', attempt: 2 } },
-            initialPrompt: 'Review it.',
-            unattended: true,
-        });
-        // The engine prepared the folder: the Inbox's worktree is neither made nor moved.
-        expect(d.ensureWorktree).not.toHaveBeenCalled();
-        expect(d.refreshWorktree).not.toHaveBeenCalled();
+  it('a step launch looks for a review started by hand only when the engine asks it to', async () => {
+    const ws = workspace();
+    ws.sessions = [
+      { id: 'mine', name: 'My review', workItem, workItemAction: 'Review', createdAt: 3_000 },
+    ] as unknown as Session[];
+    const d = deps({ getWorkspace: () => ws });
+    const step = {
+      id: 'review',
+      attempt: 1,
+      cwd: '/worktrees/api-pr-123-automation',
+      scopeId: 'scope-api',
+      name: 'Add retries · review',
+    };
 
-        // A schedule's step runs in its scope's folder.
-        const scheduled = deps();
-        const inScope = { id: 'digest', attempt: 1, cwd: '/code/api', scopeId: 'scope-api', name: 'morning · digest' };
-        await launchAgentRun(scheduled, { workspaceId: 'ws-1', run: { id: 'run-2', automation: 'morning' }, prompt: 'Sum up.', step: inScope });
-        expect(scheduled.launchSession).toHaveBeenCalledWith(
-            'ws-1',
-            expect.objectContaining({
-                name: 'morning · digest',
-                scopeId: 'scope-api',
-                cwd: '/code/api',
-                automation: { name: 'morning', runId: 'run-2', step: { id: 'digest', attempt: 1 } },
-                toolPolicy: 'read-only',
-                unattended: true,
-            })
-        );
-        expect(scheduled.launchSession.mock.calls[0][1]).not.toHaveProperty('workItem');
-        expect(scheduled.ensureWorktree).not.toHaveBeenCalled();
+    // A later step, or a prompt step: the person's session is no reason not to run it.
+    await launchAgentRun(d, { ...itemRun, step });
+    expect(d.launchSession).toHaveBeenCalledTimes(1);
+
+    // The run's first agent step, an action: checked under the Inbox's lock, after the checkout was prepared.
+    const since = new Date(1_000).toISOString();
+    const refused = launchAgentRun(d, {
+      ...itemRun,
+      item: { ...itemRun.item, startedByHandSince: since },
+      step,
     });
+    await expect(refused).rejects.toBeInstanceOf(StartedByHandError);
+    await expect(refused).rejects.toMatchObject({ sessionName: 'My review' });
+    expect(d.launchSession).toHaveBeenCalledTimes(1);
+    expect(d.ensureWorktree).not.toHaveBeenCalled();
+  });
 
-    it('a step launch looks for a review started by hand only when the engine asks it to', async () => {
-        const ws = workspace();
-        ws.sessions = [{ id: 'mine', name: 'My review', workItem, workItemAction: 'Review', createdAt: 3_000 }] as unknown as Session[];
-        const d = deps({ getWorkspace: () => ws });
-        const step = { id: 'review', attempt: 1, cwd: '/worktrees/api-pr-123-automation', scopeId: 'scope-api', name: 'Add retries · review' };
-
-        // A later step, or a prompt step: the person's session is no reason not to run it.
-        await launchAgentRun(d, { ...itemRun, step });
-        expect(d.launchSession).toHaveBeenCalledTimes(1);
-
-        // The run's first agent step, an action: checked under the Inbox's lock, after the checkout was prepared.
-        const since = new Date(1_000).toISOString();
-        const refused = launchAgentRun(d, { ...itemRun, item: { ...itemRun.item, startedByHandSince: since }, step });
-        await expect(refused).rejects.toBeInstanceOf(StartedByHandError);
-        await expect(refused).rejects.toMatchObject({ sessionName: 'My review' });
-        expect(d.launchSession).toHaveBeenCalledTimes(1);
-        expect(d.ensureWorktree).not.toHaveBeenCalled();
+  it('starts a scheduled run in its scope, with no item', async () => {
+    const d = deps();
+    await launchAgentRun(d, {
+      workspaceId: 'ws-1',
+      run: { id: 'run-2', automation: 'morning' },
+      prompt: 'Sum up.',
+      scopeId: 'scope-api',
     });
-
-    it('starts a scheduled run in its scope, with no item', async () => {
-        const d = deps();
-        await launchAgentRun(d, { workspaceId: 'ws-1', run: { id: 'run-2', automation: 'morning' }, prompt: 'Sum up.', scopeId: 'scope-api' });
-        expect(d.launchSession).toHaveBeenCalledWith('ws-1', expect.objectContaining({ name: 'morning', scopeId: 'scope-api', toolPolicy: 'read-only', unattended: true }));
-        expect(d.launchSession.mock.calls[0][1]).not.toHaveProperty('cwd');
-        expect(d.ensureWorktree).not.toHaveBeenCalled();
-    });
+    expect(d.launchSession).toHaveBeenCalledWith(
+      'ws-1',
+      expect.objectContaining({
+        name: 'morning',
+        scopeId: 'scope-api',
+        toolPolicy: 'read-only',
+        unattended: true,
+      }),
+    );
+    expect(d.launchSession.mock.calls[0][1]).not.toHaveProperty('cwd');
+    expect(d.ensureWorktree).not.toHaveBeenCalled();
+  });
 });
 
 describe('prepareItemWorktree', () => {
-    it('prepares an item worktree with hooks off and names the scope that holds the clone', async () => {
-        const d = deps();
-        const { cwd, scopeId } = await prepareItemWorktree(d, workspace(), workItem, { refreshExisting: true });
-        expect(cwd).toBe(path.join(root, 'api-pr-123'));
-        expect(d.ensureWorktree).toHaveBeenCalledWith('/code/api', workItem, expect.objectContaining({ GIT_CONFIG_VALUE_0: '/dev/null' }));
-        expect(scopeId).toBe('scope-api');
+  it('prepares an item worktree with hooks off and names the scope that holds the clone', async () => {
+    const d = deps();
+    const { cwd, scopeId } = await prepareItemWorktree(d, workspace(), workItem, {
+      refreshExisting: true,
     });
+    expect(cwd).toBe(path.join(root, 'api-pr-123'));
+    expect(d.ensureWorktree).toHaveBeenCalledWith(
+      '/code/api',
+      workItem,
+      expect.objectContaining({ GIT_CONFIG_VALUE_0: '/dev/null' }),
+    );
+    expect(scopeId).toBe('scope-api');
+  });
 
-    it('says to clone a repo it cannot find, and needs a bound account', async () => {
-        await expect(prepareItemWorktree(deps({ resolveRepo: () => null }), workspace(), workItem, { refreshExisting: true })).rejects.toThrow(
-            'Clone acme/api into one of this workspace’s scopes first.'
-        );
-        const unbound = { ...workspace(), provider: undefined } as Workspace;
-        await expect(prepareItemWorktree(deps(), unbound, workItem, { refreshExisting: true })).rejects.toThrow('This workspace has no provider account bound.');
-    });
+  it('says to clone a repo it cannot find, and needs a bound account', async () => {
+    await expect(
+      prepareItemWorktree(deps({ resolveRepo: () => null }), workspace(), workItem, {
+        refreshExisting: true,
+      }),
+    ).rejects.toThrow('Clone acme/api into one of this workspace’s scopes first.');
+    const unbound = { ...workspace(), provider: undefined } as Workspace;
+    await expect(
+      prepareItemWorktree(deps(), unbound, workItem, { refreshExisting: true }),
+    ).rejects.toThrow('This workspace has no provider account bound.');
+  });
 });
 
 describe('refreshIdleWorktree', () => {
-    const dir = () => path.join(root, 'api-pr-123');
-    const session = (overrides: Partial<Session> = {}) =>
-        ({ id: 'review', name: 'Review', workItem, cwd: dir(), toolPolicy: 'read-only', ...overrides }) as unknown as Session;
+  const dir = () => path.join(root, 'api-pr-123');
+  const session = (overrides: Partial<Session> = {}) =>
+    ({
+      id: 'review',
+      name: 'Review',
+      workItem,
+      cwd: dir(),
+      toolPolicy: 'read-only',
+      ...overrides,
+    }) as unknown as Session;
 
-    it('refreshes an idle PR worktree before a re-run, and leaves a busy one alone', async () => {
-        fs.mkdirSync(path.join(dir(), '.git'), { recursive: true });
-        const d = deps();
-        await refreshIdleWorktree(d, workspace(), session());
-        expect(d.refreshWorktree).toHaveBeenCalledWith(dir(), workItem, expect.objectContaining({ GIT_CONFIG_KEY_0: 'core.hooksPath' }));
-        vi.mocked(d.worktreeInUse).mockReturnValue(true);
-        vi.mocked(d.refreshWorktree).mockClear();
-        await refreshIdleWorktree(d, workspace(), session());
-        expect(d.refreshWorktree).not.toHaveBeenCalled();
-    });
+  it('refreshes an idle PR worktree before a re-run, and leaves a busy one alone', async () => {
+    fs.mkdirSync(path.join(dir(), '.git'), { recursive: true });
+    const d = deps();
+    await refreshIdleWorktree(d, workspace(), session());
+    expect(d.refreshWorktree).toHaveBeenCalledWith(
+      dir(),
+      workItem,
+      expect.objectContaining({ GIT_CONFIG_KEY_0: 'core.hooksPath' }),
+    );
+    vi.mocked(d.worktreeInUse).mockReturnValue(true);
+    vi.mocked(d.refreshWorktree).mockClear();
+    await refreshIdleWorktree(d, workspace(), session());
+    expect(d.refreshWorktree).not.toHaveBeenCalled();
+  });
 
-    it('ignores a session that is not on its item’s Consola worktree, or not on a PR', async () => {
-        fs.mkdirSync(path.join(dir(), '.git'), { recursive: true });
-        const d = deps();
-        await refreshIdleWorktree(d, workspace(), session({ cwd: '/code/api' }));
-        await refreshIdleWorktree(d, workspace(), session({ workItem: { ...workItem, type: 'issue' } as Session['workItem'] }));
-        await refreshIdleWorktree(d, workspace(), session({ workItem: undefined }));
-        expect(d.refreshWorktree).not.toHaveBeenCalled();
-    });
+  it('ignores a session that is not on its item’s Consola worktree, or not on a PR', async () => {
+    fs.mkdirSync(path.join(dir(), '.git'), { recursive: true });
+    const d = deps();
+    await refreshIdleWorktree(d, workspace(), session({ cwd: '/code/api' }));
+    await refreshIdleWorktree(
+      d,
+      workspace(),
+      session({ workItem: { ...workItem, type: 'issue' } as Session['workItem'] }),
+    );
+    await refreshIdleWorktree(d, workspace(), session({ workItem: undefined }));
+    expect(d.refreshWorktree).not.toHaveBeenCalled();
+  });
 
-    it('does nothing when the worktree is gone', async () => {
-        const d = deps();
-        await refreshIdleWorktree(d, workspace(), session());
-        expect(d.refreshWorktree).not.toHaveBeenCalled();
-    });
+  it('does nothing when the worktree is gone', async () => {
+    const d = deps();
+    await refreshIdleWorktree(d, workspace(), session());
+    expect(d.refreshWorktree).not.toHaveBeenCalled();
+  });
 });
 
 describe('worktreeHeld', () => {
-    const dir = '/worktrees/api-pr-123';
-    const session = (overrides: Partial<Session>) =>
-        ({ id: 'one', instanceId: 'one', name: 'One', ...overrides }) as unknown as Session;
-    const running = (...ids: string[]) => (candidate: Session) => ids.includes(candidate.id);
-    const nothingRuns = running();
+  const dir = '/worktrees/api-pr-123';
+  const session = (overrides: Partial<Session>) =>
+    ({ id: 'one', instanceId: 'one', name: 'One', ...overrides }) as unknown as Session;
+  const running =
+    (...ids: string[]) =>
+    (candidate: Session) =>
+      ids.includes(candidate.id);
+  const nothingRuns = running();
 
-    it('holds a worktree a full-tools session was launched in, even after its terminal exited', () => {
-        // The person's own session on the PR: the folder is trusted, so a
-        // refresh would hand it the author's new hooks on its next resume.
-        expect(worktreeHeld([session({ cwd: dir })], dir, nothingRuns)).toBe(true);
-        expect(worktreeHeld([session({ cwd: dir })], dir, running('one'))).toBe(true);
-    });
+  it('holds a worktree a full-tools session was launched in, even after its terminal exited', () => {
+    // The person's own session on the PR: the folder is trusted, so a
+    // refresh would hand it the author's new hooks on its next resume.
+    expect(worktreeHeld([session({ cwd: dir })], dir, nothingRuns)).toBe(true);
+    expect(worktreeHeld([session({ cwd: dir })], dir, running('one'))).toBe(true);
+  });
 
-    it('holds one a running session works in, launched there or moved in', () => {
-        const readOnly = session({ cwd: dir, toolPolicy: 'read-only' });
-        expect(worktreeHeld([readOnly], dir, running('one'))).toBe(true);
-        const movedIn = session({ cwd: '/code/api', agentCwd: dir });
-        expect(worktreeHeld([movedIn], dir, running('one'))).toBe(true);
-    });
+  it('holds one a running session works in, launched there or moved in', () => {
+    const readOnly = session({ cwd: dir, toolPolicy: 'read-only' });
+    expect(worktreeHeld([readOnly], dir, running('one'))).toBe(true);
+    const movedIn = session({ cwd: '/code/api', agentCwd: dir });
+    expect(worktreeHeld([movedIn], dir, running('one'))).toBe(true);
+  });
 
-    it('frees it once only stopped read-only sessions, or sessions elsewhere, are left', () => {
-        expect(worktreeHeld([session({ cwd: dir, toolPolicy: 'read-only' })], dir, nothingRuns)).toBe(false);
-        // A full-tools session that only visited relaunches in its own folder.
-        expect(worktreeHeld([session({ cwd: '/code/api', agentCwd: dir })], dir, nothingRuns)).toBe(false);
-        expect(worktreeHeld([session({ cwd: '/worktrees/api-pr-9' })], dir, running('one'))).toBe(false);
-        expect(worktreeHeld([], dir, nothingRuns)).toBe(false);
-    });
+  it('frees it once only stopped read-only sessions, or sessions elsewhere, are left', () => {
+    expect(worktreeHeld([session({ cwd: dir, toolPolicy: 'read-only' })], dir, nothingRuns)).toBe(
+      false,
+    );
+    // A full-tools session that only visited relaunches in its own folder.
+    expect(worktreeHeld([session({ cwd: '/code/api', agentCwd: dir })], dir, nothingRuns)).toBe(
+      false,
+    );
+    expect(worktreeHeld([session({ cwd: '/worktrees/api-pr-9' })], dir, running('one'))).toBe(
+      false,
+    );
+    expect(worktreeHeld([], dir, nothingRuns)).toBe(false);
+  });
 
-    it('answers for every session on the worktree, not only the one about to run', () => {
-        const review = session({ id: 'review', cwd: dir, toolPolicy: 'read-only' });
-        const mine = session({ id: 'mine', cwd: dir });
-        expect(worktreeHeld([review, mine], dir, nothingRuns)).toBe(true);
-    });
+  it('answers for every session on the worktree, not only the one about to run', () => {
+    const review = session({ id: 'review', cwd: dir, toolPolicy: 'read-only' });
+    const mine = session({ id: 'mine', cwd: dir });
+    expect(worktreeHeld([review, mine], dir, nothingRuns)).toBe(true);
+  });
 });

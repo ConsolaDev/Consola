@@ -87,11 +87,22 @@ export function StepsRunView({
               {busy === 'retry' ? 'Retrying…' : `Retry from ${retryTarget.id}`}
             </button>
           )}
-          <RunAgainButton workspaceId={workspace.id} run={run} automation={automation} history={history} busy={busy} act={act} />
+          <RunAgainButton
+            workspaceId={workspace.id}
+            run={run}
+            automation={automation}
+            history={history}
+            busy={busy}
+            act={act}
+          />
           {nav}
         </div>
         {retryTarget && warning && confirming && (
-          <div className="automations-retry-warning" role="group" aria-label={`Retry from ${retryTarget.id}`}>
+          <div
+            className="automations-retry-warning"
+            role="group"
+            aria-label={`Retry from ${retryTarget.id}`}
+          >
             <p className="automations-retry-warning-text">{warning}</p>
             <div className="automations-card-actions">
               <button
@@ -140,7 +151,14 @@ export function StepsRunView({
         />
       </section>
 
-      {selected && <StepDetail key={`${run.id}:${selected.id}`} workspace={workspace} run={run} step={selected} />}
+      {selected && (
+        <StepDetail
+          key={`${run.id}:${selected.id}`}
+          workspace={workspace}
+          run={run}
+          step={selected}
+        />
+      )}
     </div>
   );
 }
