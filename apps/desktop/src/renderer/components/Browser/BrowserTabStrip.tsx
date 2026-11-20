@@ -24,8 +24,8 @@ function noteFailure(action: Promise<unknown>): void {
  * The session's tabs, in the look of the file preview's tab bar. Each action
  * goes to main, which owns the list and answers with a fresh snapshot; the
  * strip holds no state of its own. The `+` opens a blank tab, puts the caret
- * in its address bar, and stops at the cap. A tab an agent's call is on carries a
- * small marker for as long as the call runs.
+ * in its address bar, and stops at the cap. A tab an agent's call is on
+ * carries a small marker for as long as the call runs.
  *
  * Tabs shrink to a narrow minimum before the strip scrolls, and the `+` sits
  * outside the scrolling part, so it is always in reach: it is the only way to
