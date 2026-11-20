@@ -1,4 +1,4 @@
-import { useState, type KeyboardEvent } from 'react';
+import { useState, type KeyboardEvent, type ReactNode } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import {
   Check,
@@ -59,8 +59,17 @@ const FACET_TITLES: Record<Exclude<FacetKey, 'label' | 'readOnly'>, string> = {
  *
  * With nothing chosen the bar has no fill. A narrowed list tints it and lists
  * the choices as chips, each one a × away from gone.
+ *
+ * `accessory` sits at the row's end, beside the filter rather than inside it:
+ * the navigation settings, which shape the same list this row narrows.
  */
-export function FilterBar({ workspace }: { workspace: Workspace }) {
+export function FilterBar({
+  workspace,
+  accessory,
+}: {
+  workspace: Workspace;
+  accessory?: ReactNode;
+}) {
   const filterId = useHomeStore((state) => state.scopeFilters[workspace.id]);
   const scope = filteredScope(workspace, filterId);
   const trail = scope ? scopeTrail(workspace.scopes, scope) : undefined;
@@ -180,204 +189,216 @@ export function FilterBar({ workspace }: { workspace: Workspace }) {
 
   return (
     <>
-      <div className={`sidebar-scope-filter ${narrowed ? 'is-filtered' : ''}`}>
-        <DropdownMenu.Root
-          open={menuOpen}
-          onOpenChange={(open) => {
-            setMenuOpen(open);
-            if (!open) setQuery('');
-          }}
-        >
-          <DropdownMenu.Trigger asChild>
-            <button
-              className="sidebar-scope-filter-trigger"
-              aria-label="Filter sessions"
-              title={scope ? tildePath(scope.path) : undefined}
-            >
-              <ListFilter size={14} aria-hidden="true" />
-              <span className="sidebar-scope-filter-label">
-                {trail?.parent && (
+      <div className="sidebar-filter-row">
+        <div className={`sidebar-scope-filter ${narrowed ? 'is-filtered' : ''}`}>
+          <DropdownMenu.Root
+            open={menuOpen}
+            onOpenChange={(open) => {
+              setMenuOpen(open);
+              if (!open) setQuery('');
+            }}
+          >
+            <DropdownMenu.Trigger asChild>
+              <button
+                className="sidebar-scope-filter-trigger"
+                aria-label="Filter sessions"
+                title={scope ? tildePath(scope.path) : undefined}
+              >
+                <ListFilter size={14} aria-hidden="true" />
+                <span className="sidebar-scope-filter-label">
+                  {trail?.parent && (
+                    <>
+                      <span className="sidebar-scope-filter-parent">{trail.parent}</span>
+                      <span className="sidebar-scope-filter-slash" aria-hidden="true">
+                        /
+                      </span>
+                    </>
+                  )}
+                  <span className="sidebar-scope-filter-name">{trail?.label ?? 'All scopes'}</span>
+                </span>
+                <ChevronDown size={12} aria-hidden="true" />
+              </button>
+            </DropdownMenu.Trigger>
+            <DropdownMenu.Portal>
+              <DropdownMenu.Content
+                className="dropdown-content sidebar-scope-menu"
+                align="start"
+                sideOffset={4}
+                onCloseAutoFocus={(event) => {
+                  if (editing) event.preventDefault();
+                }}
+              >
+                {searchable && (
+                  <input
+                    className="sidebar-scope-menu-search"
+                    type="search"
+                    placeholder="Find a scope"
+                    aria-label="Find a scope"
+                    value={query}
+                    autoFocus
+                    onChange={(event) => setQuery(event.target.value)}
+                    onKeyDown={onSearchKeyDown}
+                  />
+                )}
+                <DropdownMenu.Label className="sidebar-scope-menu-heading">
+                  Scope
+                </DropdownMenu.Label>
+                <DropdownMenu.Item
+                  className="dropdown-item"
+                  onSelect={() => chooseScope(workspace.id, null)}
+                >
+                  <span className="sidebar-scope-menu-name">All scopes</span>
+                  <span className="sidebar-scope-menu-check">
+                    {!scope && <Check size={14} aria-hidden="true" />}
+                  </span>
+                </DropdownMenu.Item>
+                {workspace.scopes.length > 0 && (
+                  <DropdownMenu.Separator className="dropdown-separator" />
+                )}
+                {shown.map((candidate) => {
+                  const candidateTrail = scopeTrail(workspace.scopes, candidate);
+                  return (
+                    <DropdownMenu.Item
+                      key={candidate.id}
+                      className="dropdown-item"
+                      title={tildePath(candidate.path)}
+                      onSelect={() => chooseScope(workspace.id, candidate.id)}
+                    >
+                      {candidate.isGitRepo ? (
+                        <GitBranch size={14} aria-hidden="true" />
+                      ) : (
+                        <Folder size={14} aria-hidden="true" />
+                      )}
+                      <span className="sidebar-scope-menu-name">
+                        {candidateTrail.parent && (
+                          <span className="sidebar-scope-menu-parent">
+                            {candidateTrail.parent} /{' '}
+                          </span>
+                        )}
+                        {candidateTrail.label}
+                      </span>
+                      <span className="sidebar-scope-menu-count">
+                        {counts.get(candidate.id) ?? 0}
+                      </span>
+                      <span className="sidebar-scope-menu-check">
+                        {candidate.id === scope?.id && <Check size={14} aria-hidden="true" />}
+                      </span>
+                    </DropdownMenu.Item>
+                  );
+                })}
+                {needle && !shown.length && (
+                  <p className="sidebar-scope-menu-empty">No scope matches “{query.trim()}”.</p>
+                )}
+                {(Object.keys(FACET_TITLES) as (keyof typeof FACET_TITLES)[]).map(
+                  (key) =>
+                    facets[key].length > 0 && (
+                      <div key={key}>
+                        <DropdownMenu.Separator className="dropdown-separator" />
+                        <DropdownMenu.Label className="sidebar-scope-menu-heading">
+                          {FACET_TITLES[key]}
+                        </DropdownMenu.Label>
+                        {facets[key].map((entry) => facetItem(key, entry))}
+                      </div>
+                    ),
+                )}
+                {facets.readOnly.length > 0 && (
                   <>
-                    <span className="sidebar-scope-filter-parent">{trail.parent}</span>
-                    <span className="sidebar-scope-filter-slash" aria-hidden="true">
-                      /
-                    </span>
+                    <DropdownMenu.Separator className="dropdown-separator" />
+                    {facetItem('readOnly', facets.readOnly[0], 'Read-only sessions')}
                   </>
                 )}
-                <span className="sidebar-scope-filter-name">{trail?.label ?? 'All scopes'}</span>
-              </span>
-              <ChevronDown size={12} aria-hidden="true" />
-            </button>
-          </DropdownMenu.Trigger>
-          <DropdownMenu.Portal>
-            <DropdownMenu.Content
-              className="dropdown-content sidebar-scope-menu"
-              align="start"
-              sideOffset={4}
-              onCloseAutoFocus={(event) => {
-                if (editing) event.preventDefault();
-              }}
-            >
-              {searchable && (
-                <input
-                  className="sidebar-scope-menu-search"
-                  type="search"
-                  placeholder="Find a scope"
-                  aria-label="Find a scope"
-                  value={query}
-                  autoFocus
-                  onChange={(event) => setQuery(event.target.value)}
-                  onKeyDown={onSearchKeyDown}
-                />
-              )}
-              <DropdownMenu.Label className="sidebar-scope-menu-heading">Scope</DropdownMenu.Label>
-              <DropdownMenu.Item
-                className="dropdown-item"
-                onSelect={() => chooseScope(workspace.id, null)}
-              >
-                <span className="sidebar-scope-menu-name">All scopes</span>
-                <span className="sidebar-scope-menu-check">
-                  {!scope && <Check size={14} aria-hidden="true" />}
-                </span>
-              </DropdownMenu.Item>
-              {workspace.scopes.length > 0 && (
                 <DropdownMenu.Separator className="dropdown-separator" />
-              )}
-              {shown.map((candidate) => {
-                const candidateTrail = scopeTrail(workspace.scopes, candidate);
-                return (
+                <DropdownMenu.Label className="sidebar-scope-menu-heading">
+                  Labels
+                </DropdownMenu.Label>
+                {workspace.labels.map((label) => (
                   <DropdownMenu.Item
-                    key={candidate.id}
+                    key={label.id}
                     className="dropdown-item"
-                    title={tildePath(candidate.path)}
-                    onSelect={() => chooseScope(workspace.id, candidate.id)}
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      toggle(workspace.id, 'label', label.id);
+                    }}
                   >
-                    {candidate.isGitRepo ? (
-                      <GitBranch size={14} aria-hidden="true" />
-                    ) : (
-                      <Folder size={14} aria-hidden="true" />
-                    )}
                     <span className="sidebar-scope-menu-name">
-                      {candidateTrail.parent && (
-                        <span className="sidebar-scope-menu-parent">
-                          {candidateTrail.parent} /{' '}
-                        </span>
-                      )}
-                      {candidateTrail.label}
+                      {label.emoji ? `${label.emoji} ` : ''}
+                      {label.name}
                     </span>
                     <span className="sidebar-scope-menu-count">
-                      {counts.get(candidate.id) ?? 0}
+                      {labelCounts.get(label.id) ?? 0}
                     </span>
                     <span className="sidebar-scope-menu-check">
-                      {candidate.id === scope?.id && <Check size={14} aria-hidden="true" />}
+                      {isActive('label', label.id) && <Check size={14} aria-hidden="true" />}
                     </span>
+                    <button
+                      type="button"
+                      className="sidebar-scope-filter-clear"
+                      aria-label={`Edit label ${label.name}`}
+                      title="Rename or set emoji"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setMenuOpen(false);
+                        setEditing(label);
+                      }}
+                    >
+                      <Pencil size={12} aria-hidden="true" />
+                    </button>
+                    <button
+                      type="button"
+                      className="sidebar-scope-filter-clear"
+                      aria-label={`Delete label ${label.name}`}
+                      title="Delete label"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void removeLabel(label);
+                      }}
+                    >
+                      <X size={12} aria-hidden="true" />
+                    </button>
                   </DropdownMenu.Item>
-                );
-              })}
-              {needle && !shown.length && (
-                <p className="sidebar-scope-menu-empty">No scope matches “{query.trim()}”.</p>
-              )}
-              {(Object.keys(FACET_TITLES) as (keyof typeof FACET_TITLES)[]).map(
-                (key) =>
-                  facets[key].length > 0 && (
-                    <div key={key}>
-                      <DropdownMenu.Separator className="dropdown-separator" />
-                      <DropdownMenu.Label className="sidebar-scope-menu-heading">
-                        {FACET_TITLES[key]}
-                      </DropdownMenu.Label>
-                      {facets[key].map((entry) => facetItem(key, entry))}
-                    </div>
-                  ),
-              )}
-              {facets.readOnly.length > 0 && (
-                <>
-                  <DropdownMenu.Separator className="dropdown-separator" />
-                  {facetItem('readOnly', facets.readOnly[0], 'Read-only sessions')}
-                </>
-              )}
-              <DropdownMenu.Separator className="dropdown-separator" />
-              <DropdownMenu.Label className="sidebar-scope-menu-heading">Labels</DropdownMenu.Label>
-              {workspace.labels.map((label) => (
-                <DropdownMenu.Item
-                  key={label.id}
-                  className="dropdown-item"
-                  onSelect={(event) => {
-                    event.preventDefault();
-                    toggle(workspace.id, 'label', label.id);
+                ))}
+                <input
+                  className="sidebar-scope-menu-search"
+                  type="text"
+                  placeholder="New label"
+                  aria-label="New label"
+                  value={newLabel}
+                  onChange={(event) => setNewLabel(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault();
+                      void addLabel();
+                    }
+                    if (event.key !== 'Escape') event.stopPropagation();
                   }}
-                >
-                  <span className="sidebar-scope-menu-name">
-                    {label.emoji ? `${label.emoji} ` : ''}
-                    {label.name}
-                  </span>
-                  <span className="sidebar-scope-menu-count">{labelCounts.get(label.id) ?? 0}</span>
-                  <span className="sidebar-scope-menu-check">
-                    {isActive('label', label.id) && <Check size={14} aria-hidden="true" />}
-                  </span>
-                  <button
-                    type="button"
-                    className="sidebar-scope-filter-clear"
-                    aria-label={`Edit label ${label.name}`}
-                    title="Rename or set emoji"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      setMenuOpen(false);
-                      setEditing(label);
-                    }}
-                  >
-                    <Pencil size={12} aria-hidden="true" />
-                  </button>
-                  <button
-                    type="button"
-                    className="sidebar-scope-filter-clear"
-                    aria-label={`Delete label ${label.name}`}
-                    title="Delete label"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      void removeLabel(label);
-                    }}
-                  >
-                    <X size={12} aria-hidden="true" />
-                  </button>
+                />
+                <DropdownMenu.Separator className="dropdown-separator" />
+                <DropdownMenu.Item className="dropdown-item" onSelect={() => void addScope()}>
+                  <Plus size={14} aria-hidden="true" />
+                  Add scope
                 </DropdownMenu.Item>
-              ))}
-              <input
-                className="sidebar-scope-menu-search"
-                type="text"
-                placeholder="New label"
-                aria-label="New label"
-                value={newLabel}
-                onChange={(event) => setNewLabel(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') {
-                    event.preventDefault();
-                    void addLabel();
-                  }
-                  if (event.key !== 'Escape') event.stopPropagation();
-                }}
-              />
-              <DropdownMenu.Separator className="dropdown-separator" />
-              <DropdownMenu.Item className="dropdown-item" onSelect={() => void addScope()}>
-                <Plus size={14} aria-hidden="true" />
-                Add scope
-              </DropdownMenu.Item>
-              <DropdownMenu.Item className="dropdown-item" onSelect={() => openSettings('scopes')}>
-                <Settings size={14} aria-hidden="true" />
-                Manage scopes…
-              </DropdownMenu.Item>
-            </DropdownMenu.Content>
-          </DropdownMenu.Portal>
-        </DropdownMenu.Root>
-        {narrowed && (
-          <button
-            className="sidebar-scope-filter-clear"
-            aria-label="Clear filters"
-            title="Clear filters"
-            onClick={() => clearAllFilters(workspace.id)}
-          >
-            <X size={12} aria-hidden="true" />
-          </button>
-        )}
+                <DropdownMenu.Item
+                  className="dropdown-item"
+                  onSelect={() => openSettings('scopes')}
+                >
+                  <Settings size={14} aria-hidden="true" />
+                  Manage scopes…
+                </DropdownMenu.Item>
+              </DropdownMenu.Content>
+            </DropdownMenu.Portal>
+          </DropdownMenu.Root>
+          {narrowed && (
+            <button
+              className="sidebar-scope-filter-clear"
+              aria-label="Clear filters"
+              title="Clear filters"
+              onClick={() => clearAllFilters(workspace.id)}
+            >
+              <X size={12} aria-hidden="true" />
+            </button>
+          )}
+        </div>
+        {accessory}
       </div>
       {chips.length > 0 && (
         <div className="sidebar-filter-chips" aria-label="Active filters">

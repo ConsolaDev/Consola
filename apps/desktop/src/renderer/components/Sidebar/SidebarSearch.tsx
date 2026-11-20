@@ -9,9 +9,9 @@ import { COMMAND_PALETTE_SHORTCUT_LABEL } from '../../utils/platform';
  * the palette owns typing, ranking and results, so a second text box here
  * would only be a place for half a query to get stranded.
  *
- * `children` sit beside the field: the sidebar's own display settings and
- * the New menu, which moved here when the workspace menu went up to the
- * title bar.
+ * `children` sit beside the field: the New menu, which moved here when the
+ * workspace menu went up to the title bar. The navigation settings sit on the
+ * scopes row instead, beside the list they shape.
  */
 export function SidebarSearch({ children }: { children?: ReactNode }) {
   const { openPalette } = useCommandPalette();
