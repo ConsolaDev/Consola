@@ -3,6 +3,7 @@ import type { DownloadItem, Session, WebContents } from 'electron';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { type BrowserTab, browserPartitionFor } from '../../shared/browser';
 import {
+  clearBrowsingData,
   configurePartition,
   decideDownload,
   decidePermission,
@@ -477,5 +478,35 @@ describe('configurePartition', () => {
     configurePartition('persist:test-once', session as unknown as Session);
     configurePartition('persist:test-once', session as unknown as Session);
     expect(session.setPermissionRequestHandler).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('clearBrowsingData', () => {
+  it('empties storage, caches (the code cache too), sign-ins and open connections', async () => {
+    const done: string[] = [];
+    const step = (name: string) => vi.fn(async () => void done.push(name));
+    const target = {
+      clearStorageData: step('storage'),
+      clearCache: step('cache'),
+      clearCodeCaches: step('code caches'),
+      closeAllConnections: step('connections'),
+      clearAuthCache: step('sign-ins'),
+    };
+    await clearBrowsingData(target);
+    expect(done.sort()).toEqual(['cache', 'code caches', 'connections', 'sign-ins', 'storage']);
+    expect(target.clearCodeCaches).toHaveBeenCalledWith({});
+  });
+
+  it('fails when a step fails, so the person is told', async () => {
+    const target = {
+      clearStorageData: vi.fn(async () => {
+        throw new Error('disk');
+      }),
+      clearCache: vi.fn(async () => {}),
+      clearCodeCaches: vi.fn(async () => {}),
+      closeAllConnections: vi.fn(async () => {}),
+      clearAuthCache: vi.fn(async () => {}),
+    };
+    await expect(clearBrowsingData(target)).rejects.toThrow('disk');
   });
 });

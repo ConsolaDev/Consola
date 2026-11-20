@@ -263,6 +263,28 @@ export function configurePartition(partition: string, session: Session): void {
   });
 }
 
+/**
+ * Empties a workspace's partition, for "Clear browsing data" and for a
+ * deleted workspace: cookies and storage, the HTTP cache and the code cache
+ * its sites' scripts left, the sign-ins basic auth keeps in a cache of its
+ * own (neither of the others empties it), and open connections (one set up
+ * under a certificate the person approved would skip the check that approval
+ * no longer passes). Rejects when a step fails, so the person is told.
+ * Per-site zoom levels and HSTS state stay: Electron clears neither.
+ */
+export async function clearBrowsingData(
+  target: Pick<
+    Session,
+    'clearStorageData' | 'clearCache' | 'clearCodeCaches' | 'closeAllConnections' | 'clearAuthCache'
+  >,
+): Promise<void> {
+  await target.clearStorageData();
+  await target.clearCache();
+  await target.clearCodeCaches({});
+  await target.closeAllConnections();
+  await target.clearAuthCache();
+}
+
 /** Names the site a download comes from; a page-controlled address is only ever read as a host. */
 export function downloadDialogTitle(url: string): string {
   try {

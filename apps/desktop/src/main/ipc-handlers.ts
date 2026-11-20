@@ -39,7 +39,12 @@ import { placePopupTab } from './browser/popupPolicy';
 import { installPopupPolicy } from './browser/popupWindows';
 import { exposeToTests, isBackgroundTest } from './test-mode';
 import { forwardGuestShortcuts } from './browser/guestShortcuts';
-import { type DownloadPlaces, gateDownloads, partitionFor } from './browser/sessionPolicy';
+import {
+  clearBrowsingData,
+  type DownloadPlaces,
+  gateDownloads,
+  partitionFor,
+} from './browser/sessionPolicy';
 import { createDownloadGate, SessionDownloads } from './browser/downloadGate';
 import { PersonInput, watchPersonInput } from './browser/PersonInput';
 import { PageDialogs } from './browser/PageDialogs';
@@ -326,15 +331,7 @@ export function setupIpcHandlers(): boolean {
     // rejection, while "Clear browsing data" must tell the person it failed.
     clearPartition: async (workspaceId) => {
       try {
-        const target = electronSession.fromPartition(partitionFor(workspaceId));
-        await target.clearStorageData();
-        await target.clearCache();
-        // An open connection was set up under a certificate the person may have
-        // approved; reusing it would skip the check that approval no longer passes.
-        await target.closeAllConnections();
-        // Signed-in-by-basic-auth lives in its own cache, which neither of the
-        // above empties; a deleted workspace goes through here too.
-        await target.clearAuthCache();
+        await clearBrowsingData(electronSession.fromPartition(partitionFor(workspaceId)));
       } catch (error) {
         console.error(`Could not clear the browser data of workspace ${workspaceId}:`, error);
         throw error;
