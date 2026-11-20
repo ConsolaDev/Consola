@@ -2,8 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-// 'zod/v3', not 'zod': the root import trips TS2589 in the SDK's zod-compat conditional types.
-import { z } from 'zod/v3';
+import { z } from 'zod';
 
 /**
  * Proves the MCP SDK works under this repo's CommonJS main build before
@@ -16,7 +15,7 @@ describe('MCP SDK interop', () => {
     server.registerTool(
       'echo',
       { description: 'echo back', inputSchema: { text: z.string() } },
-      async ({ text }) => ({ content: [{ type: 'text' as const, text }] })
+      async ({ text }) => ({ content: [{ type: 'text' as const, text }] }),
     );
 
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();

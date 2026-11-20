@@ -12,7 +12,6 @@ import { describe, expect, it } from 'vitest';
 const mainDir = join(__dirname, '..');
 const agentFacing = [
   join(mainDir, 'tools'),
-  join(mainDir, 'assistant'),
   join(mainDir, 'mcp'),
   join(mainDir, 'conductor'),
   join(mainDir, 'automations'),

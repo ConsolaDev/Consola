@@ -2,7 +2,7 @@ import type { InboxItemView, ItemRef } from './views';
 
 /** An item's key, in the format the desktop's mapper gives it (`workItemKey`): `github:acme/api:pr:123`. */
 export function itemKey(ref: ItemRef): string {
-    return `${ref.provider}:${ref.repo.toLowerCase()}:${ref.type}:${ref.number}`;
+  return `${ref.provider}:${ref.repo.toLowerCase()}:${ref.type}:${ref.number}`;
 }
 
 /**
@@ -11,18 +11,18 @@ export function itemKey(ref: ItemRef): string {
  * `workItem`.
  */
 export function inboxItem(
-    fields: Partial<InboxItemView> & { repo?: string; number?: number } = {}
+  fields: Partial<InboxItemView> & { repo?: string; number?: number } = {},
 ): InboxItemView {
-    const { repo = 'acme/api', number = 123, ...rest } = fields;
-    const item: Omit<InboxItemView, 'key'> = {
-        workItem: { provider: 'github', repo, type: 'pr', number },
-        title: 'Add retries',
-        author: 'alice',
-        roles: ['review-requested-direct'],
-        isDraft: false,
-        state: 'open',
-        url: `https://github.com/${repo}/pull/${number}`,
-        ...rest,
-    };
-    return { ...item, key: itemKey(item.workItem) };
+  const { repo = 'acme/api', number = 123, ...rest } = fields;
+  const item: Omit<InboxItemView, 'key'> = {
+    workItem: { provider: 'github', repo, type: 'pr', number },
+    title: 'Add retries',
+    author: 'alice',
+    roles: ['review-requested-direct'],
+    isDraft: false,
+    state: 'open',
+    url: `https://github.com/${repo}/pull/${number}`,
+    ...rest,
+  };
+  return { ...item, key: itemKey(item.workItem) };
 }

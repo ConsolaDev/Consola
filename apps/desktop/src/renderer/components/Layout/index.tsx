@@ -1,4 +1,4 @@
-import { createQuickSession, openAssistant, openNewSessionDialog } from '../../utils/sessionActions';
+import { createQuickSession, openNewSessionDialog } from '../../utils/sessionActions';
 import { pickFoldersAndCreateWorkspace } from '../../utils/workspaceActions';
 import { NewSessionDialog } from '../Dialogs/NewSessionDialog';
 import { useNewSessionDialogStore } from '../../stores/newSessionDialogStore';
@@ -9,6 +9,7 @@ import { AppHeader } from './AppHeader';
 import { WorkspaceRail } from './WorkspaceRail';
 import { MainContent } from './MainContent';
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts';
+import { useViewingReport } from '../../hooks/useViewingReport';
 import { useTheme } from '../../hooks/useTheme';
 import { useWindowDropGuard } from '../../hooks/useWindowDropGuard';
 import { useSettings } from '../../contexts/SettingsContext';
@@ -20,10 +21,10 @@ import {
   subscribeToShowAutomations,
 } from '../../stores/navigationStore';
 import { useTerminalStore } from '../../stores/terminalStore';
-import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { useAutomationsStore } from '../../stores/automationsStore';
 import { useInboxStore } from '../../stores/inboxStore';
-import { useAssistantStore } from '../../stores/assistantStore';
+import { Toaster } from '../Toast/Toaster';
+import { AutoSettleExplanation } from '../AutoSettle/AutoSettleExplanation';
 import './styles.css';
 
 export function Layout() {
@@ -38,7 +39,8 @@ export function Layout() {
   // workspace, or, with none open, the workspace itself.
   const handleNewSession = () => {
     if (activeWorkspaceId) {
-      if (!useNewSessionDialogStore.getState().destination) void createQuickSession(activeWorkspaceId);
+      if (!useNewSessionDialogStore.getState().destination)
+        void createQuickSession(activeWorkspaceId);
     } else {
       void pickFoldersAndCreateWorkspace();
     }
@@ -54,14 +56,9 @@ export function Layout() {
     onOpenSettings: openSettings,
     onTogglePalette: togglePalette,
     onOpenScopedPalette: openPalette,
-    onOpenAssistant: () => {
-      if (!activeWorkspaceId) return;
-      // A workspace with no scope has nowhere to run it; the sidebar row says so.
-      const workspace = useWorkspaceStore.getState().getWorkspace(activeWorkspaceId);
-      if (workspace && workspace.scopes.length > 0) void openAssistant(activeWorkspaceId);
-    },
   });
   useTheme();
+  useViewingReport();
   useWindowDropGuard();
 
   // Terminals report activity for every session, including ones whose pane is
@@ -73,11 +70,8 @@ export function Layout() {
   useEffect(() => useInboxStore.getState().subscribeToEvents(), []);
 
   // Automation snapshots likewise: the sidebar row reads them while the
-  // dashboard is closed, and the Assistant's tray holds the ones it asked for.
+  // dashboard is closed.
   useEffect(() => useAutomationsStore.getState().subscribe(), []);
-
-  // The Assistant's row shows what finished while its pane is closed.
-  useEffect(() => useAssistantStore.getState().subscribe(), []);
 
   // Main can drop this window's workspace out from under it, e.g. when it was
   // deleted from another window.
@@ -95,8 +89,14 @@ export function Layout() {
   const layoutStyle = { '--sidebar-width': `${sidebarWidth}px` } as CSSProperties;
 
   return (
-    <div ref={layoutRef} className={`layout ${isSidebarHidden ? 'sidebar-hidden' : ''}`} style={layoutStyle}>
+    <div
+      ref={layoutRef}
+      className={`layout ${isSidebarHidden ? 'sidebar-hidden' : ''}`}
+      style={layoutStyle}
+    >
       <NewSessionDialog />
+      <AutoSettleExplanation />
+      <Toaster />
       <AppHeader />
       <WorkspaceRail />
       <Sidebar />

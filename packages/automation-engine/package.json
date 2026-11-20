@@ -16,11 +16,11 @@
   },
   "dependencies": {
     "@consola/factory-spec": "workspace:*",
-    "zod": "^3.25.76"
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@types/node": "^20.11.19",
     "typescript": "^5.3.3",
-    "vitest": "^4.1.11"
+    "vitest": "^4.1.12"
   }
 }

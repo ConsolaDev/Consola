@@ -39,7 +39,13 @@ const FILTERS: ReadonlyArray<{ id: RunFilter; label: string }> = [
  * it is always what the sidebar's "N failed" counts from. Everything a run
  * says — summaries, item titles — is other people's text, shown as text.
  */
-export function ActivityTab({ workspace, snapshot }: { workspace: Workspace; snapshot: AutomationsSnapshot }) {
+export function ActivityTab({
+  workspace,
+  snapshot,
+}: {
+  workspace: Workspace;
+  snapshot: AutomationsSnapshot;
+}) {
   useMarkRunsSeen(workspace.id, snapshot);
   const filter = useAutomationsStore((state) => state.runFilters[workspace.id] ?? NO_RUN_FILTER);
   const setRunFilter = useAutomationsStore((state) => state.setRunFilter);
@@ -54,7 +60,11 @@ export function ActivityTab({ workspace, snapshot }: { workspace: Workspace; sna
   const options = runAutomationOptions(snapshot, history, filter.automation);
   const chosen = options.find((option) => option.id === filter.automation);
   // The month of the automation chosen, whatever the kind or search: a rate of "Failed" runs says nothing.
-  const overview = filterRuns(snapshot.runs, { ...NO_RUN_FILTER, automation: filter.automation }, now);
+  const overview = filterRuns(
+    snapshot.runs,
+    { ...NO_RUN_FILTER, automation: filter.automation },
+    now,
+  );
 
   return (
     <div className="automations-activity automations-log">
@@ -95,7 +105,10 @@ function NoRunsYet() {
         <History size={16} className="automations-status-icon" aria-hidden="true" />
         <div>
           <strong>No runs yet.</strong>
-          <p>Runs show here as automations fire on their schedules and events, and as you press Run now.</p>
+          <p>
+            Runs show here as automations fire on their schedules and events, and as you press Run
+            now.
+          </p>
         </div>
       </div>
     </div>
@@ -127,9 +140,16 @@ function RunList({
   const headingId = useId();
   const listRef = useRef<HTMLDivElement>(null);
   const openPanel = useAutomationsStore((state) => state.openPanel);
-  const openRunId = useAutomationsStore((state) => (state.panel?.kind === 'run' ? state.panel.runId : null));
+  const openRunId = useAutomationsStore((state) =>
+    state.panel?.kind === 'run' ? state.panel.runId : null,
+  );
   const arrivals = useArrivals(snapshot.runs);
-  const { runs, hasOlder, loading, error, showOlder, paged } = useRunPages(workspaceId, snapshot, filter, now);
+  const { runs, hasOlder, loading, error, showOlder, paged } = useRunPages(
+    workspaceId,
+    snapshot,
+    filter,
+    now,
+  );
   const counts = snapshotRunCounts(snapshot, filter, now);
   const narrowed = isRunFilterNarrowed(filter);
   const running = history.filter((run) => run.status === 'running').length;
@@ -137,22 +157,33 @@ function RunList({
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
-    const items = Array.from(listRef.current?.querySelectorAll<HTMLButtonElement>('.automations-run-item') ?? []);
-    const index = items.findIndex((item) => item === document.activeElement);
+    const items = Array.from(
+      listRef.current?.querySelectorAll<HTMLButtonElement>('.automations-run-item') ?? [],
+    );
+    const index = items.indexOf(document.activeElement as HTMLButtonElement);
     if (index === -1) return;
     event.preventDefault();
-    items[Math.max(0, Math.min(items.length - 1, index + (event.key === 'ArrowDown' ? 1 : -1)))]?.focus();
+    items[
+      Math.max(0, Math.min(items.length - 1, index + (event.key === 'ArrowDown' ? 1 : -1)))
+    ]?.focus();
   };
 
   return (
-    <section className="automations-detail-section automations-activity-runs" aria-labelledby={headingId}>
+    <section
+      className="automations-detail-section automations-activity-runs"
+      aria-labelledby={headingId}
+    >
       <div className="automations-runs-toolbar">
         <div className="automations-runs-heading">
           <h2 id={headingId} className="automations-section-title">
             Runs
           </h2>
           <span className="automations-runs-count" aria-live="polite">
-            {narrowed ? `${runs.length}${hasOlder ? '+' : ''}` : paged ? `${runs.length}${hasOlder ? '+' : ''}` : counts.all}
+            {narrowed
+              ? `${runs.length}${hasOlder ? '+' : ''}`
+              : paged
+                ? `${runs.length}${hasOlder ? '+' : ''}`
+                : counts.all}
           </span>
           {running + queued > 0 && (
             <span className="automations-live" title="Updates as runs start and finish">
@@ -163,7 +194,11 @@ function RunList({
             </span>
           )}
         </div>
-        <AutomationFilterMenu options={options} value={filter.automation} onChange={(automation) => onChange({ automation })} />
+        <AutomationFilterMenu
+          options={options}
+          value={filter.automation}
+          onChange={(automation) => onChange({ automation })}
+        />
         <div className="automations-segmented" role="group" aria-label="Filter runs">
           {FILTERS.map(({ id, label }) => (
             <button
@@ -175,7 +210,9 @@ function RunList({
             >
               {label}
               {/* Counts come from the snapshot: beside narrowed or paged rows they could read "Failed 0". */}
-              {!narrowed && !paged && <span className="automations-segment-count">{counts.kinds[id]}</span>}
+              {!narrowed && !paged && (
+                <span className="automations-segment-count">{counts.kinds[id]}</span>
+              )}
             </button>
           ))}
         </div>
@@ -223,7 +260,12 @@ function RunList({
             </div>
           ))}
           {hasOlder && (
-            <button type="button" className="automations-link-button" disabled={loading} onClick={showOlder}>
+            <button
+              type="button"
+              className="automations-link-button"
+              disabled={loading}
+              onClick={showOlder}
+            >
               {loading ? 'Loading…' : 'Show older runs'}
             </button>
           )}
@@ -271,7 +313,12 @@ const SEARCH_DEBOUNCE_MS = 250;
  * "running". An answer that arrives after a newer question was sent is
  * dropped. A failed call keeps the rows and reports why.
  */
-function useRunPages(workspaceId: string, snapshot: AutomationsSnapshot, filter: RunListFilter, now: Date) {
+function useRunPages(
+  workspaceId: string,
+  snapshot: AutomationsSnapshot,
+  filter: RunListFilter,
+  now: Date,
+) {
   const narrowed = isRunFilterNarrowed(filter);
   const query = filter.query.trim();
   const { kind, automation } = filter;
@@ -291,7 +338,10 @@ function useRunPages(workspaceId: string, snapshot: AutomationsSnapshot, filter:
 
   // The live runs' ids and statuses: when they change, a narrowed list is stale.
   const liveKey = snapshot.runs
-    .filter((run) => run.status === 'queued' || run.status === 'running' || run.status === 'needs-approval')
+    .filter(
+      (run) =>
+        run.status === 'queued' || run.status === 'running' || run.status === 'needs-approval',
+    )
     .map((run) => `${run.id}:${run.status}`)
     .sort()
     .join(',');
@@ -347,7 +397,10 @@ function useRunPages(workspaceId: string, snapshot: AutomationsSnapshot, filter:
             if (pagedOlder.current) {
               const edge = page.runs[page.runs.length - 1];
               setFound((prev) =>
-                mergeRunPages(page.runs, edge ? prev.filter((run) => newestRunFirst(run, edge) > 0) : []),
+                mergeRunPages(
+                  page.runs,
+                  edge ? prev.filter((run) => newestRunFirst(run, edge) > 0) : [],
+                ),
               );
             } else {
               setFound(page.runs);
@@ -355,7 +408,8 @@ function useRunPages(workspaceId: string, snapshot: AutomationsSnapshot, filter:
             }
           })
           .catch((reason: unknown) => {
-            if (id === request.current) setError(reason instanceof Error ? reason.message : String(reason));
+            if (id === request.current)
+              setError(reason instanceof Error ? reason.message : String(reason));
           })
           .finally(() => {
             if (id === request.current) setLoading(false);
@@ -369,7 +423,8 @@ function useRunPages(workspaceId: string, snapshot: AutomationsSnapshot, filter:
   const rows = narrowed ? found : filterRuns(mergeRunPages(snapshot.runs, older), filter, now);
   const cursor = olderRunsCursor(rows);
   // Without a cursor the page would start over at the newest run.
-  const hasOlder = (narrowed ? (more ?? false) : (more ?? snapshot.hasOlder)) && cursor !== undefined;
+  const hasOlder =
+    (narrowed ? (more ?? false) : (more ?? snapshot.hasOlder)) && cursor !== undefined;
 
   const showOlder = useCallback(() => {
     const id = olderRequest.current;
@@ -391,7 +446,8 @@ function useRunPages(workspaceId: string, snapshot: AutomationsSnapshot, filter:
         else setOlder((prev) => mergeRunPages(prev, page.runs));
       })
       .catch((reason: unknown) => {
-        if (id === olderRequest.current) setError(reason instanceof Error ? reason.message : String(reason));
+        if (id === olderRequest.current)
+          setError(reason instanceof Error ? reason.message : String(reason));
       })
       .finally(() => {
         if (id === olderRequest.current) setLoading(false);
@@ -402,10 +458,15 @@ function useRunPages(workspaceId: string, snapshot: AutomationsSnapshot, filter:
 }
 
 /** Why the list is empty, as specifically as the filter allows. */
-function emptyRunsMessage(filter: RunListFilter, options: RunAutomationOption[], historyCount: number): string {
+function emptyRunsMessage(
+  filter: RunListFilter,
+  options: RunAutomationOption[],
+  historyCount: number,
+): string {
   if (historyCount === 0) return 'No runs in the last 30 days.';
   if (filter.automation !== null && filter.query.trim() === '' && filter.kind === 'all') {
-    const label = options.find((option) => option.id === filter.automation)?.label ?? filter.automation;
+    const label =
+      options.find((option) => option.id === filter.automation)?.label ?? filter.automation;
     return `${label} has not run in the last 30 days.`;
   }
   return 'No runs match.';

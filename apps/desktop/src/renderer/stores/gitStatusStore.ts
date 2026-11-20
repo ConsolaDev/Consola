@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { useEffect, useRef, useCallback } from 'react';
-import { GitFileStatus } from '../types/electron';
+import type { GitFileStatus } from '../types/electron';
 import { gitBridge } from '../services/gitBridge';
 
 interface GitStats {

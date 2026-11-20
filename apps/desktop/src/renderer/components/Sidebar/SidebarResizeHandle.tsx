@@ -50,7 +50,7 @@ export function SidebarResizeHandle({ layoutRef }: SidebarResizeHandleProps) {
     () => () => {
       if (gesture.current) setSidebarWidth(gesture.current.width);
     },
-    [setSidebarWidth]
+    [setSidebarWidth],
   );
 
   const handlePointerDown = (event: PointerEvent<HTMLDivElement>) => {

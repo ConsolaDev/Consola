@@ -104,7 +104,9 @@ function connect(server) {
     pending.clear();
   };
   child.on('error', (error) => failAll(`could not start ${server.command}: ${error.message}`));
-  child.on('exit', (code, signal) => failAll(`the server exited (${signal ?? code}): ${firstLine(stderr.trim())}`));
+  child.on('exit', (code, signal) =>
+    failAll(`the server exited (${signal ?? code}): ${firstLine(stderr.trim())}`),
+  );
   readline.createInterface({ input: child.stdout }).on('line', (line) => {
     let message;
     try {
@@ -117,10 +119,12 @@ function connect(server) {
     if (!waiting || message.method !== undefined) return;
     pending.delete(message.id);
     clearTimeout(waiting.timer);
-    if (message.error) waiting.reject(new Error(message.error.message ?? JSON.stringify(message.error)));
+    if (message.error)
+      waiting.reject(new Error(message.error.message ?? JSON.stringify(message.error)));
     else waiting.resolve(message.result);
   });
-  const send = (message) => child.stdin.write(JSON.stringify({ jsonrpc: '2.0', ...message }) + '\n');
+  const send = (message) =>
+    child.stdin.write(JSON.stringify({ jsonrpc: '2.0', ...message }) + '\n');
   const request = (method, params) =>
     new Promise((resolve, reject) => {
       const id = nextId++;
@@ -152,7 +156,8 @@ function connect(server) {
 function plannedCalls() {
   const calls = [];
   const handover = readKnob('STUB_CLAUDE_HANDOVER');
-  if (handover !== null) calls.push(['consola_write_artifact', { name: 'handover', content: handover }]);
+  if (handover !== null)
+    calls.push(['consola_write_artifact', { name: 'handover', content: handover }]);
   const outputs = readKnob('STUB_CLAUDE_OUTPUTS');
   if (outputs !== null) {
     try {
@@ -233,7 +238,8 @@ async function printTurn() {
   const transcript = path.join(dir, `${id}.jsonl`);
   // Written by Node so timestamps carry milliseconds: a run's conversation is
   // the records from its start, and a second-truncated stamp would fall before it.
-  const record = (type, content) => JSON.stringify({ type, timestamp: new Date().toISOString(), message: { role: type, content } });
+  const record = (type, content) =>
+    JSON.stringify({ type, timestamp: new Date().toISOString(), message: { role: type, content } });
   fs.appendFileSync(transcript, record('user', prompt) + '\n');
   if (!(await passGate())) {
     end(1, process.stderr, 'stub claude: STUB_CLAUDE_RESUME_GATE never opened\n');
@@ -245,7 +251,10 @@ async function printTurn() {
     end(1, process.stderr, 'stub claude: a step tool call failed (see STUB_CLAUDE_LOG)\n');
     return;
   }
-  fs.appendFileSync(transcript, record('assistant', [{ type: 'text', text: 'FINDINGS: done' }]) + '\n');
+  fs.appendFileSync(
+    transcript,
+    record('assistant', [{ type: 'text', text: 'FINDINGS: done' }]) + '\n',
+  );
   end(0, process.stdout, 'FINDINGS: done\n');
 }
 

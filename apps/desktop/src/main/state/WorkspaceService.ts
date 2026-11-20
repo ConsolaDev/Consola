@@ -1,6 +1,6 @@
-import * as fs from 'fs';
-import * as path from 'path';
-import { JsonStateFile } from './JsonStateFile';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import type { JsonStateFile } from './JsonStateFile';
 import type { InboxSection } from '../../shared/inboxSections';
 import {
   createDefaultActions,
@@ -12,16 +12,19 @@ import { sameWorkItem } from '../../shared/workItems';
 import {
   CURRENT_WORKSPACE_STATE_VERSION,
   createGroupRecord,
+  createLabelRecord,
   createScopeRecord,
   createSessionRecord,
   createWorkspaceRecord,
-  generateSessionInstanceId,
   generateUuid,
-  ASSISTANT_SESSION_NAME,
-  assistantSession,
   migrateWorkspaceState,
   scopeForSession,
+  switchedSession,
+  type DeletedLabel,
+  type HarnessSwitchChange,
   type Group,
+  type Label,
+  type NewLabelFields,
   type NewGroupFields,
   type NewScopeFields,
   type NewSessionFields,
@@ -32,6 +35,7 @@ import {
   type WorkspaceProvider,
   type WorkspaceUpdates,
 } from '../../shared/workspace';
+import type { RemovedWorktree } from '../../shared/worktreeCleanup';
 
 export interface WorkspaceStateFile {
   version: number;
@@ -91,7 +95,7 @@ export class WorkspaceService {
     name: string,
     path: string,
     isGitRepo: boolean,
-    defaultHarnessId?: string
+    defaultHarnessId?: string,
   ): Workspace {
     const workspace = createWorkspaceRecord(name, path, isGitRepo, defaultHarnessId);
     this.commit([...this.workspaces, workspace]);
@@ -107,12 +111,17 @@ export class WorkspaceService {
     if (typeof id !== 'string' || (beforeId !== null && typeof beforeId !== 'string')) {
       throw new Error('Invalid workspace move.');
     }
-    const workspace = this.workspaces.find(candidate => candidate.id === id);
+    const workspace = this.workspaces.find((candidate) => candidate.id === id);
     // Another window may have removed either record during the drag.
-    if (!workspace || id === beforeId ||
-        (beforeId !== null && !this.workspaces.some(candidate => candidate.id === beforeId))) return;
-    const next = this.workspaces.filter(candidate => candidate.id !== id);
-    const index = beforeId === null ? next.length : next.findIndex(candidate => candidate.id === beforeId);
+    if (
+      !workspace ||
+      id === beforeId ||
+      (beforeId !== null && !this.workspaces.some((candidate) => candidate.id === beforeId))
+    )
+      return;
+    const next = this.workspaces.filter((candidate) => candidate.id !== id);
+    const index =
+      beforeId === null ? next.length : next.findIndex((candidate) => candidate.id === beforeId);
     next.splice(index, 0, workspace);
     if (next.every((candidate, position) => candidate === this.workspaces[position])) return;
     this.commit(next);
@@ -121,15 +130,15 @@ export class WorkspaceService {
   public updateWorkspace(id: string, updates: WorkspaceUpdates): void {
     this.commit(
       this.workspaces.map((workspace) =>
-        workspace.id === id ? { ...workspace, ...updates, updatedAt: Date.now() } : workspace
-      )
+        workspace.id === id ? { ...workspace, ...updates, updatedAt: Date.now() } : workspace,
+      ),
     );
   }
 
   public updateScope(
     workspaceId: string,
     scopeId: string,
-    updates: Partial<Pick<Scope, 'name' | 'path'>>
+    updates: Partial<Pick<Scope, 'name' | 'path'>>,
   ): void {
     const workspace = this.workspaces.find((candidate) => candidate.id === workspaceId);
     const scope = workspace?.scopes.find((candidate) => candidate.id === scopeId);
@@ -165,13 +174,13 @@ export class WorkspaceService {
           ? {
               ...candidate,
               scopes: candidate.scopes.map((existing) =>
-                existing.id === scopeId ? { ...existing, ...applied } : existing
+                existing.id === scopeId ? { ...existing, ...applied } : existing,
               ),
               sessions,
               updatedAt: Date.now(),
             }
-          : candidate
-      )
+          : candidate,
+      ),
     );
   }
 
@@ -184,8 +193,8 @@ export class WorkspaceService {
       this.workspaces.map((candidate) =>
         candidate.id === workspaceId
           ? { ...candidate, scopes: [...candidate.scopes, scope], updatedAt: Date.now() }
-          : candidate
-      )
+          : candidate,
+      ),
     );
     return scope;
   }
@@ -193,21 +202,12 @@ export class WorkspaceService {
   /**
    * Remove a scope and its sessions in one write, keeping workspace groups,
    * and return the sessions that went so the caller can stop their processes.
-   *
-   * The Assistant belongs to the workspace, not the scope it happens to sit
-   * on, so it moves to a remaining scope instead of going. This is the one
-   * place a session's `scopeId` changes; its `cwd` and conversation do not.
    */
   public removeScope(workspaceId: string, scopeId: string): Session[] {
     const workspace = this.workspaces.find((candidate) => candidate.id === workspaceId);
     if (!workspace?.scopes.some((scope) => scope.id === scopeId)) return [];
 
-    const nextHome = workspace.scopes.find((scope) => scope.id !== scopeId);
-    const assistant = assistantSession(workspace);
-    const assistantStays = assistant?.scopeId === scopeId && nextHome !== undefined;
-    const removed = workspace.sessions.filter(
-      (session) => session.scopeId === scopeId && !(assistantStays && session.id === assistant?.id)
-    );
+    const removed = workspace.sessions.filter((session) => session.scopeId === scopeId);
     const removedSessionIds = new Set(removed.map((session) => session.id));
     this.commit(
       this.workspaces.map((candidate) =>
@@ -215,20 +215,17 @@ export class WorkspaceService {
           ? {
               ...candidate,
               scopes: candidate.scopes.filter((scope) => scope.id !== scopeId),
-              sessions: candidate.sessions
-                .filter((session) => !removedSessionIds.has(session.id))
-                .map((session) =>
-                  assistantStays && session.id === assistant?.id ? { ...session, scopeId: nextHome.id } : session
-                ),
+              sessions: candidate.sessions.filter((session) => !removedSessionIds.has(session.id)),
               groups: candidate.groups.map((group) => {
-                if (!group.conductorSessionId || !removedSessionIds.has(group.conductorSessionId)) return group;
+                if (!group.conductorSessionId || !removedSessionIds.has(group.conductorSessionId))
+                  return group;
                 const { conductorSessionId: _removed, ...rest } = group;
                 return rest;
               }),
               updatedAt: Date.now(),
             }
-          : candidate
-      )
+          : candidate,
+      ),
     );
     return removed;
   }
@@ -261,7 +258,7 @@ export class WorkspaceService {
           sectionDefaults: seed ? createDefaultSectionDefaults(actions) : candidate.sectionDefaults,
           updatedAt: Date.now(),
         };
-      })
+      }),
     );
   }
 
@@ -279,24 +276,26 @@ export class WorkspaceService {
   public setActions(
     workspaceId: string,
     actions: WorkItemAction[],
-    sectionDefaults: Partial<Record<InboxSection, string>>
+    sectionDefaults: Partial<Record<InboxSection, string>>,
   ): void {
     const workspace = this.workspaces.find((candidate) => candidate.id === workspaceId);
     if (!workspace) throw new Error(`No workspace ${workspaceId}`);
     const knownGroupIds = new Set(workspace.groups.map((group) => group.id));
     const verdict = validateActionsWrite({ actions, sectionDefaults }, knownGroupIds);
     if (!verdict.ok) throw new Error(verdict.message);
-    const records: WorkItemAction[] = actions.map(({ id, name, appliesTo, prompt, groupId, conversation }) => ({
-      id,
-      name,
-      appliesTo: [...appliesTo],
-      prompt,
-      // Presence-preserving: an unrouted action must persist without the
-      // key at all, so it round-trips byte-for-byte as it did before. The
-      // same for the conversation setting, absent meaning 'continue'.
-      ...(groupId !== undefined ? { groupId } : {}),
-      ...(conversation !== undefined ? { conversation } : {}),
-    }));
+    const records: WorkItemAction[] = actions.map(
+      ({ id, name, appliesTo, prompt, groupId, conversation }) => ({
+        id,
+        name,
+        appliesTo: [...appliesTo],
+        prompt,
+        // Presence-preserving: an unrouted action must persist without the
+        // key at all, so it round-trips byte-for-byte as it did before. The
+        // same for the conversation setting, absent meaning 'continue'.
+        ...(groupId !== undefined ? { groupId } : {}),
+        ...(conversation !== undefined ? { conversation } : {}),
+      }),
+    );
     const defaults: Partial<Record<InboxSection, string>> = {};
     for (const [section, actionId] of Object.entries(sectionDefaults)) {
       if (actionId !== undefined) defaults[section as InboxSection] = actionId;
@@ -305,8 +304,8 @@ export class WorkspaceService {
       this.workspaces.map((candidate) =>
         candidate.id === workspaceId
           ? { ...candidate, actions: records, sectionDefaults: defaults, updatedAt: Date.now() }
-          : candidate
-      )
+          : candidate,
+      ),
     );
   }
 
@@ -319,16 +318,133 @@ export class WorkspaceService {
       this.workspaces.map((candidate) =>
         candidate.id === workspaceId
           ? { ...candidate, groups: [...candidate.groups, group], updatedAt: Date.now() }
-          : candidate
-      )
+          : candidate,
+      ),
     );
     return group;
+  }
+
+  public createLabel(workspaceId: string, fields: NewLabelFields): Label {
+    const label = createLabelRecord(fields);
+    this.editWorkspace(workspaceId, (workspace) => ({
+      ...workspace,
+      labels: [...workspace.labels, label],
+    }));
+    return label;
+  }
+
+  public updateLabel(
+    workspaceId: string,
+    labelId: string,
+    updates: Partial<Pick<Label, 'name' | 'emoji' | 'color'>>,
+  ): void {
+    this.editWorkspace(workspaceId, (workspace) => ({
+      ...workspace,
+      labels: workspace.labels.map((label) => {
+        if (label.id !== labelId) return label;
+        const merged = { ...label, ...updates };
+        // Cleared as absence, like an unlinked work item: no stored undefined.
+        if (merged.emoji === undefined) delete merged.emoji;
+        if (merged.color === undefined) delete merged.color;
+        return merged;
+      }),
+    }));
+  }
+
+  /**
+   * Remove a label and take its id off every session in the same write.
+   *
+   * Returns what it removed, or null when there was no such label. The caller
+   * needs that memento because this is the one write that destroys something
+   * a person authored: the label, and its place on every session carrying it.
+   * `restoreLabel` puts the memento back.
+   */
+  public deleteLabel(workspaceId: string, labelId: string): DeletedLabel | null {
+    const workspace = this.workspaces.find((candidate) => candidate.id === workspaceId);
+    const index = workspace?.labels.findIndex((label) => label.id === labelId) ?? -1;
+    if (!workspace || index < 0) return null;
+    const removed: DeletedLabel = {
+      label: workspace.labels[index],
+      index,
+      sessionIds: workspace.sessions
+        .filter((session) => session.labelIds?.includes(labelId))
+        .map((session) => session.id),
+    };
+    this.editWorkspace(workspaceId, (current) => ({
+      ...current,
+      labels: current.labels.filter((label) => label.id !== labelId),
+      sessions: current.sessions.map((session) => {
+        if (!session.labelIds?.includes(labelId)) return session;
+        const labelIds = session.labelIds.filter((id) => id !== labelId);
+        const { labelIds: _previous, ...rest } = session;
+        return labelIds.length > 0 ? { ...rest, labelIds } : rest;
+      }),
+    }));
+    return removed;
+  }
+
+  /**
+   * Put a deleted label back where it was, on the sessions that had it.
+   *
+   * One commit, like the delete: a session that has gone in the meantime is
+   * skipped, and a label that is somehow back already is not added twice, so
+   * undoing twice or undoing late cannot corrupt the list.
+   */
+  public restoreLabel(workspaceId: string, removed: DeletedLabel): void {
+    const carried = new Set(removed.sessionIds);
+    this.editWorkspace(workspaceId, (workspace) => {
+      const labels = [...workspace.labels];
+      if (!labels.some((label) => label.id === removed.label.id)) {
+        labels.splice(Math.min(removed.index, labels.length), 0, removed.label);
+      }
+      return {
+        ...workspace,
+        labels,
+        sessions: workspace.sessions.map((session) => {
+          if (!carried.has(session.id) || session.labelIds?.includes(removed.label.id))
+            return session;
+          return { ...session, labelIds: [...(session.labelIds ?? []), removed.label.id] };
+        }),
+      };
+    });
+  }
+
+  public assignLabel(workspaceId: string, sessionId: string, labelId: string): void {
+    const workspace = this.workspaces.find((candidate) => candidate.id === workspaceId);
+    if (!workspace?.labels.some((label) => label.id === labelId))
+      throw new Error(`No label ${labelId}`);
+    const session = workspace.sessions.find((candidate) => candidate.id === sessionId);
+    if (!session || session.labelIds?.includes(labelId)) return;
+    this.updateSession(workspaceId, sessionId, {
+      labelIds: [...(session.labelIds ?? []), labelId],
+    });
+  }
+
+  public unassignLabel(workspaceId: string, sessionId: string, labelId: string): void {
+    const workspace = this.workspaces.find((candidate) => candidate.id === workspaceId);
+    const session = workspace?.sessions.find((candidate) => candidate.id === sessionId);
+    if (!session?.labelIds?.includes(labelId)) return;
+    this.updateSession(workspaceId, sessionId, {
+      labelIds: session.labelIds.filter((id) => id !== labelId),
+    });
+  }
+
+  /** One workspace rewritten in one commit; throws for a workspace that does not exist. */
+  private editWorkspace(workspaceId: string, edit: (workspace: Workspace) => Workspace): void {
+    if (!this.workspaces.some((candidate) => candidate.id === workspaceId)) {
+      throw new Error(`No workspace ${workspaceId}`);
+    }
+    this.commit(
+      this.workspaces.map((candidate) =>
+        candidate.id === workspaceId ? { ...edit(candidate), updatedAt: Date.now() } : candidate,
+      ),
+    );
   }
 
   public updateGroup(
     workspaceId: string,
     groupId: string,
-    updates: Partial<Pick<Group, 'name' | 'emoji' | 'conductorSessionId' | 'archivedAt'>>
+    updates: Partial<Pick<Group, 'name' | 'emoji' | 'conductorSessionId' | 'archivedAt'>>,
   ): void {
     this.commit(
       this.workspaces.map((workspace) =>
@@ -336,12 +452,12 @@ export class WorkspaceService {
           ? {
               ...workspace,
               groups: workspace.groups.map((group) =>
-                group.id === groupId ? { ...group, ...updates } : group
+                group.id === groupId ? { ...group, ...updates } : group,
               ),
               updatedAt: Date.now(),
             }
-          : workspace
-      )
+          : workspace,
+      ),
     );
   }
 
@@ -366,19 +482,16 @@ export class WorkspaceService {
           ? {
               ...candidate,
               groups: candidate.groups.map((group) =>
-                group.id === groupId ? { ...group, archivedAt: Date.now() } : group
+                group.id === groupId ? { ...group, archivedAt: Date.now() } : group,
               ),
               updatedAt: Date.now(),
             }
-          : candidate
-      )
+          : candidate,
+      ),
     );
   }
 
   public createSession(workspaceId: string, fields: NewSessionFields): Session | undefined {
-    // Only ensureAssistant and replaceAssistant mint the Assistant, so a
-    // window cannot create a second one by passing the kind through.
-    if (fields.kind === 'assistant') return undefined;
     const workspace = this.workspaces.find((candidate) => candidate.id === workspaceId);
     if (!workspace) return undefined;
     // A session pointing at a scope that does not exist would render nowhere
@@ -394,70 +507,10 @@ export class WorkspaceService {
               sessions: [...workspace.sessions, session],
               updatedAt: session.createdAt,
             }
-          : workspace
-      )
+          : workspace,
+      ),
     );
     return session;
-  }
-
-  /** The workspace's Assistant, created on its first scope if it has none yet. */
-  public ensureAssistant(workspaceId: string, fields: { harnessId: string; cwd: string }): Session {
-    const workspace = this.workspaces.find((candidate) => candidate.id === workspaceId);
-    if (!workspace) throw new Error('Workspace not found.');
-    const existing = assistantSession(workspace);
-    if (existing) return existing;
-
-    const assistant = this.newAssistantRecord(workspace, fields);
-    this.commit(
-      this.workspaces.map((candidate) =>
-        candidate.id === workspaceId
-          ? { ...candidate, sessions: [...candidate.sessions, assistant], updatedAt: assistant.createdAt }
-          : candidate
-      )
-    );
-    return assistant;
-  }
-
-  /**
-   * Swap the Assistant for a fresh record in one write, so "start a fresh
-   * conversation" never leaves a window seeing none or two. The caller stops
-   * `previous`'s process after this returns.
-   */
-  public replaceAssistant(
-    workspaceId: string,
-    fields: { harnessId: string; cwd: string }
-  ): { previous?: Session; next: Session } {
-    const workspace = this.workspaces.find((candidate) => candidate.id === workspaceId);
-    if (!workspace) throw new Error('Workspace not found.');
-    const previous = assistantSession(workspace);
-    const next = this.newAssistantRecord(workspace, fields);
-    this.commit(
-      this.workspaces.map((candidate) =>
-        candidate.id === workspaceId
-          ? {
-              ...candidate,
-              sessions: [...candidate.sessions.filter((session) => session.kind !== 'assistant'), next],
-              updatedAt: next.createdAt,
-            }
-          : candidate
-      )
-    );
-    return { previous, next };
-  }
-
-  private newAssistantRecord(workspace: Workspace, fields: { harnessId: string; cwd: string }): Session {
-    const scope = workspace.scopes[0];
-    if (!scope) throw new Error('Add a scope to use the Assistant.');
-    return createSessionRecord({
-      name: ASSISTANT_SESSION_NAME,
-      nameIsUserSet: true,
-      kind: 'assistant',
-      workspaceId: workspace.id,
-      instanceId: generateSessionInstanceId(workspace.id),
-      harnessId: fields.harnessId,
-      scopeId: scope.id,
-      cwd: fields.cwd,
-    });
   }
 
   /**
@@ -480,14 +533,6 @@ export class WorkspaceService {
     const workspace = this.workspaces.find((candidate) => candidate.id === workspaceId);
     const session = workspace?.sessions.find((candidate) => candidate.id === sessionId);
 
-    // The Assistant's name and place are fixed; only activity is recorded.
-    if (
-      session?.kind === 'assistant' &&
-      (['name', 'nameIsUserSet', 'groupId', 'workItem'] as const).some((key) => key in updates)
-    ) {
-      throw new Error('The Assistant cannot be renamed, grouped or linked.');
-    }
-
     const applied: SessionUpdates = { ...updates };
     if (session && updates.workItem !== undefined) {
       if (session.kind === 'conductor') {
@@ -498,7 +543,9 @@ export class WorkspaceService {
           delete applied.workItem;
         } else {
           const { repo, type, number } = session.workItem;
-          throw new Error(`This session is already linked to ${repo} ${type} #${number}. Unlink it first.`);
+          throw new Error(
+            `This session is already linked to ${repo} ${type} #${number}. Unlink it first.`,
+          );
         }
       }
     }
@@ -507,6 +554,9 @@ export class WorkspaceService {
     if (Object.keys(applied).length === 0) return;
 
     const unlinking = 'workItem' in applied && applied.workItem === undefined;
+    // Presence with `undefined` means detach; the key goes rather than
+    // lingering as an undefined a reload would not produce.
+    const detaching = 'parentSessionId' in applied && applied.parentSessionId === undefined;
     this.commit(
       this.workspaces.map((candidate) =>
         candidate.id === workspaceId
@@ -515,14 +565,15 @@ export class WorkspaceService {
               sessions: candidate.sessions.map((existing) => {
                 if (existing.id !== sessionId) return existing;
                 const merged = { ...existing, ...applied };
+                if (detaching) delete merged.parentSessionId;
                 if (!unlinking) return merged;
                 const { workItem: _workItem, workItemAction: _workItemAction, ...rest } = merged;
                 return rest;
               }),
               updatedAt: Date.now(),
             }
-          : candidate
-      )
+          : candidate,
+      ),
     );
   }
 
@@ -531,9 +582,10 @@ export class WorkspaceService {
    * record. `claudeSessionId` defaults to a new UUID; a caller that has
    * already handed one to a live terminal passes it, so the two agree.
    *
-   * The one way `claudeSessionId` ever changes, which is why it is a verb
-   * here and absent from `allowedSessionUpdates`: everything that makes the
-   * session *this* session — tab, name, harness, model, tool policy,
+   * The one way `claudeSessionId` changes on the same harness — the other is
+   * `switchHarness`, which moves the harness with it — which is why it is a
+   * verb here and absent from `allowedSessionUpdates`: everything that makes
+   * the session *this* session — tab, name, harness, model, tool policy,
    * checkout, linked item — stays, and only the conversation the next spawn
    * names is replaced. `hasStarted` is set because the caller spawns at once;
    * should it never get that far, the next launch's resume of an id Claude
@@ -543,7 +595,7 @@ export class WorkspaceService {
   public replaceConversation(
     workspaceId: string,
     sessionId: string,
-    claudeSessionId: string = generateUuid()
+    claudeSessionId: string = generateUuid(),
   ): Session {
     const workspace = this.workspaces.find((candidate) => candidate.id === workspaceId);
     const session = workspace?.sessions.find((candidate) => candidate.id === sessionId);
@@ -555,13 +607,53 @@ export class WorkspaceService {
         candidate.id === workspaceId
           ? {
               ...candidate,
-              sessions: candidate.sessions.map((existing) => (existing.id === sessionId ? replaced : existing)),
+              sessions: candidate.sessions.map((existing) =>
+                existing.id === sessionId ? replaced : existing,
+              ),
               updatedAt: Date.now(),
             }
-          : candidate
-      )
+          : candidate,
+      ),
     );
     return replaced;
+  }
+
+  /**
+   * Move a session onto another harness, with the conversation it runs
+   * there, and return the updated record.
+   *
+   * The one way `harnessId` ever changes, which is why it is a verb here and
+   * absent from `allowedSessionUpdates`: a transcript lives in its harness's
+   * config directory, so the harness and the conversation it names
+   * (`claudeSessionId`) only ever change together. The record it leaves is
+   * `switchedSession`'s; only conductors are refused.
+   */
+  public switchHarness(
+    workspaceId: string,
+    sessionId: string,
+    change: HarnessSwitchChange,
+  ): Session {
+    const workspace = this.workspaces.find((candidate) => candidate.id === workspaceId);
+    const session = workspace?.sessions.find((candidate) => candidate.id === sessionId);
+    if (!session) throw new Error(`No session ${sessionId} in workspace ${workspaceId}.`);
+    if (session.kind !== 'interactive')
+      throw new Error('Only your own sessions can switch harness.');
+
+    const switched = switchedSession(session, change);
+    this.commit(
+      this.workspaces.map((candidate) =>
+        candidate.id === workspaceId
+          ? {
+              ...candidate,
+              sessions: candidate.sessions.map((existing) =>
+                existing.id === sessionId ? switched : existing,
+              ),
+              updatedAt: Date.now(),
+            }
+          : candidate,
+      ),
+    );
+    return switched;
   }
 
   public deleteSession(workspaceId: string, sessionId: string): void {
@@ -573,8 +665,8 @@ export class WorkspaceService {
               sessions: workspace.sessions.filter((session) => session.id !== sessionId),
               updatedAt: Date.now(),
             }
-          : workspace
-      )
+          : workspace,
+      ),
     );
   }
 
@@ -595,7 +687,8 @@ export class WorkspaceService {
     if (!workspace || !session || !path.isAbsolute(reported)) return;
 
     const launchedIn = session.cwd ?? scopeForSession(workspace, session)?.path;
-    const agentCwd = launchedIn && samePath(reported, launchedIn) ? undefined : path.resolve(reported);
+    const agentCwd =
+      launchedIn && samePath(reported, launchedIn) ? undefined : path.resolve(reported);
     if (agentCwd === session.agentCwd) return;
 
     this.commit(
@@ -610,8 +703,62 @@ export class WorkspaceService {
               }),
               updatedAt: Date.now(),
             }
-          : candidate
-      )
+          : candidate,
+      ),
+    );
+  }
+
+  /**
+   * Mark sessions whose worktree a cleanup rule removed while they stayed.
+   * One write for the whole batch: every commit is an fsync of the list and
+   * a broadcast to every window. `cwd` is never rewritten; the rebuild puts
+   * the folder back where it was.
+   *
+   * With `clearWorktreeRemoved`, the one writer of `removedWorktree`, which
+   * is why it is absent from `allowedSessionUpdates`.
+   */
+  public recordWorktreesRemoved(
+    entries: ReadonlyArray<{ sessionId: string; removed: RemovedWorktree }>,
+  ): void {
+    if (entries.length === 0) return;
+    const bySession = new Map(entries.map((entry) => [entry.sessionId, entry.removed]));
+    let changed = false;
+    const next = this.workspaces.map((workspace) => {
+      if (!workspace.sessions.some((session) => bySession.has(session.id))) return workspace;
+      changed = true;
+      return {
+        ...workspace,
+        sessions: workspace.sessions.map((session) => {
+          const removed = bySession.get(session.id);
+          return removed ? { ...session, removedWorktree: { ...removed } } : session;
+        }),
+        updatedAt: Date.now(),
+      };
+    });
+    if (changed) this.commit(next);
+  }
+
+  /**
+   * The folder is back (rebuilt, or it never went): clear the mark from
+   * every session naming it. A no-op writes nothing.
+   */
+  public clearWorktreeRemoved(worktreePath: string): void {
+    const names = (session: Session) => session.removedWorktree?.path === worktreePath;
+    if (!this.workspaces.some((workspace) => workspace.sessions.some(names))) return;
+    this.commit(
+      this.workspaces.map((workspace) =>
+        workspace.sessions.some(names)
+          ? {
+              ...workspace,
+              sessions: workspace.sessions.map((session) => {
+                if (!names(session)) return session;
+                const { removedWorktree: _removed, ...rest } = session;
+                return rest;
+              }),
+              updatedAt: Date.now(),
+            }
+          : workspace,
+      ),
     );
   }
 

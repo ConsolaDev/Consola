@@ -1,7 +1,18 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": null,
-  "installCommand": "pnpm install --frozen-lockfile --ignore-scripts",
-  "buildCommand": "pnpm --filter @consola/website build",
-  "outputDirectory": "apps/website/dist"
+  "installCommand": "npx -y pnpm@10.28.2 install --frozen-lockfile --ignore-scripts",
+  "buildCommand": "npx -y pnpm@10.28.2 --filter @consola/website build",
+  "outputDirectory": "apps/website/dist",
+  "rewrites": [
+    {
+      "source": "/cnsl/static/:path(.*)",
+      "destination": "https://eu-assets.i.posthog.com/static/:path"
+    },
+    {
+      "source": "/cnsl/array/:path(.*)",
+      "destination": "https://eu-assets.i.posthog.com/array/:path"
+    },
+    { "source": "/cnsl/:path(.*)", "destination": "https://eu.i.posthog.com/:path" }
+  ]
 }

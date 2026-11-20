@@ -1,7 +1,6 @@
 import { SessionTerminalLayout } from '../Terminal/SessionTerminalLayout';
 import { useEffect, useMemo } from 'react';
 import { Group, Panel, Separator, useDefaultLayout } from 'react-resizable-panels';
-import { driverSupportsSessionNaming } from '../../../shared/constants';
 import { checkoutPathForSession, scopeForSession } from '../../../shared/workspace';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { useHarnessStore } from '../../stores/harnessStore';
@@ -9,11 +8,6 @@ import { usePreviewTabStore } from '../../stores/previewTabStore';
 import { useNavigationStore } from '../../stores/navigationStore';
 import { useGitStatusAutoRefresh } from '../../stores/gitStatusStore';
 import { useGitReviewStore } from '../../stores/gitReviewStore';
-import { harnessBridge } from '../../services/harnessBridge';
-import { assistantBridge } from '../../services/assistantBridge';
-import { useAssistantStore } from '../../stores/assistantStore';
-import { useAssistantRequests } from '../../hooks/useAssistantRequests';
-import { AssistantTray } from '../AssistantTray/AssistantTray';
 import { TerminalPanel } from '../Terminal';
 import { PreviewPanel } from '../PreviewPanel';
 import { GitReviewPanel } from '../GitReviewPanel';
@@ -27,9 +21,6 @@ interface ContentViewProps {
   workspaceId: string;
   sessionId: string;
 }
-
-/** How often to check whether the CLI has written a summary for the session. */
-const SESSION_NAME_POLL_MS = 5000;
 
 export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
   const isExplorerVisible = useNavigationStore((state) => state.isExplorerVisible);
@@ -54,21 +45,10 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
   // carries a cwd override (worktrees, from Phase 1 on).
   const scope = workspace ? scopeForSession(workspace, session) : undefined;
   const cwd = (workspace && checkoutPathForSession(workspace, session)) ?? '';
-  // Its folder is not a repo and holds only its brief, so none of the
-  // checkout-shaped panels (explorer, git review) have anything to show.
-  const isAssistant = session?.kind === 'assistant';
-  const hasUnseenFinished = useAssistantStore((state) => (state.activity[workspaceId]?.unseenFinished ?? 0) > 0);
-  // What the Assistant asked for that waits for the person sits beside it,
-  // until hidden; a request it has not shown yet brings it back.
-  const assistantRequests = useAssistantRequests(isAssistant ? workspace : undefined);
-  const trayHidden = useAssistantStore((state) => state.tray[workspaceId]?.hidden ?? false);
-  const reconcileTray = useAssistantStore((state) => state.reconcileTray);
-  const setTrayHidden = useAssistantStore((state) => state.setTrayHidden);
-  const requestIds = assistantRequests.map((run) => run.id).join('\n');
-  useEffect(() => {
-    if (isAssistant) reconcileTray(workspaceId, requestIds ? requestIds.split('\n') : []);
-  }, [isAssistant, workspaceId, requestIds, reconcileTray]);
-  const isTrayOpen = isAssistant && assistantRequests.length > 0 && !trayHidden;
+  // While a cleanup rule has its worktree removed there is no checkout to
+  // show, but the terminal still launches where the session belongs: main
+  // rebuilds the worktree there before it spawns.
+  const terminalCwd = cwd || (session?.removedWorktree ? (session.cwd ?? scope?.path ?? '') : '');
   // Details are read as the workspace's account, so a workspace without one
   // has nothing to show even when the session still names an item.
   const showWorkItemPanel =
@@ -77,12 +57,11 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
   // Conditional panels must have separate saved layouts: hiding the explorer
   // must not overwrite the layout that remembers its width.
   const panelIds = [
-    ...(isExplorerVisible && cwd && !isAssistant ? ['explorer'] : []),
+    ...(isExplorerVisible && cwd ? ['explorer'] : []),
     'agent',
-    ...(isTrayOpen ? ['approvals'] : []),
     ...(showWorkItemPanel ? ['work-item'] : []),
     ...(hasOpenTabs ? ['preview'] : []),
-    ...(isGitReviewOpen && !isAssistant ? ['git-review'] : []),
+    ...(isGitReviewOpen ? ['git-review'] : []),
   ];
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({
     id: 'content-view-split',
@@ -90,8 +69,6 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
     storage: localStorage,
   });
 
-  const nameIsUserSet = session?.nameIsUserSet;
-  const claudeSessionId = session?.claudeSessionId;
   const hasStarted = session?.hasStarted;
   const harnessId = session?.harnessId;
 
@@ -103,22 +80,13 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
   const getLaunchFields = useHarnessStore((state) => state.getLaunchFields);
   const launchFields = useMemo(
     () => getLaunchFields(harnessId),
-    [getLaunchFields, harnessId, harnesses]
+    [getLaunchFields, harnessId, harnesses],
   );
-  const supportsSessionNaming = driverSupportsSessionNaming(launchFields.driverId);
 
   // Git status follows the checkout the session runs in. A worktree has its
   // own branch, index and changes, so its scope's path would report a
   // different checkout than the one the agent is editing.
-  useGitStatusAutoRefresh(!isAssistant && (scope?.isGitRepo || session?.cwd || session?.agentCwd) ? cwd : null);
-
-  // The Assistant's finished count means "since you last looked". Looking is
-  // this pane being on screen, so it clears on arrival and again whenever
-  // more finishes while it stays up.
-  useEffect(() => {
-    if (!isAssistant) return;
-    void assistantBridge.markSeen(workspaceId);
-  }, [isAssistant, workspaceId, hasUnseenFinished]);
+  useGitStatusAutoRefresh(scope?.isGitRepo || session?.cwd || session?.agentCwd ? cwd : null);
 
   // Record that this tab has launched, so reopening it resumes the
   // conversation instead of trying to create a session ID Claude already has.
@@ -127,64 +95,6 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
       void updateSession(workspaceId, sessionId, { hasStarted: true });
     }
   }, [hasStarted, sessionId, workspaceId, updateSession]);
-
-  // The CLI writes a summary for a conversation once it has content. Adopt
-  // what it knows as the session's name: a prompt-derived name is a stand-in,
-  // so the poll continues past it and stops only once the CLI's own summary
-  // lands. A name the user typed wins permanently and is never polled over.
-  // Drivers whose transcripts Consola cannot read never produce a name, so
-  // they are skipped outright rather than polled forever. For a work-item
-  // session the sidebar label is derived from the record (sessionLabel), so
-  // this poll never decides what the row reads.
-  useEffect(() => {
-    if (!claudeSessionId) return;
-    if (!supportsSessionNaming) return;
-    if (nameIsUserSet) return;
-
-    let cancelled = false;
-    let timer: ReturnType<typeof setInterval> | undefined;
-
-    const adoptName = () => {
-      harnessBridge
-        .getSessionName(claudeSessionId, launchFields)
-        .then((result) => {
-          if (cancelled || !result) return;
-          // Codex can switch conversations or rename them inside the same TUI.
-          if (result.source === 'summary' && launchFields.driverId !== 'codex' && timer !== undefined) {
-            clearInterval(timer);
-          }
-          // Read the live name rather than depending on it: a dependency
-          // would restart this effect — and its interval — on every adoption,
-          // and the poll must outlive the names it writes.
-          const currentSession = useWorkspaceStore
-            .getState()
-            .getSession(workspaceId, sessionId);
-          if (!currentSession || currentSession.nameIsUserSet) return;
-          if (result.name !== currentSession.name) {
-            void updateSession(workspaceId, sessionId, { name: result.name });
-          }
-        })
-        .catch(() => {
-          // Transcript not written yet; the next poll will pick it up.
-        });
-    };
-
-    adoptName();
-    timer = setInterval(adoptName, SESSION_NAME_POLL_MS);
-
-    return () => {
-      cancelled = true;
-      if (timer !== undefined) clearInterval(timer);
-    };
-  }, [
-    claudeSessionId,
-    nameIsUserSet,
-    sessionId,
-    workspaceId,
-    updateSession,
-    launchFields,
-    supportsSessionNaming,
-  ]);
 
   if (!workspace || !session) {
     return (
@@ -212,7 +122,7 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
           defaultLayout={defaultLayout}
           onLayoutChanged={onLayoutChanged}
         >
-          {isExplorerVisible && cwd && !isAssistant && (
+          {isExplorerVisible && cwd && (
             <>
               <Panel id="explorer" defaultSize="240px" minSize="160px" maxSize="40%">
                 <FileExplorer
@@ -235,7 +145,7 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
                     ? { startedBy: session.automation?.name }
                     : undefined
                 }
-                cwd={cwd}
+                cwd={terminalCwd}
                 claudeSessionId={session.claudeSessionId}
                 resume={session.hasStarted}
                 harness={launchFields}
@@ -246,14 +156,6 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
               />
             </SessionTerminalLayout>
           </Panel>
-          {isTrayOpen && (
-            <>
-              <Separator className="resize-handle" />
-              <Panel id="approvals" defaultSize="320px" minSize="260px" maxSize="45%">
-                <AssistantTray requests={assistantRequests} onHide={() => setTrayHidden(workspaceId, true)} />
-              </Panel>
-            </>
-          )}
           {showWorkItemPanel && (
             <>
               <Separator className="resize-handle" />
@@ -270,7 +172,7 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
               </Panel>
             </>
           )}
-          {isGitReviewOpen && !isAssistant && (
+          {isGitReviewOpen && (
             <>
               <Separator className="resize-handle" />
               <Panel id="git-review" defaultSize="40%" minSize="20%">

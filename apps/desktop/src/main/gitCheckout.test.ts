@@ -1,21 +1,34 @@
-import { execFileSync } from 'child_process';
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
+import { execFileSync } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { readCheckout } from './gitCheckout';
 
 let root: string;
 let repo: string;
 const git = (cwd: string, ...args: string[]) =>
-  execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  execFileSync('git', ['-C', cwd, ...args], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  }).trim();
 
 beforeEach(() => {
   root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'consola-git-checkout-')));
   repo = path.join(root, 'repo');
   fs.mkdirSync(repo);
   git(repo, 'init', '-b', 'main');
-  git(repo, '-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '--allow-empty', '-m', 'initial');
+  git(
+    repo,
+    '-c',
+    'user.name=Test',
+    '-c',
+    'user.email=test@example.com',
+    'commit',
+    '--allow-empty',
+    '-m',
+    'initial',
+  );
 });
 afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
 
@@ -51,7 +64,12 @@ describe('readCheckout', () => {
     const fresh = path.join(root, 'fresh');
     fs.mkdirSync(fresh);
     git(fresh, 'init', '-b', 'trunk');
-    expect(await readCheckout(fresh)).toEqual({ kind: 'main', root: fresh, mainCheckout: fresh, branch: 'trunk' });
+    expect(await readCheckout(fresh)).toEqual({
+      kind: 'main',
+      root: fresh,
+      mainCheckout: fresh,
+      branch: 'trunk',
+    });
   });
 
   it('reads a plain folder or a missing one as no checkout', async () => {

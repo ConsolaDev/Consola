@@ -24,32 +24,50 @@ if (args.includes('--version')) {
   // Codex buffers rollout writes. Only a graceful shutdown guarantees the
   // next process can resume it; SIGTERM immediately after a reply is too early.
   input.on('close', () => {
-    if (savedThread && flushed) setTimeout(() => {
-      fs.writeFileSync(path.join(home, savedThread.threadId + '.json'), JSON.stringify(savedThread));
-    }, 50);
+    if (savedThread && flushed)
+      setTimeout(() => {
+        fs.writeFileSync(
+          path.join(home, savedThread.threadId + '.json'),
+          JSON.stringify(savedThread),
+        );
+      }, 50);
   });
-  input.on('line', line => {
+  input.on('line', (line) => {
     const { id, method, params } = JSON.parse(line);
     if (id === undefined) return;
     const mode = process.env.CONSOLA_CODEX_FIXTURE_MODE;
     if (mode === 'hang') return;
     if (mode === 'exit') process.exit(1);
-    if (mode === 'invalid') { process.stdout.write('not-json\n'); return; }
+    if (mode === 'invalid') {
+      process.stdout.write('not-json\n');
+      return;
+    }
     if (mode === 'reject') {
-      process.stdout.write(JSON.stringify({ id, error: { message: 'fixture-private-key-fragment' } }) + '\n');
+      process.stdout.write(
+        JSON.stringify({ id, error: { message: 'fixture-private-key-fragment' } }) + '\n',
+      );
       return;
     }
     let result = {};
     if (method === 'model/list') {
-      const model = (name, extra = {}) => ({ model: name, displayName: name, description: 'Fixture model', ...extra });
+      const model = (name, extra = {}) => ({
+        model: name,
+        displayName: name,
+        description: 'Fixture model',
+        ...extra,
+      });
       const fixtureMode = process.env.CONSOLA_CODEX_MODELS_FIXTURE;
       if (fixtureMode === 'malformed') result = { data: [{ id: 'missing-model-value' }] };
       else if (fixtureMode === 'cycle') result = { data: [], nextCursor: 'same-cursor' };
       else if (params.cursor) result = { data: [model('fixture-model-b')], nextCursor: null };
-      else result = {
-        data: [model('fixture-model-a', { supportedReasoningEfforts: [{ reasoningEffort: 'high' }] }), model('fixture-hidden', { hidden: true })],
-        nextCursor: 'page-two',
-      };
+      else
+        result = {
+          data: [
+            model('fixture-model-a', { supportedReasoningEfforts: [{ reasoningEffort: 'high' }] }),
+            model('fixture-hidden', { hidden: true }),
+          ],
+          nextCursor: 'page-two',
+        };
     } else if (method === 'thread/start') {
       result = { thread: { id: crypto.randomUUID() } };
     } else if (method === 'thread/name/set') {
@@ -75,7 +93,7 @@ if (args.includes('--version')) {
   }
   process.stdout.write('Codex fixture ready\r\n› ');
   let input = '';
-  process.stdin.on('data', chunk => {
+  process.stdin.on('data', (chunk) => {
     input += chunk.toString();
     if (!/\/new[\r\n]/.test(input)) return;
     input = '';

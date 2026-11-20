@@ -35,10 +35,18 @@
   image-rendering: pixelated;
 }
 
-.image-viewer-stage[data-cursor='zoom-in'] .image-viewer-image { cursor: zoom-in; }
-.image-viewer-stage[data-cursor='zoom-out'] .image-viewer-image { cursor: zoom-out; }
-.image-viewer-stage[data-cursor='grab'] { cursor: grab; }
-.image-viewer-stage[data-cursor='grabbing'] { cursor: grabbing; }
+.image-viewer-stage[data-cursor="zoom-in"] .image-viewer-image {
+  cursor: zoom-in;
+}
+.image-viewer-stage[data-cursor="zoom-out"] .image-viewer-image {
+  cursor: zoom-out;
+}
+.image-viewer-stage[data-cursor="grab"] {
+  cursor: grab;
+}
+.image-viewer-stage[data-cursor="grabbing"] {
+  cursor: grabbing;
+}
 
 .image-viewer-bar {
   position: absolute;
@@ -102,7 +110,9 @@
   background: transparent;
   color: rgb(255 255 255 / 0.82);
   cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast);
+  transition:
+    background var(--transition-fast),
+    color var(--transition-fast);
 }
 
 .image-viewer-button:hover:not(:disabled) {
@@ -151,17 +161,24 @@
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .image-viewer[data-state='open'] {
+  .image-viewer[data-state="open"] {
     animation: image-viewer-fade 160ms ease-out;
   }
 
   /* Width, height and offset all move linearly in the scale, so easing them together keeps the zoom point still. */
   .image-viewer-image[data-animate] {
-    transition: width 180ms ease, height 180ms ease, transform 180ms ease;
+    transition:
+      width 180ms ease,
+      height 180ms ease,
+      transform 180ms ease;
   }
 }
 
 @keyframes image-viewer-fade {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }

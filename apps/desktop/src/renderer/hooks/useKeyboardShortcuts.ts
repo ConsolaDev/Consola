@@ -4,7 +4,12 @@ import { useWorkspaceStore } from '../stores/workspaceStore';
 import { useEffect } from 'react';
 import { useNavigationStore } from '../stores/navigationStore';
 import { useSettingsStore } from '../stores/settingsStore';
-import { isAssistantShortcut, isCommandPaletteShortcut, matchScopeShortcut, matchWorkspaceShortcut } from '../utils/platform';
+import {
+  isCommandPaletteShortcut,
+  isWorkingShelfShortcut,
+  matchScopeShortcut,
+  matchWorkspaceShortcut,
+} from '../utils/platform';
 import { windowBridge } from '../services/windowBridge';
 import type { PaletteScope } from '../components/CommandPalette/types';
 
@@ -14,7 +19,6 @@ interface UseKeyboardShortcutsOptions {
   onOpenSettings?: () => void;
   onTogglePalette?: () => void;
   onOpenScopedPalette?: (scope: PaletteScope) => void;
-  onOpenAssistant?: () => void;
 }
 
 /**
@@ -29,7 +33,13 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
   const toggleSidebar = useNavigationStore((state) => state.toggleSidebar);
   const toggleExplorer = useNavigationStore((state) => state.toggleExplorer);
   const cycleTheme = useSettingsStore((state) => state.cycleTheme);
-  const { onNewSession, onNewSessionWithOptions, onOpenSettings, onTogglePalette, onOpenScopedPalette, onOpenAssistant } = options;
+  const {
+    onNewSession,
+    onNewSessionWithOptions,
+    onOpenSettings,
+    onTogglePalette,
+    onOpenScopedPalette,
+  } = options;
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -60,17 +70,20 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
         return;
       }
 
-      // Opens rather than toggles: from the Assistant itself it is a no-op.
-      if (isAssistantShortcut(event)) {
+      // Shows or hides the Working shelf: the one chord for the shelf that
+      // starts collapsed.
+      if (isWorkingShelfShortcut(event)) {
         event.preventDefault();
-        if (!event.repeat) onOpenAssistant?.();
+        if (!event.repeat) useSettingsStore.getState().toggleSidebarShelf('working');
         return;
       }
 
       if (isShellShortcut(event)) {
         const { activeWorkspaceId, activeSessionId, overlay } = useNavigationStore.getState();
         if (activeWorkspaceId && activeSessionId && overlay === null) {
-          const session = useWorkspaceStore.getState().getSession(activeWorkspaceId, activeSessionId);
+          const session = useWorkspaceStore
+            .getState()
+            .getSession(activeWorkspaceId, activeSessionId);
           if (session) {
             event.preventDefault();
             if (!event.repeat) useShellStore.getState().toggle(session.instanceId);
@@ -138,6 +151,5 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
     onOpenSettings,
     onTogglePalette,
     onOpenScopedPalette,
-    onOpenAssistant,
   ]);
 }

@@ -36,7 +36,8 @@ export function FileTreeItem({ node, depth, selectedPath, onSelectFile }: FileTr
   useEffect(() => {
     if (isOpen && node.isDirectory && children.length === 0) {
       setIsLoading(true);
-      fileBridge.listDirectory(node.path)
+      fileBridge
+        .listDirectory(node.path)
         .then(setChildren)
         .catch(console.error)
         .finally(() => setIsLoading(false));
@@ -50,10 +51,7 @@ export function FileTreeItem({ node, depth, selectedPath, onSelectFile }: FileTr
           className="file-tree-item file-tree-folder"
           style={{ paddingLeft: indent }}
         >
-          <ChevronRight
-            size={14}
-            className={`file-tree-chevron ${isOpen ? 'open' : ''}`}
-          />
+          <ChevronRight size={14} className={`file-tree-chevron ${isOpen ? 'open' : ''}`} />
           <FolderIcon isOpen={isOpen} className="file-tree-icon" />
           <span className="file-tree-name">{node.name}</span>
         </Collapsible.Trigger>
@@ -63,7 +61,7 @@ export function FileTreeItem({ node, depth, selectedPath, onSelectFile }: FileTr
               Loading...
             </div>
           ) : (
-            children.map(child => (
+            children.map((child) => (
               <FileTreeItem
                 key={child.path}
                 node={child}

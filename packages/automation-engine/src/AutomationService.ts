@@ -197,8 +197,6 @@ export interface AutomationNotice {
   needsApproval: boolean;
   /** The session a run started: a click opens it instead of the panel. */
   sessionId?: string;
-  /** The agent session that asked for a run waiting for approval, when one did. */
-  actorId?: string;
 }
 
 /** How `saveEntry` writes: whether it may replace an entry of the same name, and the session that asked. */
@@ -324,6 +322,19 @@ const MAX_RESULT_CHARS = 20_000;
 
 /** Requests one agent session may leave waiting before it must wait for the person. */
 export const MAX_WAITING_PER_SESSION = 10;
+
+/** A run that has not finished: one more of these for the same thing would be a duplicate. */
+export const OPEN_STATUSES: readonly RunStatus[] = ['queued', 'running', 'needs-approval'];
+
+/**
+ * What a run asks of the person, as the attention queue sees it; null means
+ * it has no row of its own. A running run is represented by its session, so
+ * only a run waiting for approval wants the person. Run statuses only ever
+ * grow, so one this build does not know is null rather than an error.
+ */
+export function runAttention(run: Pick<RunRecord, 'status'>): 'needs-attention' | null {
+  return run.status === 'needs-approval' ? 'needs-attention' : null;
+}
 
 interface Resolved {
   workspaceId: string;
@@ -1121,12 +1132,14 @@ export class AutomationService {
    * way or the other, and its slot is free. The run is the session's
    * `running` one — a later exit of the same session, the person
    * continuing it, is not.
+   * Says whether the run completed, which is a result waiting to be looked at.
+   * A step's session never is: its run goes on, and what it found is the run's.
    */
-  public turnEnded(sessionId: string, outcome: TurnOutcome): void {
+  public turnEnded(sessionId: string, outcome: TurnOutcome): { completed: boolean } {
     const step = this.runningStepOf(sessionId);
     if (step) {
       this.stepTurnEnded(step.run, step.record, outcome, sessionId);
-      return;
+      return { completed: false };
     }
     const run = this.deps.store
       .runs()
@@ -1136,15 +1149,17 @@ export class AutomationService {
           candidate.status === 'running' &&
           isAgentRun(candidate),
       );
-    if (!run) return;
+    if (!run) return { completed: false };
     const name = this.sessionOf(run)?.name ?? 'its session';
     let notice: { title: string; body: string };
+    let completed = false;
     const error = turnFailure(outcome);
     if (error) {
       this.finish(run.id, 'failed', { error });
       notice = { title: `${run.automationId} did not finish`, body: error };
     } else {
       this.finish(run.id, 'completed', { summary: `Ready in “${name}”.` });
+      completed = true;
       const item = (run.result as AgentRunPreview).item?.label;
       notice = {
         title: `${run.automationId}: ready`,
@@ -1156,6 +1171,7 @@ export class AutomationService {
     if (workspaceId)
       this.deps.notify({ ...notice, runId: run.id, workspaceId, needsApproval: false, sessionId });
     void this.pump();
+    return { completed };
   }
 
   /**
@@ -1471,7 +1487,6 @@ export class AutomationService {
       runId: run.id,
       workspaceId,
       needsApproval: true,
-      actorId: sessionId,
     });
     return { preview, run };
   }
@@ -4051,7 +4066,6 @@ export class AutomationService {
           runId: run.id,
           workspaceId: entry.workspaceId,
           needsApproval: true,
-          ...(run.trigger.actorId ? { actorId: run.trigger.actorId } : {}),
         });
       },
       automation.name,
@@ -4311,7 +4325,6 @@ export class AutomationService {
         runId: run.id,
         workspaceId: entry.workspaceId,
         needsApproval: true,
-        ...(run.trigger.actorId ? { actorId: run.trigger.actorId } : {}),
       });
     } else {
       this.deps.store.add({ ...run, status: 'queued', summary: line.summary });

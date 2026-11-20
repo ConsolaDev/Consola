@@ -1,8 +1,12 @@
+import type { SessionDeleteOutcome, SessionDeletePreview } from './worktreeCleanup';
 import type { WorkItemDetails, WorkItemMutation } from './workItemDetails';
 import type { SessionCheckout, CheckoutContext } from './sessionCheckout';
 import type {
   Group,
+  DeletedLabel,
+  Label,
   NewGroupFields,
+  NewLabelFields,
   NewScopeFields,
   NewSessionFields,
   Scope,
@@ -13,6 +17,7 @@ import type {
   WorkspaceUpdates,
 } from './workspace';
 import type { Harness, HarnessUpdates, NewHarnessFields } from './harness';
+import type { HarnessSwitchPreview, HarnessSwitchResult } from './harnessSwitch';
 import type { InboxSection } from './inboxSections';
 import type { GitProviderId, ProviderProbeResult } from './providers';
 import type { WorkItemAction } from './workItemActions';
@@ -148,6 +153,8 @@ export interface TerminalAPI {
   resize: (instanceId: string, cols: number, rows: number) => void;
   restart: (instanceId: string) => void;
   destroy: (instanceId: string) => void;
+  /** The view unmounted: its window stops receiving this terminal's output. */
+  detach: (instanceId: string) => void;
   onData: (callback: (message: TerminalDataMessage) => void) => () => void;
   onActivity: (callback: (message: TerminalActivityMessage) => void) => () => void;
   onAwaitingConfirmation: (
@@ -264,24 +271,9 @@ export type HarnessCapabilitiesResult =
   | ({ supported: true } & HarnessCapabilities)
   | HarnessCapabilitiesUnavailable;
 
-/**
- * A session's display name and where it came from. `summary` is the CLI's own
- * settled name for the conversation; `prompt` is a stand-in read from the
- * opening message, so a caller adopting names knows to keep asking until a
- * summary lands.
- */
-export interface SessionNameResult {
-  name: string;
-  source: 'summary' | 'prompt';
-}
-
 export interface HarnessAPI {
   getSessionModel: (sessionId: string, fields: HarnessLaunchFields) => Promise<string | null>;
   probe: (fields: HarnessLaunchFields) => Promise<HarnessProbeResult>;
-  getSessionName: (
-    sessionId: string,
-    fields: HarnessLaunchFields,
-  ) => Promise<SessionNameResult | null>;
   getCapabilities: (fields: HarnessLaunchFields) => Promise<HarnessCapabilitiesResult>;
 }
 
@@ -400,9 +392,24 @@ export interface WorkspaceAPI {
     checkout?: SessionCheckout,
   ) => Promise<Session | undefined>;
   updateSession: (workspaceId: string, sessionId: string, updates: SessionUpdates) => Promise<void>;
-  deleteSession: (workspaceId: string, sessionId: string) => Promise<void>;
+  /** What deleting a session would do to its worktree, before the person confirms. */
+  previewSessionDelete: (workspaceId: string, sessionId: string) => Promise<SessionDeletePreview>;
+  deleteSession: (
+    workspaceId: string,
+    sessionId: string,
+  ) => Promise<SessionDeleteOutcome | undefined>;
   /** A new session of the person's own that continues this read-only one's conversation. */
   forkSession: (workspaceId: string, sessionId: string) => Promise<Session>;
+  /** What switching this session to each harness it could move to would do. */
+  previewHarnessSwitch: (workspaceId: string, sessionId: string) => Promise<HarnessSwitchPreview[]>;
+  /** Carry this session on in another harness, in the same tab. */
+  switchHarness: (
+    workspaceId: string,
+    sessionId: string,
+    harnessId: string,
+  ) => Promise<HarnessSwitchResult>;
+  /** Write a new title from this session's conversation. Rejects with a message for the person. */
+  regenerateSessionTitle: (workspaceId: string, sessionId: string) => Promise<void>;
   addScope: (workspaceId: string, fields: NewScopeFields) => Promise<Scope>;
   updateScope: (
     workspaceId: string,
@@ -426,6 +433,16 @@ export interface WorkspaceAPI {
   ) => Promise<void>;
   archiveGroup: (workspaceId: string, groupId: string) => Promise<void>;
   restoreGroup: (workspaceId: string, groupId: string) => Promise<void>;
+  createLabel: (workspaceId: string, fields: NewLabelFields) => Promise<Label>;
+  updateLabel: (
+    workspaceId: string,
+    labelId: string,
+    updates: Partial<Pick<Label, 'name' | 'emoji' | 'color'>>,
+  ) => Promise<void>;
+  deleteLabel: (workspaceId: string, labelId: string) => Promise<DeletedLabel | null>;
+  restoreLabel: (workspaceId: string, removed: DeletedLabel) => Promise<void>;
+  assignLabel: (workspaceId: string, sessionId: string, labelId: string) => Promise<void>;
+  unassignLabel: (workspaceId: string, sessionId: string, labelId: string) => Promise<void>;
   fanOut: (intent: SessionFanOutIntent) => Promise<SessionFanOutResult>;
   listScopeRepos: (workspaceId: string, scopeId: string) => Promise<ScopeRepo[]>;
   onChanged: (callback: (workspaces: Workspace[]) => void) => () => void;
@@ -445,26 +462,6 @@ export interface ConductorCreateRequest {
  */
 export interface ConductorAPI {
   create: (request: ConductorCreateRequest) => Promise<Group>;
-}
-
-/** What the Assistant has touched in a workspace, and how much finished while unseen. */
-export interface AssistantActivitySnapshot {
-  touchedSessionIds: string[];
-  unseenFinished: number;
-}
-
-/**
- * The workspace Assistant exposed to the renderer. It is an ordinary session
- * once it exists; these calls only make or replace its record.
- */
-export interface AssistantAPI {
-  open: (workspaceId: string) => Promise<Session>;
-  startFresh: (workspaceId: string) => Promise<Session>;
-  getActivity: (workspaceId: string) => Promise<AssistantActivitySnapshot>;
-  markSeen: (workspaceId: string) => Promise<void>;
-  onActivityChanged: (
-    callback: (change: { workspaceId: string; activity: AssistantActivitySnapshot }) => void,
-  ) => () => void;
 }
 
 /**
@@ -491,7 +488,6 @@ declare global {
     providerAPI: ProviderAPI;
     workspaceAPI: WorkspaceAPI;
     conductorAPI: ConductorAPI;
-    assistantAPI: AssistantAPI;
     harnessStateAPI: HarnessStateAPI;
     windowAPI: WindowAPI;
     automationsAPI: import('./automations').AutomationsAPI;

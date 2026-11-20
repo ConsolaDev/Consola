@@ -45,7 +45,7 @@ export function CommandPaletteProvider({ children }: { children: ReactNode }) {
 
   const openPalette = useCallback(
     (scope?: PaletteScope) => setOpen(true, scope ?? null),
-    [setOpen]
+    [setOpen],
   );
   const closePalette = useCallback(() => setOpen(false), [setOpen]);
   // Toggles, so the same chord dismisses a palette that is already up.

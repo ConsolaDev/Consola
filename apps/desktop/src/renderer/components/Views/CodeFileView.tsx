@@ -22,9 +22,10 @@ export function CodeFileView({ filePath }: CodeFileViewProps) {
     setIsLoading(true);
     setError(null);
 
-    fileBridge.readFile(filePath)
+    fileBridge
+      .readFile(filePath)
       .then(setContent)
-      .catch(err => setError(err.message))
+      .catch((err) => setError(err.message))
       .finally(() => setIsLoading(false));
   }, [filePath]);
 

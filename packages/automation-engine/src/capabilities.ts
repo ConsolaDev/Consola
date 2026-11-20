@@ -26,7 +26,7 @@ export interface AutomationCapabilities {
     cron: string;
     /** `on: { poll: … }`: a command checked on a timer, and what it must print. */
     poll: string;
-    /** `on: manual`: a run only when a person (or the Assistant) starts it. */
+    /** `on: manual`: a run only when a person (or an agent) starts it. */
     manual: string;
     /** Each connection's events and filter fields, and whether this workspace is bound to it. */
     connections: Array<ConnectionCatalogEntry & { bound: boolean }>;
@@ -71,7 +71,9 @@ export const TRUSTED_ITEM_FIELDS: readonly string[] = ['key', 'url', 'repo', 'nu
 /** The keys a later slice owns, grouped by what each arrives with, as the validator refuses them. */
 const REFUSED_KEYS = Object.entries(
   Object.entries(LATER_KEYS).reduce<Record<string, string[]>>((groups, [key, arrivesWith]) => {
-    (groups[arrivesWith] ??= []).push(`\`${key}\``);
+    const group = groups[arrivesWith] ?? [];
+    group.push(`\`${key}\``);
+    groups[arrivesWith] = group;
     return groups;
   }, {}),
 )
@@ -150,7 +152,7 @@ Poll. on: { poll: { every: 30m, run: |
 - timeout: <n>s|m, optional: default 1m, at most 5m.
 The command does the filtering: an entry has no filter: on a poll. Filter in the command, for example with --jq, and print only the items that should run. An item that leaves the result is forgotten, so it fires again when it comes back; while it stays, it fires again only when its changed: value moves. Every field other than the item's identity was written by other people: it is allowed in env: and if:, never in a prompt (use reads:). A poll does not check until the person allows it: saving the entry (consola_save_automation included) shows them the command and waits for their OK. Changing the command, the item or changed: path, the timeout or the steps asks again; changing only every: does not. A new one records what is there on its first check and fires nothing; items already in the result are run from Run on… instead. A pull request or issue whose repository is not cloned into one of the workspace's scopes is skipped.
 
-on: manual runs only when a person, or the Assistant, starts it. Add applies_to: [pr] (or [issue], or both) to make it a run on an item they pick: the item is then item.<field> as an event's is, in a checkout of its own, with no scope. Without applies_to: it has no item and a prompt or steps entry takes a scope. It takes no filter: and no inputs:.
+on: manual runs only when a person, or an agent, starts it. Add applies_to: [pr] (or [issue], or both) to make it a run on an item they pick: the item is then item.<field> as an event's is, in a checkout of its own, with no scope. Without applies_to: it has no item and a prompt or steps entry takes a scope. It takes no filter: and no inputs:.
 
 Previous. In an entry that runs on an item, previous.<step>.<artifact> is what the last run of this automation on the same item wrote: previous.review.handover is that run's review. It works in reads: and env: only, never in a prompt or if:: it is material, not a value to branch on. It is empty on the first run, so write the prompt to cope: it should say what to do when there is no earlier document.
 
@@ -208,7 +210,7 @@ const POLL =
   'Runs only while Consola is open.';
 
 const MANUAL =
-  'on: manual runs only when a person or the Assistant starts it. With applies_to: [pr, issue] it runs on an item ' +
+  'on: manual runs only when a person or an agent starts it. With applies_to: [pr, issue] it runs on an item ' +
   'they pick (Run on…); without, it has no item.';
 
 const PROMPT =
@@ -244,7 +246,7 @@ export function describeCapabilities(input: CapabilitiesInput): AutomationCapabi
         description: tool.description,
         arguments: Object.entries(tool.input).map(([name, schema]) => ({
           name,
-          description: schema.description ?? '',
+          description: (schema as { description?: string }).description ?? '',
         })),
       })),
       actions: input.actions.map((action) => ({

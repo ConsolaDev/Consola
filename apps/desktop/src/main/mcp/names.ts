@@ -14,7 +14,7 @@ export const CONSOLA_MCP_SERVER = 'consola';
 
 /** A registry tool's name as the session sees it: `list_sessions` → `consola_list_sessions`. */
 export function mcpToolName(tool: string): string {
-    return `consola_${tool}`;
+  return `consola_${tool}`;
 }
 
 /**
@@ -27,4 +27,8 @@ export function mcpToolName(tool: string): string {
  * has them registered, and allowing a tool a session lacks grants nothing,
  * so one static list serves every read-only session.
  */
-export const READ_ONLY_CONSOLA_TOOLS = ['work_item_context', 'list_inbox', ...STEP_TOOL_NAMES] as const;
+export const READ_ONLY_CONSOLA_TOOLS = [
+  'work_item_context',
+  'list_inbox',
+  ...STEP_TOOL_NAMES,
+] as const;

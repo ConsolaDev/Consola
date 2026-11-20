@@ -1,10 +1,10 @@
 import { expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test';
 import { assignedReviewsEntry } from '@consola/automation-engine';
 import { parseAutomationEntry, type RunRecord, type StepRun } from '@consola/factory-spec';
-import { execFileSync } from 'child_process';
-import fs from 'fs';
-import os from 'os';
-import path from 'path';
+import { execFileSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { launchElectron } from './helpers/electron';
 
 /**
@@ -27,7 +27,13 @@ import { launchElectron } from './helpers/electron';
 
 const FIXTURES = path.resolve(__dirname, '../fixtures');
 const STUB_GH_DIR = path.join(FIXTURES, 'stub-gh');
-const GIT_ENV = { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' };
+const GIT_ENV = {
+  ...process.env,
+  GIT_AUTHOR_NAME: 't',
+  GIT_AUTHOR_EMAIL: 't@t',
+  GIT_COMMITTER_NAME: 't',
+  GIT_COMMITTER_EMAIL: 't@t',
+};
 
 const REPO = 'sprocket/catalog-portal';
 const PR_URL = `https://github.com/${REPO}/pull/51`;
@@ -48,10 +54,12 @@ const COMMANDS_RUN_AS_YOU = 'Its commands run as you (your logins, the bound Git
 const REMINDER = 'You ended without: verdict (consola_set_outputs). Set it now; do nothing else.';
 
 /** A command Consola quit on, failed after the restart: the spec's words. */
-const INTERRUPTED = 'Interrupted: Consola quit while this command was running. It may or may not have finished; check, then retry.';
+const INTERRUPTED =
+  'Interrupted: Consola quit while this command was running. It may or may not have finished; check, then retry.';
 
 /** What Retry says first about such a command: the spec's words. */
-const INTERRUPTED_RETRY_WARNING = 'Consola quit while this command ran; check the pull request first — it may already be posted.';
+const INTERRUPTED_RETRY_WARNING =
+  'Consola quit while this command ran; check the pull request first — it may already be posted.';
 
 function git(cwd: string, ...args: string[]): string {
   return execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', env: GIT_ENV }).trim();
@@ -71,7 +79,8 @@ function flatten(text: string): string {
 /** The shipped template's steps, as the engine parses them: what the approval card must show. */
 function templateSteps() {
   const parsed = parseAutomationEntry(assignedReviewsEntry());
-  if (!parsed.ok) throw new Error(`The shipped template does not parse: ${JSON.stringify(parsed.issues)}`);
+  if (!parsed.ok)
+    throw new Error(`The shipped template does not parse: ${JSON.stringify(parsed.issues)}`);
   const { steps } = parsed.automation;
   if (!steps) throw new Error('The shipped template has no steps.');
   return steps;
@@ -117,7 +126,7 @@ function writeInbox(file: string, direct: number[], assigned: number[] = []): vo
         assigned: { nodes: assigned.map(requestedPull) },
         involved: none,
       },
-    })
+    }),
   );
 }
 
@@ -129,8 +138,12 @@ function writeStubClaude(base: string): string {
   const wrapper = path.join(base, 'claude.sh');
   fs.writeFileSync(
     wrapper,
-    ['#!/bin/sh', `exec '${process.execPath}' '${path.join(FIXTURES, 'claude-steps.cjs')}' "$@"`, ''].join('\n'),
-    { mode: 0o755 }
+    [
+      '#!/bin/sh',
+      `exec '${process.execPath}' '${path.join(FIXTURES, 'claude-steps.cjs')}' "$@"`,
+      '',
+    ].join('\n'),
+    { mode: 0o755 },
   );
   return wrapper;
 }
@@ -215,7 +228,10 @@ async function setUpSteps(options: StepsOptions = {}): Promise<Steps> {
     // Never contacted: the stub gh checks #51 out from this clone's own objects.
     git(clone, 'remote', 'add', 'origin', `https://github.com/${REPO}.git`);
     git(clone, 'checkout', '-q', '-b', 'pr-51');
-    fs.writeFileSync(path.join(clone, 'src', 'search.ts'), 'export const search = (q: string) => q;\n');
+    fs.writeFileSync(
+      path.join(clone, 'src', 'search.ts'),
+      'export const search = (q: string) => q;\n',
+    );
     git(clone, 'add', '.');
     git(clone, 'commit', '-q', '-m', 'Add catalog search');
     const head = git(clone, 'rev-parse', 'HEAD');
@@ -236,8 +252,13 @@ async function setUpSteps(options: StepsOptions = {}): Promise<Steps> {
       handover: path.join(base, 'handover.md'),
     };
     writeInbox(files.inbox, []);
-    const outputs = options.outputs === undefined ? { verdict: 'request-changes' } : options.outputs;
-    if (outputs !== null) fs.writeFileSync(files.outputs, typeof outputs === 'string' ? outputs : JSON.stringify(outputs));
+    const outputs =
+      options.outputs === undefined ? { verdict: 'request-changes' } : options.outputs;
+    if (outputs !== null)
+      fs.writeFileSync(
+        files.outputs,
+        typeof outputs === 'string' ? outputs : JSON.stringify(outputs),
+      );
     const handover = options.handover === undefined ? HANDOVER : options.handover;
     if (handover !== null) fs.writeFileSync(files.handover, handover);
     const binaryPath = writeStubClaude(base);
@@ -275,13 +296,23 @@ async function setUpSteps(options: StepsOptions = {}): Promise<Steps> {
           binaryPath: binary,
           configDir: harnessConfigDir,
         });
-        const workspace = await window.workspaceAPI.createWorkspace('Sprocket', folder, true, 'stub');
+        const workspace = await window.workspaceAPI.createWorkspace(
+          'Sprocket',
+          folder,
+          true,
+          'stub',
+        );
         // The first scope takes the workspace's name; entries name it by the repo's.
-        await window.workspaceAPI.updateScope(workspace.id, workspace.scopes[0].id, { name: 'catalog-portal' });
-        await window.workspaceAPI.setProviderBinding(workspace.id, { id: 'github', accountLogin: 'JaviDev' });
+        await window.workspaceAPI.updateScope(workspace.id, workspace.scopes[0].id, {
+          name: 'catalog-portal',
+        });
+        await window.workspaceAPI.setProviderBinding(workspace.id, {
+          id: 'github',
+          accountLogin: 'JaviDev',
+        });
         return workspace.id;
       },
-      [clone, binaryPath, configDir] as const
+      [clone, binaryPath, configDir] as const,
     );
     const railButton = page
       .getByRole('navigation', { name: 'Workspaces', exact: true })
@@ -327,7 +358,10 @@ function dashboardOf(page: Page): Locator {
 
 /** Open the dashboard from the sidebar row. */
 async function openAutomations(page: Page): Promise<Locator> {
-  await page.locator('.home-navigation').getByRole('button', { name: /^Automations/ }).click();
+  await page
+    .locator('.home-navigation')
+    .getByRole('button', { name: /^Automations/ })
+    .click();
   const dashboard = dashboardOf(page);
   await expect(dashboard.getByRole('heading', { name: 'Automations · Sprocket' })).toBeVisible();
   return dashboard;
@@ -344,7 +378,9 @@ async function addReviewTemplate(steps: Steps): Promise<void> {
   await dashboard.getByRole('tab', { name: 'Automations' }).click();
   const banner = dashboard.getByRole('region', { name: 'Review PRs assigned to me automatically' });
   await banner.getByRole('button', { name: 'Add', exact: true }).click();
-  await expect(dashboard.locator('.automations-row', { hasText: 'review-assigned-prs' })).toHaveCount(1, { timeout: 15_000 });
+  await expect(
+    dashboard.locator('.automations-row', { hasText: 'review-assigned-prs' }),
+  ).toHaveCount(1, { timeout: 15_000 });
   await expect(banner).toHaveCount(0);
 }
 
@@ -392,7 +428,9 @@ async function openRun(steps: Steps): Promise<Locator> {
 
 /** A step's node on the run's graph: a button named `<id>: <outcome>`. */
 function stepNode(panel: Locator, id: string): Locator {
-  return panel.getByRole('list', { name: 'Stages of this run' }).getByRole('button', { name: new RegExp(`^${id}: `) });
+  return panel
+    .getByRole('list', { name: 'Stages of this run' })
+    .getByRole('button', { name: new RegExp(`^${id}: `) });
 }
 
 /** How the stub `gh` logs `publish`'s post: the reviews endpoint, first. */
@@ -462,7 +500,10 @@ function stubGhStillPosting(base: string): string[] {
 function writeFactory(steps: Steps, entry: string): void {
   const dir = path.join(steps.factoryDir, steps.workspaceId);
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, 'factory.yml'), `version: 1\nautomations:\n${entry.replace(/^/gm, '  ')}\n`);
+  fs.writeFileSync(
+    path.join(dir, 'factory.yml'),
+    `version: 1\nautomations:\n${entry.replace(/^/gm, '  ')}\n`,
+  );
 }
 
 /**
@@ -471,7 +512,10 @@ function writeFactory(steps: Steps, entry: string): void {
  * and `worktreeInUse` see.
  */
 async function terminalRunning(page: Page, instanceId: string): Promise<boolean> {
-  return page.evaluate(async (id) => (await window.terminalAPI.getStatusSnapshot())[id]?.hasExited === false, instanceId);
+  return page.evaluate(
+    async (id) => (await window.terminalAPI.getStatusSnapshot())[id]?.hasExited === false,
+    instanceId,
+  );
 }
 
 /** A session's record as main has it now, or null when it is gone. */
@@ -479,9 +523,13 @@ async function sessionRecord(steps: Steps, sessionId: string) {
   return steps.page.evaluate(
     async ([workspaceId, id]) => {
       const { workspaces } = await window.workspaceAPI.getSnapshot();
-      return workspaces.find((workspace) => workspace.id === workspaceId)?.sessions.find((session) => session.id === id) ?? null;
+      return (
+        workspaces
+          .find((workspace) => workspace.id === workspaceId)
+          ?.sessions.find((session) => session.id === id) ?? null
+      );
     },
-    [steps.workspaceId, sessionId] as const
+    [steps.workspaceId, sessionId] as const,
   );
 }
 
@@ -495,8 +543,16 @@ async function sessionRecord(steps: Steps, sessionId: string) {
 function checkoutState(dir: string) {
   const status = execFileSync(
     'git',
-    ['-C', dir, '--no-optional-locks', 'status', '--porcelain', '--untracked-files=all', '--ignored'],
-    { encoding: 'utf8', env: GIT_ENV }
+    [
+      '-C',
+      dir,
+      '--no-optional-locks',
+      'status',
+      '--porcelain',
+      '--untracked-files=all',
+      '--ignored',
+    ],
+    { encoding: 'utf8', env: GIT_ENV },
   );
   return {
     head: git(dir, 'rev-parse', 'HEAD'),
@@ -576,7 +632,14 @@ test('the template reviews #51 read-only and posts through gh, pinned to the com
     await expect(approval.getByText(COMMANDS_RUN_AS_YOU, { exact: true })).toBeVisible();
     // Asking starts nothing: no command, no session, no post.
     expect(steps.launches()).toEqual([]);
-    expect(steps.ghLog().filter((line) => line.startsWith('pr checkout') || line.includes(' url=') || line.includes('/reviews'))).toEqual([]);
+    expect(
+      steps
+        .ghLog()
+        .filter(
+          (line) =>
+            line.startsWith('pr checkout') || line.includes(' url=') || line.includes('/reviews'),
+        ),
+    ).toEqual([]);
     expect(fs.existsSync(steps.files.ghPosted)).toBe(false);
 
     await approval.getByRole('button', { name: 'Start', exact: true }).click();
@@ -602,7 +665,8 @@ test('the template reviews #51 read-only and posts through gh, pinned to the com
     const [review] = launches;
     expect(review.startsWith(`${steps.checkoutDir} :: -p --session-id `)).toBe(true);
     expect(review).toContain(' --restricted');
-    const allowed = review.split(' --allowedTools ')[1]?.split(' --restricted')[0]?.split(' ') ?? [];
+    const allowed =
+      review.split(' --allowedTools ')[1]?.split(' --restricted')[0]?.split(' ') ?? [];
     expect(allowed).toContain('mcp__consola__consola_set_outputs');
     expect(allowed).toContain('mcp__consola__consola_write_artifact');
     // Its handover and verdict went through Consola's MCP endpoint, and were taken.
@@ -619,12 +683,18 @@ test('the template reviews #51 read-only and posts through gh, pinned to the com
     expect(post).toContain(`-f commit_id=${checkoutHead} -f event=REQUEST_CHANGES -F body=@`);
     expect(post.slice(post.indexOf(' BODY=') + ' BODY='.length)).toBe(flatten(HANDOVER));
     // Posted as the bound account.
-    const publish = steps.ghLog().filter((line) => line.startsWith(`api repos/${REPO}/pulls/51/reviews `));
+    const publish = steps
+      .ghLog()
+      .filter((line) => line.startsWith(`api repos/${REPO}/pulls/51/reviews `));
     expect(publish).toHaveLength(1);
     expect(publish[0]).toMatch(/ GH_TOKEN=gho_stub_token_for_JaviDev$/);
 
     // Opening the run, every step and the handover reads; it starts nothing.
-    const counts = () => ({ claude: steps.claudeLog().length, gh: steps.ghLog().length, posted: steps.posted().length });
+    const counts = () => ({
+      claude: steps.claudeLog().length,
+      gh: steps.ghLog().length,
+      posted: steps.posted().length,
+    });
     const before = counts();
     const run = await openRun(steps);
     await expect(run.locator('.automations-run-status')).toHaveText('Completed');
@@ -645,11 +715,15 @@ test('the template reviews #51 read-only and posts through gh, pinned to the com
     await expect(reviewDetail).toContainText('Review this pull request. Read it with Consola');
     await reviewDetail.getByRole('button', { name: 'handover', exact: true }).click();
     await expect(reviewDetail.getByText('material from the run', { exact: true })).toBeVisible();
-    await expect(reviewDetail).toContainText('the catalog is exported empty, so search has nothing to find.');
+    await expect(reviewDetail).toContainText(
+      'the catalog is exported empty, so search has nothing to find.',
+    );
 
     await stepNode(run, 'publish').click();
     const publishDetail = run.getByRole('region', { name: 'Step publish' });
-    await expect(publishDetail).toContainText('VERDICT = {{steps.review.verdict}} → request-changes');
+    await expect(publishDetail).toContainText(
+      'VERDICT = {{steps.review.verdict}} → request-changes',
+    );
     await expect(publishDetail).toContainText(`REPO = {{item.repo}} → ${REPO}`);
     await expect(publishDetail).toContainText('NUMBER = {{item.number}} → 51');
     await expect(publishDetail).toContainText('{"id":1}');
@@ -672,7 +746,11 @@ test('an approve verdict is posted as a comment', async () => {
     expect(freshCalls(steps), "fresh's gh call is in the stub's log").toHaveLength(1);
 
     const run = await theRun(steps);
-    expect(statuses(run)).toEqual({ fresh: 'completed', review: 'completed', publish: 'completed' });
+    expect(statuses(run)).toEqual({
+      fresh: 'completed',
+      review: 'completed',
+      publish: 'completed',
+    });
     expect(stepsOf(run).review.outputs).toEqual({ verdict: 'approve' });
     expect(run.summary).toBe('fresh → review → publish (approve)');
 
@@ -680,7 +758,9 @@ test('an approve verdict is posted as a comment', async () => {
     const posted = steps.posted();
     expect(posted).toHaveLength(1);
     expect(posted[0].startsWith(REVIEWS_CALL)).toBe(true);
-    expect(posted[0]).toContain(`-f commit_id=${git(steps.checkoutDir, 'rev-parse', 'HEAD')} -f event=COMMENT -F body=@`);
+    expect(posted[0]).toContain(
+      `-f commit_id=${git(steps.checkoutDir, 'rev-parse', 'HEAD')} -f event=COMMENT -F body=@`,
+    );
     expect(posted[0].slice(posted[0].indexOf(' BODY=') + ' BODY='.length)).toBe(flatten(HANDOVER));
     expect(reviewCalls(steps)).toHaveLength(1);
   } finally {
@@ -717,11 +797,15 @@ test('a commit already reviewed is skipped', async () => {
     await stepNode(run, 'review').click();
     const reviewDetail = run.getByRole('region', { name: 'Step review' });
     await expect(reviewDetail).toContainText('Agent step · skipped');
-    await expect(reviewDetail.getByText('if: steps.fresh.needed is false', { exact: true })).toBeVisible();
+    await expect(
+      reviewDetail.getByText('if: steps.fresh.needed is false', { exact: true }),
+    ).toBeVisible();
     await stepNode(run, 'publish').click();
     const publishDetail = run.getByRole('region', { name: 'Step publish' });
     await expect(publishDetail).toContainText('Command · skipped · publish');
-    await expect(publishDetail.getByText('if: steps.fresh.needed is false', { exact: true })).toBeVisible();
+    await expect(
+      publishDetail.getByText('if: steps.fresh.needed is false', { exact: true }),
+    ).toBeVisible();
 
     // The run has settled: no session was launched (`-p` or any other), and nothing was posted.
     expect(steps.launches()).toEqual([]);
@@ -753,8 +837,13 @@ test('a review that sets no outputs gets one reminder, then fails', async () => 
     expect(reminder).toContain(' --restricted');
     expect(reminder.endsWith(` -- ${REMINDER}`)).toBe(true);
     // Each turn ended cleanly, and neither set an output.
-    expect(steps.claudeLog().filter((line) => line.startsWith('END '))).toEqual([`END ${id} exit 0`, `END ${id} exit 0`]);
-    expect(steps.claudeLog().filter((line) => line.startsWith('TOOL consola_set_outputs'))).toEqual([]);
+    expect(steps.claudeLog().filter((line) => line.startsWith('END '))).toEqual([
+      `END ${id} exit 0`,
+      `END ${id} exit 0`,
+    ]);
+    expect(steps.claudeLog().filter((line) => line.startsWith('TOOL consola_set_outputs'))).toEqual(
+      [],
+    );
 
     const record = await theRun(steps);
     expect(record.status).toBe('failed');
@@ -767,13 +856,20 @@ test('a review that sets no outputs gets one reminder, then fails', async () => 
     await expect(stepNode(run, 'review')).toHaveAccessibleName(/^review: Failed/);
     // A step the run never reached draws as skipped, and says why on hover.
     await expect(stepNode(run, 'publish')).toHaveAccessibleName('publish: Skipped');
-    await expect(stepNode(run, 'publish')).toHaveAttribute('title', 'It did not run: the run ended first.');
+    await expect(stepNode(run, 'publish')).toHaveAttribute(
+      'title',
+      'It did not run: the run ended first.',
+    );
     // The failed step is the one the page opens on.
     const reviewDetail = run.getByRole('region', { name: 'Step review' });
-    await expect(reviewDetail.getByText('ended without setting verdict', { exact: true })).toBeVisible();
+    await expect(
+      reviewDetail.getByText('ended without setting verdict', { exact: true }),
+    ).toBeVisible();
     await expect(reviewDetail.getByText('Reminded once', { exact: true })).toBeVisible();
     await stepNode(run, 'publish').click();
-    await expect(run.getByRole('region', { name: 'Step publish' })).toContainText('Command · not-run · publish');
+    await expect(run.getByRole('region', { name: 'Step publish' })).toContainText(
+      'Command · not-run · publish',
+    );
 
     // The run has settled: nothing was posted.
     expect(reviewCalls(steps)).toEqual([]);
@@ -800,8 +896,14 @@ test('a review that sets its outputs on the reminder completes', async () => {
     await startTheRun(steps);
 
     // The first turn is over, having set nothing.
-    await expect.poll(() => steps.claudeLog().filter((line) => line.startsWith('END ')).length, { timeout: 60_000 }).toBe(1);
-    expect(steps.claudeLog().filter((line) => line.startsWith('TOOL consola_set_outputs'))).toEqual([]);
+    await expect
+      .poll(() => steps.claudeLog().filter((line) => line.startsWith('END ')).length, {
+        timeout: 60_000,
+      })
+      .toBe(1);
+    expect(steps.claudeLog().filter((line) => line.startsWith('TOOL consola_set_outputs'))).toEqual(
+      [],
+    );
     // Now the agent knows its verdict, and does nothing else: no second handover.
     fs.writeFileSync(steps.files.outputs, JSON.stringify({ verdict: 'request-changes' }));
     fs.rmSync(steps.files.handover);
@@ -827,14 +929,20 @@ test('a review that sets its outputs on the reminder completes', async () => {
     expect(launches[1].endsWith(` -- ${REMINDER}`)).toBe(true);
 
     const record = await theRun(steps);
-    expect(statuses(record)).toEqual({ fresh: 'completed', review: 'completed', publish: 'completed' });
+    expect(statuses(record)).toEqual({
+      fresh: 'completed',
+      review: 'completed',
+      publish: 'completed',
+    });
     expect(stepsOf(record).review.outputs).toEqual({ verdict: 'request-changes' });
     expect(stepsOf(record).review.reminded).toBe(true);
 
     // Posted exactly once, with the first turn's handover.
     const posted = steps.posted();
     expect(posted).toHaveLength(1);
-    expect(posted[0]).toContain(`-f commit_id=${git(steps.checkoutDir, 'rev-parse', 'HEAD')} -f event=REQUEST_CHANGES -F body=@`);
+    expect(posted[0]).toContain(
+      `-f commit_id=${git(steps.checkoutDir, 'rev-parse', 'HEAD')} -f event=REQUEST_CHANGES -F body=@`,
+    );
     expect(posted[0].slice(posted[0].indexOf(' BODY=') + ' BODY='.length)).toBe(flatten(HANDOVER));
     expect(reviewCalls(steps)).toHaveLength(1);
 
@@ -871,17 +979,26 @@ test('a restart mid-publish fails the run and never posts twice', async () => {
     // The same profile, and a gh that posts at once.
     const ghBefore = steps.ghLog().length;
     const since = () => steps.ghLog().slice(ghBefore);
-    const relaunched = await launchElectron({ userDataDir: steps.userDataDir, env: { ...steps.env, STUB_GH_SLEEP: '0' } });
+    const relaunched = await launchElectron({
+      userDataDir: steps.userDataDir,
+      env: { ...steps.env, STUB_GH_SLEEP: '0' },
+    });
     steps.app = relaunched.app;
     steps.page = relaunched.page;
     const dashboard = dashboardOf(steps.page);
-    await expect(dashboard.getByRole('heading', { name: 'Automations · Sprocket' })).toBeVisible({ timeout: 30_000 });
+    await expect(dashboard.getByRole('heading', { name: 'Automations · Sprocket' })).toBeVisible({
+      timeout: 30_000,
+    });
     await dashboard.getByRole('tab', { name: 'Activity' }).click();
     await expect(runItems(steps.page)).toContainText('failed at publish', { timeout: 30_000 });
 
     const record = await theRun(steps);
     expect(record.status).toBe('failed');
-    expect(statuses(record)).toEqual({ fresh: 'completed', review: 'completed', publish: 'failed' });
+    expect(statuses(record)).toEqual({
+      fresh: 'completed',
+      review: 'completed',
+      publish: 'failed',
+    });
     expect(stepsOf(record).publish.error).toBe(INTERRUPTED);
 
     const run = await openRun(steps);
@@ -900,13 +1017,19 @@ test('a restart mid-publish fails the run and never posts twice', async () => {
     expect(fs.existsSync(steps.files.ghPosted)).toBe(false);
 
     await warning.getByRole('button', { name: 'Retry', exact: true }).click();
-    await expect(run.locator('.automations-run-status')).toHaveText('Completed', { timeout: 60_000 });
-    await expect(publishDetail.getByText('Attempt 2 · earlier: 1 failed', { exact: true })).toBeVisible();
+    await expect(run.locator('.automations-run-status')).toHaveText('Completed', {
+      timeout: 60_000,
+    });
+    await expect(
+      publishDetail.getByText('Attempt 2 · earlier: 1 failed', { exact: true }),
+    ).toBeVisible();
 
     // Exactly one review on GitHub, from exactly one call since the restart.
     const posted = steps.posted();
     expect(posted).toHaveLength(1);
-    expect(posted[0]).toContain(`-f commit_id=${git(steps.checkoutDir, 'rev-parse', 'HEAD')} -f event=REQUEST_CHANGES -F body=@`);
+    expect(posted[0]).toContain(
+      `-f commit_id=${git(steps.checkoutDir, 'rev-parse', 'HEAD')} -f event=REQUEST_CHANGES -F body=@`,
+    );
     expect(reviewCalls(steps, since())).toHaveLength(1);
     // The agent was not asked again: one review turn, before the restart.
     expect(steps.launches()).toHaveLength(1);
@@ -924,7 +1047,9 @@ test('notify runs the agents and only reports the post', async () => {
     expect(notify).toContain('\n  mode: notify\n');
     writeFactory(steps, notify);
     await dashboard.getByRole('tab', { name: 'Automations' }).click();
-    await expect(dashboard.locator('.automations-row', { hasText: 'review-assigned-prs' })).toHaveCount(1, { timeout: 15_000 });
+    await expect(
+      dashboard.locator('.automations-row', { hasText: 'review-assigned-prs' }),
+    ).toHaveCount(1, { timeout: 15_000 });
     await fireOn51(steps);
     await startTheRun(steps);
     await expect(runItems(steps.page)).toContainText('Completed', { timeout: 60_000 });
@@ -942,14 +1067,20 @@ test('notify runs the agents and only reports the post', async () => {
 
     const record = await theRun(steps);
     expect(record.dryRun).toBe(true);
-    expect(statuses(record)).toEqual({ fresh: 'completed', review: 'completed', publish: 'reported' });
+    expect(statuses(record)).toEqual({
+      fresh: 'completed',
+      review: 'completed',
+      publish: 'reported',
+    });
 
     const run = await openRun(steps);
     await expect(stepNode(run, 'publish')).toHaveAccessibleName('publish: Would have run');
     await stepNode(run, 'publish').click();
     const publishDetail = run.getByRole('region', { name: 'Step publish' });
     await expect(publishDetail.getByRole('heading', { name: 'Would have run' })).toBeVisible();
-    await expect(publishDetail).toContainText('VERDICT = {{steps.review.verdict}} → request-changes');
+    await expect(publishDetail).toContainText(
+      'VERDICT = {{steps.review.verdict}} → request-changes',
+    );
 
     // The run has settled: nothing was posted, and the post was never called.
     expect(reviewCalls(steps)).toEqual([]);
@@ -1005,11 +1136,15 @@ test('a full-tools session on the Inbox worktree does not hold the review back',
           workItem: { provider: 'github', repo: 'sprocket/catalog-portal', type: 'pr', number: 51 },
         });
       },
-      [steps.workspaceId, inboxDir, instanceId] as const
+      [steps.workspaceId, inboxDir, instanceId] as const,
     );
     if (!created) throw new Error('The session was not created.');
     const session = await sessionRecord(steps, created.id);
-    expect(session).toMatchObject({ cwd: inboxDir, instanceId, workItem: { repo: REPO, type: 'pr', number: 51 } });
+    expect(session).toMatchObject({
+      cwd: inboxDir,
+      instanceId,
+      workItem: { repo: REPO, type: 'pr', number: 51 },
+    });
     // Full tools, launched there: `worktreeInUse` holds the folder for it, running or not.
     expect(session?.toolPolicy).toBeUndefined();
     expect(session?.agentCwd).toBeUndefined();
@@ -1042,7 +1177,10 @@ test('a full-tools session on the Inbox worktree does not hold the review back',
     expect(turns).toHaveLength(1);
     expect(turns[0].startsWith(`${steps.checkoutDir} :: -p --session-id `)).toBe(true);
     expect(turns[0]).toContain(' --restricted');
-    expect((await theRun(steps)).checkout).toMatchObject({ cwd: steps.checkoutDir, head: steps.head });
+    expect((await theRun(steps)).checkout).toMatchObject({
+      cwd: steps.checkoutDir,
+      head: steps.head,
+    });
 
     // And posted it, pinned to that head.
     const posted = steps.posted();
@@ -1078,8 +1216,13 @@ test("a scheduled pipeline passes a command's output to an agent and its handove
     const entry = scheduledPipeline(notes);
     // The file means what this test says it does.
     const parsed = parseAutomationEntry(entry);
-    if (!parsed.ok) throw new Error(`The pipeline does not parse: ${JSON.stringify(parsed.issues)}`);
-    expect(parsed.automation.steps?.map((step) => step.kind === 'run' ? [step.id, step.run] : [step.id, step.kind])).toEqual([
+    if (!parsed.ok)
+      throw new Error(`The pipeline does not parse: ${JSON.stringify(parsed.issues)}`);
+    expect(
+      parsed.automation.steps?.map((step) =>
+        step.kind === 'run' ? [step.id, step.run] : [step.id, step.kind],
+      ),
+    ).toEqual([
       ['fetch', `printf '{"items":[1,2]}'`],
       ['summarise', 'agent'],
       ['post', 'cp "$NOTES" "$OUT"'],
@@ -1103,16 +1246,24 @@ test("a scheduled pipeline passes a command's output to an agent and its handove
     expect(summarise).toContain(' --restricted');
     expect(summarise).toContain(', in catalog-portal. ');
     expect(summarise).toContain(' Summarise what fetch found. ');
-    expect(summarise).toContain(' - fetch.output (from step "fetch", 15 B) Read them with consola_read_artifact.');
+    expect(summarise).toContain(
+      ' - fetch.output (from step "fetch", 15 B) Read them with consola_read_artifact.',
+    );
     expect(steps.claudeLog().filter((line) => line.startsWith('TOOL '))).toEqual([
       expect.stringMatching(/^TOOL consola_write_artifact Wrote handover \(/),
     ]);
 
     const record = await theRun(steps);
     expect(record.status).toBe('completed');
-    expect(statuses(record)).toEqual({ fetch: 'completed', summarise: 'completed', post: 'completed' });
+    expect(statuses(record)).toEqual({
+      fetch: 'completed',
+      summarise: 'completed',
+      post: 'completed',
+    });
     const byId = stepsOf(record);
-    expect(byId.fetch.artifacts?.map((artifact) => [artifact.name, artifact.bytes])).toEqual([['output', 15]]);
+    expect(byId.fetch.artifacts?.map((artifact) => [artifact.name, artifact.bytes])).toEqual([
+      ['output', 15],
+    ]);
     expect(byId.summarise.artifacts?.map((artifact) => artifact.name)).toEqual(['handover']);
     expect(record.checkout?.cwd).toBe(steps.clone);
 

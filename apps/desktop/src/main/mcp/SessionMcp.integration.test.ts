@@ -10,9 +10,8 @@ import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import type { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';
 import { isStepsEntry, parseFactorySpec, type RunRecord } from '@consola/factory-spec';
 import { RunFolder, StepIO, stepToolSpecs } from '@consola/automation-engine';
-import { AssistantTools, type AssistantToolsDeps } from '../assistant/AssistantTools';
 import { ConductorTools, type ConductorToolsDeps } from '../conductor/ConductorTools';
-import { makeSession, makeWorkspace } from '../conductor/ConductorTools.test';
+import { makeSession, makeWorkspace } from '../conductor/ConductorTools.test-helpers';
 import { consolaTools, MAX_DIFF_CHARS, type ConsolaToolDeps } from '../tools/consolaTools';
 import { agentContext, ToolRegistry } from '../tools/Tool';
 import { sessionRecord, toSessionView } from '../automations/engineViews';
@@ -60,7 +59,9 @@ const CONSOLA_TOOLS = [
   'consola_list_sessions',
   'consola_run_automation',
   'consola_save_automation',
+  'consola_snooze_session',
   'consola_start_session',
+  'consola_wake_session',
   'consola_work_item_context',
 ];
 const STEP_TOOLS = [
@@ -81,7 +82,6 @@ let runsDir: string;
 let stepsRun: RunRecord;
 let host: SessionMcpHost;
 let conductorDeps: ConductorToolsDeps;
-let assistantDeps: AssistantToolsDeps;
 let toolDeps: ConsolaToolDeps;
 let requestApproval: Mock<SessionServerDeps['approvals']['request']>;
 let build: (sessionId: string) => ReturnType<typeof buildSessionServer>;
@@ -114,13 +114,6 @@ const workspaces = () => [
     sessions: [
       makeSession(),
       makeSession({ id: 'w-1', name: 'worker', instanceId: 'inst-w1', kind: 'interactive' }),
-      makeSession({
-        id: 'a-1',
-        name: 'Assistant',
-        instanceId: 'inst-a1',
-        kind: 'assistant',
-        groupId: undefined,
-      }),
     ],
   }),
   makeWorkspace({
@@ -234,6 +227,9 @@ beforeEach(() => {
     },
     getWorkspaces: workspaces,
     status: () => 'ready',
+    attention: () => 'done',
+    snoozer: () => ({ snooze: vi.fn(), wake: vi.fn() }),
+    snoozes: () => new Map(),
     isManagedPath: () => false,
     automations: () => ({
       list: () => [],
@@ -258,16 +254,6 @@ beforeEach(() => {
   const registry = new ToolRegistry();
   consolaTools(toolDeps).forEach((tool) => registry.register(tool));
   const conductorTools = new ConductorTools(conductorDeps);
-  assistantDeps = {
-    getWorkspaces: workspaces,
-    status: () => 'ready',
-    deliverPrompt: vi.fn(async () => 'queued' as const),
-    recentReplies: vi.fn(async () => []),
-    screenText: () => null,
-    start: vi.fn(),
-    watch: vi.fn(),
-  };
-  const assistantTools = new AssistantTools(assistantDeps);
   // Like AutomationService.requestApproval: preview with the agent's authority, then wait.
   requestApproval = vi.fn(async (toolName: string, args: unknown, sessionId: string) => ({
     preview: await registry.invoke(
@@ -288,7 +274,6 @@ beforeEach(() => {
       registry,
       approvals: { request: requestApproval },
       conductorTools,
-      assistantTools,
       stepTools: (id) => stepToolSpecs(stepIO, id),
       getWorkspaces: workspaces,
     });
@@ -368,7 +353,7 @@ describe('MCP surface (in-memory)', () => {
       [...readOnly, ...STEP_TOOLS].sort(),
     );
     await step.close();
-    for (const sessionId of ['r-1', 'w-1', 'cond-1', 'a-1']) {
+    for (const sessionId of ['r-1', 'w-1', 'cond-1']) {
       const client = await clientFor(sessionId);
       const names = (await client.listTools()).tools.map((tool) => tool.name);
       for (const name of STEP_TOOLS) expect(names).not.toContain(name);
@@ -464,64 +449,6 @@ describe('MCP surface (in-memory)', () => {
     await client.close();
   });
 
-  it('gives the Assistant the Consola tools, with its own start_session, plus prompt and read', async () => {
-    const client = await clientFor('a-1');
-    const { tools } = await client.listTools();
-    expect(tools.map((tool) => tool.name).sort()).toEqual(
-      [...CONSOLA_TOOLS, 'consola_prompt_session', 'consola_read_session'].sort(),
-    );
-    // The Assistant's own start_session replaces the generic one: it takes a work item, and no fork.
-    const start = tools.find((tool) => tool.name === 'consola_start_session');
-    expect(start?.inputSchema.properties).toHaveProperty('work_item');
-    expect(start?.inputSchema.properties).not.toHaveProperty('fork');
-    const hints = Object.fromEntries(tools.map((tool) => [tool.name, tool.annotations]));
-    expect(hints.consola_read_session).toMatchObject({ readOnlyHint: true });
-    expect(hints.consola_prompt_session).toMatchObject({
-      readOnlyHint: false,
-      destructiveHint: false,
-      openWorldHint: false,
-    });
-    expect(hints.consola_start_session).toMatchObject({
-      readOnlyHint: false,
-      destructiveHint: false,
-      openWorldHint: false,
-    });
-    await client.close();
-  });
-
-  it('offers prompt and read to no one else', async () => {
-    for (const sessionId of ['w-1', 'cond-1', 'r-1']) {
-      const client = await clientFor(sessionId);
-      const { tools } = await client.listTools();
-      const names = tools.map((tool) => tool.name);
-      expect(names).not.toContain('consola_prompt_session');
-      expect(names).not.toContain('consola_read_session');
-      // Anyone else's start_session is the generic one.
-      const start = tools.find((tool) => tool.name === 'consola_start_session');
-      expect(start?.inputSchema.properties ?? {}).not.toHaveProperty('work_item');
-      await client.close();
-    }
-  });
-
-  it('answers a cross-workspace id as a tool error', async () => {
-    const client = await clientFor('a-1');
-    const read = await client.callTool({
-      name: 'consola_read_session',
-      arguments: { session_id: 'x-1' },
-    });
-    expect(read.isError).toBe(true);
-    expect(firstText(read)).toMatch(/No session x-1 in this workspace/);
-    const prompted = await client.callTool({
-      name: 'consola_prompt_session',
-      arguments: { session_id: 'x-1', prompt: 'hi' },
-    });
-    expect(prompted.isError).toBe(true);
-    expect(firstText(prompted)).toMatch(/No session x-1 in this workspace/);
-    expect(assistantDeps.deliverPrompt).not.toHaveBeenCalled();
-    expect(assistantDeps.recentReplies).not.toHaveBeenCalled();
-    await client.close();
-  });
-
   it('scopes Consola tools to the caller’s own workspace, minus itself — from the endpoint, not the args', async () => {
     const client = await clientFor('w-1');
     const result = await client.callTool({ name: 'consola_find_stale_sessions', arguments: {} });
@@ -540,13 +467,16 @@ describe('MCP surface (in-memory)', () => {
     const listed = JSON.parse(
       firstText(await client.callTool({ name: 'consola_list_sessions', arguments: {} })),
     );
-    // The Assistant is a real session in the workspace, so it is listed too.
     expect(listed.sessions.map((s: { sessionId: string }) => s.sessionId)).toEqual([
       'cond-1',
       'w-1',
-      'a-1',
     ]);
-    expect(listed.sessions[1]).toMatchObject({ sessionId: 'w-1', you: true, status: 'ready' });
+    expect(listed.sessions[1]).toMatchObject({
+      sessionId: 'w-1',
+      you: true,
+      status: 'ready',
+      attention: 'done',
+    });
     await client.close();
   });
 
@@ -610,44 +540,6 @@ describe('MCP surface (in-memory)', () => {
     );
     expect(toolDeps.cleanup.deleteSession).not.toHaveBeenCalled();
     await client.close();
-  });
-
-  it('tells the Assistant its removals wait beside it, and that it will hear back', async () => {
-    const client = await clientFor('a-1');
-    const { tools } = await client.listTools();
-    const description = tools.find((tool) => tool.name === 'consola_delete_session')?.description;
-    expect(description).toMatch(/panel beside your conversation/);
-    expect(description).toMatch(/runs only once they approve it there/);
-    expect(description).toMatch(/never ask them to report back/);
-
-    const answer = JSON.parse(
-      firstText(
-        await client.callTool({ name: 'consola_delete_session', arguments: { session_id: 'w-1' } }),
-      ),
-    );
-    expect(answer).toMatchObject({
-      summary:
-        'Would delete "worker". Waiting for the person in the panel beside your conversation; nothing has changed yet. Consola will tell you what they decide.',
-      status: 'needs-approval',
-    });
-    await client.close();
-  });
-
-  it('tells the Assistant that an automation it runs waits beside it, and that it will hear back', async () => {
-    const assistant = await clientFor('a-1');
-    const mine = (await assistant.listTools()).tools.find(
-      (tool) => tool.name === 'consola_run_automation',
-    )?.description;
-    expect(mine).toMatch(/panel beside your conversation/);
-    expect(mine).toMatch(/never ask them to report back/);
-    await assistant.close();
-
-    const conductor = await clientFor('cond-1');
-    const theirs = (await conductor.listTools()).tools.find(
-      (tool) => tool.name === 'consola_run_automation',
-    )?.description;
-    expect(theirs).not.toMatch(/panel beside your conversation/);
-    await conductor.close();
   });
 
   it('answers bad arguments as a tool error, not a crash', async () => {

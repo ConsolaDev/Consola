@@ -5,9 +5,27 @@ import { approvalNotes, dryRunCommands } from './approvalCard';
 type Step = RunDefinition['automation']['steps'][number];
 
 const agent = (id: string): Step =>
-  ({ id, kind: 'agent', action: 'Review', outputs: {}, artifacts: [], reads: [], handover: 'required', named: true }) as Step;
+  ({
+    id,
+    kind: 'agent',
+    action: 'Review',
+    outputs: {},
+    artifacts: [],
+    reads: [],
+    handover: 'required',
+    named: true,
+  }) as Step;
 const command = (id: string, dryRun: 'report' | 'run' = 'report'): Step =>
-  ({ id, kind: 'run', run: 'git fetch', env: {}, outputs: {}, timeoutMs: 1000, dryRun, named: true }) as Step;
+  ({
+    id,
+    kind: 'run',
+    run: 'git fetch',
+    env: {},
+    outputs: {},
+    timeoutMs: 1000,
+    dryRun,
+    named: true,
+  }) as Step;
 
 const definitionOf = (...steps: Step[]): RunDefinition => ({
   automation: { name: 'review', steps } as unknown as RunDefinition['automation'],
@@ -37,7 +55,12 @@ describe('approvalNotes', () => {
 
 describe('dryRunCommands', () => {
   it('lists the commands that run in a dry run, in file order', () => {
-    const definition = definitionOf(command('fresh', 'run'), agent('review'), command('post'), command('tidy', 'run'));
+    const definition = definitionOf(
+      command('fresh', 'run'),
+      agent('review'),
+      command('post'),
+      command('tidy', 'run'),
+    );
     expect(dryRunCommands(definition)).toEqual(['fresh', 'tidy']);
   });
 

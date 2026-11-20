@@ -1,21 +1,20 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import {
-  getDisplayName,
+  copyConversation,
   MAX_CONVERSATION_ENTRIES,
   MAX_ENTRY_CHARS,
-  MAX_REPLY_CHARS,
   readConversation,
-  readRecentReplies,
+  readCustomTitleSince,
+  readFirstUserPrompt,
 } from './ClaudeSessionIndex';
 
 /**
  * Exercised through a real on-disk config directory: the module reads
  * Claude's own storage, so the fixture is the storage format itself. Each
- * test gets a fresh directory, which also keeps the module's mtime-keyed
- * index cache from ever seeing the same path twice.
+ * test gets a fresh directory.
  */
 
 const SESSION_ID = '11111111-1111-4111-8111-111111111111';
@@ -35,195 +34,137 @@ afterEach(() => {
 
 function writeTranscript(userMessages: string[]): void {
   const lines = userMessages.map((content) =>
-    JSON.stringify({ type: 'user', message: { role: 'user', content } })
+    JSON.stringify({ type: 'user', message: { role: 'user', content } }),
   );
   fs.writeFileSync(path.join(projectDir, `${SESSION_ID}.jsonl`), lines.join('\n') + '\n');
 }
 
-describe('getDisplayName from the transcript', () => {
-  it('names a session from its opening prompt, marked as a prompt-derived name', () => {
-    writeTranscript(['Fix the login redirect loop']);
+const file = () => path.join(projectDir, `${SESSION_ID}.jsonl`);
+const write = (...records: unknown[]) =>
+  fs.writeFileSync(file(), records.map((r) => JSON.stringify(r)).join('\n') + '\n');
+const append = (...records: unknown[]) =>
+  fs.appendFileSync(file(), records.map((r) => JSON.stringify(r)).join('\n') + '\n');
+const user = (content: unknown) => ({ type: 'user', message: { role: 'user', content } });
+const meta = (content: unknown) => ({ ...user(content), isMeta: true });
+const side = (content: unknown) => ({ ...user(content), isSidechain: true });
+const title = (customTitle: string) => ({
+  type: 'custom-title',
+  customTitle,
+  sessionId: SESSION_ID,
+});
+const assistant = () => ({
+  type: 'assistant',
+  message: { role: 'assistant', content: [{ type: 'text', text: 'hi' }] },
+});
 
-    expect(getDisplayName(SESSION_ID, configDir)).toEqual({
-      name: 'Fix the login redirect loop',
-      source: 'prompt',
-    });
+describe('readFirstUserPrompt', () => {
+  const read = () => readFirstUserPrompt(SESSION_ID, configDir);
+
+  it('returns the first prompt the person typed', async () => {
+    write(user('  Design the session sidebar \n'));
+    expect(await read()).toBe('Design the session sidebar');
   });
 
-  it('skips <-wrapped command messages to reach real prose', () => {
-    writeTranscript([
-      '<command-message>brainstorm</command-message><command-name>/brainstorm</command-name>',
-      'Design the session sidebar',
-    ]);
-
-    expect(getDisplayName(SESSION_ID, configDir)?.name).toBe('Design the session sidebar');
+  it('joins text blocks with a space', async () => {
+    write(
+      user([
+        { type: 'text', text: 'Look at' },
+        { type: 'image', source: {} },
+        { type: 'text', text: 'this' },
+      ]),
+    );
+    expect(await read()).toBe('Look at this');
   });
 
-  it('skips a message that opens with a markdown heading', () => {
-    writeTranscript(['# Brainstorming\n\nYou MUST follow this process.', 'Rework the status dots']);
-
-    expect(getDisplayName(SESSION_ID, configDir)?.name).toBe('Rework the status dots');
+  it('uses a skill command’s arguments, and skips a command without any', async () => {
+    const cmd = (args: string) =>
+      user(
+        `<command-message>fix-bug</command-message>\n<command-name>/fix-bug</command-name>\n<command-args>${args}</command-args>`,
+      );
+    write(cmd(''), cmd('the login crash'));
+    expect(await read()).toBe('the login crash');
   });
 
-  it('skips a skill preamble message', () => {
-    writeTranscript([
-      'Base directory for this skill: /home/user/.claude/skills/tdd\n\nWrite the test first.',
-      'Add retry to the uploader',
-    ]);
-
-    expect(getDisplayName(SESSION_ID, configDir)?.name).toBe('Add retry to the uploader');
+  it('skips built-in commands, their output, meta, sidechains, images, tool results, bash and memory lines', async () => {
+    write(
+      user(
+        '<command-name>/rename</command-name>\n<command-message>rename</command-message>\n<command-args>Mine</command-args>',
+      ),
+      user('<local-command-stdout>Renamed</local-command-stdout>'),
+      meta('# Skill text'),
+      side('subagent ask'),
+      user([{ type: 'image', source: {} }]),
+      user([{ type: 'tool_result', content: 'x' }]),
+      user('<bash-input>ls</bash-input>'),
+      user('<task-notification>done</task-notification>'),
+      user('Base directory for this skill: /x'),
+      user('# remember this'),
+      assistant(),
+      user('The real question'),
+    );
+    expect(await read()).toBe('The real question');
   });
 
-  it("prefers the text after ARGUMENTS: — the user's own words in a slash-command session", () => {
-    writeTranscript([
-      '# Some Skill\n\nInstructions the user never typed.\n\nARGUMENTS: make the sidebar readable at a glance',
-    ]);
-
-    expect(getDisplayName(SESSION_ID, configDir)).toEqual({
-      name: 'make the sidebar readable at a glance',
-      source: 'prompt',
-    });
+  it('is null with no transcript, and with only a partial last line', async () => {
+    expect(await read()).toBeNull();
+    fs.writeFileSync(file(), '{"type":"user","message":{"content":"Half');
+    expect(await read()).toBeNull();
   });
 
-  it('falls past an ARGUMENTS: marker with nothing after it', () => {
-    writeTranscript(['# Some Skill\n\nARGUMENTS:', 'The real question']);
-
-    expect(getDisplayName(SESSION_ID, configDir)?.name).toBe('The real question');
-  });
-
-  it('is null when every user message is preamble', () => {
-    writeTranscript(['<command-name>/foo</command-name>', '# Heading only']);
-
-    expect(getDisplayName(SESSION_ID, configDir)).toBeNull();
-  });
-
-  it('collapses whitespace and truncates long names', () => {
-    writeTranscript([`Please   ${'x'.repeat(80)}`]);
-
-    const result = getDisplayName(SESSION_ID, configDir);
-    expect(result?.name.length).toBeLessThanOrEqual(60);
-    expect(result?.name.endsWith('…')).toBe(true);
-    expect(result?.name.startsWith('Please x')).toBe(true);
+  it('skips an unparsable line and a partial last line, and uses the next complete message', async () => {
+    fs.writeFileSync(
+      file(),
+      `not json\n${JSON.stringify(user('Whole one'))}\n{"type":"user","message":{"content":"Half`,
+    );
+    expect(await read()).toBe('Whole one');
   });
 });
 
-describe('getDisplayName from the index', () => {
-  it("prefers the CLI's own summary and marks it as such", () => {
-    writeTranscript(['Fix the login redirect loop']);
-    fs.writeFileSync(
-      path.join(projectDir, 'sessions-index.json'),
-      JSON.stringify({
-        version: 1,
-        entries: [{ sessionId: SESSION_ID, summary: 'Login redirect fix' }],
-      })
-    );
-
-    expect(getDisplayName(SESSION_ID, configDir)).toEqual({
-      name: 'Login redirect fix',
-      source: 'summary',
-    });
+describe('readCustomTitleSince', () => {
+  it('returns the latest custom title and a position past the last complete line', async () => {
+    write(title('A'), user('x'), title('B'));
+    const first = await readCustomTitleSince(SESSION_ID, configDir, 0);
+    expect(first).toEqual({ name: 'B', next: fs.statSync(file()).size });
   });
 
-  it('an index entry with no summary yet still yields a prompt-sourced name', () => {
-    writeTranscript(['Fix the login redirect loop']);
-    fs.writeFileSync(
-      path.join(projectDir, 'sessions-index.json'),
-      JSON.stringify({
-        version: 1,
-        entries: [{ sessionId: SESSION_ID, summary: '', firstPrompt: 'Fix the login redirect loop' }],
-      })
-    );
-
-    expect(getDisplayName(SESSION_ID, configDir)).toEqual({
-      name: 'Fix the login redirect loop',
-      source: 'prompt',
-    });
-  });
-});
-
-describe('readRecentReplies', () => {
-  const user = (content: unknown, extra = {}) =>
-    JSON.stringify({ type: 'user', message: { role: 'user', content }, ...extra });
-  const assistant = (content: unknown[], extra = {}) =>
-    JSON.stringify({ type: 'assistant', message: { role: 'assistant', content }, ...extra });
-  const text = (t: string) => ({ type: 'text', text: t });
-  const write = (lines: string[]) =>
-    fs.writeFileSync(path.join(projectDir, `${SESSION_ID}.jsonl`), lines.join('\n') + '\n');
-
-  it('returns the last replies, one per turn, oldest first', async () => {
-    write([
-      user('review #4221'),
-      assistant([text('Looking.')]),
-      assistant([{ type: 'tool_use', id: 't1', name: 'Bash', input: {} }]),
-      user([{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }]),
-      assistant([text('Two issues found.')]),
-      user('thanks'),
-      assistant([text('Done.')]),
-    ]);
-    expect(await readRecentReplies(SESSION_ID, configDir, 3)).toEqual([
-      'Looking.\n\nTwo issues found.',
-      'Done.',
-    ]);
-    expect(await readRecentReplies(SESSION_ID, configDir, 1)).toEqual(['Done.']);
+  it('reads only what was appended since, and reports no name when nothing new names one', async () => {
+    write(title('A'));
+    const { next } = (await readCustomTitleSince(SESSION_ID, configDir, 0))!;
+    append(user('y'));
+    expect((await readCustomTitleSince(SESSION_ID, configDir, next))!.name).toBeNull();
+    append(title('C'));
+    expect((await readCustomTitleSince(SESSION_ID, configDir, next))!.name).toBe('C');
   });
 
-  it('skips subagent sidechains, turns with no text and partial lines', async () => {
-    write([
-      user('first'),
-      assistant([text('Real.')]),
-      assistant([text('Subagent chatter.')], { isSidechain: true }),
-      user('second'),
-      assistant([{ type: 'tool_use', id: 't2', name: 'Bash', input: {} }]),
-      '{"type":"assistant","message":{"content":[{"type":"te',
-    ]);
-    expect(await readRecentReplies(SESSION_ID, configDir, 5)).toEqual(['Real.']);
+  it('does not consume a partial last line', async () => {
+    write(user('x'));
+    fs.appendFileSync(file(), '{"type":"custom-title","customTitle":"Hal');
+    const r = (await readCustomTitleSince(SESSION_ID, configDir, 0))!;
+    expect(r.name).toBeNull();
+    expect(r.next).toBeLessThan(fs.statSync(file()).size);
   });
 
-  it('keeps the end of a very long reply', async () => {
-    write([user('go'), assistant([text('x'.repeat(MAX_REPLY_CHARS * 2) + 'THE END')])]);
-    const [reply] = (await readRecentReplies(SESSION_ID, configDir, 1))!;
-    expect(reply.length).toBe(MAX_REPLY_CHARS);
-    expect(reply.startsWith('…')).toBe(true);
-    expect(reply.endsWith('THE END')).toBe(true);
+  it('completes the line once the rest is written', async () => {
+    write(user('x'));
+    fs.appendFileSync(file(), '{"type":"custom-title","customTitle":"Hal');
+    const { next } = (await readCustomTitleSince(SESSION_ID, configDir, 0))!;
+    fs.appendFileSync(file(), 'f"}\n');
+    expect((await readCustomTitleSince(SESSION_ID, configDir, next))!.name).toBe('Half');
   });
 
-  it('counts a meta user record as context, never as a turn start', async () => {
-    write([
-      user('review #4221'),
-      assistant([text('Looking.')]),
-      user('<system-reminder>injected</system-reminder>', { isMeta: true }),
-      assistant([text('Two issues found.')]),
-    ]);
-    expect(await readRecentReplies(SESSION_ID, configDir, 5)).toEqual([
-      'Looking.\n\nTwo issues found.',
-    ]);
+  it('restarts from 0 when the position is past the end', async () => {
+    write(title('Fresh'));
+    const r = await readCustomTitleSince(SESSION_ID, configDir, 10_000);
+    expect(r).toEqual({ name: 'Fresh', next: fs.statSync(file()).size });
   });
 
-  it('reads replies that span the backwards chunk boundary', async () => {
-    // Each turn is ~30 KB, so 6 turns cross several 64 KB chunks and lines
-    // straddle every boundary. Multi-byte text checks split characters too.
-    const lines: string[] = [];
-    for (let n = 0; n < 6; n++) {
-      lines.push(user(`prompt ${n}`));
-      lines.push(assistant([text(`reply ${n} ` + 'é✦'.repeat(5_000) + ` end${n}`)]));
-    }
-    write(lines);
-    const replies = (await readRecentReplies(SESSION_ID, configDir, 4))!;
-    expect(replies).toHaveLength(4);
-    replies.forEach((reply, i) => {
-      const n = i + 2;
-      expect(reply.endsWith(`end${n}`)).toBe(true);
-    });
-    expect(await readRecentReplies(SESSION_ID, configDir, 20)).toHaveLength(6);
+  it('finds a title in a file larger than one read chunk', async () => {
+    write(user('x'.repeat(200_000)), title('Late'));
+    expect((await readCustomTitleSince(SESSION_ID, configDir, 0))!.name).toBe('Late');
   });
 
-  it('returns nothing for a count of zero', async () => {
-    write([user('go'), assistant([text('Hi.')])]);
-    expect(await readRecentReplies(SESSION_ID, configDir, 0)).toEqual([]);
-  });
-
-  it('is null without a transcript', async () => {
-    expect(await readRecentReplies('missing', configDir, 3)).toBeNull();
+  it('is null with no transcript', async () => {
+    expect(await readCustomTitleSince(SESSION_ID, configDir, 0)).toBeNull();
   });
 });
 
@@ -231,7 +172,7 @@ describe('readConversation', () => {
   function writeRecords(records: unknown[], raw = ''): void {
     fs.writeFileSync(
       path.join(projectDir, `${SESSION_ID}.jsonl`),
-      records.map((r) => JSON.stringify(r)).join('\n') + '\n' + raw
+      records.map((r) => JSON.stringify(r)).join('\n') + '\n' + raw,
     );
   }
   const assistant = (content: unknown[], timestamp?: string, extra = {}) => ({
@@ -244,22 +185,28 @@ describe('readConversation', () => {
 
   it('reads the prompt, each tool call with its main argument, and the text, in order', async () => {
     writeRecords([
-      { type: 'user', timestamp: '2026-11-12T10:00:00Z', message: { role: 'user', content: 'Review PR 12' } },
+      {
+        type: 'user',
+        timestamp: '2026-11-12T10:00:00Z',
+        message: { role: 'user', content: 'Review PR 12' },
+      },
       { type: 'user', isMeta: true, message: { role: 'user', content: 'injected context' } },
       assistant([{ type: 'thinking', thinking: 'hmm' }], '2026-11-12T10:00:01Z'),
       assistant(
         [{ type: 'text', text: 'Looking.' }, toolUse('Read', { file_path: '/repo/a.ts' })],
-        '2026-11-12T10:00:02Z'
+        '2026-11-12T10:00:02Z',
       ),
       {
         type: 'user',
         timestamp: '2026-11-12T10:00:03Z',
         message: { role: 'user', content: [{ type: 'tool_result', content: 'file body' }] },
       },
-      assistant([toolUse('Bash', { command: 'ls' })], '2026-11-12T10:00:03Z', { isSidechain: true }),
+      assistant([toolUse('Bash', { command: 'ls' })], '2026-11-12T10:00:03Z', {
+        isSidechain: true,
+      }),
       assistant(
         [toolUse('mcp__consola__consola_work_item_context', {}), { type: 'text', text: 'Done.' }],
-        '2026-11-12T10:00:04Z'
+        '2026-11-12T10:00:04Z',
       ),
     ]);
 
@@ -283,7 +230,14 @@ describe('readConversation', () => {
       timestamp,
       message: {
         role: 'user',
-        content: [{ type: 'tool_result', tool_use_id: id, content: 'out', ...(isError ? { is_error: true } : {}) }],
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: id,
+            content: 'out',
+            ...(isError ? { is_error: true } : {}),
+          },
+        ],
       },
     });
     writeRecords([
@@ -292,7 +246,7 @@ describe('readConversation', () => {
           { ...toolUse('Read', { file_path: '/a' }), id: 'call-1' },
           { ...toolUse('Bash', { command: 'pnpm test' }), id: 'call-2' },
         ],
-        '2026-11-12T10:00:01Z'
+        '2026-11-12T10:00:01Z',
       ),
       result('call-1', '2026-11-12T10:00:02Z'),
       result('call-2', '2026-11-12T10:00:40Z', true),
@@ -305,7 +259,13 @@ describe('readConversation', () => {
     const conversation = await readConversation(SESSION_ID, configDir);
 
     expect(conversation!.entries).toEqual([
-      { kind: 'step', tool: 'Read', detail: '/a', at: '2026-11-12T10:00:01Z', endedAt: '2026-11-12T10:00:02Z' },
+      {
+        kind: 'step',
+        tool: 'Read',
+        detail: '/a',
+        at: '2026-11-12T10:00:01Z',
+        endedAt: '2026-11-12T10:00:02Z',
+      },
       {
         kind: 'step',
         tool: 'Bash',
@@ -319,7 +279,16 @@ describe('readConversation', () => {
   });
 
   it("picks a step's detail from file_path, path, pattern, command, url, skill, description, query, in that order", async () => {
-    const keys = ['file_path', 'path', 'pattern', 'command', 'url', 'skill', 'description', 'query'];
+    const keys = [
+      'file_path',
+      'path',
+      'pattern',
+      'command',
+      'url',
+      'skill',
+      'description',
+      'query',
+    ];
     const calls = keys.map((_, i) => {
       // Everything from key i onwards is present: the earliest must win.
       const input: Record<string, string> = {};
@@ -360,7 +329,10 @@ describe('readConversation', () => {
   });
 
   it('skips an unparsable line, such as one mid-write', async () => {
-    writeRecords([assistant([{ type: 'text', text: 'complete' }])], '{"type":"assistant","message":{"con');
+    writeRecords(
+      [assistant([{ type: 'text', text: 'complete' }])],
+      '{"type":"assistant","message":{"con',
+    );
 
     const result = await readConversation(SESSION_ID, configDir);
 
@@ -390,5 +362,58 @@ describe('readConversation', () => {
 
   it('is null when there is no transcript', async () => {
     expect(await readConversation(SESSION_ID, configDir)).toBeNull();
+  });
+});
+
+describe('copyConversation', () => {
+  let otherDir: string;
+
+  beforeEach(() => {
+    otherDir = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-index-other-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(otherDir, { recursive: true, force: true });
+  });
+
+  const copied = (file: string) =>
+    path.join(otherDir, 'projects', '-Users-someone-code-repo', file);
+
+  it('copies the transcript and its sibling folder into the same project folder', async () => {
+    writeTranscript(['Fix the login redirect loop']);
+    fs.mkdirSync(path.join(projectDir, SESSION_ID, 'subagents'), { recursive: true });
+    fs.writeFileSync(path.join(projectDir, SESSION_ID, 'subagents', 'agent-1.jsonl'), '{}\n');
+
+    expect(await copyConversation(SESSION_ID, configDir, otherDir)).toBe('copied');
+
+    expect(fs.readFileSync(copied(`${SESSION_ID}.jsonl`), 'utf8')).toBe(
+      fs.readFileSync(path.join(projectDir, `${SESSION_ID}.jsonl`), 'utf8'),
+    );
+    expect(fs.existsSync(copied(path.join(SESSION_ID, 'subagents', 'agent-1.jsonl')))).toBe(true);
+    // Nothing half-written is left beside it.
+    expect(
+      fs.readdirSync(path.dirname(copied('x'))).filter((name) => name.endsWith('.partial')),
+    ).toEqual([]);
+    // And the copy is found where Claude will look.
+    expect(await readFirstUserPrompt(SESSION_ID, otherDir)).toBe('Fix the login redirect loop');
+  });
+
+  it('never overwrites a conversation the target already holds', async () => {
+    writeTranscript(['Fresh text from the source']);
+    fs.mkdirSync(path.dirname(copied('x')), { recursive: true });
+    fs.writeFileSync(copied(`${SESSION_ID}.jsonl`), 'already here\n');
+
+    expect(await copyConversation(SESSION_ID, configDir, otherDir)).toBe('present');
+    expect(fs.readFileSync(copied(`${SESSION_ID}.jsonl`), 'utf8')).toBe('already here\n');
+  });
+
+  it('is a no-op when both harnesses share one config directory', async () => {
+    writeTranscript(['Shared']);
+    expect(await copyConversation(SESSION_ID, configDir, configDir)).toBe('present');
+  });
+
+  it('says so, and writes nothing, when there is no transcript to carry yet', async () => {
+    expect(await copyConversation(SESSION_ID, configDir, otherDir)).toBe('missing');
+    expect(fs.existsSync(path.join(otherDir, 'projects'))).toBe(false);
   });
 });

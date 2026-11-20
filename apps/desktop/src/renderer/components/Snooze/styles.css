@@ -1,0 +1,110 @@
+/* --- The Snooze ▸ submenu ------------------------------------------------
+   A choice and the time it comes back, the time in a column of its own so a
+   glance down the menu reads the times, not the words. */
+.snooze-menu {
+  min-width: 220px;
+}
+
+.snooze-menu-item {
+  justify-content: space-between;
+}
+
+.snooze-menu-label {
+  flex: 1;
+  min-width: 0;
+}
+
+.snooze-menu-time {
+  flex: none;
+  margin-left: var(--space-4);
+  color: var(--color-text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- A snoozed row's countdown, in its age's slot ------------------------ */
+.snooze-countdown {
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Woke: a row back from a snooze that nobody has looked at -------------
+   Sits where "Waiting" and "Done" sit, in the accent colour: news, not alarm. */
+.session-row-status--woke {
+  color: var(--color-accent);
+}
+
+.session-row-status--woke .session-row-status-mark {
+  border: 1.5px solid var(--color-accent);
+}
+
+/* --- The chip on a snoozed session's pane --------------------------------- */
+.snooze-chip {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: var(--space-2);
+  height: 22px;
+  padding: 0 0 0 var(--space-2);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+
+.snooze-chip-wake {
+  height: 100%;
+  padding: 0 var(--space-2);
+  border: none;
+  border-left: 1px solid var(--color-border-strong);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: transparent;
+  font: inherit;
+  color: var(--color-text-primary);
+  cursor: pointer;
+}
+
+.snooze-chip-wake:hover {
+  background: var(--color-bg-hover);
+}
+
+/* --- Custom… ------------------------------------------------------------- */
+.snooze-dialog-modes {
+  display: flex;
+  gap: var(--space-1);
+  padding: 2px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.snooze-dialog-mode {
+  flex: 1;
+  padding: var(--space-1) var(--space-2);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  font: inherit;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+.snooze-dialog-mode[aria-checked="true"] {
+  background: var(--color-bg-active);
+  color: var(--color-text-primary);
+}
+
+.snooze-dialog-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+}
+
+.snooze-dialog-preview {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.snooze-dialog-preview--error {
+  color: var(--color-error, var(--color-warning));
+}

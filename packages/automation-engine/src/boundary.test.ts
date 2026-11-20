@@ -1,6 +1,6 @@
-import * as fs from 'fs';
-import { builtinModules } from 'module';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import { builtinModules } from 'node:module';
+import * as path from 'node:path';
 import * as ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 
@@ -17,7 +17,9 @@ const SRC = 'src';
 const NODE_DIR = 'src/node';
 const ENTRY = 'src/index.ts';
 
-const packageJson = JSON.parse(fs.readFileSync(path.join(PACKAGE_ROOT, 'package.json'), 'utf8')) as {
+const packageJson = JSON.parse(
+  fs.readFileSync(path.join(PACKAGE_ROOT, 'package.json'), 'utf8'),
+) as {
   dependencies?: Record<string, string>;
   devDependencies?: Record<string, string>;
 };
@@ -67,7 +69,9 @@ function importsOf(source: string): string[] {
     } else if (ts.isExternalModuleReference(node)) {
       specifiers.push(literal(node.expression)); // import x = require('y')
     } else if (ts.isImportTypeNode(node)) {
-      specifiers.push(ts.isLiteralTypeNode(node.argument) ? literal(node.argument.literal) : NON_LITERAL);
+      specifiers.push(
+        ts.isLiteralTypeNode(node.argument) ? literal(node.argument.literal) : NON_LITERAL,
+      );
     } else if (ts.isCallExpression(node)) {
       const callee = node.expression;
       const isRequire = ts.isIdentifier(callee) && callee.text === 'require';
@@ -121,7 +125,11 @@ function ioGlobalsOf(source: string): string[] {
   const isRequireImport = (node: ts.Identifier): boolean => {
     const parent = node.parent;
     if (ts.isCallExpression(parent) && parent.expression === node) return true;
-    return ts.isPropertyAccessExpression(parent) && parent.expression === node && parent.name.text === 'resolve';
+    return (
+      ts.isPropertyAccessExpression(parent) &&
+      parent.expression === node &&
+      parent.name.text === 'resolve'
+    );
   };
   const visit = (node: ts.Node): void => {
     if (ts.isIdentifier(node) && IO_GLOBALS.has(node.text) && !isName(node)) {
@@ -136,7 +144,9 @@ function ioGlobalsOf(source: string): string[] {
 /** What is wrong with a file's globals; empty for tests and `src/node/`, which may touch the machine. */
 function globalProblems(file: string, source: string): string[] {
   if (isTestFile(file) || file.startsWith(`${NODE_DIR}/`)) return [];
-  return ioGlobalsOf(source).map((name) => `${file}: core code may not reach the I/O global '${name}'`);
+  return ioGlobalsOf(source).map(
+    (name) => `${file}: core code may not reach the I/O global '${name}'`,
+  );
 }
 
 /** The entry point holds only `export … from` statements; anything else is code the build would run on import. */
@@ -145,12 +155,19 @@ function entryProblems(file: string, source: string): string[] {
   const tree = ts.createSourceFile('x.ts', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
   return tree.statements
     .filter((statement) => !(ts.isExportDeclaration(statement) && statement.moduleSpecifier))
-    .map((statement) => `${file}: the entry point holds only exports, found '${statement.getText(tree).split('\n')[0]}'`);
+    .map(
+      (statement) =>
+        `${file}: the entry point holds only exports, found '${statement.getText(tree).split('\n')[0]}'`,
+    );
 }
 
 /** Every problem with one file: its imports, its globals and, for the entry point, its shape. */
 function problemsOf(file: string, source: string): string[] {
-  return [...boundaryProblems(file, importsOf(source)), ...globalProblems(file, source), ...entryProblems(file, source)];
+  return [
+    ...boundaryProblems(file, importsOf(source)),
+    ...globalProblems(file, source),
+    ...entryProblems(file, source),
+  ];
 }
 
 function packageName(specifier: string): string {
@@ -230,7 +247,10 @@ const SPELLINGS: Array<{ name: string; source: (specifier: string) => string }> 
   { name: 'require.resolve', source: (m) => `const x = require.resolve('${m}');` },
   { name: 'dynamic import', source: (m) => `const x = await import('${m}');` },
   { name: 'backtick dynamic import', source: (m) => `const x = await import(\`${m}\`);` },
-  { name: 'dynamic import with attributes', source: (m) => `const x = await import('${m}', { with: { type: 'json' } });` },
+  {
+    name: 'dynamic import with attributes',
+    source: (m) => `const x = await import('${m}', { with: { type: 'json' } });`,
+  },
   { name: 'import type expression', source: (m) => `let x: typeof import('${m}');` },
   { name: 'import after another statement', source: (m) => `const a = 1; import x from '${m}';` },
 ];
@@ -242,7 +262,7 @@ describe('the checker', () => {
       '// ' + esm('commented'),
       '/* ' + esm('blocked') + ' */',
       "const glob = 'src/**/*.ts'; const other = '*/'; " + esm('after-glob'),
-      "const text = \"import x from 'quoted'\";",
+      'const text = "import x from \'quoted\'";',
     ].join('\n');
     expect(importsOf(source)).toEqual(['a', 'after-glob']);
   });
@@ -275,7 +295,8 @@ describe('the checker', () => {
     ['in core', 'src/x.ts'],
     ['in src/node', 'src/node/x.ts'],
   ])('refuses createRequire %s', (_name, file) => {
-    const source = "import { createRequire } from 'module'; const r = createRequire(import.meta.url); r('electron');";
+    const source =
+      "import { createRequire } from 'module'; const r = createRequire(import.meta.url); r('electron');";
     expect(boundaryProblems(file, importsOf(source)).join('\n')).toMatch(/createRequire/);
   });
 
@@ -288,42 +309,152 @@ describe('the checker', () => {
       problems: /leaves the package/,
     },
     { name: 'node-pty', file: 'src/x.ts', source: esm('node-pty'), problems: /node-pty/ },
-    { name: '@xterm/headless', file: 'src/x.ts', source: sideEffect('@xterm/headless'), problems: /@xterm\/headless/ },
-    { name: 'a library not in package.json', file: 'src/x.ts', source: esm('left-pad'), problems: /left-pad/ },
+    {
+      name: '@xterm/headless',
+      file: 'src/x.ts',
+      source: sideEffect('@xterm/headless'),
+      problems: /@xterm\/headless/,
+    },
+    {
+      name: 'a library not in package.json',
+      file: 'src/x.ts',
+      source: esm('left-pad'),
+      problems: /left-pad/,
+    },
     { name: 'a subpath of a dependency', file: 'src/x.ts', source: esm('zod/v3'), problems: null },
-    { name: 'a dependency', file: 'src/x.ts', source: esm('@consola/factory-spec'), problems: null },
+    {
+      name: 'a dependency',
+      file: 'src/x.ts',
+      source: esm('@consola/factory-spec'),
+      problems: null,
+    },
     { name: 'fs in core', file: 'src/x.ts', source: esm('fs'), problems: /fs/ },
     { name: 'node:fs in core', file: 'src/x.ts', source: esm('node:fs'), problems: /node:fs/ },
-    { name: 'fs/promises in core', file: 'src/x.ts', source: esm('fs/promises'), problems: /fs\/promises/ },
+    {
+      name: 'fs/promises in core',
+      file: 'src/x.ts',
+      source: esm('fs/promises'),
+      problems: /fs\/promises/,
+    },
     { name: 'fs in src/node', file: 'src/node/x.ts', source: esm('fs'), problems: null },
     { name: 'fs in a test', file: 'src/x.test.ts', source: esm('fs'), problems: null },
     { name: 'a pure built-in in core', file: 'src/x.ts', source: esm('crypto'), problems: null },
     { name: 'a sibling in core', file: 'src/x.ts', source: esm('./y'), problems: null },
-    { name: 'src/node from core', file: 'src/x.ts', source: esm('./node/y'), problems: /src\/node/ },
-    { name: 'src/node index from core', file: 'src/x.ts', source: esm('./node'), problems: /src\/node/ },
-    { name: 'src/node from a nested core file', file: 'src/a/x.ts', source: esm('../node/y'), problems: /src\/node/ },
+    {
+      name: 'src/node from core',
+      file: 'src/x.ts',
+      source: esm('./node/y'),
+      problems: /src\/node/,
+    },
+    {
+      name: 'src/node index from core',
+      file: 'src/x.ts',
+      source: esm('./node'),
+      problems: /src\/node/,
+    },
+    {
+      name: 'src/node from a nested core file',
+      file: 'src/a/x.ts',
+      source: esm('../node/y'),
+      problems: /src\/node/,
+    },
     { name: 'src/node from src/node', file: 'src/node/x.ts', source: esm('./y'), problems: null },
-    { name: 'src/node from a test', file: 'src/x.test.ts', source: esm('./node/y'), problems: null },
-    { name: 'src/node from the entry point', file: 'src/index.ts', source: reExport('./node'), problems: null },
-    { name: 'the entry point from core', file: 'src/x.ts', source: esm('.'), problems: /entry point/ },
-    { name: 'the entry point by name from core', file: 'src/a/x.ts', source: esm('../index'), problems: /entry point/ },
-    { name: 'the entry point from a test', file: 'src/x.test.ts', source: esm('./index'), problems: null },
-    { name: 'the entry point as ./index.js', file: 'src/x.ts', source: esm('./index.js'), problems: /entry point/ },
-    { name: 'the entry point as ./index.ts', file: 'src/x.ts', source: esm('./index.ts'), problems: /entry point/ },
-    { name: 'the entry point as ../index.js', file: 'src/a/x.ts', source: esm('../index.js'), problems: /entry point/ },
-    { name: 'src/node with an extension', file: 'src/x.ts', source: esm('./node/y.js'), problems: /src\/node/ },
-    { name: 'src/node/index.mjs from core', file: 'src/x.ts', source: esm('./node/index.mjs'), problems: /src\/node/ },
-    { name: 'a sibling with an extension', file: 'src/x.ts', source: esm('./y.js'), problems: null },
-    { name: 'src/node with an extension from the entry point', file: 'src/index.ts', source: reExport('./node/index.js'), problems: null },
+    {
+      name: 'src/node from a test',
+      file: 'src/x.test.ts',
+      source: esm('./node/y'),
+      problems: null,
+    },
+    {
+      name: 'src/node from the entry point',
+      file: 'src/index.ts',
+      source: reExport('./node'),
+      problems: null,
+    },
+    {
+      name: 'the entry point from core',
+      file: 'src/x.ts',
+      source: esm('.'),
+      problems: /entry point/,
+    },
+    {
+      name: 'the entry point by name from core',
+      file: 'src/a/x.ts',
+      source: esm('../index'),
+      problems: /entry point/,
+    },
+    {
+      name: 'the entry point from a test',
+      file: 'src/x.test.ts',
+      source: esm('./index'),
+      problems: null,
+    },
+    {
+      name: 'the entry point as ./index.js',
+      file: 'src/x.ts',
+      source: esm('./index.js'),
+      problems: /entry point/,
+    },
+    {
+      name: 'the entry point as ./index.ts',
+      file: 'src/x.ts',
+      source: esm('./index.ts'),
+      problems: /entry point/,
+    },
+    {
+      name: 'the entry point as ../index.js',
+      file: 'src/a/x.ts',
+      source: esm('../index.js'),
+      problems: /entry point/,
+    },
+    {
+      name: 'src/node with an extension',
+      file: 'src/x.ts',
+      source: esm('./node/y.js'),
+      problems: /src\/node/,
+    },
+    {
+      name: 'src/node/index.mjs from core',
+      file: 'src/x.ts',
+      source: esm('./node/index.mjs'),
+      problems: /src\/node/,
+    },
+    {
+      name: 'a sibling with an extension',
+      file: 'src/x.ts',
+      source: esm('./y.js'),
+      problems: null,
+    },
+    {
+      name: 'src/node with an extension from the entry point',
+      file: 'src/index.ts',
+      source: reExport('./node/index.js'),
+      problems: null,
+    },
     { name: 'http2 in core', file: 'src/x.ts', source: esm('http2'), problems: /http2/ },
     { name: 'node:tls in core', file: 'src/x.ts', source: esm('node:tls'), problems: /node:tls/ },
     { name: 'dns in core', file: 'src/x.ts', source: esm('dns'), problems: /dns/ },
-    { name: 'node:dns/promises in core', file: 'src/x.ts', source: esm('node:dns/promises'), problems: /dns/ },
+    {
+      name: 'node:dns/promises in core',
+      file: 'src/x.ts',
+      source: esm('node:dns/promises'),
+      problems: /dns/,
+    },
     { name: 'cluster in core', file: 'src/x.ts', source: esm('cluster'), problems: /cluster/ },
     { name: 'readline in core', file: 'src/x.ts', source: esm('readline'), problems: /readline/ },
-    { name: 'node:readline in src/node', file: 'src/node/x.ts', source: esm('node:readline'), problems: null },
+    {
+      name: 'node:readline in src/node',
+      file: 'src/node/x.ts',
+      source: esm('node:readline'),
+      problems: null,
+    },
     { name: 'vitest in a test', file: 'src/x.test.ts', source: esm('vitest'), problems: null },
-    { name: 'vitest in a test helper', file: 'src/x.test-helpers.ts', source: esm('vitest'), problems: null },
+    {
+      name: 'vitest in a test helper',
+      file: 'src/x.test-helpers.ts',
+      source: esm('vitest'),
+      problems: null,
+    },
     { name: 'vitest in core', file: 'src/x.ts', source: esm('vitest'), problems: /vitest/ },
   ];
 

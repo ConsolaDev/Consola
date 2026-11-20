@@ -155,6 +155,7 @@ export const LATER_KEYS: Readonly<Record<string, string>> = {
   gate: 'write steps',
   repeat: 'write steps',
   on_exhausted: 'write steps',
+  // biome-ignore lint/suspicious/noThenProperty: `then:` is a factory.yml key; this table is never awaited.
   then: 'write steps',
   on_failure: 'write steps',
   checkout: 'write steps',
@@ -636,10 +637,9 @@ function parseStep(raw: unknown, index: number, fail: Fail): Step | null {
 }
 
 /** `steps:` — 1 to 20 steps, each checked on its own; ids are unique across them. */
-export function stepsSchema(): z.ZodType<Step[], z.ZodTypeDef, unknown> {
+export function stepsSchema(): z.ZodType<Step[], unknown> {
   return z.unknown().transform((raw, ctx): Step[] => {
-    const fail: Fail = (message, path = []) =>
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message, path });
+    const fail: Fail = (message, path = []) => ctx.addIssue({ code: 'custom', message, path });
     if (!Array.isArray(raw) || raw.length < 1 || raw.length > MAX_STEPS) {
       fail(`An entry with \`steps:\` has 1 to ${MAX_STEPS} steps, written as a list.`);
       return z.NEVER;
@@ -960,11 +960,13 @@ function ifItemProblems(
       case 'literal':
         return;
       case 'not':
-        return visit(node.operand, true);
+        visit(node.operand, true);
+        return;
       case 'and':
       case 'or':
         visit(node.left, true);
-        return visit(node.right, true);
+        visit(node.right, true);
+        return;
       case 'compare': {
         const { left, right, op } = node;
         const itemSide = left.kind === 'item' ? left : right.kind === 'item' ? right : undefined;

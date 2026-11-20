@@ -14,7 +14,7 @@ describe('providerNavLabel', () => {
 
   it("reads the bound provider's own display name", () => {
     expect(providerNavLabel(workspaceWith({ id: 'github', accountLogin: 'JaviDev' }))).toBe(
-      'GitHub'
+      'GitHub',
     );
   });
 

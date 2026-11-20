@@ -21,7 +21,9 @@
   min-width: 240px;
   border-right: 1px solid var(--color-border);
   background: var(--color-bg-secondary);
-  transition: width 0.2s ease, min-width 0.2s ease;
+  transition:
+    width 0.2s ease,
+    min-width 0.2s ease;
   overflow: hidden;
 }
 
@@ -62,7 +64,9 @@
   background: transparent;
   color: var(--color-text-tertiary);
   cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast);
+  transition:
+    background var(--transition-fast),
+    color var(--transition-fast);
 }
 
 .git-review-sidebar-toggle:hover {
@@ -258,7 +262,9 @@
   background: transparent;
   color: var(--color-text-tertiary);
   cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast);
+  transition:
+    background var(--transition-fast),
+    color var(--transition-fast);
 }
 
 .git-review-close-btn:hover {
@@ -411,7 +417,9 @@
   background: transparent;
   color: var(--color-text-tertiary);
   cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast);
+  transition:
+    background var(--transition-fast),
+    color var(--transition-fast);
 }
 
 .git-review-file-copy-btn:hover {
@@ -432,7 +440,9 @@
   font-size: 11px;
   font-weight: var(--font-weight-medium);
   cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast);
+  transition:
+    background var(--transition-fast),
+    color var(--transition-fast);
 }
 
 .git-review-file-action-btn:hover {
@@ -468,7 +478,9 @@
   color: var(--color-text-tertiary);
   font-size: 11px;
   cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast);
+  transition:
+    background var(--transition-fast),
+    color var(--transition-fast);
 }
 
 .git-review-file-toggle-btn:first-child {
@@ -566,7 +578,9 @@
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-medium);
   cursor: pointer;
-  transition: background var(--transition-fast), opacity var(--transition-fast);
+  transition:
+    background var(--transition-fast),
+    opacity var(--transition-fast);
 }
 
 .git-review-commit-btn:disabled {

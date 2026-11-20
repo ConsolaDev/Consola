@@ -13,17 +13,29 @@
      it — so they run a step under even the metadata. */
   --sidebar-font-size-label: 11px;
   --sidebar-row-padding-y: 4px;
+  /* The list's two insets, and the only two. A row's text starts at
+     `--sidebar-list-inset + --sidebar-row-padding-x` from the sidebar's edge
+     and ends the same distance from the other one — the same on both sides,
+     because a session's subject is a long string and every pixel spent on
+     the left is a word lost on the right. The outer inset is small on
+     purpose: it exists so a hover background reads as a shape rather than as
+     a band welded to the window frame, and 4px is enough to say that. */
+  --sidebar-list-inset: var(--space-1);
+  --sidebar-row-padding-x: var(--space-2);
   /* Every nav row — inbox, scope, session, settings — locks to one height.
      Content differs per row (icons, dots, hover triggers), so the min-height
      is what keeps the list reading as one rhythm. */
   --sidebar-row-height: 28px;
-  /* The controls above the lists — Home / Inbox, Assistant, scope — run a
+  /* The controls above the lists — Home / Inbox, Automations, scope — run a
      step taller than a row: they are where you start, not items in a list. */
   --sidebar-nav-height: 30px;
   /* Everything at the top shares one left edge: boxes inset one step from
      the sidebar, their icons one step further. A bordered field gives up a
      pixel of padding to its border so its icon lands on the same line. */
   --sidebar-field-padding-x: calc(var(--space-2) - 1px);
+  /* A row lifted off the list while it travels to another section: a hairline
+     edge, and a shadow soft enough to read only as "above". */
+  --sidebar-row-lift: 0 0 0 1px var(--color-border), 0 6px 16px -8px rgba(0, 0, 0, 0.3);
 
   display: flex;
   flex-direction: column;
@@ -52,7 +64,7 @@
 }
 
 .sidebar-resize-handle::before {
-  content: '';
+  content: "";
   position: absolute;
   top: 0;
   bottom: 0;
@@ -61,7 +73,7 @@
 }
 
 .sidebar-resize-handle::after {
-  content: '';
+  content: "";
   position: absolute;
   top: 0;
   bottom: 0;
@@ -178,7 +190,9 @@
   background: transparent;
   color: var(--color-text-secondary);
   cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast);
+  transition:
+    background var(--transition-fast),
+    color var(--transition-fast);
 }
 
 .sidebar-section-button:hover {
@@ -232,20 +246,32 @@
   background: transparent;
   color: var(--color-text-secondary);
   cursor: pointer;
-  transition: background-color 120ms ease-out, color 120ms ease-out;
+  transition:
+    background-color 120ms ease-out,
+    color 120ms ease-out;
 }
 
 .sidebar-navigation-settings:hover,
-.sidebar-navigation-settings[data-state='open'] {
+.sidebar-navigation-settings[data-state="open"] {
   background: var(--color-bg-hover);
   color: var(--color-text-primary);
 }
-.sidebar-navigation-settings:focus-visible { outline: 1px solid var(--color-accent); outline-offset: -1px; }
+.sidebar-navigation-settings:focus-visible {
+  outline: 1px solid var(--color-accent);
+  outline-offset: -1px;
+}
 /* The same small sink on press as ＋ and ▾ beside it. */
-.sidebar-navigation-settings > svg { transition: transform 180ms cubic-bezier(0.25, 1, 0.5, 1); }
-.sidebar-navigation-settings:active > svg { transform: scale(0.86); transition-duration: 60ms; }
+.sidebar-navigation-settings > svg {
+  transition: transform 180ms cubic-bezier(0.25, 1, 0.5, 1);
+}
+.sidebar-navigation-settings:active > svg {
+  transform: scale(0.86);
+  transition-duration: 60ms;
+}
 @media (prefers-reduced-motion: reduce) {
-  .sidebar-navigation-settings > svg { transition: none; }
+  .sidebar-navigation-settings > svg {
+    transition: none;
+  }
 }
 
 .navigation-settings-check {
@@ -259,17 +285,21 @@
   font-size: var(--sidebar-font-size-small);
 }
 
+/* The model, on the meta line beside the harness that runs it: "Opus 4.6",
+   not "claude-opus-4-6". One step firmer than the tertiary line around it,
+   because it is the one fact on that line a person picks between sessions
+   by. It gives way before the harness mark does, never before the age. */
 .session-nav-item-model {
-  max-width: 100%;
+  flex: 0 1 auto;
+  min-width: 2ch;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--color-text-secondary);
-  font-size: var(--sidebar-font-size-small);
 }
 
-/* The line under a row's name that says where and on what it runs: its
-   worktree, its model, or both. They share the line when both fit whole and
+/* The line under a row's name that says where it runs and how it is filed:
+   its worktree and its labels. They share the line when both fit whole and
    wrap onto two when they don't, so neither is ever cut to a stub. Told
    apart by hue and the folder glyph rather than a separator, which would
    dangle at the start of a wrapped line. */
@@ -278,12 +308,10 @@
   flex-wrap: wrap;
   align-items: center;
   column-gap: 8px;
+  row-gap: 3px;
   max-width: 100%;
   min-width: 0;
-}
-
-.session-nav-item-meta .session-nav-item-model {
-  min-width: 0;
+  margin-top: 3px;
 }
 
 /* Worktree rows wear the same hue as the header's worktree chip, so the row
@@ -299,6 +327,13 @@
 
 .session-nav-item-worktree > svg {
   flex-shrink: 0;
+}
+
+/* The folder is gone until the session opens: same place, quieter ink. */
+.session-nav-item-worktree-removed,
+.session-nav-item-worktree-removed .session-nav-item-worktree-ref {
+  color: var(--color-text-secondary);
+  font-family: inherit;
 }
 
 .session-nav-item-worktree-ref {
@@ -322,7 +357,9 @@
   background: transparent;
   color: var(--color-text-secondary);
   cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast);
+  transition:
+    background var(--transition-fast),
+    color var(--transition-fast);
   -webkit-app-region: no-drag;
 }
 
@@ -420,7 +457,9 @@
   text-align: left;
   color: var(--color-text-secondary);
   cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast);
+  transition:
+    background var(--transition-fast),
+    color var(--transition-fast);
 }
 
 .project-nav-item:hover {
@@ -463,7 +502,10 @@
   color: var(--color-text-tertiary);
   cursor: pointer;
   opacity: 0;
-  transition: opacity var(--transition-fast), background var(--transition-fast), color var(--transition-fast);
+  transition:
+    opacity var(--transition-fast),
+    background var(--transition-fast),
+    color var(--transition-fast);
 }
 
 .project-nav-item:hover .project-actions-trigger {
@@ -475,7 +517,7 @@
   color: var(--color-text-primary);
 }
 
-.project-actions-trigger[data-state='open'] {
+.project-actions-trigger[data-state="open"] {
   opacity: 1;
   background: var(--color-bg-active);
   color: var(--color-text-primary);
@@ -514,7 +556,9 @@
   color: var(--color-text-secondary);
   cursor: pointer;
   outline: none;
-  transition: background var(--transition-fast), color var(--transition-fast);
+  transition:
+    background var(--transition-fast),
+    color var(--transition-fast);
 }
 
 .dropdown-item:hover,
@@ -544,8 +588,7 @@
   background: var(--color-border);
 }
 
-/* Assistant and Automations rows: pinned above the scope row, read like session rows. */
-.assistant-nav-item,
+/* The Automations row: pinned above the scope row, reads like a session row. */
 .automations-nav-item {
   display: flex;
   align-items: center;
@@ -565,24 +608,28 @@
   user-select: none;
   transition: background var(--transition-fast);
 }
-.assistant-nav-item:hover,
-.automations-nav-item:hover { background: var(--color-bg-hover); }
-.assistant-nav-item.active,
-.automations-nav-item.active { background: var(--color-bg-active); }
-.assistant-nav-item[aria-disabled='true'] { opacity: 0.5; cursor: default; }
-.assistant-nav-item[aria-disabled='true']:hover { background: transparent; }
-.assistant-nav-item:focus-visible,
-.automations-nav-item:focus-visible { outline: 1px solid var(--color-accent); outline-offset: -1px; }
-/* A 14px slot like the search and scope icons, so the label lines up with
-   theirs; flex centring lets the slightly wider glyph spill evenly. */
-.assistant-spark { display: inline-flex; flex-shrink: 0; justify-content: center; width: 14px; font-size: 16px; line-height: 1; color: var(--color-worktree); }
-.assistant-nav-label,
-.automations-nav-label { flex: 1; font-weight: 500; }
-.assistant-nav-shortcut { font: 11px ui-monospace, Menlo, monospace; color: var(--color-text-tertiary); }
-.assistant-nav-word,
-.automations-nav-word { font-size: var(--sidebar-font-size-small); color: var(--color-text-secondary); }
-.assistant-nav-word--attention { color: var(--color-warning); }
-.automations-nav-icon { flex-shrink: 0; color: var(--color-text-secondary); }
+.automations-nav-item:hover {
+  background: var(--color-bg-hover);
+}
+.automations-nav-item.active {
+  background: var(--color-bg-active);
+}
+.automations-nav-item:focus-visible {
+  outline: 1px solid var(--color-accent);
+  outline-offset: -1px;
+}
+.automations-nav-label {
+  flex: 1;
+  font-weight: 500;
+}
+.automations-nav-word {
+  font-size: var(--sidebar-font-size-small);
+  color: var(--color-text-secondary);
+}
+.automations-nav-icon {
+  flex-shrink: 0;
+  color: var(--color-text-secondary);
+}
 /* A literal radius: var(--radius-full) resolves to 0 inside .radix-themes. */
 .automations-nav-pill {
   flex-shrink: 0;
@@ -594,18 +641,33 @@
   font-variant-numeric: tabular-nums;
 }
 /* Amber is what needs the person; red is what went wrong. */
-.automations-nav-pill--waiting { background: color-mix(in srgb, var(--color-warning) 18%, transparent); color: var(--color-warning); }
-.automations-nav-pill--failed { background: color-mix(in srgb, var(--color-error) 16%, transparent); color: var(--color-error); }
+.automations-nav-pill--waiting {
+  background: color-mix(in srgb, var(--color-warning) 18%, transparent);
+  color: var(--color-warning);
+}
+.automations-nav-pill--failed {
+  background: color-mix(in srgb, var(--color-error) 16%, transparent);
+  color: var(--color-error);
+}
 
 /* Session nav item */
+/* One zone: the text column, and it takes every pixel the row has. Nothing is
+   allowed into the horizontal flow beside it, because the title is what the
+   list is for and chrome next to it is what turned "PR #4194 · Review the
+   bidding path" into "PR #4194 · Revi…". The status dot used to hold a gutter
+   here; it now rides the meta line's trailing edge, where it costs the title
+   nothing and says a word instead of a colour.
+
+   The block padding is what separates one session from the next, so it runs
+   well above the 2px between a row's own two lines: each row reads as one
+   unit, not as the next line of a single long column of text. */
 .session-nav-item {
   position: relative;
   display: flex;
-  align-items: center;
-  gap: var(--space-2);
+  align-items: flex-start;
   width: 100%;
   min-height: var(--sidebar-row-height);
-  padding: var(--sidebar-row-padding-y) var(--space-2);
+  padding: 10px var(--sidebar-row-padding-x);
   border: none;
   border-radius: var(--radius-sm);
   background: transparent;
@@ -615,30 +677,128 @@
   cursor: pointer;
   /* The row is a div acting as a button; keep its label a target, not text. */
   user-select: none;
-  transition: background var(--transition-fast);
+  transition:
+    background 140ms var(--ease-out-quart),
+    color 140ms var(--ease-out-quart);
+}
+
+/* Everything that is not the title: glyphs, where it runs, its state, its age.
+   One small line above the name, so none of it competes for the name's width. */
+.session-row-meta {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  min-width: 0;
+  margin-bottom: 2px;
+  font-size: 11px;
+  line-height: 14px;
+  color: var(--color-text-tertiary);
+}
+
+/* Pushes the age to the right edge, so it reads as a column rather than as a
+   word trailing whatever happened to precede it. */
+.session-row-meta-spacer {
+  flex: 1 1 auto;
+  min-width: var(--space-2);
+}
+
+.session-row-age {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- What a row is doing, at the meta line's trailing edge ---------------
+
+   Three states get a word here; everything else gets its age in the same
+   column. Both are the same size and colour weight, so a row changing state
+   swaps one short string for another in one place rather than lighting up
+   somewhere new. */
+.session-row-status {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  font-weight: var(--font-weight-medium);
+  /* Remounted on every status change (keyed in SessionRow), so this plays
+     once per change and never on the clock tick inside it. */
+  animation: session-status-in 200ms var(--ease-out-quart);
+}
+
+.session-row-status-word {
+  white-space: nowrap;
+}
+
+/* The number moves once a second. Tabular figures so the row beside it does
+   not twitch as 9s becomes 10s. */
+.session-row-status-elapsed {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
+}
+
+.session-row-status-mark {
+  box-sizing: border-box;
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+}
+
+/* Working: an arc going round, not a dot fading in and out. A pulse says
+   "look at me" on a loop; a rotation says "this is still turning", which is
+   the only thing the row is claiming. */
+.session-row-status--working {
+  color: var(--color-accent);
+}
+
+.session-row-status--working .session-row-status-mark {
+  border: 1.5px solid color-mix(in srgb, var(--color-accent) 28%, transparent);
+  border-top-color: var(--color-accent);
+  animation: status-spin 850ms linear infinite;
+}
+
+/* Needs you: the heavy warning ring the rest of the app uses for the same
+   thing, breathing slowly. Yellow is reserved for this and nothing else. */
+.session-row-status--needs-attention {
+  color: var(--color-warning);
+}
+
+.session-row-status--needs-attention .session-row-status-mark {
+  border: 2px solid var(--color-warning);
+  animation: status-breathe 2.4s ease-in-out infinite;
+}
+
+/* Done: the one moment in the list worth a small flourish. The check draws
+   itself in once, as the row arrives, and then holds still. */
+.session-row-status--done {
+  color: var(--color-success);
+}
+
+.session-row-status-check {
+  flex: none;
+  animation: session-status-check 420ms var(--ease-out-expo) backwards;
 }
 
 .session-nav-item:hover {
   background: var(--color-bg-hover);
 }
 
+/* Keyboard focus, drawn inside the row like every other control in the
+   sidebar. The app-wide ring sits 2px outside its element, which on a
+   full-width row meant past the list's inset and clipped by the sidebar's
+   edge. A pointer never shows it: the row's background already says which
+   one was clicked. */
+.session-nav-item:focus-visible {
+  outline: 1px solid var(--color-accent);
+  outline-offset: -1px;
+}
+
+/* The open row is told by its background alone. No accent bar at its edge:
+   the fill already marks it, and a coloured stripe beside it competed with
+   the status colours the rows use for working and waiting. */
 .session-nav-item.active {
   background: var(--color-bg-active);
   color: var(--color-text-primary);
-}
-
-/* Accent bar on the active row. Anchored at the row's own left edge here;
-   nested rows pull it back out of their indent below, so it always sits at
-   the sidebar's edge regardless of nesting depth. */
-.session-nav-item.active::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 20%;
-  bottom: 20%;
-  width: 2px;
-  border-radius: 1px;
-  background: var(--color-accent);
 }
 
 /* The row's text column. It carries the flexing the name used to, so a
@@ -651,27 +811,110 @@
   align-items: flex-start;
 }
 
+/* Two lines, then ellipsis. A session's subject is the one thing worth the
+   vertical space: one cramped line turns every PR row into the same prefix. */
 .session-nav-item-name {
-  max-width: 100%;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+.session-nav-item-title {
+  width: 100%;
   min-width: 0;
+  font-size: 13px;
+  line-height: 17px;
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+}
+
+/* A row whose work is over reads a step back rather than wearing a warning.
+   Red was telling eleven calm rows they had failed. */
+.session-nav-item--past .session-nav-item-title {
+  font-weight: 400;
+  color: var(--color-text-secondary);
+  transition: color 140ms var(--ease-out-quart);
+}
+
+/* Pointing at a past row brings its name forward, so the row under the cursor
+   is the one that reads as present. */
+.session-nav-item--past:hover .session-nav-item-title,
+.session-nav-item--past.active .session-nav-item-title {
+  color: var(--color-text-primary);
+}
+
+/* A settled row: one line, the name and its age. The shelf is an archive you
+   scan for a name, so every row is the same height and the names line up as
+   a column. The row keeps the list's 28px rhythm and its age keeps the
+   trailing column the rest of the list uses. */
+.session-nav-item--compact {
+  align-items: center;
+  padding-block: var(--sidebar-row-padding-y);
+}
+
+.session-nav-item--compact .session-nav-item-text {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+}
+
+.session-nav-item--compact .session-nav-item-title {
+  flex: 1 1 auto;
+  width: auto;
+  line-height: 20px;
+}
+
+.session-nav-item--compact .session-nav-item-name {
+  display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-/* The name's line, led by any mark that has to survive a narrow sidebar. */
-.session-nav-item-title {
-  display: flex;
+/* The trailing lock belongs to the corner Restore takes over on hover, so it
+   steps aside with the age rather than peeking out beside the pill. The
+   removed-worktree mark sits with it and steps aside with it. */
+.session-nav-item--compact .session-nav-item-read-only,
+.session-nav-item-worktree-removed-mark {
+  transition:
+    color var(--transition-fast),
+    opacity 120ms var(--ease-out-quart);
+}
+
+.session-nav-item-worktree-removed-mark {
+  display: inline-flex;
   align-items: center;
-  gap: 5px;
-  max-width: 100%;
-  min-width: 0;
+  flex-shrink: 0;
+  color: var(--color-text-tertiary);
+}
+
+.session-nav-item--compact:has(.session-settle-action):hover .session-nav-item-read-only,
+.session-nav-item--compact:has(.session-settle-action):is(:focus-visible, :has(:focus-visible))
+  .session-nav-item-read-only,
+.session-nav-item--compact:has(.session-settle-action):hover
+  .session-nav-item-worktree-removed-mark,
+.session-nav-item--compact:has(.session-settle-action):is(:focus-visible, :has(:focus-visible))
+  .session-nav-item-worktree-removed-mark {
+  opacity: 0;
+}
+
+/* Restore centres on the one 20px line, which sits at the compact padding. */
+.session-nav-item.session-nav-item--compact .nav-row-actions,
+.session-nav-item--compact .session-actions-anchor {
+  top: var(--sidebar-row-padding-y);
+}
+
+.session-nav-item--compact .session-row-age {
+  font-size: 11px;
+  line-height: 20px;
+  color: var(--color-text-tertiary);
 }
 
 /* A read-only session wears the lock its terminal toolbar does, so the row
-   and the pane it opens match. It leads the name rather than trailing it:
-   the name ellipsizes, and the end of the line is the first thing a narrow
-   sidebar cuts. Quiet at rest, it firms up with the row it belongs to. */
+   and the pane it opens match. On the meta line with the other marks, where
+   it costs the name nothing. */
 .session-nav-item-read-only {
   display: inline-flex;
   flex: none;
@@ -684,72 +927,30 @@
   color: var(--color-text-secondary);
 }
 
-/* The scope a grouped session runs in. Its row sits under a group rather
-   than under a scope row, so the subtitle is what places it. */
+/* Where a fan-out member actually runs. On the meta line, so it shortens
+   before the name does. */
 .session-nav-item-subtitle {
-  max-width: 100%;
-  font-size: var(--sidebar-font-size-small);
-  color: var(--color-text-tertiary);
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.session-nav-item.active .session-nav-item-name {
-  font-weight: 500;
-}
-
-/* A row that names its scope is one block: the scope on a small line, then
-   the title, then any meta line. The leading glyphs line up with the title,
-   not with the block's middle, so the column of dots stays on the names. */
-.session-nav-item--scoped {
-  --session-scope-line: 14px;
-  --session-scope-gap: 1px;
-  --session-title-line: 20px;
-  align-items: flex-start;
-  /* The list scrolls; it must never squeeze a row to fit. */
-  flex-shrink: 0;
-  padding-top: 5px;
-  padding-bottom: 5px;
-}
-
-.session-nav-item--scoped .session-nav-item-title {
-  line-height: var(--session-title-line);
-}
-
-/* Each glyph drops past the scope line, then centres on the title line. */
-.session-nav-item--scoped .session-status-indicator {
-  margin-top: calc(var(--session-scope-line) + var(--session-scope-gap) + (var(--session-title-line) - 7px) / 2);
-}
-
-.session-nav-item--scoped .session-nav-item-harness {
-  margin-top: calc(var(--session-scope-line) + var(--session-scope-gap) + (var(--session-title-line) - 12px) / 2);
-}
-
-.session-nav-item--scoped .session-conductor-glyph {
-  line-height: 14px;
-  margin-top: calc(var(--session-scope-line) + var(--session-scope-gap) + (var(--session-title-line) - 14px) / 2);
-}
-
-/* The status word and the ⋯ slot (22px: an 18px button, its padding and
-   border) trail the title line too. */
-.session-nav-item--scoped .session-status-word {
-  margin-top: calc(var(--session-scope-line) + var(--session-scope-gap));
-  line-height: var(--session-title-line);
-}
-
-.session-nav-item--scoped .nav-row-actions {
-  margin-top: calc(var(--session-scope-line) + var(--session-scope-gap) + (var(--session-title-line) - 22px) / 2);
-}
-
+/* The scope a row runs in, while the list mixes several. Allowed to shrink
+   first: which repo is context, the subject is the point. */
 .session-nav-item-scope {
-  max-width: 100%;
-  margin-bottom: var(--session-scope-gap);
+  flex: 0 4 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 11px;
-  line-height: var(--session-scope-line);
+}
+
+/* "Opus 4.6 · consola": two names in a row need a seam, or they read as one. */
+.session-nav-item-model + .session-nav-item-scope::before,
+.session-nav-item-model + .session-nav-item-subtitle::before {
+  content: "·";
+  padding-right: 5px;
   color: var(--color-text-tertiary);
 }
 
@@ -758,23 +959,10 @@
   color: var(--color-text-secondary);
 }
 
-/* Trailing status word — only urgent states render one, so calm rows stay
-   quiet. It keeps its place on hover; the ⋯ menu has its own reserved slot,
-   so nothing in the row moves. */
+/* The one status word left. Lower case, tertiary, on the meta line: it says
+   the process is gone, which is a fact, not a failure. */
 .session-status-word {
-  flex-shrink: 0;
-  font-size: 10px;
-  font-weight: 500;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.session-status-word--needs-attention {
-  color: var(--color-warning);
-}
-
-.session-status-word--exited {
-  color: var(--color-error);
+  flex: none;
 }
 
 .session-rename-input {
@@ -803,16 +991,130 @@
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   background: var(--color-bg-sidebar);
+  /* Opacity carries the arrival; visibility is what keeps a hidden tray out
+     of the tab order and away from stray clicks, so it still switches
+     outright — immediately on the way in, and only once the fade is over on
+     the way out.
+
+     Opacity and nothing else, deliberately: this tray is the ⋯ menu's anchor,
+     and Radix's popper tracks its anchor's box. A few pixels of slide here
+     dragged the open menu along with it, and because opening the menu takes
+     the pointer off the row, hover dropped and returned and the slide ran
+     again — a menu that never came to rest under the cursor aiming at it.
+     Nothing that anchors a popper may move. */
+  opacity: 0;
+  transition:
+    opacity 120ms var(--ease-out-quart),
+    visibility 0s 120ms;
+}
+
+/* Inside a session row the actions leave the flow entirely. Held in layout
+   they reserved their width on every row at rest — roughly 44px of title,
+   permanently, to show nothing. Floated over the row's top-right they cost
+   the name nothing and appear exactly where the pointer already is. */
+.session-nav-item .nav-row-actions {
+  position: absolute;
+  /* Centred on the meta line: the row's 10px padding, less half of what the
+     20px pill stands taller than the 14px line. */
+  top: 7px;
+  right: var(--sidebar-row-padding-x);
+  z-index: 1;
+  /* No frame of its own: Settle is a filled pill, and a row with nothing to
+     offer must show nothing at all, not an empty outlined box. */
+  padding: 0;
+  border: none;
+  background: none;
+}
+
+/* The actions menu's anchor. The menu opens from the row, not from a visible
+   ⋯, but Radix places it against a box: this one is invisible. Opened from
+   the keyboard it sits at the row's top-right, as tall as the Settle pill so
+   the menu drops just below that line; from a right-click it is a point at
+   the pointer (left/top set inline). */
+.session-actions-anchor {
+  position: absolute;
+  top: 7px;
+  right: var(--sidebar-row-padding-x);
+  width: 0;
+  height: 20px;
+  pointer-events: none;
+}
+
+.session-actions-anchor--at-pointer {
+  right: auto;
+  height: 0;
+}
+
+/* The row's one-click action, said in a word: "✓ Settle", or "Restore" on
+   the Settled shelf. Filled rather than outlined so it reads as a button
+   floating over the meta line it covers, and 20px tall so it centres on it.
+
+   The fill is mixed from the sidebar toward the text colour, not taken from a
+   surface token: a hovered row is already about --color-bg-tertiary in both
+   themes, so the pill vanished into the row it sits on. Mixed, it stays a
+   step brighter (dark) or darker (light) than any row state, and opaque, so
+   no meta text shows through it. */
+.session-settle-action {
+  --settle-fill: color-mix(in srgb, var(--color-bg-sidebar), var(--color-text-primary) 26%);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 7px 0 5px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--settle-fill);
+  color: var(--color-text-primary);
+  font-family: inherit;
+  font-size: var(--font-size-xs);
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.session-settle-action:hover {
+  background: color-mix(in srgb, var(--settle-fill), var(--color-text-primary) 10%);
+}
+
+.session-settle-action:focus-visible {
+  outline: 1px solid var(--color-accent);
+  outline-offset: 1px;
 }
 
 .session-nav-item:hover .nav-row-actions,
-.session-nav-item:focus-within .nav-row-actions,
-.group-nav-header:hover .nav-row-actions,
-.group-nav-header:focus-within .nav-row-actions,
+.session-nav-item:is(:focus-visible, :has(:focus-visible)) .nav-row-actions,
 .scope-row:hover .nav-row-actions,
 .scope-row:focus-within .nav-row-actions,
-.nav-row-actions[data-open='true'] {
+.nav-row-actions[data-open="true"] {
   visibility: visible;
+  opacity: 1;
+  transition-delay: 0s;
+}
+
+/* The meta line's trailing slot and the Settle pill want the same corner.
+   The slot steps aside rather than being covered — both of its occupants, the
+   age and the status, because "Waiting" half-hidden behind a button is worse
+   than no word at all. It fades on the same curve the pill arrives on, so the
+   corner reads as one thing being exchanged for another, and it is back
+   before the pointer has finished leaving. A row with no Settle to offer (a
+   child, a busy session, the one open) keeps its words: nothing is coming to
+   take their place. */
+.session-row-age,
+.session-row-status {
+  transition: opacity 120ms var(--ease-out-quart);
+}
+
+.session-nav-item:has(.session-settle-action):hover .session-row-age,
+.session-nav-item:has(.session-settle-action):is(:focus-visible, :has(:focus-visible))
+  .session-row-age,
+.session-nav-item:has(.nav-row-actions[data-open="true"] .session-settle-action) .session-row-age,
+.session-nav-item:has(.session-settle-action):hover .session-row-status,
+.session-nav-item:has(.session-settle-action):is(:focus-visible, :has(:focus-visible))
+  .session-row-status,
+.session-nav-item:has(.nav-row-actions[data-open="true"] .session-settle-action)
+  .session-row-status {
+  opacity: 0;
 }
 
 .nav-row-action {
@@ -828,7 +1130,9 @@
   background: transparent;
   color: var(--color-text-secondary);
   cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast);
+  transition:
+    background var(--transition-fast),
+    color var(--transition-fast);
 }
 
 .nav-row-action:hover {
@@ -836,7 +1140,7 @@
   color: var(--color-text-primary);
 }
 
-.nav-row-action[data-state='open'] {
+.nav-row-action[data-state="open"] {
   background: var(--color-bg-active);
   color: var(--color-text-primary);
 }
@@ -848,10 +1152,10 @@
 
 /* Session status indicator.
 
-   Leading, fixed-size, and always rendered — `ready` draws a dim hairline
-   ring instead of collapsing to nothing, which is what keeps the column
-   scannable. Shape carries meaning alongside colour (filled / ring / hollow),
-   so no state depends on hue alone. */
+   Drawn only for the three states that are about to want something. A calm
+   row shows nothing: a dot on every row is a dot that means nothing, which
+   PRODUCT.md names as an anti-reference. Shape carries meaning alongside
+   colour (filled / ring), so no state depends on hue alone. */
 .session-status-indicator {
   box-sizing: border-box;
   width: 7px;
@@ -860,30 +1164,39 @@
   flex-shrink: 0;
 }
 
+/* The same arc the session rows turn, so Automations and the
+   command palette say "working" in exactly the motion a row does. One status
+   vocabulary, or the sidebar has a dialect per surface. */
 .session-status-indicator--working {
-  background: var(--color-accent);
-  animation: session-pulse 1.5s ease-in-out infinite;
-}
-
-.session-status-indicator--ready {
-  border: 1px solid color-mix(in srgb, var(--color-text-secondary) 70%, transparent);
+  border: 1.5px solid color-mix(in srgb, var(--color-accent) 28%, transparent);
+  border-top-color: var(--color-accent);
+  animation: status-spin 850ms linear infinite;
 }
 
 .session-status-indicator--needs-attention {
   border: 2px solid var(--color-warning);
+  animation: status-breathe 2.4s ease-in-out infinite;
 }
 
 .session-status-indicator--done {
   background: var(--color-success);
 }
 
-.session-status-indicator--exited {
-  border: 1px solid var(--color-error);
+/* The harness: the driver's mark, then its initials on a tag of its own accent
+   colour. Mark and tag sit 3px apart and read as one token, the way an avatar
+   and its name badge do. Never shrinks: it is two letters, and the first
+   thing on the line. */
+.session-harness-mark {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 3px;
 }
 
 .harness-driver-icon.session-nav-item-harness {
   width: 12px;
   height: 12px;
+  flex: none;
 }
 
 .harness-driver-icon.session-nav-item-harness > svg {
@@ -891,24 +1204,106 @@
   height: 10px;
 }
 
+/* Tinted, not filled: a saturated block on every row would outshout the
+   status words, which are the only colour on this line that means "look".
+   The text is the accent pulled toward the theme's text colour, so it stays
+   legible on both the dark and the light sidebar without a per-theme rule. */
+.session-harness-initials {
+  display: inline-flex;
+  align-items: center;
+  height: 13px;
+  padding: 0 3px;
+  border-radius: 3px;
+  background: color-mix(in oklab, var(--harness-accent) 24%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--harness-accent) 30%, transparent);
+  color: color-mix(in oklab, var(--harness-accent) 72%, var(--color-text-primary));
+  font-size: 9px;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.04em;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
 .session-conductor-glyph {
-  font-size: 12px;
+  font-size: 11px;
+  line-height: 14px;
   flex: none;
 }
 
-@keyframes session-pulse {
-  0%, 100% {
-    opacity: 1;
+/* A status arriving: it rises into the column it shares with the age, so the
+   change reads as a line being replaced rather than as a word blinking. */
+@keyframes session-status-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
   }
-  50% {
-    opacity: 0.5;
+  to {
+    opacity: 1;
+    transform: none;
   }
 }
 
-/* Flat list of the sessions in the workspace this window holds. */
+/* `status-spin` and `status-breathe` are defined once in styles/statusDots.css,
+   beside the shared marks they animate. */
+
+@keyframes session-status-check {
+  from {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+  60% {
+    transform: scale(1.08);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* A count that changed. One tick over, from the direction a list grows. */
+@keyframes shelf-count-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Flat list of the sessions in the workspace this window holds. The 2px
+   between rows is the same a conductor's children keep, so a hovered row and
+   the open one beside it read as two shapes rather than one block. */
 .session-list {
   display: flex;
   flex-direction: column;
+  gap: 2px;
+}
+
+/* A row arriving. Rows are keyed by entry, so this plays exactly when one is
+   genuinely new to the list — a session started, a shelf unfolded, a turn
+   finishing and moving its row up to the top of the list — and never on a re-render.
+   Opacity and transform only: the row's neighbours do not move for it, so an
+   arrival somewhere in the list cannot shove the row under the cursor.
+
+   It is deliberately the *arriving* row that moves and not the ones making
+   space. Animating the gap would be animating layout, and the list is read
+   top to bottom all day: it has to stay still enough to read. */
+.session-list > *,
+.tree-row-children > * {
+  animation: session-row-in 200ms var(--ease-out-quart);
+}
+
+@keyframes session-row-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 /* Project collapsible styles */
@@ -932,7 +1327,10 @@
   color: var(--color-text-tertiary);
   cursor: pointer;
   opacity: 0;
-  transition: opacity var(--transition-fast), background var(--transition-fast), color var(--transition-fast);
+  transition:
+    opacity var(--transition-fast),
+    background var(--transition-fast),
+    color var(--transition-fast);
   z-index: 1;
 }
 
@@ -954,11 +1352,11 @@
   overflow: hidden;
 }
 
-.project-collapsible-content[data-state='open'] {
+.project-collapsible-content[data-state="open"] {
   animation: collapsible-slide-down 150ms ease-out;
 }
 
-.project-collapsible-content[data-state='closed'] {
+.project-collapsible-content[data-state="closed"] {
   animation: collapsible-slide-up 150ms ease-out;
 }
 
@@ -982,7 +1380,10 @@
   color: var(--color-text-tertiary);
   cursor: pointer;
   opacity: 0;
-  transition: opacity var(--transition-fast), background var(--transition-fast), color var(--transition-fast);
+  transition:
+    opacity var(--transition-fast),
+    background var(--transition-fast),
+    color var(--transition-fast);
 }
 
 .project-nav-item-container:hover .project-add-session {
@@ -1088,93 +1489,289 @@
 
 /* Sessions sit one step in from their scope's label. The indent is padding,
    not margin: the row itself stays full-width, so its hover and active
-   backgrounds run edge to edge and meet the accent bar instead of floating
-   as a detached box inside the group. Full width also means nothing can
+   backgrounds run edge to edge instead of floating as a detached box
+   inside the group. Full width also means nothing can
    overflow the sidebar and summon a horizontal scrollbar. */
 .scope-group .session-nav-item {
-  padding-left: calc(var(--space-2) + var(--space-3));
+  padding-left: calc(var(--sidebar-row-padding-x) + var(--space-3));
 }
 
-/* --- Groups ------------------------------------------------------------ */
+/* --- Attention shelves and conductor trees ------------------------------ */
 
-/* A group keeps its members in the same tight rhythm a scope keeps its own,
-   so the two sections of the sidebar read as one list. */
-.group-nav-item {
+.sidebar-sessions {
+  display: flex;
+  flex-direction: column;
+}
+.sidebar-bucket {
+  padding: 2px var(--sidebar-list-inset);
+}
+
+/* Air between sections, and only between them: the first one meets the filter
+   bar above it without a gap it has not earned. */
+.sidebar-bucket + .sidebar-bucket {
+  margin-top: var(--space-2);
+}
+
+/* Working and Settled are pinned to the bottom of the sidebar, below the
+   scrolling panel rather than inside it. They size to their rows and share
+   one cap: past it each list scrolls under a header that stays put, so
+   however many sessions are running or were put away, they never push the
+   ones waiting on the person out of view. The cap is on the pair, not on
+   each, because two caps of 40% would leave the list above a fifth of the
+   sidebar. Its 2px padding plus each bucket's own makes the same 4px Settled
+   had on its own. */
+.sidebar-dock {
+  display: flex;
+  flex: 0 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  max-height: 50%;
+  padding-block: 2px;
+  border-top: 1px solid var(--color-border);
+}
+/* When the dock is short, Settled gives up rows but never its header: the
+   floor is the header's row plus the bucket's 2px above and below. */
+.sidebar-dock > .sidebar-bucket {
+  display: flex;
+  flex: 0 1 auto;
+  flex-direction: column;
+  min-height: calc(var(--sidebar-row-height) + 4px);
+}
+.sidebar-dock .session-list {
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* A row is as tall as what it says, always. The list is a flex column, and
+   flex items shrink by default down to their min-height (one 28px row), so
+   a long Settled list squeezed every row to that and painted each one over
+   its neighbours. Rows scroll; they never compress. */
+.sidebar-dock .session-list > * {
+  flex-shrink: 0;
+}
+
+/* Running sessions are what is happening now, and the archive below them is
+   not: Working never gives up height to Settled. It holds its rows whole up
+   to about five, then scrolls under its own header, which leaves Settled at
+   least its header however many are running. */
+.sidebar-dock > .sidebar-bucket--working {
+  flex-shrink: 0;
+}
+.sidebar-bucket--working .session-list {
+  max-height: calc(var(--sidebar-row-height) * 10);
+}
+
+/* A section's header. The same height as a session row and on the same left
+   edge, told apart by weight and colour, with a live count so a folded shelf
+   still says what is behind it. Both sections that have one (Working,
+   Settled) fold, so the header is the button that does it. */
+.shelf-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: var(--sidebar-row-height);
+  padding: var(--sidebar-row-padding-y) var(--sidebar-row-padding-x);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-tertiary);
+  font: inherit;
+  font-size: var(--sidebar-font-size-label);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.01em;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background 140ms var(--ease-out-quart),
+    color 140ms var(--ease-out-quart);
+}
+button.shelf-header:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+.shelf-header:focus-visible {
+  outline: 1px solid var(--color-accent);
+  outline-offset: -1px;
+}
+
+.shelf-header-title {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Working's header turns the arc its rows turn, beside the count, so a folded
+   shelf still says its sessions are running rather than only how many. */
+.shelf-header-live {
+  box-sizing: border-box;
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border: 1.5px solid color-mix(in srgb, var(--color-accent) 28%, transparent);
+  border-top-color: var(--color-accent);
+  border-radius: 50%;
+  animation: status-spin 850ms linear infinite;
+}
+.shelf-header-count {
+  flex: none;
+  font-size: var(--sidebar-font-size-small);
+  font-weight: var(--font-weight-normal);
+  font-variant-numeric: tabular-nums;
+  animation: shelf-count-in 220ms var(--ease-out-quart);
+}
+
+/* Trailing, beside the count, and one chevron that turns rather than two that
+   swap: the rotation is the fold, so the control and what it does are the
+   same gesture. */
+.shelf-header-chevron {
+  flex: none;
+  transform: rotate(-90deg);
+  transition: transform 200ms var(--ease-out-quart);
+}
+.shelf-header-chevron[data-open] {
+  transform: none;
+}
+
+/* An empty shelf is scaffolding, not content. It stays reachable but stops
+   competing with the rows that have something in them. */
+.shelf-header[data-empty="true"] {
+  color: color-mix(in srgb, var(--color-text-tertiary) 65%, transparent);
+}
+button.shelf-header[data-empty="true"]:hover {
+  color: var(--color-text-secondary);
+}
+
+.tree-row {
+  /* The chevron's column. The conductor's row starts after it, and so do its
+     children: everything inside the tree is measured from this one width. */
+  --tree-toggle-width: 16px;
   display: flex;
   flex-direction: column;
   row-gap: 2px;
 }
-
-/* The same gap the scopes keep between theirs, for the same reason. */
-.group-nav-item + .group-nav-item {
-  margin-top: var(--space-2);
-}
-
-/* The header is its group's title, its collapse control and its actions menu
-   at once: a row of the same height and size as the sessions below it, told
-   apart by weight. The row is a plain element because the actions trigger is
-   a button, and a button may not contain another. */
-.group-nav-header {
+.tree-row-head {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  width: 100%;
-  min-height: var(--sidebar-row-height);
-  padding: var(--sidebar-row-padding-y) var(--space-2);
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--color-text-primary);
-  font-size: var(--sidebar-font-size);
-  font-weight: var(--font-weight-medium);
-  text-align: left;
-  transition: background var(--transition-fast);
 }
-
-.group-nav-header:hover {
-  background: var(--color-bg-hover);
-}
-
-/* The collapse control fills the row so clicking anywhere but the trigger
-   toggles the group, exactly as the whole header used to. */
-.group-nav-toggle {
-  display: flex;
+.tree-row-head > .session-nav-item {
   flex: 1;
   min-width: 0;
+}
+.tree-row-toggle {
+  display: flex;
+  flex: none;
   align-items: center;
-  gap: var(--space-2);
+  justify-content: center;
+  width: var(--tree-toggle-width);
+  height: 20px;
   padding: 0;
   border: none;
+  border-radius: var(--radius-sm);
   background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
+  color: var(--color-text-tertiary);
   cursor: pointer;
 }
-
-.group-nav-name {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.tree-row-toggle:hover {
+  color: var(--color-text-primary);
+  background: var(--color-bg-hover);
+}
+.tree-row-toggle:focus-visible {
+  outline: 1px solid var(--color-accent);
+  outline-offset: -1px;
+}
+/* Children start where their conductor's row starts, past the chevron's
+   column, and their text sits one step in from its text. Starting them at the
+   list's edge instead put a child's text left of its own conductor's, level
+   with the list, so a tree whose children all stay in view (a finished tree,
+   folded to the children that finished) read as rows of the list. The line
+   down the chevron's column ties them to it once the conductor scrolls away. */
+.tree-row-children {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  row-gap: 2px;
+  margin-left: var(--tree-toggle-width);
+}
+.tree-row-children::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(var(--tree-toggle-width) / -2);
+  width: 1px;
+  background: var(--color-border);
+  pointer-events: none;
 }
 
-/* Derived on every render from the terminal statuses — never stored. */
-.group-nav-count {
+.session-nav-item--child {
+  padding-left: calc(var(--sidebar-row-padding-x) + var(--space-3));
+}
+
+.tree-aggregate {
   flex: none;
-  font-size: var(--sidebar-font-size-small);
+  margin-left: var(--space-2);
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  background: var(--color-bg-hover);
   color: var(--color-text-secondary);
 }
+.tree-aggregate--needs-attention {
+  color: var(--color-warning, var(--color-accent));
+}
 
-/* Members sit one step in from their header, the same step scope sessions
-   take. The indent is padding for the same reason: the row stays full-width,
-   so its hover and active backgrounds meet the accent bar at the edge. */
-.group-nav-item .session-nav-item {
-  padding-left: calc(var(--space-2) + var(--space-3));
+.tree-row-more {
+  align-self: flex-start;
+  margin: 0 0 0 calc(var(--tree-toggle-width) + var(--sidebar-row-padding-x) + var(--space-3));
+  padding: 0 6px;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+}
+.tree-row-more:hover {
+  background: color-mix(in srgb, var(--color-accent) 22%, transparent);
+}
+
+/* What a filter hides that needs the person, never silently. */
+.sidebar-hidden-chip {
+  align-self: flex-start;
+  margin: 0 var(--space-2) var(--space-2);
+  padding: 2px 8px;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-accent) 18%, transparent);
+  color: var(--color-text-primary);
+  font-size: 11px;
+  cursor: pointer;
+}
+.sidebar-hidden-chip:hover {
+  background: color-mix(in srgb, var(--color-accent) 28%, transparent);
+}
+
+/* The list with nothing at the top. Quiet and on the rows' left edge: it is
+   an answer, not an event, and it settles in once rather than announcing. */
+.sidebar-all-clear {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: var(--space-2) calc(var(--sidebar-list-inset) + var(--sidebar-row-padding-x));
+  color: var(--color-text-tertiary);
+  font-size: var(--sidebar-font-size-small);
+  animation: session-row-in 260ms var(--ease-out-quart);
+}
+
+.sidebar-all-clear > svg {
+  flex: none;
+  color: color-mix(in srgb, var(--color-success) 70%, var(--color-text-tertiary));
 }
 
 /* ═══════════════════════════════════════════════════════════
-   SCOPE ROW - The filter between the Assistant and the session list
+   SCOPE ROW - The filter between Automations and the session list
    ═══════════════════════════════════════════════════════════ */
 
 /* Everything above it is workspace-wide; everything below it is narrowed by
@@ -1196,10 +1793,14 @@
   height: var(--sidebar-row-height);
   margin: 0 var(--space-2) var(--space-1);
   border-radius: var(--radius-sm);
-  transition: background var(--transition-fast), box-shadow var(--transition-fast);
+  transition:
+    background var(--transition-fast),
+    box-shadow var(--transition-fast);
 }
 
-.sidebar-scope-filter:hover { background: var(--color-bg-hover); }
+.sidebar-scope-filter:hover {
+  background: var(--color-bg-hover);
+}
 
 /* Narrowed: the tint is the signal, the label firms up. */
 .sidebar-scope-filter.is-filtered {
@@ -1228,23 +1829,52 @@
   cursor: pointer;
 }
 
-.sidebar-scope-filter-trigger > svg { flex-shrink: 0; color: var(--color-text-tertiary); }
+.sidebar-scope-filter-trigger > svg {
+  flex-shrink: 0;
+  color: var(--color-text-tertiary);
+}
 .sidebar-scope-filter-trigger:hover,
-.sidebar-scope-filter-trigger[aria-expanded='true'] { color: var(--color-text-primary); }
+.sidebar-scope-filter-trigger[aria-expanded="true"] {
+  color: var(--color-text-primary);
+}
 
 .sidebar-scope-filter.is-filtered .sidebar-scope-filter-trigger {
   color: var(--color-text-primary);
   font-weight: 500;
 }
 
-.sidebar-scope-filter.is-filtered .sidebar-scope-filter-trigger > svg { color: var(--color-accent); }
+.sidebar-scope-filter.is-filtered .sidebar-scope-filter-trigger > svg {
+  color: var(--color-accent);
+}
 
 /* "sprocket / apps/api": the containing scope, dimmed, gives way before the
    folder's own name does. */
-.sidebar-scope-filter-label { display: flex; flex: 0 1 auto; min-width: 0; white-space: nowrap; }
-.sidebar-scope-filter-parent { flex: 0 4 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--color-text-tertiary); font-weight: 400; }
-.sidebar-scope-filter-slash { flex: none; padding: 0 var(--space-1); color: var(--color-text-tertiary); font-weight: 400; }
-.sidebar-scope-filter-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.sidebar-scope-filter-label {
+  display: flex;
+  flex: 0 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+}
+.sidebar-scope-filter-parent {
+  flex: 0 4 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--color-text-tertiary);
+  font-weight: 400;
+}
+.sidebar-scope-filter-slash {
+  flex: none;
+  padding: 0 var(--space-1);
+  color: var(--color-text-tertiary);
+  font-weight: 400;
+}
+.sidebar-scope-filter-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 .sidebar-scope-filter-clear {
   display: flex;
@@ -1267,6 +1897,47 @@
   color: var(--color-text-primary);
 }
 
+.sidebar-scope-menu-heading {
+  padding: var(--space-1) var(--space-2);
+  color: var(--color-text-tertiary);
+  font-size: 11px;
+}
+
+.sidebar-filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin: 0 var(--space-2) var(--space-1);
+}
+
+.sidebar-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 1px 6px;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  color: var(--color-text-primary);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.sidebar-filter-chip:hover {
+  background: color-mix(in srgb, var(--color-accent) 22%, transparent);
+}
+
+.session-nav-item-label {
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--color-bg-hover);
+  color: var(--color-text-tertiary);
+  font-size: 10px;
+  line-height: 14px;
+  white-space: nowrap;
+}
+
 .sidebar-scope-menu {
   min-width: 220px;
   max-width: min(320px, calc(100vw - 24px));
@@ -1274,11 +1945,29 @@
   overflow-y: auto;
 }
 
-.sidebar-scope-menu-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sidebar-scope-menu-parent { color: var(--color-text-tertiary); }
-.sidebar-scope-menu-count { flex: none; font-size: var(--font-size-xs); font-variant-numeric: tabular-nums; color: var(--color-text-tertiary); }
+.sidebar-scope-menu-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sidebar-scope-menu-parent {
+  color: var(--color-text-tertiary);
+}
+.sidebar-scope-menu-count {
+  flex: none;
+  font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-tertiary);
+}
 /* A fixed slot, so the counts line up whichever row is checked. */
-.sidebar-scope-menu-check { display: flex; flex: none; width: 14px; color: var(--color-accent); }
+.sidebar-scope-menu-check {
+  display: flex;
+  flex: none;
+  width: 14px;
+  color: var(--color-accent);
+}
 
 .sidebar-scope-menu-search {
   box-sizing: border-box;
@@ -1293,7 +1982,10 @@
   font-size: var(--font-size-sm);
 }
 
-.sidebar-scope-menu-search:focus { outline: 1px solid var(--color-accent); outline-offset: -1px; }
+.sidebar-scope-menu-search:focus {
+  outline: 1px solid var(--color-accent);
+  outline-offset: -1px;
+}
 
 .sidebar-scope-menu-empty {
   margin: 0;
@@ -1307,16 +1999,117 @@
    ═══════════════════════════════════════════════════════════ */
 
 @media (prefers-reduced-motion: reduce) {
-  .session-status-indicator--working {
+  .session-status-indicator--working,
+  .session-status-indicator--needs-attention {
     animation: none;
   }
 
-  .project-collapsible-content[data-state='open'],
-  .project-collapsible-content[data-state='closed'],
+  /* A ring that cannot turn is only a broken circle, so it closes into the
+     solid accent dot. The warning ring already reads at rest. */
+  .session-status-indicator--working {
+    border-color: var(--color-accent);
+    background: var(--color-accent);
+  }
+
+  .project-collapsible-content[data-state="open"],
+  .project-collapsible-content[data-state="closed"],
   .dropdown-content,
   .tooltip-content {
     animation: none;
   }
+
+  /* Every status still reads: the mark keeps its shape and colour, the word
+     keeps its place, the check is simply there rather than drawn. What goes
+     is the movement, not the information — which is why none of these resolve
+     to a hidden or half-faded state. */
+  .session-row-status,
+  .session-row-status-check,
+  .session-row-status-mark,
+  .shelf-header-live,
+  .sidebar-all-clear,
+  .shelf-header-count,
+  .session-list > *,
+  .tree-row-children > * {
+    animation: none;
+  }
+
+  .shelf-header-chevron,
+  .nav-row-actions,
+  .session-row-age,
+  .session-row-status {
+    transition: none;
+  }
+
+  /* A spinner that cannot spin says nothing by being a broken ring, so it
+     closes into the solid accent dot the rest of the app uses for working. */
+  .session-row-status--working .session-row-status-mark,
+  .shelf-header-live {
+    border-color: var(--color-accent);
+    background: var(--color-accent);
+  }
+
+  .session-nav-item--past .session-nav-item-title {
+    transition: none;
+  }
+}
+
+/* --- A row leaving the list --------------------------------------------- */
+
+/* A row that leaves the top of the list for Working or Settled travels there
+   (BucketMotion): it lifts off its slot, glides down the sidebar and lands
+   flush. In flight it is opaque, so the rows it crosses do not read through
+   it, and keeps the fill it had if it is the open row. Lifting eases the
+   shadow in. Landing eases it away and changes nothing else: the colour the
+   row carried is the colour it comes to rest on. */
+.session-list > [data-travelling] {
+  position: relative;
+  z-index: 1;
+  border-radius: var(--radius-sm);
+  background-color: var(--color-bg-sidebar);
+  background-image: linear-gradient(
+    var(--travel-fill, transparent),
+    var(--travel-fill, transparent)
+  );
+  box-shadow: var(--sidebar-row-lift);
+}
+.session-list > .active[data-travelling] {
+  --travel-fill: var(--color-bg-active);
+}
+.session-list > [data-travelling],
+.session-list > [data-landed] {
+  transition: box-shadow 180ms var(--ease-out-quart);
+}
+
+/* A shelf that does not scroll lets the row cross its edge while it flies in. */
+.sidebar-dock .session-list[data-travel-open] {
+  overflow: visible;
+}
+
+/* A folded shelf has no slot to land in, so a copy of the row slides down
+   into the dock, under its top edge: the clip is everything above the dock.
+   A still picture: nothing inside it replays its own arrival. */
+.sidebar-ghost-clip {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: var(--z-sidebar);
+  overflow: hidden;
+  pointer-events: none;
+}
+.sidebar-ghost {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-sidebar);
+  box-shadow: var(--sidebar-row-lift);
+}
+.sidebar-ghost > * {
+  height: 100%;
+}
+.sidebar-ghost * {
+  animation: none !important;
+  transition: none !important;
 }
 
 /* --- Moving a session in and out of a group ----------------------------- */
@@ -1327,14 +2120,10 @@
   opacity: 0.45;
 }
 
-/* A group header ready to receive the row, and a scope row ready to take it
-   back. The same treatment for both: one gesture in either direction, so a
-   different highlight for the way out would suggest a different kind of move.
-   Outlined rather than filled: both rows already use their background for
-   hover, and a drop target that looked like a hover would say nothing about
-   which of the two is happening. */
-.group-nav-header.drop-target,
-.scope-row.drop-target {
+/* A label chip ready to receive a session row. Outlined rather than filled: the
+   chip already uses its background for hover, and a drop target that looked
+   like a hover would say nothing about a drag being in progress. */
+.sidebar-filter-chip.drop-target {
   background: var(--color-bg-hover);
   outline: 1px solid var(--color-accent);
   outline-offset: -1px;
@@ -1365,13 +2154,26 @@
   font-size: var(--sidebar-font-size);
   font-weight: var(--font-weight-medium);
   cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast);
+  transition:
+    background var(--transition-fast),
+    color var(--transition-fast);
 }
 
-.app-navigation-label { display: none; }
-.app-navigation-item.active .app-navigation-label { display: inline; }
-.app-navigation-item:hover { background: var(--color-bg-hover); color: var(--color-text-primary); }
-.app-navigation-item.active { padding-inline: var(--space-2); background: var(--color-bg-active); color: var(--color-text-primary); }
+.app-navigation-label {
+  display: none;
+}
+.app-navigation-item.active .app-navigation-label {
+  display: inline;
+}
+.app-navigation-item:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+.app-navigation-item.active {
+  padding-inline: var(--space-2);
+  background: var(--color-bg-active);
+  color: var(--color-text-primary);
+}
 .app-navigation-badge {
   min-width: 14px;
   padding: 0 3px;
@@ -1394,7 +2196,9 @@
   gap: var(--space-1);
   padding: var(--space-3) var(--space-2);
 }
-.sidebar-search .new-menu-buttons { --new-menu-height: 32px; }
+.sidebar-search .new-menu-buttons {
+  --new-menu-height: 32px;
+}
 .sidebar-search-field {
   display: flex;
   flex: 1;
@@ -1410,40 +2214,184 @@
   font-size: var(--sidebar-font-size);
   text-align: left;
   cursor: pointer;
-  transition: background var(--transition-fast), border-color var(--transition-fast);
+  transition:
+    background var(--transition-fast),
+    border-color var(--transition-fast);
 }
-.sidebar-search-field:hover { background: var(--color-bg-hover); border-color: var(--color-border-hover); }
-.sidebar-search-field:focus-visible { outline: 1px solid var(--color-accent); outline-offset: -1px; }
-.sidebar-search-field > svg { flex-shrink: 0; }
-.sidebar-search-placeholder { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sidebar-search-field:hover {
+  background: var(--color-bg-hover);
+  border-color: var(--color-border-hover);
+}
+.sidebar-search-field:focus-visible {
+  outline: 1px solid var(--color-accent);
+  outline-offset: -1px;
+}
+.sidebar-search-field > svg {
+  flex-shrink: 0;
+}
+.sidebar-search-placeholder {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 /* On a narrow sidebar the chord hint gives way first, and the buttons close
    in, so the field keeps its word: ⌘K alone in a squeezed box only looks
    broken. */
 @container (max-width: 215px) {
-  .sidebar-search-shortcut { display: none; }
-  .sidebar-navigation-settings { width: 24px; }
-  .sidebar-search .new-menu-trigger { width: 24px; }
-  .sidebar-search .new-menu-trigger.new-menu-more { width: 18px; }
+  .sidebar-search-shortcut {
+    display: none;
+  }
+  .sidebar-navigation-settings {
+    width: 24px;
+  }
+  .sidebar-search .new-menu-trigger {
+    width: 24px;
+  }
+  .sidebar-search .new-menu-trigger.new-menu-more {
+    width: 18px;
+  }
 }
 .sidebar-search-shortcut {
   flex-shrink: 0;
   padding: 1px 6px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
-  font: 11px ui-monospace, Menlo, monospace;
+  font:
+    11px ui-monospace,
+    Menlo,
+    monospace;
   color: var(--color-text-tertiary);
 }
-.home-navigation { display: flex; flex: 1; min-height: 0; flex-direction: column; }
-.home-session-panel { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; }
-.home-session-panel .sidebar-section { flex: none; overflow: visible; }
-.home-session-panel .sidebar-section-title { text-transform: none; letter-spacing: normal; }
-.sidebar-ungrouped { margin-top: var(--space-3); }
-.sidebar-empty, .sidebar-error { margin: var(--space-1) var(--space-2) var(--space-2); font-size: var(--sidebar-font-size-small); color: var(--color-text-tertiary); line-height: var(--line-height-normal); }
-.sidebar-error { color: var(--color-error); }
-.sidebar-empty-link { padding: 0; border: 0; background: transparent; color: var(--color-accent); font: inherit; cursor: pointer; text-align: left; }
-.sidebar-empty-link:hover { text-decoration: underline; }
-.sidebar-empty-link:focus-visible { outline: 1px solid var(--color-accent); outline-offset: 1px; }
-.sidebar-ungrouped .drop-target { background: var(--color-bg-hover); outline: 1px solid var(--color-accent); outline-offset: -1px; }
-.app-navigation-item:focus-visible, .sidebar-scope-filter-trigger:focus-visible, .sidebar-scope-filter-clear:focus-visible, .sidebar-section-button:focus-visible { outline: 1px solid var(--color-accent); outline-offset: -1px; }
+.home-navigation {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+.home-session-panel {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+.home-session-panel .sidebar-section {
+  flex: none;
+  overflow: visible;
+}
+.home-session-panel .sidebar-section-title {
+  text-transform: none;
+  letter-spacing: normal;
+}
+.sidebar-empty,
+.sidebar-error {
+  margin: var(--space-1) var(--space-2) var(--space-2);
+  font-size: var(--sidebar-font-size-small);
+  color: var(--color-text-tertiary);
+  line-height: var(--line-height-normal);
+}
+.sidebar-error {
+  color: var(--color-error);
+}
+.sidebar-empty-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-accent);
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.sidebar-empty-link:hover {
+  text-decoration: underline;
+}
+.sidebar-empty-link:focus-visible {
+  outline: 1px solid var(--color-accent);
+  outline-offset: 1px;
+}
+.app-navigation-item:focus-visible,
+.sidebar-scope-filter-trigger:focus-visible,
+.sidebar-scope-filter-clear:focus-visible,
+.sidebar-section-button:focus-visible {
+  outline: 1px solid var(--color-accent);
+  outline-offset: -1px;
+}
 
-.sidebar-ungrouped .sidebar-section-title { margin-right: auto; }
+/* A run waiting for approval: a row with its decision beside it. */
+.run-nav-item {
+  flex-wrap: wrap;
+}
+.run-nav-item-main {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.run-nav-item-icon {
+  color: var(--color-accent);
+  flex-shrink: 0;
+}
+.run-nav-item-actions {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+  padding-left: var(--space-2);
+}
+.run-nav-item-action {
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  padding: 0 6px;
+  color: inherit;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.run-nav-item-action:hover:not(:disabled) {
+  background: var(--color-bg-hover);
+}
+.run-nav-item-action:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.run-nav-item-error {
+  flex-basis: 100%;
+  font-size: 11px;
+  color: var(--color-error, #d33);
+}
+
+/* --- Selection ------------------------------------------------------------
+   Rows picked with ⌘-click or ⇧-click, to act on together. An accent wash,
+   so a selected row reads apart from the open one (which keeps its own
+   fill) and from hover. */
+/* Two classes, so hover does not wash the selection out. */
+.session-nav-item.session-nav-item--selected {
+  background: color-mix(in srgb, var(--color-accent) 16%, transparent);
+  color: var(--color-text-primary);
+}
+
+.session-nav-item.session-nav-item--selected.active {
+  background: color-mix(in srgb, var(--color-accent) 24%, var(--color-bg-active));
+}
+
+/* The heading of a selection's menu: how many it acts on. */
+.dropdown-label {
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+}
+
+/* A row off the Snoozed shelf held over the list: dropping it here wakes it. */
+.sidebar-sessions--wake-drop {
+  outline: 1px dashed var(--color-accent);
+  outline-offset: -2px;
+  border-radius: var(--radius-md);
+}

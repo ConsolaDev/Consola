@@ -2,7 +2,8 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { DEFAULT_INBOX_FILTER } from '../components/Inbox/inboxFilters';
 import {
-  sanitizeCollapsedSections,
+  isShelfOpen,
+  sanitizeShelfOpen,
   sanitizeInboxFilters,
   useSettingsStore,
 } from './settingsStore';
@@ -24,7 +25,7 @@ describe('sanitizeInboxFilters', () => {
 
   it('keeps a well-formed entry as is', () => {
     expect(
-      sanitizeInboxFilters({ 'ws-1': { repos: ['sprocket/forum-admin'], updated: 'week' } })
+      sanitizeInboxFilters({ 'ws-1': { repos: ['sprocket/forum-admin'], updated: 'week' } }),
     ).toEqual({ 'ws-1': { repos: ['sprocket/forum-admin'], updated: 'week' } });
   });
 
@@ -36,7 +37,7 @@ describe('sanitizeInboxFilters', () => {
 
   it('drops non-string repos and an Updated value it does not know', () => {
     expect(
-      sanitizeInboxFilters({ 'ws-1': { repos: ['a/b', 3, null, 'c/d'], updated: 'decade' } })
+      sanitizeInboxFilters({ 'ws-1': { repos: ['a/b', 3, null, 'c/d'], updated: 'decade' } }),
     ).toEqual({ 'ws-1': { repos: ['a/b', 'c/d'], updated: 'month' } });
   });
 
@@ -62,7 +63,10 @@ describe('inbox filter actions', () => {
       repos: ['sprocket/forum-admin'],
       updated: 'month',
     });
-    expect(useSettingsStore.getState().inboxFilterFor('ws-2')).toEqual({ repos: [], updated: 'any' });
+    expect(useSettingsStore.getState().inboxFilterFor('ws-2')).toEqual({
+      repos: [],
+      updated: 'any',
+    });
   });
 
   it('replaces the repo list wholesale and leaves Updated alone', () => {
@@ -83,70 +87,39 @@ describe('inbox filter actions', () => {
   });
 });
 
-describe('sanitizeCollapsedSections', () => {
-  it('answers an empty list for anything that is not an array', () => {
-    expect(sanitizeCollapsedSections(undefined)).toEqual([]);
-    expect(sanitizeCollapsedSections(null)).toEqual([]);
-    expect(sanitizeCollapsedSections('scope-a')).toEqual([]);
-    expect(sanitizeCollapsedSections({ 'scope-a': true })).toEqual([]);
+describe('sidebar shelves', () => {
+  it('starts Working and Settled shut and everything else open', () => {
+    expect(isShelfOpen({}, 'working')).toBe(false);
+    // Settled holds only what was put away, so it starts folded.
+    expect(isShelfOpen({}, 'settled')).toBe(false);
+    expect(isShelfOpen({}, 'session:some-conductor')).toBe(true);
   });
 
-  it('keeps a well-formed list as is', () => {
-    expect(sanitizeCollapsedSections(['scope-a', 'group-b'])).toEqual(['scope-a', 'group-b']);
+  it('lets an explicit choice win over the default, both ways', () => {
+    expect(isShelfOpen({ working: true }, 'working')).toBe(true);
+    expect(isShelfOpen({ 'session:c': false }, 'session:c')).toBe(false);
   });
 
-  it('drops entries that are not strings', () => {
-    expect(sanitizeCollapsedSections(['scope-a', 3, null, {}, 'group-b'])).toEqual([
-      'scope-a',
-      'group-b',
-    ]);
+  it('toggles from the effective state, so one press opens a never-touched Working shelf', () => {
+    useSettingsStore.setState({ sidebarShelfOpen: {} });
+    useSettingsStore.getState().toggleSidebarShelf('working');
+    expect(useSettingsStore.getState().sidebarShelfOpen).toEqual({ working: true });
+    useSettingsStore.getState().toggleSidebarShelf('working');
+    expect(useSettingsStore.getState().sidebarShelfOpen).toEqual({ working: false });
   });
 
-  it('dedupes, so a doubled id still unfolds on one click', () => {
-    expect(sanitizeCollapsedSections(['scope-a', 'scope-a'])).toEqual(['scope-a']);
-  });
-});
-
-describe('sidebar section actions', () => {
-  beforeEach(() => {
-    useSettingsStore.setState({ collapsedSidebarSections: [] });
+  it('sets a tree explicitly when told which way', () => {
+    useSettingsStore.setState({ sidebarShelfOpen: {} });
+    useSettingsStore.getState().toggleSidebarShelf('session:c', true);
+    expect(useSettingsStore.getState().sidebarShelfOpen).toEqual({ 'session:c': true });
   });
 
-  it('starts with everything expanded', () => {
-    expect(useSettingsStore.getState().collapsedSidebarSections).toEqual([]);
-  });
-
-  it('folds an open section and unfolds a folded one', () => {
-    useSettingsStore.getState().toggleSidebarSection('scope-a');
-    expect(useSettingsStore.getState().collapsedSidebarSections).toEqual(['scope-a']);
-
-    useSettingsStore.getState().toggleSidebarSection('scope-a');
-    expect(useSettingsStore.getState().collapsedSidebarSections).toEqual([]);
-  });
-
-  it('holds scopes and groups in one set without confusing them', () => {
-    useSettingsStore.getState().toggleSidebarSection('scope-a');
-    useSettingsStore.getState().toggleSidebarSection('group-b');
-    useSettingsStore.getState().toggleSidebarSection('scope-a');
-
-    expect(useSettingsStore.getState().collapsedSidebarSections).toEqual(['group-b']);
-  });
-
-  it('expands a folded section', () => {
-    useSettingsStore.getState().toggleSidebarSection('scope-a');
-    useSettingsStore.getState().expandSidebarSection('scope-a');
-
-    expect(useSettingsStore.getState().collapsedSidebarSections).toEqual([]);
-  });
-
-  // The guard is what keeps activating a session from re-serialising the
-  // whole store to localStorage on every navigation.
-  it('does not touch the list when the section is already expanded', () => {
-    useSettingsStore.getState().toggleSidebarSection('scope-a');
-    const before = useSettingsStore.getState().collapsedSidebarSections;
-
-    useSettingsStore.getState().expandSidebarSection('group-b');
-
-    expect(useSettingsStore.getState().collapsedSidebarSections).toBe(before);
+  it('keeps only booleans from a persisted blob', () => {
+    expect(sanitizeShelfOpen({ working: true, a: 'yes', b: 1, c: false })).toEqual({
+      working: true,
+      c: false,
+    });
+    expect(sanitizeShelfOpen(null)).toEqual({});
+    expect(sanitizeShelfOpen([true])).toEqual({});
   });
 });

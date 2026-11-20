@@ -15,65 +15,65 @@ import type { HarnessConfig, HarnessDriver } from './drivers';
  * cost: a renderer-side cache would repeat it for every window.
  */
 export class HarnessCapabilitiesCache {
-    private readonly settled = new Map<string, HarnessCapabilitiesResult>();
-    private readonly pending = new Map<string, Promise<HarnessCapabilitiesResult>>();
+  private readonly settled = new Map<string, HarnessCapabilitiesResult>();
+  private readonly pending = new Map<string, Promise<HarnessCapabilitiesResult>>();
 
-    public async get(
-        driver: HarnessDriver,
-        config: HarnessConfig
-    ): Promise<HarnessCapabilitiesResult> {
-        const key = signature(driver.id, config);
+  public async get(
+    driver: HarnessDriver,
+    config: HarnessConfig,
+  ): Promise<HarnessCapabilitiesResult> {
+    const key = signature(driver.id, config);
 
-        const settled = this.settled.get(key);
-        if (settled) return settled;
+    const settled = this.settled.get(key);
+    if (settled) return settled;
 
-        const pending = this.pending.get(key);
-        if (pending) return pending;
+    const pending = this.pending.get(key);
+    if (pending) return pending;
 
-        const probe = this.probe(driver, config, key);
-        this.pending.set(key, probe);
-        return probe;
+    const probe = this.probe(driver, config, key);
+    this.pending.set(key, probe);
+    return probe;
+  }
+
+  /** Forget every answer, so the next ask re-probes. */
+  public clear(): void {
+    this.settled.clear();
+  }
+
+  private async probe(
+    driver: HarnessDriver,
+    config: HarnessConfig,
+    key: string,
+  ): Promise<HarnessCapabilitiesResult> {
+    try {
+      if (!driver.probeCapabilities) {
+        // Not a failure and never going to change while this build
+        // runs, so it is worth remembering rather than re-deciding.
+        const unsupported: HarnessCapabilitiesResult = {
+          supported: false,
+          reason: `${driver.id} cannot describe its own commands.`,
+        };
+        this.settled.set(key, unsupported);
+        return unsupported;
+      }
+
+      const capabilities = await driver.probeCapabilities(config);
+      const result: HarnessCapabilitiesResult = { supported: true, ...capabilities };
+      this.settled.set(key, result);
+      return result;
+    } catch (error) {
+      // Deliberately not remembered. A failure here is usually temporary
+      // — the CLI mid-upgrade, a hook that flaked, a path being edited —
+      // and caching it would leave the composer permanently empty until
+      // the app restarted.
+      return {
+        supported: false,
+        reason: error instanceof Error ? error.message : String(error),
+      };
+    } finally {
+      this.pending.delete(key);
     }
-
-    /** Forget every answer, so the next ask re-probes. */
-    public clear(): void {
-        this.settled.clear();
-    }
-
-    private async probe(
-        driver: HarnessDriver,
-        config: HarnessConfig,
-        key: string
-    ): Promise<HarnessCapabilitiesResult> {
-        try {
-            if (!driver.probeCapabilities) {
-                // Not a failure and never going to change while this build
-                // runs, so it is worth remembering rather than re-deciding.
-                const unsupported: HarnessCapabilitiesResult = {
-                    supported: false,
-                    reason: `${driver.id} cannot describe its own commands.`,
-                };
-                this.settled.set(key, unsupported);
-                return unsupported;
-            }
-
-            const capabilities = await driver.probeCapabilities(config);
-            const result: HarnessCapabilitiesResult = { supported: true, ...capabilities };
-            this.settled.set(key, result);
-            return result;
-        } catch (error) {
-            // Deliberately not remembered. A failure here is usually temporary
-            // — the CLI mid-upgrade, a hook that flaked, a path being edited —
-            // and caching it would leave the composer permanently empty until
-            // the app restarted.
-            return {
-                supported: false,
-                reason: error instanceof Error ? error.message : String(error),
-            };
-        } finally {
-            this.pending.delete(key);
-        }
-    }
+  }
 }
 
 /**
@@ -87,13 +87,13 @@ export class HarnessCapabilitiesCache {
  * the config directory, so the same harness answers identically from every
  * workspace.
  */
-function signature(driverId: string, config: HarnessConfig): string {
-    return JSON.stringify([
-        driverId,
-        config.binaryPath ?? null,
-        config.configDir ?? null,
-        config.extraArgs,
-    ]);
+export function signature(driverId: string, config: HarnessConfig): string {
+  return JSON.stringify([
+    driverId,
+    config.binaryPath ?? null,
+    config.configDir ?? null,
+    config.extraArgs,
+  ]);
 }
 
 export const harnessCapabilitiesCache = new HarnessCapabilitiesCache();

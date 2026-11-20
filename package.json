@@ -4,7 +4,7 @@
   "license": "AGPL-3.0-only",
   "packageManager": "pnpm@10.28.2",
   "engines": {
-    "node": ">=22.12.0"
+    "node": "26.13.1"
   },
   "scripts": {
     "dev": "turbo run dev --filter=consola",
@@ -12,6 +12,9 @@
     "build": "turbo run build",
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "format": "biome format --write .",
     "test:e2e": "turbo run test:e2e --filter=consola",
     "start": "pnpm --filter consola start",
     "test:watch": "pnpm --filter consola test:watch",
@@ -24,6 +27,7 @@
     "release": "pnpm --filter consola release"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.6.8",
     "turbo": "2.11.3"
   }
 }

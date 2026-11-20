@@ -1,8 +1,8 @@
 import { useEffect, useRef, type RefObject } from 'react';
 import { useReducedMotion } from './useReducedMotion';
 
-/** Ease-out-quart: quick to arrive, quiet to stop. */
-const EASE_OUT = 'cubic-bezier(0.25, 1, 0.5, 1)';
+/** Ease-out-quart: quick to arrive, quiet to stop. The `--ease-out-quart` token, for motion written in JS. */
+export const EASE_OUT = 'cubic-bezier(0.25, 1, 0.5, 1)';
 
 /**
  * A short settle-in (fade and a few pixels' rise) on the element whenever
@@ -27,7 +27,10 @@ export function useSettleOnChange(
     const element = ref.current;
     if (reduced || !element || typeof element.animate !== 'function') return;
     const animation = element.animate(
-      [{ opacity: 0, transform: `translateY(${rise}px)` }, { opacity: 1, transform: 'none' }],
+      [
+        { opacity: 0, transform: `translateY(${rise}px)` },
+        { opacity: 1, transform: 'none' },
+      ],
       { duration: 180, delay, easing: EASE_OUT, fill: 'backwards' },
     );
     return () => animation.cancel();

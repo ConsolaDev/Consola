@@ -1,7 +1,6 @@
 import { useState } from 'react';
-import { listedSessions } from '../../../shared/workspace';
 import { Folder, GitBranch, Pencil, Plus, Trash2 } from 'lucide-react';
-import { type Scope, type Workspace } from '../../stores/workspaceStore';
+import type { Scope, Workspace } from '../../stores/workspaceStore';
 import { addScopeViaDialog, deleteScopeCompletely } from '../../utils/scopeActions';
 import { ConfirmDialog } from '../Dialogs/ConfirmDialog';
 import { ScopeEditor } from './ScopeEditor';
@@ -26,13 +25,17 @@ export function ScopesPanel({ workspace }: ScopesPanelProps) {
   };
 
   const sessionCountFor = (scopeId: string) =>
-    listedSessions(workspace).filter((session) => session.scopeId === scopeId).length;
+    workspace.sessions.filter((session) => session.scopeId === scopeId).length;
 
   return (
     <section className="ws-panel">
       <div className="ws-panel-header">
         <h3 className="ws-panel-title">Scopes</h3>
-        <button type="button" className="dialog-button-secondary ws-panel-action" onClick={() => void handleAddScope()}>
+        <button
+          type="button"
+          className="dialog-button-secondary ws-panel-action"
+          onClick={() => void handleAddScope()}
+        >
           <Plus size={14} />
           Add scope
         </button>
@@ -53,24 +56,40 @@ export function ScopesPanel({ workspace }: ScopesPanelProps) {
                 </span>
                 <div className="ws-scope-details">
                   <span className="ws-row-name">{scope.name}</span>
-                  <span className="ws-row-path" title={scope.path}>{scope.path}</span>
+                  <span className="ws-row-path" title={scope.path}>
+                    {scope.path}
+                  </span>
                 </div>
                 {sessionCount > 0 && (
-                  <span className="ws-row-chip">{sessionCount} session{sessionCount === 1 ? '' : 's'}</span>
+                  <span className="ws-row-chip">
+                    {sessionCount} session{sessionCount === 1 ? '' : 's'}
+                  </span>
                 )}
-                <button type="button" className="dialog-button-secondary ws-panel-action"
-                  onClick={() => setEditingId(scope.id)} aria-label={`Edit scope ${scope.name}`}
-                  disabled={editingId !== null}>
+                <button
+                  type="button"
+                  className="dialog-button-secondary ws-panel-action"
+                  onClick={() => setEditingId(scope.id)}
+                  aria-label={`Edit scope ${scope.name}`}
+                  disabled={editingId !== null}
+                >
                   <Pencil size={13} /> Edit
                 </button>
-                <button type="button" className="dialog-button-secondary ws-panel-action ws-scope-remove"
-                  onClick={() => setRemoving(scope)} disabled={editingId !== null}
-                  aria-label={`Delete scope ${scope.name}`}>
+                <button
+                  type="button"
+                  className="dialog-button-secondary ws-panel-action ws-scope-remove"
+                  onClick={() => setRemoving(scope)}
+                  disabled={editingId !== null}
+                  aria-label={`Delete scope ${scope.name}`}
+                >
                   <Trash2 size={13} /> Delete
                 </button>
               </div>
               {editingId === scope.id && (
-                <ScopeEditor workspaceId={workspace.id} scope={scope} onClose={() => setEditingId(null)} />
+                <ScopeEditor
+                  workspaceId={workspace.id}
+                  scope={scope}
+                  onClose={() => setEditingId(null)}
+                />
               )}
             </div>
           );

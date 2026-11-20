@@ -17,7 +17,7 @@
 .command-highlight {
   display: inline;
   position: relative;
-  font-family: var(--font-mono, 'SF Mono', 'Fira Code', 'Consolas', monospace);
+  font-family: var(--font-mono, "SF Mono", "Fira Code", "Consolas", monospace);
   font-size: 0.92em;
   font-weight: var(--font-weight-medium, 500);
   letter-spacing: -0.01em;
@@ -39,11 +39,7 @@
    ═══════════════════════════════════════════════════════════ */
 
 .command-highlight--skill {
-  background: linear-gradient(
-    135deg,
-    rgba(251, 191, 36, 0.18) 0%,
-    rgba(245, 158, 11, 0.22) 100%
-  );
+  background: linear-gradient(135deg, rgba(251, 191, 36, 0.18) 0%, rgba(245, 158, 11, 0.22) 100%);
   color: #fbbf24;
   box-shadow:
     inset 0 0 0 1px rgba(251, 191, 36, 0.25),
@@ -51,11 +47,7 @@
 }
 
 .command-highlight--skill:hover {
-  background: linear-gradient(
-    135deg,
-    rgba(251, 191, 36, 0.28) 0%,
-    rgba(245, 158, 11, 0.32) 100%
-  );
+  background: linear-gradient(135deg, rgba(251, 191, 36, 0.28) 0%, rgba(245, 158, 11, 0.32) 100%);
   color: #fcd34d;
   box-shadow:
     inset 0 0 0 1px rgba(251, 191, 36, 0.4),
@@ -69,11 +61,7 @@
    ═══════════════════════════════════════════════════════════ */
 
 .command-highlight--command {
-  background: linear-gradient(
-    135deg,
-    rgba(34, 211, 238, 0.14) 0%,
-    rgba(6, 182, 212, 0.18) 100%
-  );
+  background: linear-gradient(135deg, rgba(34, 211, 238, 0.14) 0%, rgba(6, 182, 212, 0.18) 100%);
   color: #22d3ee;
   box-shadow:
     inset 0 0 0 1px rgba(34, 211, 238, 0.22),
@@ -81,11 +69,7 @@
 }
 
 .command-highlight--command:hover {
-  background: linear-gradient(
-    135deg,
-    rgba(34, 211, 238, 0.24) 0%,
-    rgba(6, 182, 212, 0.28) 100%
-  );
+  background: linear-gradient(135deg, rgba(34, 211, 238, 0.24) 0%, rgba(6, 182, 212, 0.28) 100%);
   color: #67e8f9;
   box-shadow:
     inset 0 0 0 1px rgba(34, 211, 238, 0.38),
@@ -240,61 +224,45 @@ code .command-highlight {
    LIGHT THEME ADJUSTMENTS
    ═══════════════════════════════════════════════════════════ */
 
-[data-theme='light'] .command-highlight--skill {
-  background: linear-gradient(
-    135deg,
-    rgba(245, 158, 11, 0.15) 0%,
-    rgba(217, 119, 6, 0.18) 100%
-  );
+[data-theme="light"] .command-highlight--skill {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.15) 0%, rgba(217, 119, 6, 0.18) 100%);
   color: #b45309;
   box-shadow:
     inset 0 0 0 1px rgba(245, 158, 11, 0.3),
     0 1px 2px rgba(0, 0, 0, 0.06);
 }
 
-[data-theme='light'] .command-highlight--skill:hover {
-  background: linear-gradient(
-    135deg,
-    rgba(245, 158, 11, 0.22) 0%,
-    rgba(217, 119, 6, 0.26) 100%
-  );
+[data-theme="light"] .command-highlight--skill:hover {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.22) 0%, rgba(217, 119, 6, 0.26) 100%);
   color: #92400e;
   box-shadow:
     inset 0 0 0 1px rgba(245, 158, 11, 0.45),
     0 2px 6px rgba(245, 158, 11, 0.15);
 }
 
-[data-theme='light'] .command-highlight--command {
-  background: linear-gradient(
-    135deg,
-    rgba(6, 182, 212, 0.12) 0%,
-    rgba(8, 145, 178, 0.16) 100%
-  );
+[data-theme="light"] .command-highlight--command {
+  background: linear-gradient(135deg, rgba(6, 182, 212, 0.12) 0%, rgba(8, 145, 178, 0.16) 100%);
   color: #0891b2;
   box-shadow:
     inset 0 0 0 1px rgba(6, 182, 212, 0.28),
     0 1px 2px rgba(0, 0, 0, 0.06);
 }
 
-[data-theme='light'] .command-highlight--command:hover {
-  background: linear-gradient(
-    135deg,
-    rgba(6, 182, 212, 0.2) 0%,
-    rgba(8, 145, 178, 0.24) 100%
-  );
+[data-theme="light"] .command-highlight--command:hover {
+  background: linear-gradient(135deg, rgba(6, 182, 212, 0.2) 0%, rgba(8, 145, 178, 0.24) 100%);
   color: #0e7490;
   box-shadow:
     inset 0 0 0 1px rgba(6, 182, 212, 0.42),
     0 2px 6px rgba(6, 182, 212, 0.15);
 }
 
-[data-theme='light'] .command-highlight--unknown {
+[data-theme="light"] .command-highlight--unknown {
   background: rgba(100, 116, 139, 0.1);
   color: rgba(71, 85, 105, 0.75);
   box-shadow: inset 0 0 0 1px rgba(100, 116, 139, 0.18);
 }
 
-[data-theme='light'] .command-highlight--unknown:hover {
+[data-theme="light"] .command-highlight--unknown:hover {
   background: rgba(100, 116, 139, 0.16);
   color: rgba(71, 85, 105, 0.9);
   box-shadow: inset 0 0 0 1px rgba(100, 116, 139, 0.28);

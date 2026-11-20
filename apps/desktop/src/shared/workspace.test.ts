@@ -5,10 +5,7 @@ import {
   createWorkspaceRecord,
   generateUuid,
   migrateWorkspaceState,
-  assistantItemMode,
-  assistantSession,
   checkoutPathForSession,
-  listedSessions,
   primaryScope,
   scopeForSession,
   type Workspace,
@@ -31,7 +28,14 @@ describe('migrateWorkspaceState', () => {
           name: 'consola',
           projects: [{ path: '/code/consola', isGitRepo: true }],
           sessions: [
-            { id: 's1', name: 'Old', workspaceId: 'w1', instanceId: 'i1', createdAt: 1, lastActiveAt: 2 },
+            {
+              id: 's1',
+              name: 'Old',
+              workspaceId: 'w1',
+              instanceId: 'i1',
+              createdAt: 1,
+              lastActiveAt: 2,
+            },
           ],
           createdAt: 1,
           updatedAt: 2,
@@ -66,7 +70,14 @@ describe('migrateWorkspaceState', () => {
           path: '/code/consola',
           isGitRepo: true,
           sessions: [
-            { id: 's1', name: 'Old', workspaceId: 'w1', instanceId: 'i1', createdAt: 1, lastActiveAt: 2 },
+            {
+              id: 's1',
+              name: 'Old',
+              workspaceId: 'w1',
+              instanceId: 'i1',
+              createdAt: 1,
+              lastActiveAt: 2,
+            },
           ],
           createdAt: 1,
           updatedAt: 2,
@@ -134,7 +145,13 @@ describe('migrateWorkspaceState', () => {
           name: 'consola',
           defaultHarnessId: 'work',
           scopes: [
-            { id: 'scope-1', name: 'consola', path: '/code/consola', isGitRepo: true, createdAt: 1 },
+            {
+              id: 'scope-1',
+              name: 'consola',
+              path: '/code/consola',
+              isGitRepo: true,
+              createdAt: 1,
+            },
           ],
           groups: [],
           actions: [],
@@ -229,8 +246,28 @@ describe('migrateWorkspaceState', () => {
           isGitRepo: false,
           defaultHarnessId: 'default',
           sessions: [
-            { id: 's1', name: 'A', workspaceId: 'w1', instanceId: 'i1', claudeSessionId: '11111111-1111-4111-8111-111111111111', hasStarted: true, harnessId: 'default', createdAt: 1, lastActiveAt: 1 },
-            { id: 's2', name: 'B', workspaceId: 'w1', instanceId: 'i2', claudeSessionId: '22222222-2222-4222-8222-222222222222', hasStarted: false, harnessId: 'default', createdAt: 2, lastActiveAt: 2 },
+            {
+              id: 's1',
+              name: 'A',
+              workspaceId: 'w1',
+              instanceId: 'i1',
+              claudeSessionId: '11111111-1111-4111-8111-111111111111',
+              hasStarted: true,
+              harnessId: 'default',
+              createdAt: 1,
+              lastActiveAt: 1,
+            },
+            {
+              id: 's2',
+              name: 'B',
+              workspaceId: 'w1',
+              instanceId: 'i2',
+              claudeSessionId: '22222222-2222-4222-8222-222222222222',
+              hasStarted: false,
+              harnessId: 'default',
+              createdAt: 2,
+              lastActiveAt: 2,
+            },
           ],
           createdAt: 1,
           updatedAt: 2,
@@ -300,7 +337,14 @@ describe('migrateWorkspaceState', () => {
           name: 'consola',
           projects: [{ path: '/code/consola', isGitRepo: true }],
           sessions: [
-            { id: 's1', name: 'Old', workspaceId: 'w1', instanceId: 'i1', createdAt: 1, lastActiveAt: 2 },
+            {
+              id: 's1',
+              name: 'Old',
+              workspaceId: 'w1',
+              instanceId: 'i1',
+              createdAt: 1,
+              lastActiveAt: 2,
+            },
           ],
           createdAt: 1,
           updatedAt: 2,
@@ -423,7 +467,17 @@ describe('migrateWorkspaceState', () => {
           isGitRepo: true,
           defaultHarnessId: 'default',
           sessions: [
-            { id: 's1', name: 'A', workspaceId: 'w1', instanceId: 'i1', claudeSessionId: '11111111-1111-4111-8111-111111111111', hasStarted: true, harnessId: 'default', createdAt: 1, lastActiveAt: 1 },
+            {
+              id: 's1',
+              name: 'A',
+              workspaceId: 'w1',
+              instanceId: 'i1',
+              claudeSessionId: '11111111-1111-4111-8111-111111111111',
+              hasStarted: true,
+              harnessId: 'default',
+              createdAt: 1,
+              lastActiveAt: 1,
+            },
           ],
           createdAt: 1,
           updatedAt: 1,
@@ -435,7 +489,17 @@ describe('migrateWorkspaceState', () => {
           isGitRepo: false,
           defaultHarnessId: 'default',
           sessions: [
-            { id: 's2', name: 'B', workspaceId: 'w2', instanceId: 'i2', claudeSessionId: '22222222-2222-4222-8222-222222222222', hasStarted: true, harnessId: 'default', createdAt: 1, lastActiveAt: 1 },
+            {
+              id: 's2',
+              name: 'B',
+              workspaceId: 'w2',
+              instanceId: 'i2',
+              claudeSessionId: '22222222-2222-4222-8222-222222222222',
+              hasStarted: true,
+              harnessId: 'default',
+              createdAt: 1,
+              lastActiveAt: 1,
+            },
           ],
           createdAt: 1,
           updatedAt: 1,
@@ -479,7 +543,13 @@ describe('migrateWorkspaceState v6 -> v7', () => {
       name: 'Sprocket',
       defaultHarnessId: 'default',
       scopes: [
-        { id: 'scope-1', name: 'catalog-portal', path: '/repos/catalog-portal', isGitRepo: true, createdAt: 1 },
+        {
+          id: 'scope-1',
+          name: 'catalog-portal',
+          path: '/repos/catalog-portal',
+          isGitRepo: true,
+          createdAt: 1,
+        },
       ],
       groups: [],
       sessions: [],
@@ -529,7 +599,13 @@ describe('migrateWorkspaceState v6 -> v7', () => {
           id: 'w2',
           name: 'Other',
           scopes: [
-            { id: 'scope-2', name: 'other-app', path: '/repos/other-app', isGitRepo: true, createdAt: 1 },
+            {
+              id: 'scope-2',
+              name: 'other-app',
+              path: '/repos/other-app',
+              isGitRepo: true,
+              createdAt: 1,
+            },
           ],
           github: { accountLogin: 'OtherAcct' },
         }),
@@ -569,16 +645,22 @@ describe('migrateWorkspaceState v6 -> v7', () => {
     const migrated = migrateWorkspaceState({ workspaces: [input] }, 6) as { workspaces: any[] };
 
     // Key order matters here: JSON.stringify is how the file is written, and
-    // "identical apart from the two new fields" is the spec's promise.
+    // "identical apart from the new fields" is the spec's promise; the v8
+    // rung, run at the end of the same ladder, adds the empty label list.
     expect(JSON.stringify(migrated.workspaces[0])).toBe(
-      JSON.stringify({ ...input, actions: [], sectionDefaults: {} })
+      JSON.stringify({ ...input, actions: [], sectionDefaults: {}, labels: [] }),
     );
     expect(migrated.workspaces[0]).not.toHaveProperty('provider');
   });
 
   it('backfills workItemAction by item type: Review for PRs, Implement for issues', () => {
     const pr = { provider: 'github', repo: 'sprocket/catalog-portal', type: 'pr', number: 51 };
-    const issue = { provider: 'github', repo: 'sprocket/media-upload-api', type: 'issue', number: 87 };
+    const issue = {
+      provider: 'github',
+      repo: 'sprocket/media-upload-api',
+      type: 'issue',
+      number: 87,
+    };
     const state = {
       workspaces: [
         v6Workspace({
@@ -637,7 +719,254 @@ describe('migrateWorkspaceState v6 -> v7', () => {
 
     const migrated = migrateWorkspaceState({ workspaces: [workspace] }, 7) as { workspaces: any[] };
 
-    expect(migrated.workspaces[0]).toEqual(workspace);
+    // v8 gains only the empty label list; everything else round-trips.
+    expect(migrated.workspaces[0]).toEqual({ ...workspace, labels: [] });
+  });
+});
+
+describe('migrateWorkspaceState v7 -> v8', () => {
+  const session = (id: string, extra: Record<string, unknown> = {}) => ({
+    id,
+    name: id,
+    workspaceId: 'w1',
+    instanceId: `i-${id}`,
+    claudeSessionId: `c-${id}`,
+    hasStarted: true,
+    harnessId: 'claude',
+    scopeId: 'sc',
+    kind: 'interactive',
+    createdAt: 1,
+    lastActiveAt: 1,
+    ...extra,
+  });
+  const group = (id: string, extra: Record<string, unknown> = {}) => ({
+    id,
+    name: id,
+    createdAt: 1,
+    ...extra,
+  });
+  const workspaceOf = (groups: unknown[], sessions: unknown[]) => ({
+    id: 'w1',
+    name: 'W',
+    defaultHarnessId: 'claude',
+    scopes: [],
+    groups,
+    actions: [],
+    sectionDefaults: {},
+    sessions,
+    createdAt: 1,
+    updatedAt: 1,
+  });
+  const run = (ws: unknown, from = 7) =>
+    (migrateWorkspaceState({ workspaces: [ws] }, from) as { workspaces: any[] }).workspaces[0];
+
+  it('names a nested group by its ancestor path and gives its sessions every ancestor label', () => {
+    const migrated = run(
+      workspaceOf(
+        [
+          group('g-root', { name: 'Platform', emoji: '🏗' }),
+          group('g-mid', { name: 'API', parentGroupId: 'g-root' }),
+          group('g-leaf', { name: 'Auth', parentGroupId: 'g-mid' }),
+        ],
+        [session('s1', { groupId: 'g-leaf' }), session('s2', { groupId: 'g-root' })],
+      ),
+    );
+
+    expect(migrated.labels).toEqual([
+      { id: 'g-root', name: 'Platform', emoji: '🏗' },
+      { id: 'g-mid', name: 'Platform / API' },
+      { id: 'g-leaf', name: 'Platform / API / Auth' },
+    ]);
+    expect(migrated.sessions[0].labelIds).toEqual(['g-leaf', 'g-mid', 'g-root']);
+    expect(migrated.sessions[1].labelIds).toEqual(['g-root']);
+  });
+
+  it('makes a conductor the parent of the other members of its group, and not of itself', () => {
+    const migrated = run(
+      workspaceOf(
+        [group('g1', { conductorSessionId: 'cond' })],
+        [
+          session('cond', { kind: 'conductor', groupId: 'g1' }),
+          session('w-a', { groupId: 'g1' }),
+          session('w-b', { groupId: 'g1' }),
+          session('elsewhere'),
+        ],
+      ),
+    );
+    const byId = Object.fromEntries(migrated.sessions.map((s: any) => [s.id, s]));
+
+    expect(byId['w-a'].parentSessionId).toBe('cond');
+    expect(byId['w-b'].parentSessionId).toBe('cond');
+    expect(byId.cond).not.toHaveProperty('parentSessionId');
+    expect(byId.cond.kind).toBe('conductor');
+    expect(byId.cond.labelIds).toEqual(['g1']);
+    expect(byId.elsewhere).not.toHaveProperty('parentSessionId');
+  });
+
+  it('turns an archived group with members into a label', () => {
+    const migrated = run(
+      workspaceOf(
+        [group('old', { name: 'Old', archivedAt: 9 })],
+        [session('s1', { groupId: 'old' })],
+      ),
+    );
+
+    expect(migrated.labels).toEqual([{ id: 'old', name: 'Old' }]);
+    expect(migrated.sessions[0].labelIds).toEqual(['old']);
+  });
+
+  it('skips an archived group with no members, but keeps an empty live one', () => {
+    const migrated = run(
+      workspaceOf([group('dead', { archivedAt: 9 }), group('empty')], [session('s1')]),
+    );
+
+    expect(migrated.labels).toEqual([{ id: 'empty', name: 'empty' }]);
+  });
+
+  it('keeps an archived ancestor of a member group, so no session names a label that is not there', () => {
+    const migrated = run(
+      workspaceOf(
+        [
+          group('parent', { name: 'P', archivedAt: 9 }),
+          group('child', { name: 'C', parentGroupId: 'parent' }),
+        ],
+        [session('s1', { groupId: 'child' })],
+      ),
+    );
+
+    expect(migrated.labels.map((l: any) => l.id)).toEqual(['parent', 'child']);
+    expect(migrated.sessions[0].labelIds).toEqual(['child', 'parent']);
+  });
+
+  it('leaves an ungrouped session with no labels and no parent, byte for byte', () => {
+    const plain = session('s1');
+    const migrated = run(workspaceOf([group('g1', { conductorSessionId: 'cond' })], [plain]));
+
+    expect(migrated.sessions[0]).toEqual(plain);
+    expect(migrated.sessions[0]).not.toHaveProperty('labelIds');
+    expect(migrated.sessions[0]).not.toHaveProperty('parentSessionId');
+  });
+
+  it('leaves members parentless when the conductor no longer exists', () => {
+    const migrated = run(
+      workspaceOf(
+        [group('g1', { conductorSessionId: 'deleted' })],
+        [session('s1', { groupId: 'g1' })],
+      ),
+    );
+
+    expect(migrated.sessions[0]).not.toHaveProperty('parentSessionId');
+    expect(migrated.sessions[0].labelIds).toEqual(['g1']);
+  });
+
+  it('ignores a groupId that names no group, rather than inventing a label for it', () => {
+    const migrated = run(workspaceOf([], [session('s1', { groupId: 'ghost' })]));
+
+    expect(migrated.labels).toEqual([]);
+    expect(migrated.sessions[0]).not.toHaveProperty('labelIds');
+  });
+
+  it('survives a parentGroupId cycle and a dangling parent', () => {
+    const migrated = run(
+      workspaceOf(
+        [
+          group('a', { parentGroupId: 'b' }),
+          group('b', { parentGroupId: 'a' }),
+          group('c', { parentGroupId: 'missing' }),
+        ],
+        [session('s1', { groupId: 'a' }), session('s2', { groupId: 'c' })],
+      ),
+    );
+
+    expect(migrated.sessions[0].labelIds.sort()).toEqual(['a', 'b']);
+    expect(migrated.sessions[1].labelIds).toEqual(['c']);
+    expect(migrated.labels.find((l: any) => l.id === 'c').name).toBe('c');
+  });
+
+  it('is idempotent: a second run changes nothing', () => {
+    const input = workspaceOf(
+      [
+        group('g-root', { name: 'Platform' }),
+        group('g-leaf', { name: 'Auth', parentGroupId: 'g-root', conductorSessionId: 'cond' }),
+        group('old', { archivedAt: 9 }),
+      ],
+      [
+        session('cond', { kind: 'conductor', groupId: 'g-leaf' }),
+        session('w', { groupId: 'g-leaf' }),
+        session('free'),
+      ],
+    );
+    const once = run(input);
+    const twice = run(once);
+
+    expect(twice).toEqual(once);
+  });
+
+  it('does not overwrite a parent or label ids that are already there', () => {
+    const migrated = run(
+      workspaceOf(
+        [group('g1', { conductorSessionId: 'cond' })],
+        [
+          session('cond', { kind: 'conductor' }),
+          session('s1', { groupId: 'g1', parentSessionId: 'other', labelIds: ['mine'] }),
+        ],
+      ),
+    );
+
+    expect(migrated.sessions[1].parentSessionId).toBe('other');
+    expect(migrated.sessions[1].labelIds).toEqual(['mine', 'g1']);
+  });
+
+  it('keeps the group model: groups, groupId and conductorSessionId survive untouched', () => {
+    const groups = [group('g1', { conductorSessionId: 'cond' })];
+    const migrated = run(
+      workspaceOf(groups, [
+        session('cond', { kind: 'conductor', groupId: 'g1' }),
+        session('s1', { groupId: 'g1' }),
+      ]),
+    );
+
+    expect(migrated.groups).toEqual(groups);
+    expect(migrated.sessions[0].groupId).toBe('g1');
+    expect(migrated.sessions[1].groupId).toBe('g1');
+  });
+
+  it('is idempotent over the records the runtime writers create', () => {
+    // What createConductor and ConductorTools now write: the label shares the
+    // group's id, the conductor and its worker carry it, the worker is parented.
+    const created = workspaceOf(
+      [group('g1', { conductorSessionId: 'cond' })],
+      [
+        session('cond', { kind: 'conductor', groupId: 'g1', labelIds: ['g1'] }),
+        session('w-a', { groupId: 'g1', labelIds: ['g1'], parentSessionId: 'cond' }),
+      ],
+    );
+    (created as any).labels = [{ id: 'g1', name: 'g1' }];
+
+    const once = run(created);
+    const twice = run(once);
+
+    expect(once.labels).toEqual([{ id: 'g1', name: 'g1' }]);
+    expect(twice).toEqual(once);
+    expect(once.sessions[0].labelIds).toEqual(['g1']);
+    expect(once.sessions[1].labelIds).toEqual(['g1']);
+    expect(once.sessions[1].parentSessionId).toBe('cond');
+  });
+
+  it('does not mutate its input', () => {
+    const input = workspaceOf([group('g1')], [session('s1', { groupId: 'g1' })]);
+    const snapshot = JSON.parse(JSON.stringify(input));
+    run(input);
+    expect(input).toEqual(snapshot);
+  });
+
+  it('runs at the end of the ladder for state older than v7, and not at all for v8', () => {
+    const v6 = {
+      ...workspaceOf([group('g1')], [session('s1', { groupId: 'g1' })]),
+    };
+    expect(run(v6, 6).sessions[0].labelIds).toEqual(['g1']);
+    const v8 = { ...workspaceOf([group('g1')], [session('s1', { groupId: 'g1' })]) };
+    expect(run(v8, 8)).not.toHaveProperty('labels');
   });
 });
 
@@ -716,43 +1045,16 @@ describe('scope helpers', () => {
   it('checkoutPathForSession follows an agent that moved itself into another checkout', () => {
     const scope = workspace.scopes[0];
     const entered = '/code/consola/.claude/worktrees/assistant';
-    expect(checkoutPathForSession(workspace, { scopeId: scope.id, agentCwd: entered })).toBe(entered);
+    expect(checkoutPathForSession(workspace, { scopeId: scope.id, agentCwd: entered })).toBe(
+      entered,
+    );
     // Over a checkout Consola launched it in, too: the agent left that one.
     expect(
       checkoutPathForSession(workspace, {
         scopeId: scope.id,
         cwd: '/home/me/.consola/worktrees/consola-session-1',
         agentCwd: entered,
-      })
+      }),
     ).toBe(entered);
-  });
-});
-
-describe('the Assistant helpers', () => {
-  function workspaceWith(kinds: Array<'interactive' | 'assistant'>): Workspace {
-    const ws = createWorkspaceRecord('catalog-portal', '/code/catalog-portal', true, 'default');
-    ws.sessions = kinds.map((kind) =>
-      createSessionRecord({
-        name: kind,
-        workspaceId: ws.id,
-        instanceId: `i-${kind}`,
-        harnessId: 'default',
-        scopeId: ws.scopes[0].id,
-        kind,
-      })
-    );
-    return ws;
-  }
-
-  it('assistantItemMode is full-tools when absent and returns a set value unchanged', () => {
-    const ws = workspaceWith([]);
-    expect(assistantItemMode(ws)).toBe('full-tools');
-    expect(assistantItemMode({ ...ws, assistantItemMode: 'assistant-picks' })).toBe('assistant-picks');
-  });
-
-  it('listedSessions drops only the assistant record', () => {
-    const ws = workspaceWith(['interactive', 'assistant']);
-    expect(listedSessions(ws).map((s) => s.kind)).toEqual(['interactive']);
-    expect(assistantSession(ws)?.kind).toBe('assistant');
   });
 });

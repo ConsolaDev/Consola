@@ -2,10 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { DragEvent } from 'react';
 import {
   droppedSessionId,
-  homeScopeType,
-  isGroupedSessionDrag,
   isSessionDrag,
-  isSessionFromScope,
   startSessionDrag,
   SESSION_DRAG_TYPE,
 } from './sessionDrag';
@@ -17,8 +14,7 @@ function fakeDragStart() {
     dataTransfer: {
       effectAllowed: 'none',
       setData: (type: string, value: string) => {
-        // Chromium lower-cases custom type names; the fake does too, so a
-        // helper that forgot to normalise fails here rather than in a drag.
+        // Chromium lower-cases custom type names; the fake does too.
         data.set(type.toLowerCase(), value);
       },
     },
@@ -33,71 +29,29 @@ function fakeDragOver(types: string[]): DragEvent {
   } as unknown as DragEvent;
 }
 
-describe('homeScopeType', () => {
-  it('names the scope inside the type, which is the part a dragover can read', () => {
-    expect(homeScopeType('abc123')).toContain('abc123');
-    expect(homeScopeType('abc123')).not.toBe(homeScopeType('def456'));
-  });
-
-  it('is lower case, because Chromium stores custom type names that way', () => {
-    expect(homeScopeType('AbC123')).toBe(homeScopeType('AbC123').toLowerCase());
-    // Both ends normalise, so a mixed-case id still matches itself.
-    expect(homeScopeType('AbC123')).toBe(homeScopeType('abc123'));
-  });
-});
-
 describe('startSessionDrag', () => {
-  it('carries the session id as the payload', () => {
+  it('carries the session id as the payload and allows a move', () => {
     const { event, data } = fakeDragStart();
 
-    startSessionDrag(event, { id: 's1', scopeId: 'scope-a', groupId: 'g1' });
+    startSessionDrag(event, { id: 's1' });
 
     expect(data.get(SESSION_DRAG_TYPE)).toBe('s1');
     expect(event.dataTransfer.effectAllowed).toBe('move');
   });
 
-  it('names the home scope of a grouped session, so that scope row can accept it', () => {
+  it('puts nothing else on the transfer: buckets are derived, so there is no place to name', () => {
     const { event, data } = fakeDragStart();
 
-    startSessionDrag(event, { id: 's1', scopeId: 'scope-a', groupId: 'g1' });
+    startSessionDrag(event, { id: 's1' });
 
-    expect(data.has(homeScopeType('scope-a'))).toBe(true);
-  });
-
-  it('names no home scope for an ungrouped session — it has nowhere to go back to', () => {
-    const { event, data } = fakeDragStart();
-
-    startSessionDrag(event, { id: 's1', scopeId: 'scope-a' });
-
-    expect(data.has(homeScopeType('scope-a'))).toBe(false);
-    expect(data.get(SESSION_DRAG_TYPE)).toBe('s1');
+    expect([...data.keys()]).toEqual([SESSION_DRAG_TYPE]);
   });
 });
 
-describe('isSessionFromScope', () => {
-  it('accepts the drag at the scope it came from', () => {
-    const event = fakeDragOver([SESSION_DRAG_TYPE, homeScopeType('scope-a')]);
-
-    expect(isSessionFromScope(event, 'scope-a')).toBe(true);
-  });
-
-  it('refuses every other scope — a session\'s scope is fixed for its lifetime', () => {
-    const event = fakeDragOver([SESSION_DRAG_TYPE, homeScopeType('scope-a')]);
-
-    expect(isSessionFromScope(event, 'scope-b')).toBe(false);
-  });
-
-  it('refuses an ungrouped session, which is already home', () => {
-    const event = fakeDragOver([SESSION_DRAG_TYPE]);
-
-    expect(isSessionFromScope(event, 'scope-a')).toBe(false);
-  });
-
-  it('refuses a drag that is not one of our rows at all', () => {
-    const event = fakeDragOver(['Files']);
-
-    expect(isSessionDrag(event)).toBe(false);
-    expect(isSessionFromScope(event, 'scope-a')).toBe(false);
+describe('isSessionDrag', () => {
+  it('accepts our rows and refuses anything else, files included', () => {
+    expect(isSessionDrag(fakeDragOver([SESSION_DRAG_TYPE]))).toBe(true);
+    expect(isSessionDrag(fakeDragOver(['Files']))).toBe(false);
   });
 });
 
@@ -106,31 +60,11 @@ describe('droppedSessionId', () => {
     const event = {
       dataTransfer: { getData: (type: string) => (type === SESSION_DRAG_TYPE ? 's1' : '') },
     } as unknown as DragEvent;
-
     expect(droppedSessionId(event)).toBe('s1');
   });
 
   it('is null when the drop carried nothing usable', () => {
     const event = { dataTransfer: { getData: () => '' } } as unknown as DragEvent;
-
     expect(droppedSessionId(event)).toBeNull();
-  });
-});
-
-describe('isGroupedSessionDrag', () => {
-  it('accepts a grouped session from one scope', () => {
-    expect(isGroupedSessionDrag(fakeDragOver([SESSION_DRAG_TYPE, homeScopeType('scope-a')]))).toBe(true);
-  });
-
-  it('accepts a grouped session from any other scope too: leaving a group never changes a scope', () => {
-    expect(isGroupedSessionDrag(fakeDragOver([SESSION_DRAG_TYPE, homeScopeType('scope-b')]))).toBe(true);
-  });
-
-  it('refuses an ungrouped session, which is already there', () => {
-    expect(isGroupedSessionDrag(fakeDragOver([SESSION_DRAG_TYPE]))).toBe(false);
-  });
-
-  it('refuses a drag that is not one of our rows at all', () => {
-    expect(isGroupedSessionDrag(fakeDragOver(['Files']))).toBe(false);
   });
 });

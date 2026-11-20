@@ -26,3 +26,6 @@ release/
 # Private local research and planning
 /docs/
 /doc/
+
+# Git worktrees for isolated feature work
+/.worktrees/

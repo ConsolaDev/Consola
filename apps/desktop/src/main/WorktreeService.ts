@@ -1,14 +1,22 @@
-import { withoutGitHooks } from '@consola/automation-engine';
-import { execFile, execFileSync } from 'child_process';
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
-import { promisify } from 'util';
+import { execFile, execFileSync } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { promisify } from 'node:util';
 import type { GitProviderId } from '../shared/providers';
 import type { WorkItemRef } from '../shared/workItems';
 import type { Workspace } from '../shared/workspace';
+import type { RemovedWorktree } from '../shared/worktreeCleanup';
 import { getProviderDriver, type GitProviderDriver } from './providers';
+import { withoutGitHooks } from './gitHooks';
 import { resolveSshRemote } from './sshRemote';
+import {
+  type AtRiskFiles,
+  ignoredAtRisk,
+  type NestedRepos,
+  nestedRepos,
+} from './worktreeCleanup/localFiles';
+import { type PathLock, worktreePathLock } from './worktreeCleanup/PathLock';
 
 const execFileAsync = promisify(execFile);
 
@@ -34,7 +42,22 @@ export interface WorktreeInspection {
   originUrl: string | null;
   /** Uncommitted changes or untracked files (ignored files do not count). */
   dirty: boolean;
+  /** How many paths `git status` lists; 0 when it could not say. */
+  dirtyFiles: number;
 }
+
+/** What putting a removed worktree back found or did. */
+export type RestoreResult =
+  /** The folder was there all along (a removal that never finished): left as it is. */
+  | { kind: 'existed'; head: string }
+  /** Recreated on the recorded commit, on its branch when that had not moved, else detached. */
+  | { kind: 'rebuilt'; branch: string | null };
+
+/** Skip-worktree or assume-unchanged files whose content differs from the index. */
+export type HiddenChanges =
+  | { kind: 'none' }
+  | { kind: 'some'; paths: string[] }
+  | { kind: 'unknown' };
 
 export type PublishedVerdict = 'published' | 'local-commits' | 'unverifiable';
 
@@ -118,10 +141,19 @@ export class WorktreeService {
   /** Directory -> origin URL with SSH aliases resolved (or null for non-repos). */
   private readonly remoteCache = new Map<string, string | null>();
 
+  /**
+   * Puts back a worktree a cleanup rule removed, when a record names `dir`
+   * (`WorktreeRebuilder.restoreAt`). Called with the folder's lock held,
+   * before anything here would recreate it at a pull request's latest head.
+   * Set at wiring time.
+   */
+  public restoreRemoved?: (dir: string) => Promise<unknown>;
+
   constructor(
     private readonly root: string = process.env.CONSOLA_WORKTREES_DIR ??
       path.join(os.homedir(), '.consola', 'worktrees'),
-    private readonly resolveDriver: (id: GitProviderId) => GitProviderDriver = getProviderDriver
+    private readonly resolveDriver: (id: GitProviderId) => GitProviderDriver = getProviderDriver,
+    private readonly lock: PathLock = worktreePathLock,
   ) {}
 
   public invalidate(): void {
@@ -202,7 +234,7 @@ export class WorktreeService {
       'git',
       dir,
       ['rev-parse', '--path-format=absolute', '--git-common-dir'],
-      env
+      env,
     );
     return out.trim();
   }
@@ -218,7 +250,7 @@ export class WorktreeService {
     dir: string,
     clonePath: string,
     workItem: WorkItemRef,
-    env: NodeJS.ProcessEnv
+    env: NodeJS.ProcessEnv,
   ): Promise<void> {
     const [existingCommonDir, expectedCommonDir] = await Promise.all([
       this.gitCommonDir(dir, env),
@@ -231,7 +263,7 @@ export class WorktreeService {
         `Refusing to hand it to ${workItem.repo} ${workItem.type} #${workItem.number} — ` +
         `two repositories share the worktree name "${worktreeDirName(workItem)}" here. ` +
         `Remove the stale worktree, or clone one of them somewhere the collision cannot happen, ` +
-        `before retrying.`
+        `before retrying.`,
     );
   }
 
@@ -262,9 +294,29 @@ export class WorktreeService {
   public async ensureWorktree(
     clonePath: string,
     workItem: WorkItemRef,
-    env: NodeJS.ProcessEnv
+    env: NodeJS.ProcessEnv,
   ): Promise<string> {
     const dir = path.join(this.root, worktreeDirName(workItem));
+    // Under the folder's lock, so a removal cannot run between this handing
+    // the folder back and the session that will use it being recorded; the
+    // stamp covers the rest of that gap.
+    const ready = await this.lock.run(dir, () =>
+      this.ensureWorktreeLocked(dir, clonePath, workItem, env),
+    );
+    this.lock.markPrepared(ready);
+    return ready;
+  }
+
+  private async ensureWorktreeLocked(
+    dir: string,
+    clonePath: string,
+    workItem: WorkItemRef,
+    env: NodeJS.ProcessEnv,
+  ): Promise<string> {
+    // Only the rebuilder recreates a folder a removal record names: on the
+    // commit it was left at, never the PR's latest head under a path the
+    // CLI already trusts.
+    if (this.restoreRemoved) await this.restoreRemoved(dir);
     if (fs.existsSync(path.join(dir, '.git'))) {
       await this.assertBelongsToClone(dir, clonePath, workItem, env);
       return dir;
@@ -294,10 +346,8 @@ export class WorktreeService {
       await this.run(
         'git',
         clonePath,
-        existing.trim()
-          ? ['worktree', 'add', dir, branch]
-          : ['worktree', 'add', '-b', branch, dir],
-        env
+        existing.trim() ? ['worktree', 'add', dir, branch] : ['worktree', 'add', '-b', branch, dir],
+        env,
       );
       // No step follows the add on this path today, so there is nothing to
       // unwind — but if one is added later, wrap it the same way as above.
@@ -355,7 +405,7 @@ export class WorktreeService {
   public async syncAutomationCheckout(
     clonePath: string,
     workItem: WorkItemRef,
-    callerEnv: NodeJS.ProcessEnv
+    callerEnv: NodeJS.ProcessEnv,
   ): Promise<{ dir: string; head: string }> {
     const env = withoutGitHooks(withoutRepositoryOverrides(callerEnv));
     // Before anything is made: a provider this build lacks is not a fetch that may work later.
@@ -377,7 +427,10 @@ export class WorktreeService {
         await driver.checkout(dir, workItem, env, { detach: true });
       } else {
         // Nobody is there to answer a credential prompt.
-        await this.run('git', dir, ['fetch', '--quiet', 'origin', 'HEAD'], { ...env, GIT_TERMINAL_PROMPT: '0' });
+        await this.run('git', dir, ['fetch', '--quiet', 'origin', 'HEAD'], {
+          ...env,
+          GIT_TERMINAL_PROMPT: '0',
+        });
         await this.run('git', dir, ['checkout', '--quiet', '--detach', 'FETCH_HEAD'], env);
       }
     } catch (error) {
@@ -405,12 +458,12 @@ export class WorktreeService {
     dir: string,
     clonePath: string,
     workItem: WorkItemRef,
-    env: NodeJS.ProcessEnv
+    env: NodeJS.ProcessEnv,
   ): Promise<void> {
     const refuse = (why: string) =>
       new Error(
         `Refusing to reset ${dir}: ${why}, so it is not an automation checkout Consola made. ` +
-          `Nothing in it was changed; move it aside, then retry.`
+          `Nothing in it was changed; move it aside, then retry.`,
       );
     const entry = await fs.promises.lstat(dir);
     if (entry.isSymbolicLink()) throw refuse('it is a symbolic link');
@@ -419,31 +472,45 @@ export class WorktreeService {
     if (dotGit?.isSymbolicLink()) throw refuse('its .git is a symbolic link');
     if (!dotGit?.isFile()) throw refuse('its .git is not the file a linked worktree has');
     const real = canonicalPathOrNull(dir);
-    if (!real || !this.isDirectChildOfRoot(dir, canonicalPathOrNull)) throw refuse('it is not in Consola’s worktree folder');
+    if (!real || !this.isDirectChildOfRoot(dir, canonicalPathOrNull))
+      throw refuse('it is not in Consola’s worktree folder');
     await this.assertBelongsToClone(dir, clonePath, workItem, env);
     const [toplevel, gitDir, commonDir] = (
-      await this.run('git', dir, ['rev-parse', '--path-format=absolute', '--show-toplevel', '--git-dir', '--git-common-dir'], env)
+      await this.run(
+        'git',
+        dir,
+        ['rev-parse', '--path-format=absolute', '--show-toplevel', '--git-dir', '--git-common-dir'],
+        env,
+      )
     )
       .trim()
       .split('\n');
     if (!toplevel || !gitDir || !commonDir) throw refuse('git cannot say what it is');
-    if (canonicalPathOrNull(path.dirname(gitDir)) !== canonicalPathOrNull(path.join(commonDir, 'worktrees'))) {
+    if (
+      canonicalPathOrNull(path.dirname(gitDir)) !==
+      canonicalPathOrNull(path.join(commonDir, 'worktrees'))
+    ) {
       throw refuse('it is not a linked worktree of the clone');
     }
     // Git writes it absolute, or relative to the git dir (`worktree.useRelativePaths`).
     let pointsAt: string | null = null;
     try {
-      const written = path.resolve(gitDir, fs.readFileSync(path.join(gitDir, 'gitdir'), 'utf8').trim());
+      const written = path.resolve(
+        gitDir,
+        fs.readFileSync(path.join(gitDir, 'gitdir'), 'utf8').trim(),
+      );
       const folder = canonicalPathOrNull(path.dirname(written));
       pointsAt = folder ? path.join(folder, path.basename(written)) : null;
     } catch {
       pointsAt = null;
     }
     // This folder's own `.git`, never wherever a link there leads.
-    if (pointsAt !== path.join(real, '.git')) throw refuse('its git dir belongs to another worktree');
+    if (pointsAt !== path.join(real, '.git'))
+      throw refuse('its git dir belongs to another worktree');
     if (canonicalPathOrNull(toplevel) !== real) throw refuse(`it is inside ${toplevel}`);
     if (real === canonicalPathOrNull(clonePath)) throw refuse('it is the clone itself');
-    if (real === canonicalPathOrNull(this.worktreePathFor(workItem))) throw refuse('it is the Inbox’s worktree for this item');
+    if (real === canonicalPathOrNull(this.worktreePathFor(workItem)))
+      throw refuse('it is the Inbox’s worktree for this item');
   }
 
   /**
@@ -454,12 +521,24 @@ export class WorktreeService {
    * Only a clean worktree is touched: anything uncommitted in it is someone's
    * work, and a refresh must never be what loses it. Returns whether it ran.
    */
-  public async refreshPullRequest(dir: string, workItem: WorkItemRef, env: NodeJS.ProcessEnv): Promise<boolean> {
+  public async refreshPullRequest(
+    dir: string,
+    workItem: WorkItemRef,
+    env: NodeJS.ProcessEnv,
+  ): Promise<boolean> {
     if (workItem.type !== 'pr') return false;
-    const status = await this.run('git', dir, ['status', '--porcelain'], env);
-    if (status.trim()) return false;
-    await this.checkoutPullRequest(dir, workItem, env);
-    return true;
+    return this.lock.run(dir, async () => {
+      if (!fs.existsSync(path.join(dir, '.git'))) return false;
+      const status = await this.run(
+        'git',
+        dir,
+        ['status', '--porcelain', '--untracked-files=normal'],
+        env,
+      );
+      if (status.trim()) return false;
+      await this.checkoutPullRequest(dir, workItem, env);
+      return true;
+    });
   }
 
   /**
@@ -474,7 +553,11 @@ export class WorktreeService {
    * the PR, and the checkout runs again told to reset it. A commit nobody
    * pushed is someone's work: then the error stands, and says why.
    */
-  private async checkoutPullRequest(dir: string, workItem: WorkItemRef, env: NodeJS.ProcessEnv): Promise<void> {
+  private async checkoutPullRequest(
+    dir: string,
+    workItem: WorkItemRef,
+    env: NodeJS.ProcessEnv,
+  ): Promise<void> {
     const driver = this.resolveDriver(workItem.provider);
     try {
       await driver.checkout(dir, workItem, env);
@@ -485,7 +568,7 @@ export class WorktreeService {
       if (!(await this.holdsOnlyFetchedCommits(dir, env))) {
         const message = error instanceof Error ? error.message : String(error);
         throw new Error(
-          `${message}\n\nConsola left the local branch ${branch.stdout.trim()} as it is: it has commits that were never pushed.`
+          `${message}\n\nConsola left the local branch ${branch.stdout.trim()} as it is: it has commits that were never pushed.`,
         );
       }
       await driver.checkout(dir, workItem, env, { resetBranch: true });
@@ -501,14 +584,16 @@ export class WorktreeService {
     const upstream = await this.git(dir, ['rev-parse', '--symbolic-full-name', '@{upstream}'], env);
     const formerHeads =
       upstream.code === 0
-        ? (await this.git(dir, ['reflog', 'show', '--format=%H', upstream.stdout.trim()], env)).stdout
+        ? (
+            await this.git(dir, ['reflog', 'show', '--format=%H', upstream.stdout.trim()], env)
+          ).stdout
             .split('\n')
             .filter(Boolean)
         : [];
     const unfetched = await this.git(
       dir,
       ['rev-list', '--count', 'HEAD', '--not', '--remotes', ...new Set(formerHeads)],
-      env
+      env,
     );
     return unfetched.code === 0 && Number(unfetched.stdout.trim()) === 0;
   }
@@ -520,10 +605,15 @@ export class WorktreeService {
    * and cleanup must never be the thing that loses work.
    */
   public async prune(worktreePath: string): Promise<void> {
-    const status = await this.run('git', worktreePath, ['status', '--porcelain'], process.env);
+    const status = await this.run(
+      'git',
+      worktreePath,
+      ['status', '--porcelain', '--untracked-files=normal'],
+      process.env,
+    );
     if (status.trim()) {
       throw new Error(
-        `Refusing to prune ${worktreePath}: it has uncommitted changes. Commit or discard them first.`
+        `Refusing to prune ${worktreePath}: it has uncommitted changes. Commit or discard them first.`,
       );
     }
     const commonDir = (
@@ -531,7 +621,7 @@ export class WorktreeService {
         'git',
         worktreePath,
         ['rev-parse', '--path-format=absolute', '--git-common-dir'],
-        process.env
+        process.env,
       )
     ).trim();
     const mainRoot = path.dirname(commonDir);
@@ -554,6 +644,20 @@ export class WorktreeService {
   }
 
   /**
+   * The Consola worktree `dir` is, or lies inside, by real path: the
+   * root's direct child on the way down to it. Null for anything outside
+   * the root, the root itself, and a folder that does not exist.
+   */
+  public managedTreeOf(dir: string): string | null {
+    const root = realpathOrNull(this.root);
+    const target = realpathOrNull(dir);
+    if (root === null || target === null) return null;
+    const relative = path.relative(root, target);
+    if (relative === '' || relative.startsWith('..') || path.isAbsolute(relative)) return null;
+    return path.join(root, relative.split(path.sep)[0]);
+  }
+
+  /**
    * The facts that decide whether removing a checkout could lose work.
    * Null when `dir` is gone or is not inside a git checkout at all.
    */
@@ -573,7 +677,8 @@ export class WorktreeService {
 
     const [branchOut, status, origin] = await Promise.all([
       this.git(toplevel, ['symbolic-ref', '--quiet', '--short', 'HEAD']),
-      this.git(toplevel, ['status', '--porcelain']),
+      // Explicit: `status.showUntrackedFiles=no` would hide new files.
+      this.git(toplevel, ['status', '--porcelain', '--untracked-files=normal']),
       this.git(toplevel, ['remote', 'get-url', 'origin']),
     ]);
     const branch = branchOut.code === 0 ? branchOut.stdout.trim() || null : null;
@@ -598,7 +703,62 @@ export class WorktreeService {
       // Status failing is treated as dirty: if git cannot say the tree is
       // clean, it is not clean enough to delete.
       dirty: status.code !== 0 || status.stdout.trim().length > 0,
+      dirtyFiles: status.code === 0 ? status.stdout.split('\n').filter(Boolean).length : 0,
     };
+  }
+
+  /** Ignored files only this worktree has: see `worktreeCleanup/localFiles`. */
+  public ignoredAtRisk(tree: string, mainRepo: string): Promise<AtRiskFiles> {
+    return ignoredAtRisk((cwd, args) => this.git(cwd, args), tree, mainRepo);
+  }
+
+  /** Repositories nested below the tree's root. */
+  public nestedRepos(tree: string): Promise<NestedRepos> {
+    return nestedRepos(tree);
+  }
+
+  /**
+   * Edits git hides from `status`: files marked skip-worktree (`S`) or
+   * assume-unchanged (a lowercase tag) whose content no longer matches the
+   * index. A sparse checkout's absent skip-worktree files lose nothing.
+   */
+  public async hiddenChanges(tree: string): Promise<HiddenChanges> {
+    const listed = await this.git(tree, ['ls-files', '-v', '-z']);
+    if (listed.code !== 0) return { kind: 'unknown' };
+    const flagged = listed.stdout
+      .split('\0')
+      .filter((entry) => entry.length > 2)
+      .filter((entry) => entry[0] === 'S' || /^[a-z]$/.test(entry[0]))
+      .map((entry) => entry.slice(2))
+      .filter((file) => fs.existsSync(path.join(tree, file)));
+    if (flagged.length === 0) return { kind: 'none' };
+    const [staged, hashed] = await Promise.all([
+      this.git(tree, ['ls-files', '-s', '-z', '--', ...flagged]),
+      this.git(tree, ['hash-object', '--', ...flagged]),
+    ]);
+    if (staged.code !== 0 || hashed.code !== 0) return { kind: 'unknown' };
+    const indexed = new Map<string, string>();
+    for (const entry of staged.stdout.split('\0').filter(Boolean)) {
+      const [meta, file] = entry.split('\t');
+      indexed.set(file, meta.split(' ')[1]);
+    }
+    const hashes = hashed.stdout.trim().split('\n');
+    const changed = flagged.filter((file, index) => indexed.get(file) !== hashes[index]);
+    return changed.length === 0 ? { kind: 'none' } : { kind: 'some', paths: changed };
+  }
+
+  /** Whether git has the worktree locked (`git worktree lock`). Null when it could not say. */
+  public async isLocked(mainRepo: string, tree: string): Promise<boolean | null> {
+    const listed = await this.git(mainRepo, ['worktree', 'list', '--porcelain']);
+    if (listed.code !== 0) return null;
+    const target = realpathOrNull(tree) ?? path.resolve(tree);
+    for (const record of listed.stdout.split('\n\n')) {
+      const lines = record.split('\n');
+      const location = lines.find((line) => line.startsWith('worktree '))?.slice(9);
+      if (!location || (realpathOrNull(location) ?? path.resolve(location)) !== target) continue;
+      return lines.some((line) => line === 'locked' || line.startsWith('locked '));
+    }
+    return null;
   }
 
   /**
@@ -613,7 +773,7 @@ export class WorktreeService {
   public async commitsArePublished(
     inspection: WorktreeInspection,
     options: { knownHead?: string; fetchRef?: string },
-    env: NodeJS.ProcessEnv
+    env: NodeJS.ProcessEnv,
   ): Promise<PublishedVerdict> {
     const cwd = inspection.toplevel;
     const { knownHead, fetchRef } = options;
@@ -630,11 +790,22 @@ export class WorktreeService {
         present = await hasCommit();
       }
       if (!present) return 'unverifiable';
-      const ancestor = await this.git(cwd, ['merge-base', '--is-ancestor', inspection.head, knownHead]);
+      const ancestor = await this.git(cwd, [
+        'merge-base',
+        '--is-ancestor',
+        inspection.head,
+        knownHead,
+      ]);
       if (ancestor.code === 0) return 'published';
       return ancestor.code === 1 ? 'local-commits' : 'unverifiable';
     }
-    const unpublished = await this.git(cwd, ['rev-list', '--count', inspection.head, '--not', '--remotes']);
+    const unpublished = await this.git(cwd, [
+      'rev-list',
+      '--count',
+      inspection.head,
+      '--not',
+      '--remotes',
+    ]);
     if (unpublished.code !== 0) return 'unverifiable';
     return Number(unpublished.stdout.trim()) === 0 ? 'published' : 'local-commits';
   }
@@ -648,9 +819,17 @@ export class WorktreeService {
     if (!inspection.isLinkedWorktree || !this.isManagedPath(inspection.toplevel)) {
       throw new Error(`Refusing to remove ${inspection.toplevel}: it is not a Consola worktree.`);
     }
-    const removed = await this.git(inspection.mainRepo, ['worktree', 'remove', inspection.toplevel]);
+    const removed = await this.git(
+      inspection.mainRepo,
+      // Git's own dirty check is the last guard: it must see untracked files
+      // whatever the person's config says.
+      ['-c', 'status.showUntrackedFiles=normal', 'worktree', 'remove', inspection.toplevel],
+      withoutGitHooks(process.env),
+    );
     if (removed.code !== 0) {
-      throw new Error(removed.stderr.trim() || `git worktree remove ${inspection.toplevel} failed.`);
+      throw new Error(
+        removed.stderr.trim() || `git worktree remove ${inspection.toplevel} failed.`,
+      );
     }
   }
 
@@ -664,10 +843,15 @@ export class WorktreeService {
   public async deleteBranchAt(
     mainRepo: string,
     branch: string,
-    expectedHead: string
+    expectedHead: string,
   ): Promise<{ deleted: true } | { deleted: false; reason: string }> {
     if (PROTECTED_BRANCHES.has(branch)) return { deleted: false, reason: `${branch} is protected` };
-    const defaultRef = await this.git(mainRepo, ['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD']);
+    const defaultRef = await this.git(mainRepo, [
+      'symbolic-ref',
+      '--quiet',
+      '--short',
+      'refs/remotes/origin/HEAD',
+    ]);
     if (defaultRef.code === 0 && defaultRef.stdout.trim().replace(/^[^/]+\//, '') === branch) {
       return { deleted: false, reason: `${branch} is the default branch` };
     }
@@ -676,20 +860,124 @@ export class WorktreeService {
     if (worktrees.stdout.split('\n').includes(`branch refs/heads/${branch}`)) {
       return { deleted: false, reason: `${branch} is checked out in another worktree` };
     }
-    const deleted = await this.git(mainRepo, ['update-ref', '-d', `refs/heads/${branch}`, expectedHead]);
+    const deleted = await this.git(mainRepo, [
+      'update-ref',
+      '-d',
+      `refs/heads/${branch}`,
+      expectedHead,
+    ]);
     if (deleted.code !== 0) {
-      return { deleted: false, reason: `${branch} no longer points at ${expectedHead.slice(0, 7)}` };
+      return {
+        deleted: false,
+        reason: `${branch} no longer points at ${expectedHead.slice(0, 7)}`,
+      };
     }
     // update-ref leaves the tracking config behind; harmless, so best-effort.
     await this.git(mainRepo, ['config', '--remove-section', `branch.${branch}`]);
     return { deleted: true };
   }
 
+  /**
+   * Point `ref` at `commit` in the clone, so the commit outlives a removed
+   * worktree: a pull request's checkout may be detached, its branch reset by
+   * a later checkout, and gc drops what nothing references.
+   */
+  public async writeKeepRef(mainRepo: string, ref: string, commit: string): Promise<void> {
+    const written = await this.git(mainRepo, ['update-ref', ref, commit]);
+    if (written.code !== 0) {
+      throw new Error(written.stderr.trim() || `Could not write ${ref}.`);
+    }
+  }
+
+  /**
+   * Put a worktree a cleanup rule removed back at its path, on the commit it
+   * was on — never at whatever its branch or pull request points at now.
+   * Git hooks stay off: `worktree add` would otherwise run the checkout's
+   * own `post-checkout`. The caller holds the folder's lock.
+   *
+   * A folder already there is left alone: it is reported when it is this
+   * clone's worktree (a removal interrupted before git ran), refused when it
+   * is anything else.
+   */
+  public async restore(removed: RemovedWorktree): Promise<RestoreResult> {
+    const env = withoutGitHooks(process.env);
+    const dir = removed.path;
+    const short = removed.commit.slice(0, 7);
+    if (fs.existsSync(dir)) {
+      if (!fs.existsSync(path.join(dir, '.git'))) {
+        throw new Error(`${dir} exists but is not a git worktree, so Consola left it alone.`);
+      }
+      const [actual, expected] = await Promise.all([
+        this.git(dir, ['rev-parse', '--path-format=absolute', '--git-common-dir']),
+        this.git(removed.mainRepo, ['rev-parse', '--path-format=absolute', '--git-common-dir']),
+      ]);
+      if (
+        actual.code !== 0 ||
+        expected.code !== 0 ||
+        actual.stdout.trim() !== expected.stdout.trim()
+      ) {
+        throw new Error(
+          `${dir} exists but belongs to another repository, so Consola left it alone.`,
+        );
+      }
+      const head = await this.git(dir, ['rev-parse', 'HEAD']);
+      return { kind: 'existed', head: head.stdout.trim() };
+    }
+
+    if (!fs.existsSync(removed.mainRepo)) {
+      throw new Error(`the repository it belonged to is gone (${removed.mainRepo}).`);
+    }
+    await this.git(removed.mainRepo, ['worktree', 'prune'], env);
+    const present = await this.git(removed.mainRepo, [
+      'cat-file',
+      '-e',
+      `${removed.commit}^{commit}`,
+    ]);
+    if (present.code !== 0) {
+      throw new Error(`the commit it was on (${short}) is no longer in ${removed.mainRepo}.`);
+    }
+    await fs.promises.mkdir(path.dirname(dir), { recursive: true });
+    const added = await this.git(
+      removed.mainRepo,
+      ['worktree', 'add', '--detach', dir, removed.commit],
+      env,
+    );
+    if (added.code !== 0) {
+      throw new Error(added.stderr.trim() || `git worktree add ${dir} failed.`);
+    }
+    const head = await this.git(dir, ['rev-parse', 'HEAD']);
+    if (head.stdout.trim() !== removed.commit) {
+      throw new Error(`${dir} came back at ${head.stdout.trim().slice(0, 7)}, not ${short}.`);
+    }
+
+    // Back onto its branch only if the branch still points where the
+    // worktree left it, and no other worktree has it checked out.
+    let branch: string | null = null;
+    if (removed.branch) {
+      const [tip, listed] = await Promise.all([
+        this.git(removed.mainRepo, ['rev-parse', '--verify', '-q', `refs/heads/${removed.branch}`]),
+        this.git(removed.mainRepo, ['worktree', 'list', '--porcelain']),
+      ]);
+      const elsewhere = listed.stdout.split('\n').includes(`branch refs/heads/${removed.branch}`);
+      if (tip.code === 0 && tip.stdout.trim() === removed.commit && !elsewhere) {
+        const switched = await this.git(dir, ['switch', '--quiet', removed.branch], env);
+        if (switched.code === 0) branch = removed.branch;
+      }
+    }
+    return { kind: 'rebuilt', branch };
+  }
+
+  /** Best-effort: a keep-ref left behind costs one ref, never work. */
+  public async deleteKeepRef(mainRepo: string, ref: string): Promise<void> {
+    if (!ref.startsWith('refs/consola/')) return;
+    await this.git(mainRepo, ['update-ref', '-d', ref]);
+  }
+
   /** A git call whose exit code is an answer, not an error. */
   private async git(
     cwd: string,
     args: string[],
-    env: NodeJS.ProcessEnv = process.env
+    env: NodeJS.ProcessEnv = process.env,
   ): Promise<{ code: number; stdout: string; stderr: string }> {
     try {
       const { stdout, stderr } = await execFileAsync('git', ['-C', cwd, ...args], {
@@ -713,7 +1001,7 @@ export class WorktreeService {
     binary: string,
     cwd: string,
     args: string[],
-    env: NodeJS.ProcessEnv
+    env: NodeJS.ProcessEnv,
   ): Promise<string> {
     try {
       const { stdout } = await execFileAsync(binary, args, {

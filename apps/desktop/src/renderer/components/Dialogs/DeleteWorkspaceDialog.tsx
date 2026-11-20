@@ -1,4 +1,3 @@
-import { listedSessions } from '../../../shared/workspace';
 import { useWorkspaceStore, type Workspace } from '../../stores/workspaceStore';
 import { ConfirmDialog } from './ConfirmDialog';
 
@@ -16,9 +15,13 @@ interface DeleteWorkspaceDialogProps {
  * Main drops any window holding the workspace when the record disappears, so
  * neither caller has anything to clear afterwards.
  */
-export function DeleteWorkspaceDialog({ workspace, open, onOpenChange }: DeleteWorkspaceDialogProps) {
+export function DeleteWorkspaceDialog({
+  workspace,
+  open,
+  onOpenChange,
+}: DeleteWorkspaceDialogProps) {
   const deleteWorkspace = useWorkspaceStore((state) => state.deleteWorkspace);
-  const sessionCount = listedSessions(workspace).length;
+  const sessionCount = workspace.sessions.length;
 
   return (
     <ConfirmDialog

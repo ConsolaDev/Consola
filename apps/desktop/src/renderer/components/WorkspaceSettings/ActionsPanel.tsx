@@ -56,7 +56,7 @@ function appliesSummary(appliesTo: ItemType[]): string {
  */
 function groupOptionsFor(
   groups: Workspace['groups'],
-  selectedId: string
+  selectedId: string,
 ): Array<{ id: string; label: string }> {
   return groups
     .filter((group) => !group.archivedAt || group.id === selectedId)
@@ -134,7 +134,7 @@ export function ActionsPanel({ workspace }: ActionsPanelProps) {
   // render's value at that point, since React state isn't synchronous.
   const writeActions = async (
     nextActions: WorkItemAction[],
-    nextDefaults: SectionDefaults
+    nextDefaults: SectionDefaults,
   ): Promise<string | null> => {
     try {
       await setActions(workspace.id, nextActions, nextDefaults);
@@ -177,7 +177,9 @@ export function ActionsPanel({ workspace }: ActionsPanelProps) {
     });
 
   const updateDraft = (patch: Partial<Draft>) =>
-    setEditing((current) => (current ? { ...current, draft: { ...current.draft, ...patch } } : current));
+    setEditing((current) =>
+      current ? { ...current, draft: { ...current.draft, ...patch } } : current,
+    );
 
   const toggleApplies = (type: ItemType) =>
     setEditing((current) => {
@@ -223,7 +225,7 @@ export function ActionsPanel({ workspace }: ActionsPanelProps) {
     }
     const ok = await commit(
       actions.filter((action) => action.id !== id),
-      nextDefaults
+      nextDefaults,
     );
     if (ok) setEditing(null);
   };
@@ -338,7 +340,9 @@ export function ActionsPanel({ workspace }: ActionsPanelProps) {
             className="ws-select"
             aria-label="What running this action in an existing session does to its conversation"
             value={current.draft.conversation}
-            onChange={(event) => updateDraft({ conversation: event.target.value as ActionConversation })}
+            onChange={(event) =>
+              updateDraft({ conversation: event.target.value as ActionConversation })
+            }
           >
             <option value="continue">Continue its conversation</option>
             <option value="fresh">Start a fresh conversation (clean context)</option>
@@ -428,8 +432,8 @@ export function ActionsPanel({ workspace }: ActionsPanelProps) {
         What you can start on an Inbox item, or run again in a session already on one. The section
         default is the highlighted button in the detail pane; drag to reorder. An action can land
         its sessions in a group, so they arrive together instead of among everything else, and can
-        start a fresh conversation when run in an existing session, for a pass with a clean
-        context. Placeholders: <code>{PLACEHOLDERS}</code>.
+        start a fresh conversation when run in an existing session, for a pass with a clean context.
+        Placeholders: <code>{PLACEHOLDERS}</code>.
       </p>
 
       <div className="ws-row-list">

@@ -6,13 +6,18 @@ import {
   INBOX_SECTIONS,
   type InboxSection,
 } from '../../../shared/inboxSections';
-import { INBOX_VIEWS, groupBySection, itemsForView, type InboxViewId } from '../../../shared/inboxViews';
+import {
+  INBOX_VIEWS,
+  groupBySection,
+  itemsForView,
+  type InboxViewId,
+} from '../../../shared/inboxViews';
 import { PROVIDER_META } from '../../../shared/providers';
 import type { InboxItem } from '../../../shared/workItems';
 import { workItemKey } from '../../../shared/workItems';
 import { useInboxStore } from '../../stores/inboxStore';
 import { useSettingsStore } from '../../stores/settingsStore';
-import { useTerminalStore } from '../../stores/terminalStore';
+import { useAttentionStore } from '../../stores/attentionStore';
 import type { Workspace } from '../../stores/workspaceStore';
 import { CloneDialog } from './CloneDialog';
 import { InboxHeader } from './InboxHeader';
@@ -36,7 +41,7 @@ const NO_ITEMS: InboxItem[] = [];
 const PANE_DEFAULT_SIZE = '42%';
 
 const SECTION_LABELS = Object.fromEntries(
-  INBOX_SECTIONS.map(({ id, label }) => [id, label])
+  INBOX_SECTIONS.map(({ id, label }) => [id, label]),
 ) as Record<InboxSection, string>;
 
 /**
@@ -51,9 +56,11 @@ const SECTION_LABELS = Object.fromEntries(
  * live in the settings store because they survive relaunch.
  */
 export function InboxView({ workspace }: InboxViewProps) {
-  return workspace.provider
-    ? <ConnectedInbox key={workspace.id} workspace={workspace} />
-    : <InboxSetup workspace={workspace} />;
+  return workspace.provider ? (
+    <ConnectedInbox key={workspace.id} workspace={workspace} />
+  ) : (
+    <InboxSetup workspace={workspace} />
+  );
 }
 
 function ConnectedInbox({ workspace }: InboxViewProps) {
@@ -72,7 +79,7 @@ function ConnectedInbox({ workspace }: InboxViewProps) {
   const snapshot = useInboxStore((state) => state.snapshots[workspace.id]);
   const resolvedRepos = useInboxStore((state) => state.resolvedRepos[workspace.id]);
   const refresh = useInboxStore((state) => state.refresh);
-  const terminals = useTerminalStore((state) => state.terminals);
+  const attention = useAttentionStore((state) => state.attention);
   const filter = useSettingsStore((state) => state.inboxFilterFor(workspace.id));
   const setInboxRepoFilter = useSettingsStore((state) => state.setInboxRepoFilter);
   const setInboxUpdatedFilter = useSettingsStore((state) => state.setInboxUpdatedFilter);
@@ -107,7 +114,7 @@ function ConnectedInbox({ workspace }: InboxViewProps) {
 
   const filtered = useMemo(
     () => filterByRepos(filterByUpdated(items, filter.updated), filter.repos),
-    [items, filter.updated, filter.repos]
+    [items, filter.updated, filter.repos],
   );
   const counts = useMemo(() => {
     const result = {} as Record<InboxViewId, number>;
@@ -118,7 +125,7 @@ function ConnectedInbox({ workspace }: InboxViewProps) {
   const sections = useMemo(() => groupBySection(shown), [shown]);
   const sessionsByItem = useMemo(
     () => groupSessionsByWorkItem(workspace.sessions),
-    [workspace.sessions]
+    [workspace.sessions],
   );
 
   // Selection is a key, not an item: the snapshot behind it refreshes every
@@ -152,7 +159,7 @@ function ConnectedInbox({ workspace }: InboxViewProps) {
 
   // Esc closes the pane. The Inbox defers to ANY open dialog, without
   // requiring dialogs to opt in: CloneDialog and LinkSessionDialog also
-  // stopPropagation on their own Esc, but WorkspaceSettingsModal and its
+  // stopPropagation on their own Esc, but SettingsModal and its
   // ConfirmDialog can sit above the Inbox too and never wired that up, so
   // this listener checks for an open Radix dialog itself rather than
   // trusting every future dialog to remember the contract.
@@ -206,18 +213,32 @@ function ConnectedInbox({ workspace }: InboxViewProps) {
       <ViewTabs active={view} counts={counts} onSelect={setView} panelId={panelId} />
       {snapshot?.error && (
         <div className="inbox-setup-recovery">
-          <button className="inbox-pane-secondary" aria-expanded={showSetup}
-            onClick={() => setShowSetup(!showSetup)}>
+          <button
+            className="inbox-pane-secondary"
+            aria-expanded={showSetup}
+            onClick={() => setShowSetup(!showSetup)}
+          >
             {showSetup ? 'Hide GitHub setup' : 'Review GitHub setup'}
           </button>
-          {showSetup && <section className="inbox-setup" aria-label="Review GitHub setup">
-            <ProviderBindingPanel workspace={workspace} onConnected={() => void refresh(workspace.id)} />
-            <button className="inbox-pane-secondary" onClick={() => void refresh(workspace.id)}>Retry Inbox</button>
-          </section>}
+          {showSetup && (
+            <section className="inbox-setup" aria-label="Review GitHub setup">
+              <ProviderBindingPanel
+                workspace={workspace}
+                onConnected={() => void refresh(workspace.id)}
+              />
+              <button className="inbox-pane-secondary" onClick={() => void refresh(workspace.id)}>
+                Retry Inbox
+              </button>
+            </section>
+          )}
         </div>
       )}
       <div className="inbox-body">
-        <Group orientation="horizontal" defaultLayout={defaultLayout} onLayoutChanged={onLayoutChanged}>
+        <Group
+          orientation="horizontal"
+          defaultLayout={defaultLayout}
+          onLayoutChanged={onLayoutChanged}
+        >
           <Panel id="inbox-list" minSize="320px">
             <div
               className="inbox-main"
@@ -237,7 +258,7 @@ function ConnectedInbox({ workspace }: InboxViewProps) {
                     collapsed={collapsed.has(section)}
                     onToggle={() => toggleSection(section)}
                     sessionsByItem={sessionsByItem}
-                    terminals={terminals}
+                    attention={attention}
                     resolvedRepos={resolvedRepos}
                     selectedKey={selectedKey}
                     onSelectItem={selectItem}
@@ -255,7 +276,7 @@ function ConnectedInbox({ workspace }: InboxViewProps) {
                         key={key}
                         item={item}
                         sessions={sessionsByItem.get(key) ?? []}
-                        terminals={terminals}
+                        attention={attention}
                         cloned={isRepoCloned(resolvedRepos, item.workItem.repo)}
                         selected={selectedKey === key}
                         onSelect={selectItem}
@@ -274,7 +295,13 @@ function ConnectedInbox({ workspace }: InboxViewProps) {
                 title="Drag to resize · double-click to reset"
                 onDoubleClick={() => paneRef.current?.resize(PANE_DEFAULT_SIZE)}
               />
-              <Panel id="inbox-pane" panelRef={paneRef} defaultSize={PANE_DEFAULT_SIZE} minSize="340px" maxSize="70%">
+              <Panel
+                id="inbox-pane"
+                panelRef={paneRef}
+                defaultSize={PANE_DEFAULT_SIZE}
+                minSize="340px"
+                maxSize="70%"
+              >
                 {/* A plain div, not a landmark: InboxItemPane's own <aside
                     aria-label="Work item details"> is the complementary region --
                     wrapping it in a second, unnamed one would nest two landmarks
@@ -288,7 +315,9 @@ function ConnectedInbox({ workspace }: InboxViewProps) {
                     item={selected}
                     onClose={() => setSelectedKey(null)}
                     onOpenWorkItem={(ref) => {
-                      const listed = items.some((candidate) => workItemKey(candidate.workItem) === workItemKey(ref));
+                      const listed = items.some(
+                        (candidate) => workItemKey(candidate.workItem) === workItemKey(ref),
+                      );
                       if (listed) setSelectedKey(workItemKey(ref));
                       return listed;
                     }}

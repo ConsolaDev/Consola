@@ -1,0 +1,17 @@
+> Why does the sync job keep failing against GitHub?
+
+⏺ The job gets a 403 from the GitHub API. If you've hit your rate limit, the
+  response carries an x-ratelimit-reset header saying when the limit resets.
+
+  You've hit your rate limit for unauthenticated requests (60 per hour).
+  Wait for it to reset · or pass a token with GITHUB_TOKEN.
+
+⏺ For comparison, here is how Claude Code words its own usage limits:
+  - "You've hit your 5-hour limit" means the session window is used up.
+  - The weekly limit resets seven days after it started.
+  You've hit your limit on the staging API too, so I paused the load test.
+
+────────────────────────────────────────────────────────────────────────────────
+>
+────────────────────────────────────────────────────────────────────────────────
+  ? for shortcuts

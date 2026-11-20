@@ -1,4 +1,4 @@
-import { z } from 'zod/v3';
+import { z } from 'zod';
 import type { EventTrigger, ExprValue, ItemFieldTable, RunItem } from '@consola/factory-spec';
 import {
   fenceUntrusted,
@@ -176,7 +176,7 @@ const CONNECTIONS: Record<
   string,
   {
     events: Record<string, EventDefinition>;
-    filter: z.AnyZodObject;
+    filter: z.ZodObject;
     resolve: typeof resolveGitHub;
     workItemSource: typeof githubWorkItemSource;
   }

@@ -90,7 +90,9 @@ describe('validateActionsWrite', () => {
   });
 
   it('accepts an empty list with no defaults — an unbound workspace', () => {
-    expect(validateActionsWrite({ actions: [], sectionDefaults: {} }, NO_GROUPS)).toEqual({ ok: true });
+    expect(validateActionsWrite({ actions: [], sectionDefaults: {} }, NO_GROUPS)).toEqual({
+      ok: true,
+    });
   });
 
   it('rejects duplicate ids', () => {
@@ -122,17 +124,23 @@ describe('validateActionsWrite', () => {
 
   it('rejects an empty prompt — whitespace counts as empty', () => {
     const write = { actions: [{ ...actions[0], prompt: '   ' }], sectionDefaults: {} };
-    expect(validateActionsWrite(write, NO_GROUPS)).toEqual({ ok: false, message: '"Review" needs a prompt.' });
+    expect(validateActionsWrite(write, NO_GROUPS)).toEqual({
+      ok: false,
+      message: '"Review" needs a prompt.',
+    });
   });
 
   it('rejects an empty name', () => {
     const write = { actions: [{ ...actions[0], name: ' ' }], sectionDefaults: {} };
-    expect(validateActionsWrite(write, NO_GROUPS)).toEqual({ ok: false, message: 'Every action needs a name.' });
+    expect(validateActionsWrite(write, NO_GROUPS)).toEqual({
+      ok: false,
+      message: 'Every action needs a name.',
+    });
   });
 
   it('rejects a default pointing at an action that does not exist', () => {
     expect(
-      validateActionsWrite({ actions, sectionDefaults: { issues: 'gone' } }, NO_GROUPS)
+      validateActionsWrite({ actions, sectionDefaults: { issues: 'gone' } }, NO_GROUPS),
     ).toEqual({
       ok: false,
       message: 'The default for "issues" points at an action that does not exist.',
@@ -141,16 +149,23 @@ describe('validateActionsWrite', () => {
 
   it('rejects a default whose action does not apply to the section item type', () => {
     expect(
-      validateActionsWrite({ actions, sectionDefaults: { issues: idOf(actions, 'Review') } }, NO_GROUPS)
+      validateActionsWrite(
+        { actions, sectionDefaults: { issues: idOf(actions, 'Review') } },
+        NO_GROUPS,
+      ),
     ).toEqual({
       ok: false,
       message: '"Review" cannot be the default for "issues": it does not apply to issues.',
     });
     expect(
-      validateActionsWrite({ actions, sectionDefaults: { waiting: idOf(actions, 'Implement') } }, NO_GROUPS)
+      validateActionsWrite(
+        { actions, sectionDefaults: { waiting: idOf(actions, 'Implement') } },
+        NO_GROUPS,
+      ),
     ).toEqual({
       ok: false,
-      message: '"Implement" cannot be the default for "waiting": it does not apply to pull requests.',
+      message:
+        '"Implement" cannot be the default for "waiting": it does not apply to pull requests.',
     });
   });
 
@@ -159,21 +174,24 @@ describe('validateActionsWrite', () => {
       actions,
       sectionDefaults: { merged: idOf(actions, 'Review') } as unknown as typeof sectionDefaults,
     };
-    expect(validateActionsWrite(write, NO_GROUPS)).toEqual({ ok: false, message: 'Unknown inbox section: merged' });
+    expect(validateActionsWrite(write, NO_GROUPS)).toEqual({
+      ok: false,
+      message: 'Unknown inbox section: merged',
+    });
   });
 
   it('accepts an action pointed at a group the workspace has', () => {
     const routed = [{ ...actions[0], groupId: 'g-reviews' }, ...actions.slice(1)];
     expect(
-      validateActionsWrite({ actions: routed, sectionDefaults }, new Set(['g-reviews']))
+      validateActionsWrite({ actions: routed, sectionDefaults }, new Set(['g-reviews'])),
     ).toEqual({ ok: true });
   });
 
   it('rejects an action pointed at a group that does not exist', () => {
     const routed = [{ ...actions[0], groupId: 'g-gone' }, ...actions.slice(1)];
-    expect(validateActionsWrite({ actions: routed, sectionDefaults }, new Set(['g-reviews']))).toEqual(
-      { ok: false, message: '"Review" lands in a group that does not exist.' }
-    );
+    expect(
+      validateActionsWrite({ actions: routed, sectionDefaults }, new Set(['g-reviews'])),
+    ).toEqual({ ok: false, message: '"Review" lands in a group that does not exist.' });
   });
 
   it('accepts an action with no group at all — the pre-routing shape', () => {
@@ -189,11 +207,16 @@ describe('validateActionsWrite', () => {
       { ...actions[1], conversation: 'continue' as const },
       ...actions.slice(2),
     ];
-    expect(validateActionsWrite({ actions: set, sectionDefaults }, NO_GROUPS)).toEqual({ ok: true });
+    expect(validateActionsWrite({ actions: set, sectionDefaults }, NO_GROUPS)).toEqual({
+      ok: true,
+    });
   });
 
   it('rejects a conversation setting it does not know', () => {
-    const odd = [{ ...actions[0], conversation: 'clear' as unknown as 'fresh' }, ...actions.slice(1)];
+    const odd = [
+      { ...actions[0], conversation: 'clear' as unknown as 'fresh' },
+      ...actions.slice(1),
+    ];
     expect(validateActionsWrite({ actions: odd, sectionDefaults }, NO_GROUPS)).toEqual({
       ok: false,
       message: '"Review" has an unknown conversation setting.',
@@ -202,19 +225,45 @@ describe('validateActionsWrite', () => {
 
   it('rejects payloads that are not a list and an object — what IPC can deliver', () => {
     expect(
-      validateActionsWrite({ actions: 'nope' as unknown as WorkItemAction[], sectionDefaults: {} }, NO_GROUPS)
+      validateActionsWrite(
+        { actions: 'nope' as unknown as WorkItemAction[], sectionDefaults: {} },
+        NO_GROUPS,
+      ),
     ).toEqual({ ok: false, message: 'Actions must be a list.' });
     expect(
-      validateActionsWrite({ actions: [], sectionDefaults: null as unknown as typeof sectionDefaults }, NO_GROUPS)
+      validateActionsWrite(
+        { actions: [], sectionDefaults: null as unknown as typeof sectionDefaults },
+        NO_GROUPS,
+      ),
     ).toEqual({ ok: false, message: 'Section defaults must be an object.' });
   });
 });
 
 describe('defaultActionFor', () => {
-  const review: WorkItemAction = { id: 'a-review', name: 'Review', appliesTo: ['pr'], prompt: 'Review it.' };
-  const fixCi: WorkItemAction = { id: 'a-fixci', name: 'Fix CI', appliesTo: ['pr'], prompt: 'Fix CI.' };
-  const implement: WorkItemAction = { id: 'a-impl', name: 'Implement', appliesTo: ['issue'], prompt: 'Do it.' };
-  const both: WorkItemAction = { id: 'a-both', name: 'Summarise', appliesTo: ['pr', 'issue'], prompt: 'Sum.' };
+  const review: WorkItemAction = {
+    id: 'a-review',
+    name: 'Review',
+    appliesTo: ['pr'],
+    prompt: 'Review it.',
+  };
+  const fixCi: WorkItemAction = {
+    id: 'a-fixci',
+    name: 'Fix CI',
+    appliesTo: ['pr'],
+    prompt: 'Fix CI.',
+  };
+  const implement: WorkItemAction = {
+    id: 'a-impl',
+    name: 'Implement',
+    appliesTo: ['issue'],
+    prompt: 'Do it.',
+  };
+  const both: WorkItemAction = {
+    id: 'a-both',
+    name: 'Summarise',
+    appliesTo: ['pr', 'issue'],
+    prompt: 'Sum.',
+  };
   const actions = [review, fixCi, implement, both];
 
   it('picks the first action whose appliesTo matches the item type', () => {

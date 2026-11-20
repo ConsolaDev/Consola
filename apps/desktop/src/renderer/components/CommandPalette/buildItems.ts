@@ -17,20 +17,24 @@ import {
   Trash2,
 } from 'lucide-react';
 import type { GitFileStatus } from '../../types/electron';
+import type { SettingsSection } from '../Dialogs/settingsSections';
 import type { Harness } from '../../stores/harnessStore';
 import type { Scope, Session, Workspace } from '../../stores/workspaceStore';
-import type { TerminalState } from '../../stores/terminalStore';
 import { checkoutPathForSession, primaryScope, scopeForSession } from '../../../shared/workspace';
 import { useGitReviewStore } from '../../stores/gitReviewStore';
 import { useGitStatusStore } from '../../stores/gitStatusStore';
 import { useHarnessStore } from '../../stores/harnessStore';
 import { useNavigationStore } from '../../stores/navigationStore';
-import { useSettingsStore, TERMINAL_FONT_SIZE_MAX, TERMINAL_FONT_SIZE_MIN } from '../../stores/settingsStore';
+import {
+  useSettingsStore,
+  TERMINAL_FONT_SIZE_MAX,
+  TERMINAL_FONT_SIZE_MIN,
+} from '../../stores/settingsStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { dialogBridge } from '../../services/dialogBridge';
 import { createQuickSession, openNewSessionDialog } from '../../utils/sessionActions';
-import { workspaceStatusFor } from '../../utils/sessionStatus';
-import { isMac } from '../../utils/platform';
+import { workspaceStatusFor, type AttentionMap } from '../../utils/sessionStatus';
+import { isMac, WORKING_SHELF_SHORTCUT_LABEL } from '../../utils/platform';
 import type {
   PaletteMode,
   ActionPaletteItem,
@@ -58,7 +62,8 @@ export interface PaletteContext {
   /** Sessions whose CLI has exited and can be restarted. */
   exitedSessions: Array<{ session: Session; workspace: Workspace }>;
   /** Keyed by instance id, for the same status dot the sidebar and switcher show. */
-  terminals: Record<string, TerminalState>;
+  /** Each session's attention, for the workspace dots. */
+  statuses: AttentionMap;
   fileStatuses: Map<string, GitFileStatus>;
   /** Which repository `fileStatuses` actually describes. */
   gitStatusRootPath: string | null;
@@ -66,8 +71,7 @@ export interface PaletteContext {
   commitMessage: string;
   isGitReviewOpen: boolean;
   terminalFontSize: number;
-  openSettings: () => void;
-  openWorkspaceSettings: (workspaceId?: string) => void;
+  openSettings: (section?: SettingsSection) => void;
 }
 
 /**
@@ -94,7 +98,7 @@ function activeGitRoot(ctx: PaletteContext): string | null {
  */
 function hasFreshGitStatus(ctx: PaletteContext): boolean {
   const scope = activeScope(ctx);
-  return scope !== null && scope.isGitRepo && ctx.gitStatusRootPath === activeGitRoot(ctx);
+  return scope?.isGitRepo === true && ctx.gitStatusRootPath === activeGitRoot(ctx);
 }
 
 /** Actions, filtered to the ones that make sense right now. */
@@ -112,11 +116,17 @@ export function buildActionItems(ctx: PaletteContext): ActionPaletteItem[] {
       context: activeWorkspace.name,
       icon: Plus,
       shortcutHint: isMac ? '⌘N' : 'Ctrl+N',
-      run: async () => { await createQuickSession(activeWorkspace.id); },
+      run: async () => {
+        await createQuickSession(activeWorkspace.id);
+      },
     });
     items.push({
-      kind: 'action', section: 'actions', id: 'action.session.new-with-options',
-      label: 'New session with options…', context: activeWorkspace.name, icon: Plus,
+      kind: 'action',
+      section: 'actions',
+      id: 'action.session.new-with-options',
+      label: 'New session with options…',
+      context: activeWorkspace.name,
+      icon: Plus,
       shortcutHint: isMac ? '⇧⌘N' : 'Ctrl+Shift+N',
       run: () => openNewSessionDialog(activeWorkspace.id),
     });
@@ -130,9 +140,9 @@ export function buildActionItems(ctx: PaletteContext): ActionPaletteItem[] {
       label: 'Workspace settings…',
       context: activeWorkspace.name,
       icon: Settings,
-      // Explicit id rather than the context's fallback: the palette's
-      // snapshot names the workspace this row was built for.
-      run: () => ctx.openWorkspaceSettings(activeWorkspace.id),
+      // Straight to the Workspace group, which edits the workspace this
+      // window is on: the one this row names.
+      run: () => ctx.openSettings('general'),
     });
   }
 
@@ -205,7 +215,7 @@ export function buildActionItems(ctx: PaletteContext): ActionPaletteItem[] {
   });
 
   // The explorer and review panels only exist inside a session's content view.
-  if (activeSession && activeSession.kind !== 'assistant') {
+  if (activeSession) {
     items.push({
       kind: 'action',
       section: 'actions',
@@ -230,6 +240,16 @@ export function buildActionItems(ctx: PaletteContext): ActionPaletteItem[] {
       run: () => useNavigationStore.getState().toggleWorkItemPanel(),
     });
   }
+
+  items.push({
+    kind: 'action',
+    section: 'actions',
+    id: 'action.view.toggle-working-shelf',
+    label: 'Show or hide working sessions',
+    icon: PanelRight,
+    shortcutHint: WORKING_SHELF_SHORTCUT_LABEL,
+    run: () => useSettingsStore.getState().toggleSidebarShelf('working'),
+  });
 
   items.push({
     kind: 'action',
@@ -270,7 +290,7 @@ export function buildActionItems(ctx: PaletteContext): ActionPaletteItem[] {
   if (scope?.isGitRepo && gitRoot) {
     const rootPath = gitRoot;
 
-    if (activeSession && activeSession.kind !== 'assistant') {
+    if (activeSession) {
       items.push({
         kind: 'action',
         section: 'actions',
@@ -362,7 +382,7 @@ export function buildActionItems(ctx: PaletteContext): ActionPaletteItem[] {
 
 /** Every named session, labelled with the workspace it belongs to. */
 export function buildSessionItems(
-  entries: Array<{ session: Session; workspace: Workspace }>
+  entries: Array<{ session: Session; workspace: Workspace }>,
 ): SessionPaletteItem[] {
   return entries.map(({ session, workspace }) => ({
     kind: 'session',
@@ -377,7 +397,7 @@ export function buildSessionItems(
 
 export function buildWorkspaceItems(
   workspaces: Workspace[],
-  terminals: Record<string, TerminalState>
+  attention: AttentionMap,
 ): WorkspacePaletteItem[] {
   return workspaces.map((workspace) => ({
     kind: 'workspace',
@@ -387,7 +407,7 @@ export function buildWorkspaceItems(
     context: primaryScope(workspace)?.path ?? '',
     workspaceId: workspace.id,
     icon: workspace.icon,
-    status: workspaceStatusFor(workspace, terminals),
+    status: workspaceStatusFor(workspace, attention),
   }));
 }
 
@@ -420,7 +440,10 @@ export function buildFileItems(ctx: PaletteContext): FilePaletteItem[] {
   return items;
 }
 
-export function buildHarnessItems(harnesses: Harness[], currentDefaultId: string): HarnessPaletteItem[] {
+export function buildHarnessItems(
+  harnesses: Harness[],
+  currentDefaultId: string,
+): HarnessPaletteItem[] {
   return harnesses
     .filter((harness) => harness.id !== currentDefaultId)
     .map((harness) => ({
@@ -436,11 +459,11 @@ export function buildHarnessItems(harnesses: Harness[], currentDefaultId: string
 /** Rows offered by a sub-picker mode. */
 export function buildPickerItems(
   mode: Extract<PaletteMode, { kind: 'pick-workspace' | 'pick-session' | 'pick-harness' }>,
-  ctx: PaletteContext
+  ctx: PaletteContext,
 ): PaletteItem[] {
   switch (mode.kind) {
     case 'pick-workspace':
-      return buildWorkspaceItems(ctx.workspaces, ctx.terminals);
+      return buildWorkspaceItems(ctx.workspaces, ctx.statuses);
     case 'pick-session':
       return buildSessionItems(mode.purpose === 'restart' ? ctx.exitedSessions : ctx.allSessions);
     case 'pick-harness': {

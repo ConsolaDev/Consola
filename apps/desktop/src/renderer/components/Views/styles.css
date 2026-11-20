@@ -139,10 +139,20 @@
   text-align: left;
 }
 
-.home-agent-check > svg { flex-shrink: 0; color: var(--color-text-tertiary); }
-.home-agent-check-ok > svg { color: var(--color-success); }
-.home-agent-check-error > svg { color: var(--color-error); }
-.home-agent-check > span:first-of-type { flex: 1; min-width: 0; }
+.home-agent-check > svg {
+  flex-shrink: 0;
+  color: var(--color-text-tertiary);
+}
+.home-agent-check-ok > svg {
+  color: var(--color-success);
+}
+.home-agent-check-error > svg {
+  color: var(--color-error);
+}
+.home-agent-check > span:first-of-type {
+  flex: 1;
+  min-width: 0;
+}
 
 .home-agent-actions {
   display: flex;
@@ -161,11 +171,22 @@
   cursor: pointer;
 }
 
-.home-link-button:hover:not(:disabled) { text-decoration: underline; }
-.home-link-button:disabled { opacity: 0.5; cursor: default; }
+.home-link-button:hover:not(:disabled) {
+  text-decoration: underline;
+}
+.home-link-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
 
-.home-spinner { animation: home-spin 1s linear infinite; }
-@keyframes home-spin { to { transform: rotate(360deg); } }
+.home-spinner {
+  animation: home-spin 1s linear infinite;
+}
+@keyframes home-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
 
 .home-setup {
   display: flex;
@@ -215,7 +236,9 @@
   color: var(--color-text-tertiary);
 }
 
-.home-setup-scope + .home-setup-scope { border-top: 1px solid var(--color-border); }
+.home-setup-scope + .home-setup-scope {
+  border-top: 1px solid var(--color-border);
+}
 
 .home-setup-scope-text {
   display: flex;
@@ -273,12 +296,19 @@
 }
 
 @media (max-width: 520px) {
-  .home-view { padding: var(--space-5); }
-  .home-concept { grid-template-columns: 1fr; gap: var(--space-1); }
+  .home-view {
+    padding: var(--space-5);
+  }
+  .home-concept {
+    grid-template-columns: 1fr;
+    gap: var(--space-1);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .home-spinner { animation: none; }
+  .home-spinner {
+    animation: none;
+  }
 }
 
 /* Workspace View */
@@ -334,9 +364,29 @@
   font-weight: var(--font-weight-normal);
 }
 
+/* Carved out of the header's drag region, so a double-click on the name
+   reaches the page and renames the session instead of zooming the window. */
 .workspace-view-session {
   color: var(--color-accent);
   font-weight: var(--font-weight-medium);
+  -webkit-app-region: no-drag;
+}
+
+/* The header's rename field, in the title's own type and as wide as its text,
+   so the name is edited where it stood. As tall as the checkout chip beside
+   it, so the header does not grow while it is open. */
+.session-header-rename-input {
+  field-sizing: content;
+  min-width: 8ch;
+  height: 22px;
+  margin: 0;
+  padding: 0 var(--space-1);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  font: inherit;
+  outline: none;
 }
 
 .workspace-view-path {
@@ -371,7 +421,9 @@
   cursor: pointer;
   overflow: hidden;
   animation: checkout-chip-in 220ms cubic-bezier(0.25, 1, 0.5, 1);
-  transition: border-color var(--transition-fast), background var(--transition-fast),
+  transition:
+    border-color var(--transition-fast),
+    background var(--transition-fast),
     color var(--transition-fast);
 }
 
@@ -405,12 +457,12 @@
   text-overflow: ellipsis;
 }
 
-.checkout-chip[data-kind='worktree'] {
+.checkout-chip[data-kind="worktree"] {
   border-color: var(--color-worktree-border);
   color: var(--color-text-primary);
 }
 
-.checkout-chip[data-kind='worktree']:hover {
+.checkout-chip[data-kind="worktree"]:hover {
   border-color: var(--color-worktree);
   background: var(--color-worktree-muted);
 }
@@ -467,7 +519,7 @@
   color: var(--color-text-secondary);
 }
 
-.checkout-tooltip-title[data-kind='worktree'] {
+.checkout-tooltip-title[data-kind="worktree"] {
   color: var(--color-worktree);
 }
 
@@ -525,7 +577,7 @@
   color: var(--color-text-tertiary);
 }
 
-.checkout-tooltip-value[data-kind='worktree'] > svg {
+.checkout-tooltip-value[data-kind="worktree"] > svg {
   color: var(--color-worktree);
 }
 
@@ -608,7 +660,7 @@
 }
 
 .resize-handle::after {
-  content: '';
+  content: "";
   position: absolute;
   top: 0;
   bottom: 0;
@@ -648,8 +700,12 @@
 }
 
 @keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* Markdown preview - text wraps to container, code blocks can scroll horizontally */
@@ -730,7 +786,9 @@
   background: transparent;
   color: color-mix(in srgb, var(--color-text-secondary) 67%, var(--color-text-primary));
   cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast);
+  transition:
+    background var(--transition-fast),
+    color var(--transition-fast);
 }
 
 .path-display-toggle:hover {
@@ -783,7 +841,9 @@
   background: transparent;
   color: color-mix(in srgb, var(--color-text-secondary) 67%, var(--color-text-primary));
   cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast);
+  transition:
+    background var(--transition-fast),
+    color var(--transition-fast);
 }
 
 .git-stats-refresh:hover {
@@ -796,8 +856,12 @@
 }
 
 @keyframes git-spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .git-stats-refresh.loading svg {
@@ -1107,90 +1171,4 @@
 
 .diff-unified-line-remove .diff-unified-line-number {
   background: rgba(235, 87, 87, 0.2);
-}
-
-/* The Assistant's header and the marker it leaves on sessions it touched. */
-.assistant-header-spark {
-  color: var(--color-worktree);
-  white-space: pre;
-}
-
-.assistant-header-sub {
-  font-size: var(--font-size-xs);
-  color: var(--color-text-tertiary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  min-width: 0;
-}
-
-.assistant-header-spacer {
-  flex: 1;
-}
-
-.assistant-header-menu {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--color-text-secondary);
-  cursor: pointer;
-}
-
-.assistant-header-menu:hover,
-.assistant-header-menu[data-state='open'] {
-  background: var(--color-bg-hover);
-  color: var(--color-text-primary);
-}
-
-.assistant-header-menu:focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 1px;
-}
-
-.assistant-marker {
-  cursor: default;
-  animation: none;
-}
-
-.assistant-marker:hover {
-  border-color: var(--color-border-strong);
-  background: transparent;
-  color: var(--color-text-secondary);
-}
-
-.assistant-marker-label {
-  align-self: center;
-  padding: 0 8px;
-  font-size: var(--font-size-sm);
-  line-height: 20px;
-  white-space: nowrap;
-}
-
-/* The tray's place once hidden: the count, and a way back. A literal pill radius, since --radius-full draws square inside .radix-themes. */
-.assistant-header-waiting {
-  display: inline-flex;
-  align-items: center;
-  flex-shrink: 0;
-  padding: 1px var(--space-2);
-  border: 1px solid var(--color-warning);
-  border-radius: 999px;
-  background: transparent;
-  font-size: var(--font-size-xs);
-  color: var(--color-warning);
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.assistant-header-waiting:hover {
-  background: var(--color-bg-hover);
-}
-
-.assistant-header-waiting:focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 1px;
 }

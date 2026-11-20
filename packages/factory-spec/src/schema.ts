@@ -102,7 +102,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  */
 const triggerSchema = z.unknown().transform((on, ctx): Trigger => {
   const fail = (message: string, path: string[] = []): never => {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, message, path });
+    ctx.addIssue({ code: 'custom', message, path });
     return z.NEVER;
   };
   if (on === 'manual') return { kind: 'manual' };
@@ -128,7 +128,7 @@ const triggerSchema = z.unknown().transform((on, ctx): Trigger => {
     let reported = false;
     const report = (message: string, path: string[] = []) => {
       reported = true;
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message, path });
+      ctx.addIssue({ code: 'custom', message, path });
     };
     const parsed =
       kind === 'poll'
@@ -194,7 +194,7 @@ function foldStringRun(entry: unknown): unknown {
 /** `applies_to: [pr, issue]`: one or both, each once, in the order written. */
 const appliesToSchema = z.unknown().transform((written, ctx): Array<'pr' | 'issue'> => {
   const fail = (message: string): never => {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, message });
+    ctx.addIssue({ code: 'custom', message });
     return z.NEVER;
   };
   const expected = 'Expected `pr`, `issue` or both.';
@@ -211,7 +211,7 @@ const appliesToSchema = z.unknown().transform((written, ctx): Array<'pr' | 'issu
 /** `run:` as an object with exactly one of action, prompt or tool. */
 const runSchema = z.unknown().transform((run, ctx): RunTarget => {
   const fail = (message: string, path: string[] = []): never => {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, message, path });
+    ctx.addIssue({ code: 'custom', message, path });
     return z.NEVER;
   };
   if (run instanceof StringRun) {
@@ -268,7 +268,7 @@ const runSchema = z.unknown().transform((run, ctx): RunTarget => {
 
 /** Named rather than left to `strict()`, whose "unrecognized key" would not say why. */
 function explained(message: string) {
-  return z.never({ errorMap: () => ({ message }) }).optional();
+  return z.never({ error: message }).optional();
 }
 
 /** Every key a later slice owns, refused with what it arrives with; `with` keeps its own message above. */
@@ -290,13 +290,13 @@ function requireOneOf(entry: unknown, ctx: z.RefinementCtx): unknown {
     Object.prototype.hasOwnProperty.call(entry, key) && entry[key] !== undefined;
   if (has('run') && has('steps')) {
     ctx.addIssue({
-      code: z.ZodIssueCode.custom,
+      code: 'custom',
       path: [],
       message: 'An entry has `run:` or `steps:`, not both.',
     });
   } else if (!has('run') && !has('steps')) {
     ctx.addIssue({
-      code: z.ZodIssueCode.custom,
+      code: 'custom',
       path: [],
       message: 'Expected `run:` or `steps:`: say what this automation does.',
     });
@@ -305,10 +305,19 @@ function requireOneOf(entry: unknown, ctx: z.RefinementCtx): unknown {
 }
 
 export function automationSchema() {
-  return z.preprocess(
-    (entry, ctx) => requireOneOf(foldStringRun(entry), ctx),
-    automationEntrySchema(),
-  );
+  const entrySchema = automationEntrySchema();
+  // Not `z.preprocess`: zod 4 stops a pipe at the first issue, which would
+  // hide the entry's own issues behind the one-of issue. The entry is parsed
+  // whatever that check found, and both are reported, one-of first.
+  return z.unknown().transform((raw, ctx): Automation => {
+    const entry = requireOneOf(foldStringRun(raw), ctx);
+    const parsed = entrySchema.safeParse(entry);
+    if (!parsed.success) {
+      for (const issue of parsed.error.issues) ctx.addIssue({ ...issue });
+      return z.NEVER;
+    }
+    return parsed.data;
+  });
 }
 
 function automationEntrySchema() {
@@ -323,7 +332,7 @@ function automationEntrySchema() {
       on: triggerSchema,
       run: runSchema.optional(),
       steps: stepsSchema().optional(),
-      filter: z.record(z.unknown()).optional(),
+      filter: z.record(z.string(), z.unknown()).optional(),
       scope: z.string().trim().min(1, 'Name one of the workspace’s scopes.').optional(),
       applies_to: appliesToSchema.optional(),
       mode: z.enum(AUTOMATION_MODES).default('confirm'),
@@ -339,7 +348,7 @@ function automationEntrySchema() {
     .strict()
     .superRefine((entry, ctx) => {
       const issue = (path: string, message: string) =>
-        ctx.addIssue({ code: z.ZodIssueCode.custom, path: [path], message });
+        ctx.addIssue({ code: 'custom', path: [path], message });
       const { on: trigger, run, steps } = entry;
       // A field that failed is already reported, and its value is not one.
       if (!trigger?.kind) return;
@@ -388,7 +397,7 @@ function automationEntrySchema() {
         // A step that failed its own checks leaves no list to resolve against.
         if (Array.isArray(steps)) {
           checkSteps(steps, { trigger, appliesTo: entry.applies_to }, ['steps'], (message, path) =>
-            ctx.addIssue({ code: z.ZodIssueCode.custom, path, message }),
+            ctx.addIssue({ code: 'custom', path, message }),
           );
         }
         return;
@@ -437,9 +446,7 @@ function automationEntrySchema() {
  */
 export const fileSchema = z
   .object({
-    version: z.literal(1, {
-      errorMap: () => ({ message: 'Expected `version: 1` at the top of the file.' }),
-    }),
+    version: z.literal(1, { error: 'Expected `version: 1` at the top of the file.' }),
     // `automations:` with only comments under it is YAML null, and it is
     // what a file looks like once its last automation is commented out.
     automations: z

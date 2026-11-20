@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { HarnessUpdates } from '../../shared/harness';
+import type { Label, WorkspaceUpdates } from '../../shared/workspace';
 import {
   allowedGroupUpdates,
   allowedHarnessUpdates,
+  allowedLabelRecord,
+  allowedLabelUpdates,
   allowedScopeUpdates,
   allowedSessionUpdates,
   allowedWorkspaceUpdates,
@@ -60,7 +63,19 @@ describe('allowedHarnessUpdates', () => {
 });
 
 describe('allowedWorkspaceUpdates', () => {
-  const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=';
+  it('rebuilds title settings from the allow-list and rejects invalid ones', () => {
+    expect(
+      allowedWorkspaceUpdates({
+        sessionTitles: { source: 'pinned', harnessId: 'h', extra: 1 } as never,
+      }),
+    ).toEqual({ sessionTitles: { source: 'pinned', harnessId: 'h' } });
+    expect(() => allowedWorkspaceUpdates({ sessionTitles: { source: 'pinned' } })).toThrow(
+      'Choose valid title settings.',
+    );
+  });
+
+  const png =
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=';
 
   it('accepts embedded images and strips extra uploaded fields', () => {
     const icon = { type: 'image' as const, dataUrl: png, sourcePath: '/private/logo.png' };
@@ -68,8 +83,10 @@ describe('allowedWorkspaceUpdates', () => {
   });
 
   it.each([
-    'file:///private/logo.png', 'https://example.com/logo.png',
-    'data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=', 'data:image/png;base64,invalid',
+    'file:///private/logo.png',
+    'https://example.com/logo.png',
+    'data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=',
+    'data:image/png;base64,invalid',
     `data:image/png;base64,iVBORw0KGgo${'A'.repeat(100_000)}`,
   ])('rejects non-PNG or oversized embedded images', (dataUrl) => {
     expect(() => allowedWorkspaceUpdates({ icon: { type: 'image', dataUrl } })).toThrow();
@@ -82,10 +99,13 @@ describe('allowedWorkspaceUpdates', () => {
     expect(allowedWorkspaceUpdates({ name: 'Renamed' })).not.toHaveProperty('icon');
   });
 
-  it.each(['unknown', '', null, 42, { id: 'rocket' }])('rejects invalid icon payload %j', (icon) => {
-    const payload = { icon } as unknown as Parameters<typeof allowedWorkspaceUpdates>[0];
-    expect(() => allowedWorkspaceUpdates(payload)).toThrow('Choose a valid workspace icon.');
-  });
+  it.each(['unknown', '', null, 42, { id: 'rocket' }])(
+    'rejects invalid icon payload %j',
+    (icon) => {
+      const payload = { icon } as unknown as Parameters<typeof allowedWorkspaceUpdates>[0];
+      expect(() => allowedWorkspaceUpdates(payload)).toThrow('Choose a valid workspace icon.');
+    },
+  );
 
   it('drops forbidden fields', () => {
     const payload = {
@@ -162,7 +182,113 @@ describe('allowedGroupUpdates', () => {
   });
 });
 
+describe('allowedLabelRecord', () => {
+  it('rebuilds the label and keeps nothing else the memento carried', () => {
+    const payload = {
+      id: 'l1',
+      name: 'Flaky',
+      emoji: '🐛',
+      archivedAt: 1,
+      conductorSessionId: 'c',
+    } as unknown as Label;
+
+    expect(allowedLabelRecord(payload)).toEqual({ id: 'l1', name: 'Flaky', emoji: '🐛' });
+  });
+
+  it('drops an emoji or colour that is not a string', () => {
+    const payload = { id: 'l1', name: 'Flaky', emoji: 5, color: {} } as unknown as Label;
+
+    expect(allowedLabelRecord(payload)).toEqual({ id: 'l1', name: 'Flaky' });
+  });
+});
+
+describe('worktree cleanup fields', () => {
+  it('takes a workspace override rebuilt from known keys, and undefined as Inherit', () => {
+    expect(allowedWorkspaceUpdates({ worktreeCleanup: { mode: 'off' } })).toEqual({
+      worktreeCleanup: { mode: 'off' },
+    });
+    const custom = allowedWorkspaceUpdates({
+      worktreeCleanup: {
+        mode: 'custom',
+        rules: { prFinished: true, stray: 1 },
+      } as unknown as WorkspaceUpdates['worktreeCleanup'],
+    });
+    expect(custom).toEqual({
+      worktreeCleanup: {
+        mode: 'custom',
+        rules: {
+          prFinished: true,
+          sessionDeleted: false,
+          settledDays: 0,
+          runFinished: { enabled: false, afterMinutes: 60 },
+        },
+      },
+    });
+    const inherit = allowedWorkspaceUpdates({ worktreeCleanup: undefined });
+    expect('worktreeCleanup' in inherit && inherit.worktreeCleanup === undefined).toBe(true);
+    expect(allowedWorkspaceUpdates({ name: 'x' })).not.toHaveProperty('worktreeCleanup');
+    expect(() =>
+      allowedWorkspaceUpdates({
+        worktreeCleanup: { mode: 'sometimes' } as unknown as WorkspaceUpdates['worktreeCleanup'],
+      }),
+    ).toThrow(/Inherit, Off or Custom/);
+  });
+
+  it('takes the session opt-out, and never the removed-worktree record', () => {
+    expect(allowedSessionUpdates({ autoRemoveWorktree: 'never' })).toEqual({
+      autoRemoveWorktree: 'never',
+    });
+    expect(() =>
+      allowedSessionUpdates({ autoRemoveWorktree: 'sometimes' } as unknown as SessionUpdates),
+    ).toThrow();
+    const smuggled = {
+      name: 'x',
+      removedWorktree: { path: '/wt/a' },
+    } as unknown as SessionUpdates;
+    expect(allowedSessionUpdates(smuggled)).toEqual({ name: 'x' });
+  });
+});
+
 describe('allowedSessionUpdates', () => {
+  it('accepts labelIds and autoSettle', () => {
+    const result = allowedSessionUpdates({ labelIds: ['a', 'b'], autoSettle: 'never' });
+
+    expect(result).toEqual({ labelIds: ['a', 'b'], autoSettle: 'never' });
+  });
+
+  it('passes an explicitly-undefined labelIds or autoSettle through as a clear', () => {
+    const result = allowedSessionUpdates({ labelIds: undefined, autoSettle: undefined });
+
+    expect(Object.keys(result).sort()).toEqual(['autoSettle', 'labelIds']);
+  });
+
+  it('rejects a parentSessionId that names a session: re-parenting stays impossible', () => {
+    const payload = {
+      parentSessionId: 'attacker-chosen',
+      name: 'Legit rename',
+    } as unknown as SessionUpdates;
+
+    const result = allowedSessionUpdates(payload);
+
+    expect(result).not.toHaveProperty('parentSessionId');
+    expect(result.name).toBe('Legit rename');
+  });
+
+  it('allows clearing parentSessionId, which is the one way out of a conductor', () => {
+    const result = allowedSessionUpdates({ parentSessionId: undefined });
+
+    expect(Object.keys(result)).toEqual(['parentSessionId']);
+    expect(result.parentSessionId).toBeUndefined();
+  });
+
+  it('refuses a malformed label list or auto-settle value', () => {
+    expect(() => allowedSessionUpdates({ labelIds: 'x' } as unknown as SessionUpdates)).toThrow();
+    expect(() => allowedSessionUpdates({ labelIds: [1] } as unknown as SessionUpdates)).toThrow();
+    expect(() =>
+      allowedSessionUpdates({ autoSettle: 'always' } as unknown as SessionUpdates),
+    ).toThrow();
+  });
+
   it('passes through a normal update', () => {
     const result = allowedSessionUpdates({ name: 'Refactor the parser', hasStarted: true });
 
@@ -182,6 +308,20 @@ describe('allowedSessionUpdates', () => {
     expect(result.name).toBe('Legit rename');
   });
 
+  it('drops priorConversations even alongside a legitimate field', () => {
+    // Only a harness switch knows what a session left behind; a renderer
+    // naming conversations here would rewrite where handoffs point back to.
+    const payload = {
+      priorConversations: [{ harnessId: 'x', claudeSessionId: 'y', endedAt: 1, carried: 'native' }],
+      name: 'Legit rename',
+    } as unknown as SessionUpdates;
+
+    const result = allowedSessionUpdates(payload);
+
+    expect(result).not.toHaveProperty('priorConversations');
+    expect(result.name).toBe('Legit rename');
+  });
+
   it('drops model even alongside a legitimate field', () => {
     // Same invariant as harnessId, one layer along: the model is replayed on
     // every relaunch, so a rewritten one would silently move a conversation
@@ -194,7 +334,7 @@ describe('allowedSessionUpdates', () => {
     expect(result.name).toBe('Legit rename');
   });
 
-  it('drops every field that names the session or its terminal', () => {
+  it('drops every field that names the session or its terminal, and the retired lastActiveAt', () => {
     const payload = {
       id: 'attacker-controlled',
       workspaceId: 'somewhere-else',
@@ -206,7 +346,7 @@ describe('allowedSessionUpdates', () => {
 
     const result = allowedSessionUpdates(payload);
 
-    expect(result).toEqual({ lastActiveAt: 42 });
+    expect(result).toEqual({});
   });
 
   it('drops an explicit name: undefined rather than clobbering a real name', () => {
@@ -293,11 +433,16 @@ describe('group emoji updates', () => {
   });
 });
 
-describe('allowedWorkspaceUpdates: the Assistant mode', () => {
-  it('passes a known Assistant mode and refuses anything else', () => {
-    expect(allowedWorkspaceUpdates({ assistantItemMode: 'read-only' })).toEqual({ assistantItemMode: 'read-only' });
-    expect(() => allowedWorkspaceUpdates({ assistantItemMode: 'yolo' as never })).toThrow(
-      'Choose a valid Assistant mode.'
-    );
+describe('allowedLabelUpdates', () => {
+  it('passes name, emoji and colour and drops everything else, the id included', () => {
+    const payload = { id: 'x', name: 'Bug', emoji: '🐛', color: '#f00' } as unknown as Parameters<
+      typeof allowedLabelUpdates
+    >[0];
+
+    expect(allowedLabelUpdates(payload)).toEqual({ name: 'Bug', emoji: '🐛', color: '#f00' });
+  });
+
+  it('keeps an explicitly-undefined emoji as a clear', () => {
+    expect(Object.keys(allowedLabelUpdates({ emoji: undefined }))).toEqual(['emoji']);
   });
 });

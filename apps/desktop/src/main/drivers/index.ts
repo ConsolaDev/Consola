@@ -11,8 +11,8 @@ import { CodexDriver } from './CodexDriver';
  * terminal, IPC, and session layers all go through `getDriver`.
  */
 const DRIVERS: Record<HarnessDriverId, HarnessDriver> = {
-    claude: new ClaudeDriver(),
-    codex: new CodexDriver(),
+  claude: new ClaudeDriver(),
+  codex: new CodexDriver(),
 };
 
 export const DEFAULT_DRIVER_ID: HarnessDriverId = 'claude';
@@ -25,14 +25,19 @@ export const DEFAULT_DRIVER_ID: HarnessDriverId = 'claude';
  * Falling back keeps the tab usable and the failure visible in the log.
  */
 export function getDriver(id?: HarnessDriverId): HarnessDriver {
-    if (!id) return DRIVERS[DEFAULT_DRIVER_ID];
+  if (!id) return DRIVERS[DEFAULT_DRIVER_ID];
 
-    const driver = DRIVERS[id];
-    if (!driver) {
-        console.warn(`Unknown harness driver "${id}"; falling back to ${DEFAULT_DRIVER_ID}.`);
-        return DRIVERS[DEFAULT_DRIVER_ID];
-    }
-    return driver;
+  const driver = DRIVERS[id];
+  if (!driver) {
+    console.warn(`Unknown harness driver "${id}"; falling back to ${DEFAULT_DRIVER_ID}.`);
+    return DRIVERS[DEFAULT_DRIVER_ID];
+  }
+  return driver;
+}
+
+/** Every registered driver, for contract tests that must hold for each one. */
+export function allDrivers(): HarnessDriver[] {
+  return Object.values(DRIVERS);
 }
 
 /**
@@ -40,9 +45,12 @@ export function getDriver(id?: HarnessDriverId): HarnessDriver {
  * before anything is created, so a launch that would be refused at spawn is
  * refused before it has a worktree, a record or a tab.
  */
-export function toolPolicyProblem(fields: HarnessLaunchFields, policy: SessionToolPolicy | undefined): string | null {
-    return getDriver(fields.driverId).toolPolicyProblem(toHarnessConfig(fields), policy);
+export function toolPolicyProblem(
+  fields: HarnessLaunchFields,
+  policy: SessionToolPolicy | undefined,
+): string | null {
+  return getDriver(fields.driverId).toolPolicyProblem(toHarnessConfig(fields), policy);
 }
 
-export type { HarnessDriver, HarnessConfig } from './HarnessDriver';
+export type { HarnessDriver, HarnessConfig, UsageLimitReporting } from './HarnessDriver';
 export { toHarnessConfig } from './HarnessDriver';

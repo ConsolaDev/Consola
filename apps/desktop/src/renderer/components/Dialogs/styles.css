@@ -68,7 +68,9 @@
   background: transparent;
   color: var(--color-text-tertiary);
   cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast);
+  transition:
+    background var(--transition-fast),
+    color var(--transition-fast);
 }
 
 .dialog-close:hover {
@@ -104,7 +106,9 @@
   font-size: var(--font-size-sm);
   color: var(--color-text-primary);
   outline: none;
-  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+  transition:
+    border-color var(--transition-fast),
+    box-shadow var(--transition-fast);
 }
 
 .dialog-input:focus {
@@ -184,7 +188,10 @@
   font-weight: var(--font-weight-medium);
   color: var(--color-text-secondary);
   cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
+  transition:
+    background var(--transition-fast),
+    color var(--transition-fast),
+    border-color var(--transition-fast);
 }
 
 .dialog-button-secondary:hover {
@@ -241,7 +248,9 @@
   background: transparent;
   color: var(--color-text-tertiary);
   cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast);
+  transition:
+    background var(--transition-fast),
+    color var(--transition-fast);
 }
 
 .dialog-folder-remove:hover {
@@ -304,7 +313,9 @@
   font-size: var(--font-size-sm);
   color: var(--color-text-secondary);
   cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast);
+  transition:
+    background var(--transition-fast),
+    color var(--transition-fast);
   text-align: left;
 }
 
@@ -404,7 +415,10 @@
   font-size: var(--font-size-sm);
   color: var(--color-text-secondary);
   cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
+  transition:
+    background var(--transition-fast),
+    color var(--transition-fast),
+    border-color var(--transition-fast);
 }
 
 .settings-modal-theme-button:hover {
@@ -436,7 +450,10 @@
   border-radius: var(--radius-md);
   color: var(--color-text-secondary);
   cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
+  transition:
+    background var(--transition-fast),
+    color var(--transition-fast),
+    border-color var(--transition-fast);
 }
 
 .settings-modal-stepper-button:hover:not(:disabled) {
@@ -547,6 +564,87 @@
   padding-left: 18px;
 }
 
+/* Switch-harness dialog: one row per harness, each saying what a switch there keeps. */
+.switch-harness-dialog {
+  width: 480px;
+  max-width: 90vw;
+}
+
+.switch-harness-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.switch-harness-options {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.switch-harness-option {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition:
+    background var(--transition-fast),
+    border-color var(--transition-fast);
+}
+
+.switch-harness-option:hover {
+  background: var(--color-bg-hover);
+}
+
+.switch-harness-option[data-selected] {
+  border-color: var(--color-accent);
+  background: var(--color-bg-active);
+}
+
+.switch-harness-option[aria-disabled] {
+  cursor: default;
+  background: none;
+}
+
+.switch-harness-option[aria-disabled] .switch-harness-option-name,
+.switch-harness-option[aria-disabled] .harness-driver-icon {
+  opacity: 0.55;
+}
+
+.switch-harness-option input {
+  margin: 3px 0 0;
+  accent-color: var(--color-accent);
+}
+
+.switch-harness-option .harness-driver-icon {
+  margin-top: 1px;
+}
+
+.switch-harness-option-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.switch-harness-option-name {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+}
+
+.switch-harness-option-detail {
+  font-size: var(--font-size-xs);
+  line-height: 1.45;
+  color: var(--color-text-secondary);
+}
+
 /* Link-session dialog: a picker wants a little more room than a confirm. */
 .link-session-dialog {
   max-width: 480px;
@@ -612,38 +710,51 @@
   border: 0;
 }
 
-/* The one-line pointer that stands where the Workspace tab was: reads as a
-   quiet nav row, acts as a door — it closes this modal and opens the
-   workspace's. Disabled carries its reason in the title, like ws-row-action. */
-.settings-modal-nav-pointer {
+/* The list's groups: a quiet heading over the sections it owns. The
+   Workspace heading carries the workspace's name, cut short rather than
+   widening the list. */
+.settings-modal-nav-group {
   display: flex;
-  align-items: flex-start;
-  gap: var(--space-2);
-  width: 100%;
-  margin-bottom: var(--space-2);
-  padding: var(--space-2) var(--space-3);
-  border: 1px dashed var(--color-border);
-  border-radius: var(--radius-md);
-  background: transparent;
-  font-size: var(--font-size-xs);
-  line-height: var(--line-height-normal);
-  color: var(--color-text-tertiary);
-  text-align: left;
-  cursor: pointer;
-  transition: color var(--transition-fast), border-color var(--transition-fast);
-}
-
-.settings-modal-nav-pointer svg {
+  flex-direction: column;
   flex-shrink: 0;
-  margin-top: 2px;
+  margin-top: var(--space-4);
 }
 
-.settings-modal-nav-pointer:hover:not(:disabled) {
-  color: var(--color-text-primary);
-  border-color: var(--color-border-hover);
+.settings-modal-nav-header + .settings-modal-nav-group {
+  margin-top: 0;
 }
 
-.settings-modal-nav-pointer:disabled {
-  opacity: 0.5;
-  cursor: default;
+.settings-modal-nav-group-label {
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Updates stands apart from both groups, at the bottom edge of the list. In
+   a window too short for the whole list it follows the last group and the
+   list scrolls. */
+.settings-modal-nav-footer {
+  flex-shrink: 0;
+  margin-top: auto;
+  padding-top: var(--space-4);
+}
+
+/* The first-run auto-settle explanation, and its threshold control */
+.auto-settle-list {
+  margin: 0 0 var(--space-3);
+  padding-left: var(--space-4);
+}
+
+.auto-settle-workspace,
+.auto-settle-hint {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+}
+
+.auto-settle-select {
+  width: auto;
 }

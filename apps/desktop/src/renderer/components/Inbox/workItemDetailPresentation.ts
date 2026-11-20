@@ -37,7 +37,14 @@ type Check = WorkItemDetails['checks'][number];
 export type CheckOutcome = 'failing' | 'pending' | 'passing' | 'skipped';
 
 /** The states that offer "Fix failing checks in a session". */
-const FAILING = new Set(['FAILURE', 'ERROR', 'TIMED_OUT', 'CANCELLED', 'ACTION_REQUIRED', 'STARTUP_FAILURE']);
+const FAILING = new Set([
+  'FAILURE',
+  'ERROR',
+  'TIMED_OUT',
+  'CANCELLED',
+  'ACTION_REQUIRED',
+  'STARTUP_FAILURE',
+]);
 const SKIPPED = new Set(['NEUTRAL', 'SKIPPED', 'STALE']);
 
 export function isFailingCheck(state: string): boolean {
@@ -85,7 +92,13 @@ export interface CheckSummary {
 }
 
 export function summarizeChecks(checks: Check[]): CheckSummary {
-  const summary: CheckSummary = { failing: 0, pending: 0, passing: 0, skipped: 0, total: checks.length };
+  const summary: CheckSummary = {
+    failing: 0,
+    pending: 0,
+    passing: 0,
+    skipped: 0,
+    total: checks.length,
+  };
   for (const check of checks) summary[checkOutcome(check.state)]++;
   return summary;
 }
@@ -95,7 +108,11 @@ const OUTCOME_ORDER: CheckOutcome[] = ['failing', 'pending', 'passing', 'skipped
 /** Failing first, as github.com lists them; stable within a group. */
 export function sortChecks(checks: Check[]): Check[] {
   return checks
-    .map((check, index) => ({ check, index, rank: OUTCOME_ORDER.indexOf(checkOutcome(check.state)) }))
+    .map((check, index) => ({
+      check,
+      index,
+      rank: OUTCOME_ORDER.indexOf(checkOutcome(check.state)),
+    }))
     .sort((a, b) => a.rank - b.rank || a.index - b.index)
     .map(({ check }) => check);
 }
@@ -111,7 +128,14 @@ export function checksSentence(summary: CheckSummary): string {
   return parts.filter(Boolean).join(' · ');
 }
 
-export type StatusKind = 'pr-open' | 'pr-draft' | 'pr-merged' | 'pr-closed' | 'issue-open' | 'issue-closed' | 'issue-not-planned';
+export type StatusKind =
+  | 'pr-open'
+  | 'pr-draft'
+  | 'pr-merged'
+  | 'pr-closed'
+  | 'issue-open'
+  | 'issue-closed'
+  | 'issue-not-planned';
 
 /**
  * The state badge. A completed issue is purple on GitHub, not red; one
@@ -121,12 +145,14 @@ export function itemStatus(
   type: WorkItemType,
   state: string,
   isDraft: boolean,
-  stateReason?: WorkItemStateReason
+  stateReason?: WorkItemStateReason,
 ): Meta & { kind: StatusKind } {
   if (type === 'issue') {
     if (state === 'open') return { label: 'Open', tone: 'success', kind: 'issue-open' };
-    if (stateReason === 'not-planned') return { label: 'Closed as not planned', tone: 'neutral', kind: 'issue-not-planned' };
-    if (stateReason === 'duplicate') return { label: 'Closed as duplicate', tone: 'neutral', kind: 'issue-not-planned' };
+    if (stateReason === 'not-planned')
+      return { label: 'Closed as not planned', tone: 'neutral', kind: 'issue-not-planned' };
+    if (stateReason === 'duplicate')
+      return { label: 'Closed as duplicate', tone: 'neutral', kind: 'issue-not-planned' };
     return { label: 'Closed', tone: 'merged', kind: 'issue-closed' };
   }
   if (state === 'merged') return { label: 'Merged', tone: 'merged', kind: 'pr-merged' };
@@ -226,7 +252,11 @@ export function commentAge(iso: string, now: number = Date.now()): string {
   const at = Date.parse(iso);
   if (Number.isNaN(at)) return '';
   if (now - at < MONTH_MS) return formatAge(at, now);
-  return new Date(at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  return new Date(at).toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
 }
 
 export interface DiffRow {
@@ -316,8 +346,24 @@ export type Segment =
 
 /** Names an icon; the component owns the drawing. */
 export type EventIcon =
-  | 'label' | 'pencil' | 'push' | 'eye' | 'person' | 'link' | 'draft' | 'ready' | 'pr-closed' | 'issue-closed'
-  | 'not-planned' | 'reopened' | 'merged' | 'branch' | 'approved' | 'changes' | 'review' | 'commit';
+  | 'label'
+  | 'pencil'
+  | 'push'
+  | 'eye'
+  | 'person'
+  | 'link'
+  | 'draft'
+  | 'ready'
+  | 'pr-closed'
+  | 'issue-closed'
+  | 'not-planned'
+  | 'reopened'
+  | 'merged'
+  | 'branch'
+  | 'approved'
+  | 'changes'
+  | 'review'
+  | 'commit';
 
 export interface StreamEvent {
   kind: 'event';
@@ -336,7 +382,10 @@ export type StreamEntry =
   | StreamEvent;
 
 /** One sentence per event, as GitHub words it. `type` is the item the timeline belongs to. */
-export function eventSentence(event: WorkItemEvent, type: WorkItemType): { icon: EventIcon; tone?: Tone; sentence: Segment[] } {
+export function eventSentence(
+  event: WorkItemEvent,
+  type: WorkItemType,
+): { icon: EventIcon; tone?: Tone; sentence: Segment[] } {
   const noun = type === 'pr' ? 'pull request' : 'issue';
   switch (event.kind) {
     case 'labeled':
@@ -344,20 +393,37 @@ export function eventSentence(event: WorkItemEvent, type: WorkItemType): { icon:
     case 'unlabeled':
       return { icon: 'label', sentence: [{ text: 'removed' }, { label: event.label }] };
     case 'renamed':
-      return { icon: 'pencil', sentence: [{ text: 'changed the title' }, { del: event.from }, { strong: event.to }] };
+      return {
+        icon: 'pencil',
+        sentence: [{ text: 'changed the title' }, { del: event.from }, { strong: event.to }],
+      };
     case 'force-pushed':
       return {
         icon: 'push',
-        sentence: event.before && event.after
-          ? [{ text: 'force-pushed' }, { code: event.ref }, { text: 'from' }, { code: event.before }, { text: 'to' }, { code: event.after }]
-          : [{ text: 'force-pushed' }, { code: event.ref }],
+        sentence:
+          event.before && event.after
+            ? [
+                { text: 'force-pushed' },
+                { code: event.ref },
+                { text: 'from' },
+                { code: event.before },
+                { text: 'to' },
+                { code: event.after },
+              ]
+            : [{ text: 'force-pushed' }, { code: event.ref }],
       };
     case 'review-requested':
       return event.reviewer === event.actor.login
         ? { icon: 'eye', sentence: [{ text: 'requested their own review' }] }
-        : { icon: 'eye', sentence: [{ text: 'requested a review from' }, { strong: event.reviewer }] };
+        : {
+            icon: 'eye',
+            sentence: [{ text: 'requested a review from' }, { strong: event.reviewer }],
+          };
     case 'review-request-removed':
-      return { icon: 'eye', sentence: [{ text: 'removed the request for review from' }, { strong: event.reviewer }] };
+      return {
+        icon: 'eye',
+        sentence: [{ text: 'removed the request for review from' }, { strong: event.reviewer }],
+      };
     case 'assigned':
       return event.assignee === event.actor.login
         ? { icon: 'person', sentence: [{ text: 'self-assigned this' }] }
@@ -374,17 +440,34 @@ export function eventSentence(event: WorkItemEvent, type: WorkItemType): { icon:
           : [{ text: 'mentioned this in' }, { ref: event.source }],
       };
     case 'ready-for-review':
-      return { icon: 'ready', tone: 'success', sentence: [{ text: 'marked this pull request as ready for review' }] };
+      return {
+        icon: 'ready',
+        tone: 'success',
+        sentence: [{ text: 'marked this pull request as ready for review' }],
+      };
     case 'converted-to-draft':
       return { icon: 'draft', sentence: [{ text: 'marked this pull request as draft' }] };
     case 'closed':
-      if (type === 'pr') return { icon: 'pr-closed', tone: 'error', sentence: [{ text: 'closed this' }] };
-      if (event.stateReason === 'not-planned') return { icon: 'not-planned', tone: 'neutral', sentence: [{ text: 'closed this as not planned' }] };
-      if (event.stateReason === 'duplicate') return { icon: 'not-planned', tone: 'neutral', sentence: [{ text: 'closed this as a duplicate' }] };
+      if (type === 'pr')
+        return { icon: 'pr-closed', tone: 'error', sentence: [{ text: 'closed this' }] };
+      if (event.stateReason === 'not-planned')
+        return {
+          icon: 'not-planned',
+          tone: 'neutral',
+          sentence: [{ text: 'closed this as not planned' }],
+        };
+      if (event.stateReason === 'duplicate')
+        return {
+          icon: 'not-planned',
+          tone: 'neutral',
+          sentence: [{ text: 'closed this as a duplicate' }],
+        };
       return {
         icon: 'issue-closed',
         tone: 'merged',
-        sentence: [{ text: event.stateReason === 'completed' ? 'closed this as completed' : 'closed this' }],
+        sentence: [
+          { text: event.stateReason === 'completed' ? 'closed this as completed' : 'closed this' },
+        ],
       };
     case 'reopened':
       return { icon: 'reopened', tone: 'success', sentence: [{ text: 'reopened this' }] };
@@ -393,13 +476,29 @@ export function eventSentence(event: WorkItemEvent, type: WorkItemType): { icon:
         icon: 'merged',
         tone: 'merged',
         sentence: event.commit
-          ? [{ text: 'merged commit' }, { code: event.commit }, { text: 'into' }, { code: event.base }]
+          ? [
+              { text: 'merged commit' },
+              { code: event.commit },
+              { text: 'into' },
+              { code: event.base },
+            ]
           : [{ text: 'merged this into' }, { code: event.base }],
       };
     case 'base-ref-changed':
-      return { icon: 'branch', sentence: [{ text: 'changed the base branch from' }, { code: event.from }, { text: 'to' }, { code: event.to }] };
+      return {
+        icon: 'branch',
+        sentence: [
+          { text: 'changed the base branch from' },
+          { code: event.from },
+          { text: 'to' },
+          { code: event.to },
+        ],
+      };
     case 'head-ref-deleted':
-      return { icon: 'branch', sentence: [{ text: 'deleted the' }, { code: event.ref }, { text: 'branch' }] };
+      return {
+        icon: 'branch',
+        sentence: [{ text: 'deleted the' }, { code: event.ref }, { text: 'branch' }],
+      };
     case 'head-ref-restored':
       return { icon: 'branch', sentence: [{ text: 'restored the head branch' }] };
   }
@@ -409,24 +508,39 @@ export function eventSentence(event: WorkItemEvent, type: WorkItemType): { icon:
 export function sentenceText(sentence: Segment[]): string {
   return sentence
     .map((segment) =>
-      'text' in segment ? segment.text
-        : 'strong' in segment ? segment.strong
-          : 'code' in segment ? segment.code
-            : 'del' in segment ? segment.del
-              : 'label' in segment ? segment.label.name
-                : `${segment.ref.title} #${segment.ref.number}`)
+      'text' in segment
+        ? segment.text
+        : 'strong' in segment
+          ? segment.strong
+          : 'code' in segment
+            ? segment.code
+            : 'del' in segment
+              ? segment.del
+              : 'label' in segment
+                ? segment.label.name
+                : `${segment.ref.title} #${segment.ref.number}`,
+    )
     .join(' ');
 }
 
 const LABEL_GROUP_MS = 60_000;
-const isLabelEvent = (item: WorkItemTimelineItem): item is Extract<WorkItemEvent, { kind: 'labeled' | 'unlabeled' }> =>
+const isLabelEvent = (
+  item: WorkItemTimelineItem,
+): item is Extract<WorkItemEvent, { kind: 'labeled' | 'unlabeled' }> =>
   item.kind === 'labeled' || item.kind === 'unlabeled';
 
 /** "added frontend catalog and removed bug": one line for one person's labelling, as GitHub folds it. */
-function labelSentence(events: Extract<WorkItemEvent, { kind: 'labeled' | 'unlabeled' }>[]): Segment[] {
-  const added = events.filter((event) => event.kind === 'labeled').map((event) => ({ label: event.label }));
-  const removed = events.filter((event) => event.kind === 'unlabeled').map((event) => ({ label: event.label }));
-  if (added.length && removed.length) return [{ text: 'added' }, ...added, { text: 'and removed' }, ...removed];
+function labelSentence(
+  events: Extract<WorkItemEvent, { kind: 'labeled' | 'unlabeled' }>[],
+): Segment[] {
+  const added = events
+    .filter((event) => event.kind === 'labeled')
+    .map((event) => ({ label: event.label }));
+  const removed = events
+    .filter((event) => event.kind === 'unlabeled')
+    .map((event) => ({ label: event.label }));
+  if (added.length && removed.length)
+    return [{ text: 'added' }, ...added, { text: 'and removed' }, ...removed];
   return added.length ? [{ text: 'added' }, ...added] : [{ text: 'removed' }, ...removed];
 }
 
@@ -446,14 +560,22 @@ function labelSentence(events: Extract<WorkItemEvent, { kind: 'labeled' | 'unlab
  * viewer's own draft review) are not history yet, so they are left to Files
  * changed.
  */
-export function buildStream(timeline: WorkItemTimelineItem[], threads: WorkItemThread[], type: WorkItemType): StreamEntry[] {
-  const submitted = threads.filter((thread) => thread.comments.length > 0 && !thread.comments[0].pending);
+export function buildStream(
+  timeline: WorkItemTimelineItem[],
+  threads: WorkItemThread[],
+  type: WorkItemType,
+): StreamEntry[] {
+  const submitted = threads.filter(
+    (thread) => thread.comments.length > 0 && !thread.comments[0].pending,
+  );
   const byReview = new Map<string, WorkItemThread[]>();
   for (const thread of submitted) {
     const review = thread.comments[0].reviewId ?? '';
     byReview.set(review, [...(byReview.get(review) ?? []), thread]);
   }
-  const reviewIds = new Set(timeline.filter((item) => item.kind === 'review').map((item) => item.id));
+  const reviewIds = new Set(
+    timeline.filter((item) => item.kind === 'review').map((item) => item.id),
+  );
 
   const entries: StreamEntry[] = [];
   for (let index = 0; index < timeline.length; index++) {
@@ -467,25 +589,54 @@ export function buildStream(timeline: WorkItemTimelineItem[], threads: WorkItemT
       } else if (item.state !== 'COMMENTED') {
         const { verb, tone } = reviewVerb(item.state);
         entries.push({
-          kind: 'event', id: item.id, actor: item.author, createdAt: item.createdAt,
-          icon: item.state === 'APPROVED' ? 'approved' : item.state === 'CHANGES_REQUESTED' ? 'changes' : 'review',
-          ...(tone ? { tone } : {}), sentence: [{ text: verb }],
+          kind: 'event',
+          id: item.id,
+          actor: item.author,
+          createdAt: item.createdAt,
+          icon:
+            item.state === 'APPROVED'
+              ? 'approved'
+              : item.state === 'CHANGES_REQUESTED'
+                ? 'changes'
+                : 'review',
+          ...(tone ? { tone } : {}),
+          sentence: [{ text: verb }],
         });
       }
     } else if (item.kind === 'commit') {
       const commits = [item];
-      while (timeline[index + 1]?.kind === 'commit') commits.push(timeline[++index] as WorkItemCommitItem);
+      while (timeline[index + 1]?.kind === 'commit')
+        commits.push(timeline[++index] as WorkItemCommitItem);
       entries.push({ kind: 'commits', id: item.id, commits });
     } else if (isLabelEvent(item)) {
       const group = [item];
-      for (let next = timeline[index + 1]; next && isLabelEvent(next) && next.actor.login === item.actor.login
-        && Math.abs(Date.parse(next.createdAt) - Date.parse(item.createdAt)) <= LABEL_GROUP_MS; next = timeline[index + 1]) {
+      for (
+        let next = timeline[index + 1];
+        next &&
+        isLabelEvent(next) &&
+        next.actor.login === item.actor.login &&
+        Math.abs(Date.parse(next.createdAt) - Date.parse(item.createdAt)) <= LABEL_GROUP_MS;
+        next = timeline[index + 1]
+      ) {
         group.push(next);
         index++;
       }
-      entries.push({ kind: 'event', id: item.id, actor: item.actor, createdAt: item.createdAt, icon: 'label', sentence: labelSentence(group) });
+      entries.push({
+        kind: 'event',
+        id: item.id,
+        actor: item.actor,
+        createdAt: item.createdAt,
+        icon: 'label',
+        sentence: labelSentence(group),
+      });
     } else {
-      entries.push({ kind: 'event', id: item.id, actor: item.actor, createdAt: item.createdAt, ...eventSentence(item, type) });
+      entries.push({
+        kind: 'event',
+        id: item.id,
+        actor: item.actor,
+        createdAt: item.createdAt,
+        ...eventSentence(item, type),
+      });
     }
   }
 
@@ -497,7 +648,17 @@ export function buildStream(timeline: WorkItemTimelineItem[], threads: WorkItemT
       const card: StreamEntry = {
         kind: 'review',
         threads: [thread],
-        item: { kind: 'review', id: `thread:${thread.id}`, author: first.author, body: '', url: first.url, createdAt: first.createdAt, reactions: [], viewerCanEdit: false, state: 'COMMENTED' },
+        item: {
+          kind: 'review',
+          id: `thread:${thread.id}`,
+          author: first.author,
+          body: '',
+          url: first.url,
+          createdAt: first.createdAt,
+          reactions: [],
+          viewerCanEdit: false,
+          state: 'COMMENTED',
+        },
       };
       const at = entries.findIndex((entry) => entryTime(entry) > first.createdAt);
       entries.splice(at < 0 ? entries.length : at, 0, card);
@@ -507,14 +668,24 @@ export function buildStream(timeline: WorkItemTimelineItem[], threads: WorkItemT
 }
 
 function entryTime(entry: StreamEntry): string {
-  return entry.kind === 'commits' ? entry.commits[0].createdAt : entry.kind === 'event' ? entry.createdAt : entry.item.createdAt;
+  return entry.kind === 'commits'
+    ? entry.commits[0].createdAt
+    : entry.kind === 'event'
+      ? entry.createdAt
+      : entry.item.createdAt;
 }
 
 /** "simon-sprocket added 3 commits", or "… and others" when they are not all one person's. */
-export function commitRunSentence(commits: WorkItemCommitItem[]): { actor: WorkItemPerson; text: string } {
+export function commitRunSentence(commits: WorkItemCommitItem[]): {
+  actor: WorkItemPerson;
+  text: string;
+} {
   const actor = commits[0].author;
   const others = commits.some((commit) => commit.author.login !== actor.login);
-  return { actor, text: `${others ? 'and others ' : ''}added ${commits.length} commit${commits.length === 1 ? '' : 's'}` };
+  return {
+    actor,
+    text: `${others ? 'and others ' : ''}added ${commits.length} commit${commits.length === 1 ? '' : 's'}`,
+  };
 }
 
 /** Only comments and reviews: what the Conversation tab counts. */
@@ -535,7 +706,11 @@ export const REACTION_EMOJI: Record<WorkItemReactionContent, string> = {
 
 /** A comment quoted for a reply, as GitHub's Quote reply does: every line marked, then room to write. */
 export function quoteReply(body: string): string {
-  return `${body.trim().split('\n').map((line) => (line ? `> ${line}` : '>')).join('\n')}\n\n`;
+  return `${body
+    .trim()
+    .split('\n')
+    .map((line) => (line ? `> ${line}` : '>'))
+    .join('\n')}\n\n`;
 }
 
 // ---------------------------------------------------------------------------
@@ -553,52 +728,139 @@ export interface MergeRow {
 const count = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 /** One row per thing that stands between the pull request and a merge, in GitHub's order. */
-export function mergeRows(details: Pick<WorkItemDetails, 'isDraft' | 'reviewDecision' | 'reviewers' | 'checks' | 'mergeState' | 'baseBranch'>): MergeRow[] {
+export function mergeRows(
+  details: Pick<
+    WorkItemDetails,
+    'isDraft' | 'reviewDecision' | 'reviewers' | 'checks' | 'mergeState' | 'baseBranch'
+  >,
+): MergeRow[] {
   if (details.isDraft) {
-    return [{ key: 'draft', tone: 'neutral', title: 'This pull request is still a draft', detail: 'It can’t be merged until it’s marked ready for review.', blocking: true }];
+    return [
+      {
+        key: 'draft',
+        tone: 'neutral',
+        title: 'This pull request is still a draft',
+        detail: 'It can’t be merged until it’s marked ready for review.',
+        blocking: true,
+      },
+    ];
   }
   const rows: MergeRow[] = [];
   const approvals = details.reviewers.filter((reviewer) => reviewer.state === 'approved').length;
-  const changes = details.reviewers.filter((reviewer) => reviewer.state === 'changes-requested').length;
+  const changes = details.reviewers.filter(
+    (reviewer) => reviewer.state === 'changes-requested',
+  ).length;
   const awaiting = details.reviewers.filter((reviewer) => reviewer.state === 'requested').length;
   const waiting = awaiting ? ` · ${awaiting} awaiting review` : '';
   if (details.reviewDecision === 'CHANGES_REQUESTED' || changes > 0) {
-    rows.push({ key: 'reviews', tone: 'error', title: 'Changes requested', detail: `${count(Math.max(changes, 1), 'review')} requesting changes${waiting}`, blocking: details.reviewDecision === 'CHANGES_REQUESTED' });
+    rows.push({
+      key: 'reviews',
+      tone: 'error',
+      title: 'Changes requested',
+      detail: `${count(Math.max(changes, 1), 'review')} requesting changes${waiting}`,
+      blocking: details.reviewDecision === 'CHANGES_REQUESTED',
+    });
   } else if (details.reviewDecision === 'REVIEW_REQUIRED') {
     rows.push({
-      key: 'reviews', tone: 'warning', title: 'Review required',
+      key: 'reviews',
+      tone: 'warning',
+      title: 'Review required',
       detail: `${approvals ? `${count(approvals, 'approving review')}, more required` : 'At least one approving review is required'}${waiting}`,
       blocking: true,
     });
   } else if (details.reviewDecision === 'APPROVED' || approvals > 0) {
-    rows.push({ key: 'reviews', tone: 'success', title: 'Approved', detail: `${count(Math.max(approvals, 1), 'approving review')}${waiting}`, blocking: false });
+    rows.push({
+      key: 'reviews',
+      tone: 'success',
+      title: 'Approved',
+      detail: `${count(Math.max(approvals, 1), 'approving review')}${waiting}`,
+      blocking: false,
+    });
   } else {
-    rows.push({ key: 'reviews', tone: 'neutral', title: 'No reviews yet', detail: awaiting ? `${awaiting} awaiting review` : 'Reviews aren’t required to merge', blocking: false });
+    rows.push({
+      key: 'reviews',
+      tone: 'neutral',
+      title: 'No reviews yet',
+      detail: awaiting ? `${awaiting} awaiting review` : 'Reviews aren’t required to merge',
+      blocking: false,
+    });
   }
 
   const summary = summarizeChecks(details.checks);
   if (summary.total > 0) {
     const detail = checksSentence(summary);
-    if (summary.failing) rows.push({ key: 'checks', tone: 'error', title: 'Some checks were not successful', detail, blocking: true });
-    else if (summary.pending) rows.push({ key: 'checks', tone: 'warning', title: 'Checks pending', detail, blocking: true });
-    else if (summary.passing) rows.push({ key: 'checks', tone: 'success', title: 'All checks have passed', detail, blocking: false });
-    else rows.push({ key: 'checks', tone: 'neutral', title: 'All checks were skipped', detail, blocking: false });
+    if (summary.failing)
+      rows.push({
+        key: 'checks',
+        tone: 'error',
+        title: 'Some checks were not successful',
+        detail,
+        blocking: true,
+      });
+    else if (summary.pending)
+      rows.push({
+        key: 'checks',
+        tone: 'warning',
+        title: 'Checks pending',
+        detail,
+        blocking: true,
+      });
+    else if (summary.passing)
+      rows.push({
+        key: 'checks',
+        tone: 'success',
+        title: 'All checks have passed',
+        detail,
+        blocking: false,
+      });
+    else
+      rows.push({
+        key: 'checks',
+        tone: 'neutral',
+        title: 'All checks were skipped',
+        detail,
+        blocking: false,
+      });
   }
 
   const base = details.baseBranch ?? 'the base branch';
   switch (details.mergeState) {
     case 'BEHIND':
-      rows.push({ key: 'branch', tone: 'warning', title: `This branch is behind ${base}`, detail: `Merge the latest changes from ${base} into this branch.`, blocking: true });
+      rows.push({
+        key: 'branch',
+        tone: 'warning',
+        title: `This branch is behind ${base}`,
+        detail: `Merge the latest changes from ${base} into this branch.`,
+        blocking: true,
+      });
       break;
     case 'DIRTY':
-      rows.push({ key: 'branch', tone: 'error', title: 'This branch has conflicts', detail: 'They must be resolved before it can merge.', blocking: true });
+      rows.push({
+        key: 'branch',
+        tone: 'error',
+        title: 'This branch has conflicts',
+        detail: 'They must be resolved before it can merge.',
+        blocking: true,
+      });
       break;
     case 'UNKNOWN':
     case undefined:
-      rows.push({ key: 'branch', tone: 'neutral', title: 'Checking mergeability…', detail: 'GitHub is working out whether this can merge.', blocking: true });
+      rows.push({
+        key: 'branch',
+        tone: 'neutral',
+        title: 'Checking mergeability…',
+        detail: 'GitHub is working out whether this can merge.',
+        blocking: true,
+      });
       break;
     default:
-      rows.push({ key: 'branch', tone: 'success', title: 'No conflicts with the base branch', detail: 'Merging can be performed automatically.', blocking: false });
+      rows.push({
+        key: 'branch',
+        tone: 'success',
+        title: 'No conflicts with the base branch',
+        detail: 'Merging can be performed automatically.',
+        blocking: false,
+      });
   }
   return rows;
 }
@@ -607,10 +869,17 @@ export function mergeRows(details: Pick<WorkItemDetails, 'isDraft' | 'reviewDeci
  * Why GitHub refuses, when none of the rows already says it — a ruleset,
  * signed commits — over the button it explains. Empty when a row does.
  */
-export function mergeRefusal(rows: MergeRow[], gate: MergeGate, mergeState: string | undefined, baseBranch: string | undefined): string {
+export function mergeRefusal(
+  rows: MergeRow[],
+  gate: MergeGate,
+  mergeState: string | undefined,
+  baseBranch: string | undefined,
+): string {
   if (gate.button === 'go' || rows.some((row) => row.blocking && row.tone !== 'success')) return '';
   const label = mergeStateMeta(mergeState ?? 'UNKNOWN', baseBranch).label;
-  return gate.button === 'disabled' ? `Can’t merge yet: ${label.charAt(0).toLowerCase()}${label.slice(1)}.` : `${label}.`;
+  return gate.button === 'disabled'
+    ? `Can’t merge yet: ${label.charAt(0).toLowerCase()}${label.slice(1)}.`
+    : `${label}.`;
 }
 
 export const MERGE_METHODS = {
@@ -692,7 +961,10 @@ export function rangeLabel(range: LineRange): string {
  */
 export function suggestionText(rows: DiffRow[], a: number, b: number): string | null {
   const [from, to] = a <= b ? [a, b] : [b, a];
-  const lines = rows.slice(from, to + 1).filter((row) => row.kind === 'add' || row.kind === 'context').map((row) => row.text.slice(1));
+  const lines = rows
+    .slice(from, to + 1)
+    .filter((row) => row.kind === 'add' || row.kind === 'context')
+    .map((row) => row.text.slice(1));
   return lines.length ? lines.join('\n') : null;
 }
 
@@ -701,17 +973,22 @@ export function threadRow(rows: DiffRow[], thread: Pick<WorkItemThread, 'line' |
   if (thread.line === undefined) return -1;
   return rows.findIndex((row) => {
     const anchor = rowAnchor(row);
-    if (thread.side === 'LEFT') return (row.kind === 'del' || row.kind === 'context') && row.oldLine === thread.line;
+    if (thread.side === 'LEFT')
+      return (row.kind === 'del' || row.kind === 'context') && row.oldLine === thread.line;
     return anchor?.side === 'RIGHT' && anchor.line === thread.line;
   });
 }
 
 /** "src/billing.ts:7", or the line it was written on once outdated. */
-export function threadLocation(thread: Pick<WorkItemThread, 'path' | 'line' | 'originalLine' | 'startLine'>): string {
+export function threadLocation(
+  thread: Pick<WorkItemThread, 'path' | 'line' | 'originalLine' | 'startLine'>,
+): string {
   const { name } = splitPath(thread.path);
   const line = thread.line ?? thread.originalLine;
   if (line === undefined) return name;
-  return thread.startLine !== undefined && thread.line !== undefined ? `${name}:${thread.startLine}–${line}` : `${name}:${line}`;
+  return thread.startLine !== undefined && thread.line !== undefined
+    ? `${name}:${thread.startLine}–${line}`
+    : `${name}:${line}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -724,8 +1001,10 @@ export const LABEL_FILL_ALPHA = 0.18;
 export const LABEL_BORDER_ALPHA = 0.4;
 const MIN_CONTRAST = 4.5;
 
-const hexRgb = (hex: string): Rgb => [0, 2, 4].map((at) => parseInt(hex.slice(at, at + 2), 16)) as Rgb;
-const toHex = (rgb: Rgb) => `#${rgb.map((channel) => Math.round(channel).toString(16).padStart(2, '0')).join('')}`;
+const hexRgb = (hex: string): Rgb =>
+  [0, 2, 4].map((at) => parseInt(hex.slice(at, at + 2), 16)) as Rgb;
+const toHex = (rgb: Rgb) =>
+  `#${rgb.map((channel) => Math.round(channel).toString(16).padStart(2, '0')).join('')}`;
 
 function luminance([r, g, b]: Rgb): number {
   const linear = (channel: number) => {
@@ -751,7 +1030,12 @@ function rgbToHsl([r, g, b]: Rgb): Rgb {
   if (max === min) return [0, 0, l];
   const d = max - min;
   const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
-  const h = max === rn ? (gn - bn) / d + (gn < bn ? 6 : 0) : max === gn ? (bn - rn) / d + 2 : (rn - gn) / d + 4;
+  const h =
+    max === rn
+      ? (gn - bn) / d + (gn < bn ? 6 : 0)
+      : max === gn
+        ? (bn - rn) / d + 2
+        : (rn - gn) / d + 4;
   return [h / 6, s, l];
 }
 
@@ -813,5 +1097,8 @@ export function labelColors(hex: string): LabelColors {
 /** For tests: how a label's text reads on its pill in each theme. */
 export function labelContrast(hex: string, theme: 'dark' | 'light'): number {
   const rgb = hexRgb(hex);
-  return contrast(hexRgb(labelColors(hex)[theme].slice(1)), over(rgb, LABEL_FILL_ALPHA, PANE_BACKGROUND[theme]));
+  return contrast(
+    hexRgb(labelColors(hex)[theme].slice(1)),
+    over(rgb, LABEL_FILL_ALPHA, PANE_BACKGROUND[theme]),
+  );
 }

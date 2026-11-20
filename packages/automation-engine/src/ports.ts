@@ -79,7 +79,8 @@ export interface EngineToolResult {
 export interface EngineTool {
   name: string;
   description: string;
-  input: Record<string, { description?: string }>;
+  /** Its arguments by name. A schema's `description` is read where there is one (zod's own types do not declare it). */
+  input: Readonly<Record<string, unknown>>;
   mutating: boolean;
   destructive?: boolean;
   automatable: boolean;

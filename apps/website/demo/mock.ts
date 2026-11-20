@@ -316,6 +316,8 @@ export function installMock() {
       Object.assign(workspace(id).sessions.find((s) => s.id === sessionId)!, updates);
       publish();
     },
+    // The demo has no model to write a title with; the name stays as it is.
+    regenerateSessionTitle: async () => {},
     deleteSession: async (id, sessionId) => {
       const w = workspace(id);
       w.sessions = w.sessions.filter((s) => s.id !== sessionId);
@@ -443,7 +445,6 @@ export function installMock() {
       version: 'Demo',
       resolvedBinary: fields.driverId || 'claude',
     }),
-    getSessionName: async () => null,
     getSessionModel: async () => null,
     getCapabilities: async () => ({
       supported: false,
@@ -589,6 +590,7 @@ export function installMock() {
       transcripts.delete(id);
       inputs.delete(id);
     },
+    detach: () => {},
     pathForFile: () => '',
     onData: dataEvents.subscribe,
     onActivity: noSubscription,
@@ -633,20 +635,6 @@ export function installMock() {
       notify('Sample group created. Automated orchestration is available in the desktop app.');
       return window.workspaceAPI.createGroup(request.workspaceId, { name: request.name });
     },
-  };
-  window.assistantAPI = {
-    open: async (workspaceId) =>
-      structuredClone(
-        workspace(workspaceId).sessions.find((s) => s.kind === 'assistant') ??
-          createSession(workspaceId, { name: 'Assistant', nameIsUserSet: true, kind: 'assistant' }),
-      ),
-    startFresh: async (workspaceId) => {
-      notify('Fresh conversations run in the desktop app.');
-      return window.assistantAPI.open(workspaceId);
-    },
-    getActivity: async () => ({ touchedSessionIds: [], unseenFinished: 0 }),
-    markSeen: async () => {},
-    onActivityChanged: noSubscription,
   };
   const automationsUnavailable = async (): Promise<never> => {
     throw new Error('Automations run in the desktop app.');

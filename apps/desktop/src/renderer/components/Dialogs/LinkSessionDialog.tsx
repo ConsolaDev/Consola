@@ -1,12 +1,12 @@
 import { useMemo, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { sessionLabel } from '../../../shared/sessionLabel';
+import { useAttentionStore } from '../../stores/attentionStore';
 import { useInboxStore } from '../../stores/inboxStore';
 import {
   useLinkSessionDialogStore,
   type LinkSessionDialogMode,
 } from '../../stores/linkSessionDialogStore';
-import { useTerminalStore } from '../../stores/terminalStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { ipcErrorMessage } from '../../utils/ipcErrorMessage';
 import { SearchableList } from '../SearchableList';
@@ -46,10 +46,11 @@ interface LinkSessionDialogBodyProps {
 
 function LinkSessionDialogBody({ mode, onClose }: LinkSessionDialogBodyProps) {
   const workspace = useWorkspaceStore((state) =>
-    state.workspaces.find((candidate) => candidate.id === mode.workspaceId)
+    state.workspaces.find((candidate) => candidate.id === mode.workspaceId),
   );
   const updateSession = useWorkspaceStore((state) => state.updateSession);
-  const terminals = useTerminalStore((state) => state.terminals);
+  const statuses = useAttentionStore((state) => state.attention);
+  const attention = useAttentionStore((state) => state.records);
   const items = useInboxStore((state) => state.snapshots[mode.workspaceId]?.items);
 
   const [query, setQuery] = useState('');
@@ -60,9 +61,9 @@ function LinkSessionDialogBody({ mode, onClose }: LinkSessionDialogBodyProps) {
   const rows = useMemo<LinkRow[]>(() => {
     if (!workspace) return [];
     return mode.kind === 'pick-session'
-      ? sessionRowsFor(workspace, mode.item, terminals)
+      ? sessionRowsFor(workspace, mode.item, statuses, attention)
       : itemRowsFor(items ?? [], mode.session);
-  }, [workspace, mode, terminals, items]);
+  }, [workspace, mode, statuses, attention, items]);
 
   const active = rows.find((row) => row.id === activeId && !row.disabled) ?? null;
 
@@ -107,7 +108,9 @@ function LinkSessionDialogBody({ mode, onClose }: LinkSessionDialogBodyProps) {
             items={rows}
             query={query}
             onQueryChange={setQuery}
-            placeholder={mode.kind === 'pick-session' ? 'Search sessions...' : 'Search inbox items...'}
+            placeholder={
+              mode.kind === 'pick-session' ? 'Search sessions...' : 'Search inbox items...'
+            }
             inputAriaLabel={mode.kind === 'pick-session' ? 'Search sessions' : 'Search inbox items'}
             emptyMessage={emptyMessage}
             activeId={activeId}

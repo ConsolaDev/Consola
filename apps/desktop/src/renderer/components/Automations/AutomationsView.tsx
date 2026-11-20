@@ -1,7 +1,13 @@
 import { useEffect, useId, useRef } from 'react';
 import { ExternalLink, Plus, Zap } from 'lucide-react';
 import { automationsBridge } from '../../services/automationsBridge';
-import { useAutomationsStore, WINDOW_LOADED_AT, type AutomationsTab } from '../../stores/automationsStore';
+import { useAttentionStore } from '../../stores/attentionStore';
+import { waitingRuns } from '../../sidebar/entries';
+import {
+  useAutomationsStore,
+  WINDOW_LOADED_AT,
+  type AutomationsTab,
+} from '../../stores/automationsStore';
 import type { AutomationsSnapshot } from '../../../shared/automations';
 import type { Workspace } from '../../stores/workspaceStore';
 import { ActivityTab } from './ActivityTab';
@@ -109,7 +115,11 @@ export function AutomationsView({ workspace }: AutomationsViewProps) {
           </button>
         </div>
       </header>
-      {error && <div className="automations-error automations-header-error" role="alert">{error}</div>}
+      {error && (
+        <div className="automations-error automations-header-error" role="alert">
+          {error}
+        </div>
+      )}
 
       <div className="automations-tabs" role="tablist" aria-label="Automations views">
         {TABS.map(({ id, label }, index) => (
@@ -136,9 +146,16 @@ export function AutomationsView({ workspace }: AutomationsViewProps) {
 
       {/* Where the side panel opens, over whichever tab is showing. */}
       <div className="automations-body">
-        <div className="automations-tabpanel" role="tabpanel" id={panelId} aria-labelledby={`${panelId}-tab-${tab}`}>
+        <div
+          className="automations-tabpanel"
+          role="tabpanel"
+          id={panelId}
+          aria-labelledby={`${panelId}-tab-${tab}`}
+        >
           {/* Keyed: one workspace's look at Activity, and its runs' arrivals, are not another's. */}
-          {snapshot && tab === 'activity' && <ActivityTab key={workspace.id} workspace={workspace} snapshot={snapshot} />}
+          {snapshot && tab === 'activity' && (
+            <ActivityTab key={workspace.id} workspace={workspace} snapshot={snapshot} />
+          )}
           {snapshot && tab === 'automations' && (
             <AutomationsList key={workspace.id} workspace={workspace} snapshot={snapshot} />
           )}
@@ -168,12 +185,16 @@ function TabBadge({
   snapshot: AutomationsSnapshot | undefined;
   lastSeen: string;
 }) {
+  const attention = useAttentionStore((state) => state.attention);
   if (!snapshot) return null;
   if (tab === 'automations') {
-    const waiting = snapshot.runs.filter((run) => run.status === 'needs-approval').length;
+    const waiting = waitingRuns(snapshot.runs, { attention }).length;
     if (waiting > 0) {
       return (
-        <span className="automations-tab-badge automations-tab-badge-waiting" title={`${waiting} waiting for you`}>
+        <span
+          className="automations-tab-badge automations-tab-badge-waiting"
+          title={`${waiting} waiting for you`}
+        >
           {waiting}
         </span>
       );
@@ -185,7 +206,10 @@ function TabBadge({
     const failed = unseenFailures(snapshot, lastSeen).length;
     if (failed === 0) return null;
     return (
-      <span className="automations-tab-badge automations-tab-badge-failed" title={`${failed} failed since you last looked`}>
+      <span
+        className="automations-tab-badge automations-tab-badge-failed"
+        title={`${failed} failed since you last looked`}
+      >
         {failed}
       </span>
     );

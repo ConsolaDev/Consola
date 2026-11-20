@@ -1,6 +1,6 @@
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import type { Workspace } from '../../shared/workspace';
 import type { GitProviderDriver } from './GitProviderDriver';
@@ -25,7 +25,7 @@ afterAll(() => {
 
 function makeWorkspace(
   scopePaths: Array<{ path: string; isGitRepo: boolean }>,
-  overrides: Partial<Workspace> = {}
+  overrides: Partial<Workspace> = {},
 ): Workspace {
   const now = Date.now();
   return {
@@ -40,6 +40,7 @@ function makeWorkspace(
       createdAt: now,
     })),
     groups: [],
+    labels: [],
     provider: { id: 'github', accountLogin: 'JaviDev', org: 'sprocket' },
     actions: [],
     sectionDefaults: {},
@@ -67,7 +68,10 @@ function makeStubDriver(overrides: Partial<GitProviderDriver> = {}): GitProvider
   });
 }
 
-function makeDeps(driver: GitProviderDriver = makeStubDriver(), overrides: Partial<CloneRepoDeps> = {}) {
+function makeDeps(
+  driver: GitProviderDriver = makeStubDriver(),
+  overrides: Partial<CloneRepoDeps> = {},
+) {
   const addScope = vi.fn();
   const deps: CloneRepoDeps = {
     resolveDriver: () => driver,
@@ -84,7 +88,12 @@ describe('cloneWorkspaceRepo', () => {
     const workspace = makeWorkspace([{ path: container, isGitRepo: false }]);
     const { deps, addScope, driver } = makeDeps();
 
-    const result = await cloneWorkspaceRepo(deps, workspace, 'sprocket/media-upload-api', container);
+    const result = await cloneWorkspaceRepo(
+      deps,
+      workspace,
+      'sprocket/media-upload-api',
+      container,
+    );
 
     const target = path.join(container, 'media-upload-api');
     expect(result).toEqual({ ok: true, path: target });
@@ -126,7 +135,12 @@ describe('cloneWorkspaceRepo', () => {
     const workspace = makeWorkspace([{ path: container, isGitRepo: false }]);
     const { deps, driver } = makeDeps();
 
-    const result = await cloneWorkspaceRepo(deps, workspace, 'sprocket/media-upload-api', container);
+    const result = await cloneWorkspaceRepo(
+      deps,
+      workspace,
+      'sprocket/media-upload-api',
+      container,
+    );
 
     expect(result.ok).toBe(false);
     expect(result.error).toContain('already exists');
@@ -141,10 +155,15 @@ describe('cloneWorkspaceRepo', () => {
         cloneRepo: vi.fn(async () => {
           throw new Error('gh: canned failure (STUB_GH_FAIL=1)');
         }),
-      })
+      }),
     );
 
-    const result = await cloneWorkspaceRepo(deps, workspace, 'sprocket/media-upload-api', container);
+    const result = await cloneWorkspaceRepo(
+      deps,
+      workspace,
+      'sprocket/media-upload-api',
+      container,
+    );
 
     expect(result).toEqual({ ok: false, error: 'gh: canned failure (STUB_GH_FAIL=1)' });
     expect(fs.existsSync(path.join(container, 'media-upload-api'))).toBe(false);
@@ -159,17 +178,29 @@ describe('cloneWorkspaceRepo', () => {
       },
     });
 
-    const result = await cloneWorkspaceRepo(deps, workspace, 'sprocket/media-upload-api', container);
+    const result = await cloneWorkspaceRepo(
+      deps,
+      workspace,
+      'sprocket/media-upload-api',
+      container,
+    );
 
     expect(result).toEqual({ ok: false, error: 'Unknown git provider "gitlab".' });
   });
 
   it('errors plainly for a workspace without a provider binding', async () => {
     const container = tmpDir('consola-clone-dst-');
-    const workspace = makeWorkspace([{ path: container, isGitRepo: false }], { provider: undefined });
+    const workspace = makeWorkspace([{ path: container, isGitRepo: false }], {
+      provider: undefined,
+    });
     const { deps, driver } = makeDeps();
 
-    const result = await cloneWorkspaceRepo(deps, workspace, 'sprocket/media-upload-api', container);
+    const result = await cloneWorkspaceRepo(
+      deps,
+      workspace,
+      'sprocket/media-upload-api',
+      container,
+    );
 
     expect(result).toEqual({ ok: false, error: 'This workspace has no provider account bound.' });
     expect(driver.cloneRepo).not.toHaveBeenCalled();

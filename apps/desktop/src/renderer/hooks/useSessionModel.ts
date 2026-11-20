@@ -9,7 +9,7 @@ export function useSessionModel(session: Session, enabled: boolean): string | un
   const getLaunchFields = useHarnessStore((state) => state.getLaunchFields);
   const fields = useMemo(
     () => getLaunchFields(session.harnessId),
-    [harnesses, getLaunchFields, session.harnessId]
+    [harnesses, getLaunchFields, session.harnessId],
   );
   const [runtime, setRuntime] = useState<{ key: string; model: string }>();
   const key = JSON.stringify([session.claudeSessionId, fields]);

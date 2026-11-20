@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
-import fs from 'fs';
-import os from 'os';
-import path from 'path';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { launchElectron } from './helpers/electron';
 
 /**
@@ -43,15 +43,18 @@ test('fan-out of two stub sessions shows a group with counts', async () => {
           accentColor: '#4f5bd5',
           binaryPath,
         }),
-      [stubPath] as const
+      [stubPath] as const,
     );
     await page.evaluate(
       ([name, folder]) => window.workspaceAPI.createWorkspace(name, folder, false, 'stub'),
-      ['fleet', containerDir] as const
+      ['fleet', containerDir] as const,
     );
 
     // Point this window at the workspace through the real switcher UI.
-    await page.getByRole('navigation', { name: 'Workspaces', exact: true }).getByRole('button', { name: /fleet/ }).click();
+    await page
+      .getByRole('navigation', { name: 'Workspaces', exact: true })
+      .getByRole('button', { name: /fleet/ })
+      .click();
 
     // + New -> Fan-out... (exact: a sidebar scope row also has a "New session
     // in fleet" button, and Playwright's default name match is substring.)
@@ -65,12 +68,23 @@ test('fan-out of two stub sessions shows a group with counts', async () => {
     await page.getByLabel(/Prompt/).fill('Say hello in each repo.');
     await page.getByRole('button', { name: /Create group · 2 sessions/ }).click();
 
-    // The dialog closes; the sidebar shows the group with both members.
-    await expect(page.getByText('bump-deps')).toBeVisible();
-    await expect(page.locator('.sidebar').getByText('repo-a')).toBeVisible();
-    await expect(page.locator('.sidebar').getByText('repo-b')).toBeVisible();
-    // The derived badge: two members, none needing attention.
-    await expect(page.locator('.group-nav-count')).toHaveText('2', { timeout: 15_000 });
+    // The dialog closes; the sidebar lists both members. The group is a record
+    // (and a name in Settings), not a heading, so the members are the evidence.
+    await expect(
+      page.locator('.sidebar .session-nav-item-name', { hasText: 'repo-a' }),
+    ).toBeVisible();
+    await expect(
+      page.locator('.sidebar .session-nav-item-name', { hasText: 'repo-b' }),
+    ).toBeVisible();
+    await expect(page.locator('.sidebar .session-nav-item')).toHaveCount(2, { timeout: 15_000 });
+    const members = await page.evaluate(async () => {
+      const workspace = (await window.workspaceAPI.getSnapshot()).workspaces.find(
+        (candidate) => candidate.name === 'fleet',
+      )!;
+      const group = workspace.groups.find((candidate) => candidate.name === 'bump-deps')!;
+      return workspace.sessions.filter((session) => session.groupId === group.id).length;
+    });
+    expect(members).toBe(2);
   } finally {
     await app.close();
   }

@@ -1,6 +1,6 @@
 import type { WorkspaceView } from '../../shared/types';
 import type { Workspace } from '../../shared/workspace';
-import { JsonStateFile } from './JsonStateFile';
+import type { JsonStateFile } from './JsonStateFile';
 
 /** The on-disk shape: one remembered view per workspace id. */
 export interface ViewMemoryStateFile {
@@ -50,7 +50,7 @@ export function normalizeView(value: unknown): WorkspaceView | null {
  */
 export function resolveRememberedView(
   view: WorkspaceView,
-  workspace: Workspace | undefined
+  workspace: Workspace | undefined,
 ): WorkspaceView {
   if (!workspace) return EMPTY_VIEW;
 

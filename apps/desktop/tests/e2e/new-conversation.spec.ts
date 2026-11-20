@@ -1,13 +1,13 @@
 import { expect, test } from '@playwright/test';
-import { execFileSync } from 'child_process';
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
+import { execFileSync } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import type { Page } from '@playwright/test';
 import { launchElectron } from './helpers/electron';
 
 const chooseScope = async (target: Page, name: string) => {
-  await target.getByRole('button', { name: 'Filter sessions by scope', exact: true }).click();
+  await target.getByRole('button', { name: 'Filter sessions', exact: true }).click();
   await target.getByRole('menuitem', { name: new RegExp(name) }).click();
 };
 
@@ -16,28 +16,59 @@ test('session options create and reuse worktrees, with searchable refs and recov
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'consola-composer-')));
   const repo = path.join(root, 'console-1');
   fs.mkdirSync(repo);
-  const git = (...args: string[]) => execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8' }).trim();
+  const git = (...args: string[]) =>
+    execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8' }).trim();
   git('init', '-b', 'main');
-  git('-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '--allow-empty', '-m', 'initial');
+  git(
+    '-c',
+    'user.name=Test',
+    '-c',
+    'user.email=test@example.com',
+    'commit',
+    '--allow-empty',
+    '-m',
+    'initial',
+  );
   git('branch', 'feature/resizable-sidebar');
   const existing = path.join(root, 'existing checkout');
   git('worktree', 'add', '-b', 'feature/inbox', existing);
   const profile = path.join(root, 'codex');
   fs.mkdirSync(profile);
-  const { app, page, userDataDir } = await launchElectron({ env: { CONSOLA_WORKTREES_DIR: path.join(root, 'worktrees') } });
+  const { app, page, userDataDir } = await launchElectron({
+    env: { CONSOLA_WORKTREES_DIR: path.join(root, 'worktrees') },
+  });
   try {
-    await page.evaluate(async ({ repo, profile, binary }) => {
-      await window.harnessStateAPI.addHarness({ id: 'fixture', name: 'Development agent', driverId: 'codex', accentColor: '#da9775', binaryPath: binary, configDir: profile });
-      await window.workspaceAPI.createWorkspace('console-1', repo, true, 'fixture');
-    }, { repo, profile, binary: path.resolve('tests/fixtures/codex.cjs') });
-    await page.getByRole('navigation', { name: 'Workspaces', exact: true }).getByRole('button', { name: /console-1/ }).click();
-    await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Shift+KeyN' : 'Control+Shift+KeyN');
+    await page.evaluate(
+      async ({ repo, profile, binary }) => {
+        await window.harnessStateAPI.addHarness({
+          id: 'fixture',
+          name: 'Development agent',
+          driverId: 'codex',
+          accentColor: '#da9775',
+          binaryPath: binary,
+          configDir: profile,
+        });
+        await window.workspaceAPI.createWorkspace('console-1', repo, true, 'fixture');
+      },
+      { repo, profile, binary: path.resolve('tests/fixtures/codex.cjs') },
+    );
+    await page
+      .getByRole('navigation', { name: 'Workspaces', exact: true })
+      .getByRole('button', { name: /console-1/ })
+      .click();
+    await page.keyboard.press(
+      process.platform === 'darwin' ? 'Meta+Shift+KeyN' : 'Control+Shift+KeyN',
+    );
     await expect(page.getByRole('dialog', { name: 'New session with options' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Create session' })).toBeEnabled();
-    await expect(page.getByRole('button', { name: 'Choose branch or worktree' })).toContainText('main');
+    await expect(page.getByRole('button', { name: 'Choose branch or worktree' })).toContainText(
+      'main',
+    );
     await page.screenshot({ path: 'test-results/new-conversation.png', animations: 'disabled' });
     await page.getByRole('button', { name: 'Choose branch or worktree' }).click();
-    await page.getByRole('textbox', { name: 'Search branches and worktrees' }).fill('no-such-branch');
+    await page
+      .getByRole('textbox', { name: 'Search branches and worktrees' })
+      .fill('no-such-branch');
     await expect(page.getByText('No matching branches or worktrees.')).toBeVisible();
     await page.getByRole('textbox', { name: 'Search branches and worktrees' }).fill('');
     await page.screenshot({ path: 'test-results/new-conversation-branches.png' });
@@ -51,51 +82,85 @@ test('session options create and reuse worktrees, with searchable refs and recov
     await page.getByLabel('New branch', { exact: true }).fill('feature/composer');
     await page.getByRole('button', { name: 'Create session' }).click();
     await expect(page.getByRole('dialog', { name: 'New session with options' })).toHaveCount(0);
-    const first = await page.evaluate(async () => (await window.workspaceAPI.getSnapshot()).workspaces.find(ws => ws.name === 'console-1')!.sessions[0]);
+    const first = await page.evaluate(
+      async () =>
+        (await window.workspaceAPI.getSnapshot()).workspaces.find((ws) => ws.name === 'console-1')!
+          .sessions[0],
+    );
     expect(first.cwd).toContain('/worktrees/');
-    expect(execFileSync('git', ['-C', first.cwd!, 'branch', '--show-current'], { encoding: 'utf8' }).trim()).toBe('feature/composer');
+    expect(
+      execFileSync('git', ['-C', first.cwd!, 'branch', '--show-current'], {
+        encoding: 'utf8',
+      }).trim(),
+    ).toBe('feature/composer');
     expect(git('branch', '--show-current')).toBe('main');
 
     await page.getByRole('button', { name: 'New', exact: true }).click();
     await page.getByRole('menuitem', { name: /New session with options/ }).click();
     await page.getByRole('button', { name: 'Checkout mode' }).click();
     await page.getByRole('menuitem', { name: /Existing worktree/ }).click();
-    await page.getByRole('textbox', { name: 'Search branches and worktrees' }).fill('feature/inbox');
+    await page
+      .getByRole('textbox', { name: 'Search branches and worktrees' })
+      .fill('feature/inbox');
     await page.getByRole('button', { name: /feature\/inbox.*worktree/ }).click();
-    await expect(page.getByRole('button', { name: 'Checkout mode' })).toContainText('Existing worktree');
+    await expect(page.getByRole('button', { name: 'Checkout mode' })).toContainText(
+      'Existing worktree',
+    );
     await page.getByRole('button', { name: 'Create session' }).click();
     await expect(page.getByRole('dialog', { name: 'New session with options' })).toHaveCount(0);
-    const sessions = await page.evaluate(async () => (await window.workspaceAPI.getSnapshot()).workspaces.find(ws => ws.name === 'console-1')!.sessions);
+    const sessions = await page.evaluate(
+      async () =>
+        (await window.workspaceAPI.getSnapshot()).workspaces.find((ws) => ws.name === 'console-1')!
+          .sessions,
+    );
     expect(sessions).toHaveLength(2);
     expect(sessions[1].cwd).toBe(existing);
 
-    // Group creation must persist the scope selected in Home, including when
+    // Session options must persist the scope selected in Home, including when
     // the last active conversation ran in a different scope and worktree.
-    const destination = await page.evaluate(async ({ folder }) => {
-      const ws = (await window.workspaceAPI.getSnapshot()).workspaces.find(ws => ws.name === 'console-1')!;
-      const scope = await window.workspaceAPI.addScope(ws.id, { name: 'inbox-checkout', path: folder, isGitRepo: true });
-      const group = await window.workspaceAPI.createGroup(ws.id, { name: 'Inbox work' });
-      return { scopeId: scope.id, groupId: group.id };
-    }, { folder: existing });
+    const destination = await page.evaluate(
+      async ({ folder }) => {
+        const ws = (await window.workspaceAPI.getSnapshot()).workspaces.find(
+          (ws) => ws.name === 'console-1',
+        )!;
+        const scope = await window.workspaceAPI.addScope(ws.id, {
+          name: 'inbox-checkout',
+          path: folder,
+          isGitRepo: true,
+        });
+        const group = await window.workspaceAPI.createGroup(ws.id, { name: 'Inbox work' });
+        return { scopeId: scope.id, groupId: group.id };
+      },
+      { folder: existing },
+    );
     await chooseScope(page, 'inbox-checkout');
-    await page.locator('.group-nav-header').hover();
-    await page.getByRole('button', { name: 'Group actions for Inbox work' }).click();
-    await page.getByRole('menuitem', { name: 'New session with options…' }).click();
+    await page.keyboard.press(
+      process.platform === 'darwin' ? 'Meta+Shift+KeyN' : 'Control+Shift+KeyN',
+    );
     await expect(page.getByLabel('Scope', { exact: true })).toContainText('inbox-checkout');
+    // The Group field still offers the workspace's groups; it is a choice, not a place.
+    await page.getByLabel('Group', { exact: true }).click();
+    await page.getByRole('option', { name: 'Inbox work', exact: true }).click();
     await expect(page.getByLabel('Group', { exact: true })).toContainText('Inbox work');
     await page.getByRole('button', { name: 'Create session' }).click();
     await expect(page.getByRole('dialog', { name: 'New session with options' })).toHaveCount(0);
-    const grouped = await page.evaluate(async () => (await window.workspaceAPI.getSnapshot()).workspaces.find(ws => ws.name === 'console-1')!.sessions.at(-1)!);
+    const grouped = await page.evaluate(
+      async () =>
+        (await window.workspaceAPI.getSnapshot()).workspaces
+          .find((ws) => ws.name === 'console-1')!
+          .sessions.at(-1)!,
+    );
     expect(grouped.scopeId).toBe(destination.scopeId);
     expect(grouped.groupId).toBe(destination.groupId);
     expect(grouped.cwd).toBe(existing);
-    await expect(page.locator('.group-nav-item .session-nav-item.active')).toBeVisible();
-    await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Shift+KeyN' : 'Control+Shift+KeyN');
+    await expect(page.locator('.session-nav-item.active')).toBeVisible();
+    await page.keyboard.press(
+      process.platform === 'darwin' ? 'Meta+Shift+KeyN' : 'Control+Shift+KeyN',
+    );
     await expect(page.getByLabel('Scope', { exact: true })).toContainText('inbox-checkout');
     await expect(page.getByLabel('Group', { exact: true })).toContainText('Ungrouped');
     await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-    await expect(page.locator('.group-nav-item .session-nav-item.active')).toBeVisible();
-
+    await expect(page.locator('.session-nav-item.active')).toBeVisible();
   } finally {
     await app.close();
     fs.rmSync(root, { recursive: true, force: true });
@@ -114,17 +179,43 @@ test('plus and new-session shortcuts launch defaults; options are cancellable an
   const { app, page, userDataDir } = await launchElectron();
   const mod = process.platform === 'darwin' ? 'Meta' : 'Control';
   try {
-    const setup = await page.evaluate(async ({ root, secondary, profile, binary }) => {
-      await window.harnessStateAPI.addHarness({ id: 'fixture', name: 'Development agent', driverId: 'codex', accentColor: '#da9775', binaryPath: binary, configDir: profile });
-      const workspace = await window.workspaceAPI.createWorkspace('Quick sessions', root, false, 'fixture');
-      const scope = await window.workspaceAPI.addScope(workspace.id, { name: 'API', path: secondary, isGitRepo: false });
-      const group = await window.workspaceAPI.createGroup(workspace.id, { name: 'Feature' });
-      return { workspaceId: workspace.id, scopeId: scope.id, groupId: group.id };
-    }, { root, secondary, profile, binary: path.resolve('tests/fixtures/codex.cjs') });
-    const sessions = () => page.evaluate(async () => (await window.workspaceAPI.getSnapshot()).workspaces[0].sessions);
-    await page.getByRole('navigation', { name: 'Workspaces', exact: true }).getByRole('button', { name: /Quick sessions/ }).click();
+    const setup = await page.evaluate(
+      async ({ root, secondary, profile, binary }) => {
+        await window.harnessStateAPI.addHarness({
+          id: 'fixture',
+          name: 'Development agent',
+          driverId: 'codex',
+          accentColor: '#da9775',
+          binaryPath: binary,
+          configDir: profile,
+        });
+        const workspace = await window.workspaceAPI.createWorkspace(
+          'Quick sessions',
+          root,
+          false,
+          'fixture',
+        );
+        const scope = await window.workspaceAPI.addScope(workspace.id, {
+          name: 'API',
+          path: secondary,
+          isGitRepo: false,
+        });
+        const group = await window.workspaceAPI.createGroup(workspace.id, { name: 'Feature' });
+        return { workspaceId: workspace.id, scopeId: scope.id, groupId: group.id };
+      },
+      { root, secondary, profile, binary: path.resolve('tests/fixtures/codex.cjs') },
+    );
+    const sessions = () =>
+      page.evaluate(async () => (await window.workspaceAPI.getSnapshot()).workspaces[0].sessions);
+    await page
+      .getByRole('navigation', { name: 'Workspaces', exact: true })
+      .getByRole('button', { name: /Quick sessions/ })
+      .click();
     await chooseScope(page, 'API');
-    await page.locator('.sidebar-search').getByRole('button', { name: 'New session', exact: true }).click();
+    await page
+      .locator('.sidebar-search')
+      .getByRole('button', { name: 'New session', exact: true })
+      .click();
     await expect(page.getByRole('textbox', { name: 'Terminal input' })).toBeVisible();
     expect(await sessions()).toHaveLength(1);
     expect((await sessions())[0]).toMatchObject({ harnessId: 'fixture', scopeId: setup.scopeId });
@@ -135,7 +226,10 @@ test('plus and new-session shortcuts launch defaults; options are cancellable an
     await page.keyboard.press(`${mod}+KeyN`);
     await expect.poll(async () => (await sessions()).length).toBe(2);
     await expect(page.locator('.new-session-dialog')).toHaveCount(0);
-    const activeIndex = () => page.locator('.session-nav-item').evaluateAll(rows => rows.findIndex(row => row.classList.contains('active')));
+    const activeIndex = () =>
+      page
+        .locator('.session-nav-item')
+        .evaluateAll((rows) => rows.findIndex((row) => row.classList.contains('active')));
     const active = await activeIndex();
     await page.keyboard.press(`${mod}+Shift+KeyN`);
     const modal = page.getByRole('dialog', { name: 'New session with options' });
@@ -150,44 +244,72 @@ test('plus and new-session shortcuts launch defaults; options are cancellable an
     await page.emulateMedia({ colorScheme: 'dark' });
     await expect(page.locator('.radix-themes').first()).toHaveClass(/dark/);
     await modal.getByLabel('Agent', { exact: true }).focus();
-    await page.screenshot({ path: 'test-results/session-options-dark.png', animations: 'disabled' });
+    await page.screenshot({
+      path: 'test-results/session-options-dark.png',
+      animations: 'disabled',
+    });
     await modal.getByLabel('Agent', { exact: true }).click();
-    await expect(page.getByRole('option', { name: 'Development agent', exact: true }).locator('[data-harness-type="codex"]')).toBeVisible();
-    await page.screenshot({ path: 'test-results/session-options-agents.png', animations: 'disabled' });
+    await expect(
+      page
+        .getByRole('option', { name: 'Development agent', exact: true })
+        .locator('[data-harness-type="codex"]'),
+    ).toBeVisible();
+    await page.screenshot({
+      path: 'test-results/session-options-agents.png',
+      animations: 'disabled',
+    });
     await page.keyboard.press('Escape');
     await expect(modal).toBeVisible();
     await page.emulateMedia({ colorScheme: 'light' });
     await expect(page.locator('.radix-themes').first()).toHaveClass(/light/);
-    await page.screenshot({ path: 'test-results/session-options-light.png', animations: 'disabled' });
+    await page.screenshot({
+      path: 'test-results/session-options-light.png',
+      animations: 'disabled',
+    });
     await page.setViewportSize({ width: 440, height: 740 });
     await page.emulateMedia({ reducedMotion: 'reduce', colorScheme: 'dark' });
-    await page.screenshot({ path: 'test-results/session-options-compact.png', animations: 'disabled' });
+    await page.screenshot({
+      path: 'test-results/session-options-compact.png',
+      animations: 'disabled',
+    });
     await page.setViewportSize({ width: 1000, height: 700 });
     await page.keyboard.press('Escape');
     await expect(modal).toHaveCount(0);
     expect(await sessions()).toHaveLength(2);
     expect(await activeIndex()).toBe(active);
 
-    await page.locator('.group-nav-header').hover();
-    await page.getByRole('button', { name: 'New session in Feature', exact: true }).click();
+    // + starts a plain session in the filtered scope: no group is implied.
+    await page
+      .locator('.sidebar-search')
+      .getByRole('button', { name: 'New session', exact: true })
+      .click();
     await expect.poll(async () => (await sessions()).length).toBe(3);
-    expect((await sessions())[2]).toMatchObject({ scopeId: setup.scopeId, groupId: setup.groupId, harnessId: 'fixture' });
-    await page.getByRole('button', { name: 'New ungrouped session' }).click();
+    expect((await sessions())[2]).toMatchObject({ scopeId: setup.scopeId, harnessId: 'fixture' });
+    expect((await sessions())[2].groupId).toBeUndefined();
+    await page
+      .locator('.sidebar-search')
+      .getByRole('button', { name: 'New session', exact: true })
+      .click();
     await expect.poll(async () => (await sessions()).length).toBe(4);
     expect((await sessions())[3].groupId).toBeUndefined();
 
-    await page.locator('.group-nav-header').hover();
-    await page.getByRole('button', { name: 'Group actions for Feature' }).click();
-    await page.getByRole('menuitem', { name: 'New session with options…' }).click();
+    // A group is still a choice in the options; it carries into the record.
+    await page.keyboard.press(`${mod}+Shift+KeyN`);
+    await expect(modal.getByLabel('Group', { exact: true })).toContainText('Ungrouped');
+    await modal.getByLabel('Group', { exact: true }).click();
+    await page.getByRole('option', { name: 'Feature', exact: true }).click();
     await expect(modal.getByLabel('Group', { exact: true })).toContainText('Feature');
     await expect(modal.getByLabel('Model', { exact: true })).toContainText('Default model');
     await modal.getByLabel('Model', { exact: true }).click();
     await page.getByRole('option', { name: 'fixture-model-b', exact: true }).click();
     await modal.getByRole('button', { name: 'Create session' }).click();
     await expect(modal).toHaveCount(0);
-    expect((await sessions())[4]).toMatchObject({ groupId: setup.groupId, scopeId: setup.scopeId, model: 'fixture-model-b' });
-    await page.getByRole('button', { name: 'Ungrouped actions' }).click();
-    await page.getByRole('menuitem', { name: 'New session with options…' }).click();
+    expect((await sessions())[4]).toMatchObject({
+      groupId: setup.groupId,
+      scopeId: setup.scopeId,
+      model: 'fixture-model-b',
+    });
+    await page.keyboard.press(`${mod}+Shift+KeyN`);
     await expect(modal.getByLabel('Group', { exact: true })).toContainText('Ungrouped');
     await modal.getByRole('button', { name: 'Cancel', exact: true }).click();
     expect(await sessions()).toHaveLength(5);
@@ -208,23 +330,49 @@ test('▾ starts a session in any scope, straight into its terminal', async () =
   fs.mkdirSync(secondary);
   const { app, page, userDataDir } = await launchElectron();
   try {
-    const setup = await page.evaluate(async ({ root, secondary, profile, binary }) => {
-      await window.harnessStateAPI.addHarness({ id: 'fixture', name: 'Development agent', driverId: 'codex', accentColor: '#da9775', binaryPath: binary, configDir: profile });
-      const workspace = await window.workspaceAPI.createWorkspace('Quick sessions', root, false, 'fixture');
-      const scope = await window.workspaceAPI.addScope(workspace.id, { name: 'API', path: secondary, isGitRepo: false });
-      return { scopeId: scope.id, rootName: workspace.scopes[0].name };
-    }, { root, secondary, profile, binary: path.resolve('tests/fixtures/codex.cjs') });
-    await page.getByRole('navigation', { name: 'Workspaces', exact: true }).getByRole('button', { name: /Quick sessions/ }).click();
+    const setup = await page.evaluate(
+      async ({ root, secondary, profile, binary }) => {
+        await window.harnessStateAPI.addHarness({
+          id: 'fixture',
+          name: 'Development agent',
+          driverId: 'codex',
+          accentColor: '#da9775',
+          binaryPath: binary,
+          configDir: profile,
+        });
+        const workspace = await window.workspaceAPI.createWorkspace(
+          'Quick sessions',
+          root,
+          false,
+          'fixture',
+        );
+        const scope = await window.workspaceAPI.addScope(workspace.id, {
+          name: 'API',
+          path: secondary,
+          isGitRepo: false,
+        });
+        return { scopeId: scope.id, rootName: workspace.scopes[0].name };
+      },
+      { root, secondary, profile, binary: path.resolve('tests/fixtures/codex.cjs') },
+    );
+    await page
+      .getByRole('navigation', { name: 'Workspaces', exact: true })
+      .getByRole('button', { name: /Quick sessions/ })
+      .click();
 
     // No filter and nothing open: + starts in the primary scope, and says so.
-    const plus = page.locator('.sidebar-search').getByRole('button', { name: 'New session', exact: true });
+    const plus = page
+      .locator('.sidebar-search')
+      .getByRole('button', { name: 'New session', exact: true });
     await expect(plus).toHaveAttribute('title', `New session in ${setup.rootName}`);
 
     await page.locator('.sidebar-search').getByRole('button', { name: 'New', exact: true }).click();
     // API's folder sits inside the root scope's, so it reads after it.
     await page.getByRole('menuitem', { name: `${setup.rootName} / API`, exact: true }).click();
     await expect(page.getByRole('textbox', { name: 'Terminal input' })).toBeVisible();
-    const sessions = await page.evaluate(async () => (await window.workspaceAPI.getSnapshot()).workspaces[0].sessions);
+    const sessions = await page.evaluate(
+      async () => (await window.workspaceAPI.getSnapshot()).workspaces[0].sessions,
+    );
     expect(sessions).toHaveLength(1);
     expect(sessions[0]).toMatchObject({ scopeId: setup.scopeId });
     await expect(page.locator('.session-nav-item .session-nav-item-scope')).toContainText('API');

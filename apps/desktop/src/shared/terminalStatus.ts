@@ -13,17 +13,17 @@
 export type TerminalStatus = 'working' | 'ready' | 'needs-attention' | 'exited';
 
 export interface TerminalStatusFlags {
-    /** Output is flowing. */
-    busy: boolean;
-    /** A confirmation menu or permission prompt is on screen. */
-    awaitingConfirmation: boolean;
-    /** The CLI process is gone. */
-    exited: boolean;
+  /** Output is flowing. */
+  busy: boolean;
+  /** A confirmation menu or permission prompt is on screen. */
+  awaitingConfirmation: boolean;
+  /** The CLI process is gone. */
+  exited: boolean;
 }
 
 export function deriveTerminalStatus(flags: TerminalStatusFlags): TerminalStatus {
-    if (flags.exited) return 'exited';
-    if (flags.awaitingConfirmation) return 'needs-attention';
-    if (flags.busy) return 'working';
-    return 'ready';
+  if (flags.exited) return 'exited';
+  if (flags.awaitingConfirmation) return 'needs-attention';
+  if (flags.busy) return 'working';
+  return 'ready';
 }

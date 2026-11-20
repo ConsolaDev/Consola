@@ -73,7 +73,10 @@ const SELECTION_DEBOUNCE_MS = 300; // Debounce for double-click handling
  * Walks up the tree looking for data-line-number or line number elements.
  * Also checks sibling elements for line numbers (react-syntax-highlighter pattern).
  */
-function findLineNumber(node: Node | null, customGetter?: (el: Element) => number | null): number | null {
+function findLineNumber(
+  node: Node | null,
+  customGetter?: (el: Element) => number | null,
+): number | null {
   let current: Node | null = node;
 
   while (current) {
@@ -97,7 +100,7 @@ function findLineNumber(node: Node | null, customGetter?: (el: Element) => numbe
       const lineClass = Array.from(element.classList).find((c) => c.startsWith('line-'));
       if (lineClass) {
         const num = parseInt(lineClass.replace('line-', ''), 10);
-        if (!isNaN(num)) return num;
+        if (!Number.isNaN(num)) return num;
       }
 
       // react-syntax-highlighter uses linenumber class with index
@@ -105,7 +108,7 @@ function findLineNumber(node: Node | null, customGetter?: (el: Element) => numbe
         const text = element.textContent?.trim();
         if (text) {
           const num = parseInt(text, 10);
-          if (!isNaN(num)) return num;
+          if (!Number.isNaN(num)) return num;
         }
       }
 
@@ -116,25 +119,27 @@ function findLineNumber(node: Node | null, customGetter?: (el: Element) => numbe
         // Look for a preceding sibling with .linenumber class
         const siblings = Array.from(parent.children);
         const lineNumSibling = siblings.find(
-          (s) => s.classList.contains('linenumber') || s.classList.contains('react-syntax-highlighter-line-number')
+          (s) =>
+            s.classList.contains('linenumber') ||
+            s.classList.contains('react-syntax-highlighter-line-number'),
         );
         if (lineNumSibling) {
           const text = lineNumSibling.textContent?.trim();
           if (text) {
             const num = parseInt(text, 10);
-            if (!isNaN(num)) return num;
+            if (!Number.isNaN(num)) return num;
           }
         }
 
         // Git review diff pattern: check for .git-review-inline-diff-line-number sibling
         const diffLineNumSibling = siblings.find((s) =>
-          s.classList.contains('git-review-inline-diff-line-number')
+          s.classList.contains('git-review-inline-diff-line-number'),
         );
         if (diffLineNumSibling) {
           const text = diffLineNumSibling.textContent?.trim();
           if (text) {
             const num = parseInt(text, 10);
-            if (!isNaN(num)) return num;
+            if (!Number.isNaN(num)) return num;
           }
         }
       }
@@ -161,12 +166,14 @@ function findLineNumberFromRow(node: Node | null): number | null {
       // Check if this is a line row in react-syntax-highlighter
       // Rows typically have a span with linenumber as first child
       if (element.tagName === 'SPAN' || element.tagName === 'DIV') {
-        const lineNumEl = element.querySelector('.linenumber, .react-syntax-highlighter-line-number');
+        const lineNumEl = element.querySelector(
+          '.linenumber, .react-syntax-highlighter-line-number',
+        );
         if (lineNumEl) {
           const text = lineNumEl.textContent?.trim();
           if (text) {
             const num = parseInt(text, 10);
-            if (!isNaN(num)) return num;
+            if (!Number.isNaN(num)) return num;
           }
         }
 
@@ -176,7 +183,7 @@ function findLineNumberFromRow(node: Node | null): number | null {
           const text = diffLineNumEl.textContent?.trim();
           if (text) {
             const num = parseInt(text, 10);
-            if (!isNaN(num)) return num;
+            if (!Number.isNaN(num)) return num;
           }
         }
       }
@@ -197,7 +204,7 @@ function findLineNumberFromRow(node: Node | null): number | null {
  */
 function getSelectionLineRange(
   selection: Selection,
-  customGetter?: (el: Element) => number | null
+  customGetter?: (el: Element) => number | null,
 ): { startLine: number; endLine: number } | null {
   const range = selection.getRangeAt(0);
 
@@ -218,14 +225,13 @@ function getSelectionLineRange(
   if (startLine === null || endLine === null) {
     // Last resort: try to find any line number in the selection range
     const container = range.commonAncestorContainer;
-    const containerEl = container.nodeType === Node.ELEMENT_NODE
-      ? (container as Element)
-      : container.parentElement;
+    const containerEl =
+      container.nodeType === Node.ELEMENT_NODE ? (container as Element) : container.parentElement;
 
     if (containerEl) {
       // Look for any line number element within the selection context
       const lineNumEls = containerEl.querySelectorAll(
-        '.linenumber, .react-syntax-highlighter-line-number, .git-review-inline-diff-line-number, [data-line-number]'
+        '.linenumber, .react-syntax-highlighter-line-number, .git-review-inline-diff-line-number, [data-line-number]',
       );
 
       if (lineNumEls.length > 0) {
@@ -233,12 +239,12 @@ function getSelectionLineRange(
         const firstLineNum = lineNumEls[0].textContent?.trim();
         if (firstLineNum) {
           const num = parseInt(firstLineNum, 10);
-          if (!isNaN(num)) {
+          if (!Number.isNaN(num)) {
             startLine = startLine ?? num;
             // Count the actual lines in selection
             const text = selection.toString();
             const lineCount = text.split('\n').length;
-            endLine = endLine ?? (startLine + lineCount - 1);
+            endLine = endLine ?? startLine + lineCount - 1;
           }
         }
       }
@@ -390,7 +396,7 @@ export function useCodeSelection({
     // Clear selection on mousedown outside
     const handleMouseDown = (e: MouseEvent) => {
       const popup = document.querySelector('.code-selection-popup');
-      if (popup && popup.contains(e.target as Node)) {
+      if (popup?.contains(e.target as Node)) {
         return; // Don't clear if clicking the popup
       }
       // Clear will happen naturally when selection changes

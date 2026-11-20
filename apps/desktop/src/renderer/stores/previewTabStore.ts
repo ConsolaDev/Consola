@@ -7,7 +7,7 @@ export interface DiffMode {
 }
 
 export interface PreviewTab {
-  id: string;        // File path serves as unique ID
+  id: string; // File path serves as unique ID
   filePath: string;
   filename: string;
   diffMode?: DiffMode;

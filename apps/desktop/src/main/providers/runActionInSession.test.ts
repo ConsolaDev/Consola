@@ -2,12 +2,25 @@ import { describe, expect, it, vi } from 'vitest';
 import type { InboxItem, WorkItemRef } from '../../shared/workItems';
 import type { WorkItemAction } from '../../shared/workItemActions';
 import type { Session, Workspace } from '../../shared/workspace';
-import { createRunInSessionCoalescer, runActionInSession, type RunActionInSessionDeps } from './runActionInSession';
+import {
+  createRunInSessionCoalescer,
+  runActionInSession,
+  type RunActionInSessionDeps,
+} from './runActionInSession';
 import { createStubDriver } from './stubDriver.test-helpers';
 
-const pr51: WorkItemRef = { provider: 'github', repo: 'sprocket/catalog-portal', type: 'pr', number: 51 };
+const pr51: WorkItemRef = {
+  provider: 'github',
+  repo: 'sprocket/catalog-portal',
+  type: 'pr',
+  number: 51,
+};
 
-const item51 = { workItem: pr51, title: 'Extract billing client', url: 'https://github.com/sprocket/catalog-portal/pull/51' } as InboxItem;
+const item51 = {
+  workItem: pr51,
+  title: 'Extract billing client',
+  url: 'https://github.com/sprocket/catalog-portal/pull/51',
+} as InboxItem;
 
 const review: WorkItemAction = {
   id: 'a-review',
@@ -22,8 +35,19 @@ const reReview: WorkItemAction = {
   prompt: 'Pull the latest and check #{{number}} again.',
   conversation: 'fresh',
 };
-const triage: WorkItemAction = { id: 'a-triage', name: 'Triage', appliesTo: ['issue'], prompt: 'Triage it.' };
-const blank: WorkItemAction = { id: 'a-blank', name: 'Blank', appliesTo: ['pr'], prompt: '  ', conversation: 'fresh' };
+const triage: WorkItemAction = {
+  id: 'a-triage',
+  name: 'Triage',
+  appliesTo: ['issue'],
+  prompt: 'Triage it.',
+};
+const blank: WorkItemAction = {
+  id: 'a-blank',
+  name: 'Blank',
+  appliesTo: ['pr'],
+  prompt: '  ',
+  conversation: 'fresh',
+};
 
 function makeSession(overrides: Partial<Session> = {}): Session {
   return {
@@ -49,7 +73,15 @@ function makeWorkspace(overrides: Partial<Workspace> = {}): Workspace {
     id: 'ws-1',
     name: 'Sprocket',
     defaultHarnessId: 'default',
-    scopes: [{ id: 'scope-1', name: 'catalog-portal', path: '/repos/catalog-portal', isGitRepo: true, createdAt: 1 }],
+    scopes: [
+      {
+        id: 'scope-1',
+        name: 'catalog-portal',
+        path: '/repos/catalog-portal',
+        isGitRepo: true,
+        createdAt: 1,
+      },
+    ],
     groups: [],
     provider: { id: 'github', accountLogin: 'octocat' },
     actions: [review, reReview, triage, blank],
@@ -81,7 +113,7 @@ describe('runActionInSession', () => {
       'ws-1',
       'session-1',
       'Review pull request #51 ("Extract billing client").',
-      'continue'
+      'continue',
     );
   });
 
@@ -92,7 +124,7 @@ describe('runActionInSession', () => {
       'ws-1',
       'session-1',
       'stub header for #51 (Extract billing client)\n\nPull the latest and check #51 again.',
-      'fresh'
+      'fresh',
     );
   });
 
@@ -100,7 +132,9 @@ describe('runActionInSession', () => {
     const deps = makeDeps(makeWorkspace(), { findItem: vi.fn(() => undefined) });
     await runActionInSession(deps, 'ws-1', 'session-1', 'a-review');
     expect(deps.findItem).toHaveBeenCalledWith('ws-1', pr51);
-    expect(vi.mocked(deps.runInSession).mock.calls[0][2]).toBe('Review pull request #51 ("PR #51").');
+    expect(vi.mocked(deps.runInSession).mock.calls[0][2]).toBe(
+      'Review pull request #51 ("PR #51").',
+    );
   });
 
   it('refuses before delivering anything', async () => {
@@ -109,7 +143,12 @@ describe('runActionInSession', () => {
       [makeWorkspace(), 'session-gone', 'a-review', /no longer exists/],
       [makeWorkspace(), 'session-1', 'a-triage', /does not apply to pull requests/],
       [makeWorkspace(), 'session-1', 'a-blank', /no prompt/],
-      [makeWorkspace({ sessions: [makeSession({ workItem: undefined })] }), 'session-1', 'a-review', /not linked/],
+      [
+        makeWorkspace({ sessions: [makeSession({ workItem: undefined })] }),
+        'session-1',
+        'a-review',
+        /not linked/,
+      ],
       [makeWorkspace({ provider: undefined }), 'session-1', 'a-review', /no provider/],
     ];
     for (const [workspace, sessionId, actionId, message] of cases) {
@@ -123,7 +162,9 @@ describe('runActionInSession', () => {
   it('returns a delivery failure as a message rather than rejecting', async () => {
     const deps = makeDeps(makeWorkspace(), {
       runInSession: vi.fn(async () => {
-        throw new Error('An automation is still running its turn in this session. Wait for it to finish.');
+        throw new Error(
+          'An automation is still running its turn in this session. Wait for it to finish.',
+        );
       }),
     });
     const result = await runActionInSession(deps, 'ws-1', 'session-1', 'a-rereview');

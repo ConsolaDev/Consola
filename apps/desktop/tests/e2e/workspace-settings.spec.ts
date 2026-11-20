@@ -1,8 +1,8 @@
 import { expect, test } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import {
   commandPaletteChord,
   createProfileDir,
@@ -56,8 +56,8 @@ function seedWorkspaceState(userDataDir: string, scopeDir: string): string {
         ],
       },
       null,
-      2
-    )
+      2,
+    ),
   );
   return workspaceId;
 }
@@ -119,7 +119,9 @@ async function launchSeeded(): Promise<{
 
 /** The seeded workspace stays available in the rail, including after a rename. */
 function workspaceButton(page: Page) {
-  return page.getByRole('navigation', { name: 'Workspaces', exact: true }).getByRole('button', { name: /^Sprocket/ });
+  return page
+    .getByRole('navigation', { name: 'Workspaces', exact: true })
+    .getByRole('button', { name: /^Sprocket/ });
 }
 
 test('workspace icons can be searched, selected, reloaded and reset', async ({}, testInfo) => {
@@ -127,7 +129,10 @@ test('workspace icons can be searched, selected, reloaded and reset', async ({},
   const { page, stateFile, cleanup } = await launchSeeded();
   try {
     await holdWorkspace(page);
-    await expect(workspaceButton(page).locator('[data-workspace-icon]')).toHaveAttribute('data-workspace-icon', 'initial');
+    await expect(workspaceButton(page).locator('[data-workspace-icon]')).toHaveAttribute(
+      'data-workspace-icon',
+      'initial',
+    );
     await expect(workspaceButton(page).locator('[data-workspace-icon]')).toHaveText('S');
     const openSettings = async () => {
       await page.getByRole('button', { name: / workspace menu$/ }).click();
@@ -142,17 +147,30 @@ test('workspace icons can be searched, selected, reloaded and reset', async ({},
     await expect(picker.getByRole('group', { name: 'Emojis' }).getByRole('button')).toHaveCount(1);
     await picker.getByRole('button', { name: 'Rocket', exact: true }).click();
     await expect(picker).toBeHidden();
-    await expect.poll(() => JSON.parse(fs.readFileSync(stateFile, 'utf8')).workspaces[0].icon).toBe('emoji-rocket');
-    await page.getByRole('dialog', { name: 'Sprocket', exact: true }).getByRole('button', { name: 'Close', exact: true }).click();
-    await expect(workspaceButton(page).locator('[data-workspace-icon]')).toHaveAttribute('data-workspace-icon', 'emoji-rocket');
+    await expect
+      .poll(() => JSON.parse(fs.readFileSync(stateFile, 'utf8')).workspaces[0].icon)
+      .toBe('emoji-rocket');
+    await page
+      .getByRole('dialog', { name: 'Settings', exact: true })
+      .getByRole('button', { name: 'Close', exact: true })
+      .click();
+    await expect(workspaceButton(page).locator('[data-workspace-icon]')).toHaveAttribute(
+      'data-workspace-icon',
+      'emoji-rocket',
+    );
 
     await page.reload();
     await workspaceButton(page).click();
-    await expect(workspaceButton(page).locator('[data-workspace-icon]')).toHaveAttribute('data-workspace-icon', 'emoji-rocket');
+    await expect(workspaceButton(page).locator('[data-workspace-icon]')).toHaveAttribute(
+      'data-workspace-icon',
+      'emoji-rocket',
+    );
     await page.keyboard.press(commandPaletteChord());
     const palette = page.getByRole('dialog', { name: 'Command palette', exact: true });
     await palette.getByRole('combobox').fill('# Sprocket');
-    await expect(palette.getByRole('option', { name: /Sprocket/ }).locator('[data-workspace-icon]')).toHaveAttribute('data-workspace-icon', 'emoji-rocket');
+    await expect(
+      palette.getByRole('option', { name: /Sprocket/ }).locator('[data-workspace-icon]'),
+    ).toHaveAttribute('data-workspace-icon', 'emoji-rocket');
     // Escape first leaves the workspace search scope, then closes the palette.
     await page.keyboard.press('Escape');
     await page.keyboard.press('Escape');
@@ -165,16 +183,27 @@ test('workspace icons can be searched, selected, reloaded and reset', async ({},
     await picker.getByRole('searchbox').fill('briefcase');
     await picker.getByRole('button', { name: 'Briefcase', exact: true }).click();
     await page.getByRole('button', { name: 'Change workspace icon' }).click();
-    await expect(picker.getByRole('button', { name: 'Briefcase', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    await expect(picker.getByRole('button', { name: 'Briefcase', exact: true })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
     await picker.getByRole('button', { name: 'Reset to default' }).click();
-    await expect.poll(() => JSON.parse(fs.readFileSync(stateFile, 'utf8')).workspaces[0].icon).toBeUndefined();
+    await expect
+      .poll(() => JSON.parse(fs.readFileSync(stateFile, 'utf8')).workspaces[0].icon)
+      .toBeUndefined();
     await page.getByRole('button', { name: 'Change workspace icon' }).click();
     await picker.getByRole('searchbox').press('Escape');
     await expect(picker).toBeHidden();
-    await expect(page.getByRole('dialog', { name: 'Sprocket', exact: true })).toBeVisible();
+    await expect(page.getByRole('dialog', { name: 'Settings', exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Change workspace icon' })).toBeFocused();
-    await page.getByRole('dialog', { name: 'Sprocket', exact: true }).getByRole('button', { name: 'Close', exact: true }).click();
-    await expect(workspaceButton(page).locator('[data-workspace-icon]')).toHaveAttribute('data-workspace-icon', 'initial');
+    await page
+      .getByRole('dialog', { name: 'Settings', exact: true })
+      .getByRole('button', { name: 'Close', exact: true })
+      .click();
+    await expect(workspaceButton(page).locator('[data-workspace-icon]')).toHaveAttribute(
+      'data-workspace-icon',
+      'initial',
+    );
     await expect(workspaceButton(page).locator('[data-workspace-icon]')).toHaveText('S');
   } finally {
     await cleanup();
@@ -190,9 +219,11 @@ test('custom workspace images preview, persist without the source file, and can 
     // A wide image exercises fitting and transparency, not just a square copy.
     const source = await page.evaluate(() => {
       const canvas = document.createElement('canvas');
-      canvas.width = 300; canvas.height = 150;
+      canvas.width = 300;
+      canvas.height = 150;
       const context = canvas.getContext('2d')!;
-      context.fillStyle = '#159957'; context.fillRect(0, 0, 300, 150);
+      context.fillStyle = '#159957';
+      context.fillRect(0, 0, 300, 150);
       return canvas.toDataURL('image/png').split(',')[1];
     });
     const sourceFile = path.join(imageDir, 'my-logo.png');
@@ -206,7 +237,9 @@ test('custom workspace images preview, persist without the source file, and can 
     await input.setInputFiles(sourceFile);
     await expect(picker.getByRole('button', { name: 'Use image', exact: true })).toBeEnabled();
     const preview = picker.locator('.ws-icon-upload-preview img');
-    await expect.poll(() => preview.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(128);
+    await expect
+      .poll(() => preview.evaluate((img: HTMLImageElement) => img.naturalWidth))
+      .toBe(128);
     const pixels = await preview.evaluate((img: HTMLImageElement) => {
       const canvas = document.createElement('canvas');
       canvas.width = canvas.height = 128;
@@ -223,20 +256,42 @@ test('custom workspace images preview, persist without the source file, and can 
     await picker.getByRole('button', { name: 'Use image', exact: true }).click();
     await expect(picker).toBeHidden();
     const storedIcon = JSON.parse(fs.readFileSync(stateFile, 'utf8')).workspaces[0].icon;
-    expect(storedIcon).toMatchObject({ type: 'image', dataUrl: expect.stringMatching(/^data:image\/png;base64,/) });
+    expect(storedIcon).toMatchObject({
+      type: 'image',
+      dataUrl: expect.stringMatching(/^data:image\/png;base64,/),
+    });
     fs.unlinkSync(sourceFile);
     await page.reload();
     await workspaceButton(page).click();
-    await expect.poll(() => workspaceButton(page).locator('img').evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(128);
+    await expect
+      .poll(() =>
+        workspaceButton(page)
+          .locator('img')
+          .evaluate((img: HTMLImageElement) => img.naturalWidth),
+      )
+      .toBe(128);
     await page.getByRole('button', { name: / workspace menu$/ }).click();
     await page.getByRole('menuitem', { name: 'Workspace settings…' }).click();
     await page.getByRole('button', { name: 'Change workspace icon' }).click();
-    await expect(picker.getByRole('tab', { name: 'Upload', exact: true })).toHaveAttribute('aria-selected', 'true');
+    await expect(picker.getByRole('tab', { name: 'Upload', exact: true })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
 
     // Bad uploads leave the saved image intact and allow another attempt.
-    await input.setInputFiles({ name: 'broken.png', mimeType: 'image/png', buffer: Buffer.from('broken') });
-    await expect(picker.getByRole('alert')).toHaveText('This image could not be opened. Try another file.');
-    await input.setInputFiles({ name: 'large.png', mimeType: 'image/png', buffer: Buffer.alloc(5 * 1024 * 1024 + 1) });
+    await input.setInputFiles({
+      name: 'broken.png',
+      mimeType: 'image/png',
+      buffer: Buffer.from('broken'),
+    });
+    await expect(picker.getByRole('alert')).toHaveText(
+      'This image could not be opened. Try another file.',
+    );
+    await input.setInputFiles({
+      name: 'large.png',
+      mimeType: 'image/png',
+      buffer: Buffer.alloc(5 * 1024 * 1024 + 1),
+    });
     await expect(picker.getByRole('alert')).toHaveText('Choose an image smaller than 5 MB.');
     expect(JSON.parse(fs.readFileSync(stateFile, 'utf8')).workspaces[0].icon).toEqual(storedIcon);
 
@@ -244,14 +299,21 @@ test('custom workspace images preview, persist without the source file, and can 
       const canvas = document.createElement('canvas');
       canvas.width = canvas.height = 64;
       const context = canvas.getContext('2d')!;
-      context.fillStyle = '#cc2244'; context.fillRect(0, 0, 64, 64);
+      context.fillStyle = '#cc2244';
+      context.fillRect(0, 0, 64, 64);
       return canvas.toDataURL('image/jpeg').split(',')[1];
     });
-    await input.setInputFiles({ name: 'replacement.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(replacement, 'base64') });
+    await input.setInputFiles({
+      name: 'replacement.jpg',
+      mimeType: 'image/jpeg',
+      buffer: Buffer.from(replacement, 'base64'),
+    });
     await expect(picker.getByRole('button', { name: 'Use image', exact: true })).toBeEnabled();
     await picker.getByRole('button', { name: 'Use image', exact: true }).click();
     await expect(picker).toBeHidden();
-    expect(JSON.parse(fs.readFileSync(stateFile, 'utf8')).workspaces[0].icon.dataUrl).not.toBe(storedIcon.dataUrl);
+    expect(JSON.parse(fs.readFileSync(stateFile, 'utf8')).workspaces[0].icon.dataUrl).not.toBe(
+      storedIcon.dataUrl,
+    );
     await page.getByRole('button', { name: 'Change workspace icon' }).click();
     await picker.getByRole('button', { name: 'Reset to default' }).click();
     await expect(picker).toBeHidden();
@@ -281,16 +343,24 @@ test('the workspace rail sits beside Home, adds workspaces, and stays available 
     expect(railBox.x + railBox.width).toBeLessThanOrEqual(homeBox.x);
     const searchRowBox = (await page.locator('.sidebar-search').boundingBox())!;
     expect(homeBox.y).toBeGreaterThanOrEqual(searchRowBox.y + searchRowBox.height);
-    await expect(page.locator('.sidebar').getByRole('navigation', { name: 'Main navigation' })).toBeVisible();
+    await expect(
+      page.locator('.sidebar').getByRole('navigation', { name: 'Main navigation' }),
+    ).toBeVisible();
     await expect(home.locator('[data-workspace-icon]')).toHaveCount(0);
     const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
     const modifierLabel = process.platform === 'darwin' ? '⌘' : 'Ctrl';
     await page.mouse.move(500, 400);
     await workspaceButton(page).hover();
     await expect(page.getByRole('tooltip')).toContainText('Sprocket');
-    await expect(page.locator('.workspace-tooltip-shortcut').first().locator('kbd')).toHaveText([modifierLabel, '1']);
+    await expect(page.locator('.workspace-tooltip-shortcut').first().locator('kbd')).toHaveText([
+      modifierLabel,
+      '1',
+    ]);
     await expect(workspaceButton(page)).toHaveAttribute('aria-keyshortcuts', `${modifier}+1`);
-    await page.screenshot({ path: testInfo.outputPath('workspace-tooltip.png'), animations: 'disabled' });
+    await page.screenshot({
+      path: testInfo.outputPath('workspace-tooltip.png'),
+      animations: 'disabled',
+    });
     await page.mouse.move(500, 400);
 
     // Drive the + button through the real folder-selection and creation flow.
@@ -304,7 +374,10 @@ test('the workspace rail sits beside Home, adds workspaces, and stays available 
     await expect(added).toHaveAttribute('aria-keyshortcuts', `${modifier}+2`);
     await added.hover();
     await expect(page.getByRole('tooltip')).toContainText(addedName);
-    await expect(page.locator('.workspace-tooltip-shortcut').first().locator('kbd')).toHaveText([modifierLabel, '2']);
+    await expect(page.locator('.workspace-tooltip-shortcut').first().locator('kbd')).toHaveText([
+      modifierLabel,
+      '2',
+    ]);
     await page.mouse.move(500, 400);
     const addedBox = (await added.boundingBox())!;
     const plusBox = (await rail.getByRole('button', { name: 'Add workspace' }).boundingBox())!;
@@ -331,7 +404,10 @@ test('the workspace rail sits beside Home, adds workspaces, and stays available 
     await menuButton.click();
     await expect(page.locator('.workspace-menu-title')).toHaveText('Sprocket');
     await expect(page.locator('.workspace-menu-summary')).toHaveText('1 scope · 0 sessions');
-    await page.screenshot({ path: testInfo.outputPath('workspace-menu.png'), animations: 'disabled' });
+    await page.screenshot({
+      path: testInfo.outputPath('workspace-menu.png'),
+      animations: 'disabled',
+    });
     await page.keyboard.press('Escape');
     await expect(menuButton).toBeFocused();
 
@@ -339,9 +415,30 @@ test('the workspace rail sits beside Home, adds workspaces, and stays available 
     await page.getByRole('menuitem', { name: 'Tools', exact: true }).focus();
     await page.keyboard.press('ArrowRight');
     await page.getByRole('menuitem', { name: 'Actions…', exact: true }).click();
-    const modal = page.getByRole('dialog', { name: 'Sprocket', exact: true });
+    const modal = page.getByRole('dialog', { name: 'Settings', exact: true });
     await expect(modal.locator('.settings-modal-nav-item.active')).toHaveText('Actions');
-    await expect.poll(() => modal.evaluate(element => element.contains(document.activeElement))).toBe(true);
+    await expect
+      .poll(() => modal.evaluate((element) => element.contains(document.activeElement)))
+      .toBe(true);
+
+    // A workspace section never outlives the window's move to another
+    // workspace: the dialog closes rather than edit the one just left.
+    await page.keyboard.press(`${modifier}+Digit2`);
+    await expect(modal).toBeHidden();
+    await expect(added).toHaveAttribute('aria-current', 'true');
+
+    // An app-wide section has nothing to protect, so it stays open across the
+    // same move, and the Workspace group follows the window.
+    await page.keyboard.press(settingsChord());
+    await modal.getByRole('button', { name: 'Appearance', exact: true }).click();
+    await expect(
+      modal.getByRole('group', { name: `Workspace · ${addedName}`, exact: true }),
+    ).toBeVisible();
+    await page.keyboard.press(`${modifier}+Digit1`);
+    await expect(
+      modal.getByRole('group', { name: 'Workspace · Sprocket', exact: true }),
+    ).toBeVisible();
+    await expect(modal.locator('.settings-modal-nav-item.active')).toHaveText('Appearance');
     await modal.getByRole('button', { name: 'Close', exact: true }).click();
 
     await page.locator('.sidebar-toggle').click();
@@ -355,34 +452,73 @@ test('the workspace rail sits beside Home, adds workspaces, and stays available 
     await page.keyboard.press(`${modifier}+Digit2`);
     await expect(added).toHaveAttribute('aria-current', 'true');
     await page.locator('.sidebar-toggle').click();
-    await page.screenshot({ path: testInfo.outputPath('workspace-rail.png'), animations: 'disabled' });
+    await page.screenshot({
+      path: testInfo.outputPath('workspace-rail.png'),
+      animations: 'disabled',
+    });
   } finally {
     await cleanup();
     fs.rmSync(addedFolder, { recursive: true, force: true });
   }
 });
 
-test('the workspace menu opens a modal titled by the workspace; the global modal only points at it', async () => {
+test('one Settings dialog lists the app, the workspace and Updates, whichever door opened it', async ({}, testInfo) => {
   test.setTimeout(60_000);
   const { page, cleanup } = await launchSeeded();
   try {
     await holdWorkspace(page);
 
-    // The front door: the workspace menu.
+    // The workspace menu is a door straight to the workspace's own sections.
     await page.getByRole('button', { name: / workspace menu$/ }).click();
     await page.getByRole('menuitem', { name: 'Workspace settings…' }).click();
 
-    const modal = page.getByRole('dialog', { name: 'Sprocket', exact: true });
+    const modal = page.getByRole('dialog', { name: 'Settings', exact: true });
     await expect(modal).toBeVisible();
-    await expect(modal.locator('.settings-modal-nav-item')).toHaveText([
+    await expect(modal.locator('.settings-modal-nav-item.active')).toHaveText('General');
+    // The keyboard starts on the section the door opened, not the top of the list.
+    await expect(modal.getByRole('button', { name: 'General', exact: true })).toBeFocused();
+
+    // Each group says whose settings these are; the workspace's names it.
+    const appGroup = modal.getByRole('group', { name: 'App', exact: true });
+    await expect(appGroup.locator('.settings-modal-nav-item')).toHaveText([
+      'Appearance',
+      'Sessions',
+      'Harnesses',
+      'Keyboard shortcuts',
+    ]);
+    const workspaceGroup = modal.getByRole('group', { name: 'Workspace · Sprocket', exact: true });
+    await expect(workspaceGroup.locator('.settings-modal-nav-item')).toHaveText([
       'General',
+      'Sessions',
       'Scopes',
       'GitHub', // providerNavLabel: the bound provider's display name
       'Actions',
-      'Assistant',
-      'Groups',
+      'Labels',
+      'Worktrees',
       'Danger zone',
     ]);
+
+    // Updates belongs to neither group: it is the last entry, alone at the
+    // bottom edge of the list.
+    const nav = modal.getByRole('navigation', { name: 'Settings sections', exact: true });
+    await expect(nav.locator('.settings-modal-nav-item').last()).toHaveText('Updates');
+    await expect(nav.locator('.settings-modal-nav-item')).toHaveCount(12);
+    const navBox = (await nav.boundingBox())!;
+    const updatesBox = (await nav
+      .getByRole('button', { name: 'Updates', exact: true })
+      .boundingBox())!;
+    const dangerBox = (await nav
+      .getByRole('button', { name: 'Danger zone', exact: true })
+      .boundingBox())!;
+    expect(updatesBox.y).toBeGreaterThan(dangerBox.y + dangerBox.height);
+    expect(navBox.y + navBox.height - (updatesBox.y + updatesBox.height)).toBeLessThan(24);
+
+    // Nothing sends the person to another dialog any more.
+    await expect(modal.getByText('Workspace settings are in the workspace menu')).toHaveCount(0);
+    await page.screenshot({
+      path: testInfo.outputPath('settings-workspace-general.png'),
+      animations: 'disabled',
+    });
 
     // General lands first: the manifest with the name editable in place.
     await expect(modal.getByLabel('Workspace name')).toHaveValue('Sprocket');
@@ -393,27 +529,23 @@ test('the workspace menu opens a modal titled by the workspace; the global modal
     await modal.getByRole('button', { name: 'Danger zone', exact: true }).click();
     await expect(modal.getByRole('button', { name: 'Delete workspace…' })).toBeVisible();
 
+    // An app-wide section is one click away in the same list.
+    await modal.getByRole('button', { name: 'Harnesses', exact: true }).click();
+    await expect(modal.getByRole('heading', { name: 'Harnesses', exact: true })).toBeVisible();
+    await expect(modal.getByRole('button', { name: 'Delete workspace…' })).toHaveCount(0);
+    await page.screenshot({
+      path: testInfo.outputPath('settings-app-harnesses.png'),
+      animations: 'disabled',
+    });
+
     await modal.getByRole('button', { name: 'Close', exact: true }).click();
     await expect(modal).toBeHidden();
 
-    // The chord still opens the global modal, which no longer lists Workspace.
+    // The chord reopens the same dialog where this window left it.
     await page.keyboard.press(settingsChord());
-    const global = page.getByRole('dialog', { name: 'Settings', exact: true });
-    await expect(global).toBeVisible();
-    await expect(global.locator('.settings-modal-nav-item')).toHaveText([
-      'Updates',
-      'Appearance',
-      'Harnesses',
-      'Keyboard Shortcuts',
-    ]);
-
-    // The pointer row is a door: it closes this modal and opens the other.
-    await global
-      .getByRole('button', { name: 'Workspace settings are in the workspace menu' })
-      .click();
-    await expect(global).toBeHidden();
     await expect(modal).toBeVisible();
-    await expect(modal.locator('.settings-modal-nav-item.active')).toHaveText('General');
+    await expect(modal.locator('.settings-modal-nav-item.active')).toHaveText('Harnesses');
+    await expect(workspaceGroup).toBeVisible();
 
     await modal.getByRole('button', { name: 'Close', exact: true }).click();
     await expect(modal).toBeHidden();
@@ -422,35 +554,44 @@ test('the workspace menu opens a modal titled by the workspace; the global modal
   }
 });
 
-test('the workspace rail gear opens the global modal; the workspace modal commits a rename, shows the Actions panel, and Cancel on delete leaves Danger zone active', async () => {
+test('the rail gear opens Settings on Appearance with no Workspace group until a workspace is open; a rename shows in the group heading, the Actions panel edits, and deleting the workspace closes the dialog', async () => {
   test.setTimeout(60_000);
   const { page, stateFile, cleanup } = await launchSeeded();
   try {
-    // The workspace rail footer gear is the other door into Settings, and it opens
-    // the global modal (not a workspace one), landing on Appearance.
+    // The workspace rail footer gear is the other door into Settings, landing
+    // on Appearance. No workspace is held yet, so there is nothing for a
+    // Workspace group to edit and the list leaves it out.
     await page.getByRole('button', { name: /^Settings/ }).click();
-    const global = page.getByRole('dialog', { name: 'Settings', exact: true });
-    await expect(global).toBeVisible();
-    await expect(global.locator('.settings-modal-nav-item.active')).toHaveText('Appearance');
-    await global.getByRole('button', { name: 'Close', exact: true }).click();
-    await expect(global).toBeHidden();
+    const modal = page.getByRole('dialog', { name: 'Settings', exact: true });
+    await expect(modal).toBeVisible();
+    await expect(modal.locator('.settings-modal-nav-item.active')).toHaveText('Appearance');
+    await expect(modal.locator('.settings-modal-nav-item')).toHaveText([
+      'Appearance',
+      'Sessions',
+      'Harnesses',
+      'Keyboard shortcuts',
+      'Updates',
+    ]);
+    await expect(modal.getByRole('group', { name: /^Workspace/ })).toHaveCount(0);
+    await modal.getByRole('button', { name: 'Close', exact: true }).click();
+    await expect(modal).toBeHidden();
 
     await holdWorkspace(page);
     await page.getByRole('button', { name: / workspace menu$/ }).click();
     await page.getByRole('menuitem', { name: 'Workspace settings…' }).click();
 
-    // Named generically from here: General's rename changes the dialog's own
-    // accessible name, so a locator pinned to the old name would stop
-    // matching once the rename commits.
-    const modal = page.getByRole('dialog');
     await expect(modal).toBeVisible();
-    await expect(modal).toHaveAccessibleName('Sprocket');
+    await expect(
+      modal.getByRole('group', { name: 'Workspace · Sprocket', exact: true }),
+    ).toBeVisible();
 
     // General: Enter commits the draft, same as ManifestHeader's own
-    // keydown handler, and the dialog title follows immediately.
+    // keydown handler, and the group heading follows immediately.
     await modal.getByLabel('Workspace name').fill('Sprocket Renamed');
     await modal.getByLabel('Workspace name').press('Enter');
-    await expect(modal).toHaveAccessibleName('Sprocket Renamed');
+    await expect(
+      modal.getByRole('group', { name: 'Workspace · Sprocket Renamed', exact: true }),
+    ).toBeVisible();
 
     // The switcher trigger picks up the new name too — checked with the
     // modal closed, since Radix hides the rest of the page from the
@@ -458,7 +599,9 @@ test('the workspace rail gear opens the global modal; the workspace modal commit
     await modal.getByRole('button', { name: 'Close', exact: true }).click();
     await expect(modal).toBeHidden();
     await expect(workspaceButton(page)).toHaveAccessibleName('Sprocket Renamed');
-    await expect(page.getByRole('button', { name: 'Sprocket Renamed workspace menu', exact: true })).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: 'Sprocket Renamed workspace menu', exact: true }),
+    ).toBeVisible();
     await page.getByRole('button', { name: / workspace menu$/ }).click();
     await page.getByRole('menuitem', { name: 'Workspace settings…' }).click();
     await expect(modal).toBeVisible();
@@ -492,8 +635,8 @@ test('the workspace rail gear opens the global modal; the workspace modal commit
     await expect(actionsPanel.getByText('An action needs a prompt.')).toBeVisible();
     await expect(actionsPanel.getByLabel('Action name')).toBeVisible();
 
-    // Danger zone: Cancel on the confirmation leaves the workspace modal
-    // open with Danger zone still the active section.
+    // Danger zone: Cancel on the confirmation leaves the dialog open with
+    // Danger zone still the active section.
     await modal.getByRole('button', { name: 'Danger zone', exact: true }).click();
     await modal.getByRole('button', { name: 'Delete workspace…' }).click();
     const confirm = page.getByRole('dialog', { name: 'Delete “Sprocket Renamed”?', exact: true });
@@ -502,25 +645,36 @@ test('the workspace rail gear opens the global modal; the workspace modal commit
     await expect(confirm).toBeHidden();
     await expect(modal).toBeVisible();
     await expect(modal.locator('.settings-modal-nav-item.active')).toHaveText('Danger zone');
+
+    // Confirming takes the workspace away, and the dialog with it: its
+    // sections have nothing left to edit.
+    await modal.getByRole('button', { name: 'Delete workspace…' }).click();
+    await confirm.getByRole('button', { name: 'Delete workspace', exact: true }).click();
+    await expect(modal).toBeHidden();
+    await expect
+      .poll(() => JSON.parse(fs.readFileSync(stateFile, 'utf8')).workspaces.length)
+      .toBe(0);
   } finally {
     await cleanup();
   }
 });
 
-test('the Groups panel makes a group without leaving Settings', async () => {
+test('the Labels panel makes a label without leaving Settings, and the filter bar lists it', async () => {
   test.setTimeout(60_000);
-  const { page, cleanup } = await launchSeeded();
+  const { page, stateFile, cleanup } = await launchSeeded();
+  const savedLabels = () => JSON.parse(fs.readFileSync(stateFile, 'utf8')).workspaces[0].labels;
   try {
     await holdWorkspace(page);
     await page.getByRole('button', { name: / workspace menu$/ }).click();
     await page.getByRole('menuitem', { name: 'Workspace settings…' }).click();
 
+    // The seeded v7 group arrived as a label of the same name.
     const modal = page.getByRole('dialog');
-    await modal.getByRole('button', { name: 'Groups', exact: true }).click();
+    await modal.getByRole('button', { name: 'Labels', exact: true }).click();
     await expect(modal.locator('.ws-row-name')).toHaveCount(1);
 
-    await modal.getByRole('button', { name: 'Add group' }).click();
-    const dialog = page.getByRole('dialog', { name: 'New group' });
+    await modal.getByRole('button', { name: 'Add label' }).click();
+    const dialog = page.getByRole('dialog', { name: 'New label' });
     await expect(dialog).toBeVisible();
     await dialog.getByLabel('Name').fill('CI fixes');
     await dialog.getByRole('button', { name: 'Create' }).click();
@@ -528,6 +682,62 @@ test('the Groups panel makes a group without leaving Settings', async () => {
     await expect(dialog).toBeHidden();
     await expect(modal.locator('.ws-row-name')).toHaveCount(2);
     await expect(modal.locator('.ws-row-name').filter({ hasText: 'CI fixes' })).toHaveCount(1);
+    await expect
+      .poll(() => savedLabels().map((label: { name: string }) => label.name))
+      .toContain('CI fixes');
+    // A label, not a group: nothing is written that no screen could show.
+    expect(JSON.parse(fs.readFileSync(stateFile, 'utf8')).workspaces[0].groups).toHaveLength(1);
+
+    await page.keyboard.press('Escape');
+    await page.getByRole('button', { name: 'Filter sessions', exact: true }).click();
+    await expect(page.getByRole('menuitem', { name: /CI fixes/ })).toBeVisible();
+  } finally {
+    await cleanup();
+  }
+});
+
+test('deleting a label from the Labels panel leaves its sessions in place, without it', async () => {
+  test.setTimeout(60_000);
+  const { page, stateFile, cleanup } = await launchSeeded();
+  const saved = () => JSON.parse(fs.readFileSync(stateFile, 'utf8')).workspaces[0];
+  try {
+    await holdWorkspace(page);
+    const workspaceId = saved().id;
+    const created = await page.evaluate(
+      async ([id]) => {
+        const snapshot = await window.workspaceAPI.getSnapshot();
+        const workspace = snapshot.workspaces.find(
+          (candidate: { id: string }) => candidate.id === id,
+        )!;
+        const session = await window.workspaceAPI.createSession(id, {
+          name: 'Tagged session',
+          instanceId: 'tagged-1',
+          scopeId: workspace.scopes[0].id,
+          workspaceId: id,
+          harnessId: 'default',
+        });
+        if (!session) throw new Error('Session creation failed');
+        await window.workspaceAPI.assignLabel(id, session.id, 'g-reviews');
+        return session.id;
+      },
+      [workspaceId] as const,
+    );
+    await expect
+      .poll(() => saved().sessions.find((s: { id: string }) => s.id === created)?.labelIds)
+      .toEqual(['g-reviews']);
+
+    await page.getByRole('button', { name: / workspace menu$/ }).click();
+    await page.getByRole('menuitem', { name: 'Workspace settings…' }).click();
+    const modal = page.getByRole('dialog');
+    await modal.getByRole('button', { name: 'Labels', exact: true }).click();
+    await expect(modal.locator('.ws-row-chip')).toHaveText('1 session');
+    await modal.getByRole('button', { name: 'Delete label PR reviews' }).click();
+
+    await expect(modal.locator('.ws-row-name')).toHaveCount(0);
+    await expect.poll(() => saved().labels).toEqual([]);
+    const survivor = saved().sessions.find((s: { id: string }) => s.id === created);
+    expect(survivor).toBeDefined();
+    expect(survivor.labelIds).toBeUndefined();
   } finally {
     await cleanup();
   }
@@ -559,10 +769,6 @@ test('an action can be pointed at a group, and says so on its row', async () => 
         timeout: 10_000,
       })
       .toBe('g-reviews');
-
-    // The group side says the same thing from the other direction.
-    await modal.getByRole('button', { name: 'Groups', exact: true }).click();
-    await expect(modal.locator('.ws-action-group')).toHaveText('← Review');
   } finally {
     await cleanup();
   }
@@ -583,7 +789,7 @@ test('the command palette offers Workspace settings… for the held workspace', 
     await palette.getByRole('option', { name: 'Workspace settings…' }).click();
 
     await expect(palette).toBeHidden();
-    const modal = page.getByRole('dialog', { name: 'Sprocket', exact: true });
+    const modal = page.getByRole('dialog', { name: 'Settings', exact: true });
     await expect(modal).toBeVisible();
     await modal.getByRole('button', { name: 'Close', exact: true }).click();
     await expect(modal).toBeHidden();
@@ -598,38 +804,76 @@ test('scope deletion requires typing delete, stops its sessions and preserves wo
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-delete-scope-'));
   const stub = path.join(root, 'agent.sh');
   fs.writeFileSync(stub, '#!/bin/sh\nprintf "Agent ready\\n"\nexec sleep 300\n', { mode: 0o755 });
-  const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+  const alive = (pid: number) => {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  };
   try {
-    const seeded = await page.evaluate(async ({ root, stub }) => {
-      const workspace = (await window.workspaceAPI.getSnapshot()).workspaces[0];
-      await window.workspaceAPI.setProviderBinding(workspace.id, null);
-      await window.harnessStateAPI.addHarness({
-        id: 'scope-delete-test', driverId: 'claude', name: 'Stub', binaryPath: stub, accentColor: '#555555',
-      });
-      const other = await window.workspaceAPI.addScope(workspace.id, { name: 'Other scope', path: root, isGitRepo: false });
-      const groupId = workspace.groups[0].id;
-      const sessions = [];
-      for (const fields of [
-        { name: 'Ungrouped session', instanceId: 'scope-ungrouped', scopeId: workspace.scopes[0].id },
-        { name: 'Grouped session', instanceId: 'scope-grouped', scopeId: workspace.scopes[0].id, groupId },
-        { name: 'Surviving session', instanceId: 'scope-survivor', scopeId: other.id, groupId },
-      ]) {
-        const session = await window.workspaceAPI.createSession(workspace.id, {
-          ...fields, workspaceId: workspace.id, harnessId: 'scope-delete-test',
+    const seeded = await page.evaluate(
+      async ({ root, stub }) => {
+        const workspace = (await window.workspaceAPI.getSnapshot()).workspaces[0];
+        await window.workspaceAPI.setProviderBinding(workspace.id, null);
+        await window.harnessStateAPI.addHarness({
+          id: 'scope-delete-test',
+          driverId: 'claude',
+          name: 'Stub',
+          binaryPath: stub,
+          accentColor: '#555555',
         });
-        if (!session) throw new Error('Session creation failed');
-        sessions.push(session);
-        await window.terminalAPI.create({
-          instanceId: session.instanceId, workspaceId: workspace.id,
-          cwd: session.scopeId === other.id ? root : workspace.scopes[0].path,
-          claudeSessionId: session.claudeSessionId, resume: false, binaryOverride: stub,
+        const other = await window.workspaceAPI.addScope(workspace.id, {
+          name: 'Other scope',
+          path: root,
+          isGitRepo: false,
         });
-      }
-      await window.shellAPI.attach({ instanceId: 'scope-ungrouped', cols: 80, rows: 24 });
-      return { workspaceId: workspace.id, scopePath: workspace.scopes[0].path, other, sessions, groups: workspace.groups };
-    }, { root, stub });
+        const groupId = workspace.groups[0].id;
+        const sessions = [];
+        for (const fields of [
+          {
+            name: 'Ungrouped session',
+            instanceId: 'scope-ungrouped',
+            scopeId: workspace.scopes[0].id,
+          },
+          {
+            name: 'Grouped session',
+            instanceId: 'scope-grouped',
+            scopeId: workspace.scopes[0].id,
+            groupId,
+          },
+          { name: 'Surviving session', instanceId: 'scope-survivor', scopeId: other.id, groupId },
+        ]) {
+          const session = await window.workspaceAPI.createSession(workspace.id, {
+            ...fields,
+            workspaceId: workspace.id,
+            harnessId: 'scope-delete-test',
+          });
+          if (!session) throw new Error('Session creation failed');
+          sessions.push(session);
+          await window.terminalAPI.create({
+            instanceId: session.instanceId,
+            workspaceId: workspace.id,
+            cwd: session.scopeId === other.id ? root : workspace.scopes[0].path,
+            claudeSessionId: session.claudeSessionId,
+            resume: false,
+            binaryOverride: stub,
+          });
+        }
+        await window.shellAPI.attach({ instanceId: 'scope-ungrouped', cols: 80, rows: 24 });
+        return {
+          workspaceId: workspace.id,
+          scopePath: workspace.scopes[0].path,
+          other,
+          sessions,
+          groups: workspace.groups,
+        };
+      },
+      { root, stub },
+    );
     const pidFile = path.join(root, 'shell.pid');
-    await page.evaluate(pidFile => {
+    await page.evaluate((pidFile) => {
       window.shellAPI.input('scope-ungrouped', `printf '%s' "$$" > '${pidFile}'\r`);
     }, pidFile);
     await expect.poll(() => fs.existsSync(pidFile)).toBe(true);
@@ -640,7 +884,7 @@ test('scope deletion requires typing delete, stops its sessions and preserves wo
     await page.locator('.session-nav-item').filter({ hasText: 'Ungrouped session' }).click();
     await page.getByRole('button', { name: / workspace menu$/ }).click();
     await page.getByRole('menuitem', { name: 'Workspace settings…' }).click();
-    const modal = page.getByRole('dialog', { name: 'Sprocket', exact: true });
+    const modal = page.getByRole('dialog', { name: 'Settings', exact: true });
     await modal.getByRole('button', { name: 'Scopes', exact: true }).click();
     await expect(modal.getByText(/Close or delete its/)).toHaveCount(0);
     const remove = modal.getByRole('button', { name: 'Delete scope catalog-portal' });
@@ -650,7 +894,9 @@ test('scope deletion requires typing delete, stops its sessions and preserves wo
     const input = confirmation.getByLabel('Type delete to confirm');
     const confirm = confirmation.getByRole('button', { name: 'Delete scope', exact: true });
     await expect(confirmation).toContainText('all 2 of its sessions');
-    await expect(confirmation).toContainText('Running sessions will be stopped. This cannot be undone.');
+    await expect(confirmation).toContainText(
+      'Running sessions will be stopped. This cannot be undone.',
+    );
     await expect(confirm).toBeDisabled();
     for (const value of ['DELETE', 'delete ', 'delet']) {
       await input.fill(value);
@@ -666,13 +912,17 @@ test('scope deletion requires typing delete, stops its sessions and preserves wo
     await expect(input).toHaveValue('');
     await expect(confirm).toBeDisabled();
     await input.fill('delete');
-    await confirmation.screenshot({ path: test.info().outputPath('delete-scope-confirmation.png') });
+    await confirmation.screenshot({
+      path: test.info().outputPath('delete-scope-confirmation.png'),
+    });
     await confirm.click();
     await expect(confirmation).toBeHidden();
     await expect(remove).toHaveCount(0);
     const saved = JSON.parse(fs.readFileSync(stateFile, 'utf8')).workspaces[0];
     expect(saved.scopes).toEqual([seeded.other]);
-    expect(saved.sessions.map((session: { id: string }) => session.id)).toEqual([seeded.sessions[2].id]);
+    expect(saved.sessions.map((session: { id: string }) => session.id)).toEqual([
+      seeded.sessions[2].id,
+    ]);
     expect(saved.groups).toEqual(seeded.groups);
     expect(fs.existsSync(seeded.scopePath)).toBe(true);
     await expect.poll(() => alive(shellPid)).toBe(false);
@@ -680,14 +930,21 @@ test('scope deletion requires typing delete, stops its sessions and preserves wo
     expect(terminals).not.toHaveProperty('scope-ungrouped');
     expect(terminals).not.toHaveProperty('scope-grouped');
     expect(terminals).toHaveProperty('scope-survivor');
-    await expect(page.evaluate(() => window.shellAPI.attach({ instanceId: 'scope-ungrouped', cols: 80, rows: 24 })))
-      .rejects.toThrow('Session no longer exists');
+    await expect(
+      page.evaluate(() =>
+        window.shellAPI.attach({ instanceId: 'scope-ungrouped', cols: 80, rows: 24 }),
+      ),
+    ).rejects.toThrow('Session no longer exists');
     // Clearing the deleted active session also closes settings on navigation.
     await expect(modal).toBeHidden();
     await expect(page.locator('.terminal-surface')).toHaveCount(0);
     await expect(page.getByText('Session not found', { exact: true })).toHaveCount(0);
-    await expect(page.locator('.session-nav-item').filter({ hasText: 'Grouped session' })).toHaveCount(0);
-    await expect(page.locator('.session-nav-item').filter({ hasText: 'Surviving session' })).toBeVisible();
+    await expect(
+      page.locator('.session-nav-item').filter({ hasText: 'Grouped session' }),
+    ).toHaveCount(0);
+    await expect(
+      page.locator('.session-nav-item').filter({ hasText: 'Surviving session' }),
+    ).toBeVisible();
 
     // The last scope can go too, including its still-running grouped session.
     await page.getByRole('button', { name: / workspace menu$/ }).click();
@@ -695,32 +952,55 @@ test('scope deletion requires typing delete, stops its sessions and preserves wo
     await modal.getByRole('button', { name: 'Scopes', exact: true }).click();
     await modal.getByRole('button', { name: 'Delete scope Other scope', exact: true }).click();
     const lastConfirmation = page.getByRole('dialog', { name: 'Delete scope “Other scope”?' });
-    await expect(lastConfirmation.getByRole('button', { name: 'Delete scope', exact: true })).toBeDisabled();
+    await expect(
+      lastConfirmation.getByRole('button', { name: 'Delete scope', exact: true }),
+    ).toBeDisabled();
     await lastConfirmation.getByLabel('Type delete to confirm').fill('delete');
     await lastConfirmation.getByRole('button', { name: 'Delete scope', exact: true }).click();
-    await expect(modal.getByText('No scopes yet. Add a scope to start a session in this workspace.')).toBeVisible();
+    await expect(
+      modal.getByText('No scopes yet. Add a scope to start a session in this workspace.'),
+    ).toBeVisible();
     const empty = JSON.parse(fs.readFileSync(stateFile, 'utf8')).workspaces[0];
     expect(empty.id).toBe(seeded.workspaceId);
     expect(empty.scopes).toEqual([]);
     expect(empty.sessions).toEqual([]);
     expect(empty.groups).toEqual(seeded.groups);
-    expect(await page.evaluate(() => window.terminalAPI.getStatusSnapshot())).not.toHaveProperty('scope-survivor');
+    expect(await page.evaluate(() => window.terminalAPI.getStatusSnapshot())).not.toHaveProperty(
+      'scope-survivor',
+    );
     expect(fs.existsSync(root)).toBe(true);
     await modal.getByRole('button', { name: 'Close', exact: true }).click();
-    await expect(page.locator('.workspace-empty-view').getByRole('button', { name: 'New session', exact: true })).toBeDisabled();
+    await expect(
+      page
+        .locator('.workspace-empty-view')
+        .getByRole('button', { name: 'New session', exact: true }),
+    ).toBeDisabled();
 
     await page.reload();
     await holdWorkspace(page);
-    await expect(page.locator('.workspace-empty-view').getByRole('button', { name: 'New session', exact: true })).toBeDisabled();
+    await expect(
+      page
+        .locator('.workspace-empty-view')
+        .getByRole('button', { name: 'New session', exact: true }),
+    ).toBeDisabled();
     await expect(workspaceButton(page)).toHaveAttribute('aria-current', 'true');
     await app.evaluate(({ dialog }, folder) => {
       dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [folder] });
     }, root);
     // The empty list offers the way back as well as the scope row's menu.
-    await page.locator('.sidebar-ungrouped').getByRole('button', { name: 'Add a scope', exact: true }).click();
-    await expect(page.locator('.workspace-empty-view').getByRole('button', { name: 'New session', exact: true })).toBeEnabled();
+    await page
+      .locator('.sidebar-sessions')
+      .getByRole('button', { name: 'Add a scope', exact: true })
+      .click();
+    await expect(
+      page
+        .locator('.workspace-empty-view')
+        .getByRole('button', { name: 'New session', exact: true }),
+    ).toBeEnabled();
     await expect(page.locator('.sidebar-scope-filter')).toContainText('All scopes');
-    await expect(page.getByRole('region', { name: 'Before your first session' })).toContainText(`Runs in the ${path.basename(root)} scope`);
+    await expect(page.getByRole('region', { name: 'Before your first session' })).toContainText(
+      `Runs in the ${path.basename(root)} scope`,
+    );
     const restored = JSON.parse(fs.readFileSync(stateFile, 'utf8')).workspaces[0];
     expect(restored.scopes).toHaveLength(1);
     expect(restored.groups).toEqual(seeded.groups);
@@ -743,7 +1023,7 @@ test('scope editing saves name and location together, supports cancel, and expos
     await holdWorkspace(page);
     await page.getByRole('button', { name: / workspace menu$/ }).click();
     await page.getByRole('menuitem', { name: 'Workspace settings…' }).click();
-    const modal = page.getByRole('dialog', { name: 'Sprocket', exact: true });
+    const modal = page.getByRole('dialog', { name: 'Settings', exact: true });
     await modal.getByRole('button', { name: 'Scopes', exact: true }).click();
     await expect(modal.getByRole('button', { name: 'Delete scope catalog-portal' })).toBeEnabled();
     await expect(modal.getByText('Add another scope before removing this one.')).toHaveCount(0);
@@ -754,7 +1034,9 @@ test('scope editing saves name and location together, supports cancel, and expos
     await editor.getByRole('button', { name: 'Choose folder…' }).click();
     await expect(editor.getByLabel('Folder location')).toHaveValue(destination);
     // Choosing a folder is a draft until Save.
-    expect(JSON.parse(fs.readFileSync(stateFile, 'utf8')).workspaces[0].scopes[0]).toEqual(before.scopes[0]);
+    expect(JSON.parse(fs.readFileSync(stateFile, 'utf8')).workspaces[0].scopes[0]).toEqual(
+      before.scopes[0],
+    );
     await editor.getByRole('button', { name: 'Cancel', exact: true }).click();
     await expect(editor).toBeHidden();
     await expect(modal.locator('.ws-row-path')).toHaveText(before.scopes[0].path);
@@ -765,7 +1047,8 @@ test('scope editing saves name and location together, supports cancel, and expos
     await editor.getByRole('button', { name: 'Save changes' }).click();
     await expect(editor).toBeHidden();
     await expect(modal.locator('.ws-row-path')).toHaveText(destination);
-    await expect.poll(() => JSON.parse(fs.readFileSync(stateFile, 'utf8')).workspaces[0].scopes[0])
+    await expect
+      .poll(() => JSON.parse(fs.readFileSync(stateFile, 'utf8')).workspaces[0].scopes[0])
       .toEqual({ ...before.scopes[0], name: 'Moved project', path: destination });
 
     await modal.getByRole('button', { name: 'Edit scope Moved project' }).click();
@@ -786,99 +1069,74 @@ test('scope editing saves name and location together, supports cancel, and expos
     await confirmation.getByRole('button', { name: 'Cancel', exact: true }).click();
     await expect(modal.getByRole('button', { name: 'Edit scope Moved project' })).toBeVisible();
     await modal.getByRole('button', { name: 'Delete scope Moved project' }).click();
-    await expect(confirmation.getByRole('button', { name: 'Delete scope', exact: true })).toBeDisabled();
+    await expect(
+      confirmation.getByRole('button', { name: 'Delete scope', exact: true }),
+    ).toBeDisabled();
     await confirmation.getByLabel('Type delete to confirm').fill('delete');
     await confirmation.getByRole('button', { name: 'Delete scope', exact: true }).click();
     await expect(modal.getByRole('button', { name: 'Edit scope Moved project' })).toBeHidden();
-    await expect(modal.getByText('No scopes yet. Add a scope to start a session in this workspace.')).toBeVisible();
+    await expect(
+      modal.getByText('No scopes yet. Add a scope to start a session in this workspace.'),
+    ).toBeVisible();
     expect(fs.existsSync(destination)).toBe(true);
     expect(JSON.parse(fs.readFileSync(stateFile, 'utf8')).workspaces[0].scopes).toEqual([]);
-    expect(JSON.parse(fs.readFileSync(stateFile, 'utf8')).workspaces[0].sessions).toEqual(before.sessions);
+    expect(JSON.parse(fs.readFileSync(stateFile, 'utf8')).workspaces[0].sessions).toEqual(
+      before.sessions,
+    );
   } finally {
     await cleanup();
     fs.rmSync(destination, { recursive: true, force: true });
   }
 });
 
-test('group emojis can be searched, cancelled, saved, reloaded and removed', async ({}, testInfo) => {
+test('label emojis can be searched, cancelled, saved, reloaded and removed', async ({}, testInfo) => {
   test.setTimeout(60_000);
   const { page, stateFile, cleanup } = await launchSeeded();
-  const savedGroup = () => JSON.parse(fs.readFileSync(stateFile, 'utf8')).workspaces[0].groups[0];
+  const savedLabel = () => JSON.parse(fs.readFileSync(stateFile, 'utf8')).workspaces[0].labels?.[0];
   try {
     await holdWorkspace(page);
+    // Labels are managed in Workspace settings, and from the filter bar.
+    await page.getByRole('button', { name: / workspace menu$/ }).click();
+    await page.getByRole('menuitem', { name: 'Workspace settings…' }).click();
+    const settings = page.getByRole('dialog').first();
+    await settings.getByRole('button', { name: 'Labels', exact: true }).click();
+    const labelEmoji = settings.locator('.ws-row-icon .group-emoji');
     const openEdit = async () => {
-      await page.locator('.group-nav-header').hover();
-      await page.getByRole('button', { name: 'Group actions for PR reviews' }).click();
-      await page.getByRole('menuitem', { name: 'Rename group…' }).click();
+      await settings.getByRole('button', { name: 'Rename label PR reviews' }).click();
     };
     await openEdit();
-    const dialog = page.getByRole('dialog', { name: 'Rename group', exact: true });
-    await dialog.getByRole('button', { name: 'Choose group emoji' }).click();
-    const picker = page.getByRole('dialog', { name: 'Group emoji', exact: true });
+    const dialog = page.getByRole('dialog', { name: 'Edit label', exact: true });
+    await dialog.getByRole('button', { name: 'Choose label emoji' }).click();
+    const picker = page.getByRole('dialog', { name: 'Label emoji', exact: true });
     await picker.locator('input[type="search"]').fill('sweden');
-    await page.screenshot({ path: testInfo.outputPath('group-emoji-picker.png') });
+    await page.screenshot({ path: testInfo.outputPath('label-emoji-picker.png') });
     await picker.getByRole('button', { name: '🇸🇪', exact: true }).click();
     await expect(picker).toBeHidden();
-    await expect(dialog.getByRole('button', { name: 'Change group emoji' })).toHaveText('🇸🇪');
+    await expect(dialog.getByRole('button', { name: 'Change label emoji' })).toHaveText('🇸🇪');
     await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
-    expect(savedGroup().emoji).toBeUndefined();
+    expect(savedLabel()?.emoji).toBeUndefined();
 
     await openEdit();
-    await dialog.getByRole('button', { name: 'Choose group emoji' }).click();
+    await dialog.getByRole('button', { name: 'Choose label emoji' }).click();
     await picker.locator('input[type="search"]').fill('sweden');
     await picker.getByRole('button', { name: '🇸🇪', exact: true }).click();
     await dialog.getByRole('button', { name: 'Save', exact: true }).click();
-    await expect.poll(() => savedGroup().emoji).toBe('🇸🇪');
-    await expect(page.locator('.group-nav-toggle .group-emoji')).toHaveText('🇸🇪');
+    await expect.poll(() => savedLabel()?.emoji).toBe('🇸🇪');
+    await expect(labelEmoji).toHaveText('🇸🇪');
     await page.reload();
-    await holdWorkspace(page);
-    await expect(page.locator('.group-nav-toggle .group-emoji')).toHaveText('🇸🇪');
-
-    await openEdit();
-    await dialog.getByRole('button', { name: 'Change group emoji' }).click();
-    await picker.getByRole('button', { name: 'Remove emoji' }).click();
-    await dialog.getByRole('button', { name: 'Save', exact: true }).click();
-    await expect.poll(() => savedGroup().emoji).toBeUndefined();
-    await expect(page.locator('.group-nav-toggle .group-emoji svg')).toBeVisible();
-  } finally {
-    await cleanup();
-  }
-});
-
-test('the Assistant section saves its mode and keeps it after relaunch', async () => {
-  test.setTimeout(90_000);
-  const { app, page, userDataDir, cleanup } = await launchSeeded();
-  let relaunched: ElectronApplication | undefined;
-  try {
     await holdWorkspace(page);
     await page.getByRole('button', { name: / workspace menu$/ }).click();
     await page.getByRole('menuitem', { name: 'Workspace settings…' }).click();
-    const modal = page.getByRole('dialog', { name: 'Sprocket', exact: true });
-    await modal.getByRole('button', { name: 'Assistant', exact: true }).click();
+    await settings.getByRole('button', { name: 'Labels', exact: true }).click();
+    await expect(labelEmoji).toHaveText('🇸🇪');
 
-    await expect(modal.getByText('Sessions the Assistant runs on pull requests and issues')).toBeVisible();
-    await expect(modal.getByRole('radio', { name: /Full tools/ })).toBeChecked();
-    await modal.getByRole('radio', { name: /Read-only, unattended/ }).click();
-    await expect(modal.getByRole('radio', { name: /Read-only, unattended/ })).toBeChecked();
-    await expect(modal.getByText('Applies to the next session it starts.')).toBeVisible();
-
-    await app.close();
-    const again = await launchElectron({
-      userDataDir,
-      env: {
-        CONSOLA_GH_PATH: path.join(STUB_GH_DIR, 'gh'),
-        PATH: `${STUB_GH_DIR}${path.delimiter}${process.env.PATH ?? ''}`,
-      },
-    });
-    relaunched = again.app;
-    await holdWorkspace(again.page);
-    await again.page.getByRole('button', { name: / workspace menu$/ }).click();
-    await again.page.getByRole('menuitem', { name: 'Workspace settings…' }).click();
-    const reopened = again.page.getByRole('dialog', { name: 'Sprocket', exact: true });
-    await reopened.getByRole('button', { name: 'Assistant', exact: true }).click();
-    await expect(reopened.getByRole('radio', { name: /Read-only, unattended/ })).toBeChecked();
+    await openEdit();
+    await dialog.getByRole('button', { name: 'Change label emoji' }).click();
+    await picker.getByRole('button', { name: 'Remove emoji' }).click();
+    await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect.poll(() => savedLabel()?.emoji).toBeUndefined();
+    await expect(settings.locator('.ws-row-icon .group-emoji svg')).toBeVisible();
   } finally {
-    await relaunched?.close().catch(() => undefined);
     await cleanup();
   }
 });

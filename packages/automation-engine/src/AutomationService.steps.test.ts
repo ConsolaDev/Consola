@@ -547,7 +547,7 @@ describe('firing a steps run', () => {
       trigger: { kind: 'manual', by: 'agent', actorId: 's-9' },
       summary: 'Steps: fresh → summary in api. An agent asked for this run.',
     });
-    expect(h.notices).toMatchObject([{ needsApproval: true, actorId: 's-9' }]);
+    expect(h.notices).toMatchObject([{ needsApproval: true }]);
 
     // A person's Run now of the same accepted version goes straight in line.
     h.service.dismiss(asked.id);
@@ -1925,7 +1925,7 @@ describe('command steps', () => {
     const seen: unknown[] = [];
     h.world.onCommand = (spec) => {
       const run = h.store.get(String(spec.env.CONSOLA_RUN_ID))!;
-      seen.push({ step: run.steps![0], durable: durable.at(-1)?.steps![0] });
+      seen.push({ step: run.steps![0], durable: durable.at(-1)?.steps?.[0] });
     };
     await h.service.trigger(WORKSPACE_ID, NAME);
     await h.flush();

@@ -261,25 +261,25 @@
    LIGHT THEME ADJUSTMENTS
    ═══════════════════════════════════════════════════════════ */
 
-[data-theme='light'] .code-selection-popup {
+[data-theme="light"] .code-selection-popup {
   box-shadow:
     0 4px 12px rgba(0, 0, 0, 0.15),
     0 0 0 1px rgba(0, 0, 0, 0.06) inset;
 }
 
-[data-theme='light'] .code-selection-shortcut {
+[data-theme="light"] .code-selection-shortcut {
   background: rgba(0, 0, 0, 0.06);
 }
 
-[data-theme='light'] .code-selection-popup-btn:hover .code-selection-shortcut {
+[data-theme="light"] .code-selection-popup-btn:hover .code-selection-shortcut {
   background: rgba(0, 0, 0, 0.08);
 }
 
-[data-theme='light'] .code-reference-pill {
+[data-theme="light"] .code-reference-pill {
   background: rgba(0, 0, 0, 0.04);
 }
 
-[data-theme='light'] .code-reference-pill:hover {
+[data-theme="light"] .code-reference-pill:hover {
   background: rgba(0, 0, 0, 0.06);
 }
 

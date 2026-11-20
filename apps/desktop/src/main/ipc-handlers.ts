@@ -9,6 +9,7 @@ import {
   type Session,
   type WorkspaceUpdates,
 } from '../shared/workspace';
+import { describeError } from './describeError';
 import { SessionCheckoutService } from './SessionCheckoutService';
 import type { SessionCheckout } from '../shared/sessionCheckout';
 import {
@@ -32,6 +33,7 @@ import { listScopeRepos } from './scopeRepos';
 import { runHeadless } from './drivers/ClaudeDriver';
 import { getDriver, toHarnessConfig, toolPolicyProblem } from './drivers';
 import { harnessCapabilitiesCache } from './HarnessCapabilitiesCache';
+import { SessionNamer } from './sessionTitles/SessionNamer';
 import { borrowProviderEnv, composeProviderEnv, getProviderDriver } from './providers';
 import { getLoginEnv, loginEnvRetry } from './LoginEnvironment';
 import { InboxService } from './providers/InboxService';
@@ -40,27 +42,44 @@ import { createRunInSessionCoalescer } from './providers/runActionInSession';
 import { cloneWorkspaceRepo } from './providers/cloneRepo';
 import { WorktreeService } from './WorktreeService';
 import { readCheckout } from './gitCheckout';
-import { NotificationPolicy, findSessionByInstanceId } from './attention';
+import {
+  NotificationPolicy,
+  findSessionById,
+  findSessionByInstanceId,
+  sessionsToNotify,
+} from './attention';
 import { ConductorTools } from './conductor/ConductorTools';
 import { SessionMcpHost, mcpConfigForSession } from './mcp/SessionMcpHost';
 import { buildSessionServer } from './mcp/buildSessionServer';
 import { SessionRemover } from './SessionRemover';
-import { AssistantActivity } from './assistant/AssistantActivity';
-import { AssistantRequests } from './assistant/AssistantRequests';
-import { noticeTarget } from './automations/noticeTarget';
-import { AssistantService } from './assistant/AssistantService';
-import { AssistantTools } from './assistant/AssistantTools';
-import { ensureAssistantHome } from './assistant/assistantHome';
-import { recentRepliesFor } from './assistant/recentReplies';
-import { startAssistantSession } from './assistant/startSession';
+import { openingFor } from './harnessSwitch/handoff';
+import { HandoffStore } from './harnessSwitch/HandoffStore';
+import { HarnessSwitcher } from './harnessSwitch/HarnessSwitcher';
 import { SessionCleanupService } from './cleanup/SessionCleanupService';
+import { WorktreeCleanupService } from './worktreeCleanup';
+import { WorktreeRebuilder } from './worktreeCleanup/WorktreeRebuilder';
+import { CleanupHistory } from './worktreeCleanup/CleanupHistory';
+import {
+  RUN_ENDED_DEBOUNCE_MS,
+  WorktreeCleanupSweeper,
+} from './worktreeCleanup/WorktreeCleanupSweeper';
+import {
+  type CleanupPreviewRequest,
+  describeTrigger,
+  effectiveWorktreeCleanup,
+  normalizeRules,
+  normalizeWorkspaceOverride,
+  type WorktreeCleanupRules,
+} from '../shared/worktreeCleanup';
+import { TERMINAL_RUN_STATUSES } from '@consola/factory-spec';
+import { worktreePathLock } from './worktreeCleanup/PathLock';
+import { ProcessCwdIndex } from './worktreeCleanup/ProcessCwdIndex';
 import { ToolRegistry } from './tools/Tool';
 import { consolaTools } from './tools/consolaTools';
 import { desktopWorkItemPort } from './automations/workItemPort';
 import { sessionRecord, toItemSnapshot, toWorkspaceView } from './automations/engineViews';
 import {
   launchAgentRun,
-  refreshIdleWorktree,
   runningIn,
   worktreeHeld,
   type ItemWorktreeDeps,
@@ -108,14 +127,19 @@ import { HarnessService, type HarnessStateFile } from './state/HarnessService';
 import {
   allowedGroupUpdates,
   allowedHarnessUpdates,
+  allowedLabelRecord,
+  allowedLabelUpdates,
   allowedScopeUpdates,
   allowedSessionUpdates,
   allowedWorkspaceUpdates,
   type SessionUpdates,
 } from './state/updateFilters';
 import type {
+  DeletedLabel,
   Group,
+  Label,
   NewGroupFields,
+  NewLabelFields,
   NewScopeFields,
   NewSessionFields,
   Scope,
@@ -139,6 +163,35 @@ import {
   resolveRememberedView,
   type ViewMemoryStateFile,
 } from './state/ViewMemoryService';
+import { JsonAttentionLedger, type AttentionLedgerStateFile } from './attention/AttentionLedger';
+import { TurnActivity } from './attention/TurnActivity';
+import { AttentionService } from './attention/AttentionService';
+import { SessionSource } from './attention/SessionSource';
+import { RunSource } from './automations/RunSource';
+import { AttentionEndpoint } from './attention/AttentionEndpoint';
+import { HookSignals, type AttentionSignal } from './attention/hookSignals';
+import { SteadyStatus } from './attention/steadyStatus';
+import { ViewingTracker } from './attention/ViewingTracker';
+import { AutoSettler } from './attention/AutoSettler';
+import { settleAndVerify, settleMany, unsettleMany, unsettleSession } from './attention/settling';
+import { Snoozer } from './attention/Snoozer';
+import { HarnessLimitsCache } from './usageLimits/HarnessLimitsCache';
+import {
+  type HarnessTarget,
+  UsageLimitService,
+  type UsageLimitsStateFile,
+} from './usageLimits/UsageLimitService';
+import type { UsageLimitsState } from '../shared/usageLimits';
+import { launchFieldsFor as harnessLaunchFields } from '../shared/harness';
+import { PreferencesService } from './state/PreferencesService';
+import type {
+  BatchResult,
+  SettleMemento,
+  SettleResult,
+  SnoozeBatchResult,
+} from '../shared/preferences';
+import type { SnoozeWhen } from '../shared/snooze';
+import { activityOf, type AttentionState } from '../shared/attention';
 import type { ActivateWorkspaceResult, WorkspaceView } from '../shared/types';
 
 // One terminal per session tab, kept alive while the session is open
@@ -147,12 +200,18 @@ let shellManager: ShellManager | null = null;
 
 // Where each workspace was left, so returning to one lands where you were.
 let viewMemoryService: ViewMemoryService | null = null;
+let attentionLedgerService: JsonAttentionLedger | null = null;
+let autoSettler: AutoSettler | null = null;
+let worktreeSweeper: WorktreeCleanupSweeper | null = null;
+let worktreeCleanupService: WorktreeCleanupService | null = null;
+let snoozer: Snoozer | null = null;
+let usageLimitService: UsageLimitService | null = null;
+let onSnoozeResume: (() => void) | null = null;
 
 // The single writer for workspaces and sessions, shared by every window
 let workspaceService: WorkspaceService | null = null;
 
 // The single writer for harness records, shared by every window
-let _harnessService: HarnessService | null = null;
 
 // Provider organs: one inbox fetcher, one worktree owner — both main-side.
 // The drivers themselves live in the registry under ./providers.
@@ -211,6 +270,28 @@ export function setupIpcHandlers(): boolean {
   if (viewMemory.isEmpty()) viewMemory.seed(viewsFromStoredLayout());
   viewMemoryService = viewMemory;
 
+  // Like view memory, never fatal: a lost ledger sends every session back to
+  // its creation time, which is what a session with no record shows anyway.
+  const attentionLedger = new JsonAttentionLedger(
+    new JsonStateFile<AttentionLedgerStateFile>(
+      path.join(app.getPath('userData'), 'attention-ledger.json'),
+    ),
+  );
+  attentionLedger.load();
+  attentionLedger.prune(
+    new Set(
+      workspaces.getAll().flatMap((workspace) => workspace.sessions.map((session) => session.id)),
+    ),
+  );
+  attentionLedgerService = attentionLedger;
+
+  // Main runs the sweeper, so main owns the threshold. Never fatal: a lost
+  // file means the defaults, and the one-time explanation is simply given again.
+  const preferences = new PreferencesService(
+    new JsonStateFile<unknown>(path.join(app.getPath('userData'), 'preferences.json')),
+  );
+  preferences.load();
+
   // Every window renders the same records, so a change goes to all of them
   // rather than to whoever asked for it. A deleted workspace also has to be
   // dropped from any window still holding it, or that window would keep
@@ -221,6 +302,9 @@ export function setupIpcHandlers(): boolean {
     // already refuses to surface it, so this is housekeeping rather than
     // correctness — it stops the file growing forever.
     viewMemory.prune(liveIds);
+    attentionLedger.prune(
+      new Set(all.flatMap((workspace) => workspace.sessions.map((session) => session.id))),
+    );
 
     for (const window of BrowserWindow.getAllWindows()) {
       if (window.isDestroyed()) continue;
@@ -259,66 +343,35 @@ export function setupIpcHandlers(): boolean {
     workspaces.moveWorkspace(id, beforeId);
   });
 
+  // Transcripts a harness switch handed from one agent to the next.
+  const handoffs = new HandoffStore(path.join(app.getPath('userData'), 'handoffs'));
+
   // The one way a session goes away in main. Its collaborators are built
   // further down; the closures only run once setup has finished.
   const sessionRemover = new SessionRemover({
     deleteRecord: (workspaceId, sessionId) => workspaces.deleteSession(workspaceId, sessionId),
     destroyTerminal: (instanceId) => {
       terminalManager?.destroy(instanceId);
-      notificationPolicy.forget(instanceId);
+      forgetTerminalAttention(instanceId);
     },
     destroyShell: (instanceId) => shellManager?.destroy(instanceId),
     // A session's endpoint would otherwise outlive its record as a
     // listening socket and a config file nothing can name again.
     releaseMcp: (sessionId) => mcpHost.unregister(sessionId),
-  });
-
-  const assistants = new AssistantService({
-    workspaces,
-    ensureHome: ensureAssistantHome,
-    stop: (session) => sessionRemover.stop(session),
-  });
-  ipcMain.handle(IPC_CHANNELS.ASSISTANT_OPEN, (_event, workspaceId: string) =>
-    assistants.open(String(workspaceId)),
-  );
-  ipcMain.handle(IPC_CHANNELS.ASSISTANT_START_FRESH, (_event, workspaceId: string) =>
-    assistants.startFresh(String(workspaceId)),
-  );
-  // Only a running Assistant is ever told: a stopped one has no terminal to
-  // queue into, and nothing here may start a process.
-  const assistantActivity = new AssistantActivity({
-    getWorkspaces: () => workspaces.getAll(),
-    queuePrompt: (instanceId, prompt) => {
-      const terminal = terminalManager?.get(instanceId);
-      if (!terminal || terminal.hasClaudeExited()) return false;
-      terminal.queuePrompt(prompt);
-      return true;
-    },
-    broadcast: (workspaceId, activity) => {
-      for (const window of BrowserWindow.getAllWindows()) {
-        if (!window.isDestroyed()) {
-          window.webContents.send(IPC_CHANNELS.ASSISTANT_ACTIVITY_CHANGED, {
-            workspaceId,
-            activity,
-          });
-        }
-      }
+    removeHandoffs: (sessionId) => handoffs.removeAll(sessionId),
+    releaseRemovedWorktree: ({ removedWorktree: removed }) => {
+      if (!removed) return;
+      const stillNamed = workspaces
+        .getAll()
+        .some((workspace) =>
+          workspace.sessions.some((session) => session.removedWorktree?.path === removed.path),
+        );
+      if (stillNamed) return;
+      void worktrees
+        .deleteKeepRef(removed.mainRepo, removed.keepRef)
+        .catch((error) => console.error(`Could not delete ${removed.keepRef}:`, error));
     },
   });
-  // What the person decided about the Assistant's own requests reaches it
-  // as a notice, however they decided: its tray, Settings, or a supersede.
-  const assistantRequests = new AssistantRequests({
-    getWorkspaces: () => workspaces.getAll(),
-    report: (assistantSessionId, text) => assistantActivity.report(assistantSessionId, text),
-    watch: (assistantSessionId, sessionId) =>
-      assistantActivity.watch(assistantSessionId, sessionId),
-  });
-  ipcMain.handle(IPC_CHANNELS.ASSISTANT_GET_ACTIVITY, (_event, workspaceId: string) =>
-    assistantActivity.snapshot(String(workspaceId)),
-  );
-  ipcMain.handle(IPC_CHANNELS.ASSISTANT_MARK_SEEN, (_event, workspaceId: string) =>
-    assistantActivity.markSeen(String(workspaceId)),
-  );
 
   ipcMain.handle(IPC_CHANNELS.WORKSPACE_DELETE, (_event, id: string) => {
     // Read the sessions while the record still exists. Once it is gone
@@ -333,9 +386,9 @@ export function setupIpcHandlers(): boolean {
 
     // Only once the delete has reached disk — a failed write throws above
     // and leaves the workspace, and its terminals, intact. destroy() clears
-    // the awaiting set and fires onAttentionChanged, so the PTY and the
+    // the session's attention goes with it, so the PTY and the
     // badge close together; the MCP endpoint goes with them.
-    stranded.forEach((session) => sessionRemover.stop(session));
+    stranded.forEach((session) => sessionRemover.discard(session));
   });
 
   const sessionCheckouts = new SessionCheckoutService();
@@ -390,20 +443,36 @@ export function setupIpcHandlers(): boolean {
 
   ipcMain.handle(
     IPC_CHANNELS.WORKSPACE_SESSION_DELETE,
-    (_event, workspaceId: string, sessionId: string) => {
-      const session = workspaces
-        .getAll()
-        .find((w) => w.id === workspaceId)
-        ?.sessions.find((s) => s.id === sessionId);
-      if (session?.kind === 'assistant') {
-        throw new Error(
-          'The Assistant is not deleted; start a fresh conversation from its ⋯ menu.',
-        );
+    async (event, workspaceId: string, sessionId: string) => {
+      const workspace = workspaces.getAll().find((w) => w.id === workspaceId);
+      const session = workspace?.sessions.find((s) => s.id === sessionId);
+      if (!workspace || !session) {
+        workspaces.deleteSession(workspaceId, sessionId);
+        return undefined;
       }
       // Record first, then the PTY, shell and MCP endpoint — in main,
-      // so the delete is whole even when no renderer sends the rest.
-      if (session) sessionRemover.remove(workspaceId, session);
-      else workspaces.deleteSession(workspaceId, sessionId);
+      // so the delete is whole even when no renderer sends the rest. With
+      // the "you delete the session" rule on, its worktree follows.
+      return worktreeCleanupService!.deleteForPerson(
+        workspace,
+        session,
+        () => sessionRemover.remove(workspaceId, session),
+        (outcome) => {
+          if (!event.sender.isDestroyed()) {
+            event.sender.send(IPC_CHANNELS.WORKTREE_CLEANUP_DELETED, outcome);
+          }
+        },
+      );
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.WORKSPACE_SESSION_DELETE_PREVIEW,
+    async (_event, workspaceId: string, sessionId: string) => {
+      const workspace = workspaces.getAll().find((w) => w.id === workspaceId);
+      const session = workspace?.sessions.find((s) => s.id === sessionId);
+      if (!workspace || !session || !worktreeCleanupService) return { worktree: null };
+      return worktreeCleanupService.previewDelete(workspace, session);
     },
   );
 
@@ -432,7 +501,7 @@ export function setupIpcHandlers(): boolean {
       // Stop the deleted sessions only after the entire change reaches disk.
       workspaces
         .removeScope(workspaceId, scopeId)
-        .forEach((session) => sessionRemover.stop(session));
+        .forEach((session) => sessionRemover.discard(session));
     },
   );
 
@@ -505,6 +574,63 @@ export function setupIpcHandlers(): boolean {
   );
 
   ipcMain.handle(
+    IPC_CHANNELS.WORKSPACE_LABEL_CREATE,
+    (_event, workspaceId: string, fields: NewLabelFields) =>
+      workspaces.createLabel(workspaceId, {
+        name: fields.name,
+        ...(fields.emoji !== undefined ? { emoji: fields.emoji } : {}),
+        ...(fields.color !== undefined ? { color: fields.color } : {}),
+      }),
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.WORKSPACE_LABEL_UPDATE,
+    (
+      _event,
+      workspaceId: string,
+      labelId: string,
+      updates: Partial<Pick<Label, 'name' | 'emoji' | 'color'>>,
+    ) => workspaces.updateLabel(workspaceId, labelId, allowedLabelUpdates(updates)),
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.WORKSPACE_LABEL_DELETE,
+    (_event, workspaceId: string, labelId: string) => workspaces.deleteLabel(workspaceId, labelId),
+  );
+
+  // Undo of the above, from the toast it raises. It takes the memento the
+  // delete handed back rather than a label and a list of sessions composed
+  // in a renderer: only what was actually removed can be put back.
+  ipcMain.handle(
+    IPC_CHANNELS.WORKSPACE_LABEL_RESTORE,
+    (_event, workspaceId: string, removed: DeletedLabel) => {
+      const label = removed?.label;
+      if (!label || typeof label.id !== 'string' || typeof label.name !== 'string') {
+        throw new Error('Nothing to restore.');
+      }
+      workspaces.restoreLabel(workspaceId, {
+        label: allowedLabelRecord(label),
+        index: Number.isInteger(removed.index) && removed.index >= 0 ? removed.index : 0,
+        sessionIds: Array.isArray(removed.sessionIds)
+          ? removed.sessionIds.filter((id): id is string => typeof id === 'string')
+          : [],
+      });
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.WORKSPACE_SESSION_LABEL_ASSIGN,
+    (_event, workspaceId: string, sessionId: string, labelId: string) =>
+      workspaces.assignLabel(workspaceId, sessionId, labelId),
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.WORKSPACE_SESSION_LABEL_UNASSIGN,
+    (_event, workspaceId: string, sessionId: string, labelId: string) =>
+      workspaces.unassignLabel(workspaceId, sessionId, labelId),
+  );
+
+  ipcMain.handle(
     IPC_CHANNELS.WORKSPACE_GROUP_ARCHIVE,
     (_event, workspaceId: string, groupId: string) => workspaces.archiveGroup(workspaceId, groupId),
   );
@@ -519,7 +645,6 @@ export function setupIpcHandlers(): boolean {
   );
   const harnesses = new HarnessService(harnessFile);
   if (!loadOrExit(() => harnesses.load(), 'harnesses')) return false;
-  _harnessService = harnesses;
 
   harnesses.onChange((all) => {
     for (const window of BrowserWindow.getAllWindows()) {
@@ -562,6 +687,64 @@ export function setupIpcHandlers(): boolean {
   worktreeService = worktrees;
   // The remote->path map is only as fresh as the scope list that feeds it.
   workspaces.onChange(() => worktrees.invalidate());
+
+  // A worktree a cleanup rule removed comes back, at its path and commit,
+  // when its session opens — and only through here: an Inbox click or an
+  // automation run that lands on that folder hands it over first.
+  // What cleanup removed and what was rebuilt. Never fatal, like view memory.
+  const cleanupHistory = new CleanupHistory(
+    new JsonStateFile(path.join(app.getPath('userData'), 'worktree-cleanup-log.json')),
+  );
+  cleanupHistory.load();
+  cleanupHistory.onChange(() => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed()) window.webContents.send(IPC_CHANNELS.WORKTREE_CLEANUP_CHANGED);
+    }
+  });
+  const sessionNamesAt = (worktreePath: string) => {
+    const named = workspaces
+      .getAll()
+      .flatMap((workspace) => workspace.sessions.map((session) => ({ workspace, session })))
+      .filter(
+        ({ session }) =>
+          session.cwd === worktreePath || session.removedWorktree?.path === worktreePath,
+      );
+    return {
+      sessionNames: named.map(({ session }) => session.name),
+      workspaceIds: [...new Set(named.map(({ workspace }) => workspace.id))],
+    };
+  };
+
+  const rebuilder = new WorktreeRebuilder({
+    lock: worktreePathLock,
+    getWorkspaces: () => workspaces.getAll(),
+    worktrees,
+    clearRemoved: (worktreePath) => workspaces.clearWorktreeRemoved(worktreePath),
+    rebuilt: (removed, result) =>
+      cleanupHistory.append({
+        action: 'rebuilt',
+        tree: removed.path,
+        ...sessionNamesAt(removed.path),
+        trigger: removed.trigger,
+        detail:
+          result.kind === 'existed'
+            ? 'Found in place when its session opened.'
+            : `Rebuilt when its session opened${result.branch ? `, on ${result.branch}` : ', detached'}.`,
+      }),
+  });
+  worktrees.restoreRemoved = (dir) => rebuilder.restoreAt(dir);
+  /** Rebuild a removed checkout before a spawn; a failure becomes the pane's notice. */
+  const rebuildForLaunch = async (
+    workspace: Workspace,
+    session: Session,
+  ): Promise<string | undefined> => {
+    if (!session.removedWorktree) return undefined;
+    try {
+      return (await rebuilder.ensureCheckout(workspace, session)).notice;
+    } catch (error) {
+      return describeError(error);
+    }
+  };
 
   const inbox = new InboxService({
     getWorkspace: (id) => workspaces.getAll().find((workspace) => workspace.id === id),
@@ -727,20 +910,27 @@ export function setupIpcHandlers(): boolean {
   const manager = terminalManager;
   shellManager = new ShellManager();
   const shells = shellManager;
-  const shellCwd = (instanceId: string): string => {
-    const located = findSessionByInstanceId(workspaces.getAll(), instanceId);
+  const shellCwd = async (instanceId: string): Promise<string> => {
+    let located = findSessionByInstanceId(workspaces.getAll(), instanceId);
     if (!located) throw new Error('Session no longer exists.');
+    // A shell opened beside a session whose worktree was removed puts it
+    // back first, as opening the session does.
+    if (located.session.removedWorktree) {
+      await rebuilder.ensureCheckout(located.workspace, located.session);
+      located = findSessionByInstanceId(workspaces.getAll(), instanceId);
+      if (!located) throw new Error('Session no longer exists.');
+    }
     // Beside the agent, in whichever checkout it works — one it moved
     // itself into included — rather than where it was launched.
     const cwd = checkoutPathForSession(located.workspace, located.session);
     if (!cwd) throw new Error('Session has no working directory.');
     return cwd;
   };
-  ipcMain.handle(IPC_CHANNELS.SHELL_ATTACH, (event, options: ShellOptions) =>
-    shells.attach(options, shellCwd(options.instanceId), event.sender),
+  ipcMain.handle(IPC_CHANNELS.SHELL_ATTACH, async (event, options: ShellOptions) =>
+    shells.attach(options, await shellCwd(options.instanceId), event.sender),
   );
-  ipcMain.handle(IPC_CHANNELS.SHELL_RESTART, (event, options: ShellOptions) =>
-    shells.restart(options, shellCwd(options.instanceId), event.sender),
+  ipcMain.handle(IPC_CHANNELS.SHELL_RESTART, async (event, options: ShellOptions) =>
+    shells.restart(options, await shellCwd(options.instanceId), event.sender),
   );
   ipcMain.on(IPC_CHANNELS.SHELL_INPUT, (event, id: string, data: string) =>
     shells.input(id, data, event.sender),
@@ -751,43 +941,401 @@ export function setupIpcHandlers(): boolean {
 
   // With no windows open on macOS the app is still alive and sessions are
   // still running. The badge is the only thing that says so.
-  manager.onAttentionChanged = () => {
-    if (typeof app.setBadgeCount === 'function') {
-      const count = manager.getAttentionCount();
-      app.setBadgeCount(Math.max(count, 0));
-    }
+  // One derivation of what needs the person, asked by the badge, the MCP
+  // tools and (pushed, coalesced) every window. The badge counts
+  // `needs-attention` only, a run waiting for approval included: a badge that
+  // counted finished work would stop meaning "come here now".
+  const attention = new AttentionService();
+  // What an agent CLI's own hooks say, as one more input to that derivation:
+  // they never write a status. The screen heuristic runs regardless.
+  const hookSignals = new HookSignals();
+  const attentionEndpoint = new AttentionEndpoint((instanceId, signal) => {
+    hookSignals.apply(instanceId, signal);
+    hookFanOut(instanceId, signal);
+  });
+  manager.attentionEndpoint = attentionEndpoint;
+  app.on('will-quit', () => attentionEndpoint.close());
+  const attentionSessions = new SessionSource({
+    hookInputs: (instanceId) => hookSignals.get(instanceId),
+    getWorkspaces: () => workspaces.getAll(),
+    terminalStatus: (instanceId) => steadySessionStatus(instanceId),
+    ledger: attentionLedger,
+    isViewedInFocusedWindow: (instanceId) => viewing.isViewedInFocusedWindow(instanceId),
+    // An open automation run keeps the session it uses from being settled.
+    heldSessionIds: () => new Set(attention.holds().keys()),
+    // A new question ends a snooze before anything derives from it.
+    hands: {
+      raised: (instanceId) => snoozer?.raisedHand(instanceId),
+      lowered: (instanceId) => snoozer?.loweredHand(instanceId),
+    },
+  });
+  // Looking at a finished session is what clears `done`. Main decides what
+  // looking means: a window must be focused as well as showing it.
+  const viewing = new ViewingTracker((instanceId) => {
+    const located = findSessionByInstanceId(workspaces.getAll(), instanceId);
+    if (located) attentionSessions.markSeen(located.session.id);
+  });
+  const watchedSenders = new Set<number>();
+  const watch = (sender: Electron.WebContents) => {
+    if (watchedSenders.has(sender.id)) return;
+    watchedSenders.add(sender.id);
+    const { id } = sender;
+    sender.once('destroyed', () => {
+      watchedSenders.delete(id);
+      viewing.closed(id);
+    });
   };
+  ipcMain.handle(IPC_CHANNELS.ATTENTION_SNAPSHOT, (): AttentionState => {
+    const derived = attention.snapshot();
+    return {
+      records: attentionLedger.snapshot(),
+      attention: Object.fromEntries(derived),
+      snoozes: Object.fromEntries(attention.snoozes(derived)),
+    };
+  });
+  ipcMain.on(IPC_CHANNELS.ATTENTION_VIEWING, (event, instanceId: unknown) => {
+    watch(event.sender);
+    viewing.viewing(event.sender.id, typeof instanceId === 'string' ? instanceId : null);
+  });
+  ipcMain.on(IPC_CHANNELS.ATTENTION_FOCUSED, (event, focused: unknown) => {
+    watch(event.sender);
+    viewing.focused(event.sender.id, focused === true);
+  });
+  attention.register(attentionSessions);
+
+  // Old, idle work leaves the list on its own — and the first time it does,
+  // every window is told what happened (the renderer reads `pendingAutoSettle`).
+  const settler = new AutoSettler({
+    getWorkspaces: () => workspaces.getAll(),
+    attention: () => attention.snapshot(),
+    heldSessionIds: () => new Set(attention.holds().keys()),
+    isShown: (instanceId) => viewing.isShown(instanceId),
+    ledger: attentionLedger,
+    preferences,
+    changed: () => attentionSessions.refresh(),
+    onWindowReport: (listener) => viewing.onReport(listener),
+  });
+  autoSettler = settler;
+
+  // Parks sessions until a time, and brings them back when it comes or when
+  // they need the person sooner. The only writer of the ledger's snooze fields.
+  const sessionSnoozer = new Snoozer({
+    getWorkspaces: () => workspaces.getAll(),
+    ledger: attentionLedger,
+    attention: () => attention.snapshot(),
+    isViewedInFocusedWindow: (instanceId) => viewing.isViewedInFocusedWindow(instanceId),
+    isAsking: (instanceId) => attentionSessions.isAsking(instanceId),
+    preferences,
+    changed: () => attentionSessions.refresh(),
+  });
+  snoozer = sessionSnoozer;
+  // A laptop asleep past a snooze's time wakes into it: check at once.
+  onSnoozeResume = () => {
+    sessionSnoozer.recheck();
+    usageLimitService?.recheck();
+  };
+  powerMonitor.on('resume', onSnoozeResume);
+  // Quitting stops terminals, and their exits are not failures to wake for.
+  app.once('before-quit', () => sessionSnoozer.stop());
+  let sweptDays = preferences.get().autoSettleDays;
+  preferences.onChange((next) => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed()) window.webContents.send(IPC_CHANNELS.PREFERENCES_CHANGED, next);
+    }
+    // A threshold the person just changed applies now, not in five minutes.
+    if (next.autoSettleDays !== sweptDays) {
+      sweptDays = next.autoSettleDays;
+      settler.sweep();
+    }
+  });
+  ipcMain.handle(IPC_CHANNELS.PREFERENCES_GET, () => preferences.get());
+  ipcMain.handle(IPC_CHANNELS.PREFERENCES_SET_AUTO_SETTLE_DAYS, (_event, days: unknown) => {
+    if (typeof days === 'number') preferences.setAutoSettleDays(days);
+  });
+  ipcMain.handle(IPC_CHANNELS.PREFERENCES_ACKNOWLEDGE_AUTO_SETTLE, () =>
+    preferences.acknowledgeAutoSettle(),
+  );
+  ipcMain.handle(IPC_CHANNELS.PREFERENCES_SET_WORKTREE_CLEANUP, (_event, rules: unknown) =>
+    preferences.setWorktreeCleanup(rules),
+  );
+  /** The cleanup rules that apply in a workspace now: its own, none, or the global ones. */
+  const cleanupRulesFor = (workspace: Workspace) =>
+    effectiveWorktreeCleanup(preferences.get().worktreeCleanup, workspace.worktreeCleanup);
+  ipcMain.handle(IPC_CHANNELS.PREFERENCES_SET_SNOOZE_PRESETS, (_event, presets: unknown) =>
+    preferences.setSnoozePresets(presets),
+  );
+  ipcMain.handle(IPC_CHANNELS.PREFERENCES_SET_SNOOZE_AT_USAGE_LIMIT, (_event, on: unknown) => {
+    if (typeof on === 'boolean') preferences.setSnoozeAtUsageLimit(on);
+  });
+
+  const withWorkspace =
+    <T>(empty: T, run: (workspace: Workspace, sessionId: string) => T) =>
+    (_event: Electron.IpcMainInvokeEvent, workspaceId: unknown, sessionId: unknown): T => {
+      if (typeof workspaceId !== 'string' || typeof sessionId !== 'string') return empty;
+      const workspace = workspaces.getAll().find((candidate) => candidate.id === workspaceId);
+      if (!workspace) return empty;
+      const result = run(workspace, sessionId);
+      // Settling ends a snooze: the timer waits for the next one instead.
+      snoozer?.rearm();
+      attentionSessions.refresh();
+      return result;
+    };
+  ipcMain.handle(
+    IPC_CHANNELS.ATTENTION_SETTLE,
+    withWorkspace<SettleResult>({ settled: false, memento: {} }, (workspace, sessionId) =>
+      settleAndVerify(
+        workspace,
+        sessionId,
+        attentionLedger,
+        () => attentionSessions.read(),
+        Date.now(),
+      ),
+    ),
+  );
+  ipcMain.handle(
+    IPC_CHANNELS.ATTENTION_UNSETTLE,
+    withWorkspace<SettleMemento>({}, (workspace, sessionId) =>
+      unsettleSession(workspace, sessionId, attentionLedger, Date.now()),
+    ),
+  );
+  ipcMain.handle(IPC_CHANNELS.ATTENTION_RESTORE, (_event, memento: unknown) => {
+    if (typeof memento !== 'object' || memento === null) return;
+    attentionLedger.restore(memento as SettleMemento);
+    // An undo can put a snooze back, or take one away.
+    sessionSnoozer.rearm();
+    attentionSessions.refresh();
+  });
+
+  // Which sessions stopped on a usage limit, and when each resets, as its
+  // harness's own CLI says. The CLI is asked, never the screen.
+  const harnessLimits = new HarnessLimitsCache();
+  const harnessTarget = (harnessId: string | undefined): HarnessTarget => {
+    const fields = harnessLaunchFields(
+      harnesses.getAll().find((candidate) => candidate.id === harnessId),
+    );
+    return {
+      harnessId: harnessId ?? 'default',
+      driver: getDriver(fields.driverId),
+      config: toHarnessConfig(fields),
+    };
+  };
+  const usageLimits = new UsageLimitService({
+    getWorkspaces: () => workspaces.getAll(),
+    harnessOf: (session) => harnessTarget(session.harnessId),
+    cache: harnessLimits,
+    snoozer: sessionSnoozer,
+    // The steady status, as attention reads it: a flicker is not coming to rest.
+    terminalStatus: (instanceId) => steadySessionStatus(instanceId),
+    file: new JsonStateFile<UsageLimitsStateFile>(
+      path.join(app.getPath('userData'), 'usage-limits.json'),
+    ),
+  });
+  usageLimitService = usageLimits;
+  usageLimits.load();
+  usageLimits.onChange((state) => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed()) window.webContents.send(IPC_CHANNELS.USAGE_LIMITS_CHANGED, state);
+    }
+  });
+  ipcMain.handle(IPC_CHANNELS.USAGE_LIMITS_SNAPSHOT, (): UsageLimitsState => usageLimits.state());
+  workspaces.onChange(() => usageLimits.sync());
+  const limitResetFor = (sessionId: string) => usageLimits.resetFor(sessionId);
+
+  /** A batch request's session ids, or null when the payload is not one. */
+  const idList = (value: unknown): string[] | null =>
+    Array.isArray(value) && value.every((id) => typeof id === 'string') ? value : null;
+  const emptyBatch: BatchResult = { applied: [], refused: [], memento: {} };
+  ipcMain.handle(
+    IPC_CHANNELS.ATTENTION_SNOOZE,
+    (_event, workspaceId: unknown, sessionIds: unknown, when: unknown): SnoozeBatchResult => {
+      const ids = idList(sessionIds);
+      if (typeof workspaceId !== 'string' || !ids) return { ...emptyBatch, until: null };
+      const snoozeWhen = when as SnoozeWhen | null;
+      // A reset time is main's to know: the renderer only says "until it resets".
+      if (snoozeWhen && 'untilLimitResets' in snoozeWhen && snoozeWhen.untilLimitResets === true)
+        return sessionSnoozer.snooze(workspaceId, ids, (rootId) => limitResetFor(rootId), {
+          by: 'person',
+          reason: 'usage-limit',
+        });
+      const until = snoozeWhen && 'until' in snoozeWhen ? snoozeWhen.until : undefined;
+      if (typeof until !== 'number' || !Number.isFinite(until))
+        return { ...emptyBatch, until: null };
+      return sessionSnoozer.snooze(workspaceId, ids, until, { by: 'person' });
+    },
+  );
+  /** A batch run against one workspace, then the derivation told and the snooze timer re-armed. */
+  const inWorkspace =
+    (run: (workspace: Workspace, ids: string[]) => BatchResult) =>
+    (_event: Electron.IpcMainInvokeEvent, workspaceId: unknown, sessionIds: unknown) => {
+      const ids = idList(sessionIds);
+      const workspace = workspaces.getAll().find((candidate) => candidate.id === workspaceId);
+      if (!workspace || !ids) return emptyBatch;
+      const result = run(workspace, ids);
+      // Settling ends a snooze, and its undo can bring one back.
+      sessionSnoozer.rearm();
+      attentionSessions.refresh();
+      return result;
+    };
+  ipcMain.handle(
+    IPC_CHANNELS.ATTENTION_SETTLE_MANY,
+    inWorkspace((workspace, ids) =>
+      settleMany(workspace, ids, attentionLedger, () => attentionSessions.read(), Date.now()),
+    ),
+  );
+  ipcMain.handle(
+    IPC_CHANNELS.ATTENTION_UNSETTLE_MANY,
+    inWorkspace((workspace, ids) => unsettleMany(workspace, ids, attentionLedger, Date.now())),
+  );
+  ipcMain.handle(
+    IPC_CHANNELS.ATTENTION_WAKE,
+    (_event, workspaceId: unknown, sessionIds: unknown): BatchResult => {
+      const ids = idList(sessionIds);
+      if (typeof workspaceId !== 'string' || !ids) return emptyBatch;
+      return sessionSnoozer.wake(workspaceId, ids, { by: 'person' });
+    },
+  );
+  // The steady status first: a turn boundary can release a status it was
+  // holding back, and the attention read that follows should see it.
+  hookSignals.subscribe((instanceId) => {
+    steadyStatus.hookChanged(instanceId);
+    attentionSessions.hookChanged(instanceId);
+  });
+  workspaces.onChange(() => attentionSessions.refresh());
+  attention.onChange((change) => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed()) window.webContents.send(IPC_CHANNELS.ATTENTION_CHANGED, change);
+    }
+    if (typeof app.setBadgeCount === 'function') app.setBadgeCount(attention.needsAttentionCount());
+  });
 
   const notificationPolicy = new NotificationPolicy();
+
+  // Turns starting and finishing are the activity worth remembering. The
+  // terminal knows its per-launch instance; the ledger only knows sessions.
+  const turnActivity = new TurnActivity(attentionLedger, (instanceId) => {
+    const located = findSessionByInstanceId(workspaces.getAll(), instanceId);
+    return located
+      ? { sessionId: located.session.id, workspaceId: located.workspace.id }
+      : undefined;
+  });
+  // Attention is decided from the steady status, not the terminal's own:
+  // output flow flickers, and each flicker would move a row between
+  // sections and count as activity (see `SteadyStatus`). Writing
+  // `finishedAt` is SessionSource's and `lastActiveAt` TurnActivity's: two
+  // receivers, because they own different fields and nothing is written twice.
+  const steadyStatus = new SteadyStatus({
+    turn: (instanceId) => hookSignals.get(instanceId)?.turn,
+    emit: (instanceId, status) => {
+      turnActivity.statusChanged(instanceId, status);
+      attentionSessions.statusChanged(instanceId, status);
+      // A limited session at rest may be parked until its reset.
+      usageLimitService?.statusChanged(instanceId, status);
+    },
+  });
+  /** What attention reads for a terminal. A terminal that is gone is exited, whatever was last shown. */
+  const steadySessionStatus = (instanceId: string): TerminalStatus => {
+    const live = sessionStatus(instanceId);
+    return live === 'exited' ? live : (steadyStatus.get(instanceId) ?? live);
+  };
+  // The person acting on a prompt is output starting again; that ends what a
+  // hook said. Before the steady status, which reads what the hooks say.
+  manager.addStatusListener((instanceId, status) => {
+    hookSignals.statusChanged(instanceId, status);
+    steadyStatus.observe(instanceId, status);
+  });
+
+  // Names sessions from main, so a title lands whichever pane is on screen.
+  // Every edge is fed in: the namer decides which ones matter.
+  const sessionNamer = new SessionNamer({
+    getWorkspaces: () => workspaces.getAll(),
+    getHarnesses: () => harnesses.getAll(),
+    updateSession: (workspaceId, sessionId, updates) =>
+      workspaces.updateSession(workspaceId, sessionId, updates),
+    getDriver,
+    modelInfo: async (harness, model) => {
+      try {
+        const result = await harnessCapabilitiesCache.get(
+          getDriver(harness.driverId),
+          toHarnessConfig(launchFieldsFor(harness)),
+        );
+        return result.supported ? result.models.find((entry) => entry.value === model) : undefined;
+      } catch {
+        return undefined;
+      }
+    },
+  });
+  manager.addStatusListener((instanceId, status) => sessionNamer.statusChanged(instanceId, status));
+  // A notice on screen prompts a read of the harness's limits.
+  manager.addLimitNoticeListener((instanceId, showing) =>
+    usageLimitService?.noticeChanged(instanceId, showing),
+  );
+
+  /**
+   * What a hook says beyond the screen's state, to whoever acts on it: a turn
+   * that failed ends a snooze, and one that stopped on a usage limit does too
+   * unless the person asked to sit limits out.
+   */
+  function hookFanOut(instanceId: string, signal: AttentionSignal): void {
+    if (signal.kind === 'turn-ended' || signal.kind === 'limit-over') {
+      usageLimitService?.hookCleared(instanceId);
+      return;
+    }
+    if (signal.kind !== 'turn-failed') return;
+    // The usage-limit service tells the Snoozer once it has recorded the stop.
+    if (signal.limit) {
+      usageLimitService?.hookStopped(instanceId);
+      return;
+    }
+    const located = findSessionByInstanceId(workspaces.getAll(), instanceId);
+    if (located) snoozer?.turnFailed(located.session.id, { at: Date.now() });
+  }
+
+  /**
+   * What every attention source knows about a terminal's current process,
+   * dropped when that process is gone for good — the terminal destroyed, or
+   * moved onto another harness, whose CLI says nothing about the last one's
+   * held turns or open menus.
+   */
+  const forgetTerminalAttention = (instanceId: string) => {
+    turnActivity.forget(instanceId);
+    hookSignals.forget(instanceId);
+    steadyStatus.forget(instanceId);
+    attentionSessions.forget(instanceId);
+  };
 
   // The fourth attention altitude: session dot → group count → switcher dot
   // → OS notification. Rings only for a session hitting needs-attention
   // while no Consola window is focused; the Inbox never notifies — only
   // terminals emit status. Clicking lands on the right window and session.
-  manager.addStatusListener((instanceId, status) =>
-    assistantActivity.statusChanged(instanceId, status),
-  );
-  manager.addStatusListener((instanceId, status) => {
-    const anyWindowFocused = BrowserWindow.getFocusedWindow() !== null;
-    if (!notificationPolicy.shouldNotify(instanceId, status, anyWindowFocused)) return;
-    if (!Notification.isSupported()) return;
+  // Driven by the attention edge, not the terminal's status: a hook can say a
+  // session needs the person when its screen shows nothing recognisable, and
+  // that is exactly when the person is likely to be elsewhere.
+  attention.onChange((change) => {
+    const ringing = sessionsToNotify(
+      change,
+      notificationPolicy,
+      BrowserWindow.getFocusedWindow() !== null,
+    );
+    for (const sessionId of ringing) {
+      if (!Notification.isSupported()) continue;
 
-    const located = findSessionByInstanceId(workspaces.getAll(), instanceId);
-    if (!located) return;
+      const located = findSessionById(workspaces.getAll(), sessionId);
+      if (!located) continue;
 
-    // An automation's session waits for nothing but the person: say who
-    // started it. Consola never answers a menu itself.
-    const started = located.session.automation;
-    const notification = new Notification({
-      title: `${located.session.name || 'A session'} needs you — ${located.workspace.name}`,
-      body: started
-        ? `${started.name} started it, and it is waiting for you. Click to open it in Consola.`
-        : 'Click to open it in Consola.',
-    });
-    notification.on('click', () => {
-      focusOrCreate(located.workspace.id, viewMemoryPort(), located.session.id);
-    });
-    notification.show();
+      // An automation's session waits for nothing but the person: say who
+      // started it. Consola never answers a menu itself.
+      const started = located.session.automation;
+      const notification = new Notification({
+        title: `${located.session.name || 'A session'} needs you — ${located.workspace.name}`,
+        body: started
+          ? `${started.name} started it, and it is waiting for you. Click to open it in Consola.`
+          : 'Click to open it in Consola.',
+      });
+      notification.on('click', () => {
+        focusOrCreate(located.workspace.id, viewMemoryPort(), located.session.id);
+      });
+      notification.show();
+    }
   });
 
   // An automation session's unattended turn ending is its run finishing:
@@ -796,11 +1344,23 @@ export function setupIpcHandlers(): boolean {
     if (!info.unattended) return;
     const located = findSessionByInstanceId(workspaces.getAll(), instanceId);
     if (!located) return;
-    automationService?.turnEnded(located.session.id, {
+    const ended = automationService?.turnEnded(located.session.id, {
       exitCode: info.exitCode,
       lastLine: info.lastLine,
       stopped: info.stopped,
     });
+    // Work that completed is a result nobody has looked at: the session is done, not merely exited.
+    if (ended?.completed) attentionSessions.runCompleted(instanceId);
+    // "Its automation run ended" may now apply; a little later, once it has settled.
+    worktreeSweeper?.kick(RUN_ENDED_DEBOUNCE_MS);
+  });
+  // A CLI that quits on an error needs the person: it ends a snooze. Exit 0
+  // never does (it covers /exit, Ctrl+C and a death by signal), nor a turn
+  // Consola stopped, nor a failed resume, which retries without exiting.
+  manager.addExitListener((instanceId, info) => {
+    if (info.exitCode === 0 || info.stopped) return;
+    const located = findSessionByInstanceId(workspaces.getAll(), instanceId);
+    if (located) snoozer?.turnFailed(located.session.id, { at: Date.now() });
   });
 
   // An agent can move itself into another checkout (Claude's EnterWorktree)
@@ -820,6 +1380,7 @@ export function setupIpcHandlers(): boolean {
 
   // Sessions born without a pane: fan-out (and, in Phase 3, conductors).
   const launcher = new SessionLauncher(workspaces, harnesses, manager);
+  launcher.prepareCheckout = (workspace, session) => rebuilder.ensureCheckout(workspace, session);
 
   // An action run in a work-item session that already exists — a follow-up
   // pass on the same job, in the same tab. Coalesced per session and
@@ -871,6 +1432,147 @@ export function setupIpcHandlers(): boolean {
     getStatus: sessionStatus,
   });
 
+  // Removing Consola's worktrees: one decision and one executor behind the
+  // cleanup tools, the sweep and the delete dialog.
+  const worktreeCleanup = new WorktreeCleanupService({
+    getWorkspaces: () => workspaces.getAll(),
+    status: sessionStatus,
+    isShown: (instanceId) => viewing.isShown(instanceId),
+    heldSessionIds: () => new Set(attention.holds().keys()),
+    lastActiveAt: (session) => activityOf(session, attentionLedger.get(session.id)),
+    ownProcessIds: (sessions) => {
+      const agents = new Set<number>();
+      const shellPids = new Set<number>();
+      for (const session of sessions) {
+        const agent = manager.get(session.instanceId)?.pid();
+        const shell = shells.pid(session.instanceId);
+        if (agent !== undefined) agents.add(agent);
+        if (shell !== undefined) shellPids.add(shell);
+      }
+      return { agents, shells: shellPids };
+    },
+    worktrees,
+    processes: new ProcessCwdIndex(),
+    lock: worktreePathLock,
+    stop: (session) => sessionRemover.stop(session),
+    recordRemoved: (entries) => workspaces.recordWorktreesRemoved(entries),
+    clearRemoved: (worktreePath) => workspaces.clearWorktreeRemoved(worktreePath),
+    rules: {
+      rulesFor: cleanupRulesFor,
+      // The shelf's own clock: when it went there, if it reads settled now.
+      settledAt: (session) =>
+        attention.get(session.id) === 'settled'
+          ? (attentionLedger.get(session.id)?.settledAt ?? null)
+          : null,
+      runEndedAt: (session) => {
+        const run = session.automation && runStore.get(session.automation.runId);
+        if (!run) return undefined;
+        if (!TERMINAL_RUN_STATUSES.includes(run.status)) return null;
+        const ended = Date.parse(run.finishedAt ?? run.updatedAt);
+        return Number.isFinite(ended) ? ended : null;
+      },
+    },
+    pullRequests: {
+      driverFor: (workspace) => {
+        if (!workspace.provider) return null;
+        try {
+          return getProviderDriver(workspace.provider.id);
+        } catch {
+          return null;
+        }
+      },
+      composeEnv: (workspace) =>
+        composeProviderEnv(
+          getProviderDriver(workspace.provider!.id),
+          workspace.provider!.accountLogin,
+        ),
+    },
+    removed: (execution) =>
+      cleanupHistory.append({
+        action: 'removed',
+        tree: execution.verdict.tree,
+        ...sessionNamesAt(execution.verdict.tree),
+        trigger: execution.verdict.trigger,
+        branch: execution.branch,
+        detail: `${describeTrigger(execution.verdict.trigger)}.${
+          execution.branch === 'deleted'
+            ? ` Branch ${execution.inspection.branch} deleted.`
+            : execution.branch === 'kept'
+              ? ` Branch ${execution.inspection.branch} kept.`
+              : ''
+        }`,
+      }),
+    now: () => Date.now(),
+  });
+
+  worktreeCleanupService = worktreeCleanup;
+
+  // The rules run on their own: every five minutes, when one changes, and
+  // shortly after an automation run ends. Nothing at all while all are off.
+  const sweeper = new WorktreeCleanupSweeper({
+    sweep: (options) => worktreeCleanup.sweep(options),
+    anyRuleOn: () => worktreeCleanup.anySweepRuleOn(cleanupRulesFor),
+    onWindowReport: (listener) => viewing.onReport(listener),
+  });
+  worktreeSweeper = sweeper;
+  let sweptRules = JSON.stringify(preferences.get().worktreeCleanup);
+  preferences.onChange((next) => {
+    const rules = JSON.stringify(next.worktreeCleanup);
+    if (rules === sweptRules) return;
+    sweptRules = rules;
+    sweeper.kick();
+  });
+  const overridesOf = (all: Workspace[]) =>
+    JSON.stringify(all.map((workspace) => [workspace.id, workspace.worktreeCleanup ?? null]));
+  let sweptOverrides = overridesOf(workspaces.getAll());
+  workspaces.onChange((all) => {
+    const overrides = overridesOf(all);
+    if (overrides === sweptOverrides) return;
+    sweptOverrides = overrides;
+    sweeper.kick();
+  });
+
+  /** The rules a preview is asked to judge by: the stored ones, or the ones about to be chosen. */
+  const proposedRules = (request: CleanupPreviewRequest | undefined) => {
+    if (!request?.global && !request?.override) return undefined;
+    const global: WorktreeCleanupRules = request.global
+      ? normalizeRules(request.global)
+      : preferences.get().worktreeCleanup;
+    const override = request.override;
+    const overrideValue =
+      override && override.value !== null ? normalizeWorkspaceOverride(override.value) : undefined;
+    return (workspace: Workspace) =>
+      effectiveWorktreeCleanup(
+        global,
+        override && workspace.id === override.workspaceId
+          ? overrideValue
+          : workspace.worktreeCleanup,
+      );
+  };
+  ipcMain.handle(IPC_CHANNELS.WORKTREE_CLEANUP_PREVIEW, (_event, request: unknown) => {
+    const asked = (
+      typeof request === 'object' && request !== null ? request : {}
+    ) as CleanupPreviewRequest;
+    const rulesFor = proposedRules(asked);
+    return worktreeCleanup.scan({
+      ...(typeof asked.workspaceId === 'string' ? { workspaceId: asked.workspaceId } : {}),
+      ...(rulesFor ? { rulesFor } : {}),
+    });
+  });
+  ipcMain.handle(IPC_CHANNELS.WORKTREE_CLEANUP_RUN, (_event, workspaceId: unknown) =>
+    worktreeCleanup.sweep({
+      refreshPullRequests: true,
+      ...(typeof workspaceId === 'string' ? { workspaceId } : {}),
+    }),
+  );
+  ipcMain.handle(
+    IPC_CHANNELS.WORKTREE_CLEANUP_IS_MANAGED,
+    (_event, dir: unknown) => typeof dir === 'string' && worktrees.managedTreeOf(dir) !== null,
+  );
+  ipcMain.handle(IPC_CHANNELS.WORKTREE_CLEANUP_HISTORY, (_event, workspaceId: unknown) =>
+    cleanupHistory.list(typeof workspaceId === 'string' ? workspaceId : undefined),
+  );
+
   // Finished-PR cleanup and single deletes: one service behind the MCP
   // tools, automations and Settings alike.
   const sessionCleanup = new SessionCleanupService({
@@ -891,6 +1593,7 @@ export function setupIpcHandlers(): boolean {
         workspace.provider!.accountLogin,
       ),
     worktrees,
+    cleanup: worktreeCleanup,
     remover: sessionRemover,
   });
 
@@ -901,6 +1604,9 @@ export function setupIpcHandlers(): boolean {
     cleanup: sessionCleanup,
     getWorkspaces: () => workspaces.getAll(),
     status: sessionStatus,
+    attention: (sessionId) => attention.get(sessionId),
+    snoozer: () => sessionSnoozer,
+    snoozes: () => attention.snoozes(),
     isManagedPath: (dir) => worktrees.isManagedPath(dir),
     automations: () => automations,
     // Fetched here, with the token only main holds: a read-only session
@@ -931,8 +1637,7 @@ export function setupIpcHandlers(): boolean {
   }).forEach((tool) => tools.register(tool));
 
   // Every session's private MCP endpoint (see SessionMcpHost): the Consola
-  // tools for all, plus the group tools for conductors and the workspace
-  // tools for the Assistant.
+  // tools for all, plus the group tools for conductors.
   const mcpHost = new SessionMcpHost({
     // In the packaged app the shim must be a real file on disk — the
     // claude CLI, an outside process, spawns it. Hence asarUnpack.
@@ -946,7 +1651,6 @@ export function setupIpcHandlers(): boolean {
           request: (toolName, args, caller) => automations.requestApproval(toolName, args, caller),
         },
         conductorTools,
-        assistantTools,
         stepTools: (id) => stepToolSpecs(automations.stepIO(), id),
         getWorkspaces: () => workspaces.getAll(),
       }),
@@ -954,8 +1658,7 @@ export function setupIpcHandlers(): boolean {
   launcher.mcpHost = mcpHost;
   app.on('will-quit', () => mcpHost.dispose());
 
-  // What preparing a work item's worktree needs, shared by automations and
-  // the Assistant so both take the same chain and keep git hooks off.
+  // What preparing a work item's worktree needs: one chain per item, git hooks off.
   const allSessions = () => workspaces.getAll().flatMap((workspace) => workspace.sessions);
   const isRunning = (session: Session) =>
     manager.get(session.instanceId)?.hasClaudeExited() === false;
@@ -972,43 +1675,17 @@ export function setupIpcHandlers(): boolean {
       worktreeHeld(allSessions(), dir, isRunning) || automations.checkoutHeld(dir),
     composeEnv: composeProviderEnv,
   };
-  // A re-run of a read-only review reads the PR as it is now.
-  launcher.beforeRerun = (workspace, session) =>
-    refreshIdleWorktree(itemWorktreeDeps, workspace, session);
-
-  // The Assistant's workspace tools: prompt, read and start its sessions,
-  // and hear back when each settles. mcpHost's buildServer reads it only
-  // when a session connects, which is after this setup has run.
-  const assistantTools = new AssistantTools({
-    getWorkspaces: () => workspaces.getAll(),
-    status: sessionStatus,
-    deliverPrompt: (workspaceId, sessionId, prompt) =>
-      launcher.deliverPrompt(workspaceId, sessionId, prompt),
-    recentReplies: (session, count) =>
-      recentRepliesFor(
-        harnesses.getAll().find((harness) => harness.id === session.harnessId),
-        session,
-        count,
-      ),
-    // An exited terminal's screen is a stale one.
-    screenText: (instanceId) => {
-      const terminal = manager.get(instanceId);
-      return terminal && !terminal.hasClaudeExited() ? terminal.screenText() : null;
-    },
-    start: (workspace, request) =>
-      startAssistantSession(
-        {
-          ...itemWorktreeDeps,
-          restoreGroup: (id, groupId) => workspaces.restoreGroup(id, groupId),
-          launchSession: (id, fields) => launcher.launchSession(id, fields),
-        },
-        workspace,
-        request,
-      ),
-    watch: (assistantSessionId, targetSessionId) =>
-      assistantActivity.watch(assistantSessionId, targetSessionId),
-  });
-
+  const runStore = new RunStore(
+    new JsonStateFile<AutomationStateFile>(
+      path.join(app.getPath('userData'), 'automation-runs.json'),
+    ),
+    new RunHistoryFiles(path.join(app.getPath('userData'), 'automation-runs')),
+  );
+  // Runs waiting for a person are rows beside the sessions, and an open run
+  // holds the session it uses. Every run change is a broadcast, so that is
+  // when the source's answer may differ.
+  const attentionRuns = new RunSource(() => runStore.runs());
+  attention.register(attentionRuns);
   // The runner names a session by its view; its terminal is keyed by the record's instance id.
   const automationTerminal = (sessionId: string) => {
     const record = sessionRecord(workspaces.getAll(), sessionId);
@@ -1016,12 +1693,7 @@ export function setupIpcHandlers(): boolean {
   };
   const automations = new AutomationService({
     fileFor: (workspaceId) => new FactoryFile(workspaceFactoryPath(workspaceId)),
-    store: new RunStore(
-      new JsonStateFile<AutomationStateFile>(
-        path.join(app.getPath('userData'), 'automation-runs.json'),
-      ),
-      new RunHistoryFiles(path.join(app.getPath('userData'), 'automation-runs')),
-    ),
+    store: runStore,
     runFolder: new RunFolder(),
     workItems: desktopWorkItemPort({
       getWorkspace: (id) => workspaces.getAll().find((workspace) => workspace.id === id),
@@ -1035,16 +1707,13 @@ export function setupIpcHandlers(): boolean {
     notify: (notice) => {
       if (!Notification.isSupported()) return;
       const notification = new Notification({ title: notice.title, body: notice.body });
-      // Lands on what the notice is about: the session a run started,
-      // the Assistant for what it asked for (its tray holds it), the
-      // automation's page, or else that workspace's Automations
-      // dashboard with the run open, in the window holding it.
+      // Lands on what the notice is about: the session a run started, the
+      // automation's page, or else that workspace's Automations dashboard
+      // with the run open, in the window holding it.
       notification.on('click', () => {
-        const target = noticeTarget(notice, workspaces.getAll());
-        if (target.kind === 'session')
-          focusOrCreate(notice.workspaceId, viewMemoryPort(), target.sessionId);
-        else if (target.kind === 'automation')
-          showAutomations(notice.workspaceId, { automation: target.name }, viewMemoryPort());
+        if (notice.sessionId) focusOrCreate(notice.workspaceId, viewMemoryPort(), notice.sessionId);
+        else if (notice.automation)
+          showAutomations(notice.workspaceId, { automation: notice.automation }, viewMemoryPort());
         else
           showAutomations(
             notice.workspaceId,
@@ -1055,7 +1724,7 @@ export function setupIpcHandlers(): boolean {
       notification.show();
     },
     broadcast: (workspaceId, snapshot) => {
-      assistantRequests.observe(workspaceId, snapshot.runs);
+      attentionRuns.refresh();
       const change: AutomationsChange = { workspaceId, snapshot };
       for (const window of BrowserWindow.getAllWindows()) {
         if (!window.isDestroyed())
@@ -1346,6 +2015,8 @@ export function setupIpcHandlers(): boolean {
         getWorkspace: (id) => workspaces.getAll().find((workspace) => workspace.id === id),
         scaffold,
         createGroup: (workspaceId, fields) => workspaces.createGroup(workspaceId, fields),
+        createLabel: (workspaceId, fields) => workspaces.createLabel(workspaceId, fields),
+        deleteLabel: (workspaceId, labelId) => workspaces.deleteLabel(workspaceId, labelId),
         updateGroup: (workspaceId, groupId, updates) =>
           workspaces.updateGroup(workspaceId, groupId, updates),
         launchSession: (workspaceId, fields) => launcher.launchSession(workspaceId, fields),
@@ -1364,6 +2035,51 @@ export function setupIpcHandlers(): boolean {
     IPC_CHANNELS.WORKSPACE_SESSION_FORK,
     (_event, workspaceId: string, sessionId: string) =>
       launcher.forkWithFullTools(workspaceId, sessionId),
+  );
+
+  // A session carried on by another harness, in the same tab. Main decides
+  // what a switch would do, so the renderer never reasons about drivers.
+  const harnessSwitcher = new HarnessSwitcher({
+    workspaces,
+    harnesses,
+    terminals: manager,
+    launcher,
+    handoffs,
+    forgetAttention: forgetTerminalAttention,
+    limitedUntil: (harnessId) => usageLimitService?.limitedUntil(harnessId),
+  });
+  ipcMain.handle(
+    IPC_CHANNELS.WORKSPACE_SESSION_SWITCH_PREVIEW,
+    async (_event, workspaceId: string, sessionId: string) => {
+      // Each target's limits, asked again when the last answer is over a
+      // minute old, but never holding the dialog more than three seconds.
+      await usageLimitService?.refreshHarnesses(
+        harnesses
+          .getAll()
+          .filter((harness) => !harness.archived)
+          .map((harness) => harnessTarget(harness.id)),
+      );
+      return harnessSwitcher.preview(String(workspaceId), String(sessionId));
+    },
+  );
+  ipcMain.handle(
+    IPC_CHANNELS.WORKSPACE_SESSION_SWITCH_HARNESS,
+    async (_event, workspaceId: string, sessionId: string, harnessId: string) => {
+      const result = await harnessSwitcher.switch(
+        String(workspaceId),
+        String(sessionId),
+        String(harnessId),
+      );
+      // Waiting out the old harness's limit is over once another carries on.
+      snoozer?.harnessSwitched(String(sessionId));
+      return result;
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.WORKSPACE_SESSION_REGENERATE_TITLE,
+    (_event, workspaceId: string, sessionId: string) =>
+      sessionNamer.regenerate(String(workspaceId), String(sessionId)),
   );
 
   ipcMain.handle(IPC_CHANNELS.SCOPE_LIST_REPOS, (_event, workspaceId: string, scopeId: string) => {
@@ -1407,7 +2123,17 @@ export function setupIpcHandlers(): boolean {
       .flatMap((candidate) => candidate.sessions)
       .find((session) => session.instanceId === instanceId);
     const mcpConfigPath = record ? await mcpConfigForSession(record, mcpHost) : undefined;
-    // The await above is a window: a session deleted during it must not
+    // A worktree a cleanup rule removed is rebuilt before the spawn, at the
+    // folder the session launches in (never `agentCwd`), and the pane says
+    // so. A rebuild that fails is said instead, and the spawn then fails on
+    // the missing folder the way it always has.
+    let launchCwd = cwd;
+    let launchNotice: string | undefined;
+    if (record?.removedWorktree && workspace) {
+      launchNotice = await rebuildForLaunch(workspace, record);
+      launchCwd = record.cwd ?? scopeForSession(workspace, record)?.path ?? cwd;
+    }
+    // The awaits above are a window: a session deleted during them must not
     // get a PTY that nothing can name again.
     if (
       record &&
@@ -1421,7 +2147,8 @@ export function setupIpcHandlers(): boolean {
     return manager.ensure(
       instanceId,
       {
-        cwd,
+        cwd: launchCwd,
+        launchNotice,
         claudeSessionId,
         // Resume whenever this tab has run before. Claude is the authority
         // on whether the conversation still exists, and TerminalService
@@ -1445,13 +2172,20 @@ export function setupIpcHandlers(): boolean {
         // From the record, never the window: a relaunch after a restart
         // comes through here, and must stay as restricted as the launch.
         toolPolicy: record?.toolPolicy,
+        // So a conversation a harness switch began, never yet spoken in,
+        // opens the way it began rather than blank.
+        opening: record && openingFor(record),
       },
       event.sender,
     );
   });
 
+  // The only path the person's own keys take (a queued prompt, a paste and a
+  // dropped file each have their own), so it is where answering a snoozed
+  // session is heard.
   ipcMain.on(IPC_CHANNELS.TERMINAL_INPUT, (_event, instanceId: string, data: string) => {
     manager.get(instanceId)?.write(data);
+    if (typeof data === 'string') snoozer?.personInput(instanceId, data);
   });
 
   ipcMain.on(IPC_CHANNELS.TERMINAL_PASTE, (_event, instanceId: string, text: string) => {
@@ -1466,15 +2200,25 @@ export function setupIpcHandlers(): boolean {
   );
 
   ipcMain.on(IPC_CHANNELS.TERMINAL_RESTART, (_event, instanceId: string) => {
-    const located = findSessionByInstanceId(workspaces.getAll(), instanceId);
-    const cwd =
-      located && (located.session.cwd ?? scopeForSession(located.workspace, located.session)?.path);
-    manager.get(instanceId)?.restartClaude(cwd ?? undefined);
+    void (async () => {
+      const located = findSessionByInstanceId(workspaces.getAll(), instanceId);
+      const notice = located
+        ? await rebuildForLaunch(located.workspace, located.session)
+        : undefined;
+      const cwd =
+        located &&
+        (located.session.cwd ?? scopeForSession(located.workspace, located.session)?.path);
+      manager.get(instanceId)?.restartClaude(cwd ?? undefined, notice);
+    })();
+  });
+
+  ipcMain.on(IPC_CHANNELS.TERMINAL_DETACH, (event, instanceId: string) => {
+    manager.release(instanceId, event.sender);
   });
 
   ipcMain.on(IPC_CHANNELS.TERMINAL_DESTROY, (_event, instanceId: string) => {
     manager.destroy(instanceId);
-    notificationPolicy.forget(instanceId);
+    forgetTerminalAttention(instanceId);
   });
 
   // Seed a freshly opened window from main's live state. The status channels
@@ -1494,16 +2238,6 @@ export function setupIpcHandlers(): boolean {
   ipcMain.handle(IPC_CHANNELS.HARNESS_PROBE, (_event, fields: HarnessLaunchFields) => {
     return getDriver(fields?.driverId).probeHealth(toHarnessConfig(fields));
   });
-
-  // A session's name, read from its own harness's transcripts. Drivers whose
-  // transcript format Consola cannot read simply have no answer.
-  ipcMain.handle(
-    IPC_CHANNELS.HARNESS_SESSION_NAME,
-    (_event, sessionId: string, fields: HarnessLaunchFields) => {
-      const driver = getDriver(fields?.driverId);
-      return driver.getSessionDisplayName?.(toHarnessConfig(fields), sessionId) ?? null;
-    },
-  );
 
   // What this harness's CLI can offer a composer: its slash commands, agents
   // and models. Cached in main, so the probe — which starts a real process
@@ -1787,6 +2521,16 @@ ${truncatedDiff}`;
     },
   );
 
+  // Last: start() arms the sweep against state defined further up — every
+  // session's terminal status, and the windows' own reports. The first sweep
+  // itself waits for a window to say what it is showing, so a session a
+  // restoring window is about to open is not settled out from under it.
+  // Before the sweep: a snooze that ran out while Consola was closed comes
+  // back first, so the sweep sees it in play.
+  snoozer?.start();
+  autoSettler?.start();
+  worktreeSweeper?.start();
+
   return true;
 }
 
@@ -1834,6 +2578,44 @@ export function cleanupIpcHandlers(): void {
   // Every view reached disk as it was set, so there is nothing to flush —
   // only the reference to drop, alongside the other services.
   viewMemoryService = null;
+  // The one thing debounced: a quit inside the window must not lose it.
+  attentionLedgerService?.flush();
+  attentionLedgerService = null;
+  autoSettler?.stop();
+  autoSettler = null;
+  worktreeSweeper?.stop();
+  worktreeSweeper = null;
+  worktreeCleanupService = null;
+  ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_SESSION_DELETE_PREVIEW);
+  ipcMain.removeHandler(IPC_CHANNELS.PREFERENCES_SET_WORKTREE_CLEANUP);
+  ipcMain.removeHandler(IPC_CHANNELS.WORKTREE_CLEANUP_PREVIEW);
+  ipcMain.removeHandler(IPC_CHANNELS.WORKTREE_CLEANUP_RUN);
+  ipcMain.removeHandler(IPC_CHANNELS.WORKTREE_CLEANUP_HISTORY);
+  ipcMain.removeHandler(IPC_CHANNELS.WORKTREE_CLEANUP_IS_MANAGED);
+  snoozer?.stop();
+  snoozer = null;
+  usageLimitService?.stop();
+  usageLimitService = null;
+  ipcMain.removeHandler(IPC_CHANNELS.USAGE_LIMITS_SNAPSHOT);
+  if (onSnoozeResume) {
+    powerMonitor.removeListener('resume', onSnoozeResume);
+    onSnoozeResume = null;
+  }
+  ipcMain.removeHandler(IPC_CHANNELS.ATTENTION_SNOOZE);
+  ipcMain.removeHandler(IPC_CHANNELS.ATTENTION_WAKE);
+  ipcMain.removeHandler(IPC_CHANNELS.ATTENTION_SETTLE_MANY);
+  ipcMain.removeHandler(IPC_CHANNELS.ATTENTION_UNSETTLE_MANY);
+  ipcMain.removeHandler(IPC_CHANNELS.PREFERENCES_SET_SNOOZE_PRESETS);
+  ipcMain.removeHandler(IPC_CHANNELS.PREFERENCES_SET_SNOOZE_AT_USAGE_LIMIT);
+  ipcMain.removeHandler(IPC_CHANNELS.ATTENTION_SETTLE);
+  ipcMain.removeHandler(IPC_CHANNELS.ATTENTION_UNSETTLE);
+  ipcMain.removeHandler(IPC_CHANNELS.ATTENTION_RESTORE);
+  ipcMain.removeHandler(IPC_CHANNELS.PREFERENCES_GET);
+  ipcMain.removeHandler(IPC_CHANNELS.PREFERENCES_SET_AUTO_SETTLE_DAYS);
+  ipcMain.removeHandler(IPC_CHANNELS.PREFERENCES_ACKNOWLEDGE_AUTO_SETTLE);
+  ipcMain.removeHandler(IPC_CHANNELS.ATTENTION_SNAPSHOT);
+  ipcMain.removeAllListeners(IPC_CHANNELS.ATTENTION_VIEWING);
+  ipcMain.removeAllListeners(IPC_CHANNELS.ATTENTION_FOCUSED);
   ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_GET_SNAPSHOT);
   ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_IMPORT);
   ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_CREATE);
@@ -1845,6 +2627,9 @@ export function cleanupIpcHandlers(): void {
   ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_SESSION_UPDATE);
   ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_SESSION_DELETE);
   ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_SESSION_FORK);
+  ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_SESSION_SWITCH_PREVIEW);
+  ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_SESSION_SWITCH_HARNESS);
+  ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_SESSION_REGENERATE_TITLE);
   ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_ADD_SCOPE);
   ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_UPDATE_SCOPE);
   ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_REMOVE_SCOPE);
@@ -1854,8 +2639,13 @@ export function cleanupIpcHandlers(): void {
   ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_GROUP_UPDATE);
   ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_GROUP_ARCHIVE);
   ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_GROUP_RESTORE);
+  ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_LABEL_CREATE);
+  ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_LABEL_UPDATE);
+  ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_LABEL_DELETE);
+  ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_LABEL_RESTORE);
+  ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_SESSION_LABEL_ASSIGN);
+  ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_SESSION_LABEL_UNASSIGN);
 
-  _harnessService = null;
   ipcMain.removeHandler(IPC_CHANNELS.HARNESS_GET_SNAPSHOT);
   ipcMain.removeHandler(IPC_CHANNELS.HARNESS_IMPORT);
   ipcMain.removeHandler(IPC_CHANNELS.HARNESS_ADD);
@@ -1925,12 +2715,9 @@ export function cleanupIpcHandlers(): void {
   ipcMain.removeAllListeners(IPC_CHANNELS.TERMINAL_PASTE);
   ipcMain.removeAllListeners(IPC_CHANNELS.TERMINAL_RESIZE);
   ipcMain.removeAllListeners(IPC_CHANNELS.TERMINAL_RESTART);
+  ipcMain.removeAllListeners(IPC_CHANNELS.TERMINAL_DETACH);
   ipcMain.removeAllListeners(IPC_CHANNELS.TERMINAL_DESTROY);
   ipcMain.removeHandler(IPC_CHANNELS.CONDUCTOR_CREATE);
-  ipcMain.removeHandler(IPC_CHANNELS.ASSISTANT_OPEN);
-  ipcMain.removeHandler(IPC_CHANNELS.ASSISTANT_START_FRESH);
-  ipcMain.removeHandler(IPC_CHANNELS.ASSISTANT_GET_ACTIVITY);
-  ipcMain.removeHandler(IPC_CHANNELS.ASSISTANT_MARK_SEEN);
   ipcMain.removeHandler(IPC_CHANNELS.SESSION_FAN_OUT);
   ipcMain.removeHandler(IPC_CHANNELS.SCOPE_LIST_REPOS);
 
@@ -1939,7 +2726,6 @@ export function cleanupIpcHandlers(): void {
 
   // Remove Claude CLI query handlers
   ipcMain.removeHandler(IPC_CHANNELS.HARNESS_PROBE);
-  ipcMain.removeHandler(IPC_CHANNELS.HARNESS_SESSION_NAME);
   ipcMain.removeHandler(IPC_CHANNELS.HARNESS_SESSION_MODEL);
   ipcMain.removeHandler(IPC_CHANNELS.HARNESS_CAPABILITIES);
 

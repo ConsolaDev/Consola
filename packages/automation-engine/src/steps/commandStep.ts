@@ -106,7 +106,7 @@ interface RenderContext {
  * folder, and the empty string when it has none (the one value whose
  * absence never fails a step).
  */
-function valueOf(
+function valueAt(
   path: TemplatePath,
   { run, definition, source, polled, previous, workspaceId, folder }: RenderContext,
 ): Found {
@@ -170,7 +170,7 @@ function renderValues(
     if (!parsed.ok) return { ok: false, error: `env: ${name}: ${parsed.problem}` };
     let why: string | undefined;
     const rendered = renderTemplate(parsed.parts, (path) => {
-      const found = valueOf(path, context);
+      const found = valueAt(path, context);
       if ('missing' in found) {
         why = found.missing;
         return undefined;
