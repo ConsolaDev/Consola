@@ -32,6 +32,7 @@ import { PageDriver } from './browser/PageDriver';
 import { BrowserStateStore } from './browser/BrowserStateStore';
 import { CaptureStore } from './browser/CaptureStore';
 import { LocalServers } from './browser/LocalServers';
+import { browserTools } from './browser/browserTools';
 import { registerBrowserHandlers } from './browser/browserIpc';
 import { onGuestAttached } from './browser/guestPolicy';
 import { installPopupPolicy } from './browser/popupWindows';
@@ -1763,8 +1764,18 @@ export function setupIpcHandlers(): boolean {
     launchSession: (workspaceId, fields) => launcher.launchSession(workspaceId, fields),
   }).forEach((tool) => tools.register(tool));
 
+  // A session's agent in its own session's browser: tabs, pages, and the
+  // servers running from its folder.
+  const sessionBrowserTools = browserTools({
+    getWorkspaces: () => workspaces.getAll(),
+    browser,
+    driver,
+    localServers: (folder) => localServers.listFor(folder),
+  });
+
   // Every session's private MCP endpoint (see SessionMcpHost): the Consola
-  // tools for all, plus the group tools for conductors.
+  // tools for all, plus the group tools for conductors and the browser tools
+  // where the workspace allows them.
   const mcpHost = new SessionMcpHost({
     // In the packaged app the shim must be a real file on disk — the
     // claude CLI, an outside process, spawns it. Hence asarUnpack.
@@ -1778,6 +1789,7 @@ export function setupIpcHandlers(): boolean {
           request: (toolName, args, caller) => automations.requestApproval(toolName, args, caller),
         },
         conductorTools,
+        browserTools: sessionBrowserTools,
         getWorkspaces: () => workspaces.getAll(),
       }),
   });
