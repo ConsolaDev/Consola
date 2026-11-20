@@ -2557,6 +2557,7 @@ export function cleanupIpcHandlers(): void {
   worktreeCleanupService = null;
   ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_SESSION_DELETE_PREVIEW);
   ipcMain.removeHandler(IPC_CHANNELS.PREFERENCES_SET_WORKTREE_CLEANUP);
+  ipcMain.removeHandler(IPC_CHANNELS.PREFERENCES_SET_TERMINAL_LINKS);
   ipcMain.removeHandler(IPC_CHANNELS.WORKTREE_CLEANUP_PREVIEW);
   ipcMain.removeHandler(IPC_CHANNELS.WORKTREE_CLEANUP_RUN);
   ipcMain.removeHandler(IPC_CHANNELS.WORKTREE_CLEANUP_HISTORY);

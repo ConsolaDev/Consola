@@ -6,6 +6,9 @@ describe('singleFlight', () => {
     const run = singleFlight();
     let release: () => void = () => {};
     let started = 0;
+    const start = async () => {
+      started += 1;
+    };
     const first = run(
       () =>
         new Promise<void>((resolve) => {
@@ -13,11 +16,11 @@ describe('singleFlight', () => {
           release = resolve;
         }),
     );
-    expect(await run(async () => void (started += 1))).toBe(false);
+    expect(await run(start)).toBe(false);
     expect(started).toBe(1);
     release();
     expect(await first).toBe(true);
-    expect(await run(async () => void (started += 1))).toBe(true);
+    expect(await run(start)).toBe(true);
     expect(started).toBe(2);
   });
 
