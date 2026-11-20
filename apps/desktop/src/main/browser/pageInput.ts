@@ -212,9 +212,11 @@ export function fillInPage(element: Element, text: string): FillOutcome {
   const type = (self.type ?? '').toLowerCase();
   if (tag === 'SELECT') refuse('is-select');
   if (tag === 'INPUT' && type === 'file') refuse('file-input');
+  // A button reads as editable inside an editor, but it is no text to type over.
   if (
-    tag === 'INPUT' &&
-    ['checkbox', 'radio', 'submit', 'reset', 'button', 'image', 'hidden'].includes(type)
+    tag === 'BUTTON' ||
+    (tag === 'INPUT' &&
+      ['checkbox', 'radio', 'submit', 'reset', 'button', 'image', 'hidden'].includes(type))
   ) {
     refuse('not-text');
   }
@@ -303,6 +305,12 @@ export type KeyOutcome =
  * there is.
  */
 export function pressInPage(element: Element, press: PageKeyPress): KeyOutcome {
+  // A form field inside an editor reads as editable (`isContentEditable`)
+  // too, but it is a field, typed into and activated as one: only editable
+  // text takes the editing host's way.
+  const editableText = (candidate: Field) =>
+    candidate.isContentEditable &&
+    !['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON'].includes(candidate.tagName);
   let target = element as Field;
   if (press.toFocused) {
     target = (element.ownerDocument.activeElement ??
@@ -316,7 +324,7 @@ export function pressInPage(element: Element, press: PageKeyPress): KeyOutcome {
       if (!inner || inner === target) break;
       target = inner;
     }
-  } else if (target.isContentEditable) {
+  } else if (editableText(target)) {
     // Editable text: the page's editing acts at the caret, wherever it is in
     // the editing host (the outermost editable element around it, which is
     // what takes the focus; body only where body is that host). So the host
@@ -367,7 +375,7 @@ export function pressInPage(element: Element, press: PageKeyPress): KeyOutcome {
   const editable =
     !target.disabled &&
     !target.readOnly &&
-    (target.isContentEditable || tag === 'TEXTAREA' || textInput);
+    (editableText(target) || tag === 'TEXTAREA' || textInput);
   const key = (eventType: string) => {
     const event = new view.KeyboardEvent(eventType, {
       key: press.key,

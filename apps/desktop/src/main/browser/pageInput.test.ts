@@ -825,6 +825,73 @@ describe('pressInPage', () => {
     );
   });
 
+  // A form field inside an editor (a rich-text widget holding an input or a
+  // checkbox) reads as editable too, but it is a field: only editable text
+  // takes the editing host's branch.
+  const nestedIn = (
+    doc: FakeDocument,
+    tagName: string,
+    id: string,
+    fields: Partial<FakeElement>,
+  ) => {
+    const host = doc.element('DIV', 'editor', { isContentEditable: true, tabIndex: 0 });
+    const field = host.append(new FakeElement(doc, tagName, id));
+    return {
+      host,
+      field: Object.assign(field, { isContentEditable: true, tabIndex: 0, ...fields }),
+    };
+  };
+
+  it('types into a text field nested in editable text, not beside it in the editor', () => {
+    const doc = new FakeDocument();
+    const { field } = nestedIn(doc, 'INPUT', 'inner', { type: 'text', value: '' });
+    expect(pressInPage(page(field), key({ text: 'x' }))).toBe('typed');
+    expect(doc.log.slice(0, 2)).toEqual(['focus@inner', 'keydown@inner']);
+    expect(doc.log).not.toContain('focus@editor');
+    expect(doc.activeElement).toBe(field);
+    expect(field.value).toBe('x');
+  });
+
+  it('activates a checkbox nested in editable text on Space, typing no space', () => {
+    const doc = new FakeDocument();
+    const { field } = nestedIn(doc, 'INPUT', 'agree', { type: 'checkbox' });
+    expect(pressInPage(page(field), key({ key: ' ', code: 'Space', keyCode: 32, text: ' ' }))).toBe(
+      'activated',
+    );
+    expect(doc.log).toContain('click()@agree');
+    expect(doc.log.filter((entry) => entry.startsWith('exec:'))).toEqual([]);
+  });
+
+  it('activates a button nested in editable text on Enter, starting no paragraph', () => {
+    const doc = new FakeDocument();
+    const { field } = nestedIn(doc, 'BUTTON', 'go', {});
+    expect(pressInPage(page(field), key({ key: 'Enter', code: 'Enter', keyCode: 13 }))).toBe(
+      'activated',
+    );
+    expect(doc.log.filter((entry) => entry.startsWith('exec:'))).toEqual([]);
+  });
+
+  it('treats a focused field nested in editable text as a field, pressed on the focused element', () => {
+    const doc = new FakeDocument();
+    const { field } = nestedIn(doc, 'INPUT', 'agree', { type: 'checkbox' });
+    field.focus();
+    doc.log.length = 0;
+    expect(
+      pressInPage(
+        page(doc.documentElement),
+        key({ key: ' ', code: 'Space', keyCode: 32, text: ' ', toFocused: true }),
+      ),
+    ).toBe('activated');
+    expect(doc.log.filter((entry) => entry.startsWith('exec:'))).toEqual([]);
+  });
+
+  it('refuses to fill a button nested in editable text, rather than type over it', () => {
+    const doc = new FakeDocument();
+    const { field } = nestedIn(doc, 'BUTTON', 'go', {});
+    expect(refusalOf(() => fillInPage(page(field), 'x'))).toBe('not-text');
+    expect(doc.log).toEqual([]);
+  });
+
   it('reaches the focused element inside a shadow root', () => {
     const doc = new FakeDocument();
     const host = doc.element('MY-FIELD', 'host', { tabIndex: -1 });
