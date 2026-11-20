@@ -159,11 +159,16 @@ export class BrowserService {
    * Opens a tab and makes it the one showing. An empty address is a tab for
    * the address bar to fill. Null when the session is unknown, the address is
    * not a web page, or the session is at its cap.
+   *
+   * `keepActiveTab` opens it behind the tab showing, which it replaces only
+   * when there is none: an agent's tab must not take the page the person is
+   * looking at.
    */
   public openTab(
     sessionId: string,
     url: string,
     openedBy: BrowserTab['openedBy'],
+    options: { keepActiveTab?: boolean } = {},
   ): BrowserTab | null {
     if (!this.deps.workspaceIdForSession(sessionId)) return null;
     if (url !== '' && !isAllowedPageUrl(url)) return null;
@@ -171,7 +176,8 @@ export class BrowserService {
     if (session.tabs.length >= MAX_TABS_PER_SESSION) return null;
 
     const tab: BrowserTab = { id: this.newId(), url, title: '', openedBy };
-    this.deps.store.setSession(sessionId, { tabs: [...session.tabs, tab], activeTabId: tab.id });
+    const activeTabId = options.keepActiveTab && session.activeTabId ? session.activeTabId : tab.id;
+    this.deps.store.setSession(sessionId, { tabs: [...session.tabs, tab], activeTabId });
     this.pushSnapshot(sessionId);
     return tab;
   }

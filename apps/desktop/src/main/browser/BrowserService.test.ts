@@ -153,6 +153,20 @@ describe('tabs', () => {
     expect(service.openTab('s1', '', 'person')?.url).toBe('');
   });
 
+  it('can open a tab behind the one showing, which it shows only when none is', () => {
+    const first = service.openTab('s1', 'https://a.com', 'agent', { keepActiveTab: true });
+    expect(service.snapshotFor('s1').activeTabId).toBe(first?.id);
+    service.openTab('s1', 'https://b.com', 'person');
+    const behind = service.openTab('s1', 'https://c.com', 'agent', { keepActiveTab: true });
+    expect(behind).toMatchObject({ id: 'tab3', openedBy: 'agent' });
+    expect(service.snapshotFor('s1')).toMatchObject({
+      activeTabId: 'tab2',
+      tabs: [{ id: 'tab1' }, { id: 'tab2' }, { id: 'tab3' }],
+    });
+    // Still pushed: the window lists the new tab.
+    expect(last().payload.snapshot.tabs.map((tab) => tab.id)).toEqual(['tab1', 'tab2', 'tab3']);
+  });
+
   it('closes a tab, moves the active one to a neighbour and destroys its guest', () => {
     service.openTab('s1', 'https://a.com', 'person');
     service.openTab('s1', 'https://b.com', 'person');
