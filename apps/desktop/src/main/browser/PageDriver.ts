@@ -421,11 +421,6 @@ export class PageDriver {
     );
   }
 
-  /**
-   * The tab's page `guest` is gone: its connection closes, and the tab's
-   * report starts afresh. News of a page the tab has since replaced changes
-   * nothing.
-   */
   /** Whether an agent's connection is open on this page now. */
   public isConnected(guest: WebContents): boolean {
     for (const connection of this.connections.values()) {
@@ -434,6 +429,27 @@ export class PageDriver {
     return false;
   }
 
+  /** The tabs an agent's connection is open on now. */
+  public connectedTabs(): string[] {
+    return [...this.connections]
+      .filter(([, connection]) => connection.isOpen)
+      .map(([tabId]) => tabId);
+  }
+
+  /**
+   * Closes the agent's connection to a tab's page, for `reason` (its session
+   * may no longer use the browser): a call still on the page fails with it,
+   * and the debugger is free again, for the person's DevTools among others.
+   */
+  public disconnect(tabId: string, reason: string): void {
+    this.connections.get(tabId)?.close(reason);
+  }
+
+  /**
+   * The tab's page `guest` is gone: its connection closes, and the tab's
+   * report starts afresh. News of a page the tab has since replaced changes
+   * nothing.
+   */
   public forget(tabId: string, guest: WebContents): void {
     if (this.reported.get(tabId)?.guest === guest) this.reported.delete(tabId);
     const connection = this.connections.get(tabId);

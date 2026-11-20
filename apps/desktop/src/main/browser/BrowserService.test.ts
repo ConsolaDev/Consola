@@ -1051,6 +1051,17 @@ describe('agent calls', () => {
     expect(sent.length).toBe(pushes);
   });
 
+  it('says which session a tab is in, and whether a window shows its page', () => {
+    service.openTab('s1', 'https://a.com', 'agent');
+    expect(service.sessionIdForTab('tab1')).toBe('s1');
+    expect(service.sessionIdForTab('nope')).toBeUndefined();
+    expect(service.isShown('tab1')).toBe(false);
+    service.setVisible(winA, 's1', 'tab1');
+    expect(service.isShown('tab1')).toBe(true);
+    service.setVisible(winA, null, null);
+    expect(service.isShown('tab1')).toBe(false);
+  });
+
   it('says whether an agent can have a tab’s page', () => {
     service.openTab('s1', 'https://a.com', 'agent');
     service.openTab('s1', '', 'agent');

@@ -48,6 +48,7 @@ import {
 } from './browser/sessionPolicy';
 import { PersonInput, watchPersonInput } from './browser/PersonInput';
 import { PageDialogs } from './browser/PageDialogs';
+import { browserRefusal, closeConnectionsWithoutAccess } from './browser/browserToolAccess';
 import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -359,11 +360,29 @@ export function setupIpcHandlers(): boolean {
     Date.now,
     (tabId) => browser.pageAvailability(tabId) !== 'missing',
   );
-  // A page's alerts and confirms, held for the agent while one drives it.
+  // Why a tab's session may not use the browser now, or null when it may.
+  const refusalForTab = (tabId: string): string | null => {
+    const sessionId = browser.sessionIdForTab(tabId);
+    const workspace = sessionId
+      ? workspaces.getAll().find((candidate) => candidate.sessions.some((s) => s.id === sessionId))
+      : undefined;
+    return browserRefusal(
+      workspace,
+      workspace?.sessions.find((candidate) => candidate.id === sessionId),
+    );
+  };
+  // A page's alerts and confirms, held for the agent only while it may and
+  // can answer them and they are not the person's (Ruling NN).
   const pageDialogs = new PageDialogs({
     tabIdFor: (guestId) => browser.tabIdForGuest(guestId),
+    agentAllowed: (tabId) => refusalForTab(tabId) === null,
     isAgentConnected: (guest) => driver.isConnected(guest),
     personIsUsing: (tabId) => personInput.refusal(tabId) !== null,
+    inAgentHands: (tabId) => {
+      const tab = browser.tabFor(tabId);
+      return !!tab && personInput.handsOf(tabId, tab.openedBy) === 'agent';
+    },
+    onScreen: (tabId) => browser.isShown(tabId),
   });
   // Whose hands the page's tab is in decides its downloads (Ruling PP): a
   // popup window by its opener's tab, a page not bound yet by each tab its
@@ -502,6 +521,9 @@ export function setupIpcHandlers(): boolean {
     attentionLedger.prune(
       new Set(all.flatMap((workspace) => workspace.sessions.map((session) => session.id))),
     );
+    // Access turned off, or a session gone or no longer eligible: its agent
+    // lets go of its pages, and of any dialog held on them.
+    closeConnectionsWithoutAccess(driver, refusalForTab);
 
     for (const window of consolaWindows()) {
       if (window.isDestroyed()) continue;

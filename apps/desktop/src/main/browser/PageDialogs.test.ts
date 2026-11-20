@@ -1,7 +1,13 @@
 import { EventEmitter } from 'node:events';
 import type { WebContents } from 'electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { DIALOG_HOLD_MS, MAX_DIALOG_MESSAGE_CHARS, PageDialogs } from './PageDialogs';
+import {
+  DIALOG_HOLD_MS,
+  type DialogHoldFacts,
+  MAX_DIALOG_MESSAGE_CHARS,
+  PageDialogs,
+  shouldHoldDialog,
+} from './PageDialogs';
 
 /** Electron's own `-run-dialog` listener, which would show a message box. */
 type Callback = (success: boolean, input: string) => void;
@@ -45,6 +51,9 @@ class FakeTimers {
 let guest: FakeGuest;
 let connected: boolean;
 let personUsing: boolean;
+let allowed: boolean;
+let agentsHands: boolean;
+let onScreen: boolean;
 let tabOf: Record<number, string | null>;
 let timers: FakeTimers;
 let dialogs: PageDialogs;
@@ -53,15 +62,54 @@ beforeEach(() => {
   guest = new FakeGuest(7);
   connected = true;
   personUsing = false;
+  allowed = true;
+  agentsHands = true;
+  onScreen = false;
   tabOf = { 7: 'tab1' };
   timers = new FakeTimers();
   dialogs = new PageDialogs({
     tabIdFor: (guestId) => tabOf[guestId] ?? null,
+    agentAllowed: () => allowed,
     isAgentConnected: () => connected,
     personIsUsing: () => personUsing,
+    inAgentHands: () => agentsHands,
+    onScreen: () => onScreen,
     startTimer: timers.start,
   });
   dialogs.takeOver(guest.asWebContents(), guest.id);
+});
+
+// Ruling NN: held only when an agent can answer it and it is not the person's.
+describe('shouldHoldDialog', () => {
+  const held: DialogHoldFacts = {
+    agentAllowed: true,
+    agentConnected: true,
+    personUsing: false,
+    inAgentHands: true,
+    onScreen: true,
+  };
+
+  it('holds a dialog on a tab in the agent’s hands while an agent may and can answer it', () => {
+    expect(shouldHoldDialog(held)).toBe(true);
+  });
+
+  it('never while the session may not use the browser (access off, deleted, read-only)', () => {
+    expect(shouldHoldDialog({ ...held, agentAllowed: false })).toBe(false);
+  });
+
+  it('never with no agent connected to the page', () => {
+    expect(shouldHoldDialog({ ...held, agentConnected: false })).toBe(false);
+  });
+
+  it('never within 3 s of the person’s press in the tab', () => {
+    expect(shouldHoldDialog({ ...held, personUsing: true })).toBe(false);
+  });
+
+  it('on the person’s tab, only while its page is not on screen for them', () => {
+    expect(shouldHoldDialog({ ...held, inAgentHands: false, onScreen: true })).toBe(false);
+    expect(shouldHoldDialog({ ...held, inAgentHands: false, onScreen: false })).toBe(true);
+    expect(shouldHoldDialog({ ...held, inAgentHands: true, onScreen: false })).toBe(true);
+  });
 });
 
 describe('a page’s dialog', () => {
@@ -109,6 +157,40 @@ describe('a page’s dialog', () => {
     expect(guest.electronShown).toHaveLength(1);
   });
 
+  it('is Electron’s once the agent may no longer use the browser', () => {
+    allowed = false;
+    guest.raise('confirm', 'Leave?');
+    expect(guest.electronShown).toHaveLength(1);
+    expect(dialogs.pendingFor('tab1')).toBeUndefined();
+  });
+
+  it('is the person’s on their own tab while they can see its page', () => {
+    agentsHands = false;
+    onScreen = true;
+    guest.raise('confirm', 'Leave?');
+    expect(guest.electronShown).toHaveLength(1);
+    onScreen = false;
+    guest.raise('confirm', 'Again?');
+    expect(dialogs.pendingFor('tab1')).toEqual({ type: 'confirm', message: 'Again?' });
+  });
+
+  // M11: if Electron's event ever changes shape, nobody could answer a held dialog.
+  it('is Electron’s when what Electron hands over is not a callback', () => {
+    guest.emit('-run-dialog', { dialogType: 'alert', messageText: 'odd' }, undefined);
+    expect(guest.electronShown).toHaveLength(1);
+    expect(dialogs.pendingFor('tab1')).toBeUndefined();
+  });
+
+  // I6: a cross-site iframe runs in its own renderer and can raise one while the page's is held.
+  it('answers an older dialog still held on the tab before holding a newer one', () => {
+    const first = guest.raise('confirm', 'First?');
+    const second = guest.raise('alert', 'Second');
+    expect(first).toEqual([[false, '']]);
+    expect(second).toEqual([]);
+    expect(dialogs.pendingFor('tab1')).toEqual({ type: 'alert', message: 'Second' });
+    expect(timers.pending).toHaveLength(1);
+  });
+
   it('is Electron’s on a page not bound to a tab', () => {
     tabOf[7] = null;
     guest.raise('alert', 'Hello');
@@ -138,11 +220,15 @@ describe('a page’s dialog', () => {
     expect(dialogs.pendingFor('tab1')).toBeUndefined();
   });
 
-  it('is dismissed when the agent’s connection to the page ends', () => {
+  // Deleting its session destroys the page (BrowserService tells its gone
+  // watchers), which ends the agent's connection (PageDriver.forget, then
+  // `disconnected`), which lands here.
+  it('is dismissed, its timer stopped, when the agent’s connection to the page ends', () => {
     const answers = guest.raise('confirm', 'Delete it?');
     dialogs.letGo(guest.asWebContents());
     expect(answers).toEqual([[false, '']]);
     expect(dialogs.pendingFor('tab1')).toBeUndefined();
+    expect(timers.pending).toEqual([]);
     // Another page's ending touches nothing.
     guest.raise('alert', 'Again');
     dialogs.letGo(new FakeGuest(8).asWebContents());

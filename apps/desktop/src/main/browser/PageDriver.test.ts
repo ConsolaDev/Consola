@@ -754,6 +754,37 @@ describe('focus emulation', () => {
   });
 });
 
+describe('letting go of a tab for want of access', () => {
+  it('lists the tabs it has open connections on, and closes one, saying why', async () => {
+    calls.guests.tab2 = new FakeGuest(2);
+    await driver.withPage('tab1', async () => {});
+    await driver.withPage('tab2', async () => {});
+    expect(driver.connectedTabs().sort()).toEqual(['tab1', 'tab2']);
+    driver.disconnect('tab1', 'Agents may not use this workspace’s browser.');
+    expect(relays[0].isClosed).toBe(true);
+    expect(relays[1].isClosed).toBe(false);
+    expect(driver.connectedTabs()).toEqual(['tab2']);
+    expect(disconnected).toEqual([guest.asWebContents()]);
+    // Unknown, or already closed: nothing.
+    driver.disconnect('tab1', 'again');
+    driver.disconnect('nope', 'never');
+    expect(disconnected).toHaveLength(1);
+  });
+
+  it('fails a call still on the page with that reason', async () => {
+    const waiting = driver.withPage('tab1', (_page, control) => {
+      return new Promise<never>((_resolve, reject) => {
+        control.signal.addEventListener('abort', () =>
+          reject(new Error('Target page, context or browser has been closed')),
+        );
+      });
+    });
+    await vi.waitFor(() => expect(driver.connectedTabs()).toEqual(['tab1']));
+    driver.disconnect('tab1', 'This session no longer exists.');
+    await expect(waiting).rejects.toThrow('This session no longer exists.');
+  });
+});
+
 describe('who is connected', () => {
   it('knows which pages an agent connection is open on, and says when one ends', async () => {
     expect(driver.isConnected(guest.asWebContents())).toBe(false);

@@ -37,13 +37,52 @@ interface RunDialogDetails {
 type DialogCallback = (success: boolean, userInput: string) => void;
 type RunDialogListener = (details: RunDialogDetails, callback: DialogCallback) => void;
 
+/** What decides whether a page's dialog is held for the agent (`shouldHoldDialog`). */
+export interface DialogHoldFacts {
+  /** The tab's session may use the browser now (`browserRefusal`). */
+  agentAllowed: boolean;
+  /** An agent's connection is open on the page. */
+  agentConnected: boolean;
+  /** The person pressed in the tab within the last 3 s. */
+  personUsing: boolean;
+  /** The tab is in the agent's hands (Ruling PP's record). */
+  inAgentHands: boolean;
+  /** A window shows the tab's page to the person now. */
+  onScreen: boolean;
+}
+
+/**
+ * Ruling NN: a dialog is held for the agent only while an agent may and can
+ * answer it, and it is not the person's: the tab's session passes the access
+ * rule, an agent's connection is open on the page, the person did not press
+ * in the tab within 3 s, and either the tab is in the agent's hands or its
+ * page is not on screen for the person. Anything else is Electron's, as on a
+ * page no agent ever touched. Cost if wrong: on a page the person is
+ * watching but has not touched since an agent used it, a dialog is held for
+ * the agent instead of shown; a press in the page hands it over.
+ */
+export function shouldHoldDialog(facts: DialogHoldFacts): boolean {
+  return (
+    facts.agentAllowed &&
+    facts.agentConnected &&
+    !facts.personUsing &&
+    (facts.inAgentHands || !facts.onScreen)
+  );
+}
+
 export interface PageDialogsDeps {
   /** The tab a page is bound to, or null while it is not. */
   tabIdFor(guestId: number): string | null;
+  /** Whether the tab's session may use the browser now (`browserRefusal`). */
+  agentAllowed(tabId: string): boolean;
   /** Whether an agent's connection is open on the page (`PageDriver.isConnected`). */
   isAgentConnected(guest: WebContents): boolean;
   /** Whether the person used the tab just now (`PersonInput`). */
   personIsUsing(tabId: string): boolean;
+  /** Whether the tab is in the agent's hands (`PersonInput.handsOf`). */
+  inAgentHands(tabId: string): boolean;
+  /** Whether a window shows the tab's page now (`BrowserService.isShown`). */
+  onScreen(tabId: string): boolean;
   /** Tests replace it: calls `fire` after `ms` unless the stop it answers is called first. */
   startTimer?(ms: number, fire: () => void): () => void;
 }
@@ -80,17 +119,20 @@ function boundedMessage(value: unknown): string {
  * Electron shows each as a native message box over the window, and with an
  * agent's Playwright connected the box would still open (Playwright, given no
  * listener, dismisses the page's dialog at once, and Electron's box stays on
- * screen over a page that has moved on). So while an agent's connection is
- * open on a page, a dialog that is not the person's is held for the agent
- * instead: no box, the page waits, `consola_browser_status` lists it, and
+ * screen over a page that has moved on). So a dialog an agent can answer and
+ * that is not the person's (`shouldHoldDialog`) is held for the agent instead:
+ * no box, the page waits, `consola_browser_status` lists it, and
  * `consola_browser_dialog` answers it through Electron's own callback. The
  * relay keeps the dialog from Playwright (`cdpRelayProtocol`).
  *
  * The person comes first. A dialog raised within 3 s of their input on the
- * tab is theirs, shown as ever; and pressing in a tab whose dialog is held
- * hands it to them, since a page that waits on an answer it never shows
- * looks frozen. A held dialog is dismissed when the agent's connection to
- * the page ends, and on its own after `DIALOG_HOLD_MS`. With no agent
+ * tab, or on their own tab while they can see it, is theirs, shown as ever;
+ * and pressing in a tab whose dialog is held hands it to them, since a page
+ * that waits on an answer it never shows looks frozen. A held dialog is
+ * dismissed when the agent's connection to the page ends (as it does when
+ * access goes, or the session does), and on its own after `DIALOG_HOLD_MS`.
+ * While it is held, focus emulation stays on for the page: the switch going
+ * off is answered by the page only once the dialog is. With no agent
  * connected, nothing changes.
  *
  * Electron runs `prompt()` in the page itself (it throws "prompt() is not
@@ -126,7 +168,8 @@ export class PageDialogs {
       const showToPerson = () => electron.call(guest, details, callback);
       const tabId = this.deps.tabIdFor(guestId);
       const type = dialogTypeOf(details?.dialogType);
-      if (!tabId || !type || !this.deps.isAgentConnected(guest) || this.deps.personIsUsing(tabId)) {
+      // A shape this does not know is left to Electron: a hold nobody could answer is worse.
+      if (!tabId || !type || typeof callback !== 'function' || !this.holdable(tabId, guest)) {
         showToPerson();
         return;
       }
@@ -194,9 +237,22 @@ export class PageDialogs {
     }
   }
 
+  private holdable(tabId: string, guest: WebContents): boolean {
+    return shouldHoldDialog({
+      agentAllowed: this.deps.agentAllowed(tabId),
+      agentConnected: this.deps.isAgentConnected(guest),
+      personUsing: this.deps.personIsUsing(tabId),
+      inAgentHands: this.deps.inAgentHands(tabId),
+      onScreen: this.deps.onScreen(tabId),
+    });
+  }
+
   private hold(tabId: string, hold: Hold): void {
-    // A page shows one dialog at a time; an older one still held has gone.
-    this.release(tabId);
+    // A cross-site iframe runs in its own renderer and can raise a dialog
+    // while the page's is held: the older one is answered (dismissed) before
+    // it is replaced, or its renderer would wait on it for good.
+    const older = this.release(tabId);
+    if (older) this.reply(older, false, '');
     hold.stopTimer = this.startTimer(DIALOG_HOLD_MS, () => {
       if (this.held.get(tabId) !== hold) return;
       this.release(tabId);

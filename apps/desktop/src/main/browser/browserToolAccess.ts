@@ -34,6 +34,34 @@ export function browserRefusal(
   return null;
 }
 
+/** The agent's open connections to pages, by tab (`PageDriver`). */
+export interface AgentConnections {
+  connectedTabs(): string[];
+  disconnect(tabId: string, reason: string): void;
+}
+
+/**
+ * Closes the agent's connections to the pages of tabs whose session may no
+ * longer use the browser (access turned off, the session deleted or made
+ * ineligible): a session whose every call is refused has no business holding
+ * a page, nor a dialog held on one (closing lets go of it), nor the debugger
+ * the person's DevTools needs. `refusalFor` answers `browserRefusal` for a
+ * tab's session, or why there is none. Returns the tabs it closed.
+ */
+export function closeConnectionsWithoutAccess(
+  connections: AgentConnections,
+  refusalFor: (tabId: string) => string | null,
+): string[] {
+  const closed: string[] = [];
+  for (const tabId of connections.connectedTabs()) {
+    const refusal = refusalFor(tabId);
+    if (refusal === null) continue;
+    connections.disconnect(tabId, refusal);
+    closed.push(tabId);
+  }
+  return closed;
+}
+
 /** What `CallerAccess` reads: the workspaces, and the caller's tabs. */
 export interface CallerAccessDeps {
   getWorkspaces(): Workspace[];

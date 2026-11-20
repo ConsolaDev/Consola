@@ -651,6 +651,16 @@ export class BrowserService {
     return this.find(tabId)?.tab;
   }
 
+  /** The session a tab belongs to, or undefined when no session has it. */
+  public sessionIdForTab(tabId: string): string | undefined {
+    return this.find(tabId)?.sessionId;
+  }
+
+  /** Whether a window shows this tab's page to the person now (its panel open on it, uncovered). */
+  public isShown(tabId: string): boolean {
+    return this.pages.windowShowing(tabId) !== undefined;
+  }
+
   /** The session whose tab a guest is bound to, or undefined while it is not. */
   public sessionIdForGuest(guestId: number): string | undefined {
     for (const entry of this.guests.values()) if (entry.guestId === guestId) return entry.sessionId;
