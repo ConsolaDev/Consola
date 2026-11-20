@@ -19,7 +19,7 @@ import { browserTools, type BrowserToolsBrowser } from './browserTools';
 import { UNTRUSTED_NOTE } from './browserToolResults';
 import type { PageSnapshot } from './PageDriver';
 import type { HeldDialog } from './PageDialogs';
-import { PersonInput } from './PersonInput';
+import { PERSON_INPUT_GUARD_MS, PersonInput } from './PersonInput';
 import { decideDownload, QUIET_SESSION } from './sessionPolicy';
 
 /** The parts of `BrowserService` the tools use: an in-memory tab list, with what was asked of it. */
@@ -556,6 +556,31 @@ describe('consola_browser_navigate', () => {
     }
   });
 
+  // The person comes first: a reload or a move would throw away what they are typing.
+  it.each([
+    [{ url: 'example.org/docs' }],
+    [{ action: 'back' }],
+    [{ action: 'forward' }],
+    [{ action: 'reload' }],
+  ])('gives way to the person using the tab, before anything moves: %j', async (args) => {
+    browser.live['mine-person'] = { live: true, canGoBack: true, canGoForward: true };
+    person.noteInput('mine-person');
+    now += PERSON_INPUT_GUARD_MS - 1;
+    const refused = await call('w-1', 'consola_browser_navigate', {
+      tabId: 'mine-person',
+      ...args,
+    });
+    expect(refused).toMatchObject({ isError: true, text: 'The person is using this tab.' });
+    expect(browser.log).toEqual([]);
+    expect(browser.navigated).toEqual([]);
+    expect(browser.moves).toEqual([]);
+    // Still theirs: a refused move takes nothing.
+    expect(person.handsOf('mine-person', 'person')).toBe('person');
+    now += 1;
+    const moved = await call('w-1', 'consola_browser_navigate', { tabId: 'mine-person', ...args });
+    expect(moved.isError).toBe(false);
+  });
+
   it('marks nothing for a move it refuses', async () => {
     await call('w-1', 'consola_browser_navigate', { tabId: 'mine-agent', action: 'forward' });
     await call('w-1', 'consola_browser_navigate', { tabId: 'mine-agent', url: 'file:///etc' });
@@ -715,6 +740,21 @@ describe('consola_browser_close', () => {
   it('closes a tab the agent opened', async () => {
     const result = await call('w-1', 'consola_browser_close', { tabId: 'mine-agent' });
     expect(result.isError).toBe(false);
+    expect(browser.listFor('w-1').map((tab) => tab.id)).toEqual(['mine-person']);
+  });
+
+  it('gives way to the person using a tab the agent opened, and closes it once they stopped', async () => {
+    person.noteInput('mine-agent');
+    now += PERSON_INPUT_GUARD_MS - 1;
+    expect(await call('w-1', 'consola_browser_close', { tabId: 'mine-agent' })).toMatchObject({
+      isError: true,
+      text: 'The person is using this tab.',
+    });
+    expect(browser.listFor('w-1')).toHaveLength(2);
+    now += 1;
+    expect((await call('w-1', 'consola_browser_close', { tabId: 'mine-agent' })).isError).toBe(
+      false,
+    );
     expect(browser.listFor('w-1').map((tab) => tab.id)).toEqual(['mine-person']);
   });
 

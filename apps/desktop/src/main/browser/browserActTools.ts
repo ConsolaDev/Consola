@@ -4,6 +4,7 @@ import { z } from 'zod';
 import {
   type BrowserActToolsDeps,
   countOf,
+  giveWay,
   messageOf,
   openedDialogContent,
   pageStepFailure,
@@ -212,12 +213,6 @@ function actFailure(error: unknown, plan: ActPlan): Error {
   if (reason === 'unknown') return new PageTextError([untrusted('The page refused the act.')]);
   if (reason) return new Error(refusalMessage(reason, plan.ref ?? 'The focused element'));
   return pageStepFailure(error);
-}
-
-/** Refuses within `PERSON_INPUT_GUARD_MS` of the person's input on the tab. */
-function giveWay(deps: BrowserActToolsDeps, tabId: string): void {
-  const refusal = deps.person.refusal(tabId);
-  if (refusal) throw new Error(refusal);
 }
 
 /** What a key press led to, as the end of a sentence. */

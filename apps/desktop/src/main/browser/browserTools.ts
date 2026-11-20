@@ -12,6 +12,7 @@ import { BLANK_TAB_MESSAGE, NO_TAB_MESSAGE } from './AgentPages';
 import { type AgentMoveBrowser, type AgentMoveDeps, moveAsAgent } from './agentMove';
 import type { BrowserService } from './BrowserService';
 import { addActTools, type BrowserActToolsDeps } from './browserActTools';
+import { giveWay } from './browserPageSteps';
 import { addDialogTool } from './browserDialogTool';
 import {
   answer,
@@ -205,7 +206,8 @@ function open(
 
 /**
  * Every move is checked first and then made as the agent's (`moveAsAgent`),
- * so a move it refuses marks nothing.
+ * so a move it refuses marks nothing. It gives way to the person using the
+ * tab (`giveWay`): a reload or a move would throw away what they are typing.
  */
 function navigate(
   deps: BrowserToolsDeps,
@@ -215,6 +217,7 @@ function navigate(
   const tab = access.tab(args.tabId);
   if (args.url !== undefined && args.action === undefined) {
     const { url, searched } = resolveAddress(args.url);
+    giveWay(deps, tab.id);
     // The address is a web one, so only a tab closed since the check is refused.
     if (!moveAsAgent(deps, tab.id, () => deps.browser.navigate(tab.id, url))) {
       throw new Error(NO_TAB_MESSAGE);
@@ -228,6 +231,7 @@ function navigate(
   if (args.action !== undefined && args.url === undefined) {
     if (isBlankPageUrl(tab.url)) throw new Error(BLANK_TAB_MESSAGE);
     const planned = planMove(deps.browser, tab, args.action);
+    giveWay(deps, tab.id);
     moveAsAgent(deps, tab.id, planned.run);
     return plain({ tabId: tab.id, summary: planned.summary });
   }
@@ -278,6 +282,8 @@ function close(
 ): BrowserToolContent[] {
   const tab = access.tab(args.tabId);
   if (tab.openedBy !== 'agent') throw new Error(PERSON_TAB_MESSAGE);
+  // A tab the agent opened can be the person's to use by now: they come first.
+  giveWay(deps, tab.id);
   deps.browser.closeTab(tab.id);
   return plain({ tabId: tab.id, summary: 'Closed.' });
 }

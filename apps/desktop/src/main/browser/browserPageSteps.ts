@@ -19,6 +19,16 @@ export interface BrowserActToolsDeps {
   dialogs: ToolDialogs;
 }
 
+/**
+ * Refuses within `PERSON_INPUT_GUARD_MS` of the person's input on the tab,
+ * with `PERSON_USING_TAB_MESSAGE`: whatever would act on it, move it or close
+ * it gives way, or what they are typing there is lost.
+ */
+export function giveWay(deps: Pick<BrowserActToolsDeps, 'person'>, tabId: string): void {
+  const refusal = deps.person.refusal(tabId);
+  if (refusal) throw new Error(refusal);
+}
+
 /** A ref from a snapshot's outline (`e5`, or `f1e5` inside a frame), and nothing that could be a selector. */
 const REF_PATTERN = /^(f\d+)?e\d+$/;
 export const refInput = z
