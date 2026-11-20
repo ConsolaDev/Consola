@@ -12,6 +12,8 @@ test.beforeEach(async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.route(releaseApi, (route) => route.fulfill({ status: 404, body: '{}' }));
 });
+/** The sidebar's list of the sessions in play; Working, Snoozed and Settled have lists of their own. */
+const sessionList = (frame) => frame.getByRole('navigation', { name: 'Sessions', exact: true });
 async function demo(page, view = 'inbox') {
   await page.goto('/');
   await page.locator('[data-live-demo]').scrollIntoViewIfNeeded();
@@ -20,7 +22,7 @@ async function demo(page, view = 'inbox') {
     'aria-current',
     'page',
   );
-  await expect(frame.getByRole('navigation', { name: 'Session groups' })).toBeVisible();
+  await expect(sessionList(frame)).toBeVisible();
   if (view === 'inbox') {
     await page.getByRole('button', { name: /Review a pull request/ }).click();
     await expect(frame.locator('.inbox-row')).toHaveCount(4);
@@ -49,7 +51,7 @@ test('real Inbox → saved action → native terminal → approve and commit sam
   await terminal.fill('fix the retry guard');
   await terminal.press('Enter');
   await expect(frame.locator('.git-review-panel')).toContainText('isRetryable');
-  await expect(frame.getByRole('navigation', { name: 'Session groups' })).toContainText('PR #248');
+  await expect(sessionList(frame)).toContainText('PR #248');
   await frame.getByRole('button', { name: 'Approve', exact: true }).first().click();
   await frame.getByRole('button', { name: 'Generate', exact: true }).click();
   await expect(frame.getByPlaceholder('Enter commit message...')).toHaveValue(
@@ -61,9 +63,7 @@ test('real Inbox → saved action → native terminal → approve and commit sam
   expect(errors).toEqual([]);
 });
 
-test('workspaces keep separate GitHub accounts, harnesses, and conversation groups', async ({
-  page,
-}) => {
+test('workspaces keep separate GitHub accounts, harnesses, and sessions', async ({ page }) => {
   const frame = await demo(page);
   let dialog = await settings(frame);
   await expect(dialog).toContainText('gh alex-work');
@@ -77,12 +77,8 @@ test('workspaces keep separate GitHub accounts, harnesses, and conversation grou
   await expect(dialog.locator('.ws-manifest')).toContainText('Codex · Personal');
   await dialog.getByRole('button', { name: 'Close', exact: true }).click();
   await frame.getByRole('button', { name: 'Home', exact: true }).click();
-  await expect(frame.getByRole('navigation', { name: 'Session groups' })).toContainText(
-    'weekend-app',
-  );
-  await expect(frame.getByRole('navigation', { name: 'Session groups' })).not.toContainText(
-    'pr-reviews',
-  );
+  await expect(sessionList(frame)).toContainText('Build the landing page');
+  await expect(sessionList(frame)).not.toContainText('Build onboarding flow');
 });
 
 test('saved custom prompts and destination groups affect launched sessions', async ({ page }) => {
@@ -112,33 +108,11 @@ test('saved custom prompts and destination groups affect launched sessions', asy
   expect(state.replay).toContain('Check retry limits for PR 248 and summarize security findings.');
 });
 
-test('create and rename a group through the actual sidebar', async ({ page }) => {
-  const frame = await demo(page);
-  await frame.getByRole('button', { name: 'Home', exact: true }).click();
-  await frame.getByRole('button', { name: 'Add group', exact: true }).click();
-  const dialog = frame.getByRole('dialog');
-  await dialog.getByRole('textbox').fill('Weekend experiments');
-  await dialog.getByRole('button', { name: 'Create', exact: true }).click();
-  await expect(frame.getByRole('navigation', { name: 'Session groups' })).toContainText(
-    'Weekend experiments',
-  );
-  await frame.getByRole('button', { name: /^Weekend experiments/ }).hover();
-  await frame.getByRole('button', { name: 'Group actions for Weekend experiments' }).click();
-  await frame.getByRole('menuitem', { name: /Rename/ }).click();
-  await frame.getByRole('dialog').getByRole('textbox').fill('Experiments');
-  await frame.getByRole('dialog').getByRole('button', { name: 'Save', exact: true }).click();
-  await expect(frame.getByRole('navigation', { name: 'Session groups' })).toContainText(
-    'Experiments',
-  );
-});
-
 test('shortcuts work and resetting restores the original mock state', async ({ page }) => {
   const frame = await demo(page, 'home');
   const home = page.getByRole('button', { name: /Explore Home/ });
   await expect(home).toHaveAttribute('aria-pressed', 'true');
-  await expect(frame.getByRole('navigation', { name: 'Session groups' })).toContainText(
-    'Build onboarding flow',
-  );
+  await expect(sessionList(frame)).toContainText('Build onboarding flow');
   await expect(frame.locator('.terminal-panel')).toBeVisible();
   await frame.getByRole('button', { name: 'Inbox', exact: true }).click();
   await expect(home).toHaveAttribute('aria-pressed', 'false');
