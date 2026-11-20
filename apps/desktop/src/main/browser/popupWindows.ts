@@ -1,7 +1,7 @@
 import type { BrowserWindow, BrowserWindowConstructorOptions, WebContents } from 'electron';
 import type { CertificateTrust } from './CertificateTrust';
 import { guardNavigation } from './guestPolicy';
-import { decideGuestShortcut } from './guestShortcuts';
+import { decideGuestShortcut, type GuestKeyInput } from './guestShortcuts';
 import { refusePageRequests } from './pageRequests';
 import { decidePopup, PersonInputClock, popupTitle } from './popupPolicy';
 
@@ -112,6 +112,27 @@ export interface PopupPolicyDeps {
 }
 
 /**
+ * Whether a key the person pressed in a page counts as their gesture there,
+ * for the popup gate's clock: a key going down that the page gets. A chord
+ * the app takes from the page (`decideGuestShortcut`: the palette, closing a
+ * tab, ...) and ⌘Q (held back by the quit guard) never reach the page, so
+ * they cannot be what a page's `window.open` follows: a page polling for a
+ * popup would otherwise get one the moment the person pressed an app
+ * shortcut in it.
+ */
+export function isGestureKey(input: GuestKeyInput, platform: string = process.platform): boolean {
+  if (input.type !== 'keyDown' || decideGuestShortcut(input, platform)) return false;
+  const quitChord =
+    platform === 'darwin' &&
+    input.meta &&
+    !input.control &&
+    !input.alt &&
+    !input.shift &&
+    input.key.toLowerCase() === 'q';
+  return !quitChord;
+}
+
+/**
  * Decides every window a guest's page opens (`decidePopup`) and applies it:
  * a tab goes through `BrowserService`, a popup becomes one hardened child
  * window that main tracks, and anything else is refused.
@@ -129,12 +150,15 @@ export function installPopupPolicy(guest: WebContents, deps: PopupPolicyDeps): v
   const input = new PersonInputClock();
   // `input-event` covers the mouse, `before-input-event` the keys; either is
   // a person at the page. A page cannot forge them: they come from the
-  // browser process, not from script.
+  // browser process, not from script. Only a button or a key going down
+  // counts, as the person-input guard does: a release after a long press
+  // would open the gate long after the guard began, and a page could follow
+  // an agent's act with a popup.
   guest.on('input-event', (_event, inputEvent) => {
-    if (inputEvent.type === 'mouseDown' || inputEvent.type === 'mouseUp') input.touch();
+    if (inputEvent.type === 'mouseDown') input.touch();
   });
   guest.on('before-input-event', (_event, keyInput) => {
-    if (keyInput.type === 'keyDown') input.touch();
+    if (isGestureKey(keyInput)) input.touch();
   });
 
   // The popup this page has open, if any: one at a time.
