@@ -186,7 +186,7 @@ describe('hearing the person', () => {
   });
 });
 
-describe('hearing the person', () => {
+describe('telling others of the person’s input', () => {
   it('tells its listeners of each input, a toolbar move included, until they stop listening', () => {
     const person = new PersonInput(() => T0);
     const heard: string[] = [];

@@ -23,9 +23,7 @@ function sources(directory: string = MAIN): string[] {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const path = join(directory, entry.name);
     if (entry.isDirectory()) return entry.name === '__fixtures__' ? [] : sources(path);
-    return /\.ts$/.test(entry.name) && !/\.test(-helpers)?\.ts$/.test(entry.name)
-      ? [path]
-      : [];
+    return /\.ts$/.test(entry.name) && !/\.test(-helpers)?\.ts$/.test(entry.name) ? [path] : [];
   });
 }
 
