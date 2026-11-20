@@ -180,6 +180,77 @@ describe('counts what the person opens, and nothing else', () => {
     expect(usesOf('changes')).toBe(2);
   });
 
+  it('counts nothing, and asks for no focus, for openKind on a kind already in front on screen', () => {
+    state().openKind('changes');
+    state().takeFocusRequest('changes');
+
+    state().openKind('changes');
+    expect(usesOf('changes')).toBe(1);
+    // Nothing mounts, so a request here would wait for a later mount to take it.
+    expect(state().focusRequest).toBeNull();
+  });
+
+  it('counts openKind on a kind behind another tab, once, and asks for focus', () => {
+    state().openKind('changes');
+    state().addPlaceholder(firstGroupId());
+    state().takeFocusRequest('changes');
+
+    state().openKind('changes');
+    expect(usesOf('changes')).toBe(2);
+    expect(state().focusRequest?.kind).toBe('changes');
+  });
+
+  it('counts openKind on a kind in a hidden panel, once, and asks for focus', () => {
+    state().openKind('changes');
+    state().setVisible(false);
+    state().takeFocusRequest('changes');
+
+    state().openKind('changes');
+    expect(state().layout.visible).toBe(true);
+    expect(usesOf('changes')).toBe(2);
+    expect(state().focusRequest?.kind).toBe('changes');
+  });
+
+  it('counts openKind on a kind in a group Maximize hides, once, and asks for focus', () => {
+    state().openKind('changes');
+    state().addPlaceholder(firstGroupId());
+    state().splitWithTab(firstGroupId(), 'changes', 'right');
+    state().toggleMaximize(firstGroupId());
+    state().takeFocusRequest('changes');
+
+    state().openKind('changes');
+    expect(state().layout.maximized).toBeNull();
+    expect(usesOf('changes')).toBe(2);
+    expect(state().focusRequest?.kind).toBe('changes');
+  });
+
+  it('counts nothing for bringToFront while the panel is hidden, though the tab is fronted', () => {
+    state().openKind('changes');
+    state().addPlaceholder(firstGroupId());
+    state().setVisible(false);
+    state().takeFocusRequest('changes');
+
+    state().bringToFront(firstGroupId(), 'changes');
+    expect(groupsOf(state().layout)[0].active).toBe('changes');
+    expect(usesOf('changes')).toBe(1);
+    expect(state().focusRequest).toBeNull();
+  });
+
+  it('counts nothing for choosing, in a placeholder, a kind in front in the other group', () => {
+    state().openKind('changes');
+    state().addPlaceholder(firstGroupId());
+    state().splitWithTab(firstGroupId(), 'changes', 'right');
+    const [placeholderGroup, changesGroup] = groupsOf(state().layout);
+    expect(placeholderGroup.active).toBe(NEW_TAB);
+    expect(changesGroup.active).toBe('changes');
+    state().takeFocusRequest('changes');
+
+    state().choosePlaceholder(placeholderGroup.id, 'changes');
+    expect(groupsOf(state().layout)).toHaveLength(1);
+    expect(usesOf('changes')).toBe(1);
+    expect(state().focusRequest).toBeNull();
+  });
+
   it('counts none of closing, moving, splitting, maximizing or showing', () => {
     state().openKind('changes');
     state().addPlaceholder(firstGroupId());

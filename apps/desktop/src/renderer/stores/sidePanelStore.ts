@@ -15,12 +15,16 @@ import { rankShortcutKinds, recordUse, sanitizeUsage, type UsageLog } from '../s
  *
  * Two things are decided here so that nothing happens without the person:
  *
- * - **Only the person's own opening counts, and only it asks for focus.**
- *   `openKind`, `choosePlaceholder`, a shortcut that opens, and fronting a
- *   kind that was not in front each record a use and set `focusRequest`.
- *   Restoring a layout at launch and switching sessions call no action, so a
- *   view they mount counts nothing and finds no request: a shell that mounts
- *   that way never takes the keyboard from the conversation.
+ * - **Only the person bringing a kind on screen counts, and only it asks for
+ *   focus.** `openKind`, `pressShortcut`, `bringToFront` and
+ *   `choosePlaceholder` share one rule: a use is recorded and `focusRequest`
+ *   set only when the kind was not in front on screen before the action and
+ *   is after it (`isInFront`). A kind already in front mounts nothing new, so
+ *   a request then would sit unconsumed until some later mount took it, such
+ *   as another session's shell after a switch. Restoring a layout at launch
+ *   and switching sessions call no action, so a view they mount counts
+ *   nothing and finds no request: a shell that mounts that way never takes
+ *   the keyboard from the conversation.
  * - **The header's shortcut set is fixed for the run.** `shortcutKinds` is
  *   ranked once, when the stored uses are read, and no action touches it, so
  *   nothing moves under the pointer however the counts change.
@@ -104,8 +108,16 @@ export const useSidePanelStore = create<SidePanelState>()(
       const arrange = (next: SidePanelLayout) => {
         if (next !== get().layout) set({ layout: next });
       };
-      /** The person opened `kind`: the change, a counted use, and one request for its view's focus. */
+      /**
+       * The person asked for `kind`. Only when that brings it on screen in
+       * front is a use counted and its view asked to take focus; otherwise
+       * this is any other change to the arrangement.
+       */
       const open = (next: SidePanelLayout, kind: TabKindId) => {
+        if (Layout.isInFront(get().layout, kind) || !Layout.isInFront(next, kind)) {
+          arrange(next);
+          return;
+        }
         const now = Date.now();
         set((state) => ({
           layout: next,
@@ -121,18 +133,11 @@ export const useSidePanelStore = create<SidePanelState>()(
         rememberLayout: true,
         focusRequest: null,
 
-        // Counted even when the kind is in front already: the person asked
-        // for it, and its view should take the keyboard.
         openKind: (kind) => open(Layout.openKind(get().layout, kind), kind),
-        pressShortcut: (kind) => {
-          const next = Layout.pressShortcut(get().layout, kind);
-          // A shortcut either hides its kind or leaves it in front on screen.
-          if (Layout.isInFront(next, kind)) open(next, kind);
-          else arrange(next);
-        },
+        pressShortcut: (kind) => open(Layout.pressShortcut(get().layout, kind), kind),
         bringToFront: (groupId, tab) => {
           const next = Layout.bringToFront(get().layout, groupId, tab);
-          if (next !== get().layout && isTabKindId(tab)) open(next, tab);
+          if (isTabKindId(tab)) open(next, tab);
           else arrange(next);
         },
         closeTab: (groupId, tab) => arrange(Layout.closeTab(get().layout, groupId, tab)),
@@ -143,10 +148,8 @@ export const useSidePanelStore = create<SidePanelState>()(
           arrange(Layout.splitWithTab(get().layout, groupId, tab, edge)),
         toggleMaximize: (groupId) => arrange(Layout.toggleMaximize(get().layout, groupId)),
         addPlaceholder: (groupId) => arrange(Layout.addPlaceholder(get().layout, groupId)),
-        choosePlaceholder: (groupId, kind) => {
-          const next = Layout.choosePlaceholder(get().layout, groupId, kind);
-          if (next !== get().layout) open(next, kind);
-        },
+        choosePlaceholder: (groupId, kind) =>
+          open(Layout.choosePlaceholder(get().layout, groupId, kind), kind),
         setVisible: (visible) => arrange(Layout.setVisible(get().layout, visible)),
         toggleVisible: () => {
           const { layout } = get();
