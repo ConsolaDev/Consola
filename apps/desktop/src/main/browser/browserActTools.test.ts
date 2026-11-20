@@ -173,16 +173,18 @@ class FakeBrowser implements BrowserToolsBrowser {
 
 /** Main's held dialogs, as the tools see them: one tab, opened by hand. */
 class FakeDialogs {
+  /** The one tab whose page raises dialogs. */
+  tab = 'mine';
   pending?: HeldDialog;
   readonly answered: Array<[string, boolean, string | undefined]> = [];
   private readonly heard: Array<(dialog: HeldDialog) => void> = [];
   pendingFor(tabId: string) {
-    return tabId === 'mine' ? this.pending : undefined;
+    return tabId === this.tab ? this.pending : undefined;
   }
   opened(tabId: string, signal: AbortSignal): Promise<HeldDialog> {
-    if (tabId === 'mine' && this.pending) return Promise.resolve(this.pending);
+    if (tabId === this.tab && this.pending) return Promise.resolve(this.pending);
     return new Promise((resolve) => {
-      if (tabId !== 'mine' || signal.aborted) return;
+      if (tabId !== this.tab || signal.aborted) return;
       this.heard.push(resolve);
       signal.addEventListener('abort', () => this.heard.splice(this.heard.indexOf(resolve), 1));
     });
@@ -724,6 +726,44 @@ describe('a dialog on the page', () => {
     expect(afterNote(waited.text).summary).toBe(
       'While it waited, the page opened a confirm dialog and waits for an answer; answer it with consola_browser_dialog.',
     );
+  });
+});
+
+describe('a download after a dialog the agent raised', () => {
+  // The act returns early with the dialog while the page's script is only
+  // suspended: whatever ends the hold resumes it, and a download it starts
+  // then is still the agent's doing (Ruling PP: the tab stays in the agent's
+  // hands until the person presses in it, however long that takes).
+  beforeEach(() => {
+    dialogs.tab = 'mine-person';
+    fakePage.locator = ((original) => (selector: string) => ({
+      ...original(selector),
+      evaluate: async () => {
+        dialogs.open({ type: 'confirm', message: 'Export the report?' });
+        return new Promise(() => {});
+      },
+    }))(fakePage.locator.bind(fakePage));
+  });
+
+  it('is cancelled when the agent accepts the dialog seconds later', async () => {
+    await call('consola_browser_act', { tabId: 'mine-person', action: 'click', ref: 'e9' });
+    now = T0 + 4_000;
+    await call('consola_browser_dialog', { tabId: 'mine-person', action: 'accept' });
+    expect(dialogs.answered).toEqual([['mine-person', true, undefined]]);
+    // The resumed handler's download.
+    now = T0 + 4_100;
+    expect(downloadFrom('mine-person')).toBe('cancel');
+  });
+
+  it('is cancelled when nobody answers and the hold runs out after 60 s', async () => {
+    await call('consola_browser_act', { tabId: 'mine-person', action: 'click', ref: 'e9' });
+    // PageDialogs dismisses it on its own; no tool is called.
+    dialogs.pending = undefined;
+    now = T0 + 60_100;
+    expect(downloadFrom('mine-person')).toBe('cancel');
+    // Until the person takes the tab back.
+    person.noteInput('mine-person');
+    expect(downloadFrom('mine-person')).toBe('allow');
   });
 });
 
