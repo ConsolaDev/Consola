@@ -115,6 +115,28 @@ export async function startFixtureServer(): Promise<FixtureServer> {
 </script>`,
           ),
         );
+      case '/report.csv':
+        // A file, which a browser downloads rather than shows.
+        res.writeHead(200, {
+          'content-type': 'text/csv',
+          'content-disposition': 'attachment; filename="report.csv"',
+        });
+        return res.end('a,b\n1,2\n');
+      case '/download.html':
+        return send(
+          200,
+          page('Download', 'rgb(220,220,255)', '<a id="dl" href="/report.csv">report</a>'),
+        );
+      case '/later.html':
+        // Starts a download on its own, well after it has loaded.
+        return send(
+          200,
+          page(
+            'Later',
+            'rgb(255,220,220)',
+            `<script>setTimeout(() => { location.href = '/report.csv'; }, 4000);</script>`,
+          ),
+        );
       case '/probe.html':
         return send(
           200,
