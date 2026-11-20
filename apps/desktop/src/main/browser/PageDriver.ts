@@ -48,6 +48,17 @@ export function clampDeadline(deadlineMs: number | undefined): number {
 /** This call's own deadline, told apart from a connection another call's deadline closed. */
 class PastDeadlineError extends Error {}
 
+/**
+ * Reading the page itself failed, for a reason Playwright gives in its own
+ * words (`cause`), which can echo the page's: the caller words it as page
+ * text (`pageStepFailure`), never as Consola's.
+ */
+export class PageStepError extends Error {
+  constructor(public readonly cause: unknown) {
+    super(messageOf(cause));
+  }
+}
+
 const NO_PAGE_MESSAGE = "Could not reach the tab's page.";
 const PAGE_GONE_MESSAGE = "The tab's page went away.";
 const NEW_PAGE_MESSAGE = 'The tab loaded a new page.';
@@ -394,7 +405,13 @@ export class PageDriver {
         await page
           .waitForLoadState('domcontentloaded', { timeout: PAGE_CALL_TIMEOUT_MS })
           .catch(() => {});
-        const outline = await page.ariaSnapshot({ mode: 'ai', timeout: PAGE_CALL_TIMEOUT_MS });
+        let outline: string;
+        try {
+          outline = await page.ariaSnapshot({ mode: 'ai', timeout: PAGE_CALL_TIMEOUT_MS });
+        } catch (error) {
+          // A connection that ended explains it in Consola's words (`run`).
+          throw connection.isOpen ? new PageStepError(error) : error;
+        }
         let png: Buffer | undefined;
         let screenshotError: string | undefined;
         if (options.screenshot) {

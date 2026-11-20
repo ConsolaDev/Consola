@@ -12,7 +12,7 @@ import { BLANK_TAB_MESSAGE, NO_TAB_MESSAGE } from './AgentPages';
 import { type AgentMoveBrowser, type AgentMoveDeps, moveAsAgent } from './agentMove';
 import type { BrowserService } from './BrowserService';
 import { addActTools, type BrowserActToolsDeps } from './browserActTools';
-import { giveWay } from './browserPageSteps';
+import { giveWay, pageStepFailure } from './browserPageSteps';
 import { addDialogTool } from './browserDialogTool';
 import {
   answer,
@@ -24,7 +24,7 @@ import {
 } from './browserToolAccess';
 import { type BrowserToolContent, snapshotContent, statusContent } from './browserToolResults';
 import { addWaitTool } from './browserWaitTool';
-import type { PageDriver } from './PageDriver';
+import { type PageDriver, PageStepError } from './PageDriver';
 
 const PERSON_TAB_MESSAGE = 'Only a tab the agent opened can be closed.';
 const TAB_CAP_MESSAGE = `This session already has ${MAX_TABS_PER_SESSION} tabs; close one first.`;
@@ -270,7 +270,12 @@ async function snapshot(
   const tab = access.tab(args.tabId);
   refuseWhileDialog(deps.dialogs, tab.id);
   const page = await access.stillAllowed(
-    deps.driver.snapshot(tab.id, { screenshot: args.screenshot ?? false }),
+    deps.driver
+      .snapshot(tab.id, { screenshot: args.screenshot ?? false })
+      // What Playwright says of a page it could not read can quote the page.
+      .catch((error: unknown) => {
+        throw error instanceof PageStepError ? pageStepFailure(error.cause) : error;
+      }),
   );
   return snapshotContent(tab.id, page);
 }

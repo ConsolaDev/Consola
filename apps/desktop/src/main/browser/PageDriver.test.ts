@@ -14,6 +14,7 @@ import {
   FAILED_REQUESTS_KEPT,
   MAX_CALL_DEADLINE_MS,
   PageDriver,
+  PageStepError,
   pastDeadlineMessage,
   RELEASE_CONSOLE_EVERY,
 } from './PageDriver';
@@ -464,6 +465,14 @@ describe('the deadline', () => {
 });
 
 describe('snapshot', () => {
+  it('fails as a page step when the page cannot be read, carrying what Playwright said', async () => {
+    const cause = new Error('locator.ariaSnapshot: Error: Execution context was destroyed');
+    page.ariaSnapshot.mockRejectedValueOnce(cause);
+    const failure = await driver.snapshot('tab1').catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(PageStepError);
+    expect((failure as PageStepError).cause).toBe(cause);
+  });
+
   it('reads the page’s outline with refs, its address and title, and no image unless asked', async () => {
     const snapshot = await driver.snapshot('tab1');
     expect(page.ariaSnapshot).toHaveBeenCalledWith(expect.objectContaining({ mode: 'ai' }));
