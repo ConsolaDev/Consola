@@ -14,6 +14,7 @@ import { buildXtermTheme, readTerminalFont, TERMINAL_FONT_FAMILY } from './xterm
 import { openTerminalLink } from './terminalLinks';
 import { terminalKeyOverride } from './terminalKeys';
 import { restoreScreen, whenSettled } from './restoreScreen';
+import { attachTuiWheel } from './tuiWheel';
 import '@xterm/xterm/css/xterm.css';
 import './styles.css';
 
@@ -70,6 +71,8 @@ export function ShellPanel({ instanceId }: { instanceId: string }) {
     const input = terminal.onData((data) => {
       if (ready) api.input(instanceId, data);
     });
+    // A pager or editor that takes the mouse scrolls by the wheel's distance.
+    attachTuiWheel(terminal);
     terminal.attachCustomKeyEventHandler((event) => {
       if (isShellShortcut(event)) {
         event.preventDefault();

@@ -153,6 +153,8 @@ export interface TerminalAPI {
   resize: (instanceId: string, cols: number, rows: number) => void;
   restart: (instanceId: string) => void;
   destroy: (instanceId: string) => void;
+  /** The view unmounted: its window stops receiving this terminal's output. */
+  detach: (instanceId: string) => void;
   onData: (callback: (message: TerminalDataMessage) => void) => () => void;
   onActivity: (callback: (message: TerminalActivityMessage) => void) => () => void;
   onAwaitingConfirmation: (
