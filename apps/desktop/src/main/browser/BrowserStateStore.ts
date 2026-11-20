@@ -16,6 +16,35 @@ export interface BrowserStateIO {
 /** Writes are held back this long: tabs change at click rate, the file need not. */
 export const WRITE_DEBOUNCE_MS = 1000;
 
+/**
+ * The longest address the file keeps. A page chooses its own address
+ * (pushState, a hash), Chromium takes one of up to 2 MB, and every write
+ * parses, copies and syncs the whole file on main's thread: a page that set
+ * long addresses would freeze every session's terminal at each write, and
+ * after every relaunch. Real addresses are far shorter than this.
+ */
+export const MAX_STORED_ADDRESS_CHARS = 8_192;
+
+/**
+ * An address as the file keeps it: as it is up to the cap, else only its
+ * origin (`https://host/`), so a tab on a very long address comes back on its
+ * site's root; nothing for a long one with no origin.
+ */
+export function storableAddress(url: string): string {
+  if (url.length <= MAX_STORED_ADDRESS_CHARS) return url;
+  try {
+    const { origin } = new URL(url);
+    return origin === 'null' ? '' : `${origin}/`;
+  } catch {
+    return '';
+  }
+}
+
+/** Whether a visit may be kept: a longer address is skipped, never cut. */
+function storableVisit(url: string): boolean {
+  return url.length <= MAX_STORED_ADDRESS_CHARS;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -28,7 +57,8 @@ function normalizeTab(value: unknown): BrowserTab | null {
   // An unknown origin is dropped rather than guessed: "person" would hide
   // that an agent opened the page.
   if (openedBy !== 'person' && openedBy !== 'agent') return null;
-  return { id, url, title, openedBy };
+  // A file written before the cap, or by hand, is repaired as it loads.
+  return { id, url: storableAddress(url), title, openedBy };
 }
 
 /**
@@ -65,6 +95,7 @@ function normalizeHistory(value: unknown): BrowserHistoryEntry[] {
     const { url, title, at } = raw;
     if (typeof url !== 'string' || typeof title !== 'string') continue;
     if (typeof at !== 'number' || !Number.isFinite(at)) continue;
+    if (!storableVisit(url)) continue;
     entries.push({ url, title, at });
     if (entries.length === MAX_HISTORY_PER_WORKSPACE) break;
   }
@@ -100,6 +131,11 @@ export function normalizeBrowserState(value: unknown): BrowserStateFile {
  * `flush` runs at shutdown. A failed write keeps the in-memory state, which
  * every read goes through; the file only has to be right at the next launch.
  * History is newest first.
+ *
+ * Addresses are capped at its boundary (`MAX_STORED_ADDRESS_CHARS`): a visit
+ * to a longer one, a same-document move included, is not kept at all, and a
+ * tab on one keeps it in memory for as long as the app runs, while the file
+ * holds only its origin.
  */
 export class BrowserStateStore {
   private sessions = new Map<string, SessionBrowser>();
@@ -149,6 +185,7 @@ export class BrowserStateStore {
 
   /** A revisit of the latest page updates that entry instead of repeating it. */
   public addHistory(workspaceId: string, entry: BrowserHistoryEntry): void {
+    if (!storableVisit(entry.url)) return;
     const current = this.history.get(workspaceId) ?? [];
     const rest = current[0]?.url === entry.url ? current.slice(1) : current;
     this.history.set(workspaceId, [entry, ...rest].slice(0, MAX_HISTORY_PER_WORKSPACE));
@@ -197,8 +234,15 @@ export class BrowserStateStore {
 
   private write(): void {
     try {
+      const sessions = [...this.sessions].map(([sessionId, session]) => [
+        sessionId,
+        {
+          ...session,
+          tabs: session.tabs.map((tab) => ({ ...tab, url: storableAddress(tab.url) })),
+        },
+      ]);
       this.file.write({
-        sessions: Object.fromEntries(this.sessions),
+        sessions: Object.fromEntries(sessions),
         history: Object.fromEntries(this.history),
       });
     } catch {

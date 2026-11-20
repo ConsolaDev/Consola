@@ -6,10 +6,38 @@ import {
 } from '../../shared/browser';
 import {
   BrowserStateStore,
+  MAX_STORED_ADDRESS_CHARS,
+  storableAddress,
   WRITE_DEBOUNCE_MS,
   normalizeBrowserState,
   normalizeSessionBrowser,
 } from './BrowserStateStore';
+
+/** A web address of exactly `length` characters. */
+const addressOf = (length: number, origin = 'https://long.example.com') =>
+  `${origin}/${'p'.repeat(length - origin.length - 1)}`;
+
+describe('storableAddress', () => {
+  it('keeps an address up to the cap as it is', () => {
+    const address = addressOf(MAX_STORED_ADDRESS_CHARS);
+    expect(address).toHaveLength(MAX_STORED_ADDRESS_CHARS);
+    expect(storableAddress(address)).toBe(address);
+    expect(storableAddress('')).toBe('');
+  });
+
+  it('keeps only the origin of a longer one', () => {
+    expect(storableAddress(addressOf(MAX_STORED_ADDRESS_CHARS + 1))).toBe(
+      'https://long.example.com/',
+    );
+    expect(storableAddress(addressOf(MAX_STORED_ADDRESS_CHARS * 4, 'http://127.0.0.1:3000'))).toBe(
+      'http://127.0.0.1:3000/',
+    );
+  });
+
+  it('keeps nothing of a longer one that has no origin to keep', () => {
+    expect(storableAddress(`not an address ${'x'.repeat(MAX_STORED_ADDRESS_CHARS)}`)).toBe('');
+  });
+});
 
 const tab = (id: string, extra: Record<string, unknown> = {}) => ({
   id,
@@ -48,6 +76,12 @@ describe('normalizeSessionBrowser', () => {
     );
   });
 
+  it('repairs a tab stored with an address past the cap to its origin', () => {
+    const long = addressOf(MAX_STORED_ADDRESS_CHARS + 50);
+    const s = normalizeSessionBrowser({ tabs: [tab('a', { url: long })], activeTabId: 'a' });
+    expect(s?.tabs[0].url).toBe('https://long.example.com/');
+  });
+
   it('falls a dangling activeTabId to the first tab', () => {
     expect(
       normalizeSessionBrowser({ tabs: [tab('a'), tab('b')], activeTabId: 'gone' })?.activeTabId,
@@ -81,6 +115,19 @@ describe('normalizeBrowserState', () => {
     expect(Object.keys(state.sessions)).toEqual(['good']);
     expect(state.history.w).toHaveLength(MAX_HISTORY_PER_WORKSPACE);
     expect(state.history.empty).toBeUndefined();
+  });
+
+  it('drops a stored visit whose address is past the cap', () => {
+    const state = normalizeBrowserState({
+      sessions: {},
+      history: {
+        w: [
+          { url: addressOf(MAX_STORED_ADDRESS_CHARS + 1), title: 'long', at: 2 },
+          { url: 'https://a.com/', title: 'a', at: 1 },
+        ],
+      },
+    });
+    expect(state.history.w).toEqual([{ url: 'https://a.com/', title: 'a', at: 1 }]);
   });
 });
 
@@ -164,6 +211,27 @@ describe('BrowserStateStore', () => {
     }
     expect(store.getHistory('w')).toHaveLength(MAX_HISTORY_PER_WORKSPACE);
     expect(store.getHistory('w')[0].url).toBe(`https://e.com/${MAX_HISTORY_PER_WORKSPACE + 9}`);
+  });
+
+  it('skips a visit whose address is past the cap', () => {
+    store.addHistory('w', { url: 'https://a.com/', title: 'a', at: 1 });
+    store.addHistory('w', { url: addressOf(MAX_STORED_ADDRESS_CHARS + 1), title: 'long', at: 2 });
+    expect(store.getHistory('w')).toEqual([{ url: 'https://a.com/', title: 'a', at: 1 }]);
+  });
+
+  it('keeps a tab’s long address in memory, and writes only its origin', () => {
+    const long = addressOf(MAX_STORED_ADDRESS_CHARS + 1);
+    store.setSession('s1', {
+      tabs: [{ ...tab('a'), url: long, openedBy: 'person' }],
+      activeTabId: 'a',
+    });
+    expect(store.getSession('s1')?.tabs[0].url).toBe(long);
+    store.flush();
+    expect(writes.at(-1)?.sessions.s1.tabs[0].url).toBe('https://long.example.com/');
+    // What it wrote reads back as it was written.
+    stored = writes.at(-1);
+    store.load();
+    expect(store.getSession('s1')?.tabs[0].url).toBe('https://long.example.com/');
   });
 
   it('prunes sessions and workspaces that are gone', () => {

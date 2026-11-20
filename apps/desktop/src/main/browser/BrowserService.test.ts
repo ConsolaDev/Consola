@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 import { MAX_TABS_PER_SESSION, type BrowserSessionSnapshot } from '../../shared/browser';
 import { IPC_CHANNELS } from '../../shared/constants';
 import { BrowserService, CRASH_RETRY_LIMIT, CRASH_RETRY_WINDOW_MS } from './BrowserService';
-import { BrowserStateStore } from './BrowserStateStore';
+import { BrowserStateStore, MAX_STORED_ADDRESS_CHARS } from './BrowserStateStore';
 
 class FakeGuest extends EventEmitter {
   destroyed = false;
@@ -263,6 +263,17 @@ describe('navigate and commit', () => {
 
     guest.emit('did-stop-loading');
     expect(last().payload.snapshot.tabs[0].loading).toBe(false);
+  });
+
+  it('records no visit to a same-document address past the stored cap, and the tab keeps it', () => {
+    service.openTab('s1', 'https://a.com', 'person');
+    const guest = new FakeGuest(11);
+    service.bindGuest('tab1', guest.asWebContents(), winA);
+    guest.emit('did-navigate', {}, 'https://a.com/');
+    const long = `https://a.com/#${'x'.repeat(MAX_STORED_ADDRESS_CHARS)}`;
+    guest.emit('did-navigate-in-page', {}, long, true);
+    expect(service.listFor('s1')[0].url).toBe(long);
+    expect(service.historyFor('w1').map((visit) => visit.url)).toEqual(['https://a.com/']);
   });
 
   it('ignores an aborted load and subframe failures, and records an unreachable page', () => {
