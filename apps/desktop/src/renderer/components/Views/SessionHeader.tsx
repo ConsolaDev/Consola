@@ -1,14 +1,20 @@
-import { checkoutPathForSession, scopeForSession, type Session, type Workspace } from '../../../shared/workspace';
+import { useState } from 'react';
+import {
+  checkoutPathForSession,
+  scopeForSession,
+  type Session,
+  type Workspace,
+} from '../../../shared/workspace';
 import { useNavigationStore } from '../../stores/navigationStore';
 import { useShellStore } from '../../stores/shellStore';
-import { useAssistantStore } from '../../stores/assistantStore';
 import { useCheckout } from '../../stores/checkoutStore';
 import { scopeTrail } from '../../utils/scopeTrail';
 import { tildePath } from '../../utils/displayPath';
+import { renameSession } from '../../utils/sessionActions';
+import { SessionNameEditor } from '../SessionName/SessionNameEditor';
 import { PathDisplay } from './PathDisplay';
 import { CheckoutChip } from './CheckoutChip';
-import { AssistantHeader } from './AssistantHeader';
-import { AssistantMarker } from './AssistantMarker';
+import { SnoozeChip } from '../Snooze/SnoozeChip';
 import './styles.css';
 
 /**
@@ -27,37 +33,44 @@ export function SessionHeader({ workspace, session }: { workspace: Workspace; se
   const toggleExplorer = useNavigationStore((state) => state.toggleExplorer);
   const isTerminalVisible = useShellStore((state) => state.open[session.instanceId] ?? false);
   const toggleTerminal = useShellStore((state) => state.toggle);
-  const touchedByAssistant = useAssistantStore((state) =>
-    Boolean(state.activity[workspace.id]?.touchedSessionIds.includes(session.id))
-  );
-  const isAssistant = session.kind === 'assistant';
-  const cwd = isAssistant ? '' : checkoutPathForSession(workspace, session) ?? '';
+  const cwd = checkoutPathForSession(workspace, session) ?? '';
   const checkout = useCheckout(cwd || null, { fresh: true });
-  const scope = isAssistant ? undefined : scopeForSession(workspace, session);
-
-  if (isAssistant) {
-    return (
-      <div className="workspace-view-header">
-        <AssistantHeader workspace={workspace} session={session} />
-      </div>
-    );
-  }
+  const scope = scopeForSession(workspace, session);
+  const [isRenaming, setIsRenaming] = useState(false);
 
   return (
     <div className="workspace-view-header">
       {scope && (
         <h1 className="workspace-view-title">
-          <span className="workspace-view-scope" title={tildePath(scope.path)}>{scopeTrail(workspace.scopes, scope).label}</span>
+          <span className="workspace-view-scope" title={tildePath(scope.path)}>
+            {scopeTrail(workspace.scopes, scope).label}
+          </span>
           {session.name && (
             <>
               <span className="workspace-view-separator">/</span>
-              <span className="workspace-view-session">{session.name}</span>
+              {/* Double-click renames, as on the sidebar row. The name is
+                  carved out of the header's drag region for that; a single
+                  click does nothing. */}
+              {isRenaming ? (
+                <SessionNameEditor
+                  initialName={session.name}
+                  className="session-header-rename-input"
+                  ariaLabel="Session name"
+                  onCommit={(name) => renameSession(workspace.id, session, name)}
+                  onClose={() => setIsRenaming(false)}
+                />
+              ) : (
+                // biome-ignore lint/a11y/noStaticElementInteractions: a pointer shortcut only; keyboard renaming is F2 on the sidebar row and Rename in the ⋯ menu
+                <span className="workspace-view-session" onDoubleClick={() => setIsRenaming(true)}>
+                  {session.name}
+                </span>
+              )}
             </>
           )}
         </h1>
       )}
       <CheckoutChip checkout={checkout} />
-      {touchedByAssistant && <AssistantMarker />}
+      <SnoozeChip workspaceId={workspace.id} session={session} />
       {cwd && (
         <PathDisplay
           path={cwd}

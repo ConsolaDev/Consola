@@ -50,9 +50,7 @@ export function HarnessCard({
             <HarnessIcon driverId={harness.driverId} />
             <span className="harness-card-name">{harness.name}</span>
             {!harness.isBuiltIn && <code className="harness-card-id">{harness.id}</code>}
-            {status?.version && (
-              <span className="harness-card-version">v{status.version}</span>
-            )}
+            {status?.version && <span className="harness-card-version">v{status.version}</span>}
             {!harness.archived && (
               <button
                 type="button"

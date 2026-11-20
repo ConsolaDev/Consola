@@ -1,4 +1,4 @@
-import { GitFileStatus } from '../../types/electron';
+import type { GitFileStatus } from '../../types/electron';
 import { FileIcon } from './FileIcon';
 
 interface GitChangesItemProps {
@@ -44,20 +44,13 @@ export function GitChangesItem({ filePath, status, isSelected, onSelect }: GitCh
   const statusClass = `git-${status}`;
 
   return (
-    <button
-      className={`git-changes-item ${isSelected ? 'selected' : ''}`}
-      onClick={onSelect}
-    >
+    <button className={`git-changes-item ${isSelected ? 'selected' : ''}`} onClick={onSelect}>
       <FileIcon filename={filename} className="git-changes-item-icon" />
       <div className="git-changes-item-info">
         <span className={`git-changes-item-name ${statusClass}`}>{filename}</span>
-        {parentPath && (
-          <span className="git-changes-item-path">{parentPath}</span>
-        )}
+        {parentPath && <span className="git-changes-item-path">{parentPath}</span>}
       </div>
-      <span className={`git-changes-item-status ${statusClass}`}>
-        {STATUS_LABELS[status]}
-      </span>
+      <span className={`git-changes-item-status ${statusClass}`}>{STATUS_LABELS[status]}</span>
     </button>
   );
 }

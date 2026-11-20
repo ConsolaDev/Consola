@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import type { InboxItem, WorkItemRef } from '../../../shared/workItems';
 import type { Session, Workspace } from '../../../shared/workspace';
-import type { TerminalState } from '../../stores/terminalStore';
 import { itemRowsFor, sessionRowsFor } from './linkSessionRows';
 
-const pr4118: WorkItemRef = { provider: 'github', repo: 'sprocket/forum-admin', type: 'pr', number: 4118 };
+const pr4118: WorkItemRef = {
+  provider: 'github',
+  repo: 'sprocket/forum-admin',
+  type: 'pr',
+  number: 4118,
+};
 const pr4100: WorkItemRef = { ...pr4118, number: 4100 };
 const now = Date.parse('2026-08-25T10:00:00Z');
 
@@ -40,11 +44,40 @@ function makeSession(overrides: Partial<Session>): Session {
   };
 }
 
-const investigation = makeSession({ id: 's-inv', name: 'memory axis investigation', instanceId: 'inst-inv', cwd: '/repos/forum-admin', lastActiveAt: now - 2 * 3_600_000 });
-const scratch = makeSession({ id: 's-scratch', name: 'scratch: grafana panels', instanceId: 'inst-scratch', lastActiveAt: now - 86_400_000 });
-const fixCi = makeSession({ id: 's-fixci', name: 'LC-416', instanceId: 'inst-fixci', workItem: pr4118, workItemAction: 'Fix CI', cwd: '/worktrees/forum-admin-pr-4118' });
-const other = makeSession({ id: 's-other', name: 'UI-25', instanceId: 'inst-other', workItem: pr4100, workItemAction: 'Review' });
-const conductor = makeSession({ id: 's-cond', name: 'sweep', instanceId: 'inst-cond', kind: 'conductor' });
+const investigation = makeSession({
+  id: 's-inv',
+  name: 'memory axis investigation',
+  instanceId: 'inst-inv',
+  cwd: '/repos/forum-admin',
+  lastActiveAt: now - 2 * 3_600_000,
+});
+const scratch = makeSession({
+  id: 's-scratch',
+  name: 'scratch: grafana panels',
+  instanceId: 'inst-scratch',
+  lastActiveAt: now - 86_400_000,
+});
+const fixCi = makeSession({
+  id: 's-fixci',
+  name: 'LC-416',
+  instanceId: 'inst-fixci',
+  workItem: pr4118,
+  workItemAction: 'Fix CI',
+  cwd: '/worktrees/forum-admin-pr-4118',
+});
+const other = makeSession({
+  id: 's-other',
+  name: 'UI-25',
+  instanceId: 'inst-other',
+  workItem: pr4100,
+  workItemAction: 'Review',
+});
+const conductor = makeSession({
+  id: 's-cond',
+  name: 'sweep',
+  instanceId: 'inst-cond',
+  kind: 'conductor',
+});
 
 const workspace = {
   id: 'ws-1',
@@ -52,6 +85,7 @@ const workspace = {
   defaultHarnessId: 'default',
   scopes: [{ id: 'scope-1', name: 'sprocket', path: '/repos', isGitRepo: false, createdAt: now }],
   groups: [],
+  labels: [],
   actions: [],
   sectionDefaults: {},
   sessions: [scratch, investigation, fixCi, other, conductor],
@@ -59,10 +93,14 @@ const workspace = {
   updatedAt: now,
 } as Workspace;
 
-const working: TerminalState = { isBusy: true, isAwaitingConfirmation: false, hasExited: false, completedWhileAway: false, status: 'working' };
-
 describe('sessionRowsFor', () => {
-  const rows = sessionRowsFor(workspace, makeItem(pr4118, 'LC-416'), { 'inst-inv': working }, now);
+  const rows = sessionRowsFor(
+    workspace,
+    makeItem(pr4118, 'LC-416'),
+    { 's-inv': 'working' },
+    {},
+    now,
+  );
 
   it('hides conductors and orders by recency', () => {
     expect(rows.map((row) => row.id)).toEqual(['s-inv', 's-fixci', 's-other', 's-scratch']);
@@ -80,15 +118,35 @@ describe('sessionRowsFor', () => {
     expect(rows[3].context).toBe('repos · 1d ago');
   });
 
+  it('orders and ages by the ledger when it knows better than the creation-time seed', () => {
+    const ledger = {
+      's-scratch': { sessionId: 's-scratch', workspaceId: 'ws-1', lastActiveAt: now - 60_000 },
+    };
+    const recent = sessionRowsFor(workspace, makeItem(pr4118, 'LC-416'), {}, ledger, now);
+    expect(recent[0]).toMatchObject({ id: 's-scratch' });
+    expect(recent[0].context).toBe('repos · 1m ago');
+  });
+
   it('greys a session already on this item, and one linked elsewhere, with a hint', () => {
-    expect(rows[1]).toMatchObject({ label: 'PR #4118 · Fix CI', disabled: true, disabledHint: 'already on this item' });
-    expect(rows[2]).toMatchObject({ label: 'PR #4100 · Review', disabled: true, disabledHint: 'already linked' });
+    expect(rows[1]).toMatchObject({
+      label: 'PR #4118 · Fix CI',
+      disabled: true,
+      disabledHint: 'already on this item',
+    });
+    expect(rows[2]).toMatchObject({
+      label: 'PR #4100 · Review',
+      disabled: true,
+      disabledHint: 'already linked',
+    });
     expect(rows[0].disabled).toBeUndefined();
   });
 });
 
 describe('itemRowsFor', () => {
-  const items = [makeItem(pr4118, 'LC-416: fix memory axis'), makeItem(pr4100, 'UI-25 one year cap')];
+  const items = [
+    makeItem(pr4118, 'LC-416: fix memory axis'),
+    makeItem(pr4100, 'UI-25 one year cap'),
+  ];
 
   it('lists inbox items with number, title and repo, all pointing at the session', () => {
     const rows = itemRowsFor(items, investigation);

@@ -5,8 +5,7 @@
  * Commands that are recognized (known) are highlighted differently from unknown commands.
  */
 
-import React from 'react';
-import { TextSegment } from './commandHighlighter';
+import type { TextSegment } from './commandHighlighter';
 import { useCommandHighlighting } from './useCommandHighlighting';
 import './styles.css';
 
@@ -152,12 +151,7 @@ export interface CommandBadgeProps {
   showSlash?: boolean;
 }
 
-export function CommandBadge({
-  name,
-  isKnown = false,
-  type,
-  showSlash = true,
-}: CommandBadgeProps) {
+export function CommandBadge({ name, isKnown = false, type, showSlash = true }: CommandBadgeProps) {
   const classes = [
     'command-highlight',
     'command-badge',

@@ -25,7 +25,9 @@ export async function addScopeViaDialog(workspaceId: string): Promise<Scope | un
 /** Main stops the sessions; clear their local view state after the write succeeds. */
 export async function deleteScopeCompletely(workspaceId: string, scopeId: string): Promise<void> {
   const store = useWorkspaceStore.getState();
-  const sessions = store.getWorkspaceSessions(workspaceId).filter(session => session.scopeId === scopeId);
+  const sessions = store
+    .getWorkspaceSessions(workspaceId)
+    .filter((session) => session.scopeId === scopeId);
   await store.removeScope(workspaceId, scopeId);
 
   for (const session of sessions) {
@@ -33,7 +35,10 @@ export async function deleteScopeCompletely(workspaceId: string, scopeId: string
     useTerminalStore.getState().removeInstance(session.instanceId);
   }
   const navigation = useNavigationStore.getState();
-  if (navigation.activeWorkspaceId === workspaceId && sessions.some(session => session.id === navigation.activeSessionId)) {
+  if (
+    navigation.activeWorkspaceId === workspaceId &&
+    sessions.some((session) => session.id === navigation.activeSessionId)
+  ) {
     navigation.setActiveSession(null);
   }
 }

@@ -45,6 +45,15 @@ orchestrates builds, tests, and typechecking. Paths below beginning with `src/`,
 `scripts/`, or `dist/` are relative to `apps/desktop`. Use
 `pnpm --filter consola exec <tool>` for app-specific tools.
 
+Tooling runs on one exact Node version, named in three places that move
+together: `engines.node` (which Vercel reads), CI and the release build. Pin
+an exact version, never a range: Vercel resolves a range to the newest major
+it offers, so a range can move the website onto a new Node unannounced.
+Node 26 ships without corepack, so `vercel.json`
+runs pnpm through `npx pnpm@<version>`: keep that version equal to
+`packageManager`. Electron bundles its own Node, so none of this changes the
+app's runtime.
+
 ## Architecture Overview
 
 ### Three-Process Structure
@@ -82,8 +91,11 @@ parser and Run record that every runner shares.
 - `ScreenModel.ts` - Headless xterm mirroring what a PTY displays
 - `LoginEnvironment.ts` - The ambient login-shell environment, shared by every driver
 - `drivers/` - One driver per agent CLI: binary resolution, argv, env, health probe
-- `ClaudeSessionIndex.ts` - Reads Claude's own transcripts and session index
+- `ClaudeSessionIndex.ts` - Reads Claude's own transcripts
 - `HarnessCapabilitiesCache.ts` - Remembers what each harness said it can offer
+- `harnessSwitch/` - Moves a session onto another harness: plan, handoff documents, `HarnessSwitcher`
+- `sessionTitles/` - Names sessions automatically: `SessionNamer`, title text and prompts
+- `worktreeCleanup/` - Removes Consola's worktrees when their work is done, and rebuilds them: `policy.judge`, `WorktreeExecutor`, `WorktreeRebuilder`, the sweep
 
 ### Renderer Organization
 - `components/` - React components with co-located `styles.css`
@@ -108,7 +120,7 @@ const result = await window.dialogAPI.selectFolder();
 
 Bridge services are in `src/renderer/services/`:
 - `terminalBridge.ts` - Session terminals
-- `harnessBridge.ts` - Harness health probes and session names
+- `harnessBridge.ts` - Harness health probes and capabilities
 - `dialogBridge.ts` - Native dialogs
 - `fileBridge.ts` - File system reads
 - `gitBridge.ts` - Git status
@@ -132,6 +144,29 @@ below the cursor when it shrinks, and Claude keeps its prompt's frame there,
 so a view that shrinks and returns to the size the CLI already knows has lost
 rows the CLI will never repaint. Its relative cursor moves then land typing
 above the prompt.
+
+Output crosses to a window only while that window has a view of the terminal
+mounted: unmounting sends `TERMINAL_DETACH`, and `TerminalManager` sends
+nothing more until the next mount, which repaints from the snapshot. Two
+things make that exact. `ScreenModel.write` parses synchronously, so a
+snapshot holds every byte main has received; and a view drops output that
+reaches it before its snapshot does, since that output is in the snapshot.
+What is sent is gathered for `OUTPUT_BATCH_MS` first: a PTY hands over 1 KiB
+per read, so one repaint is dozens of reads, and a frame boundary between them
+paints half of it. The replay goes into the view in slices (`REPLAY_CHUNK`),
+because xterm never yields inside one write.
+
+A fullscreen CLI scrolls one row per wheel report, and xterm sends one report
+per wheel event whatever its distance. `tuiWheel` turns each event into the
+rows it moved (trackpads 1:1 with the fraction carried, notched wheels on a
+curve), while the program has mouse reporting on.
+
+`@xterm/xterm` and `@xterm/addon-webgl` carry pnpm patches (`patches/`): WebGL
+atlas fixes (page layout versions, merged pages capped at 4096, released
+textures and contexts) and three scroll fixes in xterm. The runtime reads the
+minified `lib/` files; each hunk is repeated in `src/` so the patch can be
+read. Bumping either package means carrying the patch over or dropping what
+upstream fixed.
 
 ### Each Workspace Remembers Where It Was Left
 
@@ -177,13 +212,37 @@ check, Claude is the authority.
 A session's conversation can be replaced without replacing the session. An
 action set to start fresh (`WorkItemAction.conversation`), run in a session
 that already exists, gives that tab a new `claudeSessionId` through
-`WorkspaceService.replaceConversation` — the only writer of the field, which
-is why it is absent from `allowedSessionUpdates` — and
+`WorkspaceService.replaceConversation` — one of the field's two writers,
+which is why it is absent from `allowedSessionUpdates` — and
 `TerminalService.startFreshConversation` moves the live terminal onto it.
-Tab, harness, model, tool policy, checkout and linked item all stay. Do not
+Tab, harness, model, tool policy, checkout and linked item all stay. The
+other writer is a harness switch (`WorkspaceService.switchHarness`), which
+replaces the conversation and the harness together. Do not
 reach for typing `/clear` instead: the Claude driver does not follow a
 conversation change made inside the CLI, so the record would keep naming
 the old conversation and the next relaunch would resume it.
+
+### Session Names
+
+Only a session still called `NEW_SESSION_NAME` is named automatically: not one
+with `nameIsUserSet`. Everything Consola names itself is
+born with another name, so a name anyone chose is never a candidate.
+
+Main's `SessionNamer` is the only automatic writer. It writes a stand-in from
+the first message (`readFirstPrompt`), then a generated title, each by
+compare-and-set through `updateSession`, so any rename in between wins. A
+generated name never sets `nameIsUserSet`; only Regenerate replaces a typed
+name. A name given inside the CLI is adopted as user-set (`readCliNameSince`),
+but only a change after the first read counts: a fork's inherited title is a
+baseline, never adopted, while a brand-new session still called "New Session"
+starts with an empty baseline.
+
+The title call is one throwaway non-interactive call (`generateText`) from the
+home directory, with no tools, no hooks and no persistence. It is never a
+session, and nothing is typed into a terminal to obtain a name. While a
+session's inline rename field is open its sidebar row stays where it is: a row
+that changes list remounts and would lose the field (`renamingStore`, `pinHold`
+in `renderer/sidebar/openRowHold.ts`).
 
 ### Git State Belongs to the Checkout
 
@@ -197,7 +256,8 @@ The agent can also move itself: Claude's `EnterWorktree` moves the whole
 process into a worktree Consola never made. While a session works, its
 terminal asks the driver where the process is (`readWorkingDirectory`,
 Claude's own `<config>/sessions/<pid>.json`), and main records a difference
-as `Session.agentCwd` (`WorkspaceService.recordAgentCwd`, its only writer).
+as `Session.agentCwd` (`WorkspaceService.recordAgentCwd`, its only writer; a
+harness switch only clears it, since the new process reports for itself).
 `checkoutPathForSession` prefers it, so every git view follows the agent.
 Launching never does: spawns still start in `cwd`, and the CLI reports again
 from there.
@@ -207,12 +267,76 @@ folder in `checkoutStore`), not inferred from the record: a scope can itself
 be a worktree. The header's checkout chip and the sidebar's worktree line read
 that one answer, so they cannot name different branches for one session.
 
+### Worktrees Are Removed, Sessions Stay
+
+Consola removes its own worktrees (direct children of
+`~/.consola/worktrees`, `isManagedPath`) when their work is done, by rules
+the person turns on: a finished pull request, a session settled for N days,
+an automation run that ended, or deleting the session. Every rule is off by
+default, globally (`Preferences.worktreeCleanup`) and per workspace
+(`Workspace.worktreeCleanup`: absent inherits, `off`, or `custom`). Agents
+reach the same removal through `consola_cleanup_stale_sessions` and
+`consola_delete_session` (`SessionCleanupService`), which keep their contract
+and always delete the session.
+
+- **One decision function.** `worktreeCleanup/policy.ts` `judge` decides
+  every removal, for every caller — the sweep, Preview, the delete dialog,
+  "Clean up now", the MCP tools — from facts `FactGatherer` reads. It does no
+  IO, and any fact that is missing or unreadable keeps the worktree. Only
+  `WorktreeExecutor` touches disk, and it judges again, from fresh facts,
+  under the folder's lock first. Never `--force`: git's refusal of a dirty
+  tree is the last guard. Main writes every sentence a verdict carries; the
+  renderer shows them and never interprets a reason.
+- **What keeps a worktree** is listed once, in `treeBlockers` and
+  `userBlockers`: anything uncommitted, unpushed, hidden from `git status`
+  (skip-worktree, assume-unchanged), ignored with no identical copy in the
+  main checkout (rebuildable folders like `node_modules` excepted), a nested
+  repository, a lock, a process still running in it (`lsof`; unreadable is
+  unknown), a session on it that is working, waiting, held by a run, open in
+  a window or active within the hour, and any other session still using it
+  through `cwd` or `agentCwd`.
+- **The session stays.** For the sweep's rules the session keeps its
+  record and `cwd`; the executor writes `Session.removedWorktree` on every
+  session of the tree (`WorkspaceService.recordWorktreesRemoved`, its one
+  writer with `clearWorktreeRemoved`) and a keep-ref,
+  `refs/consola/worktrees/<folder>`, at HEAD in the clone — record before
+  removal, so a crash leaves a record over a folder that still exists, which
+  the rebuild reads as "exists". The keep-ref is what keeps the commit: a
+  pull request's checkout can be detached, or its branch reset by a later
+  checkout, and gc drops what nothing references. It goes after a rebuild,
+  and when the last session naming the folder is deleted.
+- **A rebuild uses the same path and the recorded commit**
+  (`WorktreeRebuilder`, `WorktreeService.restore`), with git hooks off. Never
+  `ensureWorktree`, `refreshPullRequest` or the provider's checkout: those
+  move to a pull request's latest head, and Claude trusts a folder per path,
+  so a full-tools session rebuilt onto commits it never saw would load their
+  hooks and settings with no trust prompt. Every spawn of a recorded session
+  rebuilds first (`TERMINAL_CREATE`, `TERMINAL_RESTART`, the shells,
+  `SessionLauncher.resolveFolder`), and the pane says so (`launchNotice`).
+  `checkoutPathForSession` answers `undefined` while a worktree is removed.
+- **Only the rebuilder recreates a folder a record names.** `ensureWorktree`
+  hands such a path to it (`restoreRemoved`) before anything else, so an
+  Inbox click or an automation run lands on the recorded commit rather than
+  recreating the folder at the latest head under an already-trusted path.
+- **One lock per folder** (`PathLock`, keyed by real path): removal, rebuild,
+  `ensureWorktree`, `refreshPullRequest` and a new session's checkout all take
+  it — a per-item chain outside, the path lock inside. A folder just handed
+  out counts as in use for ten minutes (`recentlyPrepared`), covering the gap
+  before the session that will use it is recorded.
+- **Branches.** A rule that keeps the session keeps the branch, so the
+  session can be rebuilt. Deleting a session deletes only a `consola/*`
+  branch or one whose pull request is finished, compare-and-swap at the
+  commit that was checked.
+
 ### Never Type Into a Confirmation Menu
 
 Queued prompts are delivered only when the emulated screen shows an *empty*
 composer and no confirmation markers (`CONFIRMATION_MARKERS`). Claude shows a
 workspace trust gate on first launch in an unfamiliar folder, and typing into
 it would answer it. Any future automated input must respect the same guard.
+A harness switch's handoff prompt does: it is queued like any first prompt
+(or passed as an argument to a CLI that takes one), so a target harness that
+has never trusted the folder asks first, and the person answers.
 
 An automation's session never needs that guard for its first turn: it runs
 non-interactively (Claude's print mode), with its prompt as an argument, so
@@ -231,6 +355,13 @@ session. And whatever `save_automation` writes or replaces gives up the
 entry's acceptance, so it asks once before its next unattended run — even
 when only its schedule changed, which a hand edit would not ask about.
 
+An automation's run on a work item refreshes an existing worktree to the PR's
+latest head only because its session is read-only. Claude trusts a folder per
+path, so refreshing one the person already trusted would load the author's
+newly pushed settings and hooks into a full-tools session with no trust
+prompt. The worktree is one per item, so the refresh is skipped while any
+full-tools session was launched there, running or not (`worktreeHeld`).
+
 ### A Steps Run Works in a Checkout of Its Own
 
 A `steps:` run on a pull request or issue never works in the Inbox's worktree
@@ -241,7 +372,7 @@ reset to the item's head each time a run prepares it. Nothing is reset until
 clone (not a symlink, not the clone, not the Inbox's worktree): a reset
 anywhere else would destroy someone's work. Once a full-tools session was
 launched there, running or not, Consola never moves it again, for the same
-reason the Assistant leaves a trusted worktree alone.
+reason an automation's refresh leaves a trusted worktree alone (above).
 
 An agent step's tools (`steps/stepTools.ts`) are scoped by the calling
 session's provenance (run, step and attempt), resolved again on every call and
@@ -256,34 +387,6 @@ a quit mid-command is known after a restart. Such a command is never re-run
 automatically: the restart fails it as interrupted, and Retry warns before it
 runs again.
 
-### The Assistant
-
-Each workspace has one `kind: 'assistant'` session: a conversation that sees
-every scope and runs the others. It is created on first open, and it lives in
-its own folder beside `factory.yml` (not a repo, so no git, explorer or review
-panels). `listedSessions` hides it from the renderer's session lists and pickers
-(`consola_list_sessions` deliberately lists it). A session needs a
-scope, so `removeScope` moves it to a remaining one, or drops it with the last.
-
-It adds three tools to the generic MCP endpoint: `consola_prompt_session`,
-`consola_read_session` and `consola_start_session` (the last replaces the
-generic one, which would start work inside the Assistant's own folder). The
-workspace is resolved from the endpoint on every call, never from an argument,
-so it cannot reach across workspaces or address itself.
-
-It wakes a session through `SessionLauncher.deliverPrompt`, which relaunches an
-exited terminal in place: the pane another window is showing keeps streaming.
-It hears back through `AssistantActivity`, which listens on `TerminalManager`'s
-status listener set and tells it when the sessions it touched settle.
-
-An Assistant start on a work item refreshes an existing worktree to the PR's
-latest head only for a read-only session. Claude trusts a folder per path, so
-refreshing one the person already trusted would load the author's newly pushed
-settings and hooks into a full-tools session with no trust prompt. The worktree
-is one per item, so the same holds for every read-only refresh (automation
-runs, Assistant starts and re-runs): it is skipped while any full-tools session
-was launched there, running or not (`worktreeHeld`).
-
 ### Harnesses Are Launch Descriptions
 
 A harness is one configured agent CLI: a binary path, a config directory, and
@@ -297,21 +400,127 @@ Supporting another CLI means adding a driver and registering it; nothing in
 
 Two invariants are load-bearing:
 
-- **A session's harness is fixed for its lifetime.** The transcript is written
-  inside that harness's config directory, and `--resume` only finds it there.
-  A session's model is fixed the same way and for the same kind of reason: it
-  is replayed on every relaunch, so a later edit would move a conversation onto
-  a different model part-way through. Both are kept immutable by being absent
-  from `allowedSessionUpdates`, not by validation. So is a session's
-  `toolPolicy` (`read-only` for every session an automation starts): main
-  replays it from the record on every launch, `TERMINAL_CREATE` included,
-  and each driver enforces it with its CLI's own flags or refuses to launch.
+- **A session's harness is fixed for its conversation.** The transcript is
+  written inside that harness's config directory, and `--resume` only finds it
+  there. A session's model is fixed the same way and for the same kind of
+  reason: it is replayed on every relaunch, so a later edit would move a
+  conversation onto a different model part-way through. Both are kept immutable
+  by being absent from `allowedSessionUpdates`, not by validation. So is a
+  session's `toolPolicy` (`read-only` for every session an automation
+  starts): main replays it from the record on every launch, `TERMINAL_CREATE`
+  included, and each driver enforces it with its CLI's own flags or refuses to
+  launch. The one way the harness and model change is a harness switch (see
+  below), which gives the session a new conversation on the new harness in
+  the same move; the tool policy survives a switch unchanged.
 - **Deleting a harness archives it.** The record has to outlive removal, or
   every conversation started under it would resume against the wrong profile.
 
 A harness that pins nothing resolves exactly as Consola did before harnesses
 existed, ambient `CLAUDE_CONFIG_DIR` included. Keep that true: it is what the
 built-in harness and every migrated session rely on.
+
+### Switching a Session's Harness
+
+A session can carry on with another harness in the same tab — a harness
+that hit its usage limit, another CLI taking over (`harnessSwitch/`). The
+conversation travels the best way the two drivers allow, and
+`planHarnessSwitch` is the only place that decides, from which optional
+driver methods exist — never from a driver id:
+
+- **Native**, between harnesses of one driver whose CLI can fork:
+  `transplantConversation` makes the conversation findable under the target
+  (Claude copies the transcript and its sibling folder into the target's
+  identically named project folder, never overwriting), then the target
+  launches with `forkFrom`. Nothing is lost. The copy is verified before
+  anything changes, since a fork of a missing file fails. A driver offering
+  transplant must honour `forkFrom` (contract test in `toolPolicy.test.ts`).
+- **Handoff**, across CLIs or within one that cannot fork: the source
+  driver's `readConversation` is rendered to a markdown document under
+  `<userData>/handoffs/<session id>/` (removed with the session, since later
+  handoffs point back at earlier ones), and the target starts a fresh
+  conversation whose opening prompt says to read it. Tool output is not
+  carried, and the prompt says so.
+
+A conversation that is there with nothing in it carries nothing, and the
+target simply starts fresh. One whose transcript cannot be found is refused,
+never taken for empty: a session that ran somewhere its harness record does
+not point would otherwise come back blank, as if its history were lost. The
+renderer and main translate a harness into launch fields with the one
+`launchFieldsFor` (`shared/harness.ts`) for the same reason — a built-in
+harness given its own config folder keeps its conversations there, and every
+reader has to look there too.
+
+`WorkspaceService.switchHarness` is the one writer of `harnessId`; the record
+it leaves is `switchedSession`'s. It moves `claudeSessionId` with the harness,
+drops `model` (a selector belongs to its harness) and `agentCwd` (the old
+process's report), keeps `toolPolicy` — a target that cannot enforce it is
+refused — and records what was left in `priorConversations`, each link naming
+the conversation that took over (`continuedAs`). A handoff pins the name,
+because a summary of the new conversation would describe the handoff.
+`TerminalService.switchHarness` moves a live terminal in place, like
+`startFreshConversation`: the instance, its pane and listeners stay, while
+what attention knew of the old process is forgotten — a CLI without hooks
+would never clear a held turn. The switch is refused mid-turn, but not at a
+menu: a usage-limit notice is where it is wanted, and the switch stops that
+process rather than answering anything. Conductors stay on their harness.
+
+Claude writes a forked conversation only once its first message is sent, so
+a switch nobody has spoken after yet leaves a conversation that is not there
+to resume. Resuming still asks Claude first; when the resume fails, the
+fallback that would start blank instead opens the conversation the way the
+switch began it — the same fork, or the same handoff prompt
+(`switchOpening`/`openingFor`, passed as `TerminalServiceOptions.opening` by
+every launch path).
+
+`HarnessSwitcher` orders it so the record never names a conversation nothing
+started: everything that can refuse, or only writes artifacts nothing names
+yet, comes first; then a live terminal is checked and moved right after the
+record is written, while a session with no terminal is started on the target
+first and its record written after.
+
+### Hooks Add to the Screen, They Do Not Replace It
+
+A driver with `attentionHooks` (Claude's) registers hooks through `--settings`
+that POST to a loopback endpoint main owns (`attention/AttentionEndpoint`,
+random port per launch, random token per terminal). They are one more input to
+`deriveAttention` via `HookSignals`, never a status: the screen heuristic stays
+as the fast path and `CONFIRMATION_MARKERS` must stay. Claude's
+`permission_prompt` notification lags about six seconds and `idle_prompt` about
+sixty; no hook fires at all until an interactive session's folder is trusted,
+which is the trust gate's moment. What hooks add is what the screen cannot
+show — a question that is no known menu (`PermissionRequest` fires on
+AskUserQuestion within a model turn), a subagent waiting. Branch on
+`notification_type`, never on message text. A `Stop` listing `background_tasks`
+is a paused turn, not a finished one — counting only tasks still `running`, and
+only for `BACKGROUND_HOLD_MS`, since the payload cannot tell awaited work from a
+dev server. Running `subagent` tasks are the exception: Claude waits on them
+and takes a turn on each result, so the session reads `working` until a later
+`Stop` reports none, with no bound. Only a `Stop` (or exit) ends the hold, never
+a `working` edge: while Claude waits, its spinner stops but the agents panel
+repaints about once a second, which the screen reads as turns. The OS notification follows the derived attention, not terminal status. Hooks use HTTP, not `mcp_tool`: a
+Notification hook does not wait for an MCP server still connecting.
+
+### Attention Reads a Steadied Status
+
+`TerminalService` infers `working` from output flow: right for delivering a
+prompt, too twitchy to file a row by. Everything that decides attention
+(`SessionSource`, `TurnActivity`) hears `SteadyStatus` instead, which holds
+back the two changes that are usually noise: a `ready` inside a turn
+(`DROP_HOLD_MS`) and a `working` after the CLI said the turn was over
+(`UNTURNED_WORK_MS` — a background agent's tool calls paint in bursts the
+screen reads as turns). `HookInputs.turn` says which side of a turn a change
+is on; without hooks only the drop is held. `needs-attention` and `exited`
+are never delayed, and prompt delivery and the renderer's terminal status
+still read the terminal's own.
+
+A row sits in the section its attention says, the open row included: pinning
+a stopped row under Working made the section state something false. The
+sidebar's own softening is the same for every row (`workingExits`, the shift
+guard).
+
+A menu is looked for when output pauses, and again shortly after the person
+types into one (`ANSWER_RECHECK_MS`): a turn that goes on after its answer
+never pauses, so without that it read as waiting on the person to its end.
 
 ### Ask the CLI What It Can Do
 
@@ -333,6 +542,58 @@ Parse the response strictly. It is the CLI's own wire format rather than a
 promised contract, so an unrecognised shape must throw: a plausible-looking
 empty result would read as "this harness has no commands".
 
+### Snooze Is Derived in Main, and Never Hides a Question
+
+A snooze is four ledger fields (`snoozedUntil`, `snoozedAt`, `snoozeReason`,
+then `wokeAt`/`wakeCause` once it ends), not a field on `Session`: a click must
+not fsync the workspace list. `deriveAttention` reads `snoozed` from them and
+the clock, beating every status except an open run that holds the session.
+The renderer never computes it; snooze views ride the attention push
+(`AttentionChange.snoozes`), so windows cannot disagree.
+
+`Snoozer` (`main/attention/Snoozer.ts`) is the only writer of those fields. It
+snoozes a conductor's whole tree (only a root is offered), and runs one timer
+through `armAt` (`wakeTimer.ts`), which hops at most a day, because a
+`setTimeout` past 2³¹-1 ms fires at once. Every main timer for a wall-clock
+time goes through `armAt`, and is re-checked on `powerMonitor` `resume`. A
+snooze that ran out while Consola was closed wakes at startup, before the
+first auto-settle sweep.
+
+A snooze can never hide a new question. `SessionSource` calls the Snoozer on
+every edge into `needs-attention` (screen or hook) before anything derives, so
+the wake is written first. A question already open when the person snoozed
+stays snoozed ("ask me later"); an agent may not snooze one at all. Finishing
+work, opening the session, a queued prompt, a paste and an agent's prompt
+never wake it. Only the person's keys on `TERMINAL_INPUT` do: Enter,
+or a key pressed at a question that then goes away. Snoozing never touches a
+PTY, and nothing is ever typed at a wake.
+
+Undo restores only the fields an action wrote (`seenAt` and the shelving
+fields), never `lastActiveAt` or `finishedAt`: a snoozed session keeps
+working, and a whole-record restore would erase a finish written in between.
+
+### Usage Limits Are Asked of the CLI, Never Guessed
+
+Two questions, kept apart. *When did this session stop on a limit?* comes from
+the session: a `turn-failed` hook with `limit` (Claude's `StopFailure`), or the
+CLI's own notice on screen (`UsageLimitReporting.showsLimitNotice`, given the
+raw screen text because notices are matched at a line's start). *When does it
+reset?* comes only from the harness's CLI (`UsageLimitReporting.read`: Claude's
+`get_usage` control request, Codex's `account/rateLimits/read`), through
+`HarnessLimitsCache`, keyed like capabilities. A notice limits nothing until
+the CLI confirms a used-up window that binds the session, since the agent may
+have printed those words itself. No session lends another its reset.
+
+One rule reads every CLI's windows (`shared/usageLimits.ts`). An answer the
+mapper does not recognise throws, and a used-up window with no time leaves no
+time, never a guessed one: waking a session into the same limit only stops it
+again. `UsageLimitService` decides when to offer an automatic snooze (answer
+in, terminal at rest, reset over a minute away, once per stop); the Snoozer
+decides whether, and never replaces a time the person chose. A driver reports
+limits by adding the `usageLimits` capability; the contract test
+(`drivers/usageLimits.test.ts`) needs its fixtures under
+`drivers/__fixtures__/usage-limits/<driverId>/`.
+
 ### Claude's Own Storage
 
 `ClaudeSessionIndex` reads transcripts under `$CLAUDE_CONFIG_DIR/projects`
@@ -340,15 +601,21 @@ empty result would read as "this harness has no commands".
 probing each project directory for `<sessionId>.jsonl`; the directory-name
 encoding is lossy and cannot be derived from a working directory. The
 transcript is authoritative and `sessions-index.json` is a cache that lags.
+The one write is `copyConversation`, for a harness switch: into another
+config directory, under the source's own project-folder name, never over
+anything already there.
 
 ### IPC Channels
 
 All channel names are defined in `src/shared/constants.ts`. Key patterns:
 - `terminal:*` - Session terminal lifecycle and events
-- `harness:*` - Harness health probes and session names, dispatched by driver
+- `attention:*` - Derived attention, settle, snooze and wake (batches are one write, one memento)
+- `usage-limits:*` - Which sessions stopped on a usage limit, pushed whole
+- `harness:*` - Harness health probes and capabilities, dispatched by driver
 - `file:*` - File operations
 - `git:*` - Git status and commit message generation
 - `dialog:*` - Native dialogs
+- `worktree-cleanup:*` - Cleanup preview, "Clean up now", history, and a deleted session's outcome
 
 Every terminal message carries `instanceId`; there is one terminal per session.
 

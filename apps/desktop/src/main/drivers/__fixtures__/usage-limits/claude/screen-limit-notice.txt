@@ -1,0 +1,17 @@
+> Add a snooze button to the session header
+
+⏺ I'll look at how the header renders its actions first.
+
+⏺ Read(src/renderer/components/SessionHeader/SessionHeader.tsx)
+  ⎿  Read 184 lines
+
+⏺ Search(pattern: "snooze", path: "src/renderer")
+  ⎿  Found 6 files
+
+  ⎿  You've hit your 5-hour limit · resets 3pm (Europe/Madrid)
+     /upgrade to increase your usage limit.
+
+────────────────────────────────────────────────────────────────────────────────
+>
+────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ accept edits on (shift+tab to cycle)

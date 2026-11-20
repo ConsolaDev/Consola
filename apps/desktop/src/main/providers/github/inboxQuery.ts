@@ -267,7 +267,7 @@ export function parseInboxPayload(payload: unknown): InboxItem[] {
   // partial result is worth showing rather than discarding.
   const hasUsableAlias = INBOX_SEARCH_ALIASES.some(
     (alias) =>
-      typeof data[alias] === 'object' && data[alias] !== null && Array.isArray(data[alias]?.nodes)
+      typeof data[alias] === 'object' && data[alias] !== null && Array.isArray(data[alias]?.nodes),
   );
   if (Array.isArray(payloadObj.errors) && payloadObj.errors.length > 0 && !hasUsableAlias) {
     const firstError =

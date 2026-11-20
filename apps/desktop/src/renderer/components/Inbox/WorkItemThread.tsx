@@ -1,10 +1,35 @@
 import { useMemo, useRef, useState, type ReactNode } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { ChevronDown, ChevronRight, CircleCheck, Ellipsis, ExternalLink, FileCode, Link2, Pencil, Quote, Trash2, Wrench } from 'lucide-react';
-import type { WorkItemPost, WorkItemThread, WorkItemThreadComment } from '../../../shared/workItemDetails';
+import {
+  ChevronDown,
+  ChevronRight,
+  CircleCheck,
+  Ellipsis,
+  ExternalLink,
+  FileCode,
+  Link2,
+  Pencil,
+  Quote,
+  Trash2,
+  Wrench,
+} from 'lucide-react';
+import type {
+  WorkItemPost,
+  WorkItemThread,
+  WorkItemThreadComment,
+} from '../../../shared/workItemDetails';
 import { MOD_KEY } from './inboxPresentation';
 import { parsePatch, threadLocation } from './workItemDetailPresentation';
-import { Avatar, Chip, Messages, Reactions, RelativeTime, WorkItemMarkdown, useWorkItemDetail, type MessageAt } from './WorkItemDetailParts';
+import {
+  Avatar,
+  Chip,
+  Messages,
+  Reactions,
+  RelativeTime,
+  WorkItemMarkdown,
+  useWorkItemDetail,
+  type MessageAt,
+} from './WorkItemDetailParts';
 import { MarkdownEditor } from './WorkItemMarkdownEditor';
 
 /** Lines of a thread's hunk shown before "Show more": the ones leading to the comment. */
@@ -40,7 +65,11 @@ export function PostMenu({
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
-        <button type="button" className="inbox-detail-icon-btn inbox-detail-post-menu" aria-label={`More actions for ${post.author.login}’s comment`}>
+        <button
+          type="button"
+          className="inbox-detail-icon-btn inbox-detail-post-menu"
+          aria-label={`More actions for ${post.author.login}’s comment`}
+        >
           <Ellipsis size={15} aria-hidden="true" />
         </button>
       </DropdownMenu.Trigger>
@@ -67,7 +96,10 @@ export function PostMenu({
             <DropdownMenu.Item
               className="dropdown-item"
               onSelect={() => {
-                void navigator.clipboard.writeText(post.url).then(() => notify('Link copied.', at), () => undefined);
+                void navigator.clipboard.writeText(post.url).then(
+                  () => notify('Link copied.', at),
+                  () => undefined,
+                );
               }}
             >
               <Link2 size={14} aria-hidden="true" />
@@ -91,7 +123,10 @@ export function PostMenu({
           {onDelete && (
             <>
               <DropdownMenu.Separator className="dropdown-separator" />
-              <DropdownMenu.Item className="dropdown-item dropdown-item-destructive" onSelect={onDelete}>
+              <DropdownMenu.Item
+                className="dropdown-item dropdown-item-destructive"
+                onSelect={onDelete}
+              >
                 <Trash2 size={14} aria-hidden="true" />
                 <span>Delete</span>
               </DropdownMenu.Item>
@@ -125,11 +160,35 @@ export function BodyEditor({
   };
   return (
     <div className="inbox-detail-edit">
-      <MarkdownEditor value={draft} onChange={setDraft} label={label} autoFocus rows={5} disabled={busy} onSubmit={() => void save()} onCancel={onClose} />
+      <MarkdownEditor
+        value={draft}
+        onChange={setDraft}
+        label={label}
+        autoFocus
+        rows={5}
+        disabled={busy}
+        onSubmit={() => void save()}
+        onCancel={onClose}
+      />
       <div className="inbox-detail-form-foot">
-        <span className="inbox-detail-kbd-hint" aria-hidden="true"><kbd>{MOD_KEY}</kbd><kbd>↵</kbd> save · <kbd>Esc</kbd> cancel</span>
-        <button type="button" className="inbox-detail-btn inbox-detail-btn--quiet" disabled={busy} onClick={onClose}>Cancel</button>
-        <button type="button" className="inbox-detail-btn inbox-detail-btn--solid inbox-detail-btn--accent" disabled={!canSave} onClick={() => void save()}>
+        <span className="inbox-detail-kbd-hint" aria-hidden="true">
+          <kbd>{MOD_KEY}</kbd>
+          <kbd>↵</kbd> save · <kbd>Esc</kbd> cancel
+        </span>
+        <button
+          type="button"
+          className="inbox-detail-btn inbox-detail-btn--quiet"
+          disabled={busy}
+          onClick={onClose}
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          className="inbox-detail-btn inbox-detail-btn--solid inbox-detail-btn--accent"
+          disabled={!canSave}
+          onClick={() => void save()}
+        >
           {busy ? 'Saving…' : saveLabel}
         </button>
       </div>
@@ -144,11 +203,13 @@ export function PostBody({ post, empty }: { post: WorkItemPost; empty?: ReactNod
     return (
       <p className="inbox-detail-minimized">
         This comment was marked as {post.minimized}.
-        <button type="button" className="inbox-detail-link-btn" onClick={() => setShown(true)}>Show comment</button>
+        <button type="button" className="inbox-detail-link-btn" onClick={() => setShown(true)}>
+          Show comment
+        </button>
       </p>
     );
   }
-  if (!post.body.trim()) return empty ? <>{empty}</> : null;
+  if (!post.body.trim()) return empty ? empty : null;
   return (
     <div className="inbox-detail-post-body">
       <WorkItemMarkdown content={post.body} />
@@ -170,12 +231,21 @@ function HunkPreview({ hunk, path }: { hunk: string; path: string }) {
         </button>
       )}
       {/* Focusable so a keyboard can scroll a wide line. */}
-      <div className="inbox-detail-diff-lines" role="group" aria-label={`Code for ${path}`} tabIndex={0}>
+      <div
+        className="inbox-detail-diff-lines"
+        role="group"
+        aria-label={`Code for ${path}`}
+        tabIndex={0}
+      >
         <div className="inbox-detail-diff-rows">
           {shown.map((row, index) => (
             <div key={index} className={`diff-row diff-row--${row.kind}`}>
-              <span className="diff-num" aria-hidden="true">{row.oldLine || ''}</span>
-              <span className="diff-num" aria-hidden="true">{row.newLine || ''}</span>
+              <span className="diff-num" aria-hidden="true">
+                {row.oldLine || ''}
+              </span>
+              <span className="diff-num" aria-hidden="true">
+                {row.newLine || ''}
+              </span>
               <span className="diff-text">{row.text}</span>
             </div>
           ))}
@@ -185,7 +255,15 @@ function HunkPreview({ hunk, path }: { hunk: string; path: string }) {
   );
 }
 
-function ThreadComment({ comment, at, fix }: { comment: WorkItemThreadComment; at: MessageAt; fix?: () => void }) {
+function ThreadComment({
+  comment,
+  at,
+  fix,
+}: {
+  comment: WorkItemThreadComment;
+  at: MessageAt;
+  fix?: () => void;
+}) {
   const { details, busy, perform, fixTarget } = useWorkItemDetail();
   const [editing, setEditing] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -204,14 +282,22 @@ function ThreadComment({ comment, at, fix }: { comment: WorkItemThreadComment; a
           post={comment}
           at={at}
           onEdit={comment.viewerCanEdit ? () => setEditing(true) : undefined}
-          onDelete={comment.pending && comment.viewerCanDelete ? () => setDeleting(true) : undefined}
+          onDelete={
+            comment.pending && comment.viewerCanDelete ? () => setDeleting(true) : undefined
+          }
         />
       </header>
       {editing ? (
         <BodyEditor
           initial={comment.body}
           label="Edit comment"
-          onSave={(body) => perform({ kind: 'edit-comment', target: 'review-comment', id: comment.id, body }, 'Comment updated.', at)}
+          onSave={(body) =>
+            perform(
+              { kind: 'edit-comment', target: 'review-comment', id: comment.id, body },
+              'Comment updated.',
+              at,
+            )
+          }
           onClose={() => setEditing(false)}
         />
       ) : (
@@ -219,16 +305,34 @@ function ThreadComment({ comment, at, fix }: { comment: WorkItemThreadComment; a
       )}
       <Reactions reactions={comment.reactions} />
       {deleting && (
-        <div className="inbox-detail-confirm" data-tone="error" role="group" aria-label="Confirm delete">
+        <div
+          className="inbox-detail-confirm"
+          data-tone="error"
+          role="group"
+          aria-label="Confirm delete"
+        >
           <p className="inbox-detail-confirm-title">Delete this pending comment?</p>
           <div className="inbox-detail-form-foot">
-            <button type="button" className="inbox-detail-btn inbox-detail-btn--quiet" disabled={busy} onClick={() => setDeleting(false)}>Cancel</button>
+            <button
+              type="button"
+              className="inbox-detail-btn inbox-detail-btn--quiet"
+              disabled={busy}
+              onClick={() => setDeleting(false)}
+            >
+              Cancel
+            </button>
             <button
               type="button"
               autoFocus
               className="inbox-detail-btn inbox-detail-btn--solid inbox-detail-btn--danger-solid"
               disabled={busy}
-              onClick={() => void perform({ kind: 'delete-comment', id: comment.id }, 'Pending comment deleted.', at).then((ok) => ok && setDeleting(false))}
+              onClick={() =>
+                void perform(
+                  { kind: 'delete-comment', id: comment.id },
+                  'Pending comment deleted.',
+                  at,
+                ).then((ok) => ok && setDeleting(false))
+              }
             >
               Delete comment
             </button>
@@ -236,7 +340,12 @@ function ThreadComment({ comment, at, fix }: { comment: WorkItemThreadComment; a
         </div>
       )}
       {fix && (
-        <button type="button" className="inbox-detail-btn inbox-detail-btn--small inbox-detail-btn--tinted inbox-detail-fix" data-tone="accent" onClick={fix}>
+        <button
+          type="button"
+          className="inbox-detail-btn inbox-detail-btn--small inbox-detail-btn--tinted inbox-detail-fix"
+          data-tone="accent"
+          onClick={fix}
+        >
           <Wrench size={13} aria-hidden="true" />
           Fix in {fixTarget}
         </button>
@@ -253,9 +362,14 @@ function ThreadReply({ thread, at }: { thread: WorkItemThread; at: MessageAt }) 
   const send = async () => {
     if (busy || !body.trim()) return;
     const ok = await perform(
-      { kind: 'reply', threadId: thread.id, body, ...(pending ? { pendingReviewId: pending.id } : {}) },
+      {
+        kind: 'reply',
+        threadId: thread.id,
+        body,
+        ...(pending ? { pendingReviewId: pending.id } : {}),
+      },
       pending ? 'Added to your pending review.' : 'Reply posted.',
-      at
+      at,
     );
     if (ok) {
       setBody('');
@@ -285,14 +399,33 @@ function ThreadReply({ thread, at }: { thread: WorkItemThread; at: MessageAt }) 
         onCancel={() => setOpen(false)}
       />
       <div className="inbox-detail-form-foot">
-        <span className="inbox-detail-kbd-hint" aria-hidden="true"><kbd>{MOD_KEY}</kbd><kbd>↵</kbd> send</span>
-        <button type="button" className="inbox-detail-btn inbox-detail-btn--quiet" disabled={busy} onClick={() => setOpen(false)}>Cancel</button>
-        <button type="button" className="inbox-detail-btn inbox-detail-btn--solid inbox-detail-btn--accent" disabled={busy || !body.trim()} onClick={() => void send()}>
+        <span className="inbox-detail-kbd-hint" aria-hidden="true">
+          <kbd>{MOD_KEY}</kbd>
+          <kbd>↵</kbd> send
+        </span>
+        <button
+          type="button"
+          className="inbox-detail-btn inbox-detail-btn--quiet"
+          disabled={busy}
+          onClick={() => setOpen(false)}
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          className="inbox-detail-btn inbox-detail-btn--solid inbox-detail-btn--accent"
+          disabled={busy || !body.trim()}
+          onClick={() => void send()}
+        >
           {busy ? 'Sending…' : pending ? 'Add review comment' : 'Reply'}
         </button>
       </div>
       {/* Spoken where it matters: until the review is submitted, nobody else sees this. */}
-      {pending && <p className="inbox-detail-hint">This joins your pending review. Others see it once you submit the review.</p>}
+      {pending && (
+        <p className="inbox-detail-hint">
+          This joins your pending review. Others see it once you submit the review.
+        </p>
+      )}
     </div>
   );
 }
@@ -302,7 +435,13 @@ function ThreadReply({ thread, at }: { thread: WorkItemThread; at: MessageAt }) 
  * the code it was written on), its comments, a reply, and resolving it. A
  * resolved thread starts folded to one line, as on GitHub.
  */
-export function ReviewThread({ thread, placement }: { thread: WorkItemThread; placement: 'stream' | 'diff' }) {
+export function ReviewThread({
+  thread,
+  placement,
+}: {
+  thread: WorkItemThread;
+  placement: 'stream' | 'diff';
+}) {
   const { item, isPr, open: itemOpen, busy, perform, handOff } = useWorkItemDetail();
   const [expanded, setExpanded] = useState(!thread.isResolved);
   const at = `thread:${thread.id}`;
@@ -313,7 +452,12 @@ export function ReviewThread({ thread, placement }: { thread: WorkItemThread; pl
   if (!expanded) {
     return (
       <div className="inbox-detail-thread" data-resolved="">
-        <button type="button" className="inbox-detail-thread-folded" aria-expanded={false} onClick={() => setExpanded(true)}>
+        <button
+          type="button"
+          className="inbox-detail-thread-folded"
+          aria-expanded={false}
+          onClick={() => setExpanded(true)}
+        >
           <ChevronRight size={13} aria-hidden="true" />
           <span>
             <strong>{first.author.login}</strong>’s thread on <code>{location}</code> — resolved
@@ -324,15 +468,22 @@ export function ReviewThread({ thread, placement }: { thread: WorkItemThread; pl
   }
 
   const line = thread.line ?? thread.originalLine;
-  const fix = isPr && itemOpen
-    ? () => handOff(
-      `Address this review feedback on ${item.url}:\n${first.url}\n\n${thread.path}${line ? `:${line}` : ''}\n${first.body}\n\nInspect the current code, implement the fix, and validate it.`,
-      at
-    )
-    : undefined;
+  const fix =
+    isPr && itemOpen
+      ? () =>
+          handOff(
+            `Address this review feedback on ${item.url}:\n${first.url}\n\n${thread.path}${line ? `:${line}` : ''}\n${first.body}\n\nInspect the current code, implement the fix, and validate it.`,
+            at,
+          )
+      : undefined;
   const resolvable = thread.isResolved ? thread.viewerCanUnresolve : thread.viewerCanResolve;
   return (
-    <section className="inbox-detail-thread" data-resolved={thread.isResolved ? '' : undefined} data-placement={placement} aria-label={`Thread on ${location}`}>
+    <section
+      className="inbox-detail-thread"
+      data-resolved={thread.isResolved ? '' : undefined}
+      data-placement={placement}
+      aria-label={`Thread on ${location}`}
+    >
       {(placement === 'stream' || thread.isResolved) && (
         <header className="inbox-detail-thread-head">
           {placement === 'stream' && (
@@ -346,17 +497,29 @@ export function ReviewThread({ thread, placement }: { thread: WorkItemThread; pl
             </>
           )}
           {thread.isResolved && (
-            <button type="button" className="inbox-detail-link-btn inbox-detail-thread-fold" aria-expanded onClick={() => setExpanded(false)}>
+            <button
+              type="button"
+              className="inbox-detail-link-btn inbox-detail-thread-fold"
+              aria-expanded
+              onClick={() => setExpanded(false)}
+            >
               <CircleCheck size={13} aria-hidden="true" />
               Resolved · hide
             </button>
           )}
         </header>
       )}
-      {placement === 'stream' && thread.diffHunk && <HunkPreview hunk={thread.diffHunk} path={thread.path} />}
+      {placement === 'stream' && thread.diffHunk && (
+        <HunkPreview hunk={thread.diffHunk} path={thread.path} />
+      )}
       <ol className="inbox-detail-thread-comments">
         {thread.comments.map((comment, index) => (
-          <ThreadComment key={comment.id} comment={comment} at={at} fix={index === 0 ? fix : undefined} />
+          <ThreadComment
+            key={comment.id}
+            comment={comment}
+            at={at}
+            fix={index === 0 ? fix : undefined}
+          />
         ))}
       </ol>
       <div className="inbox-detail-thread-foot">
@@ -366,11 +529,13 @@ export function ReviewThread({ thread, placement }: { thread: WorkItemThread; pl
             type="button"
             className="inbox-detail-btn inbox-detail-btn--small"
             disabled={busy}
-            onClick={() => void perform(
-              { kind: 'resolve-thread', threadId: thread.id, resolved: !thread.isResolved },
-              thread.isResolved ? 'Conversation unresolved.' : 'Conversation resolved.',
-              at
-            )}
+            onClick={() =>
+              void perform(
+                { kind: 'resolve-thread', threadId: thread.id, resolved: !thread.isResolved },
+                thread.isResolved ? 'Conversation unresolved.' : 'Conversation resolved.',
+                at,
+              )
+            }
           >
             {thread.isResolved ? 'Unresolve conversation' : 'Resolve conversation'}
           </button>

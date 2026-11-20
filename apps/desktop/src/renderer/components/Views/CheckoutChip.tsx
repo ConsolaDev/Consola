@@ -39,7 +39,9 @@ export function CheckoutChip({ checkout }: { checkout: CheckoutInfo | undefined 
 
   const isWorktree = checkout.kind === 'worktree';
   const ref = checkoutRef(checkout);
-  const spokenRef = checkout.branch ? `branch ${checkout.branch}` : `detached at ${checkout.head ?? 'HEAD'}`;
+  const spokenRef = checkout.branch
+    ? `branch ${checkout.branch}`
+    : `detached at ${checkout.head ?? 'HEAD'}`;
 
   const handleCopy = () => {
     navigator.clipboard.writeText(checkout.root).then(
@@ -51,7 +53,7 @@ export function CheckoutChip({ checkout }: { checkout: CheckoutInfo | undefined 
       },
       () => {
         // Clipboard refused (no focus); the tooltip keeps offering the copy.
-      }
+      },
     );
   };
 
@@ -77,15 +79,19 @@ export function CheckoutChip({ checkout }: { checkout: CheckoutInfo | undefined 
           </button>
         </Tooltip.Trigger>
         <Tooltip.Portal>
-          <Tooltip.Content className="tooltip-content checkout-tooltip" sideOffset={6} align="start">
+          <Tooltip.Content
+            className="tooltip-content checkout-tooltip"
+            sideOffset={6}
+            align="start"
+          >
             <span className="checkout-tooltip-title" data-kind={checkout.kind}>
               {isWorktree ? 'Worktree' : 'Main checkout'}
             </span>
             <p className="checkout-tooltip-lead">
               {isWorktree ? (
                 <>
-                  A second working folder for <strong>{basename(checkout.mainCheckout)}</strong>, on its
-                  own branch. Edits here don't change the files in your main checkout.
+                  A second working folder for <strong>{basename(checkout.mainCheckout)}</strong>, on
+                  its own branch. Edits here don't change the files in your main checkout.
                 </>
               ) : (
                 <>This session works directly in the folder you opened, not in a worktree.</>
@@ -102,7 +108,11 @@ export function CheckoutChip({ checkout }: { checkout: CheckoutInfo | undefined 
               <dt>Folder</dt>
               <dd>
                 <span className="checkout-tooltip-value" data-kind={checkout.kind}>
-                  {isWorktree ? <FolderGit2 size={12} aria-hidden="true" /> : <Folder size={12} aria-hidden="true" />}
+                  {isWorktree ? (
+                    <FolderGit2 size={12} aria-hidden="true" />
+                  ) : (
+                    <Folder size={12} aria-hidden="true" />
+                  )}
                   {tildePath(checkout.root)}
                 </span>
                 {isWorktree && (
@@ -120,8 +130,8 @@ export function CheckoutChip({ checkout }: { checkout: CheckoutInfo | undefined 
                       {tildePath(checkout.mainCheckout)}
                     </span>
                     <span className="checkout-tooltip-note">
-                      The folder you opened. Same repository: it shares commits and branches with this
-                      worktree.
+                      The folder you opened. Same repository: it shares commits and branches with
+                      this worktree.
                     </span>
                   </dd>
                 </>

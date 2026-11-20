@@ -1,9 +1,9 @@
 import type { OpenTypeahead } from './detectOpenTrigger';
 
 export interface SplicedText {
-    value: string;
-    /** Where the caret belongs afterwards: just past the inserted text. */
-    caretIndex: number;
+  value: string;
+  /** Where the caret belongs afterwards: just past the inserted text. */
+  caretIndex: number;
 }
 
 /**
@@ -14,16 +14,16 @@ export interface SplicedText {
  * stops at whitespace, so the popover shuts without any separate signal.
  */
 export function spliceTypeaheadSelection(
-    text: string,
-    open: OpenTypeahead,
-    insertText: string
+  text: string,
+  open: OpenTypeahead,
+  insertText: string,
 ): SplicedText {
-    const before = text.slice(0, open.start);
-    const after = text.slice(open.start + 1 + open.query.length);
-    const insertion = `${open.trigger.char}${insertText} `;
+  const before = text.slice(0, open.start);
+  const after = text.slice(open.start + 1 + open.query.length);
+  const insertion = `${open.trigger.char}${insertText} `;
 
-    return {
-        value: `${before}${insertion}${after}`,
-        caretIndex: before.length + insertion.length,
-    };
+  return {
+    value: `${before}${insertion}${after}`,
+    caretIndex: before.length + insertion.length,
+  };
 }

@@ -35,7 +35,10 @@
   cursor: pointer;
   white-space: nowrap;
   user-select: none;
-  transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
+  transition:
+    background var(--transition-fast),
+    color var(--transition-fast),
+    border-color var(--transition-fast);
 }
 
 .preview-tab:hover {

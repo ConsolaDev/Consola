@@ -14,7 +14,7 @@ test('background windows stay hidden and unfocused after input and focus request
       const windows = BrowserWindow.getAllWindows();
       for (const window of windows) window.focus();
       return {
-        windows: windows.map(window => ({
+        windows: windows.map((window) => ({
           visible: window.isVisible(),
           focused: window.isFocused(),
           focusable: window.isFocusable(),

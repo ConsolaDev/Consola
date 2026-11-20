@@ -121,6 +121,8 @@ export {
   TICK_MS,
   DEFAULT_MAX_CONCURRENT_AGENTS,
   MAX_WAITING_PER_SESSION,
+  OPEN_STATUSES,
+  runAttention,
   type AutomationServiceDeps,
   type AutomationNotice,
   type SaveEntryOptions,

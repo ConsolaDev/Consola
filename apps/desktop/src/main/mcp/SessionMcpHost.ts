@@ -241,9 +241,9 @@ function newSocketPath(): string {
  * The config path for a session about to launch, or undefined to launch it
  * without one. Every session gets the Consola tools; a failure to set the
  * endpoint up must not stop a person's session from starting — except a
- * conductor's or the Assistant's, which are useless without their tools, and
- * a step's, whose outputs and documents reach Consola only through them: it
- * fails rather than running without them.
+ * conductor's, which is useless without its tools, and a step's, whose
+ * outputs and documents reach Consola only through them: it fails rather
+ * than running without them.
  */
 export async function mcpConfigForSession(
   session: Pick<Session, 'id' | 'kind' | 'automation'>,
@@ -252,8 +252,7 @@ export async function mcpConfigForSession(
   try {
     return await host.register(session);
   } catch (error) {
-    if (session.kind === 'conductor' || session.kind === 'assistant' || session.automation?.step)
-      throw error;
+    if (session.kind === 'conductor' || session.automation?.step) throw error;
     console.error(
       `Consola MCP unavailable for session ${session.id}; launching without it.`,
       error,

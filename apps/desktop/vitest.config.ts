@@ -18,5 +18,10 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: ['src/**/*.test.ts'],
+    // Node 25+ defines a global `localStorage` that reads as undefined unless
+    // `--localstorage-file` is given. zustand's persist storage then wraps
+    // undefined and throws on the first write, where a missing global made it
+    // a quiet no-op, as it is on Node 22. Off, the stores see no storage again.
+    execArgv: ['--no-experimental-webstorage'],
   },
 });

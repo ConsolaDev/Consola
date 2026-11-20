@@ -1,4 +1,13 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type MouseEvent,
+  type PointerEvent,
+} from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { X, ZoomIn, ZoomOut } from 'lucide-react';
 import {
@@ -61,13 +70,21 @@ interface Gesture {
  * between fitted and its actual pixels. A Radix dialog, so focus is trapped
  * while it is open and returns to the image that opened it.
  */
-export function ImageViewer({ image, onClose }: { image: ViewedImage | null; onClose: () => void }) {
+export function ImageViewer({
+  image,
+  onClose,
+}: {
+  image: ViewedImage | null;
+  onClose: () => void;
+}) {
   return (
     <Dialog.Root open={image !== null} onOpenChange={(open) => !open && onClose()}>
       {/* No Dialog.Overlay: the content is the full-window scrim itself. As
           separate portals the two can land in either order, and an overlay
           above the content swallows every click on the image. */}
-      <Dialog.Portal>{image && <ViewerContent key={image.src} image={image} onClose={onClose} />}</Dialog.Portal>
+      <Dialog.Portal>
+        {image && <ViewerContent key={image.src} image={image} onClose={onClose} />}
+      </Dialog.Portal>
     </Dialog.Root>
   );
 }
@@ -78,7 +95,9 @@ function ViewerContent({ image, onClose }: { image: ViewedImage; onClose: () => 
   const imageRef = useRef<HTMLImageElement>(null);
   const gesture = useRef<Gesture | null>(null);
   // Read on the first render, before the dialog moves focus into itself.
-  const [opener] = useState(() => (document.activeElement instanceof HTMLElement ? document.activeElement : null));
+  const [opener] = useState(() =>
+    document.activeElement instanceof HTMLElement ? document.activeElement : null,
+  );
   const [state, setState] = useState<ViewerState | null>(null);
   const [dragging, setDragging] = useState(false);
 
@@ -93,10 +112,17 @@ function ViewerContent({ image, onClose }: { image: ViewedImage; onClose: () => 
     if (!stage) return;
     const measure = () => {
       const { width, height } = stage.getBoundingClientRect();
-      const frame = makeFrame({ width: image.width, height: image.height }, { width, height }, PADDING);
+      const frame = makeFrame(
+        { width: image.width, height: image.height },
+        { width, height },
+        PADDING,
+      );
       setState((current) => ({
         frame,
-        view: !current || isAtFit(current.frame, current.view) ? fitView(frame) : reframe(frame, current.view),
+        view:
+          !current || isAtFit(current.frame, current.view)
+            ? fitView(frame)
+            : reframe(frame, current.view),
         animate: false,
       }));
     };
@@ -129,14 +155,28 @@ function ViewerContent({ image, onClose }: { image: ViewedImage; onClose: () => 
     return () => stage.removeEventListener('wheel', onWheel);
   }, [apply]);
 
-  const zoomBy = (factor: number) => apply(({ frame, view }) => zoomTo(frame, view, view.scale * factor), true);
+  const zoomBy = (factor: number) =>
+    apply(({ frame, view }) => zoomTo(frame, view, view.scale * factor), true);
   const toggle = (point?: Point) =>
-    apply(({ frame, view }) => (isAtFit(frame, view) ? zoomTo(frame, view, detailScale(frame.fit), point) : fitView(frame)), true);
+    apply(
+      ({ frame, view }) =>
+        isAtFit(frame, view) ? zoomTo(frame, view, detailScale(frame.fit), point) : fitView(frame),
+      true,
+    );
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.metaKey || event.ctrlKey || event.altKey) return;
     const pan = (dx: number, dy: number) =>
-      apply(({ frame, view }) => panBy(frame, view, dx * frame.stage.width * ARROW_PAN, dy * frame.stage.height * ARROW_PAN), true);
+      apply(
+        ({ frame, view }) =>
+          panBy(
+            frame,
+            view,
+            dx * frame.stage.width * ARROW_PAN,
+            dy * frame.stage.height * ARROW_PAN,
+          ),
+        true,
+      );
     switch (event.key) {
       case '+':
       case '=':
@@ -278,18 +318,32 @@ function ViewerContent({ image, onClose }: { image: ViewedImage; onClose: () => 
       <div className="image-viewer-bar">
         <Dialog.Title className="image-viewer-title">{title}</Dialog.Title>
         <div className="image-viewer-tools" role="toolbar" aria-label="Zoom">
-          <button type="button" className="image-viewer-button" aria-label="Zoom out" disabled={atFit} onClick={() => zoomBy(1 / ZOOM_STEP)}>
+          <button
+            type="button"
+            className="image-viewer-button"
+            aria-label="Zoom out"
+            disabled={atFit}
+            onClick={() => zoomBy(1 / ZOOM_STEP)}
+          >
             <ZoomOut size={16} aria-hidden="true" />
           </button>
           <button
             type="button"
             className="image-viewer-button image-viewer-percent"
-            aria-label={atFit ? `Zoom to ${percent(detailScale(state?.frame.fit ?? 1))}` : 'Fit to window'}
+            aria-label={
+              atFit ? `Zoom to ${percent(detailScale(state?.frame.fit ?? 1))}` : 'Fit to window'
+            }
             onClick={() => toggle()}
           >
             {percent(state?.view.scale ?? 1)}
           </button>
-          <button type="button" className="image-viewer-button" aria-label="Zoom in" disabled={atMax} onClick={() => zoomBy(ZOOM_STEP)}>
+          <button
+            type="button"
+            className="image-viewer-button"
+            aria-label="Zoom in"
+            disabled={atMax}
+            onClick={() => zoomBy(ZOOM_STEP)}
+          >
             <ZoomIn size={16} aria-hidden="true" />
           </button>
           <span className="image-viewer-divider" aria-hidden="true" />

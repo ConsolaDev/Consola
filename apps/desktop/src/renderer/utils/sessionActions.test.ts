@@ -23,6 +23,7 @@ import {
   createSessionAndOpen,
   defaultSessionScopeId,
   openNewSessionDialog,
+  renameOutcome,
   revealCreatedScope,
   revealSessionScope,
 } from './sessionActions';
@@ -32,7 +33,11 @@ import { useNavigationStore } from '../stores/navigationStore';
 import { useWorkspaceStore } from '../stores/workspaceStore';
 import { useNewSessionDialogStore } from '../stores/newSessionDialogStore';
 import { useHomeStore } from '../stores/homeStore';
-import { createWorkspaceRecord, createScopeRecord, createSessionRecord } from '../../shared/workspace';
+import {
+  createWorkspaceRecord,
+  createScopeRecord,
+  createSessionRecord,
+} from '../../shared/workspace';
 
 beforeEach(() => {
   vi.restoreAllMocks();
@@ -55,11 +60,22 @@ describe('session creation', () => {
     workspace.scopes.push(secondary);
     useWorkspaceStore.setState({ workspaces: [workspace] });
     useHomeStore.getState().setScopeFilter(workspace.id, secondary.id);
-    useNavigationStore.setState({ activeWorkspaceId: workspace.id, activeSessionId: 'existing', overlay: 'inbox' });
-    const create = vi.spyOn(useWorkspaceStore.getState(), 'createSession').mockImplementation(async (_id, fields) => ({
-      ...fields, id: 'new-session', claudeSessionId: 'cli-id', hasStarted: false,
-      kind: 'interactive', createdAt: 0, lastActiveAt: 0,
-    }));
+    useNavigationStore.setState({
+      activeWorkspaceId: workspace.id,
+      activeSessionId: 'existing',
+      overlay: 'inbox',
+    });
+    const create = vi
+      .spyOn(useWorkspaceStore.getState(), 'createSession')
+      .mockImplementation(async (_id, fields) => ({
+        ...fields,
+        id: 'new-session',
+        claudeSessionId: 'cli-id',
+        hasStarted: false,
+        kind: 'interactive',
+        createdAt: 0,
+        lastActiveAt: 0,
+      }));
     return { workspace, secondary, create };
   }
 
@@ -67,30 +83,54 @@ describe('session creation', () => {
     const { workspace, secondary, create } = setup();
     useHomeStore.getState().setDraftGroup(workspace.id, 'old-draft');
     await createQuickSession(workspace.id);
-    expect(create).toHaveBeenCalledWith(workspace.id, expect.objectContaining({
-      harnessId: 'default-agent', scopeId: secondary.id, model: undefined, groupId: undefined,
-    }), undefined);
-    expect(useNavigationStore.getState()).toMatchObject({ activeSessionId: 'new-session', overlay: null });
+    expect(create).toHaveBeenCalledWith(
+      workspace.id,
+      expect.objectContaining({
+        harnessId: 'default-agent',
+        scopeId: secondary.id,
+        model: undefined,
+        groupId: undefined,
+      }),
+      undefined,
+    );
+    expect(useNavigationStore.getState()).toMatchObject({
+      activeSessionId: 'new-session',
+      overlay: null,
+    });
     expect(useNewSessionDialogStore.getState().destination).toBeNull();
   });
 
   it('honors explicit scope and group destinations for section buttons', async () => {
     const { workspace, create } = setup();
-    await createQuickSession(workspace.id, { scopeId: workspace.scopes[0].id, groupId: 'chosen-group' });
-    expect(create).toHaveBeenCalledWith(workspace.id, expect.objectContaining({
-      scopeId: workspace.scopes[0].id, groupId: 'chosen-group',
-    }), undefined);
+    await createQuickSession(workspace.id, {
+      scopeId: workspace.scopes[0].id,
+      groupId: 'chosen-group',
+    });
+    expect(create).toHaveBeenCalledWith(
+      workspace.id,
+      expect.objectContaining({
+        scopeId: workspace.scopes[0].id,
+        groupId: 'chosen-group',
+      }),
+      undefined,
+    );
   });
 
   it('opens and cancels options without creating a session or changing the current view and filters', () => {
     const { workspace, secondary, create } = setup();
     openNewSessionDialog(workspace.id, { groupId: 'chosen-group' });
     expect(useNewSessionDialogStore.getState().destination).toEqual({
-      workspaceId: workspace.id, scopeId: secondary.id, groupId: 'chosen-group', error: undefined,
+      workspaceId: workspace.id,
+      scopeId: secondary.id,
+      groupId: 'chosen-group',
+      error: undefined,
     });
     useNewSessionDialogStore.getState().close();
     expect(create).not.toHaveBeenCalled();
-    expect(useNavigationStore.getState()).toMatchObject({ activeSessionId: 'existing', overlay: 'inbox' });
+    expect(useNavigationStore.getState()).toMatchObject({
+      activeSessionId: 'existing',
+      overlay: 'inbox',
+    });
     expect(useHomeStore.getState().scopeFilters[workspace.id]).toBe(secondary.id);
     expect(windowBridge.setView).not.toHaveBeenCalled();
   });
@@ -98,8 +138,16 @@ describe('session creation', () => {
   it('forwards configured launch options and checkout', async () => {
     const { workspace, create } = setup();
     const checkout = { mode: 'new' as const, baseRef: 'main', branchName: 'feature' };
-    await createSessionAndOpen(workspace.id, { harnessId: 'other-agent', model: 'chosen-model', checkout });
-    expect(create).toHaveBeenCalledWith(workspace.id, expect.objectContaining({ harnessId: 'other-agent', model: 'chosen-model' }), checkout);
+    await createSessionAndOpen(workspace.id, {
+      harnessId: 'other-agent',
+      model: 'chosen-model',
+      checkout,
+    });
+    expect(create).toHaveBeenCalledWith(
+      workspace.id,
+      expect.objectContaining({ harnessId: 'other-agent', model: 'chosen-model' }),
+      checkout,
+    );
   });
 
   it('falls back to the primary scope when a selected scope was removed', async () => {
@@ -109,30 +157,25 @@ describe('session creation', () => {
     expect(create.mock.calls[0][1].scopeId).toBe(workspace.scopes[0].id);
   });
 
-  it('under All, + starts in the open session\'s scope', async () => {
+  it("under All, + starts in the open session's scope", async () => {
     const { workspace, secondary, create } = setup();
     const open = createSessionRecord({
-      name: 'Open', workspaceId: workspace.id, instanceId: 'open', harnessId: 'default-agent',
-      model: undefined, scopeId: secondary.id,
+      name: 'Open',
+      workspaceId: workspace.id,
+      instanceId: 'open',
+      harnessId: 'default-agent',
+      model: undefined,
+      scopeId: secondary.id,
     });
     workspace.sessions.push(open);
     useHomeStore.getState().setScopeFilter(workspace.id, null);
     useNavigationStore.setState({ activeSessionId: open.id, overlay: null });
     await createQuickSession(workspace.id);
-    expect(create).toHaveBeenCalledWith(workspace.id, expect.objectContaining({ scopeId: secondary.id }), undefined);
-  });
-
-  it('under All with the Assistant open, + starts in the primary scope', async () => {
-    const { workspace, secondary, create } = setup();
-    const assistant = createSessionRecord({
-      name: 'Assistant', workspaceId: workspace.id, instanceId: 'assistant', harnessId: 'default-agent',
-      model: undefined, scopeId: secondary.id, kind: 'assistant',
-    });
-    workspace.sessions.push(assistant);
-    useHomeStore.getState().setScopeFilter(workspace.id, null);
-    useNavigationStore.setState({ activeSessionId: assistant.id, overlay: null });
-    await createQuickSession(workspace.id);
-    expect(create).toHaveBeenCalledWith(workspace.id, expect.objectContaining({ scopeId: workspace.scopes[0].id }), undefined);
+    expect(create).toHaveBeenCalledWith(
+      workspace.id,
+      expect.objectContaining({ scopeId: secondary.id }),
+      undefined,
+    );
   });
 
   it('does not create or steal a workspace held by another window', async () => {
@@ -155,10 +198,19 @@ describe('session creation', () => {
   it('coalesces rapid quick-create requests and does not navigate back after a workspace switch', async () => {
     const { workspace, create } = setup();
     const session = (await create.getMockImplementation()!(workspace.id, {
-      name: 'New Session', workspaceId: workspace.id, instanceId: 'instance', harnessId: 'default-agent', scopeId: workspace.scopes[0].id,
+      name: 'New Session',
+      workspaceId: workspace.id,
+      instanceId: 'instance',
+      harnessId: 'default-agent',
+      scopeId: workspace.scopes[0].id,
     }))!;
     let resolve!: (value: typeof session) => void;
-    create.mockImplementation(() => new Promise(done => { resolve = done; }));
+    create.mockImplementation(
+      () =>
+        new Promise((done) => {
+          resolve = done;
+        }),
+    );
     const first = createQuickSession(workspace.id);
     await createQuickSession(workspace.id);
     expect(create).toHaveBeenCalledTimes(1);
@@ -221,32 +273,43 @@ describe('activateSessionAnywhere', () => {
 });
 
 // A workspace with two scopes and one open session, filtered to that session's scope.
-function openSessionSetup(open: { scope: 'root' | 'api'; kind?: 'interactive' | 'assistant' }) {
+function openSessionSetup(open: { scope: 'root' | 'api' }) {
   const workspace = createWorkspaceRecord('App', '/app', false, 'default-agent');
   const root = workspace.scopes[0];
   const api = createScopeRecord({ name: 'API', path: '/api', isGitRepo: false });
   workspace.scopes.push(api);
   const session = createSessionRecord({
-    name: 'Open session', workspaceId: workspace.id, instanceId: 'instance', harnessId: 'default-agent',
-    model: undefined, scopeId: open.scope === 'root' ? root.id : api.id, kind: open.kind,
+    name: 'Open session',
+    workspaceId: workspace.id,
+    instanceId: 'instance',
+    harnessId: 'default-agent',
+    model: undefined,
+    scopeId: open.scope === 'root' ? root.id : api.id,
   });
   workspace.sessions.push(session);
   useWorkspaceStore.setState({ workspaces: [workspace] });
   useHomeStore.getState().setScopeFilter(workspace.id, session.scopeId);
-  useNavigationStore.setState({ activeWorkspaceId: workspace.id, activeSessionId: session.id, overlay: null });
+  useNavigationStore.setState({
+    activeWorkspaceId: workspace.id,
+    activeSessionId: session.id,
+    overlay: null,
+  });
   return { workspace, root, api, session };
 }
 
 describe('chooseScope', () => {
   const setup = openSessionSetup;
 
-  it('leaves a session from another scope for the new scope\'s composer, launching nothing', () => {
+  it("leaves a session from another scope for the new scope's composer, launching nothing", () => {
     const { workspace, api } = setup({ scope: 'root' });
     chooseScope(workspace.id, api.id);
     expect(useHomeStore.getState().scopeFilters[workspace.id]).toBe(api.id);
     expect(useNavigationStore.getState().activeSessionId).toBeNull();
     // Written through, so returning to the workspace lands on the composer too.
-    expect(windowBridge.setView).toHaveBeenCalledWith(workspace.id, { activeSessionId: null, overlay: null });
+    expect(windowBridge.setView).toHaveBeenCalledWith(workspace.id, {
+      activeSessionId: null,
+      overlay: null,
+    });
   });
 
   it('keeps a session open when it already belongs to the chosen scope', () => {
@@ -254,13 +317,6 @@ describe('chooseScope', () => {
     chooseScope(workspace.id, root.id);
     expect(useNavigationStore.getState().activeSessionId).toBe(session.id);
     expect(windowBridge.setView).not.toHaveBeenCalled();
-  });
-
-  it('keeps the Assistant open: it belongs to no scope, so no scope contradicts it', () => {
-    const { workspace, api, session } = setup({ scope: 'root', kind: 'assistant' });
-    chooseScope(workspace.id, api.id);
-    expect(useHomeStore.getState().scopeFilters[workspace.id]).toBe(api.id);
-    expect(useNavigationStore.getState().activeSessionId).toBe(session.id);
   });
 
   it('only filters while the Inbox covers the pane', () => {
@@ -294,13 +350,6 @@ describe('revealSessionScope', () => {
     useHomeStore.getState().setScopeFilter(workspace.id, null);
     revealSessionScope(workspace.id, session.id);
     expect(workspace.id in useHomeStore.getState().scopeFilters).toBe(false);
-  });
-
-  it('never filters to the Assistant\'s scope', () => {
-    const { workspace, root, session } = openSessionSetup({ scope: 'api', kind: 'assistant' });
-    useHomeStore.getState().setScopeFilter(workspace.id, root.id);
-    revealSessionScope(workspace.id, session.id);
-    expect(useHomeStore.getState().scopeFilters[workspace.id]).toBe(root.id);
   });
 
   it('treats a filter whose scope was removed as All, so a click never narrows the list', () => {
@@ -344,5 +393,13 @@ describe('revealCreatedScope', () => {
     const { workspace, api } = openSessionSetup({ scope: 'api' });
     revealCreatedScope(workspace.id, api.id);
     expect(useHomeStore.getState().scopeFilters[workspace.id]).toBe(api.id);
+  });
+});
+
+describe('renameOutcome', () => {
+  it('refuses an empty name, ignores an unchanged one, and saves a trimmed one', () => {
+    expect(renameOutcome('Old', '   ')).toEqual({ kind: 'refuse' });
+    expect(renameOutcome('Old', ' Old ')).toEqual({ kind: 'unchanged' });
+    expect(renameOutcome('Old', ' New ')).toEqual({ kind: 'save', name: 'New' });
   });
 });

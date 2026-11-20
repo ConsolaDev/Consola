@@ -3,9 +3,8 @@ import { ChevronDown, CornerDownLeft, LoaderCircle, RotateCcw } from 'lucide-rea
 import { useState } from 'react';
 import { actionConversation, type WorkItemAction } from '../../../shared/workItemActions';
 import type { Session, Workspace } from '../../../shared/workspace';
-import { useTerminalStore } from '../../stores/terminalStore';
 import { runActionInSession } from '../../utils/sessionActions';
-import { sessionStatusFor } from '../../utils/sessionStatus';
+import { useSessionAttention } from '../../stores/attentionStore';
 import { ConfirmDialog } from '../Dialogs/ConfirmDialog';
 import './styles.css';
 
@@ -40,7 +39,7 @@ const HINTS = {
  * line of their own, and the menu is where the person is looking.
  */
 export function RunActionMenu({ workspace, session, triggerClassName, onRan }: RunActionMenuProps) {
-  const status = useTerminalStore((state) => sessionStatusFor(state.terminals[session.instanceId]));
+  const status = useSessionAttention(session.id);
   const [open, setOpen] = useState(false);
   const [runningId, setRunningId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -107,11 +106,17 @@ export function RunActionMenu({ workspace, session, triggerClassName, onRan }: R
             align="end"
             data-testid="run-action-menu"
           >
-            <DropdownMenu.Label className="run-action-menu-label">Run in this session</DropdownMenu.Label>
+            <DropdownMenu.Label className="run-action-menu-label">
+              Run in this session
+            </DropdownMenu.Label>
             {actions.map((action) => {
               const conversation = actionConversation(action);
               const pending = runningId === action.id;
-              const Icon = pending ? LoaderCircle : conversation === 'fresh' ? RotateCcw : CornerDownLeft;
+              const Icon = pending
+                ? LoaderCircle
+                : conversation === 'fresh'
+                  ? RotateCcw
+                  : CornerDownLeft;
               return (
                 <DropdownMenu.Item
                   key={action.id}
@@ -128,7 +133,9 @@ export function RunActionMenu({ workspace, session, triggerClassName, onRan }: R
                   <Icon
                     size={13}
                     aria-hidden="true"
-                    className={pending ? 'run-action-icon run-action-icon--spin' : 'run-action-icon'}
+                    className={
+                      pending ? 'run-action-icon run-action-icon--spin' : 'run-action-icon'
+                    }
                   />
                   <span className="run-action-text">
                     {action.name}

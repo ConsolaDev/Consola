@@ -1,9 +1,16 @@
 // src/renderer/components/Inbox/InboxRow.tsx
-import { Check, CircleDot, GitPullRequest, GitPullRequestDraft, MessageSquare, X } from 'lucide-react';
+import {
+  Check,
+  CircleDot,
+  GitPullRequest,
+  GitPullRequestDraft,
+  MessageSquare,
+  X,
+} from 'lucide-react';
 import type { InboxItem } from '../../../shared/workItems';
 import { workItemKey } from '../../../shared/workItems';
 import type { Session } from '../../../shared/workspace';
-import type { TerminalState } from '../../stores/terminalStore';
+import type { AttentionMap } from '../../utils/sessionStatus';
 import {
   checksLabel,
   hasAccentBar,
@@ -16,7 +23,7 @@ interface InboxRowProps {
   item: InboxItem;
   /** This workspace's sessions linked to this item. */
   sessions: Session[];
-  terminals: Record<string, TerminalState>;
+  attention: AttentionMap;
   cloned: boolean;
   selected: boolean;
   onSelect: (item: InboxItem) => void;
@@ -28,12 +35,12 @@ interface InboxRowProps {
  * then review state, checks and comment count. No verbs -- selecting the
  * row opens the pane, and the pane is where sessions and actions live.
  */
-export function InboxRow({ item, sessions, terminals, cloned, selected, onSelect }: InboxRowProps) {
+export function InboxRow({ item, sessions, attention, cloned, selected, onSelect }: InboxRowProps) {
   const key = workItemKey(item.workItem);
   const review = reviewStateLabel(item);
   const checks = checksLabel(item.checks);
   const repoName = item.workItem.repo.split('/').pop() ?? item.workItem.repo;
-  const sessionStatus = sessions.length > 0 ? worstStatusForItem(sessions, terminals) : null;
+  const sessionStatus = sessions.length > 0 ? worstStatusForItem(sessions, attention) : null;
   const meta = [`${repoName}#${item.workItem.number}`, item.author, relativeTime(item.updatedAt)]
     .filter(Boolean)
     .join(' · ');
@@ -45,7 +52,11 @@ export function InboxRow({ item, sessions, terminals, cloned, selected, onSelect
     item.workItem.type === 'issue' ? (
       <CircleDot size={14} className="inbox-row-icon inbox-row-icon--issue" aria-hidden="true" />
     ) : item.isDraft ? (
-      <GitPullRequestDraft size={14} className="inbox-row-icon inbox-row-icon--draft" aria-hidden="true" />
+      <GitPullRequestDraft
+        size={14}
+        className="inbox-row-icon inbox-row-icon--draft"
+        aria-hidden="true"
+      />
     ) : (
       <GitPullRequest size={14} className="inbox-row-icon" aria-hidden="true" />
     );
@@ -100,11 +111,20 @@ export function InboxRow({ item, sessions, terminals, cloned, selected, onSelect
       </div>
       <div className="inbox-row-status">
         {review && (
-          <span className={`inbox-row-review inbox-row-review--${item.reviewDecision}`}>{review}</span>
+          <span className={`inbox-row-review inbox-row-review--${item.reviewDecision}`}>
+            {review}
+          </span>
         )}
         {checks && (
-          <span className={`inbox-row-checks inbox-row-checks--${checks.tone}`} title={checksBreakdown}>
-            {checks.tone === 'bad' ? <X size={11} aria-hidden="true" /> : <Check size={11} aria-hidden="true" />}
+          <span
+            className={`inbox-row-checks inbox-row-checks--${checks.tone}`}
+            title={checksBreakdown}
+          >
+            {checks.tone === 'bad' ? (
+              <X size={11} aria-hidden="true" />
+            ) : (
+              <Check size={11} aria-hidden="true" />
+            )}
             {checks.text}
             {/* checks.text is just "passed/total" -- the pass/fail/pending
                 split otherwise lives only in the hover title, which most

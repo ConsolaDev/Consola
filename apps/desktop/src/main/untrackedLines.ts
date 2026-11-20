@@ -1,6 +1,6 @@
-import { execFile } from 'child_process';
-import * as fs from 'fs';
-import * as path from 'path';
+import { execFile } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 
 /** Git calls a file binary when a NUL appears within this many leading bytes. */
 const BINARY_SNIFF_BYTES = 8000;
@@ -20,7 +20,10 @@ const GIT_TIMEOUT_MS = 10_000;
  * Paths are relative to `root`. One that cannot be read (deleted since git
  * listed it, a nested repository listed as its folder) counts as nothing.
  */
-export async function countUntrackedLines(root: string, relativePaths: readonly string[]): Promise<number> {
+export async function countUntrackedLines(
+  root: string,
+  relativePaths: readonly string[],
+): Promise<number> {
   const marked = await markedBinary(root, relativePaths);
   const counted = relativePaths.filter((p) => !marked.has(p));
   let total = 0;
@@ -44,14 +47,16 @@ export async function countUntrackedLines(root: string, relativePaths: readonly 
  */
 export async function readUntrackedFile(
   root: string,
-  relativePath: string
+  relativePath: string,
 ): Promise<{ content: string; isBinary: boolean } | null> {
   const file = path.join(root, relativePath);
   try {
     const stat = await fs.promises.lstat(file);
-    if (stat.isSymbolicLink()) return { content: await fs.promises.readlink(file), isBinary: false };
+    if (stat.isSymbolicLink())
+      return { content: await fs.promises.readlink(file), isBinary: false };
     const binary = { content: '', isBinary: true };
-    if (stat.size > BIG_FILE_BYTES || (await markedBinary(root, [relativePath])).size > 0) return binary;
+    if (stat.size > BIG_FILE_BYTES || (await markedBinary(root, [relativePath])).size > 0)
+      return binary;
     const bytes = await fs.promises.readFile(file);
     return sniffsBinary(bytes) ? binary : { content: bytes.toString('utf-8'), isBinary: false };
   } catch {
@@ -75,7 +80,11 @@ async function linesInNewFile(file: string): Promise<number> {
     let lastByte = 0;
     for await (const chunk of fs.createReadStream(file)) {
       const bytes = chunk as Buffer;
-      if (sniffed < BINARY_SNIFF_BYTES && sniffsBinary(bytes.subarray(0, BINARY_SNIFF_BYTES - sniffed))) return 0;
+      if (
+        sniffed < BINARY_SNIFF_BYTES &&
+        sniffsBinary(bytes.subarray(0, BINARY_SNIFF_BYTES - sniffed))
+      )
+        return 0;
       sniffed += bytes.length;
       for (let i = bytes.indexOf(0x0a); i !== -1; i = bytes.indexOf(0x0a, i + 1)) newlines++;
       lastByte = bytes[bytes.length - 1];
@@ -109,7 +118,7 @@ function markedBinary(root: string, relativePaths: readonly string[]): Promise<S
           }
         }
         resolve(marked);
-      }
+      },
     );
     // A git that exits before reading everything would fail the write.
     child.stdin?.on('error', () => {});

@@ -19,6 +19,24 @@ export const TERMINAL_FONT_SIZE_MIN = 11;
 export const TERMINAL_FONT_SIZE_MAX = 20;
 export const TERMINAL_FONT_SIZE_DEFAULT = 14;
 
+/**
+ * What a shelf does before the person has touched it; one not named here is
+ * open. Working starts folded but opens itself
+ * whenever a session starts working (`useRevealWorking`). Settled holds only
+ * what was put away, so it starts folded: the list above it is what a glance
+ * is for. Snoozed is folded for the same reason: its rows come back by themselves.
+ */
+export const SHELF_DEFAULTS: Record<string, boolean> = {
+  working: false,
+  snoozed: false,
+  settled: false,
+};
+
+/** Whether a shelf is open, with its default for a shelf never touched. */
+export function isShelfOpen(shelves: Record<string, boolean>, id: string): boolean {
+  return shelves[id] ?? SHELF_DEFAULTS[id] ?? true;
+}
+
 export function clampTerminalFontSize(size: number): number {
   if (!Number.isFinite(size)) return TERMINAL_FONT_SIZE_DEFAULT;
   return Math.min(TERMINAL_FONT_SIZE_MAX, Math.max(TERMINAL_FONT_SIZE_MIN, Math.round(size)));
@@ -38,21 +56,25 @@ interface SettingsState {
   /** Name the worktree a session runs in, under its row. */
   showSidebarWorktree: boolean;
   setShowSidebarWorktree: (show: boolean) => void;
+  /**
+   * Whether running sessions move to their own Working section. Off, they stay
+   * where they are in the list, which then moves only when a session is added
+   * or woken from Settled (`bucketize`).
+   */
+  sidebarWorkingSection: boolean;
+  setSidebarWorkingSection: (show: boolean) => void;
   /** The Inbox's repository and Updated filters, per workspace id. */
   inboxFilters: Record<string, InboxFilterState>;
   /**
-   * Scope and group ids whose sidebar section is folded shut.
+   * Whether each attention shelf (and each conductor tree) is open, by id.
    *
-   * One list holds both kinds. They are drawn from the same `generateId()`,
-   * so an id names a section on its own and nothing here has to know which
-   * kind it got. Absent means expanded, which is what keeps a fresh profile
-   * looking exactly like the sidebar always did.
-   *
-   * Ids outlive what they pointed at: removing a scope leaves its id behind
-   * here. Harmless, since ids are never reused — an inert string, not a
-   * fold that could reattach to something else later.
+   * Absence means the section's own default (`SHELF_DEFAULTS`). A tree is
+   * keyed by its conductor's entry key and stored only when the person
+   * toggled it, so an explicit choice always wins over the derived view.
    */
-  collapsedSidebarSections: string[];
+  sidebarShelfOpen: Record<string, boolean>;
+  /** Open a closed shelf or close an open one, from its current effective state. */
+  toggleSidebarShelf: (id: string, open?: boolean) => void;
   setTheme: (theme: ThemeMode) => void;
   /** Step to the next theme: light -> dark -> system -> light. */
   cycleTheme: () => void;
@@ -61,10 +83,6 @@ interface SettingsState {
   setInboxUpdatedFilter: (workspaceId: string, updated: InboxUpdatedFilter) => void;
   /** The saved filters, or the shared frozen default when nothing is saved. */
   inboxFilterFor: (workspaceId: string) => InboxFilterState;
-  /** Fold an expanded sidebar section, or unfold a folded one. */
-  toggleSidebarSection: (id: string) => void;
-  /** Unfold a section, doing nothing at all when it is already open. */
-  expandSidebarSection: (id: string) => void;
   _setResolvedTheme: (theme: 'light' | 'dark') => void;
 }
 
@@ -95,18 +113,14 @@ export function sanitizeInboxFilters(raw: unknown): Record<string, InboxFilterSt
   return result;
 }
 
-/**
- * Fold a persisted `collapsedSidebarSections` blob into a list of ids.
- *
- * Same guard as sanitizeInboxFilters and for the same reason: zustand's
- * default merge would hand the sidebar whatever an older build or a
- * hand-edited profile left behind, and every scope row asks this list
- * whether it is open. Deduped so `toggle` cannot need two clicks to unfold
- * a section a bad profile listed twice.
- */
-export function sanitizeCollapsedSections(raw: unknown): string[] {
-  if (!Array.isArray(raw)) return [];
-  return [...new Set(raw.filter((id): id is string => typeof id === 'string'))];
+/** Guard for the persisted shelf map: only booleans survive. */
+export function sanitizeShelfOpen(raw: unknown): Record<string, boolean> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  return Object.fromEntries(
+    Object.entries(raw as Record<string, unknown>).filter(
+      (entry): entry is [string, boolean] => typeof entry[1] === 'boolean',
+    ),
+  );
 }
 
 export const useSettingsStore = create<SettingsState>()(
@@ -121,8 +135,17 @@ export const useSettingsStore = create<SettingsState>()(
       setShowSidebarHarness: (showSidebarHarness) => set({ showSidebarHarness }),
       showSidebarWorktree: true,
       setShowSidebarWorktree: (showSidebarWorktree) => set({ showSidebarWorktree }),
+      sidebarWorkingSection: true,
+      setSidebarWorkingSection: (sidebarWorkingSection) => set({ sidebarWorkingSection }),
       inboxFilters: {},
-      collapsedSidebarSections: [],
+      sidebarShelfOpen: {},
+      toggleSidebarShelf: (id, open) =>
+        set((state) => ({
+          sidebarShelfOpen: {
+            ...state.sidebarShelfOpen,
+            [id]: open ?? !isShelfOpen(state.sidebarShelfOpen, id),
+          },
+        })),
       setTheme: (theme) => set({ theme }),
       // Lives in the store so the keyboard shortcut and the command palette
       // can never disagree about what "next theme" means.
@@ -148,23 +171,6 @@ export const useSettingsStore = create<SettingsState>()(
       // The default is one frozen object, returned by reference: selectors
       // comparing by identity stay stable, and nothing can mutate it.
       inboxFilterFor: (workspaceId) => get().inboxFilters[workspaceId] ?? DEFAULT_INBOX_FILTER,
-      toggleSidebarSection: (id) =>
-        set((state) => ({
-          collapsedSidebarSections: state.collapsedSidebarSections.includes(id)
-            ? state.collapsedSidebarSections.filter((candidate) => candidate !== id)
-            : [...state.collapsedSidebarSections, id],
-        })),
-      // Guarded rather than unconditional: activating a session fires this on
-      // every navigation, and an unguarded set would re-serialise the whole
-      // store to localStorage each time for a list that did not change.
-      expandSidebarSection: (id) => {
-        if (!get().collapsedSidebarSections.includes(id)) return;
-        set((state) => ({
-          collapsedSidebarSections: state.collapsedSidebarSections.filter(
-            (candidate) => candidate !== id
-          ),
-        }));
-      },
       _setResolvedTheme: (resolvedTheme) => set({ resolvedTheme }),
     }),
     {
@@ -175,9 +181,10 @@ export const useSettingsStore = create<SettingsState>()(
         showSidebarModel: state.showSidebarModel,
         showSidebarHarness: state.showSidebarHarness,
         showSidebarWorktree: state.showSidebarWorktree,
+        sidebarWorkingSection: state.sidebarWorkingSection,
         terminalFontSize: state.terminalFontSize,
         inboxFilters: state.inboxFilters,
-        collapsedSidebarSections: state.collapsedSidebarSections,
+        sidebarShelfOpen: state.sidebarShelfOpen,
       }),
       // A persisted size from an older build (or a hand-edited value) still has
       // to land inside the bounds the terminal can actually lay out, and a
@@ -187,16 +194,21 @@ export const useSettingsStore = create<SettingsState>()(
         return {
           ...current,
           ...saved,
-          showSidebarModel: typeof saved?.showSidebarModel === 'boolean' ? saved.showSidebarModel : true,
-          showSidebarHarness: typeof saved?.showSidebarHarness === 'boolean' ? saved.showSidebarHarness : true,
-          showSidebarWorktree: typeof saved?.showSidebarWorktree === 'boolean' ? saved.showSidebarWorktree : true,
+          showSidebarModel:
+            typeof saved?.showSidebarModel === 'boolean' ? saved.showSidebarModel : true,
+          showSidebarHarness:
+            typeof saved?.showSidebarHarness === 'boolean' ? saved.showSidebarHarness : true,
+          showSidebarWorktree:
+            typeof saved?.showSidebarWorktree === 'boolean' ? saved.showSidebarWorktree : true,
+          sidebarWorkingSection:
+            typeof saved?.sidebarWorkingSection === 'boolean' ? saved.sidebarWorkingSection : true,
           terminalFontSize: clampTerminalFontSize(
-            saved?.terminalFontSize ?? TERMINAL_FONT_SIZE_DEFAULT
+            saved?.terminalFontSize ?? TERMINAL_FONT_SIZE_DEFAULT,
           ),
           inboxFilters: sanitizeInboxFilters(saved?.inboxFilters),
-          collapsedSidebarSections: sanitizeCollapsedSections(saved?.collapsedSidebarSections),
+          sidebarShelfOpen: sanitizeShelfOpen(saved?.sidebarShelfOpen),
         };
       },
-    }
-  )
+    },
+  ),
 );

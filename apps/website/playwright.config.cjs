@@ -12,6 +12,10 @@ module.exports = defineConfig({
   },
   webServer: {
     command: 'pnpm dev --host 127.0.0.1',
+    // The site compiles PostHog out entirely without a key, so the suite supplies a
+    // throwaway one to exercise the real analytics path. Nothing reaches PostHog:
+    // api_host is '/cnsl' on this origin, which only Vercel's rewrites forward on.
+    env: { ...process.env, VITE_POSTHOG_KEY: 'phc_consola_test_key' },
     url: 'http://localhost:5174',
     reuseExistingServer: !process.env.CI,
   },

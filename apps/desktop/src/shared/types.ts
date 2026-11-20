@@ -1,18 +1,23 @@
+import type { SessionDeleteOutcome, SessionDeletePreview } from './worktreeCleanup';
 import type { WorkItemDetails, WorkItemMutation } from './workItemDetails';
 import type { SessionCheckout, CheckoutContext } from './sessionCheckout';
 import type {
-    Group,
-    NewGroupFields,
-    NewScopeFields,
-    NewSessionFields,
-    Scope,
-    Session,
-    SessionUpdates,
-    Workspace,
-    WorkspaceProvider,
-    WorkspaceUpdates,
+  Group,
+  DeletedLabel,
+  Label,
+  NewGroupFields,
+  NewLabelFields,
+  NewScopeFields,
+  NewSessionFields,
+  Scope,
+  Session,
+  SessionUpdates,
+  Workspace,
+  WorkspaceProvider,
+  WorkspaceUpdates,
 } from './workspace';
 import type { Harness, HarnessUpdates, NewHarnessFields } from './harness';
+import type { HarnessSwitchPreview, HarnessSwitchResult } from './harnessSwitch';
 import type { InboxSection } from './inboxSections';
 import type { GitProviderId, ProviderProbeResult } from './providers';
 import type { WorkItemAction } from './workItemActions';
@@ -30,47 +35,47 @@ export type HarnessDriverId = 'claude' | 'codex';
  * Consola did before harnesses existed".
  */
 export interface HarnessLaunchFields {
-    /** Driver backing this session. Defaults to `claude`. */
-    driverId?: HarnessDriverId;
-    /** Explicit binary path, when the harness pins one. */
-    binaryOverride?: string;
-    /** Config directory for the driver's own env var, when the harness sets one. */
-    configDirOverride?: string;
-    /** Extra CLI arguments appended to the session's argv. */
-    extraArgs?: string[];
+  /** Driver backing this session. Defaults to `claude`. */
+  driverId?: HarnessDriverId;
+  /** Explicit binary path, when the harness pins one. */
+  binaryOverride?: string;
+  /** Config directory for the driver's own env var, when the harness sets one. */
+  configDirOverride?: string;
+  /** Extra CLI arguments appended to the session's argv. */
+  extraArgs?: string[];
 }
 
 export interface TerminalDimensions {
-    cols: number;
-    rows: number;
+  cols: number;
+  rows: number;
 }
 
 export interface TerminalCreateOptions extends HarnessLaunchFields {
-    instanceId: string;
-    /**
-     * Workspace this session belongs to. Main resolves it to the workspace's
-     * provider binding (if any) and borrows the token itself — the renderer
-     * names the workspace precisely so it never has to see a token.
-     */
-    workspaceId: string;
-    cwd: string;
-    /** Session ID Consola assigned to this tab. */
-    claudeSessionId: string;
-    /** Resume the existing conversation instead of starting one. */
-    resume: boolean;
-    /** Initial size, so the TUI paints at the right dimensions immediately. */
-    cols?: number;
-    rows?: number;
-    /** Prompt to submit once the CLI is ready for input. */
-    initialPrompt?: string;
-    /**
-     * Model this session is pinned to, as the CLI's own selector value.
-     *
-     * Session-scoped rather than part of `HarnessLaunchFields`: a harness
-     * describes an installation, while the model is chosen per conversation
-     * and then fixed, exactly like `harnessId`.
-     */
-    model?: string;
+  instanceId: string;
+  /**
+   * Workspace this session belongs to. Main resolves it to the workspace's
+   * provider binding (if any) and borrows the token itself — the renderer
+   * names the workspace precisely so it never has to see a token.
+   */
+  workspaceId: string;
+  cwd: string;
+  /** Session ID Consola assigned to this tab. */
+  claudeSessionId: string;
+  /** Resume the existing conversation instead of starting one. */
+  resume: boolean;
+  /** Initial size, so the TUI paints at the right dimensions immediately. */
+  cols?: number;
+  rows?: number;
+  /** Prompt to submit once the CLI is ready for input. */
+  initialPrompt?: string;
+  /**
+   * Model this session is pinned to, as the CLI's own selector value.
+   *
+   * Session-scoped rather than part of `HarnessLaunchFields`: a harness
+   * describes an installation, while the model is chosen per conversation
+   * and then fixed, exactly like `harnessId`.
+   */
+  model?: string;
 }
 
 /**
@@ -80,14 +85,14 @@ export interface TerminalCreateOptions extends HarnessLaunchFields {
  * the two travel together (`restoreScreen` in the renderer).
  */
 export interface ScreenReplay {
-    replay: string;
-    cols: number;
-    rows: number;
+  replay: string;
+  cols: number;
+  rows: number;
 }
 
 /** State needed to repaint a terminal view on mount. */
 export interface TerminalSnapshot extends ScreenReplay {
-    exited: boolean;
+  exited: boolean;
 }
 
 /**
@@ -97,33 +102,33 @@ export interface TerminalSnapshot extends ScreenReplay {
  * the main process, when the records still live in the renderer's localStorage.
  */
 export interface WorkspaceSnapshot {
-    workspaces: Workspace[];
-    needsImport: boolean;
+  workspaces: Workspace[];
+  needsImport: boolean;
 }
 
 export interface TerminalDataMessage {
-    instanceId: string;
-    data: string;
+  instanceId: string;
+  data: string;
 }
 
 export interface TerminalActivityMessage {
-    instanceId: string;
-    busy: boolean;
+  instanceId: string;
+  busy: boolean;
 }
 
 export interface TerminalAwaitingConfirmationMessage {
-    instanceId: string;
-    awaiting: boolean;
+  instanceId: string;
+  awaiting: boolean;
 }
 
 export interface TerminalExitMessage {
-    instanceId: string;
-    exitCode: number;
+  instanceId: string;
+  exitCode: number;
 }
 
 export interface TerminalStatusMessage {
-    instanceId: string;
-    status: TerminalStatus;
+  instanceId: string;
+  status: TerminalStatus;
 }
 
 /**
@@ -133,36 +138,38 @@ export interface TerminalStatusMessage {
  * without translating it.
  */
 export type TerminalStatusSnapshot = Record<
-    string,
-    {
-        isBusy: boolean;
-        isAwaitingConfirmation: boolean;
-        hasExited: boolean;
-    }
+  string,
+  {
+    isBusy: boolean;
+    isAwaitingConfirmation: boolean;
+    hasExited: boolean;
+  }
 >;
 
 export interface TerminalAPI {
-    create: (options: TerminalCreateOptions) => Promise<TerminalSnapshot>;
-    sendInput: (instanceId: string, data: string) => void;
-    paste: (instanceId: string, text: string) => void;
-    resize: (instanceId: string, cols: number, rows: number) => void;
-    restart: (instanceId: string) => void;
-    destroy: (instanceId: string) => void;
-    onData: (callback: (message: TerminalDataMessage) => void) => () => void;
-    onActivity: (callback: (message: TerminalActivityMessage) => void) => () => void;
-    onAwaitingConfirmation: (
-        callback: (message: TerminalAwaitingConfirmationMessage) => void
-    ) => () => void;
-    onExit: (callback: (message: TerminalExitMessage) => void) => () => void;
-    onStatus: (callback: (message: TerminalStatusMessage) => void) => () => void;
-    getStatusSnapshot: () => Promise<TerminalStatusSnapshot>;
-    /**
-     * The on-disk path of a dropped `File`, or `''` when the drag carried no
-     * file on disk. Only the preload script can answer this: Chromium's `File`
-     * has never exposed a path and Electron's own `File.path` addition was
-     * removed in Electron 32.
-     */
-    pathForFile: (file: File) => string;
+  create: (options: TerminalCreateOptions) => Promise<TerminalSnapshot>;
+  sendInput: (instanceId: string, data: string) => void;
+  paste: (instanceId: string, text: string) => void;
+  resize: (instanceId: string, cols: number, rows: number) => void;
+  restart: (instanceId: string) => void;
+  destroy: (instanceId: string) => void;
+  /** The view unmounted: its window stops receiving this terminal's output. */
+  detach: (instanceId: string) => void;
+  onData: (callback: (message: TerminalDataMessage) => void) => () => void;
+  onActivity: (callback: (message: TerminalActivityMessage) => void) => () => void;
+  onAwaitingConfirmation: (
+    callback: (message: TerminalAwaitingConfirmationMessage) => void,
+  ) => () => void;
+  onExit: (callback: (message: TerminalExitMessage) => void) => () => void;
+  onStatus: (callback: (message: TerminalStatusMessage) => void) => () => void;
+  getStatusSnapshot: () => Promise<TerminalStatusSnapshot>;
+  /**
+   * The on-disk path of a dropped `File`, or `''` when the drag carried no
+   * file on disk. Only the preload script can answer this: Chromium's `File`
+   * has never exposed a path and Electron's own `File.path` addition was
+   * removed in Electron 32.
+   */
+  pathForFile: (file: File) => string;
 }
 
 /**
@@ -172,54 +179,54 @@ export interface TerminalAPI {
  * directory and the CLI that owns it decides what is in there.
  */
 export interface HarnessAccount {
-    emailAddress?: string;
-    displayName?: string;
-    organizationName?: string;
-    /** Raw plan identifier, e.g. `claude_max`. */
-    organizationType?: string;
+  emailAddress?: string;
+  displayName?: string;
+  organizationName?: string;
+  /** Raw plan identifier, e.g. `claude_max`. */
+  organizationType?: string;
 }
 
 export interface HarnessProbeResult {
-    /** The binary was found and is executable. */
-    available: boolean;
-    /** Path actually resolved, useful when the harness relies on PATH. */
-    resolvedBinary: string;
-    /** Version string as reported by the CLI. */
-    version?: string;
-    /** Absent when the config directory holds no signed-in account. */
-    account?: HarnessAccount;
-    error?: string;
+  /** The binary was found and is executable. */
+  available: boolean;
+  /** Path actually resolved, useful when the harness relies on PATH. */
+  resolvedBinary: string;
+  /** Version string as reported by the CLI. */
+  version?: string;
+  /** Absent when the config directory holds no signed-in account. */
+  account?: HarnessAccount;
+  error?: string;
 }
 
 /** One slash command a harness offers, as the CLI itself describes it. */
 export interface HarnessCommand {
-    /** Plugin-qualified, e.g. `feature-dev:feature-dev`. */
-    name: string;
-    description: string;
-    /** Placeholder for arguments the command takes, when it takes any. */
-    argumentHint?: string;
-    aliases?: string[];
+  /** Plugin-qualified, e.g. `feature-dev:feature-dev`. */
+  name: string;
+  description: string;
+  /** Placeholder for arguments the command takes, when it takes any. */
+  argumentHint?: string;
+  aliases?: string[];
 }
 
 /** One subagent a harness can dispatch to. */
 export interface HarnessAgent {
-    name: string;
-    description: string;
+  name: string;
+  description: string;
 }
 
 /** One model a harness offers, already labelled for display by the CLI. */
 export interface HarnessModel {
-    /** Value to pass back as the model selector, e.g. `sonnet`. */
-    value: string;
-    /** Concrete model the selector resolves to today. */
-    resolvedModel: string;
-    displayName: string;
-    description: string;
-    supportsEffort?: boolean;
-    supportedEffortLevels?: string[];
-    supportsFastMode?: boolean;
-    supportsAdaptiveThinking?: boolean;
-    supportsAutoMode?: boolean;
+  /** Value to pass back as the model selector, e.g. `sonnet`. */
+  value: string;
+  /** Concrete model the selector resolves to today. */
+  resolvedModel: string;
+  displayName: string;
+  description: string;
+  supportsEffort?: boolean;
+  supportedEffortLevels?: string[];
+  supportsFastMode?: boolean;
+  supportsAdaptiveThinking?: boolean;
+  supportsAutoMode?: boolean;
 }
 
 /**
@@ -230,12 +237,12 @@ export interface HarnessModel {
  * read from disk rather than replacing it.
  */
 export interface HarnessCapabilityAccount {
-    signedIn: boolean;
-    emailAddress?: string;
-    organization?: string;
-    /** Already human-readable, e.g. `Claude Max`. */
-    subscriptionType?: string;
-    apiProvider?: string;
+  signedIn: boolean;
+  emailAddress?: string;
+  organization?: string;
+  /** Already human-readable, e.g. `Claude Max`. */
+  subscriptionType?: string;
+  apiProvider?: string;
 }
 
 /**
@@ -247,42 +254,27 @@ export interface HarnessCapabilityAccount {
  * lifetime, and a driver may not be able to answer them at all.
  */
 export interface HarnessCapabilities {
-    commands: HarnessCommand[];
-    agents: HarnessAgent[];
-    models: HarnessModel[];
-    outputStyles: string[];
-    account?: HarnessCapabilityAccount;
+  commands: HarnessCommand[];
+  agents: HarnessAgent[];
+  models: HarnessModel[];
+  outputStyles: string[];
+  account?: HarnessCapabilityAccount;
 }
 
 /** Why a harness could not describe itself. Never a thrown error at the UI. */
 export interface HarnessCapabilitiesUnavailable {
-    supported: false;
-    reason: string;
+  supported: false;
+  reason: string;
 }
 
 export type HarnessCapabilitiesResult =
-    | ({ supported: true } & HarnessCapabilities)
-    | HarnessCapabilitiesUnavailable;
-
-/**
- * A session's display name and where it came from. `summary` is the CLI's own
- * settled name for the conversation; `prompt` is a stand-in read from the
- * opening message, so a caller adopting names knows to keep asking until a
- * summary lands.
- */
-export interface SessionNameResult {
-    name: string;
-    source: 'summary' | 'prompt';
-}
+  | ({ supported: true } & HarnessCapabilities)
+  | HarnessCapabilitiesUnavailable;
 
 export interface HarnessAPI {
-    getSessionModel: (sessionId: string, fields: HarnessLaunchFields) => Promise<string | null>;
-    probe: (fields: HarnessLaunchFields) => Promise<HarnessProbeResult>;
-    getSessionName: (
-        sessionId: string,
-        fields: HarnessLaunchFields
-    ) => Promise<SessionNameResult | null>;
-    getCapabilities: (fields: HarnessLaunchFields) => Promise<HarnessCapabilitiesResult>;
+  getSessionModel: (sessionId: string, fields: HarnessLaunchFields) => Promise<string | null>;
+  probe: (fields: HarnessLaunchFields) => Promise<HarnessProbeResult>;
+  getCapabilities: (fields: HarnessLaunchFields) => Promise<HarnessCapabilitiesResult>;
 }
 
 /**
@@ -294,11 +286,11 @@ export interface HarnessAPI {
  * carries the message and is surfaced in the pane, never as a dialog.
  */
 export type WorkItemLaunchResult =
-    | { ok: true; session: Session; seedPrompt: string }
-    | { ok: false; reason: 'not-cloned' }
-    | { ok: false; reason: 'error'; message: string }
-    /** An automation already reviews this item with this action: open that session instead. */
-    | { ok: false; reason: 'automation-review'; sessionId: string };
+  | { ok: true; session: Session; seedPrompt: string }
+  | { ok: false; reason: 'not-cloned' }
+  | { ok: false; reason: 'error'; message: string }
+  /** An automation already reviews this item with this action: open that session instead. */
+  | { ok: false; reason: 'automation-review'; sessionId: string };
 
 /**
  * Outcome of running an action in a session that already exists. Never a
@@ -309,25 +301,25 @@ export type WorkItemLaunchResult =
 export type RunActionInSessionResult = { ok: true } | { ok: false; message: string };
 
 export interface CloneRepoResult {
-    ok: boolean;
-    /** Absolute path of the fresh clone when ok. */
-    path?: string;
-    error?: string;
+  ok: boolean;
+  /** Absolute path of the fresh clone when ok. */
+  path?: string;
+  error?: string;
 }
 
 /** One launch target inside a scope: a git repo the fan-out dialog can pick. */
 export interface ScopeRepo {
-    name: string;
-    path: string;
+  name: string;
+  path: string;
 }
 
 /** Renderer intent: fan one prompt out across target repos as a fresh group. */
 export interface SessionFanOutIntent {
-    workspaceId: string;
-    scopeId: string;
-    targetPaths: string[];
-    prompt: string;
-    groupName: string;
+  workspaceId: string;
+  scopeId: string;
+  targetPaths: string[];
+  prompt: string;
+  groupName: string;
 }
 
 /**
@@ -336,20 +328,20 @@ export interface SessionFanOutIntent {
  * fan-out that trips on repo 9 still yields 14 working sessions.
  */
 export interface SessionFanOutResult {
-    group: Group;
-    created: Session[];
-    failed: Array<{ path: string; error: string }>;
+  group: Group;
+  created: Session[];
+  failed: Array<{ path: string; error: string }>;
 }
 
 /**
  * The Inbox surface of preload, including explicit remote item actions.
  */
 export interface InboxAPI {
-    getDetails: (workspaceId: string, ref: WorkItemRef) => Promise<WorkItemDetails>;
-    mutateItem: (workspaceId: string, ref: WorkItemRef, mutation: WorkItemMutation) => Promise<void>;
-    getInbox: (workspaceId: string) => Promise<InboxSnapshot | null>;
-    refreshInbox: (workspaceId: string) => Promise<void>;
-    onInboxChanged: (callback: (snapshot: InboxSnapshot) => void) => () => void;
+  getDetails: (workspaceId: string, ref: WorkItemRef) => Promise<WorkItemDetails>;
+  mutateItem: (workspaceId: string, ref: WorkItemRef, mutation: WorkItemMutation) => Promise<void>;
+  getInbox: (workspaceId: string) => Promise<InboxSnapshot | null>;
+  refreshInbox: (workspaceId: string) => Promise<void>;
+  onInboxChanged: (callback: (snapshot: InboxSnapshot) => void) => () => void;
 }
 
 /**
@@ -358,19 +350,23 @@ export interface InboxAPI {
  * main process at call time and have no representation on this API at all.
  */
 export interface ProviderAPI {
-    probe: (id: GitProviderId) => Promise<ProviderProbeResult>;
-    resolveRepos: (workspaceId: string, repos: string[]) => Promise<Record<string, string | null>>;
-    launchWorkItem: (
-        workspaceId: string,
-        ref: WorkItemRef,
-        action: WorkItemLaunchAction
-    ) => Promise<WorkItemLaunchResult>;
-    runActionInSession: (
-        workspaceId: string,
-        sessionId: string,
-        actionId: string
-    ) => Promise<RunActionInSessionResult>;
-    cloneRepo: (workspaceId: string, repo: string, destinationDir: string) => Promise<CloneRepoResult>;
+  probe: (id: GitProviderId) => Promise<ProviderProbeResult>;
+  resolveRepos: (workspaceId: string, repos: string[]) => Promise<Record<string, string | null>>;
+  launchWorkItem: (
+    workspaceId: string,
+    ref: WorkItemRef,
+    action: WorkItemLaunchAction,
+  ) => Promise<WorkItemLaunchResult>;
+  runActionInSession: (
+    workspaceId: string,
+    sessionId: string,
+    actionId: string,
+  ) => Promise<RunActionInSessionResult>;
+  cloneRepo: (
+    workspaceId: string,
+    repo: string,
+    destinationDir: string,
+  ) => Promise<CloneRepoResult>;
 }
 
 /**
@@ -378,60 +374,86 @@ export interface ProviderAPI {
  * renderer sends intents and listens for the result.
  */
 export interface WorkspaceAPI {
-    checkoutContext: (workspaceId: string, scopeId: string) => Promise<CheckoutContext>;
-    getSnapshot: () => Promise<WorkspaceSnapshot>;
-    importState: (workspaces: Workspace[], version: number) => Promise<boolean>;
-    createWorkspace: (
-        name: string,
-        path: string,
-        isGitRepo: boolean,
-        defaultHarnessId?: string
-    ) => Promise<Workspace>;
-    updateWorkspace: (
-        id: string,
-        updates: WorkspaceUpdates
-    ) => Promise<void>;
-    deleteWorkspace: (id: string) => Promise<void>;
-    moveWorkspace: (id: string, beforeId: string | null) => Promise<void>;
-    createSession: (workspaceId: string, fields: NewSessionFields, checkout?: SessionCheckout) => Promise<Session | undefined>;
-    updateSession: (workspaceId: string, sessionId: string, updates: SessionUpdates) => Promise<void>;
-    deleteSession: (workspaceId: string, sessionId: string) => Promise<void>;
-    /** A new session of the person's own that continues this read-only one's conversation. */
-    forkSession: (workspaceId: string, sessionId: string) => Promise<Session>;
-    addScope: (workspaceId: string, fields: NewScopeFields) => Promise<Scope>;
-    updateScope: (
-        workspaceId: string,
-        scopeId: string,
-        updates: Partial<Pick<Scope, 'name' | 'path'>>
-    ) => Promise<void>;
-    /** Rejects while any session still references the scope. */
-    removeScope: (workspaceId: string, scopeId: string) => Promise<void>;
-    setProviderBinding: (workspaceId: string, binding: WorkspaceProvider | null) => Promise<void>;
-    /** Replaces actions and section defaults in one validated write; rejects with the validation message. */
-    setActions: (
-        workspaceId: string,
-        actions: WorkItemAction[],
-        sectionDefaults: Partial<Record<InboxSection, string>>
-    ) => Promise<void>;
-    createGroup: (workspaceId: string, fields: NewGroupFields) => Promise<Group>;
-    updateGroup: (
-        workspaceId: string,
-        groupId: string,
-        updates: Partial<Pick<Group, 'name' | 'emoji'>>
-    ) => Promise<void>;
-    archiveGroup: (workspaceId: string, groupId: string) => Promise<void>;
-    restoreGroup: (workspaceId: string, groupId: string) => Promise<void>;
-    fanOut: (intent: SessionFanOutIntent) => Promise<SessionFanOutResult>;
-    listScopeRepos: (workspaceId: string, scopeId: string) => Promise<ScopeRepo[]>;
-    onChanged: (callback: (workspaces: Workspace[]) => void) => () => void;
+  checkoutContext: (workspaceId: string, scopeId: string) => Promise<CheckoutContext>;
+  getSnapshot: () => Promise<WorkspaceSnapshot>;
+  importState: (workspaces: Workspace[], version: number) => Promise<boolean>;
+  createWorkspace: (
+    name: string,
+    path: string,
+    isGitRepo: boolean,
+    defaultHarnessId?: string,
+  ) => Promise<Workspace>;
+  updateWorkspace: (id: string, updates: WorkspaceUpdates) => Promise<void>;
+  deleteWorkspace: (id: string) => Promise<void>;
+  moveWorkspace: (id: string, beforeId: string | null) => Promise<void>;
+  createSession: (
+    workspaceId: string,
+    fields: NewSessionFields,
+    checkout?: SessionCheckout,
+  ) => Promise<Session | undefined>;
+  updateSession: (workspaceId: string, sessionId: string, updates: SessionUpdates) => Promise<void>;
+  /** What deleting a session would do to its worktree, before the person confirms. */
+  previewSessionDelete: (workspaceId: string, sessionId: string) => Promise<SessionDeletePreview>;
+  deleteSession: (
+    workspaceId: string,
+    sessionId: string,
+  ) => Promise<SessionDeleteOutcome | undefined>;
+  /** A new session of the person's own that continues this read-only one's conversation. */
+  forkSession: (workspaceId: string, sessionId: string) => Promise<Session>;
+  /** What switching this session to each harness it could move to would do. */
+  previewHarnessSwitch: (workspaceId: string, sessionId: string) => Promise<HarnessSwitchPreview[]>;
+  /** Carry this session on in another harness, in the same tab. */
+  switchHarness: (
+    workspaceId: string,
+    sessionId: string,
+    harnessId: string,
+  ) => Promise<HarnessSwitchResult>;
+  /** Write a new title from this session's conversation. Rejects with a message for the person. */
+  regenerateSessionTitle: (workspaceId: string, sessionId: string) => Promise<void>;
+  addScope: (workspaceId: string, fields: NewScopeFields) => Promise<Scope>;
+  updateScope: (
+    workspaceId: string,
+    scopeId: string,
+    updates: Partial<Pick<Scope, 'name' | 'path'>>,
+  ) => Promise<void>;
+  /** Rejects while any session still references the scope. */
+  removeScope: (workspaceId: string, scopeId: string) => Promise<void>;
+  setProviderBinding: (workspaceId: string, binding: WorkspaceProvider | null) => Promise<void>;
+  /** Replaces actions and section defaults in one validated write; rejects with the validation message. */
+  setActions: (
+    workspaceId: string,
+    actions: WorkItemAction[],
+    sectionDefaults: Partial<Record<InboxSection, string>>,
+  ) => Promise<void>;
+  createGroup: (workspaceId: string, fields: NewGroupFields) => Promise<Group>;
+  updateGroup: (
+    workspaceId: string,
+    groupId: string,
+    updates: Partial<Pick<Group, 'name' | 'emoji'>>,
+  ) => Promise<void>;
+  archiveGroup: (workspaceId: string, groupId: string) => Promise<void>;
+  restoreGroup: (workspaceId: string, groupId: string) => Promise<void>;
+  createLabel: (workspaceId: string, fields: NewLabelFields) => Promise<Label>;
+  updateLabel: (
+    workspaceId: string,
+    labelId: string,
+    updates: Partial<Pick<Label, 'name' | 'emoji' | 'color'>>,
+  ) => Promise<void>;
+  deleteLabel: (workspaceId: string, labelId: string) => Promise<DeletedLabel | null>;
+  restoreLabel: (workspaceId: string, removed: DeletedLabel) => Promise<void>;
+  assignLabel: (workspaceId: string, sessionId: string, labelId: string) => Promise<void>;
+  unassignLabel: (workspaceId: string, sessionId: string, labelId: string) => Promise<void>;
+  fanOut: (intent: SessionFanOutIntent) => Promise<SessionFanOutResult>;
+  listScopeRepos: (workspaceId: string, scopeId: string) => Promise<ScopeRepo[]>;
+  onChanged: (callback: (workspaces: Workspace[]) => void) => () => void;
 }
 
 /** The orchestration door's intent: everything main needs, nothing it owns. */
 export interface ConductorCreateRequest {
-    workspaceId: string;
-    scopeId: string;
-    name: string;
-    kickoff: string;
+  workspaceId: string;
+  scopeId: string;
+  name: string;
+  kickoff: string;
 }
 
 /**
@@ -439,27 +461,7 @@ export interface ConductorCreateRequest {
  * conductor itself is an ordinary session and rides every existing API.
  */
 export interface ConductorAPI {
-    create: (request: ConductorCreateRequest) => Promise<Group>;
-}
-
-/** What the Assistant has touched in a workspace, and how much finished while unseen. */
-export interface AssistantActivitySnapshot {
-    touchedSessionIds: string[];
-    unseenFinished: number;
-}
-
-/**
- * The workspace Assistant exposed to the renderer. It is an ordinary session
- * once it exists; these calls only make or replace its record.
- */
-export interface AssistantAPI {
-    open: (workspaceId: string) => Promise<Session>;
-    startFresh: (workspaceId: string) => Promise<Session>;
-    getActivity: (workspaceId: string) => Promise<AssistantActivitySnapshot>;
-    markSeen: (workspaceId: string) => Promise<void>;
-    onActivityChanged: (
-        callback: (change: { workspaceId: string; activity: AssistantActivitySnapshot }) => void
-    ) => () => void;
+  create: (request: ConductorCreateRequest) => Promise<Group>;
 }
 
 /**
@@ -468,29 +470,28 @@ export interface AssistantAPI {
  * probes health: a probe result is a live fact and is never persisted.
  */
 export interface HarnessStateAPI {
-    getSnapshot: () => Promise<{ harnesses: Harness[]; needsImport: boolean }>;
-    importState: (harnesses: Harness[]) => Promise<boolean>;
-    addHarness: (input: NewHarnessFields) => Promise<Harness>;
-    updateHarness: (id: string, updates: HarnessUpdates) => Promise<void>;
-    archiveHarness: (id: string) => Promise<void>;
-    restoreHarness: (id: string) => Promise<void>;
-    onChanged: (callback: (harnesses: Harness[]) => void) => () => void;
+  getSnapshot: () => Promise<{ harnesses: Harness[]; needsImport: boolean }>;
+  importState: (harnesses: Harness[]) => Promise<boolean>;
+  addHarness: (input: NewHarnessFields) => Promise<Harness>;
+  updateHarness: (id: string, updates: HarnessUpdates) => Promise<void>;
+  archiveHarness: (id: string) => Promise<void>;
+  restoreHarness: (id: string) => Promise<void>;
+  onChanged: (callback: (harnesses: Harness[]) => void) => () => void;
 }
 
 declare global {
-    interface Window {
-        shellAPI: import('./shell').ShellAPI;
-        terminalAPI: TerminalAPI;
-        harnessAPI: HarnessAPI;
-        inboxAPI: InboxAPI;
-        providerAPI: ProviderAPI;
-        workspaceAPI: WorkspaceAPI;
-        conductorAPI: ConductorAPI;
-        assistantAPI: AssistantAPI;
-        harnessStateAPI: HarnessStateAPI;
-        windowAPI: WindowAPI;
-        automationsAPI: import('./automations').AutomationsAPI;
-    }
+  interface Window {
+    shellAPI: import('./shell').ShellAPI;
+    terminalAPI: TerminalAPI;
+    harnessAPI: HarnessAPI;
+    inboxAPI: InboxAPI;
+    providerAPI: ProviderAPI;
+    workspaceAPI: WorkspaceAPI;
+    conductorAPI: ConductorAPI;
+    harnessStateAPI: HarnessStateAPI;
+    windowAPI: WindowAPI;
+    automationsAPI: import('./automations').AutomationsAPI;
+  }
 }
 
 /**
@@ -508,8 +509,8 @@ export type WorkspaceOverlay = 'inbox' | 'automations' | null;
  * would silently drop half the answer to "where was I?".
  */
 export interface WorkspaceView {
-    activeSessionId: string | null;
-    overlay: WorkspaceOverlay;
+  activeSessionId: string | null;
+  overlay: WorkspaceOverlay;
 }
 
 /**
@@ -521,13 +522,13 @@ export interface WorkspaceView {
  * WINDOW_WORKSPACE_CHANGED.
  */
 export interface WindowContext extends WorkspaceView {
-    workspaceId: string | null;
-    /**
-     * The run to open beside the Automations dashboard: a window opened by a
-     * notification about it. A push would arrive before the renderer listens,
-     * so the run travels with the window instead.
-     */
-    automationsRunId?: string;
+  workspaceId: string | null;
+  /**
+   * The run to open beside the Automations dashboard: a window opened by a
+   * notification about it. A push would arrive before the renderer listens,
+   * so the run travels with the window instead.
+   */
+  automationsRunId?: string;
 }
 
 /**
@@ -538,16 +539,16 @@ export interface WindowContext extends WorkspaceView {
  * composer first and correct it a frame later.
  */
 export type ActivateWorkspaceResult =
-    | { verdict: 'took'; view: WorkspaceView }
-    | { verdict: 'focused-elsewhere' };
+  | { verdict: 'took'; view: WorkspaceView }
+  | { verdict: 'focused-elsewhere' };
 
 /**
  * The Automations dashboard, opened by main: how a notification about an
  * automation lands on its run.
  */
 export interface AutomationsRequest {
-    workspaceId: string;
-    runId?: string;
+  workspaceId: string;
+  runId?: string;
 }
 
 /**
@@ -556,20 +557,20 @@ export interface AutomationsRequest {
  * verdict rather than just applying the request.
  */
 export interface WindowAPI {
-    onOpenSettings: (callback: (section?: 'updates') => void) => () => void;
-    onShowAutomations: (callback: (request: AutomationsRequest) => void) => () => void;
-    context: WindowContext;
-    activateWorkspace: (workspaceId: string | null) => Promise<ActivateWorkspaceResult>;
-    openWindow: (workspaceId: string | null) => Promise<void>;
-    /**
-     * Report what this window is showing, for main to remember.
-     *
-     * Carries the workspace it was composed against so main can refuse a
-     * report that raced a switch, rather than filing it under whichever
-     * workspace the window happens to hold by the time it arrives.
-     */
-    setView: (workspaceId: string | null, view: WorkspaceView) => void;
-    onWorkspaceChanged: (callback: (workspaceId: string | null) => void) => () => void;
-    /** A notification click chose a session; this window should show it. */
-    onActivateSession: (callback: (sessionId: string) => void) => () => void;
+  onOpenSettings: (callback: (section?: 'updates') => void) => () => void;
+  onShowAutomations: (callback: (request: AutomationsRequest) => void) => () => void;
+  context: WindowContext;
+  activateWorkspace: (workspaceId: string | null) => Promise<ActivateWorkspaceResult>;
+  openWindow: (workspaceId: string | null) => Promise<void>;
+  /**
+   * Report what this window is showing, for main to remember.
+   *
+   * Carries the workspace it was composed against so main can refuse a
+   * report that raced a switch, rather than filing it under whichever
+   * workspace the window happens to hold by the time it arrives.
+   */
+  setView: (workspaceId: string | null, view: WorkspaceView) => void;
+  onWorkspaceChanged: (callback: (workspaceId: string | null) => void) => () => void;
+  /** A notification click chose a session; this window should show it. */
+  onActivateSession: (callback: (sessionId: string) => void) => () => void;
 }

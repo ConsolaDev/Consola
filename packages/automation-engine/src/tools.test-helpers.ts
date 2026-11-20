@@ -1,4 +1,4 @@
-import { z } from 'zod/v3';
+import { z } from 'zod';
 import { CONSOLA_NAMESPACE } from './support';
 import type { EngineToolContext, EngineToolResult, ToolsPort } from './ports';
 

@@ -2,10 +2,10 @@ import type { ScreenReplay } from '../../../shared/types';
 
 /** What this needs of a terminal: @xterm/xterm's and @xterm/headless's alike. */
 interface RestorableTerminal {
-    readonly cols: number;
-    readonly rows: number;
-    resize(cols: number, rows: number): void;
-    write(data: string, callback?: () => void): void;
+  readonly cols: number;
+  readonly rows: number;
+  resize(cols: number, rows: number): void;
+  write(data: string, callback?: () => void): void;
 }
 
 /**
@@ -22,13 +22,34 @@ interface RestorableTerminal {
  * `restored` runs once the replay is in. Fit the view to its pane only then:
  * if the pane differs from the captured size, that is a real resize of the
  * PTY, and the CLI repaints for it.
+ *
+ * The replay goes in REPLAY_CHUNK slices. xterm yields to the page between
+ * writes but never inside one, and a long conversation's replay runs to
+ * megabytes: written whole, a tab switch would freeze typing and painting
+ * until all of it was parsed. xterm carries its parser state, and a split
+ * surrogate pair, from one write to the next, so any cut is safe.
  */
-export function restoreScreen(terminal: RestorableTerminal, screen: ScreenReplay, restored: () => void): void {
-    if (terminal.cols !== screen.cols || terminal.rows !== screen.rows) {
-        terminal.resize(screen.cols, screen.rows);
-    }
-    terminal.write(screen.replay, restored);
+export function restoreScreen(
+  terminal: RestorableTerminal,
+  screen: ScreenReplay,
+  restored: () => void,
+): void {
+  if (terminal.cols !== screen.cols || terminal.rows !== screen.rows) {
+    terminal.resize(screen.cols, screen.rows);
+  }
+  const { replay } = screen;
+  if (replay.length <= REPLAY_CHUNK) {
+    terminal.write(replay, restored);
+    return;
+  }
+  for (let start = 0; start < replay.length; start += REPLAY_CHUNK) {
+    const end = start + REPLAY_CHUNK;
+    terminal.write(replay.slice(start, end), end >= replay.length ? restored : undefined);
+  }
 }
+
+/** The most of a replay written at once; see restoreScreen. */
+export const REPLAY_CHUNK = 16 * 1024;
 
 /** How long a pane's size must hold before its view and the PTY follow it. */
 export const PANE_SETTLE_MS = 100;
@@ -44,14 +65,14 @@ export const PANE_SETTLE_MS = 100;
  * settle means a wobble never reaches the view or the PTY at all.
  */
 export function whenSettled(fit: () => void): { request(): void; cancel(): void } {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    return {
-        request() {
-            clearTimeout(timer);
-            timer = setTimeout(fit, PANE_SETTLE_MS);
-        },
-        cancel() {
-            clearTimeout(timer);
-        },
-    };
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return {
+    request() {
+      clearTimeout(timer);
+      timer = setTimeout(fit, PANE_SETTLE_MS);
+    },
+    cancel() {
+      clearTimeout(timer);
+    },
+  };
 }

@@ -17,7 +17,7 @@ export function CloneDialog() {
   const dismiss = useInboxStore((state) => state.dismissClonePrompt);
   const cloneRepo = useInboxStore((state) => state.cloneRepo);
   const workspace = useWorkspaceStore((state) =>
-    state.workspaces.find((candidate) => candidate.id === clonePrompt?.workspaceId)
+    state.workspaces.find((candidate) => candidate.id === clonePrompt?.workspaceId),
   );
 
   if (!clonePrompt || !workspace) return null;
@@ -63,7 +63,9 @@ export function CloneDialog() {
             ))}
             <button className="clone-dialog-option" onClick={() => void chooseFolder()}>
               <span className="clone-dialog-option-name">Choose a folder...</span>
-              <span className="clone-dialog-option-path">Becomes a new scope holding the clone</span>
+              <span className="clone-dialog-option-path">
+                Becomes a new scope holding the clone
+              </span>
             </button>
           </div>
           <div className="dialog-actions">

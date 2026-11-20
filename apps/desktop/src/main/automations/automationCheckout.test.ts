@@ -49,6 +49,7 @@ function workspace(sessions: Partial<Session>[] = []): Workspace {
       },
     ],
     groups: [],
+    labels: [],
     actions: [],
     sectionDefaults: {},
     sessions: sessions as Session[],

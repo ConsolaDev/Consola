@@ -60,7 +60,17 @@ function percent(rate: number): string {
   return `${Math.min(99, Math.max(1, Math.round(rate * 100)))}%`;
 }
 
-function Stat({ label, value, tone, title }: { label: string; value: string; tone?: 'good' | 'bad'; title?: string }) {
+function Stat({
+  label,
+  value,
+  tone,
+  title,
+}: {
+  label: string;
+  value: string;
+  tone?: 'good' | 'bad';
+  title?: string;
+}) {
   return (
     <div className={`automations-stat ${tone ? `automations-stat-${tone}` : ''}`} title={title}>
       <dt>{label}</dt>
@@ -75,7 +85,13 @@ function Stat({ label, value, tone, title }: { label: string; value: string; ton
  * latest run on click; to a screen reader the chart is its totals, and the
  * run list below names every run.
  */
-function DayChart({ days, onOpenRun }: { days: Array<RunDay<RunListEntry>>; onOpenRun: (runId: string) => void }) {
+function DayChart({
+  days,
+  onOpenRun,
+}: {
+  days: Array<RunDay<RunListEntry>>;
+  onOpenRun: (runId: string) => void;
+}) {
   const busiest = Math.max(1, ...days.map((day) => day.runs.length));
   const total = days.reduce((sum, day) => sum + day.runs.length, 0);
   const active = days.filter((day) => day.runs.length > 0).length;
@@ -101,7 +117,9 @@ function DayChart({ days, onOpenRun }: { days: Array<RunDay<RunListEntry>>; onOp
           ))}
         </div>
         <figcaption className="automations-days-axis" aria-hidden="true">
-          <span>{first ? first.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : ''}</span>
+          <span>
+            {first ? first.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : ''}
+          </span>
           <span>Today</span>
         </figcaption>
       </figure>
@@ -124,7 +142,9 @@ function DayBar({
 }) {
   const count = day.runs.length;
   const latest = day.runs[0];
-  const label = today ? 'Today' : day.day.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+  const label = today
+    ? 'Today'
+    : day.day.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
   return (
     <Tooltip.Root>
       <Tooltip.Trigger asChild>
@@ -137,22 +157,38 @@ function DayBar({
             <span className="automations-day-none" />
           ) : (
             // Keyed by its count, so a run landing today grows the bar again.
-            <span key={count} className="automations-day-stack" style={{ height: `${Math.max(14, (count / busiest) * 100)}%` }}>
+            <span
+              key={count}
+              className="automations-day-stack"
+              style={{ height: `${Math.max(14, (count / busiest) * 100)}%` }}
+            >
               {statusCounts(day.runs).map(({ status, count: runs }) => (
-                <span key={status} className={`automations-day-part automations-bar-${status}`} style={{ flexGrow: runs }} />
+                <span
+                  key={status}
+                  className={`automations-day-part automations-bar-${status}`}
+                  style={{ flexGrow: runs }}
+                />
               ))}
             </span>
           )}
         </span>
       </Tooltip.Trigger>
       <Tooltip.Portal>
-        <Tooltip.Content className="tooltip-content automations-bar-tooltip" side="top" sideOffset={6}>
+        <Tooltip.Content
+          className="tooltip-content automations-bar-tooltip"
+          side="top"
+          sideOffset={6}
+        >
           <strong>{label}</strong>
           <span className="automations-bar-tooltip-meta">
-            {count === 0 ? 'No runs' : `${count} ${count === 1 ? 'run' : 'runs'}: ${statusCountsInWords(day.runs)}`}
+            {count === 0
+              ? 'No runs'
+              : `${count} ${count === 1 ? 'run' : 'runs'}: ${statusCountsInWords(day.runs)}`}
           </span>
           {latest && (
-            <span className="automations-bar-tooltip-meta">{count === 1 ? 'Click to open it' : 'Click to open the latest'}</span>
+            <span className="automations-bar-tooltip-meta">
+              {count === 1 ? 'Click to open it' : 'Click to open the latest'}
+            </span>
           )}
           <Tooltip.Arrow className="tooltip-arrow" />
         </Tooltip.Content>

@@ -40,7 +40,11 @@ export const gitBridge = {
   },
 
   /** Get diff for a specific file */
-  getDiff: async (rootPath: string, filePath: string, staged: boolean): Promise<GitDiffResult | null> => {
+  getDiff: async (
+    rootPath: string,
+    filePath: string,
+    staged: boolean,
+  ): Promise<GitDiffResult | null> => {
     const api = getAPI();
     if (!api) {
       return null;
@@ -67,7 +71,10 @@ export const gitBridge = {
   },
 
   /** Create a commit */
-  commit: async (rootPath: string, message: string): Promise<{ success: boolean; error?: string } | null> => {
+  commit: async (
+    rootPath: string,
+    message: string,
+  ): Promise<{ success: boolean; error?: string } | null> => {
     const api = getAPI();
     if (!api) {
       return null;
@@ -76,7 +83,9 @@ export const gitBridge = {
   },
 
   /** Get staged diff for commit message generation */
-  getStagedDiff: async (rootPath: string): Promise<{ stagedFiles: string[]; diff: string } | null> => {
+  getStagedDiff: async (
+    rootPath: string,
+  ): Promise<{ stagedFiles: string[]; diff: string } | null> => {
     const api = getAPI();
     if (!api) {
       return null;
@@ -85,7 +94,9 @@ export const gitBridge = {
   },
 
   /** Generate a commit message using Claude */
-  generateCommitMessage: async (rootPath: string): Promise<{ message: string; error?: string } | null> => {
+  generateCommitMessage: async (
+    rootPath: string,
+  ): Promise<{ message: string; error?: string } | null> => {
     const api = getAPI();
     if (!api) {
       return null;

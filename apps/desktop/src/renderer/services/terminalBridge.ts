@@ -1,12 +1,12 @@
 import type {
-    TerminalCreateOptions,
-    TerminalSnapshot,
-    TerminalDataMessage,
-    TerminalActivityMessage,
-    TerminalAwaitingConfirmationMessage,
-    TerminalExitMessage,
-    TerminalStatusMessage,
-    TerminalStatusSnapshot,
+  TerminalCreateOptions,
+  TerminalSnapshot,
+  TerminalDataMessage,
+  TerminalActivityMessage,
+  TerminalAwaitingConfirmationMessage,
+  TerminalExitMessage,
+  TerminalStatusMessage,
+  TerminalStatusSnapshot,
 } from '../../shared/types';
 
 /**
@@ -16,63 +16,71 @@ import type {
  * clean up without disturbing other listeners.
  */
 export const terminalBridge = {
-    /** Start or attach to a session's terminal, returning output to repaint. */
-    create(options: TerminalCreateOptions): Promise<TerminalSnapshot> {
-        return window.terminalAPI.create(options);
-    },
+  /** Start or attach to a session's terminal, returning output to repaint. */
+  create(options: TerminalCreateOptions): Promise<TerminalSnapshot> {
+    return window.terminalAPI.create(options);
+  },
 
-    sendInput(instanceId: string, data: string): void {
-        window.terminalAPI.sendInput(instanceId, data);
-    },
+  sendInput(instanceId: string, data: string): void {
+    window.terminalAPI.sendInput(instanceId, data);
+  },
 
-    /** Insert a block of text as a paste rather than as keystrokes. */
-    paste(instanceId: string, text: string): void {
-        window.terminalAPI.paste(instanceId, text);
-    },
+  /** Insert a block of text as a paste rather than as keystrokes. */
+  paste(instanceId: string, text: string): void {
+    window.terminalAPI.paste(instanceId, text);
+  },
 
-    resize(instanceId: string, cols: number, rows: number): void {
-        window.terminalAPI.resize(instanceId, cols, rows);
-    },
+  resize(instanceId: string, cols: number, rows: number): void {
+    window.terminalAPI.resize(instanceId, cols, rows);
+  },
 
-    restart(instanceId: string): void {
-        window.terminalAPI.restart(instanceId);
-    },
+  restart(instanceId: string): void {
+    window.terminalAPI.restart(instanceId);
+  },
 
-    /** Tear down the terminal. Only for sessions being closed, not unmounted. */
-    destroy(instanceId: string): void {
-        window.terminalAPI.destroy(instanceId);
-    },
+  /**
+   * The view unmounted. The terminal keeps running, but its output stops
+   * crossing to this window: the next mount repaints from main's screen.
+   */
+  detach(instanceId: string): void {
+    window.terminalAPI.detach(instanceId);
+  },
 
-    /** The dropped file's path on disk, or `''` when the drag carried none. */
-    pathForFile(file: File): string {
-        return window.terminalAPI.pathForFile(file);
-    },
+  /** Tear down the terminal. Only for sessions being closed, not unmounted. */
+  destroy(instanceId: string): void {
+    window.terminalAPI.destroy(instanceId);
+  },
 
-    onData(callback: (message: TerminalDataMessage) => void): () => void {
-        return window.terminalAPI.onData(callback);
-    },
+  /** The dropped file's path on disk, or `''` when the drag carried none. */
+  pathForFile(file: File): string {
+    return window.terminalAPI.pathForFile(file);
+  },
 
-    onActivity(callback: (message: TerminalActivityMessage) => void): () => void {
-        return window.terminalAPI.onActivity(callback);
-    },
+  onData(callback: (message: TerminalDataMessage) => void): () => void {
+    return window.terminalAPI.onData(callback);
+  },
 
-    onAwaitingConfirmation(
-        callback: (message: TerminalAwaitingConfirmationMessage) => void
-    ): () => void {
-        return window.terminalAPI.onAwaitingConfirmation(callback);
-    },
+  onActivity(callback: (message: TerminalActivityMessage) => void): () => void {
+    return window.terminalAPI.onActivity(callback);
+  },
 
-    onExit(callback: (message: TerminalExitMessage) => void): () => void {
-        return window.terminalAPI.onExit(callback);
-    },
+  onAwaitingConfirmation(
+    callback: (message: TerminalAwaitingConfirmationMessage) => void,
+  ): () => void {
+    return window.terminalAPI.onAwaitingConfirmation(callback);
+  },
 
-    /** Derived status for any session in any workspace: the fleet vocabulary. */
-    onStatus(callback: (message: TerminalStatusMessage) => void): () => void {
-        return window.terminalAPI.onStatus(callback);
-    },
+  onExit(callback: (message: TerminalExitMessage) => void): () => void {
+    return window.terminalAPI.onExit(callback);
+  },
 
-    /** Live status of every terminal main holds, for a window that missed the edges. */
-    getStatusSnapshot(): Promise<TerminalStatusSnapshot> {
-        return window.terminalAPI.getStatusSnapshot();
-    },
+  /** Derived status for any session in any workspace: the fleet vocabulary. */
+  onStatus(callback: (message: TerminalStatusMessage) => void): () => void {
+    return window.terminalAPI.onStatus(callback);
+  },
+
+  /** Live status of every terminal main holds, for a window that missed the edges. */
+  getStatusSnapshot(): Promise<TerminalStatusSnapshot> {
+    return window.terminalAPI.getStatusSnapshot();
+  },
 };

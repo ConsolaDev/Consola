@@ -30,7 +30,7 @@ export function HighlightMatch({ label, query }: HighlightMatchProps) {
           </mark>
         ) : (
           <span key={index}>{char}</span>
-        )
+        ),
       )}
     </>
   );

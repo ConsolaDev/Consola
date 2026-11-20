@@ -1,0 +1,52 @@
+# Checks every pull request and every push to main. The release workflow runs
+# the same typecheck and tests again on its tag before building installers.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.13.1
+          cache: pnpm
+      # Biome is a prebuilt binary; skipping install scripts skips fetching
+      # Electron and rebuilding node-pty, which linting never needs.
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      # Errors fail the check. Warnings are left for the editor, where they
+      # point at the line being changed rather than at the whole backlog.
+      - run: pnpm exec biome ci --diagnostic-level=error .
+
+  test:
+    # The platform Consola ships on, and the one the release workflow tests.
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.13.1
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter consola typecheck
+      - run: pnpm --filter consola --filter @consola/factory-spec test

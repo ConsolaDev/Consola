@@ -1,6 +1,12 @@
 import { useEffect, useId, useImperativeHandle, useRef, useState, type Ref } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { ChevronDown, CircleCheck, CircleSlash, GitPullRequestClosed, RotateCcw } from 'lucide-react';
+import {
+  ChevronDown,
+  CircleCheck,
+  CircleSlash,
+  GitPullRequestClosed,
+  RotateCcw,
+} from 'lucide-react';
 import { MOD_KEY } from './inboxPresentation';
 import { closeLabel, reopenLabel } from './workItemDetailPresentation';
 import { Avatar, Messages, useWorkItemDetail } from './WorkItemDetailParts';
@@ -43,13 +49,23 @@ export function CommentBox({ ref }: { ref?: Ref<MarkdownEditorHandle> }) {
   const close = async () => {
     if (!closing || busy) return;
     const reason = closing === 'pull-request' ? undefined : closing;
-    if (await perform({ kind: 'close', ...(reason ? { reason } : {}), ...withComment }, `${noun} closed.`, 'composer')) {
+    if (
+      await perform(
+        { kind: 'close', ...(reason ? { reason } : {}), ...withComment },
+        `${noun} closed.`,
+        'composer',
+      )
+    ) {
       setBody('');
       setClosing(null);
     }
   };
   const reopen = async () => {
-    if (!busy && (await perform({ kind: 'reopen', ...withComment }, `${noun} reopened.`, 'composer'))) setBody('');
+    if (
+      !busy &&
+      (await perform({ kind: 'reopen', ...withComment }, `${noun} reopened.`, 'composer'))
+    )
+      setBody('');
   };
   const dismiss = () => {
     setClosing(null);
@@ -74,60 +90,92 @@ export function CommentBox({ ref }: { ref?: Ref<MarkdownEditorHandle> }) {
       />
       <div className="inbox-detail-composer-foot">
         <span className="inbox-detail-hint" aria-hidden="true">
-          Markdown is supported · <kbd>{MOD_KEY}</kbd><kbd>↵</kbd> to comment
+          Markdown is supported · <kbd>{MOD_KEY}</kbd>
+          <kbd>↵</kbd> to comment
         </span>
         <div className="inbox-detail-composer-actions">
-          {!merged && (closed ? (
-            <button type="button" className="inbox-detail-btn" disabled={busy} onClick={() => void reopen()}>
-              <RotateCcw size={14} className="inbox-detail-tone-icon" data-tone="success" aria-hidden="true" />
-              {reopenLabel(itemRef.type, hasText)}
-            </button>
-          ) : isPr ? (
-            <button
-              ref={closeTrigger}
-              type="button"
-              className="inbox-detail-btn"
-              disabled={busy}
-              aria-expanded={closing !== null}
-              onClick={() => setClosing('pull-request')}
-            >
-              <GitPullRequestClosed size={14} className="inbox-detail-tone-icon" data-tone="error" aria-hidden="true" />
-              {closeLabel('pr', hasText)}
-            </button>
-          ) : (
-            <div className="inbox-detail-split">
+          {!merged &&
+            (closed ? (
+              <button
+                type="button"
+                className="inbox-detail-btn"
+                disabled={busy}
+                onClick={() => void reopen()}
+              >
+                <RotateCcw
+                  size={14}
+                  className="inbox-detail-tone-icon"
+                  data-tone="success"
+                  aria-hidden="true"
+                />
+                {reopenLabel(itemRef.type, hasText)}
+              </button>
+            ) : isPr ? (
               <button
                 ref={closeTrigger}
                 type="button"
                 className="inbox-detail-btn"
                 disabled={busy}
                 aria-expanded={closing !== null}
-                onClick={() => setClosing('completed')}
+                onClick={() => setClosing('pull-request')}
               >
-                <CircleCheck size={14} className="inbox-detail-tone-icon" data-tone="merged" aria-hidden="true" />
-                {closeLabel('issue', hasText)}
+                <GitPullRequestClosed
+                  size={14}
+                  className="inbox-detail-tone-icon"
+                  data-tone="error"
+                  aria-hidden="true"
+                />
+                {closeLabel('pr', hasText)}
               </button>
-              <DropdownMenu.Root>
-                <DropdownMenu.Trigger asChild disabled={busy}>
-                  <button type="button" className="inbox-detail-btn inbox-detail-split-caret" aria-label="Close as…">
-                    <ChevronDown size={14} aria-hidden="true" />
-                  </button>
-                </DropdownMenu.Trigger>
-                <DropdownMenu.Portal>
-                  <DropdownMenu.Content className="dropdown-content" sideOffset={4} align="end">
-                    <DropdownMenu.Item className="dropdown-item" onSelect={() => setClosing('completed')}>
-                      <CircleCheck size={14} aria-hidden="true" />
-                      <span>Close as completed</span>
-                    </DropdownMenu.Item>
-                    <DropdownMenu.Item className="dropdown-item" onSelect={() => setClosing('not-planned')}>
-                      <CircleSlash size={14} aria-hidden="true" />
-                      <span>Close as not planned</span>
-                    </DropdownMenu.Item>
-                  </DropdownMenu.Content>
-                </DropdownMenu.Portal>
-              </DropdownMenu.Root>
-            </div>
-          ))}
+            ) : (
+              <div className="inbox-detail-split">
+                <button
+                  ref={closeTrigger}
+                  type="button"
+                  className="inbox-detail-btn"
+                  disabled={busy}
+                  aria-expanded={closing !== null}
+                  onClick={() => setClosing('completed')}
+                >
+                  <CircleCheck
+                    size={14}
+                    className="inbox-detail-tone-icon"
+                    data-tone="merged"
+                    aria-hidden="true"
+                  />
+                  {closeLabel('issue', hasText)}
+                </button>
+                <DropdownMenu.Root>
+                  <DropdownMenu.Trigger asChild disabled={busy}>
+                    <button
+                      type="button"
+                      className="inbox-detail-btn inbox-detail-split-caret"
+                      aria-label="Close as…"
+                    >
+                      <ChevronDown size={14} aria-hidden="true" />
+                    </button>
+                  </DropdownMenu.Trigger>
+                  <DropdownMenu.Portal>
+                    <DropdownMenu.Content className="dropdown-content" sideOffset={4} align="end">
+                      <DropdownMenu.Item
+                        className="dropdown-item"
+                        onSelect={() => setClosing('completed')}
+                      >
+                        <CircleCheck size={14} aria-hidden="true" />
+                        <span>Close as completed</span>
+                      </DropdownMenu.Item>
+                      <DropdownMenu.Item
+                        className="dropdown-item"
+                        onSelect={() => setClosing('not-planned')}
+                      >
+                        <CircleSlash size={14} aria-hidden="true" />
+                        <span>Close as not planned</span>
+                      </DropdownMenu.Item>
+                    </DropdownMenu.Content>
+                  </DropdownMenu.Portal>
+                </DropdownMenu.Root>
+              </div>
+            ))}
           <button
             type="button"
             className="inbox-detail-btn inbox-detail-btn--solid inbox-detail-btn--accent"
@@ -153,7 +201,11 @@ export function CommentBox({ ref }: { ref?: Ref<MarkdownEditorHandle> }) {
           }}
         >
           <p className="inbox-detail-confirm-title">
-            {isPr ? <GitPullRequestClosed size={15} aria-hidden="true" /> : <CircleCheck size={15} aria-hidden="true" />}
+            {isPr ? (
+              <GitPullRequestClosed size={15} aria-hidden="true" />
+            ) : (
+              <CircleCheck size={15} aria-hidden="true" />
+            )}
             {isPr
               ? `Close pull request #${itemRef.number}?`
               : `Close issue #${itemRef.number} as ${closing === 'not-planned' ? 'not planned' : 'completed'}?`}
@@ -162,7 +214,14 @@ export function CommentBox({ ref }: { ref?: Ref<MarkdownEditorHandle> }) {
             {hasText ? 'Your comment is posted as it closes. ' : ''}It can be reopened later.
           </p>
           <div className="inbox-detail-form-foot">
-            <button type="button" className="inbox-detail-btn inbox-detail-btn--quiet" disabled={busy} onClick={dismiss}>Cancel</button>
+            <button
+              type="button"
+              className="inbox-detail-btn inbox-detail-btn--quiet"
+              disabled={busy}
+              onClick={dismiss}
+            >
+              Cancel
+            </button>
             <button
               ref={confirmButton}
               type="button"

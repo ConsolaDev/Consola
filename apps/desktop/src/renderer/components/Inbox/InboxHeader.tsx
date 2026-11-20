@@ -2,7 +2,7 @@
 import { RefreshCw, Settings } from 'lucide-react';
 import { PROVIDER_META } from '../../../shared/providers';
 import type { InboxSnapshot } from '../../../shared/workItems';
-import { useWorkspaceSettings } from '../../contexts/WorkspaceSettingsContext';
+import { useSettings } from '../../contexts/SettingsContext';
 import type { Workspace } from '../../stores/workspaceStore';
 import { RepoFilterMenu, UpdatedFilterMenu } from './FilterMenus';
 import type { InboxFilterState, InboxUpdatedFilter } from './inboxFilters';
@@ -37,7 +37,7 @@ export function InboxHeader({
   onUpdatedChange,
   onRefresh,
 }: InboxHeaderProps) {
-  const { openWorkspaceSettings } = useWorkspaceSettings();
+  const { openSettings } = useSettings();
   const providerName = PROVIDER_META[provider.id].displayName;
 
   return (
@@ -67,7 +67,7 @@ export function InboxHeader({
           className="inbox-refresh inbox-settings-button"
           aria-label="Workspace settings"
           title="Workspace settings"
-          onClick={() => openWorkspaceSettings(workspace.id)}
+          onClick={() => openSettings('general')}
         >
           <Settings size={13} />
         </button>

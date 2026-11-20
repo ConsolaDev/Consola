@@ -5,7 +5,7 @@
  * This enables code selection functionality without prop drilling.
  */
 
-import { createContext, useContext, ReactNode, useMemo } from 'react';
+import { createContext, useContext, type ReactNode, useMemo } from 'react';
 
 interface CodeSelectionContextValue {
   /** The current agent instance ID */
@@ -22,14 +22,14 @@ interface CodeSelectionProviderProps {
   basePath?: string;
 }
 
-export function CodeSelectionProvider({ children, instanceId, basePath }: CodeSelectionProviderProps) {
+export function CodeSelectionProvider({
+  children,
+  instanceId,
+  basePath,
+}: CodeSelectionProviderProps) {
   const value = useMemo(() => ({ instanceId, basePath }), [instanceId, basePath]);
 
-  return (
-    <CodeSelectionContext.Provider value={value}>
-      {children}
-    </CodeSelectionContext.Provider>
-  );
+  return <CodeSelectionContext.Provider value={value}>{children}</CodeSelectionContext.Provider>;
 }
 
 /**

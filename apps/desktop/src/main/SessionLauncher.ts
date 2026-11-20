@@ -1,7 +1,6 @@
 import * as fs from 'node:fs';
 import { SessionOpenedError } from '@consola/automation-engine';
-import type { Harness } from '../shared/harness';
-import type { HarnessLaunchFields } from '../shared/types';
+import { launchFieldsFor, type Harness } from '../shared/harness';
 import type { ActionConversation } from '../shared/workItemActions';
 import {
   generateSessionInstanceId,
@@ -11,6 +10,7 @@ import {
   type Workspace,
 } from '../shared/workspace';
 import { toolPolicyProblem } from './drivers';
+import { openingFor } from './harnessSwitch/handoff';
 import { mcpConfigForSession } from './mcp/SessionMcpHost';
 import type { RelaunchFields, TerminalService, TerminalServiceOptions } from './TerminalService';
 
@@ -35,7 +35,7 @@ export interface SessionRecordStore {
   updateSession(
     workspaceId: string,
     sessionId: string,
-    updates: Partial<Pick<Session, 'name' | 'lastActiveAt' | 'hasStarted'>>,
+    updates: Partial<Pick<Session, 'name' | 'hasStarted'>>,
   ): void;
   deleteSession(workspaceId: string, sessionId: string): void;
   replaceConversation(workspaceId: string, sessionId: string, claudeSessionId?: string): Session;
@@ -67,9 +67,6 @@ export interface HeadlessTerminalStarter {
   relaunch(instanceId: string, launch: RelaunchFields): void;
 }
 
-/** How `deliverPrompt` reached the session: queued on a live terminal, woken interactively, or re-run unattended. */
-export type PromptDelivery = 'queued' | 'woken' | 'rerun';
-
 /**
  * A new session's record fields, plus how its first launch goes. The extras
  * are delivery-only: they describe one spawn, never the session, and must
@@ -84,26 +81,23 @@ export type LaunchSessionFields = NewSessionFields & {
 };
 
 /** What one spawn of a recorded session is asked to do. */
-type SpawnFields = Pick<
+export type SpawnFields = Pick<
   TerminalServiceOptions,
-  'resume' | 'initialPrompt' | 'unattended' | 'forkFrom'
+  'resume' | 'initialPrompt' | 'unattended' | 'forkFrom' | 'launchNotice'
 >;
 
 /**
- * How a harness record translates into launch fields.
- *
- * Absent or built-in pins nothing — the empty object resolves exactly the way
- * Consola did before harnesses existed, ambient CLAUDE_CONFIG_DIR included.
+ * Makes a session's checkout exist before it spawns: a worktree a cleanup
+ * rule removed is rebuilt (`WorktreeRebuilder.ensureCheckout`). Returns a
+ * line for the pane, and throws with one when it cannot.
  */
-export function launchFieldsFor(harness: Harness | undefined): HarnessLaunchFields {
-  if (!harness || harness.isBuiltIn) return {};
-  return {
-    driverId: harness.driverId,
-    binaryOverride: harness.binaryPath,
-    configDirOverride: harness.configDir,
-    extraArgs: harness.extraArgs,
-  };
-}
+export type PrepareCheckout = (
+  workspace: Workspace,
+  session: Session,
+) => Promise<{ notice?: string }>;
+
+/** A harness record's launch fields; shared with the renderer so both resolve one config directory. */
+export { launchFieldsFor };
 
 export class SessionLauncher {
   /**
@@ -112,11 +106,8 @@ export class SessionLauncher {
    */
   public mcpHost?: { register(session: Pick<Session, 'id'>): Promise<string> };
 
-  /**
-   * Runs before a read-only session is re-run, set at wiring so a worktree
-   * can be brought up to date first. Its failure never stops the re-run.
-   */
-  public beforeRerun?: (workspace: Workspace, session: Session) => Promise<void>;
+  /** Set at wiring time; optional so unit tests need no rebuilder. */
+  public prepareCheckout?: PrepareCheckout;
 
   constructor(
     private readonly workspaces: SessionRecordStore,
@@ -201,15 +192,13 @@ export class SessionLauncher {
       if (this.terminals.has(session.instanceId)) throw new SessionOpenedError();
     };
     opened();
-    const cwd = workingFolder(workspace, session);
-    if (!cwd || !fs.existsSync(cwd))
-      throw new Error(`Its working folder is gone: ${cwd ?? session.scopeId}.`);
+    const { cwd, notice } = await this.resolveFolder(workspace, session);
     // Checked again after the await inside: a pane may have mounted meanwhile.
     await this.spawnRecorded(
       workspace,
       session,
       cwd,
-      { resume: true, initialPrompt: prompt, unattended: true },
+      { resume: true, initialPrompt: prompt, unattended: true, launchNotice: notice },
       opened,
     );
   }
@@ -221,7 +210,7 @@ export class SessionLauncher {
    * has exited (relaunched in place, so a pane showing it keeps streaming)
    * or none at all (spawned): a CLI still running is the person's, and a
    * second process on one conversation would fork it. It never refreshes
-   * the checkout (`beforeRerun`) — the step is reviewing that very commit —
+   * the checkout — the step is reviewing that very commit —
    * and cannot go through `resumeUnattended`, which refuses any terminal
    * still in the map, as an exited one is.
    */
@@ -289,9 +278,7 @@ export class SessionLauncher {
     const workspace = this.workspaces.getAll().find((candidate) => candidate.id === workspaceId);
     const session = workspace?.sessions.find((candidate) => candidate.id === sessionId);
     if (!workspace || !session) throw new Error('That session no longer exists.');
-    const cwd = workingFolder(workspace, session);
-    if (!cwd || !fs.existsSync(cwd))
-      throw new Error(`Its working folder is gone: ${cwd ?? session.scopeId}.`);
+    const { cwd, notice } = await this.resolveFolder(workspace, session);
 
     const live = this.terminals.get(session.instanceId);
     if (live?.runningUnattended()) {
@@ -304,13 +291,17 @@ export class SessionLauncher {
       if (live) {
         // An exited CLI resumes, and the queue holds the prompt until
         // its composer is back.
-        if (live.hasClaudeExited()) live.restartClaude(cwd);
+        if (live.hasClaudeExited()) {
+          if (notice) live.restartClaude(cwd, notice);
+          else live.restartClaude(cwd);
+        }
         live.queuePrompt(prompt);
         return;
       }
       await this.spawnRecorded(workspace, session, cwd, {
         resume: session.hasStarted,
         initialPrompt: prompt,
+        launchNotice: notice,
       });
       if (!session.hasStarted)
         this.workspaces.updateSession(workspaceId, session.id, { hasStarted: true });
@@ -327,74 +318,11 @@ export class SessionLauncher {
       return;
     }
     const replaced = this.workspaces.replaceConversation(workspaceId, session.id);
-    await this.spawnRecorded(workspace, replaced, cwd, { resume: false, initialPrompt: prompt });
-  }
-
-  /**
-   * Deliver `prompt` to a session whatever state it is in: queued on a live
-   * terminal, an exited one started again in place, or a session with no
-   * terminal resumed from its own record. A read-only session is re-run
-   * unattended and stays read-only; nothing here lifts a restriction.
-   */
-  public async deliverPrompt(
-    workspaceId: string,
-    sessionId: string,
-    prompt: string,
-  ): Promise<PromptDelivery> {
-    const workspace = this.workspaces.getAll().find((candidate) => candidate.id === workspaceId);
-    const session = workspace?.sessions.find((candidate) => candidate.id === sessionId);
-    if (!workspace || !session)
-      throw new Error(`No session ${sessionId} in workspace ${workspaceId}.`);
-
-    const terminal = this.terminals.get(session.instanceId);
-    if (terminal?.runningUnattended()) {
-      throw new Error(
-        `"${session.name}" is in the middle of an unattended run; wait for it to finish.`,
-      );
-    }
-    // queuePrompt waits for an empty composer, so this never types into a menu.
-    if (terminal && !terminal.hasClaudeExited()) {
-      terminal.queuePrompt(prompt);
-      return 'queued';
-    }
-
-    const cwd = workingFolder(workspace, session);
-    if (!cwd || !fs.existsSync(cwd))
-      throw new Error(`Its working folder is gone: ${cwd ?? session.scopeId}.`);
-    const harness = this.harnesses.getAll().find((candidate) => candidate.id === session.harnessId);
-    const policyProblem = toolPolicyProblem(launchFieldsFor(harness), session.toolPolicy);
-    if (policyProblem) throw new Error(policyProblem);
-
-    if (session.toolPolicy === 'read-only') {
-      try {
-        await this.beforeRerun?.(workspace, session);
-      } catch (error) {
-        console.error(`Refreshing "${session.name}" before its re-run failed.`, error);
-      }
-      // An exited terminal is still in the map, which resumeUnattended
-      // refuses; relaunch reuses the instance a pane may be showing. A
-      // terminal that appeared during the await makes startHeadless throw.
-      if (terminal) this.terminals.relaunch(session.instanceId, { cwd, prompt, unattended: true });
-      else
-        await this.spawn(workspace, session, cwd, harness, {
-          resume: true,
-          initialPrompt: prompt,
-          unattended: true,
-        });
-      return 'rerun';
-    }
-
-    if (terminal) {
-      this.terminals.relaunch(session.instanceId, { cwd, prompt, unattended: false });
-    } else {
-      await this.spawn(workspace, session, cwd, harness, {
-        resume: session.hasStarted,
-        initialPrompt: prompt,
-      });
-      if (!session.hasStarted)
-        this.workspaces.updateSession(workspaceId, sessionId, { hasStarted: true });
-    }
-    return 'woken';
+    await this.spawnRecorded(workspace, replaced, cwd, {
+      resume: false,
+      initialPrompt: prompt,
+      launchNotice: notice,
+    });
   }
 
   /**
@@ -414,6 +342,9 @@ export class SessionLauncher {
       ?.sessions.find((candidate) => candidate.id === sessionId);
     if (!source) throw new Error(`No session ${sessionId} in workspace ${workspaceId}.`);
     if (!source.hasStarted) throw new Error('There is no conversation to continue yet.');
+    // The fork runs in the source's folder, which a cleanup rule may have removed.
+    const workspace = this.workspaces.getAll().find((candidate) => candidate.id === workspaceId);
+    if (workspace && source.removedWorktree) await this.prepareCheckout?.(workspace, source);
     return this.launchSession(workspaceId, {
       name: `${source.name} (full tools)`,
       workspaceId,
@@ -428,6 +359,50 @@ export class SessionLauncher {
       ...(source.workItemAction !== undefined ? { workItemAction: source.workItemAction } : {}),
       forkFrom: source.claudeSessionId,
     });
+  }
+
+  /**
+   * Start a session's terminal headless from `session` as given, which
+   * may not be the stored record yet: a harness switch starts the target
+   * before it writes the record that names it, so a write that fails can
+   * stop the terminal and leave nothing behind. `beforeStart` runs after
+   * the last await, just before the spawn, for a check that must hold then.
+   */
+  public async startRecorded(
+    workspaceId: string,
+    session: Session,
+    launch: SpawnFields,
+    beforeStart?: () => void,
+  ): Promise<void> {
+    const workspace = this.workspaces.getAll().find((candidate) => candidate.id === workspaceId);
+    if (!workspace) throw new Error(`No workspace ${workspaceId}.`);
+    const { cwd, notice } = await this.resolveFolder(workspace, session);
+    await this.spawnRecorded(
+      workspace,
+      session,
+      cwd,
+      notice ? { ...launch, launchNotice: notice } : launch,
+      beforeStart,
+    );
+  }
+
+  /**
+   * Where a recorded session runs, made to exist first: a worktree a cleanup
+   * rule removed is rebuilt here, before any spawn looks for it. Throws when
+   * the folder is gone and cannot come back.
+   */
+  private async resolveFolder(
+    workspace: Workspace,
+    session: Session,
+  ): Promise<{ cwd: string; notice?: string }> {
+    const notice =
+      session.removedWorktree && this.prepareCheckout
+        ? (await this.prepareCheckout(workspace, session)).notice
+        : undefined;
+    const cwd = workingFolder(workspace, session);
+    if (!cwd || !fs.existsSync(cwd))
+      throw new Error(`Its working folder is gone: ${cwd ?? session.scopeId}.`);
+    return { cwd, ...(notice ? { notice } : {}) };
   }
 
   /**
@@ -477,6 +452,7 @@ export class SessionLauncher {
       providerAccountLogin: workspace.provider?.accountLogin,
       mcpConfigPath,
       toolPolicy: session.toolPolicy,
+      opening: openingFor(session),
       ...launchFieldsFor(harness),
     });
   }

@@ -57,19 +57,26 @@ export function SidePanel({ workspace, panel }: { workspace: Workspace; panel: A
       inside = true;
     };
     const onFocusOut = (event: FocusEvent) => {
-      if (event.relatedTarget instanceof Node && !element.contains(event.relatedTarget)) inside = false;
+      if (event.relatedTarget instanceof Node && !element.contains(event.relatedTarget))
+        inside = false;
     };
     const onPointerDown = (event: PointerEvent) => {
       if (!(event.target instanceof Node) || !element.contains(event.target)) inside = false;
     };
     const observer = new MutationObserver(() => {
       const active = document.activeElement;
-      if (inside && (active === null || active === document.body)) element.focus({ preventScroll: true });
+      if (inside && (active === null || active === document.body))
+        element.focus({ preventScroll: true });
     });
     element.addEventListener('focusin', onFocusIn);
     element.addEventListener('focusout', onFocusOut);
     document.addEventListener('pointerdown', onPointerDown, true);
-    observer.observe(element, { subtree: true, childList: true, attributes: true, attributeFilter: ['disabled'] });
+    observer.observe(element, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: ['disabled'],
+    });
     return () => {
       observer.disconnect();
       element.removeEventListener('focusin', onFocusIn);
@@ -102,9 +109,15 @@ export function SidePanel({ workspace, panel }: { workspace: Workspace; panel: A
         </button>
       </header>
       <div className="automations-side-panel-body">
-        {panel.kind === 'run' && <RunDetails key={panel.runId} workspace={workspace} runId={panel.runId} />}
-        {panel.kind === 'automation' && <AutomationDetails key={panel.name} workspace={workspace} name={panel.name} />}
-        {panel.kind === 'template' && <TemplateDetails key={panel.id} workspace={workspace} id={panel.id} />}
+        {panel.kind === 'run' && (
+          <RunDetails key={panel.runId} workspace={workspace} runId={panel.runId} />
+        )}
+        {panel.kind === 'automation' && (
+          <AutomationDetails key={panel.name} workspace={workspace} name={panel.name} />
+        )}
+        {panel.kind === 'template' && (
+          <TemplateDetails key={panel.id} workspace={workspace} id={panel.id} />
+        )}
         {panel.kind === 'new' && <NewAutomation workspace={workspace} basis={panel.basis} />}
       </div>
     </aside>
@@ -114,13 +127,19 @@ export function SidePanel({ workspace, panel }: { workspace: Workspace; panel: A
 /** A run is titled by what ran it, an automation by its name. */
 function usePanelTitle(workspaceId: string, panel: AutomationsPanel): string {
   const run = useAutomationsStore((state) =>
-    panel.kind === 'run' ? state.snapshots[workspaceId]?.runs.find((candidate) => candidate.id === panel.runId) : undefined
+    panel.kind === 'run'
+      ? state.snapshots[workspaceId]?.runs.find((candidate) => candidate.id === panel.runId)
+      : undefined,
   );
   const template = useAutomationsStore((state) =>
-    panel.kind === 'template' ? state.snapshots[workspaceId]?.templates.find((candidate) => candidate.id === panel.id) : undefined
+    panel.kind === 'template'
+      ? state.snapshots[workspaceId]?.templates.find((candidate) => candidate.id === panel.id)
+      : undefined,
   );
   if (panel.kind === 'run') return run ? runTitle(run) : 'Run';
   if (panel.kind === 'automation') return panel.name;
   if (panel.kind === 'template') return template?.title ?? 'Template';
-  return panel.basis && 'automation' in panel.basis ? `Change ${panel.basis.automation}` : 'New automation';
+  return panel.basis && 'automation' in panel.basis
+    ? `Change ${panel.basis.automation}`
+    : 'New automation';
 }

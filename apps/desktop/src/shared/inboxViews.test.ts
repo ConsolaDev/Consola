@@ -8,7 +8,11 @@ import type { InboxItem, InboxRole } from './workItems';
  * descending is the same as sorting by number descending -- which keeps
  * every ordering assertion below readable.
  */
-function makeItem(number: number, roles: InboxRole[], overrides: Partial<InboxItem> = {}): InboxItem {
+function makeItem(
+  number: number,
+  roles: InboxRole[],
+  overrides: Partial<InboxItem> = {},
+): InboxItem {
   return {
     workItem: { provider: 'github', repo: 'sprocket/forum-admin', type: 'pr', number },
     title: `Item ${number}`,
@@ -87,7 +91,9 @@ describe('itemsForView', () => {
 describe('groupBySection', () => {
   it('emits all seven sections in display order, empty ones included', () => {
     const groups = groupBySection(all);
-    expect(groups.map((group) => group.section)).toEqual(INBOX_SECTIONS.map((section) => section.id));
+    expect(groups.map((group) => group.section)).toEqual(
+      INBOX_SECTIONS.map((section) => section.id),
+    );
     const itemsIn = (section: string) =>
       numbers(groups.find((group) => group.section === section)?.items ?? []);
     expect(itemsIn('needs-your-review')).toEqual([1]);

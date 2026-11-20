@@ -1,0 +1,48 @@
+{
+  "accountType": "chatgpt",
+  "requiresOpenaiAuth": true,
+  "rateLimits": {
+    "rateLimits": {
+      "limitId": "codex",
+      "limitName": null,
+      "normalModelSlug": null,
+      "primary": {
+        "usedPercent": 100,
+        "windowDurationMins": 10080,
+        "resetsAt": 1795715713
+      },
+      "secondary": null,
+      "credits": {
+        "hasCredits": false,
+        "unlimited": false,
+        "balance": "0"
+      },
+      "individualLimit": null,
+      "spendControlReached": false,
+      "planType": "prolite",
+      "rateLimitReachedType": "rate_limit_reached"
+    },
+    "rateLimitsByLimitId": {
+      "codex": {
+        "limitId": "codex",
+        "limitName": null,
+        "normalModelSlug": null,
+        "primary": {
+          "usedPercent": 100,
+          "windowDurationMins": 10080,
+          "resetsAt": 1795715713
+        },
+        "secondary": null,
+        "credits": {
+          "hasCredits": false,
+          "unlimited": false,
+          "balance": "0"
+        },
+        "individualLimit": null,
+        "spendControlReached": false,
+        "planType": "prolite",
+        "rateLimitReachedType": "rate_limit_reached"
+      }
+    }
+  }
+}

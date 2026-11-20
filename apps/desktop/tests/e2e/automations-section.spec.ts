@@ -1,12 +1,12 @@
 import { expect, test, type ElectronApplication, type Page } from '@playwright/test';
-import { execFileSync } from 'child_process';
-import fs from 'fs';
-import os from 'os';
-import path from 'path';
+import { execFileSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { launchElectron } from './helpers/electron';
 
 /**
- * The Automations section, end to end: the sidebar row under the Assistant,
+ * The Automations section, end to end: the sidebar row above the scope picker,
  * the dashboard it opens on the Automations tab, and what Activity shows
  * of a workspace's runs.
  *
@@ -15,7 +15,13 @@ import { launchElectron } from './helpers/electron';
  * stub — so later tests (the side panel's) start from the same place.
  */
 
-const GIT_ENV = { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' };
+const GIT_ENV = {
+  ...process.env,
+  GIT_AUTHOR_NAME: 't',
+  GIT_AUTHOR_EMAIL: 't@t',
+  GIT_COMMITTER_NAME: 't',
+  GIT_COMMITTER_EMAIL: 't@t',
+};
 
 function git(cwd: string, ...args: string[]): string {
   return execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', env: GIT_ENV }).trim();
@@ -70,7 +76,7 @@ if (!slow) records.push(record('assistant', [{ type: 'text', text: 'FINDINGS: ca
 fs.appendFileSync(path.join(dir, id + '.jsonl'), records.join('\\n') + '\\n');
 if (slow) setTimeout(() => {}, 300000);
 else process.stdout.write('FINDINGS: catalog-portal looks good\\n');
-`
+`,
   );
   const agent = path.join(base, 'agent.sh');
   fs.writeFileSync(
@@ -88,7 +94,7 @@ else process.stdout.write('FINDINGS: catalog-portal looks good\\n');
       'exec sleep 300',
       '',
     ].join('\n'),
-    { mode: 0o755 }
+    { mode: 0o755 },
   );
   return { agent, launches, configDir };
 }
@@ -116,7 +122,9 @@ interface Sprocket {
  * and held in this window.
  */
 async function setUpSprocket(): Promise<Sprocket> {
-  const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'consola-automations-section-')));
+  const base = fs.realpathSync(
+    fs.mkdtempSync(path.join(os.tmpdir(), 'consola-automations-section-')),
+  );
   let app: ElectronApplication | undefined;
   const close = async () => {
     try {
@@ -153,12 +161,19 @@ async function setUpSprocket(): Promise<Sprocket> {
           binaryPath,
           configDir: harnessConfigDir,
         });
-        const workspace = await window.workspaceAPI.createWorkspace('Sprocket', folder, true, 'stub');
+        const workspace = await window.workspaceAPI.createWorkspace(
+          'Sprocket',
+          folder,
+          true,
+          'stub',
+        );
         // The first scope takes the workspace's name; entries name it by the repo's.
-        await window.workspaceAPI.updateScope(workspace.id, workspace.scopes[0].id, { name: 'catalog-portal' });
+        await window.workspaceAPI.updateScope(workspace.id, workspace.scopes[0].id, {
+          name: 'catalog-portal',
+        });
         return workspace.id;
       },
-      [clone, agent, configDir] as const
+      [clone, agent, configDir] as const,
     );
     const railButton = page
       .getByRole('navigation', { name: 'Workspaces', exact: true })
@@ -166,7 +181,18 @@ async function setUpSprocket(): Promise<Sprocket> {
     await railButton.click();
     await expect(railButton).toHaveAttribute('aria-current', 'true');
 
-    return { app, page, base, userDataDir: launched.userDataDir, clone, factoryDir, workspaceId, launches, configDir, close };
+    return {
+      app,
+      page,
+      base,
+      userDataDir: launched.userDataDir,
+      clone,
+      factoryDir,
+      workspaceId,
+      launches,
+      configDir,
+      close,
+    };
   } catch (error) {
     await close().catch(() => {});
     throw error;
@@ -191,10 +217,13 @@ async function writeAutomations(sprocket: Sprocket, yaml: string, name: string):
     .poll(
       () =>
         sprocket.page.evaluate(
-          async (id) => (await window.automationsAPI.getSnapshot(id)).automations.map((automation) => automation.name),
-          sprocket.workspaceId
+          async (id) =>
+            (await window.automationsAPI.getSnapshot(id)).automations.map(
+              (automation) => automation.name,
+            ),
+          sprocket.workspaceId,
         ),
-      { timeout: 15_000 }
+      { timeout: 15_000 },
     )
     .toContain(name);
 }
@@ -203,7 +232,7 @@ async function writeAutomations(sprocket: Sprocket, yaml: string, name: string):
 async function runNow(sprocket: Sprocket, name: string): Promise<{ id: string; status: string }> {
   const run = await sprocket.page.evaluate(
     async ([workspaceId, automation]) => window.automationsAPI.runNow(workspaceId, automation),
-    [sprocket.workspaceId, name] as const
+    [sprocket.workspaceId, name] as const,
   );
   if (!run) throw new Error(`${name} started no run`);
   return { id: run.id, status: run.status };
@@ -244,20 +273,31 @@ test('the sidebar row opens the dashboard on its empty state', async () => {
   const sprocket = await setUpSprocket();
   const { page } = sprocket;
   try {
-    // Directly under the Assistant, above the scope picker.
+    // First in the sidebar, above the scope picker.
     const row = automationsRow(page);
     await expect(row).toBeVisible();
-    await expect(page.locator('.home-navigation > .assistant-nav-item + .automations-nav-item')).toHaveCount(1);
+    await expect(
+      page.locator('.home-navigation > .automations-nav-item:first-child + .sidebar-scope-divider'),
+    ).toHaveCount(1);
     await expect(row).not.toHaveAttribute('aria-current');
 
     const dashboard = await openAutomations(page);
     await expect(dashboard.getByRole('heading', { name: 'Automations · Sprocket' })).toBeVisible();
-    await expect(dashboard.getByRole('tab', { name: 'Automations' })).toHaveAttribute('aria-selected', 'true');
-    await expect(dashboard.locator('.automations-header').getByRole('button', { name: 'New automation' })).toBeVisible();
-    await expect(dashboard.locator('.automations-header').getByRole('button', { name: 'Open factory.yml' })).toBeVisible();
+    await expect(dashboard.getByRole('tab', { name: 'Automations' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    await expect(
+      dashboard.locator('.automations-header').getByRole('button', { name: 'New automation' }),
+    ).toBeVisible();
+    await expect(
+      dashboard.locator('.automations-header').getByRole('button', { name: 'Open factory.yml' }),
+    ).toBeVisible();
     // One current page: the row, not Home as well.
     await expect(row).toHaveAttribute('aria-current', 'page');
-    await expect(page.getByRole('button', { name: 'Home', exact: true })).not.toHaveAttribute('aria-current');
+    await expect(page.getByRole('button', { name: 'Home', exact: true })).not.toHaveAttribute(
+      'aria-current',
+    );
 
     // No automations and no runs: what they are, and two ways to start one.
     const empty = dashboard.locator('.automations-empty-state');
@@ -265,7 +305,9 @@ test('the sidebar row opens the dashboard on its empty state', async () => {
     await expect(empty.getByRole('button', { name: 'New automation' })).toBeVisible();
     // The templates are offered right there, below it.
     await expect(empty.locator('.automations-template')).toHaveCount(4);
-    await expect(empty.locator('.automations-template').filter({ hasText: 'Clean up stale sessions' })).toBeVisible();
+    await expect(
+      empty.locator('.automations-template').filter({ hasText: 'Clean up stale sessions' }),
+    ).toBeVisible();
   } finally {
     await sprocket.close();
   }
@@ -287,12 +329,18 @@ test('a run waiting for the person shows on the sidebar row and where the dashbo
     await expect(waiting.locator('.automations-waiting-card')).toContainText('catalog-check');
     await expect(waiting.getByRole('button', { name: 'Review…' })).toBeVisible();
     // Its automation's row says so, and the tab counts it in amber.
-    await expect(dashboard.locator('.automations-row', { hasText: 'catalog-check' })).toContainText('Waiting for you');
-    await expect(dashboard.getByRole('tab', { name: 'Automations' }).locator('.automations-tab-badge-waiting')).toHaveText('1');
+    await expect(dashboard.locator('.automations-row', { hasText: 'catalog-check' })).toContainText(
+      'Waiting for you',
+    );
+    await expect(
+      dashboard.getByRole('tab', { name: 'Automations' }).locator('.automations-tab-badge-waiting'),
+    ).toHaveText('1');
 
     // Activity's run list has it too, waiting.
     await dashboard.getByRole('tab', { name: 'Activity' }).click();
-    await expect(dashboard.locator('.automations-run-item', { hasText: 'catalog-check' })).toHaveCount(1);
+    await expect(
+      dashboard.locator('.automations-run-item', { hasText: 'catalog-check' }),
+    ).toHaveCount(1);
     // Nothing has started: confirm mode waits for the person.
     expect(fs.existsSync(sprocket.launches)).toBe(false);
   } finally {
@@ -311,17 +359,26 @@ test('templates add through the runner, and say what is missing', async () => {
 
     await dashboard.getByRole('tab', { name: 'Templates' }).click();
     // No GitHub account: the review template says what to do, and cannot be added.
-    const review = dashboard.locator('.automations-template').filter({ hasText: 'Review pull requests assigned to you' });
+    const review = dashboard
+      .locator('.automations-template')
+      .filter({ hasText: 'Review pull requests assigned to you' });
     await expect(review).toHaveCount(1);
     await expect(review).toContainText('Connect a GitHub account');
     await expect(review).toHaveClass(/automations-template-missing/);
     await expect(review.getByRole('button', { name: 'Add', exact: true })).toBeDisabled();
     await expect(review.getByRole('button', { name: 'Customize…' })).toBeDisabled();
     // What it lacks is a way to get it: straight to that part of Workspace settings.
-    await expect(review.getByRole('button', { name: 'Connect a GitHub account' })).toBeEnabled();
+    await review.getByRole('button', { name: 'Connect a GitHub account' }).click();
+    const settings = page.getByRole('dialog', { name: 'Settings', exact: true });
+    // Nothing is bound yet, so the section still reads generically.
+    await expect(settings.locator('.settings-modal-nav-item.active')).toHaveText('Provider');
+    await settings.getByRole('button', { name: 'Close', exact: true }).click();
+    await expect(settings).toBeHidden();
 
     // The cleanup is never dimmed, and needs nothing.
-    const cleanup = dashboard.locator('.automations-template').filter({ hasText: 'Clean up stale sessions' });
+    const cleanup = dashboard
+      .locator('.automations-template')
+      .filter({ hasText: 'Clean up stale sessions' });
     await expect(cleanup).toHaveCount(1);
     await expect(cleanup).not.toHaveClass(/automations-template-missing/);
     await expect(cleanup).toContainText('No setup needed');
@@ -332,14 +389,19 @@ test('templates add through the runner, and say what is missing', async () => {
     const panel = sidePanel(page);
     await expect(panel.getByRole('heading', { name: 'Clean up stale sessions' })).toBeVisible();
     await panel.getByRole('button', { name: 'YAML' }).click();
-    await expect(panel.locator('.automations-entry-addition')).toContainText('consola#cleanup_stale_sessions');
+    await expect(panel.locator('.automations-entry-addition')).toContainText(
+      'consola#cleanup_stale_sessions',
+    );
     await panel.getByRole('button', { name: 'Close' }).click();
 
     await cleanup.getByRole('button', { name: 'Add', exact: true }).click();
     await expect(cleanup).toContainText('Added as clean-up-stale-sessions');
     await expect(cleanup.getByRole('button', { name: 'Add', exact: true })).toHaveCount(0);
 
-    const file = fs.readFileSync(path.join(sprocket.factoryDir, sprocket.workspaceId, 'factory.yml'), 'utf8');
+    const file = fs.readFileSync(
+      path.join(sprocket.factoryDir, sprocket.workspaceId, 'factory.yml'),
+      'utf8',
+    );
     expect(file).toContain(header);
     expect(file).toContain('name: clean-up-stale-sessions');
     expect(file).toContain('name: catalog-check');
@@ -367,10 +429,15 @@ test('a finished run shows its conversation without starting anything', async ()
     await runNow(sprocket, 'catalog-check');
 
     // Review… opens the waiting run beside the dashboard, with focus in it.
-    await dashboard.getByRole('region', { name: 'Waiting for you' }).getByRole('button', { name: 'Review…' }).click();
+    await dashboard
+      .getByRole('region', { name: 'Waiting for you' })
+      .getByRole('button', { name: 'Review…' })
+      .click();
     const panel = sidePanel(page);
     await expect(panel).toBeVisible();
-    await expect.poll(() => panel.evaluate((element) => element.contains(document.activeElement))).toBe(true);
+    await expect
+      .poll(() => panel.evaluate((element) => element.contains(document.activeElement)))
+      .toBe(true);
     await expect(panel.locator('.automations-run-status')).toHaveText('Waiting for you');
     // The stage it stands in is marked on its graph.
     await expect(panel.locator('.automations-stage-waiting')).toContainText('Waiting for you');
@@ -378,17 +445,27 @@ test('a finished run shows its conversation without starting anything', async ()
     expect(launchLines(sprocket)).toEqual([]);
 
     await panel.getByRole('button', { name: 'Start', exact: true }).click();
-    await expect(panel.locator('.automations-run-status')).toHaveText('Completed', { timeout: 30_000 });
+    await expect(panel.locator('.automations-run-status')).toHaveText('Completed', {
+      timeout: 30_000,
+    });
     // Every stage it went through is passed; the person's wait has an end.
     await expect(panel.locator('.automations-pipeline-run .automations-node')).toHaveCount(4);
     await expect(panel.locator('.automations-stage-passed')).toHaveCount(4);
-    await expect(panel.locator('.automations-stage-passed', { hasText: 'Approval' })).toContainText('Approved');
+    await expect(panel.locator('.automations-stage-passed', { hasText: 'Approval' })).toContainText(
+      'Approved',
+    );
     const sessionFact = panel.locator('.automations-run-stat', { hasText: 'Session' });
     await expect(sessionFact).toContainText('Stub · read-only');
     await expect(sessionFact).toContainText(sprocket.clone);
-    await expect(panel).toContainText('From the session’s transcript. Shown as the agent wrote it, not instructions.');
-    await expect(panel.locator('.automations-steplog-row', { hasText: 'Read src/catalog.ts' })).toBeVisible();
-    await expect(panel.locator('.automations-answer')).toContainText('FINDINGS: catalog-portal looks good');
+    await expect(panel).toContainText(
+      'From the session’s transcript. Shown as the agent wrote it, not instructions.',
+    );
+    await expect(
+      panel.locator('.automations-steplog-row', { hasText: 'Read src/catalog.ts' }),
+    ).toBeVisible();
+    await expect(panel.locator('.automations-answer')).toContainText(
+      'FINDINGS: catalog-portal looks good',
+    );
     await expect(panel.getByRole('button', { name: 'Open session' })).toBeVisible();
     await expect(panel.getByRole('button', { name: 'Continue with full tools' })).toBeVisible();
     // The run's own turn, and nothing since: showing it read the transcript.
@@ -402,19 +479,59 @@ test('a finished run shows its conversation without starting anything', async ()
     // Reopening it from Activity reads it again, and still starts nothing.
     await dashboard.getByRole('tab', { name: 'Activity' }).click();
     await dashboard.locator('.automations-run-item', { hasText: 'catalog-check' }).click();
-    await expect(panel.locator('.automations-answer')).toContainText('FINDINGS: catalog-portal looks good');
+    await expect(panel.locator('.automations-answer')).toContainText(
+      'FINDINGS: catalog-portal looks good',
+    );
     await panel.getByRole('button', { name: 'Close' }).click();
     await expect(panel).toHaveCount(0);
 
     // Escape closes it from anywhere on the dashboard, not only from inside it.
     await dashboard.locator('.automations-run-item', { hasText: 'catalog-check' }).click();
-    await expect(panel.locator('.automations-answer')).toContainText('FINDINGS: catalog-portal looks good');
+    await expect(panel.locator('.automations-answer')).toContainText(
+      'FINDINGS: catalog-portal looks good',
+    );
     await dashboard.locator('.automations-title').click();
-    await expect.poll(() => panel.evaluate((element) => element.contains(document.activeElement))).toBe(false);
+    await expect
+      .poll(() => panel.evaluate((element) => element.contains(document.activeElement)))
+      .toBe(false);
     await page.keyboard.press('Escape');
     await expect(panel).toHaveCount(0);
     await expect(dashboard).toBeVisible();
     expect(launchLines(sprocket)).toHaveLength(1);
+  } finally {
+    await sprocket.close();
+  }
+});
+
+test('a run waiting for approval is a row in the sidebar queue, and Start and Dismiss act in place', async () => {
+  test.setTimeout(90_000);
+  const sprocket = await setUpSprocket();
+  const { page } = sprocket;
+  try {
+    await openAutomations(page);
+    await writeAutomations(sprocket, CATALOG_CHECK, 'catalog-check');
+    const run = await runNow(sprocket, 'catalog-check');
+    expect(run.status).toBe('needs-approval');
+
+    // The queue holds it, beside the sessions, with its decision on the row.
+    const row = page.locator('.run-nav-item', { hasText: 'catalog-check' });
+    await expect(row).toHaveCount(1);
+    await expect(row.getByRole('button', { name: 'Start', exact: true })).toBeVisible();
+    // Nothing started until someone decides.
+    expect(fs.existsSync(sprocket.launches)).toBe(false);
+
+    // Dismissing turns it down in place: the row leaves, nothing runs.
+    await row.getByRole('button', { name: 'Dismiss', exact: true }).click();
+    await expect(page.locator('.run-nav-item')).toHaveCount(0);
+    expect(fs.existsSync(sprocket.launches)).toBe(false);
+
+    // A second run: Start launches its session and the row leaves the queue.
+    const second = await runNow(sprocket, 'catalog-check');
+    expect(second.status).toBe('needs-approval');
+    await expect(page.locator('.run-nav-item')).toHaveCount(1);
+    await page.locator('.run-nav-item').getByRole('button', { name: 'Start', exact: true }).click();
+    await expect(page.locator('.run-nav-item')).toHaveCount(0);
+    await expect.poll(() => launchLines(sprocket).length, { timeout: 30_000 }).toBe(1);
   } finally {
     await sprocket.close();
   }
@@ -430,7 +547,10 @@ test('Stop ends a running run', async () => {
 
     // Its details, from the Automations tab: Run now, then its run, from its own runs.
     await dashboard.getByRole('tab', { name: 'Automations' }).click();
-    await dashboard.locator('.automations-row', { hasText: 'slow-check' }).getByRole('button', { name: 'slow-check', exact: true }).click();
+    await dashboard
+      .locator('.automations-row', { hasText: 'slow-check' })
+      .getByRole('button', { name: 'slow-check', exact: true })
+      .click();
     const panel = sidePanel(page);
     await expect(panel.getByRole('heading', { name: 'slow-check' })).toBeVisible();
     await panel.getByRole('button', { name: 'Run now' }).click();
@@ -441,16 +561,22 @@ test('Stop ends a running run', async () => {
     // Exactly: once it fails, "Stopped during …" points at the step it was in.
     const stop = panel.getByRole('button', { name: 'Stop', exact: true });
     await expect(stop).toBeVisible({ timeout: 30_000 });
-    await expect(panel.locator('.automations-steplog-row', { hasText: 'Read src/catalog.ts' })).toBeVisible({ timeout: 15_000 });
+    await expect(
+      panel.locator('.automations-steplog-row', { hasText: 'Read src/catalog.ts' }),
+    ).toBeVisible({ timeout: 15_000 });
     await expect(panel.locator('.automations-run-status')).toHaveText('Running');
     await expect(panel.locator('.automations-stage-running')).toContainText('Agent session');
 
     await stop.click();
-    await expect(panel.locator('.automations-run-status')).toHaveText('Failed', { timeout: 30_000 });
+    await expect(panel.locator('.automations-run-status')).toHaveText('Failed', {
+      timeout: 30_000,
+    });
     // Where it broke: the session stage, annotated with why.
     await expect(panel.locator('.automations-stage-failed')).toContainText('Agent session');
     await expect(panel.locator('.automations-annotation')).toContainText('Failed in its session');
-    await expect(panel.locator('.automations-annotation')).toContainText('It stopped before finishing: you stopped it.');
+    await expect(panel.locator('.automations-annotation')).toContainText(
+      'It stopped before finishing: you stopped it.',
+    );
     await expect(stop).toHaveCount(0);
   } finally {
     await sprocket.close();
@@ -463,13 +589,18 @@ test('New automation starts a full-tools session for the person', async () => {
   const { page } = sprocket;
   try {
     const dashboard = await openAutomations(page);
-    await dashboard.locator('.automations-header').getByRole('button', { name: 'New automation' }).click();
+    await dashboard
+      .locator('.automations-header')
+      .getByRole('button', { name: 'New automation' })
+      .click();
     const panel = sidePanel(page);
     const description = panel.getByRole('textbox', { name: 'What should it do, and when?' });
     await expect(description).toBeVisible();
     await expect(panel).toContainText('Starts a session on Stub');
     // The templates, below.
-    await expect(panel.locator('.automations-template').filter({ hasText: 'Clean up stale sessions' })).toBeVisible();
+    await expect(
+      panel.locator('.automations-template').filter({ hasText: 'Clean up stale sessions' }),
+    ).toBeVisible();
 
     const start = panel.getByRole('button', { name: 'Start', exact: true });
     await expect(start).toBeDisabled();
@@ -480,7 +611,7 @@ test('New automation starts a full-tools session for the person', async () => {
     // The dashboard closes onto the new session, in Home.
     await expect(dashboard).toHaveCount(0);
     await expect(page.locator('.session-nav-item.active')).toContainText(
-      'New automation: Every weekday, summarise what asks…'
+      'New automation: Every weekday, summarise what asks…',
     );
     // The person's own session: interactive, with full tools.
     await expect.poll(() => launchLines(sprocket)).toHaveLength(1);
@@ -501,17 +632,29 @@ test('the dashboard is where the workspace was left, and Open session leaves it'
     const dashboard = await openAutomations(sprocket.page);
     await writeAutomations(sprocket, CATALOG_CHECK, 'catalog-check');
     const started = await runNow(sprocket, 'catalog-check');
-    await dashboard.getByRole('region', { name: 'Waiting for you' }).getByRole('button', { name: 'Review…' }).click();
+    await dashboard
+      .getByRole('region', { name: 'Waiting for you' })
+      .getByRole('button', { name: 'Review…' })
+      .click();
     const firstPanel = sidePanel(sprocket.page);
     await firstPanel.getByRole('button', { name: 'Start', exact: true }).click();
-    await expect(firstPanel.locator('.automations-run-status')).toHaveText('Completed', { timeout: 30_000 });
+    await expect(firstPanel.locator('.automations-run-status')).toHaveText('Completed', {
+      timeout: 30_000,
+    });
 
     // The run's session: its id, from the run's own record.
-    const runSessionId = await sprocket.page.evaluate((runId) => window.automationsAPI.getRun(runId).then((run) => run?.sessionId ?? null), started.id);
+    const runSessionId = await sprocket.page.evaluate(
+      (runId) => window.automationsAPI.getRun(runId).then((run) => run?.sessionId ?? null),
+      started.id,
+    );
     expect(runSessionId).toBeTruthy();
 
     // The history is on disk, per workspace, and holds this run.
-    const historyFile = path.join(`${sprocket.userDataDir} Test`, 'automation-runs', `${sprocket.workspaceId}.jsonl`);
+    const historyFile = path.join(
+      `${sprocket.userDataDir} Test`,
+      'automation-runs',
+      `${sprocket.workspaceId}.jsonl`,
+    );
     expect(fs.existsSync(historyFile)).toBe(true);
     expect(fs.readFileSync(historyFile, 'utf8')).toContain(started.id);
 
@@ -526,7 +669,9 @@ test('the dashboard is where the workspace was left, and Open session leaves it'
     const { page } = launched;
 
     const again = page.getByRole('region', { name: 'Automations', exact: true });
-    await expect(again.getByRole('heading', { name: 'Automations · Sprocket' })).toBeVisible({ timeout: 30_000 });
+    await expect(again.getByRole('heading', { name: 'Automations · Sprocket' })).toBeVisible({
+      timeout: 30_000,
+    });
     await expect(automationsRow(page)).toHaveAttribute('aria-current', 'page');
     // The earlier run, read back from the workspace's history.
     await again.getByRole('tab', { name: 'Activity' }).click();
@@ -540,18 +685,20 @@ test('the dashboard is where the workspace was left, and Open session leaves it'
     // Open session leaves the dashboard and selects the run's session.
     await expect(again).toHaveCount(0);
     await expect(automationsRow(page)).not.toHaveAttribute('aria-current');
-    await expect(
-      again.getByRole('heading', { name: 'Automations · Sprocket' })
-    ).toHaveCount(0);
+    await expect(again.getByRole('heading', { name: 'Automations · Sprocket' })).toHaveCount(0);
     const active = page.locator('.session-nav-item.active');
     await expect(active).toHaveCount(1);
     // Its label, as the sidebar reads it now: a row's name can move on after the run.
     const label = await page.evaluate(
       async ([workspaceId, sessionId]) => {
         const snapshot = await window.workspaceAPI.getSnapshot();
-        return snapshot.workspaces.find((w) => w.id === workspaceId)?.sessions.find((s) => s.id === sessionId)?.name ?? null;
+        return (
+          snapshot.workspaces
+            .find((w) => w.id === workspaceId)
+            ?.sessions.find((s) => s.id === sessionId)?.name ?? null
+        );
       },
-      [sprocket.workspaceId, runSessionId as string] as const
+      [sprocket.workspaceId, runSessionId as string] as const,
     );
     expect(label).toBeTruthy();
     await expect(active.locator('.session-nav-item-name')).toHaveText(label as string);
@@ -562,4 +709,3 @@ test('the dashboard is where the workspace was left, and Open session leaves it'
     fs.rmSync(`${sprocket.userDataDir} Test`, { recursive: true, force: true });
   }
 });
-

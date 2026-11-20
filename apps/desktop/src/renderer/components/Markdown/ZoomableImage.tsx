@@ -1,4 +1,11 @@
-import { createContext, useContext, useState, type ComponentProps, type MouseEvent, type ReactNode } from 'react';
+import {
+  createContext,
+  useContext,
+  useState,
+  type ComponentProps,
+  type MouseEvent,
+  type ReactNode,
+} from 'react';
 import type { ViewedImage } from '../ImageViewer';
 
 /** Opens an image in the viewer; null where images are not zoomable. */
@@ -39,7 +46,13 @@ export function ImageZoomTrigger({ label, children }: { label: string; children:
     open(image);
   };
   return (
-    <button type="button" className="markdown-image-zoom" aria-label={label} aria-haspopup="dialog" onClick={onClick}>
+    <button
+      type="button"
+      className="markdown-image-zoom"
+      aria-label={label}
+      aria-haspopup="dialog"
+      onClick={onClick}
+    >
       <ClaimsClick>{children}</ClaimsClick>
     </button>
   );
@@ -50,5 +63,9 @@ export function ZoomableImage({ src, alt, ...props }: ComponentProps<'img'>) {
   const [failed, setFailed] = useState(false);
   const img = <img {...props} src={src} alt={alt} onError={() => setFailed(true)} />;
   if (!src || failed) return img;
-  return <ImageZoomTrigger label={alt ? `Enlarge image: ${alt}` : 'Enlarge image'}>{img}</ImageZoomTrigger>;
+  return (
+    <ImageZoomTrigger label={alt ? `Enlarge image: ${alt}` : 'Enlarge image'}>
+      {img}
+    </ImageZoomTrigger>
+  );
 }

@@ -13,7 +13,7 @@ const WORKSPACE_ID = /^[A-Za-z0-9_-]+$/;
 
 /**
  * One workspace's folder under `~/.consola/workspaces/<id>`: the home of its
- * `factory.yml` and its Assistant. Under `~/.consola` with the worktrees rather
+ * `factory.yml`. Under `~/.consola` with the worktrees rather
  * than in Consola's own state, so the files are text a person can keep with
  * their dotfiles. Keyed by id, not name, so renaming a workspace never orphans
  * them. `CONSOLA_FACTORY_DIR` replaces the `workspaces` folder — the seam tests use.

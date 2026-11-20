@@ -213,7 +213,7 @@ export function describeCapabilities(input: CapabilitiesInput): AutomationCapabi
         description: tool.description,
         arguments: Object.entries(tool.input).map(([name, schema]) => ({
           name,
-          description: schema.description ?? '',
+          description: (schema as { description?: string }).description ?? '',
         })),
       })),
       actions: input.actions.map((action) => ({

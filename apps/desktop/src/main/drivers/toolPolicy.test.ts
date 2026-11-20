@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { ClaudeDriver } from './ClaudeDriver';
 import { CodexDriver } from './CodexDriver';
 import { toolPolicyProblem } from './index';
-import type { HarnessConfig } from './HarnessDriver';
+import type { HarnessConfig, HarnessDriver } from './HarnessDriver';
 
 vi.mock('../LoginEnvironment', () => ({ getLoginEnv: () => ({ PATH: process.env.PATH }) }));
 
@@ -185,6 +185,31 @@ describe('Claude unattended and forked launches', () => {
         { sessionId: 'new', resume: false, forkFrom: 'orig' },
       ),
     ).toEqual(['--resume', 'orig', '--fork-session', '--session-id', 'new']);
+  });
+});
+
+describe('Conversation transplant contract', () => {
+  it('every driver that can transplant a conversation forks it on launch', async () => {
+    // A harness switch carries a conversation natively only through
+    // `transplantConversation` followed by a `forkFrom` launch: a driver
+    // offering the first must honour the second, or a switch would copy a
+    // conversation and then fail to start it.
+    const drivers: HarnessDriver[] = [new ClaudeDriver(), new CodexDriver()];
+    for (const driver of drivers) {
+      if (!driver.transplantConversation) continue;
+      const args = await driver.buildSessionArgs(
+        { extraArgs: [] },
+        { sessionId: 'new', resume: false, forkFrom: 'orig' },
+      );
+      expect(args).toContain('orig');
+      expect(args).toContain('new');
+    }
+  });
+
+  it('Codex offers no transplant, so a switch away from it hands the conversation over', () => {
+    const codex: HarnessDriver = new CodexDriver();
+    expect(codex.transplantConversation).toBeUndefined();
+    expect(typeof codex.readConversation).toBe('function');
   });
 });
 

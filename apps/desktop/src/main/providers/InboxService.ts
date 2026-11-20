@@ -65,9 +65,7 @@ export class InboxService {
 
   /** The cached item for a work item, for seed prompts and session names. */
   public findItem(workspaceId: string, ref: WorkItemRef): InboxItem | undefined {
-    return this.snapshots
-      .get(workspaceId)
-      ?.items.find((item) => sameWorkItem(item.workItem, ref));
+    return this.snapshots.get(workspaceId)?.items.find((item) => sameWorkItem(item.workItem, ref));
   }
 
   /** Refresh one workspace, coalescing concurrent calls into one fetch. */
@@ -100,7 +98,7 @@ export class InboxService {
       const env = await this.deps.composeEnv(driver, provider.accountLogin);
       const items = await driver.fetchInbox(
         { accountLogin: provider.accountLogin, org: provider.org },
-        env
+        env,
       );
       this.adopt({ workspaceId, items, fetchedAt: Date.now() });
     } catch (error) {

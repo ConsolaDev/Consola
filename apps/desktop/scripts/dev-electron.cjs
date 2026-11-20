@@ -255,7 +255,7 @@ async function main() {
 for (const signal of ['SIGINT', 'SIGTERM']) {
   process.on(signal, () => {
     shuttingDown = true;
-    stopElectron().finally(() => process.exit(0));
+    void stopElectron().finally(() => process.exit(0));
   });
 }
 

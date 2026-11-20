@@ -16,8 +16,14 @@ export function hasPlatformModifier(event: KeyboardEvent): boolean {
 
 /** Cmd/Ctrl + 1–9 follows the workspace rail's order. */
 export function matchWorkspaceShortcut(event: KeyboardEvent): number | null {
-  if (!hasPlatformModifier(event) || (isMac ? event.ctrlKey : event.metaKey) ||
-      event.altKey || event.shiftKey || event.isComposing) return null;
+  if (
+    !hasPlatformModifier(event) ||
+    (isMac ? event.ctrlKey : event.metaKey) ||
+    event.altKey ||
+    event.shiftKey ||
+    event.isComposing
+  )
+    return null;
   const digit = /^Digit[1-9]$/.test(event.code) ? event.code.slice(5) : event.key;
   return /^[1-9]$/.test(digit) ? Number(digit) - 1 : null;
 }
@@ -51,21 +57,18 @@ export function isCommandPaletteShortcut(event: KeyboardEvent): boolean {
 }
 
 /**
- * The Assistant chord: Cmd+J on macOS, Ctrl+Shift+J elsewhere.
+ * The Working shelf chord: Cmd+Shift+B on macOS, Ctrl+Shift+B elsewhere.
  *
- * Split for the same reason as the palette chord: a bare Ctrl+J is U+000A in
- * the PTY, so off macOS the chord has to carry Shift to stay ours.
+ * Shift on both for the usual reason (a bare Ctrl+B is a PTY byte); on macOS
+ * Cmd+B alone is left free for the terminal's own use.
  */
-export function isAssistantShortcut(event: KeyboardEvent): boolean {
-  const isJ = event.key.toLowerCase() === 'j';
-  if (isMac) {
-    return event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey && isJ;
-  }
-  return event.ctrlKey && event.shiftKey && !event.metaKey && !event.altKey && isJ;
+export function isWorkingShelfShortcut(event: KeyboardEvent): boolean {
+  const isB = event.key.toLowerCase() === 'b';
+  const modifier = isMac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
+  return modifier && event.shiftKey && !event.altKey && isB;
 }
 
-/** How the Assistant's shortcut is written on its sidebar row. */
-export const ASSISTANT_SHORTCUT_LABEL = isMac ? '⌘J' : 'Ctrl+Shift+J';
+export const WORKING_SHELF_SHORTCUT_LABEL = isMac ? '⇧⌘B' : 'Ctrl+Shift+B';
 
 /** How the palette chord is written in menus and hint text. */
 export const COMMAND_PALETTE_SHORTCUT_LABEL = isMac ? '⌘K' : 'Ctrl+Shift+P';
@@ -105,12 +108,12 @@ export function matchScopeShortcut(event: KeyboardEvent): PaletteScope | null {
 
   const key = event.key.toLowerCase();
   const match = SCOPE_SHORTCUTS.find(
-    (entry) => entry.key === key && entry.shift === event.shiftKey
+    (entry) => entry.key === key && entry.shift === event.shiftKey,
   );
   return match?.scope ?? null;
 }
 
 /** How each scope chord is written, for the palette's section headers. */
 export const SCOPE_SHORTCUT_LABELS: Partial<Record<PaletteScope, string>> = Object.fromEntries(
-  SCOPE_SHORTCUTS.map((entry) => [entry.scope, entry.label])
+  SCOPE_SHORTCUTS.map((entry) => [entry.scope, entry.label]),
 );

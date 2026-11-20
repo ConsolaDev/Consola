@@ -615,10 +615,9 @@ function parseStep(raw: unknown, index: number, fail: Fail): Step | null {
 }
 
 /** `steps:` — 1 to 20 steps, each checked on its own; ids are unique across them. */
-export function stepsSchema(): z.ZodType<Step[], z.ZodTypeDef, unknown> {
+export function stepsSchema(): z.ZodType<Step[], unknown> {
   return z.unknown().transform((raw, ctx): Step[] => {
-    const fail: Fail = (message, path = []) =>
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message, path });
+    const fail: Fail = (message, path = []) => ctx.addIssue({ code: 'custom', message, path });
     if (!Array.isArray(raw) || raw.length < 1 || raw.length > MAX_STEPS) {
       fail(`An entry with \`steps:\` has 1 to ${MAX_STEPS} steps, written as a list.`);
       return z.NEVER;

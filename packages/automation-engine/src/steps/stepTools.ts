@@ -1,4 +1,4 @@
-import { z } from 'zod/v3';
+import { z } from 'zod';
 import {
   ARTIFACT_NAME_PATTERN,
   checkOutputs,
@@ -403,14 +403,21 @@ export function stepToolSpecs(io: StepIO, sessionId: string): StepToolSpec[] {
         `Set this step's outputs: ${names.map((name) => `${name} (${describeOutputType(outputs[name])})`).join(', ')}. ` +
         'Set them in one call or several: each call keeps what earlier ones set. Every output must be set before you finish.',
       // Advertises the exact types, while `.catch` lets an invalid call
-      // through to Consola's own check and message (Call 21). `ctx` is
-      // annotated because TypeScript resolves this to zod's value
-      // overload; zod calls a function either way.
+      // through to Consola's own check and message (Call 21). zod 4 writes
+      // the JSON Schema by calling the catch with no context, to find a
+      // default: answering none leaves the schema as the exact object
+      // (a catch that throws there fails the whole tool list). Optional as
+      // well, since zod 4 lists a catch as required: an omitted `outputs`
+      // reaches Consola's check either way.
       inputSchema: {
         outputs: z
           .object(shape)
           .strict()
-          .catch((ctx: { input: unknown }) => ({ [SENT]: ctx.input })),
+          .catch(
+            (ctx?: { input: unknown }) =>
+              (ctx ? { [SENT]: ctx.input } : undefined) as unknown as Record<string, unknown>,
+          )
+          .optional(),
       },
       annotations: hints(false),
       handle: (args) => io.setOutputs(sessionId, sentOutputs(args)),

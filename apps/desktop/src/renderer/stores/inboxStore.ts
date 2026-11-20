@@ -18,7 +18,7 @@ export function itemKey(workspaceId: string, item: InboxItem): string {
 export function launchKey(
   workspaceId: string,
   item: InboxItem,
-  action: WorkItemLaunchAction
+  action: WorkItemLaunchAction,
 ): string {
   return `${itemKey(workspaceId, item)}:${workItemActionKey(action)}`;
 }
@@ -158,8 +158,12 @@ export const useInboxStore = create<InboxState>((set, get) => ({
       return { clonePrompt: null, launching: { ...state.launching, [key]: true }, launchErrors };
     });
     try {
-      const result = await providerBridge.cloneRepo(workspaceId, item.workItem.repo, destinationDir);
-      if (!result || !result.ok) {
+      const result = await providerBridge.cloneRepo(
+        workspaceId,
+        item.workItem.repo,
+        destinationDir,
+      );
+      if (!result?.ok) {
         set((state) => ({
           launchErrors: { ...state.launchErrors, [key]: result?.error ?? 'Clone failed.' },
         }));

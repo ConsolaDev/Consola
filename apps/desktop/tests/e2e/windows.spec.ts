@@ -20,12 +20,14 @@ async function seedWorkspace(target: Page, name: string, folder: string): Promis
       window.workspaceAPI
         .createWorkspace(workspaceName, workspacePath, false)
         .then((workspace) => workspace.id),
-    [name, folder] as const
+    [name, folder] as const,
   );
 }
 
 function workspaceButton(target: Page) {
-  return target.getByRole('navigation', { name: 'Workspaces', exact: true }).getByRole('button', { name: 'alpha', exact: true });
+  return target
+    .getByRole('navigation', { name: 'Workspaces', exact: true })
+    .getByRole('button', { name: 'alpha', exact: true });
 }
 
 test('the new-window chord opens a second window', async () => {
@@ -71,10 +73,7 @@ test('a workspace open in one window is focused, not duplicated, from another', 
   // The verdict is main's opinion; the two assertions below it are the fact.
   // A regression that quietly double-assigned the workspace while still
   // returning this same string would pass on the verdict alone.
-  const result = await second.evaluate(
-    (id) => window.windowAPI.activateWorkspace(id),
-    workspaceId
-  );
+  const result = await second.evaluate((id) => window.windowAPI.activateWorkspace(id), workspaceId);
   expect(result.verdict).toBe('focused-elsewhere');
   expect(app.windows()).toHaveLength(2);
 
@@ -98,7 +97,7 @@ test('workspaces survive a relaunch through the state file, not localStorage', a
 
   const { app: second, page: secondPage } = await launchElectron({ userDataDir });
   const names = await secondPage.evaluate(() =>
-    window.workspaceAPI.getSnapshot().then((snapshot) => snapshot.workspaces.map((w) => w.name))
+    window.workspaceAPI.getSnapshot().then((snapshot) => snapshot.workspaces.map((w) => w.name)),
   );
   await second.close();
 
@@ -120,7 +119,7 @@ test('closing a window leaves its session running', async () => {
         cols: 80,
         rows: 24,
       }),
-    [instanceId, process.cwd()] as const
+    [instanceId, process.cwd()] as const,
   );
 
   // `claude` takes a beat after spawn to write its first bytes (confirmed by
@@ -143,11 +142,11 @@ test('closing a window leaves its session running', async () => {
               cols: 80,
               rows: 24,
             }),
-          [instanceId, process.cwd()] as const
+          [instanceId, process.cwd()] as const,
         );
         return snapshot.replay.length;
       },
-      { timeout: 15000 }
+      { timeout: 15000 },
     )
     .toBeGreaterThan(0);
 
@@ -181,7 +180,7 @@ test('closing a window leaves its session running', async () => {
         cols: 80,
         rows: 24,
       }),
-    [instanceId, process.cwd()] as const
+    [instanceId, process.cwd()] as const,
   );
 
   expect(snapshot.replay.length).toBeGreaterThan(0);
@@ -208,7 +207,7 @@ async function seedSession(target: Page, workspaceId: string, name: string): Pro
       });
       return session!.id;
     },
-    [workspaceId, name] as const
+    [workspaceId, name] as const,
   );
 }
 
@@ -229,7 +228,7 @@ test('a workspace reopens on the session it was left on, not the blank composer'
       await window.windowAPI.activateWorkspace(other);
       return window.windowAPI.activateWorkspace(held);
     },
-    [alpha, beta, sessionId] as const
+    [alpha, beta, sessionId] as const,
   );
 
   expect(back).toEqual({
@@ -252,7 +251,7 @@ test('a workspace remembers being left on the blank composer', async () => {
       await window.windowAPI.activateWorkspace(other);
       return window.windowAPI.activateWorkspace(held);
     },
-    [alpha, beta, sessionId] as const
+    [alpha, beta, sessionId] as const,
   );
 
   // Not resurrected: choosing the composer is a state worth returning to.
@@ -275,7 +274,7 @@ test('a workspace whose remembered session was deleted falls back to the compose
       await window.windowAPI.activateWorkspace(null);
       return window.windowAPI.activateWorkspace(id);
     },
-    [workspaceId, sessionId] as const
+    [workspaceId, sessionId] as const,
   );
 
   // Never a substitute session: mounting one would spawn a CLI nobody asked for.
@@ -296,7 +295,7 @@ test('the remembered session survives a relaunch', async () => {
   const { app: second, page: secondPage } = await launchElectron({ userDataDir });
   const restored = await secondPage.evaluate(
     (id) => window.windowAPI.activateWorkspace(id),
-    workspaceId
+    workspaceId,
   );
   await second.close();
 
@@ -330,7 +329,7 @@ test('a view reported against a workspace this window no longer holds is refused
       await window.windowAPI.activateWorkspace(null);
       return window.windowAPI.activateWorkspace(held);
     },
-    [beta, alpha, alphaSession] as const
+    [beta, alpha, alphaSession] as const,
   );
 
   // Filed under beta, the stray id would resolve to null on read and beta

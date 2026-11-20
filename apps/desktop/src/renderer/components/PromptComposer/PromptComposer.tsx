@@ -3,26 +3,26 @@ import { ArrowUp, Loader2 } from 'lucide-react';
 import type { Harness } from '../../../shared/harness';
 import { useHarnessCapabilities } from '../../hooks/useHarnessCapabilities';
 import {
-    spliceTypeaheadSelection,
-    useTypeahead,
-    type OpenTypeahead,
-    type TypeaheadTriggerConfig,
+  spliceTypeaheadSelection,
+  useTypeahead,
+  type OpenTypeahead,
+  type TypeaheadTriggerConfig,
 } from '../../hooks/typeahead';
 import { TypeaheadPopover, rowElementId, type TypeaheadItem } from '../Typeahead';
 import { agentItems, commandItems, rankTypeaheadItems } from './typeaheadCandidates';
 import './styles.css';
 
 interface PromptComposerProps {
-    value: string;
-    onChange: (value: string) => void;
-    onSubmit: () => void;
-    /** Harness the conversation will run on; its commands fill the menus. */
-    harness: Harness | undefined;
-    placeholder?: string;
-    disabled?: boolean;
-    autoFocus?: boolean;
-    controls?: React.ReactNode;
-    submitting?: boolean;
+  value: string;
+  onChange: (value: string) => void;
+  onSubmit: () => void;
+  /** Harness the conversation will run on; its commands fill the menus. */
+  harness: Harness | undefined;
+  placeholder?: string;
+  disabled?: boolean;
+  autoFocus?: boolean;
+  controls?: React.ReactNode;
+  submitting?: boolean;
 }
 
 /**
@@ -31,8 +31,8 @@ interface PromptComposerProps {
  * start any word.
  */
 const TRIGGERS: TypeaheadTriggerConfig[] = [
-    { char: '/', position: 'message-start' },
-    { char: '@', position: 'word-boundary' },
+  { char: '/', position: 'message-start' },
+  { char: '@', position: 'word-boundary' },
 ];
 
 /** Tallest the box grows before it scrolls instead. */
@@ -46,163 +46,165 @@ const MAX_HEIGHT_PX = 200;
  * execution path of its own, it only saves people remembering names.
  */
 export function PromptComposer({
-    value,
-    onChange,
-    onSubmit,
-    harness,
-    placeholder = 'Ask anything...',
-    disabled,
-    autoFocus,
-    controls,
-    submitting,
+  value,
+  onChange,
+  onSubmit,
+  harness,
+  placeholder = 'Ask anything...',
+  disabled,
+  autoFocus,
+  controls,
+  submitting,
 }: PromptComposerProps) {
-    const textareaRef = useRef<HTMLTextAreaElement>(null);
-    // Set when a selection moves the caret, applied once React has rendered
-    // the new value — setting it any earlier would be overwritten.
-    const pendingCaret = useRef<number | null>(null);
-    const [caretIndex, setCaretIndex] = useState(0);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // Set when a selection moves the caret, applied once React has rendered
+  // the new value — setting it any earlier would be overwritten.
+  const pendingCaret = useRef<number | null>(null);
+  const [caretIndex, setCaretIndex] = useState(0);
 
-    // Asked for as soon as the composer appears. The probe takes about a
-    // second, comfortably less than the time it takes to type a prompt, so the
-    // menu is usually ready before anyone wants it.
-    const { loading, capabilities, unavailable } = useHarnessCapabilities(harness, true);
+  // Asked for as soon as the composer appears. The probe takes about a
+  // second, comfortably less than the time it takes to type a prompt, so the
+  // menu is usually ready before anyone wants it.
+  const { loading, capabilities, unavailable } = useHarnessCapabilities(harness, true);
 
-    const commands = useMemo(
-        () => (capabilities ? commandItems(capabilities.commands) : []),
-        [capabilities]
-    );
-    const agents = useMemo(
-        () => (capabilities ? agentItems(capabilities.agents) : []),
-        [capabilities]
-    );
+  const commands = useMemo(
+    () => (capabilities ? commandItems(capabilities.commands) : []),
+    [capabilities],
+  );
+  const agents = useMemo(
+    () => (capabilities ? agentItems(capabilities.agents) : []),
+    [capabilities],
+  );
 
-    const buildItems = useCallback(
-        (open: OpenTypeahead): TypeaheadItem[] =>
-            rankTypeaheadItems(open.trigger.char === '@' ? agents : commands, open.query),
-        [agents, commands]
-    );
+  const buildItems = useCallback(
+    (open: OpenTypeahead): TypeaheadItem[] =>
+      rankTypeaheadItems(open.trigger.char === '@' ? agents : commands, open.query),
+    [agents, commands],
+  );
 
-    const handleSelect = useCallback(
-        (item: TypeaheadItem, open: OpenTypeahead) => {
-            // The label carries the trigger character so it matches what was
-            // typed and highlights cleanly; the splice re-adds it.
-            const spliced = spliceTypeaheadSelection(value, open, item.label.slice(1));
-            pendingCaret.current = spliced.caretIndex;
-            onChange(spliced.value);
-        },
-        [value, onChange]
-    );
+  const handleSelect = useCallback(
+    (item: TypeaheadItem, open: OpenTypeahead) => {
+      // The label carries the trigger character so it matches what was
+      // typed and highlights cleanly; the splice re-adds it.
+      const spliced = spliceTypeaheadSelection(value, open, item.label.slice(1));
+      pendingCaret.current = spliced.caretIndex;
+      onChange(spliced.value);
+    },
+    [value, onChange],
+  );
 
-    const typeahead = useTypeahead<TypeaheadItem>({
-        text: value,
-        caretIndex,
-        triggers: TRIGGERS,
-        buildItems,
-        onSelect: handleSelect,
-    });
+  const typeahead = useTypeahead<TypeaheadItem>({
+    text: value,
+    caretIndex,
+    triggers: TRIGGERS,
+    buildItems,
+    onSelect: handleSelect,
+  });
 
-    useEffect(() => {
-        if (autoFocus) textareaRef.current?.focus();
-    }, [autoFocus]);
+  useEffect(() => {
+    if (autoFocus) textareaRef.current?.focus();
+  }, [autoFocus]);
 
-    // Grow with the content, up to a limit.
-    useEffect(() => {
-        const textarea = textareaRef.current;
-        if (!textarea) return;
-        textarea.style.height = 'auto';
-        textarea.style.height = `${Math.min(textarea.scrollHeight, MAX_HEIGHT_PX)}px`;
-    }, [value]);
+  // Grow with the content, up to a limit.
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    textarea.style.height = 'auto';
+    textarea.style.height = `${Math.min(textarea.scrollHeight, MAX_HEIGHT_PX)}px`;
+  }, [value]);
 
-    useLayoutEffect(() => {
-        const caret = pendingCaret.current;
-        if (caret === null) return;
-        pendingCaret.current = null;
-        const textarea = textareaRef.current;
-        if (!textarea) return;
-        textarea.focus();
-        textarea.setSelectionRange(caret, caret);
-        setCaretIndex(caret);
-    }, [value]);
+  useLayoutEffect(() => {
+    const caret = pendingCaret.current;
+    if (caret === null) return;
+    pendingCaret.current = null;
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    textarea.focus();
+    textarea.setSelectionRange(caret, caret);
+    setCaretIndex(caret);
+  }, [value]);
 
-    const syncCaret = () => {
-        const textarea = textareaRef.current;
-        if (textarea) setCaretIndex(textarea.selectionStart ?? 0);
-    };
+  const syncCaret = () => {
+    const textarea = textareaRef.current;
+    if (textarea) setCaretIndex(textarea.selectionStart ?? 0);
+  };
 
-    const handleKeyDown = (event: React.KeyboardEvent) => {
-        if (event.nativeEvent.isComposing || disabled) return;
-        // The menu gets first refusal on the keys it shares with the composer.
-        // It declines Enter whenever it has nothing to select, so a `/` typed
-        // with no match never stops a message being sent.
-        if (typeahead.handleKeyDown(event)) {
-            event.preventDefault();
-            return;
-        }
-        if (event.key === 'Enter' && !event.shiftKey) {
-            event.preventDefault();
-            onSubmit();
-        }
-    };
+  const handleKeyDown = (event: React.KeyboardEvent) => {
+    if (event.nativeEvent.isComposing || disabled) return;
+    // The menu gets first refusal on the keys it shares with the composer.
+    // It declines Enter whenever it has nothing to select, so a `/` typed
+    // with no match never stops a message being sent.
+    if (typeahead.handleKeyDown(event)) {
+      event.preventDefault();
+      return;
+    }
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      onSubmit();
+    }
+  };
 
-    // Nothing to show before a harness is known, and nothing to say when the
-    // menu would only report that a probe is still running for a token the
-    // user has already finished typing.
-    const open = Boolean(typeahead.open) && Boolean(harness);
-    // Points assistive technology at the row the keyboard is on, since focus
-    // never leaves the textarea for the menu to announce itself.
-    const activeItemId = open ? typeahead.items[typeahead.activeIndex]?.id : undefined;
+  // Nothing to show before a harness is known, and nothing to say when the
+  // menu would only report that a probe is still running for a token the
+  // user has already finished typing.
+  const open = Boolean(typeahead.open) && Boolean(harness);
+  // Points assistive technology at the row the keyboard is on, since focus
+  // never leaves the textarea for the menu to announce itself.
+  const activeItemId = open ? typeahead.items[typeahead.activeIndex]?.id : undefined;
 
-    return (
-        <TypeaheadPopover
-            open={open}
-            anchor={
-                <div className={`prompt-composer ${controls ? 'prompt-composer--with-controls' : ''}`}>
-                    <textarea
-                        ref={textareaRef}
-                        className="prompt-composer-input"
-                        value={value}
-                        onChange={(event) => {
-                            onChange(event.target.value);
-                            setCaretIndex(event.target.selectionStart ?? 0);
-                        }}
-                        onKeyDown={handleKeyDown}
-                        onKeyUp={syncCaret}
-                        onClick={syncCaret}
-                        onSelect={syncCaret}
-                        placeholder={placeholder}
-                        rows={1}
-                        disabled={disabled}
-                        aria-label="Message"
-                        role="combobox"
-                        aria-expanded={open}
-                        aria-autocomplete="list"
-                        aria-activedescendant={
-                            activeItemId ? rowElementId(activeItemId) : undefined
-                        }
-                    />
-                    <div className="prompt-composer-toolbar">
-                        {controls && <div className="prompt-composer-controls">{controls}</div>}
-                        <button
-                            className="prompt-composer-submit"
-                            onClick={onSubmit}
-                            disabled={!value.trim() || disabled}
-                            aria-label="Send message"
-                        >
-                            {submitting ? <Loader2 size={18} className="composer-spinner" /> : <ArrowUp size={18} />}
-                        </button>
-                    </div>
-                </div>
-            }
-            items={typeahead.items}
-            query={typeahead.open?.query ?? ''}
-            activeIndex={typeahead.activeIndex}
-            loading={loading}
-            unavailable={unavailable}
-            emptyMessage={
-                typeahead.open?.trigger.char === '@' ? 'No matching agents' : 'No matching commands'
-            }
-            onHover={typeahead.setActiveIndex}
-            onSelect={typeahead.select}
-        />
-    );
+  return (
+    <TypeaheadPopover
+      open={open}
+      anchor={
+        <div className={`prompt-composer ${controls ? 'prompt-composer--with-controls' : ''}`}>
+          <textarea
+            ref={textareaRef}
+            className="prompt-composer-input"
+            value={value}
+            onChange={(event) => {
+              onChange(event.target.value);
+              setCaretIndex(event.target.selectionStart ?? 0);
+            }}
+            onKeyDown={handleKeyDown}
+            onKeyUp={syncCaret}
+            onClick={syncCaret}
+            onSelect={syncCaret}
+            placeholder={placeholder}
+            rows={1}
+            disabled={disabled}
+            aria-label="Message"
+            role="combobox"
+            aria-expanded={open}
+            aria-autocomplete="list"
+            aria-activedescendant={activeItemId ? rowElementId(activeItemId) : undefined}
+          />
+          <div className="prompt-composer-toolbar">
+            {controls && <div className="prompt-composer-controls">{controls}</div>}
+            <button
+              className="prompt-composer-submit"
+              onClick={onSubmit}
+              disabled={!value.trim() || disabled}
+              aria-label="Send message"
+            >
+              {submitting ? (
+                <Loader2 size={18} className="composer-spinner" />
+              ) : (
+                <ArrowUp size={18} />
+              )}
+            </button>
+          </div>
+        </div>
+      }
+      items={typeahead.items}
+      query={typeahead.open?.query ?? ''}
+      activeIndex={typeahead.activeIndex}
+      loading={loading}
+      unavailable={unavailable}
+      emptyMessage={
+        typeahead.open?.trigger.char === '@' ? 'No matching agents' : 'No matching commands'
+      }
+      onHover={typeahead.setActiveIndex}
+      onSelect={typeahead.select}
+    />
+  );
 }

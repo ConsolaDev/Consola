@@ -9,17 +9,25 @@ export function NavigationSettings() {
   const setShowHarness = useSettingsStore((state) => state.setShowSidebarHarness);
   const showWorktree = useSettingsStore((state) => state.showSidebarWorktree);
   const setShowWorktree = useSettingsStore((state) => state.setShowSidebarWorktree);
+  const workingSection = useSettingsStore((state) => state.sidebarWorkingSection);
+  const setWorkingSection = useSettingsStore((state) => state.setSidebarWorkingSection);
 
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
-        <button className="sidebar-navigation-settings" aria-label="Navigation settings" title="Navigation settings">
+        <button
+          className="sidebar-navigation-settings"
+          aria-label="Navigation settings"
+          title="Navigation settings"
+        >
           <SlidersHorizontal size={14} />
         </button>
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
         <DropdownMenu.Content className="dropdown-content" side="bottom" align="end" sideOffset={8}>
-          <DropdownMenu.Label className="navigation-settings-label">Show in navigation</DropdownMenu.Label>
+          <DropdownMenu.Label className="navigation-settings-label">
+            Show in navigation
+          </DropdownMenu.Label>
           <DropdownMenu.CheckboxItem
             className="dropdown-item"
             checked={showHarness}
@@ -27,7 +35,9 @@ export function NavigationSettings() {
             onSelect={(event) => event.preventDefault()}
           >
             <span className="navigation-settings-check">
-              <DropdownMenu.ItemIndicator><Check size={14} /></DropdownMenu.ItemIndicator>
+              <DropdownMenu.ItemIndicator>
+                <Check size={14} />
+              </DropdownMenu.ItemIndicator>
             </span>
             Harness icon
           </DropdownMenu.CheckboxItem>
@@ -38,7 +48,9 @@ export function NavigationSettings() {
             onSelect={(event) => event.preventDefault()}
           >
             <span className="navigation-settings-check">
-              <DropdownMenu.ItemIndicator><Check size={14} /></DropdownMenu.ItemIndicator>
+              <DropdownMenu.ItemIndicator>
+                <Check size={14} />
+              </DropdownMenu.ItemIndicator>
             </span>
             Model
           </DropdownMenu.CheckboxItem>
@@ -49,9 +61,26 @@ export function NavigationSettings() {
             onSelect={(event) => event.preventDefault()}
           >
             <span className="navigation-settings-check">
-              <DropdownMenu.ItemIndicator><Check size={14} /></DropdownMenu.ItemIndicator>
+              <DropdownMenu.ItemIndicator>
+                <Check size={14} />
+              </DropdownMenu.ItemIndicator>
             </span>
             Worktree
+          </DropdownMenu.CheckboxItem>
+          {/* Off, a running session keeps its place in the list instead of
+            moving down to Working and back up when it stops. */}
+          <DropdownMenu.CheckboxItem
+            className="dropdown-item"
+            checked={workingSection}
+            onCheckedChange={setWorkingSection}
+            onSelect={(event) => event.preventDefault()}
+          >
+            <span className="navigation-settings-check">
+              <DropdownMenu.ItemIndicator>
+                <Check size={14} />
+              </DropdownMenu.ItemIndicator>
+            </span>
+            Working section
           </DropdownMenu.CheckboxItem>
         </DropdownMenu.Content>
       </DropdownMenu.Portal>

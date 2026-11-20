@@ -70,7 +70,8 @@ export const PROVIDER_META: Record<GitProviderId, ProviderMeta> = {
     installHint: 'brew install gh (or see cli.github.com)',
     seedHeaderTemplate: {
       pr: 'This session is for pull request #{{number}} ("{{title}}") in {{repo}}. You are in a dedicated git worktree for it, so the user\'s own checkout stays untouched. Start with `gh pr view {{number}}` to read it.',
-      issue: 'This session is for issue #{{number}} ("{{title}}") in {{repo}}. You are in a dedicated git worktree for it, so the user\'s own checkout stays untouched. Start with `gh issue view {{number}}` to read it.',
+      issue:
+        'This session is for issue #{{number}} ("{{title}}") in {{repo}}. You are in a dedicated git worktree for it, so the user\'s own checkout stays untouched. Start with `gh issue view {{number}}` to read it.',
     },
     webUrlTemplate: {
       pr: 'https://github.com/{{repo}}/pull/{{number}}',

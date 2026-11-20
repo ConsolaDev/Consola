@@ -545,7 +545,7 @@ describe('firing a steps run', () => {
       trigger: { kind: 'manual', by: 'agent', actorId: 's-9' },
       summary: 'Steps: fresh → summary in api. An agent asked for this run.',
     });
-    expect(h.notices).toMatchObject([{ needsApproval: true, actorId: 's-9' }]);
+    expect(h.notices).toMatchObject([{ needsApproval: true }]);
 
     // A person's Run now of the same accepted version goes straight in line.
     h.service.dismiss(asked.id);

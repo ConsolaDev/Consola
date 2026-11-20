@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { JsonStateFile } from './JsonStateFile';
 import { HarnessService, type HarnessStateFile } from './HarnessService';
 
@@ -37,7 +37,11 @@ describe('HarnessService', () => {
   it('persists an added harness across a reload', () => {
     service.addHarness({ id: 'work', driverId: 'claude', name: 'Work', accentColor: '#3b82f6' });
 
-    expect(build().getAll().map((harness) => harness.id)).toContain('work');
+    expect(
+      build()
+        .getAll()
+        .map((harness) => harness.id),
+    ).toContain('work');
   });
 
   it('archives rather than deletes, so sessions can still resume', () => {
@@ -146,7 +150,7 @@ describe('HarnessService', () => {
           createdAt: 1,
           updatedAt: 1,
         },
-      ])
+      ]),
     ).toThrow('ENOSPC');
 
     // A snapshot that answers with records while still asking to be imported

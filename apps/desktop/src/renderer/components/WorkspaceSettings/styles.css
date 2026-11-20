@@ -116,7 +116,7 @@
   cursor: pointer;
 }
 
-.ws-icon-tabs button[data-state='active'] {
+.ws-icon-tabs button[data-state="active"] {
   color: var(--color-text-primary);
   box-shadow: inset 0 -2px var(--color-accent);
 }
@@ -140,7 +140,7 @@
   cursor: pointer;
 }
 
-.ws-icon-choice[aria-pressed='true'] {
+.ws-icon-choice[aria-pressed="true"] {
   border-color: var(--color-accent);
   background: var(--color-bg-hover);
 }
@@ -180,7 +180,7 @@
   gap: var(--space-2);
 }
 
-.ws-icon-upload[data-state='inactive'] {
+.ws-icon-upload[data-state="inactive"] {
   display: none;
 }
 
@@ -227,7 +227,7 @@
 }
 
 .ws-fact + .ws-fact::before {
-  content: '·';
+  content: "·";
   margin: 0 var(--space-2);
   color: var(--color-text-disabled);
 }
@@ -357,7 +357,9 @@
   background: transparent;
   color: var(--color-text-tertiary);
   cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast);
+  transition:
+    background var(--transition-fast),
+    color var(--transition-fast);
 }
 
 .ws-row-action:hover:not(:disabled) {
@@ -412,7 +414,9 @@
   cursor: pointer;
   text-align: left;
   font-size: var(--font-size-sm);
-  transition: border-color var(--transition-fast), background var(--transition-fast);
+  transition:
+    border-color var(--transition-fast),
+    background var(--transition-fast);
 }
 
 .ws-choice-row:hover {
@@ -426,6 +430,209 @@
 .ws-choice-name {
   flex: 1;
   font-weight: var(--font-weight-medium);
+}
+
+/* Default harness: choice rows whose accent dot is the radio. Every colour
+   here derives from the row's own --harness-accent, so a selection reads in
+   the harness's colour and never in a second, unrelated highlight. */
+.ws-harness-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.ws-harness-option {
+  --harness-accent: var(--color-accent);
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 10px var(--space-3);
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition:
+    border-color 160ms var(--ease-out-quart),
+    background-color 160ms var(--ease-out-quart);
+}
+
+.ws-harness-option:hover {
+  background: var(--color-bg-hover);
+}
+
+.ws-harness-option.selected {
+  background: color-mix(in srgb, var(--harness-accent) 7%, var(--color-bg-primary));
+  border-color: color-mix(in srgb, var(--harness-accent) 45%, var(--color-border));
+  cursor: default;
+}
+
+.ws-harness-option.selected:hover {
+  background: color-mix(in srgb, var(--harness-accent) 10%, var(--color-bg-primary));
+}
+
+/* The native radio stays in the tree for arrow keys and screen readers. */
+.ws-harness-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.ws-harness-option:has(.ws-harness-input:focus-visible) {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* A literal 50%: --radius-full resolves to 0 inside .radix-themes. */
+.ws-harness-radio {
+  position: relative;
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid color-mix(in srgb, var(--harness-accent) 60%, var(--color-border));
+  border-radius: 50%;
+  transition:
+    border-color 160ms var(--ease-out-quart),
+    transform 120ms var(--ease-out-quart);
+}
+
+.ws-harness-radio::after {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  border-radius: 50%;
+  background: var(--harness-accent);
+  opacity: 0;
+  transform: scale(0);
+  transition:
+    opacity 180ms var(--ease-out-expo),
+    transform 180ms var(--ease-out-expo);
+}
+
+/* Hovering an unchosen row shows the dot it would become, faintly. */
+.ws-harness-option:not(.selected):hover .ws-harness-radio {
+  border-color: var(--harness-accent);
+}
+
+.ws-harness-option:not(.selected):hover .ws-harness-radio::after {
+  opacity: 0.35;
+  transform: scale(0.5);
+}
+
+.ws-harness-option:not(.selected):active .ws-harness-radio {
+  transform: scale(0.88);
+}
+
+.ws-harness-option.selected .ws-harness-radio {
+  border-color: var(--harness-accent);
+}
+
+.ws-harness-option.selected .ws-harness-radio::after {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.ws-harness-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ws-harness-name {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ws-harness-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+}
+
+/* Smaller to sit in the meta line, but in the mark's own colour: the same
+   icon the sidebar shows beside every session of this harness. */
+.ws-harness-meta .harness-driver-icon {
+  width: 12px;
+  height: 12px;
+}
+
+.ws-harness-meta .harness-driver-icon > svg {
+  width: 11px;
+  height: 11px;
+}
+
+/* Arrives after the probe answers, so it fades in rather than popping. */
+.ws-harness-identity {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  animation: ws-harness-identity-in 200ms var(--ease-out-quart);
+}
+
+.ws-harness-identity::before {
+  content: "·";
+  margin-right: 6px;
+  color: var(--color-text-disabled);
+}
+
+.ws-harness-identity.unavailable {
+  color: var(--color-error);
+}
+
+@keyframes ws-harness-identity-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* Choosing commits at once — there is no Save — so an unchosen row says what
+   a click will do, and only while it is being pointed at or focused. */
+.ws-harness-hint {
+  flex-shrink: 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  opacity: 0;
+  transform: translateX(-4px);
+  transition:
+    opacity 160ms var(--ease-out-quart),
+    transform 160ms var(--ease-out-quart);
+}
+
+.ws-harness-option:not(.selected):hover .ws-harness-hint,
+.ws-harness-option:not(.selected):has(.ws-harness-input:focus-visible) .ws-harness-hint {
+  opacity: 1;
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ws-harness-option,
+  .ws-harness-radio,
+  .ws-harness-radio::after,
+  .ws-harness-hint {
+    transition: none;
+  }
+
+  .ws-harness-identity {
+    animation: none;
+  }
+
+  .ws-harness-option:not(.selected):active .ws-harness-radio,
+  .ws-harness-hint {
+    transform: none;
+  }
 }
 
 /* The danger zone raises only its title's color, nothing else. */
@@ -450,30 +657,14 @@
   font-weight: var(--font-weight-medium);
   color: var(--color-error);
   cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast);
+  transition:
+    background var(--transition-fast),
+    color var(--transition-fast);
 }
 
 .ws-danger-button:hover {
   background: var(--color-error);
   color: white;
-}
-
-/* The modal's nav header names the thing being edited. */
-.settings-modal-workspace-title {
-  margin: 0;
-  font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-semibold);
-  color: var(--color-text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.settings-modal-workspace-subtitle {
-  margin: 0;
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-normal);
-  color: var(--color-text-tertiary);
 }
 
 /* The danger entry raises only its color, like the panel's own title. */
@@ -496,7 +687,7 @@
   gap: var(--space-2);
 }
 
-.ws-action-row[draggable='true'] {
+.ws-action-row[draggable="true"] {
   cursor: grab;
 }
 
@@ -555,6 +746,12 @@
   font-family: var(--font-mono);
   font-size: var(--font-size-xs);
   line-height: var(--line-height-normal);
+}
+
+/* Instructions written as sentences read in the UI font, not as code. */
+.ws-textarea--prose {
+  font-family: inherit;
+  font-size: var(--font-size-sm);
 }
 
 .ws-chips {
@@ -695,11 +892,136 @@
   gap: var(--space-2);
 }
 
-/* A choice's one-line explanation, under its name. */
-.ws-choice-description {
-  display: block;
-  margin-top: 2px;
-  font-weight: var(--font-weight-normal);
-  font-size: var(--font-size-xs);
+/* Sessions card: rows of label + chip, hairline-separated. */
+.ws-card {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.ws-card > * + * {
+  border-top: 1px solid var(--color-border);
+}
+
+.ws-card-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+}
+
+.ws-card-row--stacked {
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-2);
+}
+
+.ws-card-row-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.ws-card-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.ws-card-label {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+}
+
+.ws-card-chips {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.ws-card-advanced-trigger {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-3) var(--space-4);
+  border: none;
+  background: transparent;
   color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.ws-card-advanced-trigger:hover {
+  color: var(--color-text-primary);
+}
+
+.ws-card-advanced-chevron {
+  transition: transform 120ms ease;
+}
+
+.ws-card-advanced-trigger[data-state="open"] .ws-card-advanced-chevron {
+  transform: rotate(90deg);
+}
+
+.ws-card-instructions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4) var(--space-4);
+}
+
+.ws-panel-hint--warning {
+  color: var(--color-warning, var(--color-text-secondary));
+}
+
+.ws-chip-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  padding: 2px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.ws-chip-trigger:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.ws-chip-trigger-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 180px;
+}
+
+/* A chip's menu opens from inside the settings dialog, so it stacks above it. */
+.dropdown-content.ws-settings-menu {
+  z-index: calc(var(--z-modal) + 1);
+}
+
+.ws-menu-indicator {
+  display: inline-flex;
+  justify-content: center;
+  width: 14px;
+  flex: none;
+  color: var(--color-accent);
+}
+
+.ws-menu-group-label,
+.ws-menu-note {
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
 }

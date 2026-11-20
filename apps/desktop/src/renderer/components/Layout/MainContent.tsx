@@ -9,12 +9,17 @@ export function MainContent() {
   const activeSessionId = useNavigationStore((state) => state.activeSessionId);
   const overlay = useNavigationStore((state) => state.overlay);
   const workspace = useWorkspaceStore((state) =>
-    state.workspaces.find((candidate) => candidate.id === activeWorkspaceId)
+    state.workspaces.find((candidate) => candidate.id === activeWorkspaceId),
   );
 
   // No workspace selected - show home/welcome
   if (!activeWorkspaceId || !workspace) {
-    return <><ContentDragRegion /><HomeView /></>;
+    return (
+      <>
+        <ContentDragRegion />
+        <HomeView />
+      </>
+    );
   }
 
   // An overlay takes the pane over; the active session keeps running behind it
@@ -28,7 +33,12 @@ export function MainContent() {
 
   // Workspace selected, no session - show workspace actions
   if (!activeSessionId) {
-    return <><ContentDragRegion /><WorkspaceEmptyView key={workspace.id} workspace={workspace} /></>;
+    return (
+      <>
+        <ContentDragRegion />
+        <WorkspaceEmptyView key={workspace.id} workspace={workspace} />
+      </>
+    );
   }
 
   // Session active - show conversation view

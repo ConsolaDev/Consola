@@ -16,6 +16,7 @@ export const IPC_CHANNELS = {
   TERMINAL_RESIZE: 'terminal:resize', // Terminal dimension changes
   TERMINAL_RESTART: 'terminal:restart', // Relaunch claude after it exited
   TERMINAL_DESTROY: 'terminal:destroy', // Tear down a session terminal
+  TERMINAL_DETACH: 'terminal:detach', // A view unmounted; stop sending it output
   TERMINAL_STATUS_SNAPSHOT: 'terminal:status-snapshot', // Live status of every terminal
 
   // Terminal events (main -> renderer)
@@ -27,7 +28,6 @@ export const IPC_CHANNELS = {
 
   // Harness queries (renderer -> main)
   HARNESS_PROBE: 'harness:probe', // Binary, version and signed-in account
-  HARNESS_SESSION_NAME: 'harness:session-name', // Name from the driver's own transcripts
   HARNESS_SESSION_MODEL: 'harness:session-model',
   HARNESS_CAPABILITIES: 'harness:capabilities', // Slash commands, agents and models it offers
 
@@ -44,6 +44,9 @@ export const IPC_CHANNELS = {
   WORKSPACE_SESSION_DELETE: 'workspace:session-delete',
   /** Continue a read-only session as a new one with full tools: a fork of its conversation. */
   WORKSPACE_SESSION_FORK: 'workspace:session-fork',
+  WORKSPACE_SESSION_SWITCH_PREVIEW: 'workspace:session-switch-preview', // What switching to each harness would do
+  WORKSPACE_SESSION_SWITCH_HARNESS: 'workspace:session-switch-harness',
+  WORKSPACE_SESSION_REGENERATE_TITLE: 'workspace:session-regenerate-title',
   WORKSPACE_ADD_SCOPE: 'workspace:add-scope',
   WORKSPACE_UPDATE_SCOPE: 'workspace:update-scope',
   WORKSPACE_REMOVE_SCOPE: 'workspace:remove-scope',
@@ -53,17 +56,43 @@ export const IPC_CHANNELS = {
   WORKSPACE_GROUP_UPDATE: 'workspace:group-update',
   WORKSPACE_GROUP_ARCHIVE: 'workspace:group-archive',
   WORKSPACE_GROUP_RESTORE: 'workspace:group-restore',
+  WORKSPACE_LABEL_CREATE: 'workspace:label-create',
+  WORKSPACE_LABEL_UPDATE: 'workspace:label-update',
+  WORKSPACE_LABEL_DELETE: 'workspace:label-delete',
+  WORKSPACE_LABEL_RESTORE: 'workspace:label-restore',
+  WORKSPACE_SESSION_LABEL_ASSIGN: 'workspace:session-label-assign',
+  WORKSPACE_SESSION_LABEL_UNASSIGN: 'workspace:session-label-unassign',
 
   // Conductor orchestration (renderer -> main; main scaffolds, groups, launches)
   CONDUCTOR_CREATE: 'conductor:create',
 
-  // The workspace Assistant (renderer -> main; main makes or replaces its record)
-  ASSISTANT_OPEN: 'assistant:open',
-  ASSISTANT_START_FRESH: 'assistant:start-fresh',
-  ASSISTANT_GET_ACTIVITY: 'assistant:get-activity',
-  ASSISTANT_MARK_SEEN: 'assistant:mark-seen',
-  // main -> renderer: sessions the Assistant touched, and what finished unseen
-  ASSISTANT_ACTIVITY_CHANGED: 'assistant:activity-changed',
+  ATTENTION_SNAPSHOT: 'attention:snapshot', // Every session's record and derived attention, once
+  ATTENTION_VIEWING: 'attention:viewing', // renderer -> main: the session this window is showing, or null
+  ATTENTION_FOCUSED: 'attention:focused', // renderer -> main: whether this window has focus
+  ATTENTION_CHANGED: 'attention:changed', // main -> renderer: derived attention that changed, coalesced
+  ATTENTION_SETTLE: 'attention:settle', // renderer -> main: settle a session and its descendants; answers the memento
+  ATTENTION_UNSETTLE: 'attention:unsettle', // renderer -> main: bring a session back, holding auto-settle off
+  ATTENTION_RESTORE: 'attention:restore', // renderer -> main: undo, from a memento
+  ATTENTION_SNOOZE: 'attention:snooze', // renderer -> main: snooze sessions (and their trees) until a time; answers a SnoozeBatchResult
+  ATTENTION_WAKE: 'attention:wake', // renderer -> main: the person brings snoozed sessions back; answers a BatchResult
+  ATTENTION_SETTLE_MANY: 'attention:settle-many', // renderer -> main: settle several sessions in one write
+  ATTENTION_UNSETTLE_MANY: 'attention:unsettle-many', // renderer -> main: bring several settled sessions back in one write
+  PREFERENCES_GET: 'preferences:get',
+  PREFERENCES_SET_AUTO_SETTLE_DAYS: 'preferences:set-auto-settle-days',
+  PREFERENCES_ACKNOWLEDGE_AUTO_SETTLE: 'preferences:acknowledge-auto-settle',
+  PREFERENCES_SET_SNOOZE_PRESETS: 'preferences:set-snooze-presets',
+  USAGE_LIMITS_SNAPSHOT: 'usage-limits:snapshot', // Which sessions stopped on a usage limit, and which harnesses are limited
+  USAGE_LIMITS_CHANGED: 'usage-limits:changed', // main -> renderer: the full usage-limit state, coalesced
+  PREFERENCES_SET_SNOOZE_AT_USAGE_LIMIT: 'preferences:set-snooze-at-usage-limit',
+  PREFERENCES_CHANGED: 'preferences:changed', // main -> renderer: the full preferences, to every window
+  PREFERENCES_SET_WORKTREE_CLEANUP: 'preferences:set-worktree-cleanup',
+  WORKTREE_CLEANUP_PREVIEW: 'worktree-cleanup:preview', // renderer -> main: what the rules would remove now, and why the rest stays
+  WORKTREE_CLEANUP_RUN: 'worktree-cleanup:run', // renderer -> main: "Clean up now"; answers the report
+  WORKTREE_CLEANUP_HISTORY: 'worktree-cleanup:history', // renderer -> main: what was removed and rebuilt, newest first
+  WORKTREE_CLEANUP_CHANGED: 'worktree-cleanup:changed', // main -> renderer: the history changed
+  WORKTREE_CLEANUP_IS_MANAGED: 'worktree-cleanup:is-managed', // renderer -> main: whether a folder is one of Consola's own worktrees
+  WORKTREE_CLEANUP_DELETED: 'worktree-cleanup:deleted', // main -> renderer: how a deleted session's worktree removal ended
+  WORKSPACE_SESSION_DELETE_PREVIEW: 'workspace:session-delete-preview', // renderer -> main: what deleting a session does to its worktree
 
   // Fleet creation (renderer -> main)
   SESSION_FAN_OUT: 'session:fan-out', // N sessions into a fresh group
@@ -199,22 +228,20 @@ export const HARNESS_DRIVERS: ReadonlyArray<{
   /** Where that CLI keeps its profile when the variable is unset. */
   defaultConfigDir: string;
   /**
-   * Whether this CLI's transcripts can be read to name a session.
-   *
-   * Declared here so the renderer can skip polling for a name that will
-   * never arrive. Must match whether the driver implements
-   * `getSessionDisplayName`.
-   */
-  supportsSessionNaming: boolean;
-  /**
    * Whether this CLI can describe its own commands, agents and models.
    *
-   * Declared here for the same reason as `supportsSessionNaming`: a driver
-   * that cannot answer must not have the composer waiting on a probe that
-   * will never succeed. Must match whether the driver implements
-   * `probeCapabilities`.
+   * Declared here so a driver that cannot answer is not waited on: the
+   * composer must not sit on a probe that will never succeed. Must match
+   * whether the driver implements `probeCapabilities`.
    */
   supportsCapabilities: boolean;
+  /**
+   * Model this CLI uses to write session titles when the workspace follows
+   * its default harness. Absent means the CLI cannot write titles.
+   */
+  defaultTitleModel?: string;
+  /** Whether this CLI's transcripts can be read back (title regeneration). */
+  supportsConversationReading: boolean;
 }> = [
   {
     id: 'claude',
@@ -224,8 +251,9 @@ export const HARNESS_DRIVERS: ReadonlyArray<{
     binaryName: 'claude',
     configDirEnvVar: 'CLAUDE_CONFIG_DIR',
     defaultConfigDir: '~/.claude',
-    supportsSessionNaming: true,
     supportsCapabilities: true,
+    defaultTitleModel: 'haiku',
+    supportsConversationReading: true,
   },
   {
     id: 'codex',
@@ -235,8 +263,8 @@ export const HARNESS_DRIVERS: ReadonlyArray<{
     binaryName: 'codex',
     configDirEnvVar: 'CODEX_HOME',
     defaultConfigDir: '~/.codex',
-    supportsSessionNaming: true,
     supportsCapabilities: true,
+    supportsConversationReading: true,
   },
 ];
 
@@ -245,14 +273,20 @@ export function getDriverDescriptor(id: HarnessDriverId | undefined) {
   return HARNESS_DRIVERS.find((driver) => driver.id === id) ?? HARNESS_DRIVERS[0];
 }
 
-/** Whether a driver can name sessions from its own transcripts. */
-export function driverSupportsSessionNaming(id: HarnessDriverId | undefined): boolean {
-  if (!id) return true; // Built-in harness runs the Claude driver.
-  return HARNESS_DRIVERS.find((driver) => driver.id === id)?.supportsSessionNaming ?? false;
-}
-
 /** Whether a driver can describe its own commands, agents and models. */
 export function driverSupportsCapabilities(id: HarnessDriverId | undefined): boolean {
   if (!id) return true; // Built-in harness runs the Claude driver.
   return HARNESS_DRIVERS.find((driver) => driver.id === id)?.supportsCapabilities ?? false;
+}
+
+/** The model a driver writes session titles with, if it can write them. */
+export function driverDefaultTitleModel(id: HarnessDriverId | undefined): string | undefined {
+  if (!id) return HARNESS_DRIVERS[0].defaultTitleModel; // Built-in harness runs the Claude driver.
+  return HARNESS_DRIVERS.find((driver) => driver.id === id)?.defaultTitleModel;
+}
+
+/** Whether a driver can read its own conversations back. */
+export function driverReadsConversations(id: HarnessDriverId | undefined): boolean {
+  if (!id) return true; // Built-in harness runs the Claude driver.
+  return HARNESS_DRIVERS.find((driver) => driver.id === id)?.supportsConversationReading ?? false;
 }

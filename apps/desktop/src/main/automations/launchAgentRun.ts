@@ -1,8 +1,4 @@
-import {
-  StartedByHandError,
-  withoutGitHooks,
-  type AgentLaunchRequest,
-} from '@consola/automation-engine';
+import { StartedByHandError, type AgentLaunchRequest } from '@consola/automation-engine';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { GitProviderId } from '../../shared/providers';
@@ -16,8 +12,11 @@ import {
   readyGroup,
   scopeIdForPath,
 } from '../providers/launchWorkItem';
+import { withoutGitHooks } from '../gitHooks';
 import type { LaunchSessionFields } from '../SessionLauncher';
 import { toWorkItemRef } from './engineViews';
+
+export { withoutGitHooks };
 
 export interface AgentLaunchDeps {
   getWorkspace(id: string): Workspace | undefined;
@@ -125,8 +124,7 @@ export type ItemWorktreeDeps = Pick<
  * The item's Consola worktree, made ready: the clone resolved among the
  * workspace's scopes, the worktree ensured under the per-item chain with git
  * hooks off, and, when `refreshExisting`, an existing one nothing holds
- * (`worktreeHeld`) brought to the PR's head. Shared by automations and the
- * Assistant so both serialise with Inbox clicks.
+ * (`worktreeHeld`) brought to the PR's head, serialised with Inbox clicks.
  *
  * Refreshing is for read-only sessions only. Claude records folder trust per
  * path, so moving a worktree the person already trusted would load the PR
@@ -163,33 +161,6 @@ export async function prepareItemWorktree(
     return dir;
   });
   return { cwd, scopeId: scopeIdForPath(workspace, clonePath) };
-}
-
-/**
- * Before a read-only session is re-run on its pull request: bring its
- * Consola worktree to the PR's head, so the re-run reviews what is there now.
- * Does nothing for any other session, or while something holds the worktree
- * (`worktreeHeld`): a full-tools session on the same PR shares it.
- */
-export async function refreshIdleWorktree(
-  deps: ItemWorktreeDeps,
-  workspace: Workspace,
-  session: Session,
-): Promise<void> {
-  const workItem = session.workItem;
-  const provider = workspace.provider;
-  if (workItem?.type !== 'pr' || !provider) return;
-  const cwd = session.cwd;
-  if (!cwd || cwd !== deps.worktreePathFor(workItem)) return;
-  if (!fs.existsSync(path.join(cwd, '.git')) || deps.worktreeInUse(cwd)) return;
-  const env = withoutGitHooks(
-    await deps.composeEnv(deps.resolveDriver(provider.id), provider.accountLogin),
-  );
-  await chainWorktreeStep(`${workspace.id}:${workItemKey(workItem)}`, async () => {
-    // Checked again inside the chain: a session may have started while this waited.
-    if (deps.worktreeInUse(cwd)) return;
-    await deps.refreshWorktree(cwd, workItem, env);
-  });
 }
 
 /**

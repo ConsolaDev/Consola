@@ -1,14 +1,17 @@
 import { expect, test, type ElectronApplication } from '@playwright/test';
-import { execFileSync } from 'child_process';
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
+import { execFileSync } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { launchElectron } from './helpers/electron';
 
 /** Answer the next native folder dialogs with these folders, as if picked by hand. */
 async function stubFolderDialog(app: ElectronApplication, folders: string[]) {
   await app.evaluate(({ dialog }, filePaths) => {
-    dialog.showOpenDialog = (async () => ({ canceled: false, filePaths })) as typeof dialog.showOpenDialog;
+    dialog.showOpenDialog = (async () => ({
+      canceled: false,
+      filePaths,
+    })) as typeof dialog.showOpenDialog;
   }, folders);
 }
 
@@ -44,7 +47,9 @@ test('first run explains the model and creates a multi-scope workspace', async (
     await page.getByRole('button', { name: 'Create workspace' }).click();
 
     await expect(page.locator('.workspace-empty-heading')).toContainText('Checkout');
-    const created = await page.evaluate(async () => (await window.workspaceAPI.getSnapshot()).workspaces[0]);
+    const created = await page.evaluate(
+      async () => (await window.workspaceAPI.getSnapshot()).workspaces[0],
+    );
     expect(created.name).toBe('Checkout');
     // The workspace's name is its own; each scope keeps its folder's.
     expect(created.scopes.map((scope) => scope.name)).toEqual(['web', 'api']);
@@ -53,21 +58,31 @@ test('first run explains the model and creates a multi-scope workspace', async (
     await expect(tips).toContainText('Runs in the web scope');
     await expect(tips).toContainText('New worktree');
     await expect(tips.getByRole('button', { name: 'Connect GitHub' })).toBeVisible();
-    await expect(page.locator('.sidebar-ungrouped')).toContainText('Sessions you start appear here.');
+    await expect(page.locator('.sidebar-sessions')).toContainText(
+      'Sessions you start appear here.',
+    );
     await page.screenshot({ path: 'test-results/onboarding-first-session.png' });
 
     // A session in one scope must not look lost from another.
-    await page.evaluate(async ({ id, scopeId }) => {
-      await window.workspaceAPI.createSession(id, {
-        name: 'Fix login', workspaceId: id, instanceId: `workspace-${id}-session-onboarding`,
-        harnessId: 'default', scopeId,
-      });
-    }, { id: created.id, scopeId: created.scopes[0].id });
+    await page.evaluate(
+      async ({ id, scopeId }) => {
+        await window.workspaceAPI.createSession(id, {
+          name: 'Fix login',
+          workspaceId: id,
+          instanceId: `workspace-${id}-session-onboarding`,
+          harnessId: 'default',
+          scopeId,
+        });
+      },
+      { id: created.id, scopeId: created.scopes[0].id },
+    );
     await expect(tips).toHaveCount(0);
-    await page.getByRole('button', { name: 'Filter sessions by scope', exact: true }).click();
+    await page.getByRole('button', { name: 'Filter sessions', exact: true }).click();
     await page.getByRole('menuitem', { name: /api/ }).click();
-    // Scoped to the empty state: the scope row's × has the same name.
-    const showAll = page.locator('.sidebar-ungrouped').getByRole('button', { name: 'Show all scopes', exact: true });
+    // Scoped to the empty state: the filter bar's × has a similar name.
+    const showAll = page
+      .locator('.sidebar-sessions')
+      .getByRole('button', { name: 'Show all scopes', exact: true });
     await expect(showAll).toBeVisible();
     await page.screenshot({ path: 'test-results/onboarding-other-scopes.png' });
     await showAll.click();

@@ -8,9 +8,7 @@ export function useTheme() {
     // Compute resolved theme from setting
     const computeResolvedTheme = () => {
       if (theme === 'system') {
-        return window.matchMedia('(prefers-color-scheme: dark)').matches
-          ? 'dark'
-          : 'light';
+        return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
       }
       return theme;
     };

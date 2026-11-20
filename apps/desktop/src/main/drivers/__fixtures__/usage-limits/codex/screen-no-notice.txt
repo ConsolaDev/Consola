@@ -1,0 +1,12 @@
+› Why does the embeddings job stop halfway?
+
+• The OpenAI API answers 429 part way through. When you've hit your usage limit
+  for a key, the error body says so in error.code, and the client should back off.
+
+• You've hit your usage limits on this key before; the dashboard lists them under
+  Settings › Limits. You've hit your usage limit on the staging key as well, so I
+  paused the load test until it resets.
+
+› Ask Codex to do anything
+
+  ? for shortcuts                                                  92% context left

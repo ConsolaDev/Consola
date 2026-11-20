@@ -82,6 +82,7 @@ const workspace = (fields: Partial<Workspace> = {}): Workspace => ({
   defaultHarnessId: 'claude',
   scopes: [scope('s1'), scope('s2')],
   groups: [],
+  labels: [],
   provider: { id: 'github', accountLogin: 'JaviDev', org: 'sprocket' },
   actions: [action('a', ['pr']), action('b', ['issue']), action('c', ['pr', 'issue'])],
   sectionDefaults: {},

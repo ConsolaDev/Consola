@@ -18,7 +18,7 @@ export function CodeBlock({
   code,
   language,
   collapsedLineThreshold = 15,
-  filePath
+  filePath,
 }: CodeBlockProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -52,7 +52,7 @@ export function CodeBlock({
       const text = lineEl.textContent?.trim();
       if (text) {
         const num = parseInt(text, 10);
-        if (!isNaN(num)) return num;
+        if (!Number.isNaN(num)) return num;
       }
     }
     return null;
@@ -73,9 +73,7 @@ export function CodeBlock({
         </SyntaxHighlighter>
 
         {/* Gradient fade when collapsed */}
-        {shouldCollapse && !isExpanded && (
-          <Box className="code-block-fade" />
-        )}
+        {shouldCollapse && !isExpanded && <Box className="code-block-fade" />}
       </Box>
 
       {/* Expand/Collapse button */}
@@ -106,7 +104,9 @@ export function CodeBlock({
     <Box className="code-block-wrapper">
       {/* Header with language and copy button */}
       <Flex className="code-block-header" justify="between" align="center">
-        <Text size="1" className="code-language">{language}</Text>
+        <Text size="1" className="code-language">
+          {language}
+        </Text>
         <Button
           size="1"
           variant="ghost"

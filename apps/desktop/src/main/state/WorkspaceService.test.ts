@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { JsonStateFile } from './JsonStateFile';
 import { WorkspaceService, type WorkspaceStateFile } from './WorkspaceService';
-import { assistantSession, type Workspace } from '../../shared/workspace';
+import type { Workspace } from '../../shared/workspace';
 import type { WorkItemAction } from '../../shared/workItemActions';
 
 let dir: string;
@@ -48,7 +48,7 @@ describe('WorkspaceService', () => {
     const c = service.createWorkspace('Added while dragging', '/c', false);
     service.updateWorkspace(a.id, { name: 'Renamed while dragging' });
     service.moveWorkspace(b.id, a.id);
-    expect(service.getAll().map(workspace => workspace.id)).toEqual([b.id, a.id, c.id]);
+    expect(service.getAll().map((workspace) => workspace.id)).toEqual([b.id, a.id, c.id]);
     expect(service.getAll()[1].name).toBe('Renamed while dragging');
   });
 
@@ -62,7 +62,9 @@ describe('WorkspaceService', () => {
     service.moveWorkspace(b.id, null);
     service.moveWorkspace('deleted', a.id);
     service.moveWorkspace(a.id, 'deleted');
-    expect(() => service.moveWorkspace(a.id, undefined as unknown as null)).toThrow('Invalid workspace move');
+    expect(() => service.moveWorkspace(a.id, undefined as unknown as null)).toThrow(
+      'Invalid workspace move',
+    );
     expect(listener).not.toHaveBeenCalled();
     expect(build().getAll()).toEqual([a, b]);
   });
@@ -72,7 +74,9 @@ describe('WorkspaceService', () => {
     const b = service.createWorkspace('B', '/b', false);
     const listener = vi.fn();
     service.onChange(listener);
-    const write = vi.spyOn(JsonStateFile.prototype, 'write').mockImplementation(() => { throw new Error('Disk full'); });
+    const write = vi.spyOn(JsonStateFile.prototype, 'write').mockImplementation(() => {
+      throw new Error('Disk full');
+    });
     try {
       expect(() => service.moveWorkspace(b.id, a.id)).toThrow('Disk full');
       expect(service.getAll()).toEqual([a, b]);
@@ -100,7 +104,8 @@ describe('WorkspaceService', () => {
     expect(build().getAll()[0].icon).toBe('briefcase');
     const image = {
       type: 'image' as const,
-      dataUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=',
+      dataUrl:
+        'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=',
     };
     reloaded.updateWorkspace(workspace.id, { icon: image });
     expect(build().getAll()[0].icon).toEqual(image);
@@ -191,7 +196,7 @@ describe('WorkspaceService', () => {
           updatedAt: 1,
         },
       ] as unknown as Workspace[],
-      5
+      5,
     );
 
     expect(imported).toBe(true);
@@ -211,7 +216,7 @@ describe('WorkspaceService', () => {
           updatedAt: 2,
         },
       ] as unknown as Workspace[],
-      5
+      5,
     );
 
     expect(second).toBe(false);
@@ -235,7 +240,7 @@ describe('WorkspaceService', () => {
           updatedAt: 1,
         },
       ] as unknown as Workspace[],
-      5
+      5,
     );
 
     expect(second).toBe(false);
@@ -258,7 +263,7 @@ describe('WorkspaceService', () => {
           updatedAt: 1,
         },
       ] as unknown as Workspace[],
-      5
+      5,
     );
 
     expect(accepted).toBe(false);
@@ -306,7 +311,7 @@ describe('WorkspaceService', () => {
         },
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
       ] as any,
-      4
+      4,
     );
 
     expect(service.getAll()[0].defaultHarnessId).toBe('default');
@@ -337,9 +342,7 @@ describe('WorkspaceService', () => {
   });
 
   it('addScope throws for an unknown workspace', () => {
-    expect(() =>
-      service.addScope('nope', { name: 'x', path: '/x', isGitRepo: false })
-    ).toThrow();
+    expect(() => service.addScope('nope', { name: 'x', path: '/x', isGitRepo: false })).toThrow();
   });
 
   it('removeScope drops an unreferenced scope', () => {
@@ -358,7 +361,11 @@ describe('WorkspaceService', () => {
   it('removeScope deletes all its sessions atomically, retaining groups and sessions in other scopes', () => {
     const workspace = service.createWorkspace('consola', '/code/consola', true);
     const scope = workspace.scopes[0];
-    const otherScope = service.addScope(workspace.id, { name: 'docs', path: '/docs', isGitRepo: false });
+    const otherScope = service.addScope(workspace.id, {
+      name: 'docs',
+      path: '/docs',
+      isGitRepo: false,
+    });
     const otherWorkspace = service.createWorkspace('Other', '/other', false);
     const group = service.createGroup(workspace.id, { name: 'Shared group' });
     const child = service.createGroup(workspace.id, { name: 'Child', parentGroupId: group.id });
@@ -371,11 +378,17 @@ describe('WorkspaceService', () => {
     service.createSession(workspace.id, { ...fields, instanceId: 'ungrouped' });
     service.createSession(workspace.id, { ...fields, instanceId: 'grouped', groupId: child.id });
     const conductor = service.createSession(workspace.id, {
-      ...fields, instanceId: 'conductor', kind: 'conductor', groupId: group.id,
+      ...fields,
+      instanceId: 'conductor',
+      kind: 'conductor',
+      groupId: group.id,
     })!;
     service.updateGroup(workspace.id, group.id, { conductorSessionId: conductor.id });
     const survivor = service.createSession(workspace.id, {
-      ...fields, instanceId: 'survivor', scopeId: otherScope.id, groupId: group.id,
+      ...fields,
+      instanceId: 'survivor',
+      scopeId: otherScope.id,
+      groupId: group.id,
     });
     service.updateGroup(workspace.id, child.id, { conductorSessionId: survivor!.id });
     const listener = vi.fn();
@@ -397,14 +410,21 @@ describe('WorkspaceService', () => {
     service.addScope(workspace.id, { name: 'docs', path: '/docs', isGitRepo: false });
     const group = service.createGroup(workspace.id, { name: 'Group' });
     const session = service.createSession(workspace.id, {
-      name: 'Session', workspaceId: workspace.id, instanceId: 'i1', harnessId: 'default',
-      scopeId: workspace.scopes[0].id, groupId: group.id, kind: 'conductor',
+      name: 'Session',
+      workspaceId: workspace.id,
+      instanceId: 'i1',
+      harnessId: 'default',
+      scopeId: workspace.scopes[0].id,
+      groupId: group.id,
+      kind: 'conductor',
     });
     service.updateGroup(workspace.id, group.id, { conductorSessionId: session!.id });
     const before = service.getAll();
     const listener = vi.fn();
     service.onChange(listener);
-    const write = vi.spyOn(JsonStateFile.prototype, 'write').mockImplementation(() => { throw new Error('Disk full'); });
+    const write = vi.spyOn(JsonStateFile.prototype, 'write').mockImplementation(() => {
+      throw new Error('Disk full');
+    });
     try {
       expect(() => service.removeScope(workspace.id, workspace.scopes[0].id)).toThrow('Disk full');
       expect(service.getAll()).toEqual(before);
@@ -430,22 +450,36 @@ describe('WorkspaceService', () => {
     const scope = workspace.scopes[0];
     const group = service.createGroup(workspace.id, { name: 'Work' });
     const fields = {
-      name: 'Session', workspaceId: workspace.id, instanceId: 'i1', harnessId: 'default', scopeId: scope.id, groupId: group.id,
+      name: 'Session',
+      workspaceId: workspace.id,
+      instanceId: 'i1',
+      harnessId: 'default',
+      scopeId: scope.id,
+      groupId: group.id,
     };
     service.createSession(workspace.id, fields);
 
     service.removeScope(workspace.id, scope.id);
 
     const reloaded = build();
-    expect(reloaded.getAll()).toEqual([{
-      ...workspace, scopes: [], sessions: [], groups: [group], updatedAt: expect.any(Number),
-    }]);
+    expect(reloaded.getAll()).toEqual([
+      {
+        ...workspace,
+        scopes: [],
+        sessions: [],
+        groups: [group],
+        updatedAt: expect.any(Number),
+      },
+    ]);
     expect(reloaded.createSession(workspace.id, fields)).toBeUndefined();
     const added = reloaded.addScope(workspace.id, {
-      name: 'New scope', path: '/new', isGitRepo: false,
+      name: 'New scope',
+      path: '/new',
+      isGitRepo: false,
     });
     expect(reloaded.createSession(workspace.id, { ...fields, scopeId: added.id })).toMatchObject({
-      scopeId: added.id, groupId: group.id,
+      scopeId: added.id,
+      groupId: group.id,
     });
   });
 
@@ -468,18 +502,37 @@ describe('WorkspaceService', () => {
   it('relocates a scope and its nested session directories without losing session identity or history', () => {
     const workspace = service.createWorkspace('Project', '/old/project', false);
     const scope = workspace.scopes[0];
-    const sibling = service.addScope(workspace.id, { name: 'Other', path: '/old/project/other', isGitRepo: false });
+    const sibling = service.addScope(workspace.id, {
+      name: 'Other',
+      path: '/old/project/other',
+      isGitRepo: false,
+    });
     const group = service.createGroup(workspace.id, { name: 'Work' });
-    for (const [index, cwd] of [undefined, '/old/project', '/old/project/subdir', '/old/project-other', '/external/checkout'].entries()) {
+    for (const [index, cwd] of [
+      undefined,
+      '/old/project',
+      '/old/project/subdir',
+      '/old/project-other',
+      '/external/checkout',
+    ].entries()) {
       const session = service.createSession(workspace.id, {
-        name: `Session ${index}`, workspaceId: workspace.id, instanceId: `instance-${index}`,
-        harnessId: 'default', scopeId: scope.id, groupId: group.id, cwd,
+        name: `Session ${index}`,
+        workspaceId: workspace.id,
+        instanceId: `instance-${index}`,
+        harnessId: 'default',
+        scopeId: scope.id,
+        groupId: group.id,
+        cwd,
       })!;
       service.updateSession(workspace.id, session.id, { hasStarted: true });
     }
     service.createSession(workspace.id, {
-      name: 'Other scope', workspaceId: workspace.id, instanceId: 'other',
-      harnessId: 'default', scopeId: sibling.id, cwd: '/old/project/other',
+      name: 'Other scope',
+      workspaceId: workspace.id,
+      instanceId: 'other',
+      harnessId: 'default',
+      scopeId: sibling.id,
+      cwd: '/old/project/other',
     });
     const before = service.getAll()[0];
     const destination = path.join(dir, 'moved');
@@ -490,10 +543,15 @@ describe('WorkspaceService', () => {
     const after = build().getAll()[0];
     expect(after.scopes).toEqual([{ ...scope, path: destination, isGitRepo: true }, sibling]);
     expect(after.groups).toEqual(before.groups);
-    expect(after.sessions).toEqual(before.sessions.map((session, index) =>
-      index === 1 ? { ...session, cwd: destination } :
-      index === 2 ? { ...session, cwd: path.join(destination, 'subdir') } : session
-    ));
+    expect(after.sessions).toEqual(
+      before.sessions.map((session, index) =>
+        index === 1
+          ? { ...session, cwd: destination }
+          : index === 2
+            ? { ...session, cwd: path.join(destination, 'subdir') }
+            : session,
+      ),
+    );
   });
 
   it('rejects invalid destinations without changing persisted state', () => {
@@ -503,9 +561,12 @@ describe('WorkspaceService', () => {
     const listener = vi.fn();
     service.onChange(listener);
     for (const destination of ['', 'relative/path', path.join(dir, 'missing'), file]) {
-      expect(() => service.updateScope(workspace.id, workspace.scopes[0].id, {
-        name: 'Must not change', path: destination,
-      })).toThrow(/folder/i);
+      expect(() =>
+        service.updateScope(workspace.id, workspace.scopes[0].id, {
+          name: 'Must not change',
+          path: destination,
+        }),
+      ).toThrow(/folder/i);
       expect(build().getAll()).toEqual([workspace]);
     }
     expect(listener).not.toHaveBeenCalled();
@@ -541,10 +602,23 @@ describe('WorkspaceService', () => {
     expect(service.getAll()[0].sessions).toEqual([]);
   });
 
-  const pr51 = { provider: 'github' as const, repo: 'sprocket/catalog-portal', type: 'pr' as const, number: 51 };
-  const issue87 = { provider: 'github' as const, repo: 'sprocket/media-upload-api', type: 'issue' as const, number: 87 };
+  const pr51 = {
+    provider: 'github' as const,
+    repo: 'sprocket/catalog-portal',
+    type: 'pr' as const,
+    number: 51,
+  };
+  const issue87 = {
+    provider: 'github' as const,
+    repo: 'sprocket/media-upload-api',
+    type: 'issue' as const,
+    number: 87,
+  };
 
-  function sessionIn(workspace: Workspace, extra: Partial<Parameters<typeof service.createSession>[1]> = {}) {
+  function sessionIn(
+    workspace: Workspace,
+    extra: Partial<Parameters<typeof service.createSession>[1]> = {},
+  ) {
     const session = service.createSession(workspace.id, {
       name: 'By hand',
       workspaceId: workspace.id,
@@ -578,7 +652,9 @@ describe('WorkspaceService', () => {
     service.onChange(listener);
 
     expect(() =>
-      service.updateSession(workspace.id, session.id, { workItem: { ...pr51, repo: 'Sprocket/Catalog-Portal' } })
+      service.updateSession(workspace.id, session.id, {
+        workItem: { ...pr51, repo: 'Sprocket/Catalog-Portal' },
+      }),
     ).not.toThrow();
 
     expect(listener).not.toHaveBeenCalled();
@@ -590,7 +666,7 @@ describe('WorkspaceService', () => {
     const session = sessionIn(workspace, { kind: 'conductor' });
 
     expect(() => service.updateSession(workspace.id, session.id, { workItem: pr51 })).toThrow(
-      'A conductor session cannot be linked to a work item.'
+      'A conductor session cannot be linked to a work item.',
     );
     expect(service.getAll()[0].sessions[0]).not.toHaveProperty('workItem');
   });
@@ -600,7 +676,7 @@ describe('WorkspaceService', () => {
     const session = sessionIn(workspace, { workItem: pr51 });
 
     expect(() => service.updateSession(workspace.id, session.id, { workItem: issue87 })).toThrow(
-      /already linked to sprocket\/catalog-portal pr #51/
+      /already linked to sprocket\/catalog-portal pr #51/,
     );
     expect(service.getAll()[0].sessions[0].workItem).toEqual(pr51);
   });
@@ -620,15 +696,27 @@ describe('WorkspaceService', () => {
     const workspace = service.createWorkspace('consola', '/code/consola', true);
     expect(workspace.actions).toEqual([]);
 
-    service.setProviderBinding(workspace.id, { id: 'github', accountLogin: 'JaviDev', org: 'sprocket' });
+    service.setProviderBinding(workspace.id, {
+      id: 'github',
+      accountLogin: 'JaviDev',
+      org: 'sprocket',
+    });
     const bound = service.getAll()[0];
     expect(bound.provider).toEqual({ id: 'github', accountLogin: 'JaviDev', org: 'sprocket' });
     // Binding is what switches the Inbox on, so it is what seeds the verbs.
     expect(bound.actions.map((action) => action.name)).toEqual([
-      'Review', 'Address review', 'Fix CI', 'Implement', 'Triage',
+      'Review',
+      'Address review',
+      'Fix CI',
+      'Implement',
+      'Triage',
     ]);
     expect(Object.keys(bound.sectionDefaults).sort()).toEqual([
-      'issues', 'needs-action', 'needs-team-review', 'needs-your-review', 'waiting',
+      'issues',
+      'needs-action',
+      'needs-team-review',
+      'needs-your-review',
+      'waiting',
     ]);
 
     service.setProviderBinding(workspace.id, { id: 'github', accountLogin: 'personal' });
@@ -650,7 +738,9 @@ describe('WorkspaceService', () => {
 
   it('setProviderBinding does not reseed a workspace that already has actions', () => {
     const workspace = service.createWorkspace('consola', '/code/consola', true);
-    const mine: WorkItemAction[] = [{ id: 'a1', name: 'Mine', appliesTo: ['pr'], prompt: 'Do the thing.' }];
+    const mine: WorkItemAction[] = [
+      { id: 'a1', name: 'Mine', appliesTo: ['pr'], prompt: 'Do the thing.' },
+    ];
     service.setActions(workspace.id, mine, { waiting: 'a1' });
 
     service.setProviderBinding(workspace.id, { id: 'github', accountLogin: 'JaviDev' });
@@ -677,10 +767,12 @@ describe('WorkspaceService', () => {
     const workspace = service.createWorkspace('consola', '/code/consola', true);
     const listener = vi.fn();
     service.onChange(listener);
-    const actions: WorkItemAction[] = [{ id: 'a1', name: 'Review', appliesTo: ['pr'], prompt: 'Review it.' }];
+    const actions: WorkItemAction[] = [
+      { id: 'a1', name: 'Review', appliesTo: ['pr'], prompt: 'Review it.' },
+    ];
 
     expect(() => service.setActions(workspace.id, actions, { issues: 'a1' })).toThrow(
-      '"Review" cannot be the default for "issues": it does not apply to issues.'
+      '"Review" cannot be the default for "issues": it does not apply to issues.',
     );
 
     expect(listener).not.toHaveBeenCalled();
@@ -700,7 +792,7 @@ describe('WorkspaceService', () => {
     ]);
   });
 
-  it('setActions persists an action pointed at one of the workspace\'s groups', () => {
+  it("setActions persists an action pointed at one of the workspace's groups", () => {
     const workspace = service.createWorkspace('consola', '/code/consola', true);
     const group = service.createGroup(workspace.id, { name: 'PR reviews' });
     const actions: WorkItemAction[] = [
@@ -719,7 +811,7 @@ describe('WorkspaceService', () => {
     ];
 
     expect(() => service.setActions(workspace.id, actions, {})).toThrow(
-      '"Review" lands in a group that does not exist.'
+      '"Review" lands in a group that does not exist.',
     );
     expect(service.getAll()[0].actions).toEqual([]);
   });
@@ -742,7 +834,7 @@ describe('WorkspaceService', () => {
     service.setActions(
       workspace.id,
       [{ id: 'a1', name: 'Review', appliesTo: ['pr'], prompt: 'Review it.' }],
-      {}
+      {},
     );
 
     expect(service.getAll()[0].actions[0]).not.toHaveProperty('groupId');
@@ -751,7 +843,13 @@ describe('WorkspaceService', () => {
   it('setActions persists a conversation setting, and leaves the key off an action without one', () => {
     const workspace = service.createWorkspace('consola', '/code/consola', true);
     const actions: WorkItemAction[] = [
-      { id: 'a1', name: 'Re-review', appliesTo: ['pr'], prompt: 'Check again.', conversation: 'fresh' },
+      {
+        id: 'a1',
+        name: 'Re-review',
+        appliesTo: ['pr'],
+        prompt: 'Check again.',
+        conversation: 'fresh',
+      },
       { id: 'a2', name: 'Review', appliesTo: ['pr'], prompt: 'Review it.' },
     ];
 
@@ -783,7 +881,11 @@ describe('WorkspaceService', () => {
 
     expect(replaced.claudeSessionId).toMatch(/^[0-9a-f-]{36}$/i);
     expect(replaced.claudeSessionId).not.toBe(session.claudeSessionId);
-    expect(replaced).toEqual({ ...session, claudeSessionId: replaced.claudeSessionId, hasStarted: true });
+    expect(replaced).toEqual({
+      ...session,
+      claudeSessionId: replaced.claudeSessionId,
+      hasStarted: true,
+    });
     expect(build().getAll()[0].sessions[0]).toEqual(replaced);
     expect(listener).toHaveBeenCalledTimes(1);
 
@@ -792,6 +894,186 @@ describe('WorkspaceService', () => {
     expect(named.claudeSessionId).toBe('chosen-id');
 
     expect(() => service.replaceConversation(workspace.id, 'nope')).toThrow(/No session nope/);
+  });
+
+  it('switchHarness moves harness and conversation together, and keeps what the session is', () => {
+    const workspace = service.createWorkspace('consola', '/code/consola', true);
+    const session = service.createSession(workspace.id, {
+      name: 'Extract billing client',
+      workspaceId: workspace.id,
+      instanceId: 'instance-1',
+      harnessId: 'claude-personal',
+      model: 'opus',
+      scopeId: workspace.scopes[0].id,
+      cwd: '/code/consola/.worktrees/pr-51',
+      groupId: 'group-1',
+      workItem: { provider: 'github', repo: 'sprocket/catalog-portal', type: 'pr', number: 51 },
+      workItemAction: 'Review',
+    })!;
+    service.recordAgentCwd(workspace.id, session.id, '/code/consola/.claude/worktrees/elsewhere');
+    const listener = vi.fn();
+    service.onChange(listener);
+
+    const left = {
+      harnessId: 'claude-personal',
+      claudeSessionId: session.claudeSessionId,
+      continuedAs: 'new-id',
+      endedAt: 1_000,
+      carried: 'native' as const,
+    };
+    const switched = service.switchHarness(workspace.id, session.id, {
+      harnessId: 'claude-work',
+      claudeSessionId: 'new-id',
+      hasStarted: true,
+      left,
+    });
+
+    // The model belonged to the old harness, and where the old process had gone is its news alone.
+    const { model: _model, ...rest } = session;
+    expect(switched).toEqual({
+      ...rest,
+      harnessId: 'claude-work',
+      claudeSessionId: 'new-id',
+      hasStarted: true,
+      priorConversations: [left],
+    });
+    expect(build().getAll()[0].sessions[0]).toEqual(switched);
+    expect(listener).toHaveBeenCalledTimes(1);
+
+    // A handoff pins the name: a summary of the new conversation would describe the handoff.
+    const handed = service.switchHarness(workspace.id, session.id, {
+      harnessId: 'codex',
+      claudeSessionId: 'third-id',
+      hasStarted: true,
+      left: {
+        ...left,
+        harnessId: 'claude-work',
+        claudeSessionId: 'new-id',
+        continuedAs: 'third-id',
+        carried: 'handoff',
+        handoffPath: '/h.md',
+      },
+      keepName: true,
+    });
+    expect(handed.nameIsUserSet).toBe(true);
+    expect(handed.priorConversations?.map((link) => link.claudeSessionId)).toEqual([
+      session.claudeSessionId,
+      'new-id',
+    ]);
+
+    expect(() =>
+      service.switchHarness(workspace.id, 'nope', {
+        harnessId: 'x',
+        claudeSessionId: 'y',
+        hasStarted: true,
+      }),
+    ).toThrow(/No session nope/);
+  });
+
+  it('switchHarness keeps only the last few conversations, and never moves a conductor', () => {
+    const workspace = service.createWorkspace('consola', '/code/consola', true);
+    const session = service.createSession(workspace.id, {
+      name: 'Long job',
+      workspaceId: workspace.id,
+      instanceId: 'instance-1',
+      harnessId: 'h0',
+      scopeId: workspace.scopes[0].id,
+    })!;
+    for (let index = 1; index <= 10; index++) {
+      service.switchHarness(workspace.id, session.id, {
+        harnessId: `h${index}`,
+        claudeSessionId: `c${index}`,
+        hasStarted: true,
+        left: {
+          harnessId: `h${index - 1}`,
+          claudeSessionId: `c${index - 1}`,
+          continuedAs: `c${index}`,
+          endedAt: index,
+          carried: 'native',
+        },
+      });
+    }
+    const prior = build().getAll()[0].sessions[0].priorConversations!;
+    expect(prior.map((link) => link.claudeSessionId)).toEqual([
+      'c2',
+      'c3',
+      'c4',
+      'c5',
+      'c6',
+      'c7',
+      'c8',
+      'c9',
+    ]);
+
+    const conductor = service.createSession(workspace.id, {
+      name: 'Lead',
+      workspaceId: workspace.id,
+      instanceId: 'instance-lead',
+      harnessId: 'h0',
+      scopeId: workspace.scopes[0].id,
+      kind: 'conductor',
+    });
+    if (!conductor) throw new Error('fixture session was refused');
+    expect(() =>
+      service.switchHarness(workspace.id, conductor.id, {
+        harnessId: 'h1',
+        claudeSessionId: 'x',
+        hasStarted: true,
+      }),
+    ).toThrow(/Only your own sessions/);
+  });
+
+  it('records removed worktrees in one write, and clears them by path for every session', () => {
+    const workspace = service.createWorkspace('app', '/code/app', true);
+    const fields = (name: string, cwd: string) => ({
+      name,
+      workspaceId: workspace.id,
+      instanceId: `instance-${name}`,
+      harnessId: 'default',
+      scopeId: workspace.scopes[0].id,
+      cwd,
+    });
+    const review = service.createSession(workspace.id, fields('review', '/wt/app-pr-1'))!;
+    const fixer = service.createSession(workspace.id, fields('fixer', '/wt/app-pr-1'))!;
+    const other = service.createSession(workspace.id, fields('other', '/wt/app-pr-2'))!;
+    const removed = {
+      path: '/wt/app-pr-1',
+      mainRepo: '/code/app',
+      commit: 'a'.repeat(40),
+      branch: 'feature',
+      keepRef: 'refs/consola/worktrees/app-pr-1',
+      trigger: 'settled' as const,
+      removedAt: 5,
+    };
+    const listener = vi.fn();
+    service.onChange(listener);
+
+    service.recordWorktreesRemoved([
+      { sessionId: review.id, removed },
+      { sessionId: fixer.id, removed },
+    ]);
+    expect(listener).toHaveBeenCalledTimes(1);
+    const stored = build().getAll()[0].sessions;
+    expect(stored.map((session) => session.removedWorktree)).toEqual([removed, removed, undefined]);
+    // The folder the session runs in is never rewritten.
+    expect(stored.map((session) => session.cwd)).toEqual([
+      '/wt/app-pr-1',
+      '/wt/app-pr-1',
+      '/wt/app-pr-2',
+    ]);
+
+    service.clearWorktreeRemoved('/wt/app-pr-1');
+    expect(listener).toHaveBeenCalledTimes(2);
+    expect(
+      build()
+        .getAll()[0]
+        .sessions.every((session) => !('removedWorktree' in session)),
+    ).toBe(true);
+    // Nothing named it any more: nothing to write.
+    service.clearWorktreeRemoved('/wt/app-pr-1');
+    service.recordWorktreesRemoved([]);
+    expect(listener).toHaveBeenCalledTimes(2);
+    expect(other.removedWorktree).toBeUndefined();
   });
 
   it('recordAgentCwd follows an agent into another checkout and back, writing only changes', () => {
@@ -901,7 +1183,11 @@ describe('WorkspaceService', () => {
 
     service.updateGroup(workspace.id, group.id, { archivedAt: 123 });
 
-    expect(build().getAll()[0].groups.find((g) => g.id === group.id)?.archivedAt).toBe(123);
+    expect(
+      build()
+        .getAll()[0]
+        .groups.find((g) => g.id === group.id)?.archivedAt,
+    ).toBe(123);
   });
 
   it('renames a group via updateGroup without touching its lifecycle fields', () => {
@@ -913,7 +1199,9 @@ describe('WorkspaceService', () => {
 
     service.updateGroup(workspace.id, group.id, { name: 'new name' });
 
-    const reloaded = build().getAll()[0].groups.find((g) => g.id === group.id);
+    const reloaded = build()
+      .getAll()[0]
+      .groups.find((g) => g.id === group.id);
     expect(reloaded?.name).toBe('new name');
     expect(reloaded?.conductorSessionId).toBe('cond-1');
     expect(reloaded?.archivedAt).toBeUndefined();
@@ -929,7 +1217,9 @@ describe('WorkspaceService', () => {
     // Absent, not null or undefined-valued: JSON.stringify drops the
     // explicitly-undefined key on persist, so a restored group round-trips
     // exactly like one that was never archived.
-    const reloaded = build().getAll()[0].groups.find((g) => g.id === group.id);
+    const reloaded = build()
+      .getAll()[0]
+      .groups.find((g) => g.id === group.id);
     expect(reloaded).not.toHaveProperty('archivedAt');
   });
 });
@@ -943,7 +1233,8 @@ describe('group emojis', () => {
     service.updateGroup(workspace.id, group.id, { emoji: '👩🏽‍💻' });
     service.updateGroup(workspace.id, group.id, { name: 'Engineering' });
     expect(build().getAll()[0].groups).toEqual([
-      { ...group, name: 'Engineering', emoji: '👩🏽‍💻' }, other,
+      { ...group, name: 'Engineering', emoji: '👩🏽‍💻' },
+      other,
     ]);
     service.archiveGroup(workspace.id, group.id);
     service.restoreGroup(workspace.id, group.id);
@@ -953,99 +1244,228 @@ describe('group emojis', () => {
   });
 });
 
-describe('the Assistant record', () => {
-  const fields = { harnessId: 'builtin', cwd: '/home/.consola/workspaces/x/assistant' };
-  const pr51 = { provider: 'github' as const, repo: 'sprocket/catalog-portal', type: 'pr' as const, number: 51 };
-
-  function interactiveOn(workspace: Workspace, scopeId: string) {
-    const session = service.createSession(workspace.id, {
-      name: 'By hand',
-      workspaceId: workspace.id,
-      instanceId: `instance-${scopeId}`,
-      harnessId: 'default',
-      scopeId,
-    });
-    if (!session) throw new Error('fixture session was refused');
-    return session;
+describe('detaching a session from its conductor', () => {
+  function seed() {
+    const workspace = service.createWorkspace('W', '/w', false);
+    const scope = workspace.scopes[0];
+    const make = (name: string, parentSessionId?: string) =>
+      service.createSession(workspace.id, {
+        name,
+        workspaceId: workspace.id,
+        instanceId: `i-${name}`,
+        harnessId: 'default-agent',
+        model: undefined,
+        scopeId: scope.id,
+        ...(parentSessionId ? { parentSessionId } : {}),
+      })!;
+    const conductor = make('Conductor');
+    return { workspace, conductor, child: make('Child', conductor.id) };
   }
 
-  it('creates one per workspace, on the first scope, named and user-set', () => {
-    const ws = service.createWorkspace('catalog-portal', '/code/catalog-portal', true);
-    const first = service.ensureAssistant(ws.id, fields);
-    expect(first).toMatchObject({
-      kind: 'assistant',
-      name: 'Assistant',
-      nameIsUserSet: true,
-      scopeId: ws.scopes[0].id,
-      cwd: fields.cwd,
-      harnessId: 'builtin',
-      hasStarted: false,
-    });
-    expect(service.ensureAssistant(ws.id, { harnessId: 'other', cwd: '/elsewhere' }).id).toBe(first.id);
-    expect(service.getAll()[0].sessions.filter((s) => s.kind === 'assistant')).toHaveLength(1);
-  });
+  it('clears the link, leaving no key behind, and persists it', () => {
+    const { workspace, child } = seed();
 
-  it('refuses a workspace with no scopes', () => {
-    const ws = service.createWorkspace('catalog-portal', '/code/catalog-portal', true);
-    service.removeScope(ws.id, ws.scopes[0].id);
-    expect(() => service.ensureAssistant(ws.id, fields)).toThrow('Add a scope to use the Assistant.');
-  });
+    service.updateSession(workspace.id, child.id, { parentSessionId: undefined });
 
-  it('never mints an assistant through createSession', () => {
-    const ws = service.createWorkspace('catalog-portal', '/code/catalog-portal', true);
+    // In memory as well as on disk: a key left behind holding `undefined`
+    // survives until the next reload, and every reader of the live record
+    // sees a shape no reload would produce.
     expect(
-      service.createSession(ws.id, {
-        name: 'x',
-        workspaceId: ws.id,
-        instanceId: 'i',
-        harnessId: 'default',
-        scopeId: ws.scopes[0].id,
-        kind: 'assistant',
-      })
-    ).toBeUndefined();
+      service.getAll()[0].sessions.find((session) => session.id === child.id),
+    ).not.toHaveProperty('parentSessionId');
+    const reloaded = build()
+      .getAll()[0]
+      .sessions.find((session) => session.id === child.id);
+    expect(reloaded).not.toHaveProperty('parentSessionId');
   });
 
-  it('replaces the record in one write', () => {
-    const ws = service.createWorkspace('catalog-portal', '/code/catalog-portal', true);
-    const first = service.ensureAssistant(ws.id, fields);
-    const listener = vi.fn();
-    service.onChange(listener);
-    const { previous, next } = service.replaceAssistant(ws.id, { harnessId: 'h2', cwd: fields.cwd });
-    expect(previous?.id).toBe(first.id);
-    expect(next.id).not.toBe(first.id);
-    expect(next.harnessId).toBe('h2');
-    expect(listener).toHaveBeenCalledTimes(1);
-    expect(service.getAll()[0].sessions.filter((s) => s.kind === 'assistant')).toEqual([next]);
+  it('leaves the rest of the session, and the conductor, exactly as they were', () => {
+    const { workspace, conductor, child } = seed();
+    const label = service.createLabel(workspace.id, { name: 'L' });
+    service.assignLabel(workspace.id, child.id, label.id);
+
+    service.updateSession(workspace.id, child.id, { parentSessionId: undefined });
+
+    const reloaded = build().getAll()[0];
+    expect(reloaded.sessions.find((session) => session.id === child.id)).toMatchObject({
+      name: 'Child',
+      labelIds: [label.id],
+      scopeId: child.scopeId,
+      harnessId: child.harnessId,
+    });
+    expect(reloaded.sessions.find((session) => session.id === conductor.id)).toEqual(conductor);
+  });
+});
+
+describe('labels', () => {
+  function seed() {
+    const workspace = service.createWorkspace('W', '/w', false);
+    const scope = workspace.scopes[0];
+    const make = (name: string) =>
+      service.createSession(workspace.id, {
+        name,
+        workspaceId: workspace.id,
+        instanceId: `i-${name}`,
+        harnessId: 'default-agent',
+        model: undefined,
+        scopeId: scope.id,
+      })!;
+    return { workspace, a: make('A'), b: make('B') };
+  }
+
+  it('creates, renames and sets and clears an emoji, persisting each', () => {
+    const { workspace } = seed();
+    const label = service.createLabel(workspace.id, { name: 'Bug' });
+    service.updateLabel(workspace.id, label.id, { name: 'Bugs', emoji: '🐛' });
+    expect(build().getAll()[0].labels).toEqual([{ id: label.id, name: 'Bugs', emoji: '🐛' }]);
+
+    service.updateLabel(workspace.id, label.id, { emoji: undefined });
+    expect(build().getAll()[0].labels).toEqual([{ id: label.id, name: 'Bugs' }]);
   });
 
-  it('refuses to rename, group or link the Assistant but still records activity', () => {
-    const ws = service.createWorkspace('catalog-portal', '/code/catalog-portal', true);
-    const assistant = service.ensureAssistant(ws.id, fields);
-    for (const updates of [{ name: 'x' }, { nameIsUserSet: false }, { groupId: 'g' }, { workItem: pr51 }]) {
-      expect(() => service.updateSession(ws.id, assistant.id, updates)).toThrow(
-        'The Assistant cannot be renamed, grouped or linked.'
-      );
-    }
-    service.updateSession(ws.id, assistant.id, { hasStarted: true, lastActiveAt: 5 });
-    expect(assistantSession(service.getAll()[0])).toMatchObject({ hasStarted: true, lastActiveAt: 5 });
+  it('assigns and unassigns a label on a session, without duplicating', () => {
+    const { workspace, a } = seed();
+    const one = service.createLabel(workspace.id, { name: 'One' });
+    const two = service.createLabel(workspace.id, { name: 'Two' });
+
+    service.assignLabel(workspace.id, a.id, one.id);
+    service.assignLabel(workspace.id, a.id, one.id);
+    service.assignLabel(workspace.id, a.id, two.id);
+    expect(service.getAll()[0].sessions.find((s) => s.id === a.id)?.labelIds).toEqual([
+      one.id,
+      two.id,
+    ]);
+
+    service.unassignLabel(workspace.id, a.id, one.id);
+    expect(
+      build()
+        .getAll()[0]
+        .sessions.find((s) => s.id === a.id)?.labelIds,
+    ).toEqual([two.id]);
   });
 
-  it('moves the Assistant to a remaining scope when its scope is removed, and reports only the removed sessions', () => {
-    const ws = service.createWorkspace('catalog-portal', '/code/catalog-portal', true);
-    const scopeB = service.addScope(ws.id, { name: 'media', path: '/code/media', isGitRepo: true });
-    if (!scopeB) throw new Error('fixture scope was refused');
-    service.ensureAssistant(ws.id, fields);
-    const interactiveOnA = interactiveOn(ws, ws.scopes[0].id);
-    const removed = service.removeScope(ws.id, ws.scopes[0].id);
-    expect(removed.map((s) => s.id)).toEqual([interactiveOnA.id]);
-    expect(assistantSession(service.getAll()[0])?.scopeId).toBe(scopeB.id);
+  it('refuses to assign a label that does not exist', () => {
+    const { workspace, a } = seed();
+    expect(() => service.assignLabel(workspace.id, a.id, 'nope')).toThrow(/No label/);
   });
 
-  it('removes the Assistant with the last scope', () => {
-    const ws = service.createWorkspace('catalog-portal', '/code/catalog-portal', true);
-    const assistant = service.ensureAssistant(ws.id, fields);
-    const removed = service.removeScope(ws.id, ws.scopes[0].id);
-    expect(removed.map((s) => s.id)).toContain(assistant.id);
-    expect(assistantSession(service.getAll()[0])).toBeUndefined();
+  it('deleting a label removes its id from every session and leaves the others alone', () => {
+    const { workspace, a, b } = seed();
+    const gone = service.createLabel(workspace.id, { name: 'Gone' });
+    const kept = service.createLabel(workspace.id, { name: 'Kept' });
+    service.assignLabel(workspace.id, a.id, gone.id);
+    service.assignLabel(workspace.id, a.id, kept.id);
+    service.assignLabel(workspace.id, b.id, gone.id);
+
+    service.deleteLabel(workspace.id, gone.id);
+
+    const reloaded = build().getAll()[0];
+    expect(reloaded.labels.map((l) => l.id)).toEqual([kept.id]);
+    expect(reloaded.sessions.find((s) => s.id === a.id)?.labelIds).toEqual([kept.id]);
+    // Emptied entirely: the key goes, rather than leaving an empty list behind.
+    expect(reloaded.sessions.find((s) => s.id === b.id)).not.toHaveProperty('labelIds');
+  });
+
+  it('deleting a label hands back what it removed, so it can be put back', () => {
+    const { workspace, a, b } = seed();
+    const first = service.createLabel(workspace.id, { name: 'First' });
+    const gone = service.createLabel(workspace.id, { name: 'Gone', emoji: '🐛' });
+    service.assignLabel(workspace.id, a.id, gone.id);
+    service.assignLabel(workspace.id, b.id, gone.id);
+
+    const removed = service.deleteLabel(workspace.id, gone.id);
+
+    expect(removed).toEqual({
+      label: { id: gone.id, name: 'Gone', emoji: '🐛' },
+      index: 1,
+      sessionIds: [a.id, b.id],
+    });
+    expect(service.getAll()[0].labels.map((l) => l.id)).toEqual([first.id]);
+  });
+
+  it('deleting a label that is not there removes nothing and hands back nothing', () => {
+    const { workspace } = seed();
+    expect(service.deleteLabel(workspace.id, 'nope')).toBeNull();
+  });
+
+  it('restoring puts the label back where it was, on exactly the sessions that had it', () => {
+    const { workspace, a, b } = seed();
+    const first = service.createLabel(workspace.id, { name: 'First' });
+    const gone = service.createLabel(workspace.id, { name: 'Gone' });
+    const last = service.createLabel(workspace.id, { name: 'Last' });
+    service.assignLabel(workspace.id, a.id, gone.id);
+    service.assignLabel(workspace.id, a.id, last.id);
+    const before = service.getAll()[0];
+
+    const removed = service.deleteLabel(workspace.id, gone.id)!;
+    service.restoreLabel(workspace.id, removed);
+
+    const reloaded = build().getAll()[0];
+    expect(reloaded.labels).toEqual(before.labels);
+    // Membership, not order: a session's labels are drawn in the workspace's
+    // own label order, so where the id sits in its list is not a fact anyone
+    // can see.
+    expect(
+      reloaded.sessions
+        .find((s) => s.id === a.id)
+        ?.labelIds?.slice()
+        .sort(),
+    ).toEqual([gone.id, last.id].sort());
+    expect(reloaded.sessions.find((s) => s.id === b.id)).not.toHaveProperty('labelIds');
+    expect(first.id).toBe(reloaded.labels[0].id);
+  });
+
+  it('restoring skips a session that has gone in the meantime, and never duplicates the label', () => {
+    const { workspace, a, b } = seed();
+    const gone = service.createLabel(workspace.id, { name: 'Gone' });
+    service.assignLabel(workspace.id, a.id, gone.id);
+    service.assignLabel(workspace.id, b.id, gone.id);
+    const removed = service.deleteLabel(workspace.id, gone.id)!;
+    service.deleteSession(workspace.id, b.id);
+
+    service.restoreLabel(workspace.id, removed);
+    service.restoreLabel(workspace.id, removed);
+
+    const reloaded = build().getAll()[0];
+    expect(reloaded.labels.filter((label) => label.id === gone.id)).toHaveLength(1);
+    expect(reloaded.sessions.find((s) => s.id === a.id)?.labelIds).toEqual([gone.id]);
+  });
+
+  it('label writes leave the group model alone', () => {
+    const { workspace, a } = seed();
+    const group = service.createGroup(workspace.id, { name: 'G' });
+    service.updateSession(workspace.id, a.id, { groupId: group.id });
+    const label = service.createLabel(workspace.id, { name: 'L' });
+    service.assignLabel(workspace.id, a.id, label.id);
+    service.deleteLabel(workspace.id, label.id);
+
+    const reloaded = build().getAll()[0];
+    expect(reloaded.groups.map((g) => g.id)).toEqual([group.id]);
+    expect(reloaded.sessions.find((s) => s.id === a.id)?.groupId).toBe(group.id);
+  });
+
+  it('load migrates a v7 file in place, so a persisted group becomes a label', () => {
+    const workspace = service.createWorkspace('W', '/w', false);
+    const scope = workspace.scopes[0];
+    const group = service.createGroup(workspace.id, { name: 'Feature' });
+    const s = service.createSession(workspace.id, {
+      name: 'S',
+      workspaceId: workspace.id,
+      instanceId: 'i-S',
+      harnessId: 'default-agent',
+      model: undefined,
+      scopeId: scope.id,
+      groupId: group.id,
+    })!;
+    const file = path.join(dir, 'workspaces.json');
+    const persisted = JSON.parse(fs.readFileSync(file, 'utf8'));
+    delete persisted.workspaces[0].labels;
+    for (const sess of persisted.workspaces[0].sessions) delete sess.labelIds;
+    persisted.version = 7;
+    fs.writeFileSync(file, JSON.stringify(persisted));
+
+    const loaded = build().getAll()[0];
+    expect(loaded.labels).toEqual([{ id: group.id, name: 'Feature' }]);
+    expect(loaded.sessions.find((x) => x.id === s.id)?.labelIds).toEqual([group.id]);
   });
 });

@@ -1,7 +1,14 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { CircleAlert, CircleCheck, Ellipsis, GitPullRequestDraft, RefreshCw, X } from 'lucide-react';
+import {
+  CircleAlert,
+  CircleCheck,
+  Ellipsis,
+  GitPullRequestDraft,
+  RefreshCw,
+  X,
+} from 'lucide-react';
 import type { InboxItem, WorkItemRef } from '../../../shared/workItems';
 import type { WorkItemDetails, WorkItemMutation } from '../../../shared/workItemDetails';
 import { inboxBridge } from '../../services/inboxBridge';
@@ -54,7 +61,16 @@ const MERGE_STATE_POLLS = 5;
  * written. Every write goes through `perform`, one at a time, says its
  * outcome beside what asked for it, and reads the item again after.
  */
-export function WorkItemDetailPanel({ workspaceId, accountLogin, item, headSlot, onFix, fixTarget = 'a session', onDetails, onOpenWorkItem }: Props) {
+export function WorkItemDetailPanel({
+  workspaceId,
+  accountLogin,
+  item,
+  headSlot,
+  onFix,
+  fixTarget = 'a session',
+  onDetails,
+  onOpenWorkItem,
+}: Props) {
   const [details, setDetails] = useState<WorkItemDetails | null>(null);
   const [tab, setTab] = useState<Tab>('Conversation');
   const [loading, setLoading] = useState(true);
@@ -101,7 +117,10 @@ export function WorkItemDetailPanel({ workspaceId, accountLogin, item, headSlot,
   useEffect(() => {
     alive.current = true;
     void refresh();
-    return () => { alive.current = false; request.current++; };
+    return () => {
+      alive.current = false;
+      request.current++;
+    };
   }, [workspaceId, accountLogin, ref.repo, ref.type, ref.number]);
 
   // GitHub's own page keeps asking while it works mergeability out; without
@@ -122,7 +141,11 @@ export function WorkItemDetailPanel({ workspaceId, accountLogin, item, headSlot,
     return () => window.clearTimeout(timer);
   }, [notice]);
 
-  async function perform(mutation: WorkItemMutation, success: string, at: MessageAt): Promise<boolean> {
+  async function perform(
+    mutation: WorkItemMutation,
+    success: string,
+    at: MessageAt,
+  ): Promise<boolean> {
     if (writing.current) return false;
     writing.current = true;
     setBusy(true);
@@ -144,7 +167,8 @@ export function WorkItemDetailPanel({ workspaceId, accountLogin, item, headSlot,
       if (mutation.kind === 'line-comment') {
         const fresh = await refresh({ quiet: true });
         if (fresh?.headOid && fresh.headOid !== mutation.headOid) {
-          message += ' New commits were pushed since this diff was loaded, so it has been refreshed. Comment on the lines as they are now.';
+          message +=
+            ' New commits were pushed since this diff was loaded, so it has been refreshed. Comment on the lines as they are now.';
         }
       }
       if (alive.current) setError(message);
@@ -183,10 +207,14 @@ export function WorkItemDetailPanel({ workspaceId, accountLogin, item, headSlot,
 
   const onTabKey = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
     const next =
-      event.key === 'ArrowRight' ? (index + 1) % TABS.length
-        : event.key === 'ArrowLeft' ? (index + TABS.length - 1) % TABS.length
-          : event.key === 'Home' ? 0
-            : event.key === 'End' ? TABS.length - 1
+      event.key === 'ArrowRight'
+        ? (index + 1) % TABS.length
+        : event.key === 'ArrowLeft'
+          ? (index + TABS.length - 1) % TABS.length
+          : event.key === 'Home'
+            ? 0
+            : event.key === 'End'
+              ? TABS.length - 1
               : -1;
     if (next < 0) return;
     event.preventDefault();
@@ -200,7 +228,11 @@ export function WorkItemDetailPanel({ workspaceId, accountLogin, item, headSlot,
         <div className="inbox-detail-message" data-tone="error" role="alert">
           <CircleAlert size={15} aria-hidden="true" />
           <p>{error}</p>
-          <button className="inbox-detail-icon-btn" aria-label="Dismiss error" onClick={() => setError('')}>
+          <button
+            className="inbox-detail-icon-btn"
+            aria-label="Dismiss error"
+            onClick={() => setError('')}
+          >
             <X size={13} aria-hidden="true" />
           </button>
         </div>
@@ -230,12 +262,20 @@ export function WorkItemDetailPanel({ workspaceId, accountLogin, item, headSlot,
             disabled={disabled}
             onClick={() => void refresh()}
           >
-            <RefreshCw size={14} className={loading ? 'inbox-detail-spin' : undefined} aria-hidden="true" />
+            <RefreshCw
+              size={14}
+              className={loading ? 'inbox-detail-spin' : undefined}
+              aria-hidden="true"
+            />
           </button>
           {details && canDraft && (
             <DropdownMenu.Root>
               <DropdownMenu.Trigger asChild disabled={disabled}>
-                <button className="inbox-detail-icon-btn" aria-label="More actions" title="More actions">
+                <button
+                  className="inbox-detail-icon-btn"
+                  aria-label="More actions"
+                  title="More actions"
+                >
                   <Ellipsis size={15} aria-hidden="true" />
                 </button>
               </DropdownMenu.Trigger>
@@ -243,7 +283,9 @@ export function WorkItemDetailPanel({ workspaceId, accountLogin, item, headSlot,
                 <DropdownMenu.Content className="dropdown-content" sideOffset={4} align="end">
                   <DropdownMenu.Item
                     className="dropdown-item"
-                    onSelect={() => void perform({ kind: 'ready', draft: true }, 'Converted to draft.', 'head')}
+                    onSelect={() =>
+                      void perform({ kind: 'ready', draft: true }, 'Converted to draft.', 'head')
+                    }
                   >
                     <GitPullRequestDraft size={14} aria-hidden="true" />
                     <span>Convert to draft</span>
@@ -286,20 +328,36 @@ export function WorkItemDetailPanel({ workspaceId, accountLogin, item, headSlot,
   return (
     <>
       {headSlot && createPortal(head, headSlot)}
-      <section ref={setSection} className="inbox-detail" aria-label="Remote item details" aria-busy={busy || loading}>
+      <section
+        ref={setSection}
+        className="inbox-detail"
+        aria-label="Remote item details"
+        aria-busy={busy || loading}
+      >
         {!details && loading && (
           <div className="inbox-detail-skeleton" role="status">
             <span className="sr-only">Loading details…</span>
-            <i /><i /><i /><i />
+            <i />
+            <i />
+            <i />
+            <i />
           </div>
         )}
 
         {details && context && (
           <WorkItemDetailContext.Provider value={context}>
             {isPr && (
-              <div ref={tabsRef} className="inbox-detail-tabs" role="tablist" aria-label="Item details">
+              <div
+                ref={tabsRef}
+                className="inbox-detail-tabs"
+                role="tablist"
+                aria-label="Item details"
+              >
                 {TABS.map((name, index) => {
-                  const count = name === 'Conversation' ? conversationCount(details.timeline) : details.files.length;
+                  const count =
+                    name === 'Conversation'
+                      ? conversationCount(details.timeline)
+                      : details.files.length;
                   return (
                     <button
                       key={name}
@@ -314,13 +372,22 @@ export function WorkItemDetailPanel({ workspaceId, accountLogin, item, headSlot,
                       onClick={() => setTab(name)}
                     >
                       {/* A narrow pane shows "Files"; the accessible name keeps the whole label. */}
-                      {name === 'Files changed' ? <>Files<span className="inbox-detail-tab-long"> changed</span></> : name}
+                      {name === 'Files changed' ? (
+                        <>
+                          Files<span className="inbox-detail-tab-long"> changed</span>
+                        </>
+                      ) : (
+                        name
+                      )}
                       <span className="inbox-detail-tab-count">{count}</span>
                     </button>
                   );
                 })}
                 {details.additions !== undefined && (
-                  <span className="inbox-detail-tabs-stat" aria-label={`${details.additions} additions, ${details.deletions ?? 0} deletions`}>
+                  <span
+                    className="inbox-detail-tabs-stat"
+                    aria-label={`${details.additions} additions, ${details.deletions ?? 0} deletions`}
+                  >
                     <DiffCounts additions={details.additions} deletions={details.deletions ?? 0} />
                   </span>
                 )}
@@ -337,7 +404,11 @@ export function WorkItemDetailPanel({ workspaceId, accountLogin, item, headSlot,
               {tab === 'Conversation' || !isPr ? (
                 <ConversationStream composerRef={composer} onAddReview={openReview} />
               ) : (
-                <FilesChanged reviewOpen={reviewOpen} onReviewOpenChange={setReviewOpen} boundary={section} />
+                <FilesChanged
+                  reviewOpen={reviewOpen}
+                  onReviewOpenChange={setReviewOpen}
+                  boundary={section}
+                />
               )}
             </div>
           </WorkItemDetailContext.Provider>

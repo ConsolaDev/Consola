@@ -54,6 +54,7 @@ function makeWorkspace(overrides: Partial<Workspace> = {}): Workspace {
     defaultHarnessId: 'default',
     scopes: [],
     groups: [],
+    labels: [],
     provider: { id: 'github', accountLogin: 'JaviDev', org: 'sprocket' },
     actions: [],
     sectionDefaults: {},
@@ -73,7 +74,9 @@ function makeService(overrides: Partial<InboxServiceDeps> = {}, driver = makeStu
     resolveDriver: () => driver,
     // What composeProviderEnv does, minus the login shell: the token under
     // the driver's own variable.
-    composeEnv: async (resolved, login) => ({ [resolved.tokenEnvVar]: await resolved.token(login) }),
+    composeEnv: async (resolved, login) => ({
+      [resolved.tokenEnvVar]: await resolved.token(login),
+    }),
     broadcast: (snapshot) => broadcasts.push(snapshot),
     ...overrides,
   });
@@ -92,7 +95,7 @@ describe('InboxService.refresh', () => {
 
     expect(driver.fetchInbox).toHaveBeenCalledWith(
       { accountLogin: 'JaviDev', org: 'sprocket' },
-      { STUB_TOKEN: 'tok-JaviDev' }
+      { STUB_TOKEN: 'tok-JaviDev' },
     );
     const snapshot = service.getSnapshot('ws-1');
     expect(snapshot?.items).toEqual([item51, issue87]);
@@ -108,7 +111,9 @@ describe('InboxService.refresh', () => {
     await service.refresh('ws-1');
     const good = service.getSnapshot('ws-1')!;
 
-    vi.mocked(driver.fetchInbox).mockRejectedValueOnce(new Error('gh: canned failure (STUB_GH_FAIL=1)'));
+    vi.mocked(driver.fetchInbox).mockRejectedValueOnce(
+      new Error('gh: canned failure (STUB_GH_FAIL=1)'),
+    );
     await service.refresh('ws-1');
     const degraded = service.getSnapshot('ws-1')!;
 

@@ -9,9 +9,9 @@ import { useTerminalStore } from '../stores/terminalStore';
  * active selection. Idempotent, and never touches main: the PTY is main's.
  */
 export function forgetSessionLocally(session: Pick<Session, 'id' | 'instanceId'>): void {
-    useShellStore.getState().remove(session.instanceId);
-    useTerminalStore.getState().removeInstance(session.instanceId);
-    if (useNavigationStore.getState().activeSessionId === session.id) {
-        useNavigationStore.getState().setActiveSession(null);
-    }
+  useShellStore.getState().remove(session.instanceId);
+  useTerminalStore.getState().removeInstance(session.instanceId);
+  if (useNavigationStore.getState().activeSessionId === session.id) {
+    useNavigationStore.getState().setActiveSession(null);
+  }
 }

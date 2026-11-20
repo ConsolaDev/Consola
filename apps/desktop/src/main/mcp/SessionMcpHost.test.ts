@@ -183,13 +183,6 @@ describe('mcpConfigForSession', () => {
     );
   });
 
-  it('refuses to launch the Assistant without its tools', async () => {
-    const broken = { register: () => Promise.reject(new Error('EACCES')) };
-    await expect(mcpConfigForSession({ id: 'a', kind: 'assistant' }, broken)).rejects.toThrow(
-      'EACCES',
-    );
-  });
-
   it('mcpConfigForSession throws for a step session when the endpoint fails', async () => {
     // Its outputs and artifacts reach Consola only through these tools: a step
     // without them fails rather than running blind.

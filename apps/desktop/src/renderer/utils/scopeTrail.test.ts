@@ -34,8 +34,9 @@ describe('scopeTrail', () => {
 
   it('ignores trailing separators and treats a duplicate folder as no parent', () => {
     const slashed = scope('slash', 'api', '/Users/dev/sprocket/apps/api/');
-    expect(scopeTrail([scope('root', 'sprocket', '/Users/dev/sprocket/'), slashed], slashed))
-      .toEqual({ parent: 'sprocket', label: 'apps/api' });
+    expect(
+      scopeTrail([scope('root', 'sprocket', '/Users/dev/sprocket/'), slashed], slashed),
+    ).toEqual({ parent: 'sprocket', label: 'apps/api' });
     const twin = scope('twin', 'sprocket', '/Users/dev/sprocket');
     expect(scopeTrail([root, twin], twin)).toEqual({ label: 'sprocket' });
   });
@@ -43,6 +44,9 @@ describe('scopeTrail', () => {
   it('reads Windows separators the same way', () => {
     const winRoot = scope('root', 'sprocket', 'C:\\dev\\sprocket');
     const winApi = scope('api', 'api', 'C:\\dev\\sprocket\\apps\\api');
-    expect(scopeTrail([winRoot, winApi], winApi)).toEqual({ parent: 'sprocket', label: 'apps/api' });
+    expect(scopeTrail([winRoot, winApi], winApi)).toEqual({
+      parent: 'sprocket',
+      label: 'apps/api',
+    });
   });
 });

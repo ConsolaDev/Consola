@@ -1,5 +1,24 @@
 import type { WorkItemMutation } from '../shared/workItemDetails';
 import { UPDATE_CHANNELS, type AppUpdateAPI } from '../shared/appUpdates';
+import type { AttentionChange, AttentionState } from '../shared/attention';
+import type {
+  BatchResult,
+  Preferences,
+  SettleMemento,
+  SettleResult,
+  SnoozeBatchResult,
+} from '../shared/preferences';
+import type { SnoozePresetSetting, SnoozeWhen } from '../shared/snooze';
+import type { UsageLimitsState } from '../shared/usageLimits';
+import type {
+  CleanupHistoryEntry,
+  CleanupPreview,
+  CleanupPreviewRequest,
+  CleanupReport,
+  SessionDeleteOutcome,
+  SessionDeletePreview,
+  WorktreeCleanupRules,
+} from '../shared/worktreeCleanup';
 import type { ShellAPI } from '../shared/shell';
 import type { SessionCheckout, CheckoutContext, CheckoutInfo } from '../shared/sessionCheckout';
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
@@ -11,12 +30,10 @@ import type {
   TerminalAwaitingConfirmationMessage,
   TerminalExitMessage,
   TerminalStatusMessage,
-  AssistantActivitySnapshot,
   TerminalStatusSnapshot,
   HarnessLaunchFields,
   HarnessCapabilitiesResult,
   HarnessProbeResult,
-  SessionNameResult,
   WorkspaceSnapshot,
   WindowContext,
   WorkspaceView,
@@ -38,7 +55,10 @@ import type { WorkItemAction } from '../shared/workItemActions';
 import type { InboxSnapshot, WorkItemLaunchAction, WorkItemRef } from '../shared/workItems';
 import type {
   Group,
+  DeletedLabel,
+  Label,
   NewGroupFields,
+  NewLabelFields,
   NewScopeFields,
   NewSessionFields,
   Scope,
@@ -49,6 +69,7 @@ import type {
   WorkspaceUpdates,
 } from '../shared/workspace';
 import type { Harness, HarnessUpdates, NewHarnessFields } from '../shared/harness';
+import type { HarnessSwitchPreview, HarnessSwitchResult } from '../shared/harnessSwitch';
 
 // Subscribe to a main->renderer channel, returning an unsubscribe function so
 // callers never have to re-register their peers to remove one listener.
@@ -101,6 +122,11 @@ contextBridge.exposeInMainWorld('terminalAPI', {
     ipcRenderer.send(IPC_CHANNELS.TERMINAL_RESTART, instanceId);
   },
 
+  // The view unmounted; the terminal keeps running
+  detach: (instanceId: string): void => {
+    ipcRenderer.send(IPC_CHANNELS.TERMINAL_DETACH, instanceId);
+  },
+
   // Tear down a session's terminal
   destroy: (instanceId: string): void => {
     ipcRenderer.send(IPC_CHANNELS.TERMINAL_DESTROY, instanceId);
@@ -139,13 +165,6 @@ contextBridge.exposeInMainWorld('harnessAPI', {
 
   probe: (fields: HarnessLaunchFields): Promise<HarnessProbeResult> => {
     return ipcRenderer.invoke(IPC_CHANNELS.HARNESS_PROBE, fields);
-  },
-
-  getSessionName: (
-    sessionId: string,
-    fields: HarnessLaunchFields,
-  ): Promise<SessionNameResult | null> => {
-    return ipcRenderer.invoke(IPC_CHANNELS.HARNESS_SESSION_NAME, sessionId, fields);
   },
 
   getCapabilities: (fields: HarnessLaunchFields): Promise<HarnessCapabilitiesResult> => {
@@ -245,11 +264,34 @@ contextBridge.exposeInMainWorld('workspaceAPI', {
   updateSession: (workspaceId: string, sessionId: string, updates: SessionUpdates): Promise<void> =>
     ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_SESSION_UPDATE, workspaceId, sessionId, updates),
 
-  deleteSession: (workspaceId: string, sessionId: string): Promise<void> =>
+  previewSessionDelete: (workspaceId: string, sessionId: string): Promise<SessionDeletePreview> =>
+    ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_SESSION_DELETE_PREVIEW, workspaceId, sessionId),
+  deleteSession: (
+    workspaceId: string,
+    sessionId: string,
+  ): Promise<SessionDeleteOutcome | undefined> =>
     ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_SESSION_DELETE, workspaceId, sessionId),
 
   forkSession: (workspaceId: string, sessionId: string): Promise<Session> =>
     ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_SESSION_FORK, workspaceId, sessionId),
+
+  previewHarnessSwitch: (workspaceId: string, sessionId: string): Promise<HarnessSwitchPreview[]> =>
+    ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_SESSION_SWITCH_PREVIEW, workspaceId, sessionId),
+
+  switchHarness: (
+    workspaceId: string,
+    sessionId: string,
+    harnessId: string,
+  ): Promise<HarnessSwitchResult> =>
+    ipcRenderer.invoke(
+      IPC_CHANNELS.WORKSPACE_SESSION_SWITCH_HARNESS,
+      workspaceId,
+      sessionId,
+      harnessId,
+    ),
+
+  regenerateSessionTitle: (workspaceId: string, sessionId: string): Promise<void> =>
+    ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_SESSION_REGENERATE_TITLE, workspaceId, sessionId),
 
   addScope: (workspaceId: string, fields: NewScopeFields): Promise<Scope> =>
     ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_ADD_SCOPE, workspaceId, fields),
@@ -290,6 +332,38 @@ contextBridge.exposeInMainWorld('workspaceAPI', {
   restoreGroup: (workspaceId: string, groupId: string): Promise<void> =>
     ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_GROUP_RESTORE, workspaceId, groupId),
 
+  createLabel: (workspaceId: string, fields: NewLabelFields): Promise<Label> =>
+    ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_LABEL_CREATE, workspaceId, fields),
+
+  updateLabel: (
+    workspaceId: string,
+    labelId: string,
+    updates: Partial<Pick<Label, 'name' | 'emoji' | 'color'>>,
+  ): Promise<void> =>
+    ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_LABEL_UPDATE, workspaceId, labelId, updates),
+
+  deleteLabel: (workspaceId: string, labelId: string): Promise<DeletedLabel | null> =>
+    ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_LABEL_DELETE, workspaceId, labelId),
+
+  restoreLabel: (workspaceId: string, removed: DeletedLabel): Promise<void> =>
+    ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_LABEL_RESTORE, workspaceId, removed),
+
+  assignLabel: (workspaceId: string, sessionId: string, labelId: string): Promise<void> =>
+    ipcRenderer.invoke(
+      IPC_CHANNELS.WORKSPACE_SESSION_LABEL_ASSIGN,
+      workspaceId,
+      sessionId,
+      labelId,
+    ),
+
+  unassignLabel: (workspaceId: string, sessionId: string, labelId: string): Promise<void> =>
+    ipcRenderer.invoke(
+      IPC_CHANNELS.WORKSPACE_SESSION_LABEL_UNASSIGN,
+      workspaceId,
+      sessionId,
+      labelId,
+    ),
+
   fanOut: (intent: SessionFanOutIntent): Promise<SessionFanOutResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.SESSION_FAN_OUT, intent),
 
@@ -305,26 +379,6 @@ contextBridge.exposeInMainWorld('workspaceAPI', {
 contextBridge.exposeInMainWorld('conductorAPI', {
   create: (request: ConductorCreateRequest): Promise<Group> =>
     ipcRenderer.invoke(IPC_CHANNELS.CONDUCTOR_CREATE, request),
-});
-
-// The workspace Assistant: its record is made or replaced in main; the
-// session itself rides the terminal and workspace APIs above.
-contextBridge.exposeInMainWorld('assistantAPI', {
-  open: (workspaceId: string): Promise<Session> =>
-    ipcRenderer.invoke(IPC_CHANNELS.ASSISTANT_OPEN, workspaceId),
-  startFresh: (workspaceId: string): Promise<Session> =>
-    ipcRenderer.invoke(IPC_CHANNELS.ASSISTANT_START_FRESH, workspaceId),
-  getActivity: (workspaceId: string): Promise<AssistantActivitySnapshot> =>
-    ipcRenderer.invoke(IPC_CHANNELS.ASSISTANT_GET_ACTIVITY, workspaceId),
-  markSeen: (workspaceId: string): Promise<void> =>
-    ipcRenderer.invoke(IPC_CHANNELS.ASSISTANT_MARK_SEEN, workspaceId),
-  onActivityChanged: (
-    callback: (change: { workspaceId: string; activity: AssistantActivitySnapshot }) => void,
-  ) =>
-    subscribe<{ workspaceId: string; activity: AssistantActivitySnapshot }>(
-      IPC_CHANNELS.ASSISTANT_ACTIVITY_CHANGED,
-      callback,
-    ),
 });
 
 // Expose harness state to the renderer. Main owns the records; the renderer
@@ -406,6 +460,103 @@ interface GitDiffResult {
   isNew: boolean;
   isDeleted: boolean;
 }
+
+// Expose Attention API to renderer
+contextBridge.exposeInMainWorld('attentionAPI', {
+  getSnapshot: (): Promise<AttentionState> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.ATTENTION_SNAPSHOT);
+  },
+  onChanged: (callback: (change: AttentionChange) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, change: AttentionChange) =>
+      callback(change);
+    ipcRenderer.on(IPC_CHANNELS.ATTENTION_CHANGED, listener);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.ATTENTION_CHANGED, listener);
+  },
+  setViewing: (instanceId: string | null): void => {
+    ipcRenderer.send(IPC_CHANNELS.ATTENTION_VIEWING, instanceId);
+  },
+  setFocused: (focused: boolean): void => {
+    ipcRenderer.send(IPC_CHANNELS.ATTENTION_FOCUSED, focused);
+  },
+  settle: (workspaceId: string, sessionId: string): Promise<SettleResult> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.ATTENTION_SETTLE, workspaceId, sessionId);
+  },
+  unsettle: (workspaceId: string, sessionId: string): Promise<SettleMemento> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.ATTENTION_UNSETTLE, workspaceId, sessionId);
+  },
+  restore: (memento: SettleMemento): Promise<void> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.ATTENTION_RESTORE, memento);
+  },
+  snooze: (
+    workspaceId: string,
+    sessionIds: string[],
+    when: SnoozeWhen,
+  ): Promise<SnoozeBatchResult> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.ATTENTION_SNOOZE, workspaceId, sessionIds, when);
+  },
+  wake: (workspaceId: string, sessionIds: string[]): Promise<BatchResult> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.ATTENTION_WAKE, workspaceId, sessionIds);
+  },
+  settleMany: (workspaceId: string, sessionIds: string[]): Promise<BatchResult> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.ATTENTION_SETTLE_MANY, workspaceId, sessionIds);
+  },
+  unsettleMany: (workspaceId: string, sessionIds: string[]): Promise<BatchResult> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.ATTENTION_UNSETTLE_MANY, workspaceId, sessionIds);
+  },
+});
+
+contextBridge.exposeInMainWorld('usageLimitsAPI', {
+  getSnapshot: (): Promise<UsageLimitsState> =>
+    ipcRenderer.invoke(IPC_CHANNELS.USAGE_LIMITS_SNAPSHOT),
+  onChanged: (callback: (state: UsageLimitsState) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, state: UsageLimitsState) =>
+      callback(state);
+    ipcRenderer.on(IPC_CHANNELS.USAGE_LIMITS_CHANGED, listener);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.USAGE_LIMITS_CHANGED, listener);
+  },
+});
+
+contextBridge.exposeInMainWorld('worktreeCleanupAPI', {
+  preview: (request: CleanupPreviewRequest): Promise<CleanupPreview> =>
+    ipcRenderer.invoke(IPC_CHANNELS.WORKTREE_CLEANUP_PREVIEW, request),
+  run: (workspaceId?: string): Promise<CleanupReport> =>
+    ipcRenderer.invoke(IPC_CHANNELS.WORKTREE_CLEANUP_RUN, workspaceId),
+  history: (workspaceId?: string): Promise<CleanupHistoryEntry[]> =>
+    ipcRenderer.invoke(IPC_CHANNELS.WORKTREE_CLEANUP_HISTORY, workspaceId),
+  isManaged: (dir: string): Promise<boolean> =>
+    ipcRenderer.invoke(IPC_CHANNELS.WORKTREE_CLEANUP_IS_MANAGED, dir),
+  onDeleted: (callback: (outcome: SessionDeleteOutcome) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, outcome: SessionDeleteOutcome) =>
+      callback(outcome);
+    ipcRenderer.on(IPC_CHANNELS.WORKTREE_CLEANUP_DELETED, listener);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.WORKTREE_CLEANUP_DELETED, listener);
+  },
+  onChanged: (callback: () => void): (() => void) => {
+    const listener = () => callback();
+    ipcRenderer.on(IPC_CHANNELS.WORKTREE_CLEANUP_CHANGED, listener);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.WORKTREE_CLEANUP_CHANGED, listener);
+  },
+});
+
+contextBridge.exposeInMainWorld('preferencesAPI', {
+  get: (): Promise<Preferences> => ipcRenderer.invoke(IPC_CHANNELS.PREFERENCES_GET),
+  setWorktreeCleanup: (rules: WorktreeCleanupRules): Promise<void> =>
+    ipcRenderer.invoke(IPC_CHANNELS.PREFERENCES_SET_WORKTREE_CLEANUP, rules),
+  setAutoSettleDays: (days: number): Promise<void> =>
+    ipcRenderer.invoke(IPC_CHANNELS.PREFERENCES_SET_AUTO_SETTLE_DAYS, days),
+  acknowledgeAutoSettle: (): Promise<void> =>
+    ipcRenderer.invoke(IPC_CHANNELS.PREFERENCES_ACKNOWLEDGE_AUTO_SETTLE),
+  setSnoozePresets: (presets: SnoozePresetSetting[]): Promise<void> =>
+    ipcRenderer.invoke(IPC_CHANNELS.PREFERENCES_SET_SNOOZE_PRESETS, presets),
+  setSnoozeAtUsageLimit: (on: boolean): Promise<void> =>
+    ipcRenderer.invoke(IPC_CHANNELS.PREFERENCES_SET_SNOOZE_AT_USAGE_LIMIT, on),
+  onChanged: (callback: (preferences: Preferences) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, preferences: Preferences) =>
+      callback(preferences);
+    ipcRenderer.on(IPC_CHANNELS.PREFERENCES_CHANGED, listener);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.PREFERENCES_CHANGED, listener);
+  },
+});
 
 // Expose Git API to renderer
 contextBridge.exposeInMainWorld('gitAPI', {

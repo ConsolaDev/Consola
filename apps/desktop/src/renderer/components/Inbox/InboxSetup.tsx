@@ -7,7 +7,9 @@ import '../Dialogs/styles.css';
 export function InboxSetup({ workspace }: { workspace: Workspace }) {
   return (
     <div className="inbox-view">
-      <header className="inbox-header"><h1 className="inbox-title">Inbox</h1></header>
+      <header className="inbox-header">
+        <h1 className="inbox-title">Inbox</h1>
+      </header>
       <div className="inbox-main inbox-setup-main">
         <section className="inbox-setup" aria-label="Set up GitHub">
           <ProviderBindingPanel key={workspace.id} workspace={workspace} />
