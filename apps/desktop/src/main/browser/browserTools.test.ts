@@ -12,12 +12,7 @@ import { makeSession, makeWorkspace } from '../conductor/ConductorTools.test-hel
 import { buildSessionServer } from '../mcp/buildSessionServer';
 import { ToolRegistry } from '../tools/Tool';
 import { NO_WINDOW_MESSAGE } from './AgentPages';
-import {
-  ANOTHER_SESSION_MESSAGE,
-  BROWSER_TOOL_NAMES,
-  browserTools,
-  type BrowserToolsBrowser,
-} from './browserTools';
+import { ANOTHER_SESSION_MESSAGE, browserTools, type BrowserToolsBrowser } from './browserTools';
 import { UNTRUSTED_NOTE } from './browserToolResults';
 import type { PageSnapshot } from './PageDriver';
 
@@ -204,13 +199,12 @@ function afterNote(text: string): unknown {
 
 describe('who gets the browser tools', () => {
   it('gives an ordinary session the five tools', async () => {
-    expect(await toolNames('w-1')).toEqual([...BROWSER_TOOL_NAMES].sort());
-    expect(BROWSER_TOOL_NAMES).toEqual([
-      'consola_browser_status',
-      'consola_browser_open',
-      'consola_browser_navigate',
-      'consola_browser_snapshot',
+    expect(await toolNames('w-1')).toEqual([
       'consola_browser_close',
+      'consola_browser_navigate',
+      'consola_browser_open',
+      'consola_browser_snapshot',
+      'consola_browser_status',
     ]);
   });
 

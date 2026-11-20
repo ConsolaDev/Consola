@@ -13,15 +13,6 @@ import type { BrowserService } from './BrowserService';
 import { type BrowserToolContent, snapshotContent, statusContent } from './browserToolResults';
 import type { PageDriver } from './PageDriver';
 
-/** The tools an agent drives its session's browser with, in the order they are registered. */
-export const BROWSER_TOOL_NAMES = [
-  'consola_browser_status',
-  'consola_browser_open',
-  'consola_browser_navigate',
-  'consola_browser_snapshot',
-  'consola_browser_close',
-] as const;
-
 /** Any tab id that is not the caller's, whether it exists elsewhere or not. */
 export const ANOTHER_SESSION_MESSAGE = 'That tab belongs to another session.';
 const GONE_MESSAGE = 'This session no longer exists.';
@@ -36,7 +27,6 @@ const ONE_MOVE_MESSAGE =
 /** What the tools need of `BrowserService`. */
 export type BrowserToolsBrowser = Pick<
   BrowserService,
-  | 'listFor'
   | 'snapshotFor'
   | 'atTabCap'
   | 'openTab'
@@ -174,9 +164,10 @@ export function browserTools(deps: BrowserToolsDeps): {
         {
           description:
             "Open an address in a new tab of your session's browser: a web address " +
-            '(localhost:3000 works as typed) or words to search for. It opens behind the tab ' +
-            'the person is looking at and is not shown to them. Returns its tabId; take a ' +
-            `snapshot to read the page. A session holds at most ${MAX_TABS_PER_SESSION} tabs.`,
+            '(localhost:3000 works as typed) or words to search for. It never takes the place ' +
+            'of the tab the person is looking at, and never opens their browser panel. Returns ' +
+            'its tabId; take a snapshot to read the page. A session holds at most ' +
+            `${MAX_TABS_PER_SESSION} tabs.`,
           inputSchema: { url: z.string().min(1).describe('An address, or words to search for.') },
           annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
         },

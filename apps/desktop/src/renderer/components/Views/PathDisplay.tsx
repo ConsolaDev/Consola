@@ -64,14 +64,15 @@ export function PathDisplay({
   const isReviewOpen = useGitReviewStore((state) => state.isOpen);
   const toggleReview = useGitReviewStore((state) => state.toggle);
 
-  // The branch lives in the checkout chip beside the title, so a manual
-  // refresh re-reads that too: one button, one answer.
+  // The dot is drawn; the label says it too, for whoever cannot see it.
   const browserLabel = isBrowserVisible
     ? 'Hide browser'
     : browserAgentDot
       ? 'Show browser, which the agent used'
       : 'Show browser';
 
+  // The branch lives in the checkout chip beside the title, so a manual
+  // refresh re-reads that too: one button, one answer.
   const handleRefresh = () => {
     if (path && !isLoading) {
       void refresh(path);
