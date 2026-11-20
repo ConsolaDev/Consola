@@ -343,8 +343,8 @@ function SessionsSection() {
           <span className="settings-modal-option-label">Settle idle sessions</span>
           <span className="settings-modal-option-description">
             Sessions with nothing happening move to the Settled shelf after this long, and new
-            activity brings a session back. A session that never had a message is removed instead.
-            Choose Off to keep every session where it is.
+            activity brings a session back. A session that never had a message, and has no page
+            open, is removed instead. Choose Off to keep every session where it is.
           </span>
         </div>
         <AutoSettleControl />
