@@ -97,11 +97,14 @@ describe('closeTarget with the browser', () => {
     ).toBe('overlay');
   });
 
-  it('goes on to the preview tab when the browser has no tab showing, and never the panel', () => {
+  it('closes nothing from the panel once its last tab is gone: not the preview tab, not the panel', () => {
+    // A run of ⌘W in the browser ends with the browser's tabs.
     expect(
       closeTarget(state({ activePreviewTabId: '/a.ts', keyboard: { in: 'browser-panel' } })),
-    ).toBe('preview-tab');
+    ).toBeNull();
     expect(closeTarget(state({ keyboard: { in: 'browser-panel' } }))).toBeNull();
+    // Elsewhere, the preview tab is still the nearest thing.
+    expect(closeTarget(state({ activePreviewTabId: '/a.ts' }))).toBe('preview-tab');
   });
 
   it('closes no browser tab without a session pane', () => {

@@ -3,7 +3,7 @@ import type { ElectronApplication, Page } from '@playwright/test';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { launchElectron } from './helpers/electron';
+import { launchElectron, removeProfile } from './helpers/electron';
 import { type FixtureServer, startFixtureServer } from './helpers/fixtureServer';
 
 /**
@@ -223,16 +223,20 @@ test.describe('⌘Q and ⌘W with the keyboard in the browser', () => {
   let app: ElectronApplication;
   let page: Page;
   let sessionId: string;
+  let root: string;
+  let userDataDir: string;
 
   test.beforeEach(async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-browser-keys-'));
-    ({ app, page } = await launchElectron());
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-browser-keys-'));
+    ({ app, page, userDataDir } = await launchElectron());
     sessionId = await seed(page, root);
     await showBrowser(page);
   });
 
   test.afterEach(async () => {
     await app.close();
+    removeProfile(userDataDir);
+    fs.rmSync(root, { recursive: true, force: true });
   });
 
   test('one ⌘Q in a page is held back: the window shows the hint and nothing quits', async () => {
@@ -287,8 +291,52 @@ test.describe('⌘Q and ⌘W with the keyboard in the browser', () => {
 
     // With no tab left, ⌘W closes nothing: never the panel, never the window.
     await page.keyboard.press('Meta+w');
+    // Give a close every chance to land before saying none did.
+    await page.waitForTimeout(500);
+    expect(await tabsOf(page, sessionId)).toEqual([]);
     await expect(panel(page)).toBeVisible();
     expect(await windowCount(app)).toBe(1);
+  });
+
+  test('after the last browser tab, ⌘W in the browser leaves the preview panel’s file open', async () => {
+    await page.getByRole('button', { name: 'Show file explorer', exact: true }).click();
+    await page.getByTestId('explorer').getByText('agent.sh', { exact: true }).click();
+    const previewTabs = page.locator('.preview-tab');
+    await expect(previewTabs).toHaveCount(1);
+
+    const url = fixtures.url('/a.html');
+    await openTabs(page, sessionId, ['/a.html']);
+    await loaded(app, 'guest', url);
+    await pressInPage(app, 'guest', url, 'W');
+    await expect.poll(() => tabsOf(page, sessionId)).toEqual([]);
+    await expect(panel(page)).toBeFocused();
+
+    // The keyboard is still in the browser, which has nothing left to close.
+    await page.keyboard.press('Meta+w');
+    await page.waitForTimeout(500);
+    await expect(previewTabs).toHaveCount(1);
+    await expect(panel(page)).toBeVisible();
+  });
+
+  test('⌘W with the browser’s More menu open closes the tab showing', async () => {
+    await openTabs(page, sessionId, ['/a.html', '/b.html']);
+    const [a, b] = await tabsOf(page, sessionId);
+    await page.getByRole('button', { name: 'More', exact: true }).click();
+    // The menu has the keyboard, drawn outside the panel.
+    await expect(page.getByRole('menu')).toBeVisible();
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const focused = document.activeElement;
+          return !!focused?.closest('[role="menu"]') && !focused.closest('.browser-panel');
+        }),
+      )
+      .toBe(true);
+
+    await page.keyboard.press('Meta+w');
+    // It is still the browser's own toolbar: the tab showing closes, and only it.
+    await expect.poll(() => tabsOf(page, sessionId)).toEqual([a]);
+    expect(b.url).toBe(fixtures.url('/b.html'));
   });
 
   test('⌘W in the terminal closes no browser tab', async () => {

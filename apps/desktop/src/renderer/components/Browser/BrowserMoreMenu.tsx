@@ -51,6 +51,9 @@ export function BrowserMoreMenu({ tabId }: BrowserMoreMenuProps) {
         <DropdownMenu.Portal>
           <DropdownMenu.Content
             className="dropdown-content browser-more-content"
+            // Portalled out of the panel, but still the browser's own control:
+            // ⌘W here closes the browser tab (`keyboardPlaceOf`).
+            data-browser-control=""
             align="end"
             sideOffset={4}
             // Closing the menu to search leaves focus in the find field, not

@@ -44,12 +44,15 @@ export interface CloseState {
  * The browser tab showing beside the session comes between them, but only
  * while the keyboard is in the browser: in a page, or in the panel's toolbar
  * or tab strip. Anywhere else (the terminal, say) a page is not the nearest
- * thing, and ⌘W leaves it alone. The panel itself never closes.
+ * thing, and ⌘W leaves it alone. The panel itself never closes, and with the
+ * keyboard in it and no tab left, ⌘W closes nothing: closing a run of tabs
+ * must not run on into a file in the preview panel.
  */
 export function closeTarget(state: CloseState): CloseTarget | null {
   if (state.overlay !== null) return 'overlay';
   if (state.activeSessionId === null) return null;
   if (keyboardIsOnShownTab(state.keyboard, state.shownBrowserTabId)) return 'browser-tab';
+  if (state.keyboard.in === 'browser-panel') return null;
   if (state.activePreviewTabId !== null) return 'preview-tab';
   return null;
 }

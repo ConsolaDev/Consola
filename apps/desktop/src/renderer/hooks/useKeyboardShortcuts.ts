@@ -223,11 +223,12 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
 }
 
 /**
- * The browser's own controls: the panel (toolbar, tab strip, find bar) and
- * what is drawn over a page (a sign-in, an error). A page's own keys never
+ * The browser's own controls: the panel (toolbar, tab strip, find bar), what
+ * is drawn over a page (a sign-in, an error), and the toolbar's menu, which is
+ * portalled out of the panel and marked instead. A page's own keys never
  * reach this document: main forwards them, and says so.
  */
-const BROWSER_CONTROLS = '.browser-panel, .browser-host';
+const BROWSER_CONTROLS = '.browser-panel, .browser-host, [data-browser-control]';
 
 /** Where the keyboard is, for a ⌘W this document heard itself. */
 function keyboardPlaceOf(focused: Element | null): KeyboardPlace {
