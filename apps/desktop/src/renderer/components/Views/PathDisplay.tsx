@@ -17,8 +17,8 @@ interface PathDisplayProps {
   onToggleExplorer?: () => void;
   isBrowserVisible?: boolean;
   onToggleBrowser?: () => void;
-  /** An agent is using the session's page; marks the globe. Off until something drives it. */
-  isBrowserAgentActive?: boolean;
+  /** An agent opened or used the session's browser since its panel last showed it: a dot on the globe. */
+  browserAgentDot?: boolean;
   isTerminalVisible?: boolean;
   onToggleTerminal?: () => void;
 }
@@ -52,7 +52,7 @@ export function PathDisplay({
   onToggleExplorer,
   isBrowserVisible = false,
   onToggleBrowser,
-  isBrowserAgentActive = false,
+  browserAgentDot = false,
   isTerminalVisible = false,
   onToggleTerminal,
 }: PathDisplayProps) {
@@ -66,6 +66,12 @@ export function PathDisplay({
 
   // The branch lives in the checkout chip beside the title, so a manual
   // refresh re-reads that too: one button, one answer.
+  const browserLabel = isBrowserVisible
+    ? 'Hide browser'
+    : browserAgentDot
+      ? 'Show browser, which the agent used'
+      : 'Show browser';
+
   const handleRefresh = () => {
     if (path && !isLoading) {
       void refresh(path);
@@ -185,17 +191,17 @@ export function PathDisplay({
                   type="button"
                   className={`path-display-toggle ${isBrowserVisible ? 'active' : ''}`}
                   onClick={onToggleBrowser}
-                  aria-label={isBrowserVisible ? 'Hide browser' : 'Show browser'}
+                  aria-label={browserLabel}
                   aria-pressed={isBrowserVisible}
                   aria-keyshortcuts={isMac ? 'Meta+Shift+L' : 'Control+Shift+L'}
-                  data-agent-active={isBrowserAgentActive || undefined}
+                  data-agent-dot={browserAgentDot || undefined}
                 >
                   <Globe size={14} />
                 </button>
               </Tooltip.Trigger>
               <Tooltip.Portal>
                 <Tooltip.Content className="tooltip-content" sideOffset={5}>
-                  {isBrowserVisible ? 'Hide browser' : 'Show browser'} ({BROWSER_SHORTCUT_LABEL})
+                  {browserLabel} ({BROWSER_SHORTCUT_LABEL})
                   <Tooltip.Arrow className="tooltip-arrow" />
                 </Tooltip.Content>
               </Tooltip.Portal>

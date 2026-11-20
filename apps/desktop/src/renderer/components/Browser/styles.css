@@ -426,6 +426,13 @@
   color: var(--color-text-primary);
 }
 
+/* An agent's call is on this tab right now. */
+.browser-tab-agent {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--color-accent);
+}
+
 .browser-tab-label {
   max-width: 120px;
   overflow: hidden;

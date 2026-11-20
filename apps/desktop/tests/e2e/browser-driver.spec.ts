@@ -443,6 +443,39 @@ test.describe('an agent call on a page', () => {
     await expect.poll(async () => (await guestFacts(app, url)).exists).toBe(false);
   });
 
+  test("dots the globe while the panel is shut, and marks the tab the agent's call is on", async () => {
+    const seeded = await seed(page, root);
+    await openSession(page, 'Alpha', 'Alpha session');
+    const tab = await page.evaluate(
+      ({ sessionId, url }) => window.browserAPI.open(sessionId, url),
+      {
+        sessionId: seeded.alpha,
+        url: fixtures.url('/agent.html'),
+      },
+    );
+    const globe = page.getByRole('button', { name: /^Show browser/ });
+    // The person's own tab is no news.
+    await expect(globe).toBeVisible();
+    await expect(globe).not.toHaveAttribute('data-agent-dot');
+
+    await beginCall(app, tab!.id);
+    await expect(globe).toHaveAttribute('data-agent-dot', 'true');
+    await expect(globe).toHaveAccessibleName('Show browser, which the agent used');
+    await expect(panel(page)).toBeHidden();
+
+    // Showing the session's browser is seeing it: the dot goes, the mark stays for the call.
+    await globe.click();
+    const marker = panel(page)
+      .locator(`.browser-tab[data-tab-id="${tab!.id}"]`)
+      .getByRole('img', { name: 'An agent is using this tab' });
+    await expect(marker).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Hide browser' })).not.toHaveAttribute(
+      'data-agent-dot',
+    );
+    await endCall(app);
+    await expect(marker).toBeHidden();
+  });
+
   test('DevTools on the page refuses the agent, and opening it detaches the agent', async () => {
     const seeded = await seed(page, root);
     const tabId = await unseenTab(page, seeded);

@@ -9,6 +9,7 @@ vi.mock('../services/browserBridge', () => ({
 }));
 
 import { browserBridge } from '../services/browserBridge';
+import { useBrowserAgentDotStore } from './browserAgentDotStore';
 import {
   activeTabOf,
   applyBrowserSnapshot,
@@ -41,6 +42,7 @@ const held = () => useBrowserStore.getState().snapshots;
 
 beforeEach(() => {
   useBrowserStore.setState({ snapshots: {}, pushes: {} });
+  useBrowserAgentDotStore.setState({ dots: {} });
   vi.clearAllMocks();
 });
 
@@ -99,6 +101,21 @@ describe('browserStore', () => {
     answer(snapshot('old', 'old'));
     await loading;
     expect(held().a).toBeUndefined();
+  });
+
+  it('a push showing an agent at work lights the dot, measured against what was held', async () => {
+    applyBrowserSnapshot({ sessionId: 'a', snapshot: snapshot('t1', 't1') });
+    expect(useBrowserAgentDotStore.getState().dots).toEqual({});
+    const used = snapshot('t1', 't1');
+    used.tabs[0] = { ...used.tabs[0], agentActive: true };
+    applyBrowserSnapshot({ sessionId: 'a', snapshot: used });
+    expect(useBrowserAgentDotStore.getState().dots).toEqual({ a: true });
+    // A fetched snapshot is only a starting point: it never lights one.
+    const opened = snapshot('t2', 't2');
+    opened.tabs[0] = { ...opened.tabs[0], openedBy: 'agent' };
+    vi.mocked(browserBridge.get).mockResolvedValue(opened);
+    await loadBrowser('b');
+    expect(useBrowserAgentDotStore.getState().dots).toEqual({ a: true });
   });
 
   it('subscribeToBrowser feeds pushes into the store and returns the unsubscribe', () => {

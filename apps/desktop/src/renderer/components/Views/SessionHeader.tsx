@@ -5,6 +5,7 @@ import {
   type Session,
   type Workspace,
 } from '../../../shared/workspace';
+import { useBrowserAgentDot } from '../../stores/browserAgentDotStore';
 import { useNavigationStore } from '../../stores/navigationStore';
 import { useShellStore } from '../../stores/shellStore';
 import { useCheckout } from '../../stores/checkoutStore';
@@ -33,6 +34,7 @@ export function SessionHeader({ workspace, session }: { workspace: Workspace; se
   const toggleExplorer = useNavigationStore((state) => state.toggleExplorer);
   const isBrowserVisible = useNavigationStore((state) => state.isBrowserVisible);
   const toggleBrowser = useNavigationStore((state) => state.toggleBrowser);
+  const browserAgentDot = useBrowserAgentDot(session.id);
   const isTerminalVisible = useShellStore((state) => state.open[session.instanceId] ?? false);
   const toggleTerminal = useShellStore((state) => state.toggle);
   const cwd = checkoutPathForSession(workspace, session) ?? '';
@@ -85,6 +87,7 @@ export function SessionHeader({ workspace, session }: { workspace: Workspace; se
           onToggleExplorer={toggleExplorer}
           isBrowserVisible={isBrowserVisible}
           onToggleBrowser={toggleBrowser}
+          browserAgentDot={browserAgentDot}
           isTerminalVisible={isTerminalVisible}
           onToggleTerminal={() => toggleTerminal(session.instanceId)}
         />

@@ -3,6 +3,7 @@ import { browserBridge } from '../../services/browserBridge';
 import { matchBrowserFocusedShortcut } from '../../../shared/shortcuts';
 import { closeFind, useBrowserFindStore } from '../../stores/browserFindStore';
 import { chordOf, PLATFORM } from '../../utils/platform';
+import { clearAgentDot } from '../../stores/browserAgentDotStore';
 import { showBrowserSlot } from '../../stores/browserSlotStore';
 import { activeTabOf, loadBrowser, useBrowserSnapshot } from '../../stores/browserStore';
 import { isBlankUrl } from './browserView';
@@ -45,7 +46,12 @@ export function BrowserPanel({ sessionId, instanceId, cwd }: BrowserPanelProps) 
   }, [tab?.id]);
 
   // Before paint, so the page lands in the slot on the panel's first frame.
-  useLayoutEffect(() => showBrowserSlot(sessionId), [sessionId]);
+  // Showing the session is the person seeing what its agent did there.
+  useLayoutEffect(() => {
+    const hide = showBrowserSlot(sessionId);
+    clearAgentDot(sessionId);
+    return hide;
+  }, [sessionId]);
 
   // An address goes to the page showing, or opens the session's first one.
   const open = async (url: string): Promise<boolean> =>

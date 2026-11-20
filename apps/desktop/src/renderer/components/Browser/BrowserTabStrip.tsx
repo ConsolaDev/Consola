@@ -1,4 +1,4 @@
-import { Plus, X } from 'lucide-react';
+import { Bot, Plus, X } from 'lucide-react';
 import {
   MAX_TABS_PER_SESSION,
   type BrowserSessionSnapshot,
@@ -22,7 +22,8 @@ function noteFailure(action: Promise<unknown>): void {
  * The session's tabs, in the look of the file preview's tab bar. Each action
  * goes to main, which owns the list and answers with a fresh snapshot; the
  * strip holds no state of its own. The `+` opens a blank tab for the address
- * bar to fill, and stops at the cap.
+ * bar to fill, and stops at the cap. A tab an agent's call is on carries a
+ * small marker for as long as the call runs.
  */
 export function BrowserTabStrip({ sessionId, snapshot }: BrowserTabStripProps) {
   const atCap = snapshot.tabs.length >= MAX_TABS_PER_SESSION;
@@ -71,6 +72,11 @@ function StripTab({ tab, active }: { tab: BrowserTabSnapshot; active: boolean })
         noteFailure(browserBridge.close(tab.id));
       }}
     >
+      {tab.agentActive && (
+        <span className="browser-tab-agent" role="img" aria-label="An agent is using this tab">
+          <Bot size={12} aria-hidden="true" />
+        </span>
+      )}
       <span className="browser-tab-label">{label}</span>
       <button
         type="button"
