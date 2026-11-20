@@ -44,11 +44,12 @@ async function answerDialog(
   if (args.text !== undefined && pending.type !== 'prompt') {
     throw new Error(`Only a prompt dialog takes text; this one is a ${pending.type}.`);
   }
-  // The page goes on from the answer, so the tab is in the agent's hands from here.
-  deps.person.noteAgentUse(tab.id);
   const answered = deps.dialogs.answer(tab.id, args.action === 'accept', args.text);
-  // Gone between the two: the page navigated, or the wait ran out.
+  // Gone between the two: the page navigated, or the wait ran out; nothing was answered.
   if (!answered) throw new Error(NO_DIALOG_MESSAGE);
+  // The page goes on from the answer, so the tab is in the agent's hands from
+  // here: the page resumes only once main's answer reaches its renderer, after this.
+  deps.person.noteAgentUse(tab.id);
   const verb = args.action === 'accept' ? 'Accepted' : 'Dismissed';
   return plain({
     tabId: tab.id,

@@ -128,6 +128,21 @@ function refusalMessage(reason: ActRefusal, ref: string): string {
 }
 
 /**
+ * The first thing an act or evaluate does once its page is there. Mounting
+ * it can take a while (up to 15 s), and meanwhile the person may have
+ * started on the tab or turned agents' access off: both are asked again, so
+ * a call already waiting does nothing then. Only past them is the tab taken
+ * into the agent's hands, so a call that never reaches a page (DevTools
+ * open, no window, a blank tab, a refusal now) takes nothing; from here a
+ * download the page starts is cancelled, then or later.
+ */
+function onThePage(deps: BrowserActToolsDeps, access: CallerAccess, tabId: string): void {
+  giveWay(deps, tabId);
+  access.check();
+  deps.person.noteAgentUse(tabId);
+}
+
+/**
  * What an in-page function answered is the page's to shape: the page can
  * replace what the function uses. So each answer is read against what the
  * function can return, and only then worded; anything else is this.
@@ -423,11 +438,9 @@ async function evaluate(
   const tab = access.tab(args.tabId);
   refuseWhileDialog(deps.dialogs, tab.id);
   giveWay(deps, tab.id);
-  // In the agent's hands from here: a download it starts is cancelled, then or later.
-  deps.person.noteAgentUse(tab.id);
   const outcome = await access.stillAllowed(
     deps.driver.withPage(tab.id, async (page, control) => {
-      giveWay(deps, tab.id);
+      onThePage(deps, access, tab.id);
       const evaluated = page.evaluate(args.expression).catch((error: unknown) => {
         throw evaluateFailure(error);
       });
@@ -468,12 +481,9 @@ async function act(
   const plan = planAct(args);
   refuseWhileDialog(deps.dialogs, tab.id);
   giveWay(deps, tab.id);
-  // In the agent's hands from here: a download it starts is cancelled, then or later.
-  deps.person.noteAgentUse(tab.id);
   const outcome = await access.stillAllowed(
     deps.driver.withPage(tab.id, async (page, control) => {
-      // Mounting the page can take a while; the person may have started on it since.
-      giveWay(deps, tab.id);
+      onThePage(deps, access, tab.id);
       const acted = (async () => {
         const element = plan.ref ? page.locator(`aria-ref=${plan.ref}`) : null;
         if (element && plan.ref && (await countOf(element)) === 0) {

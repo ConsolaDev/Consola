@@ -9,7 +9,7 @@ import type { Workspace } from '../../shared/workspace';
 import { makeSession, makeWorkspace } from '../conductor/ConductorTools.test-helpers';
 import { buildSessionServer } from '../mcp/buildSessionServer';
 import { ToolRegistry } from '../tools/Tool';
-import type { AgentCall } from './AgentPages';
+import { type AgentCall, NO_WINDOW_MESSAGE } from './AgentPages';
 import { ANOTHER_SESSION_MESSAGE } from './browserToolAccess';
 import { browserTools, type BrowserToolsBrowser } from './browserTools';
 import type { CdpRelayOptions } from './CdpRelay';
@@ -218,6 +218,8 @@ let driver: PageDriver;
 let begun: string[];
 /** The deadline each call on the page was given. */
 let deadlines: number[];
+/** Runs as a call waits for its page to mount and bind: what happens meanwhile. */
+let mounting: (() => void) | undefined;
 const clients: Client[] = [];
 
 beforeEach(() => {
@@ -228,6 +230,7 @@ beforeEach(() => {
   fakePage = new FakePage();
   begun = [];
   deadlines = [];
+  mounting = undefined;
   workspaces = [
     makeWorkspace({
       sessions: [
@@ -241,6 +244,8 @@ beforeEach(() => {
     calls: {
       async beginToolCall(tabId: string): Promise<AgentCall> {
         begun.push(tabId);
+        await Promise.resolve();
+        mounting?.();
         return { guest: guest.asWebContents(), end: () => {} };
       },
     },
@@ -1052,5 +1057,64 @@ describe('access lost while the page answered', () => {
     };
     expect((await act({ action: 'click', ref: 'e5' })).isError).toBe(true);
     expect(driver.connectedTabs()).toEqual(['theirs']);
+  });
+});
+
+// A call can wait up to 15 s for its page to mount, and the person, or access,
+// can change in the meantime: the step on the page asks both again.
+describe('what changes while a call waits for its page', () => {
+  const ACCESS_OFF =
+    "Agents may not use this workspace's browser; the person turned that off in its settings.";
+  const turnAccessOff = () => {
+    workspaces[0] = { ...workspaces[0], browserAgentAccess: 'off' };
+  };
+
+  it.each([
+    ['act', () => act({ action: 'click', ref: 'e5', tabId: 'mine-person' })],
+    ['evaluate', () => call('consola_browser_evaluate', { tabId: 'mine-person', expression: '1' })],
+  ])(
+    '%s gives way to the person’s input that arrives meanwhile, and does nothing',
+    async (_tool, run) => {
+      mounting = () => person.noteInput('mine-person');
+      expect(await run()).toEqual({ isError: true, text: PERSON_USING_TAB_MESSAGE });
+      expect(begun).toEqual(['mine-person']);
+      expect(log).toEqual([]);
+    },
+  );
+
+  it.each([
+    ['act', () => act({ action: 'click', ref: 'e5', tabId: 'mine-person' })],
+    ['evaluate', () => call('consola_browser_evaluate', { tabId: 'mine-person', expression: '1' })],
+  ])('%s does nothing once access is turned off meanwhile', async (_tool, run) => {
+    mounting = turnAccessOff;
+    expect(await run()).toEqual({ isError: true, text: ACCESS_OFF });
+    expect(log).toEqual([]);
+    // Nothing reached the page, so the tab is still the person's.
+    expect(person.handsOf('mine-person', 'person')).toBe('person');
+  });
+
+  it.each([
+    ['act', () => act({ action: 'click', ref: 'e5', tabId: 'mine-person' })],
+    ['evaluate', () => call('consola_browser_evaluate', { tabId: 'mine-person', expression: '1' })],
+  ])('%s takes nothing when it never reaches a page', async (_tool, run) => {
+    mounting = () => {
+      throw new Error(NO_WINDOW_MESSAGE);
+    };
+    expect(await run()).toEqual({ isError: true, text: NO_WINDOW_MESSAGE });
+    expect(person.handsOf('mine-person', 'person')).toBe('person');
+    expect(downloadFrom('mine-person')).toBe('allow');
+  });
+});
+
+describe('a dialog that went away before it was answered', () => {
+  it('takes nothing', async () => {
+    dialogs.tab = 'mine-person';
+    dialogs.pending = { type: 'confirm', message: 'Sure?' };
+    // Dismissed by its timer, or the page moved on, between the look and the answer.
+    dialogs.answer = () => undefined;
+    expect(
+      await call('consola_browser_dialog', { tabId: 'mine-person', action: 'accept' }),
+    ).toEqual({ isError: true, text: NO_DIALOG_MESSAGE });
+    expect(person.handsOf('mine-person', 'person')).toBe('person');
   });
 });
