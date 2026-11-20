@@ -205,10 +205,12 @@ describe('who gets the browser tools', () => {
     expect(await toolNames('w-1')).toEqual([
       'consola_browser_act',
       'consola_browser_close',
+      'consola_browser_evaluate',
       'consola_browser_navigate',
       'consola_browser_open',
       'consola_browser_snapshot',
       'consola_browser_status',
+      'consola_browser_wait_for',
     ]);
   });
 
@@ -232,11 +234,16 @@ describe('who gets the browser tools', () => {
       consola_browser_navigate: false,
       consola_browser_close: false,
       consola_browser_act: false,
+      consola_browser_evaluate: false,
+      consola_browser_wait_for: true,
     });
     const destructive = Object.fromEntries(
       tools.map((tool) => [tool.name, tool.annotations?.destructiveHint]),
     );
-    expect(destructive).toMatchObject({ consola_browser_act: true });
+    expect(destructive).toMatchObject({
+      consola_browser_act: true,
+      consola_browser_evaluate: true,
+    });
   });
 });
 

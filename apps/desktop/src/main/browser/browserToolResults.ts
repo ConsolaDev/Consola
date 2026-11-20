@@ -22,6 +22,9 @@ export const MAX_OUTLINE_CHARS = 50_000;
 /** A screenshot larger than this is left out of the answer. */
 export const MAX_SCREENSHOT_BYTES = 1024 * 1024;
 
+/** An `evaluate` result is cut here. */
+export const MAX_EVALUATE_CHARS = 20_000;
+
 export type BrowserToolContent = TextContent | ImageContent;
 
 /** One of the calling session's tabs, as `consola_browser_status` lists it. */
@@ -81,12 +84,37 @@ export function snapshotContent(tabId: string, snapshot: PageSnapshot): BrowserT
 }
 
 function boundedOutline(outline: string): string {
-  if (outline.length <= MAX_OUTLINE_CHARS) return outline;
-  const left = outline.length - MAX_OUTLINE_CHARS;
+  return cut(outline, MAX_OUTLINE_CHARS, 'outline');
+}
+
+/** `text` up to `max` characters, then a sentence saying what was left out of the `what`. */
+function cut(text: string, max: number, what: string): string {
+  if (text.length <= max) return text;
+  const left = text.length - max;
   return (
-    `${outline.slice(0, MAX_OUTLINE_CHARS)}\n` +
-    `(The outline was cut at ${MAX_OUTLINE_CHARS} of ${outline.length} characters; ${left} were left out.)`
+    `${text.slice(0, max)}\n` +
+    `(The ${what} was cut at ${max} of ${text.length} characters; ${left} were left out.)`
   );
+}
+
+/**
+ * What an expression evaluated in the page answered, as JSON after the
+ * note (`undefined` for no value), cut at `MAX_EVALUATE_CHARS`. Throws, in
+ * plain words, for a value JSON cannot hold.
+ */
+export function evaluateContent(value: unknown): BrowserToolContent[] {
+  let json: string | undefined;
+  try {
+    json = JSON.stringify(value);
+  } catch (error) {
+    // The first line only: JSON's account of a cycle goes on to name the page's properties.
+    const why = (error instanceof Error ? error.message : String(error)).split('\n')[0];
+    throw new Error(
+      `The result could not be turned into JSON (${why}); return a plain value: ` +
+        'a string, a number, or an array or object of those.',
+    );
+  }
+  return [untrusted(cut(json ?? 'undefined', MAX_EVALUATE_CHARS, 'result'))];
 }
 
 function listSection(heading: string, items: string[], dropped: number): string {

@@ -77,6 +77,16 @@ export class CallerAccess {
 
 export type ToolAnswer = { content: BrowserToolContent[]; isError?: boolean };
 
+/**
+ * A failure that carries page text (an exception the page threw), answered
+ * as an error whose content still opens with the untrusted note.
+ */
+export class PageTextError extends Error {
+  constructor(public readonly content: BrowserToolContent[]) {
+    super(content.map((block) => (block.type === 'text' ? block.text : '')).join('\n'));
+  }
+}
+
 /** Runs a call; a refusal or failure is a tool error carrying only its message. */
 export async function answer(
   work: () => BrowserToolContent[] | Promise<BrowserToolContent[]>,
@@ -84,6 +94,7 @@ export async function answer(
   try {
     return { content: await work() };
   } catch (error) {
+    if (error instanceof PageTextError) return { isError: true, content: error.content };
     return {
       isError: true,
       content: [{ type: 'text', text: error instanceof Error ? error.message : String(error) }],
