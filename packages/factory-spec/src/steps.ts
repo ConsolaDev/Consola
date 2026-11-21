@@ -112,6 +112,8 @@ export const DEFAULT_STRING_MAX = 1000;
 export const STRING_MAX_CEILING = 4000;
 export const DEFAULT_COMMAND_TIMEOUT_MS = 600_000;
 export const MAX_COMMAND_TIMEOUT_MS = 3_600_000;
+/** The most turns `max_turns` may allow an agent step's turn. */
+export const MAX_TURNS_LIMIT = 500;
 
 interface StepCommon {
   id: string;
@@ -128,6 +130,8 @@ export interface AgentStep extends StepCommon {
   artifacts: string[];
   reads: string[];
   handover: 'required' | 'optional';
+  /** Its turn's cap (`max_turns`), present only when the file writes one. */
+  maxTurns?: number;
 }
 
 export interface CommandStep extends StepCommon {
@@ -151,7 +155,6 @@ export const LATER_KEYS: Readonly<Record<string, string>> = {
   agent: 'agents as files',
   skills: 'agents as files',
   mcpServers: 'agents as files',
-  max_turns: 'agents as files',
   gate: 'write steps',
   repeat: 'write steps',
   on_exhausted: 'write steps',
@@ -175,7 +178,7 @@ export function laterKeyMessage(key: string): string {
 }
 
 const COMMON_KEYS = ['id', 'if'];
-const AGENT_KEYS = ['prompt', 'action', 'outputs', 'artifacts', 'reads'];
+const AGENT_KEYS = ['prompt', 'action', 'outputs', 'artifacts', 'reads', 'max_turns'];
 const COMMAND_KEYS = ['run', 'env', 'outputs', 'timeout', 'dry_run'];
 const ALL_KEYS = new Set([...COMMON_KEYS, ...AGENT_KEYS, ...COMMAND_KEYS]);
 const ONE_OF = ['prompt', 'action', 'run'] as const;
@@ -488,7 +491,9 @@ function parseStep(raw: unknown, index: number, fail: Fail): Step | null {
       bad(
         key === 'artifacts'
           ? "Artifacts are an agent step's documents: a command writes no artifacts; it passes data on as outputs, or `outputs: { from: stdout, format: json }`."
-          : `\`${key}\` is for an agent step; a command takes what it needs through \`env\`.`,
+          : key === 'max_turns'
+            ? 'A command runs no agent; `agent:` and `max_turns` are for agent steps.'
+            : `\`${key}\` is for an agent step; a command takes what it needs through \`env\`.`,
         [key],
       );
     }
@@ -622,6 +627,24 @@ function parseStep(raw: unknown, index: number, fail: Fail): Step | null {
     }
   }
 
+  // Only when written, so a step without one parses, and hashes, as it did before the key existed.
+  let maxTurns: number | undefined;
+  if ('max_turns' in raw) {
+    const given = raw.max_turns;
+    if (
+      typeof given === 'number' &&
+      Number.isInteger(given) &&
+      given >= 1 &&
+      given <= MAX_TURNS_LIMIT
+    ) {
+      maxTurns = given;
+    } else {
+      bad(`Expected \`max_turns\` to be a whole number from 1 to ${MAX_TURNS_LIMIT}.`, [
+        'max_turns',
+      ]);
+    }
+  }
+
   if (!ok || typeof text !== 'string') return null;
   return {
     id,
@@ -633,6 +656,7 @@ function parseStep(raw: unknown, index: number, fail: Fail): Step | null {
     artifacts,
     reads,
     handover,
+    ...(maxTurns !== undefined ? { maxTurns } : {}),
   };
 }
 

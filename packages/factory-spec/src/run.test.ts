@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { parseAutomationEntry } from './entry';
+import { parseFactorySpec } from './parse';
 import { automationVersion, stableStringify } from './run';
 import type { Automation } from './schema';
 
@@ -188,6 +189,37 @@ describe('automationVersion', () => {
         '- name: clean-up\n  on: { cron: "0 9 * * *" }\n  run: { tool: consola#cleanup_stale_sessions, with: { pr_states: [merged, closed] } }\n  mode: auto',
       ),
     ).toBe('9c2fbd9ab4277088');
+  });
+
+  it('max_turns changes the version of the entry that writes it, and no other', () => {
+    const look = (cap: string) =>
+      `- name: overnight-notes\n  on: { cron: "0 7 * * 1-5" }\n  scope: api\n  mode: auto\n  steps:\n    - id: look\n      prompt: Read what changed overnight.${cap}`;
+    const versionOf = (yaml: string) => {
+      const parsed = parseAutomationEntry(yaml);
+      if (!parsed.ok) throw new Error(JSON.stringify(parsed.issues));
+      return automationVersion(parsed.automation);
+    };
+    const six = versionOf(look('\n      max_turns: 6'));
+    expect(six).not.toBe(versionOf(look('')));
+    expect(versionOf(look('\n      max_turns: 7'))).not.toBe(six);
+
+    // A neighbour in the same file keeps its pinned version whatever the other entry caps.
+    const neighbour =
+      '- name: digest\n  on: { cron: "30 8 * * 1-5" }\n  run: { prompt: "Summarise my Inbox." }\n  scope: api\n  mode: auto';
+    const indent = (text: string) =>
+      text
+        .split('\n')
+        .map((line) => `  ${line}`)
+        .join('\n');
+    const versionsIn = (cap: string) => {
+      const file = parseFactorySpec(
+        `version: 1\nautomations:\n${indent(neighbour)}\n${indent(look(cap))}\n`,
+      );
+      expect(file.issues).toEqual([]);
+      return file.automations.map((automation) => automationVersion(automation));
+    };
+    expect(versionsIn('')[0]).toBe('d86952669c9b0419');
+    expect(versionsIn('\n      max_turns: 6')).toEqual(['d86952669c9b0419', six]);
   });
 
   describe('with steps', () => {

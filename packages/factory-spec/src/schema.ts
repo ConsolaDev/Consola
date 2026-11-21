@@ -341,6 +341,7 @@ function automationEntrySchema() {
       with: explained(
         'Move `with:` under `run:` — only a tool takes arguments: `run: { tool: …, with: { … } }`.',
       ),
+      max_turns: explained('`max_turns` goes on a step, not on the automation.'),
       ...laterEntryKeys(),
       // A file belongs to one workspace, so there is nothing to select.
       workspace: explained(

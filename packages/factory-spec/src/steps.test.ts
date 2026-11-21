@@ -149,7 +149,6 @@ const STEP_KEYS: Record<string, string> = {
   agent: 'agents as files',
   skills: 'agents as files',
   mcpServers: 'agents as files',
-  max_turns: 'agents as files',
   gate: 'write steps',
   repeat: 'write steps',
   on_exhausted: 'write steps',
@@ -201,6 +200,43 @@ describe("refuses later slices' keys with a reason", () => {
     expect(only(agent('  colour: red')).message).toMatch(/Unrecognized key in a step: colour/);
     // Not a later key just because Object.prototype has it.
     expect(only(agent('  toString: x')).message).toMatch(/Unrecognized key in a step: toString/);
+  });
+});
+
+describe('max_turns', () => {
+  it.each([1, 6, 500])('takes %i on an agent step', (n) => {
+    expect(firstStep<AgentStep>(agent(`  max_turns: ${n}`)).maxTurns).toBe(n);
+  });
+
+  it.each(['0', '501', '2.5', '-1', "'6'", 'null', 'true'])('refuses %s', (value) => {
+    const issue = only(agent(`  max_turns: ${value}`));
+    expect(issue.path).toBe('automations[0].steps[0].max_turns');
+    expect(issue.message).toBe('Expected `max_turns` to be a whole number from 1 to 500.');
+  });
+
+  it('is absent when not written', () => {
+    const step = firstStep<AgentStep>(agent());
+    expect(Object.prototype.hasOwnProperty.call(step, 'maxTurns')).toBe(false);
+  });
+
+  it('refuses it on a run: step', () => {
+    const issue = only(command('  max_turns: 3'));
+    expect(issue.path).toBe('automations[0].steps[0].max_turns');
+    expect(issue.message).toBe(
+      'A command runs no agent; `agent:` and `max_turns` are for agent steps.',
+    );
+  });
+
+  it('refuses it on an entry, saying where it goes', () => {
+    const issue = only(one(`${REVIEW}    steps:\n      - prompt: hi\n    max_turns: 3\n`));
+    expect(issue.path).toMatch(/max_turns$/);
+    expect(issue.message).toBe('`max_turns` goes on a step, not on the automation.');
+  });
+
+  it.each(['agent', 'skills', 'mcpServers'])('still refuses %s for later', (key) => {
+    expect(only(agent(`  ${key}: x`)).message).toBe(
+      `\`${key}\` arrives with agents as files; it is not supported yet.`,
+    );
   });
 });
 

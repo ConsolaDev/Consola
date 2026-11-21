@@ -49,6 +49,7 @@ describe('what an agent writing an entry is told', () => {
       'A prompt, on a schedule',
       'Steps, on an event',
       'Steps, on a poll',
+      'Steps with a turn cap, on a schedule',
     ]);
     // One name, one meaning: no two examples share an entry name.
     const names = GRAMMAR_EXAMPLES.map((example) => /^- name: (\S+)/.exec(example.entry)?.[1]);
@@ -68,6 +69,16 @@ describe('what an agent writing an entry is told', () => {
       expect(listed.name, example.title).toBe(parsed.automation.name);
       expect(listed.problem, example.title).toBeUndefined();
     }
+  });
+
+  it('tells an agent about max_turns, and no longer calls it unsupported', () => {
+    const text = grammar().grammar;
+    expect(text).toContain("- max_turns: 1 to 500, an agent step's turn cap");
+    const unsupported = text
+      .split('\n')
+      .find((line) => line.startsWith('Not supported yet, refused with a reason:'));
+    expect(unsupported).toBeDefined();
+    expect(unsupported).not.toContain('max_turns');
   });
 
   it('the grammar names every refused key and $CONSOLA_OUTPUT', () => {
