@@ -61,8 +61,6 @@ export function RunGraph({
   schedule,
   targets,
   onReveal,
-  selectedStep,
-  onSelectStep,
 }: {
   run: RunRecord;
   stages: RunStage[];
@@ -75,44 +73,25 @@ export function RunGraph({
   /** The id of the section each stage links to, where it has one. */
   targets: Partial<Record<RunStageKey, string>>;
   onReveal: (id: string) => void;
-  /** For a steps run: the step shown below the graph, as an index into `stages`. */
-  selectedStep?: number;
-  /** Selects a step node; given, every step node is a button. */
-  onSelectStep?: (index: number) => void;
 }) {
   return (
     <ol className="automations-pipeline automations-pipeline-run" aria-label="Stages of this run">
-      {stages.map((stage, index) => {
+      {stages.map((stage) => {
         const view = stageView(run, stage, place, askerName, schedule);
         const StateIcon = STATE_ICONS[stage.state];
         const target = targets[stage.key];
-        const step = stage.step;
-        const selected = step !== undefined && index === selectedStep;
         return (
           <li
-            key={step ? `step:${step.id}` : stage.key}
-            className={`automations-node automations-stage-${stage.state} ${LIVE_CLASSES[stage.state] ?? ''} ${
-              stage.state === 'reported' ? 'automations-stage-dry-run' : ''
-            } ${selected ? 'automations-node-selected' : ''}`}
-            aria-label={step ? undefined : `${view.kicker}: ${view.outcome}`}
+            key={stage.step ? `step:${stage.step.id}` : stage.key}
+            className={`automations-node automations-stage-${stage.state} ${LIVE_CLASSES[stage.state] ?? ''}`}
+            aria-label={`${view.kicker}: ${view.outcome}`}
           >
             <div className="automations-node-kicker">
               <view.icon size={13} aria-hidden="true" />
               {view.kicker}
             </div>
             <div className="automations-node-title">
-              {step ? (
-                <button
-                  type="button"
-                  className="automations-node-link"
-                  aria-label={`${step.id}: ${view.outcome}`}
-                  aria-pressed={selected}
-                  title={stepTitle(stage)}
-                  onClick={() => onSelectStep?.(index)}
-                >
-                  {view.title}
-                </button>
-              ) : target ? (
+              {target ? (
                 <button
                   type="button"
                   className="automations-node-link"
@@ -137,16 +116,6 @@ export function RunGraph({
       })}
     </ol>
   );
-}
-
-/** What a step node says on hover: why it was skipped, or that the run ended before it. */
-function stepTitle(stage: RunStage): string | undefined {
-  const step = stage.step;
-  if (!step || stage.state !== 'skipped') return undefined;
-  if (step.skipped) return step.skipped;
-  return step.status === 'not-run' || step.status === 'pending'
-    ? 'It did not run: the run ended first.'
-    : undefined;
 }
 
 interface StageView {

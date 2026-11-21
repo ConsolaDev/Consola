@@ -422,15 +422,25 @@ async function openRun(steps: Steps): Promise<Locator> {
   await dashboardOf(steps.page).getByRole('tab', { name: 'Activity' }).click();
   await expect(runItems(steps.page)).toHaveCount(1);
   await runItems(steps.page).click();
-  await expect(panel.getByRole('list', { name: 'Stages of this run' })).toBeVisible();
+  await expect(panel.getByRole('list', { name: 'Steps of this run' })).toBeVisible();
   return panel;
 }
 
-/** A step's node on the run's graph: a button named `<id>: <outcome>`. */
+/** A step's row in the run's trace: its header, a button named `<id>: <outcome>` that opens it. */
 function stepNode(panel: Locator, id: string): Locator {
   return panel
-    .getByRole('list', { name: 'Stages of this run' })
+    .getByRole('list', { name: 'Steps of this run' })
     .getByRole('button', { name: new RegExp(`^${id}: `) });
+}
+
+/** A step's kind, as its row in the trace names it: `Command` or `Agent`. */
+function stepKind(region: Locator): Locator {
+  return region.locator('.automations-trace-kind');
+}
+
+/** One `env:` variable or output of a step's trace, by the `NAME =` it starts with. */
+function variable(region: Locator, name: string): Locator {
+  return region.locator('.automations-vars > li').filter({ hasText: new RegExp(`^${name} = `) });
 }
 
 /** How the stub `gh` logs `publish`'s post: the reviews endpoint, first. */
@@ -704,28 +714,34 @@ test('the template reviews #51 read-only and posts through gh, pinned to the com
 
     await stepNode(run, 'fresh').click();
     const freshDetail = run.getByRole('region', { name: 'Step fresh' });
-    await expect(freshDetail).toContainText('needed: true');
+    await expect(variable(freshDetail, 'needed')).toHaveText(/^needed = true$/);
     await expect(freshDetail.getByText(templateCommand('fresh'), { exact: true })).toBeVisible();
 
     await stepNode(run, 'review').click();
     const reviewDetail = run.getByRole('region', { name: 'Step review' });
-    await expect(reviewDetail).toContainText('verdict: request-changes');
+    await expect(variable(reviewDetail, 'verdict')).toHaveText(/^verdict = request-changes$/);
     // Its transcript, read from the stub's config dir: the turn's prompt.
     await expect(reviewDetail).toContainText('From the session’s transcript.');
     await expect(reviewDetail).toContainText('Review this pull request. Read it with Consola');
-    await reviewDetail.getByRole('button', { name: 'handover', exact: true }).click();
-    await expect(reviewDetail.getByText('material from the run', { exact: true })).toBeVisible();
-    await expect(reviewDetail).toContainText(
+    const handover = reviewDetail.getByRole('button', { name: 'handover', exact: true });
+    await handover.click();
+    await expect(handover).toHaveAttribute('aria-expanded', 'true');
+    await expect(reviewDetail.locator('.automations-step-artifact')).toContainText(
       'the catalog is exported empty, so search has nothing to find.',
     );
 
     await stepNode(run, 'publish').click();
     const publishDetail = run.getByRole('region', { name: 'Step publish' });
-    await expect(publishDetail).toContainText(
-      'VERDICT = {{steps.review.verdict}} → request-changes',
+    // Each variable with the value it had, and the template it came from.
+    await expect(variable(publishDetail, 'VERDICT')).toHaveText(
+      /^VERDICT = request-changes\s*from \{\{steps\.review\.verdict\}\}$/,
     );
-    await expect(publishDetail).toContainText(`REPO = {{item.repo}} → ${REPO}`);
-    await expect(publishDetail).toContainText('NUMBER = {{item.number}} → 51');
+    await expect(variable(publishDetail, 'REPO')).toHaveText(
+      new RegExp(`^REPO = ${REPO}\\s*from \\{\\{item\\.repo\\}\\}$`),
+    );
+    await expect(variable(publishDetail, 'NUMBER')).toHaveText(
+      /^NUMBER = 51\s*from \{\{item\.number\}\}$/,
+    );
     await expect(publishDetail).toContainText('{"id":1}');
 
     expect(counts()).toEqual(before);
@@ -793,19 +809,24 @@ test('a commit already reviewed is skipped', async () => {
     await expect(stepNode(run, 'publish')).toHaveAccessibleName('publish: Skipped');
 
     await stepNode(run, 'fresh').click();
-    await expect(run.getByRole('region', { name: 'Step fresh' })).toContainText('needed: false');
+    await expect(variable(run.getByRole('region', { name: 'Step fresh' }), 'needed')).toHaveText(
+      /^needed = false$/,
+    );
     await stepNode(run, 'review').click();
     const reviewDetail = run.getByRole('region', { name: 'Step review' });
-    await expect(reviewDetail).toContainText('Agent step · skipped');
-    await expect(
-      reviewDetail.getByText('if: steps.fresh.needed is false', { exact: true }),
-    ).toBeVisible();
+    await expect(stepKind(reviewDetail)).toHaveText('Agent');
+    // Why: its if:, as written, and the value that made it false.
+    await expect(reviewDetail.getByText('if: steps.fresh.needed', { exact: true })).toBeVisible();
+    await expect(reviewDetail.locator('.automations-fact-list li')).toHaveText(
+      'steps.fresh.needed was false',
+    );
     await stepNode(run, 'publish').click();
     const publishDetail = run.getByRole('region', { name: 'Step publish' });
-    await expect(publishDetail).toContainText('Command · skipped · publish');
-    await expect(
-      publishDetail.getByText('if: steps.fresh.needed is false', { exact: true }),
-    ).toBeVisible();
+    await expect(stepKind(publishDetail)).toHaveText('Command');
+    await expect(publishDetail.getByText('if: steps.fresh.needed', { exact: true })).toBeVisible();
+    await expect(publishDetail.locator('.automations-fact-list li')).toHaveText(
+      'steps.fresh.needed was false',
+    );
 
     // The run has settled: no session was launched (`-p` or any other), and nothing was posted.
     expect(steps.launches()).toEqual([]);
@@ -854,22 +875,29 @@ test('a review that sets no outputs gets one reminder, then fails', async () => 
     const run = await openRun(steps);
     await expect(run.locator('.automations-run-status')).toHaveText('Failed');
     await expect(stepNode(run, 'review')).toHaveAccessibleName(/^review: Failed/);
-    // A step the run never reached draws as skipped, and says why on hover.
-    await expect(stepNode(run, 'publish')).toHaveAccessibleName('publish: Skipped');
-    await expect(stepNode(run, 'publish')).toHaveAttribute(
-      'title',
-      'It did not run: the run ended first.',
-    );
-    // The failed step is the one the page opens on.
+    // A step the run never reached did not run, and says why where it is listed, not on hover.
+    await expect(stepNode(run, 'publish')).toHaveAccessibleName('publish: Did not run');
+    const publishDetail = run.getByRole('region', { name: 'Step publish' });
+    await expect(
+      publishDetail.getByText('The run stopped at review before reaching it.', { exact: true }),
+    ).toBeVisible();
+    // The run's note says where it failed and what it never reached.
+    const note = run.getByRole('note');
+    await expect(note).toContainText('Failed at review');
+    await expect(note).toContainText('Ended without setting verdict.');
+    await expect(note).toContainText('Because of this, publish did not run.');
+    // The failed step is open from the start.
+    await expect(stepNode(run, 'review')).toHaveAttribute('aria-expanded', 'true');
     const reviewDetail = run.getByRole('region', { name: 'Step review' });
     await expect(
       reviewDetail.getByText('ended without setting verdict', { exact: true }),
     ).toBeVisible();
     await expect(reviewDetail.getByText('Reminded once', { exact: true })).toBeVisible();
     await stepNode(run, 'publish').click();
-    await expect(run.getByRole('region', { name: 'Step publish' })).toContainText(
-      'Command · not-run · publish',
-    );
+    await expect(stepKind(publishDetail)).toHaveText('Command');
+    await expect(
+      publishDetail.getByText(templateCommand('publish'), { exact: true }),
+    ).toBeVisible();
 
     // The run has settled: nothing was posted.
     expect(reviewCalls(steps)).toEqual([]);
@@ -950,7 +978,7 @@ test('a review that sets its outputs on the reminder completes', async () => {
     await stepNode(run, 'review').click();
     const reviewDetail = run.getByRole('region', { name: 'Step review' });
     await expect(reviewDetail.getByText('Reminded once', { exact: true })).toBeVisible();
-    await expect(reviewDetail).toContainText('verdict: request-changes');
+    await expect(variable(reviewDetail, 'verdict')).toHaveText(/^verdict = request-changes$/);
   } finally {
     await steps.close();
   }
@@ -1078,8 +1106,8 @@ test('notify runs the agents and only reports the post', async () => {
     await stepNode(run, 'publish').click();
     const publishDetail = run.getByRole('region', { name: 'Step publish' });
     await expect(publishDetail.getByRole('heading', { name: 'Would have run' })).toBeVisible();
-    await expect(publishDetail).toContainText(
-      'VERDICT = {{steps.review.verdict}} → request-changes',
+    await expect(variable(publishDetail, 'VERDICT')).toHaveText(
+      /^VERDICT = request-changes\s*from \{\{steps\.review\.verdict\}\}$/,
     );
 
     // The run has settled: nothing was posted, and the post was never called.
