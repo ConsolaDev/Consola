@@ -715,7 +715,8 @@ test('a second push reads the first review', async () => {
     await dashboard.getByRole('tab', { name: 'Activity' }).click();
     await expect(runItems(page)).toHaveCount(2);
     const panel = sidePanel(page);
-    const stages = panel.getByRole('list', { name: 'Stages of this run' });
+    // A steps run's page lists its steps as a trace (#62).
+    const stages = panel.getByRole('list', { name: 'Steps of this run' });
     const earlier = panel.getByRole('button', { name: 'Earlier run on this item' });
     // Whichever order Activity lists them in: the one with the link is the second.
     for (const index of [0, 1]) {
@@ -1056,7 +1057,7 @@ test('Run on… runs a chosen pull request, and the next check does not run it a
 
     // A run on #51 starts, opens in the panel, and completes.
     await expect(picker).toHaveCount(0);
-    await expect(sidePanel(page).getByRole('list', { name: 'Stages of this run' })).toBeVisible();
+    await expect(sidePanel(page).getByRole('list', { name: 'Steps of this run' })).toBeVisible();
     await expect
       .poll(() => runStatuses(sources, RE_REVIEW), { timeout: 60_000 })
       .toEqual(['completed']);
