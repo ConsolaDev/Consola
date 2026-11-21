@@ -521,4 +521,79 @@ describe('persistence', () => {
     expect(state().uses).toEqual({ changes: [NOW - DAY_MS] });
     expect(state().rememberLayout).toBe(true);
   });
+
+  /**
+   * The store as a launch creates it: a fresh module, so a fresh store that
+   * reads storage as it is created, and nothing set on it before.
+   */
+  async function launchWith(stored: string) {
+    storage.set(SIDE_PANEL_STORAGE_KEY, stored);
+    vi.resetModules();
+    const fresh = await import('./sidePanelStore');
+    return fresh.useSidePanelStore;
+  }
+  const expectDefaults = (launched: ReturnType<typeof state>) => {
+    expect(launched.layout).toEqual(defaultLayout());
+    expect(launched.uses).toEqual({});
+    expect(launched.rememberLayout).toBe(true);
+    expect(launched.shortcutKinds).toEqual(rankShortcutKinds({}, TAB_KIND_IDS, NOW));
+    expect(launched.focusRequest).toBeNull();
+  };
+  const arranged = {
+    ...defaultLayout(),
+    visible: true,
+    root: { type: 'group', id: 'g1', tabs: ['changes'], active: 'changes' },
+  };
+
+  // The control for the two below: a launch does read what is stored, so
+  // the defaults they find are the store's answer to junk.
+  it('launches with what a readable blob holds', async () => {
+    const launched = await launchWith(
+      JSON.stringify({
+        state: { layout: arranged, uses: { changes: [NOW] }, rememberLayout: true },
+        version: 0,
+      }),
+    );
+    expect(launched.getState().layout).toEqual(arranged);
+    expect(launched.getState().uses).toEqual({ changes: [NOW] });
+
+    const forgetting = await launchWith(
+      JSON.stringify({ state: { uses: {}, rememberLayout: false }, version: 0 }),
+    );
+    expect(forgetting.getState().rememberLayout).toBe(false);
+  });
+
+  it('launches with the defaults over a stored blob that is not JSON, and writes over it', async () => {
+    for (const unreadable of ['{"state":{"layout":', 'side panel', '']) {
+      const launched = await launchWith(unreadable);
+      expectDefaults(launched.getState());
+      launched.getState().openKind('files');
+      expect(written()).toEqual({
+        state: { layout: launched.getState().layout, uses: { files: [NOW] }, rememberLayout: true },
+        version: 0,
+      });
+    }
+  });
+
+  it('launches with the defaults over JSON of the wrong shape', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const wrongShapes: unknown[] = [
+      [1, 2],
+      'side panel',
+      42,
+      true,
+      { layout: arranged, uses: { changes: [NOW] }, rememberLayout: false },
+      { state: 'side panel', version: 0 },
+      { state: [arranged], version: 0 },
+      { state: { layout: 'split', uses: ['changes'], rememberLayout: 'no' }, version: 0 },
+      { state: { layout: { ...arranged, root: 'g1' }, uses: { changes: 'today' } }, version: 0 },
+      // A version this build does not know is not read at all.
+      { state: { layout: arranged, uses: { changes: [NOW] }, rememberLayout: false }, version: 3 },
+    ];
+    for (const shape of wrongShapes) {
+      const launched = await launchWith(JSON.stringify(shape));
+      expectDefaults(launched.getState());
+    }
+    error.mockRestore();
+  });
 });
