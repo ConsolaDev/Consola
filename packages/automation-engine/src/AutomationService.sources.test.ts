@@ -2246,6 +2246,24 @@ describe('on a chosen item', () => {
     expect(checks(h)).toHaveLength(2);
   });
 
+  it('a check already running when the run is about to start: the run waits for it, and asks for no other', async () => {
+    const h = await allowedPoll(RE_REVIEW_ENTRY, [at('a')]);
+    // Its next check, on schedule: still running at Run on….
+    h.advance(30 * MINUTE);
+    await h.tick();
+    expect(checks(h)).toHaveLength(2);
+    const run = await h.runOn({ workItem: PR_51 });
+    await h.flush();
+    expect(checks(h)).toHaveLength(2);
+    expect(h.store.get(run.id)!.status).toBe('queued');
+    // It ends, finding `b`: the run starts, reading `b`.
+    await checks(h)[1].end({ stdout: JSON.stringify([at('b')]) });
+    await h.flush();
+    expect(h.store.get(run.id)!.status).toBe('running');
+    expect(revOf51(h)).toBe('b');
+    expect(itemJson(h, run)).toEqual(at('b'));
+  });
+
   it('Run on… of an entry not allowed yet starts no check: it cannot know a newer state', async () => {
     const h = await sourcesHarness({ yaml: factoryWith(RE_REVIEW_ENTRY) });
     const run = await h.runOn({ workItem: PR_51 });
