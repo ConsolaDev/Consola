@@ -130,6 +130,11 @@ test.describe('terminal links and the session browser', () => {
   test.beforeEach(async () => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-links-'));
     ({ app, page, userDataDir } = await launchElectron());
+    // The shell is the side panel's Terminal tab, a narrower column than the
+    // conversation's. A wider window keeps each printed link on one row,
+    // which `printLink` finds it by, with the browser open beside it too.
+    const appWindow = await app.browserWindow(page);
+    await appWindow.evaluate((browserWindow) => browserWindow.setContentSize(1400, 800));
     ids = await seed(page, root);
     await recordSystemOpens(app);
     await page

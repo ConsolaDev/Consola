@@ -64,17 +64,21 @@ test('session shells retain state across hiding and switching, and restart indep
       .click();
     await page.locator('.session-nav-item').filter({ hasText: 'Session A' }).click();
     await expect(page.getByTestId('session-shell')).toHaveCount(0);
-    await page.locator('.terminal-surface textarea').focus();
+    const conversation = page.locator('[data-conversation-terminal] .terminal-surface textarea');
+    // The header's shortcut, not the Terminal tab in the side panel's bar.
+    const terminalButton = page.getByRole('button', { name: 'Terminal', exact: true });
+    const shell = page.getByTestId('session-shell');
+    await conversation.focus();
     await page.keyboard.press('Control+Backquote');
     await expect(page.locator('.shell-directory')).toHaveText(`Started in: ${checkout}`);
-    await expect(page.locator('.path-display-actions button').last()).toHaveAttribute(
-      'aria-label',
-      'Hide terminal',
-    );
-    const shell = page.getByTestId('session-shell');
-    await shell.getByRole('button', { name: 'Collapse terminal' }).click();
+    await expect(terminalButton).toHaveAttribute('aria-pressed', 'true');
+    // The person opened it, so it takes the keyboard.
+    await expect(shell.locator('textarea')).toBeFocused();
+    // Closing its tab, the only one, hides the side panel with it.
+    await page.getByRole('button', { name: 'Close Terminal tab', exact: true }).click();
     await expect(shell).toHaveCount(0);
-    await page.getByRole('button', { name: 'Show terminal', exact: true }).click();
+    await expect(page.getByTestId('side-panel')).toHaveCount(0);
+    await terminalButton.click();
     await expect(page.locator('.shell-directory')).toHaveText(`Started in: ${checkout}`);
     await shell.locator('textarea').fill('');
     await shell
@@ -88,20 +92,44 @@ test('session shells retain state across hiding and switching, and restart indep
     await page.evaluate(() =>
       window.shellAPI.input('shell-a', 'sleep 1; printf "<%s>\\n" "$CONSOLA_SHELL_TEST"\r'),
     );
+    // With the Terminal tab in front, the chord hides the side panel.
     await page.keyboard.press('Control+Backquote');
+    await expect(page.getByTestId('side-panel')).toHaveCount(0);
     await expect(page.getByTestId('session-shell')).toHaveCount(0);
     await expect.poll(async () => (await snapshot('shell-a')).replay).toContain('<retained>');
     await page.locator('.session-nav-item').filter({ hasText: 'Session B' }).click();
-    await page.getByRole('button', { name: /^(Show|Hide) terminal$/ }).click();
+    // The panel is hidden, so arriving starts no shell for B.
+    await expect(page.locator('[data-conversation-terminal]')).toBeVisible();
+    await expect(page.getByTestId('session-shell')).toHaveCount(0);
+    await terminalButton.click();
     await expect(page.locator('.shell-directory')).toHaveText(`Started in: ${root}`);
     await page.evaluate(() =>
       window.shellAPI.input('shell-b', 'printf "<%s>\\n" "${CONSOLA_SHELL_TEST-unset}"\r'),
     );
     await expect.poll(async () => (await snapshot('shell-b')).replay).toContain('<unset>');
+    // The Terminal tab is still in front, so A's shell comes back by itself;
+    // nobody asked for it this time, so the keyboard stays the conversation's.
+    // Both terminals attach on the way, in either order, so the shell taking
+    // the keyboard and the conversation taking it back would end the same:
+    // every focus the shell gets is recorded instead.
+    await page.evaluate(() => {
+      const record = globalThis as { shellFocuses?: number };
+      record.shellFocuses = 0;
+      document.addEventListener('focusin', (event) => {
+        const target = event.target instanceof Element ? event.target : null;
+        if (target?.closest('[data-testid="session-shell"]')) record.shellFocuses! += 1;
+      });
+    });
     await page.locator('.session-nav-item').filter({ hasText: 'Session A' }).click();
-    await expect(page.getByTestId('session-shell')).toHaveCount(0);
-    await page.getByRole('button', { name: /^(Show|Hide) terminal$/ }).click();
     await expect(page.locator('.shell-directory')).toHaveText(`Started in: ${checkout}`);
+    await expect(conversation).toBeFocused();
+    const shellFocuses = () =>
+      page.evaluate(() => (globalThis as { shellFocuses?: number }).shellFocuses);
+    expect(await shellFocuses()).toBe(0);
+    // A click on the shell still gives it the keyboard, and is recorded.
+    await shell.locator('.terminal-surface').click();
+    await expect(shell.locator('textarea')).toBeFocused();
+    expect(await shellFocuses()).toBeGreaterThan(0);
     await page.evaluate(() => window.terminalAPI.destroy('shell-a'));
     await page.evaluate(() =>
       window.shellAPI.input('shell-a', 'printf "still-%s\\n" "$CONSOLA_SHELL_TEST"\r'),

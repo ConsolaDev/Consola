@@ -12,13 +12,14 @@
  *
  * No components and no stores, so the node test environment can import it.
  */
-import { Diff, FolderTree, GitPullRequest, type LucideIcon } from 'lucide-react';
+import { Diff, FolderTree, GitPullRequest, type LucideIcon, TerminalSquare } from 'lucide-react';
 import type { CheckoutInfo } from '../../shared/sessionCheckout';
 import type { WorkItemRef } from '../../shared/workItems';
 import { checkoutPathForSession, type Session, type Workspace } from '../../shared/workspace';
 import { isMac } from '../utils/platform';
+import { SHELL_SHORTCUT_LABEL } from '../utils/shellShortcut';
 
-export type TabKindId = 'changes' | 'files' | 'pull-request';
+export type TabKindId = 'changes' | 'files' | 'terminal' | 'pull-request';
 
 export interface TabFacts {
   workspace: Workspace;
@@ -96,6 +97,21 @@ export const TAB_KINDS: readonly TabKind[] = [
     title: () => 'Files',
     availability: folderAvailability,
     mount: 'keep',
+  },
+  {
+    // The session's shell, in its checkout. Its view attaching spawns the
+    // shell, and main rebuilds a removed worktree first, so the view mounts
+    // only in front, in a group on screen, while there is a folder: a tab
+    // behind another, in a hidden panel, in a group Maximize hides, or for a
+    // removed worktree starts nothing. Closing the tab tears down only the
+    // view; the shell keeps running, and its screen comes back with the tab.
+    id: 'terminal',
+    key: 'T',
+    icon: TerminalSquare,
+    chord: SHELL_SHORTCUT_LABEL,
+    title: () => 'Terminal',
+    availability: folderAvailability,
+    mount: 'front',
   },
   {
     // The session's linked pull request or issue. It reads the item, never

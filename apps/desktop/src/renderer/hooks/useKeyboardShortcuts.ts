@@ -1,5 +1,4 @@
 import { isShellShortcut } from '../utils/shellShortcut';
-import { useShellStore } from '../stores/shellStore';
 import { useWorkspaceStore } from '../stores/workspaceStore';
 import { useEffect } from 'react';
 import { useNavigationStore } from '../stores/navigationStore';
@@ -42,16 +41,6 @@ function switchToWorkspaceAt(index: number, repeat: boolean): boolean {
   const workspace = useWorkspaceStore.getState().workspaces[index];
   if (!workspace) return false;
   if (!repeat) void useNavigationStore.getState().setActiveWorkspace(workspace.id);
-  return true;
-}
-
-/** Shows or hides the open session's terminal. False when no session is open. */
-function toggleOpenSessionShell(repeat: boolean): boolean {
-  const { activeWorkspaceId, activeSessionId, overlay } = useNavigationStore.getState();
-  if (!activeWorkspaceId || !activeSessionId || overlay !== null) return false;
-  const session = useWorkspaceStore.getState().getSession(activeWorkspaceId, activeSessionId);
-  if (!session) return false;
-  if (!repeat) useShellStore.getState().toggle(session.instanceId);
   return true;
 }
 
@@ -122,8 +111,10 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
         return;
       }
 
+      // Ctrl+` : the Terminal tab, as its header button does. Held, it acts
+      // once, rather than showing and hiding the side panel on every repeat.
       if (isShellShortcut(event)) {
-        if (toggleOpenSessionShell(event.repeat)) event.preventDefault();
+        if (event.repeat || pressShortcutOnScreen('terminal')) event.preventDefault();
         return;
       }
 
@@ -204,7 +195,7 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
           toggleSidebar();
           return;
         case 'terminal':
-          toggleOpenSessionShell(false);
+          pressShortcutOnScreen('terminal');
           return;
         case 'browser':
           toggleBrowser();

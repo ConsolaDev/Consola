@@ -3,6 +3,7 @@ import { isInFront } from '../../sidePanel/layout';
 import type { TabFacts, TabKindId } from '../../sidePanel/tabKinds';
 import { useSidePanelStore } from '../../stores/sidePanelStore';
 import { GitReviewPanel } from '../GitReviewPanel';
+import { ShellPanel } from '../Terminal/ShellPanel';
 import { WorkItemPanel } from '../WorkItemPanel';
 import { FilesTab } from './FilesTab';
 
@@ -42,6 +43,24 @@ function PullRequestView({ facts, close }: TabViewProps) {
 }
 
 /**
+ * The session's shell. Terminal mounts only in front, so this mounts each
+ * time the tab comes in front on screen and attaches, which spawns the shell
+ * the first time and otherwise repaints it from main's snapshot. It takes the
+ * keyboard only when the person's own action brought the tab in front, never
+ * when a session switch, a relaunch or a return from an overlay mounts it.
+ */
+function TerminalView({ facts }: TabViewProps) {
+  return (
+    <ShellPanel
+      key={facts.session.instanceId}
+      instanceId={facts.session.instanceId}
+      sessionId={facts.session.id}
+      focusOnAttach={() => useSidePanelStore.getState().takeFocusRequest('terminal')}
+    />
+  );
+}
+
+/**
  * What each kind shows in its tab. Keyed by every kind id, so a kind added to
  * the registry without a view does not typecheck. A view is rendered only
  * where `bodyFor` answers 'view', which is the gate its own effects sit behind.
@@ -54,5 +73,6 @@ export const TAB_VIEWS: Record<TabKindId, ComponentType<TabViewProps>> = {
   ),
   // Files is unavailable whenever there is no path, so the null never shows.
   files: ({ facts }) => (facts.checkoutPath ? <FilesTab rootPath={facts.checkoutPath} /> : null),
+  terminal: TerminalView,
   'pull-request': PullRequestView,
 };

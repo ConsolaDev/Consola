@@ -1,4 +1,3 @@
-import { SessionTerminalLayout } from '../Terminal/SessionTerminalLayout';
 import { useEffect, useMemo } from 'react';
 import { Group, Panel, Separator, useDefaultLayout } from 'react-resizable-panels';
 import { checkoutPathForSession, scopeForSession } from '../../../shared/workspace';
@@ -121,26 +120,24 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
               could lose the prompt's frame (CLAUDE.md, "Terminals Outlive
               Their Views"). */}
           <Panel id="agent" minSize="20%">
-            <SessionTerminalLayout instanceId={instanceId} sessionId={session.id}>
-              <TerminalPanel
-                instanceId={instanceId}
-                workspaceId={workspaceId}
-                sessionId={session.id}
-                readOnly={
-                  session.toolPolicy === 'read-only'
-                    ? { startedBy: session.automation?.name }
-                    : undefined
-                }
-                cwd={terminalCwd}
-                claudeSessionId={session.claudeSessionId}
-                resume={session.hasStarted}
-                harness={launchFields}
-                // Read from the session record rather than re-resolved: unlike
-                // the harness's launch fields, this was chosen once for this
-                // conversation and must not drift.
-                model={session.model}
-              />
-            </SessionTerminalLayout>
+            <TerminalPanel
+              instanceId={instanceId}
+              workspaceId={workspaceId}
+              sessionId={session.id}
+              readOnly={
+                session.toolPolicy === 'read-only'
+                  ? { startedBy: session.automation?.name }
+                  : undefined
+              }
+              cwd={terminalCwd}
+              claudeSessionId={session.claudeSessionId}
+              resume={session.hasStarted}
+              harness={launchFields}
+              // Read from the session record rather than re-resolved: unlike
+              // the harness's launch fields, this was chosen once for this
+              // conversation and must not drift.
+              model={session.model}
+            />
           </Panel>
           {/* The info panel (PR 2) goes here, between the conversation and the side panel. */}
           {isBrowserVisible && (

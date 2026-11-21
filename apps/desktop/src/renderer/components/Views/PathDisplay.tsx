@@ -1,7 +1,6 @@
 import type { ReactNode } from 'react';
-import { SHELL_SHORTCUT_LABEL } from '../../utils/shellShortcut';
 import * as Tooltip from '@radix-ui/react-tooltip';
-import { Globe, RotateCw, TerminalSquare } from 'lucide-react';
+import { Globe, RotateCw } from 'lucide-react';
 import { useGitStatusStore } from '../../stores/gitStatusStore';
 import { useCheckoutStore } from '../../stores/checkoutStore';
 import { tildePath } from '../../utils/displayPath';
@@ -16,8 +15,6 @@ interface PathDisplayProps {
   onToggleBrowser?: () => void;
   /** An agent opened or used the session's browser since its panel last showed it: a dot on the globe. */
   browserAgentDot?: boolean;
-  isTerminalVisible?: boolean;
-  onToggleTerminal?: () => void;
   /** More header buttons, placed after the git stats. */
   children?: ReactNode;
 }
@@ -47,8 +44,6 @@ export function PathDisplay({
   isBrowserVisible = false,
   onToggleBrowser,
   browserAgentDot = false,
-  isTerminalVisible = false,
-  onToggleTerminal,
   children,
 }: PathDisplayProps) {
   // Use granular selectors to prevent unnecessary re-renders
@@ -91,7 +86,7 @@ export function PathDisplay({
         </Tooltip.Provider>
       )}
 
-      {/* Right side actions: git status, the side panel's shortcuts, then the browser and terminal toggles */}
+      {/* Right side actions: git status, the side panel's shortcuts, then the browser toggle */}
       <div className="path-display-actions">
         {/* Uncommitted changes in this checkout. Its branch is named by the
             checkout chip beside the title, with what kind of checkout it is. */}
@@ -151,30 +146,6 @@ export function PathDisplay({
               <Tooltip.Portal>
                 <Tooltip.Content className="tooltip-content" sideOffset={5}>
                   {browserLabel} ({BROWSER_SHORTCUT_LABEL})
-                  <Tooltip.Arrow className="tooltip-arrow" />
-                </Tooltip.Content>
-              </Tooltip.Portal>
-            </Tooltip.Root>
-          </Tooltip.Provider>
-        )}
-        {onToggleTerminal && (
-          <Tooltip.Provider delayDuration={300}>
-            <Tooltip.Root>
-              <Tooltip.Trigger asChild>
-                <button
-                  type="button"
-                  className={`path-display-toggle ${isTerminalVisible ? 'active' : ''}`}
-                  onClick={onToggleTerminal}
-                  aria-label={isTerminalVisible ? 'Hide terminal' : 'Show terminal'}
-                  aria-pressed={isTerminalVisible}
-                  aria-keyshortcuts="Control+`"
-                >
-                  <TerminalSquare size={14} />
-                </button>
-              </Tooltip.Trigger>
-              <Tooltip.Portal>
-                <Tooltip.Content className="tooltip-content" sideOffset={5}>
-                  {isTerminalVisible ? 'Hide terminal' : 'Show terminal'} ({SHELL_SHORTCUT_LABEL})
                   <Tooltip.Arrow className="tooltip-arrow" />
                 </Tooltip.Content>
               </Tooltip.Portal>

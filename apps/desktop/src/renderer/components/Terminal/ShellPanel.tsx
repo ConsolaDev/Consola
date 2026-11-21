@@ -6,9 +6,7 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { WebLinksAddon } from '@xterm/addon-web-links';
-import { RotateCw, X } from 'lucide-react';
-import { useShellStore } from '../../stores/shellStore';
-import { SHELL_SHORTCUT_LABEL } from '../../utils/shellShortcut';
+import { RotateCw } from 'lucide-react';
 import type { ShellData } from '../../../shared/shell';
 import { TERMINAL_SCROLLBACK_LINES } from '../../../shared/constants';
 import { useSettingsStore } from '../../stores/settingsStore';
@@ -20,8 +18,31 @@ import { attachTuiWheel } from './tuiWheel';
 import '@xterm/xterm/css/xterm.css';
 import './styles.css';
 
-export function ShellPanel({ instanceId, sessionId }: { instanceId: string; sessionId: string }) {
-  const toggleShell = useShellStore((state) => state.toggle);
+/**
+ * A session's shell: a view of the PTY main keeps for it, which outlives the
+ * view. Attaching spawns the shell the first time, and otherwise repaints the
+ * screen main kept, so unmounting this loses nothing.
+ *
+ * It takes the keyboard after attaching only when `focusOnAttach` says the
+ * person asked for it, and asking takes the request. A view that mounts
+ * because of a session switch, a relaunch or a return from an overlay leaves
+ * the keyboard where it was, with the conversation. A click on the surface
+ * still focuses it, and so does a shell the person restarts here.
+ */
+export function ShellPanel({
+  instanceId,
+  sessionId,
+  focusOnAttach,
+}: {
+  instanceId: string;
+  /** The session record, which the shell's links open the browser of. */
+  sessionId: string;
+  focusOnAttach: () => boolean;
+}) {
+  // Asked once the shell has attached, not on render: the effect below must
+  // not run again because a caller passed a new function.
+  const focusOnAttachRef = useRef(focusOnAttach);
+  focusOnAttachRef.current = focusOnAttach;
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const fitRef = useRef<(() => void) | null>(null);
@@ -115,7 +136,8 @@ export function ShellPanel({ instanceId, sessionId }: { instanceId: string; sess
         ready = true;
         setCwd(snapshot.cwd);
         setExited(snapshot.exited || exitReceived);
-        terminal.focus();
+        // A restart is the person's click on New shell or Retry, here.
+        if (generation > 0 || focusOnAttachRef.current()) terminal.focus();
       })
       .catch((reason) => {
         if (!disposed) setError(reason instanceof Error ? reason.message : String(reason));
@@ -170,15 +192,6 @@ export function ShellPanel({ instanceId, sessionId }: { instanceId: string; sess
           </button>
         )}
         {exited && <span>Shell exited</span>}
-        <button
-          type="button"
-          className="shell-collapse-button"
-          aria-label="Collapse terminal"
-          title={`Collapse terminal (${SHELL_SHORTCUT_LABEL})`}
-          onClick={() => toggleShell(instanceId)}
-        >
-          <X size={14} />
-        </button>
       </div>
       {error && (
         <div className="shell-error" role="alert">

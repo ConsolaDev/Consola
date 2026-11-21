@@ -113,6 +113,29 @@ test.describe('side panel', () => {
     page.locator('.side-panel-tab-bar').getByRole('button', { name: 'New tab', exact: true });
   const newTabList = () => page.getByRole('listbox', { name: 'Open in this tab' });
 
+  /**
+   * Counts every session shell view that mounts from now on, however
+   * briefly: a view that mounts attaches, and attaching spawns the shell.
+   */
+  async function countShellMounts(): Promise<() => Promise<number>> {
+    await page.evaluate(() => {
+      const record = globalThis as { shellMounts?: number };
+      record.shellMounts = 0;
+      const shellSelector = '[data-testid="session-shell"]';
+      new MutationObserver((mutations) => {
+        for (const mutation of mutations) {
+          for (const node of mutation.addedNodes) {
+            if (!(node instanceof Element)) continue;
+            if (node.matches(shellSelector) || node.querySelector(shellSelector)) {
+              record.shellMounts! += 1;
+            }
+          }
+        }
+      }).observe(document.body, { childList: true, subtree: true });
+    });
+    return () => page.evaluate(() => (globalThis as { shellMounts?: number }).shellMounts ?? 0);
+  }
+
   test('the Changes shortcut opens its tab and hides the side panel when pressed again', async () => {
     await openSession('Paginate the catalog search');
     await changesShortcut().click();
@@ -294,17 +317,148 @@ test.describe('side panel', () => {
     await expect(page.getByTestId('side-panel')).toHaveCount(0);
     await expect(sidePanelToggle()).toHaveAttribute('aria-pressed', 'false');
 
-    // From a shell: the panel comes back on its list, which the person just
-    // asked for, so it takes the keyboard; and the list hands a chord
-    // pressed in it to the window.
+    // From the shell, which hands the chord to the window.
     await conversation().focus();
     await page.keyboard.press('Control+Backquote');
     const shell = page.getByTestId('session-shell').locator('textarea');
     await expect(shell).toBeFocused();
     await page.keyboard.press(sidePanelChord);
+    await expect(page.getByTestId('side-panel')).toHaveCount(0);
+
+    // Shown again, the Terminal tab comes back in front, but nobody asked
+    // for the shell this time, so it leaves the keyboard alone.
+    await page.keyboard.press(sidePanelChord);
+    await expect(page.locator('.shell-directory')).toHaveText(/^Started in: \//);
+    await expect(shell).not.toBeFocused();
+
+    // From the list, which the person just opened, so it takes the keyboard,
+    // and which hands a chord pressed in it to the window.
+    await plusButton().click();
     await expect(newTabList()).toBeFocused();
     await page.keyboard.press(sidePanelChord);
     await expect(page.getByTestId('side-panel')).toHaveCount(0);
+  });
+
+  test('a Terminal tab behind another tab starts no shell', async () => {
+    const shell = page.getByTestId('session-shell');
+    await openSession('Paginate the catalog search');
+    await conversation().focus();
+    await page.keyboard.press('Control+Backquote');
+    await expect(shell.locator('textarea')).toBeFocused();
+    await changesShortcut().click();
+    await expect(changesTab()).toHaveAttribute('aria-selected', 'true');
+    await expect(shell).toHaveCount(0);
+
+    // Arriving on another session mounts nothing for the tab behind, not
+    // even for a moment: a mount would spawn that session's shell.
+    const shellMounts = await countShellMounts();
+    await openSession('Fix flaky upload test');
+    await expect(conversation()).toBeVisible();
+    await expect(page.locator('.git-review-panel')).toBeVisible();
+    await expect(changesTab()).toHaveAttribute('aria-selected', 'true');
+    await expect(shell).toHaveCount(0);
+    expect(await shellMounts()).toBe(0);
+
+    // Brought to the front by the person, it starts and takes the keyboard.
+    await sidePanelTab('Terminal').click();
+    await expect(page.locator('.shell-directory')).toHaveText(
+      `Started in: ${path.join(root, 'catalog-portal')}`,
+    );
+    await expect(shell.locator('textarea')).toBeFocused();
+    expect(await shellMounts()).toBe(1);
+  });
+
+  test('the conversation keeps its terminal while the Terminal tab opens, closes and moves', async () => {
+    const group = (tabs: string) =>
+      page.locator('.side-panel-group').filter({ has: page.getByRole('tablist', { name: tabs }) });
+
+    // Two groups, with Terminal in front of the bottom one. No control
+    // splits the panel yet, so the layout is restored from storage, which
+    // is also a mount nobody asked for: the keyboard stays where it was.
+    await openSession('Paginate the catalog search');
+    await expect(conversation()).toBeVisible();
+    await page.evaluate((key) => {
+      const layout = {
+        version: 1,
+        visible: true,
+        root: {
+          type: 'split',
+          orientation: 'stacked',
+          children: [
+            { type: 'group', id: 'g1', tabs: ['changes'], active: 'changes' },
+            { type: 'group', id: 'g2', tabs: ['terminal'], active: 'terminal' },
+          ],
+        },
+        maximized: null,
+        lastGroupOf: {},
+      };
+      localStorage.setItem(
+        key,
+        JSON.stringify({ state: { layout, uses: {}, rememberLayout: true }, version: 0 }),
+      );
+    }, 'consola-side-panel');
+    await app.close();
+    ({ app, page } = await launchElectron({ userDataDir }));
+    const shell = page.getByTestId('session-shell');
+    await expect(page.locator('.shell-directory')).toHaveText(/^Started in: \//);
+    await expect(conversation()).toBeFocused();
+
+    // The conversation's xterm, held on to: a remount would replace it.
+    const xterm = await page.locator('[data-conversation-terminal] .xterm').elementHandle();
+    if (!xterm) throw new Error('the conversation has no terminal');
+    const sameConversation = () =>
+      xterm.evaluate(
+        (element) =>
+          element.isConnected &&
+          element === document.querySelector('[data-conversation-terminal] .xterm'),
+      );
+
+    // Maximizing the other group hides Terminal's, and takes its shell away.
+    await group('Top group tabs').getByRole('button', { name: 'Maximize group' }).click();
+    await expect(shell).toHaveCount(0);
+    expect(await sameConversation()).toBe(true);
+    await group('Top group tabs').getByRole('button', { name: 'Restore group' }).click();
+    await expect(shell).toHaveCount(1);
+    expect(await sameConversation()).toBe(true);
+
+    // Closed, its group goes with it; opened again, it joins the other.
+    await page.getByRole('button', { name: 'Close Terminal tab', exact: true }).click();
+    await expect(shell).toHaveCount(0);
+    await expect(sidePanelTabs().getByRole('tab')).toHaveCount(1);
+    expect(await sameConversation()).toBe(true);
+    await conversation().focus();
+    await page.keyboard.press('Control+Backquote');
+    await expect(sidePanelTabs().getByRole('tab')).toHaveCount(2);
+    await expect(sidePanelTab('Terminal')).toHaveAttribute('aria-selected', 'true');
+    await expect(shell.locator('textarea')).toBeFocused();
+    expect(await sameConversation()).toBe(true);
+
+    // Behind another tab and in front again.
+    await sidePanelTab('Changes').click();
+    await expect(shell).toHaveCount(0);
+    await sidePanelTab('Terminal').click();
+    await expect(shell.locator('textarea')).toBeFocused();
+    expect(await sameConversation()).toBe(true);
+
+    // The panel hidden and shown.
+    await page.keyboard.press(sidePanelChord);
+    await expect(page.getByTestId('side-panel')).toHaveCount(0);
+    expect(await sameConversation()).toBe(true);
+    await page.keyboard.press(sidePanelChord);
+    await expect(shell).toHaveCount(1);
+    expect(await sameConversation()).toBe(true);
+
+    // In a hidden panel, arriving on another session starts no shell.
+    await page.keyboard.press(sidePanelChord);
+    await expect(page.getByTestId('side-panel')).toHaveCount(0);
+    const shellMounts = await countShellMounts();
+    await openSession('Fix flaky upload test');
+    await expect(page.locator('.workspace-view-session')).toHaveText('Fix flaky upload test');
+    await expect(conversation()).toBeVisible();
+    expect(await shellMounts()).toBe(0);
+    // Another session's conversation is another terminal: the check above
+    // does see a terminal that was replaced.
+    expect(await sameConversation()).toBe(false);
   });
 
   test('a list the person did not just open leaves the keyboard in the conversation', async () => {

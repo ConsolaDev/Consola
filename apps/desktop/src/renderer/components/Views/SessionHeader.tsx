@@ -7,7 +7,6 @@ import {
 } from '../../../shared/workspace';
 import { useBrowserAgentDot } from '../../stores/browserAgentDotStore';
 import { useNavigationStore } from '../../stores/navigationStore';
-import { useShellStore } from '../../stores/shellStore';
 import { useCheckout } from '../../stores/checkoutStore';
 import { scopeTrail } from '../../utils/scopeTrail';
 import { tildePath } from '../../utils/displayPath';
@@ -36,8 +35,6 @@ export function SessionHeader({ workspace, session }: { workspace: Workspace; se
   const isBrowserVisible = useNavigationStore((state) => state.isBrowserVisible);
   const toggleBrowser = useNavigationStore((state) => state.toggleBrowser);
   const browserAgentDot = useBrowserAgentDot(session.id);
-  const isTerminalVisible = useShellStore((state) => state.open[session.instanceId] ?? false);
-  const toggleTerminal = useShellStore((state) => state.toggle);
   const cwd = checkoutPathForSession(workspace, session) ?? '';
   const checkout = useCheckout(cwd || null, { fresh: true });
   const facts = useTabFacts(workspace, session);
@@ -87,11 +84,10 @@ export function SessionHeader({ workspace, session }: { workspace: Workspace; se
           isBrowserVisible={isBrowserVisible}
           onToggleBrowser={toggleBrowser}
           browserAgentDot={browserAgentDot}
-          isTerminalVisible={isTerminalVisible}
-          onToggleTerminal={() => toggleTerminal(session.instanceId)}
         >
           <ShortcutButton kind="changes" facts={facts} />
           <ShortcutButton kind="files" facts={facts} />
+          <ShortcutButton kind="terminal" facts={facts} />
         </PathDisplay>
       )}
       {/* Outside PathDisplay, which needs a checkout: the side panel does not. */}

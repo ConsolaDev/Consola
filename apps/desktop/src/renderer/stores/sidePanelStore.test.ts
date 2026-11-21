@@ -126,6 +126,15 @@ describe('mergeSidePanelState', () => {
   it('starts, before anything is read, with the kinds ranked from no uses', () => {
     expect(current().shortcutKinds).toEqual(rankShortcutKinds({}, TAB_KIND_IDS, NOW));
   });
+
+  it('offers Changes, Files and Terminal on a fresh store', () => {
+    expect(current().shortcutKinds).toEqual(['changes', 'files', 'terminal']);
+    expect(mergeSidePanelState(undefined, current(), NOW).shortcutKinds).toEqual([
+      'changes',
+      'files',
+      'terminal',
+    ]);
+  });
 });
 
 describe('partializeSidePanel', () => {

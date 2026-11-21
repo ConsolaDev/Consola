@@ -1,4 +1,4 @@
-import { Diff, FolderTree, GitPullRequest } from 'lucide-react';
+import { Diff, FolderTree, GitPullRequest, TerminalSquare } from 'lucide-react';
 import { describe, expect, it } from 'vitest';
 import type { CheckoutInfo } from '../../shared/sessionCheckout';
 import type { WorkItemRef } from '../../shared/workItems';
@@ -61,12 +61,13 @@ const noFolder = tabFactsFor(
 
 const changesKind = tabKind('changes')!;
 const filesKind = tabKind('files')!;
+const terminalKind = tabKind('terminal')!;
 const pullRequestKind = tabKind('pull-request')!;
 const frontOnly: TabKind = { ...changesKind, mount: 'front' };
 
 describe('the registry', () => {
   it('lists the kinds in registry order with unique one-letter keys', () => {
-    expect(TAB_KIND_IDS).toEqual(['changes', 'files', 'pull-request']);
+    expect(TAB_KIND_IDS).toEqual(['changes', 'files', 'terminal', 'pull-request']);
     expect(TAB_KINDS.map((kind) => kind.id)).toEqual(TAB_KIND_IDS);
     const keys = TAB_KINDS.map((kind) => kind.key);
     for (const key of keys) expect(key).toMatch(/^[A-Z]$/);
@@ -78,7 +79,9 @@ describe('the registry', () => {
     expect(isTabKindId('changes')).toBe(true);
     expect(tabKind('files')).toBe(TAB_KINDS[1]);
     expect(isTabKindId('files')).toBe(true);
-    expect(tabKind('pull-request')).toBe(TAB_KINDS[2]);
+    expect(tabKind('terminal')).toBe(TAB_KINDS[2]);
+    expect(isTabKindId('terminal')).toBe(true);
+    expect(tabKind('pull-request')).toBe(TAB_KINDS[3]);
     expect(isTabKindId('pull-request')).toBe(true);
     expect(tabKind('browser')).toBeUndefined();
     expect(isTabKindId('browser')).toBe(false);
@@ -150,6 +153,45 @@ describe('Files', () => {
     expect(filesKind.availability(inGit)).toEqual({ available: true });
     expect(filesKind.availability(outsideGit)).toEqual({ available: true });
     expect(filesKind.availability(factsFor(undefined))).toEqual({ available: true });
+  });
+});
+
+describe('Terminal', () => {
+  it('is titled Terminal, keyed T, has the shell’s chord and mounts only in front', () => {
+    expect(terminalKind.title(inGit)).toBe('Terminal');
+    expect(terminalKind.key).toBe('T');
+    expect(terminalKind.icon).toBe(TerminalSquare);
+    expect(terminalKind.chord).toBe('Ctrl+`');
+    expect(terminalKind.mount).toBe('front');
+  });
+
+  // Attaching a shell makes main rebuild a removed worktree, so the tab
+  // must never be what puts one back.
+  it('Terminal is unavailable for a removed worktree, and for a session with no folder', () => {
+    expect(terminalKind.availability(removed)).toEqual({
+      available: false,
+      reason: 'This session’s worktree was removed. It is rebuilt when the session next starts.',
+    });
+    expect(terminalKind.availability(noFolder)).toEqual({
+      available: false,
+      reason: 'This session has no folder.',
+    });
+  });
+
+  it('Terminal is available in any folder, in git or not', () => {
+    expect(terminalKind.availability(inGit)).toEqual({ available: true });
+    expect(terminalKind.availability(outsideGit)).toEqual({ available: true });
+    expect(terminalKind.availability(factsFor(undefined))).toEqual({ available: true });
+  });
+
+  it('the Terminal tab mounts only in front', () => {
+    expect(bodyFor(terminalKind, inGit, false)).toBe('none');
+    expect(bodyFor(terminalKind, inGit, true)).toBe('view');
+    // In front, a removed worktree or a missing folder says why and starts
+    // no shell, so a removed worktree is never rebuilt by a tab.
+    expect(bodyFor(terminalKind, removed, true)).toBe('unavailable');
+    expect(bodyFor(terminalKind, removed, false)).toBe('none');
+    expect(bodyFor(terminalKind, noFolder, true)).toBe('unavailable');
   });
 });
 
