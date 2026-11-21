@@ -540,6 +540,10 @@ export class AutomationService {
    * launch checks every allowed entry at its first tick.
    */
   private readonly checks = new Map<string, CheckState>();
+  /** How many checks of each automation have ended since launch, whatever they came to. */
+  private readonly checksEnded = new Map<string, number>();
+  /** A run on a chosen item waiting for a check: how many had ended when it first came up to start. */
+  private readonly checkAwaitedFrom = new Map<string, number>();
   /** Each running check's command, by automation key: what a quit, or deleting its workspace, stops. */
   private readonly checkCommands = new Map<string, RunningCommand>();
   private io: StepIO | undefined;
@@ -1261,10 +1265,6 @@ export class AutomationService {
     const record = this.deps.store.seen(key);
     if (record?.items.includes(item.key))
       this.deps.store.setSeen(key, markFired(record, item.key, item.rev));
-    // What the item is now is what the run will read: a poll that may check is checked first,
-    // and the run waits for it (`checkQueued`). Its result marks the item at the state found,
-    // as it does for any run still waiting. One not allowed yet is never checked for this.
-    if (this.mayCheck(entry)) this.checkNow(entry);
     return entry.steps
       ? this.fireSteps(entry, trigger, item)
       : this.fireAgentOnItem(entry, trigger, item);
@@ -1651,6 +1651,28 @@ export class AutomationService {
     return this.deps.store.acceptedVersion(automationKey(entry)) === entry.version ? trigger : null;
   }
 
+  /**
+   * Whether a run on a chosen item, about to start, still waits for a check:
+   * on a poll that may check, it starts only once a check has ended since it
+   * first came up to start (its Run on…, or its approval), asking for one if
+   * none is running or due. That check's result is absorbed into the waiting
+   * run, so the record marks the item at what the run reads. A failed check
+   * ends too. A count of ended checks, not a clock: a check ending in the same
+   * instant still counts. An entry not allowed yet is never checked for this.
+   */
+  private awaitsCheck(entry: Resolved, run: RunRecord): boolean {
+    if (!this.mayCheck(entry)) return false;
+    const ended = this.checksEnded.get(automationKey(entry)) ?? 0;
+    const since = this.checkAwaitedFrom.get(run.id);
+    if (since === undefined) this.checkAwaitedFrom.set(run.id, ended);
+    else if (ended > since) {
+      this.checkAwaitedFrom.delete(run.id);
+      return false;
+    }
+    if (!this.checkPending(entry)) this.checkNow(entry);
+    return true;
+  }
+
   /** Whether a check of the entry is running or due now: one its result will soon say more than the last. */
   private checkPending(entry: Resolved): boolean {
     if (!this.mayCheck(entry)) return false;
@@ -1725,6 +1747,7 @@ export class AutomationService {
         const { running: _ended, ...rest } = state;
         this.checks.set(key, rest);
       }
+      this.checksEnded.set(key, (this.checksEnded.get(key) ?? 0) + 1);
       this.runDueChecks();
       // A run on a chosen item may be waiting for this check, whatever it came to.
       void this.pump();
@@ -2589,8 +2612,8 @@ export class AutomationService {
     const fired = firedBySource(run);
     let item: SourceItem;
     if (pollOf(entry)) {
-      // A run on a chosen item starts after the check its Run on… asked for, so it reads the item as found now.
-      if (!fired && this.checkPending(entry)) return { go: false, wait: true };
+      // A run on a chosen item reads the item as a check finds it once the run is about to start.
+      if (!fired && this.awaitsCheck(entry, run)) return { go: false, wait: true };
       // Its latest result at this version: one taken at another may have come from another command.
       const items = latestResult(this.checks.get(automationKey(entry)), entry.version);
       const polled = items?.find((candidate) => candidate.key === wanted.key);

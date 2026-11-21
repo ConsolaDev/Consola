@@ -2209,6 +2209,43 @@ describe('on a chosen item', () => {
     expect(runsOn51(h)).toHaveLength(2);
   });
 
+  it('a Run on… that waits for approval is checked when approved, and marks the head pushed meanwhile', async () => {
+    // The user's decision of 2026-11-21: the revision the run reads when it starts.
+    const h = await allowedPoll(CONFIRM, [at('a')]);
+    const run = await h.runOn({ workItem: PR_51 });
+    expect(run.status).toBe('needs-approval');
+    await h.flush();
+    // Asking checks nothing: the person has not approved anything yet.
+    expect(checks(h)).toHaveLength(1);
+    // #51 moves to `b` while the run waits; no check sees it.
+    h.advance(MINUTE);
+    h.pollOutput([at('b')]);
+    await h.service.approve(run.id);
+    await h.flush();
+    // Approved, it waits for a check asked for now.
+    expect(checks(h)).toHaveLength(2);
+    expect(h.store.get(run.id)!.status).toBe('queued');
+    await h.check();
+    expect(revOf51(h)).toBe('b');
+    expect(h.store.get(run.id)!.status).toBe('running');
+    expect(itemJson(h, run)).toEqual(at('b'));
+    await stepCommand(h, run, 'fresh').end({ outputs: 'needed=false\n' });
+    await h.checkSees([at('b')]);
+    expect(runsOn51(h)).toHaveLength(1);
+  });
+
+  it("an agent's Run on… on an allowed poll runs no check before a person approves it", async () => {
+    const h = await allowedPoll(RE_REVIEW_ENTRY, [at('a')]);
+    const run = await h.runOn({ workItem: PR_51 }, RE_REVIEW_NAME, { sessionId: 's-9' });
+    expect(run.status).toBe('needs-approval');
+    await h.flush();
+    expect(checks(h)).toHaveLength(1);
+    expect(h.world.commandEnvAsked).toEqual([WORKSPACE_ID]);
+    await h.service.approve(run.id);
+    await h.flush();
+    expect(checks(h)).toHaveLength(2);
+  });
+
   it('Run on… of an entry not allowed yet starts no check: it cannot know a newer state', async () => {
     const h = await sourcesHarness({ yaml: factoryWith(RE_REVIEW_ENTRY) });
     const run = await h.runOn({ workItem: PR_51 });
@@ -2622,6 +2659,9 @@ describe('on a chosen item', () => {
       expect(revOf51(h)).toBe('b');
       await h.service.approve(run.id);
       await h.flush();
+      // Approved, it starts after a check asked for now (the user's decision of 2026-11-21).
+      expect(h.store.get(run.id)!.status).toBe('queued');
+      await h.check();
       expect(h.store.get(run.id)).toMatchObject({
         status: 'running',
         trigger: { kind: 'manual', item: { key: PR_51_KEY, title: moved.title } },
