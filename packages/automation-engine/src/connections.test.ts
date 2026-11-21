@@ -149,6 +149,16 @@ describe('resolveEventSource', () => {
       ok: false,
       problem: expect.stringMatching(/no connection named "jira".*github/),
     });
+    // A name every object inherits is no connection either, as factory-spec now lets it through.
+    const inherited = resolveEventSource({
+      ...reviewRequested,
+      connection: 'constructor',
+      events: ['x'],
+    });
+    expect(inherited).toEqual({
+      ok: false,
+      problem: expect.stringMatching(/no connection named "constructor".*github/),
+    });
 
     const opened = resolveEventSource({ ...reviewRequested, events: ['pull_request.opened'] });
     expect(opened).toEqual({

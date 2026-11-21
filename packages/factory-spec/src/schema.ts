@@ -136,7 +136,9 @@ const triggerSchema = z.unknown().transform((on, ctx): Trigger => {
         : parseManualTrigger(on.manual, rest, report);
     return parsed && !reported ? parsed : z.NEVER;
   }
-  if (kind in LATER_TRIGGERS) return fail(LATER_TRIGGERS[kind], [kind]);
+  // Own keys only: `in` would take `constructor` or `toString` for a later trigger.
+  if (Object.prototype.hasOwnProperty.call(LATER_TRIGGERS, kind))
+    return fail(LATER_TRIGGERS[kind], [kind]);
 
   if (!CONNECTION_ID_PATTERN.test(kind)) return fail(NOT_A_CONNECTION(kind), [kind]);
   const written = on[kind];

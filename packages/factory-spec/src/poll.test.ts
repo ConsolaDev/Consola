@@ -173,6 +173,20 @@ describe('on: manual', () => {
       /^Expected a trigger, .*cron.*poll.*`on: manual`.*github/,
     );
   });
+
+  it('reads a name every object inherits as any other name, never as a later trigger', () => {
+    // A lowercase id, so a connection's name, as `gitlab` is: the runner says there is no such connection.
+    expect(one(`    on: { constructor: x }\n${RUN}`)).toMatchObject({
+      issues: [],
+      automations: [
+        { trigger: { kind: 'event', connection: 'constructor', events: ['x'], params: {} } },
+      ],
+    });
+    // Not an id: refused with the sentence any such word gets.
+    expect(issues(one(`    on: { toString: x }\n${RUN}`))).toEqual([
+      ['automations[0].on.toString', expect.stringMatching(/^"toString" is not a trigger\. /)],
+    ]);
+  });
 });
 
 describe('applies_to:', () => {

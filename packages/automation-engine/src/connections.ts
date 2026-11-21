@@ -400,7 +400,10 @@ export function resolveEventSource(
   trigger: EventTrigger,
   filter?: Record<string, unknown>,
 ): EventSourceResolution {
-  const connection = CONNECTIONS[trigger.connection];
+  // Own keys only, as `workItemSource` reads them: `constructor` is no connection.
+  const connection = own(CONNECTIONS, trigger.connection)
+    ? CONNECTIONS[trigger.connection]
+    : undefined;
   if (!connection) {
     return {
       ok: false,
