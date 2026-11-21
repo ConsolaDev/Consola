@@ -17,7 +17,12 @@ import {
 import * as Tabs from '@radix-ui/react-tabs';
 import * as Tooltip from '@radix-ui/react-tooltip';
 import { Maximize2, Minimize2, Plus, X } from 'lucide-react';
-import { type DraggedTab, type DropZone, insertionIndex } from '../../sidePanel/dropTarget';
+import {
+  type DraggedTab,
+  type DropZone,
+  draggedTabOf,
+  insertionIndex,
+} from '../../sidePanel/dropTarget';
 import { NEW_TAB, type GroupPosition, type TabGroupNode, type TabId } from '../../sidePanel/layout';
 import { tabKind, type TabFacts } from '../../sidePanel/tabKinds';
 import { useSidePanelStore } from '../../stores/sidePanelStore';
@@ -179,11 +184,11 @@ function DropCaret({ groupId }: { groupId: string }) {
   const [left, setLeft] = useState<number | null>(null);
   const follow = ({ active, over }: DragMoveEvent) => {
     const zone = over?.data.current as DropZone | undefined;
-    const dragged = active.data.current as DraggedTab | undefined;
+    const dragged = draggedTabOf(active);
     const pointer = dragPointer();
     const place =
-      zone?.part === 'bar' && zone.groupId === groupId && dragged && pointer
-        ? zone.placeAt(dragged.tab, pointer.x)
+      zone?.part === 'bar' && zone.groupId === groupId && dragged !== undefined && pointer
+        ? zone.placeAt(dragged, pointer.x)
         : null;
     setLeft(place ? place.caretLeft : null);
   };
@@ -200,8 +205,8 @@ function DropCaret({ groupId }: { groupId: string }) {
 /** What follows the pointer while a tab is dragged: the tab's icon and label. */
 export function DraggedTabPreview({ facts }: { facts: TabFacts }) {
   const { active } = useDndContext();
-  const dragged = active?.data.current as DraggedTab | undefined;
-  const kind = dragged ? tabKind(dragged.tab) : undefined;
+  const dragged = draggedTabOf(active);
+  const kind = dragged !== undefined ? tabKind(dragged) : undefined;
   if (!kind) return null;
   const Icon = kind.icon;
   return (

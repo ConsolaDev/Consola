@@ -12,7 +12,7 @@ import {
   useSensors,
 } from '@dnd-kit/core';
 import { Group, Panel, Separator, useDefaultLayout } from 'react-resizable-panels';
-import { type DraggedTab, type DropZone, splitEdge } from '../../sidePanel/dropTarget';
+import { type DropZone, draggedTabOf, splitEdge } from '../../sidePanel/dropTarget';
 import { groupPosition, groupsOf, type TabId, visibleGroups } from '../../sidePanel/layout';
 import { tabKind, type TabFacts } from '../../sidePanel/tabKinds';
 import { useSidePanelStore } from '../../stores/sidePanelStore';
@@ -45,7 +45,7 @@ export function SidePanel({ facts }: { facts: TabFacts }) {
     panelIds: groups.map((group) => `side-group-${group.id}`),
     storage: localStorage,
   });
-  const sensors = useSensors(useSensor(MouseSensor, { activationConstraint: { distance: 6 } }));
+  const sensors = useSensors(useSensor(TabMouseSensor, { activationConstraint: { distance: 6 } }));
   // Where the keyboard was before the press that began a drag: the press
   // itself moves it onto the tab.
   const keyboardBefore = useRef<Element | null>(null);
@@ -166,6 +166,26 @@ export function SidePanel({ facts }: { facts: TabFacts }) {
 }
 
 /**
+ * dnd-kit's mouse sensor, for a press of the main button without Ctrl. dnd-kit
+ * turns away only the right button, but on macOS Ctrl with the main button is
+ * the context click, which opens the tab's menu and must not also drag the
+ * tab. A tab's ✕ hands its press to the same listeners, so it is held to
+ * this too.
+ */
+class TabMouseSensor extends MouseSensor {
+  static activators: (typeof MouseSensor)['activators'] = [
+    {
+      eventName: 'onMouseDown',
+      handler: ({ nativeEvent: event }, { onActivation }) => {
+        if (event.button !== 0 || event.ctrlKey) return false;
+        onActivation?.({ event });
+        return true;
+      },
+    },
+  ];
+}
+
+/**
  * What a drag does to the keyboard while dnd-kit has it under way, read from
  * dnd-kit's rendered state rather than its callbacks. A drag released before
  * dnd-kit renders its start (a flick, or a click that slipped past the 6px)
@@ -194,15 +214,6 @@ function KeyboardWhileDragging() {
     return escapeCancelsDrag();
   }, [id]);
   return null;
-}
-
-/**
- * The tab a drag carries. Closing a tab while it is dragged (Delete on the
- * trigger its press focused) unmounts its draggable, and dnd-kit then gives
- * the drag, still under way, empty data: from there on it carries no tab.
- */
-function draggedTabOf(active: Active | null): TabId | undefined {
-  return (active?.data.current as Partial<DraggedTab> | undefined)?.tab;
 }
 
 /**

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { edgeAt, insertionIndex, splitEdge } from './dropTarget';
+import { draggedTabOf, edgeAt, insertionIndex, splitEdge } from './dropTarget';
 import { defaultLayout, NEW_TAB, openKind, splitWithTab } from './layout';
 
 const area = { left: 0, top: 0, width: 400, height: 300 };
@@ -63,5 +63,17 @@ describe('splitEdge', () => {
     expect(splitEdge(split, 'g1', 'changes', area, bottom)).toBeNull();
     expect(splitEdge(split, 'g1', 'files', area, bottom)).toBeNull();
     expect(splitEdge(opened('changes', 'files'), 'g1', NEW_TAB, area, bottom)).toBeNull();
+  });
+});
+
+describe('draggedTabOf', () => {
+  it('is the tab a drag carries', () => {
+    expect(draggedTabOf({ data: { current: { groupId: 'g1', tab: 'files' } } })).toBe('files');
+  });
+
+  it('is no tab once the dragged tab has closed and its data emptied, nor with no drag', () => {
+    expect(draggedTabOf({ data: { current: {} } })).toBeUndefined();
+    expect(draggedTabOf({ data: { current: null } })).toBeUndefined();
+    expect(draggedTabOf(null)).toBeUndefined();
   });
 });

@@ -31,6 +31,19 @@ export interface DraggedTab {
 }
 
 /**
+ * The tab a drag carries, from what dnd-kit holds for it (`active`). Closing
+ * a tab while it is dragged (Delete on the trigger its press focused)
+ * unmounts its draggable, and dnd-kit then gives the drag, still under way,
+ * empty data: from there on it carries no tab, and nothing may show where
+ * one would go.
+ */
+export function draggedTabOf(
+  active: { data: { current?: unknown } } | null | undefined,
+): TabId | undefined {
+  return (active?.data.current as Partial<DraggedTab> | null | undefined)?.tab;
+}
+
+/**
  * What a place to drop a tab says about itself. A bar measures its own tabs:
  * where a tab dropped at `x` goes among them, as `moveTab`'s index, and where
  * its caret is drawn, from the bar's left edge.

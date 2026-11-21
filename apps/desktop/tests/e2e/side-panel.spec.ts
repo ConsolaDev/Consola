@@ -1513,6 +1513,58 @@ test.describe('side panel', () => {
     expect(await heard()).toEqual(['Escape']);
   });
 
+  test('a Ctrl-press on a tab or its ✕, which opens its menu, never drags it', async () => {
+    test.skip(
+      process.platform !== 'darwin',
+      'Ctrl with the main button is the context click on macOS',
+    );
+    await openSession('Paginate the catalog search');
+    await changesShortcut().click();
+    await page.getByRole('button', { name: 'Files', exact: true }).click();
+    const dragging = page.locator('.side-panel-tab[data-dragging]');
+    const twoFrames = () =>
+      page.evaluate(
+        () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))),
+      );
+    /**
+     * Presses on `target`, Ctrl held or not, and moves 30px left and up with
+     * the button down: away from where the menu opens, below and right of
+     * the press, so letting go chooses none of its items.
+     */
+    const pressAndMove = async (target: Locator, ctrl: boolean) => {
+      const box = (await target.boundingBox())!;
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      if (ctrl) await page.keyboard.down('Control');
+      await page.mouse.down();
+      await page.mouse.move(box.x + box.width / 2 - 30, box.y + box.height / 2 - 8, { steps: 8 });
+      await twoFrames();
+    };
+    const release = async (ctrl: boolean) => {
+      await page.mouse.up();
+      if (ctrl) await page.keyboard.up('Control');
+      // A menu the press opened, shut.
+      if (await page.getByRole('menu').count()) await page.keyboard.press('Escape');
+      await expect(page.getByRole('menu')).toHaveCount(0);
+      await waitOutDragClickGuard();
+    };
+
+    // Without Ctrl the same press drags: the control.
+    await pressAndMove(sidePanelTab('Files'), false);
+    await expect(dragging).toHaveCount(1);
+    await page.keyboard.press('Escape');
+    await release(false);
+
+    for (const target of [
+      sidePanelTab('Files'),
+      page.getByRole('button', { name: 'Close Files tab', exact: true }),
+    ]) {
+      await pressAndMove(target, true);
+      await expect(dragging).toHaveCount(0);
+      await release(true);
+      await expect(sidePanelTabs().getByRole('tab')).toHaveText(['Changes', 'Files']);
+    }
+  });
+
   test('a tab closed while it is dragged still holds Escape until the drag is over', async () => {
     await openSession('Paginate the catalog search');
     await changesShortcut().click();
@@ -1543,6 +1595,15 @@ test.describe('side panel', () => {
     await expect(sidePanelTab('Files')).toBeFocused();
     await page.keyboard.press('Delete');
     await expect(sidePanelTabs().getByRole('tab')).toHaveText(['Changes']);
+    // It carries no tab from here: over a bar no caret says where one would
+    // go, and nothing follows the pointer.
+    const bar = (await sidePanelTabs().boundingBox())!;
+    await page.mouse.move(bar.x + bar.width - 4, bar.y + bar.height / 2, { steps: 4 });
+    await page.evaluate(
+      () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))),
+    );
+    await expect(page.locator('.side-panel-drop-caret')).toHaveCount(0);
+    await expect(page.locator('.side-panel-tab-drag-preview')).toHaveCount(0);
     await page.mouse.move(area.x + area.width / 2, area.y + area.height / 3, { steps: 2 });
     expect(await heard()).toEqual(['Delete']);
 

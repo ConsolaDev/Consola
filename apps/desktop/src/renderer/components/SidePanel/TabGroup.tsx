@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
 import { type DragMoveEvent, useDndMonitor, useDroppable } from '@dnd-kit/core';
 import * as Tabs from '@radix-ui/react-tabs';
-import { type DraggedTab, type DropZone, splitEdge } from '../../sidePanel/dropTarget';
+import { type DropZone, draggedTabOf, splitEdge } from '../../sidePanel/dropTarget';
 import {
   type Edge,
   type GroupId,
@@ -78,12 +78,16 @@ function ContentDropZone({ groupId }: { groupId: GroupId }) {
   const [edge, setEdge] = useState<Edge | null>(null);
   const follow = ({ active, over }: DragMoveEvent) => {
     const target = over?.data.current as DropZone | undefined;
-    const dragged = active.data.current as DraggedTab | undefined;
+    const dragged = draggedTabOf(active);
     const pointer = dragPointer();
     const layout = useSidePanelStore.getState().layout;
     setEdge(
-      over && target?.part === 'content' && target.groupId === groupId && dragged && pointer
-        ? splitEdge(layout, groupId, dragged.tab, over.rect, pointer)
+      over &&
+        target?.part === 'content' &&
+        target.groupId === groupId &&
+        dragged !== undefined &&
+        pointer
+        ? splitEdge(layout, groupId, dragged, over.rect, pointer)
         : null,
     );
   };
