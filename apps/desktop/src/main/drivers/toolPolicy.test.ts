@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { AntigravityDriver } from './AntigravityDriver';
 import { ClaudeDriver } from './ClaudeDriver';
 import { CodexDriver } from './CodexDriver';
 import { toolPolicyProblem } from './index';
@@ -185,7 +186,11 @@ describe('Conversation transplant contract', () => {
     // `transplantConversation` followed by a `forkFrom` launch: a driver
     // offering the first must honour the second, or a switch would copy a
     // conversation and then fail to start it.
-    const drivers: HarnessDriver[] = [new ClaudeDriver(), new CodexDriver()];
+    const drivers: HarnessDriver[] = [
+      new ClaudeDriver(),
+      new CodexDriver(),
+      new AntigravityDriver(),
+    ];
     for (const driver of drivers) {
       if (!driver.transplantConversation) continue;
       const args = await driver.buildSessionArgs(
@@ -197,10 +202,45 @@ describe('Conversation transplant contract', () => {
     }
   });
 
-  it('Codex offers no transplant, so a switch away from it hands the conversation over', () => {
-    const codex: HarnessDriver = new CodexDriver();
-    expect(codex.transplantConversation).toBeUndefined();
-    expect(typeof codex.readConversation).toBe('function');
+  it('Codex and Antigravity offer no transplant, so a switch away hands the conversation over', () => {
+    for (const candidate of [new CodexDriver(), new AntigravityDriver()] as HarnessDriver[]) {
+      expect(candidate.transplantConversation).toBeUndefined();
+      expect(typeof candidate.readConversation).toBe('function');
+    }
+  });
+});
+
+describe('Antigravity read-only launches', () => {
+  it('refuses unattended and fork', () => {
+    const agy = new AntigravityDriver();
+    const refusal =
+      'This harness can’t run a turn unattended or continue a conversation in a new session.';
+    expect(() =>
+      agy.buildSessionArgs(
+        { extraArgs: [] },
+        { sessionId: 'abc', resume: false, unattended: true, initialPrompt: 'Review it.' },
+      ),
+    ).toThrow(refusal);
+    expect(() =>
+      agy.buildSessionArgs(
+        { extraArgs: [] },
+        { sessionId: 'new', resume: false, forkFrom: 'orig' },
+      ),
+    ).toThrow(refusal);
+  });
+
+  it('refuses read-only launches because repo hooks and MCP servers cannot be shut out yet', () => {
+    const agy = new AntigravityDriver();
+    expect(agy.toolPolicyProblem({ extraArgs: [] }, 'read-only')).toMatch(
+      /Antigravity sessions cannot be made read-only/,
+    );
+    expect(() =>
+      agy.buildSessionArgs(
+        { extraArgs: [] },
+        { sessionId: 'abc', resume: true, toolPolicy: 'read-only' },
+      ),
+    ).toThrow(/cannot be made read-only/);
+    expect(agy.toolPolicyProblem({ extraArgs: ['--sandbox'] }, undefined)).toBeNull();
   });
 });
 
@@ -245,6 +285,7 @@ describe('toolPolicyProblem', () => {
       toolPolicyProblem({ extraArgs: ['--dangerously-skip-permissions'] }, 'read-only'),
     ).toMatch(/dangerously-skip-permissions/);
     expect(toolPolicyProblem({ driverId: 'codex' }, 'read-only')).toMatch(/Codex/);
+    expect(toolPolicyProblem({ driverId: 'antigravity' }, 'read-only')).toMatch(/Antigravity/);
     expect(
       toolPolicyProblem({ extraArgs: ['--dangerously-skip-permissions'] }, undefined),
     ).toBeNull();
