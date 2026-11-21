@@ -1,7 +1,13 @@
-import { Diff, FolderTree } from 'lucide-react';
+import { Diff, FolderTree, GitPullRequest } from 'lucide-react';
 import { describe, expect, it } from 'vitest';
 import type { CheckoutInfo } from '../../shared/sessionCheckout';
-import { createSessionRecord, createWorkspaceRecord, type Session } from '../../shared/workspace';
+import type { WorkItemRef } from '../../shared/workItems';
+import {
+  createSessionRecord,
+  createWorkspaceRecord,
+  type Session,
+  type Workspace,
+} from '../../shared/workspace';
 import type { RemovedWorktree } from '../../shared/worktreeCleanup';
 import {
   bodyFor,
@@ -55,11 +61,12 @@ const noFolder = tabFactsFor(
 
 const changesKind = tabKind('changes')!;
 const filesKind = tabKind('files')!;
+const pullRequestKind = tabKind('pull-request')!;
 const frontOnly: TabKind = { ...changesKind, mount: 'front' };
 
 describe('the registry', () => {
   it('lists the kinds in registry order with unique one-letter keys', () => {
-    expect(TAB_KIND_IDS).toEqual(['changes', 'files']);
+    expect(TAB_KIND_IDS).toEqual(['changes', 'files', 'pull-request']);
     expect(TAB_KINDS.map((kind) => kind.id)).toEqual(TAB_KIND_IDS);
     const keys = TAB_KINDS.map((kind) => kind.key);
     for (const key of keys) expect(key).toMatch(/^[A-Z]$/);
@@ -71,6 +78,8 @@ describe('the registry', () => {
     expect(isTabKindId('changes')).toBe(true);
     expect(tabKind('files')).toBe(TAB_KINDS[1]);
     expect(isTabKindId('files')).toBe(true);
+    expect(tabKind('pull-request')).toBe(TAB_KINDS[2]);
+    expect(isTabKindId('pull-request')).toBe(true);
     expect(tabKind('browser')).toBeUndefined();
     expect(isTabKindId('browser')).toBe(false);
     expect(isTabKindId('new-tab')).toBe(false);
@@ -141,6 +150,79 @@ describe('Files', () => {
     expect(filesKind.availability(inGit)).toEqual({ available: true });
     expect(filesKind.availability(outsideGit)).toEqual({ available: true });
     expect(filesKind.availability(factsFor(undefined))).toEqual({ available: true });
+  });
+});
+
+describe('Pull request', () => {
+  const account: Workspace = {
+    ...workspace,
+    provider: { id: 'github', accountLogin: 'JaviDev', org: 'sprocket' },
+  };
+  const ref = (type: WorkItemRef['type'], number: number): WorkItemRef => ({
+    provider: 'github',
+    repo: 'sprocket/catalog-portal',
+    type,
+    number,
+  });
+  const linked = (workItem: WorkItemRef | undefined, onWorkspace: Workspace = account) =>
+    tabFactsFor(onWorkspace, { ...session, workItem }, mainCheckout);
+
+  it('is keyed P, has no chord and is kept mounted behind', () => {
+    expect(pullRequestKind.key).toBe('P');
+    expect(pullRequestKind.icon).toBe(GitPullRequest);
+    expect(pullRequestKind.chord).toBeUndefined();
+    expect(pullRequestKind.mount).toBe('keep');
+  });
+
+  it('is titled by the linked item, and its tab by the shortest name for it', () => {
+    const pr = linked(ref('pr', 51));
+    expect(pullRequestKind.title(pr)).toBe('Pull request #51');
+    expect(pullRequestKind.tabTitle?.(pr)).toBe('#51');
+
+    const issue = linked(ref('issue', 12));
+    expect(pullRequestKind.title(issue)).toBe('Issue #12');
+    expect(pullRequestKind.tabTitle?.(issue)).toBe('Issue');
+
+    const none = linked(undefined);
+    expect(pullRequestKind.title(none)).toBe('Pull request');
+    expect(pullRequestKind.tabTitle?.(none) ?? pullRequestKind.title(none)).toBe('Pull request');
+  });
+
+  it('Pull request is unavailable for an unlinked session, and without an account', () => {
+    expect(pullRequestKind.availability(linked(undefined))).toEqual({
+      available: false,
+      reason: 'This session is not linked to a pull request or issue.',
+    });
+    expect(pullRequestKind.availability(linked(ref('pr', 51), workspace))).toEqual({
+      available: false,
+      reason: 'This workspace has no account to read it with. Add one in Workspace settings.',
+    });
+    // Neither linked nor readable: not being linked is what the person can act on first.
+    expect(pullRequestKind.availability(linked(undefined, workspace))).toEqual({
+      available: false,
+      reason: 'This session is not linked to a pull request or issue.',
+    });
+    expect(pullRequestKind.availability(linked(ref('pr', 51)))).toEqual({ available: true });
+    expect(pullRequestKind.availability(linked(ref('issue', 12)))).toEqual({ available: true });
+  });
+
+  it('Pull request needs no folder: it reads the item, not the checkout', () => {
+    const workItem = ref('pr', 51);
+    const worktreeGone = tabFactsFor(
+      account,
+      { ...session, workItem, cwd: '/tmp/wt', removedWorktree },
+      mainCheckout,
+    );
+    expect(worktreeGone.checkoutPath).toBeUndefined();
+    expect(pullRequestKind.availability(worktreeGone)).toEqual({ available: true });
+
+    const scopeGone = tabFactsFor(
+      { ...account, scopes: [] },
+      { ...session, workItem, scopeId: 'gone' },
+      undefined,
+    );
+    expect(scopeGone.checkoutPath).toBeUndefined();
+    expect(pullRequestKind.availability(scopeGone)).toEqual({ available: true });
   });
 });
 

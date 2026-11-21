@@ -267,20 +267,6 @@ export function buildActionItems(ctx: PaletteContext): ActionPaletteItem[] {
     });
   }
 
-  // Only a linked session has an item to show, and only a workspace with an
-  // account can read it -- the same rule as the strip's Details toggle.
-  if (activeSession?.workItem && activeWorkspace?.provider) {
-    items.push({
-      kind: 'action',
-      section: 'actions',
-      id: 'action.view.toggle-work-item-panel',
-      label: `Toggle ${activeSession.workItem.type === 'pr' ? 'pull request' : 'issue'} details`,
-      context: `${activeSession.workItem.repo}#${activeSession.workItem.number}`,
-      icon: PanelRight,
-      run: () => useNavigationStore.getState().toggleWorkItemPanel(),
-    });
-  }
-
   items.push({
     kind: 'action',
     section: 'actions',

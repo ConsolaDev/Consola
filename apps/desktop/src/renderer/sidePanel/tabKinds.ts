@@ -12,12 +12,13 @@
  *
  * No components and no stores, so the node test environment can import it.
  */
-import { Diff, FolderTree, type LucideIcon } from 'lucide-react';
+import { Diff, FolderTree, GitPullRequest, type LucideIcon } from 'lucide-react';
 import type { CheckoutInfo } from '../../shared/sessionCheckout';
+import type { WorkItemRef } from '../../shared/workItems';
 import { checkoutPathForSession, type Session, type Workspace } from '../../shared/workspace';
 import { isMac } from '../utils/platform';
 
-export type TabKindId = 'changes' | 'files';
+export type TabKindId = 'changes' | 'files' | 'pull-request';
 
 export interface TabFacts {
   workspace: Workspace;
@@ -49,8 +50,16 @@ const REMOVED_WORKTREE =
   'This session’s worktree was removed. It is rebuilt when the session next starts.';
 const NOT_A_REPOSITORY = 'This folder is not a git repository.';
 const NO_FOLDER = 'This session has no folder.';
+const NOT_LINKED = 'This session is not linked to a pull request or issue.';
+const NO_ACCOUNT = 'This workspace has no account to read it with. Add one in Workspace settings.';
 
 const unavailable = (reason: string): Availability => ({ available: false, reason });
+
+/** The Pull request kind's title: the linked item, or the kind's own name without one. */
+function workItemTitle(item: WorkItemRef | undefined): string {
+  if (!item) return 'Pull request';
+  return `${item.type === 'pr' ? 'Pull request' : 'Issue'} #${item.number}`;
+}
 
 /**
  * For a kind that shows the session's folder: available whenever there is
@@ -86,6 +95,27 @@ export const TAB_KINDS: readonly TabKind[] = [
     chord: isMac ? '⇧⌘E' : 'Ctrl+Shift+E',
     title: () => 'Files',
     availability: folderAvailability,
+    mount: 'keep',
+  },
+  {
+    // The session's linked pull request or issue. It reads the item, never
+    // the checkout, so it needs no folder.
+    id: 'pull-request',
+    key: 'P',
+    icon: GitPullRequest,
+    title: (facts) => workItemTitle(facts.session.workItem),
+    tabTitle: (facts) => {
+      const item = facts.session.workItem;
+      if (!item) return workItemTitle(item);
+      return item.type === 'pr' ? `#${item.number}` : 'Issue';
+    },
+    // The item is read as the workspace's account, as the Inbox reads it, so
+    // a link is not enough without one.
+    availability: (facts) => {
+      if (!facts.session.workItem) return unavailable(NOT_LINKED);
+      if (!facts.workspace.provider) return unavailable(NO_ACCOUNT);
+      return { available: true };
+    },
     mount: 'keep',
   },
 ];

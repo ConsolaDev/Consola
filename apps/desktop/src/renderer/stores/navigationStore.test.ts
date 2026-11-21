@@ -46,7 +46,6 @@ function makeCurrent(overrides: Partial<NavigationState> = {}): NavigationState 
   return {
     isSidebarHidden: false,
     sidebarWidth: SIDEBAR_WIDTH_DEFAULT,
-    isWorkItemPanelVisible: false,
     isBrowserVisible: false,
     activeWorkspaceId: 'current-workspace',
     activeSessionId: 'current-session',
@@ -54,8 +53,6 @@ function makeCurrent(overrides: Partial<NavigationState> = {}): NavigationState 
     toggleSidebar: vi.fn(),
     setSidebarHidden: vi.fn(),
     setSidebarWidth: vi.fn(),
-    toggleWorkItemPanel: vi.fn(),
-    setWorkItemPanelVisible: vi.fn(),
     toggleBrowser: vi.fn(),
     setBrowserVisible: vi.fn(),
     setActiveWorkspace: vi.fn(),
@@ -110,16 +107,12 @@ describe('mergeNavigationState', () => {
     expect(result).not.toHaveProperty('isExplorerVisible');
   });
 
-  it('takes the work-item panel preference from the blob, and keeps current without one', () => {
-    const current = makeCurrent({ isWorkItemPanelVisible: false });
+  it('ignores the retired details flag', () => {
+    // A linked session's details are the side panel's Pull request tab now,
+    // which the side panel's own store opens and remembers.
+    const result = mergeNavigationState({ isWorkItemPanelVisible: true }, makeCurrent());
 
-    expect(
-      mergeNavigationState({ isWorkItemPanelVisible: true }, current).isWorkItemPanelVisible,
-    ).toBe(true);
-    expect(
-      mergeNavigationState({ isWorkItemPanelVisible: 'yes' }, current).isWorkItemPanelVisible,
-    ).toBe(false);
-    expect(mergeNavigationState({}, current).isWorkItemPanelVisible).toBe(false);
+    expect(result).not.toHaveProperty('isWorkItemPanelVisible');
   });
 
   it('takes the browser panel preference from the blob, and keeps current without one', () => {

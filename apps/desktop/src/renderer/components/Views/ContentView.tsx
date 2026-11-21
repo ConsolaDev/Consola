@@ -13,7 +13,6 @@ import { TerminalPanel } from '../Terminal';
 import { SidePanel } from '../SidePanel/SidePanel';
 import { BrowserPanel } from '../Browser';
 import { WorkItemStrip } from '../WorkItemStrip';
-import { WorkItemPanel } from '../WorkItemPanel';
 import { SessionHeader } from './SessionHeader';
 import './styles.css';
 
@@ -24,7 +23,6 @@ interface ContentViewProps {
 
 export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
   const isSidePanelVisible = useSidePanelStore((state) => state.layout.visible);
-  const isWorkItemPanelVisible = useNavigationStore((state) => state.isWorkItemPanelVisible);
   const isBrowserVisible = useNavigationStore((state) => state.isBrowserVisible);
 
   const getWorkspace = useWorkspaceStore((state) => state.getWorkspace);
@@ -46,10 +44,6 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
   // show, but the terminal still launches where the session belongs: main
   // rebuilds the worktree there before it spawns.
   const terminalCwd = cwd || (session?.removedWorktree ? (session.cwd ?? scope?.path ?? '') : '');
-  // Details are read as the workspace's account, so a workspace without one
-  // has nothing to show even when the session still names an item.
-  const showWorkItemPanel =
-    isWorkItemPanelVisible && Boolean(session?.workItem) && Boolean(workspace?.provider);
   // What the side panel's tabs read: `useTabFacts`, split around the early
   // return below, since hooks cannot wait for the session to be found.
   const checkout = useCheckout(cwd || null);
@@ -58,7 +52,6 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
   // panel must not overwrite the layout that remembers its width.
   const panelIds = [
     'agent',
-    ...(showWorkItemPanel ? ['work-item'] : []),
     ...(isBrowserVisible ? ['browser'] : []),
     ...(isSidePanelVisible ? ['side-panel'] : []),
   ];
@@ -150,14 +143,6 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
             </SessionTerminalLayout>
           </Panel>
           {/* The info panel (PR 2) goes here, between the conversation and the side panel. */}
-          {showWorkItemPanel && (
-            <>
-              <Separator className="resize-handle" />
-              <Panel id="work-item" defaultSize="38%" minSize="320px" maxSize="70%">
-                <WorkItemPanel workspaceId={workspaceId} session={session} />
-              </Panel>
-            </>
-          )}
           {isBrowserVisible && (
             <>
               <Separator className="resize-handle" />

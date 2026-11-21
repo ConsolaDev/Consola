@@ -993,6 +993,14 @@ test('a linked session shows its item pane beside the terminal, and Fix pastes i
         await link(51, 'Fix CI', 'details-e2e');
         // #52 is not in the Inbox: merged, closed, or out of its window.
         await link(52, 'Review', 'details-e2e-unlisted');
+        // A session with no item: its Pull request tab can only say why.
+        await window.workspaceAPI.createSession(workspaceId, {
+          name: 'Notes on billing',
+          workspaceId,
+          instanceId: 'details-e2e-unlinked',
+          harnessId: 'stub',
+          scopeId: 'scope-controller',
+        });
       },
       { workspaceId, binaryPath: agent },
     );
@@ -1014,6 +1022,13 @@ test('a linked session shows its item pane beside the terminal, and Fix pastes i
     await expect(panel).toHaveCount(0);
     await toggle.click();
     await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    // Details is the side panel's Pull request tab, named by the item.
+    const sidePanel = page.getByTestId('side-panel');
+    await expect(
+      sidePanel
+        .getByRole('tablist', { name: 'Side panel tabs' })
+        .getByRole('tab', { name: 'Pull request #51', exact: true }),
+    ).toHaveText('#51');
 
     // The whole Inbox pane: header, remote details, sessions, ways to start one.
     const pane = panel.getByRole('complementary', { name: 'Work item details' });
@@ -1043,20 +1058,35 @@ test('a linked session shows its item pane beside the terminal, and Fix pastes i
       .toContain(
         '\x1b[200~Investigate and fix the failing CI checks for https://github.com/sprocket/catalog-portal/pull/51.',
       );
-    await expect(page.locator('.terminal-panel .terminal-surface textarea')).toBeFocused();
+    // The keyboard goes back to the conversation, never to a shell beside it.
+    await expect(
+      page.locator('[data-conversation-terminal] .terminal-surface textarea'),
+    ).toBeFocused();
     await expect(pane.getByRole('textbox', { name: 'Custom prompt' })).toHaveCount(0);
     await page.screenshot({
       path: path.join(test.info().outputDir, 'session-work-item-panel.png'),
     });
 
-    // The panel is a preference: the next linked session shows it too. Its
-    // item is not in the Inbox, so the pane names it from a fresh read.
+    // The tab belongs to the side panel, which every session shares: the next
+    // linked session shows its own item there. That item is not in the Inbox,
+    // so the pane names it from a fresh read.
     await page.locator('.session-nav-item', { hasText: 'PR #52 · Review' }).click();
     await expect(pane.locator('.inbox-pane-meta')).toContainText('sprocket/catalog-portal#52');
     await expect(pane.getByRole('heading', { name: 'Extract billing client' })).toBeVisible({
       timeout: 15_000,
     });
     await expect(pane.locator('.inbox-pane-meta .inbox-detail-state')).toHaveText('Open');
+
+    // A session with no item keeps the tab, and says why it has nothing to show.
+    await page.locator('.session-nav-item', { hasText: 'Notes on billing' }).click();
+    await expect(sidePanel).toContainText('This session is not linked to a pull request or issue.');
+    await expect(panel).toHaveCount(0);
+
+    // An unavailable tab stays in the layout: the linked session shows its pane again.
+    await page.locator('.session-nav-item', { hasText: 'PR #51 · Fix CI' }).click();
+    await expect(pane.getByRole('heading', { name: 'Extract billing client' })).toBeVisible();
+    await expect(thisRow).toContainText('This session');
+    await expect(toggle).toHaveAttribute('aria-pressed', 'true');
 
     await pane.getByRole('button', { name: 'Close details' }).click();
     await expect(panel).toHaveCount(0);

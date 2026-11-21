@@ -1,6 +1,7 @@
 import type { ComponentType } from 'react';
 import type { TabFacts, TabKindId } from '../../sidePanel/tabKinds';
 import { GitReviewPanel } from '../GitReviewPanel';
+import { WorkItemPanel } from '../WorkItemPanel';
 import { FilesTab } from './FilesTab';
 
 export interface TabViewProps {
@@ -22,4 +23,14 @@ export const TAB_VIEWS: Record<TabKindId, ComponentType<TabViewProps>> = {
   ),
   // Files is unavailable whenever there is no path, so the null never shows.
   files: ({ facts }) => (facts.checkoutPath ? <FilesTab rootPath={facts.checkoutPath} /> : null),
+  // Pull request is unavailable without a linked item, so the null never shows.
+  'pull-request': ({ facts, close }) =>
+    facts.session.workItem ? (
+      <WorkItemPanel
+        workspaceId={facts.workspace.id}
+        session={facts.session}
+        workItem={facts.session.workItem}
+        onClose={close}
+      />
+    ) : null,
 };
