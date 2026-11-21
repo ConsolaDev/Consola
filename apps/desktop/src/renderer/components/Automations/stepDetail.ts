@@ -1,15 +1,27 @@
-import type { CommandFile, LogTail, StepRun, StepRunStatus } from '../../../shared/automations';
+import type {
+  CommandFile,
+  LogTail,
+  RunRecord,
+  StepRun,
+  StepRunStatus,
+} from '../../../shared/automations';
+import { formatElapsed } from './presentation';
 
-/** A value past this many characters is collapsed in a `<details>`. */
-const LONG_VALUE = 120;
+/**
+ * A value past this many characters, or spanning lines, folds behind a
+ * disclosure. Shorter ones read inline and wrap: a path is worth seeing.
+ */
+const LONG_VALUE = 300;
 
 /** What one `env:` entry of a command shows: its name, the template as written, and the value it rendered. */
 export interface VariableRow {
   name: string;
   template: string;
   value: string;
-  /** Past 120 characters or spanning lines: collapsed rather than read inline. */
+  /** Past 300 characters or spanning lines: folded rather than read inline. */
   long: boolean;
+  /** The file wrote a template (`{{…}}`), so the value came from somewhere worth naming. */
+  templated: boolean;
 }
 
 export function variableRows(command: CommandFile): VariableRow[] {
@@ -18,17 +30,8 @@ export function variableRows(command: CommandFile): VariableRow[] {
     template,
     value,
     long: value.length > LONG_VALUE || value.includes('\n'),
+    templated: template !== value,
   }));
-}
-
-/**
- * The step's heading: what it would have done when it only reported, else its
- * id. `dryRun` is the run's own flag; a step is reported only in a dry run, so
- * the status alone decides.
- */
-export function stepHeading(record: StepRun, dryRun: boolean): string {
-  void dryRun;
-  return record.status === 'reported' ? 'Would have run' : record.id;
 }
 
 /** An earlier attempt's status in the words a person uses: one that did not run did not fail. */
@@ -91,4 +94,280 @@ export function visibleTail(
   full: LogTail | undefined,
 ): LogTail | undefined {
   return full && (!initial || initial.bytes === full.bytes) ? full : initial;
+}
+
+/**
+ * How a step went, as its row in the run's trace marks it. A step still
+ * `pending` once the run is over never came, so it reads as not run; a
+ * status this build does not know reads the same way, never as an outcome.
+ */
+export type StepTone =
+  | 'passed'
+  | 'failed'
+  | 'running'
+  | 'waiting'
+  | 'pending'
+  | 'skipped'
+  | 'not-run'
+  | 'reported';
+
+/** A run in one of these is over. */
+export function runIsOver(status: RunRecord['status']): boolean {
+  return status === 'completed' || status === 'failed' || status === 'rejected';
+}
+
+export function stepTone(status: StepRunStatus, runOver: boolean): StepTone {
+  switch (status) {
+    case 'completed':
+      return 'passed';
+    case 'failed':
+      return 'failed';
+    case 'running':
+      return 'running';
+    case 'queued':
+      return 'waiting';
+    case 'skipped':
+      return 'skipped';
+    case 'reported':
+      return 'reported';
+    case 'not-run':
+      return 'not-run';
+    default:
+      return runOver ? 'not-run' : 'pending';
+  }
+}
+
+/**
+ * The step's outcome in a few words, with how long it took where it ran:
+ * what its row says, and its accessible name after the step's id.
+ */
+export function stepOutcome(tone: StepTone, ms: number | null): string {
+  const took = ms !== null ? formatElapsed(ms) : null;
+  switch (tone) {
+    case 'passed':
+      return took ? `Completed in ${took}` : 'Completed';
+    case 'failed':
+      return took ? `Failed after ${took}` : 'Failed';
+    case 'running':
+      return took ? `Running · ${took}` : 'Running';
+    case 'waiting':
+      return 'Waiting for a slot';
+    case 'pending':
+      return 'Not started';
+    case 'skipped':
+      return 'Skipped';
+    case 'not-run':
+      return 'Did not run';
+    case 'reported':
+      return 'Would have run';
+  }
+}
+
+/** A skip reason as the engine words a false `if:` (`if: <condition> is false`), parsed back to the condition. */
+const IF_FALSE = /^if: ([\s\S]+) is false$/;
+
+/** The `if:` a step was skipped on, when that is why it was skipped; null for any other reason. */
+export function skippedCondition(reason: string | undefined): string | null {
+  const match = reason ? IF_FALSE.exec(reason) : null;
+  return match ? match[1] : null;
+}
+
+/** `steps.<id>.<output>` in an expression: the values a condition read. */
+const OUTPUT_REF = /\bsteps\.([A-Za-z0-9_-]+)\.([A-Za-z0-9_-]+)\b/g;
+
+/**
+ * The outputs a condition read, each with the value the run recorded for it
+ * (undefined when that step set none), in the order they appear, once each.
+ */
+export function conditionValues(
+  condition: string,
+  steps: StepRun[],
+): Array<{ ref: string; step: string; value: string | number | boolean | undefined }> {
+  const seen = new Set<string>();
+  const values: Array<{ ref: string; step: string; value: string | number | boolean | undefined }> =
+    [];
+  for (const match of condition.matchAll(OUTPUT_REF)) {
+    const [ref, stepId, name] = match;
+    if (seen.has(ref)) continue;
+    seen.add(ref);
+    const outputs = steps.find((candidate) => candidate.id === stepId)?.outputs;
+    values.push({
+      ref,
+      step: stepId,
+      value:
+        outputs && Object.prototype.hasOwnProperty.call(outputs, name) ? outputs[name] : undefined,
+    });
+  }
+  return values;
+}
+
+/** Why a step the run never reached did not run, from how the run ended. */
+export function notRunReason(run: Pick<RunRecord, 'status' | 'steps'>): string {
+  if (run.status === 'rejected') return 'The run was turned down before it started.';
+  const failed = run.steps?.find((candidate) => candidate.status === 'failed');
+  if (failed) return `The run stopped at ${failed.id} before reaching it.`;
+  if (run.status === 'failed') return 'The run failed before reaching it.';
+  return 'The run ended before reaching it.';
+}
+
+/** A value as a row shows it: on one line, cut short past `max` characters. */
+function shortValue(value: string | number | boolean, max = 40): string {
+  const text = String(value).replace(/\s+/g, ' ');
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
+export function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/** What an artifact is for, where its name says: the two every step may write. */
+export function artifactNote(name: string, kind: StepRun['kind']): string | null {
+  if (name === 'handover') return 'what it handed to the steps after it';
+  if (name === 'output' && kind === 'run') return 'its stdout, kept for the steps after it';
+  return null;
+}
+
+/**
+ * What a step did, in one line under its name: the outputs it set and what
+ * it wrote, or what it printed; the error, word for word, when it failed;
+ * why it did not run. Null where the row's outcome already says it all.
+ */
+export function stepSummary(
+  step: StepRun,
+  run: Pick<RunRecord, 'status' | 'steps'>,
+): string | null {
+  const tone = stepTone(step.status, runIsOver(run.status));
+  switch (tone) {
+    case 'failed':
+      return step.error ?? 'It failed without saying why.';
+    case 'skipped': {
+      const condition = skippedCondition(step.skipped);
+      return condition ? `if: ${condition} was false` : (step.skipped ?? null);
+    }
+    case 'not-run':
+      return notRunReason(run);
+    case 'reported':
+      return 'A dry run: it was not run';
+    case 'running':
+      return step.kind === 'agent' ? 'Working in a read-only session' : null;
+    case 'waiting':
+    case 'pending':
+      return null;
+    case 'passed': {
+      const parts: string[] = [];
+      const outputs = Object.entries(step.outputs ?? {});
+      if (outputs.length > 0)
+        parts.push(
+          `set ${outputs.map(([name, value]) => `${name} = ${shortValue(value)}`).join(', ')}`,
+        );
+      for (const artifact of step.artifacts ?? []) {
+        const size = formatBytes(artifact.bytes);
+        if (artifact.name === 'handover') parts.push(`wrote its handover (${size})`);
+        else if (artifact.name === 'output' && step.kind === 'run')
+          parts.push(`kept its stdout as output (${size})`);
+        else parts.push(`wrote ${artifact.name} (${size})`);
+      }
+      if (parts.length === 0 && step.kind === 'run') {
+        const out = step.command?.stdoutBytes ?? 0;
+        const err = step.command?.stderrBytes ?? 0;
+        if (out > 0) parts.push(`printed ${formatBytes(out)}`);
+        if (err > 0) parts.push(`${formatBytes(err)} on stderr`);
+        if (out === 0 && err === 0 && step.command) parts.push('printed nothing');
+      }
+      if (parts.length === 0) return null;
+      const line = parts.join(' · ');
+      return line.charAt(0).toUpperCase() + line.slice(1);
+    }
+  }
+}
+
+/** `exit 3`, `killed by SIGTERM`, either with the last stderr line after `: `: how the engine words a command's failure. */
+const COMMAND_ENDED = /^(?:exit (\d+)|killed by (\S+))(?:: ([\s\S]+))?$/;
+
+/**
+ * A step's failure in plain words, for the run's own note: what happened,
+ * and the line it last wrote to stderr when the error carries one.
+ */
+export function failureWords(error: string | undefined): { text: string; quote: string | null } {
+  if (!error) return { text: 'It failed without saying why.', quote: null };
+  const ended = COMMAND_ENDED.exec(error);
+  if (ended) {
+    const [, code, signal, line] = ended;
+    const how =
+      code !== undefined
+        ? `Its command exited with code ${code}`
+        : `Its command was killed by ${signal}`;
+    return line
+      ? { text: `${how}. The last line it wrote to stderr:`, quote: line }
+      : { text: `${how}.`, quote: null };
+  }
+  const timedOut = /^timed out after (.+)$/.exec(error);
+  if (timedOut)
+    return {
+      text: `Its command ran past its ${timedOut[1]} timeout and was stopped.`,
+      quote: null,
+    };
+  const sentence = error.charAt(0).toUpperCase() + error.slice(1);
+  return { text: /[.!?]$/.test(sentence) ? sentence : `${sentence}.`, quote: null };
+}
+
+/**
+ * What Retry from a step touches, against what Run again does: retry runs
+ * that step again and the ones after it that never ran, as this run defined
+ * them, while the steps before it keep what they did; Run again starts over
+ * from the first step, with the file as it is now. Null for a step not in
+ * the run.
+ */
+export function retryScope(
+  steps: StepRun[],
+  targetId: string,
+): { later: string[]; earlier: string[] } | null {
+  const at = steps.findIndex((step) => step.id === targetId);
+  if (at === -1) return null;
+  return {
+    later: steps
+      .slice(at + 1)
+      .filter((step) => step.status === 'not-run' || step.status === 'pending')
+      .map((step) => step.id),
+    earlier: steps
+      .slice(0, at)
+      .filter((step) => step.status === 'completed')
+      .map((step) => step.id),
+  };
+}
+
+/**
+ * Whether a failure says no more than a command's own trace does — its exit
+ * code, and the stderr line it ends with — so the open trace need not
+ * repeat it.
+ */
+export function failureIsExit(error: string | undefined): boolean {
+  return error !== undefined && COMMAND_ENDED.test(error);
+}
+
+/** How the run's steps went, counted for the trace's heading: `6 steps · 5 completed · 1 skipped`. */
+export function stepCounts(steps: StepRun[], runOver: boolean): string {
+  const counts = new Map<StepTone, number>();
+  for (const step of steps) {
+    const tone = stepTone(step.status, runOver);
+    counts.set(tone, (counts.get(tone) ?? 0) + 1);
+  }
+  const words: Array<[StepTone, string]> = [
+    ['passed', 'completed'],
+    ['failed', 'failed'],
+    ['running', 'running'],
+    ['waiting', 'waiting'],
+    ['reported', 'would have run'],
+    ['skipped', 'skipped'],
+    ['not-run', 'did not run'],
+    ['pending', 'to come'],
+  ];
+  const parts = [`${steps.length} ${steps.length === 1 ? 'step' : 'steps'}`];
+  for (const [tone, word] of words) {
+    const count = counts.get(tone);
+    if (count) parts.push(`${count} ${word}`);
+  }
+  return parts.join(' · ');
 }
