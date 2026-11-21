@@ -26,6 +26,9 @@ cp apps/cloud-api/.env.example apps/cloud-api/.env   # then fill in the values
 pnpm dev:cloud
 ```
 
+`BETTER_AUTH_SECRET` starts empty, and the API will not start until you set
+one (`openssl rand -base64 32`).
+
 Open `http://localhost:5175`. `pnpm dev:cloud` starts the API and the web app
 together. The web app's proxy targets the API on port 3100, so leave `PORT`
 unset or at 3100 unless you also change `apps/cloud-web/vite.config.ts`.
