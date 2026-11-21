@@ -43,6 +43,11 @@ export function openDatabase(url: string): OpenDatabase {
 
   if (url.startsWith('postgres://') || url.startsWith('postgresql://')) {
     const pool = new pg.Pool({ connectionString: url });
+    // An idle connection that breaks (Postgres restarting, say) is reported here, and an
+    // unheard 'error' would end the process. The pool opens a new connection when next asked.
+    pool.on('error', (error) => {
+      console.error(`A database connection was lost: ${error.message.split('\n')[0]}`);
+    });
     const db = drizzleNodePg(pool, { schema }) as unknown as Database;
     drivers.set(db, 'pg');
     return { db, close: () => pool.end() };
