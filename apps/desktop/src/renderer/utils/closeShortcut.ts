@@ -31,7 +31,7 @@ export interface CloseState {
   overlay: string | null;
   activeSessionId: string | null;
   activePreviewTabId: string | null;
-  /** The Files tab, where previews show, is in front in a group on screen. */
+  /** The Files tab's view, where previews show, is on screen: in front in a group on screen, for a session it applies to. */
   filesTabOnScreen: boolean;
   /** The browser tab showing beside the session, while its panel is on screen. */
   shownBrowserTabId: string | null;
@@ -43,9 +43,10 @@ export interface CloseState {
  *
  * The Inbox or Automations lies over the session pane, so it goes first; the
  * previews live in that pane's Files tab, and are on screen only without one
- * and while that tab is in front in a group on screen. Behind another tab,
- * in a group hidden by Maximize or in a hidden side panel, a preview is not
- * the nearest thing, and ⌘W leaves it alone.
+ * and while that tab's view is on screen. Behind another tab, in a group
+ * hidden by Maximize, in a hidden side panel, or in front for a session
+ * Files does not apply to (which shows only why), a preview is not the
+ * nearest thing, and ⌘W leaves it alone.
  *
  * The browser tab showing beside the session comes between them, but only
  * while the keyboard is in the browser: in a page, or in the panel's toolbar

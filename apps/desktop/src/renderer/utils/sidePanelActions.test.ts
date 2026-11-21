@@ -31,7 +31,12 @@ import { useNavigationStore } from '../stores/navigationStore';
 import { usePreviewTabStore } from '../stores/previewTabStore';
 import { useSidePanelStore } from '../stores/sidePanelStore';
 import { useWorkspaceStore } from '../stores/workspaceStore';
-import { currentTabFacts, openDiffInFilesTab, pressShortcutOnScreen } from './sidePanelActions';
+import {
+  currentTabFacts,
+  kindOnScreen,
+  openDiffInFilesTab,
+  pressShortcutOnScreen,
+} from './sidePanelActions';
 
 const workspace = createWorkspaceRecord('catalog-portal', '/repos/catalog-portal', true);
 const session = createSessionRecord({
@@ -102,10 +107,62 @@ describe('pressShortcutOnScreen', () => {
     expect(layout()).toEqual(useSidePanelStore.getInitialState().layout);
   });
 
-  it('does nothing while the kind does not apply to the session', () => {
+  it('refuses a kind that does not apply to the session while it is not in front', () => {
     show({ removed: true });
     expect(pressShortcutOnScreen('files')).toBe(false);
     expect(layout()).toEqual(useSidePanelStore.getInitialState().layout);
+
+    // Behind another tab is not in front either.
+    useSidePanelStore.getState().openKind('files');
+    useSidePanelStore.getState().openKind('changes');
+    const before = layout();
+    expect(pressShortcutOnScreen('files')).toBe(false);
+    expect(layout()).toBe(before);
+  });
+
+  it('presses a kind in front even when it does not apply, which hides the side panel', () => {
+    // Files was opened on another session; this one's worktree is removed,
+    // so the tab shows only why. The chord still hides the panel, as the
+    // header button does.
+    useSidePanelStore.getState().openKind('files');
+    show({ removed: true });
+    expect(pressShortcutOnScreen('files')).toBe(true);
+    expect(layout().visible).toBe(false);
+  });
+});
+
+describe('kindOnScreen', () => {
+  it('is true while the kind is in front on screen for a session it applies to', () => {
+    useSidePanelStore.getState().openKind('files');
+    show();
+    expect(kindOnScreen('files')).toBe(true);
+  });
+
+  it('is false while the kind is in front but does not apply, so its view is not mounted', () => {
+    useSidePanelStore.getState().openKind('files');
+    show({ removed: true });
+    expect(kindOnScreen('files')).toBe(false);
+  });
+
+  it('is false behind another tab', () => {
+    useSidePanelStore.getState().openKind('files');
+    useSidePanelStore.getState().openKind('changes');
+    show();
+    expect(kindOnScreen('files')).toBe(false);
+  });
+
+  it('is false while the side panel is hidden', () => {
+    useSidePanelStore.getState().openKind('files');
+    useSidePanelStore.getState().setVisible(false);
+    show();
+    expect(kindOnScreen('files')).toBe(false);
+  });
+
+  it('is false under the Inbox or Automations, and with no session', () => {
+    useSidePanelStore.getState().openKind('files');
+    expect(kindOnScreen('files')).toBe(false);
+    show({ overlay: 'inbox' });
+    expect(kindOnScreen('files')).toBe(false);
   });
 });
 

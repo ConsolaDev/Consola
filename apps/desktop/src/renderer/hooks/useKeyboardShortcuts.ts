@@ -5,13 +5,11 @@ import { useEffect } from 'react';
 import { useNavigationStore } from '../stores/navigationStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { usePreviewTabStore } from '../stores/previewTabStore';
-import { useSidePanelStore } from '../stores/sidePanelStore';
 import { useBrowserSlotStore } from '../stores/browserSlotStore';
 import { useBrowserStore } from '../stores/browserStore';
 import { requestBrowserPanelFocus } from '../stores/browserPanelFocusStore';
 import { closeTarget, isCloseShortcut, type KeyboardPlace } from '../utils/closeShortcut';
-import { pressShortcutOnScreen } from '../utils/sidePanelActions';
-import { isInFront } from '../sidePanel/layout';
+import { kindOnScreen, pressShortcutOnScreen } from '../utils/sidePanelActions';
 import {
   isBrowserShortcut,
   isCommandPaletteShortcut,
@@ -249,7 +247,7 @@ function closeNearest(keyboard: KeyboardPlace): void {
     overlay: navigation.overlay,
     activeSessionId: navigation.activeSessionId,
     activePreviewTabId: preview.activeTabId,
-    filesTabOnScreen: isInFront(useSidePanelStore.getState().layout, 'files'),
+    filesTabOnScreen: kindOnScreen('files'),
     shownBrowserTabId,
     keyboard,
   });

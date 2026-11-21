@@ -3,6 +3,7 @@
  * Each reads the stores when it is called, as a component would on render.
  */
 import { checkoutPathForSession } from '../../shared/workspace';
+import { isInFront } from '../sidePanel/layout';
 import { tabFactsFor, tabKind, type TabFacts, type TabKindId } from '../sidePanel/tabKinds';
 import { useCheckoutStore } from '../stores/checkoutStore';
 import { useNavigationStore } from '../stores/navigationStore';
@@ -27,17 +28,37 @@ export function currentTabFacts(): TabFacts | null {
   return tabFactsFor(workspace, session, checkout);
 }
 
+function appliesTo(kind: TabKindId, facts: TabFacts): boolean {
+  return tabKind(kind)?.availability(facts).available ?? false;
+}
+
 /**
  * What the kind's header button does, for its chord: opens its tab, or hides
- * the side panel while that tab is in front. Does nothing, and answers false,
- * with no session on screen or while the kind does not apply to it, so the
- * caller can leave the key to whatever else wants it.
+ * the side panel while that tab is in front on screen. A kind in front is
+ * always pressed, even one that does not apply to the session, because
+ * pressing it only hides the panel. Does nothing, and answers false, with no
+ * session on screen, or for a kind that does not apply and is not in front,
+ * so the caller can leave the key to whatever else wants it.
  */
 export function pressShortcutOnScreen(kind: TabKindId): boolean {
   const facts = currentTabFacts();
-  if (!facts || !tabKind(kind)?.availability(facts).available) return false;
-  useSidePanelStore.getState().pressShortcut(kind);
+  if (!facts) return false;
+  const { layout, pressShortcut } = useSidePanelStore.getState();
+  if (!isInFront(layout, kind) && !appliesTo(kind, facts)) return false;
+  pressShortcut(kind);
   return true;
+}
+
+/**
+ * Whether the kind's view is on screen: a session is showing, the kind is in
+ * front in a group on screen, and it applies to that session. A kind in front
+ * that does not apply shows only why, with its view unmounted.
+ */
+export function kindOnScreen(kind: TabKindId): boolean {
+  const facts = currentTabFacts();
+  return (
+    facts !== null && isInFront(useSidePanelStore.getState().layout, kind) && appliesTo(kind, facts)
+  );
 }
 
 /** Opens a changed file's diff as a preview, and brings the Files tab, where previews show, to the front. */
