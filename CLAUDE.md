@@ -85,28 +85,6 @@ runner's types, type-only, so the renderer never loads the engine's runtime.
 Beside it, `packages/factory-spec` (MIT) holds the `factory.yml` schema,
 parser and Run record that every runner shares.
 
-### Consola Cloud
-
-`apps/cloud-api` (`@consola/cloud-api`, Hono, Better Auth, Drizzle on PGlite or
-Postgres) and `apps/cloud-web` (`@consola/cloud-web`, Vite and React) are the
-company layer's first piece: Google sign-in and the deployment's one
-organisation. Nothing in `apps/desktop` depends on them, and neither imports
-from the desktop, the website or `packages/*`. Setup is in
-`apps/cloud-api/README.md`.
-
-The browser talks only to the web app's origin. Vite proxies `/api` to the API,
-so the session cookie is first-party and the API needs no CORS. Better Auth
-owns sign-in and sessions, and its tables are generated
-(`pnpm --filter @consola/cloud-api auth:generate`), never hand-edited. Every
-table that holds company data carries `organization_id`, and a person reaches
-it through `member`.
-
-`mayJoin` (`apps/cloud-api/src/auth/joinRule.ts`) is the one place a sign-in is
-accepted. It is open for now (any Google account with a verified email), so
-this deployment is for local use only until a later round limits it to the
-company. The web app's footer links to the source of the commit it runs
-(AGPL §13).
-
 ### Main Process Key Files
 - `index.ts` - App lifecycle, window management
 - `ipc-handlers.ts` - All IPC message routing
@@ -127,6 +105,30 @@ company. The web app's footer links to the source of the commit it runs
 - `stores/` - Zustand stores (agentStore, workspaceStore, navigationStore, etc.)
 - `services/` - Bridge services for Electron API access
 - `hooks/` - Custom React hooks
+
+### Consola Cloud
+
+`apps/cloud-api` (`@consola/cloud-api`, Hono, Better Auth, Drizzle on PGlite or
+Postgres) and `apps/cloud-web` (`@consola/cloud-web`, Vite and React) are the
+company layer's first piece: Google sign-in and the deployment's one
+organisation. Nothing in `apps/desktop` depends on them, and neither imports
+from the desktop, the website or `packages/*`. Setup is in
+`apps/cloud-api/README.md`.
+
+The browser talks only to the web app's origin. Vite proxies `/api` to the API,
+so the session cookie is first-party and the API needs no CORS. Better Auth
+owns sign-in and sessions, and its tables are generated
+(`pnpm --filter @consola/cloud-api auth:generate`), never hand-edited. Every
+table that holds company data carries `organization_id`, and a person reaches
+it through `member`.
+
+`mayJoin` (`apps/cloud-api/src/auth/joinRule.ts`) is checked before an account
+is created and before every new session. It is open for now (any Google
+account with a verified email), so this deployment is for local use only. The
+later rule that limits it to the company lands in `mayJoin` and so gates every
+sign-in (sessions already open when the rule changes are not ended this
+round). The web app's footer links to the source of the commit it runs
+(AGPL §13).
 
 ## Critical Patterns
 

@@ -1,4 +1,5 @@
 import { type TestHelpers, testUtils } from 'better-auth/plugins';
+import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApp } from './app.js';
 import { type CloudAuth, createAuth } from './auth/auth.js';
@@ -101,6 +102,41 @@ function stubGoogleToken(claims: Record<string, unknown>) {
   });
 }
 
+type GoogleSignIn = { state: string; cookie: string };
+
+/** Starts Google sign-in the way the web app does, keeping what the browser brings back. */
+async function beginGoogleSignIn(): Promise<GoogleSignIn> {
+  const started = await startGoogleSignIn();
+  const { url } = (await started.json()) as { url: string };
+  return {
+    state: new URL(url).searchParams.get('state') ?? '',
+    cookie: started.headers
+      .getSetCookie()
+      .map((setCookie) => setCookie.split(';')[0])
+      .join('; '),
+  };
+}
+
+/** Google sending the browser back to the callback: where the browser is sent next. */
+async function returnFromGoogle(signIn: GoogleSignIn) {
+  const response = await app.request(
+    `/api/auth/callback/google?code=sprocket-code&state=${encodeURIComponent(signIn.state)}`,
+    { headers: { cookie: signIn.cookie, 'x-forwarded-for': clientIp } },
+  );
+  const location = response.headers.get('location');
+  return { status: response.status, location: location ? new URL(location, WEB_ORIGIN) : null };
+}
+
+/** Better Auth logs each state it cannot read; the tests that send one expect that line. */
+function expectStateLogged() {
+  const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+  return () =>
+    expect(logged).toHaveBeenCalledWith(
+      expect.stringContaining('Failed to parse state'),
+      expect.anything(),
+    );
+}
+
 async function get(path: string, headers?: Headers, on = app) {
   const response = await on.request(path, { headers });
   return { status: response.status, body: await response.json() };
@@ -155,6 +191,18 @@ describe('who is signed in', () => {
     expect(await db.select().from(schema.user)).toEqual([]);
   });
 
+  it('a person whose email is no longer verified gets no session', async () => {
+    const dana = await test.saveUser(
+      test.createUser({ email: 'dana@sprocket.test', name: 'Dana Ortiz', emailVerified: true }),
+    );
+    await db.update(schema.user).set({ emailVerified: false }).where(eq(schema.user.id, dana.id));
+    await expect(test.login({ userId: dana.id })).rejects.toThrow(
+      'A verified email address is required.',
+    );
+    expect(await db.select().from(schema.session)).toEqual([]);
+    expect(await db.select().from(schema.member)).toEqual([]);
+  });
+
   it('a signed-in person who is not a member gets 403', async () => {
     const login = await signIn('dana@sprocket.test', 'Dana Ortiz');
     const renamed = await ensureOrganization(db, { name: 'Sprocket', slug: 'sprocket-2' });
@@ -175,6 +223,20 @@ describe('who is signed in', () => {
     expect(response.status).toBe(403);
     expect(await db.select().from(schema.organization)).toHaveLength(1);
   });
+
+  it('the owner cannot delete the organisation', async () => {
+    const login = await signIn('dana@sprocket.test', 'Dana Ortiz');
+    expect((await get('/api/me', login.headers)).body.role).toBe('owner');
+    const response = await app.request('/api/auth/organization/delete', {
+      method: 'POST',
+      headers: fromBrowser(login.headers),
+      body: JSON.stringify({ organizationId: organization.id }),
+    });
+    expect(response.status).toBe(404);
+    expect(await db.select().from(schema.organization)).toEqual([
+      expect.objectContaining({ id: organization.id }),
+    ]);
+  });
 });
 
 describe('Google sign-in', () => {
@@ -189,13 +251,7 @@ describe('Google sign-in', () => {
   });
 
   it('an unverified Google email goes back to the web app with an error', async () => {
-    const started = await startGoogleSignIn();
-    const { url } = (await started.json()) as { url: string };
-    const state = new URL(url).searchParams.get('state') ?? '';
-    const cookie = started.headers
-      .getSetCookie()
-      .map((setCookie) => setCookie.split(';')[0])
-      .join('; ');
+    const signIn = await beginGoogleSignIn();
     stubGoogleToken({
       sub: 'google-sam',
       email: 'sam@sprocket.test',
@@ -203,20 +259,77 @@ describe('Google sign-in', () => {
       name: 'Sam Reyes',
     });
 
-    const response = await app.request(
-      `/api/auth/callback/google?code=sprocket-code&state=${encodeURIComponent(state)}`,
-      { headers: { cookie, 'x-forwarded-for': clientIp } },
-    );
+    const { status, location } = await returnFromGoogle(signIn);
 
-    expect(response.status).toBe(302);
-    const location = new URL(response.headers.get('location') ?? '', WEB_ORIGIN);
-    expect(location.origin).toBe(WEB_ORIGIN);
-    expect(location.pathname).toBe('/');
-    expect(location.searchParams.get('error')).toBe('email_not_verified');
-    expect(location.searchParams.get('error_description')).toBe(
+    expect(status).toBe(302);
+    expect(location?.origin).toBe(WEB_ORIGIN);
+    expect(location?.pathname).toBe('/');
+    expect(location?.searchParams.get('error')).toBe('email_not_verified');
+    expect(location?.searchParams.get('error_description')).toBe(
       'A verified email address is required.',
     );
     expect(await db.select().from(schema.user)).toEqual([]);
+  });
+
+  it('a returning person whose email is no longer verified goes back with an error', async () => {
+    const dana = { sub: 'google-dana', email: 'dana@sprocket.test', name: 'Dana Ortiz' };
+    stubGoogleToken({ ...dana, email_verified: true });
+    const first = await returnFromGoogle(await beginGoogleSignIn());
+    expect(first.status).toBe(302);
+    expect(first.location?.searchParams.get('error')).toBeNull();
+    await db
+      .update(schema.user)
+      .set({ emailVerified: false })
+      .where(eq(schema.user.email, dana.email));
+
+    stubGoogleToken({ ...dana, email_verified: false });
+    const again = await returnFromGoogle(await beginGoogleSignIn());
+
+    expect(again.status).toBe(302);
+    expect(again.location?.origin).toBe(WEB_ORIGIN);
+    expect(again.location?.searchParams.get('error')).toBe('email_not_verified');
+    expect(await db.select().from(schema.session)).toHaveLength(1);
+    expect(await db.select().from(schema.member)).toHaveLength(1);
+  });
+
+  it('replaying a finished Google sign-in goes back to the web app with an error', async () => {
+    stubGoogleToken({
+      sub: 'google-dana',
+      email: 'dana@sprocket.test',
+      email_verified: true,
+      name: 'Dana Ortiz',
+    });
+    const signIn = await beginGoogleSignIn();
+    expect((await returnFromGoogle(signIn)).location?.searchParams.get('error')).toBeNull();
+    const logged = expectStateLogged();
+
+    const { status, location } = await returnFromGoogle(signIn);
+
+    expect(status).toBe(302);
+    expect(location?.origin).toBe(WEB_ORIGIN);
+    expect(location?.pathname).toBe('/');
+    expect(location?.searchParams.get('error')).toBe('state_mismatch');
+    logged();
+  });
+
+  it('an unknown sign-in state goes back to the web app with an error', async () => {
+    stubGoogleToken({ sub: 'google-dana', email: 'dana@sprocket.test', email_verified: true });
+    const logged = expectStateLogged();
+
+    const { status, location } = await returnFromGoogle({ state: 'not-a-state', cookie: '' });
+
+    expect(status).toBe(302);
+    expect(location?.origin).toBe(WEB_ORIGIN);
+    expect(location?.pathname).toBe('/');
+    expect(location?.searchParams.get('error')).toBe('state_mismatch');
+    expect(await db.select().from(schema.user)).toEqual([]);
+    logged();
+  });
+
+  it("Better Auth's own error page sends people to the web app", async () => {
+    const response = await app.request('/api/auth/error?error=state_mismatch');
+    expect(response.status).toBe(302);
+    expect(response.headers.get('location')).toBe(`${WEB_ORIGIN}/?error=state_mismatch`);
   });
 });
 
