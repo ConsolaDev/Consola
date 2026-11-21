@@ -6,9 +6,7 @@ import {
   type OpenDatabase,
   openDatabase,
 } from './adapters/persistence/database.js';
-import { createOrganizationStore } from './adapters/persistence/stores.js';
-import { ensureOrganization } from './application/organization.js';
-import { composeApi } from './compose.js';
+import { composeApi, prepareOrganization } from './compose.js';
 import { type CloudConfig, ConfigError, loadConfig } from './config.js';
 import type { Organization } from './domain/organization.js';
 import { describeStartupFailure } from './startupError.js';
@@ -36,10 +34,7 @@ let organization: Organization;
 try {
   database = openDatabase(config.databaseUrl);
   await migrateDatabase(database.db);
-  organization = await ensureOrganization(
-    createOrganizationStore(database.db),
-    config.organization,
-  );
+  organization = await prepareOrganization(database.db, config);
 } catch (error) {
   cannotStart([`The database could not be prepared: ${describeStartupFailure(error, config)}`]);
 }

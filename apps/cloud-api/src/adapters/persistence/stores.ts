@@ -10,11 +10,6 @@ import { createMembershipStore } from './membershipStore.js';
 import { createOrganizationStore } from './organizationStore.js';
 import { createPeopleStore } from './peopleStore.js';
 
-export { createHealthProbe } from './healthProbe.js';
-export { createMembershipStore } from './membershipStore.js';
-export { createOrganizationStore } from './organizationStore.js';
-export { createPeopleStore } from './peopleStore.js';
-
 /** Every port the use cases need, on one Drizzle database. */
 export function createDrizzleStores(db: Database): {
   organizations: OrganizationStore;

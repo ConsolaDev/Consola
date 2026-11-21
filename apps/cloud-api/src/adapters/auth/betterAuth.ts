@@ -5,6 +5,7 @@ import { joinOrganization } from '../../application/organization.js';
 import type { MembershipStore, PeopleStore } from '../../application/ports.js';
 import { mayCreateAccount, mayStartSession } from '../../application/signIn.js';
 import type { CloudConfig } from '../../config.js';
+import type { Person } from '../../domain/organization.js';
 import type { Database } from '../persistence/database.js';
 import { schema } from '../persistence/schema.js';
 
@@ -84,3 +85,13 @@ export function createAuth(
 }
 
 export type CloudAuth = ReturnType<typeof createAuth>;
+
+/** Who a request's session belongs to, as a `Person`, or null when it has none. */
+export function currentPersonOf(auth: CloudAuth): (headers: Headers) => Promise<Person | null> {
+  return async (headers) => {
+    const signedIn = await auth.api.getSession({ headers });
+    if (!signedIn) return null;
+    const { user } = signedIn;
+    return { id: user.id, name: user.name, email: user.email, image: user.image ?? null };
+  };
+}

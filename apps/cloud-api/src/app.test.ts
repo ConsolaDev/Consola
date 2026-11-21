@@ -5,9 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CloudAuth } from './adapters/auth/betterAuth.js';
 import { type Database, migrateDatabase, openDatabase } from './adapters/persistence/database.js';
 import { schema } from './adapters/persistence/schema.js';
-import { createOrganizationStore } from './adapters/persistence/stores.js';
-import { ensureOrganization } from './application/organization.js';
-import { composeApi } from './compose.js';
+import { composeApi, prepareOrganization } from './compose.js';
 import type { CloudConfig } from './config.js';
 import type { Organization } from './domain/organization.js';
 
@@ -45,7 +43,7 @@ beforeEach(async () => {
     await opened.close();
   };
   await migrateDatabase(db);
-  organization = await ensureOrganization(createOrganizationStore(db), config.organization);
+  organization = await prepareOrganization(db, config);
   // Built the way main.ts builds it, with Better Auth's test helpers added.
   ({ app, auth } = composeApi({ db, config, organization }, [testUtils()]));
   // The plugin is passed in at runtime, so the type of `$context` does not know about it.
@@ -208,9 +206,9 @@ describe('who is signed in', () => {
 
   it('a signed-in person who is not a member gets 403', async () => {
     const login = await signIn('dana@sprocket.test', 'Dana Ortiz');
-    const renamed = await ensureOrganization(createOrganizationStore(db), {
-      name: 'Sprocket',
-      slug: 'sprocket-2',
+    const renamed = await prepareOrganization(db, {
+      ...config,
+      organization: { name: 'Sprocket', slug: 'sprocket-2' },
     });
     // The same database and secret, so the same session, served for another organisation.
     const onRenamed = composeApi({ db, config, organization: renamed }).app;

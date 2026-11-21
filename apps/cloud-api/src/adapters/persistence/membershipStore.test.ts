@@ -4,7 +4,8 @@ import type { MembershipStore } from '../../application/ports.js';
 import { type Organization, roleForNewMember } from '../../domain/organization.js';
 import { type Database, migrateDatabase, openDatabase } from './database.js';
 import { schema } from './schema.js';
-import { createMembershipStore, createOrganizationStore } from './stores.js';
+import { createMembershipStore } from './membershipStore.js';
+import { createOrganizationStore } from './organizationStore.js';
 
 let db: Database;
 let close: () => Promise<void>;

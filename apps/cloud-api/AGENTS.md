@@ -24,12 +24,18 @@ The service is built in rings, and imports point inward only.
     no query of their own;
   - `http/` is the Hono routes (`app.ts`). Each route asks a use case and maps
     its answer to a status and a body.
-- The composition ring wires them together. `src/compose.ts` (`composeApi`) is
-  the one place adapters meet use cases. `src/main.ts` loads the environment,
-  prepares the database, composes and serves, and `src/startupError.ts` words a
-  failure to start. `src/config.ts` parses the environment. It is shared
-  configuration that any adapter may read, so it stays a pure parser that
-  imports no other file and no I/O.
+- The composition ring wires them together. `src/compose.ts` is the one place
+  adapters are built and handed the ports they need (`composeApi`), and the one
+  place startup steps live, such as preparing the organisation
+  (`prepareOrganization`). Adapters call use cases themselves; what they never
+  do is build another adapter. The one exception is
+  `src/adapters/auth/cli-config.ts`, which builds the stores and `createAuth`
+  for the schema CLI: it is tooling, and never runs in the service.
+  `src/main.ts` loads the environment, opens and migrates the database, calls
+  `compose.ts` and serves, and `src/startupError.ts` words a failure to start.
+  `src/config.ts` parses the environment. It is shared configuration that any
+  adapter may read, so it stays a pure parser that imports no other file and no
+  I/O.
 
 ## The dependency rule
 
@@ -63,7 +69,8 @@ at its top (`LAYERS`), so a new layer or folder is added there first.
    `adapters/persistence`, added to `createDrizzleStores`.
 4. A route in `adapters/http`, or a hook in `adapters/auth`, calls the use
    case.
-5. `compose.ts` wires it, and nothing else does.
+5. `compose.ts` builds the adapter and hands it its ports, and nothing else
+   does. A new startup step goes there too, beside `prepareOrganization`.
 
 ## Tests
 
@@ -71,8 +78,9 @@ A test sits beside its module and is named after it (`membershipStore.ts`,
 `membershipStore.test.ts`). Rules in `domain` are tested alone. Stores and use
 cases are tested on a migrated `pglite:memory` database through the real
 Drizzle stores: the database is never mocked. `src/app.test.ts` is the HTTP
-suite, end to end. It builds the service through `composeApi`, as `main.ts`
-does, so it tests the wiring that runs.
+suite, end to end. It builds the service through `compose.ts`
+(`prepareOrganization`, then `composeApi`), as `main.ts` does, so it tests the
+wiring that runs.
 
 ## Generated files
 
