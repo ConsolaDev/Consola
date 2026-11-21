@@ -1,4 +1,4 @@
-import { Fragment, useRef } from 'react';
+import { Fragment, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import {
   type Active,
@@ -16,7 +16,7 @@ import { type DraggedTab, type DropZone, pointerAt, splitEdge } from '../../side
 import { groupPosition, groupsOf, type TabId, visibleGroups } from '../../sidePanel/layout';
 import { tabKind, type TabFacts } from '../../sidePanel/tabKinds';
 import { useSidePanelStore } from '../../stores/sidePanelStore';
-import { focusTrigger } from './keyboardAfterClose';
+import { focusTrigger, swallowHeldKeyRepeats } from './keyboardAfterClose';
 import { DraggedTabPreview } from './TabBar';
 import { TabGroup } from './TabGroup';
 import './styles.css';
@@ -48,6 +48,14 @@ export function SidePanel({ facts }: { facts: TabFacts }) {
   // Where the keyboard was before the press that began a drag: the press
   // itself moves it onto the tab.
   const keyboardBefore = useRef<Element | null>(null);
+  // Ends Escape's hold on the drag under way.
+  const releaseEscape = useRef<(() => void) | null>(null);
+  const endDrag = () => {
+    releaseEscape.current?.();
+    releaseEscape.current = null;
+  };
+  // A panel that goes mid-drag lets go of Escape too.
+  useEffect(() => () => releaseEscape.current?.(), []);
 
   /**
    * A drag is the pointer's, so the keyboard goes back to where it was before
@@ -67,6 +75,7 @@ export function SidePanel({ facts }: { facts: TabFacts }) {
   };
 
   const drop = ({ active, over, activatorEvent, delta }: DragEndEvent) => {
+    endDrag();
     const dragged = active.data.current as DraggedTab | undefined;
     if (!dragged) return;
     const zone = over?.data.current as DropZone | undefined;
@@ -111,8 +120,12 @@ export function SidePanel({ facts }: { facts: TabFacts }) {
         // a scroll during the drag would move.
         autoScroll={false}
         accessibility={{ announcements }}
+        onDragStart={() => {
+          releaseEscape.current = escapeCancelsDrag();
+        }}
         onDragEnd={drop}
         onDragCancel={({ active }) => {
+          endDrag();
           const dragged = active.data.current as DraggedTab | undefined;
           if (dragged) giveKeyboardBack(dragged.tab);
         }}
@@ -148,4 +161,28 @@ export function SidePanel({ facts }: { facts: TabFacts }) {
       </DndContext>
     </aside>
   );
+}
+
+/**
+ * While a tab is dragged, Escape cancels the drag and reaches nothing else,
+ * wherever the keyboard is: not the conversation's terminal, where it would
+ * interrupt Claude, nor a shell, nor anything else in the window. It is taken
+ * on the window's capture, ahead of them all, and the drag is cancelled with
+ * dnd-kit's own key, sent to the document alone, where its sensor listens and
+ * no element does. The held key's repeats stop there too. A page with the
+ * keyboard keeps its own keys, which never reach this window, so an Escape
+ * typed there is the page's, and the drag lasts until the button is let go.
+ *
+ * Returns what ends the hold, for when the drag is over.
+ */
+function escapeCancelsDrag(): () => void {
+  const onKeyDown = (event: KeyboardEvent) => {
+    if (event.key !== 'Escape' || !event.isTrusted) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape' }));
+    swallowHeldKeyRepeats();
+  };
+  window.addEventListener('keydown', onKeyDown, true);
+  return () => window.removeEventListener('keydown', onKeyDown, true);
 }

@@ -897,4 +897,51 @@ test.describe('side panel', () => {
     await page.mouse.up();
     await expect(sidePanelTabs().getByRole('tab')).toHaveText(['Files', 'New tab', 'Changes']);
   });
+
+  test('Escape cancels a drag and reaches nothing else, the conversation included', async () => {
+    await openSession('Paginate the catalog search');
+    await changesShortcut().click();
+    await page.getByRole('button', { name: 'Files', exact: true }).click();
+    // Every key the conversation's terminal is sent, on capture as xterm listens.
+    await conversation().evaluate((element) => {
+      const heard: string[] = [];
+      (window as unknown as { __heard: string[] }).__heard = heard;
+      element.addEventListener(
+        'keydown',
+        (event) => heard.push(event.repeat ? `${event.key} repeat` : event.key),
+        true,
+      );
+    });
+    const heard = () =>
+      page.evaluate(() => (window as unknown as { __heard: string[] }).__heard.splice(0));
+    // The person is typing to Claude.
+    await conversation().focus();
+    await page.keyboard.type('hi');
+    expect(await heard()).toEqual(['h', 'i']);
+
+    // Dragged by its ✕, which leaves the keyboard in the conversation.
+    const area = (await page.locator('.side-panel-group-body').boundingBox())!;
+    await dragTab(page.getByRole('button', { name: 'Close Files tab', exact: true }), {
+      x: area.x + area.width / 2,
+      y: area.y + area.height * 0.9,
+    });
+    const target = page.locator('.side-panel-drop-target');
+    await expect(target).toBeVisible();
+    await expect(conversation()).toBeFocused();
+
+    // Escape, held: the drag is cancelled, and neither the key nor its
+    // repeats reach the conversation, where Escape interrupts Claude.
+    await page.keyboard.down('Escape');
+    await expect(target).toHaveCount(0);
+    await page.keyboard.down('Escape');
+    await page.keyboard.up('Escape');
+    await page.mouse.up();
+    await expect(sidePanelTabs().getByRole('tab')).toHaveText(['Changes', 'Files']);
+    await expect(tabList('Bottom group tabs')).toHaveCount(0);
+    expect(await heard()).toEqual([]);
+    await expect(conversation()).toBeFocused();
+    // Pressed once the drag is over, Escape is the conversation's again.
+    await page.keyboard.press('Escape');
+    expect(await heard()).toEqual(['Escape']);
+  });
 });

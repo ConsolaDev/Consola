@@ -69,9 +69,10 @@ export function focusTrigger(tab: string): boolean {
  * Stops the auto-repeat of whatever key is held, until it is let go or
  * another key is pressed: a key pressed now is the person's, and goes where
  * the keyboard is. Listened for on the window's capture, ahead of the
- * conversation's terminal, which takes its keys on its own capture.
+ * conversation's terminal, which takes its keys on its own capture. Also
+ * for the Escape that cancels a tab drag.
  */
-function swallowHeldKeyRepeats(): void {
+export function swallowHeldKeyRepeats(): void {
   const stop = () => {
     window.removeEventListener('keydown', onKeyDown, true);
     window.removeEventListener('keyup', stop, true);

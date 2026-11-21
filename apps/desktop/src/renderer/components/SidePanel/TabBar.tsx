@@ -293,8 +293,13 @@ function TabBarTab({
           // No press focuses it: one that closes the tab would take the
           // keyboard away with it, and one that opens the tab's menu (the
           // right button, or Ctrl on macOS) leaves it where it was, as the
-          // trigger's does.
-          onMouseDown={(event) => event.preventDefault()}
+          // trigger's does. A press here still begins a drag of the tab: it
+          // is handed to the drag first, since dnd-kit ignores a press
+          // already prevented, and the tab's own listener then sees it taken.
+          onMouseDown={(event) => {
+            listeners?.onMouseDown?.(event);
+            event.preventDefault();
+          }}
           onClick={closeByPointer}
         >
           <X size={12} aria-hidden="true" />
