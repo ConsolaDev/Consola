@@ -23,10 +23,10 @@ const ITEM_LABELS: Record<TabMenuItem, string> = {
  * opens under the tab rather than at the pointer.
  *
  * Every item takes the tab out of its bar, and this menu with it. When the
- * keyboard was on the tab, it follows the tab to wherever it went, or to the
- * tab now in front of its bar once it closed. Otherwise it goes back to where
- * it was, as the menu always does: a right-click from the conversation leaves
- * the keyboard there.
+ * keyboard was on the tab, it follows the tab into the bar it moved to, or
+ * goes to the tab now in front of its bar once it closed. Otherwise it goes
+ * back to where it was, as the menu always does: a right-click from the
+ * conversation leaves the keyboard there.
  *
  * The content draws over a page (`dropdown-content`): a page sits above the
  * layout, over its slot, and a menu beside the Browser tab would otherwise be
@@ -43,10 +43,11 @@ export function TabMenu({
 }) {
   const layout = useSidePanelStore((state) => state.layout);
   const tabRef = useRef<HTMLElement>(null);
-  // Where the keyboard goes once the menu closes, when it was on this tab.
-  const followTab = useRef<(() => void) | null>(null);
+  // The tab's bar, kept when the menu opens with the keyboard on the tab.
+  const keyboardFrom = useRef<Element | null>(null);
+  const chosen = useRef<TabMenuItem | null>(null);
 
-  const select: Record<TabMenuItem, () => void> = {
+  const act: Record<TabMenuItem, () => void> = {
     close: () => useSidePanelStore.getState().closeTab(groupId, tab),
     move: () => {
       const { layout: current, moveTab } = useSidePanelStore.getState();
@@ -60,10 +61,24 @@ export function TabMenu({
   const onOpenChange = (open: boolean) => {
     const wrapper = tabRef.current;
     if (!open || !wrapper) return;
-    const bar = wrapper.closest('[role="tablist"]');
-    followTab.current = wrapper.contains(document.activeElement)
-      ? () => (triggerOf(tab) ?? bar?.querySelector<HTMLElement>(FRONT_TAB))?.focus()
+    chosen.current = null;
+    keyboardFrom.current = wrapper.contains(document.activeElement)
+      ? wrapper.closest('[role="tablist"]')
       : null;
+  };
+
+  // Once an item has taken the tab out of its bar. Dismissed, or opened with
+  // the keyboard elsewhere, the menu hands it back to where it was itself.
+  const placeKeyboard = (event: Event) => {
+    const bar = keyboardFrom.current;
+    const item = chosen.current;
+    keyboardFrom.current = null;
+    chosen.current = null;
+    if (!bar || !item) return;
+    event.preventDefault();
+    // Move and Split are never offered for the placeholder: `tab` is a kind, open once.
+    const target = item === 'close' ? bar.querySelector<HTMLElement>(FRONT_TAB) : triggerOf(tab);
+    target?.focus();
   };
 
   // macOS sends no `contextmenu` for these keys, so the tab is sent one.
@@ -90,16 +105,17 @@ export function TabMenu({
       <ContextMenu.Portal>
         <ContextMenu.Content
           className="dropdown-content dropdown-content-compact"
-          onCloseAutoFocus={(event) => {
-            const follow = followTab.current;
-            followTab.current = null;
-            if (!follow) return;
-            event.preventDefault();
-            follow();
-          }}
+          onCloseAutoFocus={placeKeyboard}
         >
           {tabMenuItems(layout, groupId, tab).map((item) => (
-            <ContextMenu.Item key={item} className="dropdown-item" onSelect={select[item]}>
+            <ContextMenu.Item
+              key={item}
+              className="dropdown-item"
+              onSelect={() => {
+                chosen.current = item;
+                act[item]();
+              }}
+            >
               {ITEM_LABELS[item]}
             </ContextMenu.Item>
           ))}

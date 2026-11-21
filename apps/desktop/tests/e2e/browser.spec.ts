@@ -406,7 +406,7 @@ test.describe('in-app browser', () => {
     await expect(address(page)).toHaveValue(fixtures.url('/c.html'));
   });
 
-  test('the Browser tab keeps its page when it goes behind and when the side panel hides', async () => {
+  test('the Browser tab keeps its page when it goes behind, when the side panel hides, and through a split, Maximize and a move', async () => {
     await openSession(page, 'Alpha');
     await showBrowser(page);
     const url = fixtures.url('/a.html');

@@ -559,6 +559,14 @@ test.describe('side panel', () => {
     await page.keyboard.press('ArrowRight');
     await expect(sidePanelTab('Changes')).toBeFocused();
 
+    // Closed from its menu, the keyboard goes to the tab now in front.
+    await page.keyboard.press('Shift+F10');
+    await expect(page.getByRole('menuitem', { name: 'Close', exact: true })).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(sidePanelTabs().getByRole('tab')).toHaveText(['Files']);
+    await expect(sidePanelTab('Files')).toBeFocused();
+    await changesShortcut().click();
+
     // Side by side.
     await chooseFromTabMenu(sidePanelTab('Changes'), 'Split right');
     await expect(tabList('Left group tabs').getByRole('tab')).toHaveText(['Files']);
