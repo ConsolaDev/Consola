@@ -10,13 +10,23 @@
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/main.js",
     "test": "vitest run",
+    "auth:generate": "pnpm dlx auth@1.7.27 generate --config src/auth/cli-config.ts --output src/db/auth-schema.ts --yes",
+    "db:generate": "drizzle-kit generate",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@better-auth/drizzle-adapter": "1.7.27",
+    "@electric-sql/pglite": "^0.5.17",
+    "better-auth": "1.7.27",
+    "drizzle-orm": "^0.45.4",
+    "pg": "^8.23.1",
     "zod": "^4.6.6"
   },
   "devDependencies": {
     "@types/node": "^20.11.19",
+    "@types/pg": "^8.23.1",
+    "drizzle-kit": "^0.31.11",
+    "tsx": "^4.23.15",
     "typescript": "^5.9.3",
     "vitest": "^4.1.12"
   }
