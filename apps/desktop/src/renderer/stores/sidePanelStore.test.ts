@@ -338,20 +338,48 @@ describe('the "+" list asks for focus only when the person opens it', () => {
     expect(state().focusRequest?.kind).toBe(NEW_TAB);
   });
 
-  it('does not ask when showing a panel that already has tabs', () => {
+  it('asks when showing a hidden panel whose front tab is the placeholder', () => {
+    state().openKind('changes');
+    state().addPlaceholder(firstGroupId());
+    state().setVisible(false);
+    state().takeFocusRequest(NEW_TAB);
+    const counted = totalUses();
+
+    state().toggleVisible();
+    expect(isInFront(state().layout, NEW_TAB)).toBe(true);
+    expect(state().focusRequest).toEqual({ kind: NEW_TAB, at: NOW });
+    expect(totalUses()).toBe(counted);
+  });
+
+  it('asks nothing, and counts nothing, when showing a hidden panel whose front tab is a kind', () => {
     state().openKind('changes');
     state().setVisible(false);
     state().takeFocusRequest('changes');
 
     state().setVisible(true);
+    expect(isInFront(state().layout, 'changes')).toBe(true);
+    expect(usesOf('changes')).toBe(1);
     expect(state().focusRequest).toBeNull();
+  });
 
-    // Nor when the placeholder is already there, in front, behind the hidden panel.
+  it('asks when its tab is clicked while behind another tab', () => {
     state().addPlaceholder(firstGroupId());
-    state().toggleVisible();
+    state().choosePlaceholder(firstGroupId(), 'changes');
+    state().addPlaceholder(firstGroupId());
+    state().bringToFront(firstGroupId(), 'changes');
+    state().takeFocusRequest('changes');
+    const counted = totalUses();
+
+    state().bringToFront(firstGroupId(), NEW_TAB);
+    expect(state().focusRequest).toEqual({ kind: NEW_TAB, at: NOW });
+    expect(totalUses()).toBe(counted);
+  });
+
+  it('does not ask when its tab is clicked while already in front on screen', () => {
+    state().addPlaceholder(firstGroupId());
     state().takeFocusRequest(NEW_TAB);
-    state().toggleVisible();
-    expect(isInFront(state().layout, NEW_TAB)).toBe(true);
+
+    state().bringToFront(firstGroupId(), NEW_TAB);
     expect(state().focusRequest).toBeNull();
   });
 

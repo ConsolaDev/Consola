@@ -294,16 +294,15 @@ test.describe('side panel', () => {
     await expect(page.getByTestId('side-panel')).toHaveCount(0);
     await expect(sidePanelToggle()).toHaveAttribute('aria-pressed', 'false');
 
-    // From a shell. Showing a panel that has its tabs already leaves the
-    // keyboard where it was, and the list hands a chord pressed in it to the window.
+    // From a shell: the panel comes back on its list, which the person just
+    // asked for, so it takes the keyboard; and the list hands a chord
+    // pressed in it to the window.
     await conversation().focus();
     await page.keyboard.press('Control+Backquote');
     const shell = page.getByTestId('session-shell').locator('textarea');
     await expect(shell).toBeFocused();
     await page.keyboard.press(sidePanelChord);
-    await expect(newTabList()).toBeVisible();
-    await expect(shell).toBeFocused();
-    await newTabList().focus();
+    await expect(newTabList()).toBeFocused();
     await page.keyboard.press(sidePanelChord);
     await expect(page.getByTestId('side-panel')).toHaveCount(0);
   });

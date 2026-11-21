@@ -25,15 +25,20 @@ import { rankShortcutKinds, recordUse, sanitizeUsage, type UsageLog } from '../s
  *   and switching sessions call no action, so a view they mount counts
  *   nothing and finds no request: a shell that mounts that way never takes
  *   the keyboard from the conversation.
- * - **The "+" list asks for focus the same way, and counts nothing.** The
- *   placeholder is not a kind, so no use is recorded for it, but the person
- *   putting its list on screen sets a request for `NEW_TAB`: `addPlaceholder`
- *   when the placeholder was not in front on screen before (the "+" button),
- *   and `setVisible(true)` or `toggleVisible` when showing the panel adds the
- *   placeholder (the header's toggle, its chord, the palette). Nothing else
- *   does, so a list that mounts at launch, on a session switch or on the way
- *   back from an overlay leaves the keyboard where it was, and the letters
- *   typed for the conversation never choose a kind.
+ * - **The "+" list asks for focus by the same rule, and counts nothing.**
+ *   The placeholder is not a kind, so no use is recorded for it, but when
+ *   the person's own action brings it on screen in front where it was not
+ *   before, a request is set for `NEW_TAB`: `addPlaceholder` (the "+"
+ *   button), `bringToFront` (its tab clicked), and `setVisible(true)` or
+ *   `toggleVisible` (the header's toggle, its chord, the palette), whether
+ *   showing adds the placeholder or finds it already in front. Showing does
+ *   this for the placeholder alone: a kind that comes back on screen with
+ *   the panel was already in front of its group, and counts and asks
+ *   nothing, as before. Closing, moving, splitting and maximizing ask for
+ *   neither. A list that mounts at launch, on a session switch or on the
+ *   way back from an overlay meets no action, so it leaves the keyboard
+ *   where it was, and the letters typed for the conversation never choose
+ *   a kind.
  * - **The header's shortcut set is fixed for the run.** `shortcutKinds` is
  *   ranked once, when the stored uses are read, and no action touches it, so
  *   nothing moves under the pointer however the counts change.
@@ -121,38 +126,30 @@ export const useSidePanelStore = create<SidePanelState>()(
         if (next !== get().layout) set({ layout: next });
       };
       /**
-       * The person asked for `kind`. Only when that brings it on screen in
-       * front is a use counted and its view asked to take focus; otherwise
-       * this is any other change to the arrangement.
+       * The person asked for `target`, a kind or the "+" list. Only when that
+       * brings it on screen in front is its view asked to take focus, and a
+       * kind's use counted (the placeholder is not a kind, so it counts
+       * nothing); otherwise this is any other change to the arrangement.
        */
-      const open = (next: SidePanelLayout, kind: TabKindId) => {
-        if (Layout.isInFront(get().layout, kind) || !Layout.isInFront(next, kind)) {
+      const open = (next: SidePanelLayout, target: FocusTarget) => {
+        if (Layout.isInFront(get().layout, target) || !Layout.isInFront(next, target)) {
           arrange(next);
           return;
         }
         const now = Date.now();
         set((state) => ({
           layout: next,
-          uses: recordUse(state.uses, kind, now),
-          focusRequest: { kind, at: now },
+          uses: target === Layout.NEW_TAB ? state.uses : recordUse(state.uses, target, now),
+          focusRequest: { kind: target, at: now },
         }));
       };
       /**
-       * The person put the "+" list on screen: its view may take the
-       * keyboard. The placeholder is not a kind, so nothing is counted.
+       * Showing the panel asks on behalf of the "+" list alone: a kind that
+       * comes back on screen this way was already its group's front tab, and
+       * showing counts and asks nothing for it.
        */
-      const openList = (next: SidePanelLayout) => {
-        set({ layout: next, focusRequest: { kind: Layout.NEW_TAB, at: Date.now() } });
-      };
-      /** Shows or hides the panel; showing an empty one adds the placeholder, and its list asks for focus. */
-      const showPanel = (visible: boolean) => {
-        const prev = get().layout;
-        const next = Layout.setVisible(prev, visible);
-        const addedPlaceholder =
-          !Layout.groupOfTab(prev, Layout.NEW_TAB) && Layout.isInFront(next, Layout.NEW_TAB);
-        if (addedPlaceholder) openList(next);
-        else arrange(next);
-      };
+      const show = (visible: boolean) =>
+        open(Layout.setVisible(get().layout, visible), Layout.NEW_TAB);
 
       return {
         layout: Layout.defaultLayout(),
@@ -165,7 +162,7 @@ export const useSidePanelStore = create<SidePanelState>()(
         pressShortcut: (kind) => open(Layout.pressShortcut(get().layout, kind), kind),
         bringToFront: (groupId, tab) => {
           const next = Layout.bringToFront(get().layout, groupId, tab);
-          if (isTabKindId(tab)) open(next, tab);
+          if (tab === Layout.NEW_TAB || isTabKindId(tab)) open(next, tab);
           else arrange(next);
         },
         closeTab: (groupId, tab) => arrange(Layout.closeTab(get().layout, groupId, tab)),
@@ -175,19 +172,12 @@ export const useSidePanelStore = create<SidePanelState>()(
         splitWithTab: (groupId, tab, edge) =>
           arrange(Layout.splitWithTab(get().layout, groupId, tab, edge)),
         toggleMaximize: (groupId) => arrange(Layout.toggleMaximize(get().layout, groupId)),
-        addPlaceholder: (groupId) => {
-          const prev = get().layout;
-          const next = Layout.addPlaceholder(prev, groupId);
-          // A list already in front mounts nothing new to take a request.
-          const listAppears =
-            !Layout.isInFront(prev, Layout.NEW_TAB) && Layout.isInFront(next, Layout.NEW_TAB);
-          if (listAppears) openList(next);
-          else arrange(next);
-        },
+        addPlaceholder: (groupId) =>
+          open(Layout.addPlaceholder(get().layout, groupId), Layout.NEW_TAB),
         choosePlaceholder: (groupId, kind) =>
           open(Layout.choosePlaceholder(get().layout, groupId, kind), kind),
-        setVisible: showPanel,
-        toggleVisible: () => showPanel(!get().layout.visible),
+        setVisible: show,
+        toggleVisible: () => show(!get().layout.visible),
         // Off keeps the arrangement on screen; it only stops being written.
         setRememberLayout: (rememberLayout) => set({ rememberLayout }),
         takeFocusRequest: (kind) => {
