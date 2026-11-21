@@ -230,11 +230,18 @@ function prune(): void {
   }));
 }
 
-/** Loads a watched item, then plans what follows, whether or not that read anything. */
+/**
+ * Loads a watched item, then plans what follows, whether or not that read
+ * anything. The store's own reads (a watch's first, the re-check) show
+ * loading only while the item has no details yet: loading locks the pane's
+ * editors, and a person typing in one must not lose it every few minutes.
+ */
 function check(key: string, options?: LoadOptions): void {
   const watch = watches.get(key);
   if (!watch) return;
-  void useWorkItemDetailsStore.getState().load(watch.target, options);
+  void useWorkItemDetailsStore
+    .getState()
+    .load(watch.target, options ?? { quiet: Boolean(entryOf(key).details) });
   follow(key);
 }
 

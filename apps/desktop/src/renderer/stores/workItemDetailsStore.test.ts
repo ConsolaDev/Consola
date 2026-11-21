@@ -172,6 +172,37 @@ describe('workItemDetailsStore', () => {
     expect(getDetails).toHaveBeenCalledTimes(2);
   });
 
+  it('a watched item with details, re-checked at +3 minutes, never sets loading to true', async () => {
+    // An empty pane's first read still shows its spinner.
+    const first = deferred();
+    const release = watch();
+    expect(entry().loading).toBe(true);
+    first.answer(details());
+    await vi.advanceTimersByTimeAsync(0);
+    expect(entry().loading).toBe(false);
+
+    // The store's own reads after that are quiet: a pane editing must keep its fields.
+    let showedLoading = false;
+    const stop = useWorkItemDetailsStore.subscribe((state) => {
+      if (state.entries[key]?.loading) showedLoading = true;
+    });
+    await vi.advanceTimersByTimeAsync(3 * MINUTE);
+    expect(getDetails).toHaveBeenCalledTimes(2);
+
+    // So is the first read of a viewer coming back to stale details, and its
+    // failure is not recorded.
+    release();
+    await vi.advanceTimersByTimeAsync(3 * MINUTE);
+    getDetails.mockRejectedValueOnce(new Error('rate limited'));
+    watch();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(getDetails).toHaveBeenCalledTimes(3);
+    stop();
+    expect(showedLoading).toBe(false);
+    expect(entry().error).toBeUndefined();
+    expect(entry().details).toEqual(details());
+  });
+
   it('polls an unknown mergeability at most five times while watched', async () => {
     getDetails.mockResolvedValue(details({ mergeState: 'UNKNOWN' }));
     const release = watch();
