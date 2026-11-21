@@ -2,9 +2,10 @@
 // which needs an auth configuration to know which tables to describe. It builds the service's
 // own `createAuth`, so the schema follows what runs. Nothing here runs in the service, and none
 // of these values is real.
-import type { CloudConfig } from '../config.js';
-import { openDatabase } from '../db/database.js';
-import { createAuth } from './auth.js';
+import type { CloudConfig } from '../../config.js';
+import { openDatabase } from '../persistence/database.js';
+import { createDrizzleStores } from '../persistence/stores.js';
+import { createAuth } from './betterAuth.js';
 
 const placeholder: CloudConfig = {
   databaseUrl: 'pglite:memory',
@@ -15,8 +16,13 @@ const placeholder: CloudConfig = {
   organization: { name: 'Sprocket', slug: 'sprocket' },
 };
 
+const { db } = openDatabase(placeholder.databaseUrl);
+const stores = createDrizzleStores(db);
+
 export const auth = createAuth({
-  db: openDatabase(placeholder.databaseUrl).db,
+  db,
   config: placeholder,
   organizationId: 'placeholder',
+  people: stores.people,
+  memberships: stores.memberships,
 });

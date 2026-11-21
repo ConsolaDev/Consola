@@ -1,11 +1,16 @@
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { serve } from '@hono/node-server';
-import { createApp } from './app.js';
-import { createAuth } from './auth/auth.js';
+import {
+  migrateDatabase,
+  type OpenDatabase,
+  openDatabase,
+} from './adapters/persistence/database.js';
+import { createOrganizationStore } from './adapters/persistence/stores.js';
+import { ensureOrganization } from './application/organization.js';
+import { composeApi } from './compose.js';
 import { type CloudConfig, ConfigError, loadConfig } from './config.js';
-import { migrateDatabase, type OpenDatabase, openDatabase } from './db/database.js';
-import { ensureOrganization, type Organization } from './organization.js';
+import type { Organization } from './domain/organization.js';
 import { describeStartupFailure } from './startupError.js';
 
 // Beside package.json, from both `src/main.ts` (tsx) and `dist/main.js` (node).
@@ -31,13 +36,15 @@ let organization: Organization;
 try {
   database = openDatabase(config.databaseUrl);
   await migrateDatabase(database.db);
-  organization = await ensureOrganization(database.db, config.organization);
+  organization = await ensureOrganization(
+    createOrganizationStore(database.db),
+    config.organization,
+  );
 } catch (error) {
   cannotStart([`The database could not be prepared: ${describeStartupFailure(error, config)}`]);
 }
 
-const auth = createAuth({ db: database.db, config, organizationId: organization.id });
-const app = createApp({ db: database.db, auth, organization });
+const { app } = composeApi({ db: database.db, config, organization });
 
 const server = serve({ fetch: app.fetch, hostname: '127.0.0.1', port: config.port }, (info) => {
   console.log(

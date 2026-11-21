@@ -1,12 +1,15 @@
 import { type TestHelpers, testUtils } from 'better-auth/plugins';
 import { eq } from 'drizzle-orm';
+import type { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createApp } from './app.js';
-import { type CloudAuth, createAuth } from './auth/auth.js';
+import type { CloudAuth } from './adapters/auth/betterAuth.js';
+import { type Database, migrateDatabase, openDatabase } from './adapters/persistence/database.js';
+import { schema } from './adapters/persistence/schema.js';
+import { createOrganizationStore } from './adapters/persistence/stores.js';
+import { ensureOrganization } from './application/organization.js';
+import { composeApi } from './compose.js';
 import type { CloudConfig } from './config.js';
-import { type Database, migrateDatabase, openDatabase } from './db/database.js';
-import { schema } from './db/schema.js';
-import { ensureOrganization, type Organization } from './organization.js';
+import type { Organization } from './domain/organization.js';
 
 const WEB_ORIGIN = 'http://localhost:5175';
 
@@ -24,7 +27,7 @@ let closeDatabase: () => Promise<void>;
 let organization: Organization;
 let auth: CloudAuth;
 let test: TestHelpers;
-let app: ReturnType<typeof createApp>;
+let app: Hono;
 // Better Auth keeps rate-limit counts per client address and path for the whole file, so each
 // test signs in from an address of its own (TEST-NET-3, never routed).
 let clients = 0;
@@ -42,11 +45,11 @@ beforeEach(async () => {
     await opened.close();
   };
   await migrateDatabase(db);
-  organization = await ensureOrganization(db, config.organization);
-  auth = createAuth({ db, config, organizationId: organization.id }, [testUtils()]);
+  organization = await ensureOrganization(createOrganizationStore(db), config.organization);
+  // Built the way main.ts builds it, with Better Auth's test helpers added.
+  ({ app, auth } = composeApi({ db, config, organization }, [testUtils()]));
   // The plugin is passed in at runtime, so the type of `$context` does not know about it.
   test = ((await auth.$context) as unknown as { test: TestHelpers }).test;
-  app = createApp({ db, auth, organization });
 });
 
 afterEach(async () => {
@@ -205,8 +208,12 @@ describe('who is signed in', () => {
 
   it('a signed-in person who is not a member gets 403', async () => {
     const login = await signIn('dana@sprocket.test', 'Dana Ortiz');
-    const renamed = await ensureOrganization(db, { name: 'Sprocket', slug: 'sprocket-2' });
-    const onRenamed = createApp({ db, auth, organization: renamed });
+    const renamed = await ensureOrganization(createOrganizationStore(db), {
+      name: 'Sprocket',
+      slug: 'sprocket-2',
+    });
+    // The same database and secret, so the same session, served for another organisation.
+    const onRenamed = composeApi({ db, config, organization: renamed }).app;
     expect(await get('/api/me', login.headers, onRenamed)).toEqual({
       status: 403,
       body: { error: 'not_a_member' },
@@ -353,11 +360,11 @@ describe('the session cookie', () => {
   });
 
   it('the session cookie is Secure when PUBLIC_URL is https', async () => {
-    const overHttps = createAuth({
+    const overHttps = composeApi({
       db,
       config: { ...config, publicUrl: 'https://cloud.sprocket.test' },
-      organizationId: organization.id,
-    });
+      organization,
+    }).auth;
     const { attributes } = (await overHttps.$context).authCookies.sessionToken;
     expect(attributes).toMatchObject({ httpOnly: true, sameSite: 'lax', secure: true });
   });

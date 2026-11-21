@@ -122,7 +122,7 @@ owns sign-in and sessions, and its tables are generated
 table that holds company data carries `organization_id`, and a person reaches
 it through `member`.
 
-`mayJoin` (`apps/cloud-api/src/auth/joinRule.ts`) is checked before an account
+`mayJoin` (`apps/cloud-api/src/domain/joinRule.ts`) is checked before an account
 is created and before every new session. It is open for now (any Google
 account with a verified email), so this deployment is for local use only. The
 later rule that limits it to the company lands in `mayJoin` and so gates every
