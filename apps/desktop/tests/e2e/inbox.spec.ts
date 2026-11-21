@@ -940,6 +940,7 @@ test('a linked session shows its item pane beside the terminal, and Fix pastes i
   const fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-session-details-'));
   const fixturePath = path.join(fixtureDir, 'inbox.json');
   const pastedPath = path.join(fixtureDir, 'pasted.txt');
+  const logPath = path.join(fixtureDir, 'calls.log');
   const agent = path.join(fixtureDir, 'agent.sh');
   // Raw mode hands the agent every byte as it arrives: a paste has no newline
   // to wait for. Appending, because a health or capability probe runs this
@@ -967,10 +968,17 @@ test('a linked session shows its item pane beside the terminal, and Fix pastes i
       env: {
         CONSOLA_GH_PATH: path.join(STUB_GH_DIR, 'gh'),
         GRAPHQL_INBOX_FIXTURE: fixturePath,
+        STUB_GH_LOG: logPath,
       },
     });
     app = launched.app;
     const { page } = launched;
+    // Every read of #52's details asks REST for its changed files, alongside
+    // its GraphQL queries, so those requests count the reads.
+    const detailReadsOf52 = () =>
+      (fs.existsSync(logPath) ? fs.readFileSync(logPath, 'utf8') : '')
+        .split('\n')
+        .filter((line) => line.includes('repos/sprocket/catalog-portal/pulls/52/files')).length;
     await page.evaluate(
       async ({ workspaceId, binaryPath }) => {
         await window.harnessStateAPI.addHarness({
@@ -1067,11 +1075,29 @@ test('a linked session shows its item pane beside the terminal, and Fix pastes i
       path: path.join(test.info().outputDir, 'session-work-item-panel.png'),
     });
 
-    // The tab belongs to the side panel, which every session shares: the next
-    // linked session shows its own item there. That item is not in the Inbox,
-    // so the pane names it from a fresh read.
+    // Once seen, the pane stays mounted behind another tab, keeping what it holds.
+    const tabs = sidePanel.getByRole('tablist', { name: 'Side panel tabs' });
+    await page.getByRole('button', { name: 'Changes', exact: true }).click();
+    await expect(tabs.getByRole('tab', { name: 'Changes', exact: true })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    await expect(panel).toHaveCount(1);
+    await expect(panel).toBeHidden();
+
+    // A pane nobody can see reads nothing: the next linked session arrives
+    // with its Pull request tab behind Changes, and its item is not read.
     await page.locator('.session-nav-item', { hasText: 'PR #52 · Review' }).click();
+    await expect(strip).toContainText('#52');
+    await expect(panel).toHaveCount(0);
+    expect(detailReadsOf52()).toBe(0);
+
+    // The tab belongs to the side panel, which every session shares: brought
+    // forward, it shows this session's own item. That item is not in the
+    // Inbox, so the pane names it from a fresh read.
+    await tabs.getByRole('tab', { name: 'Pull request #52', exact: true }).click();
     await expect(pane.locator('.inbox-pane-meta')).toContainText('sprocket/catalog-portal#52');
+    await expect.poll(detailReadsOf52).toBeGreaterThan(0);
     await expect(pane.getByRole('heading', { name: 'Extract billing client' })).toBeVisible({
       timeout: 15_000,
     });
