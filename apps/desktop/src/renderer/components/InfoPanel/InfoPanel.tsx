@@ -1,4 +1,6 @@
+import { branchSectionShown } from '../../infoPanel/branchLines';
 import type { TabFacts } from '../../sidePanel/tabKinds';
+import { BranchSection } from './BranchSection';
 import { EnvironmentSection } from './EnvironmentSection';
 import './styles.css';
 
@@ -12,6 +14,7 @@ export function InfoPanel({ facts }: { facts: TabFacts }) {
   return (
     <aside aria-label="Session info" className="info-panel">
       <EnvironmentSection facts={facts} />
+      {branchSectionShown(facts) && <BranchSection facts={facts} />}
     </aside>
   );
 }

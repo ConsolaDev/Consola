@@ -19,17 +19,20 @@ test.describe('info panel', () => {
   let userDataDir: string;
   let root: string;
   let env: Record<string, string>;
+  /** The clone's own checkout, on `feat/search-pagination`. */
+  let repo: string;
   /** The second checkout, a linked worktree of the clone on `docs/readme`. */
   let docs: string;
 
+  const git = (cwd: string, ...args: string[]) =>
+    execFileSync(
+      'git',
+      ['-c', 'user.name=JaviDev', '-c', 'user.email=javidev@sprocket.example', ...args],
+      { cwd, stdio: 'pipe' },
+    );
+
   test.beforeEach(async () => {
     root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'consola-info-panel-')));
-    const git = (cwd: string, ...args: string[]) =>
-      execFileSync(
-        'git',
-        ['-c', 'user.name=JaviDev', '-c', 'user.email=javidev@sprocket.example', ...args],
-        { cwd, stdio: 'pipe' },
-      );
     const write = (file: string, text: string) => {
       fs.mkdirSync(path.dirname(file), { recursive: true });
       fs.writeFileSync(file, text);
@@ -49,7 +52,7 @@ test.describe('info panel', () => {
 
     // The clone, so origin/HEAD is set: feat/search-pagination pushed once,
     // then two commits ahead of it, and one uncommitted line.
-    const repo = path.join(root, 'catalog-portal');
+    repo = path.join(root, 'catalog-portal');
     git(root, 'clone', '-q', origin, repo);
     git(repo, 'checkout', '-q', '-b', 'feat/search-pagination');
     write(path.join(repo, 'src', 'cursor.ts'), 'export function cursor() {\n  return 0;\n}\n');
@@ -149,6 +152,17 @@ test.describe('info panel', () => {
     infoSection(page, 'Environment').getByRole('button', {
       name: new RegExp(`^${kind} .+\\. Copy folder path$`),
     });
+  /** The Branch section's first row: the checkout's branch, and what waits to be pushed. */
+  const branchRow = (branch: string) =>
+    infoSection(page, 'Branch').locator('.info-row').filter({ hasText: branch });
+  /** Uncommitted, a button that opens Changes: named `Uncommitted, <value>. Open Changes`. */
+  const uncommitted = () =>
+    infoSection(page, 'Branch').getByRole('button', { name: /^Uncommitted, .+\. Open Changes$/ });
+  /** The branch against its base, a plain fact. */
+  const baseRow = (ref: string) =>
+    infoSection(page, 'Branch')
+      .locator('.info-row')
+      .filter({ hasText: `vs ${ref}` });
 
   test('the info panel sits beside the conversation, and its toggle and chord hide and show it', async () => {
     await openSession('Paginate the catalog search');
@@ -228,5 +242,73 @@ test.describe('info panel', () => {
     await show.click();
     await expect(heading()).toHaveAttribute('aria-expanded', 'false');
     await expect(infoSection(page, 'Environment').locator('.info-row')).toHaveCount(0);
+  });
+
+  test('Branch counts what waits to be pushed, what is uncommitted, and what differs from origin', async () => {
+    await openSession('Paginate the catalog search');
+    const branch = branchRow('feat/search-pagination');
+    await expect(branch).toContainText('↑2');
+    await expect(branch).toHaveAttribute(
+      'title',
+      '2 commits to push to origin/feat/search-pagination',
+    );
+
+    await expect(uncommitted()).toContainText('1 file');
+    await expect(uncommitted()).toContainText('+1');
+    await expect(uncommitted()).toContainText('−1');
+    await expect(uncommitted()).toHaveAccessibleName('Uncommitted, 1 file +1 −1. Open Changes');
+
+    // Against what the clone has of origin's default branch: the three files
+    // the branch's commits added, nine lines in all.
+    const base = baseRow('origin/main');
+    await expect(base).toContainText('3 files');
+    await expect(base).toContainText('+9');
+    await expect(base).toContainText('−0');
+    await expect(base).toHaveAttribute('title', /Consola never fetches\./);
+    // A plain fact, which opens nothing.
+    await expect(
+      infoSection(page, 'Branch').getByRole('button', { name: /vs origin\/main/ }),
+    ).toHaveCount(0);
+  });
+
+  test('a branch with no upstream is not pushed yet, and a folder outside git has no Branch section', async () => {
+    await openSession('Update the readme');
+    await expect(branchRow('docs/readme')).toContainText('Not pushed yet');
+    await expect(baseRow('origin/main')).toContainText('No changes');
+
+    await openSession('Review notes');
+    // Git has answered for the folder: it is no checkout.
+    await expect(folderRow('Folder')).toBeVisible();
+    await expect(infoPanel(page).getByRole('button', { name: 'Branch', exact: true })).toHaveCount(
+      0,
+    );
+  });
+
+  test('Uncommitted opens the Changes tab', async () => {
+    await openSession('Paginate the catalog search');
+    const sidePanel = page.getByTestId('side-panel');
+    await expect(sidePanel).toHaveCount(0);
+
+    await uncommitted().click();
+    await expect(sidePanel).toBeVisible();
+    await expect(
+      page.getByRole('tablist', { name: 'Side panel tabs' }).getByRole('tab', { name: 'Changes' }),
+    ).toHaveAttribute('aria-selected', 'true');
+  });
+
+  test("the header's refresh reads the branch again", async () => {
+    // At the default 1000px, with the sidebar and this session's name, the
+    // header's counts and refresh run on under its side panel controls,
+    // which then take the click.
+    await page.setViewportSize({ width: 1280, height: 700 });
+    await openSession('Paginate the catalog search');
+    await expect(branchRow('feat/search-pagination')).toContainText('↑2');
+    await expect(uncommitted()).toContainText('1 file');
+
+    // Committed behind Consola's back, so only a refresh can tell.
+    git(repo, 'commit', '-q', '-am', 'Show fifty results a page');
+    await page.getByRole('button', { name: 'Refresh git status', exact: true }).click();
+    await expect(branchRow('feat/search-pagination')).toContainText('↑3');
+    await expect(uncommitted()).toContainText('None');
   });
 });

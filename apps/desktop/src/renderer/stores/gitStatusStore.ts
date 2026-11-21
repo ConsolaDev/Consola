@@ -22,6 +22,10 @@ interface GitStatusState {
   rootPath: string | null;
   // Current branch name
   branch: string | null;
+  // When a read of `rootPath` last landed, answered or failed: the moment
+  // anything else read from that checkout (its branch's counts) may have
+  // moved too. 0 before the first.
+  refreshedAt: number;
   // Refresh git status for a path
   refresh: (rootPath: string) => Promise<void>;
   // Get status for a specific file path
@@ -37,6 +41,7 @@ export const useGitStatusStore = create<GitStatusState>((set, get) => ({
   isGitRepo: false,
   rootPath: null,
   branch: null,
+  refreshedAt: 0,
 
   refresh: async (rootPath: string) => {
     set({ isLoading: true, rootPath });
@@ -62,6 +67,7 @@ export const useGitStatusStore = create<GitStatusState>((set, get) => ({
         isGitRepo: result.isGitRepo,
         branch: result.branch,
         isLoading: false,
+        refreshedAt: Date.now(),
       });
     } catch (error) {
       if (get().rootPath !== rootPath) return;
@@ -72,6 +78,7 @@ export const useGitStatusStore = create<GitStatusState>((set, get) => ({
         isGitRepo: false,
         branch: null,
         isLoading: false,
+        refreshedAt: Date.now(),
       });
     }
   },
@@ -96,6 +103,7 @@ export const useGitStatusStore = create<GitStatusState>((set, get) => ({
       isGitRepo: false,
       rootPath: null,
       branch: null,
+      refreshedAt: 0,
     });
   },
 }));

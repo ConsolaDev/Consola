@@ -1230,8 +1230,6 @@
   container: inbox-detail / inline-size;
   --inbox-ease: cubic-bezier(0.16, 1, 0.3, 1);
   --inbox-link: var(--color-accent);
-  --diff-add-text: var(--color-success);
-  --diff-del-text: var(--color-error);
   --inbox-detail-tabs-height: 40px;
   min-width: 0;
   font-size: 13px;
@@ -1257,6 +1255,15 @@
 
 [data-theme="light"] .inbox-detail {
   --inbox-link: color-mix(in srgb, var(--color-accent) 62%, black);
+}
+
+/* Added and removed lines: the pane's, and its counts (`DiffCounts`)
+   wherever they are drawn, the info panel's included. */
+:is(.inbox-detail, .inbox-detail-counts) {
+  --diff-add-text: var(--color-success);
+  --diff-del-text: var(--color-error);
+}
+[data-theme="light"] :is(.inbox-detail, .inbox-detail-counts) {
   --diff-add-text: color-mix(in srgb, var(--color-success) 72%, black);
   --diff-del-text: color-mix(in srgb, var(--color-error) 78%, black);
 }
