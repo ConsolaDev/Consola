@@ -4,6 +4,7 @@ import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { browserChord } from './helpers/browserTab';
 import { commandPaletteChord, launchElectron } from './helpers/electron';
 
 /**
@@ -990,5 +991,130 @@ test.describe('side panel', () => {
     expect(await heard()).toEqual([]);
     await page.keyboard.press('Escape');
     expect(await heard()).toEqual(['Escape']);
+  });
+
+  test('no layout change remounts the conversation terminal', async () => {
+    await openSession('Paginate the catalog search');
+    const xterm = page.locator('[data-conversation-terminal] .xterm');
+    await expect(xterm).toBeVisible();
+    // The conversation's xterm, which a remount would replace, and the
+    // browser's host, which lives at the layout's root and which no layout
+    // change may touch.
+    await page.evaluate(() => {
+      const kept = window as unknown as Record<string, Element | null>;
+      kept.__conversation = document.querySelector('[data-conversation-terminal] .xterm');
+      kept.__browserHost = document.querySelector('.browser-host');
+    });
+    const same = () =>
+      page.evaluate(() => {
+        const kept = window as unknown as Record<string, Element | null>;
+        const still = (name: string, selector: string) =>
+          !!kept[name]?.isConnected && document.querySelector(selector) === kept[name];
+        return {
+          conversation: still('__conversation', '[data-conversation-terminal] .xterm'),
+          browserHost: still('__browserHost', '.browser-host'),
+        };
+      });
+    const untouched = async (after: string) =>
+      expect(await same(), after).toEqual({ conversation: true, browserHost: true });
+    const width = async () => (await xterm.boundingBox())?.width ?? 0;
+    const shell = page.getByTestId('session-shell');
+
+    // Shown, the side panel takes its width from the conversation, which
+    // only resizes.
+    const alone = await width();
+    await sidePanelToggle().click();
+    await expect(newTabList()).toBeFocused();
+    await untouched('the side panel shown');
+    await newTabList().getByRole('option', { name: 'Changes' }).click();
+    await expect(sidePanelTab('Changes')).toHaveAttribute('aria-selected', 'true');
+    await expect.poll(width).toBeLessThan(alone - 100);
+    await untouched('Changes chosen');
+
+    // Files, Terminal and Browser, each opened in the same group.
+    await page.getByRole('button', { name: 'Files', exact: true }).click();
+    await expect(sidePanelTab('Files')).toHaveAttribute('aria-selected', 'true');
+    await untouched('Files opened');
+    await page.getByRole('button', { name: 'Terminal', exact: true }).click();
+    await expect(shell).toHaveCount(1);
+    await untouched('Terminal opened');
+    await page.keyboard.press(browserChord());
+    await expect(page.getByTestId('browser-panel')).toBeVisible();
+    await expect(sidePanelTabs().getByRole('tab')).toHaveText([
+      'Changes',
+      'Files',
+      'Terminal',
+      'Browser',
+    ]);
+    await untouched('Browser opened');
+
+    // Files split down by its menu, its group maximized, then restored.
+    await chooseFromTabMenu(sidePanelTab('Files'), 'Split down');
+    await expect(tabList('Top group tabs').getByRole('tab')).toHaveText([
+      'Changes',
+      'Terminal',
+      'Browser',
+    ]);
+    await expect(tabList('Bottom group tabs').getByRole('tab')).toHaveText(['Files']);
+    await untouched('Files split down');
+    await group('Bottom group tabs').getByRole('button', { name: 'Maximize group' }).click();
+    await expect(tabList('Top group tabs')).toHaveCount(0);
+    await untouched('the bottom group maximized');
+    await group('Bottom group tabs').getByRole('button', { name: 'Restore group' }).click();
+    await expect(tabList('Top group tabs')).toHaveCount(1);
+    await untouched('the bottom group restored');
+
+    // Terminal dragged onto the bottom bar, after Files.
+    const files = await tabBox(
+      tabList('Bottom group tabs').getByRole('tab', { name: 'Files', exact: true }),
+    );
+    await dragTab(tabList('Top group tabs').getByRole('tab', { name: 'Terminal', exact: true }), {
+      x: files.x + files.width + 20,
+      y: files.y + files.height / 2,
+    });
+    await expect(page.locator('.side-panel-drop-caret')).toBeVisible();
+    await untouched('Terminal dragged');
+    await page.mouse.up();
+    await expect(tabList('Top group tabs').getByRole('tab')).toHaveText(['Changes', 'Browser']);
+    await expect(tabList('Bottom group tabs').getByRole('tab')).toHaveText(['Files', 'Terminal']);
+    await expect(shell).toHaveCount(1);
+    await untouched('Terminal dropped on the bottom bar');
+
+    // The bottom group closed, with its two tabs.
+    await group('Bottom group tabs').getByRole('button', { name: 'Close group' }).click();
+    await expect(tabList('Bottom group tabs')).toHaveCount(0);
+    await expect(sidePanelTabs().getByRole('tab')).toHaveText(['Changes', 'Browser']);
+    await expect(shell).toHaveCount(0);
+    await untouched('the bottom group closed');
+
+    // The side panel's edge dragged 80px into the conversation.
+    const separator = page.locator('.resize-handle:has(+ [data-testid="side-panel"])');
+    const edge = (await separator.boundingBox())!;
+    const beside = await width();
+    await page.mouse.move(edge.x + edge.width / 2, edge.y + edge.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(edge.x + edge.width / 2 - 80, edge.y + edge.height / 2, { steps: 8 });
+    await page.mouse.up();
+    await expect.poll(width).toBeLessThan(beside - 60);
+    await untouched('the side panel widened');
+
+    // Hidden and shown with ⌥⌘B.
+    await conversation().focus();
+    await page.keyboard.press(sidePanelChord);
+    await expect(page.getByTestId('side-panel')).toHaveCount(0);
+    await untouched('the side panel hidden');
+    await page.keyboard.press(sidePanelChord);
+    await expect(sidePanelTabs().getByRole('tab')).toHaveText(['Changes', 'Browser']);
+    await untouched('the side panel shown again');
+
+    // Every tab closed, until the side panel hides with the last.
+    await page.getByRole('button', { name: 'Close Changes tab', exact: true }).click();
+    await expect(sidePanelTabs().getByRole('tab')).toHaveText(['Browser']);
+    await untouched('Changes closed');
+    await page.getByRole('button', { name: 'Close Browser tab', exact: true }).click();
+    await expect(page.getByTestId('side-panel')).toHaveCount(0);
+    await untouched('Browser closed, and the side panel with it');
+    // The whole width again.
+    await expect.poll(width).toBeGreaterThan(alone - 2);
   });
 });
