@@ -15,13 +15,15 @@ export interface TabViewProps {
 }
 
 /**
- * The session's pull request or issue. The pane reads the item's details
- * from GitHub, as the workspace's account, as soon as it mounts, and a pane
- * nobody can see must not spend that account's request budget. So it mounts
- * only once this tab has been in front on screen, and from then on stays
- * mounted behind other tabs, keeping its drafts, scroll and own tab. The slot
- * is keyed by session, so arriving on another session starts unseen again:
- * with the tab behind, nothing is read until the person brings it forward.
+ * The session's pull request or issue, read from GitHub as the workspace's
+ * account. The pane mounts only once this tab has been in front on screen:
+ * an unseen pane draws nothing, since what it draws (avatars, images in the
+ * description) loads even while hidden. From then on it stays mounted behind
+ * other tabs, keeping its drafts, scroll and own tab, but reads only while in
+ * front (`active`): a seen pane behind another tab is neither read again once
+ * stale nor polled for its mergeability, so it spends none of the account's
+ * request budget. The slot is keyed by session, so arriving on another
+ * session starts unseen again.
  */
 function PullRequestView({ facts, close }: TabViewProps) {
   const inFront = useSidePanelStore((state) => isInFront(state.layout, 'pull-request'));
@@ -39,6 +41,7 @@ function PullRequestView({ facts, close }: TabViewProps) {
       session={facts.session}
       workItem={workItem}
       onClose={close}
+      active={inFront}
     />
   );
 }

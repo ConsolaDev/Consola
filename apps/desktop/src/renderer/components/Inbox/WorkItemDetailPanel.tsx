@@ -12,6 +12,11 @@ import {
 import type { InboxItem, WorkItemRef } from '../../../shared/workItems';
 import type { WorkItemDetails, WorkItemMutation } from '../../../shared/workItemDetails';
 import { inboxBridge } from '../../services/inboxBridge';
+import {
+  type DetailsTarget,
+  useWorkItemDetails,
+  useWorkItemDetailsStore,
+} from '../../stores/workItemDetailsStore';
 import { ipcErrorMessage } from '../../utils/ipcErrorMessage';
 import { conversationCount, quoteReply } from './workItemDetailPresentation';
 import {
@@ -43,6 +48,11 @@ interface Props {
   onDetails?: (details: WorkItemDetails) => void;
   /** Opens another item in the Inbox's pane; false when the Inbox does not list it. */
   onOpenWorkItem?: (ref: WorkItemRef) => boolean;
+  /**
+   * Whether the pane is on screen. Only then is the item read, and kept
+   * current; one that is not shows what was last read. Defaults to true.
+   */
+  active?: boolean;
 }
 
 type Tab = 'Conversation' | 'Files changed';
@@ -50,9 +60,6 @@ const TABS: Tab[] = ['Conversation', 'Files changed'];
 
 /** A confirmation is read, then gone; an error stays until dismissed or retried. */
 const NOTICE_MS = 5000;
-/** GitHub works mergeability out lazily; UNKNOWN means "ask again shortly". */
-const MERGE_STATE_POLL_MS = 3000;
-const MERGE_STATE_POLLS = 5;
 
 /**
  * A pull request or issue as on github.com, in Consola's own look: one
@@ -60,6 +67,10 @@ const MERGE_STATE_POLLS = 5;
  * comment box) and, for a pull request, Files changed, where a review is
  * written. Every write goes through `perform`, one at a time, says its
  * outcome beside what asked for it, and reads the item again after.
+ *
+ * The item's details come from `workItemDetailsStore`, shared with every
+ * other viewer of it, which reads only while some viewer is active, and asks
+ * GitHub again about a mergeability it is still working out.
  */
 export function WorkItemDetailPanel({
   workspaceId,
@@ -70,10 +81,14 @@ export function WorkItemDetailPanel({
   fixTarget = 'a session',
   onDetails,
   onOpenWorkItem,
+  active = true,
 }: Props) {
-  const [details, setDetails] = useState<WorkItemDetails | null>(null);
+  const ref = item.workItem;
+  const target: DetailsTarget = { workspaceId, accountLogin, ref };
+  const entry = useWorkItemDetails(target, active);
+  const details = entry?.details ?? null;
+  const loading = entry?.loading ?? true;
   const [tab, setTab] = useState<Tab>('Conversation');
-  const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -82,58 +97,49 @@ export function WorkItemDetailPanel({
   const [section, setSection] = useState<HTMLElement | null>(null);
   const alive = useRef(true);
   const writing = useRef(false);
-  const request = useRef(0);
   const composer = useRef<MarkdownEditorHandle>(null);
   const tabsRef = useRef<HTMLDivElement>(null);
   const uid = useId();
-  const ref = item.workItem;
   const isPr = ref.type === 'pr';
-
-  /** A quiet read neither shows the spinner nor clears an error the person has yet to read. */
-  async function refresh({ quiet = false } = {}): Promise<WorkItemDetails | null> {
-    const version = ++request.current;
-    if (!quiet) {
-      setLoading(true);
-      setError('');
-    }
-    try {
-      const next = await inboxBridge.getDetails(workspaceId, ref);
-      if (alive.current && version === request.current) {
-        setDetails(next);
-        onDetails?.(next);
-      }
-      return next;
-    } catch (error) {
-      if (alive.current && version === request.current && !quiet) {
-        setMessageAt('head');
-        setError(`Could not refresh details: ${ipcErrorMessage(error)}`);
-      }
-      return null;
-    } finally {
-      if (alive.current && version === request.current && !quiet) setLoading(false);
-    }
-  }
 
   useEffect(() => {
     alive.current = true;
-    void refresh();
     return () => {
       alive.current = false;
-      request.current++;
     };
-  }, [workspaceId, accountLogin, ref.repo, ref.type, ref.number]);
+  }, []);
 
-  // GitHub's own page keeps asking while it works mergeability out; without
-  // this, a merge button disabled for UNKNOWN would stay so until a refresh.
-  const mergeStatePolls = useRef(0);
+  /**
+   * Reads the item again now, for every viewer of it. A quiet read neither
+   * shows the spinner nor clears an error the person has yet to read.
+   */
+  async function refresh({ quiet = false } = {}): Promise<WorkItemDetails | null> {
+    if (!quiet) setError('');
+    const answer = await useWorkItemDetailsStore.getState().load(target, { force: true, quiet });
+    if (!quiet && answer.error && alive.current) {
+      setMessageAt('head');
+      setError(`Could not refresh details: ${answer.error}`);
+    }
+    return answer.details ?? null;
+  }
+
+  // A failed read the pane did not start (the one watching starts, a
+  // re-check, another viewer's Refresh) is said here as `refresh` says its
+  // own. One that failed before the pane mounted is not news.
+  const failedAt = entry?.errorAt;
+  const failure = entry?.error;
+  const shownFailureAt = useRef(failedAt);
   useEffect(() => {
-    if (details?.mergeState !== 'UNKNOWN' || mergeStatePolls.current >= MERGE_STATE_POLLS) return;
-    const timer = window.setTimeout(() => {
-      mergeStatePolls.current++;
-      void refresh({ quiet: true });
-    }, MERGE_STATE_POLL_MS);
-    return () => window.clearTimeout(timer);
-  }, [details]);
+    if (!failedAt || failedAt === shownFailureAt.current) return;
+    shownFailureAt.current = failedAt;
+    setMessageAt('head');
+    setError(`Could not refresh details: ${failure}`);
+  }, [failedAt, failure]);
+
+  // Every fresh read, whoever asked for it.
+  useEffect(() => {
+    if (details) onDetails?.(details);
+  }, [details, onDetails]);
 
   useEffect(() => {
     if (!notice) return;

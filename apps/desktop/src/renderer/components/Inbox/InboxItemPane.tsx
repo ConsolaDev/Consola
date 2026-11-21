@@ -54,6 +54,17 @@ export interface InboxItemPaneProps {
    * opens on the provider instead.
    */
   onOpenWorkItem?: (ref: WorkItemRef) => boolean;
+  /**
+   * Whether the pane is on screen. Only then does it read the item, and keep
+   * it current: one behind another tab reads nothing. Defaults to true.
+   */
+  active?: boolean;
+  /**
+   * Whether the pane is a landmark of its own, an <aside>, as in the Inbox.
+   * Inside the side panel, itself the landmark, it is a <section> (a region)
+   * instead, so two landmarks never nest. Defaults to true.
+   */
+  landmark?: boolean;
 }
 
 /** Verbatim from the spec: the inline confirm that replaces a block. */
@@ -109,6 +120,8 @@ export function InboxItemPane({
   currentSessionId,
   fixInSession,
   onOpenWorkItem,
+  active = true,
+  landmark = true,
 }: InboxItemPaneProps) {
   const attention = useAttentionStore((state) => state.records);
   const derived = useAttentionStore((state) => state.attention);
@@ -255,8 +268,9 @@ export function InboxItemPane({
     }
   };
 
+  const Root = landmark ? 'aside' : 'section';
   return (
-    <aside className="inbox-pane" data-testid="inbox-pane" aria-label="Work item details">
+    <Root className="inbox-pane" data-testid="inbox-pane" aria-label="Work item details">
       <div className="inbox-pane-header">
         <h2 className="inbox-pane-title">{title}</h2>
         <button className="inbox-pane-close" onClick={onClose} aria-label="Close details">
@@ -567,9 +581,10 @@ export function InboxItemPane({
           fixTarget={fixInSession ? 'this session' : 'a session'}
           onFix={fixInSession ?? receiveFix}
           onOpenWorkItem={onOpenWorkItem}
+          active={active}
         />
       )}
-    </aside>
+    </Root>
   );
 }
 

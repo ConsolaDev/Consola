@@ -4,6 +4,7 @@ import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import type { WorkItemRef } from '../../src/shared/workItems';
 import { createProfileDir, launchElectron } from './helpers/electron';
 
 const STUB_GH_DIR = path.resolve(__dirname, '../fixtures/stub-gh');
@@ -973,12 +974,14 @@ test('a linked session shows its item pane beside the terminal, and Fix pastes i
     });
     app = launched.app;
     const { page } = launched;
-    // Every read of #52's details asks REST for its changed files, alongside
-    // its GraphQL queries, so those requests count the reads.
-    const detailReadsOf52 = () =>
+    // Every read of an item's details asks REST for its changed files,
+    // alongside its GraphQL queries, so those requests count the reads.
+    const detailReadsOf = (number: number) =>
       (fs.existsSync(logPath) ? fs.readFileSync(logPath, 'utf8') : '')
         .split('\n')
-        .filter((line) => line.includes('repos/sprocket/catalog-portal/pulls/52/files')).length;
+        .filter((line) => line.includes(`repos/sprocket/catalog-portal/pulls/${number}/files`))
+        .length;
+    const stateFile = path.join(`${userDataDir} Test`, 'workspaces.json');
     await page.evaluate(
       async ({ workspaceId, binaryPath }) => {
         await window.harnessStateAPI.addHarness({
@@ -1038,8 +1041,9 @@ test('a linked session shows its item pane beside the terminal, and Fix pastes i
         .getByRole('tab', { name: 'Pull request #51', exact: true }),
     ).toHaveText('#51');
 
-    // The whole Inbox pane: header, remote details, sessions, ways to start one.
-    const pane = panel.getByRole('complementary', { name: 'Work item details' });
+    // The whole Inbox pane: header, remote details, sessions, ways to start
+    // one. Inside the side panel, itself the landmark, it is a region.
+    const pane = panel.getByRole('region', { name: 'Work item details' });
     await expect(pane.getByRole('heading', { name: 'Extract billing client' })).toBeVisible();
     const remote = pane.getByRole('region', { name: 'Remote item details' });
     await expect(remote.getByText('regression coverage', { exact: true })).toBeVisible({
@@ -1088,6 +1092,25 @@ test('a linked session shows its item pane beside the terminal, and Fix pastes i
       path: path.join(test.info().outputDir, 'session-work-item-panel.png'),
     });
 
+    // The Inbox's pane shares the tab's read: what was read moments ago is
+    // shown again without asking, until the person refreshes it.
+    expect(detailReadsOf(51)).toBe(1);
+    const inboxPane = await openPaneFor51(page);
+    await expect(inboxPane.getByRole('heading', { name: 'Extract billing client' })).toBeVisible();
+    await expect(
+      inboxPane
+        .getByRole('region', { name: 'Remote item details' })
+        .getByText('regression coverage', { exact: true }),
+    ).toBeVisible();
+    expect(detailReadsOf(51)).toBe(1);
+    const refreshInInbox = inboxPane.getByRole('button', { name: 'Refresh details' });
+    await refreshInInbox.click();
+    await expect.poll(() => detailReadsOf(51)).toBe(2);
+    await expect(refreshInInbox).toBeEnabled();
+    // Back by the pane's own row: under the Inbox, the sidebar lists no sessions.
+    await inboxPane.getByRole('button', { name: 'Open PR #51 · Fix CI' }).click();
+    await expect(pane.getByRole('heading', { name: 'Extract billing client' })).toBeVisible();
+
     // Once seen, the pane stays mounted behind another tab, keeping what it holds.
     const tabs = sidePanel.getByRole('tablist', { name: 'Side panel tabs' });
     await page.getByRole('button', { name: 'Changes', exact: true }).click();
@@ -1103,14 +1126,14 @@ test('a linked session shows its item pane beside the terminal, and Fix pastes i
     await page.locator('.session-nav-item', { hasText: 'PR #52 · Review' }).click();
     await expect(strip).toContainText('#52');
     await expect(panel).toHaveCount(0);
-    expect(detailReadsOf52()).toBe(0);
+    expect(detailReadsOf(52)).toBe(0);
 
     // The tab belongs to the side panel, which every session shares: brought
     // forward, it shows this session's own item. That item is not in the
     // Inbox, so the pane names it from a fresh read.
     await tabs.getByRole('tab', { name: 'Pull request #52', exact: true }).click();
     await expect(pane.locator('.inbox-pane-meta')).toContainText('sprocket/catalog-portal#52');
-    await expect.poll(detailReadsOf52).toBeGreaterThan(0);
+    await expect.poll(() => detailReadsOf(52)).toBeGreaterThan(0);
     await expect(pane.getByRole('heading', { name: 'Extract billing client' })).toBeVisible({
       timeout: 15_000,
     });
@@ -1126,6 +1149,38 @@ test('a linked session shows its item pane beside the terminal, and Fix pastes i
     await expect(pane.getByRole('heading', { name: 'Extract billing client' })).toBeVisible();
     await expect(thisRow).toContainText('This session');
     await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+
+    // A pane relinked behind another tab reads nothing until it is in front.
+    // Main relinks only a session that was unlinked first, and an unlinked
+    // session's tab has nothing to show, so the seen pane goes with the link
+    // and the relinked one starts unseen.
+    await page.getByRole('button', { name: 'Changes', exact: true }).click();
+    await expect(tabs.getByRole('tab', { name: 'Changes', exact: true })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    await expect(panel).toBeHidden();
+    const [fixCi] = sessionsOn51(stateFile);
+    expect(fixCi?.id).toBeTruthy();
+    const setWorkItem = (workItem?: WorkItemRef) =>
+      page.evaluate(
+        ({ workspaceId, sessionId, workItem }) =>
+          window.workspaceAPI.updateSession(workspaceId, sessionId, { workItem }),
+        { workspaceId, sessionId: fixCi.id as string, workItem },
+      );
+    await setWorkItem(undefined);
+    await expect(panel).toHaveCount(0);
+    await setWorkItem({
+      provider: 'github',
+      repo: 'sprocket/catalog-portal',
+      type: 'pr',
+      number: 53,
+    });
+    await expect(strip).toContainText('#53');
+    await page.waitForTimeout(1500);
+    expect(detailReadsOf(53)).toBe(0);
+    await tabs.getByRole('tab', { name: 'Pull request #53', exact: true }).click();
+    await expect.poll(() => detailReadsOf(53)).toBeGreaterThan(0);
 
     await pane.getByRole('button', { name: 'Close details' }).click();
     await expect(panel).toHaveCount(0);
