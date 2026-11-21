@@ -29,12 +29,19 @@ export function NewTabList({ groupId, facts }: { groupId: GroupId; facts: TabFac
     null;
   const optionId = (kind: TabKindId) => `${idPrefix}-${kind}`;
 
-  // The list takes the keyboard only when the person just opened it, from
-  // "+" or by showing an empty panel (`focusRequest`). One that appears at
-  // launch, on a session switch or back from an overlay leaves the keyboard
-  // where it was: the letters typed for the conversation must stay there.
+  // The list takes the keyboard only when the person's own action just
+  // brought it in front on screen (`focusRequest`): "+", a click on its tab,
+  // or showing the panel. One that appears at launch, on a session switch,
+  // back from an overlay or because the tab before it closed leaves the
+  // keyboard where it was: the letters typed for the conversation must stay
+  // there. It takes the keyboard at once, and again once the press that
+  // asked is over: a press on its tab fronts the tab, and the browser then
+  // focuses the tab.
   useEffect(() => {
-    if (useSidePanelStore.getState().takeFocusRequest(NEW_TAB)) listRef.current?.focus();
+    if (!useSidePanelStore.getState().takeFocusRequest(NEW_TAB)) return;
+    const take = () => listRef.current?.focus();
+    take();
+    requestAnimationFrame(take);
   }, []);
 
   const choose = (kind: TabKindId) => choosePlaceholder(groupId, kind);

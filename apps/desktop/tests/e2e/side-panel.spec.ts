@@ -230,6 +230,7 @@ test.describe('side panel', () => {
     await expect(filesTab()).toHaveAttribute('aria-selected', 'true');
     await expect(page.locator('.preview-tab-bar')).toContainText('search.ts');
   });
+
   test('showing an empty side panel shows the list of tabs', async () => {
     await openSession('Paginate the catalog search');
     // Last in the header, after the folder's own toggles.
@@ -482,6 +483,33 @@ test.describe('side panel', () => {
     ({ app, page } = await launchElectron({ userDataDir }));
     await expect(newTabList()).toBeVisible();
     await expect(conversation()).toBeFocused();
+    await expect(newTabList()).not.toBeFocused();
+    await page.keyboard.press('d');
+    await expect(sidePanelTab('New tab')).toHaveAttribute('aria-selected', 'true');
+    await expect(sidePanelTab('Changes')).toHaveCount(0);
+  });
+
+  test('the list takes the keyboard when its tab is clicked, not when it comes in front by itself', async () => {
+    await openSession('Paginate the catalog search');
+    await changesShortcut().click();
+    await plusButton().click();
+    await expect(newTabList()).toBeFocused();
+
+    // Clicked from behind another tab: the person asked for the list.
+    await sidePanelTab('Changes').click();
+    await expect(newTabList()).toHaveCount(0);
+    await sidePanelTab('New tab').click();
+    await expect(newTabList()).toBeFocused();
+
+    // In front again only because the tab before it closed: nobody asked.
+    await sidePanelTab('Changes').click();
+    await page.getByRole('button', { name: 'Close Changes tab', exact: true }).click();
+    await expect(sidePanelTab('New tab')).toHaveAttribute('aria-selected', 'true');
+    await expect(newTabList()).toBeVisible();
+    // Two frames, time enough for any deferred focus to land, before saying none did.
+    await page.evaluate(
+      () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))),
+    );
     await expect(newTabList()).not.toBeFocused();
     await page.keyboard.press('d');
     await expect(sidePanelTab('New tab')).toHaveAttribute('aria-selected', 'true');
