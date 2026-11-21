@@ -97,6 +97,7 @@ import type {
   ScopeView,
   SessionView,
   TemplateView,
+  TurnInitView,
   TurnOutcome,
   TurnReportView,
   WorkspaceView,
@@ -120,8 +121,10 @@ import {
 } from './sources/pollRunner';
 import { reminderPrompt } from './steps/stepPrompt';
 import {
+  initProblem,
   reminderCap,
   reportedFailure,
+  requiredServers,
   runCostOf,
   turnFailure,
   withTurnRecorded,
@@ -539,6 +542,12 @@ export class AutomationService {
    * stays as it was until the preparation succeeds.
    */
   private readonly retrying = new Map<string, { dir: string; itemKey?: string }>();
+  /**
+   * A step turn whose `init` failed its check, by session: the engine's words
+   * for why, which become the step's error when the turn it stopped ends.
+   * Memory only: the turn is stopped at once.
+   */
+  private readonly initFailures = new Map<string, string>();
   private pumpAgain = false;
   /** Each workspace's last save, settled either way: the next one waits for it. */
   private readonly saving = new Map<string, Promise<void>>();
@@ -1199,6 +1208,33 @@ export class AutomationService {
       this.deps.notify({ ...notice, runId: run.id, workspaceId, needsApproval: false, sessionId });
     void this.pump();
     return { completed };
+  }
+
+  /**
+   * A step's turn printed its `system/init`. The model it names goes on the
+   * step at once, so the run page shows it while the turn runs. Every server
+   * the step's agent grants must be there and connected: the CLI would run
+   * the turn without one, so the turn is stopped, and the step fails in the
+   * engine's words when it ends (`initFailures`). Only a running step's
+   * session is heard; anything else is ignored, and so is a run whose
+   * definition cannot be read, which fails when its turn ends.
+   */
+  public turnStarted(sessionId: string, init: TurnInitView): void {
+    const step = this.runningStepOf(sessionId);
+    if (!step) return;
+    const { run, record } = step;
+    if (init.model !== undefined) {
+      this.writeSteps(run.id, withStep(this.stepsOf(run.id), record.id, { model: init.model }));
+      this.broadcastRun(run.id);
+    }
+    const loaded = this.definitionOf(run);
+    if (!('definition' in loaded)) return;
+    const harness = this.deps.agentHarness(run.attribution.workspaceId ?? '').name;
+    const problem = initProblem(requiredServers(loaded.definition, record.id), init, harness);
+    if (!problem) return;
+    this.initFailures.set(sessionId, problem);
+    const session = this.sessionNamed(run, sessionId);
+    if (session) this.deps.stopAgent(session, 'a server it needs was not connected');
   }
 
   /**
@@ -3418,6 +3454,9 @@ export class AutomationService {
     outcome: TurnOutcome,
     sessionId: string,
   ): void {
+    // A failed init check is the step's error, ahead of the stop it caused.
+    const initFailure = this.initFailures.get(sessionId);
+    this.initFailures.delete(sessionId);
     const { report } = outcome;
     const loaded = report ? this.definitionOf(run) : undefined;
     if (report) {
@@ -3434,7 +3473,8 @@ export class AutomationService {
       );
     }
     let failed: { error: string; atTurnLimit: boolean } | null;
-    if (report) failed = reportedFailure({ ...outcome, report });
+    if (initFailure !== undefined) failed = { error: initFailure, atTurnLimit: false };
+    else if (report) failed = reportedFailure({ ...outcome, report });
     else {
       const error = turnFailure(outcome);
       failed = error ? { error, atTurnLimit: false } : null;
