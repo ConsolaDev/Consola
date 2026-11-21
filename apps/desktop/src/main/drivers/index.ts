@@ -54,5 +54,14 @@ export function toolPolicyProblem(
   return getDriver(fields.driverId).toolPolicyProblem(toHarnessConfig(fields), policy);
 }
 
-export type { HarnessDriver, HarnessConfig, UsageLimitReporting } from './HarnessDriver';
+export type {
+  HarnessDriver,
+  HarnessConfig,
+  TurnEvent,
+  TurnInit,
+  TurnReader,
+  TurnReport,
+  TurnResult,
+  UsageLimitReporting,
+} from './HarnessDriver';
 export { toHarnessConfig } from './HarnessDriver';

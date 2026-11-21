@@ -79,6 +79,12 @@ export interface HarnessDriver {
   createOutputObserver?(config: HarnessConfig, sessionId: string): (data: string) => void;
 
   /**
+   * A reader for one unattended turn launched with `SessionLaunch.reportTurn`.
+   * Absent: the driver cannot report turns.
+   */
+  createTurnReader?(): TurnReader;
+
+  /**
    * The folder a running session's process says it works in, read from
    * the CLI's own record of it — never inferred from what it printed.
    *
@@ -220,6 +226,65 @@ export interface UsageLimitReporting {
    * and the session is limited only when a used-up window binds it.
    */
   showsLimitNotice?(visibleText: string): boolean;
+}
+
+/**
+ * A reporting turn's first word about itself: the model it runs and every
+ * MCP server it loaded, with how each connected. `raw` is the CLI's own
+ * object, for `turn.json`.
+ */
+export interface TurnInit {
+  model?: string;
+  servers: Array<{ name: string; status: string }>;
+  /** Where this CLI signs in to a server, in the driver's words. */
+  signInHint?: string;
+  raw: unknown;
+}
+
+/**
+ * A reporting turn's last word about itself. `text` and a string
+ * `apiErrorStatus` are the CLI's text as `oneLine` shapes it; `raw` is the
+ * CLI's own object, whole, for `turn.json`.
+ */
+export interface TurnResult {
+  subtype: string;
+  isError: boolean;
+  /** The CLI's estimate, as it printed it: for a resumed turn, the conversation's so far. */
+  costUsd?: number;
+  turns?: number;
+  text?: string;
+  apiErrorStatus?: string | number;
+  /** The tools it was refused, distinct, in the order they were first refused. */
+  deniedTools: string[];
+  raw: unknown;
+}
+
+/** One thing a reporting turn's stream said that the pane or the launcher acts on. */
+export type TurnEvent =
+  | { kind: 'init'; init: TurnInit }
+  | { kind: 'tool'; name: string }
+  | { kind: 'line'; text: string };
+
+/** What a reporting turn said about itself, read whole at its exit. */
+export interface TurnReport {
+  init?: TurnInit;
+  result?: TurnResult;
+  /** The lines that were not JSON, cleaned: the last ones. */
+  otherLines: string[];
+  /** Whether the stream said the turn stopped on a usage limit. A hint, as a notice on screen is. */
+  limitNotice: boolean;
+  /** The cap the turn launched with: the launcher's to add, never the reader's. */
+  maxTurns?: number;
+}
+
+/** One reporting turn's stream, read as it arrives. */
+export interface TurnReader {
+  /** One raw PTY chunk; the events of every line it completed, in order. */
+  push(chunk: string): TurnEvent[];
+  /** Whether the stream has said this turn stopped on a usage limit, so far. */
+  readonly limitNotice: boolean;
+  /** At exit: the events of a last line with no newline, and the report (`maxTurns` is the launcher's to add). */
+  end(): { events: TurnEvent[]; report: TurnReport };
 }
 
 /**
