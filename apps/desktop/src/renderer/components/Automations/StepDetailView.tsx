@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { SquareTerminal } from 'lucide-react';
 import type {
   LogTail,
@@ -13,14 +13,20 @@ import { activateSession } from '../../utils/sessionActions';
 import { MarkdownRenderer } from '../Markdown';
 import { RunSteps, useRunConversation } from './ConversationView';
 import { useNow } from './parts';
-import { formatElapsed } from './presentation';
 import {
+  artifactNote,
   attemptsLine,
-  durationOf,
+  conditionValues,
+  failureIsExit,
+  formatBytes,
   logWasCapped,
-  stepHeading,
+  notRunReason,
+  runIsOver,
+  skippedCondition,
+  stepTone,
   variableRows,
   visibleTail,
+  type StepTone,
 } from './stepDetail';
 
 /** What a log read said when the file's own cap cut it short. */
@@ -29,19 +35,27 @@ export const LOG_CAPPED = 'The command wrote more than this; Consola kept the fi
 /** An image in an artifact is never fetched: someone else's text could point it anywhere. */
 const dropImage = () => undefined;
 
+/** How often a running command's logs are read again. */
+const LOG_FOLLOW_MS = 2000;
+
 type Read<T> =
   | { state: 'loading' }
   | { state: 'ready'; value: T }
   | { state: 'failed'; reason: string };
 
+type Definition = StepDetailData['step'];
+
 /**
- * One step of a run, read from its folder: an agent's session, transcript,
- * outputs and artifacts; a command's exact text, variables, exit and logs.
- * Opening it only reads. Logs, variables and outputs are text and are never
- * interpreted; an artifact goes through the sanitizing renderer alone.
+ * One step's trace, read from its folder, as a column of labelled facts: a
+ * command's exact text, where it ran, its variables with the values they
+ * had, how it ended and what it printed; an agent's session and transcript;
+ * the outputs and artifacts either left for the steps after it. A step that
+ * did not run says why, and what it would have run.
  *
- * The caller keys it by run and step, so a step switch starts clean and a
- * late answer for the old step has nowhere to land.
+ * Opening it only reads. Logs, variables and outputs are text and are never
+ * interpreted; an artifact goes through the sanitizing renderer alone. The
+ * caller keys it by run and step, so a late answer for another step has
+ * nowhere to land.
  */
 export function StepDetail({
   workspace,
@@ -54,6 +68,10 @@ export function StepDetail({
 }) {
   const [detail, setDetail] = useState<Read<StepDetailData | null>>({ state: 'loading' });
   const requests = useRef(0);
+  // A command's logs grow while it runs: read them again until it ends.
+  const following = step.kind === 'run' && step.status === 'running';
+  const tick = useNow(following ? LOG_FOLLOW_MS : null);
+  const beat = following ? tick.getTime() : 0;
 
   // The record moves as the step does; read the folder again when it does.
   useEffect(() => {
@@ -70,67 +88,203 @@ export function StepDetail({
     return () => {
       requests.current++;
     };
-  }, [run.id, step.id, step.status, step.attempt, step.finishedAt]);
+  }, [run.id, step.id, step.status, step.attempt, step.finishedAt, beat]);
 
-  const record = (detail.state === 'ready' && detail.value?.record) || step;
+  const ready = detail.state === 'ready' ? detail.value : null;
+  const record = ready?.record ?? step;
   const attempts = attemptsLine(record);
+  const tone = stepTone(record.status, runIsOver(run.status));
+  // Failed before it started (its `if:` could not be read, a value it needed was missing): nothing ran to trace.
+  const failedEarly = tone === 'failed' && record.startedAt === undefined;
+  const ran = (tone === 'passed' || tone === 'failed' || tone === 'running') && !failedEarly;
 
   return (
-    <section
-      className="automations-detail-section automations-run-section automations-step-detail"
-      aria-label={`Step ${step.id}`}
-    >
-      <div className="automations-detail-section-head">
-        <h3 className="automations-section-title">{stepHeading(record, run.dryRun === true)}</h3>
-        <span className="automations-hint">
-          {record.kind === 'agent' ? 'Agent step' : 'Command'} · {record.status}
-          {record.kind === 'run' && ` · ${step.id}`}
-        </span>
-      </div>
+    <div className="automations-trace-detail">
       {attempts && <p className="automations-hint">{attempts}</p>}
-      {record.skipped && <p className="automations-hint">{record.skipped}</p>}
-      {record.error && <p className="automations-hint automations-step-error">{record.error}</p>}
       {detail.state === 'failed' && (
         <p className="automations-error" role="alert">
           Could not read this step: {detail.reason}
         </p>
       )}
-      {record.kind === 'agent' ? (
-        <AgentBody workspace={workspace} run={run} step={record} />
-      ) : (
-        <CommandBody
-          run={run}
-          step={record}
-          detail={detail.state === 'ready' ? detail.value : null}
-          loaded={detail.state === 'ready'}
-        />
+      {tone === 'reported' && (
+        <div className="automations-trace-note">
+          <h4 className="automations-trace-note-title">Would have run</h4>
+          <p className="automations-hint">
+            A dry run reports what this command would do instead of running it.
+          </p>
+        </div>
       )}
-      <Outputs outputs={record.outputs} />
-    </section>
-  );
-}
-
-function Outputs({ outputs }: { outputs: StepRun['outputs'] }) {
-  const entries = Object.entries(outputs ?? {});
-  if (entries.length === 0) return null;
-  return (
-    <div className="automations-step-block">
-      <h4 className="automations-step-label">Outputs</h4>
-      <ul className="automations-step-list">
-        {entries.map(([name, value]) => (
-          <li key={name}>
-            <code className="automations-step-code">
-              {name}: {String(value)}
-            </code>
-          </li>
-        ))}
-      </ul>
+      <dl className="automations-facts">
+        {tone === 'failed' && !(record.kind === 'run' && failureIsExit(record.error)) && (
+          <Fact label="Error">
+            <p className="automations-fact-text automations-fact-bad">
+              {record.error ?? 'It failed without saying why.'}
+            </p>
+          </Fact>
+        )}
+        {failedEarly && ready?.step && <WouldRun definition={ready.step} />}
+        {!ran && !failedEarly && tone !== 'reported' && (
+          <NotRunFacts run={run} step={record} tone={tone} definition={ready?.step} />
+        )}
+        {(ran || tone === 'reported') &&
+          (record.kind === 'agent' ? (
+            <AgentFacts workspace={workspace} run={run} step={record} />
+          ) : (
+            <CommandFacts
+              run={run}
+              step={record}
+              detail={ready}
+              loaded={detail.state === 'ready'}
+              reported={tone === 'reported'}
+            />
+          ))}
+        <OutputsFact step={record} />
+        <ArtifactsFact runId={run.id} step={record} />
+      </dl>
     </div>
   );
 }
 
-/** The session, its transcript while it works and after, and the artifacts it wrote. */
-function AgentBody({
+/** One labelled fact of a step's trace: a quiet label, then what it was. */
+function Fact({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="automations-fact">
+      <dt>{label}</dt>
+      <dd>{children}</dd>
+    </div>
+  );
+}
+
+/**
+ * A step that did not run: why — its `if:` and the values that made it
+ * false, or where the run stopped — then what it would have run, as the
+ * run's definition has it.
+ */
+function NotRunFacts({
+  run,
+  step,
+  tone,
+  definition,
+}: {
+  run: RunRecord;
+  step: StepRun;
+  tone: StepTone;
+  definition: Definition | undefined;
+}) {
+  const condition = tone === 'skipped' ? skippedCondition(step.skipped) : null;
+  const values = condition ? conditionValues(condition, run.steps ?? []) : [];
+  return (
+    <>
+      <Fact label={tone === 'pending' || tone === 'waiting' ? 'Waits' : 'Why'}>
+        {tone === 'skipped' ? (
+          condition ? (
+            <>
+              <p className="automations-fact-text">Its condition was false, so it was skipped.</p>
+              <code className="automations-fact-code">if: {condition}</code>
+              {values.length > 0 && (
+                <ul className="automations-fact-list">
+                  {values.map((value) => (
+                    <li key={value.ref}>
+                      <code>{value.ref}</code>{' '}
+                      {value.value === undefined ? (
+                        'was not set'
+                      ) : (
+                        <>
+                          was <code>{String(value.value)}</code>
+                        </>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </>
+          ) : (
+            <p className="automations-fact-text">{step.skipped ?? 'It was skipped.'}</p>
+          )
+        ) : tone === 'waiting' ? (
+          <p className="automations-fact-text">
+            For a free agent slot. A few automation sessions work at once; the rest start in order.
+          </p>
+        ) : tone === 'pending' ? (
+          <p className="automations-fact-text">It starts once the steps before it are done.</p>
+        ) : (
+          <p className="automations-fact-text">{notRunReason(run)}</p>
+        )}
+      </Fact>
+      {definition && <WouldRun definition={definition} />}
+    </>
+  );
+}
+
+/** What a step that did not run would have run: its command and variables as written, or its prompt. */
+function WouldRun({ definition }: { definition: Definition }) {
+  if (definition.kind === 'run') {
+    const env = Object.entries(definition.env);
+    return (
+      <>
+        <Fact label="Would run">
+          <pre className="automations-prompt automations-fact-pre">{definition.run}</pre>
+        </Fact>
+        {env.length > 0 && (
+          <Fact label="Env">
+            <ul className="automations-vars">
+              {env.map(([name, template]) => (
+                <li key={name}>
+                  <span className="automations-var-name">
+                    <code>{name}</code>
+                    <span className="automations-var-eq"> = </span>
+                  </span>
+                  <code className="automations-var-value">{template}</code>
+                </li>
+              ))}
+            </ul>
+          </Fact>
+        )}
+      </>
+    );
+  }
+  return (
+    <Fact label="Would run">
+      {definition.action !== undefined ? (
+        <p className="automations-fact-text">
+          The action <code>{definition.action}</code>, in a read-only session.
+        </p>
+      ) : (
+        <pre className="automations-prompt automations-fact-pre">{definition.prompt ?? ''}</pre>
+      )}
+    </Fact>
+  );
+}
+
+/** The outputs a step set, as `name = value`, and how a later step reads them. */
+function OutputsFact({ step }: { step: StepRun }) {
+  const entries = Object.entries(step.outputs ?? {});
+  if (entries.length === 0) return null;
+  return (
+    <Fact label="Outputs">
+      <ul className="automations-vars">
+        {entries.map(([name, value]) => (
+          <li key={name}>
+            <span className="automations-var-name">
+              <code>{name}</code>
+              <span className="automations-var-eq"> = </span>
+            </span>
+            <code className="automations-var-value">{String(value)}</code>
+          </li>
+        ))}
+      </ul>
+      <p className="automations-fact-note">
+        Later steps read {entries.length === 1 ? 'it' : 'them'} as{' '}
+        <code>
+          steps.{step.id}.{entries.length === 1 ? entries[0][0] : '<name>'}
+        </code>
+      </p>
+    </Fact>
+  );
+}
+
+/** The session, its transcript while it works and after. */
+function AgentFacts({
   workspace,
   run,
   step,
@@ -157,10 +311,20 @@ function AgentBody({
     finishedAt: step.finishedAt,
   };
 
+  if (!hasConversation) {
+    return (
+      <Fact label="Session">
+        <p className="automations-fact-text">
+          {following ? 'Starting its session…' : 'It never started a session.'}
+        </p>
+      </Fact>
+    );
+  }
+
   return (
     <>
-      {step.sessionId && (
-        <div className="automations-step-block">
+      <Fact label="Session">
+        <div className="automations-fact-inline">
           {session ? (
             <button
               type="button"
@@ -171,56 +335,51 @@ function AgentBody({
               Open session
             </button>
           ) : (
-            <span className="automations-hint">Session removed</span>
+            <span className="automations-fact-text">Session removed</span>
           )}
+          <span className="automations-fact-note">A read-only session</span>
         </div>
-      )}
-      {hasConversation && (
-        <div className="automations-step-block">
-          <h4 className="automations-step-label">Transcript</h4>
-          {error && !conversation ? (
-            <p className="automations-error" role="alert">
-              Could not read its transcript: {error}
-            </p>
-          ) : !conversation ? (
-            <p className="automations-hint">Reading its transcript…</p>
-          ) : !conversation.readable ? (
-            <p className="automations-hint">
-              This harness’s transcripts can’t be read here. Open the session to see what it did.
-            </p>
-          ) : !transcript ? (
-            <p className="automations-hint">
-              {following
-                ? 'Nothing in its transcript yet.'
-                : 'Its transcript is no longer on disk.'}
-            </p>
-          ) : (
-            <>
-              {error && (
-                <p className="automations-error" role="alert">
-                  Could not read its transcript: {error}
-                </p>
-              )}
-              <RunSteps
-                run={scoped}
-                entries={transcript.entries}
-                truncated={transcript.truncated}
-                now={now}
-                idPrefix={ids}
-                expanded={expanded}
-                onExpand={() => setExpanded(true)}
-              />
-            </>
-          )}
-        </div>
-      )}
-      <Artifacts runId={run.id} step={step} />
+      </Fact>
+      <Fact label="Transcript">
+        {error && !conversation ? (
+          <p className="automations-error" role="alert">
+            Could not read its transcript: {error}
+          </p>
+        ) : !conversation ? (
+          <p className="automations-fact-text automations-fact-quiet">Reading its transcript…</p>
+        ) : !conversation.readable ? (
+          <p className="automations-fact-text automations-fact-quiet">
+            This harness’s transcripts can’t be read here. Open the session to see what it did.
+          </p>
+        ) : !transcript ? (
+          <p className="automations-fact-text automations-fact-quiet">
+            {following ? 'Nothing in its transcript yet.' : 'Its transcript is no longer on disk.'}
+          </p>
+        ) : (
+          <>
+            {error && (
+              <p className="automations-error" role="alert">
+                Could not read its transcript: {error}
+              </p>
+            )}
+            <RunSteps
+              run={scoped}
+              entries={transcript.entries}
+              truncated={transcript.truncated}
+              now={now}
+              idPrefix={ids}
+              expanded={expanded}
+              onExpand={() => setExpanded(true)}
+            />
+          </>
+        )}
+      </Fact>
     </>
   );
 }
 
-/** Artifacts by name and size; one opens in the sanitizing renderer under its label. */
-function Artifacts({ runId, step }: { runId: string; step: StepRun }) {
+/** Artifacts by name and size, and what each is for; one opens in place, in the sanitizing renderer. */
+function ArtifactsFact({ runId, step }: { runId: string; step: StepRun }) {
   const [open, setOpen] = useState<{
     name: string;
     read: Read<{ content: string; bytes: number } | null>;
@@ -235,8 +394,12 @@ function Artifacts({ runId, step }: { runId: string; step: StepRun }) {
   const artifacts = step.artifacts ?? [];
   if (artifacts.length === 0) return null;
 
-  const show = (name: string) => {
+  const toggle = (name: string) => {
     const request = ++requests.current;
+    if (open?.name === name) {
+      setOpen(null);
+      return;
+    }
     setOpen({ name, read: { state: 'loading' } });
     automationsBridge.readArtifact(runId, { step: step.id, name }).then(
       (value) => {
@@ -250,25 +413,30 @@ function Artifacts({ runId, step }: { runId: string; step: StepRun }) {
   };
 
   return (
-    <div className="automations-step-block">
-      <h4 className="automations-step-label">Artifacts</h4>
-      <ul className="automations-step-list">
-        {artifacts.map((artifact) => (
-          <li key={artifact.name}>
-            <button
-              type="button"
-              className="automations-link-button"
-              onClick={() => show(artifact.name)}
-            >
-              {artifact.name}
-            </button>{' '}
-            <span className="automations-hint">{formatBytes(artifact.bytes)}</span>
-          </li>
-        ))}
+    <Fact label="Artifacts">
+      <ul className="automations-fact-list">
+        {artifacts.map((artifact) => {
+          const note = artifactNote(artifact.name, step.kind);
+          return (
+            <li key={artifact.name}>
+              <button
+                type="button"
+                className="automations-link-button"
+                aria-expanded={open?.name === artifact.name}
+                onClick={() => toggle(artifact.name)}
+              >
+                {artifact.name}
+              </button>{' '}
+              <span className="automations-fact-note">
+                {formatBytes(artifact.bytes)}
+                {note ? ` · ${note}` : ''}
+              </span>
+            </li>
+          );
+        })}
       </ul>
       {open && (
         <div className="automations-step-artifact">
-          <p className="automations-step-label">material from the run</p>
           {open.read.state === 'loading' ? (
             <p className="automations-hint">Reading {open.name}…</p>
           ) : open.read.state === 'failed' ? (
@@ -288,80 +456,114 @@ function Artifacts({ runId, step }: { runId: string; step: StepRun }) {
           )}
         </div>
       )}
-    </div>
+    </Fact>
   );
 }
 
 /** A command's text exactly as written, where it ran, its variables, how it ended and what it printed. */
-function CommandBody({
+function CommandFacts({
   run,
   step,
   detail,
   loaded,
+  reported,
 }: {
   run: RunRecord;
   step: StepRun;
   detail: StepDetailData | null;
   loaded: boolean;
+  reported: boolean;
 }) {
-  const now = useNow(step.status === 'running' ? 1000 : null);
-  const duration = durationOf(step, now);
   const command = detail?.command;
   const exit = step.command;
+  const running = step.status === 'running';
   const ended =
     exit?.signal !== undefined
       ? `Stopped by ${exit.signal}`
       : exit?.exitCode !== undefined
         ? `Exit code ${exit.exitCode}`
-        : exit?.intentAt && step.status !== 'running'
-          ? 'No exit recorded'
-          : null;
+        : running
+          ? 'Still running…'
+          : exit?.intentAt
+            ? 'No exit recorded'
+            : null;
+  const printed = (tail: LogTail | undefined, bytes: number | undefined) =>
+    Boolean(tail?.text) || (bytes ?? 0) > 0;
+  const hasStdout = printed(detail?.stdout, exit?.stdoutBytes);
+  const hasStderr = printed(detail?.stderr, exit?.stderrBytes);
 
   return (
     <>
       {command ? (
-        <div className="automations-step-block">
-          <h4 className="automations-step-label">Command</h4>
-          <pre className="automations-prompt automations-step-command">{command.command}</pre>
-          <p className="automations-hint">
-            In <code className="automations-step-code">{command.cwd}</code>
-          </p>
-          {command.env.length > 0 && (
-            <ul className="automations-step-list">
-              {variableRows(command).map((row) => (
-                <li key={row.name}>
-                  {row.long ? (
-                    <details className="automations-details">
-                      <summary>
-                        <code className="automations-step-code">
-                          {row.name} = {row.template} →
-                        </code>{' '}
-                        <span className="automations-hint">a long value</span>
-                      </summary>
-                      <pre className="automations-prompt">{row.value}</pre>
-                    </details>
-                  ) : (
-                    <code className="automations-step-code">
-                      {row.name} = {row.template} → {row.value}
-                    </code>
-                  )}
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      ) : (
-        loaded && <p className="automations-hint">Its command was not recorded.</p>
-      )}
-      {(ended || duration !== null) && (
-        <p className="automations-hint">
-          {[ended, duration !== null ? formatElapsed(duration) : null].filter(Boolean).join(' · ')}
-        </p>
-      )}
-      {loaded && (
         <>
-          <Log runId={run.id} step={step} stream="stdout" initial={detail?.stdout} />
-          <Log runId={run.id} step={step} stream="stderr" initial={detail?.stderr} />
+          <Fact label="Command">
+            <pre className="automations-prompt automations-fact-pre">{command.command}</pre>
+            <p className="automations-fact-note">
+              in <code>{command.cwd}</code>
+            </p>
+          </Fact>
+          {command.env.length > 0 && (
+            <Fact label="Env">
+              <ul className="automations-vars">
+                {variableRows(command).map((row) => (
+                  <li key={row.name}>
+                    <span className="automations-var-name">
+                      <code>{row.name}</code>
+                      <span className="automations-var-eq"> = </span>
+                    </span>
+                    {row.long ? (
+                      <pre className="automations-prompt automations-var-block">{row.value}</pre>
+                    ) : (
+                      <code className="automations-var-value">{row.value}</code>
+                    )}
+                    {row.templated && (
+                      <span className="automations-var-from">
+                        from <code>{row.template}</code>
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </Fact>
+          )}
+        </>
+      ) : (
+        loaded && (
+          <Fact label="Command">
+            <p className="automations-fact-text automations-fact-quiet">
+              Its command was not recorded.
+            </p>
+          </Fact>
+        )
+      )}
+      {!reported && ended && (
+        <Fact label="Result">
+          <p
+            className={`automations-fact-text ${exit?.exitCode !== undefined && exit.exitCode !== 0 ? 'automations-fact-bad' : ''}`}
+          >
+            {ended}
+          </p>
+        </Fact>
+      )}
+      {loaded && !reported && (
+        <>
+          {hasStdout && (
+            <Fact label="stdout">
+              <Log runId={run.id} step={step} stream="stdout" initial={detail?.stdout} />
+            </Fact>
+          )}
+          {hasStderr && (
+            <Fact label="stderr">
+              <Log runId={run.id} step={step} stream="stderr" initial={detail?.stderr} />
+            </Fact>
+          )}
+          {!hasStdout && !hasStderr && (
+            <Fact label="Output">
+              <p className="automations-fact-text automations-fact-quiet">
+                {running ? 'Nothing printed yet.' : 'It printed nothing.'}
+              </p>
+            </Fact>
+          )}
         </>
       )}
     </>
@@ -413,21 +615,24 @@ function Log({
 
   const wrote = step.command?.[stream === 'stdout' ? 'stdoutBytes' : 'stderrBytes'];
   const capped = logWasCapped(wrote);
-  if (!tail && !wrote && all.state === 'idle') {
-    return (
-      <div className="automations-step-block">
-        <h4 className="automations-step-label">{stream}</h4>
-        <p className="automations-hint">Nothing on {stream}.</p>
-      </div>
-    );
-  }
 
   return (
-    <div className="automations-step-block">
-      <h4 className="automations-step-label">{stream}</h4>
-      {tail && <pre className="automations-prompt automations-step-log">{tail.text}</pre>}
+    <>
+      {tail?.text ? (
+        <pre
+          className={`automations-prompt automations-fact-pre automations-log automations-log-${stream}`}
+        >
+          {tail.text}
+        </pre>
+      ) : (
+        step.status !== 'running' && (
+          <p className="automations-fact-text automations-fact-quiet">
+            Its log is no longer on disk.
+          </p>
+        )
+      )}
       {tail?.truncated && (
-        <p className="automations-hint">
+        <p className="automations-fact-note">
           Showing the end of the log.{' '}
           <button
             type="button"
@@ -439,19 +644,15 @@ function Log({
           </button>
         </p>
       )}
-      {capped && <p className="automations-hint">{LOG_CAPPED}</p>}
+      {capped && <p className="automations-fact-note">{LOG_CAPPED}</p>}
       {all.state === 'failed' && (
         <p className="automations-error" role="alert">
           Could not read its log: {all.reason}
         </p>
       )}
-      {all.state === 'gone' && <p className="automations-hint">Its log is no longer on disk.</p>}
-    </div>
+      {all.state === 'gone' && (
+        <p className="automations-fact-note">Its log is no longer on disk.</p>
+      )}
+    </>
   );
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
