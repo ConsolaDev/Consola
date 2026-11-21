@@ -294,14 +294,44 @@ test.describe('side panel', () => {
     await expect(page.getByTestId('side-panel')).toHaveCount(0);
     await expect(sidePanelToggle()).toHaveAttribute('aria-pressed', 'false');
 
-    // From a shell, and from the list itself, whose letters never take a chord.
+    // From a shell. Showing a panel that has its tabs already leaves the
+    // keyboard where it was, and the list hands a chord pressed in it to the window.
     await conversation().focus();
     await page.keyboard.press('Control+Backquote');
     const shell = page.getByTestId('session-shell').locator('textarea');
     await expect(shell).toBeFocused();
     await page.keyboard.press(sidePanelChord);
-    await expect(newTabList()).toBeFocused();
+    await expect(newTabList()).toBeVisible();
+    await expect(shell).toBeFocused();
+    await newTabList().focus();
     await page.keyboard.press(sidePanelChord);
     await expect(page.getByTestId('side-panel')).toHaveCount(0);
+  });
+
+  test('a list the person did not just open leaves the keyboard in the conversation', async () => {
+    await openSession('Paginate the catalog search');
+    await sidePanelToggle().click();
+    await expect(newTabList()).toBeFocused();
+
+    // To another session and back: the list is still there, the keyboard is
+    // the conversation's, and a kind's letter typed there chooses nothing.
+    await openSession('Fix flaky upload test');
+    await openSession('Paginate the catalog search');
+    await expect(newTabList()).toBeVisible();
+    await expect(conversation()).toBeFocused();
+    await page.keyboard.press('d');
+    await expect(sidePanelTab('New tab')).toHaveAttribute('aria-selected', 'true');
+
+    // Relaunched, the app comes back on this session and the remembered
+    // layout mounts the list afresh, unasked. Nothing is clicked on the way:
+    // a click on the session's row would take the keyboard itself.
+    await app.close();
+    ({ app, page } = await launchElectron({ userDataDir }));
+    await expect(newTabList()).toBeVisible();
+    await expect(conversation()).toBeFocused();
+    await expect(newTabList()).not.toBeFocused();
+    await page.keyboard.press('d');
+    await expect(sidePanelTab('New tab')).toHaveAttribute('aria-selected', 'true');
+    await expect(sidePanelTab('Changes')).toHaveCount(0);
   });
 });
