@@ -22,7 +22,12 @@ import { NEW_TAB, type GroupPosition, type TabGroupNode, type TabId } from '../.
 import { tabKind, type TabFacts } from '../../sidePanel/tabKinds';
 import { useSidePanelStore } from '../../stores/sidePanelStore';
 import { dragPointer } from './dragPointer';
-import { keyboardAfterClose, keyboardInTab } from './keyboardAfterClose';
+import {
+  keyboardAfterClose,
+  keyboardInTab,
+  keyboardInTabPage,
+  keyboardToConversation,
+} from './keyboardAfterClose';
 import { TabMenu } from './TabMenu';
 import { useTabMark } from './tabMarks';
 
@@ -254,11 +259,15 @@ function TabBarTab({
   const close = () => closeTab(groupId, tab);
 
   // The ✕ never takes the keyboard. When it was in the tab, on it or in what
-  // it shows, it is handed on as from a close by Delete; elsewhere it stays.
+  // it shows, it is handed on as from a close by Delete; in the page the tab
+  // shows, which goes with it, it goes to the conversation; elsewhere it
+  // stays.
   const closeByPointer = (event: MouseEvent<HTMLButtonElement>) => {
     const handOn = keyboardInTab(event.currentTarget)
       ? keyboardAfterClose(event.currentTarget)
-      : null;
+      : keyboardInTabPage(event.currentTarget)
+        ? keyboardToConversation
+        : null;
     close();
     if (handOn) requestAnimationFrame(() => handOn());
   };

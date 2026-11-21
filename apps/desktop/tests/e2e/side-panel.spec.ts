@@ -197,10 +197,33 @@ test.describe('side panel', () => {
     await page.keyboard.press('Escape');
     await expect(changesTab()).toHaveAttribute('aria-selected', 'true');
 
-    // Escape pressed inside the tab is the one that closes it.
+    // Escape pressed inside the tab is the one that closes it, and the
+    // keyboard goes back to the conversation, never to the page's body.
     await page.getByPlaceholder('Enter commit message...').focus();
     await page.keyboard.press('Escape');
     await expect(page.getByTestId('side-panel')).toHaveCount(0);
+    await expect(conversation()).toBeFocused();
+  });
+
+  test('closing Changes from inside it hands the keyboard to the conversation, with a tab left behind it too', async () => {
+    await openSession('Paginate the catalog search');
+    await page.getByRole('button', { name: 'Files', exact: true }).click();
+    await changesShortcut().click();
+    await expect(changesTab()).toHaveAttribute('aria-selected', 'true');
+
+    // Its own close button, in the review's header.
+    await page.locator('.git-review-close-btn').click();
+    await expect(sidePanelTab('Files')).toHaveAttribute('aria-selected', 'true');
+    await expect(changesTab()).toHaveCount(0);
+    await expect(conversation()).toBeFocused();
+
+    // Its Escape.
+    await changesShortcut().click();
+    await page.getByPlaceholder('Enter commit message...').focus();
+    await page.keyboard.press('Escape');
+    await expect(sidePanelTab('Files')).toHaveAttribute('aria-selected', 'true');
+    await expect(changesTab()).toHaveCount(0);
+    await expect(conversation()).toBeFocused();
   });
 
   /** Writes `lines` numbered lines into a file of the repository, so what shows it has to scroll. */
@@ -253,6 +276,7 @@ test.describe('side panel', () => {
 
     await page.keyboard.press('Escape');
     await expect(page.getByTestId('side-panel')).toHaveCount(0);
+    await expect(conversation()).toBeFocused();
   });
 
   test('after a click on a file in the Files tab, the keys scroll its preview', async () => {
@@ -705,19 +729,23 @@ test.describe('side panel', () => {
     await expect(page.getByTestId('side-panel')).toHaveCount(0);
     await expect(sidePanelToggle()).toHaveAttribute('aria-pressed', 'false');
 
-    // From the shell, which hands the chord to the window.
+    // From the shell, which hands the chord to the window. The side panel
+    // takes the keyboard's place with it, so the keyboard goes back to the
+    // conversation, never to the page's body.
     await conversation().focus();
     await page.keyboard.press('Control+Backquote');
     const shell = page.getByTestId('session-shell').locator('textarea');
     await expect(shell).toBeFocused();
     await page.keyboard.press(sidePanelChord);
     await expect(page.getByTestId('side-panel')).toHaveCount(0);
+    await expect(conversation()).toBeFocused();
 
     // Shown again, the Terminal tab comes back in front, but nobody asked
     // for the shell this time, so it leaves the keyboard alone.
     await page.keyboard.press(sidePanelChord);
     await expect(page.locator('.shell-directory')).toHaveText(/^Started in: \//);
     await expect(shell).not.toBeFocused();
+    await expect(conversation()).toBeFocused();
 
     // From the list, which the person just opened, so it takes the keyboard,
     // and which hands a chord pressed in it to the window.
@@ -725,6 +753,15 @@ test.describe('side panel', () => {
     await expect(newTabList()).toBeFocused();
     await page.keyboard.press(sidePanelChord);
     await expect(page.getByTestId('side-panel')).toHaveCount(0);
+    await expect(conversation()).toBeFocused();
+
+    // Terminal's own chord in the shell, with its tab in front, the same.
+    await page.keyboard.press(sidePanelChord);
+    await sidePanelTab('Terminal').click();
+    await expect(shell).toBeFocused();
+    await page.keyboard.press('Control+Backquote');
+    await expect(page.getByTestId('side-panel')).toHaveCount(0);
+    await expect(conversation()).toBeFocused();
   });
 
   test('a Terminal tab behind another tab starts no shell', async () => {
@@ -1193,6 +1230,15 @@ test.describe('side panel', () => {
     await expect(conversation()).toBeFocused();
     await page.keyboard.down('Enter');
     await page.keyboard.up('Enter');
+    expect(await heard()).toEqual([]);
+
+    // Escape held in Changes, which closes it from inside: the same.
+    await changesShortcut().click();
+    await page.getByPlaceholder('Enter commit message...').focus();
+    await page.keyboard.down('Escape');
+    await expect(conversation()).toBeFocused();
+    await page.keyboard.down('Escape');
+    await page.keyboard.up('Escape');
     expect(await heard()).toEqual([]);
   });
 

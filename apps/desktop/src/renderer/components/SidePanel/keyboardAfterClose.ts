@@ -24,17 +24,74 @@ const CONVERSATION = '[data-conversation-terminal] .terminal-surface textarea';
 export function keyboardAfterClose(closing: Element): () => boolean {
   const group = closing.closest('.side-panel-group');
   const view = closing.closest('.workspace-view');
-  return () => {
-    const target =
+  return () =>
+    placeKeyboard(
       (group?.isConnected ? group.querySelector<HTMLElement>(FRONT_TAB) : null) ??
-      view?.querySelector<HTMLElement>(`.side-panel ${FRONT_TAB}`) ??
-      view?.querySelector<HTMLElement>(CONVERSATION) ??
-      view?.querySelector<HTMLElement>('.side-panel-toggle');
-    if (!target?.isConnected) return false;
-    target.focus();
-    swallowHeldKeyRepeats();
-    return true;
-  };
+        view?.querySelector<HTMLElement>(`.side-panel ${FRONT_TAB}`) ??
+        conversationTerminal() ??
+        view?.querySelector<HTMLElement>('.side-panel-toggle'),
+    );
+}
+
+/**
+ * Where the keyboard goes when the person's own action, taken from inside
+ * the side panel or from a page, takes away the place it was in, and the
+ * tab bar did not take the action: Escape in Changes, or a view's own close
+ * button, closing the view's tab; the Browser tab's ✕ or menu Close with
+ * the keyboard in its page; a chord that hides the side panel with the
+ * keyboard in it. The conversation's terminal, never the body, where the
+ * next key would land nowhere; a held key's repeats stop at the window (see
+ * `keyboardAfterClose`). Call it once the change has rendered. Says whether
+ * it placed the keyboard.
+ *
+ * Only after such an action. One taken from the conversation, the header or
+ * the palette leaves the keyboard where it is, and so does a close from the
+ * bar with the keyboard in the tab, which `keyboardAfterClose` hands on.
+ */
+export function keyboardToConversation(): boolean {
+  return placeKeyboard(conversationTerminal());
+}
+
+/** Whether the keyboard is in a page: its `<webview>`, or the host that draws the pages. */
+export function keyboardInPage(): boolean {
+  const focused = document.activeElement;
+  return focused?.tagName === 'WEBVIEW' || !!focused?.closest('.browser-host');
+}
+
+/**
+ * Whether the keyboard is in the page a tab shows: in a page, while what the
+ * tab shows holds the slot a page is drawn over. A page lives outside its
+ * tab (see "Pages Live in One Place"), so `keyboardInTab` never sees it
+ * there. Give it an element of the tab in its bar.
+ */
+export function keyboardInTabPage(tab: Element): boolean {
+  if (!keyboardInPage()) return false;
+  const contentId = tab
+    .closest('.side-panel-tab')
+    ?.querySelector('[role="tab"]')
+    ?.getAttribute('aria-controls');
+  return !!contentId && !!document.getElementById(contentId)?.querySelector('.browser-slot');
+}
+
+/** Whether the keyboard is in the side panel, or in a page, which is only ever drawn over it. */
+export function keyboardInSidePanel(): boolean {
+  return keyboardInPage() || !!document.activeElement?.closest('.side-panel');
+}
+
+/**
+ * The conversation's terminal, looked up from the document: a page is not
+ * inside the session's view, and the window shows one conversation.
+ */
+function conversationTerminal(): HTMLElement | null {
+  return document.querySelector<HTMLElement>(CONVERSATION);
+}
+
+/** Gives `target` the keyboard, and stops a held key's repeats there. */
+function placeKeyboard(target: HTMLElement | null | undefined): boolean {
+  if (!target?.isConnected) return false;
+  target.focus();
+  swallowHeldKeyRepeats();
+  return true;
 }
 
 /**

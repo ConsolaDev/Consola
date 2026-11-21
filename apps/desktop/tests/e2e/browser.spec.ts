@@ -406,6 +406,42 @@ test.describe('in-app browser', () => {
     await expect(address(page)).toHaveValue(fixtures.url('/c.html'));
   });
 
+  test('closing the Browser tab with the keyboard in its page hands the keyboard to the conversation', async () => {
+    await openSession(page, 'Alpha');
+    await page.getByRole('button', { name: 'Files', exact: true }).click();
+    await showBrowser(page);
+    await typeAddress(page, `${fixtures.host}/a.html`);
+    await expect.poll(() => guestUrls(app)).toEqual([fixtures.url('/a.html')]);
+    const shown = page.locator('.browser-page');
+    await expect(shown).toHaveAttribute('data-presence', 'shown');
+    const conversation = page.locator('[data-conversation-terminal] .terminal-surface textarea');
+    const browserTab = page
+      .getByRole('tablist', { name: 'Side panel tabs' })
+      .getByRole('tab', { name: 'Browser', exact: true });
+    /** The keyboard in the page, as a click in it leaves it. */
+    const keyboardInPage = async () => {
+      await shown.locator('webview').evaluate((webview) => (webview as HTMLElement).focus());
+      expect(await page.evaluate(() => document.activeElement?.tagName)).toBe('WEBVIEW');
+    };
+
+    // By its ✕. The page goes with its tab and Files comes in front, so the
+    // keyboard goes back to the conversation, never to the window's body.
+    await keyboardInPage();
+    await page.getByRole('button', { name: 'Close Browser tab', exact: true }).click();
+    await expect(browserTab).toHaveCount(0);
+    await expect(shown).toHaveAttribute('data-presence', 'hidden');
+    await expect(conversation).toBeFocused();
+
+    // By its menu's Close, the same.
+    await showBrowser(page);
+    await expect(shown).toHaveAttribute('data-presence', 'shown');
+    await keyboardInPage();
+    await browserTab.click({ button: 'right' });
+    await page.getByRole('menuitem', { name: 'Close', exact: true }).click();
+    await expect(browserTab).toHaveCount(0);
+    await expect(conversation).toBeFocused();
+  });
+
   test('the Browser tab keeps its page when it goes behind, when the side panel hides, and through a split, Maximize, a move and a drag', async () => {
     await openSession(page, 'Alpha');
     await showBrowser(page);

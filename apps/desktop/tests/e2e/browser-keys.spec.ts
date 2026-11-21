@@ -264,12 +264,22 @@ test.describe('⌘Q and ⌘W with the keyboard in the browser', () => {
     const shown = page.locator(`.browser-page[data-tab-id="${tab.id}"]`);
     await expect(shown).toHaveAttribute('data-presence', 'shown');
     const before = (await lastPersonInput(app, tab.id)) ?? 0;
+    const conversation = page.locator('[data-conversation-terminal] .terminal-surface textarea');
+    /** The keyboard in the page, as a click in it leaves it. */
+    const keyboardInPage = async () => {
+      await shown.locator('webview').evaluate((webview) => (webview as HTMLElement).focus());
+      expect(await page.evaluate(() => document.activeElement?.tagName)).toBe('WEBVIEW');
+    };
 
-    // The side panel's chord, with the keyboard in the page.
+    // The side panel's chord, with the keyboard in the page. The page goes
+    // with the side panel, so the keyboard goes back to the conversation,
+    // never to the window's body.
+    await keyboardInPage();
     await pressInPage(app, 'guest', url, 'B', ['meta', 'alt']);
     await expect(page.getByTestId('side-panel')).toHaveCount(0);
     await expect(panel(page)).toHaveCount(0);
     await expect(shown).toHaveAttribute('data-presence', 'hidden');
+    await expect(conversation).toBeFocused();
     // Taken for the app, so the page never saw it, and still the person's
     // own key on the tab.
     expect(await pageKeys(app, 'guest', url)).toEqual(['a']);
@@ -281,9 +291,11 @@ test.describe('⌘Q and ⌘W with the keyboard in the browser', () => {
     await expect(shown).toHaveAttribute('data-presence', 'shown');
 
     // The Browser tab's own chord, in the page with its tab in front, hides it too.
+    await keyboardInPage();
     await pressInPage(app, 'guest', url, 'L', ['meta', 'shift']);
     await expect(page.getByTestId('side-panel')).toHaveCount(0);
     await expect(shown).toHaveAttribute('data-presence', 'hidden');
+    await expect(conversation).toBeFocused();
     expect(await pageKeys(app, 'guest', url)).toEqual(['a']);
     expect(await tabsOf(page, sessionId)).toEqual([tab]);
   });

@@ -22,6 +22,9 @@ vi.hoisted(() => {
     setItem: (key: string, value: string) => void data.set(key, value),
     removeItem: (key: string) => void data.delete(key),
   };
+  // A chord that hides the side panel asks where the keyboard is, to hand it
+  // on (keyboardAfterClose.ts): nowhere here, so it is left alone.
+  (globalThis as { document?: unknown }).document = { activeElement: null };
 });
 
 import { createSessionRecord, createWorkspaceRecord } from '../../shared/workspace';

@@ -17,7 +17,7 @@ import { groupPosition, groupsOf, type TabId, visibleGroups } from '../../sidePa
 import { tabKind, type TabFacts } from '../../sidePanel/tabKinds';
 import { useSidePanelStore } from '../../stores/sidePanelStore';
 import { dragPointer, pointerWithinNoted } from './dragPointer';
-import { focusTrigger, swallowHeldKeyRepeats } from './keyboardAfterClose';
+import { focusTrigger, keyboardInPage, swallowHeldKeyRepeats } from './keyboardAfterClose';
 import { DraggedTabPreview } from './TabBar';
 import { TabGroup } from './TabGroup';
 import './styles.css';
@@ -190,9 +190,7 @@ function KeyboardWhileDragging() {
   // biome-ignore lint/correctness/useExhaustiveDependencies: the drag's id is the trigger; its tab is read once, at the start
   useEffect(() => {
     if (id === undefined) return undefined;
-    const focused = document.activeElement;
-    const inPage = focused?.tagName === 'WEBVIEW' || !!focused?.closest('.browser-host');
-    if (tab !== undefined && inPage) focusTrigger(tab);
+    if (tab !== undefined && keyboardInPage()) focusTrigger(tab);
     return escapeCancelsDrag();
   }, [id]);
   return null;

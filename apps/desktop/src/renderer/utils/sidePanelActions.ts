@@ -3,6 +3,10 @@
  * Each reads the stores when it is called, as a component would on render.
  */
 import { checkoutPathForSession } from '../../shared/workspace';
+import {
+  keyboardInSidePanel,
+  keyboardToConversation,
+} from '../components/SidePanel/keyboardAfterClose';
 import { isInFront } from '../sidePanel/layout';
 import {
   shortcutActs,
@@ -53,7 +57,9 @@ export function pressShortcutOnScreen(kind: TabKindId): boolean {
   if (!facts || !entry) return false;
   const { layout, pressShortcut } = useSidePanelStore.getState();
   if (!shortcutActs(entry, facts, isInFront(layout, kind))) return false;
+  const handOn = keyboardIfSidePanelHides();
   pressShortcut(kind);
+  handOn();
   return true;
 }
 
@@ -64,8 +70,25 @@ export function pressShortcutOnScreen(kind: TabKindId): boolean {
  */
 export function toggleSidePanelOnScreen(): boolean {
   if (!currentTabFacts()) return false;
+  const handOn = keyboardIfSidePanelHides();
   useSidePanelStore.getState().toggleVisible();
+  handOn();
   return true;
+}
+
+/**
+ * For a chord that may hide the side panel: call it before the chord acts,
+ * and what it returns after. Should the side panel have hidden with the
+ * keyboard in it, or in a page, the keyboard goes to the conversation once
+ * that has rendered (`keyboardToConversation`). From anywhere else it stays.
+ */
+function keyboardIfSidePanelHides(): () => void {
+  const wasInSidePanel = keyboardInSidePanel();
+  return () => {
+    if (wasInSidePanel && !useSidePanelStore.getState().layout.visible) {
+      requestAnimationFrame(() => keyboardToConversation());
+    }
+  };
 }
 
 /**

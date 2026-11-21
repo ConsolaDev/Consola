@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { type DragMoveEvent, useDndMonitor, useDroppable } from '@dnd-kit/core';
 import * as Tabs from '@radix-ui/react-tabs';
 import { type DraggedTab, type DropZone, splitEdge } from '../../sidePanel/dropTarget';
@@ -13,6 +13,7 @@ import {
 import { bodyFor, tabKind, type TabFacts } from '../../sidePanel/tabKinds';
 import { useSidePanelStore } from '../../stores/sidePanelStore';
 import { dragPointer } from './dragPointer';
+import { keyboardToConversation } from './keyboardAfterClose';
 import { NewTabList } from './NewTabList';
 import { TabBar } from './TabBar';
 import { TAB_VIEWS } from './tabViews';
@@ -118,7 +119,15 @@ function TabSlot({
   facts: TabFacts;
 }) {
   const closeTab = useSidePanelStore((state) => state.closeTab);
-  const close = useCallback(() => closeTab(groupId, tab), [closeTab, groupId, tab]);
+  const content = useRef<HTMLDivElement>(null);
+  // What a view calls to close its own tab: Changes' Escape, or a view's own
+  // close button. The keyboard was in the view, which goes with the tab, so
+  // it goes to the conversation once the close has rendered.
+  const close = useCallback(() => {
+    const fromInside = !!content.current?.contains(document.activeElement);
+    closeTab(groupId, tab);
+    if (fromInside) requestAnimationFrame(() => keyboardToConversation());
+  }, [closeTab, groupId, tab]);
 
   if (tab === NEW_TAB) {
     if (!inFront) return null;
@@ -154,6 +163,7 @@ function TabSlot({
   return (
     <Tabs.Content
       key={`${kind.id}:${facts.session.id}`}
+      ref={content}
       value={tab}
       forceMount
       hidden={!inFront}

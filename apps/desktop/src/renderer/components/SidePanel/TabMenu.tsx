@@ -8,7 +8,13 @@ import {
   tabMenuItems,
 } from '../../sidePanel/layout';
 import { useSidePanelStore } from '../../stores/sidePanelStore';
-import { focusTrigger, keyboardAfterClose, keyboardInTab } from './keyboardAfterClose';
+import {
+  focusTrigger,
+  keyboardAfterClose,
+  keyboardInTab,
+  keyboardInTabPage,
+  keyboardToConversation,
+} from './keyboardAfterClose';
 
 const ITEM_LABELS: Record<TabMenuItem, string> = {
   close: 'Close',
@@ -48,6 +54,8 @@ export function TabMenu({
   const tabRef = useRef<HTMLElement>(null);
   // Set when the menu opens with the keyboard in the tab: where it goes should the tab close.
   const keyboardOnTab = useRef<(() => boolean) | null>(null);
+  // Set when the menu opens with the keyboard in the page the tab shows.
+  const keyboardInItsPage = useRef(false);
   const chosen = useRef<TabMenuItem | null>(null);
 
   const act: Record<TabMenuItem, () => void> = {
@@ -66,18 +74,27 @@ export function TabMenu({
     if (!open || !wrapper) return;
     chosen.current = null;
     keyboardOnTab.current = keyboardInTab(wrapper) ? keyboardAfterClose(wrapper) : null;
+    keyboardInItsPage.current = keyboardInTabPage(wrapper);
   };
 
   // Once an item has taken the tab out of its bar. Dismissed, or opened with
   // the keyboard elsewhere, the menu hands it back to where it was itself, as
-  // it also does should no place be found here.
+  // it also does should no place be found here. A page the tab shows stays
+  // drawn when the tab moves, and keeps the keyboard; it goes with the tab
+  // when it closes, and the keyboard goes to the conversation.
   const placeKeyboard = (event: Event) => {
     const afterClose = keyboardOnTab.current;
+    const inItsPage = keyboardInItsPage.current;
     const item = chosen.current;
     keyboardOnTab.current = null;
+    keyboardInItsPage.current = false;
     chosen.current = null;
-    if (!afterClose || !item) return;
-    if (item === 'close' ? afterClose() : focusTrigger(tab)) event.preventDefault();
+    if (!item) return;
+    if (afterClose) {
+      if (item === 'close' ? afterClose() : focusTrigger(tab)) event.preventDefault();
+    } else if (inItsPage && item === 'close' && keyboardToConversation()) {
+      event.preventDefault();
+    }
   };
 
   // macOS sends no `contextmenu` for these keys, so the tab is sent one.

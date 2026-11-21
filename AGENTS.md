@@ -434,6 +434,16 @@ record.
   rule. Under the Inbox or Automations the side panel's chords do nothing,
   and the palette leaves out the side panel's rows, so the two agree; a row
   the person runs there (the browser's, as on main) is their own action.
+- **A close or a hide never drops the keyboard to the body**
+  (`keyboardAfterClose.ts`). A close from the tab bar, with the keyboard on
+  the tab or in what it shows, hands it to the tab now in front, else to the
+  conversation (`keyboardAfterClose`). A tab closed from inside its own view
+  (Changes' Escape, a view's own close button) or with the keyboard in its
+  page, and a chord that hides the side panel with the keyboard in it or in
+  a page, send it to the conversation's terminal (`keyboardToConversation`).
+  Either way a held key's repeats stop at the window. An action taken from
+  the conversation, the header or the palette leaves the keyboard where it
+  is.
 - **The Browser tab holds no page.** Pages stay in `BrowserHost` (see "Pages
   Live in One Place"); the Browser kind's view only claims the slot a page is
   drawn over, and only while mounted (`mount: 'front'`), so a tab behind, a
