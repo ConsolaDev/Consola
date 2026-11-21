@@ -150,6 +150,39 @@ test.describe('side panel', () => {
   const tabBox = async (tab: Locator) => (await tab.locator('xpath=..').boundingBox())!;
 
   /**
+   * Notes, from now on, each time the "+" list or a session shell takes the
+   * keyboard. The conversation's terminal takes it as it attaches, on every
+   * launch and every session switch, so a list or shell that grabbed it on
+   * mount ends where one that never did ends: only a record tells them apart.
+   * Runs in the page, so it names nothing from here.
+   */
+  const recordKeyboardTakers = () => {
+    const record = globalThis as { keyboardTakers?: string[] };
+    record.keyboardTakers = [];
+    document.addEventListener(
+      'focusin',
+      (event) => {
+        const target = event.target instanceof Element ? event.target : null;
+        if (target?.closest('[data-testid="session-shell"]')) record.keyboardTakers!.push('shell');
+        else if (target?.closest('.new-tab-list')) record.keyboardTakers!.push('list');
+      },
+      true,
+    );
+  };
+  const keyboardTakers = () =>
+    page.evaluate(() => (globalThis as { keyboardTakers?: string[] }).keyboardTakers);
+  /**
+   * Loads the window again, as a launch does, with the recorder in place
+   * before anything mounts. Main keeps the window's session, and its
+   * terminals, across the load.
+   */
+  async function reloadRecordingKeyboardTakers(): Promise<void> {
+    await app.context().addInitScript(recordKeyboardTakers);
+    await page.reload();
+    await page.waitForLoadState('domcontentloaded');
+  }
+
+  /**
    * Counts every session shell view that mounts from now on, however
    * briefly: a view that mounts attaches, and attaching spawns the shell.
    */
@@ -874,6 +907,12 @@ test.describe('side panel', () => {
     const shell = page.getByTestId('session-shell');
     await expect(page.locator('.shell-directory')).toHaveText(/^Started in: \//);
     await expect(conversation()).toBeFocused();
+    // Loaded again with the recorder in place first: the shell never had the
+    // keyboard, not even for a moment.
+    await reloadRecordingKeyboardTakers();
+    await expect(page.locator('.shell-directory')).toHaveText(/^Started in: \//);
+    await expect(conversation()).toBeFocused();
+    expect(await keyboardTakers()).toEqual([]);
 
     // The conversation's xterm, held on to: a remount would replace it.
     const xterm = await page.locator('[data-conversation-terminal] .xterm').elementHandle();
@@ -892,6 +931,14 @@ test.describe('side panel', () => {
     await group('Top group tabs').getByRole('button', { name: 'Restore group' }).click();
     await expect(shell).toHaveCount(1);
     expect(await sameConversation()).toBe(true);
+    // Restore asked for no shell, so the one it brings back starts without
+    // the keyboard. Nothing else attaches here to take it back, so a shell
+    // that took it would still have it.
+    await expect(page.locator('.shell-directory')).toHaveText(/^Started in: \//);
+    await page.evaluate(
+      () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))),
+    );
+    await expect(shell.locator('textarea')).not.toBeFocused();
 
     // Closed, its group goes with it; opened again, it joins the other.
     await page.getByRole('button', { name: 'Close Terminal tab', exact: true }).click();
@@ -939,11 +986,14 @@ test.describe('side panel', () => {
     await expect(newTabList()).toBeFocused();
 
     // To another session and back: the list is still there, the keyboard is
-    // the conversation's, and a kind's letter typed there chooses nothing.
+    // the conversation's and never was the list's on the way, and a kind's
+    // letter typed there chooses nothing.
+    await page.evaluate(recordKeyboardTakers);
     await openSession('Fix flaky upload test');
     await openSession('Paginate the catalog search');
     await expect(newTabList()).toBeVisible();
     await expect(conversation()).toBeFocused();
+    expect(await keyboardTakers()).toEqual([]);
     await page.keyboard.press('d');
     await expect(sidePanelTab('New tab')).toHaveAttribute('aria-selected', 'true');
 
@@ -955,6 +1005,12 @@ test.describe('side panel', () => {
     await expect(newTabList()).toBeVisible();
     await expect(conversation()).toBeFocused();
     await expect(newTabList()).not.toBeFocused();
+    // Loaded again with the recorder in place first: the list never had the
+    // keyboard, not even for a moment.
+    await reloadRecordingKeyboardTakers();
+    await expect(newTabList()).toBeVisible();
+    await expect(conversation()).toBeFocused();
+    expect(await keyboardTakers()).toEqual([]);
     await page.keyboard.press('d');
     await expect(sidePanelTab('New tab')).toHaveAttribute('aria-selected', 'true');
     await expect(sidePanelTab('Changes')).toHaveCount(0);

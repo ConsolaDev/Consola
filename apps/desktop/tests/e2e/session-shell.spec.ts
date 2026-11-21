@@ -140,6 +140,8 @@ test('session shells retain state across hiding and switching, and restart indep
     await expect(shell.getByRole('button', { name: 'New shell' })).toBeVisible();
     await shell.getByRole('button', { name: 'New shell' }).click();
     await expect(shell.getByText('Shell exited', { exact: true })).toHaveCount(0);
+    // The person asked for a new shell, so it takes the keyboard.
+    await expect(shell.locator('textarea')).toBeFocused();
     await page.evaluate(() =>
       window.shellAPI.input('shell-a', 'printf "fresh-%s\\n" "${CONSOLA_SHELL_TEST-unset}"\r'),
     );
