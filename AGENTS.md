@@ -461,7 +461,11 @@ record.
   header's three shortcuts are the most used kinds, ranked once per run
   (`shortcutKinds`), so nothing moves under the pointer. Sizes live apart,
   in `useDefaultLayout`'s keys (the session pane, each orientation's groups,
-  the Files tab), and are always remembered, whatever the setting.
+  the Files tab), and are always remembered, whatever the setting. A
+  `Group` inside the side panel mounts only once its box is laid out at its
+  size (`useSized`): react-resizable-panels checks the saved sizes against
+  the box as the group mounts, and one that mounts as the side panel comes
+  on screen, before it is laid out, loses them and writes the loss back.
 
 ### Each Workspace Remembers Where It Was Left
 

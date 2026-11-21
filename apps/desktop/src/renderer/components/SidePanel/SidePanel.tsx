@@ -20,6 +20,7 @@ import { dragPointer, pointerWithinNoted } from './dragPointer';
 import { focusTrigger, keyboardInPage, swallowHeldKeyRepeats } from './keyboardAfterClose';
 import { DraggedTabPreview } from './TabBar';
 import { TabGroup } from './TabGroup';
+import { useSized } from './useSized';
 import './styles.css';
 
 /**
@@ -46,6 +47,10 @@ export function SidePanel({ facts }: { facts: TabFacts }) {
     storage: localStorage,
   });
   const sensors = useSensors(useSensor(TabMouseSensor, { activationConstraint: { distance: 6 } }));
+  // The groups mount once the side panel has a size, or a split's saved
+  // sizes would be lost as it comes on screen (`useSized`).
+  const box = useRef<HTMLElement>(null);
+  const sized = useSized(box);
   // Where the keyboard was before the press that began a drag: the press
   // itself moves it onto the tab.
   const keyboardBefore = useRef<Element | null>(null);
@@ -112,6 +117,7 @@ export function SidePanel({ facts }: { facts: TabFacts }) {
 
   return (
     <aside
+      ref={box}
       aria-label="Side panel"
       className="side-panel"
       onPointerDownCapture={() => {
@@ -133,28 +139,30 @@ export function SidePanel({ facts }: { facts: TabFacts }) {
           if (tab !== undefined) giveKeyboardBack(tab);
         }}
       >
-        <Group
-          orientation={orientation}
-          defaultLayout={defaultLayout}
-          onLayoutChanged={onLayoutChanged}
-        >
-          {groups.map((group, index) => (
-            <Fragment key={group.id}>
-              {index > 0 && (
-                <Separator className={stacked ? 'side-panel-split-handle' : 'resize-handle'} />
-              )}
-              <Panel id={`side-group-${group.id}`} minSize="120px">
-                <TabGroup
-                  group={group}
-                  position={groupPosition(layout, group.id)}
-                  facts={facts}
-                  canMaximize={total > 1}
-                  isMaximized={groups.length < total}
-                />
-              </Panel>
-            </Fragment>
-          ))}
-        </Group>
+        {sized && (
+          <Group
+            orientation={orientation}
+            defaultLayout={defaultLayout}
+            onLayoutChanged={onLayoutChanged}
+          >
+            {groups.map((group, index) => (
+              <Fragment key={group.id}>
+                {index > 0 && (
+                  <Separator className={stacked ? 'side-panel-split-handle' : 'resize-handle'} />
+                )}
+                <Panel id={`side-group-${group.id}`} minSize="120px">
+                  <TabGroup
+                    group={group}
+                    position={groupPosition(layout, group.id)}
+                    facts={facts}
+                    canMaximize={total > 1}
+                    isMaximized={groups.length < total}
+                  />
+                </Panel>
+              </Fragment>
+            ))}
+          </Group>
+        )}
         <KeyboardWhileDragging />
         {createPortal(
           <DragOverlay dropAnimation={null}>

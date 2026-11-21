@@ -1204,6 +1204,110 @@ test.describe('side panel', () => {
     ).toHaveText('⇧⌘T');
   });
 
+  /** Gives the window room enough that the side panel's inner sizes can move. */
+  async function widenWindow(): Promise<void> {
+    const appWindow = await app.browserWindow(page);
+    await appWindow.evaluate((browserWindow) => browserWindow.setContentSize(1400, 800));
+  }
+  /** Drags the separator `handle` by `dx` across and `dy` down. */
+  async function dragHandle(handle: Locator, dx: number, dy: number): Promise<void> {
+    const box = (await handle.boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width / 2 + dx, box.y + box.height / 2 + dy, { steps: 6 });
+    await page.mouse.up();
+  }
+
+  test('the Files tab’s tree keeps its width when hidden, on a session switch and across a relaunch', async () => {
+    await widenWindow();
+    await openSession('Paginate the catalog search');
+    await page.getByRole('button', { name: 'Files', exact: true }).click();
+    const tree = () => page.getByTestId('files-tree');
+    const width = async () => {
+      const box = await tree().boundingBox();
+      if (!box) throw new Error('the Files tab’s tree is not on screen');
+      return box.width;
+    };
+    await expect(tree()).toBeVisible();
+    const before = await width();
+    await dragHandle(page.locator('[data-testid="files-tree"] + [role="separator"]'), 60, 0);
+    await expect.poll(async () => Math.abs((await width()) - (before + 60))).toBeLessThanOrEqual(1);
+    const preferred = await width();
+    const kept = async () => Math.abs((await width()) - preferred);
+
+    // The side panel hidden and shown, which mounts the tab afresh.
+    await conversation().focus();
+    await page.keyboard.press(sidePanelChord);
+    await expect(tree()).toHaveCount(0);
+    await page.keyboard.press(sidePanelChord);
+    await expect(tree()).toBeVisible();
+    await expect.poll(kept).toBeLessThanOrEqual(1);
+
+    // Another session, whose own Files tab shows in the same place.
+    await openSession('Fix flaky upload test');
+    await expect(page.locator('.workspace-view-session')).toHaveText('Fix flaky upload test');
+    await expect.poll(kept).toBeLessThanOrEqual(1);
+
+    // Relaunched, at the same window size.
+    await app.close();
+    ({ app, page } = await launchElectron({ userDataDir }));
+    await widenWindow();
+    await openSession('Paginate the catalog search');
+    await expect(tree()).toBeVisible();
+    await expect.poll(kept).toBeLessThanOrEqual(1);
+  });
+
+  for (const { arrangement, item, first, second, across } of [
+    { arrangement: 'stacked', item: 'Split down', first: 'Top', second: 'Bottom', across: false },
+    {
+      arrangement: 'side by side',
+      item: 'Split right',
+      first: 'Left',
+      second: 'Right',
+      across: true,
+    },
+  ]) {
+    test(`a split ${arrangement} keeps its sizes when hidden and across a relaunch`, async () => {
+      await widenWindow();
+      await openSession('Paginate the catalog search');
+      await changesShortcut().click();
+      await page.getByRole('button', { name: 'Files', exact: true }).click();
+      await chooseFromTabMenu(sidePanelTab('Files'), item);
+      await expect(tabList(`${second} group tabs`).getByRole('tab')).toHaveText(['Files']);
+      /** The first group's size along the split. */
+      const size = async () => {
+        const box = await group(`${first} group tabs`).boundingBox();
+        if (!box) throw new Error('the first group is not on screen');
+        return across ? box.width : box.height;
+      };
+      const before = await size();
+      const handle = page.locator('[data-testid="side-group-g1"] + [role="separator"]');
+      await dragHandle(handle, across ? -60 : 0, across ? 0 : 80);
+      const moved = across ? -60 : 80;
+      await expect
+        .poll(async () => Math.abs((await size()) - (before + moved)))
+        .toBeLessThanOrEqual(1);
+      const preferred = await size();
+      const kept = async () => Math.abs((await size()) - preferred);
+
+      // The side panel hidden and shown, which mounts its groups afresh.
+      await conversation().focus();
+      await page.keyboard.press(sidePanelChord);
+      await expect(page.getByTestId('side-panel')).toHaveCount(0);
+      await page.keyboard.press(sidePanelChord);
+      await expect(tabList(`${second} group tabs`).getByRole('tab')).toHaveText(['Files']);
+      await expect.poll(kept).toBeLessThanOrEqual(1);
+
+      // Relaunched, at the same window size.
+      await app.close();
+      ({ app, page } = await launchElectron({ userDataDir }));
+      await widenWindow();
+      await openSession('Paginate the catalog search');
+      await expect(tabList(`${second} group tabs`).getByRole('tab')).toHaveText(['Files']);
+      await expect.poll(kept).toBeLessThanOrEqual(1);
+    });
+  }
+
   test('a split survives a restart', async () => {
     await splitChangesOverFiles();
 

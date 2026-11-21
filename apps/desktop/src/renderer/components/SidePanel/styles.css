@@ -255,6 +255,14 @@
   inset: 0 0 0 50%;
 }
 
+/* The Files tab's box, filling its tab, which its tree and previews split */
+.files-tab {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
 /* The Files tab's previews before a file is chosen, on the previews' own background */
 .files-tab-placeholder {
   display: flex;
