@@ -1,3 +1,4 @@
+import type { BranchPullRequestAnswer } from './branchPullRequest';
 import type { SessionDeleteOutcome, SessionDeletePreview } from './worktreeCleanup';
 import type { WorkItemDetails, WorkItemMutation } from './workItemDetails';
 import type { SessionCheckout, CheckoutContext } from './sessionCheckout';
@@ -367,6 +368,12 @@ export interface ProviderAPI {
     repo: string,
     destinationDir: string,
   ) => Promise<CloneRepoResult>;
+  /** The pull request of the branch checked out in `dir`; main reads the branch itself. */
+  findBranchPullRequest: (
+    workspaceId: string,
+    dir: string,
+    options?: { force?: boolean },
+  ) => Promise<BranchPullRequestAnswer>;
 }
 
 /**

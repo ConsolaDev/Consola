@@ -10,6 +10,13 @@ import { isGitProviderId, PROVIDER_META } from './providers';
  */
 
 /**
+ * How long a read from the provider stays fresh: the Inbox refreshes on this
+ * timer, and a branch's pull request is not asked about again sooner. Shared,
+ * so main and the renderer spend the account's requests by one clock.
+ */
+export const INBOX_REFRESH_INTERVAL_MS = 3 * 60 * 1000;
+
+/**
  * Why an item is in the inbox. An item can carry several: a PR you authored
  * and were also asked to review is both, and the sections care which.
  */

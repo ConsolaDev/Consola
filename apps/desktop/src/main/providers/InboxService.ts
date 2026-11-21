@@ -1,12 +1,12 @@
 import type { GitProviderId } from '../../shared/providers';
 import type { InboxItem, InboxSnapshot, WorkItemRef } from '../../shared/workItems';
-import { sameWorkItem } from '../../shared/workItems';
+import { INBOX_REFRESH_INTERVAL_MS, sameWorkItem } from '../../shared/workItems';
 import type { Workspace } from '../../shared/workspace';
 import { describeError } from './errors';
 import type { GitProviderDriver } from './GitProviderDriver';
 
-/** Spec cadence: a timer refresh every 3 minutes. */
-export const INBOX_REFRESH_INTERVAL_MS = 3 * 60 * 1000;
+/** Spec cadence: a timer refresh every 3 minutes. Defined in shared, where the renderer reads it too. */
+export { INBOX_REFRESH_INTERVAL_MS };
 /** Focus events arrive in bursts (click-through between windows); refresh once. */
 const FOCUS_REFRESH_MIN_GAP_MS = 30 * 1000;
 

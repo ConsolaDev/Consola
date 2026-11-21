@@ -24,6 +24,7 @@ import type { ShellAPI } from '../shared/shell';
 import type { BrowserAPI, TerminalLinkRule } from '../shared/browser';
 import type { SessionCheckout, CheckoutContext, CheckoutInfo } from '../shared/sessionCheckout';
 import type { BranchFacts } from '../shared/branchFacts';
+import type { BranchPullRequestAnswer } from '../shared/branchPullRequest';
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import type {
   TerminalCreateOptions,
@@ -263,6 +264,13 @@ contextBridge.exposeInMainWorld('providerAPI', {
     destinationDir: string,
   ): Promise<CloneRepoResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.PROVIDER_CLONE_REPO, workspaceId, repo, destinationDir),
+
+  findBranchPullRequest: (
+    workspaceId: string,
+    dir: string,
+    options?: { force?: boolean },
+  ): Promise<BranchPullRequestAnswer> =>
+    ipcRenderer.invoke(IPC_CHANNELS.PROVIDER_FIND_BRANCH_PULL_REQUEST, workspaceId, dir, options),
 });
 
 // Expose workspace state to the renderer. Main owns the records; the renderer

@@ -141,6 +141,7 @@ export const IPC_CHANNELS = {
   PROVIDER_LAUNCH_WORK_ITEM: 'provider:launch-work-item', // Resolve -> worktree -> session record; returns the session
   PROVIDER_RUN_ACTION_IN_SESSION: 'provider:run-action-in-session', // An action's prompt into an existing work-item session
   PROVIDER_CLONE_REPO: 'provider:clone-repo', // Clone an un-cloned repo into a chosen directory
+  PROVIDER_FIND_BRANCH_PULL_REQUEST: 'provider:find-branch-pull-request', // A checkout's branch's PR, cached per account, repo and branch
 
   // Inbox (renderer -> main; main owns the cache)
   INBOX_DETAILS: 'inbox:details',

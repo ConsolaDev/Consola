@@ -1,4 +1,5 @@
 import { WorkItemDetailService } from './providers/WorkItemDetailService';
+import { BranchPullRequestFinder } from './providers/BranchPullRequestFinder';
 import { createWorkItemAssetCache } from './providers/workItemAssets';
 import { WORK_ITEM_ASSET_SCHEME } from '../shared/workItemAssets';
 import { ShellManager } from './ShellManager';
@@ -70,7 +71,8 @@ import { createRunInSessionCoalescer } from './providers/runActionInSession';
 import { cloneWorkspaceRepo } from './providers/cloneRepo';
 import { WorktreeService } from './WorktreeService';
 import { readCheckout } from './gitCheckout';
-import { isPlainBranchName, readBranchFacts } from './gitBranch';
+import { isPlainBranchName, readBranchFacts, readBranchIdentity } from './gitBranch';
+import { memoizeRemoteResolver } from './sshRemote';
 import { readComputerName } from './computerName';
 import { NO_BRANCH_FACTS } from '../shared/branchFacts';
 import {
@@ -1052,6 +1054,30 @@ export function setupIpcHandlers(): boolean {
   });
   ipcMain.handle(IPC_CHANNELS.INBOX_DETAILS, (_event, id: string, ref: unknown) =>
     details.get(id, ref),
+  );
+  // A checkout's branch's pull request, for a session linked to none. Main
+  // reads the branch from the folder, and the finder asks the provider once
+  // per account, repo and branch per Inbox interval. Origin's ssh alias is
+  // resolved once per URL for the run: `ssh -G` runs synchronously, and the
+  // finder reads the identity on every find, before its cache.
+  const resolveRemote = memoizeRemoteResolver();
+  const branchPullRequests = new BranchPullRequestFinder({
+    getWorkspace: (id) => workspaces.getAll().find((workspace) => workspace.id === id),
+    resolveDriver: getProviderDriver,
+    composeEnv: composeProviderEnv,
+    readIdentity: (dir) => readBranchIdentity(dir, resolveRemote),
+    now: Date.now,
+  });
+  ipcMain.handle(
+    IPC_CHANNELS.PROVIDER_FIND_BRANCH_PULL_REQUEST,
+    (_event, workspaceId: unknown, dir: unknown, options: unknown) => {
+      const force = (options as { force?: unknown } | null | undefined)?.force;
+      return branchPullRequests.find(
+        workspaceId,
+        dir,
+        typeof force === 'boolean' ? { force } : undefined,
+      );
+    },
   );
   // Images in a work item load through main, as the workspace's account
   // (shared/workItemAssets.ts), and are remembered for the run: avatars
@@ -3051,6 +3077,7 @@ export function cleanupIpcHandlers(): void {
   ipcMain.removeHandler(IPC_CHANNELS.PROVIDER_LAUNCH_WORK_ITEM);
   ipcMain.removeHandler(IPC_CHANNELS.PROVIDER_RUN_ACTION_IN_SESSION);
   ipcMain.removeHandler(IPC_CHANNELS.PROVIDER_CLONE_REPO);
+  ipcMain.removeHandler(IPC_CHANNELS.PROVIDER_FIND_BRANCH_PULL_REQUEST);
 
   automationService?.shutdown();
   automationService = null;
