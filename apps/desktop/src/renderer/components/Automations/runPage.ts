@@ -531,3 +531,41 @@ export function stepBar(
   const width = ms === null ? 0 : Math.min(1 - left, ms / length);
   return { left, width, ms };
 }
+
+/** The words of a run's trigger stage: what fired it, in a kicker, a title and when. */
+export function triggerStageWords(
+  run: RunRecord,
+  askerName: string | undefined,
+  schedule: string | undefined,
+): { kicker: string; title: string; outcome: string } {
+  const { trigger } = run;
+  const time = new Date(trigger.at).toLocaleTimeString(undefined, {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+  if (trigger.kind === 'cron') {
+    const late = Date.parse(run.createdAt) - Date.parse(trigger.at);
+    return {
+      kicker: trigger.catchUp ? 'Schedule, caught up' : 'Schedule',
+      title: schedule ?? 'On schedule',
+      outcome:
+        trigger.catchUp && late >= 1000
+          ? `Due ${time} · ran ${formatElapsed(late)} late`
+          : `Fired ${time}`,
+    };
+  }
+  if (trigger.kind === 'event') {
+    const label = isAgentRunPreview(run.result) ? run.result.item?.label : undefined;
+    return { kicker: 'Inbox event', title: label ?? 'An item arrived', outcome: `Seen ${time}` };
+  }
+  if (trigger.kind === 'poll')
+    return { kicker: 'Check', title: 'Found by its check', outcome: `Checked ${time}` };
+  if (trigger.by === 'agent') {
+    return {
+      kicker: 'Agent request',
+      title: askerName ? `Asked by ${askerName}` : 'Asked by an agent',
+      outcome: `Asked ${time}`,
+    };
+  }
+  return { kicker: 'Run now', title: 'Run by you', outcome: `Started ${time}` };
+}

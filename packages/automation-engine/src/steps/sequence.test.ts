@@ -167,6 +167,90 @@ describe('advanceSteps: choosing a step', () => {
   });
 });
 
+describe('advanceSteps: an untyped item (a poll’s fields)', () => {
+  const polled = { draft: true, head: 'abc', count: 3 } as Record<
+    string,
+    string | number | boolean
+  >;
+  const onItem = (condition: string): Step[] => [
+    { ...fresh, id: 'only', if: condition, outputs: {} },
+    { ...fresh, id: 'after', outputs: {} },
+  ];
+  const advanceOn = (
+    steps: Step[],
+    untypedItem: boolean | undefined,
+    item: Record<string, string | number | boolean> = polled,
+  ) =>
+    advanceSteps({
+      steps,
+      records: records(steps, {}),
+      dryRun: false,
+      itemValue: (field) => item[field],
+      ...(untypedItem === undefined ? {} : { untypedItem }),
+    });
+
+  it('with an untyped item, an absent field in if: skips the step', () => {
+    expect(advanceOn(onItem("item.state == 'open'"), true)).toEqual({
+      kind: 'start',
+      stepId: 'after',
+      lane: 'command',
+      updates: [{ id: 'only', status: 'skipped', skipped: 'if: item.state is absent' }],
+    });
+    // Every field it names must be there, as for a step output: the other side of an || does not rescue it.
+    expect(advanceOn(onItem("item.head == 'abc' || item.state == 'open'"), true)).toMatchObject({
+      updates: [{ id: 'only', skipped: 'if: item.state is absent' }],
+    });
+  });
+
+  it('with an untyped item, a field of another type skips it', () => {
+    expect(advanceOn(onItem("item.draft == 'yes'"), true)).toEqual({
+      kind: 'start',
+      stepId: 'after',
+      lane: 'command',
+      updates: [
+        { id: 'only', status: 'skipped', skipped: 'if: item.draft is true or false, not a string' },
+      ],
+    });
+    expect(advanceOn(onItem('item.head > 2'), true)).toMatchObject({
+      updates: [{ id: 'only', skipped: 'if: item.head is a string, not a number' }],
+    });
+    expect(advanceOn(onItem('1 == item.count || item.count == false'), true)).toMatchObject({
+      updates: [{ id: 'only', skipped: 'if: item.count is a number, not true or false' }],
+    });
+  });
+
+  it('with an untyped item, fields of the literal’s type are compared as usual', () => {
+    expect(
+      advanceOn(onItem("item.head == 'abc' && item.count >= 3 && !(item.draft == false)"), true),
+    ).toMatchObject({
+      kind: 'start',
+      stepId: 'only',
+      updates: [],
+    });
+    expect(advanceOn(onItem("item.head != 'abc'"), true)).toMatchObject({
+      updates: [{ id: 'only', skipped: "if: item.head != 'abc' is false" }],
+    });
+  });
+
+  it('a typed item still fails on an absent field', () => {
+    const prOnly: Step[] = [{ ...fresh, id: 'only', if: "item.type == 'pr'", outputs: {} }];
+    for (const untypedItem of [false, undefined]) {
+      expect(advanceOn(prOnly, untypedItem, {})).toEqual({
+        kind: 'fail',
+        stepId: 'only',
+        error: 'item.type has no value: this run has no such item field',
+        updates: [
+          {
+            id: 'only',
+            status: 'failed',
+            error: 'item.type has no value: this run has no such item field',
+          },
+        ],
+      });
+    }
+  });
+});
+
 describe('advanceSteps: a dependency that did not complete', () => {
   it.each([
     ['skipped', 'skipped'],
@@ -340,6 +424,65 @@ describe('advanceSteps: templates', () => {
     expect(advance(steps, records(steps, { writer: 'completed' }))).toMatchObject({
       kind: 'fail',
       error: 'steps.writer.notes.file has no value: writer completed without it',
+    });
+  });
+});
+
+describe('advanceSteps: previous', () => {
+  it('a step that reads only previous starts with no previous run', () => {
+    // The step reads its own handover from the last run: nothing in this run can be missing for it.
+    const rereview: AgentStep = {
+      ...review,
+      if: undefined,
+      reads: ['previous.review.handover'],
+      outputs: {},
+    };
+    expect(advance([rereview], records([rereview], {}))).toEqual({
+      kind: 'start',
+      stepId: 'review',
+      lane: 'agent',
+      updates: [],
+    });
+    // Nor does a later step's, nor a step of this run that was skipped.
+    const writer: AgentStep = { ...review, id: 'writer', if: undefined, outputs: {} };
+    const reader: AgentStep = {
+      ...review,
+      id: 'reader',
+      if: undefined,
+      reads: ['previous.writer.handover', 'previous.later.handover'],
+      outputs: {},
+    };
+    const later: AgentStep = { ...review, id: 'later', if: undefined, outputs: {} };
+    const steps = [writer, reader, later];
+    expect(advance(steps, records(steps, { writer: 'skipped' }))).toEqual({
+      kind: 'start',
+      stepId: 'reader',
+      lane: 'agent',
+      updates: [],
+    });
+  });
+
+  it('previous in env is never a dependency', () => {
+    const rereview: AgentStep = { ...review, if: undefined, outputs: {} };
+    const reader: Step = {
+      ...publish,
+      env: { LAST: '{{previous.review.handover}}', LAST_FILE: '{{previous.review.handover.file}}' },
+    };
+    // This run's `review` was skipped, and a later step reads the last run's: it starts.
+    const steps = [rereview, reader];
+    expect(advance(steps, records(steps, { review: 'skipped' }))).toEqual({
+      kind: 'start',
+      stepId: 'publish',
+      lane: 'command',
+      updates: [],
+    });
+    // Before the step it names has run in this run, the same.
+    const first = [reader, rereview];
+    expect(advance(first, records(first, {}))).toEqual({
+      kind: 'start',
+      stepId: 'publish',
+      lane: 'command',
+      updates: [],
     });
   });
 });

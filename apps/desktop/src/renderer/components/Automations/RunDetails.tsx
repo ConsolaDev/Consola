@@ -184,7 +184,7 @@ function RunView({ workspace, run }: { workspace: Workspace; run: RunRecord }) {
         key={run.id}
         workspace={workspace}
         run={run}
-        stages={stages}
+        now={now}
         history={history}
         automation={automation}
         lead={<RunLead run={run} now={now} place={place} history={history} landed={landed} />}
@@ -480,11 +480,14 @@ function RunLead({
               .join(' · ');
   const notes = runNotes(run, history);
   const preview = isAgentRunPreview(run.result) ? run.result : null;
-  // An agent run's own summary repeats what the page shows ("Running in …", "Ready in …").
+  // An agent run's own summary repeats what the page shows ("Running in …", "Ready in …"); so does a
+  // steps run's once it starts, and its trace says it step by step.
   const summary =
-    !preview || runStage(run) === 'agent-unstarted' || LIVE.has(run.status)
-      ? run.summary
-      : undefined;
+    isStepsRunPreview(run.result) && run.startedAt
+      ? undefined
+      : !preview || runStage(run) === 'agent-unstarted' || LIVE.has(run.status)
+        ? run.summary
+        : undefined;
 
   return (
     <div className="automations-lead-state">

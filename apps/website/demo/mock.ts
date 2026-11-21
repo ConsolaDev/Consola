@@ -814,6 +814,7 @@ export function installMock() {
           ],
           preview: {
             trigger: 'When a pull request asks for your review or is assigned to you',
+            source: 'event',
             onEvent: true,
             kind: 'agent',
             runs: 'Steps: fresh → review → publish',
@@ -849,6 +850,7 @@ export function installMock() {
           preview: {
             trigger: 'Weekdays at 8:30',
             schedule: '30 8 * * 1-5',
+            source: 'cron',
             onEvent: false,
             kind: 'agent',
             runs: 'Prompt',
@@ -862,6 +864,13 @@ export function installMock() {
       ],
     }),
     runNow: automationsUnavailable,
+    allow: automationsUnavailable,
+    listRunTargets: async () => ({
+      takesItem: 'item' as const,
+      acceptsUrl: false,
+      items: [],
+      inbox: [],
+    }),
     approve: automationsUnavailable,
     dismiss: automationsUnavailable,
     openFile: automationsUnavailable,

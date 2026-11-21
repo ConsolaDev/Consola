@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { advanceSeen, type SeenRecord } from './seenRecord';
+import { advanceSeen, forgetFired, markFired, type OpenState, type SeenRecord } from './seenRecord';
 
 const at = '2026-11-05T09:00:00.000Z';
 const later = '2026-11-05T09:03:00.000Z';
@@ -88,5 +88,176 @@ describe('advanceSeen', () => {
       fired: ['a', 'b', 'c'],
       at: later,
     });
+  });
+});
+
+type Current = Array<{ key: string; passes: boolean; rev?: string; open?: OpenState }>;
+const rec = (
+  items: string[],
+  fired: string[] | undefined,
+  revs?: Record<string, string>,
+): SeenRecord => ({
+  definition: 'def',
+  items,
+  ...(fired ? { fired } : {}),
+  ...(revs ? { revs } : {}),
+  at,
+});
+
+describe('advanceSeen with revisions and open runs', () => {
+  const rows: Array<[string, SeenRecord | undefined, Current, SeenRecord, string[]]> = [
+    [
+      'baseline marks what passes, revisions included, and fires nothing',
+      undefined,
+      [
+        { key: 'a', passes: true, rev: 'r1' },
+        { key: 'b', passes: false, rev: 'r2' },
+      ],
+      { ...rec(['a', 'b'], ['a'], { a: 'r1' }), at: later },
+      [],
+    ],
+    [
+      'a new item fires',
+      rec(['a'], ['a'], { a: 'r1' }),
+      [
+        { key: 'a', passes: true, rev: 'r1' },
+        { key: 'b', passes: true, rev: 'r2' },
+      ],
+      { ...rec(['a', 'b'], ['a', 'b'], { a: 'r1', b: 'r2' }), at: later },
+      ['b'],
+    ],
+    [
+      'a changed revision fires',
+      rec(['a'], ['a'], { a: 'r1' }),
+      [{ key: 'a', passes: true, rev: 'r2' }],
+      { ...rec(['a'], ['a'], { a: 'r2' }), at: later },
+      ['a'],
+    ],
+    [
+      'an unchanged one does not',
+      rec(['a'], ['a'], { a: 'r1' }),
+      [{ key: 'a', passes: true, rev: 'r1' }],
+      { ...rec(['a'], ['a'], { a: 'r1' }), at: later },
+      [],
+    ],
+    [
+      "an absent revision reads as '' (so null after 'abc' fires)",
+      rec(['a'], ['a'], { a: 'abc' }),
+      [{ key: 'a', passes: true, rev: '' }],
+      { ...rec(['a'], ['a'], { a: '' }), at: later },
+      ['a'],
+    ],
+    [
+      'an item that left and came back fires',
+      rec([], [], {}),
+      [{ key: 'a', passes: true, rev: 'r1' }],
+      { ...rec(['a'], ['a'], { a: 'r1' }), at: later },
+      ['a'],
+    ],
+    [
+      'waiting absorbs: marked at the new revision, nothing fired',
+      rec(['a'], ['a'], { a: 'r1' }),
+      [{ key: 'a', passes: true, rev: 'r2', open: 'waiting' }],
+      { ...rec(['a'], ['a'], { a: 'r2' }), at: later },
+      [],
+    ],
+    [
+      'working holds a changed revision at the old one',
+      rec(['a'], ['a'], { a: 'r1' }),
+      [{ key: 'a', passes: true, rev: 'r2', open: 'working' }],
+      { ...rec(['a'], ['a'], { a: 'r1' }), at: later },
+      [],
+    ],
+    [
+      'working holds a new item unfired',
+      rec(['a'], ['a'], { a: 'r1' }),
+      [
+        { key: 'a', passes: true, rev: 'r1' },
+        { key: 'b', passes: true, rev: 'r2', open: 'working' },
+      ],
+      { ...rec(['a', 'b'], ['a'], { a: 'r1' }), at: later },
+      [],
+    ],
+    [
+      'a held item fires on the next call once it is clear',
+      rec(['a', 'b'], ['a'], { a: 'r1' }),
+      [
+        { key: 'a', passes: true, rev: 'r1' },
+        { key: 'b', passes: true, rev: 'r2' },
+      ],
+      { ...rec(['a', 'b'], ['a', 'b'], { a: 'r1', b: 'r2' }), at: later },
+      ['b'],
+    ],
+    [
+      'a definition change re-baselines',
+      { ...rec(['a'], ['a'], { a: 'r1' }), definition: 'old' },
+      [{ key: 'a', passes: true, rev: 'r2' }],
+      { ...rec(['a'], ['a'], { a: 'r2' }), at: later },
+      [],
+    ],
+    [
+      'a record without revs reads as before',
+      rec(['a', 'b'], undefined),
+      passing('a', 'b', 'c'),
+      { ...rec(['a', 'b', 'c'], ['a', 'b', 'c']), at: later },
+      ['c'],
+    ],
+    [
+      'a draft at baseline fires once it is ready',
+      rec(['a'], []),
+      passing('a'),
+      { ...rec(['a'], ['a']), at: later },
+      ['a'],
+    ],
+  ];
+  it.each(rows)('%s', (_name, previous, current, record, fire) => {
+    expect(advanceSeen(previous, 'def', current, later)).toEqual({ record, fire });
+  });
+});
+
+describe('markFired', () => {
+  it('marks an item in the set as fired at the revision', () => {
+    const before = rec(['a', 'b'], ['a'], { a: 'r1' });
+    const next = markFired(before, 'b', 'r2');
+    expect(next).toEqual(rec(['a', 'b'], ['a', 'b'], { a: 'r1', b: 'r2' }));
+    expect(before).toEqual(rec(['a', 'b'], ['a'], { a: 'r1' }));
+  });
+
+  it('with no revision known, marks it fired and keeps revs[key]', () => {
+    const next = markFired(rec(['a'], [], { a: 'r1' }), 'a');
+    expect(next).toEqual(rec(['a'], ['a'], { a: 'r1' }));
+    expect(markFired(rec(['a'], []), 'a').revs).toBeUndefined();
+  });
+
+  it('leaves a record unchanged when the item is not in the set', () => {
+    const before = rec(['a'], ['a'], { a: 'r1' });
+    const next = markFired(before, 'z', 'r9');
+    expect(next).toEqual(before);
+    expect(next).not.toBe(before);
+  });
+});
+
+describe('forgetFired', () => {
+  it('removes the key from fired and revs, so the next poll fires it', () => {
+    const before = rec(['a', 'b'], ['a', 'b'], { a: 'r1', b: 'r2' });
+    const next = forgetFired(before, 'b');
+    expect(next).toEqual(rec(['a', 'b'], ['a'], { a: 'r1' }));
+    expect(before.fired).toEqual(['a', 'b']);
+    expect(
+      advanceSeen(
+        next,
+        'def',
+        [
+          { key: 'a', passes: true, rev: 'r1' },
+          { key: 'b', passes: true, rev: 'r2' },
+        ],
+        later,
+      ).fire,
+    ).toEqual(['b']);
+  });
+
+  it('on a record without fired, every other item still counts as fired', () => {
+    const next = forgetFired(rec(['a', 'b'], undefined), 'b');
+    expect(advanceSeen(next, 'def', passing('a', 'b'), later).fire).toEqual(['b']);
   });
 });

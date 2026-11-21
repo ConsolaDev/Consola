@@ -19,6 +19,8 @@
 //                        - consola_set_outputs { outputs } when the STUB_CLAUDE_OUTPUTS
 //                          file holds JSON,
 //                        logging `TOOL <name> <first line of the result>` for each.
+//                        Before those, with STUB_CLAUDE_READS, it reads each document
+//                        named there (below) and logs what came back.
 //                        Both files are read again on every launch, so a resumed turn
 //                        (a reminder) acts on what they hold by then. It writes a
 //                        transcript where Claude would,
@@ -26,7 +28,8 @@
 //                        --session-id, else --resume): the prompt (after `--`), then
 //                        `FINDINGS: done`. Then it prints `FINDINGS: done` and exits 0.
 //                        Its last log line is `END <id> exit <code>`: the turn is over.
-//   otherwise            shows an empty composer (`❯ `) and sleeps.
+//   otherwise            shows an empty composer (`❯ `) and sleeps; with STUB_CLAUDE_CALLS
+//                        (below) it first makes those calls, as an agent in a session would.
 //
 // A planned call that fails fails the turn, loudly. A tool answer with
 // `isError: true` (how a server reports a failed tool) or a rejected call is
@@ -45,6 +48,17 @@
 //                               racing the relaunch. It logs `GATE open` when it goes on,
 //                               or `GATE timed out` and fails after 30 s: sooner than a
 //                               test's own wait for the run, so the stub's failure shows first.
+//   STUB_CLAUDE_READS=a,b       print mode: before its writes, calls consola_read_artifact { name }
+//                               for each comma-separated ref, and logs `READ <ref> <answer>` (the
+//                               whole answer, newlines flattened, so a fenced document's text is
+//                               in the line), or `READ <ref> ERROR <answer>` for an error answer.
+//                               An error here does not fail the turn: "no earlier run" is an answer.
+//   STUB_CLAUDE_CALLS=path      an interactive launch (no -p) whose file holds `[[tool, args], …]`
+//                               makes those calls once, in order, against --mcp-config's consola
+//                               server, logs `TOOL <name> <first line>` for each (`TOOL <name>
+//                               ERROR <first line>` for a failed one), then shows the composer.
+//                               Once per file: it writes `<path>.done` after, and a relaunch that
+//                               finds it makes none.
 'use strict';
 const fs = require('node:fs');
 const path = require('node:path');
@@ -169,8 +183,12 @@ function plannedCalls() {
   return calls;
 }
 
-/** Makes every call, in order; true only when each one succeeded. */
-async function callTools(calls) {
+/**
+ * Connects to --mcp-config's consola server, hands the client to `use`, and
+ * closes it; false when the server cannot be reached (logged as `MCP …`), else
+ * what `use` returned.
+ */
+async function withConsola(use) {
   const configPath = flagValue('--mcp-config');
   if (!configPath) {
     log('MCP no --mcp-config');
@@ -182,32 +200,55 @@ async function callTools(calls) {
     return false;
   }
   const client = connect(server);
-  let ok = true;
   try {
     await client.initialize();
-    for (const [name, toolArgs] of calls) {
-      try {
-        const result = await client.callTool(name, toolArgs);
-        const text = (result?.content ?? []).find((part) => part.type === 'text')?.text ?? '';
-        // How a server reports a tool that failed: an answer, not a JSON-RPC error.
-        if (result?.isError === true) {
-          ok = false;
-          log(`TOOL ${name} ERROR ${firstLine(text)}`);
-        } else {
-          log(`TOOL ${name} ${firstLine(text)}`);
-        }
-      } catch (error) {
-        ok = false;
-        log(`TOOL ${name} ERROR ${firstLine(error.message)}`);
-      }
-    }
+    return await use(client);
   } catch (error) {
-    ok = false;
     log(`MCP ${firstLine(error.message)}`);
+    return false;
   } finally {
     client.close();
   }
+}
+
+/** One call: its text and whether it failed (an `isError` answer or a rejected call). */
+async function call(client, name, toolArgs) {
+  try {
+    const result = await client.callTool(name, toolArgs);
+    const text = (result?.content ?? []).find((part) => part.type === 'text')?.text ?? '';
+    // How a server reports a tool that failed: an answer, not a JSON-RPC error.
+    return { text, failed: result?.isError === true };
+  } catch (error) {
+    return { text: error.message, failed: true };
+  }
+}
+
+/** Makes every call, in order, logging `TOOL …` for each; true only when each one succeeded. */
+async function callTools(client, calls) {
+  let ok = true;
+  for (const [name, toolArgs] of calls) {
+    const { text, failed } = await call(client, name, toolArgs);
+    if (failed) ok = false;
+    log(`TOOL ${name} ${failed ? 'ERROR ' : ''}${firstLine(text)}`);
+  }
   return ok;
+}
+
+/** Reads each document STUB_CLAUDE_READS names, logging the whole answer; never fails the turn by itself. */
+async function readDocuments(client, refs) {
+  for (const ref of refs) {
+    const { text, failed } = await call(client, 'consola_read_artifact', { name: ref });
+    log(`READ ${ref} ${failed ? 'ERROR ' : ''}${text}`);
+  }
+  return true;
+}
+
+/** The refs STUB_CLAUDE_READS names, in order. */
+function plannedReads() {
+  return (process.env.STUB_CLAUDE_READS ?? '')
+    .split(',')
+    .map((ref) => ref.trim())
+    .filter(Boolean);
 }
 
 /** A resumed turn, with STUB_CLAUDE_RESUME_GATE set, waits for its file; false when it never came. */
@@ -246,7 +287,13 @@ async function printTurn() {
     return;
   }
   const calls = plannedCalls();
-  if (calls.length > 0 && !(await callTools(calls))) {
+  const reads = plannedReads();
+  const ok =
+    calls.length + reads.length === 0 ||
+    (await withConsola(
+      async (client) => (await readDocuments(client, reads)) && callTools(client, calls),
+    ));
+  if (!ok) {
     // A turn whose tool failed is a failed turn: no findings, a non-zero exit.
     end(1, process.stderr, 'stub claude: a step tool call failed (see STUB_CLAUDE_LOG)\n');
     return;
@@ -270,7 +317,21 @@ if (flags.includes('--version')) {
       process.exit(1);
     });
   } else {
-    process.stdout.write('❯ ');
+    interactive().catch((error) => {
+      log(`STUB ${firstLine(error.stack ?? error.message)}`);
+      process.stdout.write('❯ ');
+    });
     setTimeout(() => {}, 300_000);
   }
+}
+
+/** An interactive launch: STUB_CLAUDE_CALLS' calls once, then an empty composer. */
+async function interactive() {
+  const file = process.env.STUB_CLAUDE_CALLS;
+  if (file && fs.existsSync(file) && !fs.existsSync(`${file}.done`)) {
+    const calls = JSON.parse(fs.readFileSync(file, 'utf8'));
+    fs.writeFileSync(`${file}.done`, '');
+    await withConsola((client) => callTools(client, calls));
+  }
+  process.stdout.write('❯ ');
 }

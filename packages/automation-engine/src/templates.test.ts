@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { parseFactorySpec } from '@consola/factory-spec';
-import { assignedReviewsEntry } from './factoryTemplates';
+import { assignedReviewsEntry, RE_REVIEW_NAME, reReviewEntry } from './factoryTemplates';
+import { sourcesHarness } from './sources/sources.test-helpers';
+import { WORKSPACE_ID } from './steps/steps.test-helpers';
 import { AUTOMATION_TEMPLATES, previewOf, templateViews } from './templates';
 import type { WorkspaceView } from './views';
 
@@ -40,6 +42,7 @@ describe('templates', () => {
     const views = templateViews(bare, []);
     expect(views.map((template) => [template.id, template.missing])).toEqual([
       ['review-assigned-prs', 'Connect a GitHub account in Workspace settings'],
+      ['re-review-on-new-commits', 'Connect a GitHub account in Workspace settings'],
       ['clean-up-stale-sessions', undefined],
       ['morning-inbox-digest', 'Connect a GitHub account in Workspace settings'],
       ['brief-review-requests', 'Connect a GitHub account in Workspace settings'],
@@ -139,6 +142,28 @@ describe('templates', () => {
     expect(previewOf(legacy, new Date())).not.toHaveProperty('steps');
   });
 
+  it('every preview has its source', () => {
+    const views = templateViews(workspace(), [], new Date(2026, 10, 13, 10, 0));
+    expect(views.map((template) => [template.id, template.preview?.source])).toEqual([
+      ['review-assigned-prs', 'event'],
+      ['re-review-on-new-commits', 'poll'],
+      ['clean-up-stale-sessions', 'cron'],
+      ['morning-inbox-digest', 'cron'],
+      ['brief-review-requests', 'event'],
+    ]);
+    const now = new Date(2026, 10, 13, 10, 0);
+    const poll = previewOf(
+      '- name: checker\n  on:\n    poll: { every: 30m, run: ./list-prs, item: { github: .url } }\n  run: { prompt: Look at it. }\n',
+      now,
+    );
+    expect(poll).toMatchObject({ source: 'poll', onEvent: true });
+    const manual = previewOf(
+      '- name: on-demand\n  on: manual\n  applies_to: [pr]\n  run: { action: Review }\n',
+      now,
+    );
+    expect(manual).toMatchObject({ source: 'manual', onEvent: false });
+  });
+
   it('an entry already in the file shows as added', () => {
     const file = `version: 1
 automations:
@@ -221,5 +246,79 @@ automations:
     const reviews = `version: 1\nautomations:\n  - name: reviews\n${on}    run: { action: Review }\n`;
     expect(view(workspace(), 'review-assigned-prs', reviews).addedAs).toBe('reviews');
     expect(view(workspace(), 'brief-review-requests', reviews)).not.toHaveProperty('addedAs');
+  });
+
+  it('re-review-on-new-commits needs only GitHub', () => {
+    const noActions = view(workspace({ actions: [] }), RE_REVIEW_NAME);
+    expect(noActions).not.toHaveProperty('missing');
+    expect(noActions.needs).toEqual([
+      {
+        label: 'GitHub connection',
+        met: true,
+        fix: { label: 'Connect a GitHub account', section: 'provider' },
+      },
+    ]);
+    expect(view(workspace({ provider: undefined }), RE_REVIEW_NAME).missing).toBe(
+      'Connect a GitHub account in Workspace settings',
+    );
+    expect(noActions).toMatchObject({
+      title: expect.any(String),
+      category: 'Code review',
+      services: ['github', 'git'],
+      description:
+        'Every 30 minutes, finds the pull requests you reviewed that have new commits, and reviews each push again, reading your last review. Posts as you, never an approval. Starts checking only once you allow it.',
+    });
+    expect(
+      AUTOMATION_TEMPLATES.find((candidate) => candidate.id === RE_REVIEW_NAME)!.entry(workspace()),
+    ).toBe(reReviewEntry());
+  });
+
+  it('its preview is a poll with three steps', () => {
+    const { preview } = view(workspace(), RE_REVIEW_NAME);
+    expect(preview).toMatchObject({
+      source: 'poll',
+      onEvent: true,
+      kind: 'agent',
+      mode: 'auto',
+      runs: 'Steps: fresh \u2192 review \u2192 publish',
+    });
+    expect(preview?.steps?.map((step) => step.id)).toEqual(['fresh', 'review', 'publish']);
+  });
+
+  it('Add writes it, and it waits for Allow', async () => {
+    const h = await sourcesHarness({ yaml: 'version: 1\nautomations:\n' });
+    await h.service.addTemplate(WORKSPACE_ID, RE_REVIEW_NAME);
+    expect(h.service.list(WORKSPACE_ID)).toEqual([
+      expect.objectContaining({
+        name: RE_REVIEW_NAME,
+        needsAllow: true,
+        version: expect.any(String),
+      }),
+    ]);
+    // Nothing checks before the person allows it.
+    await h.check();
+    expect(h.world.commands).toEqual([]);
+  });
+
+  it('matches a hand-written poll that searches reviewed-by:', () => {
+    const poll = (run: string, item = '{ github: .url }') =>
+      `version: 1\nautomations:\n  - name: mine\n    on:\n      poll: { every: 1h, run: ${run}, item: ${item}, changed: .head }\n    run: { prompt: Look at it. }\n`;
+    expect(
+      view(workspace(), RE_REVIEW_NAME, poll("'gh search prs --reviewed-by @me'")).addedAs,
+    ).toBeUndefined();
+    expect(
+      view(workspace(), RE_REVIEW_NAME, poll('\'gh api graphql -f query="is:pr reviewed-by:@me"\''))
+        .addedAs,
+    ).toBe('mine');
+    // Another command, or items that are not GitHub's, is a different automation.
+    expect(view(workspace(), RE_REVIEW_NAME, poll("'./list-prs'")).addedAs).toBeUndefined();
+    expect(
+      view(workspace(), RE_REVIEW_NAME, poll("'gh api reviewed-by:@me'", '{ gitlab: .url }'))
+        .addedAs,
+    ).toBeUndefined();
+    // Its own name counts, whatever it does.
+    const named =
+      'version: 1\nautomations:\n  - name: re-review-on-new-commits\n    on: { cron: "0 9 * * *" }\n    run: { tool: consola#cleanup_stale_sessions }\n';
+    expect(view(workspace(), RE_REVIEW_NAME, named).addedAs).toBe(RE_REVIEW_NAME);
   });
 });

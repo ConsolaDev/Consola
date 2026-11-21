@@ -198,6 +198,7 @@ beforeEach(() => {
       const record = sessionRecord(workspaces(), id);
       return record ? toSessionView(record) : undefined;
     },
+    previousOf: () => undefined,
   });
   conductorDeps = {
     getWorkspaces: vi.fn(workspaces),
@@ -484,7 +485,7 @@ describe('MCP surface (in-memory)', () => {
   it('runs only the caller’s workspace’s automation, and tells it the outcome, not the plan', async () => {
     const run = runRecord({
       id: 'run-1',
-      summary: 'Would remove 1 session. An agent asked for this run.',
+      summary: 'Would remove 1 session. An agent asked for this run: approving runs this run only.',
       // What the preview found in another workspace: none of it may reach the agent.
       result: {
         candidates: [{ sessionId: 'x-1', name: 'Other workspace session', cwd: '/elsewhere/x-1' }],
@@ -507,12 +508,12 @@ describe('MCP surface (in-memory)', () => {
       ),
     );
     expect(answer).toEqual({
-      summary: 'Would remove 1 session. An agent asked for this run.',
+      summary: 'Would remove 1 session. An agent asked for this run: approving runs this run only.',
       runId: 'run-1',
       status: 'needs-approval',
     });
     // Only ever the caller's own workspace's automation.
-    expect(trigger).toHaveBeenCalledWith('ws-1', 'sweep', { sessionId: 'w-1' });
+    expect(trigger).toHaveBeenCalledWith('ws-1', 'sweep', { sessionId: 'w-1' }, undefined);
     await client.close();
   });
 

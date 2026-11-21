@@ -57,6 +57,33 @@ describe('parseTemplate', () => {
     expect(templatePaths('{{steps.run-tests.passed}}')).toHaveLength(1);
   });
 
+  it('reads what the last run wrote, and its file', () => {
+    expect(parts('{{previous.review.handover}}')).toEqual([
+      {
+        kind: 'path',
+        path: {
+          root: 'previous',
+          step: 'review',
+          name: 'handover',
+          file: false,
+          text: 'previous.review.handover',
+        },
+      },
+    ]);
+    expect(parts('{{previous.review.handover.file}}')).toEqual([
+      {
+        kind: 'path',
+        path: {
+          root: 'previous',
+          step: 'review',
+          name: 'handover',
+          file: true,
+          text: 'previous.review.handover.file',
+        },
+      },
+    ]);
+  });
+
   it('returns plain text unchanged, and nothing for an empty string', () => {
     expect(parts('no braces { here }')).toEqual([{ kind: 'text', text: 'no braces { here }' }]);
     expect(parts('')).toEqual([]);
@@ -71,13 +98,14 @@ describe('parseTemplate', () => {
     ['{{steps.review}}', /`steps.<step>.<output or artifact>`/],
     ['{{steps.a.b.c}}', /`steps.<step>.<output or artifact>`/],
     [
-      '{{ previous.review.handover }}',
-      '`previous` (what the last run on this item wrote) is not supported yet.',
+      '{{previous.review}}',
+      '`{{previous.review}}` is not a path; use `previous.<step>.<artifact>`, optionally followed by `.file`',
     ],
     [
-      '{{previous.review.handover.file}}',
-      '`previous` (what the last run on this item wrote) is not supported yet.',
+      '{{previous.review.handover.text}}',
+      /`previous.<step>.<artifact>`, optionally followed by `.file`/,
     ],
+    ['{{previous}}', /`previous.<step>.<artifact>`/],
     ['{{item.title.file}}', /`.file` names an artifact's file/],
     ['{{item.url', /unclosed/],
     ['ok {{item.url}} then {{steps.a.b', /unclosed/],

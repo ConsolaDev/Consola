@@ -19,7 +19,13 @@ import {
 } from 'lucide-react';
 import { isAgentRunPreview, type RunRecord } from '../../../shared/automations';
 import { formatElapsed } from './presentation';
-import { foundNothingToDo, type RunStage, type RunStageKey, type RunStageState } from './runPage';
+import {
+  foundNothingToDo,
+  triggerStageWords,
+  type RunStage,
+  type RunStageKey,
+  type RunStageState,
+} from './runPage';
 
 const STATE_ICONS: Record<RunStageState, LucideIcon> = {
   passed: CircleCheck,
@@ -55,8 +61,6 @@ export function RunGraph({
   schedule,
   targets,
   onReveal,
-  selectedStep,
-  onSelectStep,
 }: {
   run: RunRecord;
   stages: RunStage[];
@@ -69,44 +73,25 @@ export function RunGraph({
   /** The id of the section each stage links to, where it has one. */
   targets: Partial<Record<RunStageKey, string>>;
   onReveal: (id: string) => void;
-  /** For a steps run: the step shown below the graph, as an index into `stages`. */
-  selectedStep?: number;
-  /** Selects a step node; given, every step node is a button. */
-  onSelectStep?: (index: number) => void;
 }) {
   return (
     <ol className="automations-pipeline automations-pipeline-run" aria-label="Stages of this run">
-      {stages.map((stage, index) => {
+      {stages.map((stage) => {
         const view = stageView(run, stage, place, askerName, schedule);
         const StateIcon = STATE_ICONS[stage.state];
         const target = targets[stage.key];
-        const step = stage.step;
-        const selected = step !== undefined && index === selectedStep;
         return (
           <li
-            key={step ? `step:${step.id}` : stage.key}
-            className={`automations-node automations-stage-${stage.state} ${LIVE_CLASSES[stage.state] ?? ''} ${
-              stage.state === 'reported' ? 'automations-stage-dry-run' : ''
-            } ${selected ? 'automations-node-selected' : ''}`}
-            aria-label={step ? undefined : `${view.kicker}: ${view.outcome}`}
+            key={stage.step ? `step:${stage.step.id}` : stage.key}
+            className={`automations-node automations-stage-${stage.state} ${LIVE_CLASSES[stage.state] ?? ''}`}
+            aria-label={`${view.kicker}: ${view.outcome}`}
           >
             <div className="automations-node-kicker">
               <view.icon size={13} aria-hidden="true" />
               {view.kicker}
             </div>
             <div className="automations-node-title">
-              {step ? (
-                <button
-                  type="button"
-                  className="automations-node-link"
-                  aria-label={`${step.id}: ${view.outcome}`}
-                  aria-pressed={selected}
-                  title={stepTitle(stage)}
-                  onClick={() => onSelectStep?.(index)}
-                >
-                  {view.title}
-                </button>
-              ) : target ? (
+              {target ? (
                 <button
                   type="button"
                   className="automations-node-link"
@@ -133,16 +118,6 @@ export function RunGraph({
   );
 }
 
-/** What a step node says on hover: why it was skipped, or that the run ended before it. */
-function stepTitle(stage: RunStage): string | undefined {
-  const step = stage.step;
-  if (!step || stage.state !== 'skipped') return undefined;
-  if (step.skipped) return step.skipped;
-  return step.status === 'not-run' || step.status === 'pending'
-    ? 'It did not run: the run ended first.'
-    : undefined;
-}
-
 interface StageView {
   icon: LucideIcon;
   kicker: string;
@@ -165,40 +140,14 @@ function stageView(
 
   switch (stage.key) {
     case 'trigger': {
-      const { trigger } = run;
-      const time = new Date(trigger.at).toLocaleTimeString(undefined, {
-        hour: '2-digit',
-        minute: '2-digit',
-      });
-      const late = Date.parse(run.createdAt) - Date.parse(trigger.at);
-      if (trigger.kind === 'cron') {
-        return {
-          icon: Clock,
-          kicker: trigger.catchUp ? 'Schedule, caught up' : 'Schedule',
-          title: schedule ?? 'On schedule',
-          outcome:
-            trigger.catchUp && late >= 1000
-              ? `Due ${time} · ran ${formatElapsed(late)} late`
-              : `Fired ${time}`,
-        };
-      }
-      if (trigger.kind === 'event') {
-        return {
-          icon: Inbox,
-          kicker: 'Inbox event',
-          title: agent?.item?.label ?? 'An item arrived',
-          outcome: `Seen ${time}`,
-        };
-      }
-      if (trigger.by === 'agent') {
-        return {
-          icon: Bot,
-          kicker: 'Agent request',
-          title: askerName ? `Asked by ${askerName}` : 'Asked by an agent',
-          outcome: `Asked ${time}`,
-        };
-      }
-      return { icon: Play, kicker: 'Run now', title: 'Run by you', outcome: `Started ${time}` };
+      const words = triggerStageWords(run, askerName, schedule);
+      const icon = {
+        cron: Clock,
+        event: Inbox,
+        poll: ScanSearch,
+        manual: run.trigger.by === 'agent' ? Bot : Play,
+      }[run.trigger.kind];
+      return { icon: icon ?? Play, ...words };
     }
     case 'preview':
       return {

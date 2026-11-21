@@ -141,12 +141,34 @@ export type LaunchedSession = Pick<
   'id' | 'name' | 'harnessId' | 'claudeSessionId' | 'cwd' | 'scopeId'
 >;
 
+/** The host's identity of work items: what turns a URL into one, its key, and whether its repository is here. */
+export interface WorkItemPort {
+  canParseUrls(connection: string): boolean;
+  /** The work item a URL names on `connection`, or null: another host, another shape, or a connection that cannot read URLs. */
+  parseUrl(connection: string, url: string): ItemRef | null;
+  keyOf(ref: ItemRef): string;
+  urlOf(ref: ItemRef): string;
+  /** Whether one of the workspace's scopes holds a clone of the item's repository. */
+  inWorkspace(workspaceId: string, ref: ItemRef): boolean;
+}
+
 /**
  * One run's folder: its definition snapshot and, per step attempt, artifacts,
  * outputs and logs. Every path component is a validated token. `node/runFolder`
  * is the disk-backed one.
  */
 export interface RunFolderPort {
+  /** Where `factory.yml` is: a check's working directory. */
+  workspaceDir(workspaceId: string): string;
+  /** `<workspace>/checks/<automation>/…`: a check's logs, overwritten each check. */
+  checkFiles(workspaceId: string, automation: string): { stdout: string; stderr: string };
+  /** Atomic: `runs/<run>/item.json`, the object a poll returned. */
+  writeItem(workspaceId: string, runId: string, item: Record<string, unknown>): void;
+  readItem(workspaceId: string, runId: string): Record<string, unknown> | null;
+  /** The highest attempt folder a step has in a run, or null when it has none. */
+  latestAttempt(workspaceId: string, runId: string, stepId: string): number | null;
+  /** `runs/<run>/item.json`'s absolute path: what `CONSOLA_ITEM_FILE` names. */
+  itemPath(workspaceId: string, runId: string): string;
   runDir(workspaceId: string, runId: string): string;
   attemptDir(workspaceId: string, runId: string, stepId: string, attempt: number): string;
   writeDefinition(workspaceId: string, runId: string, definition: RunDefinition): void;
@@ -185,7 +207,9 @@ export interface RunFolderPort {
   exists(file: string): boolean;
   /** Removes every `runs/<id>` not in `keep`. */
   sweep(workspaceId: string, keep: ReadonlySet<string>): void;
-  /** Removes `runs/` only. */
+  /** Removes `checks/<name>` for every name not in `keep`. */
+  sweepChecks(workspaceId: string, keep: ReadonlySet<string>): void;
+  /** Removes `runs/` and `checks/`. */
   removeAll(workspaceId: string): void;
 }
 

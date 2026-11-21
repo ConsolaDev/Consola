@@ -100,6 +100,52 @@ describe('automationVersion', () => {
     expect(automationVersion(on(['a.b']))).not.toBe(automationVersion(on(['a.b', 'c.d'])));
   });
 
+  it('keeps the steps template hash taken at PR A', () => {
+    // review-assigned-prs as PR A ships it (the engine's factoryTemplates.ts), pasted here because
+    // factory-spec imports nothing from the engine.
+    const entry = String.raw`- name: review-assigned-prs
+  on: { github: [pull_request.review_requested, pull_request.assigned] }
+  filter: { authors_not: ["dependabot[bot]"] }
+  mode: auto
+  steps:
+    - id: fresh
+      run: |
+        reviewed=$(gh api graphql -f url="$PR" -f query='
+          query($url: URI!) { resource(url: $url) { ... on PullRequest {
+            viewerLatestReview { commit { oid } } } } }' \
+          --jq '.data.resource.viewerLatestReview.commit.oid // ""')
+        if [ "$reviewed" = "$CONSOLA_CHECKOUT_HEAD" ]; then needed=false; else needed=true; fi
+        echo "needed=$needed" >> "$CONSOLA_OUTPUT"
+      env: { PR: "{{item.url}}" }
+      outputs: { needed: boolean }
+      dry_run: run
+    - id: review
+      if: steps.fresh.needed
+      prompt: >-
+        Review this pull request. Read it with Consola's work_item_context tool, and read the changed files
+        in this folder where it helps. Write your review as your handover, in Markdown, addressed to the
+        author and under 60,000 characters: what it changes, then each finding with its file and line.
+        Then set verdict: approve if you would merge it as it is, request-changes if something must change
+        first, comment otherwise.
+      outputs:
+        verdict: { enum: [approve, comment, request-changes] }
+    - id: publish
+      if: steps.fresh.needed
+      run: |
+        event=COMMENT
+        if [ "$VERDICT" = "request-changes" ]; then event=REQUEST_CHANGES; fi
+        gh api "repos/$REPO/pulls/$NUMBER/reviews" \
+          -f commit_id="$CONSOLA_CHECKOUT_HEAD" -f event="$event" -F body=@"$BODY_FILE"
+      env:
+        REPO: "{{item.repo}}"
+        NUMBER: "{{item.number}}"
+        VERDICT: "{{steps.review.verdict}}"
+        BODY_FILE: "{{steps.review.handover.file}}"`;
+    const parsed = parseAutomationEntry(entry);
+    if (!parsed.ok) throw new Error(JSON.stringify(parsed.issues));
+    expect(automationVersion(parsed.automation)).toBe('6dfd57fa0f97c2ff');
+  });
+
   it('keeps every hash taken before steps existed', () => {
     expect(automationVersion(tool)).toBe('9c2fbd9ab4277088');
     expect(automationVersion(review, 'Review the changes.')).toBe('95ff957e059f7860');
@@ -239,6 +285,57 @@ describe('automationVersion', () => {
         versionOf(withNotes + READER.replace('\n      reads: [review.notes]', '')),
       );
       expect(new Set(changed.map((yaml) => versionOf(yaml))).size).toBe(changed.length);
+    });
+  });
+
+  describe('a poll and applies_to', () => {
+    // A keyed poll names its identity with `key:` and a scope; an item poll names `item:` and takes no scope.
+    const KEYED = (extra = '', every = '30m') =>
+      `- name: watch\n  on: { poll: { every: ${every}, run: gh api graphql, key: .id${extra} } }\n  mode: auto\n  scope: api\n  run: { prompt: "Look at it." }`;
+    const ITEM = (extra = '', every = '30m') =>
+      `- name: watch\n  on: { poll: { every: ${every}, run: gh api graphql, item: { github: .url }${extra} } }\n  mode: auto\n  run: { prompt: "Look at it." }`;
+    const versionOf = (yaml: string) => {
+      const parsed = parseAutomationEntry(yaml);
+      if (!parsed.ok) throw new Error(JSON.stringify(parsed.issues));
+      return automationVersion(parsed.automation);
+    };
+
+    it("a poll's command, key, item, changed and timeout each change the version", () => {
+      const keyed = versionOf(KEYED());
+      const item = versionOf(ITEM());
+      const changed = [
+        [KEYED().replace('gh api graphql', 'gh api graphql --jq .x'), keyed],
+        [KEYED().replace('key: .id', 'key: .number'), keyed],
+        [ITEM().replace('item: { github: .url }', 'item: { github: .html_url }'), item],
+        [ITEM(', changed: .head'), item],
+        [ITEM(', timeout: 5m'), item],
+      ] as const;
+      for (const [yaml, base] of changed) expect(versionOf(yaml)).not.toBe(base);
+      expect(new Set(changed.map(([yaml]) => versionOf(yaml))).size).toBe(changed.length);
+    });
+
+    it('its interval does not', () => {
+      expect(versionOf(KEYED('', '30m'))).toBe(versionOf(KEYED('', '1h')));
+      expect(versionOf(ITEM('', '30m'))).toBe(versionOf(ITEM('', '1h')));
+    });
+
+    it('applies_to changes the version of a manual entry', () => {
+      const manual = (appliesTo: string) =>
+        `- name: m\n  on: manual\n  mode: confirm\n${appliesTo}  run: { prompt: "x" }`;
+      // A manual entry with no scope runs on an item, so it must say which kind.
+      const versions = ['[pr]', '[issue]', '[pr, issue]'].map((kinds) =>
+        versionOf(manual(`  applies_to: ${kinds}\n`)),
+      );
+      expect(new Set(versions).size).toBe(3);
+    });
+
+    it('a poll and an event entry with the same steps hash differently', () => {
+      const steps = '  mode: auto\n  steps:\n    - id: s\n      run: echo hi';
+      const poll = versionOf(
+        `- name: w\n  on: { poll: { every: 30m, run: x, item: { github: .url } } }\n${steps}`,
+      );
+      const event = versionOf(`- name: w\n  on: { github: [pull_request.opened] }\n${steps}`);
+      expect(poll).not.toBe(event);
     });
   });
 });

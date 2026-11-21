@@ -4,6 +4,7 @@ import { isStepsEntry } from './schema';
 import {
   ENV_PREFIX_EXCEPTIONS,
   isRefusedEnvName,
+  parseReadRef,
   REFUSED_ENV_NAMES,
   REFUSED_ENV_PREFIXES,
   stepItemFieldProblems,
@@ -404,13 +405,16 @@ describe('an agent step', () => {
     const result = steps(
       '- id: review\n  prompt: Review it.',
       '- id: scan\n  run: echo hi\n  outputs: { from: stdout, format: text }',
-      '- prompt: Read.\n  reads: [review.handover, scan.output]',
+      '- prompt: Read.\n  reads: [review.handover, scan.output, previous.review.handover]',
     );
     const automation = result.automations[0];
     if (!automation || !isStepsEntry(automation)) throw new Error(JSON.stringify(result.issues));
-    expect((automation.steps[2] as AgentStep).reads).toEqual(['review.handover', 'scan.output']);
+    expect((automation.steps[2] as AgentStep).reads).toEqual([
+      'review.handover',
+      'scan.output',
+      'previous.review.handover',
+    ]);
     expect(only(agent('  reads: [handover]')).path).toBe('automations[0].steps[0].reads');
-    expect(only(agent('  reads: [previous.review.handover]')).message).toMatch(/not supported yet/);
   });
 });
 
@@ -748,11 +752,6 @@ describe('across steps', () => {
       );
     });
 
-    it('refuses previous: that is a later slice', () => {
-      const issue = only(entry([REVIEW_STEP, reader('previous.review.handover')]).result);
-      expect(issue.message).toMatch(/not supported yet/);
-    });
-
     it('refuses a read with no dot', () => {
       const issue = only(entry([REVIEW_STEP, reader('review')]).result);
       expect(issue.message).toMatch(/`<step>\.<artifact>`/);
@@ -952,6 +951,284 @@ describe('across steps', () => {
         '    scope: app\n',
       );
       expect(built.result.issues).toEqual([]);
+    });
+  });
+});
+
+/** The step at `index` of the one entry `result` holds. */
+function stepOf(result: ReturnType<typeof parseFactorySpec>, index: number): Step {
+  const automation = result.automations[0];
+  if (!automation || !isStepsEntry(automation)) throw new Error(JSON.stringify(result.issues));
+  return automation.steps[index];
+}
+
+describe('previous', () => {
+  const REVIEW_ONLY =
+    '- id: review\n  prompt: Review it.\n  outputs: { verdict: { enum: [approve, comment] } }';
+  const reader = (...reads: string[]) =>
+    `- id: next\n  prompt: Go.\n  reads: [${reads.join(', ')}]`;
+
+  describe('in reads:', () => {
+    it('takes the reading step itself, and makes its handover required', () => {
+      const { result } = entry([
+        '- id: review\n  prompt: Review it.\n  reads: [previous.review.handover]',
+      ]);
+      expect(result.issues).toEqual([]);
+      expect((stepOf(result, 0) as AgentStep).handover).toBe('required');
+    });
+
+    it('takes a later step, which ran in another run', () => {
+      const { result } = entry([
+        '- id: first\n  prompt: Go.\n  reads: [previous.second.handover]',
+        '- id: second\n  prompt: Go.',
+      ]);
+      expect(result.issues).toEqual([]);
+      expect((stepOf(result, 1) as AgentStep).handover).toBe('required');
+    });
+
+    it('takes the output of a command that streams stdout', () =>
+      expect(entry([FETCH_STEP, reader('previous.fetch.output')]).result.issues).toEqual([]));
+
+    it('refuses an unknown step', () =>
+      expectIssue(
+        entry([REVIEW_ONLY, reader('previous.nope.handover')]),
+        'automations[0].steps[1].reads[0]',
+        'reads:',
+        '`previous.nope.handover`: there is no step `nope`',
+      ));
+
+    it('refuses an artifact the step does not declare, naming the ones it has', () =>
+      expectIssue(
+        entry([REVIEW_ONLY, reader('previous.review.notes')]),
+        'automations[0].steps[1].reads[0]',
+        'reads:',
+        '`previous.review.notes`: `review` has no artifact `notes` (it has: handover)',
+      ));
+
+    it('refuses an unnamed step', () =>
+      expectIssue(
+        entry(['- prompt: One.', reader('previous.step-1.handover')]),
+        'automations[0].steps[1].reads[0]',
+        'reads:',
+        '`previous.step-1.handover`: `step-1` is an unnamed step; only steps with an `id` can be named',
+      ));
+
+    it('refuses an output, which is not a document', () =>
+      expectIssue(
+        entry([REVIEW_ONLY, reader('previous.review.verdict')]),
+        'automations[0].steps[1].reads[0]',
+        'reads:',
+        '`previous.review.verdict`: `previous` reads documents; verdict is an output',
+      ));
+
+    it('refuses previous without a step and an artifact', () => {
+      const issue = only(entry([REVIEW_ONLY, reader('previous.review')]).result);
+      expect(issue.path).toBe('automations[0].steps[1].reads');
+      expect(issue.message).toMatch(/`previous\.<step>\.<artifact>`/);
+    });
+  });
+
+  describe('in env:', () => {
+    const withEnv = (value: string) =>
+      entry([REVIEW_ONLY, `- id: publish\n  run: echo\n  env: { LAST: "${value}" }`]);
+
+    it('takes a document or its file, and makes the handover required', () => {
+      for (const value of ['{{previous.review.handover.file}}', '{{previous.review.handover}}']) {
+        const { result } = withEnv(value);
+        expect(result.issues, value).toEqual([]);
+        expect((stepOf(result, 0) as AgentStep).handover, value).toBe('required');
+      }
+    });
+
+    it('refuses an output', () =>
+      expectIssue(
+        withEnv('{{previous.review.verdict}}'),
+        'automations[0].steps[1].env.LAST',
+        'LAST:',
+        '`{{previous.review.verdict}}`: `previous` reads documents; verdict is an output',
+      ));
+
+    it('refuses an unknown step', () =>
+      expectIssue(
+        withEnv('{{previous.nope.handover}}'),
+        'automations[0].steps[1].env.LAST',
+        'LAST:',
+        '`{{previous.nope.handover}}`: there is no step `nope`',
+      ));
+  });
+
+  it('is refused in a prompt', () =>
+    expectIssue(
+      entry([REVIEW_ONLY, '- id: next\n  prompt: "Compare with {{previous.review.handover}}."']),
+      'automations[0].steps[1].prompt',
+      'prompt: "Compare',
+      'previous.review.handover: it is prose an agent wrote after reading outside text; read it with `reads:`.',
+    ));
+
+  it('is refused in an if:, which reads this run only', () =>
+    expectIssue(
+      entry([REVIEW_ONLY, `- id: next\n  if: "previous.review.verdict == 'approve'"\n  run: echo`]),
+      'automations[0].steps[1].if',
+      'if:',
+      'Cannot read this `if`: `previous` is what the last run wrote, and an `if:` reads this run only (`previous` outputs in `if:` arrive with waiting runs).',
+    ));
+
+  it.each<[string, ReturnType<typeof parseReadRef>]>([
+    ['review.handover', { previous: false, step: 'review', name: 'handover' }],
+    ['previous.review.handover', { previous: true, step: 'review', name: 'handover' }],
+    ['previous.review', null],
+    ['a.b.c', null],
+    ['x', null],
+    ['review.', null],
+    ['review. handover', null],
+  ])('parseReadRef(%j)', (text, expected) => {
+    expect(parseReadRef(text)).toEqual(expected);
+  });
+
+  it('works on a schedule, which has memory too', () => {
+    const built = entry(
+      [
+        '- id: digest\n  prompt: Write the digest.\n  reads: [previous.digest.handover]',
+        '- id: post\n  run: echo\n  env: { LAST: "{{previous.digest.handover.file}}" }',
+      ],
+      DAILY,
+      '    scope: app\n',
+    );
+    expect(built.result.issues).toEqual([]);
+  });
+});
+
+describe('items per trigger', () => {
+  const MANUAL = '    on: manual\n';
+  const ON_PRS = '    on: manual\n    applies_to: [pr]\n';
+  const POLL_ITEM =
+    '    on:\n      poll:\n        every: 30m\n        run: gh api graphql\n        item: { github: .url }\n';
+  const POLL_KEY =
+    '    on:\n      poll:\n        every: 30m\n        run: ./list-tickets\n        key: .id\n';
+  const SCOPE = '    scope: app\n';
+  const UNTRUSTED = (path: string) =>
+    `${path}: it is text someone else wrote; the step gets it below its prompt as data.`;
+  const prompt = (text: string, trigger: string, tail = '') =>
+    entry([`- id: go\n  prompt: "${text}"`], trigger, tail);
+  const env = (value: string, trigger: string, tail = '') =>
+    entry([`- id: go\n  run: echo\n  env: { VALUE: "${value}" }`], trigger, tail);
+  const action = (trigger: string, tail = '') => entry(['- action: Review'], trigger, tail);
+
+  describe('on: manual with applies_to', () => {
+    it('trusts the identity fields in a prompt', () =>
+      expect(prompt('Review {{item.url}}.', ON_PRS).result.issues).toEqual([]));
+
+    it('refuses the rest in a prompt', () =>
+      expectIssue(
+        prompt('Review {{item.title}}.', ON_PRS),
+        'automations[0].steps[0].prompt',
+        'prompt:',
+        UNTRUSTED('item.title'),
+      ));
+
+    it('takes an action', () => expect(action(ON_PRS).result.issues).toEqual([]));
+  });
+
+  describe('a poll with item:', () => {
+    it('trusts the identity fields in a prompt', () =>
+      expect(prompt('Review {{item.number}}.', POLL_ITEM).result.issues).toEqual([]));
+
+    it('refuses a polled field in a prompt', () =>
+      expectIssue(
+        prompt('At {{item.head}}.', POLL_ITEM),
+        'automations[0].steps[0].prompt',
+        'prompt:',
+        UNTRUSTED('item.head'),
+      ));
+
+    it('takes a polled field in env: and if:', () => {
+      expect(env('{{item.head}}', POLL_ITEM).result.issues).toEqual([]);
+      const built = entry(
+        [
+          '- id: x\n  run: echo\n  outputs: { ok: boolean }',
+          `- id: y\n  if: "steps.x.ok && item.head == 'abc'"\n  run: echo`,
+        ],
+        POLL_ITEM,
+      );
+      expect(built.result.issues).toEqual([]);
+    });
+
+    it('takes an action', () => expect(action(POLL_ITEM).result.issues).toEqual([]));
+  });
+
+  describe('a poll with key:', () => {
+    it('trusts nothing in a prompt, not even the key', () =>
+      expectIssue(
+        prompt('Look at {{item.key}}.', POLL_KEY, SCOPE),
+        'automations[0].steps[0].prompt',
+        'prompt:',
+        UNTRUSTED('item.key'),
+      ));
+
+    it('takes its fields in env: and if:', () => {
+      expect(env('{{item.key}}', POLL_KEY, SCOPE).result.issues).toEqual([]);
+      expect(
+        entry([`- id: y\n  if: "item.state == 'open'"\n  run: echo`], POLL_KEY, SCOPE).result
+          .issues,
+      ).toEqual([]);
+    });
+
+    it("refuses an action with the poll entry's words", () =>
+      expectIssue(
+        action(POLL_KEY, SCOPE),
+        'automations[0].steps[0].action',
+        'action:',
+        'An action is a verb on a pull request or issue, and this poll’s items are neither: write it as a prompt.',
+      ));
+  });
+
+  describe('on: manual without applies_to', () => {
+    const NO_ITEM = 'this automation has no item, so there is no `item` to read';
+
+    it('has no item to read, anywhere', () => {
+      expectIssue(
+        prompt('{{item.url}}', MANUAL, SCOPE),
+        'automations[0].steps[0].prompt',
+        'prompt:',
+        `\`{{item.url}}\`: ${NO_ITEM}`,
+      );
+      expectIssue(
+        env('{{item.url}}', MANUAL, SCOPE),
+        'automations[0].steps[0].env.VALUE',
+        'VALUE:',
+        `\`{{item.url}}\`: ${NO_ITEM}`,
+      );
+      expectIssue(
+        entry([`- id: y\n  if: "item.url == 'x'"\n  run: echo`], MANUAL, SCOPE),
+        'automations[0].steps[0].if',
+        'if:',
+        `\`item.url\`: ${NO_ITEM}`,
+      );
+    });
+
+    it("refuses an action, saying to write the job as the step's own prompt", () =>
+      expectIssue(
+        action(MANUAL, SCOPE),
+        'automations[0].steps[0].action',
+        'action:',
+        'An action is a verb on an item, and this automation has none: write the job as `prompt: …`.',
+      ));
+  });
+
+  describe('a schedule', () => {
+    it("keeps PR A's words", () => {
+      expectIssue(
+        prompt('{{item.url}}', DAILY, SCOPE),
+        'automations[0].steps[0].prompt',
+        'prompt:',
+        '`{{item.url}}`: a schedule has no item, so there is no `item` to read',
+      );
+      expectIssue(
+        action(DAILY, SCOPE),
+        'automations[0].steps[0].action',
+        'action:',
+        'An action is a verb on an item, and a schedule has no item: write the job as `prompt: …`.',
+      );
     });
   });
 });

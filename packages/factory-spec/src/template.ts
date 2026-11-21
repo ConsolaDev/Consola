@@ -4,9 +4,14 @@
  * template without a run, and the runner renders it with values in hand.
  */
 
+/**
+ * `steps` names this run's steps; `previous` names what the last run on the
+ * same item wrote (a document of one of the entry's steps), read in `env:` only.
+ */
 export type TemplatePath =
   | { root: 'item'; field: string; text: string }
-  | { root: 'steps'; step: string; name: string; file: boolean; text: string };
+  | { root: 'steps'; step: string; name: string; file: boolean; text: string }
+  | { root: 'previous'; step: string; name: string; file: boolean; text: string };
 
 export type TemplatePart = { kind: 'text'; text: string } | { kind: 'path'; path: TemplatePath };
 
@@ -26,12 +31,6 @@ function parsePath(
 ): { ok: true; path: TemplatePath } | { ok: false; problem: string } {
   const segments = inner.split('.');
   const root = segments[0];
-  if (root === 'previous') {
-    return {
-      ok: false,
-      problem: '`previous` (what the last run on this item wrote) is not supported yet.',
-    };
-  }
   if (root === 'item') {
     if (segments.length === 2 && IDENT.test(segments[1])) {
       return { ok: true, path: { root: 'item', field: segments[1], text: inner } };
@@ -44,22 +43,21 @@ function parsePath(
     }
     return { ok: false, problem: NOT_A_PATH(inner) };
   }
-  if (root === 'steps') {
+  if (root === 'steps' || root === 'previous') {
     const [, step, name, last] = segments;
     const shape =
       (segments.length === 3 || (segments.length === 4 && last === 'file')) &&
       STEP_ID.test(step) &&
       IDENT.test(name);
     if (!shape) {
+      const named =
+        root === 'steps' ? 'steps.<step>.<output or artifact>' : 'previous.<step>.<artifact>';
       return {
         ok: false,
-        problem: `\`{{${inner}}}\` is not a path; use \`steps.<step>.<output or artifact>\`, optionally followed by \`.file\``,
+        problem: `\`{{${inner}}}\` is not a path; use \`${named}\`, optionally followed by \`.file\``,
       };
     }
-    return {
-      ok: true,
-      path: { root: 'steps', step, name, file: segments.length === 4, text: inner },
-    };
+    return { ok: true, path: { root, step, name, file: segments.length === 4, text: inner } };
   }
   return { ok: false, problem: NOT_A_PATH(inner) };
 }

@@ -6,10 +6,10 @@ import {
   type StepRun,
   type TemplatePath,
 } from '@consola/factory-spec';
-import type { EventSource } from '../connections';
 import type { CommandResult, CommandSpec, RunFolderPort } from '../ports';
+import type { ItemSource } from '../sources/itemSource';
+import { previousDocument } from '../sources/previous';
 import { describeError } from '../support';
-import { runEventSource } from './agentStep';
 import {
   clipText,
   describeFailure,
@@ -60,7 +60,7 @@ export interface PreparedCommand {
   dir: string;
   files: { output: string; stdout: string; stderr: string };
   values: RenderedValue[];
-  /** `CONSOLA_OUTPUT`, `CONSOLA_RUN_ID`, `CONSOLA_STEP`, and an item run's `CONSOLA_CHECKOUT_HEAD`. */
+  /** `CONSOLA_OUTPUT`, `CONSOLA_RUN_ID`, `CONSOLA_STEP`, an item run's `CONSOLA_CHECKOUT_HEAD`, and a poll run's `CONSOLA_ITEM_FILE`. */
   variables: Record<string, string>;
 }
 
@@ -90,23 +90,43 @@ type Found = { value: string } | { missing: string };
 interface RenderContext {
   run: RunRecord;
   definition: RunDefinition;
-  /** The connection the run's definition names: what reads its item's fields. */
-  event: EventSource | undefined;
+  /** The run's own item source (`runItemSource`): what reads its item's fields. */
+  source: ItemSource | undefined;
+  /** A poll run's `item.json`: the object its fields are read from. */
+  polled: Record<string, unknown> | undefined;
+  /** The earlier run on the item (`run.previous`), whose documents `previous.*` reads. */
+  previous: { runId: string } | undefined;
   workspaceId: string;
   folder: RunFolderPort;
 }
 
-/** One path's value, from the run's item, its steps' records, and their documents in the run folder. */
+/**
+ * One path's value, from the run's item, its steps' records, and their
+ * documents in the run folder; a `previous` one from the earlier run's
+ * folder, and the empty string when it has none (the one value whose
+ * absence never fails a step).
+ */
 function valueAt(
   path: TemplatePath,
-  { run, definition, event, workspaceId, folder }: RenderContext,
+  { run, definition, source, polled, previous, workspaceId, folder }: RenderContext,
 ): Found {
   if (path.root === 'item') {
     const item = run.trigger.item;
-    const value = item && event ? event.itemValue(item, path.field) : undefined;
+    const value = item && source ? source.itemValue(item, path.field, polled) : undefined;
     return value === undefined
       ? { missing: 'this run has no such item field' }
       : { value: String(value) };
+  }
+  if (path.root === 'previous') {
+    const document = previousDocument({
+      folder,
+      workspaceId,
+      previous,
+      step: path.step,
+      name: path.name,
+      file: path.file,
+    });
+    return 'value' in document ? document : { value: '' };
   }
   const record = run.steps?.find((candidate) => candidate.id === path.step);
   if (record?.status !== 'completed') return { missing: `${path.step} has not completed` };
@@ -135,7 +155,8 @@ function valueAt(
 /**
  * The step's `env:` filled in, each value as it rendered: an output as its
  * text, an artifact as its content (or, with `.file`, its absolute path), an
- * item field as the run has it. A value is inserted as it is, never read for
+ * item field as the run has it, a `previous` document as the earlier run
+ * wrote it (or empty). A value is inserted as it is, never read for
  * templates of its own. Over `ENV_VALUES_CAP_BYTES` in total is refused.
  */
 function renderValues(
@@ -169,7 +190,9 @@ function renderValues(
  * A command step's current attempt, from its run's record and definition and
  * the folder it runs in (`cwd`, checked by the caller): its `env:` rendered,
  * where its files go, and Consola's variables. Reads the run folder; writes
- * nothing.
+ * nothing. `source` is the run's own (`runItemSource`), and `polled` a poll
+ * run's `item.json`: what its item fields are read from. `previous` is the
+ * earlier run on its item (`run.previous`): what `previous.*` reads.
  */
 export function prepareCommand(input: {
   run: RunRecord;
@@ -178,8 +201,11 @@ export function prepareCommand(input: {
   cwd: string;
   workspaceId: string;
   folder: RunFolderPort;
+  source: ItemSource | undefined;
+  polled: Record<string, unknown> | undefined;
+  previous: { runId: string } | undefined;
 }): { ok: true; command: PreparedCommand } | { ok: false; error: string } {
-  const { run, definition, stepId, cwd, workspaceId, folder } = input;
+  const { run, definition, stepId, cwd, workspaceId, folder, source, polled, previous } = input;
   const step = definition.automation.steps.find((candidate) => candidate.id === stepId);
   const record = run.steps?.find((candidate) => candidate.id === stepId);
   if (step?.kind !== 'run' || !record)
@@ -188,7 +214,9 @@ export function prepareCommand(input: {
     const rendered = renderValues(step, {
       run,
       definition,
-      event: runEventSource(definition),
+      source,
+      polled,
+      previous,
       workspaceId,
       folder,
     });
@@ -200,11 +228,17 @@ export function prepareCommand(input: {
       stderr: inFolder(dir, 'stderr.log'),
     };
     const head = run.trigger.item ? run.checkout?.head : undefined;
+    // A poll entry's run on an item keeps the whole object its check printed beside its definition.
+    const polledFile =
+      definition.automation.trigger.kind === 'poll' && run.trigger.item
+        ? folder.itemPath(workspaceId, run.id)
+        : undefined;
     const variables = {
       CONSOLA_OUTPUT: files.output,
       CONSOLA_RUN_ID: run.id,
       CONSOLA_STEP: stepId,
       ...(head ? { CONSOLA_CHECKOUT_HEAD: head } : {}),
+      ...(polledFile ? { CONSOLA_ITEM_FILE: polledFile } : {}),
     };
     const { attempt } = record;
     return {

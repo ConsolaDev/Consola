@@ -104,6 +104,7 @@ import { worktreePathLock } from './worktreeCleanup/PathLock';
 import { ProcessCwdIndex } from './worktreeCleanup/ProcessCwdIndex';
 import { ToolRegistry } from './tools/Tool';
 import { consolaTools } from './tools/consolaTools';
+import { desktopWorkItemPort } from './automations/workItemPort';
 import { sessionRecord, toItemSnapshot, toWorkspaceView } from './automations/engineViews';
 import {
   launchAgentRun,
@@ -116,6 +117,7 @@ import { readRunConversation } from './automations/runConversation';
 import { startAuthoring } from './automations/authoring';
 import { parseAuthoringRequest } from './automations/authoringRequest';
 import type { AutomationsChange } from '../shared/automations';
+import { asRunTarget } from './automations/runTarget';
 import {
   AUTOMATION_TEMPLATES,
   AutomationService,
@@ -225,6 +227,8 @@ import type {
 import type { SnoozeWhen } from '../shared/snooze';
 import { activityOf, type AttentionState } from '../shared/attention';
 import type { ActivateWorkspaceResult, WorkspaceView } from '../shared/types';
+import { automationsTickMs } from './test-mode';
+import { noticeTarget } from './automations/noticeTarget';
 
 // One terminal per session tab, kept alive while the session is open
 let terminalManager: TerminalManager | null = null;
@@ -2036,6 +2040,11 @@ export function setupIpcHandlers(): boolean {
     fileFor: (workspaceId) => new FactoryFile(workspaceFactoryPath(workspaceId)),
     store: runStore,
     runFolder: new RunFolder(),
+    workItems: desktopWorkItemPort({
+      getWorkspace: (id) => workspaces.getAll().find((workspace) => workspace.id === id),
+      resolveRepo: (workspace, repo) => worktrees.resolveRepo(workspace, repo),
+      driverFor: (id) => (isGitProviderId(id) ? getProviderDriver(id) : null),
+    }),
     registry: tools,
     getWorkspaces: () => workspaces.getAll().map(toWorkspaceView),
     now: () => new Date(),
@@ -2043,12 +2052,23 @@ export function setupIpcHandlers(): boolean {
     notify: (notice) => {
       if (!Notification.isSupported()) return;
       const notification = new Notification({ title: notice.title, body: notice.body });
-      // Lands on what the notice is about: the session a run started, or
-      // else that workspace's Automations dashboard with the run open, in
-      // the window holding it.
+      // Lands on what the notice is about: the session a run started, the
+      // automation's page, or else that workspace's Automations dashboard
+      // with the run open, in the window holding it.
       notification.on('click', () => {
-        if (notice.sessionId) focusOrCreate(notice.workspaceId, viewMemoryPort(), notice.sessionId);
-        else showAutomations(notice.workspaceId, notice.runId, viewMemoryPort());
+        const target = noticeTarget(notice);
+        if (target.kind === 'session')
+          focusOrCreate(notice.workspaceId, viewMemoryPort(), target.sessionId);
+        else
+          showAutomations(
+            notice.workspaceId,
+            target.kind === 'automation'
+              ? { automation: target.name }
+              : target.runId
+                ? { runId: target.runId }
+                : {},
+            viewMemoryPort(),
+          );
       });
       notification.show();
     },
@@ -2065,6 +2085,8 @@ export function setupIpcHandlers(): boolean {
       timer.unref?.();
       return () => clearInterval(timer);
     },
+    // An end-to-end test's faster tick; undefined (the engine's own) outside a test run.
+    tickMs: automationsTickMs(),
     inboxSnapshot: (workspaceId) => {
       const snapshot = inbox.getSnapshot(workspaceId);
       return snapshot ? toItemSnapshot(snapshot) : null;
@@ -2110,9 +2132,9 @@ export function setupIpcHandlers(): boolean {
     }),
     checkoutBusy: (dir) => runningIn(allSessions(), dir, isRunning),
     folderExists: (dir) => fs.existsSync(dir),
-    // run: steps: spawned by the engine's own executor.
+    // run: steps and poll checks: spawned by the engine's own executor.
     commands: { start: startCommand },
-    // What they start from: the login env, and the bound account's token, which their logs mask.
+    // What both start from: the login env, and the bound account's token, which their logs mask.
     commandEnv: async (workspaceId) => {
       const provider = workspaces
         .getAll()
@@ -2142,10 +2164,41 @@ export function setupIpcHandlers(): boolean {
   ipcMain.handle(IPC_CHANNELS.AUTOMATIONS_GET_SNAPSHOT, (_event, workspaceId: string) =>
     automations.snapshot(String(workspaceId)),
   );
-  ipcMain.handle(IPC_CHANNELS.AUTOMATIONS_RUN_NOW, (_event, workspaceId: string, name: string) => {
-    if (typeof name !== 'string') throw new Error('Automation name required.');
-    return automations.trigger(String(workspaceId), name);
-  });
+  ipcMain.handle(
+    IPC_CHANNELS.AUTOMATIONS_RUN_NOW,
+    (_event, workspaceId: unknown, name: unknown, target: unknown) => {
+      if (typeof workspaceId !== 'string') throw new Error('Workspace id required.');
+      if (typeof name !== 'string') throw new Error('Automation name required.');
+      return automations.trigger(
+        workspaceId,
+        name,
+        {},
+        target === undefined ? undefined : asRunTarget(target),
+      );
+    },
+  );
+  // The person's only: no tool an agent can call reaches this.
+  ipcMain.handle(
+    IPC_CHANNELS.AUTOMATIONS_ALLOW,
+    (_event, workspaceId: unknown, name: unknown, version: unknown) => {
+      if (
+        typeof workspaceId !== 'string' ||
+        typeof name !== 'string' ||
+        typeof version !== 'string'
+      ) {
+        throw new Error('Workspace, automation and version required.');
+      }
+      return automations.allow(workspaceId, name, version);
+    },
+  );
+  ipcMain.handle(
+    IPC_CHANNELS.AUTOMATIONS_LIST_RUN_TARGETS,
+    (_event, workspaceId: unknown, name: unknown) => {
+      if (typeof workspaceId !== 'string' || typeof name !== 'string')
+        throw new Error('Workspace and automation required.');
+      return automations.listRunTargets(workspaceId, name);
+    },
+  );
   ipcMain.handle(IPC_CHANNELS.AUTOMATIONS_APPROVE, (_event, runId: string) =>
     automations.approve(String(runId)),
   );
@@ -2986,6 +3039,8 @@ export function cleanupIpcHandlers(): void {
   }
   ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_GET_SNAPSHOT);
   ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_RUN_NOW);
+  ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_ALLOW);
+  ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_LIST_RUN_TARGETS);
   ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_APPROVE);
   ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_DISMISS);
   ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_OPEN_FILE);

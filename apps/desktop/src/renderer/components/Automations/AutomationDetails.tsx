@@ -6,14 +6,18 @@ import {
   CircleDashed,
   FileCode,
   Hand,
+  ShieldQuestion,
   Workflow,
 } from 'lucide-react';
-import type { AutomationView, RunListEntry } from '../../../shared/automations';
+import type { AutomationView, CheckView, RunListEntry } from '../../../shared/automations';
 import type { Workspace } from '../../../shared/workspace';
 import { automationsBridge } from '../../services/automationsBridge';
 import { useAutomationsStore } from '../../stores/automationsStore';
+import { AllowCard } from './AllowCard';
 import { AutomationInsights } from './AutomationInsights';
 import { EntrySource, PipelineGraph } from './AutomationPipeline';
+import { allowBannerWords, checkStatusLine, pollRunsEmptyWords, skippedWords } from './checkWords';
+import { RunOnPicker } from './RunOnPicker';
 import { RunItem, RunNowButton, StatusIcon, useArrivals, useIntent, useNow } from './parts';
 import {
   filterRuns,
@@ -101,11 +105,30 @@ export function AutomationDetails({ workspace, name }: { workspace: Workspace; n
         </div>
       )}
 
+      {automation.needsAllow && automation.check && !automation.problem && (
+        <>
+          <div className="automations-allow-banner" role="status">
+            <ShieldQuestion size={16} aria-hidden="true" />
+            <div>
+              <strong>Needs your OK</strong>
+              <span>{allowBannerWords(automation.check)}</span>
+            </div>
+          </div>
+          <AllowCard
+            workspaceId={workspace.id}
+            automation={automation}
+            opening={busy === 'open'}
+            onOpenFile={openFile}
+          />
+        </>
+      )}
+
       <div className="automations-lead">
         <LeadState
           latest={latest}
           insights={insights}
           automation={automation}
+          now={now}
           onShowEntry={() => setView('yaml')}
         />
         <div className="automations-lead-actions">
@@ -122,11 +145,18 @@ export function AutomationDetails({ workspace, name }: { workspace: Workspace; n
           {/* One primary action: the run waiting for you, else the fix for a problem, else running it. */}
           <RunNowButton
             automation={automation}
-            primary={!waiting && !automation.problem}
+            primary={!waiting && !automation.problem && !automation.needsAllow}
             running={busy === 'run' || running}
             disabled={busy !== null}
             onRun={() => void act('run', () => automationsBridge.runNow(workspace.id, name))}
           />
+          {automation.takesItem && (
+            <RunOnPicker
+              workspaceId={workspace.id}
+              name={name}
+              disabled={busy !== null || Boolean(automation.problem)}
+            />
+          )}
           <button
             type="button"
             className={`${automation.problem && !waiting ? 'dialog-button-primary' : 'dialog-button-secondary'} automations-small-button`}
@@ -244,11 +274,13 @@ function LeadState({
   latest,
   insights,
   automation,
+  now,
   onShowEntry,
 }: {
   latest: LatestRun | null;
   insights: RunInsights;
   automation: AutomationView;
+  now: Date;
   onShowEntry: () => void;
 }) {
   const streak = insights.streak;
@@ -274,6 +306,9 @@ function LeadState({
             <span className="automations-lead-quiet">No recent runs</span>
           )}
         </p>
+        {!automation.needsAllow && automation.check && (
+          <CheckStatus check={automation.check} now={now} />
+        )}
         <p className="automations-lead-meta">
           <button
             type="button"
@@ -290,6 +325,20 @@ function LeadState({
   );
 }
 
+/** How a poll's last check went, and what it left out, under the lead. */
+function CheckStatus({ check, now }: { check: CheckView; now: Date }) {
+  const status = checkStatusLine(check, now);
+  const skipped = skippedWords(check.skipped ?? 0);
+  if (!status && !skipped) return null;
+  return (
+    <p className={`automations-lead-meta ${check.error ? 'automations-check-failed' : ''}`}>
+      {status}
+      {status && skipped ? ' · ' : ''}
+      {skipped}
+    </p>
+  );
+}
+
 /** No runs in the last 30 days: what will make the first one, and what Run now would do. */
 function RunsEmpty({ automation, now }: { automation: AutomationView; now: Date }) {
   const runNow =
@@ -300,6 +349,9 @@ function RunsEmpty({ automation, now }: { automation: AutomationView; now: Date 
         : 'Run now runs it right away.';
   let text: string;
   if (automation.problem) text = 'It will not run until the problem above is fixed.';
+  else if (automation.source === 'poll') text = pollRunsEmptyWords(automation);
+  else if (automation.source === 'manual')
+    text = `It runs only when you or an agent start it. ${runNow}`;
   else if (automation.onEvent)
     text = 'It fires when an Inbox refresh finds something new. Check now looks right away.';
   else if (automation.nextRunAt) {
