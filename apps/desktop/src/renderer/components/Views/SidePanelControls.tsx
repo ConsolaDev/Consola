@@ -13,6 +13,12 @@ import { SidePanelToggle } from './SidePanelToggle';
  *
  * Drawn for every session, one without a checkout included: the toggle needs
  * none, and a shortcut that does not apply says why.
+ *
+ * The shortcuts and the toggle must be given the same `kinds`.
+ * `ShortcutButton` draws its kind's mark whenever the kind is marked, and the
+ * toggle leaves a mark out only because `markPlaces` is told the same kinds
+ * are in the header. Given different lists, a mark could show on both, or on
+ * neither.
  */
 export function SidePanelControls({ facts }: { facts: TabFacts }) {
   const shortcutKinds = useSidePanelStore((state) => state.shortcutKinds);

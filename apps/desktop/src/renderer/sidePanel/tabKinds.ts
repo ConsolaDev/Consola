@@ -23,7 +23,7 @@ import {
 import type { CheckoutInfo } from '../../shared/sessionCheckout';
 import type { WorkItemRef } from '../../shared/workItems';
 import { checkoutPathForSession, type Session, type Workspace } from '../../shared/workspace';
-import { BROWSER_SHORTCUT_LABEL, isMac } from '../utils/platform';
+import { BROWSER_SHORTCUT_LABEL, FILES_SHORTCUT_LABEL, isMac } from '../utils/platform';
 import { SHELL_SHORTCUT_LABEL } from '../utils/shellShortcut';
 
 export type TabKindId = 'changes' | 'files' | 'terminal' | 'browser' | 'pull-request';
@@ -102,7 +102,7 @@ export const TAB_KINDS: readonly TabKind[] = [
     id: 'files',
     key: 'F',
     icon: FolderTree,
-    chord: isMac ? '⇧⌘E' : 'Ctrl+Shift+E',
+    chord: FILES_SHORTCUT_LABEL,
     keyshortcuts: isMac ? 'Meta+Shift+E' : 'Control+Shift+E',
     title: () => 'Files',
     availability: folderAvailability,

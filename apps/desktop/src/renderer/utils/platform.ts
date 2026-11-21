@@ -61,6 +61,9 @@ export function isBrowserShortcut(event: KeyboardEvent): boolean {
 
 export const BROWSER_SHORTCUT_LABEL = BROWSER_SHORTCUT_LABELS[PLATFORM];
 
+/** The Files tab's chord (`useKeyboardShortcuts`), as its tooltip, the palette and Settings write it. */
+export const FILES_SHORTCUT_LABEL = isMac ? '⇧⌘E' : 'Ctrl+Shift+E';
+
 /**
  * The Working shelf chord: Cmd+Shift+B on macOS, Ctrl+Shift+B elsewhere.
  *
