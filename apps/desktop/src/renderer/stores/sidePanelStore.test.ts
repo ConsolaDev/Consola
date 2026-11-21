@@ -503,6 +503,17 @@ describe('persistence', () => {
     expect(written()).toEqual({ state: { uses: state().uses, rememberLayout: false }, version: 0 });
   });
 
+  it('writes the arrangement at once when remembering is turned back on', () => {
+    state().openKind('changes');
+    state().setRememberLayout(false);
+    expect(written().state).not.toHaveProperty('layout');
+
+    // Not at the next change: a launch right after must find it.
+    state().setRememberLayout(true);
+    expect(written().state.layout).toEqual(state().layout);
+    expect(state().layout).not.toEqual(defaultLayout());
+  });
+
   it('reads back through mergeSidePanelState', async () => {
     const layout = {
       ...defaultLayout(),
@@ -590,10 +601,13 @@ describe('persistence', () => {
       // A version this build does not know is not read at all.
       { state: { layout: arranged, uses: { changes: [NOW] }, rememberLayout: false }, version: 3 },
     ];
-    for (const shape of wrongShapes) {
-      const launched = await launchWith(JSON.stringify(shape));
-      expectDefaults(launched.getState());
+    try {
+      for (const shape of wrongShapes) {
+        const launched = await launchWith(JSON.stringify(shape));
+        expectDefaults(launched.getState());
+      }
+    } finally {
+      error.mockRestore();
     }
-    error.mockRestore();
   });
 });
