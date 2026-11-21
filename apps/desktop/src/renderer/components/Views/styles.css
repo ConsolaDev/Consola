@@ -833,7 +833,7 @@
 
 /* A kind's mark (`markPlaces`), such as an agent having used a page the person has not seen:
    on a header shortcut, on the side panel toggle, or on a tab in the side panel's bar. One rule
-   for all three, so the dot cannot differ between them.
+   draws it for all three, so the dot cannot differ between them; only a tab places it apart.
    A literal radius: var(--radius-full) resolves to 0 inside .radix-themes. */
 .path-display-toggle[data-agent-dot],
 .side-panel-tab-trigger[data-agent-dot] {
@@ -851,6 +851,15 @@
   border-radius: 50%;
   background: var(--color-accent);
   pointer-events: none;
+}
+
+/* On a tab the dot sits on its icon's corner, as it does on a header button's
+   icon: at the tab's own corner it touched the label's last letter, which ends
+   4px from that edge. The 14px icon starts at the trigger's left padding, and
+   the dot overlaps its corner by 4px, as on the header. */
+.side-panel-tab-trigger[data-agent-dot]::after {
+  right: auto;
+  left: calc(var(--space-2) + 10px);
 }
 
 /* Git stats badge */

@@ -132,7 +132,8 @@
   flex-shrink: 0;
 }
 /* A kind's mark on a tab behind another is drawn by the header's rule for
-   it (Views/styles.css, `[data-agent-dot]`), so the two cannot drift. */
+   it (Views/styles.css, `[data-agent-dot]`), so the two cannot drift. The
+   same file places it on the tab's icon, clear of the label. */
 
 /* Shown on the tab in front and on the one under the pointer */
 .side-panel-tab-close {
