@@ -1,0 +1,23 @@
+{
+  "name": "@consola/cloud-api",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Consola Cloud's API: Google sign-in, sessions and the deployment's one organisation.",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/main.js",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "zod": "^4.6.6"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.19",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.12"
+  }
+}
