@@ -5,10 +5,13 @@ import { useEffect } from 'react';
 import { useNavigationStore } from '../stores/navigationStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { usePreviewTabStore } from '../stores/previewTabStore';
+import { useSidePanelStore } from '../stores/sidePanelStore';
 import { useBrowserSlotStore } from '../stores/browserSlotStore';
 import { useBrowserStore } from '../stores/browserStore';
 import { requestBrowserPanelFocus } from '../stores/browserPanelFocusStore';
 import { closeTarget, isCloseShortcut, type KeyboardPlace } from '../utils/closeShortcut';
+import { pressShortcutOnScreen } from '../utils/sidePanelActions';
+import { isInFront } from '../sidePanel/layout';
 import {
   isBrowserShortcut,
   isCommandPaletteShortcut,
@@ -59,7 +62,6 @@ function toggleOpenSessionShell(repeat: boolean): boolean {
  */
 export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) {
   const toggleSidebar = useNavigationStore((state) => state.toggleSidebar);
-  const toggleExplorer = useNavigationStore((state) => state.toggleExplorer);
   const toggleBrowser = useNavigationStore((state) => state.toggleBrowser);
   const cycleTheme = useSettingsStore((state) => state.cycleTheme);
   const {
@@ -162,10 +164,11 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
         return;
       }
 
-      // Cmd/Ctrl + Shift + E : Toggle file explorer
-      if (isMod && event.shiftKey && event.key === 'e') {
+      // Cmd/Ctrl + Shift + E : the Files tab, as its header button does.
+      // With Shift held, `key` is the capital.
+      if (isMod && event.shiftKey && event.key.toLowerCase() === 'e') {
         event.preventDefault();
-        toggleExplorer();
+        if (!event.repeat) pressShortcutOnScreen('files');
         return;
       }
     };
@@ -211,7 +214,6 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
     };
   }, [
     toggleSidebar,
-    toggleExplorer,
     toggleBrowser,
     cycleTheme,
     onNewSession,
@@ -247,6 +249,7 @@ function closeNearest(keyboard: KeyboardPlace): void {
     overlay: navigation.overlay,
     activeSessionId: navigation.activeSessionId,
     activePreviewTabId: preview.activeTabId,
+    filesTabOnScreen: isInFront(useSidePanelStore.getState().layout, 'files'),
     shownBrowserTabId,
     keyboard,
   });

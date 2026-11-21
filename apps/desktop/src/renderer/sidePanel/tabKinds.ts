@@ -12,11 +12,12 @@
  *
  * No components and no stores, so the node test environment can import it.
  */
-import { Diff, type LucideIcon } from 'lucide-react';
+import { Diff, FolderTree, type LucideIcon } from 'lucide-react';
 import type { CheckoutInfo } from '../../shared/sessionCheckout';
 import { checkoutPathForSession, type Session, type Workspace } from '../../shared/workspace';
+import { isMac } from '../utils/platform';
 
-export type TabKindId = 'changes';
+export type TabKindId = 'changes' | 'files';
 
 export interface TabFacts {
   workspace: Workspace;
@@ -47,8 +48,21 @@ export interface TabKind {
 const REMOVED_WORKTREE =
   'This session’s worktree was removed. It is rebuilt when the session next starts.';
 const NOT_A_REPOSITORY = 'This folder is not a git repository.';
+const NO_FOLDER = 'This session has no folder.';
 
 const unavailable = (reason: string): Availability => ({ available: false, reason });
+
+/**
+ * For a kind that shows the session's folder: available whenever there is
+ * one. `checkoutPath` is undefined while the worktree is removed, and also
+ * for a session with no folder of its own whose workspace has no scope left
+ * to fall back to, so a view never has to assume it.
+ */
+function folderAvailability(facts: TabFacts): Availability {
+  if (facts.session.removedWorktree) return unavailable(REMOVED_WORKTREE);
+  if (facts.checkoutPath === undefined) return unavailable(NO_FOLDER);
+  return { available: true };
+}
 
 export const TAB_KINDS: readonly TabKind[] = [
   {
@@ -63,6 +77,15 @@ export const TAB_KINDS: readonly TabKind[] = [
       if (facts.checkout?.kind === 'none') return unavailable(NOT_A_REPOSITORY);
       return { available: true };
     },
+    mount: 'keep',
+  },
+  {
+    id: 'files',
+    key: 'F',
+    icon: FolderTree,
+    chord: isMac ? '⇧⌘E' : 'Ctrl+Shift+E',
+    title: () => 'Files',
+    availability: folderAvailability,
     mount: 'keep',
   },
 ];

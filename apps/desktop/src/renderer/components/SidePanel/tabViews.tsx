@@ -1,6 +1,7 @@
 import type { ComponentType } from 'react';
 import type { TabFacts, TabKindId } from '../../sidePanel/tabKinds';
 import { GitReviewPanel } from '../GitReviewPanel';
+import { FilesTab } from './FilesTab';
 
 export interface TabViewProps {
   facts: TabFacts;
@@ -19,4 +20,6 @@ export const TAB_VIEWS: Record<TabKindId, ComponentType<TabViewProps>> = {
   changes: ({ facts, close }) => (
     <GitReviewPanel instanceId={facts.session.instanceId} onClose={close} />
   ),
+  // Files is unavailable whenever there is no path, so the null never shows.
+  files: ({ facts }) => (facts.checkoutPath ? <FilesTab rootPath={facts.checkoutPath} /> : null),
 };

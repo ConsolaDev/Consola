@@ -181,3 +181,17 @@
   outline: 2px solid var(--color-accent);
   outline-offset: -2px;
 }
+
+/* The Files tab's previews before a file is chosen, on the previews' own background */
+.files-tab-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  margin: 0;
+  padding: var(--space-4);
+  background: var(--color-bg-secondary);
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-sm);
+  text-align: center;
+}

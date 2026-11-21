@@ -1,4 +1,4 @@
-import { Diff } from 'lucide-react';
+import { Diff, FolderTree } from 'lucide-react';
 import { describe, expect, it } from 'vitest';
 import type { CheckoutInfo } from '../../shared/sessionCheckout';
 import { createSessionRecord, createWorkspaceRecord, type Session } from '../../shared/workspace';
@@ -14,6 +14,7 @@ import {
   tabFactsFor,
   tabKind,
 } from './tabKinds';
+import { isMac } from '../utils/platform';
 
 const workspace = createWorkspaceRecord('catalog-portal', '/repos/catalog-portal', true, 'default');
 const session = createSessionRecord({
@@ -44,13 +45,21 @@ const factsFor = (checkout: CheckoutInfo | undefined, changes: Partial<Session> 
 const inGit = factsFor(mainCheckout);
 const removed = factsFor(mainCheckout, { cwd: '/tmp/wt', removedWorktree });
 const outsideGit = factsFor({ kind: 'none' });
+// `scopeForSession` falls back to the first scope for a scope id it cannot
+// find, so only a workspace left with no scopes gives a session no folder.
+const noFolder = tabFactsFor(
+  { ...workspace, scopes: [] },
+  { ...session, scopeId: 'gone' },
+  undefined,
+);
 
 const changesKind = tabKind('changes')!;
+const filesKind = tabKind('files')!;
 const frontOnly: TabKind = { ...changesKind, mount: 'front' };
 
 describe('the registry', () => {
   it('lists the kinds in registry order with unique one-letter keys', () => {
-    expect(TAB_KIND_IDS).toEqual(['changes']);
+    expect(TAB_KIND_IDS).toEqual(['changes', 'files']);
     expect(TAB_KINDS.map((kind) => kind.id)).toEqual(TAB_KIND_IDS);
     const keys = TAB_KINDS.map((kind) => kind.key);
     for (const key of keys) expect(key).toMatch(/^[A-Z]$/);
@@ -60,6 +69,8 @@ describe('the registry', () => {
   it('knows only the kinds it lists', () => {
     expect(tabKind('changes')).toBe(TAB_KINDS[0]);
     expect(isTabKindId('changes')).toBe(true);
+    expect(tabKind('files')).toBe(TAB_KINDS[1]);
+    expect(isTabKindId('files')).toBe(true);
     expect(tabKind('browser')).toBeUndefined();
     expect(isTabKindId('browser')).toBe(false);
     expect(isTabKindId('new-tab')).toBe(false);
@@ -102,6 +113,37 @@ describe('Changes', () => {
   });
 });
 
+describe('Files', () => {
+  it('is titled Files, keyed F, has the explorer’s chord and is kept mounted behind', () => {
+    expect(filesKind.title(inGit)).toBe('Files');
+    expect(filesKind.key).toBe('F');
+    expect(filesKind.icon).toBe(FolderTree);
+    expect(filesKind.chord).toBe(isMac ? '⇧⌘E' : 'Ctrl+Shift+E');
+    expect(filesKind.mount).toBe('keep');
+  });
+
+  it('Files is unavailable for a removed worktree', () => {
+    expect(filesKind.availability(removed)).toEqual({
+      available: false,
+      reason: 'This session’s worktree was removed. It is rebuilt when the session next starts.',
+    });
+  });
+
+  it('Files is unavailable for a session with no folder', () => {
+    expect(noFolder.checkoutPath).toBeUndefined();
+    expect(filesKind.availability(noFolder)).toEqual({
+      available: false,
+      reason: 'This session has no folder.',
+    });
+  });
+
+  it('Files is available in any folder, in git or not', () => {
+    expect(filesKind.availability(inGit)).toEqual({ available: true });
+    expect(filesKind.availability(outsideGit)).toEqual({ available: true });
+    expect(filesKind.availability(factsFor(undefined))).toEqual({ available: true });
+  });
+});
+
 describe('bodyFor', () => {
   it.each([
     ['keep', 'available', 'behind', 'view'],
@@ -140,6 +182,6 @@ describe('newTabOptions', () => {
   });
 
   it('lists the registry when given no kinds', () => {
-    expect(newTabOptions(outsideGit).map((option) => option.kind)).toEqual([...TAB_KINDS]);
+    expect(newTabOptions(inGit).map((option) => option.kind)).toEqual([...TAB_KINDS]);
   });
 });

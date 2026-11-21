@@ -1,7 +1,6 @@
 import {
   Boxes,
   FolderPlus,
-  FolderTree,
   GitCommit,
   Globe,
   Minus,
@@ -221,17 +220,8 @@ export function buildActionItems(ctx: PaletteContext): ActionPaletteItem[] {
     run: () => useNavigationStore.getState().toggleSidebar(),
   });
 
-  // The explorer only exists inside a session's content view.
+  // The browser only exists inside a session's content view.
   if (activeSession) {
-    items.push({
-      kind: 'action',
-      section: 'actions',
-      id: 'action.view.toggle-explorer',
-      label: 'Toggle file explorer',
-      icon: FolderTree,
-      shortcutHint: isMac ? '⇧⌘E' : 'Ctrl+Shift+E',
-      run: () => useNavigationStore.getState().toggleExplorer(),
-    });
     items.push({
       kind: 'action',
       section: 'actions',
@@ -272,6 +262,7 @@ export function buildActionItems(ctx: PaletteContext): ActionPaletteItem[] {
       id: `action.side-panel.open.${kind.id}`,
       label: `Open ${entry.title}`,
       icon: kind.icon,
+      shortcutHint: kind.chord,
       run: () => useSidePanelStore.getState().openKind(kind.id),
     });
   }

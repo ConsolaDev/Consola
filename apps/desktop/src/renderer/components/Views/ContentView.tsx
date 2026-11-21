@@ -4,20 +4,17 @@ import { Group, Panel, Separator, useDefaultLayout } from 'react-resizable-panel
 import { checkoutPathForSession, scopeForSession } from '../../../shared/workspace';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { useHarnessStore } from '../../stores/harnessStore';
-import { usePreviewTabStore } from '../../stores/previewTabStore';
 import { useNavigationStore } from '../../stores/navigationStore';
 import { useGitStatusAutoRefresh } from '../../stores/gitStatusStore';
 import { useCheckout } from '../../stores/checkoutStore';
 import { useSidePanelStore } from '../../stores/sidePanelStore';
 import { tabFactsFor } from '../../sidePanel/tabKinds';
 import { TerminalPanel } from '../Terminal';
-import { PreviewPanel } from '../PreviewPanel';
 import { SidePanel } from '../SidePanel/SidePanel';
 import { BrowserPanel } from '../Browser';
 import { WorkItemStrip } from '../WorkItemStrip';
 import { WorkItemPanel } from '../WorkItemPanel';
 import { SessionHeader } from './SessionHeader';
-import { FileExplorer } from '../FileExplorer';
 import './styles.css';
 
 interface ContentViewProps {
@@ -26,7 +23,6 @@ interface ContentViewProps {
 }
 
 export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
-  const isExplorerVisible = useNavigationStore((state) => state.isExplorerVisible);
   const isSidePanelVisible = useSidePanelStore((state) => state.layout.visible);
   const isWorkItemPanelVisible = useNavigationStore((state) => state.isWorkItemPanelVisible);
   const isBrowserVisible = useNavigationStore((state) => state.isBrowserVisible);
@@ -34,9 +30,6 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
   const getWorkspace = useWorkspaceStore((state) => state.getWorkspace);
   const getSession = useWorkspaceStore((state) => state.getSession);
   const updateSession = useWorkspaceStore((state) => state.updateSession);
-  const openFile = usePreviewTabStore((state) => state.openFile);
-  const hasOpenTabs = usePreviewTabStore((state) => state.tabs.length > 0);
-  const activePreviewTabId = usePreviewTabStore((state) => state.activeTabId);
 
   const workspace = getWorkspace(workspaceId);
 
@@ -61,13 +54,11 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
   // return below, since hooks cannot wait for the session to be found.
   const checkout = useCheckout(cwd || null);
 
-  // Conditional panels must have separate saved layouts: hiding the explorer
-  // must not overwrite the layout that remembers its width.
+  // Conditional panels must have separate saved layouts: hiding the side
+  // panel must not overwrite the layout that remembers its width.
   const panelIds = [
-    ...(isExplorerVisible && cwd ? ['explorer'] : []),
     'agent',
     ...(showWorkItemPanel ? ['work-item'] : []),
-    ...(hasOpenTabs ? ['preview'] : []),
     ...(isBrowserVisible ? ['browser'] : []),
     ...(isSidePanelVisible ? ['side-panel'] : []),
   ];
@@ -118,9 +109,6 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
     );
   }
 
-  const handleSelectFile = (path: string) => {
-    openFile(path);
-  };
   const facts = tabFactsFor(workspace, session, checkout);
 
   return (
@@ -133,18 +121,6 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
           defaultLayout={defaultLayout}
           onLayoutChanged={onLayoutChanged}
         >
-          {isExplorerVisible && cwd && (
-            <>
-              <Panel id="explorer" defaultSize="240px" minSize="160px" maxSize="40%">
-                <FileExplorer
-                  rootPath={cwd}
-                  selectedPath={activePreviewTabId}
-                  onSelectFile={handleSelectFile}
-                />
-              </Panel>
-              <Separator className="resize-handle" />
-            </>
-          )}
           {/* The conversation. It stays an unconditional child of this Group,
               with no wrapper that differs between layouts and the same key,
               so opening, closing or resizing the side panel only resizes it:
@@ -179,14 +155,6 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
               <Separator className="resize-handle" />
               <Panel id="work-item" defaultSize="38%" minSize="320px" maxSize="70%">
                 <WorkItemPanel workspaceId={workspaceId} session={session} />
-              </Panel>
-            </>
-          )}
-          {hasOpenTabs && (
-            <>
-              <Separator className="resize-handle" />
-              <Panel id="preview" defaultSize="40%" minSize="20%">
-                <PreviewPanel />
               </Panel>
             </>
           )}

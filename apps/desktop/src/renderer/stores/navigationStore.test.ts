@@ -46,7 +46,6 @@ function makeCurrent(overrides: Partial<NavigationState> = {}): NavigationState 
   return {
     isSidebarHidden: false,
     sidebarWidth: SIDEBAR_WIDTH_DEFAULT,
-    isExplorerVisible: false,
     isWorkItemPanelVisible: false,
     isBrowserVisible: false,
     activeWorkspaceId: 'current-workspace',
@@ -55,8 +54,6 @@ function makeCurrent(overrides: Partial<NavigationState> = {}): NavigationState 
     toggleSidebar: vi.fn(),
     setSidebarHidden: vi.fn(),
     setSidebarWidth: vi.fn(),
-    toggleExplorer: vi.fn(),
-    setExplorerVisible: vi.fn(),
     toggleWorkItemPanel: vi.fn(),
     setWorkItemPanelVisible: vi.fn(),
     toggleBrowser: vi.fn(),
@@ -73,7 +70,8 @@ describe('mergeNavigationState', () => {
   it('keeps current identity and takes only preferences from a v0-shaped blob', () => {
     const current = makeCurrent();
     // Shaped like a blob written by a pre-Task-10 build: identity keys that
-    // no longer belong in localStorage, sitting alongside the two that do.
+    // no longer belong in localStorage, sitting alongside a preference that
+    // does and the explorer flag that no longer does either.
     const persisted = {
       activeWorkspaceId: 'stale-workspace',
       activeSessionId: 'stale-session',
@@ -87,21 +85,29 @@ describe('mergeNavigationState', () => {
     // Identity comes from `current` (window-context-seeded), never the blob.
     expect(result.activeWorkspaceId).toBe(current.activeWorkspaceId);
     expect(result.activeSessionId).toBe(current.activeSessionId);
-    // expandedWorkspaces no longer exists on NavigationState at all, so a v0
-    // blob carrying it must not resurrect it on the merged result.
+    // expandedWorkspaces and isExplorerVisible no longer exist on
+    // NavigationState at all, so a blob carrying them must not resurrect them
+    // on the merged result.
     expect(result).not.toHaveProperty('expandedWorkspaces');
-    // The two real preferences do come from the blob.
+    expect(result).not.toHaveProperty('isExplorerVisible');
+    // The real preference does come from the blob.
     expect(result.isSidebarHidden).toBe(true);
-    expect(result.isExplorerVisible).toBe(true);
   });
 
-  it('falls back to current when neither preference key is present', () => {
-    const current = makeCurrent({ isSidebarHidden: true, isExplorerVisible: false });
+  it('falls back to current when the preference key is not present', () => {
+    const current = makeCurrent({ isSidebarHidden: true });
 
     const result = mergeNavigationState({}, current);
 
     expect(result.isSidebarHidden).toBe(current.isSidebarHidden);
-    expect(result.isExplorerVisible).toBe(current.isExplorerVisible);
+  });
+
+  it('ignores the retired explorer flag', () => {
+    // The explorer is the side panel's Files tab now, which the side panel's
+    // own store opens and remembers.
+    const result = mergeNavigationState({ isExplorerVisible: true }, makeCurrent());
+
+    expect(result).not.toHaveProperty('isExplorerVisible');
   });
 
   it('takes the work-item panel preference from the blob, and keeps current without one', () => {

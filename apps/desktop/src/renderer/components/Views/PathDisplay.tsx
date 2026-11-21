@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { SHELL_SHORTCUT_LABEL } from '../../utils/shellShortcut';
 import * as Tooltip from '@radix-ui/react-tooltip';
-import { FolderTree, Globe, RotateCw, TerminalSquare } from 'lucide-react';
+import { Globe, RotateCw, TerminalSquare } from 'lucide-react';
 import { useGitStatusStore } from '../../stores/gitStatusStore';
 import { useCheckoutStore } from '../../stores/checkoutStore';
 import { tildePath } from '../../utils/displayPath';
@@ -12,9 +12,6 @@ interface PathDisplayProps {
   className?: string;
   /** Print the folder itself. Off where the checkout chip already names it. */
   showPath?: boolean;
-  showExplorerToggle?: boolean;
-  isExplorerVisible?: boolean;
-  onToggleExplorer?: () => void;
   isBrowserVisible?: boolean;
   onToggleBrowser?: () => void;
   /** An agent opened or used the session's browser since its panel last showed it: a dot on the globe. */
@@ -24,8 +21,6 @@ interface PathDisplayProps {
   /** More header buttons, placed after the git stats. */
   children?: ReactNode;
 }
-
-const explorerShortcut = isMac ? '⇧⌘E' : 'Ctrl+Shift+E';
 
 /**
  * Truncate a file path to show a sensible shortened version.
@@ -49,9 +44,6 @@ export function PathDisplay({
   path,
   className,
   showPath = true,
-  showExplorerToggle = false,
-  isExplorerVisible = false,
-  onToggleExplorer,
   isBrowserVisible = false,
   onToggleBrowser,
   browserAgentDot = false,
@@ -99,7 +91,7 @@ export function PathDisplay({
         </Tooltip.Provider>
       )}
 
-      {/* Right side actions - git status and explorer toggle */}
+      {/* Right side actions: git status, the side panel's shortcuts, then the browser and terminal toggles */}
       <div className="path-display-actions">
         {/* Uncommitted changes in this checkout. Its branch is named by the
             checkout chip beside the title, with what kind of checkout it is. */}
@@ -140,29 +132,6 @@ export function PathDisplay({
 
         {children}
 
-        {showExplorerToggle && onToggleExplorer && (
-          <Tooltip.Provider delayDuration={300}>
-            <Tooltip.Root>
-              <Tooltip.Trigger asChild>
-                <button
-                  className={`path-display-toggle ${isExplorerVisible ? 'active' : ''}`}
-                  onClick={onToggleExplorer}
-                  aria-label={isExplorerVisible ? 'Hide file explorer' : 'Show file explorer'}
-                  aria-pressed={isExplorerVisible}
-                >
-                  <FolderTree size={14} />
-                </button>
-              </Tooltip.Trigger>
-              <Tooltip.Portal>
-                <Tooltip.Content className="tooltip-content" sideOffset={5}>
-                  {isExplorerVisible ? 'Hide file explorer' : 'Show file explorer'} (
-                  {explorerShortcut})
-                  <Tooltip.Arrow className="tooltip-arrow" />
-                </Tooltip.Content>
-              </Tooltip.Portal>
-            </Tooltip.Root>
-          </Tooltip.Provider>
-        )}
         {onToggleBrowser && (
           <Tooltip.Provider delayDuration={300}>
             <Tooltip.Root>

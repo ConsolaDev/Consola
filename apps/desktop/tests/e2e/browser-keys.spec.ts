@@ -299,8 +299,8 @@ test.describe('⌘Q and ⌘W with the keyboard in the browser', () => {
   });
 
   test('after the last browser tab, ⌘W in the browser leaves the preview panel’s file open', async () => {
-    await page.getByRole('button', { name: 'Show file explorer', exact: true }).click();
-    await page.getByTestId('explorer').getByText('agent.sh', { exact: true }).click();
+    await page.getByRole('button', { name: 'Files', exact: true }).click();
+    await page.getByTestId('files-tree').getByText('agent.sh', { exact: true }).click();
     const previewTabs = page.locator('.preview-tab');
     await expect(previewTabs).toHaveCount(1);
 

@@ -24,7 +24,7 @@ import './styles.css';
  * The top of a session's pane: "scope / name", where its edits land, and the
  * pane toggles. The pane runs to the window's top edge, so this row is the
  * title bar beside the navigation strip, as in production, while staying on
- * the pane whose terminal and explorer run in the checkout it names. The
+ * the pane whose terminal and side panel read the checkout it names. The
  * scope leads, as the workspace did before the strip's menu named it: the
  * session's own scope, not its checkout, which the chip covers.
  *
@@ -32,8 +32,6 @@ import './styles.css';
  * screen may just have changed branch.
  */
 export function SessionHeader({ workspace, session }: { workspace: Workspace; session: Session }) {
-  const isExplorerVisible = useNavigationStore((state) => state.isExplorerVisible);
-  const toggleExplorer = useNavigationStore((state) => state.toggleExplorer);
   const isBrowserVisible = useNavigationStore((state) => state.isBrowserVisible);
   const toggleBrowser = useNavigationStore((state) => state.toggleBrowser);
   const browserAgentDot = useBrowserAgentDot(session.id);
@@ -85,9 +83,6 @@ export function SessionHeader({ workspace, session }: { workspace: Workspace; se
           // The checkout chip's tooltip already names the folder; only a
           // folder outside git, which gets no chip, needs it printed here.
           showPath={checkout?.kind === 'none'}
-          showExplorerToggle
-          isExplorerVisible={isExplorerVisible}
-          onToggleExplorer={toggleExplorer}
           isBrowserVisible={isBrowserVisible}
           onToggleBrowser={toggleBrowser}
           browserAgentDot={browserAgentDot}
@@ -95,6 +90,7 @@ export function SessionHeader({ workspace, session }: { workspace: Workspace; se
           onToggleTerminal={() => toggleTerminal(session.instanceId)}
         >
           <ShortcutButton kind="changes" facts={facts} />
+          <ShortcutButton kind="files" facts={facts} />
         </PathDisplay>
       )}
     </div>

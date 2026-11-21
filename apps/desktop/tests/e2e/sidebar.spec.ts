@@ -258,37 +258,38 @@ test.describe('Home scopes and groups', () => {
     await target.getByRole('menuitem', { name: new RegExp(name) }).click();
   };
 
-  test('explorer width survives hiding, switching sessions and relaunching', async () => {
+  test('side panel width survives hiding, switching sessions and relaunching', async () => {
     test.setTimeout(60_000);
     await page.locator('.session-nav-item').filter({ hasText: 'Controller boot' }).click();
-    await page.getByRole('button', { name: 'Show file explorer', exact: true }).click();
-    const explorer = () => page.getByTestId('explorer');
-    const width = async () => (await explorer().boundingBox())!.width;
-    await expect(explorer()).toBeVisible();
-    await expect.poll(width).toBeCloseTo(240, 0);
+    const files = () => page.getByRole('button', { name: 'Files', exact: true });
+    const sidePanel = () => page.getByTestId('side-panel');
+    const width = async () => (await sidePanel().boundingBox())!.width;
+    await files().click();
+    await expect(sidePanel()).toBeVisible();
+    const before = await width();
     const handle = page.locator('.workspace-view-content .resize-handle').first();
     const box = (await handle.boundingBox())!;
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.mouse.down();
     await page.mouse.move(box.x + box.width / 2 - 60, box.y + box.height / 2, { steps: 5 });
     await page.mouse.up();
-    await expect.poll(width).toBeCloseTo(180, 0);
+    await expect.poll(async () => Math.abs((await width()) - (before + 60))).toBeLessThanOrEqual(1);
     const preferred = await width();
 
-    await page.getByRole('button', { name: 'Hide file explorer', exact: true }).click();
-    await expect(explorer()).toHaveCount(0);
-    await page.getByRole('button', { name: 'Show file explorer', exact: true }).click();
+    await files().click();
+    await expect(sidePanel()).toHaveCount(0);
+    await files().click();
     await expect.poll(width).toBeCloseTo(preferred, 0);
     await page.locator('.session-nav-item').filter({ hasText: 'Fix flaky test' }).click();
     await expect.poll(width).toBeCloseTo(preferred, 0);
 
-    // Relaunch while hidden: the agent-only layout must not erase the width.
-    await page.getByRole('button', { name: 'Hide file explorer', exact: true }).click();
-    await expect(explorer()).toHaveCount(0);
+    // Relaunch while hidden: the conversation-only layout must not erase the width.
+    await files().click();
+    await expect(sidePanel()).toHaveCount(0);
     await app.close();
     ({ app, page } = await launchElectron({ userDataDir }));
     await holdWorkspace(page);
-    await page.getByRole('button', { name: 'Show file explorer', exact: true }).click();
+    await files().click();
     await expect.poll(width).toBeCloseTo(preferred, 0);
   });
 

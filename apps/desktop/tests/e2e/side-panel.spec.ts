@@ -98,6 +98,9 @@ test.describe('side panel', () => {
 
   const changesShortcut = () => page.getByRole('button', { name: 'Changes', exact: true });
   const changesTab = () => page.getByRole('tab', { name: 'Changes' });
+  const filesTab = () => page.getByRole('tab', { name: 'Files', exact: true });
+  const filesChord = process.platform === 'darwin' ? 'Meta+Shift+KeyE' : 'Control+Shift+KeyE';
+  const filesScopeChord = process.platform === 'darwin' ? 'Meta+Shift+KeyO' : 'Control+Shift+KeyO';
 
   test('the Changes shortcut opens its tab and hides the side panel when pressed again', async () => {
     await openSession('Paginate the catalog search');
@@ -158,5 +161,39 @@ test.describe('side panel', () => {
 
     await expect(changesTab()).toHaveAttribute('aria-selected', 'true');
     await expect(page.locator('.git-review-panel')).toContainText('search.ts');
+  });
+
+  test('⇧⌘E opens Files and a chosen file opens beside the tree', async () => {
+    await openSession('Paginate the catalog search');
+    await page.locator('[data-conversation-terminal] .terminal-surface textarea').focus();
+    await page.keyboard.press(filesChord);
+
+    await expect(filesTab()).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByTestId('files-previews')).toContainText(
+      'Choose a file to preview it here.',
+    );
+    const tree = page.getByTestId('files-tree');
+    await tree.getByText('src', { exact: true }).click();
+    await tree.getByText('search.ts', { exact: true }).click();
+    await expect(page.locator('.preview-panel')).toBeVisible();
+    await expect(page.locator('.preview-tab-bar')).toContainText('search.ts');
+
+    // The keyboard is in the tree now; the chord still reaches the window.
+    await page.keyboard.press(filesChord);
+    await expect(page.getByTestId('side-panel')).toHaveCount(0);
+  });
+
+  test('a changed file chosen in the palette opens in the Files tab', async () => {
+    await openSession('Paginate the catalog search');
+    await expect(page.locator('[data-conversation-terminal]')).toBeVisible();
+
+    await page.keyboard.press(filesScopeChord);
+    await page.keyboard.type('search.ts');
+    // The row appears once git has said what changed.
+    await expect(page.getByRole('option', { name: /search\.ts/ })).toBeVisible();
+    await page.keyboard.press('Enter');
+
+    await expect(filesTab()).toHaveAttribute('aria-selected', 'true');
+    await expect(page.locator('.preview-tab-bar')).toContainText('search.ts');
   });
 });

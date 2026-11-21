@@ -107,7 +107,6 @@ useGitReviewStore.setState({ isSidebarCollapsed: true });
 useNavigationStore.setState({
   sidebarWidth: 220,
   isSidebarHidden: false,
-  isExplorerVisible: false,
 });
 createRoot(document.getElementById('root')!).render(<Root />);
 // Keep the website shortcuts in sync even when visitors navigate inside the app.
