@@ -398,7 +398,7 @@ function ShortcutsSection() {
     { label: 'Switch workspace by position', key: `${mod}1–9` },
     { label: 'Toggle sidebar', key: `${mod}\\` },
     { label: 'Files tab', key: `${mod}${shift}E` },
-    { label: 'Toggle browser', key: BROWSER_SHORTCUT_LABEL },
+    { label: 'Browser tab', key: BROWSER_SHORTCUT_LABEL },
     { label: 'Terminal tab', key: SHELL_SHORTCUT_LABEL },
     { label: 'Show or hide the side panel', key: SIDE_PANEL_SHORTCUT_LABEL },
     { label: 'Open settings', key: `${mod},` },

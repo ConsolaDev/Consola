@@ -5,13 +5,12 @@ import {
   type Session,
   type Workspace,
 } from '../../../shared/workspace';
-import { useBrowserAgentDot } from '../../stores/browserAgentDotStore';
-import { useNavigationStore } from '../../stores/navigationStore';
 import { useCheckout } from '../../stores/checkoutStore';
 import { scopeTrail } from '../../utils/scopeTrail';
 import { tildePath } from '../../utils/displayPath';
 import { renameSession } from '../../utils/sessionActions';
 import { SessionNameEditor } from '../SessionName/SessionNameEditor';
+import type { TabKindId } from '../../sidePanel/tabKinds';
 import { useTabFacts } from '../SidePanel/useTabFacts';
 import { PathDisplay } from './PathDisplay';
 import { ShortcutButton } from './ShortcutButton';
@@ -19,6 +18,9 @@ import { SidePanelToggle } from './SidePanelToggle';
 import { CheckoutChip } from './CheckoutChip';
 import { SnoozeChip } from '../Snooze/SnoozeChip';
 import './styles.css';
+
+/** The kinds the header has a shortcut for, until it shows the most used ones. */
+const HEADER_KINDS: readonly TabKindId[] = ['changes', 'files', 'terminal'];
 
 /**
  * The top of a session's pane: "scope / name", where its edits land, and the
@@ -32,9 +34,6 @@ import './styles.css';
  * screen may just have changed branch.
  */
 export function SessionHeader({ workspace, session }: { workspace: Workspace; session: Session }) {
-  const isBrowserVisible = useNavigationStore((state) => state.isBrowserVisible);
-  const toggleBrowser = useNavigationStore((state) => state.toggleBrowser);
-  const browserAgentDot = useBrowserAgentDot(session.id);
   const cwd = checkoutPathForSession(workspace, session) ?? '';
   const checkout = useCheckout(cwd || null, { fresh: true });
   const facts = useTabFacts(workspace, session);
@@ -81,17 +80,15 @@ export function SessionHeader({ workspace, session }: { workspace: Workspace; se
           // The checkout chip's tooltip already names the folder; only a
           // folder outside git, which gets no chip, needs it printed here.
           showPath={checkout?.kind === 'none'}
-          isBrowserVisible={isBrowserVisible}
-          onToggleBrowser={toggleBrowser}
-          browserAgentDot={browserAgentDot}
         >
-          <ShortcutButton kind="changes" facts={facts} />
-          <ShortcutButton kind="files" facts={facts} />
-          <ShortcutButton kind="terminal" facts={facts} />
+          {HEADER_KINDS.map((kind) => (
+            <ShortcutButton key={kind} kind={kind} facts={facts} />
+          ))}
         </PathDisplay>
       )}
-      {/* Outside PathDisplay, which needs a checkout: the side panel does not. */}
-      <SidePanelToggle />
+      {/* Outside PathDisplay, which needs a checkout: the side panel does not.
+          It carries a mark no header shortcut can (`markPlaces`). */}
+      <SidePanelToggle facts={facts} headerKinds={HEADER_KINDS} />
     </div>
   );
 }

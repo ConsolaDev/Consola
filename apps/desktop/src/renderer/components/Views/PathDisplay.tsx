@@ -1,20 +1,15 @@
 import type { ReactNode } from 'react';
 import * as Tooltip from '@radix-ui/react-tooltip';
-import { Globe, RotateCw } from 'lucide-react';
+import { RotateCw } from 'lucide-react';
 import { useGitStatusStore } from '../../stores/gitStatusStore';
 import { useCheckoutStore } from '../../stores/checkoutStore';
 import { tildePath } from '../../utils/displayPath';
-import { BROWSER_SHORTCUT_LABEL, isMac } from '../../utils/platform';
 
 interface PathDisplayProps {
   path: string;
   className?: string;
   /** Print the folder itself. Off where the checkout chip already names it. */
   showPath?: boolean;
-  isBrowserVisible?: boolean;
-  onToggleBrowser?: () => void;
-  /** An agent opened or used the session's browser since its panel last showed it: a dot on the globe. */
-  browserAgentDot?: boolean;
   /** More header buttons, placed after the git stats. */
   children?: ReactNode;
 }
@@ -37,27 +32,12 @@ function truncatePath(fullPath: string): string {
   return `${firstPart}/.../${lastSegments}`;
 }
 
-export function PathDisplay({
-  path,
-  className,
-  showPath = true,
-  isBrowserVisible = false,
-  onToggleBrowser,
-  browserAgentDot = false,
-  children,
-}: PathDisplayProps) {
+export function PathDisplay({ path, className, showPath = true, children }: PathDisplayProps) {
   // Use granular selectors to prevent unnecessary re-renders
   const stats = useGitStatusStore((state) => state.stats);
   const isLoading = useGitStatusStore((state) => state.isLoading);
   const isGitRepo = useGitStatusStore((state) => state.isGitRepo);
   const refresh = useGitStatusStore((state) => state.refresh);
-
-  // The dot is drawn; the label says it too, for whoever cannot see it.
-  const browserLabel = isBrowserVisible
-    ? 'Hide browser'
-    : browserAgentDot
-      ? 'Show browser, which the agent used'
-      : 'Show browser';
 
   // The branch lives in the checkout chip beside the title, so a manual
   // refresh re-reads that too: one button, one answer.
@@ -86,7 +66,7 @@ export function PathDisplay({
         </Tooltip.Provider>
       )}
 
-      {/* Right side actions: git status, the side panel's shortcuts, then the browser toggle */}
+      {/* Right side actions: git status, then the side panel's shortcuts */}
       <div className="path-display-actions">
         {/* Uncommitted changes in this checkout. Its branch is named by the
             checkout chip beside the title, with what kind of checkout it is. */}
@@ -126,32 +106,6 @@ export function PathDisplay({
         )}
 
         {children}
-
-        {onToggleBrowser && (
-          <Tooltip.Provider delayDuration={300}>
-            <Tooltip.Root>
-              <Tooltip.Trigger asChild>
-                <button
-                  type="button"
-                  className={`path-display-toggle ${isBrowserVisible ? 'active' : ''}`}
-                  onClick={onToggleBrowser}
-                  aria-label={browserLabel}
-                  aria-pressed={isBrowserVisible}
-                  aria-keyshortcuts={isMac ? 'Meta+Shift+L' : 'Control+Shift+L'}
-                  data-agent-dot={browserAgentDot || undefined}
-                >
-                  <Globe size={14} />
-                </button>
-              </Tooltip.Trigger>
-              <Tooltip.Portal>
-                <Tooltip.Content className="tooltip-content" sideOffset={5}>
-                  {browserLabel} ({BROWSER_SHORTCUT_LABEL})
-                  <Tooltip.Arrow className="tooltip-arrow" />
-                </Tooltip.Content>
-              </Tooltip.Portal>
-            </Tooltip.Root>
-          </Tooltip.Provider>
-        )}
       </div>
     </div>
   );

@@ -54,7 +54,7 @@ export function isSidebarShortcut(event: KeyboardEvent): boolean {
   return isSidebar(chordOf(event));
 }
 
-/** Shows or hides the browser panel. */
+/** The Browser tab's chord: opens it, or hides the side panel while it is in front. */
 export function isBrowserShortcut(event: KeyboardEvent): boolean {
   return isBrowser(chordOf(event), PLATFORM);
 }

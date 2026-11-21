@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { commandPaletteChord, launchElectron, removeProfile } from './helpers/electron';
+import { browserChord, showBrowser, sidePanelChord } from './helpers/browserTab';
 import { type FixtureServer, PROBE_SCRIPT, startFixtureServer } from './helpers/fixtureServer';
 
 /**
@@ -12,8 +13,6 @@ import { type FixtureServer, PROBE_SCRIPT, startFixtureServer } from './helpers/
  * (`electronApp.evaluate`), and everything about the tab list through
  * `window.browserAPI` in the host, which is main's answer.
  */
-
-const toggleChord = process.platform === 'darwin' ? 'Meta+Shift+KeyL' : 'Control+Shift+KeyL';
 
 let fixtures: FixtureServer;
 
@@ -79,7 +78,6 @@ async function openSession(page: Page, workspace: string): Promise<void> {
     .click();
 }
 
-const globe = (page: Page) => page.getByRole('button', { name: /^(Show|Hide) browser$/ });
 const panel = (page: Page) => page.getByTestId('browser-panel');
 const address = (page: Page) => page.getByRole('textbox', { name: 'Address' });
 
@@ -157,40 +155,45 @@ test.describe('in-app browser', () => {
     fs.rmSync(root, { recursive: true, force: true });
   });
 
-  test('the globe, the chord and the palette each toggle the panel', async () => {
+  test('the "+" list, the chord and the palette each open the Browser tab, and the chord hides it', async () => {
     await openSession(page, 'Alpha');
-    await expect(globe(page)).toBeVisible();
-    const initiallyOpen = await panel(page).isVisible();
-    if (initiallyOpen) await globe(page).click();
     await expect(panel(page)).toHaveCount(0);
-
-    await globe(page).click();
+    await page.getByRole('button', { name: 'Show side panel', exact: true }).click();
+    await page
+      .getByRole('listbox', { name: 'Open in this tab' })
+      .getByRole('option', { name: /^Browser/ })
+      .click();
     await expect(panel(page)).toBeVisible();
-    await globe(page).click();
-    await expect(panel(page)).toHaveCount(0);
+    await expect(page.getByRole('tab', { name: 'Browser', exact: true })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
 
-    // The chord from the terminal, where a stray key is most likely swallowed.
-    await page.locator('.terminal-surface textarea').focus();
-    await page.keyboard.press(toggleChord);
+    // The chord from the conversation, where a stray key is most likely swallowed.
+    await page.locator('[data-conversation-terminal] .terminal-surface textarea').focus();
+    await page.keyboard.press(browserChord());
+    await expect(page.getByTestId('side-panel')).toHaveCount(0);
+    await page.keyboard.press(browserChord());
     await expect(panel(page)).toBeVisible();
-    await page.keyboard.press(toggleChord);
-    await expect(panel(page)).toHaveCount(0);
 
+    // The palette opens it, and opening it again leaves it open.
+    await page.keyboard.press(browserChord());
+    await expect(panel(page)).toHaveCount(0);
     const viaPalette = async () => {
       await page.keyboard.press(commandPaletteChord());
       const palette = page.getByRole('dialog', { name: 'Command palette', exact: true });
-      await palette.getByRole('combobox').fill('Toggle browser');
-      await palette.getByRole('option', { name: /Toggle browser/ }).click();
+      await palette.getByRole('combobox').fill('Open Browser');
+      await palette.getByRole('option', { name: /^Open Browser/ }).click();
     };
     await viaPalette();
     await expect(panel(page)).toBeVisible();
     await viaPalette();
-    await expect(panel(page)).toHaveCount(0);
+    await expect(panel(page)).toBeVisible();
   });
 
   test('an address loads, links, Back, Forward and Reload work', async () => {
     await openSession(page, 'Alpha');
-    if (!(await panel(page).isVisible())) await globe(page).click();
+    await showBrowser(page);
 
     await typeAddress(page, `${fixtures.host}/a.html`);
     await expect.poll(() => guestUrls(app)).toEqual([fixtures.url('/a.html')]);
@@ -223,7 +226,7 @@ test.describe('in-app browser', () => {
 
   test('a page finds no Consola API and no Node', async () => {
     await openSession(page, 'Alpha');
-    if (!(await panel(page).isVisible())) await globe(page).click();
+    await showBrowser(page);
     await typeAddress(page, `${fixtures.host}/probe.html`);
     await expect.poll(() => guestUrls(app)).toEqual([fixtures.url('/probe.html')]);
 
@@ -255,7 +258,7 @@ test.describe('in-app browser', () => {
 
   test('a cookie set in one workspace is absent from another', async () => {
     await openSession(page, 'Alpha');
-    if (!(await panel(page).isVisible())) await globe(page).click();
+    await showBrowser(page);
     await typeAddress(page, `${fixtures.host}/set-cookie.html`);
     await expect.poll(() => guestUrls(app)).toEqual([fixtures.url('/set-cookie.html')]);
 
@@ -280,7 +283,7 @@ test.describe('in-app browser', () => {
 
   test('the palette draws over a visible page, and a page taking focus closes a menu', async () => {
     await openSession(page, 'Alpha');
-    if (!(await panel(page).isVisible())) await globe(page).click();
+    await showBrowser(page);
     await typeAddress(page, `${fixtures.host}/a.html`);
     await expect.poll(() => guestUrls(app)).toEqual([fixtures.url('/a.html')]);
 
@@ -346,7 +349,7 @@ test.describe('in-app browser', () => {
 
   test('a drag across a page lets the pointer through, and only while it lasts', async () => {
     await openSession(page, 'Alpha');
-    if (!(await panel(page).isVisible())) await globe(page).click();
+    await showBrowser(page);
     await typeAddress(page, `${fixtures.host}/a.html`);
     await expect.poll(() => guestUrls(app)).toEqual([fixtures.url('/a.html')]);
     const host = page.locator('.browser-host');
@@ -357,12 +360,12 @@ test.describe('in-app browser', () => {
     expect(await pointerEvents()).toBe('auto');
     await expect(host).not.toHaveAttribute('data-dragging');
 
-    // The person takes the browser panel's edge, which lies against the page.
-    const separator = page.locator('.resize-handle:has(+ [data-testid="browser"])');
+    // The person takes the side panel's edge, which lies against the page.
+    const separator = page.locator('.resize-handle:has(+ [data-testid="side-panel"])');
     const width = async () => (await panel(page).boundingBox())?.width ?? 0;
     const grab = async () => {
       const box = await separator.boundingBox();
-      if (!box) throw new Error('no separator before the browser panel');
+      if (!box) throw new Error('no separator before the side panel');
       const at = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
       await page.mouse.move(at.x, at.y);
       await page.mouse.down();
@@ -387,7 +390,7 @@ test.describe('in-app browser', () => {
 
   test('switching workspace and back returns the page at its latest address', async () => {
     await openSession(page, 'Alpha');
-    if (!(await panel(page).isVisible())) await globe(page).click();
+    await showBrowser(page);
     await typeAddress(page, `${fixtures.host}/a.html`);
     await expect.poll(() => guestUrls(app)).toEqual([fixtures.url('/a.html')]);
     await typeAddress(page, `${fixtures.host}/c.html`);
@@ -402,6 +405,77 @@ test.describe('in-app browser', () => {
     await expect.poll(() => guestUrls(app)).toEqual([fixtures.url('/c.html')]);
     await expect(address(page)).toHaveValue(fixtures.url('/c.html'));
   });
+
+  test('the Browser tab keeps its page when it goes behind and when the side panel hides', async () => {
+    await openSession(page, 'Alpha');
+    await showBrowser(page);
+    const url = fixtures.url('/a.html');
+    await typeAddress(page, `${fixtures.host}/a.html`);
+    await expect.poll(() => guestUrls(app)).toEqual([url]);
+    const [guest] = await guests(app);
+    await inGuest(app, url, 'window.__kept = 1');
+    await page.evaluate(() => {
+      (window as unknown as { __page?: Element | null }).__page =
+        document.querySelector('.browser-page webview');
+    });
+    const presence = () => page.locator('.browser-page').getAttribute('data-presence');
+    /** The same element, the same guest, and a page that never reloaded. */
+    const untouched = async () => {
+      expect(
+        await page.evaluate(() => {
+          const kept = (window as unknown as { __page?: Element | null }).__page;
+          return !!kept?.isConnected && document.querySelector('.browser-page webview') === kept;
+        }),
+      ).toBe(true);
+      expect((await guests(app)).map((each) => each.id)).toEqual([guest.id]);
+      expect(await inGuest(app, url, 'window.__kept')).toBe(1);
+    };
+    expect((await page.getByTestId('browser-slot').boundingBox())!.height).toBeGreaterThan(200);
+
+    // Behind another tab: the panel unmounts, and the page only hides.
+    await page.getByRole('button', { name: 'Files', exact: true }).click();
+    await expect(panel(page)).toHaveCount(0);
+    await expect.poll(presence).toBe('hidden');
+    await untouched();
+
+    await page.getByRole('tab', { name: 'Browser', exact: true }).click();
+    await expect.poll(presence).toBe('shown');
+    await untouched();
+
+    // The side panel hidden and shown again.
+    await page.keyboard.press(sidePanelChord());
+    await expect(page.getByTestId('side-panel')).toHaveCount(0);
+    await expect.poll(presence).toBe('hidden');
+    await untouched();
+    await page.keyboard.press(sidePanelChord());
+    await expect.poll(presence).toBe('shown');
+    await untouched();
+
+    // Another session of the same workspace, whose own Browser tab takes the
+    // slot, and back: the page is hidden meanwhile, never ended.
+    await page.evaluate(
+      async ({ workspaceId }) => {
+        const { workspaces } = await window.workspaceAPI.getSnapshot();
+        const workspace = workspaces.find((each) => each.id === workspaceId)!;
+        await window.workspaceAPI.createSession(workspaceId, {
+          name: 'Alpha second',
+          nameIsUserSet: true,
+          workspaceId,
+          instanceId: 'browser-Alpha-2',
+          harnessId: 'browser-test',
+          scopeId: workspace.scopes[0].id,
+        });
+      },
+      { workspaceId: ids.alpha.workspaceId },
+    );
+    await page.locator('.session-nav-item').filter({ hasText: 'Alpha second' }).click();
+    await expect(panel(page)).toBeVisible();
+    await expect.poll(presence).toBe('hidden');
+    await untouched();
+    await openSession(page, 'Alpha');
+    await expect.poll(presence).toBe('shown');
+    await untouched();
+  });
 });
 
 test('tabs and the address come back after a relaunch', async () => {
@@ -413,7 +487,7 @@ test('tabs and the address come back after a relaunch', async () => {
     try {
       ids = await seed(first.page, root);
       await openSession(first.page, 'Alpha');
-      if (!(await panel(first.page).isVisible())) await globe(first.page).click();
+      await showBrowser(first.page);
       await typeAddress(first.page, `${fixtures.host}/b.html`);
       await expect.poll(() => guestUrls(first.app)).toEqual([fixtures.url('/b.html')]);
 
@@ -430,7 +504,7 @@ test('tabs and the address come back after a relaunch', async () => {
     const second = await launchElectron({ userDataDir: first.userDataDir });
     try {
       await openSession(second.page, 'Alpha');
-      if (!(await panel(second.page).isVisible())) await globe(second.page).click();
+      await showBrowser(second.page);
       await expect(address(second.page)).toHaveValue(fixtures.url('/b.html'));
       await expect.poll(() => guestUrls(second.app)).toEqual([fixtures.url('/b.html')]);
       const snapshot = await tabsOf(second.page, ids.alpha.sessionId);
@@ -450,7 +524,7 @@ test('a guest paints in the hidden test window', async () => {
   try {
     await seed(page, root);
     await openSession(page, 'Alpha');
-    if (!(await panel(page).isVisible())) await globe(page).click();
+    await showBrowser(page);
     await typeAddress(page, `${fixtures.host}/a.html`);
     await expect.poll(() => guestUrls(app)).toEqual([fixtures.url('/a.html')]);
 

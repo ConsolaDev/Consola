@@ -54,7 +54,6 @@ function switchToWorkspaceAt(index: number, repeat: boolean): boolean {
  */
 export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) {
   const toggleSidebar = useNavigationStore((state) => state.toggleSidebar);
-  const toggleBrowser = useNavigationStore((state) => state.toggleBrowser);
   const cycleTheme = useSettingsStore((state) => state.cycleTheme);
   const {
     onNewSession,
@@ -97,10 +96,12 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
         return;
       }
 
-      // Shows or hides the browser panel beside the session.
+      // ⇧⌘L: the Browser tab, as a kind's header button does. The key is
+      // taken even where it does nothing: with no session on screen, or
+      // under the Inbox or Automations.
       if (isBrowserShortcut(event)) {
         event.preventDefault();
-        if (!event.repeat) toggleBrowser();
+        if (!event.repeat) pressShortcutOnScreen('browser');
         return;
       }
 
@@ -198,7 +199,7 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
           pressShortcutOnScreen('terminal');
           return;
         case 'browser':
-          toggleBrowser();
+          pressShortcutOnScreen('browser');
           return;
         case 'side-panel':
           toggleSidePanelOnScreen();
@@ -218,7 +219,6 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
     };
   }, [
     toggleSidebar,
-    toggleBrowser,
     cycleTheme,
     onNewSession,
     onNewSessionWithOptions,

@@ -5,6 +5,7 @@ import { Maximize2, Minimize2, Plus, X } from 'lucide-react';
 import { NEW_TAB, type GroupPosition, type TabGroupNode, type TabId } from '../../sidePanel/layout';
 import { tabKind, type TabFacts } from '../../sidePanel/tabKinds';
 import { useSidePanelStore } from '../../stores/sidePanelStore';
+import { useTabMark } from './tabMarks';
 
 /** Each tab list is named by where its group sits, so two groups' lists can be told apart. */
 const TAB_LIST_NAMES: Record<GroupPosition, string> = {
@@ -80,7 +81,8 @@ export function TabBar({ group, position, facts, canMaximize, isMaximized }: Tab
  * One tab: its trigger, and a close button beside it rather than inside, so
  * the trigger stays a plain tab for the keyboard. A tab id the registry does
  * not list has nothing to show; the placeholder still gets its name, so it
- * can be closed.
+ * can be closed. A kind's mark is drawn on its tab while the tab is behind
+ * another: in front, its view is showing what the mark is about.
  */
 function TabBarTab({
   groupId,
@@ -94,10 +96,12 @@ function TabBarTab({
   facts: TabFacts;
 }) {
   const closeTab = useSidePanelStore((state) => state.closeTab);
+  const mark = useTabMark(tab, facts);
   const kind = tabKind(tab);
   if (!kind && tab !== NEW_TAB) return null;
 
   const title = kind ? kind.title(facts) : 'New tab';
+  const marked = mark !== null && !inFront;
   const label = kind?.tabTitle?.(facts) ?? title;
   const Icon = kind?.icon;
   const close = () => closeTab(groupId, tab);
@@ -118,7 +122,8 @@ function TabBarTab({
       <Tabs.Trigger
         value={tab}
         className="side-panel-tab-trigger"
-        aria-label={title}
+        aria-label={marked ? `${title}, ${mark.onKind}` : title}
+        data-agent-dot={marked ? true : undefined}
         onKeyDown={onKeyDown}
       >
         {Icon && <Icon size={14} aria-hidden="true" />}

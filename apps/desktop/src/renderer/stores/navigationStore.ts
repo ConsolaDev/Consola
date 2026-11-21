@@ -25,24 +25,18 @@ export function clampSidebarWidth(width: number): number {
 /**
  * What this window is showing, and how it is laid out.
  *
- * The two are persisted differently on purpose. Sidebar visibility and width,
- * and browser visibility, are preferences and are shared by every window,
- * where a last-writer-wins race is harmless. Which workspace and session a
- * window holds is that window's identity: it arrives from main at
- * construction and is remembered by main, because localStorage is shared and
- * two windows writing their own identity into one key would each read the
- * other's. The side panel's tabs, Files and Pull request among them, are kept
- * by its own store.
+ * The two are persisted differently on purpose. Sidebar visibility and width
+ * are preferences and are shared by every window, where a last-writer-wins
+ * race is harmless. Which workspace and session a window holds is that
+ * window's identity: it arrives from main at construction and is remembered
+ * by main, because localStorage is shared and two windows writing their own
+ * identity into one key would each read the other's. Everything beside the
+ * session is the side panel's, kept by its own store.
  */
 export interface NavigationState {
   isSidebarHidden: boolean;
   /** Pixel width of the sidebar when shown; kept while it is hidden. */
   sidebarWidth: number;
-  /**
-   * Show the in-app browser beside the session. A preference: every session
-   * has its own pages, but one switch shows them.
-   */
-  isBrowserVisible: boolean;
   activeWorkspaceId: string | null;
   activeSessionId: string | null;
   /**
@@ -53,8 +47,6 @@ export interface NavigationState {
   toggleSidebar: () => void;
   setSidebarHidden: (hidden: boolean) => void;
   setSidebarWidth: (width: number) => void;
-  toggleBrowser: () => void;
-  setBrowserVisible: (visible: boolean) => void;
   /** Ask main for the workspace. Resolves once the verdict is known. */
   setActiveWorkspace: (id: string | null) => Promise<void>;
   setActiveSession: (id: string | null) => void;
@@ -89,9 +81,6 @@ export function mergeNavigationState(
     ...(typeof saved.sidebarWidth === 'number'
       ? { sidebarWidth: clampSidebarWidth(saved.sidebarWidth) }
       : {}),
-    ...(typeof saved.isBrowserVisible === 'boolean'
-      ? { isBrowserVisible: saved.isBrowserVisible }
-      : {}),
   };
 }
 
@@ -100,7 +89,6 @@ export const useNavigationStore = create<NavigationState>()(
     (set, get) => ({
       isSidebarHidden: false,
       sidebarWidth: SIDEBAR_WIDTH_DEFAULT,
-      isBrowserVisible: false,
       activeWorkspaceId: windowBridge.context.workspaceId,
       // Both arrive with the window, so the first paint already shows what
       // this workspace was left on rather than an empty view it corrects later.
@@ -110,8 +98,6 @@ export const useNavigationStore = create<NavigationState>()(
       toggleSidebar: () => set((state) => ({ isSidebarHidden: !state.isSidebarHidden })),
       setSidebarHidden: (hidden) => set({ isSidebarHidden: hidden }),
       setSidebarWidth: (width) => set({ sidebarWidth: clampSidebarWidth(width) }),
-      toggleBrowser: () => set((state) => ({ isBrowserVisible: !state.isBrowserVisible })),
-      setBrowserVisible: (visible) => set({ isBrowserVisible: visible }),
 
       setActiveWorkspace: async (id) => {
         const result = await windowBridge.activateWorkspace(id);
@@ -164,7 +150,6 @@ export const useNavigationStore = create<NavigationState>()(
       partialize: (state) => ({
         isSidebarHidden: state.isSidebarHidden,
         sidebarWidth: state.sidebarWidth,
-        isBrowserVisible: state.isBrowserVisible,
       }),
       // partialize only governs writes. zustand's default merge spreads the
       // *raw* persisted blob over fresh state on every hydrate, so a profile

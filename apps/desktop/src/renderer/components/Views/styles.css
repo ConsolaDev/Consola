@@ -816,7 +816,7 @@
   cursor: default;
 }
 
-/* The globe's dot: an agent opened or used a page the person has not seen.
+/* A kind's mark (`markPlaces`), such as an agent having used a page the person has not seen.
    A literal radius: var(--radius-full) resolves to 0 inside .radix-themes. */
 .path-display-toggle[data-agent-dot] {
   position: relative;

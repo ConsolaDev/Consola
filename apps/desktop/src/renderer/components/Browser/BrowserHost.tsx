@@ -67,8 +67,9 @@ const NONE: ReadonlySet<string> = new Set();
  * root and drawn over the browser panel's slot.
  *
  * A `<webview>` loses its page when its element moves, so the elements never
- * live in the panel (which unmounts with every overlay and re-renders with
- * every session switch): they live here, in one parent, in the order they
+ * live in the panel (which unmounts whenever its tab goes behind, the side
+ * panel hides or an overlay covers it, and remounts with every session
+ * switch): they live here, in one parent, in the order they
  * were created (`hostOrder`), and are only ever added or removed. Each keeps
  * the address and partition it was created with; every later navigation goes
  * through main.

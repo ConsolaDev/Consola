@@ -46,15 +46,12 @@ function makeCurrent(overrides: Partial<NavigationState> = {}): NavigationState 
   return {
     isSidebarHidden: false,
     sidebarWidth: SIDEBAR_WIDTH_DEFAULT,
-    isBrowserVisible: false,
     activeWorkspaceId: 'current-workspace',
     activeSessionId: 'current-session',
     overlay: null,
     toggleSidebar: vi.fn(),
     setSidebarHidden: vi.fn(),
     setSidebarWidth: vi.fn(),
-    toggleBrowser: vi.fn(),
-    setBrowserVisible: vi.fn(),
     setActiveWorkspace: vi.fn(),
     setActiveSession: vi.fn(),
     openInbox: vi.fn(),
@@ -115,12 +112,12 @@ describe('mergeNavigationState', () => {
     expect(result).not.toHaveProperty('isWorkItemPanelVisible');
   });
 
-  it('takes the browser panel preference from the blob, and keeps current without one', () => {
-    const current = makeCurrent({ isBrowserVisible: false });
-
-    expect(mergeNavigationState({ isBrowserVisible: true }, current).isBrowserVisible).toBe(true);
-    expect(mergeNavigationState({ isBrowserVisible: 1 }, current).isBrowserVisible).toBe(false);
-    expect(mergeNavigationState({}, current).isBrowserVisible).toBe(false);
+  it('ignores the retired browser flag', () => {
+    // The browser is the side panel's Browser tab now, which the side panel's
+    // own store opens and remembers. An upgrade starts with it closed.
+    expect(mergeNavigationState({ isBrowserVisible: true }, makeCurrent())).not.toHaveProperty(
+      'isBrowserVisible',
+    );
   });
 
   it('ignores a non-boolean preference value', () => {

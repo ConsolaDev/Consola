@@ -3,14 +3,12 @@ import { Group, Panel, Separator, useDefaultLayout } from 'react-resizable-panel
 import { checkoutPathForSession, scopeForSession } from '../../../shared/workspace';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { useHarnessStore } from '../../stores/harnessStore';
-import { useNavigationStore } from '../../stores/navigationStore';
 import { useGitStatusAutoRefresh } from '../../stores/gitStatusStore';
 import { useCheckout } from '../../stores/checkoutStore';
 import { useSidePanelStore } from '../../stores/sidePanelStore';
 import { tabFactsFor } from '../../sidePanel/tabKinds';
 import { TerminalPanel } from '../Terminal';
 import { SidePanel } from '../SidePanel/SidePanel';
-import { BrowserPanel } from '../Browser';
 import { WorkItemStrip } from '../WorkItemStrip';
 import { SessionHeader } from './SessionHeader';
 import './styles.css';
@@ -22,7 +20,6 @@ interface ContentViewProps {
 
 export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
   const isSidePanelVisible = useSidePanelStore((state) => state.layout.visible);
-  const isBrowserVisible = useNavigationStore((state) => state.isBrowserVisible);
 
   const getWorkspace = useWorkspaceStore((state) => state.getWorkspace);
   const getSession = useWorkspaceStore((state) => state.getSession);
@@ -49,11 +46,7 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
 
   // Conditional panels must have separate saved layouts: hiding the side
   // panel must not overwrite the layout that remembers its width.
-  const panelIds = [
-    'agent',
-    ...(isBrowserVisible ? ['browser'] : []),
-    ...(isSidePanelVisible ? ['side-panel'] : []),
-  ];
+  const panelIds = ['agent', ...(isSidePanelVisible ? ['side-panel'] : [])];
   // Not the id the columns before the side panel saved under, so none of
   // their layouts is read back.
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({
@@ -140,14 +133,6 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
             />
           </Panel>
           {/* The info panel (PR 2) goes here, between the conversation and the side panel. */}
-          {isBrowserVisible && (
-            <>
-              <Separator className="resize-handle" />
-              <Panel id="browser" defaultSize="45%" minSize="320px">
-                <BrowserPanel sessionId={session.id} instanceId={instanceId} cwd={cwd} />
-              </Panel>
-            </>
-          )}
           {isSidePanelVisible && (
             <>
               <Separator className="resize-handle" />

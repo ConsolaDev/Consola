@@ -1,4 +1,4 @@
-import { Diff, FolderTree, GitPullRequest, TerminalSquare } from 'lucide-react';
+import { Diff, FolderTree, GitPullRequest, Globe, TerminalSquare } from 'lucide-react';
 import { describe, expect, it } from 'vitest';
 import type { CheckoutInfo } from '../../shared/sessionCheckout';
 import type { WorkItemRef } from '../../shared/workItems';
@@ -20,7 +20,7 @@ import {
   tabFactsFor,
   tabKind,
 } from './tabKinds';
-import { isMac } from '../utils/platform';
+import { BROWSER_SHORTCUT_LABEL, isMac } from '../utils/platform';
 
 const workspace = createWorkspaceRecord('catalog-portal', '/repos/catalog-portal', true, 'default');
 const session = createSessionRecord({
@@ -67,7 +67,7 @@ const frontOnly: TabKind = { ...changesKind, mount: 'front' };
 
 describe('the registry', () => {
   it('lists the kinds in registry order with unique one-letter keys', () => {
-    expect(TAB_KIND_IDS).toEqual(['changes', 'files', 'terminal', 'pull-request']);
+    expect(TAB_KIND_IDS).toEqual(['changes', 'files', 'terminal', 'browser', 'pull-request']);
     expect(TAB_KINDS.map((kind) => kind.id)).toEqual(TAB_KIND_IDS);
     const keys = TAB_KINDS.map((kind) => kind.key);
     for (const key of keys) expect(key).toMatch(/^[A-Z]$/);
@@ -81,10 +81,12 @@ describe('the registry', () => {
     expect(isTabKindId('files')).toBe(true);
     expect(tabKind('terminal')).toBe(TAB_KINDS[2]);
     expect(isTabKindId('terminal')).toBe(true);
-    expect(tabKind('pull-request')).toBe(TAB_KINDS[3]);
+    expect(tabKind('browser')).toBe(TAB_KINDS[3]);
+    expect(isTabKindId('browser')).toBe(true);
+    expect(tabKind('pull-request')).toBe(TAB_KINDS[4]);
     expect(isTabKindId('pull-request')).toBe(true);
-    expect(tabKind('browser')).toBeUndefined();
-    expect(isTabKindId('browser')).toBe(false);
+    expect(tabKind('artifacts')).toBeUndefined();
+    expect(isTabKindId('artifacts')).toBe(false);
     expect(isTabKindId('new-tab')).toBe(false);
   });
 });
@@ -192,6 +194,33 @@ describe('Terminal', () => {
     expect(bodyFor(terminalKind, removed, true)).toBe('unavailable');
     expect(bodyFor(terminalKind, removed, false)).toBe('none');
     expect(bodyFor(terminalKind, noFolder, true)).toBe('unavailable');
+  });
+});
+
+describe('Browser', () => {
+  const browser = tabKind('browser')!;
+
+  it('is titled Browser, keyed B, with the browser chord, and mounted only in front', () => {
+    expect(browser.title(inGit)).toBe('Browser');
+    expect(browser.tabTitle).toBeUndefined();
+    expect(browser.key).toBe('B');
+    expect(browser.icon).toBe(Globe);
+    expect(browser.chord).toBe(BROWSER_SHORTCUT_LABEL);
+    expect(browser.mount).toBe('front');
+  });
+
+  // Its tabs belong to the session and its logins to the workspace: it reads no checkout.
+  it('applies to every session, a removed worktree and a folder outside git included', () => {
+    for (const facts of [inGit, removed, outsideGit, factsFor(undefined)]) {
+      expect(browser.availability(facts)).toEqual({ available: true });
+    }
+  });
+
+  // Mounting its view claims the page slot and clears the agent's dot, so a
+  // tab behind another must not mount it.
+  it('renders only in front, so a Browser tab behind another claims no slot', () => {
+    expect(bodyFor(browser, inGit, false)).toBe('none');
+    expect(bodyFor(browser, removed, true)).toBe('view');
   });
 });
 

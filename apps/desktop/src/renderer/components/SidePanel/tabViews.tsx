@@ -2,6 +2,7 @@ import { type ComponentType, useState } from 'react';
 import { isInFront } from '../../sidePanel/layout';
 import type { TabFacts, TabKindId } from '../../sidePanel/tabKinds';
 import { useSidePanelStore } from '../../stores/sidePanelStore';
+import { BrowserPanel } from '../Browser';
 import { GitReviewPanel } from '../GitReviewPanel';
 import { ShellPanel } from '../Terminal/ShellPanel';
 import { WorkItemPanel } from '../WorkItemPanel';
@@ -61,6 +62,23 @@ function TerminalView({ facts }: TabViewProps) {
 }
 
 /**
+ * The session's browser: main's own panel, unchanged. Browser mounts only in
+ * front, so this mounts exactly while its tab is in front on screen, which is
+ * when it claims the slot its page is drawn over and clears the agent's dot.
+ * The pages are never in here: they live in `BrowserHost`, so the tab going
+ * behind, its group hidden or the side panel hidden only hides the page.
+ */
+function BrowserView({ facts }: TabViewProps) {
+  return (
+    <BrowserPanel
+      sessionId={facts.session.id}
+      instanceId={facts.session.instanceId}
+      cwd={facts.checkoutPath ?? ''}
+    />
+  );
+}
+
+/**
  * What each kind shows in its tab. Keyed by every kind id, so a kind added to
  * the registry without a view does not typecheck. A view is rendered only
  * where `bodyFor` answers 'view', which is the gate its own effects sit behind.
@@ -74,5 +92,6 @@ export const TAB_VIEWS: Record<TabKindId, ComponentType<TabViewProps>> = {
   // Files is unavailable whenever there is no path, so the null never shows.
   files: ({ facts }) => (facts.checkoutPath ? <FilesTab rootPath={facts.checkoutPath} /> : null),
   terminal: TerminalView,
+  browser: BrowserView,
   'pull-request': PullRequestView,
 };

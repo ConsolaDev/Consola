@@ -76,7 +76,7 @@ describe('mergeSidePanelState', () => {
       type: 'split',
       orientation: 'stacked',
       children: [
-        { type: 'group', id: 'g1', tabs: ['browser', 'changes'], active: 'browser' },
+        { type: 'group', id: 'g1', tabs: ['artifacts', 'changes'], active: 'artifacts' },
         { type: 'group', id: 'g2', tabs: ['changes', NEW_TAB], active: 'changes' },
       ],
     },
@@ -108,7 +108,7 @@ describe('mergeSidePanelState', () => {
   it('sanitizes the uses', () => {
     const uses = {
       changes: [NOW - 2 * DAY_MS, 'yesterday', NOW + 1_000, NOW - 40 * DAY_MS, NOW - DAY_MS],
-      browser: [NOW],
+      artifacts: [NOW],
     };
     const merged = mergeSidePanelState({ uses, rememberLayout: true }, current(), NOW);
     expect(merged.uses).toEqual(sanitizeUsage(uses, TAB_KIND_IDS, NOW));
@@ -116,7 +116,7 @@ describe('mergeSidePanelState', () => {
   });
 
   it('ranks the shortcut kinds from the sanitized uses', () => {
-    const uses = { changes: [NOW - DAY_MS, NOW], browser: [NOW, NOW] };
+    const uses = { changes: [NOW - DAY_MS, NOW], artifacts: [NOW, NOW] };
     const merged = mergeSidePanelState({ uses, rememberLayout: true }, current(), NOW);
     expect(merged.shortcutKinds).toEqual(
       rankShortcutKinds(sanitizeUsage(uses, TAB_KIND_IDS, NOW), TAB_KIND_IDS, NOW),
@@ -507,7 +507,7 @@ describe('persistence', () => {
     const layout = {
       ...defaultLayout(),
       visible: true,
-      root: { type: 'group', id: 'g1', tabs: ['changes', 'browser'], active: 'changes' },
+      root: { type: 'group', id: 'g1', tabs: ['changes', 'artifacts'], active: 'changes' },
     };
     storage.set(
       SIDE_PANEL_STORAGE_KEY,

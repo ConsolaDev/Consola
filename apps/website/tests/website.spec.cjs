@@ -365,7 +365,12 @@ test('create and rename a label through the actual sidebar', async ({ page }) =>
 test('the browser panel keeps typed tabs in memory and its settings render', async ({ page }) => {
   const errors = await standaloneDemo(page);
 
-  await page.getByRole('button', { name: 'Show browser', exact: true }).click();
+  // A fresh demo's side panel is empty: its "+" list offers the browser.
+  await page.getByRole('button', { name: 'Show side panel', exact: true }).click();
+  await page
+    .getByRole('listbox', { name: 'Open in this tab' })
+    .getByRole('option', { name: /^Browser/ })
+    .click();
   const panel = page.getByTestId('browser-panel');
   const tabs = panel.getByRole('tablist', { name: 'Browser tabs' });
   const address = panel.getByRole('textbox', { name: 'Address' });
@@ -397,10 +402,10 @@ test('the browser panel keeps typed tabs in memory and its settings render', asy
   await tabs.getByRole('tab', { selected: true }).press('Delete');
   await expect(tabs.getByRole('tab')).toHaveCount(1);
 
-  // Hiding the panel keeps the session's tabs.
-  await page.getByRole('button', { name: 'Hide browser', exact: true }).click();
+  // Hiding the side panel keeps the session's tabs, and showing it shows the Browser tab again.
+  await page.getByRole('button', { name: 'Hide side panel', exact: true }).click();
   await expect(panel).toHaveCount(0);
-  await page.getByRole('button', { name: 'Show browser', exact: true }).click();
+  await page.getByRole('button', { name: 'Show side panel', exact: true }).click();
   await expect(tabs.getByRole('tab', { selected: true })).toHaveText('localhost:5173');
 
   const dialog = await settings(page);
@@ -426,9 +431,13 @@ test('the browser panel keeps typed tabs in memory and its settings render', asy
 
   // Everything lives in the page: reloading it, as Reset demo does, forgets it.
   await page.reload();
-  await expect(page.getByRole('button', { name: 'Show browser', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Show side panel', exact: true })).toBeVisible();
   await expect(panel).toHaveCount(0);
-  await page.getByRole('button', { name: 'Show browser', exact: true }).click();
+  await page.getByRole('button', { name: 'Show side panel', exact: true }).click();
+  await page
+    .getByRole('listbox', { name: 'Open in this tab' })
+    .getByRole('option', { name: /^Browser/ })
+    .click();
   await expect(tabs.getByRole('tab')).toHaveCount(0);
   await expect(panel.getByTestId('browser-empty-tab')).toBeVisible();
   expect(errors).toEqual([]);

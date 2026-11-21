@@ -12,14 +12,21 @@
  *
  * No components and no stores, so the node test environment can import it.
  */
-import { Diff, FolderTree, GitPullRequest, type LucideIcon, TerminalSquare } from 'lucide-react';
+import {
+  Diff,
+  FolderTree,
+  GitPullRequest,
+  Globe,
+  type LucideIcon,
+  TerminalSquare,
+} from 'lucide-react';
 import type { CheckoutInfo } from '../../shared/sessionCheckout';
 import type { WorkItemRef } from '../../shared/workItems';
 import { checkoutPathForSession, type Session, type Workspace } from '../../shared/workspace';
-import { isMac } from '../utils/platform';
+import { BROWSER_SHORTCUT_LABEL, isMac } from '../utils/platform';
 import { SHELL_SHORTCUT_LABEL } from '../utils/shellShortcut';
 
-export type TabKindId = 'changes' | 'files' | 'terminal' | 'pull-request';
+export type TabKindId = 'changes' | 'files' | 'terminal' | 'browser' | 'pull-request';
 
 export interface TabFacts {
   workspace: Workspace;
@@ -111,6 +118,22 @@ export const TAB_KINDS: readonly TabKind[] = [
     chord: SHELL_SHORTCUT_LABEL,
     title: () => 'Terminal',
     availability: folderAvailability,
+    mount: 'front',
+  },
+  {
+    // The session's in-app browser. It holds no page: pages live in
+    // `BrowserHost`, and its view only claims the slot a page is drawn over,
+    // clearing the agent's dot as it does. So the view mounts only in front,
+    // in a group on screen: a tab behind another, in a hidden panel or in a
+    // group Maximize hides claims nothing, and its page hides. Its tabs
+    // belong to the session and its logins to the workspace, so it reads no
+    // checkout and applies to every session.
+    id: 'browser',
+    key: 'B',
+    icon: Globe,
+    chord: BROWSER_SHORTCUT_LABEL,
+    title: () => 'Browser',
+    availability: () => ({ available: true }),
     mount: 'front',
   },
   {

@@ -37,7 +37,7 @@ import { dialogBridge } from '../../services/dialogBridge';
 import { focusSessionAddressBar, openInSessionBrowser } from '../Browser/browserActions';
 import { createQuickSession, openNewSessionDialog } from '../../utils/sessionActions';
 import { workspaceStatusFor, type AttentionMap } from '../../utils/sessionStatus';
-import { BROWSER_SHORTCUT_LABEL, isMac, WORKING_SHELF_SHORTCUT_LABEL } from '../../utils/platform';
+import { isMac, WORKING_SHELF_SHORTCUT_LABEL } from '../../utils/platform';
 import { SIDE_PANEL_SHORTCUT_LABEL } from '../../utils/sidePanelShortcut';
 import type {
   PaletteMode,
@@ -236,17 +236,8 @@ export function buildActionItems(ctx: PaletteContext): ActionPaletteItem[] {
     });
   }
 
-  // The browser only exists inside a session's content view.
+  // The browser only exists beside a session: these open its Browser tab.
   if (activeSession) {
-    items.push({
-      kind: 'action',
-      section: 'actions',
-      id: 'action.view.toggle-browser',
-      label: 'Toggle browser',
-      icon: Globe,
-      shortcutHint: BROWSER_SHORTCUT_LABEL,
-      run: () => useNavigationStore.getState().toggleBrowser(),
-    });
     items.push({
       kind: 'action',
       section: 'actions',
