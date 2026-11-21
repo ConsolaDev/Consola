@@ -69,6 +69,14 @@ export interface HarnessDriver {
    */
   toolPolicyProblem(config: HarnessConfig, policy: SessionToolPolicy | undefined): string | null;
 
+  /**
+   * Why this harness's extra args would override what a step's reporting
+   * turn is launched with; null when they would not. A driver that offers
+   * `createTurnReader` and compiles flags into a step's turn says so here,
+   * and `buildSessionArgs` refuses such a turn in the same words.
+   */
+  stepTurnProblem?(config: HarnessConfig): string | null;
+
   /** Deliver the opening prompt through argv instead of waiting on the TUI. */
   readonly initialPromptViaArgs?: boolean;
 
@@ -330,6 +338,13 @@ export interface SessionLaunch {
    * session launched without it is simply not reporting.
    */
   attentionUrl?: string;
+  /**
+   * Run this unattended turn with the CLI's structured report, which
+   * `createTurnReader` reads. Ignored on an interactive launch.
+   */
+  reportTurn?: boolean;
+  /** The most turns this launch may take. Ignored on an interactive launch. */
+  maxTurns?: number;
 }
 
 /**

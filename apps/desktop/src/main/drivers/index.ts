@@ -54,6 +54,16 @@ export function toolPolicyProblem(
   return getDriver(fields.driverId).toolPolicyProblem(toHarnessConfig(fields), policy);
 }
 
+/**
+ * Why this harness's extra args would override what a step's reporting turn
+ * is launched with, or null — asked when an automation's steps are resolved,
+ * so an entry that could only fail at launch is refused before it runs. Null
+ * for a driver that compiles nothing into a step's turn.
+ */
+export function stepTurnProblem(fields: HarnessLaunchFields): string | null {
+  return getDriver(fields.driverId).stepTurnProblem?.(toHarnessConfig(fields)) ?? null;
+}
+
 export type {
   HarnessDriver,
   HarnessConfig,

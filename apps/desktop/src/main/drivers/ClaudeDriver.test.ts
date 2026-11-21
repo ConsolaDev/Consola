@@ -3,7 +3,10 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { buildTextGenerationArgs, ClaudeDriver } from './ClaudeDriver';
-import type { HarnessConfig } from './HarnessDriver';
+import { claudeHookSettings } from './claudeHooks';
+import type { HarnessConfig, SessionLaunch } from './HarnessDriver';
+import { stepTurnProblem } from './index';
+import { RESULT_OK } from './streamJson.test-helpers';
 
 // (vi.mock is hoisted above the imports.) The real probe runs the user's interactive login shell, which can take seconds.
 vi.mock('../LoginEnvironment', () => ({
@@ -13,6 +16,202 @@ vi.mock('../LoginEnvironment', () => ({
 
 const driver = new ClaudeDriver();
 const config: HarnessConfig = { extraArgs: ['--verbose'] };
+
+describe('reporting step turns', () => {
+  const bare: HarnessConfig = { extraArgs: [] };
+  const URL = 'http://127.0.0.1:1/attention/t';
+  const HOOKS = claudeHookSettings(URL);
+  // READ_ONLY_ARGS as it is at the cut, written out rather than read from the driver.
+  const READ_ONLY = [
+    '--strict-mcp-config',
+    '--permission-mode',
+    'dontAsk',
+    '--tools',
+    'Read,Grep,Glob',
+    '--allowedTools',
+    'mcp__consola__consola_work_item_context',
+    'mcp__consola__consola_list_inbox',
+    'mcp__consola__consola_set_outputs',
+    'mcp__consola__consola_write_artifact',
+    'mcp__consola__consola_read_artifact',
+    'mcp__consola__consola_list_artifacts',
+    '--restricted',
+  ];
+  const turn: SessionLaunch = {
+    sessionId: 's1',
+    resume: false,
+    toolPolicy: 'read-only',
+    unattended: true,
+    initialPrompt: 'p',
+    attentionUrl: URL,
+  };
+
+  it('an unattended step turn adds exactly the two reporting flags', () => {
+    const slice1 = ['-p', '--session-id', 's1', '--settings', HOOKS, ...READ_ONLY, '--', 'p'];
+    expect(driver.buildSessionArgs(bare, turn)).toEqual(slice1);
+    expect(driver.buildSessionArgs(bare, { ...turn, reportTurn: true })).toEqual([
+      '-p',
+      '--session-id',
+      's1',
+      '--settings',
+      HOOKS,
+      '--output-format',
+      'stream-json',
+      '--verbose',
+      ...READ_ONLY,
+      '--',
+      'p',
+    ]);
+  });
+
+  it('its reminder adds --max-turns too', () => {
+    expect(
+      driver.buildSessionArgs(bare, { ...turn, resume: true, reportTurn: true, maxTurns: 3 }),
+    ).toEqual([
+      '-p',
+      '--resume',
+      's1',
+      '--settings',
+      HOOKS,
+      '--output-format',
+      'stream-json',
+      '--verbose',
+      '--max-turns',
+      '3',
+      ...READ_ONLY,
+      '--',
+      'p',
+    ]);
+  });
+
+  it("an interactive launch of a step's session is byte-identical to slice 1's", () => {
+    expect(
+      driver.buildSessionArgs(bare, {
+        sessionId: 's1',
+        resume: true,
+        toolPolicy: 'read-only',
+        attentionUrl: URL,
+        reportTurn: true,
+        maxTurns: 6,
+      }),
+    ).toEqual(['--resume', 's1', '--settings', HOOKS, ...READ_ONLY]);
+  });
+
+  it('a legacy unattended turn is unchanged', () => {
+    const args = driver.buildSessionArgs(bare, { ...turn, resume: true });
+    expect(args).toEqual(['-p', '--resume', 's1', '--settings', HOOKS, ...READ_ONLY, '--', 'p']);
+    expect(args).not.toContain('--output-format');
+    expect(args).not.toContain('--max-turns');
+  });
+
+  it('a cap without a report still caps an unattended turn, and only an unattended one', () => {
+    expect(driver.buildSessionArgs(bare, { ...turn, maxTurns: 4 })).toEqual([
+      '-p',
+      '--session-id',
+      's1',
+      '--settings',
+      HOOKS,
+      '--max-turns',
+      '4',
+      ...READ_ONLY,
+      '--',
+      'p',
+    ]);
+  });
+
+  it('everything keeps its place', () => {
+    expect(
+      driver.buildSessionArgs(
+        { extraArgs: ['--append-system-prompt', 'x'] },
+        {
+          ...turn,
+          model: 'opus',
+          mcpConfigPath: '/m.json',
+          reportTurn: true,
+          maxTurns: 6,
+        },
+      ),
+    ).toEqual([
+      '-p',
+      '--session-id',
+      's1',
+      '--model',
+      'opus',
+      '--mcp-config',
+      '/m.json',
+      '--settings',
+      HOOKS,
+      '--output-format',
+      'stream-json',
+      '--verbose',
+      '--max-turns',
+      '6',
+      ...READ_ONLY,
+      '--append-system-prompt',
+      'x',
+      '--',
+      'p',
+    ]);
+  });
+
+  it.each<[string[], string | null]>([
+    [
+      ['--max-turns', '50'],
+      "This harness's extra arguments set `--max-turns`, which would override what Consola launches each step's turn with. Remove it in Settings › Harnesses.",
+    ],
+    [
+      ['--output-format=text', '--input-format', 'text'],
+      "This harness's extra arguments set `--output-format` and `--input-format`, which would override what Consola launches each step's turn with. Remove them in Settings › Harnesses.",
+    ],
+    [
+      ['--max-turns=9', '--input-format', 'text', '--output-format', 'json'],
+      "This harness's extra arguments set `--output-format`, `--input-format` and `--max-turns`, which would override what Consola launches each step's turn with. Remove them in Settings › Harnesses.",
+    ],
+    [['--model', 'opus'], null],
+    [['--max-turnsx', '--verbose'], null],
+    [[], null],
+  ])('stepTurnProblem names each flag that would override a step’s (%j)', (extraArgs, words) => {
+    expect(driver.stepTurnProblem({ extraArgs })).toBe(words);
+  });
+
+  it('buildSessionArgs refuses a reporting turn the extra args would override', () => {
+    const pinned: HarnessConfig = { extraArgs: ['--max-turns', '50'] };
+    expect(() => driver.buildSessionArgs(pinned, { ...turn, reportTurn: true })).toThrow(
+      "This harness's extra arguments set `--max-turns`, which would override what Consola launches each step's turn with. Remove it in Settings › Harnesses.",
+    );
+    expect(driver.buildSessionArgs(pinned, turn)).toEqual([
+      '-p',
+      '--session-id',
+      's1',
+      '--settings',
+      HOOKS,
+      ...READ_ONLY,
+      '--max-turns',
+      '50',
+      '--',
+      'p',
+    ]);
+    // An interactive reopen reports nothing, so nothing of it is overridden.
+    expect(() =>
+      driver.buildSessionArgs(pinned, { ...turn, unattended: undefined, reportTurn: true }),
+    ).not.toThrow();
+  });
+
+  it('asks the driver of the harness, and a driver without the method has nothing to say', () => {
+    expect(stepTurnProblem({ driverId: 'claude', extraArgs: ['--output-format', 'text'] })).toBe(
+      "This harness's extra arguments set `--output-format`, which would override what Consola launches each step's turn with. Remove it in Settings › Harnesses.",
+    );
+    expect(stepTurnProblem({ extraArgs: ['--max-turns', '2'] })).toContain('`--max-turns`');
+    expect(stepTurnProblem({ driverId: 'claude' })).toBeNull();
+    expect(stepTurnProblem({ driverId: 'codex', extraArgs: ['--max-turns', '2'] })).toBeNull();
+  });
+
+  it('offers a turn reader', () => {
+    const reader = new ClaudeDriver().createTurnReader();
+    expect(reader.push(RESULT_OK)).toEqual([]);
+    expect(reader.end().report.result).toMatchObject({ costUsd: 0.0412, turns: 7 });
+  });
+});
 
 describe('buildSessionArgs MCP registration', () => {
   it('appends --mcp-config before the harness extra args when a path is set', () => {

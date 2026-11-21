@@ -19,6 +19,7 @@ import type { HarnessLimits } from '../../shared/usageLimits';
 import type { SessionToolPolicy } from '../../shared/workspace';
 import { CONSOLA_MCP_SERVER, mcpToolName, READ_ONLY_CONSOLA_TOOLS } from '../mcp/names';
 import { claudeAttentionHooks, claudeHookSettings } from './claudeHooks';
+import { createClaudeTurnReader } from './claudeTurnReader';
 import {
   looseningProblem,
   namedFlags,
@@ -27,6 +28,7 @@ import {
   type HarnessDriver,
   type SessionLaunch,
   type TextGenerationRequest,
+  type TurnReader,
   type UsageLimitReporting,
 } from './HarnessDriver';
 
@@ -115,6 +117,21 @@ const LOOSENING_FLAGS = [
   '--agent',
   '--agents',
 ];
+
+/**
+ * Extra args that would override what a step's reporting turn is launched
+ * with: Claude takes a flag's last occurrence, and the harness's extra args
+ * come last, so `--output-format text` there would replace the report and
+ * `--max-turns` the step's cap. `--input-format` is the driver's alone to
+ * add, for a later session that takes several turns over stream-json.
+ */
+const STEP_TURN_FLAGS = ['--output-format', '--input-format', '--max-turns'];
+
+/** `a`, `a` and `b`, `a`, `b` and `c`, each in backticks. */
+function namedList(flags: readonly string[]): string {
+  const named = flags.map((flag) => `\`${flag}\``);
+  return named.length === 1 ? named[0] : `${named.slice(0, -1).join(', ')} and ${named.at(-1)}`;
+}
 
 // The binary found on PATH, cached for the app's lifetime. Only auto-detection
 // is cached: a pinned path is cheap to check and must never be answered from a
@@ -345,6 +362,12 @@ export class ClaudeDriver implements HarnessDriver {
       throw new Error(UNATTENDED_NEEDS_READ_ONLY);
     if (launch.unattended && !launch.initialPrompt)
       throw new Error('An unattended turn needs the prompt it runs.');
+    if (launch.unattended && launch.reportTurn) {
+      // A harness edited after its run was queued: fail the step rather
+      // than launch a turn whose report or cap its extra args replace.
+      const overridden = this.stepTurnProblem(config);
+      if (overridden) throw new Error(overridden);
+    }
     const base = launch.resume
       ? ['--resume', launch.sessionId]
       : launch.forkFrom
@@ -365,7 +388,25 @@ export class ClaudeDriver implements HarnessDriver {
     const hooks = launch.attentionUrl
       ? ['--settings', claudeHookSettings(launch.attentionUrl)]
       : [];
-    const args = [...base, ...model, ...mcp, ...hooks, ...policy, ...config.extraArgs];
+    // A step's unattended turn reports itself as stream-json, and takes its
+    // cap; an interactive launch of the same session gets neither, so a
+    // person's reopen is exactly what it was before steps reported.
+    const report =
+      launch.unattended && launch.reportTurn ? ['--output-format', 'stream-json', '--verbose'] : [];
+    const turns =
+      launch.unattended && launch.maxTurns !== undefined
+        ? ['--max-turns', String(launch.maxTurns)]
+        : [];
+    const args = [
+      ...base,
+      ...model,
+      ...mcp,
+      ...hooks,
+      ...report,
+      ...turns,
+      ...policy,
+      ...config.extraArgs,
+    ];
     // Print mode: one turn, its answer, and exit. The prompt goes after
     // `--`, because `--allowedTools` takes every value up to the next
     // flag and would otherwise swallow it.
@@ -378,6 +419,20 @@ export class ClaudeDriver implements HarnessDriver {
   ): string | null {
     if (!policy) return null;
     return looseningProblem(namedFlags(config.extraArgs, LOOSENING_FLAGS));
+  }
+
+  public stepTurnProblem(config: HarnessConfig): string | null {
+    const flags = namedFlags(config.extraArgs, STEP_TURN_FLAGS);
+    if (flags.length === 0) return null;
+    return (
+      `This harness's extra arguments set ${namedList(flags)}, which would override what ` +
+      `Consola launches each step's turn with. Remove ${flags.length === 1 ? 'it' : 'them'} ` +
+      'in Settings › Harnesses.'
+    );
+  }
+
+  public createTurnReader(): TurnReader {
+    return createClaudeTurnReader();
   }
 
   /**
