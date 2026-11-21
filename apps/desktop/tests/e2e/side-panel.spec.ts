@@ -5,7 +5,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { browserChord } from './helpers/browserTab';
-import { commandPaletteChord, launchElectron } from './helpers/electron';
+import { commandPaletteChord, launchElectron, settingsChord } from './helpers/electron';
 
 /**
  * The side panel beside a session's conversation: a panel of tab groups to
@@ -729,6 +729,85 @@ test.describe('side panel', () => {
     await chooseFromTabMenu(sidePanelTab('Changes'), 'Split right');
     await expect(tabList('Left group tabs').getByRole('tab')).toHaveText(['Files']);
     await expect(tabList('Right group tabs').getByRole('tab')).toHaveText(['Changes']);
+  });
+
+  /** Changes over Files: the split both restart tests arrange. */
+  async function splitChangesOverFiles(): Promise<void> {
+    await openSession('Paginate the catalog search');
+    await changesShortcut().click();
+    await page.getByRole('button', { name: 'Files', exact: true }).click();
+    await expect(sidePanelTab('Files')).toHaveAttribute('aria-selected', 'true');
+    await chooseFromTabMenu(sidePanelTab('Files'), 'Split down');
+    await expect(tabList('Top group tabs').getByRole('tab')).toHaveText(['Changes']);
+    await expect(tabList('Bottom group tabs').getByRole('tab')).toHaveText(['Files']);
+  }
+  const settings = () => page.getByRole('dialog', { name: 'Settings', exact: true });
+  async function openAppearanceSettings(): Promise<void> {
+    await page.keyboard.press(settingsChord());
+    await settings().getByRole('button', { name: 'Appearance', exact: true }).click();
+  }
+  const rememberLayout = () =>
+    settings().getByRole('checkbox', { name: 'Remember the side panel’s layout', exact: true });
+
+  test('a split survives a restart', async () => {
+    await splitChangesOverFiles();
+
+    await app.close();
+    ({ app, page } = await launchElectron({ userDataDir }));
+    await openSession('Paginate the catalog search');
+    await expect(tabList('Top group tabs').getByRole('tab')).toHaveText(['Changes']);
+    await expect(tabList('Bottom group tabs').getByRole('tab')).toHaveText(['Files']);
+  });
+
+  test('with remembering off, a restart starts from the defaults', async () => {
+    await splitChangesOverFiles();
+
+    // The side panel's edge dragged 60px into the conversation, so its width
+    // is no longer the default one.
+    // A function, so that it finds the window of the app relaunched below.
+    const sidePanel = () => page.getByTestId('side-panel');
+    const panelWidth = async () => {
+      const box = await sidePanel().boundingBox();
+      if (!box) throw new Error('the side panel is not on screen');
+      return box.width;
+    };
+    const atDefault = await panelWidth();
+    const separator = page.locator('.resize-handle:has(+ [data-testid="side-panel"])');
+    const edge = (await separator.boundingBox())!;
+    await page.mouse.move(edge.x + edge.width / 2, edge.y + edge.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(edge.x + edge.width / 2 - 60, edge.y + edge.height / 2, { steps: 6 });
+    await page.mouse.up();
+    await expect.poll(panelWidth).toBeGreaterThan(atDefault + 40);
+    const widened = await panelWidth();
+
+    await openAppearanceSettings();
+    await expect(rememberLayout()).toBeChecked();
+    await expect(rememberLayout()).toHaveAccessibleDescription(
+      'On: tabs and splits come back the way you left them. Off: the side panel starts as a single group every time, and a shortcut opens its tab there.',
+    );
+    await rememberLayout().uncheck();
+    await expect(rememberLayout()).not.toBeChecked();
+    // Off keeps the arrangement on screen for the rest of the run.
+    await page.keyboard.press('Escape');
+    await expect(settings()).toHaveCount(0);
+    await expect(tabList('Bottom group tabs').getByRole('tab')).toHaveText(['Files']);
+
+    await app.close();
+    ({ app, page } = await launchElectron({ userDataDir }));
+    await openSession('Paginate the catalog search');
+    await expect(page.locator('.workspace-view-session')).toHaveText('Paginate the catalog search');
+    await expect(sidePanelToggle()).toHaveAccessibleName('Show side panel');
+    await expect(sidePanel()).toHaveCount(0);
+
+    await sidePanelToggle().click();
+    await expect(page.locator('.side-panel-group')).toHaveCount(1);
+    await expect(sidePanelTabs().getByRole('tab')).toHaveText(['New tab']);
+    // Sizes are remembered whatever the setting says.
+    await expect.poll(async () => Math.abs((await panelWidth()) - widened)).toBeLessThanOrEqual(2);
+
+    await openAppearanceSettings();
+    await expect(rememberLayout()).not.toBeChecked();
   });
 
   test('a tab closed from the keyboard hands it to a tab still on screen, else the conversation', async () => {

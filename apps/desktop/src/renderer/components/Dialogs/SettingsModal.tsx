@@ -62,6 +62,7 @@ import {
 } from './settingsSections';
 import { SnoozeOptions } from '../Settings/SnoozeOptions';
 import { SessionRowsOption } from '../Settings/SessionRowsOption';
+import { RememberLayoutOption } from '../Settings/RememberLayoutOption';
 import './styles.css';
 // The workspace panels' own rules (ws-*) live with the panels.
 import '../WorkspaceSettings/styles.css';
@@ -330,6 +331,8 @@ function AppearanceSection({
           </button>
         </div>
       </div>
+
+      <RememberLayoutOption />
     </div>
   );
 }
