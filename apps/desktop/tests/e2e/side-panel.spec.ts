@@ -294,6 +294,53 @@ test.describe('side panel', () => {
     await expect.poll(() => scrolledAround(line)).toBeGreaterThan(0);
   });
 
+  test('at the side panel’s narrowest, Changes keeps room for its diff and Files for both panes', async () => {
+    await openSession('Paginate the catalog search');
+    await changesShortcut().click();
+    await expect(page.locator('.git-review-panel')).toContainText('search.ts');
+
+    // The side panel's edge dragged as far toward it as it goes.
+    const sidePanel = page.getByTestId('side-panel');
+    const separator = page.locator('.resize-handle:has(+ [data-testid="side-panel"])');
+    const edge = (await separator.boundingBox())!;
+    await page.mouse.move(edge.x + edge.width / 2, edge.y + edge.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(edge.x + 600, edge.y + edge.height / 2, { steps: 8 });
+    await page.mouse.up();
+    await expect.poll(async () => (await sidePanel.boundingBox())!.width).toBeLessThan(282);
+    const panel = (await sidePanel.boundingBox())!;
+
+    const files = (await page.locator('.git-review-sidebar').boundingBox())!;
+    const diff = (await page.locator('.git-review-main').boundingBox())!;
+    expect(files.width).toBeGreaterThan(80);
+    expect(diff.width).toBeGreaterThanOrEqual(150);
+    expect(diff.x + diff.width).toBeLessThanOrEqual(panel.x + panel.width + 0.5);
+
+    // Files, a file open: the tree and the previews both fit.
+    await page.getByRole('button', { name: 'Files', exact: true }).click();
+    const tree = page.getByTestId('files-tree');
+    await tree.getByText('src', { exact: true }).click();
+    await tree.getByText('search.ts', { exact: true }).click();
+    await expect(page.locator('.preview-panel')).toBeVisible();
+    const treeBox = (await tree.boundingBox())!;
+    const previews = (await page.getByTestId('files-previews').boundingBox())!;
+    expect(treeBox.width).toBeGreaterThanOrEqual(119.5);
+    expect(previews.width).toBeGreaterThanOrEqual(149.5);
+    expect(previews.x + previews.width).toBeLessThanOrEqual(panel.x + panel.width + 0.5);
+    // Laid out as its separator says. Minimums that cannot both hold are
+    // squeezed on screen instead, while the separator reports, and drags
+    // from, a split the screen does not show.
+    const said = await page
+      .locator('.side-panel [role="separator"][aria-controls="files-tree"]')
+      .evaluate((handle) => {
+        const room =
+          handle.parentElement!.getBoundingClientRect().width -
+          handle.getBoundingClientRect().width;
+        return (Number(handle.getAttribute('aria-valuenow')) / 100) * room;
+      });
+    expect(Math.abs(treeBox.width - said)).toBeLessThanOrEqual(1);
+  });
+
   test('the palette opens Changes', async () => {
     await openSession('Paginate the catalog search');
     await expect(page.locator('[data-conversation-terminal]')).toBeVisible();

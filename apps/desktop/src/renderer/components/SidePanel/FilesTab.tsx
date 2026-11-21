@@ -6,7 +6,10 @@ import { PreviewPanel } from '../PreviewPanel';
 /**
  * The Files tab: the session's folder as a tree, and beside it the files
  * chosen there, each in a preview tab. The split between the two is saved
- * like every other size, whatever the side panel remembers.
+ * like every other size, whatever the side panel remembers. The two
+ * minimums and the handle between them fit inside the side panel's own
+ * (280px): minimums that cannot both hold squeeze the panes on screen while
+ * the handle drags from a split nobody sees.
  */
 export function FilesTab({ rootPath }: { rootPath: string }) {
   const openFile = usePreviewTabStore((state) => state.openFile);
@@ -19,7 +22,7 @@ export function FilesTab({ rootPath }: { rootPath: string }) {
 
   return (
     <Group orientation="horizontal" defaultLayout={defaultLayout} onLayoutChanged={onLayoutChanged}>
-      <Panel id="files-tree" defaultSize="40%" minSize="160px">
+      <Panel id="files-tree" defaultSize="40%" minSize="120px">
         <FileExplorer
           rootPath={rootPath}
           selectedPath={activePreviewTabId}
@@ -27,7 +30,7 @@ export function FilesTab({ rootPath }: { rootPath: string }) {
         />
       </Panel>
       <Separator className="resize-handle" />
-      <Panel id="files-previews" minSize="200px">
+      <Panel id="files-previews" minSize="150px">
         {hasPreviews ? (
           <PreviewPanel />
         ) : (
