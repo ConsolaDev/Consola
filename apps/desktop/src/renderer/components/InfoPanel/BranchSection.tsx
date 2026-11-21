@@ -2,7 +2,7 @@ import { Diff, GitBranch, GitCompare } from 'lucide-react';
 import { baseLine, branchLabel, pushValue, uncommittedValue } from '../../infoPanel/branchLines';
 import type { TabFacts } from '../../sidePanel/tabKinds';
 import { useBranchFacts } from '../../stores/branchFactsStore';
-import { useGitStatusStore } from '../../stores/gitStatusStore';
+import { statsFor, useGitStatusStore } from '../../stores/gitStatusStore';
 import { useSidePanelStore } from '../../stores/sidePanelStore';
 import { DiffCounts } from '../Inbox/WorkItemDetailParts';
 import { InfoRow } from './InfoRow';
@@ -87,8 +87,10 @@ function BranchRow({ label, push }: { label: string; push?: { text: string; titl
  * header keeps on this checkout. Opens Changes, where it can be reviewed.
  */
 function UncommittedRow({ dir }: { dir: string }) {
-  // While the status is another folder's (a session switch in flight), there is nothing to say yet.
-  const stats = useGitStatusStore((state) => (state.rootPath === dir ? state.stats : undefined));
+  // Undefined until a read of this checkout lands: during a session switch
+  // the store already tracks `dir` but still holds the other checkout's
+  // counts. The row then shows no value, neither theirs nor `None`.
+  const stats = useGitStatusStore((state) => statsFor(state, dir));
   const openKind = useSidePanelStore((state) => state.openKind);
   const value = stats && uncommittedValue(stats);
   const spoken =
