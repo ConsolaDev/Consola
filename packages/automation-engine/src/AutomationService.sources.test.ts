@@ -805,6 +805,45 @@ describe('checking', () => {
     ]);
   });
 
+  /** ws-1 allowed with its first check held while its environment is prepared; what lets that go on. */
+  async function checkWaitingForItsEnvironment(): Promise<{
+    h: SourcesHarness;
+    release: () => void;
+  }> {
+    const h = await sourcesHarness({ yaml: factoryWith(RE_REVIEW_ENTRY) });
+    let release!: () => void;
+    h.world.commandEnvGate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    allowAsShown(h);
+    await h.flush();
+    // Asked for, and still being prepared: nothing has spawned.
+    expect(h.world.commandEnvAsked).toEqual([WORKSPACE_ID]);
+    expect(h.world.commands).toEqual([]);
+    return { h, release };
+  }
+
+  it('a check whose allowance is taken back while its environment is prepared never spawns', async () => {
+    const { h, release } = await checkWaitingForItsEnvironment();
+    await h.service.saveEntry(WORKSPACE_ID, RE_REVIEW_ENTRY, { replace: true });
+    release();
+    await h.flush();
+    expect(h.world.commands).toEqual([]);
+    expect(checkOf(h)).not.toHaveProperty('lastAt');
+    expect(checkOf(h)).not.toHaveProperty('error');
+  });
+
+  it('a check whose entry is edited while its environment is prepared never spawns', async () => {
+    const { h, release } = await checkWaitingForItsEnvironment();
+    await h.setPoll(EDITED_CHECK);
+    release();
+    await h.flush();
+    expect(h.world.commands).toEqual([]);
+    expect(checkOf(h)).not.toHaveProperty('lastAt');
+    expect(checkOf(h)).not.toHaveProperty('error');
+    expect(view(h).needsAllow).toBe(true);
+  });
+
   it('Check now starts it at once', async () => {
     const h = await allowedTemplate();
     await h.check();
