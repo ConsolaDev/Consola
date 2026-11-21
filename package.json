@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "turbo run dev --filter=consola",
     "dev:website": "turbo run dev --filter=@consola/website",
+    "dev:cloud": "turbo run dev --filter=@consola/cloud-api --filter=@consola/cloud-web",
     "build": "turbo run build",
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",

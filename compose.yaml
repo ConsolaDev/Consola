@@ -1,0 +1,19 @@
+# A real Postgres for Consola Cloud's API, for when PGlite is not enough.
+# The credentials are local-development placeholders and the port is bound to
+# this machine only. Point the API at it with
+# DATABASE_URL=postgres://consola:consola@localhost:5432/consola_cloud
+services:
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: consola_cloud
+      POSTGRES_USER: consola
+      POSTGRES_PASSWORD: consola
+    ports:
+      - '127.0.0.1:5432:5432'
+    volumes:
+      - consola-cloud-postgres:/var/lib/postgresql/data
+
+volumes:
+  consola-cloud-postgres:

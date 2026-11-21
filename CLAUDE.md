@@ -12,6 +12,7 @@ Consola is an Electron desktop application that provides a structured AI-assiste
 
 ```bash
 pnpm run dev              # Full dev environment (Vite HMR + tsc --watch + Electron auto-restart)
+pnpm run dev:cloud        # Consola Cloud: the API (3100) and the web app (5175)
 pnpm run build            # Production build (all processes)
 pnpm start                # Run production build
 pnpm run test:e2e         # Run Playwright E2E tests
@@ -39,6 +40,7 @@ front. E2E runs themselves are already hidden and unfocusable
 
 All commands above run from the repository root. The pnpm workspace contains
 `apps/desktop` (`consola`), `apps/website` (`@consola/website`),
+`apps/cloud-api` (`@consola/cloud-api`), `apps/cloud-web` (`@consola/cloud-web`),
 `packages/factory-spec` (`@consola/factory-spec`, MIT) and
 `packages/automation-engine` (`@consola/automation-engine`). Turborepo
 orchestrates builds, tests, and typechecking. Paths below beginning with `src/`,
@@ -82,6 +84,28 @@ onto the package's narrow views. `src/shared/automations.ts` re-exports the
 runner's types, type-only, so the renderer never loads the engine's runtime.
 Beside it, `packages/factory-spec` (MIT) holds the `factory.yml` schema,
 parser and Run record that every runner shares.
+
+### Consola Cloud
+
+`apps/cloud-api` (`@consola/cloud-api`, Hono, Better Auth, Drizzle on PGlite or
+Postgres) and `apps/cloud-web` (`@consola/cloud-web`, Vite and React) are the
+company layer's first piece: Google sign-in and the deployment's one
+organisation. Nothing in `apps/desktop` depends on them, and neither imports
+from the desktop, the website or `packages/*`. Setup is in
+`apps/cloud-api/README.md`.
+
+The browser talks only to the web app's origin. Vite proxies `/api` to the API,
+so the session cookie is first-party and the API needs no CORS. Better Auth
+owns sign-in and sessions, and its tables are generated
+(`pnpm --filter @consola/cloud-api auth:generate`), never hand-edited. Every
+table that holds company data carries `organization_id`, and a person reaches
+it through `member`.
+
+`mayJoin` (`apps/cloud-api/src/auth/joinRule.ts`) is the one place a sign-in is
+accepted. It is open for now (any Google account with a verified email), so
+this deployment is for local use only until a later round limits it to the
+company. The web app's footer links to the source of the commit it runs
+(AGPL §13).
 
 ### Main Process Key Files
 - `index.ts` - App lifecycle, window management
