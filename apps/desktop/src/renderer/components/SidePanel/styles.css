@@ -131,21 +131,8 @@
 .side-panel-tab-trigger svg {
   flex-shrink: 0;
 }
-/* A kind's mark on a tab behind another, as on the header's toggles */
-.side-panel-tab-trigger[data-agent-dot] {
-  position: relative;
-}
-.side-panel-tab-trigger[data-agent-dot]::after {
-  content: "";
-  position: absolute;
-  top: 3px;
-  right: 3px;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--color-accent);
-  pointer-events: none;
-}
+/* A kind's mark on a tab behind another is drawn by the header's rule for
+   it (Views/styles.css, `[data-agent-dot]`), so the two cannot drift. */
 
 /* Shown on the tab in front and on the one under the pointer */
 .side-panel-tab-close {

@@ -831,13 +831,17 @@
   cursor: default;
 }
 
-/* A kind's mark (`markPlaces`), such as an agent having used a page the person has not seen.
+/* A kind's mark (`markPlaces`), such as an agent having used a page the person has not seen:
+   on a header shortcut, on the side panel toggle, or on a tab in the side panel's bar. One rule
+   for all three, so the dot cannot differ between them.
    A literal radius: var(--radius-full) resolves to 0 inside .radix-themes. */
-.path-display-toggle[data-agent-dot] {
+.path-display-toggle[data-agent-dot],
+.side-panel-tab-trigger[data-agent-dot] {
   position: relative;
 }
 
-.path-display-toggle[data-agent-dot]::after {
+.path-display-toggle[data-agent-dot]::after,
+.side-panel-tab-trigger[data-agent-dot]::after {
   content: "";
   position: absolute;
   top: 3px;
