@@ -1722,49 +1722,53 @@ export class AutomationService {
       ok: false,
       error: maskSecrets(error, base.secrets),
     });
-
-    let spec: CommandSpec;
+    // What the steps below did not foresee (the host's work-item port, say) is a failure too, masked like theirs.
     try {
-      const logs = this.deps.runFolder.checkFiles(workspaceId, name);
-      this.deps.runFolder.ensureEmptyFile(logs.stdout);
-      this.deps.runFolder.ensureEmptyFile(logs.stderr);
-      spec = checkSpec({
-        trigger,
-        automation: name,
-        cwd: this.deps.runFolder.workspaceDir(workspaceId),
-        logs,
-        base,
-      });
-    } catch (error) {
-      return fail(`Could not create its logs (${describeReason(error)}); nothing ran.`);
-    }
+      let spec: CommandSpec;
+      try {
+        const logs = this.deps.runFolder.checkFiles(workspaceId, name);
+        this.deps.runFolder.ensureEmptyFile(logs.stdout);
+        this.deps.runFolder.ensureEmptyFile(logs.stderr);
+        spec = checkSpec({
+          trigger,
+          automation: name,
+          cwd: this.deps.runFolder.workspaceDir(workspaceId),
+          logs,
+          base,
+        });
+      } catch (error) {
+        return fail(`Could not create its logs (${describeReason(error)}); nothing ran.`);
+      }
 
-    const key = automationKey(entry);
-    let result: CommandResult;
-    try {
-      const command = this.deps.commands.start(spec);
-      this.checkCommands.set(key, command);
-      result = await command.result;
-    } catch (error) {
-      return fail(`The command could not start (${describeReason(error)}); nothing ran.`);
-    } finally {
-      this.checkCommands.delete(key);
-    }
-    if (result.exitCode !== 0 || result.timedOut || result.stopped)
-      return fail(describeFailure(result, trigger.timeoutMs));
+      const key = automationKey(entry);
+      let result: CommandResult;
+      try {
+        const command = this.deps.commands.start(spec);
+        this.checkCommands.set(key, command);
+        result = await command.result;
+      } catch (error) {
+        return fail(`The command could not start (${describeReason(error)}); nothing ran.`);
+      } finally {
+        this.checkCommands.delete(key);
+      }
+      if (result.exitCode !== 0 || result.timedOut || result.stopped)
+        return fail(describeFailure(result, trigger.timeoutMs));
 
-    let stdout: string | null;
-    try {
-      stdout = this.deps.runFolder.readText(spec.stdoutPath, MAX_CHECK_STDOUT_BYTES + 1);
+      let stdout: string | null;
+      try {
+        stdout = this.deps.runFolder.readText(spec.stdoutPath, MAX_CHECK_STDOUT_BYTES + 1);
+      } catch (error) {
+        return fail(`Could not read its stdout (${describeReason(error)}).`);
+      }
+      if (stdout === null) return fail('Its stdout log is gone, so it has no output.');
+      // Over the limit by what it wrote, not by whether a log was cut: its stderr may be the one that was.
+      const truncated =
+        result.stdoutBytes > MAX_CHECK_STDOUT_BYTES || utf8Bytes(stdout) > MAX_CHECK_STDOUT_BYTES;
+      const read = readCheckResult({ stdout, truncated, trigger, workItems: this.deps.workItems });
+      return read.ok ? { ok: true, items: read.items } : fail(read.problem);
     } catch (error) {
-      return fail(`Could not read its stdout (${describeReason(error)}).`);
+      return fail(describeReason(error));
     }
-    if (stdout === null) return fail('Its stdout log is gone, so it has no output.');
-    // Over the limit by what it wrote, not by whether a log was cut: its stderr may be the one that was.
-    const truncated =
-      result.stdoutBytes > MAX_CHECK_STDOUT_BYTES || utf8Bytes(stdout) > MAX_CHECK_STDOUT_BYTES;
-    const read = readCheckResult({ stdout, truncated, trigger, workItems: this.deps.workItems });
-    return read.ok ? { ok: true, items: read.items } : fail(read.problem);
   }
 
   /**

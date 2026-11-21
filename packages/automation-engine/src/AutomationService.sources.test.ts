@@ -754,6 +754,22 @@ describe('checking', () => {
     expect(h.notices).toEqual([cantCheck(error)]);
   });
 
+  it('an error the check did not foresee is its failure, masked like the rest', async () => {
+    const h = await allowedTemplate();
+    const [token] = h.world.commandEnv.secrets;
+    // The host's work-item port throws, naming the token the check ran with.
+    h.world.workItems.parseUrl = () => {
+      throw new Error(`the lookup with ${token} failed`);
+    };
+    await h.world.commands[0].end({ stdout: JSON.stringify([PR_51_ROW]) });
+    const { error } = checkOf(h);
+    expect(error).toContain('the lookup with *** failed');
+    expect(error).not.toContain(token);
+    expect(checkOf(h)).not.toHaveProperty('items');
+    expect(h.notices).toEqual([cantCheck(error!)]);
+    expect(JSON.stringify(h.notices)).not.toContain(token);
+  });
+
   it('a check that succeeds keeps what it found', async () => {
     const h = await allowedTemplate();
     h.pollOutput([
