@@ -3,6 +3,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { RunDefinition } from '../steps/definition';
+import type { StepTurnFile } from '../views';
 import { RunFolder } from './runFolder';
 
 describe('RunFolder', () => {
@@ -73,6 +74,45 @@ describe('RunFolder', () => {
     const dir = folder.attemptDir('ws', 'r1', 'review', 1);
     folder.writeJson(dir, 'outputs.json', { a: 1 });
     expect(JSON.parse(fs.readFileSync(path.join(dir, 'outputs.json'), 'utf8'))).toEqual({ a: 1 });
+  });
+
+  describe('turn.json', () => {
+    const turn = (exitCode: number): StepTurnFile => ({
+      endedAt: '2026-11-16T09:05:00.000Z',
+      exitCode,
+      maxTurns: 6,
+      init: { type: 'system', subtype: 'init', model: 'claude-opus-5-5' },
+      result: { type: 'result', subtype: 'success', is_error: false, total_cost_usd: 0.0123 },
+      otherLines: ['Warning: x'],
+    });
+    const file = () => path.join(folder.attemptDir('ws', 'r1', 'review', 1), 'turn.json');
+
+    it("appendTurn writes turn.json in the attempt's folder and appends to it", () => {
+      folder.appendTurn('ws', 'r1', 'review', 1, turn(0));
+      expect(JSON.parse(fs.readFileSync(file(), 'utf8'))).toEqual({ turns: [turn(0)] });
+      folder.appendTurn('ws', 'r1', 'review', 1, turn(1));
+      expect(JSON.parse(fs.readFileSync(file(), 'utf8'))).toEqual({ turns: [turn(0), turn(1)] });
+      // Another attempt's folder has its own.
+      folder.appendTurn('ws', 'r1', 'review', 2, turn(2));
+      expect(JSON.parse(fs.readFileSync(file(), 'utf8')).turns).toHaveLength(2);
+    });
+
+    it('a damaged turn.json is replaced by one holding the new turn', () => {
+      fs.mkdirSync(path.dirname(file()), { recursive: true });
+      fs.writeFileSync(file(), 'not json');
+      folder.appendTurn('ws', 'r1', 'review', 1, turn(0));
+      expect(JSON.parse(fs.readFileSync(file(), 'utf8'))).toEqual({ turns: [turn(0)] });
+      fs.writeFileSync(file(), '{"turns": "not a list"}');
+      folder.appendTurn('ws', 'r1', 'review', 1, turn(1));
+      expect(JSON.parse(fs.readFileSync(file(), 'utf8'))).toEqual({ turns: [turn(1)] });
+    });
+
+    it('refuses a step id that is not a token', () => {
+      expect(() => folder.appendTurn('ws', 'r1', '../x', 1, turn(0))).toThrow(/step id/);
+      expect(() => folder.appendTurn('ws', '../r', 'review', 1, turn(0))).toThrow(/run id/);
+      expect(() => folder.appendTurn('ws', 'r1', 'review', 0, turn(0))).toThrow(/attempt/);
+      expect(fs.readdirSync(tmp)).toEqual([]);
+    });
   });
 
   it('tails a log', () => {

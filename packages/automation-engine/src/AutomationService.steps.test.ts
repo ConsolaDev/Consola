@@ -288,6 +288,77 @@ describe('a steps entry, resolved against its workspace', () => {
   });
 });
 
+describe('a harness whose extra args override what steps compile', () => {
+  const stepProblem =
+    "This harness's extra arguments set `--max-turns`, which would override what Consola launches each step's turn with. Remove it in Settings › Harnesses.";
+  const overriding = { name: 'Stub', problem: null, stepProblem };
+  const refusal = `Stub can’t run automation steps: ${stepProblem}`;
+
+  it('refuses steps entries with an agent step, which then do not run on Run now', async () => {
+    const h = await stepsHarness({ yaml: TEMPLATE, harness: overriding });
+    expect(h.service.list(WORKSPACE_ID).find((a) => a.name === NAME)?.problem).toBe(refusal);
+    await expect(h.service.trigger(WORKSPACE_ID, NAME)).rejects.toThrow(
+      `${NAME} cannot run: ${refusal}`,
+    );
+    expect(h.world.launches).toEqual([]);
+  });
+
+  it('leaves a steps entry of commands only alone', async () => {
+    const entry = await listed({
+      yaml: factory(DAILY_IN_API, '- run: git fetch --prune'),
+      harness: overriding,
+    });
+    expect(entry.problem).toBeUndefined();
+  });
+
+  it('leaves a legacy prompt entry alone: its turn does not report', async () => {
+    const entry = await listed({ yaml: file(legacy('digest')), harness: overriding });
+    expect(entry.problem).toBeUndefined();
+  });
+
+  it('a harness that cannot run read-only says that first', async () => {
+    const entry = await listed({
+      yaml: TEMPLATE,
+      harness: {
+        name: 'Codex',
+        problem: 'Codex sessions cannot be made read-only yet.',
+        stepProblem,
+      },
+    });
+    expect(entry.problem).toBe(
+      'Codex can’t run read-only automation sessions: Codex sessions cannot be made read-only yet',
+    );
+  });
+
+  it('a harness with no step problem refuses nothing', async () => {
+    const entry = await listed({ yaml: TEMPLATE, harness: { ...overriding, stepProblem: null } });
+    expect(entry.problem).toBeUndefined();
+  });
+
+  it("and the workspace's capabilities say so", async () => {
+    const h = await stepsHarness({ yaml: TEMPLATE, harness: overriding });
+    expect(h.service.capabilities(WORKSPACE_ID).harness).toEqual({
+      name: 'Stub',
+      canRunAgents: true,
+      stepsProblem: refusal,
+    });
+    const readOnly = await stepsHarness({
+      yaml: TEMPLATE,
+      harness: {
+        name: 'Codex',
+        problem: 'Codex sessions cannot be made read-only yet.',
+        stepProblem,
+      },
+    });
+    expect(readOnly.service.capabilities(WORKSPACE_ID).harness).toEqual({
+      name: 'Codex',
+      canRunAgents: false,
+      problem:
+        'Codex can’t run read-only automation sessions: Codex sessions cannot be made read-only yet',
+    });
+  });
+});
+
 describe('a steps entry, as the panel lists it', () => {
   it('shows each step, its if:, and what it runs', async () => {
     const entry = await listed({ yaml: TEMPLATE });
@@ -2696,6 +2767,28 @@ describe('the reminder turn', () => {
         { id: 'two', status: 'not-run' },
       ],
     });
+  });
+
+  it('gets 1 + 2 per missing item as its cap', async () => {
+    const h = await accepted(file(NIGHTLY));
+    await h.service.trigger(WORKSPACE_ID, 'nightly');
+    await h.flush();
+    await h.world.endTurn('session-1');
+    expect(h.world.reminderCaps).toEqual([3]);
+
+    // An output set and a handover a later step reads: two missing items.
+    const handed = entry(
+      'handed',
+      DAILY_AUTO,
+      ONE,
+      '- id: two\n  prompt: Write up the night.\n  reads: [one.handover]',
+    );
+    const both = await accepted(file(handed));
+    await both.service.trigger(WORKSPACE_ID, 'handed');
+    await both.flush();
+    await both.world.endTurn('session-1');
+    expect(both.world.reminders).toHaveLength(1);
+    expect(both.world.reminderCaps).toEqual([5]);
   });
 
   it('that sets the outputs completes the step', async () => {

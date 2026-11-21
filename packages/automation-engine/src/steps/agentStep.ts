@@ -247,6 +247,7 @@ export function agentStepLaunch(input: {
         cwd: checkout.cwd,
         scopeId: checkout.scopeId,
         name,
+        ...(step.maxTurns !== undefined ? { maxTurns: step.maxTurns } : {}),
       },
       ...(item && workItem
         ? {

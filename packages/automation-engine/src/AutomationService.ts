@@ -118,7 +118,7 @@ import {
   type CheckState,
 } from './sources/pollRunner';
 import { reminderPrompt } from './steps/stepPrompt';
-import { turnFailure } from './steps/turnReport';
+import { reminderCap, turnFailure } from './steps/turnReport';
 import type { CheckoutPort, CheckoutRequest, PreparedCheckout } from './steps/checkout';
 import { describeFailure, LOG_CAP_BYTES, maskSecrets, utf8Bytes } from './steps/commandIO';
 import {
@@ -242,16 +242,23 @@ export interface AutomationServiceDeps {
   /**
    * Run a step's one reminder turn: its session's exited terminal relaunched in place, or
    * resumed if it has none, unattended, with `prompt` as its turn; throws with the reason
-   * it could not. It never refreshes the step's checkout.
+   * it could not. It never refreshes the step's checkout. `maxTurns` caps the reminder
+   * turn (`reminderCap`).
    */
-  remindAgent(session: SessionView, prompt: string): Promise<void>;
+  remindAgent(session: SessionView, prompt: string, maxTurns: number): Promise<void>;
   /** Whether a session has a terminal whose process is still running: someone opened it. */
   hasLiveTerminal(session: SessionView): boolean;
   /**
    * The workspace's default harness: its display name, and why it cannot
-   * run a read-only unattended session (null when it can).
+   * run a read-only unattended session (null when it can). `stepProblem`:
+   * why its steps' reporting turns would not launch as Consola compiles them
+   * (its extra arguments override a flag they need); absent or null, they would.
    */
-  agentHarness(workspaceId: string): { name: string; problem: string | null };
+  agentHarness(workspaceId: string): {
+    name: string;
+    problem: string | null;
+    stepProblem?: string | null;
+  };
   /** End a running unattended turn the way Ctrl+C does. False when none is running. */
   stopAgent(session: SessionView, reason: string): boolean;
   /** Agent sessions automations may have working at once, across every workspace. */
@@ -994,6 +1001,8 @@ export class AutomationService {
       harness: {
         name: this.deps.agentHarness(workspaceId).name,
         problem: this.harnessProblem(workspaceId),
+        stepProblem:
+          this.harnessProblem(workspaceId) === null ? this.stepHarnessProblem(workspaceId) : null,
       },
     });
   }
@@ -3468,7 +3477,7 @@ export class AutomationService {
     // Called before this returns, as before; a synchronous throw lands in the same catch.
     void (async () => {
       try {
-        await this.deps.remindAgent(session, reminderPrompt(missing));
+        await this.deps.remindAgent(session, reminderPrompt(missing), reminderCap(missing));
         if (!this.stepRunning(run.id, record.id, attempt)) {
           this.endOrphanTurn(session.id);
           return;
@@ -4017,7 +4026,7 @@ export class AutomationService {
     if (this.deps.platform === 'win32' && steps.some((step) => step.kind === 'run'))
       return unable(NO_POSIX_SHELL);
     const hasAgentStep = steps.some((step) => step.kind === 'agent');
-    const refused = hasAgentStep ? this.harnessProblem(workspaceId) : null;
+    const refused = hasAgentStep ? this.stepHarnessProblem(workspaceId) : null;
     if (refused) return unable(refused);
 
     // The bodies live in settings, not the file: editing one asks again.
@@ -4052,6 +4061,19 @@ export class AutomationService {
     return problem
       ? `${name} can’t run read-only automation sessions: ${problem.replace(/\.$/, '')}`
       : null;
+  }
+
+  /**
+   * Why the harness cannot run a steps entry's agent steps, as the entry's
+   * problem: it cannot run read-only (`harnessProblem`), or its extra
+   * arguments override a flag a step's reporting turn is launched with. A
+   * legacy agent entry's turn does not report, so only steps entries ask this.
+   */
+  private stepHarnessProblem(workspaceId: string): string | null {
+    const readOnly = this.harnessProblem(workspaceId);
+    if (readOnly) return readOnly;
+    const { name, stepProblem } = this.deps.agentHarness(workspaceId);
+    return stepProblem ? `${name} can’t run automation steps: ${stepProblem}` : null;
   }
 
   /** An automation acts on its own workspace, as itself. */

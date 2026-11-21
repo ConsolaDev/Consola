@@ -41,6 +41,38 @@ const grammar = () =>
     harness: { name: 'Claude', problem: null },
   });
 
+describe('the harness, as an agent writing an entry is told it', () => {
+  const told = (harness: Parameters<typeof describeCapabilities>[0]['harness']) =>
+    describeCapabilities({
+      filePath: '/f/factory.yml',
+      fileExists: true,
+      tools: [],
+      actions: [],
+      scopes: [],
+      taken: [],
+      boundConnection: 'github',
+      harness,
+    }).harness;
+
+  it('tells an agent when the harness cannot run steps', () => {
+    expect(
+      told({ name: 'Claude', problem: null, stepProblem: 'Claude can’t run automation steps: x' }),
+    ).toEqual({
+      name: 'Claude',
+      canRunAgents: true,
+      stepsProblem: 'Claude can’t run automation steps: x',
+    });
+  });
+
+  it('says nothing of steps when they would run', () => {
+    expect(told({ name: 'Claude', problem: null, stepProblem: null })).toEqual({
+      name: 'Claude',
+      canRunAgents: true,
+    });
+    expect(told({ name: 'Claude', problem: null })).toEqual({ name: 'Claude', canRunAgents: true });
+  });
+});
+
 describe('what an agent writing an entry is told', () => {
   it('every GRAMMAR example parses and resolves', async () => {
     expect(GRAMMAR_EXAMPLES.map((example) => example.title)).toEqual([

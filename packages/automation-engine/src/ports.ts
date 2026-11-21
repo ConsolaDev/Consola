@@ -3,7 +3,7 @@
  * plus `AutomationServiceDeps` in `AutomationService.ts`.
  */
 import type { FactorySpecParseResult, RunRecord } from '@consola/factory-spec';
-import type { ItemRef, SessionView } from './views';
+import type { ItemRef, SessionView, StepTurnFile } from './views';
 import type { RunDefinition } from './steps/definition';
 
 /** One persisted JSON document, read and written whole. The engine's stores take this; `node/JsonStateFile` is the disk-backed one. */
@@ -126,9 +126,17 @@ export interface AgentLaunchRequest {
   /**
    * A step of a `steps:` run: the session is that step's attempt, named
    * `name`, in the folder the engine prepared (`cwd`, in scope `scopeId`),
-   * so the host prepares no worktree of its own.
+   * so the host prepares no worktree of its own. `maxTurns` is the step's
+   * own cap (`max_turns`), present only when its file writes one.
    */
-  step?: { id: string; attempt: number; cwd: string; scopeId: string; name: string };
+  step?: {
+    id: string;
+    attempt: number;
+    cwd: string;
+    scopeId: string;
+    name: string;
+    maxTurns?: number;
+  };
 }
 
 /**
@@ -199,6 +207,14 @@ export interface RunFolderPort {
     name: string,
   ): string | null;
   writeJson(dir: string, file: 'command.json' | 'outputs.json', value: unknown): void;
+  /** Atomic: `runs/<run>/<step>/<attempt>/turn.json` gains `turn` at the end of its `turns`. */
+  appendTurn(
+    workspaceId: string,
+    runId: string,
+    stepId: string,
+    attempt: number,
+    turn: StepTurnFile,
+  ): void;
   tail(file: string, bytes?: number): { text: string; bytes: number; truncated: boolean } | null;
   /** Null when missing; throws past `maxBytes`. */
   readText(file: string, maxBytes: number): string | null;

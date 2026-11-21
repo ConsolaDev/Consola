@@ -122,6 +122,37 @@ const POLL_ON =
   '    on: { poll: { every: 30m, run: gh api graphql, item: { github: .url }, changed: .head } }\n';
 const parsesGitHub = { canParseUrls: (connection: string) => connection === 'github' };
 
+describe("agentStepLaunch and a step's max_turns", () => {
+  const launchOf = (stepLines: string) => {
+    const definition = stepsDefinition(
+      `  - name: nightly\n    on: { cron: "0 9 * * 1-5" }\n    scope: api\n    steps:\n      - id: research\n        prompt: Read what changed in api overnight.\n${stepLines}`,
+    );
+    const launch = agentStepLaunch({
+      workspaceId: 'ws-1',
+      run: run({ status: 'queued' }),
+      definition,
+      stepId: 'research',
+      checkout: { cwd: '/code/api', scopeId: 'scope-api' },
+      source: undefined,
+      polled: undefined,
+      previous: undefined,
+      folder: UNREAD_FOLDER,
+    });
+    if (!launch.ok) throw new Error(launch.error);
+    return launch.request;
+  };
+
+  it("the launch request carries the step's max_turns", () => {
+    expect(launchOf('        max_turns: 6\n').step?.maxTurns).toBe(6);
+  });
+
+  it('and none without it', () => {
+    const { step } = launchOf('');
+    expect(step).toBeDefined();
+    expect(Object.prototype.hasOwnProperty.call(step, 'maxTurns')).toBe(false);
+  });
+});
+
 describe('agentStepLaunch on a poll', () => {
   const review = stepsDefinition(
     `  - name: rereview\n${POLL_ON}    steps:\n      - id: review\n        action: Review\n`,

@@ -7,6 +7,7 @@ import {
 } from '@consola/factory-spec';
 import type { RunFolderPort } from '../ports';
 import { MAX_ARTIFACT_BYTES, type RunDefinition } from '../steps/definition';
+import type { StepTurnFile } from '../views';
 import { workspaceDataDir } from './factoryFile';
 
 const TOKEN = /^[A-Za-z0-9_-]+$/;
@@ -218,6 +219,32 @@ export class RunFolder implements RunFolderPort {
     if (file !== 'command.json' && file !== 'outputs.json')
       throw new Error(`Not a run file: ${JSON.stringify(file)}.`);
     writeAtomically(path.join(this.confine(dir), file), JSON.stringify(value));
+  }
+
+  /**
+   * `turn.json` in the attempt's folder gains `turn` at the end of its
+   * `turns`, written atomically. A missing file, or one that is not a
+   * `{ turns: [...] }`, counts as empty: the record holds the figures, so a
+   * damaged file only loses the CLI's own objects of earlier turns.
+   */
+  public appendTurn(
+    workspaceId: string,
+    runId: string,
+    stepId: string,
+    attempt: number,
+    turn: StepTurnFile,
+  ): void {
+    const file = path.join(this.attemptDir(workspaceId, runId, stepId, attempt), 'turn.json');
+    let turns: unknown[] = [];
+    try {
+      const existing = JSON.parse(this.readText(file, MAX_DEFINITION_BYTES) ?? '{}') as {
+        turns?: unknown;
+      };
+      if (Array.isArray(existing?.turns)) turns = existing.turns;
+    } catch (error) {
+      if (!(error instanceof SyntaxError)) throw error;
+    }
+    writeAtomically(this.confine(file), JSON.stringify({ turns: [...turns, turn] }));
   }
 
   public tail(

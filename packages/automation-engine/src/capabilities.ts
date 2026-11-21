@@ -46,8 +46,12 @@ export interface AutomationCapabilities {
   scopes: Array<{ name: string; path: string }>;
   /** Names already in the file: a new entry needs another, or `replace: true` to change that one. */
   taken: string[];
-  /** The workspace's default harness, which every agent run starts on. */
-  harness: { name: string; canRunAgents: boolean; problem?: string };
+  /**
+   * The workspace's default harness, which every agent run starts on.
+   * `stepsProblem`: why its steps entries with an agent step would not run
+   * there although it can run agents.
+   */
+  harness: { name: string; canRunAgents: boolean; problem?: string; stepsProblem?: string };
   readOnlyLimits: string;
 }
 
@@ -61,8 +65,12 @@ export interface CapabilitiesInput {
   taken: string[];
   /** The connection the workspace is bound to, if any. */
   boundConnection: string | null;
-  /** The harness's name, and the entry `problem` it gives agent entries (null when it can run them). */
-  harness: { name: string; problem: string | null };
+  /**
+   * The harness's name, the entry `problem` it gives agent entries (null when
+   * it can run them), and the one it gives steps entries with an agent step
+   * when only those cannot run (`stepProblem`; null or absent when they can).
+   */
+  harness: { name: string; problem: string | null; stepProblem?: string | null };
 }
 
 /** The item fields a prompt may template: the ones every connection gives and nobody else wrote. */
@@ -278,6 +286,9 @@ export function describeCapabilities(input: CapabilitiesInput): AutomationCapabi
       name: input.harness.name,
       canRunAgents: input.harness.problem === null,
       ...(input.harness.problem !== null ? { problem: input.harness.problem } : {}),
+      ...(typeof input.harness.stepProblem === 'string'
+        ? { stepsProblem: input.harness.stepProblem }
+        : {}),
     },
     readOnlyLimits: READ_ONLY_LIMITS,
   };

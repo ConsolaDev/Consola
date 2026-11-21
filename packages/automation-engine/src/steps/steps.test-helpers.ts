@@ -88,8 +88,8 @@ export interface StepsHarnessOptions {
   yaml?: string;
   /** What `process.platform` would say on the host. Default `darwin`. */
   platform?: NodeJS.Platform;
-  /** The default harness, as the agent check sees it. Default: Claude, able to run read-only. */
-  harness?: { name: string; problem: string | null };
+  /** The default harness, as the agent check sees it. Default: Claude, able to run read-only and steps. */
+  harness?: StepsWorld['harness'];
   /** Local wall-clock start. */
   now?: Date;
   /** Agent sessions automations may have working at once; `world.maxConcurrentAgents` changes it later. Default: the engine's. */
@@ -108,7 +108,8 @@ export interface StepsWorld {
   workspace: WorkspaceView & { name: string };
   /** ws-1 was deleted: the host no longer lists it. Set it, then `service.syncWorkspaces()`. */
   workspaceDeleted: boolean;
-  harness: { name: string; problem: string | null };
+  /** `stepProblem`: its extra arguments override what a step's turn is launched with. */
+  harness: { name: string; problem: string | null; stepProblem?: string | null };
   /** Each workspace's latest Inbox snapshot, as `inboxSnapshot` returns it. */
   inbox: Map<string, ItemSnapshot>;
   /** Sessions a pane has a live terminal for: a person opened them. */
@@ -174,6 +175,8 @@ export interface StepsWorld {
   resumes: Array<{ sessionId: string; prompt: string }>;
   /** Every reminder turn asked for, in order. */
   reminders: Array<{ sessionId: string; prompt: string }>;
+  /** The cap each reminder turn was asked for with, in the same order. */
+  reminderCaps: number[];
   /** Every reminder throws this while it is set, after recording the call. */
   remindThrows?: unknown;
   stops: Array<{ sessionId: string; reason: string }>;
@@ -275,6 +278,7 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
     launches: [],
     resumes: [],
     reminders: [],
+    reminderCaps: [],
     stops: [],
     refreshes: [],
     broadcasts: [],
@@ -432,8 +436,9 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
       if (world.resumeGate) await world.resumeGate;
       if (world.resumeThrows) throw world.resumeThrows;
     },
-    remindAgent: async (session, prompt) => {
+    remindAgent: async (session, prompt, maxTurns) => {
       world.reminders.push({ sessionId: session.id, prompt });
+      world.reminderCaps.push(maxTurns);
       if (world.remindGate) await world.remindGate;
       if (world.remindThrows) throw world.remindThrows;
     },
