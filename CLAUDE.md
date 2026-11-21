@@ -340,11 +340,12 @@ It is view state, kept in the renderer, never on a `Workspace` or `Session`
 record.
 
 - **`sidePanel/tabKinds.ts` is the only list of kinds** (`TAB_KINDS`), and its
-  order is canonical: the header's shortcuts, the "+" list, the palette and
-  the layout all iterate it, and none of them names a kind id. A kind is an
-  entry there, its view in `TAB_VIEWS` (`SidePanel/tabViews.tsx`, a component
-  per kind, keyed by every id, so a kind without a view does not typecheck)
-  and, if it has one, its mark in `TAB_MARKS`. Whether a kind applies to the
+  order is canonical: the header's shortcuts, the "+" list and the palette
+  iterate it, a stored layout is repaired against it, and none of them names
+  a kind id. A kind is an entry there, its view in `TAB_VIEWS`
+  (`SidePanel/tabViews.tsx`, a component per kind, keyed by every id, so a
+  kind without a view does not typecheck) and, if it has one, its mark in
+  `TAB_MARKS`. Whether a kind applies to the
   session is its own `availability`, read from `TabFacts`, whose
   `checkoutPath` is `checkoutPathForSession`'s: Changes, Files and Terminal
   are unavailable while the worktree is removed, and say why in their tab.
@@ -379,11 +380,11 @@ record.
   drawn over, and only while mounted (`mount: 'front'`), so a tab behind, a
   hidden group or a hidden side panel never leaves a page drawn over the
   window. Its mark (an agent used the session's browser while no Browser tab
-  showed it) is on its header shortcut if it has one, on its tab while that
-  is in a group on screen, and otherwise on the side panel toggle
-  (`markPlaces`). `.side-panel-tab` is one of `BrowserHost`'s drag handles,
-  so a tab dragged across a shown page does not stall, and the drop target
-  and the tab menu draw above the page.
+  showed it) is on its header shortcut while Browser is one of the three, on
+  its tab while that is in a group on screen, and otherwise on the side panel
+  toggle (`markPlaces`). `.side-panel-tab` is one of `BrowserHost`'s drag
+  handles, so a tab dragged across a shown page does not stall, and the drop
+  target and the tab menu draw above the page.
 - **Layout, use counts and the setting live in `sidePanelStore`**, on
   localStorage (`consola-side-panel`), never in `Preferences`. The layout is
   written and read only while "Remember the side panel's layout" is on;
