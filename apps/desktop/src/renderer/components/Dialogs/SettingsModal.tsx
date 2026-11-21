@@ -393,7 +393,6 @@ function AppBrowserSection() {
 function ShortcutsSection() {
   // Mirrors what useKeyboardShortcuts actually binds -- nothing aspirational.
   const mod = isMac ? '⌘' : 'Ctrl+';
-  const shift = isMac ? '⇧' : 'Shift+';
   const shortcuts = [
     { label: 'Command palette', key: COMMAND_PALETTE_SHORTCUT_LABEL },
     { label: 'New session', key: `${mod}N` },
@@ -406,7 +405,7 @@ function ShortcutsSection() {
     { label: 'Terminal tab', key: SHELL_SHORTCUT_LABEL },
     { label: 'Show or hide the side panel', key: SIDE_PANEL_SHORTCUT_LABEL },
     { label: 'Open settings', key: `${mod},` },
-    { label: 'Cycle theme', key: `${mod}${shift}T` },
+    { label: 'Cycle theme', key: isMac ? '⇧⌘T' : 'Ctrl+Shift+T' },
     { label: 'Rename session', key: 'F2' },
   ];
 

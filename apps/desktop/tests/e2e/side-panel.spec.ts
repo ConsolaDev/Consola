@@ -1084,6 +1084,21 @@ test.describe('side panel', () => {
   const rememberLayout = () =>
     settings().getByRole('checkbox', { name: 'Remember the side panel’s layout', exact: true });
 
+  test('Settings writes every chord with ⇧ before ⌘, as the header and the palette do', async () => {
+    test.skip(process.platform !== 'darwin', 'only macOS writes its chords as symbols');
+    await page.keyboard.press(settingsChord());
+    await settings().getByRole('button', { name: 'Keyboard shortcuts', exact: true }).click();
+    const keys = settings().locator('.settings-modal-shortcut-key');
+    await expect(keys.first()).toBeVisible();
+    expect((await keys.allTextContents()).filter((key) => key.includes('⌘⇧'))).toEqual([]);
+    await expect(
+      settings()
+        .locator('.settings-modal-shortcut')
+        .filter({ hasText: 'Cycle theme' })
+        .locator('kbd'),
+    ).toHaveText('⇧⌘T');
+  });
+
   test('a split survives a restart', async () => {
     await splitChangesOverFiles();
 
