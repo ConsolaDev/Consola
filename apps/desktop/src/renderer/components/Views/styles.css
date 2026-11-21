@@ -965,9 +965,10 @@
   margin: 0 !important;
 }
 
-/* Focused by a click, so the keys scroll it; never by Tab, so no ring */
-.code-file-content pre:focus {
-  outline: none;
+/* Focused by Tab or a click, so the keys scroll it; ringed for the keyboard only */
+.code-file-content pre:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
 }
 
 /* ========================================
@@ -1154,9 +1155,10 @@
   line-height: 1.5;
 }
 
-/* Focused by a click, so the keys scroll it; never by Tab, so no ring */
-.diff-unified-content:focus {
-  outline: none;
+/* Focused by Tab or a click, so the keys scroll it; ringed for the keyboard only */
+.diff-unified-content:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
 }
 
 .diff-unified-line {

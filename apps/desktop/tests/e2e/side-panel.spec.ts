@@ -407,6 +407,80 @@ test.describe('side panel', () => {
     await expect.poll(() => scrolledAround(line)).toBeGreaterThan(0);
   });
 
+  /** Whether the keyboard is on `target` itself. */
+  const hasKeyboard = (target: Locator) =>
+    target.evaluate((element) => element === document.activeElement);
+  /** The style of the ring drawn around `target`: `none` when there is none. */
+  const ringOf = (target: Locator) =>
+    target.evaluate((element) => getComputedStyle(element).outlineStyle);
+  /**
+   * Presses Tab, at most `most` times, until the keyboard is on `target`, as
+   * someone without a pointer gets there. Says whether it got there.
+   */
+  async function tabTo(target: Locator, most = 6): Promise<boolean> {
+    for (let press = 0; press < most; press += 1) {
+      await page.keyboard.press('Tab');
+      if (await hasKeyboard(target)) return true;
+    }
+    return false;
+  }
+  /**
+   * From `scroller`, with the keyboard on it: Tab leaves it, Shift+Tab comes
+   * back to it, and Shift+Tab again leaves it. One stop, and no trap.
+   */
+  async function expectOneStop(scroller: Locator): Promise<void> {
+    await page.keyboard.press('Tab');
+    expect(await hasKeyboard(scroller)).toBe(false);
+    await page.keyboard.press('Shift+Tab');
+    expect(await hasKeyboard(scroller)).toBe(true);
+    await page.keyboard.press('Shift+Tab');
+    expect(await hasKeyboard(scroller)).toBe(false);
+  }
+
+  test('Tab alone reaches a Files preview, and the keys then scroll it', async () => {
+    writeLongFile('src/catalog.ts');
+    writeLongFile('src/search.ts');
+    await openSession('Paginate the catalog search');
+    await conversation().focus();
+    await page.keyboard.press(filesChord);
+    const tree = page.getByTestId('files-tree');
+    await tree.getByText('src', { exact: true }).click();
+    await tree.getByText('catalog.ts', { exact: true }).click();
+    const code = page.locator('.code-file-content pre');
+    await expect(code).toContainText('row40');
+
+    // From the preview's own tab, by Tab alone: nothing clicks the preview.
+    await page.getByRole('button', { name: 'Close catalog.ts', exact: true }).focus();
+    expect(await tabTo(code)).toBe(true);
+    expect(await ringOf(code)).toBe('solid');
+    await page.keyboard.press('PageDown');
+    await expect.poll(() => scrollTopOf(code)).toBeGreaterThan(0);
+    await expectOneStop(code);
+    // A click focuses it too, and draws no ring.
+    await conversation().focus();
+    await code.click({ position: { x: 120, y: 60 } });
+    expect(await hasKeyboard(code)).toBe(true);
+    expect(await ringOf(code)).toBe('none');
+
+    // A changed file's diff, the same.
+    await page.keyboard.press(filesScopeChord);
+    await page.keyboard.type('search.ts');
+    await expect(page.getByRole('option', { name: /search\.ts/ })).toBeVisible();
+    await page.keyboard.press('Enter');
+    const diff = page.locator('.diff-unified-content');
+    await expect(diff).toContainText('row40');
+    await page.getByRole('button', { name: 'Close search.ts', exact: true }).focus();
+    expect(await tabTo(diff)).toBe(true);
+    expect(await ringOf(diff)).toBe('solid');
+    await page.keyboard.press('PageDown');
+    await expect.poll(() => scrollTopOf(diff)).toBeGreaterThan(0);
+    await expectOneStop(diff);
+    await conversation().focus();
+    await diff.locator('.diff-unified-line-content').nth(3).click();
+    expect(await hasKeyboard(diff)).toBe(true);
+    expect(await ringOf(diff)).toBe('none');
+  });
+
   test('at the side panel’s narrowest, Changes keeps room for its diff and Files for both panes', async () => {
     await openSession('Paginate the catalog search');
     await changesShortcut().click();

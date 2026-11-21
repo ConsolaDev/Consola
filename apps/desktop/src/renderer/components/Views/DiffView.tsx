@@ -47,8 +47,10 @@ export function DiffView({ rootPath, relativePath, staged }: DiffViewProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   // Cmd+A selects what the view holds while the keyboard is anywhere in it.
-  // Its lines scroll in `.diff-unified-content`, which a click on them
-  // focuses (never Tab), so the keys then scroll it.
+  // Its lines scroll in `.diff-unified-content`, where Tab stops and which a
+  // click on them focuses: either way the keys then scroll it. Its tabIndex
+  // is 0, not -1: a keyboard user has to reach it to scroll it, as on main,
+  // where the overflowing box was a Tab stop by itself.
   const contentRef = useSelectAll<HTMLDivElement>();
 
   const language = useMemo(() => getLanguageFromPath(relativePath), [relativePath]);
@@ -118,7 +120,8 @@ export function DiffView({ rootPath, relativePath, staged }: DiffViewProps) {
           <span className="diff-header-label diff-header-new">New File</span>
           <span className="diff-header-path">{relativePath}</span>
         </div>
-        <div className="diff-unified-content" tabIndex={-1}>
+        {/* biome-ignore lint/a11y/noNoninteractiveTabindex: it scrolls, so the keyboard has to reach it to scroll it */}
+        <div className="diff-unified-content" tabIndex={0}>
           {lines.map((line, idx) => (
             <div key={idx} className="diff-unified-line diff-unified-line-add">
               <span className="diff-unified-gutter diff-unified-gutter-add">+</span>
@@ -143,7 +146,8 @@ export function DiffView({ rootPath, relativePath, staged }: DiffViewProps) {
           <span className="diff-header-label diff-header-deleted">Deleted File</span>
           <span className="diff-header-path">{relativePath}</span>
         </div>
-        <div className="diff-unified-content" tabIndex={-1}>
+        {/* biome-ignore lint/a11y/noNoninteractiveTabindex: it scrolls, so the keyboard has to reach it to scroll it */}
+        <div className="diff-unified-content" tabIndex={0}>
           {lines.map((line, idx) => (
             <div key={idx} className="diff-unified-line diff-unified-line-remove">
               <span className="diff-unified-gutter diff-unified-gutter-remove">-</span>
@@ -166,7 +170,8 @@ export function DiffView({ rootPath, relativePath, staged }: DiffViewProps) {
         <span className="diff-header-label">{staged ? 'Staged' : 'Modified'}</span>
         <span className="diff-header-path">{relativePath}</span>
       </div>
-      <div className="diff-unified-content" tabIndex={-1}>
+      {/* biome-ignore lint/a11y/noNoninteractiveTabindex: it scrolls, so the keyboard has to reach it to scroll it */}
+      <div className="diff-unified-content" tabIndex={0}>
         {unifiedLines.map((line, idx) => {
           const lineClass =
             line.type === 'add'
