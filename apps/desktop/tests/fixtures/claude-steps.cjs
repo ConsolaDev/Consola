@@ -28,6 +28,10 @@
 //                        --session-id, else --resume): the prompt (after `--`), then
 //                        `FINDINGS: done`. Then it prints `FINDINGS: done` and exits 0.
 //                        Its last log line is `END <id> exit <code>`: the turn is over.
+//   -p --output-format stream-json
+//                        the same turn, reported as the real CLI reports a step's turn
+//                        (below). Without that flag nothing of this changes, so every
+//                        caller that passes none behaves exactly as before.
 //   otherwise            shows an empty composer (`❯ `) and sleeps; with STUB_CLAUDE_CALLS
 //                        (below) it first makes those calls, as an agent in a session would.
 //
@@ -36,7 +40,24 @@
 // logged as `TOOL <name> ERROR <first line>`; a server that cannot be reached
 // as `MCP <what went wrong>`. The remaining calls are still made, then the
 // turn writes no findings, prints nothing to stdout, says so on stderr, and
-// exits 1. A launch that plans no call (neither file usable) is not a failure.
+// exits 1 (in stream-json the result says so instead, below). A launch that
+// plans no call (neither file usable) is not a failure.
+//
+// Stream-json (print mode with `--output-format stream-json`), one JSON line each:
+//   first, before any hold or gate, `system`/`init`: `session_id`, `model`
+//   (STUB_CLAUDE_MODEL, else `claude-stub-1`), `mcp_servers` (`consola`, connected),
+//   `tools`; then the hooks STUB_CLAUDE_HOOKS_FILE names, but StopFailure; then
+//   STUB_CLAUDE_HOLD; then the turn as above, with an `assistant` event holding one
+//   `tool_use` named `mcp__consola__<tool>` before each tool it calls; then
+//   STUB_CLAUDE_LIMIT's event, STUB_CLAUDE_STDERR's line and the StopFailure hook; last,
+//   `result`, its first key `duration_api_ms` as the real CLI's: `subtype`
+//   (STUB_CLAUDE_SUBTYPE, else `success`); `is_error` when that is not `success`, the
+//   limit is set or a call failed; `num_turns` (STUB_CLAUDE_TURNS, else 3);
+//   `total_cost_usd` (STUB_CLAUDE_COST, else 0.0123); `result`, the limit's text, else
+//   the failed call's line, else `FINDINGS: done`, and absent for `error_max_turns`;
+//   `permission_denials` (STUB_CLAUDE_DENIED). It exits 1 when `is_error`, else 0. The
+//   transcript and the `END` line are written as in text mode. A knob below that is
+//   only for stream-json does nothing in text mode, and none logs a line unless set.
 //
 // Env knobs:
 //   STUB_CLAUDE_LOG=path        the launch and tool log above
@@ -59,6 +80,31 @@
 //                               ERROR <first line>` for a failed one), then shows the composer.
 //                               Once per file: it writes `<path>.done` after, and a relaunch that
 //                               finds it makes none.
+//   Only in stream-json:
+//   STUB_CLAUDE_MODEL=name      `init`'s model; default `claude-stub-1`
+//   STUB_CLAUDE_COST=usd        the result's `total_cost_usd`; default 0.0123
+//   STUB_CLAUDE_TURNS=n         the result's `num_turns`; default 3
+//   STUB_CLAUDE_SUBTYPE=name    the result's `subtype`; default `success`. Anything else is
+//                               `is_error`; `error_max_turns` has no `result` text
+//   STUB_CLAUDE_HOOKS_FILE=path read at each launch when the file exists: a JSON list of
+//                               `"<event>"` or `"<event>:<detail>"`, each POSTed as JSON
+//                               (`{ hook_event_name, session_id }`, plus `error: <detail>` for
+//                               StopFailure, `notification_type: <detail>` for Notification, and
+//                               `tool_name: 'Read'`, `tool_input: { file_path: 'src/catalog.ts' }`
+//                               for PermissionRequest) to the first `url` in `--settings`' hooks,
+//                               in order, logging `HOOK <event> <status>` (`HOOK <event> ERROR
+//                               <why>` when the post fails, `HOOK <event> no url` without one).
+//                               StopFailure is posted just before the result, the rest right
+//                               after `init`.
+//   STUB_CLAUDE_HOLD=path       after `init` and the early hooks, waits for this file, logging
+//                               `HOLD waiting`, then `HOLD open`, or `HOLD timed out` and exits 1
+//                               after 60 s, before any tool call. A test holds a turn open with it.
+//   STUB_CLAUDE_STDERR=text     one line on stderr before the result
+//   STUB_CLAUDE_LIMIT=1         an `assistant` event with `"error":"rate_limit"` and the text
+//                               `You've hit your limit · resets 3pm (Europe/Madrid)` before the
+//                               result, and that text as the result's
+//   STUB_CLAUDE_DENIED=a,b      each name as a `permission_denials` entry, `{ tool_name,
+//                               tool_use_id: 'toolu_denied_<n>', tool_input: {} }`, in order
 'use strict';
 const fs = require('node:fs');
 const path = require('node:path');
@@ -70,6 +116,10 @@ const PROTOCOL_VERSION = '2025-06-18';
 const REQUEST_TIMEOUT_MS = 20_000;
 /** How long a resumed turn waits for STUB_CLAUDE_RESUME_GATE before failing: under the 60 s a test waits for its run. */
 const GATE_TIMEOUT_MS = 30_000;
+/** How long a turn waits for STUB_CLAUDE_HOLD before failing. */
+const HOLD_TIMEOUT_MS = 60_000;
+/** What the CLI says when a turn stops on a usage limit. */
+const LIMIT_TEXT = "You've hit your limit · resets 3pm (Europe/Madrid)";
 
 const args = process.argv.slice(2);
 const dashes = args.indexOf('--');
@@ -86,6 +136,32 @@ function flagValue(name) {
   const at = flags.indexOf(name);
   return at === -1 ? undefined : flags[at + 1];
 }
+
+/** Print mode reporting its turn as the real CLI's stream-json. */
+const STREAM_JSON = flagValue('--output-format') === 'stream-json';
+/** The conversation this launch speaks in. */
+const SESSION_ID = flagValue('--session-id') ?? flagValue('--resume');
+
+/** The first call that failed, logged as it was: a stream-json turn's result says it. */
+let failure = null;
+
+/** Logs a line that fails the turn, remembering the first. */
+function logFailure(line) {
+  log(line);
+  failure ??= line;
+}
+
+/** One stream-json event, on its own line. */
+function emit(event) {
+  if (STREAM_JSON) process.stdout.write(JSON.stringify(event) + '\n');
+}
+
+/** Writes `text`, resolving once it is handed over, so what follows comes after it. */
+function writeOut(stream, text) {
+  return new Promise((resolve) => stream.write(text, resolve));
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** A file's text, or null when the knob is unset or the file is absent. */
 function readKnob(name) {
@@ -191,12 +267,12 @@ function plannedCalls() {
 async function withConsola(use) {
   const configPath = flagValue('--mcp-config');
   if (!configPath) {
-    log('MCP no --mcp-config');
+    logFailure('MCP no --mcp-config');
     return false;
   }
   const server = JSON.parse(fs.readFileSync(configPath, 'utf8')).mcpServers?.consola;
   if (!server) {
-    log(`MCP no mcpServers.consola in ${configPath}`);
+    logFailure(`MCP no mcpServers.consola in ${configPath}`);
     return false;
   }
   const client = connect(server);
@@ -204,15 +280,34 @@ async function withConsola(use) {
     await client.initialize();
     return await use(client);
   } catch (error) {
-    log(`MCP ${firstLine(error.message)}`);
+    logFailure(`MCP ${firstLine(error.message)}`);
     return false;
   } finally {
     client.close();
   }
 }
 
+let toolUses = 0;
+
 /** One call: its text and whether it failed (an `isError` answer or a rejected call). */
 async function call(client, name, toolArgs) {
+  // How the real CLI's stream shows a call it is about to make.
+  emit({
+    type: 'assistant',
+    message: {
+      role: 'assistant',
+      type: 'message',
+      content: [
+        {
+          type: 'tool_use',
+          id: `toolu_stub_${++toolUses}`,
+          name: `mcp__consola__${name}`,
+          input: toolArgs,
+        },
+      ],
+    },
+    session_id: SESSION_ID,
+  });
   try {
     const result = await client.callTool(name, toolArgs);
     const text = (result?.content ?? []).find((part) => part.type === 'text')?.text ?? '';
@@ -228,8 +323,11 @@ async function callTools(client, calls) {
   let ok = true;
   for (const [name, toolArgs] of calls) {
     const { text, failed } = await call(client, name, toolArgs);
-    if (failed) ok = false;
-    log(`TOOL ${name} ${failed ? 'ERROR ' : ''}${firstLine(text)}`);
+    const line = `TOOL ${name} ${failed ? 'ERROR ' : ''}${firstLine(text)}`;
+    if (failed) {
+      ok = false;
+      logFailure(line);
+    } else log(line);
   }
   return ok;
 }
@@ -267,8 +365,94 @@ async function passGate() {
   return true;
 }
 
+/** The hooks STUB_CLAUDE_HOOKS_FILE names, as `[event, detail]`; none when it is unset or absent. */
+function plannedHooks() {
+  const text = readKnob('STUB_CLAUDE_HOOKS_FILE');
+  if (text === null) return [];
+  return JSON.parse(text).map((entry) => {
+    const at = entry.indexOf(':');
+    return at === -1 ? [entry, undefined] : [entry.slice(0, at), entry.slice(at + 1)];
+  });
+}
+
+/** The first `url` among `--settings`' hook handlers, where Consola's endpoint listens. */
+function hookUrl() {
+  const settings = flagValue('--settings');
+  if (!settings) return undefined;
+  for (const groups of Object.values(JSON.parse(settings).hooks ?? {})) {
+    for (const group of groups) {
+      for (const handler of group.hooks ?? []) if (handler.url) return handler.url;
+    }
+  }
+  return undefined;
+}
+
+/** Posts one hook as Claude's http hook would, logging `HOOK <event> <status>`. */
+async function postHook([event, detail]) {
+  const url = hookUrl();
+  if (!url) {
+    log(`HOOK ${event} no url`);
+    return;
+  }
+  const body = { hook_event_name: event, session_id: SESSION_ID };
+  if (event === 'StopFailure' && detail !== undefined) body.error = detail;
+  if (event === 'Notification' && detail !== undefined) body.notification_type = detail;
+  if (event === 'PermissionRequest') {
+    body.tool_name = 'Read';
+    body.tool_input = { file_path: 'src/catalog.ts' };
+  }
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+    await response.arrayBuffer();
+    log(`HOOK ${event} ${response.status}`);
+  } catch (error) {
+    log(`HOOK ${event} ERROR ${firstLine(error.message)}`);
+  }
+}
+
+/** STUB_CLAUDE_HOLD: waits for its file, so a test can look at a turn mid-way; false when it never came. */
+async function hold() {
+  const file = process.env.STUB_CLAUDE_HOLD;
+  if (!file) return true;
+  log('HOLD waiting');
+  const until = Date.now() + HOLD_TIMEOUT_MS;
+  while (!fs.existsSync(file)) {
+    if (Date.now() > until) {
+      log('HOLD timed out');
+      return false;
+    }
+    await sleep(50);
+  }
+  log('HOLD open');
+  return true;
+}
+
+/** STUB_CLAUDE_DENIED's names, as the result's `permission_denials`. */
+function permissionDenials() {
+  return (process.env.STUB_CLAUDE_DENIED ?? '')
+    .split(',')
+    .map((name) => name.trim())
+    .filter(Boolean)
+    .map((name, index) => ({
+      tool_name: name,
+      tool_use_id: `toolu_denied_${index + 1}`,
+      tool_input: {},
+    }));
+}
+
+/** A number knob, or its default when unset. */
+function numberKnob(name, fallback) {
+  const value = process.env[name];
+  return value ? Number(value) : fallback;
+}
+
 async function printTurn() {
-  const id = flagValue('--session-id') ?? flagValue('--resume');
+  const id = SESSION_ID;
   // The last line a turn logs, so a test can tell it is over.
   const end = (code, stream, text) => {
     log(`END ${id} exit ${code}`);
@@ -281,7 +465,28 @@ async function printTurn() {
   // the records from its start, and a second-truncated stamp would fall before it.
   const record = (type, content) =>
     JSON.stringify({ type, timestamp: new Date().toISOString(), message: { role: type, content } });
+  const findings = () =>
+    fs.appendFileSync(
+      transcript,
+      record('assistant', [{ type: 'text', text: 'FINDINGS: done' }]) + '\n',
+    );
   fs.appendFileSync(transcript, record('user', prompt) + '\n');
+  const hooks = STREAM_JSON ? plannedHooks() : [];
+  if (STREAM_JSON) {
+    emit({
+      type: 'system',
+      subtype: 'init',
+      session_id: id,
+      model: process.env.STUB_CLAUDE_MODEL || 'claude-stub-1',
+      mcp_servers: [{ name: 'consola', status: 'connected' }],
+      tools: ['Read', 'Grep', 'Glob'],
+    });
+    for (const hook of hooks) if (hook[0] !== 'StopFailure') await postHook(hook);
+    if (!(await hold())) {
+      end(1, process.stderr, 'stub claude: STUB_CLAUDE_HOLD never appeared\n');
+      return;
+    }
+  }
   if (!(await passGate())) {
     end(1, process.stderr, 'stub claude: STUB_CLAUDE_RESUME_GATE never opened\n');
     return;
@@ -293,16 +498,61 @@ async function printTurn() {
     (await withConsola(
       async (client) => (await readDocuments(client, reads)) && callTools(client, calls),
     ));
-  if (!ok) {
-    // A turn whose tool failed is a failed turn: no findings, a non-zero exit.
-    end(1, process.stderr, 'stub claude: a step tool call failed (see STUB_CLAUDE_LOG)\n');
+  if (!STREAM_JSON) {
+    if (!ok) {
+      // A turn whose tool failed is a failed turn: no findings, a non-zero exit.
+      end(1, process.stderr, 'stub claude: a step tool call failed (see STUB_CLAUDE_LOG)\n');
+      return;
+    }
+    findings();
+    end(0, process.stdout, 'FINDINGS: done\n');
     return;
   }
-  fs.appendFileSync(
-    transcript,
-    record('assistant', [{ type: 'text', text: 'FINDINGS: done' }]) + '\n',
+  const limit = process.env.STUB_CLAUDE_LIMIT === '1';
+  const subtype = process.env.STUB_CLAUDE_SUBTYPE || 'success';
+  const isError = subtype !== 'success' || limit || !ok;
+  if (limit) {
+    emit({
+      type: 'assistant',
+      message: {
+        role: 'assistant',
+        type: 'message',
+        content: [{ type: 'text', text: LIMIT_TEXT }],
+      },
+      session_id: id,
+      error: 'rate_limit',
+      is_api_error_message: true,
+    });
+  }
+  if (process.env.STUB_CLAUDE_STDERR)
+    await writeOut(process.stderr, `${process.env.STUB_CLAUDE_STDERR}\n`);
+  for (const hook of hooks) if (hook[0] === 'StopFailure') await postHook(hook);
+  const text =
+    subtype === 'error_max_turns'
+      ? undefined
+      : limit
+        ? LIMIT_TEXT
+        : !ok
+          ? (failure ?? 'a step tool call failed')
+          : 'FINDINGS: done';
+  // As in text mode: only a turn that finished leaves its findings in the transcript.
+  if (!isError) findings();
+  end(
+    isError ? 1 : 0,
+    process.stdout,
+    JSON.stringify({
+      duration_api_ms: 0,
+      type: 'result',
+      subtype,
+      is_error: isError,
+      num_turns: numberKnob('STUB_CLAUDE_TURNS', 3),
+      total_cost_usd: numberKnob('STUB_CLAUDE_COST', 0.0123),
+      ...(text === undefined ? {} : { result: text }),
+      permission_denials: permissionDenials(),
+      api_error_status: null,
+      session_id: id,
+    }) + '\n',
   );
-  end(0, process.stdout, 'FINDINGS: done\n');
 }
 
 if (flags.includes('--version')) {
