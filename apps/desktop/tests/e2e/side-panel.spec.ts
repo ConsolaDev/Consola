@@ -140,6 +140,12 @@ test.describe('side panel', () => {
   async function waitOutDragClickGuard(): Promise<void> {
     await page.evaluate(() => new Promise((done) => setTimeout(done, 60)));
   }
+  /**
+   * What dnd-kit told a screen reader as a drag was cancelled: the live
+   * region saying so. The sidebar's own drags have a region of their own.
+   */
+  const cancelAnnouncement = () =>
+    page.locator('[id^="DndLiveRegion"]').filter({ hasText: /was not moved/ });
   /** A tab's whole box in its bar, its close button included: its trigger's parent. */
   const tabBox = async (tab: Locator) => (await tab.locator('xpath=..').boundingBox())!;
 
@@ -1674,8 +1680,9 @@ test.describe('side panel', () => {
     await page.mouse.move(area.x + area.width / 2, area.y + area.height / 3, { steps: 2 });
     expect(await heard()).toEqual(['Delete']);
 
-    // Escape cancels it, and reaches nothing else.
+    // Escape cancels it, before the release, and reaches nothing else.
     await page.keyboard.press('Escape');
+    await expect(cancelAnnouncement()).toHaveText('The tab was not moved.');
     expect(await heard()).toEqual([]);
     await page.mouse.up();
     await expect(sidePanelTabs().getByRole('tab')).toHaveText(['Changes']);
@@ -1712,10 +1719,12 @@ test.describe('side panel', () => {
     await twoFrames();
     await expect(sidePanelTab('Changes')).toBeFocused();
 
-    // Cancelled by Escape: the same. It begins with a click on Files.
+    // Cancelled by Escape, before the release: the same. It begins with a
+    // click on Files.
     await waitOutDragClickGuard();
     await closeFilesMidDrag();
     await page.keyboard.press('Escape');
+    await expect(cancelAnnouncement()).toHaveText('The tab was not moved.');
     await page.mouse.up();
     await twoFrames();
     await expect(sidePanelTab('Changes')).toBeFocused();
@@ -1746,8 +1755,28 @@ test.describe('side panel', () => {
       });
     const untouched = async (after: string) =>
       expect(await same(), after).toEqual({ conversation: true, browserHost: true });
-    const width = async () => (await xterm.boundingBox())?.width ?? 0;
+    const width = async () => {
+      const box = await xterm.boundingBox();
+      if (!box) throw new Error('the conversation has no terminal on screen');
+      return box.width;
+    };
     const shell = page.getByTestId('session-shell');
+    /**
+     * Changes' review, behind another tab in its group, held on to: a group
+     * that survives a split or an unsplit keeps its views, so a commit
+     * message typed there is not lost.
+     */
+    const holdReview = () =>
+      page.evaluate(() => {
+        const kept = window as unknown as Record<string, Element | null>;
+        kept.__review = document.querySelector('.git-review-panel');
+        return kept.__review !== null;
+      });
+    const sameReview = () =>
+      page.evaluate(() => {
+        const kept = (window as unknown as Record<string, Element | null>).__review;
+        return !!kept?.isConnected && document.querySelector('.git-review-panel') === kept;
+      });
 
     // Shown, the side panel takes its width from the conversation, which
     // only resizes.
@@ -1776,6 +1805,7 @@ test.describe('side panel', () => {
       'Browser',
     ]);
     await untouched('Browser opened');
+    expect(await holdReview()).toBe(true);
 
     // Files split down by its menu, its group maximized, then restored.
     await chooseFromTabMenu(sidePanelTab('Files'), 'Split down');
@@ -1786,12 +1816,18 @@ test.describe('side panel', () => {
     ]);
     await expect(tabList('Bottom group tabs').getByRole('tab')).toHaveText(['Files']);
     await untouched('Files split down');
+    expect(await sameReview(), 'Changes kept through the split').toBe(true);
     await group('Bottom group tabs').getByRole('button', { name: 'Maximize group' }).click();
     await expect(tabList('Top group tabs')).toHaveCount(0);
     await untouched('the bottom group maximized');
     await group('Bottom group tabs').getByRole('button', { name: 'Restore group' }).click();
     await expect(tabList('Top group tabs')).toHaveCount(1);
     await untouched('the bottom group restored');
+    // Maximize took the group hidden behind it off the screen, its views
+    // with it, by design: the check above does see a view replaced.
+    await expect(page.locator('.git-review-panel')).toHaveCount(1);
+    expect(await sameReview(), 'Changes back after Maximize').toBe(false);
+    expect(await holdReview()).toBe(true);
 
     // Terminal dragged onto the bottom bar, after Files.
     const files = await tabBox(
@@ -1813,6 +1849,7 @@ test.describe('side panel', () => {
     await expect(tabList('Bottom group tabs').getByRole('tab')).toHaveText(['Files', 'Terminal']);
     await expect(shell).toHaveCount(1);
     await untouched('Terminal dropped on the bottom bar');
+    expect(await sameReview(), 'Changes kept through the drag').toBe(true);
 
     // The bottom group closed, with its two tabs.
     await waitOutDragClickGuard();
@@ -1821,6 +1858,7 @@ test.describe('side panel', () => {
     await expect(sidePanelTabs().getByRole('tab')).toHaveText(['Changes', 'Browser']);
     await expect(shell).toHaveCount(0);
     await untouched('the bottom group closed');
+    expect(await sameReview(), 'Changes kept through Close group').toBe(true);
 
     // The side panel's edge dragged 80px into the conversation.
     const separator = page.locator('.resize-handle:has(+ [data-testid="side-panel"])');
@@ -1851,5 +1889,6 @@ test.describe('side panel', () => {
     await untouched('Browser closed, and the side panel with it');
     // The whole width again.
     await expect.poll(width).toBeGreaterThan(alone - 2);
+    await untouched('the whole width again');
   });
 });

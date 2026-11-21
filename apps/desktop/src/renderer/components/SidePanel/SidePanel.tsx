@@ -96,16 +96,18 @@ export function SidePanel({ facts }: { facts: TabFacts }) {
     giveKeyboardBack(tab);
   };
 
-  // Said by the tab's title, rather than dnd-kit's ids.
-  const titleOf = (active: Active) => {
+  // Said by the tab's title, rather than dnd-kit's ids: "Files tab", or just
+  // "tab" for a drag whose tab was closed on the way.
+  const tabNamed = (active: Active) => {
     const tab = draggedTabOf(active);
-    return (tab !== undefined && tabKind(tab)?.title(facts)) || 'tab';
+    const title = tab !== undefined ? tabKind(tab)?.title(facts) : undefined;
+    return title ? `${title} tab` : 'tab';
   };
   const announcements: Announcements = {
-    onDragStart: ({ active }) => `Picked up the ${titleOf(active)} tab.`,
+    onDragStart: ({ active }) => `Picked up the ${tabNamed(active)}.`,
     onDragOver: () => undefined,
-    onDragEnd: ({ active }) => `Dropped the ${titleOf(active)} tab.`,
-    onDragCancel: ({ active }) => `The ${titleOf(active)} tab was not moved.`,
+    onDragEnd: ({ active }) => `Dropped the ${tabNamed(active)}.`,
+    onDragCancel: ({ active }) => `The ${tabNamed(active)} was not moved.`,
   };
 
   return (
