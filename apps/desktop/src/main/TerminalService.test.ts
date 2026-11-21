@@ -1,18 +1,21 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as os from 'node:os';
 
-const { spawnMock, buildArgsMock, readCwdMock, loginEnv, providerDriverMock } = vi.hoisted(() => ({
-  spawnMock: vi.fn(),
-  buildArgsMock: vi.fn(),
-  readCwdMock: vi.fn(),
-  /** What the mocked LoginEnvironment answers; reset before each test. */
-  loginEnv: {
-    current: {} as Record<string, string>,
-    problem: null as string | null,
-    retry: null as Promise<void> | null,
-  },
-  providerDriverMock: vi.fn(),
-}));
+const { spawnMock, buildArgsMock, readCwdMock, loginEnv, providerDriverMock, turnReaders } =
+  vi.hoisted(() => ({
+    spawnMock: vi.fn(),
+    buildArgsMock: vi.fn(),
+    readCwdMock: vi.fn(),
+    /** The mocked driver's `createTurnReader`; a `beforeEach` sets it to Claude's real one. */
+    turnReaders: { create: undefined as (() => import('./drivers').TurnReader) | undefined },
+    /** What the mocked LoginEnvironment answers; reset before each test. */
+    loginEnv: {
+      current: {} as Record<string, string>,
+      problem: null as string | null,
+      retry: null as Promise<void> | null,
+    },
+    providerDriverMock: vi.fn(),
+  }));
 
 vi.mock('node-pty', () => ({ spawn: spawnMock }));
 vi.mock('./LoginEnvironment', () => ({
@@ -33,11 +36,29 @@ vi.mock('./drivers', () => ({
     buildSessionArgs: buildArgsMock,
     composeEnv: (_harness: unknown, env: Record<string, string | undefined>) => env,
     readWorkingDirectory: readCwdMock,
+    createTurnReader: turnReaders.create,
   }),
   toHarnessConfig: (options: unknown) => options,
 }));
 
-import { TerminalService, UNATTENDED_TURN_LIMIT_MS, bracketedPaste } from './TerminalService';
+import {
+  TerminalService,
+  UNATTENDED_TURN_LIMIT_MS,
+  bracketedPaste,
+  turnSummary,
+  type TerminalExitInfo,
+} from './TerminalService';
+import { ScreenModel } from './ScreenModel';
+import { createClaudeTurnReader } from './drivers/claudeTurnReader';
+import type { TurnInit, TurnReport } from './drivers';
+import {
+  ASSISTANT_RATE_LIMIT,
+  INIT,
+  RESULT_OK,
+  TOOL_USE,
+  jsonLine,
+  resultLine,
+} from './drivers/streamJson.test-helpers';
 
 /** What deliverPendingPrompt writes: a bracketed paste, then Enter. */
 function pasted(prompt: string): string[] {
@@ -121,6 +142,7 @@ beforeEach(() => {
   spawnMock.mockReset();
   buildArgsMock.mockReset().mockReturnValue([]);
   readCwdMock.mockReset().mockReturnValue(null);
+  turnReaders.create = createClaudeTurnReader;
   return () => vi.useRealTimers();
 });
 
@@ -1178,6 +1200,671 @@ describe('TerminalService unattended turns', () => {
       'read-only',
     ]);
     service.destroy();
+  });
+});
+
+describe('TerminalService a reporting turn', () => {
+  /** A step's session: its unattended turns report, and its record caps them at 6. */
+  const reporting = (fields: Record<string, unknown> = {}) =>
+    new TerminalService({
+      cwd: os.tmpdir(),
+      claudeSessionId: 'consola-id',
+      resume: false,
+      toolPolicy: 'read-only',
+      unattended: true,
+      initialPrompt: 'review it',
+      reportTurns: true,
+      maxTurns: 6,
+      ...fields,
+    });
+
+  /** What a PTY hands over for these stream lines: `\n` becomes `\r\n`. */
+  const pty = (...lines: string[]) => lines.join('').replace(/\n/g, '\r\n');
+
+  /** What a remounted pane paints: the replay, laid into a fresh screen of its size (review S5). */
+  function remounted(service: TerminalService): string {
+    const { replay, cols, rows } = service.getReplay();
+    const fresh = new ScreenModel(cols, rows);
+    // Parses in the same turn (ScreenModel.write), so nothing to wait on under fake timers.
+    fresh.write(replay);
+    const shown = fresh.visibleText();
+    fresh.dispose();
+    return shown;
+  }
+
+  const lastLine = (shown: string) =>
+    shown
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .pop();
+
+  it('asks the driver for a report and the record’s cap', async () => {
+    installFakePty();
+    const service = reporting();
+    service.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(buildArgsMock.mock.calls[0][1]).toMatchObject({
+      unattended: true,
+      reportTurn: true,
+      maxTurns: 6,
+    });
+    service.destroy();
+  });
+
+  it('an interactive launch of the same session asks for no report, and still passes the cap', async () => {
+    installFakePty();
+    const service = reporting({ unattended: false, initialPrompt: undefined, resume: true });
+    service.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(buildArgsMock.mock.calls[0][1]).toMatchObject({ unattended: false, maxTurns: 6 });
+    expect(buildArgsMock.mock.calls[0][1].reportTurn).toBeUndefined();
+    service.destroy();
+  });
+
+  it('a legacy unattended turn keeps text output and today’s notice', async () => {
+    const pty = installFakePty();
+    const service = reporting({ reportTurns: undefined });
+    const output: string[] = [];
+    const exits: TerminalExitInfo[] = [];
+    service.on('data', (data) => output.push(data));
+    service.on('exit', (info) => exits.push(info));
+    service.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(buildArgsMock.mock.calls[0][1].reportTurn).toBeUndefined();
+    expect(output.join('')).toContain('What it finds appears here when it finishes.');
+    pty.feed('FINDINGS: looks good\r\n');
+    pty.exit(0);
+    await vi.advanceTimersByTimeAsync(SETTLE_MS);
+    expect(exits).toEqual([{ exitCode: 0, unattended: true, lastLine: 'FINDINGS: looks good' }]);
+    service.destroy();
+  });
+
+  it('a driver without a turn reader runs the turn as a legacy one', async () => {
+    turnReaders.create = undefined;
+    const pty = installFakePty();
+    const service = reporting();
+    const output: string[] = [];
+    const exits: TerminalExitInfo[] = [];
+    service.on('data', (data) => output.push(data));
+    service.on('exit', (info) => exits.push(info));
+    service.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(buildArgsMock.mock.calls[0][1].reportTurn).toBeUndefined();
+    expect(output.join('')).toContain('What it finds appears here when it finishes.');
+    pty.feed('FINDINGS: looks good\r\n');
+    pty.exit(0);
+    await vi.advanceTimersByTimeAsync(SETTLE_MS);
+    expect(exits).toEqual([{ exitCode: 0, unattended: true, lastLine: 'FINDINGS: looks good' }]);
+    service.destroy();
+  });
+
+  it("shows Consola's lines and never the JSON, and reports the turn at exit", async () => {
+    const fake = installFakePty();
+    const service = reporting();
+    const output: string[] = [];
+    const exits: TerminalExitInfo[] = [];
+    service.on('data', (data) => output.push(data));
+    service.on('exit', (info) => exits.push(info));
+    service.start();
+    await vi.advanceTimersByTimeAsync(0);
+    fake.feed(pty(INIT, TOOL_USE, 'Warning: x\n', RESULT_OK));
+    fake.exit(0);
+    await vi.advanceTimersByTimeAsync(SETTLE_MS);
+
+    const shown = remounted(service);
+    expect(shown).toContain('Its progress shows here');
+    expect(shown).toContain('→ mcp__consola__consola_set_outputs');
+    expect(shown).toContain('Warning: x');
+    expect(shown).toContain('Finished: 7 turns, $0.0412 est.');
+    expect(shown).not.toContain('"type":"');
+    expect(output.join('')).not.toContain('"type":"');
+
+    expect(exits).toHaveLength(1);
+    expect(exits[0]).toMatchObject({
+      exitCode: 0,
+      unattended: true,
+      report: { maxTurns: 6, otherLines: ['Warning: x'], limitNotice: false },
+    });
+    expect(exits[0].report?.result).toMatchObject({ costUsd: 0.0412, turns: 7 });
+    expect(exits[0].report?.init).toMatchObject({ model: 'claude-opus-5-5' });
+    expect(Object.prototype.hasOwnProperty.call(exits[0], 'lastLine')).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(exits[0], 'stopped')).toBe(false);
+    service.destroy();
+  });
+
+  it('shows a tool’s name on one line, cut at 200, and nothing for a name with nothing in it', async () => {
+    const fake = installFakePty();
+    const service = reporting();
+    const output: string[] = [];
+    service.on('data', (data) => output.push(data));
+    service.start();
+    await vi.advanceTimersByTimeAsync(0);
+    const toolUse = (name: string) =>
+      jsonLine({
+        type: 'assistant',
+        message: { content: [{ type: 'tool_use', id: 'toolu_x', name, input: {} }] },
+      });
+    output.length = 0;
+    fake.feed(pty(toolUse(`\x1b[31m${'n'.repeat(250)}\x1b[0m\nsecond`), toolUse('\x07\x1b[2K')));
+    expect(output).toEqual([`\x1b[2m→ ${'n'.repeat(200)}…\x1b[0m\r\n`]);
+    service.destroy();
+  });
+
+  it('a turn that exits while its output settles leaves no timer running', async () => {
+    const fake = installFakePty();
+    const service = reporting();
+    service.start();
+    await vi.advanceTimersByTimeAsync(0);
+    fake.feed(pty(INIT, RESULT_OK));
+    fake.exit(0);
+    await vi.advanceTimersByTimeAsync(SETTLE_MS);
+    expect(vi.getTimerCount()).toBe(0);
+    service.destroy();
+  });
+
+  it('a JSON line split across chunks is read once, and none of it is shown', async () => {
+    const fake = installFakePty();
+    const service = reporting();
+    const output: string[] = [];
+    const exits: TerminalExitInfo[] = [];
+    service.on('data', (data) => output.push(data));
+    service.on('exit', (info) => exits.push(info));
+    service.start();
+    await vi.advanceTimersByTimeAsync(0);
+    const stream = pty(INIT, RESULT_OK);
+    for (let at = 0; at < stream.length; at += 37) fake.feed(stream.slice(at, at + 37));
+    fake.exit(0);
+    await vi.advanceTimersByTimeAsync(SETTLE_MS);
+    expect(output.join('')).not.toContain('"');
+    expect(exits[0].report?.result).toMatchObject({ costUsd: 0.0412, turns: 7 });
+    service.destroy();
+  });
+
+  it('passes only Ctrl+C to the CLI while a reporting turn runs', async () => {
+    const fake = installFakePty();
+    const service = reporting();
+    const exits: TerminalExitInfo[] = [];
+    service.on('exit', (info) => exits.push(info));
+    service.start();
+    await vi.advanceTimersByTimeAsync(0);
+    fake.writes.length = 0;
+    for (const keys of ['abc', '\x1b[A', '\x1b[5~', '\x03']) service.write(keys);
+    expect(fake.writes).toEqual(['\x03']);
+    fake.exit(0);
+    await vi.advanceTimersByTimeAsync(SETTLE_MS);
+    expect(exits[0].stopped).toBe('you pressed Ctrl+C');
+    service.destroy();
+  });
+
+  it('a legacy unattended turn still passes every key to the CLI', async () => {
+    const fake = installFakePty();
+    const service = reporting({ reportTurns: undefined });
+    service.start();
+    await vi.advanceTimersByTimeAsync(0);
+    fake.writes.length = 0;
+    for (const keys of ['abc', '\x1b[A', '\x1b[5~', '\x03']) service.write(keys);
+    expect(fake.writes).toEqual(['abc', '\x1b[A', '\x1b[5~', '\x03']);
+    service.destroy();
+  });
+
+  it('passes a key chunk holding Ctrl+C on as one Ctrl+C', async () => {
+    const fake = installFakePty();
+    const service = reporting();
+    service.start();
+    await vi.advanceTimersByTimeAsync(0);
+    fake.writes.length = 0;
+    service.write('x\x03\x03y');
+    expect(fake.writes).toEqual(['\x03']);
+    service.destroy();
+  });
+
+  it('types neither a paste nor a queued prompt into a reporting turn, and delivers the prompt after it', async () => {
+    const fake = installFakePty();
+    const service = reporting();
+    service.start();
+    await vi.advanceTimersByTimeAsync(0);
+    fake.writes.length = 0;
+    service.paste('pasted into a running step');
+    service.queuePrompt('look again');
+    // A line the CLI printed that looks like an empty composer.
+    fake.feed('❯ \r\n');
+    await vi.advanceTimersByTimeAsync(SETTLE_MS);
+    expect(fake.writes).toEqual([]);
+    fake.exit(0);
+    await vi.advanceTimersByTimeAsync(SETTLE_MS);
+
+    // The person reopens it: the prompt waits for the new CLI's empty composer.
+    const next = installFakePty();
+    service.restartClaude();
+    await vi.advanceTimersByTimeAsync(0);
+    next.feed('❯ ');
+    await vi.advanceTimersByTimeAsync(SETTLE_MS);
+    expect(next.writes).toEqual(pasted('look again'));
+    service.destroy();
+  });
+
+  it('reopening after a reporting turn resumes interactively: no report, every key, the output as printed', async () => {
+    const fake = installFakePty();
+    const service = reporting();
+    const output: string[] = [];
+    service.on('data', (data) => output.push(data));
+    service.start();
+    await vi.advanceTimersByTimeAsync(0);
+    fake.feed(pty(INIT, RESULT_OK));
+    fake.exit(0);
+    await vi.advanceTimersByTimeAsync(SETTLE_MS);
+
+    const next = installFakePty();
+    service.restartClaude();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(buildArgsMock.mock.calls[1][1]).toMatchObject({
+      resume: true,
+      unattended: false,
+      maxTurns: 6,
+      toolPolicy: 'read-only',
+    });
+    expect(buildArgsMock.mock.calls[1][1].reportTurn).toBeUndefined();
+    service.write('abc');
+    service.write('\x1b[A');
+    expect(next.writes).toEqual(['abc', '\x1b[A']);
+    output.length = 0;
+    next.feed('{"type":"not a report"}\r\n');
+    expect(output.join('')).toContain('{"type":"not a report"}');
+    service.destroy();
+  });
+
+  it('a summary from a long, escape-laden result is one line', async () => {
+    const fake = installFakePty();
+    const service = reporting();
+    service.start();
+    await vi.advanceTimersByTimeAsync(0);
+    fake.feed(
+      pty(
+        INIT,
+        resultLine({
+          result: 'Not done \x1b[31mbecause\x1b[0m\nline two',
+          is_error: true,
+          num_turns: 3,
+          total_cost_usd: 0.01,
+        }),
+      ),
+    );
+    fake.exit(1);
+    await vi.advanceTimersByTimeAsync(SETTLE_MS);
+    const shown = remounted(service);
+    expect(lastLine(shown)).toBe(
+      'Ended without finishing: Not done because (3 turns, $0.0100 est.)',
+    );
+    expect(shown).not.toContain('line two');
+    service.destroy();
+  });
+
+  it('a turn that printed only JSON and exits 1 gets no "before printing anything" notice', async () => {
+    const fake = installFakePty();
+    const service = reporting();
+    service.start();
+    await vi.advanceTimersByTimeAsync(0);
+    fake.feed(pty(INIT));
+    fake.exit(1);
+    await vi.advanceTimersByTimeAsync(SETTLE_MS);
+    expect(remounted(service)).not.toContain('before printing anything');
+    service.destroy();
+  });
+
+  it('emits turn-init when init arrives, before the turn ends', async () => {
+    const fake = installFakePty();
+    const service = reporting();
+    const inits: TurnInit[] = [];
+    const exits: TerminalExitInfo[] = [];
+    service.on('turn-init', (init) => inits.push(init));
+    service.on('exit', (info) => exits.push(info));
+    service.start();
+    await vi.advanceTimersByTimeAsync(0);
+    fake.feed(pty(INIT));
+    expect(inits).toHaveLength(1);
+    expect(inits[0]).toMatchObject({
+      model: 'claude-opus-5-5',
+      servers: [{ name: 'consola', status: 'connected' }],
+    });
+    expect(exits).toEqual([]);
+    service.destroy();
+  });
+
+  it('reads busy for the whole turn while it prints only JSON', async () => {
+    const fake = installFakePty();
+    const service = reporting();
+    const statuses: string[] = [];
+    service.on('status', (status: string) => statuses.push(status));
+    service.start();
+    await vi.advanceTimersByTimeAsync(0);
+    for (let second = 0; second < 60; second++) {
+      fake.feed('{"type":"stream_event"}\r\n');
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(service.busy()).toBe(true);
+    }
+    expect(statuses.at(-1)).toBe('working');
+    fake.exit(0);
+    await vi.advanceTimersByTimeAsync(SETTLE_MS);
+    expect(statuses.at(-1)).toBe('exited');
+    service.destroy();
+  });
+
+  it('a menu printed outside JSON still needs the person; the same words inside JSON do not', async () => {
+    const fake = installFakePty();
+    const service = reporting();
+    const awaiting: boolean[] = [];
+    const statuses: string[] = [];
+    service.on('awaiting-confirmation', (value: boolean) => awaiting.push(value));
+    service.on('status', (status: string) => statuses.push(status));
+    service.start();
+    await vi.advanceTimersByTimeAsync(0);
+    fake.feed(pty(INIT, 'Do you want to proceed?\n'));
+    await vi.advanceTimersByTimeAsync(SETTLE_MS);
+    expect(awaiting).toEqual([true]);
+    expect(statuses.at(-1)).toBe('needs-attention');
+    service.destroy();
+
+    const other = installFakePty();
+    const quiet = reporting();
+    const heard: boolean[] = [];
+    quiet.on('awaiting-confirmation', (value: boolean) => heard.push(value));
+    quiet.start();
+    await vi.advanceTimersByTimeAsync(0);
+    other.feed(pty(INIT, resultLine({ result: 'Do you want to proceed?' })));
+    await vi.advanceTimersByTimeAsync(SETTLE_MS);
+    other.exit(0);
+    await vi.advanceTimersByTimeAsync(SETTLE_MS);
+    expect(heard).toEqual([]);
+    quiet.destroy();
+  });
+
+  it('a failed result quoting a menu’s words shows them in its summary and still needs nobody', async () => {
+    const fake = installFakePty();
+    const service = reporting();
+    const awaiting: boolean[] = [];
+    service.on('awaiting-confirmation', (value: boolean) => awaiting.push(value));
+    service.start();
+    await vi.advanceTimersByTimeAsync(0);
+    fake.feed(pty(INIT, resultLine({ result: 'Do you want to proceed?', is_error: true })));
+    // The CLI exits as it prints its result, inside the idle debounce.
+    fake.exit(1);
+    await vi.advanceTimersByTimeAsync(SETTLE_MS * 2);
+    expect(remounted(service)).toContain('Ended without finishing: Do you want to proceed?');
+    expect(awaiting).toEqual([]);
+    service.destroy();
+  });
+
+  it('a usage limit in the stream raises limit-notice, and keeps it until the next spawn', async () => {
+    const fake = installFakePty();
+    const service = reporting();
+    const notices: boolean[] = [];
+    service.on('limit-notice', (showing: boolean) => notices.push(showing));
+    service.start();
+    await vi.advanceTimersByTimeAsync(0);
+    fake.feed(pty(INIT, ASSISTANT_RATE_LIMIT));
+    await vi.advanceTimersByTimeAsync(SETTLE_MS);
+    expect(notices).toEqual([true]);
+    fake.feed('Warning: still here\r\n');
+    await vi.advanceTimersByTimeAsync(SETTLE_MS);
+    fake.exit(1);
+    await vi.advanceTimersByTimeAsync(SETTLE_MS);
+    expect(notices).toEqual([true]);
+
+    const next = installFakePty();
+    service.relaunch({ cwd: os.tmpdir(), prompt: 'carry on', unattended: false });
+    await vi.advanceTimersByTimeAsync(0);
+    next.feed('❯ ');
+    await vi.advanceTimersByTimeAsync(SETTLE_MS);
+    expect(notices).toEqual([true, false]);
+    service.destroy();
+  });
+
+  it('a usage limit in the result’s text raises it at exit', async () => {
+    const fake = installFakePty();
+    const service = reporting();
+    const notices: boolean[] = [];
+    service.on('limit-notice', (showing: boolean) => notices.push(showing));
+    service.start();
+    await vi.advanceTimersByTimeAsync(0);
+    fake.feed(pty(INIT));
+    await vi.advanceTimersByTimeAsync(SETTLE_MS);
+    // The result's line has no newline: only the exit reads it.
+    fake.feed(
+      pty(
+        resultLine({
+          result: 'You’ve hit your limit · resets 3pm (Europe/Madrid)',
+          is_error: true,
+        }),
+      ).slice(0, -2),
+    );
+    expect(notices).toEqual([]);
+    fake.exit(1);
+    await vi.advanceTimersByTimeAsync(SETTLE_MS);
+    expect(notices).toEqual([true]);
+    service.destroy();
+  });
+
+  it('the reminder’s cap is used once', async () => {
+    const fake = installFakePty();
+    const service = reporting();
+    service.start();
+    await vi.advanceTimersByTimeAsync(0);
+    fake.exit(0);
+    await vi.advanceTimersByTimeAsync(SETTLE_MS);
+
+    const reminder = installFakePty();
+    service.relaunch({ cwd: os.tmpdir(), prompt: 'remind', unattended: true, maxTurns: 3 });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(buildArgsMock.mock.calls[1][1]).toMatchObject({
+      unattended: true,
+      reportTurn: true,
+      maxTurns: 3,
+    });
+    reminder.exit(0);
+    await vi.advanceTimersByTimeAsync(SETTLE_MS);
+
+    installFakePty();
+    service.relaunch({ cwd: os.tmpdir(), prompt: 'resume', unattended: true });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(buildArgsMock.mock.calls[2][1]).toMatchObject({ unattended: true, maxTurns: 6 });
+    service.destroy();
+  });
+
+  it('the reminder’s exit reports the cap it launched with', async () => {
+    const fake = installFakePty();
+    const service = reporting();
+    const exits: TerminalExitInfo[] = [];
+    service.on('exit', (info) => exits.push(info));
+    service.start();
+    await vi.advanceTimersByTimeAsync(0);
+    fake.exit(0);
+    await vi.advanceTimersByTimeAsync(SETTLE_MS);
+    const reminder = installFakePty();
+    service.relaunch({ cwd: os.tmpdir(), prompt: 'remind', unattended: true, maxTurns: 3 });
+    await vi.advanceTimersByTimeAsync(0);
+    reminder.feed(pty(INIT, RESULT_OK));
+    reminder.exit(0);
+    await vi.advanceTimersByTimeAsync(SETTLE_MS);
+    expect(exits.map((exit) => exit.report?.maxTurns)).toEqual([6, 3]);
+    service.destroy();
+  });
+
+  it('turnMaxTurns is consumed by the first unattended launch', async () => {
+    const fake = installFakePty();
+    const service = reporting({ turnMaxTurns: 5 });
+    service.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(buildArgsMock.mock.calls[0][1]).toMatchObject({ unattended: true, maxTurns: 5 });
+    fake.exit(0);
+    await vi.advanceTimersByTimeAsync(SETTLE_MS);
+    installFakePty();
+    service.relaunch({ cwd: os.tmpdir(), prompt: 'resume', unattended: true });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(buildArgsMock.mock.calls[1][1]).toMatchObject({ unattended: true, maxTurns: 6 });
+    service.destroy();
+  });
+
+  it('a one-launch cap a launch never used is not left for the next', async () => {
+    installFakePty();
+    buildArgsMock.mockImplementationOnce(() => {
+      throw new Error('Stub can’t run automation steps.');
+    });
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const service = reporting({ turnMaxTurns: 5 });
+    service.start();
+    await vi.advanceTimersByTimeAsync(SETTLE_MS);
+    installFakePty();
+    service.relaunch({ cwd: os.tmpdir(), prompt: 'resume', unattended: true });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(buildArgsMock.mock.calls[1][1]).toMatchObject({ unattended: true, maxTurns: 6 });
+    service.destroy();
+    log.mockRestore();
+  });
+
+  it('a turn stopped by the person writes no summary, and says what it read', async () => {
+    const fake = installFakePty();
+    const service = reporting();
+    const exits: TerminalExitInfo[] = [];
+    service.on('exit', (info) => exits.push(info));
+    service.start();
+    await vi.advanceTimersByTimeAsync(0);
+    fake.feed(pty(INIT));
+    service.write('\x03');
+    fake.exit(0);
+    await vi.advanceTimersByTimeAsync(SETTLE_MS);
+    expect(exits).toHaveLength(1);
+    expect(exits[0]).toMatchObject({
+      exitCode: 0,
+      unattended: true,
+      stopped: 'you pressed Ctrl+C',
+    });
+    expect(exits[0].report).toBeDefined();
+    expect(exits[0].report?.init).toBeDefined();
+    expect(exits[0].report?.result).toBeUndefined();
+    const shown = remounted(service);
+    expect(shown).not.toContain('Finished');
+    expect(shown).not.toContain('Ended without');
+    service.destroy();
+  });
+
+  it('a turn Consola stopped writes no summary under its Stopped line', async () => {
+    const fake = installFakePty();
+    const service = reporting();
+    const exits: TerminalExitInfo[] = [];
+    service.on('exit', (info) => exits.push(info));
+    service.start();
+    await vi.advanceTimersByTimeAsync(0);
+    fake.feed(pty(INIT));
+    service.stopUnattendedTurn('a server it needs was not connected');
+    fake.exit(0, 1);
+    await vi.advanceTimersByTimeAsync(SETTLE_MS);
+    expect(exits[0]).toMatchObject({ stopped: 'a server it needs was not connected' });
+    const shown = remounted(service);
+    expect(lastLine(shown)).toBe('Stopped: a server it needs was not connected.');
+    expect(shown).not.toContain('Ended without');
+    service.destroy();
+  });
+
+  it('a turn with no result line says so', async () => {
+    const fake = installFakePty();
+    const service = reporting();
+    service.start();
+    await vi.advanceTimersByTimeAsync(0);
+    fake.feed(pty(INIT));
+    fake.exit(1);
+    await vi.advanceTimersByTimeAsync(SETTLE_MS);
+    expect(lastLine(remounted(service))).toBe('Ended without a result line (exit 1).');
+    service.destroy();
+  });
+
+  it('a last line with no newline is read and shown at exit', async () => {
+    const fake = installFakePty();
+    const service = reporting();
+    const exits: TerminalExitInfo[] = [];
+    service.on('exit', (info) => exits.push(info));
+    service.start();
+    await vi.advanceTimersByTimeAsync(0);
+    fake.feed(pty(INIT, 'Error: EPIPE\n', RESULT_OK).slice(0, -2));
+    fake.feed('\r\nTrace: at the end');
+    fake.exit(1);
+    await vi.advanceTimersByTimeAsync(SETTLE_MS);
+    const shown = remounted(service);
+    expect(shown).toContain('Trace: at the end');
+    expect(exits[0].report?.otherLines).toEqual(['Error: EPIPE', 'Trace: at the end']);
+    expect(exits[0].report?.result).toMatchObject({ turns: 7 });
+    service.destroy();
+  });
+});
+
+describe('turnSummary', () => {
+  const report = (result?: Partial<NonNullable<TurnReport['result']>>, maxTurns?: number) =>
+    ({
+      ...(result
+        ? { result: { subtype: 'success', isError: false, deniedTools: [], raw: {}, ...result } }
+        : {}),
+      otherLines: [],
+      limitNotice: false,
+      ...(maxTurns !== undefined ? { maxTurns } : {}),
+    }) as TurnReport;
+
+  it.each<[string, TurnReport, number, string]>([
+    ['a clean turn', report({ turns: 7, costUsd: 0.0412 }), 0, 'Finished: 7 turns, $0.0412 est.'],
+    ['one turn', report({ turns: 1, costUsd: 0.0412 }), 0, 'Finished: 1 turn, $0.0412 est.'],
+    ['no cost', report({ turns: 7 }), 0, 'Finished: 7 turns.'],
+    ['no figures', report({}), 0, 'Finished.'],
+    ['cost but no turns', report({ costUsd: 0.0412 }), 0, 'Finished: $0.0412 est.'],
+    [
+      'an error result',
+      report({ isError: true, text: 'Not logged in · Please run /login', turns: 1, costUsd: 0 }),
+      1,
+      'Ended without finishing: Not logged in · Please run /login (1 turn, $0.0000 est.)',
+    ],
+    [
+      'the turn limit',
+      report({ subtype: 'error_max_turns', isError: true, turns: 6, costUsd: 0.01 }, 6),
+      1,
+      'Ended without finishing: it reached its limit of 6 turns (6 turns, $0.0100 est.)',
+    ],
+    [
+      'the turn limit names the cap it launched with, not the CLI’s count',
+      report({ subtype: 'error_max_turns', isError: true, turns: 7 }, 6),
+      1,
+      'Ended without finishing: it reached its limit of 6 turns (7 turns)',
+    ],
+    [
+      'the turn limit, its cap unknown',
+      report({ subtype: 'error_max_turns', isError: true, turns: 4 }),
+      1,
+      'Ended without finishing: it reached its limit of 4 turns (4 turns)',
+    ],
+    [
+      'the turn limit, nothing known',
+      report({ subtype: 'error_max_turns', isError: true }),
+      1,
+      'Ended without finishing: it reached its turn limit',
+    ],
+    [
+      'another subtype',
+      report({ subtype: 'error_during_execution', turns: 2 }),
+      1,
+      'Ended without finishing: the CLI reported error_during_execution (2 turns)',
+    ],
+    [
+      'an error with an API status and no text',
+      report({ isError: true, apiErrorStatus: 529 }),
+      1,
+      'Ended without finishing: API error 529',
+    ],
+    [
+      'an error with neither',
+      report({ isError: true, subtype: 'success' }),
+      1,
+      'Ended without finishing: the CLI reported success',
+    ],
+    ['no result', report(), 1, 'Ended without a result line (exit 1).'],
+  ])('%s', (_name, given, exitCode, expected) => {
+    expect(turnSummary(given, exitCode)).toBe(expected);
   });
 });
 
