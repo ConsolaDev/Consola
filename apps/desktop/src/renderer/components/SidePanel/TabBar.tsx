@@ -25,7 +25,7 @@ import {
 import { NEW_TAB, type GroupPosition, type TabGroupNode, type TabId } from '../../sidePanel/layout';
 import { tabKind, type TabFacts } from '../../sidePanel/tabKinds';
 import { useSidePanelStore } from '../../stores/sidePanelStore';
-import { keyboardAfterClose } from './keyboardAfterClose';
+import { keyboardAfterClose, keyboardInTab } from './keyboardAfterClose';
 import { TabMenu } from './TabMenu';
 import { useTabMark } from './tabMarks';
 
@@ -79,6 +79,17 @@ export function TabBar({ group, position, facts, canMaximize, isMaximized }: Tab
     [setNodeRef],
   );
 
+  // The group goes with its tabs, and the keyboard with it should it be in
+  // the group: it is handed on, as a closed tab hands it.
+  const closeThisGroup = (event: MouseEvent<HTMLButtonElement>) => {
+    const groupElement = event.currentTarget.closest('.side-panel-group');
+    const handOn = groupElement?.contains(document.activeElement)
+      ? keyboardAfterClose(event.currentTarget)
+      : null;
+    closeGroup(group.id);
+    if (handOn) requestAnimationFrame(() => handOn());
+  };
+
   // A fresh list takes the keyboard itself. One already in front does not
   // appear again, so it is handed the keyboard here.
   const openNewTab = (event: MouseEvent<HTMLButtonElement>) => {
@@ -115,7 +126,7 @@ export function TabBar({ group, position, facts, canMaximize, isMaximized }: Tab
               {isMaximized ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
             </BarButton>
           )}
-          <BarButton label="Close group" onClick={() => closeGroup(group.id)}>
+          <BarButton label="Close group" onClick={closeThisGroup} pressKeepsKeyboard>
             <X size={14} />
           </BarButton>
         </div>
@@ -235,6 +246,16 @@ function TabBarTab({
   const Icon = kind?.icon;
   const close = () => closeTab(groupId, tab);
 
+  // The ✕ never takes the keyboard. When it was in the tab, on it or in what
+  // it shows, it is handed on as from a close by Delete; elsewhere it stays.
+  const closeByPointer = (event: MouseEvent<HTMLButtonElement>) => {
+    const handOn = keyboardInTab(event.currentTarget)
+      ? keyboardAfterClose(event.currentTarget)
+      : null;
+    close();
+    if (handOn) requestAnimationFrame(() => handOn());
+  };
+
   const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
     if (event.key !== 'Delete' && event.key !== 'Backspace') return;
     event.preventDefault();
@@ -269,12 +290,12 @@ function TabBarTab({
           className="side-panel-tab-close"
           tabIndex={-1}
           aria-label={`Close ${title} tab`}
-          // A press that opens the tab's menu (the right button, or Ctrl on
-          // macOS) leaves the keyboard where it was, as the trigger's does.
-          onMouseDown={(event) => {
-            if (event.button !== 0 || event.ctrlKey) event.preventDefault();
-          }}
-          onClick={close}
+          // No press focuses it: one that closes the tab would take the
+          // keyboard away with it, and one that opens the tab's menu (the
+          // right button, or Ctrl on macOS) leaves it where it was, as the
+          // trigger's does.
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={closeByPointer}
         >
           <X size={12} aria-hidden="true" />
         </button>
@@ -286,10 +307,13 @@ function TabBarTab({
 function BarButton({
   label,
   onClick,
+  pressKeepsKeyboard = false,
   children,
 }: {
   label: string;
   onClick: (event: MouseEvent<HTMLButtonElement>) => void;
+  /** A press leaves the keyboard where it was: for a button that takes itself away. */
+  pressKeepsKeyboard?: boolean;
   children: ReactNode;
 }) {
   return (
@@ -299,6 +323,7 @@ function BarButton({
           type="button"
           className="side-panel-bar-button"
           aria-label={label}
+          onMouseDown={pressKeepsKeyboard ? (event) => event.preventDefault() : undefined}
           onClick={onClick}
         >
           {children}

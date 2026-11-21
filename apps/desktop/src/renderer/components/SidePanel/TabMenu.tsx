@@ -8,7 +8,7 @@ import {
   tabMenuItems,
 } from '../../sidePanel/layout';
 import { useSidePanelStore } from '../../stores/sidePanelStore';
-import { focusTrigger, keyboardAfterClose } from './keyboardAfterClose';
+import { focusTrigger, keyboardAfterClose, keyboardInTab } from './keyboardAfterClose';
 
 const ITEM_LABELS: Record<TabMenuItem, string> = {
   close: 'Close',
@@ -24,8 +24,10 @@ const ITEM_LABELS: Record<TabMenuItem, string> = {
  * opens under the tab rather than at the pointer.
  *
  * Every item takes the tab out of its bar, and this menu with it. When the
- * keyboard was on the tab, it follows the tab into the bar it moved to, or,
- * once the tab closed, goes where `keyboardAfterClose` sends it. Otherwise it
+ * keyboard was in the tab, on it or in what it shows (the Files tree, the
+ * shell), it follows the tab to its trigger in the bar it moved to, or, once
+ * the tab closed, goes where `keyboardAfterClose` sends it: what the tab
+ * shows goes with it, and is never given the keyboard itself. Otherwise it
  * goes back to where it was, as the menu always does: a right-click from the
  * conversation leaves the keyboard there.
  *
@@ -44,7 +46,7 @@ export function TabMenu({
 }) {
   const layout = useSidePanelStore((state) => state.layout);
   const tabRef = useRef<HTMLElement>(null);
-  // Set when the menu opens with the keyboard on the tab: where it goes should the tab close.
+  // Set when the menu opens with the keyboard in the tab: where it goes should the tab close.
   const keyboardOnTab = useRef<(() => boolean) | null>(null);
   const chosen = useRef<TabMenuItem | null>(null);
 
@@ -63,9 +65,7 @@ export function TabMenu({
     const wrapper = tabRef.current;
     if (!open || !wrapper) return;
     chosen.current = null;
-    keyboardOnTab.current = wrapper.contains(document.activeElement)
-      ? keyboardAfterClose(wrapper)
-      : null;
+    keyboardOnTab.current = keyboardInTab(wrapper) ? keyboardAfterClose(wrapper) : null;
   };
 
   // Once an item has taken the tab out of its bar. Dismissed, or opened with

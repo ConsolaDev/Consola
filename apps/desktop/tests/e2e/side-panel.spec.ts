@@ -670,6 +670,135 @@ test.describe('side panel', () => {
     expect(await shellMounts()).toBe(1);
   });
 
+  test('a key held to close the last tab never repeats into the conversation', async () => {
+    await openSession('Paginate the catalog search');
+    await expect(conversation()).toBeVisible();
+    // Every key the conversation's terminal is sent, its repeats marked. On
+    // capture, as xterm listens: it stops each key there.
+    await conversation().evaluate((element) => {
+      const heard: string[] = [];
+      (window as unknown as { __heard: string[] }).__heard = heard;
+      element.addEventListener(
+        'keydown',
+        (event) => heard.push(event.repeat ? `${event.key} repeat` : event.key),
+        true,
+      );
+    });
+    const heard = () =>
+      page.evaluate(() => (window as unknown as { __heard: string[] }).__heard.splice(0));
+
+    // Backspace held on the last tab closes it, and the keyboard goes back
+    // to the conversation, where its repeats would delete the person's text.
+    await changesShortcut().click();
+    await sidePanelTab('Changes').focus();
+    await page.keyboard.down('Backspace');
+    await expect(conversation()).toBeFocused();
+    await page.keyboard.down('Backspace');
+    await page.keyboard.down('Backspace');
+    await page.keyboard.up('Backspace');
+    // Pressed again, the key is the person's, meant for the conversation.
+    await page.keyboard.press('Backspace');
+    expect(await heard()).toEqual(['Backspace']);
+
+    // Escape held on a lone placeholder: its repeats would interrupt Claude.
+    await sidePanelToggle().click();
+    await expect(newTabList()).toBeFocused();
+    await page.keyboard.down('Escape');
+    await expect(conversation()).toBeFocused();
+    await page.keyboard.down('Escape');
+    await page.keyboard.up('Escape');
+    expect(await heard()).toEqual([]);
+
+    // Enter held on the menu's Close: its repeats would submit the composer.
+    await changesShortcut().click();
+    await sidePanelTab('Changes').focus();
+    await page.keyboard.press('Shift+F10');
+    await expect(page.getByRole('menuitem', { name: 'Close', exact: true })).toBeFocused();
+    await page.keyboard.down('Enter');
+    await expect(conversation()).toBeFocused();
+    await page.keyboard.down('Enter');
+    await page.keyboard.up('Enter');
+    expect(await heard()).toEqual([]);
+  });
+
+  test('a tab closed by its ✕ takes the keyboard only when the tab had it', async () => {
+    await openSession('Paginate the catalog search');
+    await changesShortcut().click();
+    await page.getByRole('button', { name: 'Files', exact: true }).click();
+    const closeButton = (title: string) =>
+      page.getByRole('button', { name: `Close ${title} tab`, exact: true });
+
+    // From the conversation, the keyboard stays there.
+    await conversation().focus();
+    await closeButton('Changes').click();
+    await expect(sidePanelTabs().getByRole('tab')).toHaveText(['Files']);
+    await expect(conversation()).toBeFocused();
+
+    // On the tab, it goes to the tab now in front, as a close from the keyboard does.
+    await changesShortcut().click();
+    await sidePanelTab('Changes').focus();
+    await closeButton('Changes').click();
+    await expect(sidePanelTabs().getByRole('tab')).toHaveText(['Files']);
+    await expect(sidePanelTab('Files')).toBeFocused();
+
+    // In what the tab shows, the same.
+    await changesShortcut().click();
+    await sidePanelTab('Files').click();
+    await page.getByTestId('files-tree').getByText('src', { exact: true }).click();
+    await closeButton('Files').click();
+    await expect(sidePanelTabs().getByRole('tab')).toHaveText(['Changes']);
+    await expect(sidePanelTab('Changes')).toBeFocused();
+  });
+
+  test('a tab moved or closed from its menu takes the keyboard out of its content to a tab', async () => {
+    const tree = page.getByTestId('files-tree');
+    const keyboardInTree = () =>
+      tree.evaluate((element) => element.contains(document.activeElement));
+    await openSession('Paginate the catalog search');
+    await changesShortcut().click();
+    await page.getByRole('button', { name: 'Files', exact: true }).click();
+    await chooseFromTabMenu(sidePanelTab('Files'), 'Split down');
+
+    // Moved: the content goes with the tab, and the keyboard to its trigger
+    // in the bar it moved to.
+    await tree.getByText('src', { exact: true }).click();
+    expect(await keyboardInTree()).toBe(true);
+    await chooseFromTabMenu(
+      tabList('Bottom group tabs').getByRole('tab', { name: 'Files', exact: true }),
+      'Move to other group',
+    );
+    await expect(sidePanelTabs().getByRole('tab')).toHaveText(['Changes', 'Files']);
+    await expect(sidePanelTab('Files')).toBeFocused();
+
+    // Closed: to the tab now in front.
+    await tree.getByText('src', { exact: true }).click();
+    expect(await keyboardInTree()).toBe(true);
+    await chooseFromTabMenu(sidePanelTab('Files'), 'Close');
+    await expect(sidePanelTabs().getByRole('tab')).toHaveText(['Changes']);
+    await expect(sidePanelTab('Changes')).toBeFocused();
+  });
+
+  test('Close group hands the keyboard to the group left, and a click on it leaves it alone', async () => {
+    await openSession('Paginate the catalog search');
+    await changesShortcut().click();
+    await page.getByRole('button', { name: 'Files', exact: true }).click();
+    await chooseFromTabMenu(sidePanelTab('Files'), 'Split down');
+
+    // From the keyboard.
+    await group('Bottom group tabs').getByRole('button', { name: 'Close group' }).focus();
+    await page.keyboard.press('Enter');
+    await expect(tabList('Bottom group tabs')).toHaveCount(0);
+    await expect(sidePanelTab('Changes')).toBeFocused();
+
+    // By the pointer, from the conversation.
+    await page.getByRole('button', { name: 'Files', exact: true }).click();
+    await chooseFromTabMenu(sidePanelTab('Files'), 'Split down');
+    await conversation().focus();
+    await group('Bottom group tabs').getByRole('button', { name: 'Close group' }).click();
+    await expect(tabList('Bottom group tabs')).toHaveCount(0);
+    await expect(conversation()).toBeFocused();
+  });
+
   test('dragging a tab to the bottom edge splits the panel', async () => {
     await openSession('Paginate the catalog search');
     await changesShortcut().click();
