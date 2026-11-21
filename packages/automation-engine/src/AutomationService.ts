@@ -287,13 +287,13 @@ const RETRY_HELD = 'Another run on this item is working; retry once it ends.';
 /** What a retry of a run that never started is refused with: there is no step it got to, and its approval did not cover a start. */
 const NEVER_STARTED = 'It never started; run it again.';
 
+/** Why an agent's run waits, and what approving it does: it never accepts the entry. */
+const AN_AGENT_ASKED = 'An agent asked for this run: approving runs this run only.';
+
 /**
  * What a run of a poll entry not allowed yet says when it asks: approving it
  * runs that run, and only Allow lets the entry check.
  */
-/** Why an agent's run waits, and what approving it does: it never accepts the entry. */
-const AN_AGENT_ASKED = 'An agent asked for this run: approving runs this run only.';
-
 const NOT_CHECKING_YET =
   'It is not checking yet: approving runs this run only. Allow it on its page to let it check and run on its own.';
 
