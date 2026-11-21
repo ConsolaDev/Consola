@@ -5,7 +5,7 @@ import type { ItemTarget, ItemTargetRow, ItemTargets } from '../../../shared/aut
 import { automationsBridge } from '../../services/automationsBridge';
 import { useAutomationsStore } from '../../stores/automationsStore';
 import { ipcErrorMessage } from '../../utils/ipcErrorMessage';
-import { lastRunWords } from './presentation';
+import { lastRunWords, runOnRows } from './presentation';
 
 /**
  * Run on…: runs an automation that takes an item on one a person picks, from
@@ -66,7 +66,9 @@ export function RunOnPicker({
   };
 
   const now = new Date();
-  const empty = targets && targets.items.length === 0 && targets.inbox.length === 0;
+  // Each item once: one in its last check is not offered again from the Inbox.
+  const rows = targets ? runOnRows(targets) : null;
+  const empty = rows && rows.items.length === 0 && rows.inbox.length === 0;
 
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
@@ -89,18 +91,18 @@ export function RunOnPicker({
           aria-label="Run on an item"
         >
           {!targets && !error && <p className="automations-hint">Loading…</p>}
-          {targets && (
+          {targets && rows && (
             <>
               <RunOnSection
                 title="In its last check"
-                rows={targets.items}
+                rows={rows.items}
                 now={now}
                 disabled={starting}
                 onPick={start}
               />
               <RunOnSection
                 title="In your Inbox"
-                rows={targets.inbox}
+                rows={rows.inbox}
                 now={now}
                 disabled={starting}
                 onPick={start}

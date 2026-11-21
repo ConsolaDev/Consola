@@ -6,6 +6,7 @@ import {
   checkStatusLine,
   grantWords,
   noNextCheckWords,
+  pollRunsEmptyWords,
   skippedWords,
   triggerNodeWords,
 } from './checkWords';
@@ -77,6 +78,27 @@ describe('noNextCheckWords', () => {
       'Not checking yet',
     );
     expect(noNextCheckWords(undefined, true)).toBe('Not checking yet');
+  });
+});
+
+describe('pollRunsEmptyWords', () => {
+  it('says a confirm poll asks to run for what is new or changed', () => {
+    expect(pollRunsEmptyWords({ mode: 'confirm', check: check() })).toBe(
+      'It checks every 30 minutes, and asks to run for what is new or changed. Check now looks right away.',
+    );
+  });
+
+  it('says the other modes run for it', () => {
+    for (const mode of ['auto', 'notify'] as const)
+      expect(pollRunsEmptyWords({ mode, check: check() }), mode).toBe(
+        'It checks every 30 minutes, and runs for what is new or changed. Check now looks right away.',
+      );
+  });
+
+  it('says it is not checking yet while it waits for Allow', () => {
+    expect(pollRunsEmptyWords({ mode: 'auto', check: check(), needsAllow: true })).toBe(
+      'It is not checking yet: allow it above.',
+    );
   });
 });
 

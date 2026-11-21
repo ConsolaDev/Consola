@@ -48,6 +48,7 @@ import {
   templateModeWords,
   triggerInWords,
   lastRunWords,
+  runOnRows,
   runAgainTarget,
   runInsights,
   runsByDay,
@@ -1341,6 +1342,46 @@ describe('the assigned reviews banner', () => {
     expect(ASSIGNED_REVIEWS_OFFER).toMatch(/asks you once first, with every command shown/);
     // No action to name: the entry needs none.
     expect(ASSIGNED_REVIEWS_OFFER).not.toMatch(/action/);
+  });
+});
+
+describe('runOnRows', () => {
+  const row = (repo: string, number: number, label = `${repo}#${number}`) => ({
+    target: { workItem: { repo, number, type: 'pr' as const } },
+    label,
+    url: `https://github.com/${repo}/pull/${number}`,
+  });
+
+  it('lists a work item once: in its last check, not again from the Inbox', () => {
+    const rows = runOnRows({
+      takesItem: 'pr',
+      acceptsUrl: true,
+      items: [row('sprocket/catalog-portal', 51)],
+      // The Inbox names the repository in its own case: the same pull request.
+      inbox: [
+        row('Sprocket/Catalog-Portal', 51, 'from the Inbox'),
+        row('sprocket/catalog-portal', 52),
+      ],
+    });
+    expect(rows.items).toEqual([row('sprocket/catalog-portal', 51)]);
+    expect(rows.inbox).toEqual([row('sprocket/catalog-portal', 52)]);
+  });
+
+  it('keeps an issue and a pull request of one number apart, and key items as they are', () => {
+    const issue = {
+      target: { workItem: { repo: 'sprocket/catalog-portal', number: 51, type: 'issue' as const } },
+      label: 'issue 51',
+      url: 'https://github.com/sprocket/catalog-portal/issues/51',
+    };
+    const keyed = { target: { key: 'T-1' }, label: '“Ticket”', url: '' };
+    const rows = runOnRows({
+      takesItem: 'pr-or-issue',
+      acceptsUrl: true,
+      items: [row('sprocket/catalog-portal', 51), keyed],
+      inbox: [issue],
+    });
+    expect(rows.items).toEqual([row('sprocket/catalog-portal', 51), keyed]);
+    expect(rows.inbox).toEqual([issue]);
   });
 });
 

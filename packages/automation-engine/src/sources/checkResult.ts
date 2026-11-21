@@ -79,7 +79,11 @@ export function readCheckResult(input: {
   }
   if (!Array.isArray(parsed)) {
     const kind =
-      parsed !== null && typeof parsed === 'object' ? 'a JSON object' : `JSON ${kindOf(parsed)}`;
+      parsed === null
+        ? 'JSON null'
+        : typeof parsed === 'object'
+          ? 'a JSON object'
+          : `a JSON ${typeof parsed}`;
     return fail(`Its stdout is ${kind}, not an array of objects.`);
   }
   if (parsed.length > MAX_CHECK_ITEMS) {

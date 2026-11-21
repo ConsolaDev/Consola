@@ -299,6 +299,16 @@ describe('save_automation and Allow', () => {
     expect(result.summary).toContain('It will not run: its check command is empty.');
   });
 
+  it('says a problem that ends in a full stop with one full stop', async () => {
+    list.mockReturnValueOnce([
+      { name: 'sweep', problem: 'its check command is empty.' } as AutomationView,
+    ]);
+    const result = await registry.invoke('save_automation', { entry: '- name: sweep' }, as('me'));
+    expect(result.summary).toBe(
+      'Added sweep in factory.yml. It will not run: its check command is empty.',
+    );
+  });
+
   it('leaves the summary alone for an entry that is neither', async () => {
     const result = await registry.invoke('save_automation', { entry: '- name: sweep' }, as('me'));
     expect(result.summary).toBe('Added sweep in factory.yml.');

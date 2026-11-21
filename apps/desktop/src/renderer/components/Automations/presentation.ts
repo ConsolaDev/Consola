@@ -5,6 +5,7 @@ import {
   type AutomationsSnapshot,
   type ItemTarget,
   type ItemTargetRow,
+  type ItemTargets,
   type RunListEntry,
   type RunRecord,
 } from '../../../shared/automations';
@@ -1087,6 +1088,25 @@ function whenWords(iso: string, now: Date): string {
   const days = Math.floor(hours / 24);
   if (days === 1) return 'yesterday';
   return days < 7 ? plural(days, 'day') : formatAgo(iso, now);
+}
+
+/** A row's item, the same however its repository is cased: a work item's identity, or a key. */
+function rowIdentity(row: ItemTargetRow): string {
+  const { target } = row;
+  if ('workItem' in target) {
+    const { repo, number, type } = target.workItem;
+    return `${repo.toLowerCase()}#${number}:${type}`;
+  }
+  return 'key' in target ? `key:${target.key}` : `url:${target.url}`;
+}
+
+/** Run on…'s two lists with each item once: one in its last check is not listed again from the Inbox. */
+export function runOnRows(targets: ItemTargets): Pick<ItemTargets, 'items' | 'inbox'> {
+  const listed = new Set(targets.items.map(rowIdentity));
+  return {
+    items: targets.items,
+    inbox: targets.inbox.filter((row) => !listed.has(rowIdentity(row))),
+  };
 }
 
 /** What Run on… says of an item's newest run of this automation: "ran 2 days ago", "waiting for you". */

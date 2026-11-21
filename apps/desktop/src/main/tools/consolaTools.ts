@@ -505,7 +505,7 @@ export function consolaTools(deps: ConsolaToolDeps): ToolDefinition[] {
         const note = saved.needsAllow
           ? ' It does not check until the person allows it in Consola.'
           : problem
-            ? ` It will not run: ${problem}.`
+            ? ` It will not run: ${problem.replace(/\.$/, '')}.`
             : '';
         return { summary: base + note, data: saved };
       },

@@ -632,6 +632,8 @@ describe('GitHubDriver identity, URLs and header', () => {
     'https://github.com/sprocket/catalog-portal/pull/51?x=1',
     'https://github.com/sprocket/catalog-portal/pull/51#r1',
     'https://github.com/sprocket/catalog-portal/pull/0',
+    // Past Number.MAX_SAFE_INTEGER: it would read as another number.
+    'https://github.com/sprocket/catalog-portal/pull/99999999999999999999',
     'https://github.com/sprocket/catalog-portal/pulls/51',
     'https://gitlab.com/sprocket/catalog-portal/pull/51',
     'https://github.com/sprocket/pull/51',

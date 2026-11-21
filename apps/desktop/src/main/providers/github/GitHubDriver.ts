@@ -755,11 +755,14 @@ export class GitHubDriver implements GitProviderDriver {
   public parseWorkItemUrl(url: string): WorkItemRef | null {
     const match = WORK_ITEM_URL.exec(url);
     if (!match) return null;
+    const number = Number(match[4]);
+    // Past Number.MAX_SAFE_INTEGER it would read as another number.
+    if (!Number.isSafeInteger(number)) return null;
     return {
       provider: 'github',
       repo: `${match[1]}/${match[2]}`,
       type: match[3] === 'pull' ? 'pr' : 'issue',
-      number: Number(match[4]),
+      number,
     };
   }
 

@@ -25,6 +25,18 @@ export function noNextCheckWords(check: CheckView | undefined, needsAllow: boole
   return check?.lastAt ? 'Checking…' : 'Not checked yet';
 }
 
+/**
+ * What a poll with no recent runs will do: check, and run for what is new or
+ * changed; in `confirm`, ask to run. Not before it is allowed.
+ */
+export function pollRunsEmptyWords(
+  view: Pick<AutomationView, 'mode' | 'check' | 'needsAllow'>,
+): string {
+  if (view.needsAllow) return 'It is not checking yet: allow it above.';
+  const does = view.mode === 'confirm' ? 'asks to run' : 'runs';
+  return `It checks every ${view.check?.every ?? 'so often'}, and ${does} for what is new or changed. Check now looks right away.`;
+}
+
 /** The items a check left out because their repository is not here; null when none. */
 export function skippedWords(skipped: number): string | null {
   return skipped > 0 ? `${skipped} skipped: their repositories are not in this workspace` : null;

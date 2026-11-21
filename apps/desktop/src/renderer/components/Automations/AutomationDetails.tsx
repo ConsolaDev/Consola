@@ -16,7 +16,7 @@ import { useAutomationsStore } from '../../stores/automationsStore';
 import { AllowCard } from './AllowCard';
 import { AutomationInsights } from './AutomationInsights';
 import { EntrySource, PipelineGraph } from './AutomationPipeline';
-import { allowBannerWords, checkStatusLine, skippedWords } from './checkWords';
+import { allowBannerWords, checkStatusLine, pollRunsEmptyWords, skippedWords } from './checkWords';
 import { RunOnPicker } from './RunOnPicker';
 import { RunItem, RunNowButton, StatusIcon, useArrivals, useIntent, useNow } from './parts';
 import {
@@ -349,11 +349,8 @@ function RunsEmpty({ automation, now }: { automation: AutomationView; now: Date 
         : 'Run now runs it right away.';
   let text: string;
   if (automation.problem) text = 'It will not run until the problem above is fixed.';
-  else if (automation.source === 'poll') {
-    text = automation.needsAllow
-      ? 'It is not checking yet: allow it above.'
-      : `It checks every ${automation.check?.every ?? 'so often'}, and runs for what is new or changed. Check now looks right away.`;
-  } else if (automation.source === 'manual')
+  else if (automation.source === 'poll') text = pollRunsEmptyWords(automation);
+  else if (automation.source === 'manual')
     text = `It runs only when you or an agent start it. ${runNow}`;
   else if (automation.onEvent)
     text = 'It fires when an Inbox refresh finds something new. Check now looks right away.';

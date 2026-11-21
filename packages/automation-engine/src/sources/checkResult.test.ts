@@ -141,6 +141,9 @@ describe('readCheckResult refuses', () => {
       () => read('{"a":1}', keyed),
       'Its stdout is a JSON object, not an array of objects.',
     ],
+    ['a number', () => read('42', keyed), 'Its stdout is a JSON number, not an array of objects.'],
+    ['null', () => read('null', keyed), 'Its stdout is JSON null, not an array of objects.'],
+    ['a string', () => read('"x"', keyed), 'Its stdout is a JSON string, not an array of objects.'],
     ['a number item', () => read('[1]', keyed), 'Item 0 is a number, not an object.'],
     [
       'too many items',
