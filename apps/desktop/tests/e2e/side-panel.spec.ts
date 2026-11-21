@@ -330,6 +330,121 @@ test.describe('side panel', () => {
     await expect(newTabList()).toBeVisible();
   });
 
+  /** The accessible names of the header's side panel controls, in order. */
+  const headerControls = () =>
+    page
+      .locator('.side-panel-controls')
+      .getByRole('button')
+      .evaluateAll((buttons) => buttons.map((button) => button.getAttribute('aria-label')));
+  /** What the side panel store has written, as the next launch will read it. */
+  const storedUses = () =>
+    page.evaluate((key): Record<string, number[]> => {
+      const stored = JSON.parse(localStorage.getItem(key) ?? '{}');
+      return stored.state?.uses ?? {};
+    }, 'consola-side-panel');
+
+  test('the header shows the three most-used kinds, worked out at launch', async () => {
+    await openSession('Paginate the catalog search');
+    await expect.poll(headerControls).toEqual(['Changes', 'Files', 'Terminal', 'Show side panel']);
+
+    // Pull request opened five times today, read at the next launch.
+    await page.evaluate((key) => {
+      const now = Date.now();
+      localStorage.setItem(
+        key,
+        JSON.stringify({
+          state: { uses: { 'pull-request': [now, now, now, now, now] }, rememberLayout: true },
+          version: 0,
+        }),
+      );
+    }, 'consola-side-panel');
+    await app.close();
+    ({ app, page } = await launchElectron({ userDataDir }));
+    await openSession('Paginate the catalog search');
+    await expect
+      .poll(headerControls)
+      .toEqual(['Changes', 'Files', 'Pull request', 'Show side panel']);
+
+    // Terminal opened ten times through the "+" list: ten uses today, which
+    // would rank it above Files. The header keeps what launch worked out.
+    await sidePanelToggle().click();
+    for (let opened = 0; opened < 10; opened += 1) {
+      if (opened > 0) await plusButton().click();
+      await newTabList().getByRole('option', { name: 'Terminal' }).click();
+      await expect(sidePanelTab('Terminal')).toHaveAttribute('aria-selected', 'true');
+    }
+    await expect.poll(async () => (await storedUses()).terminal?.length).toBe(10);
+    await expect
+      .poll(headerControls)
+      .toEqual(['Changes', 'Files', 'Pull request', 'Hide side panel']);
+  });
+
+  test('a shortcut that does not apply is dimmed in place, with its reason', async () => {
+    await openSession('Review notes');
+    await expect(changesShortcut()).toHaveAttribute('aria-disabled', 'true');
+    await expect.poll(headerControls).toEqual(['Changes', 'Files', 'Terminal', 'Show side panel']);
+    await changesShortcut().hover();
+    await expect(page.getByRole('tooltip')).toHaveText('This folder is not a git repository.');
+    // Forced: Playwright does not click what says it is disabled.
+    await changesShortcut().click({ force: true });
+    await expect(page.getByTestId('side-panel')).toHaveCount(0);
+  });
+
+  test('the header keeps its shortcuts and side panel toggle for a session with no checkout', async () => {
+    // A worktree a cleanup rule removed, which cannot be rebuilt: its
+    // repository is gone too. So the session keeps no checkout to show.
+    await page.evaluate(
+      async ({ worktree, gone, stub }) => {
+        const { workspaces } = await window.workspaceAPI.getSnapshot();
+        const workspace = workspaces.find((candidate) => candidate.name === 'Sprocket')!;
+        const fields = {
+          name: 'Old experiment',
+          nameIsUserSet: true,
+          workspaceId: workspace.id,
+          instanceId: 'side-d',
+          harnessId: stub,
+          scopeId: workspace.scopes[0].id,
+          cwd: worktree,
+          removedWorktree: {
+            path: worktree,
+            mainRepo: gone,
+            commit: 'a'.repeat(40),
+            branch: 'consola/old-experiment',
+            keepRef: 'refs/consola/worktrees/old-experiment',
+            trigger: 'settled',
+            removedAt: Date.now(),
+          },
+        };
+        await window.workspaceAPI.createSession(workspace.id, fields);
+      },
+      {
+        worktree: path.join(root, 'old-experiment'),
+        gone: path.join(root, 'gone'),
+        stub: 'side-panel-stub',
+      },
+    );
+    await openSession('Old experiment');
+    await expect(page.locator('.workspace-view-session')).toHaveText('Old experiment');
+    // No folder to show, so no git stats either.
+    await expect(page.locator('.path-display-container')).toHaveCount(0);
+    await expect.poll(headerControls).toEqual(['Changes', 'Files', 'Terminal', 'Show side panel']);
+    const removedReason =
+      'This session’s worktree was removed. It is rebuilt when the session next starts.';
+    await expect(changesShortcut()).toHaveAttribute('aria-disabled', 'true');
+    await changesShortcut().hover();
+    await expect(page.getByRole('tooltip')).toHaveText(removedReason);
+
+    await sidePanelToggle().click();
+    await expect(page.getByTestId('side-panel')).toBeVisible();
+    await expect(newTabList()).toBeFocused();
+    await expect(newTabList().getByRole('option', { name: 'Files' })).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    );
+    await sidePanelToggle().click();
+    await expect(page.getByTestId('side-panel')).toHaveCount(0);
+  });
+
   test('⌥⌘B toggles the side panel from the conversation', async () => {
     await openSession('Paginate the catalog search');
     await conversation().focus();

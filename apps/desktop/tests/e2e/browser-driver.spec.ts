@@ -519,6 +519,46 @@ test.describe('an agent call on a page', () => {
     await endCall(app);
   });
 
+  test('dots the Browser shortcut while Browser is one of the header’s kinds, and not the toggle', async () => {
+    const seeded = await seed(page, root);
+    // Browser opened five times today: at the next launch it is one of the
+    // header's three shortcuts.
+    await page.evaluate((key) => {
+      const now = Date.now();
+      localStorage.setItem(
+        key,
+        JSON.stringify({
+          state: { uses: { browser: [now, now, now, now, now] }, rememberLayout: true },
+          version: 0,
+        }),
+      );
+    }, 'consola-side-panel');
+    await app.close();
+    ({ app, page } = await launchElectron({ userDataDir }));
+    await openSession(page, 'Alpha', 'Alpha session');
+    const tab = await page.evaluate(
+      ({ sessionId, url }) => window.browserAPI.open(sessionId, url),
+      { sessionId: seeded.alpha, url: fixtures.url('/agent.html') },
+    );
+    const shortcut = page.locator('.side-panel-controls').getByRole('button', { name: /^Browser/ });
+    await expect(shortcut).toHaveAccessibleName('Browser');
+    await expect(shortcut).not.toHaveAttribute('data-agent-dot');
+
+    await beginCall(app, tab!.id);
+    await expect(shortcut).toHaveAttribute('data-agent-dot', 'true');
+    await expect(shortcut).toHaveAccessibleName('Browser, which the agent used');
+    await expect(sidePanelToggle(page)).toHaveAccessibleName('Show side panel');
+    await expect(sidePanelToggle(page)).not.toHaveAttribute('data-agent-dot');
+
+    // Pressing it shows the page, and seen is seen.
+    await shortcut.click();
+    await expect(panel(page)).toBeVisible();
+    await expect(shortcut).toHaveAttribute('aria-pressed', 'true');
+    await expect(shortcut).toHaveAccessibleName('Browser');
+    await expect(shortcut).not.toHaveAttribute('data-agent-dot');
+    await endCall(app);
+  });
+
   test('DevTools on the page refuses the agent, and opening it detaches the agent', async () => {
     const seeded = await seed(page, root);
     const tabId = await unseenTab(page, seeded);

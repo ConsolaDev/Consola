@@ -1,4 +1,3 @@
-import type { ReactNode } from 'react';
 import * as Tooltip from '@radix-ui/react-tooltip';
 import { RotateCw } from 'lucide-react';
 import { useGitStatusStore } from '../../stores/gitStatusStore';
@@ -10,8 +9,6 @@ interface PathDisplayProps {
   className?: string;
   /** Print the folder itself. Off where the checkout chip already names it. */
   showPath?: boolean;
-  /** More header buttons, placed after the git stats. */
-  children?: ReactNode;
 }
 
 /**
@@ -32,7 +29,7 @@ function truncatePath(fullPath: string): string {
   return `${firstPart}/.../${lastSegments}`;
 }
 
-export function PathDisplay({ path, className, showPath = true, children }: PathDisplayProps) {
+export function PathDisplay({ path, className, showPath = true }: PathDisplayProps) {
   // Use granular selectors to prevent unnecessary re-renders
   const stats = useGitStatusStore((state) => state.stats);
   const isLoading = useGitStatusStore((state) => state.isLoading);
@@ -66,7 +63,7 @@ export function PathDisplay({ path, className, showPath = true, children }: Path
         </Tooltip.Provider>
       )}
 
-      {/* Right side actions: git status, then the side panel's shortcuts */}
+      {/* Right side: the checkout's git status */}
       <div className="path-display-actions">
         {/* Uncommitted changes in this checkout. Its branch is named by the
             checkout chip beside the title, with what kind of checkout it is. */}
@@ -104,8 +101,6 @@ export function PathDisplay({ path, className, showPath = true, children }: Path
             </Tooltip.Provider>
           </div>
         )}
-
-        {children}
       </div>
     </div>
   );

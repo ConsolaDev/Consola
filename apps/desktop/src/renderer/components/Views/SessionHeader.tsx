@@ -10,25 +10,20 @@ import { scopeTrail } from '../../utils/scopeTrail';
 import { tildePath } from '../../utils/displayPath';
 import { renameSession } from '../../utils/sessionActions';
 import { SessionNameEditor } from '../SessionName/SessionNameEditor';
-import type { TabKindId } from '../../sidePanel/tabKinds';
 import { useTabFacts } from '../SidePanel/useTabFacts';
 import { PathDisplay } from './PathDisplay';
-import { ShortcutButton } from './ShortcutButton';
-import { SidePanelToggle } from './SidePanelToggle';
+import { SidePanelControls } from './SidePanelControls';
 import { CheckoutChip } from './CheckoutChip';
 import { SnoozeChip } from '../Snooze/SnoozeChip';
 import './styles.css';
 
-/** The kinds the header has a shortcut for, until it shows the most used ones. */
-const HEADER_KINDS: readonly TabKindId[] = ['changes', 'files', 'terminal'];
-
 /**
  * The top of a session's pane: "scope / name", where its edits land, and the
- * pane toggles. The pane runs to the window's top edge, so this row is the
- * title bar beside the navigation strip, as in production, while staying on
- * the pane whose terminal and side panel read the checkout it names. The
- * scope leads, as the workspace did before the strip's menu named it: the
- * session's own scope, not its checkout, which the chip covers.
+ * side panel's controls. The pane runs to the window's top edge, so this row
+ * is the title bar beside the navigation strip, as in production, while
+ * staying on the pane whose terminal and side panel read the checkout it
+ * names. The scope leads, as the workspace did before the strip's menu named
+ * it: the session's own scope, not its checkout, which the chip covers.
  *
  * Key it by session: the checkout is re-read on mount, because the agent on
  * screen may just have changed branch.
@@ -80,15 +75,10 @@ export function SessionHeader({ workspace, session }: { workspace: Workspace; se
           // The checkout chip's tooltip already names the folder; only a
           // folder outside git, which gets no chip, needs it printed here.
           showPath={checkout?.kind === 'none'}
-        >
-          {HEADER_KINDS.map((kind) => (
-            <ShortcutButton key={kind} kind={kind} facts={facts} />
-          ))}
-        </PathDisplay>
+        />
       )}
-      {/* Outside PathDisplay, which needs a checkout: the side panel does not.
-          It carries a mark no header shortcut can (`markPlaces`). */}
-      <SidePanelToggle facts={facts} headerKinds={HEADER_KINDS} />
+      {/* Outside PathDisplay, which needs a checkout: the side panel does not. */}
+      <SidePanelControls facts={facts} />
     </div>
   );
 }

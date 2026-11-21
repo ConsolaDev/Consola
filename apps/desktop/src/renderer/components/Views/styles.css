@@ -801,11 +801,26 @@
   color: var(--color-accent);
 }
 
-/* The header's last button. Without a checkout nothing fills the row before
-   it, so it keeps to the right edge on its own. */
-.side-panel-toggle {
+/* The header's right end: the shortcuts, a separator, then the side panel
+   toggle. Without a checkout nothing fills the row before it, so it keeps to
+   the right edge on its own. */
+.side-panel-controls {
+  display: flex;
   flex-shrink: 0;
+  align-items: center;
+  gap: 4px;
   margin-left: auto;
+}
+
+/* 4px of margin on each side, with the 4px gap, leaves 8px around it */
+.side-panel-controls-separator {
+  flex-shrink: 0;
+  width: 1px;
+  height: 16px;
+  margin: 0 4px;
+  padding: 0;
+  border: none;
+  background: var(--color-border);
 }
 
 /* A shortcut for a tab that does not apply here: dimmed, its tooltip says why */
