@@ -92,6 +92,7 @@ export function usePaletteContext(open: boolean): PaletteContext {
   const commitMessage = useGitReviewStore((state) => state.commitMessage);
   const terminalFontSize = useSettingsStore((state) => state.terminalFontSize);
   const isSidePanelVisible = useSidePanelStore((state) => state.layout.visible);
+  const isInfoPanelVisible = useSidePanelStore((state) => state.infoVisible);
   const { openSettings } = useSettings();
   const localServers = useLocalServers(open, activeSessionId ?? undefined);
 
@@ -170,6 +171,7 @@ export function usePaletteContext(open: boolean): PaletteContext {
       commitMessage,
       tabKinds,
       isSidePanelVisible,
+      isInfoPanelVisible,
       isOverlayOpen,
       terminalFontSize,
       localServers,
@@ -189,6 +191,7 @@ export function usePaletteContext(open: boolean): PaletteContext {
       commitMessage,
       tabKinds,
       isSidePanelVisible,
+      isInfoPanelVisible,
       isOverlayOpen,
       terminalFontSize,
       localServers,

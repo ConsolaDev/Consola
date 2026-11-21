@@ -11,8 +11,10 @@ import { closeTarget, isCloseShortcut, type KeyboardPlace } from '../utils/close
 import {
   kindOnScreen,
   pressShortcutOnScreen,
+  toggleInfoPanelOnScreen,
   toggleSidePanelOnScreen,
 } from '../utils/sidePanelActions';
+import { isInfoPanelShortcut } from '../utils/infoPanelShortcut';
 import { isSidePanelShortcut } from '../utils/sidePanelShortcut';
 import {
   isBrowserShortcut,
@@ -112,6 +114,13 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
         return;
       }
 
+      // Shows or hides the info panel beside the session on screen.
+      if (isInfoPanelShortcut(event)) {
+        event.preventDefault();
+        if (!event.repeat) toggleInfoPanelOnScreen();
+        return;
+      }
+
       // Ctrl+` : the Terminal tab, as its header button does. Held, it acts
       // once, rather than showing and hiding the side panel on every repeat.
       if (isShellShortcut(event)) {
@@ -203,6 +212,9 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
           return;
         case 'side-panel':
           toggleSidePanelOnScreen();
+          return;
+        case 'info-panel':
+          toggleInfoPanelOnScreen();
           return;
         // Main sends a held ⌘W once, so this is one press.
         case 'close':

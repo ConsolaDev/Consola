@@ -43,6 +43,11 @@ import { rankShortcutKinds, recordUse, sanitizeUsage, type UsageLog } from '../s
  *   ranked once, when the stored uses are read, and no action touches it, so
  *   nothing moves under the pointer however the counts change.
  *
+ * Whether the info panel shows sits here too, beside the layout rather than
+ * in it (`layout.ts` is the side panel's arrangement only), and follows the
+ * same remember setting. Showing or hiding it counts nothing and asks for no
+ * focus: the panel never takes the keyboard.
+ *
  * Persisted to localStorage, which every window shares: each window holds its
  * own copy and the last write wins, as for the other renderer preferences.
  */
@@ -56,12 +61,16 @@ export type FocusTarget = TabKindId | typeof Layout.NEW_TAB;
 
 export interface PersistedSidePanel {
   layout?: SidePanelLayout;
+  /** Written exactly when `layout` is. */
+  infoVisible?: boolean;
   uses: UsageLog;
   rememberLayout: boolean;
 }
 
 export interface SidePanelState {
   layout: SidePanelLayout;
+  /** Whether the info panel shows beside the conversation. */
+  infoVisible: boolean;
   uses: UsageLog;
   /** The header's kinds, worked out once when this window's store is created and never again while it runs. */
   shortcutKinds: readonly TabKindId[];
@@ -80,15 +89,20 @@ export interface SidePanelState {
   choosePlaceholder(groupId: GroupId, kind: TabKindId): void;
   setVisible(visible: boolean): void;
   toggleVisible(): void;
+  setInfoVisible(visible: boolean): void;
+  toggleInfoVisible(): void;
   setRememberLayout(remember: boolean): void;
   /** True once, and clears it, when `kind` was requested within the TTL. */
   takeFocusRequest(kind: FocusTarget): boolean;
 }
 
-/** What is written: the arrangement only while it is remembered, the uses and the setting always. */
+/**
+ * What is written: the arrangement, and whether the info panel shows, only
+ * while they are remembered; the uses and the setting always.
+ */
 export function partializeSidePanel(state: SidePanelState): PersistedSidePanel {
-  const { layout, uses, rememberLayout } = state;
-  return rememberLayout ? { layout, uses, rememberLayout } : { uses, rememberLayout };
+  const { layout, infoVisible, uses, rememberLayout } = state;
+  return rememberLayout ? { layout, infoVisible, uses, rememberLayout } : { uses, rememberLayout };
 }
 
 /**
@@ -96,7 +110,9 @@ export function partializeSidePanel(state: SidePanelState): PersistedSidePanel {
  * another build or be junk, so nothing in it is spread over `current`: each
  * field is read, repaired or defaulted on its own, and nothing found there
  * throws. A layout is read only while remembering; otherwise the panel starts
- * as the default, a single hidden group.
+ * as the default, a single hidden group. The info panel shows unless a
+ * remembered profile says it was hidden, so a new install and a profile from
+ * before it existed both show it.
  */
 export function mergeSidePanelState(
   persisted: unknown,
@@ -112,6 +128,8 @@ export function mergeSidePanelState(
   return {
     ...current,
     layout: rememberLayout ? repairLayout(saved.layout, TAB_KIND_IDS) : Layout.defaultLayout(),
+    infoVisible:
+      rememberLayout && typeof saved.infoVisible === 'boolean' ? saved.infoVisible : true,
     uses,
     shortcutKinds: rankShortcutKinds(uses, TAB_KIND_IDS, now),
     rememberLayout,
@@ -153,6 +171,7 @@ export const useSidePanelStore = create<SidePanelState>()(
 
       return {
         layout: Layout.defaultLayout(),
+        infoVisible: true,
         uses: {},
         shortcutKinds: rankShortcutKinds({}, TAB_KIND_IDS, Date.now()),
         rememberLayout: true,
@@ -178,6 +197,8 @@ export const useSidePanelStore = create<SidePanelState>()(
           open(Layout.choosePlaceholder(get().layout, groupId, kind), kind),
         setVisible: show,
         toggleVisible: () => show(!get().layout.visible),
+        setInfoVisible: (infoVisible) => set({ infoVisible }),
+        toggleInfoVisible: () => set((state) => ({ infoVisible: !state.infoVisible })),
         // Off keeps the arrangement on screen; it only stops being written.
         setRememberLayout: (rememberLayout) => set({ rememberLayout }),
         takeFocusRequest: (kind) => {

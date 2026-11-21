@@ -135,6 +135,42 @@ describe('mergeSidePanelState', () => {
       'terminal',
     ]);
   });
+
+  it('the info panel is shown on a new install and after an upgrade', () => {
+    expect(current().infoVisible).toBe(true);
+    expect(mergeSidePanelState(undefined, current(), NOW).infoVisible).toBe(true);
+    // A profile PR 1 wrote: a layout, no word on the info panel.
+    const upgraded = mergeSidePanelState(
+      { layout: stored, uses: {}, rememberLayout: true },
+      current(),
+      NOW,
+    );
+    expect(upgraded.infoVisible).toBe(true);
+  });
+
+  it('a hidden info panel is remembered only while the layout is', () => {
+    const remembering = mergeSidePanelState(
+      { layout: stored, uses: {}, rememberLayout: true, infoVisible: false },
+      current(),
+      NOW,
+    );
+    expect(remembering.infoVisible).toBe(false);
+
+    const forgetting = mergeSidePanelState(
+      { uses: {}, rememberLayout: false, infoVisible: false },
+      current(),
+      NOW,
+    );
+    expect(forgetting.infoVisible).toBe(true);
+
+    // Anything but a boolean is no answer.
+    const junk = mergeSidePanelState(
+      { layout: stored, uses: {}, rememberLayout: true, infoVisible: 'no' },
+      current(),
+      NOW,
+    );
+    expect(junk.infoVisible).toBe(true);
+  });
 });
 
 describe('partializeSidePanel', () => {
@@ -143,6 +179,7 @@ describe('partializeSidePanel', () => {
     const remembering = partializeSidePanel(state());
     expect(remembering).toEqual({
       layout: state().layout,
+      infoVisible: true,
       uses: state().uses,
       rememberLayout: true,
     });
@@ -151,6 +188,45 @@ describe('partializeSidePanel', () => {
     const forgetting = partializeSidePanel(state());
     expect(forgetting).toEqual({ uses: state().uses, rememberLayout: false });
     expect('layout' in forgetting).toBe(false);
+  });
+
+  it('writes whether the info panel shows exactly when it writes the layout', () => {
+    state().setInfoVisible(false);
+    expect(partializeSidePanel(state())).toMatchObject({
+      layout: state().layout,
+      infoVisible: false,
+    });
+
+    state().setRememberLayout(false);
+    const forgetting = partializeSidePanel(state());
+    expect('layout' in forgetting).toBe(false);
+    expect('infoVisible' in forgetting).toBe(false);
+  });
+});
+
+describe('the info panel', () => {
+  it('shows and hides', () => {
+    expect(state().infoVisible).toBe(true);
+    state().toggleInfoVisible();
+    expect(state().infoVisible).toBe(false);
+    state().toggleInfoVisible();
+    expect(state().infoVisible).toBe(true);
+    state().setInfoVisible(false);
+    expect(state().infoVisible).toBe(false);
+  });
+
+  it('toggleInfoVisible counts nothing and asks for no focus', () => {
+    state().openKind('changes');
+    state().takeFocusRequest('changes');
+    const uses = state().uses;
+    const layout = state().layout;
+
+    state().toggleInfoVisible();
+    state().toggleInfoVisible();
+    state().setInfoVisible(false);
+    expect(state().uses).toBe(uses);
+    expect(state().layout).toBe(layout);
+    expect(state().focusRequest).toBeNull();
   });
 });
 
@@ -495,7 +571,12 @@ describe('persistence', () => {
   it('writes what partializeSidePanel keeps, under its key, at version 0', () => {
     state().openKind('changes');
     expect(written()).toEqual({
-      state: { layout: state().layout, uses: state().uses, rememberLayout: true },
+      state: {
+        layout: state().layout,
+        infoVisible: true,
+        uses: state().uses,
+        rememberLayout: true,
+      },
       version: 0,
     });
 
@@ -545,6 +626,7 @@ describe('persistence', () => {
   }
   const expectDefaults = (launched: ReturnType<typeof state>) => {
     expect(launched.layout).toEqual(defaultLayout());
+    expect(launched.infoVisible).toBe(true);
     expect(launched.uses).toEqual({});
     expect(launched.rememberLayout).toBe(true);
     expect(launched.shortcutKinds).toEqual(rankShortcutKinds({}, TAB_KIND_IDS, NOW));
@@ -561,11 +643,17 @@ describe('persistence', () => {
   it('launches with what a readable blob holds', async () => {
     const launched = await launchWith(
       JSON.stringify({
-        state: { layout: arranged, uses: { changes: [NOW] }, rememberLayout: true },
+        state: {
+          layout: arranged,
+          infoVisible: false,
+          uses: { changes: [NOW] },
+          rememberLayout: true,
+        },
         version: 0,
       }),
     );
     expect(launched.getState().layout).toEqual(arranged);
+    expect(launched.getState().infoVisible).toBe(false);
     expect(launched.getState().uses).toEqual({ changes: [NOW] });
 
     const forgetting = await launchWith(
@@ -580,7 +668,12 @@ describe('persistence', () => {
       expectDefaults(launched.getState());
       launched.getState().openKind('files');
       expect(written()).toEqual({
-        state: { layout: launched.getState().layout, uses: { files: [NOW] }, rememberLayout: true },
+        state: {
+          layout: launched.getState().layout,
+          infoVisible: true,
+          uses: { files: [NOW] },
+          rememberLayout: true,
+        },
         version: 0,
       });
     }

@@ -8,6 +8,7 @@ import { useCheckout } from '../../stores/checkoutStore';
 import { useSidePanelStore } from '../../stores/sidePanelStore';
 import { tabFactsFor } from '../../sidePanel/tabKinds';
 import { TerminalPanel } from '../Terminal';
+import { InfoPanel } from '../InfoPanel/InfoPanel';
 import { SidePanel } from '../SidePanel/SidePanel';
 import { WorkItemStrip } from '../WorkItemStrip';
 import { SessionHeader } from './SessionHeader';
@@ -20,6 +21,7 @@ interface ContentViewProps {
 
 export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
   const isSidePanelVisible = useSidePanelStore((state) => state.layout.visible);
+  const infoVisible = useSidePanelStore((state) => state.infoVisible);
 
   const getWorkspace = useWorkspaceStore((state) => state.getWorkspace);
   const getSession = useWorkspaceStore((state) => state.getSession);
@@ -44,9 +46,14 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
   // return below, since hooks cannot wait for the session to be found.
   const checkout = useCheckout(cwd || null);
 
-  // Conditional panels must have separate saved layouts: hiding the side
-  // panel must not overwrite the layout that remembers its width.
-  const panelIds = ['agent', ...(isSidePanelVisible ? ['side-panel'] : [])];
+  // Conditional panels must have separate saved layouts: hiding the info
+  // panel or the side panel must not overwrite the layout that remembers
+  // its width.
+  const panelIds = [
+    'agent',
+    ...(infoVisible ? ['info-panel'] : []),
+    ...(isSidePanelVisible ? ['side-panel'] : []),
+  ];
   // Not the id the columns before the side panel saved under, so none of
   // their layouts is read back.
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({
@@ -106,12 +113,13 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
           defaultLayout={defaultLayout}
           onLayoutChanged={onLayoutChanged}
         >
-          {/* The conversation. It stays an unconditional child of this Group,
-              with no wrapper that differs between layouts and the same key,
-              so opening, closing or resizing the side panel only resizes it:
-              a remount would reattach the terminal at a captured size and
-              could lose the prompt's frame (CLAUDE.md, "Terminals Outlive
-              Their Views"). */}
+          {/* The conversation. It stays the unconditional first child of this
+              Group, with no wrapper that differs between layouts and the same
+              key, so showing, hiding or resizing the info panel, and opening,
+              closing or resizing the side panel, only resizes it: a remount
+              would reattach the terminal at a captured size and could lose
+              the prompt's frame (AGENTS.md, "Terminals Outlive Their
+              Views"). */}
           <Panel id="agent" minSize="20%">
             <TerminalPanel
               instanceId={instanceId}
@@ -132,7 +140,15 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
               model={session.model}
             />
           </Panel>
-          {/* The info panel (PR 2) goes here, between the conversation and the side panel. */}
+          {/* The info panel, always the first thing after the conversation. */}
+          {infoVisible && (
+            <>
+              <Separator className="resize-handle info-panel-resize-handle" />
+              <Panel id="info-panel" defaultSize="250px" minSize="220px" maxSize="400px">
+                <InfoPanel facts={facts} />
+              </Panel>
+            </>
+          )}
           {isSidePanelVisible && (
             <>
               <Separator className="resize-handle" />

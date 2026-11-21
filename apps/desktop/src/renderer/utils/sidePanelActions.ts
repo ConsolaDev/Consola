@@ -77,6 +77,24 @@ export function toggleSidePanelOnScreen(): boolean {
 }
 
 /**
+ * What the header's info panel toggle does, for its chord and the palette:
+ * shows or hides the info panel. Does nothing, and answers false, with no
+ * session on screen, the Inbox or Automations included, since there is no
+ * info panel there. Showing it takes no keyboard; hiding it with the
+ * keyboard on one of its rows hands the keyboard to the conversation, never
+ * to the body.
+ */
+export function toggleInfoPanelOnScreen(): boolean {
+  if (!currentTabFacts()) return false;
+  const wasInInfoPanel = !!document.activeElement?.closest('.info-panel');
+  useSidePanelStore.getState().toggleInfoVisible();
+  if (wasInInfoPanel && !useSidePanelStore.getState().infoVisible) {
+    requestAnimationFrame(() => keyboardToConversation());
+  }
+  return true;
+}
+
+/**
  * For a chord that may hide the side panel: call it before the chord acts,
  * and what it returns after. Should the side panel have hidden with the
  * keyboard in it, or in a page, the keyboard goes to the conversation once

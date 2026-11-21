@@ -39,6 +39,7 @@ import {
   kindOnScreen,
   openDiffInFilesTab,
   pressShortcutOnScreen,
+  toggleInfoPanelOnScreen,
   toggleSidePanelOnScreen,
 } from './sidePanelActions';
 
@@ -149,6 +150,27 @@ describe('toggleSidePanelOnScreen', () => {
     show({ overlay: 'inbox' });
     expect(toggleSidePanelOnScreen()).toBe(false);
     expect(layout()).toEqual(useSidePanelStore.getInitialState().layout);
+  });
+});
+
+describe('toggleInfoPanelOnScreen', () => {
+  const infoVisible = () => useSidePanelStore.getState().infoVisible;
+
+  it('shows and hides the info panel beside the session on screen, and leaves the side panel be', () => {
+    show();
+    expect(toggleInfoPanelOnScreen()).toBe(true);
+    expect(infoVisible()).toBe(false);
+    expect(toggleInfoPanelOnScreen()).toBe(true);
+    expect(infoVisible()).toBe(true);
+    expect(layout()).toEqual(useSidePanelStore.getInitialState().layout);
+    expect(useSidePanelStore.getState().focusRequest).toBeNull();
+  });
+
+  it('does nothing without a session on screen or under an overlay', () => {
+    expect(toggleInfoPanelOnScreen()).toBe(false);
+    show({ overlay: 'inbox' });
+    expect(toggleInfoPanelOnScreen()).toBe(false);
+    expect(infoVisible()).toBe(true);
   });
 });
 

@@ -7,6 +7,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { browserChord } from './helpers/browserTab';
 import { commandPaletteChord, launchElectron, settingsChord } from './helpers/electron';
+import { infoPanelChord } from './helpers/infoPanel';
 
 /**
  * The side panel beside a session's conversation: a panel of tab groups to
@@ -733,9 +734,11 @@ test.describe('side panel', () => {
 
   test('the header shows the three most-used kinds, worked out at launch', async () => {
     await openSession('Paginate the catalog search');
-    await expect.poll(headerControls).toEqual(['Changes', 'Files', 'Terminal', 'Show side panel']);
+    await expect
+      .poll(headerControls)
+      .toEqual(['Changes', 'Files', 'Terminal', 'Hide info panel', 'Show side panel']);
     const controls = page.locator('.side-panel-controls');
-    // One upright separator, between the shortcuts and the toggle.
+    // One upright separator, between the shortcuts and the toggles.
     const separator = controls.getByRole('separator');
     await expect(separator).toHaveCount(1);
     await expect(separator).toHaveAttribute('aria-orientation', 'vertical');
@@ -784,7 +787,7 @@ test.describe('side panel', () => {
     await openSession('Paginate the catalog search');
     await expect
       .poll(headerControls)
-      .toEqual(['Changes', 'Files', 'Pull request', 'Show side panel']);
+      .toEqual(['Changes', 'Files', 'Pull request', 'Hide info panel', 'Show side panel']);
 
     // Terminal opened ten times through the "+" list: ten uses today, which
     // would rank it above Files. The header keeps what launch worked out.
@@ -797,13 +800,15 @@ test.describe('side panel', () => {
     await expect.poll(async () => (await storedUses()).terminal?.length).toBe(10);
     await expect
       .poll(headerControls)
-      .toEqual(['Changes', 'Files', 'Pull request', 'Hide side panel']);
+      .toEqual(['Changes', 'Files', 'Pull request', 'Hide info panel', 'Hide side panel']);
   });
 
   test('a shortcut that does not apply is dimmed in place, with its reason', async () => {
     await openSession('Review notes');
     await expect(changesShortcut()).toHaveAttribute('aria-disabled', 'true');
-    await expect.poll(headerControls).toEqual(['Changes', 'Files', 'Terminal', 'Show side panel']);
+    await expect
+      .poll(headerControls)
+      .toEqual(['Changes', 'Files', 'Terminal', 'Hide info panel', 'Show side panel']);
     await changesShortcut().hover();
     await expect(page.getByRole('tooltip')).toHaveText('This folder is not a git repository.');
     // Forced: Playwright does not click what says it is disabled.
@@ -864,7 +869,9 @@ test.describe('side panel', () => {
     await expect(page.locator('.workspace-view-session')).toHaveText('Old experiment');
     // No folder to show, so no git stats either.
     await expect(page.locator('.path-display-container')).toHaveCount(0);
-    await expect.poll(headerControls).toEqual(['Changes', 'Files', 'Terminal', 'Show side panel']);
+    await expect
+      .poll(headerControls)
+      .toEqual(['Changes', 'Files', 'Terminal', 'Hide info panel', 'Show side panel']);
     const removedReason =
       'This session’s worktree was removed. It is rebuilt when the session next starts.';
     await expect(changesShortcut()).toHaveAttribute('aria-disabled', 'true');
@@ -2055,6 +2062,17 @@ test.describe('side panel', () => {
         return !!kept?.isConnected && document.querySelector('.git-review-panel') === kept;
       });
 
+    // The info panel hidden by its button: only the conversation resizes.
+    // Hidden, it also leaves the side panel's steps below the width they
+    // measure, and their edge drags land on the conversation.
+    const infoPanel = page.getByTestId('info-panel');
+    await expect(infoPanel).toBeVisible();
+    const withInfo = await width();
+    await page.getByRole('button', { name: 'Hide info panel', exact: true }).click();
+    await expect(infoPanel).toHaveCount(0);
+    await expect.poll(width).toBeGreaterThan(withInfo + 200);
+    await untouched('the info panel hidden');
+
     // Shown, the side panel takes its width from the conversation, which
     // only resizes.
     const alone = await width();
@@ -2167,5 +2185,23 @@ test.describe('side panel', () => {
     // The whole width again.
     await expect.poll(width).toBeGreaterThan(alone - 2);
     await untouched('the whole width again');
+
+    // The info panel shown again by ⌥⌘J, then its edge dragged 40px into
+    // the conversation: each only resizes it.
+    await conversation().focus();
+    await page.keyboard.press(infoPanelChord());
+    await expect(infoPanel).toBeVisible();
+    await expect.poll(width).toBeLessThan(alone - 200);
+    await untouched('the info panel shown');
+    const infoEdge = (await page.locator('.info-panel-resize-handle').boundingBox())!;
+    const besideInfo = await width();
+    await page.mouse.move(infoEdge.x + infoEdge.width / 2, infoEdge.y + infoEdge.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(infoEdge.x + infoEdge.width / 2 - 40, infoEdge.y + infoEdge.height / 2, {
+      steps: 8,
+    });
+    await page.mouse.up();
+    await expect.poll(width).toBeLessThan(besideInfo - 20);
+    await untouched('the info panel widened');
   });
 });

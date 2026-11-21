@@ -6,6 +6,7 @@ import path from 'node:path';
 import { showBrowser } from './helpers/browserTab';
 import { launchElectron, removeProfile } from './helpers/electron';
 import { type FixtureServer, startFixtureServer } from './helpers/fixtureServer';
+import { hideInfoPanel } from './helpers/infoPanel';
 
 /**
  * The in-app browser's tabs: the strip, links that want a new tab, and the
@@ -422,6 +423,9 @@ test.describe('in-app browser tabs', () => {
 
   test('with twelve tabs, "+" and the active tab stay in view, narrow or wide', async () => {
     await openSession(page, 'Alpha');
+    // Not about the info panel: hidden, it leaves the side panel the width
+    // the drags below give it.
+    await hideInfoPanel(page);
     await showBrowser(page);
     await page.evaluate(async (sessionId) => {
       for (let i = 0; i < 12; i += 1) await window.browserAPI.open(sessionId, '');

@@ -4,7 +4,9 @@ import {
   forwardedShortcutFor,
   isBrowserShortcut,
   isCloseShortcut,
+  INFO_PANEL_SHORTCUT_LABELS,
   isCommandPaletteShortcut,
+  isInfoPanelShortcut,
   isShellShortcut,
   isSidebarShortcut,
   isSidePanelShortcut,
@@ -146,6 +148,44 @@ describe('side panel chord', () => {
   });
 });
 
+describe('info panel chord', () => {
+  // Option turns J into ∆ on a Mac, so the chord is matched on the physical key.
+  const mac = (mods: Partial<KeyChord> = {}) => cmd('∆', { alt: true, code: 'KeyJ', ...mods });
+  const other = (mods: Partial<KeyChord> = {}) => ctrl('j', { alt: true, code: 'KeyJ', ...mods });
+
+  it('is Option+Cmd+J on macOS and Ctrl+Alt+J elsewhere', () => {
+    expect(isInfoPanelShortcut(mac(), 'mac')).toBe(true);
+    expect(isInfoPanelShortcut(other(), 'other')).toBe(true);
+  });
+
+  it('is not with Shift', () => {
+    expect(isInfoPanelShortcut(mac({ shift: true }), 'mac')).toBe(false);
+    expect(isInfoPanelShortcut(other({ shift: true }), 'other')).toBe(false);
+  });
+
+  it('is not another key', () => {
+    expect(isInfoPanelShortcut(mac({ code: 'KeyB' }), 'mac')).toBe(false);
+    expect(isInfoPanelShortcut(other({ code: 'KeyB' }), 'other')).toBe(false);
+  });
+
+  it('is not the other platform’s chord, nor both modifiers at once', () => {
+    expect(isInfoPanelShortcut(other(), 'mac')).toBe(false);
+    expect(isInfoPanelShortcut(mac(), 'other')).toBe(false);
+    expect(isInfoPanelShortcut(mac({ ctrl: true }), 'mac')).toBe(false);
+    expect(isInfoPanelShortcut(other({ meta: true }), 'other')).toBe(false);
+  });
+
+  it('needs Alt', () => {
+    expect(isInfoPanelShortcut(cmd('j', { code: 'KeyJ' }), 'mac')).toBe(false);
+    expect(isInfoPanelShortcut(ctrl('j', { code: 'KeyJ' }), 'other')).toBe(false);
+  });
+
+  it('is labelled for each platform', () => {
+    expect(INFO_PANEL_SHORTCUT_LABELS.mac).toBe('⌥⌘J');
+    expect(INFO_PANEL_SHORTCUT_LABELS.other).toBe('Ctrl+Alt+J');
+  });
+});
+
 describe('close chord', () => {
   it('is Cmd+W on macOS', () => {
     expect(isCloseShortcut(cmd('w'), 'mac')).toBe(true);
@@ -209,6 +249,12 @@ describe('forwardedShortcutFor', () => {
     });
     expect(forwardedShortcutFor(ctrl('b', { alt: true, code: 'KeyB' }), 'other')).toEqual({
       kind: 'side-panel',
+    });
+    expect(forwardedShortcutFor(cmd('∆', { alt: true, code: 'KeyJ' }), 'mac')).toEqual({
+      kind: 'info-panel',
+    });
+    expect(forwardedShortcutFor(ctrl('j', { alt: true, code: 'KeyJ' }), 'other')).toEqual({
+      kind: 'info-panel',
     });
   });
 

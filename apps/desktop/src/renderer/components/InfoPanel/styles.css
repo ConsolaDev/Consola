@@ -1,0 +1,180 @@
+/* The info panel beside a session's conversation: sections of short rows,
+   scrolling on their own. */
+.info-panel {
+  height: 100%;
+  min-width: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  background: var(--color-bg-primary);
+}
+
+.info-section {
+  padding: 9px 4px 7px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.info-section-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 4px 3px;
+}
+
+.info-section-heading {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 11.5px;
+  font-weight: 500;
+}
+
+/* The heading is the disclosure button: it folds the section. */
+.info-section-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 1px 4px;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--color-text-secondary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.info-section-toggle:hover {
+  color: var(--color-text-primary);
+}
+.info-section-toggle:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+
+.info-section-chevron {
+  flex: none;
+  color: var(--color-text-tertiary);
+  transition: transform var(--transition-fast);
+}
+.info-section-toggle[aria-expanded="true"] .info-section-chevron {
+  transform: rotate(90deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .info-section-chevron {
+    transition: none;
+  }
+}
+
+.info-section-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+}
+
+.info-section-body {
+  display: flex;
+  flex-direction: column;
+}
+
+/* One row: an icon, what it is about, and a short value at its end. */
+.info-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 26px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  text-align: left;
+}
+.info-row[data-tone="muted"] {
+  color: var(--color-text-tertiary);
+}
+.info-row[data-tone="error"],
+.info-row[data-tone="error"] .info-row-icon {
+  color: var(--color-error);
+}
+
+/* A row with something behind it: a button, which is what takes the hover. */
+button.info-row {
+  width: 100%;
+  border: none;
+  background: none;
+  font-family: inherit;
+  line-height: inherit;
+  cursor: pointer;
+}
+button.info-row:hover {
+  background: var(--color-bg-hover);
+}
+button.info-row:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+
+/* One box for every icon, the harness mark's 16px included, so the labels
+   line up. */
+.info-row-icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  color: var(--color-text-tertiary);
+}
+
+.info-row-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.info-row-value {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  color: var(--color-text-tertiary);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.info-row-muted {
+  color: var(--color-text-tertiary);
+}
+
+/* The folder's path, cut in the middle: the head gives way to an ellipsis,
+   the tail stays whole. */
+.info-folder {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+.info-folder-kind {
+  flex: none;
+}
+.info-folder-path {
+  display: flex;
+  min-width: 0;
+  color: var(--color-text-tertiary);
+}
+.info-folder-path-head {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.info-folder-path-tail {
+  flex: none;
+  white-space: pre;
+}
+
+/* A linked worktree, in the hue the header and the sidebar give one. */
+.info-icon-worktree {
+  color: var(--color-worktree);
+}

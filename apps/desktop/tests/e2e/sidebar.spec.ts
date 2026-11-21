@@ -9,6 +9,7 @@ import {
   launchElectron,
   settingsChord,
 } from './helpers/electron';
+import { hideInfoPanel } from './helpers/infoPanel';
 import { createBuiltInHarness } from '../../src/shared/harness';
 
 let app: ElectronApplication;
@@ -261,13 +262,16 @@ test.describe('Home scopes and groups', () => {
   test('side panel width survives hiding, switching sessions and relaunching', async () => {
     test.setTimeout(60_000);
     await page.locator('.session-nav-item').filter({ hasText: 'Controller boot' }).click();
+    // Not about the info panel: hidden, it leaves the edge dragged below
+    // beside the conversation, and stays hidden across the relaunch.
+    await hideInfoPanel(page);
     const files = () => page.getByRole('button', { name: 'Files', exact: true });
     const sidePanel = () => page.getByTestId('side-panel');
     const width = async () => (await sidePanel().boundingBox())!.width;
     await files().click();
     await expect(sidePanel()).toBeVisible();
     const before = await width();
-    const handle = page.locator('.workspace-view-content .resize-handle').first();
+    const handle = page.locator('.resize-handle:has(+ [data-testid="side-panel"])');
     const box = (await handle.boundingBox())!;
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.mouse.down();
