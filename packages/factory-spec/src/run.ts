@@ -6,10 +6,13 @@ import type { Automation, AutomationMode } from './schema';
  *
  * The north-star Run record (docs/north-star/consola-factories.md §3), as
  * much of it as a local run has. Same field names and status words, so the
- * cloud runner's rows and these list side by side later. Not recorded yet,
- * and why: `cost` (a tool run spends no tokens; an agent run's tokens are its
- * session's), `environment` (the workspace scope is in `attribution` until
- * environments exist locally), `orgId` (personal automations have no org).
+ * cloud runner's rows and these list side by side later. An agent step's
+ * cost is the CLI's own estimate, recorded per turn (`StepRun.turn`) and
+ * summed on the run (`costUsd`); a legacy agent run's and a tool run's are
+ * not recorded (a tool run spends no tokens; a legacy run's tokens are its
+ * session's). Not recorded yet, and why: `environment` (the workspace scope
+ * is in `attribution` until environments exist locally), `orgId` (personal
+ * automations have no org).
  */
 export type RunStatus =
   | 'queued'
@@ -58,6 +61,16 @@ export interface StepRun {
   sessionId?: string;
   conversation?: { harnessId: string; id: string; cwd?: string };
   reminded?: boolean;
+  /** The model the CLI reported in its turn's `system/init`, the latest turn's. */
+  model?: string;
+  /**
+   * The latest attempt's turns, summed: its first turn, a resume, its
+   * reminder. `costUsd` is the CLI's estimate, present only when a turn
+   * reported one (a reported 0 is 0); `turns` the turns it took; `maxTurns`
+   * the step's own cap, when it has one; `deniedTools` the tools a turn was
+   * refused, distinct, in first-seen order.
+   */
+  turn?: { costUsd?: number; turns?: number; maxTurns?: number; deniedTools?: string[] };
   command?: {
     envNames: string[];
     intentAt?: string;
@@ -67,8 +80,14 @@ export interface StepRun {
     stderrBytes?: number;
     truncated?: boolean;
   };
-  /** Earlier executions of this step, oldest first. */
-  previous?: Array<{ attempt: number; status: StepRunStatus; error?: string; finishedAt?: string }>;
+  /** Earlier executions of this step, oldest first; `costUsd` is that attempt's `turn.costUsd`. */
+  previous?: Array<{
+    attempt: number;
+    status: StepRunStatus;
+    error?: string;
+    finishedAt?: string;
+    costUsd?: number;
+  }>;
 }
 
 export type RunSource = 'org' | 'repo' | 'personal' | 'manual';
@@ -162,6 +181,8 @@ export interface RunRecord {
   /** Where an item run worked; `head` is the commit it checked out. */
   checkout?: { cwd: string; scopeId?: string; head?: string };
   error?: string;
+  /** Every attempt of every step, summed; the CLI's estimate. Absent while none reported one. */
+  costUsd?: number;
   attribution: {
     automationId: string;
     actionName: string;

@@ -361,3 +361,69 @@ export interface WorkspaceView {
   scopes: ScopeView[];
   sessions: SessionView[];
 }
+
+/**
+ * A step turn's `system/init`, as the host read it from the CLI: the model it
+ * runs and every MCP server it loaded, with how each connected. `signInHint`
+ * is the harness's words for where a server is signed in to.
+ */
+export interface TurnInitView {
+  model?: string;
+  servers: Array<{ name: string; status: string }>;
+  signInHint?: string;
+}
+
+/**
+ * A step turn's `result`, as the host read it from the CLI. Its text, status
+ * and tool names are the CLI's own, already one line and cut short by the
+ * host; the engine still cuts what it quotes.
+ */
+export interface TurnResultView {
+  subtype: string;
+  isError: boolean;
+  /**
+   * The CLI's cost estimate for the conversation so far, as it reported it at
+   * the turn's end: a resumed turn's includes every earlier turn of its
+   * conversation (Claude's does, canary row 14), so the engine records the
+   * difference (`withTurnRecorded`). Absent when it reported none.
+   */
+  costUsd?: number;
+  /** The turns this turn took: its own, a resumed one's included (canary row 14). */
+  turns?: number;
+  text?: string;
+  apiErrorStatus?: string | number;
+  /** The tools it was refused, distinct. */
+  deniedTools: string[];
+}
+
+/** What a reporting turn said about itself: the host's parse of the CLI's stream. */
+export interface TurnReportView {
+  init?: TurnInitView;
+  result?: TurnResultView;
+  /** The lines that were not JSON, the last 200. */
+  otherLines: string[];
+  limitNotice: boolean;
+  /** The cap this launch ran with, as the host launched it. */
+  maxTurns?: number;
+  /** The CLI's own `system/init` and `result` objects, for turn.json. */
+  raw: { init?: unknown; result?: unknown };
+}
+
+/** How an unattended turn's process ended, as the host reports it; `report` when the turn reported itself. */
+export interface TurnOutcome {
+  exitCode: number;
+  lastLine?: string;
+  stopped?: string;
+  report?: TurnReportView;
+}
+
+/** One reporting turn, as `turn.json` keeps it. */
+export interface StepTurnFile {
+  endedAt: string;
+  exitCode: number;
+  stopped?: string;
+  maxTurns?: number;
+  init?: unknown;
+  result?: unknown;
+  otherLines: string[];
+}

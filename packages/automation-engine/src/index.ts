@@ -40,6 +40,11 @@ export type {
   ScopeView,
   SessionView,
   WorkspaceView,
+  TurnInitView,
+  TurnResultView,
+  TurnReportView,
+  TurnOutcome,
+  StepTurnFile,
 } from './views';
 export {
   RunStore,

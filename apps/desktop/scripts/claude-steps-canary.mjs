@@ -1248,24 +1248,35 @@ async function row14() {
       status: 'FAIL',
       why: `the first turn had no result (exit ${first.exitCode}: ${short(first.stderr, 100)})`,
     };
-  // `modelUsage` carries the figures `total_cost_usd` is the sum of. Its output
-  // tokens equal the turn's own `usage` only when the cost is the turn's own;
-  // a running total also holds every earlier turn's.
+  // What Consola relies on (the engine's `withTurnRecorded`, the plan's Call 12
+  // fallback, built because this row found it on 2.1.330): a resumed turn's
+  // `num_turns` and `--max-turns` are its own, and its `total_cost_usd` is the
+  // conversation's running total, so a step records each turn's cost as the
+  // difference from the attempt's earlier turns. `modelUsage` carries the
+  // figures `total_cost_usd` is the sum of: in a running total, its output
+  // tokens are the first turn's plus the resumed turn's own `usage`.
   const modelOut = (result) =>
     Object.values(result?.modelUsage ?? {}).reduce((sum, use) => sum + (use?.outputTokens ?? 0), 0);
-  const notOwn = [];
-  if (secondResult?.subtype !== 'success') notOwn.push('its --max-turns 1 counted earlier turns');
-  if (secondResult?.num_turns !== 1) notOwn.push('num_turns is a running total');
-  if (modelOut(secondResult) !== secondResult?.usage?.output_tokens) {
-    notOwn.push(
-      `total_cost_usd is the conversation's running total (modelUsage holds ${modelOut(secondResult)} output tokens, the turn's own usage ${secondResult?.usage?.output_tokens})`,
+  const broken = [];
+  if (secondResult?.subtype !== 'success')
+    broken.push('its --max-turns 1 counted earlier turns, so a reminder cap needs them added');
+  if (secondResult?.num_turns !== 1)
+    broken.push('num_turns is a running total, so summing it over-counts');
+  const own = secondResult?.usage?.output_tokens;
+  const runningTotal =
+    typeof own === 'number' &&
+    modelOut(secondResult) === modelOut(firstResult) + own &&
+    secondResult?.total_cost_usd >= firstResult.total_cost_usd;
+  if (!runningTotal) {
+    broken.push(
+      `total_cost_usd is not the conversation's running total (modelUsage holds ${modelOut(secondResult)} output tokens, the first turn's ${modelOut(firstResult)} plus the turn's own ${own} would be ${modelOut(firstResult) + (own ?? 0)}), so taking the difference under-counts it`,
     );
   }
-  return notOwn.length === 0
+  return broken.length === 0
     ? { status: 'PASS', why: saw }
     : {
         status: 'FAIL',
-        why: `a resumed turn does not report only its own figures: ${notOwn.join('; ')}; the plan's Call 12 fallback is needed for these; ${saw}`,
+        why: `a resumed turn does not report what Consola's cost and turn figures rely on: ${broken.join('; ')}; ${saw}`,
       };
 }
 
@@ -1351,7 +1362,7 @@ const ROWS = [
   },
   {
     id: '14',
-    name: 'a resumed print turn reports its own figures, and its cap counts only its own turns',
+    name: 'a resumed print turn reports its own turns, a cap that counts only them, and the conversation’s running cost',
     needs: 'tokens',
     run: row14,
   },

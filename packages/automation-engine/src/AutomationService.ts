@@ -97,6 +97,7 @@ import type {
   ScopeView,
   SessionView,
   TemplateView,
+  TurnOutcome,
   WorkspaceView,
 } from './views';
 import type { RunStore } from './RunStore';
@@ -117,6 +118,7 @@ import {
   type CheckState,
 } from './sources/pollRunner';
 import { reminderPrompt } from './steps/stepPrompt';
+import { turnFailure } from './steps/turnReport';
 import type { CheckoutPort, CheckoutRequest, PreparedCheckout } from './steps/checkout';
 import { describeFailure, LOG_CAP_BYTES, maskSecrets, utf8Bytes } from './steps/commandIO';
 import {
@@ -4660,21 +4662,6 @@ function checkViewOf(trigger: PollTrigger, outcome: CheckState['outcome']): Chec
     ...(trigger.changed !== undefined ? { changed: trigger.changed } : {}),
     ...last,
   };
-}
-
-/** How an unattended turn's process ended, as the host reports it. */
-type TurnOutcome = { exitCode: number; lastLine?: string; stopped?: string };
-
-/** Why an unattended turn did not finish, in the words every automation run uses; null when it exited cleanly. */
-function turnFailure(outcome: TurnOutcome): string | null {
-  if (outcome.stopped) {
-    // Stopped before it answered — by the person, the limit, or a
-    // signal — whatever code the process exited with.
-    return `It stopped before finishing: ${outcome.stopped.trim().replace(/[.\s]+$/, '')}.`;
-  }
-  if (outcome.exitCode === 0) return null;
-  const said = outcome.lastLine?.trim().replace(/[.\s]+$/, '');
-  return `It stopped before finishing (exit ${outcome.exitCode})${said ? `: ${said}` : ''}.`;
 }
 
 /** What an agent run says while its turn runs. */
