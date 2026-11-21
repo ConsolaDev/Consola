@@ -158,6 +158,20 @@ test.describe('info panel', () => {
   /** Uncommitted, a button that opens Changes: named `Uncommitted, <value>. Open Changes`. */
   const uncommitted = () =>
     infoSection(page, 'Branch').getByRole('button', { name: /^Uncommitted, .+\. Open Changes$/ });
+  /**
+   * The session header's buttons that something else is drawn over at their
+   * centre, by name: none, when each takes its own click.
+   */
+  const coveredHeaderControls = () =>
+    page.locator('.workspace-view-header').evaluate((row) =>
+      [...row.querySelectorAll('button')]
+        .filter((button) => {
+          const box = button.getBoundingClientRect();
+          const hit = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+          return !hit || !button.contains(hit);
+        })
+        .map((button) => button.getAttribute('aria-label') ?? button.textContent),
+    );
   /** The branch against its base, a plain fact. */
   const baseRow = (ref: string) =>
     infoSection(page, 'Branch')
@@ -297,18 +311,44 @@ test.describe('info panel', () => {
   });
 
   test("the header's refresh reads the branch again", async () => {
-    // At the default 1000px, with the sidebar and this session's name, the
-    // header's counts and refresh run on under its side panel controls,
-    // which then take the click.
-    await page.setViewportSize({ width: 1280, height: 700 });
     await openSession('Paginate the catalog search');
     await expect(branchRow('feat/search-pagination')).toContainText('↑2');
     await expect(uncommitted()).toContainText('1 file');
 
+    // At the default window, with the sidebar shown, the session's name gives
+    // way: the refresh sits clear of the side panel controls, and every
+    // header control takes its own click.
+    const refresh = page.getByRole('button', { name: 'Refresh git status', exact: true });
+    const header = page.locator('.workspace-view-header');
+    const refreshBox = await refresh.boundingBox();
+    const controlsBox = await header.locator('.side-panel-controls').boundingBox();
+    if (!refreshBox || !controlsBox) throw new Error('The header draws no refresh or no controls');
+    expect(refreshBox.x + refreshBox.width).toBeLessThanOrEqual(controlsBox.x);
+    expect(await coveredHeaderControls()).toEqual([]);
+
     // Committed behind Consola's back, so only a refresh can tell.
     git(repo, 'commit', '-q', '-am', 'Show fifty results a page');
-    await page.getByRole('button', { name: 'Refresh git status', exact: true }).click();
+    await refresh.click();
     await expect(branchRow('feat/search-pagination')).toContainText('↑3');
     await expect(uncommitted()).toContainText('None');
+  });
+
+  test("a snoozed session's header keeps every control in reach at the default window", async () => {
+    await openSession('Paginate the catalog search');
+    await expect(uncommitted()).toContainText('1 file');
+    await page
+      .locator('.session-nav-item')
+      .filter({ hasText: 'Paginate the catalog search' })
+      .click({ button: 'right' });
+    await page.getByRole('menuitem', { name: 'Snooze', exact: true }).hover();
+    await page.getByRole('menuitem', { name: /^In 3 hours/ }).click();
+
+    // The fullest header: name, checkout chip, snooze chip and Wake, counts,
+    // refresh, three shortcuts and both toggles. The name and then the chips'
+    // words give way; no control is drawn over another.
+    const header = page.locator('.workspace-view-header');
+    await expect(header.getByRole('button', { name: 'Wake', exact: true })).toBeVisible();
+    await expect(header.getByRole('button', { name: /^(Show|Hide) side panel/ })).toBeVisible();
+    expect(await coveredHeaderControls()).toEqual([]);
   });
 });

@@ -318,7 +318,11 @@
   height: 100%;
 }
 
-/* The top of a session's pane. Everything on it changes with the session. */
+/* The top of a session's pane. Everything on it changes with the session.
+   When it runs out of room, the session's name (and its scope) give way
+   first, down to their minimum; only then the chips, the checkout chip's
+   branch before the snooze chip's words. The counts, the refresh and the
+   controls never do. */
 .workspace-view-header {
   display: flex;
   flex: none;
@@ -330,7 +334,10 @@
   border-bottom: 1px solid var(--color-border);
 }
 
-/* The name gives way first; the chips beside it are short and say more. */
+/* The name gives way first; the chips beside it are short and say more. It
+   counts for no width (a zero basis) and grows into what the rest leave, up
+   to its whole text, so it is cut before anything else shrinks. Its grow
+   weight dwarfs the counts', which take only what is left once it is whole. */
 .workspace-view-title {
   margin: 0;
   font-size: var(--font-size-sm);
@@ -339,8 +346,9 @@
   display: flex;
   align-items: center;
   gap: 0;
+  flex: 1000 0 0%;
   min-width: 48px;
-  flex-shrink: 1;
+  max-width: max-content;
 }
 
 /* Scope and name shrink alike, so the longer one gives up more width. */
@@ -408,9 +416,10 @@
 .checkout-chip {
   display: inline-flex;
   align-items: stretch;
-  /* Never squeezed: the path beside it gives way first, since the chip is
-     the answer and the path only repeats it in longer form. */
-  flex-shrink: 0;
+  /* Squeezed only once the session's name is down to its minimum, since the
+     chip is the answer to where its edits land. Then its branch gives way
+     (the tooltip names it whole), ahead of the snooze chip's words. */
+  flex-shrink: 10;
   height: 22px;
   padding: 0;
   border: 1px solid var(--color-border-strong);
@@ -755,12 +764,15 @@
 }
 
 /* Path Display */
+/* Takes the room the title leaves, and never less than what it holds. With a
+   zero basis its counts and refresh counted for no width, so the title kept
+   all of its own and they ran on under the side panel controls, which took
+   their clicks. Now the title is what gives way. */
 .path-display-container {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  flex: 1;
-  min-width: 0;
+  flex: 1 0 auto;
 }
 
 .path-display-text {
