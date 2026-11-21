@@ -22,6 +22,55 @@ export type RunStatus =
 /** The runner set grows (an Anthropic-hosted one, say); nothing may assume two values. */
 export type RunnerKind = 'local' | 'cloud' | (string & {});
 
+/**
+ * A step's status. Like a run's, the set only grows: nothing may assume these
+ * eight are all there will be.
+ */
+export type StepRunStatus =
+  | 'pending'
+  | 'queued'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'skipped'
+  | 'reported'
+  | 'not-run';
+
+/**
+ * One step of a `steps:` run, as the record keeps it. Light by construction:
+ * prompts, commands, env values, logs and artifacts live in the run folder.
+ */
+export interface StepRun {
+  id: string;
+  kind: 'agent' | 'run';
+  status: StepRunStatus;
+  /** 1-based: the nth time this step ran in this run; names its folder. */
+  attempt: number;
+  queuedAt?: string;
+  startedAt?: string;
+  finishedAt?: string;
+  /** Why it was skipped. */
+  skipped?: string;
+  /** The latest execution's validated outputs; small by construction. */
+  outputs?: Record<string, string | number | boolean>;
+  artifacts?: Array<{ name: string; bytes: number }>;
+  error?: string;
+  sessionId?: string;
+  conversation?: { harnessId: string; id: string; cwd?: string };
+  reminded?: boolean;
+  command?: {
+    envNames: string[];
+    intentAt?: string;
+    exitCode?: number;
+    signal?: string;
+    stdoutBytes?: number;
+    stderrBytes?: number;
+    truncated?: boolean;
+  };
+  /** Earlier executions of this step, oldest first. */
+  previous?: Array<{ attempt: number; status: StepRunStatus; error?: string; finishedAt?: string }>;
+}
+
 export type RunSource = 'org' | 'repo' | 'personal' | 'manual';
 
 /** The item an event run is about, as the connection reported it. */
@@ -31,10 +80,18 @@ export interface RunItem {
   url: string;
   /** Author-controlled: shown as data, never sent as instructions. */
   title: string;
+  /** A snapshot taken at fire time, refreshed once at start. */
+  repo?: string;
+  number?: number;
+  type?: 'pr' | 'issue';
+  author?: string;
 }
 
 export interface RunTrigger {
-  /** What fired it: the schedule, a connection's event, or a request outside both. */
+  /**
+   * What fired it: the schedule, a connection's event, or a request outside
+   * both. (A later slice adds `'poll'`.)
+   */
   kind: 'cron' | 'event' | 'manual';
   /** ISO time: the scheduled occurrence, the poll that saw the event, or the request. */
   at: string;
@@ -50,6 +107,10 @@ export interface RunTrigger {
   item?: RunItem;
 }
 
+/**
+ * (A later slice adds `previous?: { runId }`: the run a `previous` reference
+ * resolved to.)
+ */
 export interface RunRecord {
   id: string;
   runner: RunnerKind;
@@ -96,6 +157,12 @@ export interface RunRecord {
    * readable after the session is removed.
    */
   conversation?: { harnessId: string; id: string; cwd?: string };
+  /** A `steps:` run's steps, in file order. Absent for a legacy run. */
+  steps?: StepRun[];
+  /** The run only reported what its commands would do. */
+  dryRun?: boolean;
+  /** Where an item run worked; `head` is the commit it checked out. */
+  checkout?: { cwd: string; scopeId?: string; head?: string };
   error?: string;
   attribution: {
     automationId: string;
@@ -122,19 +189,26 @@ export const TERMINAL_RUN_STATUSES: readonly RunStatus[] = ['completed', 'failed
  * a cron schedule, which says when rather than what, and not the workspace,
  * which is where the file lives rather than something it says.
  *
+ * A `steps:` entry is covered whole: prompts, action names, commands, env
+ * templates, `if`, outputs, artifacts, reads, timeouts and `dry_run`. Its
+ * `resolvedBody` is `stableStringify({ <stepId>: <body> })` over the actions
+ * its steps name.
+ *
  * `resolvedBody` is what the runner resolved the target to — an action's
  * prompt, which lives in the workspace's settings rather than the file — so
  * editing the Review action makes an `auto` automation that runs it ask
  * again.
  */
 export function automationVersion(
-  automation: Pick<Automation, 'run' | 'mode' | 'trigger'> &
+  automation: Pick<Automation, 'run' | 'steps' | 'mode' | 'trigger'> &
     Partial<Pick<Automation, 'filter' | 'scope'>>,
   resolvedBody?: string,
 ): string {
   const { trigger } = automation;
   const canonical = stableStringify({
     run: automation.run,
+    // Absent on a legacy entry, and stableStringify drops undefined, so its hash does not move.
+    steps: automation.steps,
     mode: automation.mode,
     filter: automation.filter,
     scope: automation.scope,

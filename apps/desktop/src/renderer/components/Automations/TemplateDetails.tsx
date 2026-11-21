@@ -168,5 +168,6 @@ function draftAutomation(template: TemplateView, preview: TemplatePreview): Auto
     runs: preview.runs,
     target: preview.target,
     nextRunAt: preview.nextRunAt,
+    ...(preview.steps ? { steps: preview.steps } : {}),
   };
 }

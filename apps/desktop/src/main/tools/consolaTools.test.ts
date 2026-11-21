@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import type { Session, Workspace } from '../../shared/workspace';
 import { makeSession, makeWorkspace } from '../conductor/ConductorTools.test-helpers';
 import type { LaunchSessionFields } from '../SessionLauncher';
-import type { AutomationCapabilities } from '../automations/capabilities';
+import type { AutomationCapabilities } from '@consola/automation-engine';
 import type { SnoozeView } from '../../shared/attention';
 import {
   consolaTools,

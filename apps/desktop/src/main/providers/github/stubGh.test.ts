@@ -11,6 +11,9 @@ function runStub(args: string[], env: NodeJS.ProcessEnv = {}): string {
   return execFileSync(STUB, args, {
     encoding: 'utf8',
     env: { ...process.env, ...env },
+    // stderr is piped, not inherited, so a failing case's canned line stays out
+    // of the test output; the assertions read it from the thrown error.
+    stdio: ['ignore', 'pipe', 'pipe'],
   });
 }
 
@@ -55,6 +58,83 @@ describe('stub gh fixture', () => {
 
   it('rejects argv it does not know, so a drifted caller fails loudly', () => {
     expect(() => runStub(['pr', 'unsupported-command', '51'])).toThrow();
+  });
+
+  it('answers a graphql call with a url= field with STUB_GH_REVIEWED, as its --jq would print it', () => {
+    const fresh = [
+      'api',
+      'graphql',
+      '-f',
+      'url=https://github.com/sprocket/catalog-portal/pull/51',
+      '-f',
+      'query=q',
+      '--jq',
+      '.x',
+    ];
+    expect(runStub(fresh)).toBe('\n');
+    expect(runStub(fresh, { STUB_GH_REVIEWED: 'abc123' })).toBe('abc123\n');
+  });
+
+  describe('posting a review', () => {
+    const post = (dir: string) => [
+      'api',
+      'repos/sprocket/catalog-portal/pulls/51/reviews',
+      '-f',
+      'commit_id=abc123',
+      '-f',
+      'event=REQUEST_CHANGES',
+      '-F',
+      `body=@${path.join(dir, 'body.md')}`,
+    ];
+
+    function inTempDir(test: (dir: string) => void): void {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-stub-review-'));
+      try {
+        fs.writeFileSync(path.join(dir, 'body.md'), 'line one\nline two\n');
+        test(dir);
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    }
+
+    it('appends argv and the body file, flattened, to STUB_GH_POSTED', () => {
+      inTempDir((dir) => {
+        const posted = path.join(dir, 'posted.log');
+        expect(runStub(post(dir), { STUB_GH_POSTED: posted })).toBe('{"id":1}\n');
+        expect(fs.readFileSync(posted, 'utf8')).toBe(
+          `${post(dir).join(' ')} BODY=line one line two \n`,
+        );
+      });
+    });
+
+    it('exits 1 with GitHub’s 422 and posts nothing when STUB_GH_REVIEW_FAIL=1', () => {
+      inTempDir((dir) => {
+        const posted = path.join(dir, 'posted.log');
+        expect(() =>
+          runStub(post(dir), { STUB_GH_POSTED: posted, STUB_GH_REVIEW_FAIL: '1' }),
+        ).toThrow(
+          expect.objectContaining({ status: 1, stderr: 'gh: Unprocessable Entity (HTTP 422)\n' }),
+        );
+        expect(fs.existsSync(posted)).toBe(false);
+      });
+    });
+
+    it('is rejected, posting nothing, while STUB_GH_MUTATION_FAILURE_FILE exists', () => {
+      inTempDir((dir) => {
+        const posted = path.join(dir, 'posted.log');
+        const rejecting = path.join(dir, 'reject');
+        fs.writeFileSync(rejecting, '');
+        expect(() =>
+          runStub(post(dir), { STUB_GH_POSTED: posted, STUB_GH_MUTATION_FAILURE_FILE: rejecting }),
+        ).toThrow(
+          expect.objectContaining({
+            status: 1,
+            stderr: 'GitHub rejected this action: repository rules are not satisfied.\n',
+          }),
+        );
+        expect(fs.existsSync(posted)).toBe(false);
+      });
+    });
   });
 
   it('records argv and the token it saw, one line per call, when STUB_GH_LOG is set', () => {

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { RunRecord } from '@consola/factory-spec';
-import { runAttention } from './AutomationService';
+import { runAttention } from '@consola/automation-engine';
 import { RunSource } from './RunSource';
 import { AttentionService } from '../attention/AttentionService';
 

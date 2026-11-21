@@ -128,3 +128,32 @@ describe('readRunConversation', () => {
     });
   });
 });
+
+describe('readRunConversation for a step', () => {
+  it("a step's conversation is read with its own pointer and window", async () => {
+    const read = vi.fn().mockResolvedValue(record);
+    const parent = run({ conversation: { harnessId: 'work', id: 'conv-run' } });
+
+    const result = await readRunConversation(
+      {
+        conversation: { harnessId: 'work', id: 'conv-step' },
+        sessionId: 'session-step',
+        startedAt: '2026-11-12T10:01:00Z',
+        finishedAt: '2026-11-12T10:03:00Z',
+        createdAt: parent.createdAt,
+        attribution: parent.attribution,
+      },
+      { harnesses: () => [harness()], sessions: () => [], driverFor: () => driverWith(read) },
+    );
+
+    expect(result).toEqual({ readable: true, conversation: record });
+    expect(read).toHaveBeenCalledWith(
+      expect.objectContaining({ configDir: '/profiles/work' }),
+      'conv-step',
+      {
+        since: '2026-11-12T10:01:00Z',
+        until: '2026-11-12T10:03:00Z',
+      },
+    );
+  });
+});

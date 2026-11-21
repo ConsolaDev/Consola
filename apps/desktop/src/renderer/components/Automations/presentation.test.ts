@@ -7,6 +7,7 @@ import type {
 } from '../../../shared/automations';
 import type { ConversationEntry } from '../../../shared/conversation';
 import {
+  ASSIGNED_REVIEWS_OFFER,
   collapseSteps,
   filterRuns,
   finalAnswer,
@@ -30,11 +31,20 @@ import {
   tableShowsUnseenFailures,
   unseenFailures,
   statusWord,
+  stepWords,
+  mergeRunPages,
+  foldDroppedRuns,
+  runRowWords,
+  newestRunFirst,
+  olderRunsCursor,
   triggerLabel,
   approvalStep,
+  runAgainTitle,
+  commandFoot,
   formatElapsed,
   groupRunsByDay,
   runKindCounts,
+  snapshotRunCounts,
   templateModeWords,
   triggerInWords,
   runInsights,
@@ -84,8 +94,9 @@ function snapshot(
     automations,
     issues: [],
     runs,
+    hasOlder: false,
     queue: {},
-    suggestAssignedReviews: null,
+    suggestAssignedReviews: false,
     templates: [],
   };
 }
@@ -173,7 +184,138 @@ describe('runAbout', () => {
   });
 });
 
+describe('mergeRunPages / olderRunsCursor', () => {
+  it('lists each run once, newest first, the first page winning', () => {
+    const live = run({ id: 'a', createdAt: ago(HOUR), summary: 'live copy' });
+    const stale = run({ id: 'a', createdAt: ago(HOUR), summary: 'stale copy' });
+    const older = run({ id: 'b', createdAt: ago(2 * HOUR) });
+    const merged = mergeRunPages([live], [older, stale]);
+    expect(merged.map((r) => r.id)).toEqual(['a', 'b']);
+    expect(merged[0].summary).toBe('live copy');
+  });
+
+  it('continues from the oldest ended run, not an old live one at the end', () => {
+    const runs = [
+      run({ id: 'new' }),
+      run({ id: 'ended', createdAt: ago(2 * HOUR) }),
+      run({ id: 'old-live', status: 'running', createdAt: ago(40 * DAY) }),
+    ];
+    expect(olderRunsCursor(runs)).toBe('ended');
+    expect(olderRunsCursor([run({ status: 'queued' })])).toBeUndefined();
+  });
+});
+
+describe('foldDroppedRuns', () => {
+  it('keeps a run the snapshot dropped as its edge moved, once', () => {
+    const r200 = run({ id: 'r200', createdAt: ago(10 * HOUR) });
+    const r1 = run({ id: 'r1', createdAt: ago(2 * HOUR) });
+    const fresh = run({ id: 'fresh', createdAt: ago(HOUR) });
+    const older = [run({ id: 'r201', createdAt: ago(11 * HOUR) })];
+    const folded = foldDroppedRuns([r1, r200], [fresh, r1], older);
+    expect(folded.map((r) => r.id)).toEqual(['r200', 'r201']);
+    expect(foldDroppedRuns([r1, r200], [fresh, r1], folded).map((r) => r.id)).toEqual([
+      'r200',
+      'r201',
+    ]);
+  });
+
+  it('follows a run from live to ended without dropping or doubling it, and ignores dropped live runs', () => {
+    const live = run({ id: 'x', status: 'running', createdAt: ago(40 * DAY) });
+    const ended = { ...live, status: 'completed' as const };
+    const older = [run({ id: 'o', createdAt: ago(5 * HOUR) })];
+    // Still in the snapshot, now ended: nothing to fold.
+    expect(foldDroppedRuns([live], [ended], older)).toBe(older);
+    // A live run that vanished is not an ended run to keep.
+    expect(foldDroppedRuns([live], [], older)).toBe(older);
+    // Ended, then pushed out of the edge: kept below.
+    expect(foldDroppedRuns([ended], [], older).map((r) => r.id)).toEqual(['o', 'x']);
+    expect(mergeRunPages([ended], [live]).map((r) => r.status)).toEqual(['completed']);
+  });
+
+  it('orders ties by id descending, as the engine does', () => {
+    const at = ago(HOUR);
+    const sorted = [run({ id: 'a', createdAt: at }), run({ id: 'b', createdAt: at })].sort(
+      newestRunFirst,
+    );
+    expect(sorted.map((r) => r.id)).toEqual(['b', 'a']);
+  });
+});
+
+describe('runRowWords', () => {
+  const item = { key: 'k', url: 'u', title: 'Fix the cart' };
+  const step = { id: 'publish', status: 'failed' as const, index: 2, count: 3 };
+
+  it("keeps an event run's item title and puts the step beside it", () => {
+    const failed = run({
+      status: 'failed',
+      trigger: { kind: 'event', at: '', item },
+      step,
+      error: 'boom',
+    });
+    expect(runRowWords(failed)).toEqual({ about: 'Fix the cart', step: 'failed at publish' });
+  });
+
+  it('uses the step as the title of a steps run with no item', () => {
+    expect(runRowWords(run({ status: 'failed', step }))).toEqual({
+      about: 'failed at publish',
+      step: null,
+    });
+  });
+
+  it("keeps a legacy failed run's error line", () => {
+    const legacy = run({ status: 'failed', error: 'It stopped before finishing (exit 1)\nmore' });
+    expect(stepWords(legacy)).toBeNull();
+    expect(runRowWords(legacy)).toEqual({
+      about: 'It stopped before finishing (exit 1)',
+      step: null,
+    });
+  });
+});
+
+describe('stepWords', () => {
+  const at = (
+    status: RunListEntry['status'],
+    stepStatus: 'queued' | 'running' | 'failed' | 'completed' | 'not-run',
+    extra: Partial<RunListEntry> = {},
+  ) => run({ status, step: { id: 'publish', status: stepStatus, index: 2, count: 3 }, ...extra });
+
+  it('says which step a run is at', () => {
+    expect(stepWords(at('running', 'running'))).toBe('running · publish');
+    expect(stepWords(at('running', 'queued'))).toBe('waiting for a slot before publish');
+    expect(stepWords(at('failed', 'failed'))).toBe('failed at publish');
+  });
+
+  it('says a run that failed between steps failed before the one it did not reach', () => {
+    // The engine names the step it stopped before (`not-run`): "failed at" it would be untrue.
+    expect(stepWords(at('failed', 'not-run'))).toBe('failed before publish');
+  });
+
+  it("says a run waits for its item's checkout", () => {
+    expect(stepWords(run({ status: 'queued', summary: "waiting for this item's checkout" }))).toBe(
+      "waiting for this item's checkout",
+    );
+  });
+
+  it('is null for a legacy run, and for states with nothing to add', () => {
+    expect(stepWords(run({ status: 'running' }))).toBeNull();
+    expect(stepWords(run({ status: 'queued', summary: 'queued' }))).toBeNull();
+    expect(stepWords(at('completed', 'completed'))).toBeNull();
+  });
+});
+
 describe('filterRuns', () => {
+  it('lists a steps run of kind agent under Prompts & reviews', () => {
+    const runs = [
+      run({
+        id: 's',
+        kind: 'agent',
+        step: { id: 'review', status: 'completed', index: 1, count: 2 },
+      }),
+      run({ id: 't', kind: 'tool' }),
+    ];
+    expect(filterRuns(runs, by({ kind: 'agent' }), NOW).map((r) => r.id)).toEqual(['s']);
+  });
+
   it('keeps what history keeps: a run that ended in the last 30 days, and every live one; newest first', () => {
     const runs = [
       run({ id: 'old', createdAt: ago(31 * DAY) }),
@@ -801,6 +943,48 @@ describe('runsByDay', () => {
   });
 });
 
+describe('runAgainTitle', () => {
+  const agent = { id: 'review', kind: 'agent' as const, summary: 'Review action' };
+  const fetch = { id: 'fresh', kind: 'run' as const, summary: 'git fetch', dryRun: true as const };
+  const publish = { id: 'publish', kind: 'run' as const, summary: 'gh pr review' };
+  const PREVIEW = 'Preview it again now; nothing changes until you approve';
+
+  it('says an accepted notify steps entry starts its agent steps and dry_run: run commands at once', () => {
+    expect(runAgainTitle({ mode: 'notify', kind: 'agent', steps: [agent, publish] })).toBe(
+      'Run it again now. Runs review read-only; publish only reports.',
+    );
+    expect(runAgainTitle({ mode: 'notify', kind: 'agent', steps: [fetch, agent, publish] })).toBe(
+      'Run it again now. Runs review read-only and fresh as you; publish only reports.',
+    );
+  });
+
+  it('says a notify steps entry that only reports starts nothing', () => {
+    expect(runAgainTitle({ mode: 'notify', kind: 'tool', steps: [publish] })).toBe(
+      'Run it again now; it starts nothing and reports what it would run',
+    );
+  });
+
+  it('previews an entry that asks first or waits for approval, and keeps the other words', () => {
+    expect(
+      runAgainTitle({ mode: 'notify', kind: 'agent', steps: [agent, publish], asksFirst: true }),
+    ).toBe(PREVIEW);
+    expect(runAgainTitle({ mode: 'confirm', kind: 'agent', steps: [agent] })).toBe(PREVIEW);
+    expect(runAgainTitle({ mode: 'notify', kind: 'tool' })).toBe(PREVIEW);
+    expect(runAgainTitle({ mode: 'auto', kind: 'agent', steps: [agent], asksFirst: true })).toBe(
+      PREVIEW,
+    );
+    expect(runAgainTitle({ mode: 'auto', kind: 'agent', steps: [agent] })).toBe('Run it again now');
+    expect(
+      runAgainTitle({
+        mode: 'notify',
+        kind: 'agent',
+        steps: [agent],
+        problem: 'no scope named "api"',
+      }),
+    ).toBe('Not running: no scope named "api"');
+  });
+});
+
 describe('approvalStep', () => {
   it('is a person approving each run in confirm mode, worded by what runs', () => {
     expect(approvalStep({ mode: 'confirm', kind: 'tool' })).toMatchObject({
@@ -836,6 +1020,58 @@ describe('approvalStep', () => {
       detail: 'Starts nothing',
     });
   });
+
+  it('says what a notify steps entry really runs', () => {
+    const agent = { id: 'review', kind: 'agent' as const, summary: 'Review action' };
+    const fetch = {
+      id: 'fresh',
+      kind: 'run' as const,
+      summary: 'git fetch',
+      dryRun: true as const,
+    };
+    const publish = { id: 'publish', kind: 'run' as const, summary: 'gh pr review' };
+    expect(approvalStep({ mode: 'notify', kind: 'agent', steps: [agent, publish] })).toMatchObject({
+      title: 'Asks once, then runs',
+      detail: 'Runs review read-only; publish only reports.',
+    });
+    expect(
+      approvalStep({ mode: 'notify', kind: 'agent', steps: [fetch, agent, publish] })?.detail,
+    ).toBe('Runs review read-only and fresh as you; publish only reports.');
+    expect(approvalStep({ mode: 'notify', kind: 'tool', steps: [fetch] })?.detail).toBe(
+      'Runs fresh as you.',
+    );
+    const second = { id: 'summarise', kind: 'agent' as const, summary: 'Summarise action' };
+    const fetchMore = {
+      id: 'fetch',
+      kind: 'run' as const,
+      summary: 'git fetch',
+      dryRun: true as const,
+    };
+    expect(
+      approvalStep({
+        mode: 'notify',
+        kind: 'agent',
+        steps: [fetch, agent, fetchMore, second, publish],
+      })?.detail,
+    ).toBe('Runs review and summarise read-only and fresh and fetch as you; publish only reports.');
+    // Nothing starts: every step is a command that only reports.
+    expect(approvalStep({ mode: 'notify', kind: 'tool', steps: [publish] })).toMatchObject({
+      detail: 'Starts nothing',
+    });
+    // Other modes.
+    expect(approvalStep({ mode: 'confirm', kind: 'tool', steps: [publish] })?.detail).toBe(
+      'Its steps run when you press Start',
+    );
+    expect(
+      approvalStep({ mode: 'auto', kind: 'agent', steps: [agent], asksFirst: true })?.title,
+    ).toBe('You approve its next run');
+  });
+
+  it('says what a command node does by mode', () => {
+    expect(commandFoot({}, 'notify')).toBe('Reports what it would run');
+    expect(commandFoot({ dryRun: true }, 'notify')).toBe('Runs as you');
+    expect(commandFoot({}, 'confirm')).toBe('Runs as you');
+  });
 });
 
 describe('runKindCounts', () => {
@@ -852,6 +1088,36 @@ describe('runKindCounts', () => {
       agent: 0,
       tool: 2,
       failed: 1,
+    });
+  });
+});
+
+describe('snapshotRunCounts', () => {
+  const runs = [
+    run({ id: 'a', kind: 'agent', automationId: 'review' }),
+    run({ id: 'b', kind: 'tool', automationId: 'tidy' }),
+    run({ id: 'c', kind: 'tool', automationId: 'tidy', status: 'failed' }),
+    run({
+      id: 'old',
+      kind: 'tool',
+      createdAt: ago(31 * DAY),
+      updatedAt: ago(31 * DAY),
+      finishedAt: ago(31 * DAY),
+    }),
+  ];
+
+  it('says the total and each kind as counted, when the snapshot holds every run', () => {
+    expect(snapshotRunCounts({ runs, hasOlder: false }, by(), NOW)).toEqual({
+      all: '3',
+      kinds: { all: '3', agent: '1', tool: '2', failed: '1' },
+    });
+  });
+
+  it('says each as at least that many when the snapshot leaves older runs out', () => {
+    // The snapshot holds the newest 200 ended runs (and every live one): past them, its counts are floors.
+    expect(snapshotRunCounts({ runs, hasOlder: true }, by(), NOW)).toEqual({
+      all: '3+',
+      kinds: { all: '3+', agent: '1+', tool: '2+', failed: '1+' },
     });
   });
 });
@@ -970,5 +1236,19 @@ describe('yamlTokens', () => {
     expect(lines.map((tokens) => tokens.map((token) => token.text).join('')).join('\n')).toBe(
       source,
     );
+  });
+});
+
+describe('the assigned reviews banner', () => {
+  it('says who reviews, who posts, that it never approves, and that it asks first', () => {
+    expect(ASSIGNED_REVIEWS_OFFER).toMatch(/asks for your review or is assigned to you/);
+    expect(ASSIGNED_REVIEWS_OFFER).toMatch(/a read-only agent reviews it in a checkout of its own/);
+    expect(ASSIGNED_REVIEWS_OFFER).toMatch(
+      /Consola posts the review on GitHub as you, as a comment or a request for changes, never an approval/,
+    );
+    expect(ASSIGNED_REVIEWS_OFFER).toMatch(/skips a commit it already reviewed/);
+    expect(ASSIGNED_REVIEWS_OFFER).toMatch(/asks you once first, with every command shown/);
+    // No action to name: the entry needs none.
+    expect(ASSIGNED_REVIEWS_OFFER).not.toMatch(/action/);
   });
 });

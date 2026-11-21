@@ -8,11 +8,13 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { ReadBuffer, serializeMessage } from '@modelcontextprotocol/sdk/shared/stdio.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import type { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';
-import type { RunRecord } from '@consola/factory-spec';
+import { isStepsEntry, parseFactorySpec, type RunRecord } from '@consola/factory-spec';
+import { RunFolder, StepIO, stepToolSpecs } from '@consola/automation-engine';
 import { ConductorTools, type ConductorToolsDeps } from '../conductor/ConductorTools';
 import { makeSession, makeWorkspace } from '../conductor/ConductorTools.test-helpers';
 import { consolaTools, MAX_DIFF_CHARS, type ConsolaToolDeps } from '../tools/consolaTools';
 import { agentContext, ToolRegistry } from '../tools/Tool';
+import { sessionRecord, toSessionView } from '../automations/engineViews';
 import { buildSessionServer, type SessionServerDeps } from './buildSessionServer';
 import { SessionMcpHost } from './SessionMcpHost';
 
@@ -62,6 +64,12 @@ const CONSOLA_TOOLS = [
   'consola_wake_session',
   'consola_work_item_context',
 ];
+const STEP_TOOLS = [
+  'consola_list_artifacts',
+  'consola_read_artifact',
+  'consola_set_outputs',
+  'consola_write_artifact',
+];
 const CONDUCTOR_TOOLS = [
   'consola_group_status',
   'consola_send_prompt',
@@ -70,6 +78,8 @@ const CONDUCTOR_TOOLS = [
 ];
 
 let configDir: string;
+let runsDir: string;
+let stepsRun: RunRecord;
 let host: SessionMcpHost;
 let conductorDeps: ConductorToolsDeps;
 let toolDeps: ConsolaToolDeps;
@@ -122,12 +132,73 @@ const workspaces = () => [
         kind: 'interactive',
         toolPolicy: 'read-only',
       }),
+      // Step "review" of a steps run: read-only like r-1, but a step.
+      makeSession({
+        id: 's-1',
+        workspaceId: 'ws-3',
+        instanceId: 'inst-s1',
+        kind: 'interactive',
+        toolPolicy: 'read-only',
+        automation: {
+          name: 'review-assigned-prs',
+          runId: 'run-steps',
+          step: { id: 'review', attempt: 1 },
+        },
+      }),
     ],
   }),
 ];
 
+/** One agent step that decides a verdict. */
+const STEPS_FACTORY = `version: 1
+automations:
+  - name: review-assigned-prs
+    on: { github: pull_request.review_requested }
+    steps:
+      - id: review
+        prompt: Review it.
+        outputs:
+          verdict: { enum: [approve, comment, request-changes] }
+`;
+
 beforeEach(() => {
   configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-mcp-int-'));
+  runsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-mcp-runs-'));
+  const folder = new RunFolder((workspaceId) => path.join(runsDir, workspaceId));
+  const [automation] = parseFactorySpec(STEPS_FACTORY).automations;
+  if (!automation || !isStepsEntry(automation))
+    throw new Error('The steps fixture does not parse.');
+  folder.writeDefinition('ws-3', 'run-steps', { automation, version: 'v1', actions: {} });
+  stepsRun = runRecord({
+    id: 'run-steps',
+    source: 'personal',
+    automationId: 'review-assigned-prs',
+    actionName: 'steps',
+    trigger: { kind: 'event', at: '2026-11-04T09:00:00.000Z' },
+    status: 'running',
+    steps: [{ id: 'review', kind: 'agent', status: 'running', attempt: 1, sessionId: 's-1' }],
+    attribution: {
+      automationId: 'review-assigned-prs',
+      actionName: 'steps',
+      triggerKind: 'event',
+      workspaceId: 'ws-3',
+    },
+  });
+  const stepIO = new StepIO({
+    store: {
+      get: (id) => (id === stepsRun.id ? stepsRun : undefined),
+      update: (id, changes) => {
+        if (id !== stepsRun.id) throw new Error(`No run ${id}.`);
+        return Object.assign(stepsRun, changes);
+      },
+    },
+    folder,
+    definitionOf: (run) => folder.readDefinition(run.attribution.workspaceId!, run.id),
+    sessionOf: (id) => {
+      const record = sessionRecord(workspaces(), id);
+      return record ? toSessionView(record) : undefined;
+    },
+  });
   conductorDeps = {
     getWorkspaces: vi.fn(workspaces),
     launchSession: vi.fn(async () =>
@@ -202,6 +273,7 @@ beforeEach(() => {
       registry,
       approvals: { request: requestApproval },
       conductorTools,
+      stepTools: (id) => stepToolSpecs(stepIO, id),
       // Their own suite covers them (browser/browserTools.test.ts).
       browserTools: { addTo: () => {} },
       getWorkspaces: workspaces,
@@ -216,6 +288,7 @@ beforeEach(() => {
 afterEach(() => {
   host.dispose();
   fs.rmSync(configDir, { recursive: true, force: true });
+  fs.rmSync(runsDir, { recursive: true, force: true });
 });
 
 // `{ content?: unknown }` alone is a TS "weak type": the client's
@@ -264,6 +337,82 @@ describe('MCP surface (in-memory)', () => {
     expect(body.diff).toHaveLength(MAX_DIFF_CHARS);
     expect(body.diffTruncated).toMatch(/Cut at 80000 of 80010 characters/);
     expect(toolDeps.workItemContext).toHaveBeenCalledWith('r-1');
+    await client.close();
+  });
+
+  it('gives a step session the step tools, and only a step session', async () => {
+    const readOnly = [
+      'consola_find_stale_sessions',
+      'consola_list_automations',
+      'consola_list_inbox',
+      'consola_list_sessions',
+      'consola_work_item_context',
+    ];
+    // Read-only, yet the step tools are its one door back to Consola.
+    const step = await clientFor('s-1');
+    expect((await step.listTools()).tools.map((tool) => tool.name).sort()).toEqual(
+      [...readOnly, ...STEP_TOOLS].sort(),
+    );
+    await step.close();
+    for (const sessionId of ['r-1', 'w-1', 'cond-1']) {
+      const client = await clientFor(sessionId);
+      const names = (await client.listTools()).tools.map((tool) => tool.name);
+      for (const name of STEP_TOOLS) expect(names).not.toContain(name);
+      await client.close();
+    }
+  });
+
+  it("advertises each output's exact type", async () => {
+    const client = await clientFor('s-1');
+    const { tools } = await client.listTools();
+    const schema = tools.find((tool) => tool.name === 'consola_set_outputs')!
+      .inputSchema as unknown as {
+      required?: string[];
+      properties: {
+        outputs: {
+          properties: Record<string, unknown>;
+          required?: string[];
+          additionalProperties?: boolean;
+        };
+      };
+    };
+    expect(schema.properties.outputs.properties.verdict).toEqual({
+      type: 'string',
+      enum: ['approve', 'comment', 'request-changes'],
+    });
+    expect(schema.properties.outputs.required).toBeUndefined();
+    expect(schema.properties.outputs.additionalProperties).toBe(false);
+    expect(schema.required).toBeUndefined();
+    await client.close();
+  });
+
+  it("answers an invalid set with Consola's message, not the SDK's", async () => {
+    const client = await clientFor('s-1');
+    const refused = await client.callTool({
+      name: 'consola_set_outputs',
+      arguments: { outputs: { verdict: 'lgtm' } },
+    });
+    expect(refused.isError).toBe(true);
+    expect(firstText(refused)).toContain("got 'lgtm'");
+    expect(firstText(refused)).toContain('Still missing: verdict');
+    expect(firstText(refused)).not.toMatch(/Input validation error/);
+    const set = await client.callTool({
+      name: 'consola_set_outputs',
+      arguments: { outputs: { verdict: 'comment' } },
+    });
+    expect(set.isError).toBe(false);
+    expect(firstText(set)).toBe('Set: verdict. Every output is set.');
+    expect(stepsRun.steps![0].outputs).toEqual({ verdict: 'comment' });
+    // The documents go through the same door, read back fenced.
+    await client.callTool({
+      name: 'consola_write_artifact',
+      arguments: { name: 'handover', content: 'Looks fine.' },
+    });
+    const read = await client.callTool({
+      name: 'consola_read_artifact',
+      arguments: { name: 'handover' },
+    });
+    expect(firstText(read)).toMatch(/<material>\nLooks fine\.\n<\/material>$/);
     await client.close();
   });
 

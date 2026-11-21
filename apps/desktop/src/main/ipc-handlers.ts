@@ -62,7 +62,8 @@ import { runHeadless } from './drivers/ClaudeDriver';
 import { getDriver, toHarnessConfig, toolPolicyProblem } from './drivers';
 import { harnessCapabilitiesCache } from './HarnessCapabilitiesCache';
 import { SessionNamer } from './sessionTitles/SessionNamer';
-import { composeProviderEnv, getProviderDriver } from './providers';
+import { borrowProviderEnv, composeProviderEnv, getProviderDriver } from './providers';
+import { getLoginEnv, loginEnvRetry } from './LoginEnvironment';
 import { InboxService } from './providers/InboxService';
 import { createLaunchCoalescer, type WorkItemLaunchDeps } from './providers/launchWorkItem';
 import { createRunInSessionCoalescer } from './providers/runActionInSession';
@@ -103,16 +104,31 @@ import { worktreePathLock } from './worktreeCleanup/PathLock';
 import { ProcessCwdIndex } from './worktreeCleanup/ProcessCwdIndex';
 import { ToolRegistry } from './tools/Tool';
 import { consolaTools } from './tools/consolaTools';
-import { AutomationService } from './automations/AutomationService';
-import { launchAgentRun, worktreeHeld, type ItemWorktreeDeps } from './automations/launchAgentRun';
-import { FactoryFile, workspaceFactoryPath } from './automations/FactoryFile';
+import { sessionRecord, toItemSnapshot, toWorkspaceView } from './automations/engineViews';
+import {
+  launchAgentRun,
+  runningIn,
+  worktreeHeld,
+  type ItemWorktreeDeps,
+} from './automations/launchAgentRun';
+import { automationCheckoutPort } from './automations/automationCheckout';
 import { readRunConversation } from './automations/runConversation';
 import { startAuthoring } from './automations/authoring';
 import { parseAuthoringRequest } from './automations/authoringRequest';
-import { AUTOMATION_TEMPLATES } from './automations/templates';
 import type { AutomationsChange } from '../shared/automations';
-import { RunHistoryFiles } from './automations/RunHistoryFiles';
-import { RunStore, type AutomationStateFile } from './automations/RunStore';
+import {
+  AUTOMATION_TEMPLATES,
+  AutomationService,
+  FactoryFile,
+  RunFolder,
+  RunHistoryFiles,
+  RunStore,
+  startCommand,
+  stepToolSpecs,
+  workspaceFactoryPath,
+  type AutomationStateFile,
+  type ListRunsQuery,
+} from '@consola/automation-engine';
 import { createConductor } from './conductor/createConductor';
 import { scaffold } from './conductor/ConductorScaffold';
 import { commit, readDiff, readStatus, stageFile, unstageFile } from './gitWorkingTree';
@@ -1019,7 +1035,7 @@ export function setupIpcHandlers(): boolean {
       // The event source: what changed since the last good fetch fires
       // event automations. The poll is the Inbox's own — checking
       // costs no tokens, and no agent ever polls.
-      automationService?.observeInbox(snapshot);
+      automationService?.observeInbox(toItemSnapshot(snapshot));
     },
   });
   const details = new WorkItemDetailService({
@@ -1975,6 +1991,7 @@ export function setupIpcHandlers(): boolean {
           request: (toolName, args, caller) => automations.requestApproval(toolName, args, caller),
         },
         conductorTools,
+        stepTools: (id) => stepToolSpecs(automations.stepIO(), id),
         browserTools: sessionBrowserTools,
         getWorkspaces: () => workspaces.getAll(),
       }),
@@ -1983,6 +2000,9 @@ export function setupIpcHandlers(): boolean {
   app.on('will-quit', () => mcpHost.dispose());
 
   // What preparing a work item's worktree needs: one chain per item, git hooks off.
+  const allSessions = () => workspaces.getAll().flatMap((workspace) => workspace.sessions);
+  const isRunning = (session: Session) =>
+    manager.get(session.instanceId)?.hasClaudeExited() === false;
   const itemWorktreeDeps: ItemWorktreeDeps = {
     resolveDriver: getProviderDriver,
     resolveRepo: (workspace, repo) => worktrees.resolveRepo(workspace, repo),
@@ -1990,12 +2010,10 @@ export function setupIpcHandlers(): boolean {
     ensureWorktree: (clonePath, workItem, env) =>
       worktrees.ensureWorktree(clonePath, workItem, env),
     refreshWorktree: (dir, workItem, env) => worktrees.refreshPullRequest(dir, workItem, env),
+    // A checkout a working steps run holds is never moved either. Read at
+    // call time, once the runner below exists.
     worktreeInUse: (dir) =>
-      worktreeHeld(
-        workspaces.getAll().flatMap((workspace) => workspace.sessions),
-        dir,
-        (session) => manager.get(session.instanceId)?.hasClaudeExited() === false,
-      ),
+      worktreeHeld(allSessions(), dir, isRunning) || automations.checkoutHeld(dir),
     composeEnv: composeProviderEnv,
   };
   const runStore = new RunStore(
@@ -2009,11 +2027,17 @@ export function setupIpcHandlers(): boolean {
   // when the source's answer may differ.
   const attentionRuns = new RunSource(() => runStore.runs());
   attention.register(attentionRuns);
+  // The runner names a session by its view; its terminal is keyed by the record's instance id.
+  const automationTerminal = (sessionId: string) => {
+    const record = sessionRecord(workspaces.getAll(), sessionId);
+    return record ? manager.get(record.instanceId) : undefined;
+  };
   const automations = new AutomationService({
     fileFor: (workspaceId) => new FactoryFile(workspaceFactoryPath(workspaceId)),
     store: runStore,
+    runFolder: new RunFolder(),
     registry: tools,
-    getWorkspaces: () => workspaces.getAll(),
+    getWorkspaces: () => workspaces.getAll().map(toWorkspaceView),
     now: () => new Date(),
     newId: () => randomUUID(),
     notify: (notice) => {
@@ -2041,7 +2065,10 @@ export function setupIpcHandlers(): boolean {
       timer.unref?.();
       return () => clearInterval(timer);
     },
-    inboxSnapshot: (workspaceId) => inbox.getSnapshot(workspaceId),
+    inboxSnapshot: (workspaceId) => {
+      const snapshot = inbox.getSnapshot(workspaceId);
+      return snapshot ? toItemSnapshot(snapshot) : null;
+    },
     refreshInbox: (workspaceId) => inbox.refresh(workspaceId),
     launchAgent: (request) =>
       launchAgentRun(
@@ -2056,7 +2083,10 @@ export function setupIpcHandlers(): boolean {
     // A turn Consola quit in the middle of picks up in its own session.
     resumeAgent: (session, prompt) =>
       launcher.resumeUnattended(session.workspaceId, session.id, prompt),
-    hasLiveTerminal: (session) => manager.get(session.instanceId)?.hasClaudeExited() === false,
+    // A step that ended without its outputs is resumed once, in place, to set them.
+    remindAgent: (session, prompt) =>
+      launcher.relaunchUnattended(session.workspaceId, session.id, prompt),
+    hasLiveTerminal: (session) => automationTerminal(session.id)?.hasClaudeExited() === false,
     agentHarness: (workspaceId) => {
       const workspace = workspaces.getAll().find((candidate) => candidate.id === workspaceId);
       const harness = harnesses
@@ -2068,7 +2098,35 @@ export function setupIpcHandlers(): boolean {
       };
     },
     stopAgent: (session, reason) =>
-      manager.get(session.instanceId)?.stopUnattendedTurn(reason) ?? false,
+      automationTerminal(session.id)?.stopUnattendedTurn(reason) ?? false,
+    platform: process.platform,
+    // An item run's own checkout, beside the Inbox's worktree.
+    checkout: automationCheckoutPort({
+      ...itemWorktreeDeps,
+      automationCheckoutPathFor: (item) => worktrees.automationCheckoutPathFor(item),
+      syncCheckout: (clone, item, env) => worktrees.syncAutomationCheckout(clone, item, env),
+      getWorkspace: (id) => workspaces.getAll().find((candidate) => candidate.id === id),
+      allSessions,
+    }),
+    checkoutBusy: (dir) => runningIn(allSessions(), dir, isRunning),
+    folderExists: (dir) => fs.existsSync(dir),
+    // run: steps: spawned by the engine's own executor.
+    commands: { start: startCommand },
+    // What they start from: the login env, and the bound account's token, which their logs mask.
+    commandEnv: async (workspaceId) => {
+      const provider = workspaces
+        .getAll()
+        .find((candidate) => candidate.id === workspaceId)?.provider;
+      if (!provider) {
+        await loginEnvRetry();
+        return { env: { ...getLoginEnv() }, secrets: [] };
+      }
+      const { env, token } = await borrowProviderEnv(
+        getProviderDriver(provider.id),
+        provider.accountLogin,
+      );
+      return { env, secrets: [token] };
+    },
   });
   automationService = automations;
   void automations.start().catch((error) => console.error('Automations failed to start.', error));
@@ -2114,6 +2172,87 @@ export function setupIpcHandlers(): boolean {
         workspaces.getAll().find((candidate) => candidate.id === workspaceId)?.sessions ?? [],
     });
   });
+  // A step's own part of its transcript, from disk like the run's. A step or run that is not there is unreadable.
+  ipcMain.handle(
+    IPC_CHANNELS.AUTOMATIONS_READ_STEP_CONVERSATION,
+    async (_event, runId: unknown, stepId: unknown) => {
+      if (typeof runId !== 'string' || typeof stepId !== 'string') return { readable: false };
+      const target = automations.stepConversationTarget(runId, stepId);
+      if (!target) return { readable: false };
+      return readRunConversation(target, {
+        harnesses: () => harnesses.getAll(),
+        sessions: (workspaceId) =>
+          workspaces.getAll().find((candidate) => candidate.id === workspaceId)?.sessions ?? [],
+      });
+    },
+  );
+  // History's pages. A malformed request throws, like the intents above.
+  ipcMain.handle(
+    IPC_CHANNELS.AUTOMATIONS_LIST_RUNS,
+    (_event, workspaceId: unknown, query: unknown) => {
+      const {
+        limit,
+        before,
+        query: text,
+        kind,
+        automation,
+      } = (typeof query === 'object' && query !== null ? query : {}) as Record<string, unknown>;
+      const optionalString = (value: unknown) => value === undefined || typeof value === 'string';
+      if (
+        typeof workspaceId !== 'string' ||
+        typeof limit !== 'number' ||
+        !Number.isFinite(limit) ||
+        !optionalString(before) ||
+        !optionalString(text) ||
+        !(
+          kind === undefined ||
+          kind === 'all' ||
+          kind === 'agent' ||
+          kind === 'tool' ||
+          kind === 'failed'
+        ) ||
+        !(automation === null || optionalString(automation))
+      ) {
+        throw new Error('Workspace id and a well-formed run query required.');
+      }
+      return automations.listRuns(workspaceId, query as ListRunsQuery);
+    },
+  );
+  // The reads answer null for a bad argument or something that is not there, and start nothing.
+  ipcMain.handle(IPC_CHANNELS.AUTOMATIONS_GET_RUN_DEFINITION, (_event, runId: unknown) =>
+    typeof runId === 'string' ? automations.getRunDefinition(runId) : null,
+  );
+  ipcMain.handle(
+    IPC_CHANNELS.AUTOMATIONS_GET_STEP_DETAIL,
+    (_event, runId: unknown, stepId: unknown) =>
+      typeof runId === 'string' && typeof stepId === 'string'
+        ? automations.getStepDetail(runId, stepId)
+        : null,
+  );
+  ipcMain.handle(
+    IPC_CHANNELS.AUTOMATIONS_READ_STEP_LOG,
+    (_event, runId: unknown, stepId: unknown, stream: unknown) =>
+      typeof runId === 'string' &&
+      typeof stepId === 'string' &&
+      (stream === 'stdout' || stream === 'stderr')
+        ? automations.readStepLog(runId, stepId, stream)
+        : null,
+  );
+  ipcMain.handle(IPC_CHANNELS.AUTOMATIONS_READ_ARTIFACT, (_event, runId: unknown, ref: unknown) => {
+    const { step, name } = (typeof ref === 'object' && ref !== null ? ref : {}) as {
+      step?: unknown;
+      name?: unknown;
+    };
+    return typeof runId === 'string' && typeof step === 'string' && typeof name === 'string'
+      ? automations.readArtifact(runId, { step, name })
+      : null;
+  });
+  ipcMain.handle(IPC_CHANNELS.AUTOMATIONS_RETRY, (_event, runId: unknown, stepId: unknown) => {
+    if (typeof runId !== 'string' || (stepId !== undefined && typeof stepId !== 'string')) {
+      throw new Error('Run id, and a step id or none, required.');
+    }
+    return automations.retry(runId, stepId);
+  });
   ipcMain.handle(IPC_CHANNELS.AUTOMATIONS_STOP, (_event, runId: string) => {
     if (typeof runId !== 'string') throw new Error('Run id required.');
     automations.stop(runId);
@@ -2139,7 +2278,7 @@ export function setupIpcHandlers(): boolean {
           const template = AUTOMATION_TEMPLATES.find(
             (candidate) => candidate.id === basis.template,
           );
-          return workspace && template ? template.entry(workspace) : null;
+          return workspace && template ? template.entry(toWorkspaceView(workspace)) : null;
         },
       },
       parseAuthoringRequest(raw),
@@ -2853,6 +2992,13 @@ export function cleanupIpcHandlers(): void {
   ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_ADD_ASSIGNED_REVIEWS);
   ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_GET_RUN);
   ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_READ_CONVERSATION);
+  ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_READ_STEP_CONVERSATION);
+  ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_LIST_RUNS);
+  ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_GET_RUN_DEFINITION);
+  ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_GET_STEP_DETAIL);
+  ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_READ_STEP_LOG);
+  ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_READ_ARTIFACT);
+  ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_RETRY);
   ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_STOP);
   ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_ADD_TEMPLATE);
   ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_START_AUTHORING);

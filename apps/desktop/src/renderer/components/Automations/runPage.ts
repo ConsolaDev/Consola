@@ -1,4 +1,10 @@
-import { isAgentRunPreview, type RunRecord } from '../../../shared/automations';
+import {
+  isAgentRunPreview,
+  isStepsRunPreview,
+  type RunRecord,
+  type StepRun,
+  type StepRunStatus,
+} from '../../../shared/automations';
 import type { ConversationEntry } from '../../../shared/conversation';
 import { formatElapsed, type RunFacts } from './presentation';
 
@@ -12,7 +18,7 @@ import { formatElapsed, type RunFacts } from './presentation';
 /** A run in one of these is over. The renderer's copy: factory-spec's own pulls in Node's crypto. */
 const ENDED: ReadonlySet<RunFacts['status']> = new Set(['completed', 'failed', 'rejected']);
 
-export type RunStageKey = 'trigger' | 'preview' | 'approval' | 'queue' | 'run' | 'notify';
+export type RunStageKey = 'trigger' | 'preview' | 'approval' | 'queue' | 'run' | 'notify' | 'step';
 
 /**
  * How a run went through one stage, as a CI graph colours its jobs: through
@@ -27,11 +33,21 @@ export type RunStageState =
   | 'queued'
   | 'running'
   | 'skipped'
-  | 'pending';
+  | 'pending'
+  | 'reported';
 
 export interface RunStage {
   key: RunStageKey;
   state: RunStageState;
+  /** For a `step` stage: the step this node is, as the record has it. */
+  step?: {
+    id: string;
+    kind: 'agent' | 'run';
+    status: StepRunStatus;
+    skipped?: string;
+    error?: string;
+    attempt: number;
+  };
   /** How long the run spent in it, when the record says; still counting while the run is in it. */
   ms: number | null;
 }
@@ -50,6 +66,7 @@ export interface RunStage {
  * approval when it asked for one.
  */
 export function runStages(run: RunRecord, now: Date): RunStage[] {
+  if (isStepsRunPreview(run.result)) return stepsRunStages(run, now);
   const agent = isAgentRunPreview(run.result);
   const keys: RunStageKey[] = ['trigger'];
   if (!agent && run.mode !== 'auto') keys.push('preview');
@@ -87,6 +104,155 @@ export function runStages(run: RunRecord, now: Date): RunStage[] {
     if (key === 'run') ms = span(started, until(finished));
     return { key, state, ms };
   });
+}
+
+/**
+ * A `steps:` run's stages: its trigger, its approval when it asked, then one
+ * node per step in file order. A step's own status says where the run is, so
+ * only a `pending` step reads the run: once the run is over it never came.
+ */
+function stepsRunStages(run: RunRecord, now: Date): RunStage[] {
+  const open = !ENDED.has(run.status);
+  const nowMs = now.getTime();
+  const stages: RunStage[] = [{ key: 'trigger', state: 'passed', ms: null }];
+  if (run.mode === 'confirm') {
+    const waiting = run.status === 'needs-approval';
+    const turnedDown = run.status === 'rejected' && !run.approvedAt;
+    const created = Date.parse(run.createdAt);
+    const until = waiting
+      ? nowMs
+      : turnedDown
+        ? Date.parse(run.finishedAt ?? '')
+        : firstOf(Date.parse(run.approvedAt ?? ''), Date.parse(run.startedAt ?? ''));
+    stages.push({
+      key: 'approval',
+      state: waiting ? 'waiting' : turnedDown ? 'stopped' : 'passed',
+      ms: span(created, until),
+    });
+  }
+  for (const step of run.steps ?? []) {
+    const state = stepStageState(step.status, open);
+    const from = firstOf(Date.parse(step.queuedAt ?? ''), Date.parse(step.startedAt ?? ''));
+    const live = step.status === 'running' || step.status === 'queued';
+    const to = step.finishedAt ? Date.parse(step.finishedAt) : live ? nowMs : NaN;
+    stages.push({
+      key: 'step',
+      state,
+      ms: span(from, to),
+      step: {
+        id: step.id,
+        kind: step.kind,
+        status: step.status,
+        ...(step.skipped ? { skipped: step.skipped } : {}),
+        ...(step.error ? { error: step.error } : {}),
+        attempt: step.attempt,
+      },
+    });
+  }
+  return stages;
+}
+
+function stepStageState(status: StepRunStatus, open: boolean): RunStageState {
+  switch (status) {
+    case 'pending':
+      return open ? 'pending' : 'skipped';
+    case 'queued':
+      return 'queued';
+    case 'running':
+      return 'running';
+    case 'completed':
+      return 'passed';
+    case 'failed':
+      return 'failed';
+    case 'reported':
+      return 'reported';
+    case 'skipped':
+    case 'not-run':
+      return 'skipped';
+    default:
+      // Statuses only grow: one this build does not know is not drawn as an outcome,
+      // and once the run is over it never came, like a pending step.
+      return open ? 'pending' : 'skipped';
+  }
+}
+
+/**
+ * The step a failed run retries from, as the engine's `retryTargetOf` reads
+ * it: the one it failed at, else (it ended between steps, or before the
+ * first) the first it did not run.
+ */
+export function retryTargetOf(steps: StepRun[]): StepRun | undefined {
+  return (
+    steps.find((step) => step.status === 'failed') ??
+    steps.find((step) => step.status === 'not-run')
+  );
+}
+
+/**
+ * The step a run's page offers Retry from: a failed run's `retryTargetOf`,
+ * only once it started, as the engine's `retry` allows. A run refused at
+ * approval or turned away in line never started, so it is run again instead.
+ */
+export function runRetryTarget(run: RunRecord): StepRun | undefined {
+  return run.status === 'failed' && run.startedAt ? retryTargetOf(run.steps ?? []) : undefined;
+}
+
+/**
+ * Whether a command step was cut off mid-run: it recorded that it was about
+ * to run (`intentAt`) and never recorded a result. It may or may not have
+ * done its work, which is why retrying it warns first.
+ */
+export function isInterruptedCommand(step: StepRun): boolean {
+  return (
+    step.kind === 'run' &&
+    step.status === 'failed' &&
+    Boolean(step.command?.intentAt) &&
+    step.command?.exitCode === undefined &&
+    step.command?.signal === undefined
+  );
+}
+
+/** The error of a command Consola stopped, word for word: the engine's `describeFailure` (`stepWords.parity.test.ts`). */
+export const COMMAND_STOPPED = 'Stopped while running: it may have done its work';
+/** How the error of a command its timeout ended begins: "timed out after 10m". */
+export const COMMAND_TIMED_OUT = /^timed out after /;
+
+/**
+ * How a failed command step was ended while it ran, though it has a result:
+ * Consola stopped it, its timeout ended it, or a signal killed it. Null for
+ * any other step. The sibling of `isInterruptedCommand` (a command with no
+ * result at all): either may have done its work, so retrying either warns.
+ */
+export function endedWhileRunning(step: StepRun): 'stopped' | 'timed-out' | 'killed' | null {
+  if (step.kind !== 'run' || step.status !== 'failed') return null;
+  if (step.error === COMMAND_STOPPED) return 'stopped';
+  if (COMMAND_TIMED_OUT.test(step.error ?? '')) return 'timed-out';
+  return step.command?.signal !== undefined ? 'killed' : null;
+}
+
+/** The retry warning for a command Consola quit on, word for word. */
+const INTERRUPTED_WARNING =
+  'Consola quit while this command ran; check the pull request first — it may already be posted.';
+
+/**
+ * What Retry warns before it retries a step that may have done its work, or
+ * null when it retries at once: a command Consola quit on, word for word; a
+ * command ended while it ran, saying how, and what to check first (the run's
+ * item, if it has one).
+ */
+export function retryWarningOf(
+  step: StepRun,
+  item: { type?: 'pr' | 'issue' } | undefined,
+): string | null {
+  if (isInterruptedCommand(step)) return INTERRUPTED_WARNING;
+  const ended = endedWhileRunning(step);
+  if (!ended) return null;
+  const how = { stopped: 'It was stopped', 'timed-out': 'It timed out', killed: 'It was killed' }[
+    ended
+  ];
+  const check =
+    item?.type === 'pr' ? 'the pull request' : item?.type === 'issue' ? 'the issue' : 'what it did';
+  return `${how} while it ran and may have done its work; check ${check} first.`;
 }
 
 /** The stage the run is in now, or ended in, and how. */

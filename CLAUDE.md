@@ -15,6 +15,8 @@ pnpm run dev              # Full dev environment (Vite HMR + tsc --watch + Elect
 pnpm run build            # Production build (all processes)
 pnpm start                # Run production build
 pnpm run test:e2e         # Run Playwright E2E tests
+pnpm test                 # Every package's tests via Turborepo (the website's Playwright suite included)
+pnpm --filter @consola/automation-engine test   # Just the engine's tests
 ```
 
 Individual builds:
@@ -24,7 +26,8 @@ pnpm run build:preload    # Preload script only
 pnpm run build:renderer   # Renderer (Vite) only
 ```
 
-Only the renderer hot-reloads. `src/main` and `src/preload` are compiled and
+Only the renderer hot-reloads. `src/main`, `src/preload` and the packages main
+loads (`packages/factory-spec`, `packages/automation-engine`) are compiled and
 loaded once per launch, so `scripts/dev-electron.cjs` restarts Electron when
 their output changes — otherwise a new UI ends up talking to a main process
 built hours earlier, and the mismatch reads as a renderer bug. It restarts only
@@ -35,7 +38,9 @@ front. E2E runs themselves are already hidden and unfocusable
 (`src/main/test-mode.ts`); set `CONSOLA_E2E_HEADED=1` to watch them.
 
 All commands above run from the repository root. The pnpm workspace contains
-`apps/desktop` (`consola`) and `apps/website` (`@consola/website`). Turborepo
+`apps/desktop` (`consola`), `apps/website` (`@consola/website`),
+`packages/factory-spec` (`@consola/factory-spec`, MIT) and
+`packages/automation-engine` (`@consola/automation-engine`). Turborepo
 orchestrates builds, tests, and typechecking. Paths below beginning with `src/`,
 `scripts/`, or `dist/` are relative to `apps/desktop`. Use
 `pnpm --filter consola exec <tool>` for app-specific tools.
@@ -59,6 +64,24 @@ src/preload/        → Context bridge (exposes APIs to renderer)
 src/renderer/       → React frontend (Vite, ESM)
 src/shared/         → Shared types and IPC channel constants
 ```
+
+### The Automation Engine
+
+The automation runner is its own package, `packages/automation-engine`
+(`@consola/automation-engine`, AGPL-3.0-only), because the same runner has to
+run on the desktop, a headless runner and the cloud. So it imports no
+`electron`, `node-pty`, `@xterm/*` or anything under `apps/`, and its
+`boundary.test.ts` fails on any such import. Its core
+(`packages/automation-engine/src/`) does no I/O: it imports no I/O module,
+reaches no `process`, `fetch`, `require`, `XMLHttpRequest` or `WebSocket`
+global, imports no test code, and its `index.ts` holds only exports. Node adapters (state files,
+run history, the factory file on disk) live in its `src/node/`, the one place
+allowed to touch the machine. The desktop is one host: it implements the
+engine's ports, and `src/main/automations/engineViews.ts` maps its records
+onto the package's narrow views. `src/shared/automations.ts` re-exports the
+runner's types, type-only, so the renderer never loads the engine's runtime.
+Beside it, `packages/factory-spec` (MIT) holds the `factory.yml` schema,
+parser and Run record that every runner shares.
 
 ### Main Process Key Files
 - `index.ts` - App lifecycle, window management
@@ -523,6 +546,31 @@ newly pushed settings and hooks into a full-tools session with no trust
 prompt. The worktree is one per item, so the refresh is skipped while any
 full-tools session was launched there, running or not (`worktreeHeld`).
 
+### A Steps Run Works in a Checkout of Its Own
+
+A `steps:` run on a pull request or issue never works in the Inbox's worktree
+for it. It gets a second, detached worktree per item beside that one,
+`<repo>-pr-<n>-automation` (`WorktreeService.automationCheckoutPathFor`),
+reset to the item's head each time a run prepares it. Nothing is reset until
+`assertOwnAutomationCheckout` proves the folder is that linked worktree of the
+clone (not a symlink, not the clone, not the Inbox's worktree): a reset
+anywhere else would destroy someone's work. Once a full-tools session was
+launched there, running or not, Consola never moves it again, for the same
+reason an automation's refresh leaves a trusted worktree alone (above).
+
+An agent step's tools (`steps/stepTools.ts`) are scoped by the calling
+session's provenance (run, step and attempt), resolved again on every call and
+never taken from a tool's arguments. Writes are refused once that attempt is
+not the step's running one, or the step recorded a different session.
+
+A `run:` step's command gets values only as environment variables: `{{` is
+refused in `run:`, and `env:` refuses the names and prefixes that make a
+program run a value (`REFUSED_ENV_NAMES`, `REFUSED_ENV_PREFIXES`). Its intent
+(`intentAt`) is written durably (`RunStore.updateDurably`) before the spawn, so
+a quit mid-command is known after a restart. Such a command is never re-run
+automatically: the restart fails it as interrupted, and Retry warns before it
+runs again.
+
 ### Harnesses Are Launch Descriptions
 
 A harness is one configured agent CLI: a binary path, a config directory, and
@@ -807,6 +855,7 @@ Direction (where the product is heading, not a spec) lives in `docs/north-star/`
 `docs/` is gitignored, so it exists only in the main checkout; from a worktree,
 read it there.
 - `docs/north-star/consola-automations.md` - **The north star for automations**: CI-shaped pipelines defined in files, run by desktop, headless and cloud runners. Read its invariants and decisions before designing anything that touches automations, triggers, connections, runs, agents, factory files, environments, runners, or sharing across an org
+- `docs/north-star/consola-automations-roadmap.md` - The slice order toward that north star, what each slice delivers, and the contracts each slice must leave true for later ones. Read a slice's entry and its contracts before writing that slice's spec
 - `docs/north-star/consola-factories.md` - The earlier local + cloud direction ("factories"). Its cloud runner, identity and Run record still stand; its "no workflow engine", "confirm every run" and "org ⊕ repo merge" rules are superseded by the automations north star
 
 The automations direction in brief:
@@ -814,8 +863,8 @@ The automations direction in brief:
 - The file decides the route (`if`, `repeat`, `wait`, `gate`). An agent affects it only through declared, schema-validated outputs, never through prose.
 - Every agent step is a new session, so each starts with a clean context. Only three things cross to the next step: typed outputs, declared artifacts (documents written and read through Consola's artifact tools, with the handover as the default one), and the shared checkout.
 - The files name every side effect, and Consola implements none of them. A push, PR, review, ticket move or Slack post is a `run:` command (a vendor CLI such as `gh` or `acli`), an MCP tool the engine calls (`uses:`), or an agent granted write tools in its definition. Item values reach commands only as environment variables. How strongly an agent with a shell is contained is its environment's declared isolation (`host`, `sandbox`, `container`), never silently downgraded.
-- Triggers are generic, `poll` (a command or MCP tool diffed by key) and `webhook`. Built-in vendor events are YAML manifests over them, not vendor code. Agents name MCP servers, which resolve in the harness's own CLI config.
+- Triggers are generic, `poll` (a command or MCP tool diffed by key, firing again when a declared `changed:` value moves) and `webhook`. Built-in vendor events are YAML manifests over them, not vendor code. Any automation on items can also be run on an item a person picks. Agents name MCP servers, which resolve in the harness's own CLI config.
 - Trust is approved per definition version; after that a run is unattended except at gates the file or org policy declares.
-- A run is a durable row anchored on an item. A write or `uses:` step is never silently repeated.
+- A run is a durable row anchored on an item. A write or `uses:` step is never silently repeated, and a change to an item is delivered at most once, never silently. A run on a pull request works in a checkout of its own and records the commit it read. A step can read what the last run on the same item wrote (`previous`).
 - The same files run on every runner. Across an org, factories share by pinned `uses:` references, and only policy flows down.
 - Agent files are harness-neutral requirements (tools, MCP server names, skills, outputs, isolation). Each `HarnessDriver` compiles them into its CLI's flags or refuses, and the refusal is checked when the factory applies, never mid-run. Anything Consola reads back (artifacts, outputs) goes through Consola's MCP tools, which every CLI speaks.

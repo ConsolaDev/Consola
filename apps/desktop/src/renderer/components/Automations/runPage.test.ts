@@ -1,10 +1,20 @@
 import { describe, expect, it } from 'vitest';
-import type { AgentRunPreview, RunRecord } from '../../../shared/automations';
+import type {
+  AgentRunPreview,
+  RunRecord,
+  StepRun,
+  StepsRunPreview,
+} from '../../../shared/automations';
 import type { ConversationEntry } from '../../../shared/conversation';
 import {
   adjacentRuns,
   durationAgainstUsual,
   foundNothingToDo,
+  endedWhileRunning,
+  isInterruptedCommand,
+  retryTargetOf,
+  retryWarningOf,
+  runRetryTarget,
   runNotes,
   runStages,
   stepBar,
@@ -411,5 +421,445 @@ describe('stepTimeline and stepBar', () => {
     });
     expect(stepTimeline(unstarted, [step('Read')], NOW)).toBeNull();
     expect(stepBar(step('Read'), 'unknown', { start: 0, end: 1 }, NOW)).toBeNull();
+  });
+});
+
+const STEPS_PREVIEW: StepsRunPreview = {
+  kind: 'steps-run',
+  steps: [],
+  scope: 'api',
+} as unknown as StepsRunPreview;
+
+function stepOf(overrides: Partial<StepRun> & Pick<StepRun, 'id'>): StepRun {
+  return { kind: 'agent', status: 'pending', attempt: 1, ...overrides };
+}
+
+const stepsRecord = (steps: StepRun[], overrides: Partial<RunRecord> = {}) =>
+  record({ result: STEPS_PREVIEW, steps, ...overrides });
+
+const stepShape = (run: RunRecord) =>
+  runStages(run, NOW).map((stage) =>
+    stage.step ? `step:${stage.step.id}:${stage.state}` : `${stage.key}:${stage.state}`,
+  );
+const stepMs = (run: RunRecord, id: string) =>
+  runStages(run, NOW).find((stage) => stage.step?.id === id)?.ms;
+
+describe('isInterruptedCommand', () => {
+  const interrupted = stepOf({
+    id: 'publish',
+    kind: 'run',
+    status: 'failed',
+    command: { envNames: [], intentAt: ago(MINUTE) },
+  });
+
+  it('is true for a failed command that recorded its intent and no result', () => {
+    expect(isInterruptedCommand(interrupted)).toBe(true);
+  });
+
+  it('is false for an agent step, another status, no intent, or a result', () => {
+    expect(isInterruptedCommand({ ...interrupted, kind: 'agent' })).toBe(false);
+    expect(isInterruptedCommand({ ...interrupted, status: 'completed' })).toBe(false);
+    expect(isInterruptedCommand({ ...interrupted, command: { envNames: [] } })).toBe(false);
+    expect(
+      isInterruptedCommand({
+        ...interrupted,
+        command: { envNames: [], intentAt: ago(MINUTE), exitCode: 1 },
+      }),
+    ).toBe(false);
+    expect(
+      isInterruptedCommand({
+        ...interrupted,
+        command: { envNames: [], intentAt: ago(MINUTE), exitCode: 0 },
+      }),
+    ).toBe(false);
+    expect(
+      isInterruptedCommand({
+        ...interrupted,
+        command: { envNames: [], intentAt: ago(MINUTE), signal: 'SIGTERM' },
+      }),
+    ).toBe(false);
+    expect(isInterruptedCommand({ ...interrupted, command: undefined })).toBe(false);
+  });
+});
+
+describe('endedWhileRunning', () => {
+  const publish = (changes: Partial<StepRun>) =>
+    stepOf({
+      id: 'publish',
+      kind: 'run',
+      status: 'failed',
+      command: { envNames: [], intentAt: ago(MINUTE), exitCode: 1 },
+      ...changes,
+    });
+
+  it('says how a failed command was ended while it ran: stopped, timed out, or killed', () => {
+    const stopped = { envNames: [], intentAt: ago(MINUTE), signal: 'SIGTERM' };
+    expect(
+      endedWhileRunning(
+        publish({ error: 'Stopped while running: it may have done its work', command: stopped }),
+      ),
+    ).toBe('stopped');
+    // A shell that traps the signal exits with a code: the error still says it was stopped.
+    expect(
+      endedWhileRunning(publish({ error: 'Stopped while running: it may have done its work' })),
+    ).toBe('stopped');
+    expect(endedWhileRunning(publish({ error: 'timed out after 10m', command: stopped }))).toBe(
+      'timed-out',
+    );
+    expect(endedWhileRunning(publish({ error: 'timed out after 30s' }))).toBe('timed-out');
+    expect(
+      endedWhileRunning(
+        publish({
+          error: 'killed by SIGKILL',
+          command: { envNames: [], intentAt: ago(MINUTE), signal: 'SIGKILL' },
+        }),
+      ),
+    ).toBe('killed');
+  });
+
+  it('is null for a command that exited on its own, one with no result, an agent step, or another status', () => {
+    expect(endedWhileRunning(publish({ error: 'exit 1: HTTP 502: Bad Gateway' }))).toBeNull();
+    // Interrupted by a quit: no result at all. That is isInterruptedCommand's.
+    expect(
+      endedWhileRunning(
+        publish({ error: 'Interrupted', command: { envNames: [], intentAt: ago(MINUTE) } }),
+      ),
+    ).toBeNull();
+    expect(
+      endedWhileRunning(
+        publish({ kind: 'agent', error: 'Stopped while running: it may have done its work' }),
+      ),
+    ).toBeNull();
+    expect(
+      endedWhileRunning(publish({ status: 'completed', error: 'timed out after 10m' })),
+    ).toBeNull();
+  });
+});
+
+describe('retryWarningOf', () => {
+  const publish = (changes: Partial<StepRun>) =>
+    stepOf({ id: 'publish', kind: 'run', status: 'failed', ...changes });
+  const PR = { type: 'pr' as const };
+
+  it('warns before retrying a command Consola quit on, word for word', () => {
+    const interrupted = publish({ command: { envNames: [], intentAt: ago(MINUTE) } });
+    expect(retryWarningOf(interrupted, PR)).toBe(
+      'Consola quit while this command ran; check the pull request first — it may already be posted.',
+    );
+  });
+
+  it('warns before retrying a command ended while it ran, saying how, and what to check', () => {
+    const ran = { envNames: [], intentAt: ago(MINUTE), signal: 'SIGTERM' };
+    expect(
+      retryWarningOf(
+        publish({ error: 'Stopped while running: it may have done its work', command: ran }),
+        PR,
+      ),
+    ).toBe('It was stopped while it ran and may have done its work; check the pull request first.');
+    expect(retryWarningOf(publish({ error: 'timed out after 10m', command: ran }), PR)).toBe(
+      'It timed out while it ran and may have done its work; check the pull request first.',
+    );
+    expect(
+      retryWarningOf(
+        publish({ error: 'killed by SIGKILL', command: { ...ran, signal: 'SIGKILL' } }),
+        { type: 'issue' },
+      ),
+    ).toBe('It was killed while it ran and may have done its work; check the issue first.');
+    // A schedule's run has no item to check.
+    expect(retryWarningOf(publish({ error: 'timed out after 10m', command: ran }), undefined)).toBe(
+      'It timed out while it ran and may have done its work; check what it did first.',
+    );
+  });
+
+  it('is null for a step that ended on its own', () => {
+    expect(
+      retryWarningOf(
+        publish({
+          error: 'exit 1: HTTP 502',
+          command: { envNames: [], intentAt: ago(MINUTE), exitCode: 1 },
+        }),
+        PR,
+      ),
+    ).toBeNull();
+    expect(
+      retryWarningOf(
+        stepOf({ id: 'review', status: 'failed', error: 'It stopped before finishing (exit 1).' }),
+        PR,
+      ),
+    ).toBeNull();
+  });
+});
+
+describe('runStages for a steps run', () => {
+  it('an asked and approved run has trigger, approval, then a node per step', () => {
+    const run = stepsRecord(
+      [
+        stepOf({
+          id: 'fetch',
+          kind: 'run',
+          status: 'completed',
+          queuedAt: ago(8 * MINUTE),
+          startedAt: ago(8 * MINUTE),
+          finishedAt: ago(7 * MINUTE),
+        }),
+        stepOf({
+          id: 'review',
+          status: 'completed',
+          queuedAt: ago(7 * MINUTE),
+          startedAt: ago(6 * MINUTE),
+          finishedAt: ago(4 * MINUTE),
+        }),
+      ],
+      {
+        mode: 'confirm',
+        approvedAt: ago(9 * MINUTE),
+        startedAt: ago(8 * MINUTE),
+        finishedAt: ago(4 * MINUTE),
+      },
+    );
+    expect(stepShape(run)).toEqual([
+      'trigger:passed',
+      'approval:passed',
+      'step:fetch:passed',
+      'step:review:passed',
+    ]);
+    expect(msOf(run, 'approval')).toBe(MINUTE);
+    expect(stepMs(run, 'fetch')).toBe(MINUTE);
+    // From queuedAt, so the wait for a slot counts.
+    expect(stepMs(run, 'review')).toBe(3 * MINUTE);
+  });
+
+  it('carries the step on its stage', () => {
+    const run = stepsRecord(
+      [stepOf({ id: 'fetch', kind: 'run', status: 'failed', attempt: 2, error: 'boom' })],
+      { status: 'failed' },
+    );
+    expect(runStages(run, NOW)[1].step).toEqual({
+      id: 'fetch',
+      kind: 'run',
+      status: 'failed',
+      error: 'boom',
+      attempt: 2,
+    });
+  });
+
+  it('a run at step 2 with step 3 pending counts the running step to now', () => {
+    const run = stepsRecord(
+      [
+        stepOf({
+          id: 'a',
+          kind: 'run',
+          status: 'completed',
+          startedAt: ago(5 * MINUTE),
+          finishedAt: ago(4 * MINUTE),
+        }),
+        stepOf({
+          id: 'b',
+          status: 'running',
+          queuedAt: ago(4 * MINUTE),
+          startedAt: ago(3 * MINUTE),
+        }),
+        stepOf({ id: 'c', status: 'pending' }),
+      ],
+      { status: 'running', startedAt: ago(5 * MINUTE) },
+    );
+    expect(stepShape(run)).toEqual([
+      'trigger:passed',
+      'step:a:passed',
+      'step:b:running',
+      'step:c:pending',
+    ]);
+    expect([stepMs(run, 'a'), stepMs(run, 'b'), stepMs(run, 'c')]).toEqual([
+      MINUTE,
+      4 * MINUTE,
+      null,
+    ]);
+  });
+
+  it('a queued step is queued, counting its wait', () => {
+    const run = stepsRecord([stepOf({ id: 'a', status: 'queued', queuedAt: ago(30 * SECOND) })], {
+      status: 'running',
+    });
+    expect(stepShape(run)).toEqual(['trigger:passed', 'step:a:queued']);
+    expect(stepMs(run, 'a')).toBe(30 * SECOND);
+  });
+
+  it('a completed run with a skipped step keeps it skipped', () => {
+    const run = stepsRecord(
+      [
+        stepOf({
+          id: 'a',
+          status: 'completed',
+          startedAt: ago(2 * MINUTE),
+          finishedAt: ago(MINUTE),
+        }),
+        stepOf({ id: 'b', status: 'skipped', skipped: 'if: false' }),
+      ],
+      { finishedAt: ago(MINUTE) },
+    );
+    expect(stepShape(run)).toEqual(['trigger:passed', 'step:a:passed', 'step:b:skipped']);
+    expect(stepMs(run, 'b')).toBeNull();
+  });
+
+  it('a run that failed at review leaves publish skipped, and a pending step of an ended run is skipped too', () => {
+    const run = stepsRecord(
+      [
+        stepOf({
+          id: 'review',
+          status: 'failed',
+          startedAt: ago(2 * MINUTE),
+          finishedAt: ago(MINUTE),
+          error: 'no',
+        }),
+        stepOf({ id: 'publish', kind: 'run', status: 'not-run' }),
+        stepOf({ id: 'tidy', kind: 'run', status: 'pending' }),
+      ],
+      { status: 'failed', finishedAt: ago(MINUTE) },
+    );
+    expect(stepShape(run)).toEqual([
+      'trigger:passed',
+      'step:review:failed',
+      'step:publish:skipped',
+      'step:tidy:skipped',
+    ]);
+    expect(stepMs(run, 'review')).toBe(MINUTE);
+  });
+
+  it('a dry run draws a reported step as reported', () => {
+    const run = stepsRecord(
+      [
+        stepOf({
+          id: 'review',
+          status: 'completed',
+          startedAt: ago(2 * MINUTE),
+          finishedAt: ago(MINUTE),
+        }),
+        stepOf({ id: 'publish', kind: 'run', status: 'reported' }),
+      ],
+      { mode: 'notify', finishedAt: ago(MINUTE) },
+    );
+    expect(stepShape(run)).toEqual([
+      'trigger:passed',
+      'step:review:passed',
+      'step:publish:reported',
+    ]);
+  });
+
+  it('a run waiting for approval stands at approval with its steps pending', () => {
+    const run = stepsRecord([stepOf({ id: 'a', status: 'pending' })], {
+      mode: 'confirm',
+      status: 'needs-approval',
+    });
+    expect(stepShape(run)).toEqual(['trigger:passed', 'approval:waiting', 'step:a:pending']);
+    expect(msOf(run, 'approval')).toBe(10 * MINUTE);
+  });
+
+  it('a dismissed run stopped at approval', () => {
+    const run = stepsRecord([stepOf({ id: 'a', status: 'pending' })], {
+      mode: 'confirm',
+      status: 'rejected',
+      finishedAt: ago(8 * MINUTE),
+    });
+    expect(stepShape(run)).toEqual(['trigger:passed', 'approval:stopped', 'step:a:skipped']);
+    expect(msOf(run, 'approval')).toBe(2 * MINUTE);
+  });
+});
+
+describe('retryTargetOf', () => {
+  it('is the failed step', () => {
+    const steps = [
+      stepOf({ id: 'a', status: 'completed' }),
+      stepOf({ id: 'b', status: 'failed' }),
+      stepOf({ id: 'c', status: 'not-run' }),
+    ];
+    expect(retryTargetOf(steps)?.id).toBe('b');
+  });
+
+  it('is the first step not run when the run ended between steps', () => {
+    const steps = [
+      stepOf({ id: 'a', status: 'completed' }),
+      stepOf({ id: 'b', status: 'not-run' }),
+      stepOf({ id: 'c', status: 'not-run' }),
+    ];
+    expect(retryTargetOf(steps)?.id).toBe('b');
+  });
+
+  it('is the first step when none ran, and nothing when every step did', () => {
+    expect(
+      retryTargetOf([
+        stepOf({ id: 'a', status: 'not-run' }),
+        stepOf({ id: 'b', status: 'not-run' }),
+      ])?.id,
+    ).toBe('a');
+    expect(retryTargetOf([stepOf({ id: 'a', status: 'completed' })])).toBeUndefined();
+  });
+});
+
+describe('runRetryTarget', () => {
+  const failedAtReview = [
+    stepOf({ id: 'review', status: 'failed' }),
+    stepOf({ id: 'publish', kind: 'run', status: 'not-run' }),
+  ];
+  const notRun = [
+    stepOf({ id: 'review', status: 'not-run' }),
+    stepOf({ id: 'publish', kind: 'run', status: 'not-run' }),
+  ];
+
+  it('is the step a failed run that started retries from', () => {
+    expect(
+      runRetryTarget(stepsRecord(failedAtReview, { status: 'failed', startedAt: ago(2 * MINUTE) }))
+        ?.id,
+    ).toBe('review');
+    // Its checkout could not be prepared: it started, so it retries from its first step.
+    expect(
+      runRetryTarget(stepsRecord(notRun, { status: 'failed', startedAt: ago(2 * MINUTE) }))?.id,
+    ).toBe('review');
+  });
+
+  it('is nothing for a run that never started: refused at approval, or turned away in line', () => {
+    expect(
+      runRetryTarget(
+        stepsRecord(notRun, {
+          status: 'failed',
+          mode: 'confirm',
+          error: 'Not run: factory.yml changed since this preview; run it again.',
+        }),
+      ),
+    ).toBeUndefined();
+  });
+
+  it('is nothing for a run that did not fail', () => {
+    expect(
+      runRetryTarget(
+        stepsRecord(failedAtReview, { status: 'rejected', startedAt: ago(2 * MINUTE) }),
+      ),
+    ).toBeUndefined();
+    expect(
+      runRetryTarget(
+        stepsRecord(failedAtReview, { status: 'running', startedAt: ago(2 * MINUTE) }),
+      ),
+    ).toBeUndefined();
+  });
+});
+
+describe('a step status this build does not know', () => {
+  it('is pending while the run is open and skipped once it ended', () => {
+    const odd = stepOf({ id: 'a', status: 'paused' as StepRun['status'] });
+    expect(stepShape(stepsRecord([odd], { status: 'running' }))).toEqual([
+      'trigger:passed',
+      'step:a:pending',
+    ]);
+    expect(stepShape(stepsRecord([odd], { status: 'failed', finishedAt: ago(MINUTE) }))).toEqual([
+      'trigger:passed',
+      'step:a:skipped',
+    ]);
+  });
+});
+
+describe('legacy runs keep their stages', () => {
+  it('a run without steps has no step stages', () => {
+    const stages = runStages(record(), NOW);
+    expect(stages.map((stage) => stage.key)).toEqual(['trigger', 'run']);
+    expect(stages.every((stage) => stage.step === undefined)).toBe(true);
   });
 });

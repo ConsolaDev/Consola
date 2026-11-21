@@ -1,4 +1,5 @@
 import * as fs from 'node:fs';
+import { SessionOpenedError } from '@consola/automation-engine';
 import { launchFieldsFor, type Harness } from '../shared/harness';
 import type { ActionConversation } from '../shared/workItemActions';
 import {
@@ -11,7 +12,7 @@ import {
 import { toolPolicyProblem } from './drivers';
 import { openingFor } from './harnessSwitch/handoff';
 import { mcpConfigForSession } from './mcp/SessionMcpHost';
-import type { TerminalService, TerminalServiceOptions } from './TerminalService';
+import type { RelaunchFields, TerminalService, TerminalServiceOptions } from './TerminalService';
 
 /**
  * Start a session with no renderer involved.
@@ -62,6 +63,8 @@ export interface HeadlessTerminalStarter {
   has(instanceId: string): boolean;
   /** The terminal for a session, if it has one. */
   get(instanceId: string): ExistingTerminal | undefined;
+  /** Start an exited terminal again in place, keeping the instance. */
+  relaunch(instanceId: string, launch: RelaunchFields): void;
 }
 
 /**
@@ -186,8 +189,7 @@ export class SessionLauncher {
     if (session.toolPolicy !== 'read-only')
       throw new Error('Consola resumes a turn unattended only in a read-only session.');
     const opened = () => {
-      if (this.terminals.has(session.instanceId))
-        throw new Error('You opened its session before Consola could resume it.');
+      if (this.terminals.has(session.instanceId)) throw new SessionOpenedError();
     };
     opened();
     const { cwd, notice } = await this.resolveFolder(workspace, session);
@@ -197,6 +199,56 @@ export class SessionLauncher {
       session,
       cwd,
       { resume: true, initialPrompt: prompt, unattended: true, launchNotice: notice },
+      opened,
+    );
+  }
+
+  /**
+   * The one reminder turn of an automation's step: its session's turn has
+   * ended, and its conversation is resumed once more, unattended, to say
+   * what it forgot. Only a read-only session, and only a terminal whose CLI
+   * has exited (relaunched in place, so a pane showing it keeps streaming)
+   * or none at all (spawned): a CLI still running is the person's, and a
+   * second process on one conversation would fork it. It never refreshes
+   * the checkout — the step is reviewing that very commit —
+   * and cannot go through `resumeUnattended`, which refuses any terminal
+   * still in the map, as an exited one is.
+   */
+  public async relaunchUnattended(
+    workspaceId: string,
+    sessionId: string,
+    prompt: string,
+  ): Promise<void> {
+    const workspace = this.workspaces.getAll().find((candidate) => candidate.id === workspaceId);
+    const session = workspace?.sessions.find((candidate) => candidate.id === sessionId);
+    if (!workspace || !session) throw new Error('Its session was closed.');
+    if (session.toolPolicy !== 'read-only')
+      throw new Error('Consola resumes a turn unattended only in a read-only session.');
+    const opened = () => {
+      if (this.terminals.has(session.instanceId))
+        throw new Error('You opened its session before Consola could remind it.');
+    };
+    const terminal = this.terminals.get(session.instanceId);
+    if (terminal && !terminal.hasClaudeExited())
+      throw new Error('You opened its session before Consola could remind it.');
+    const cwd = workingFolder(workspace, session);
+    if (!cwd || !fs.existsSync(cwd))
+      throw new Error(`Its working folder is gone: ${cwd ?? session.scopeId}.`);
+    if (terminal) {
+      const harness = this.harnesses
+        .getAll()
+        .find((candidate) => candidate.id === session.harnessId);
+      const policyProblem = toolPolicyProblem(launchFieldsFor(harness), session.toolPolicy);
+      if (policyProblem) throw new Error(policyProblem);
+      this.terminals.relaunch(session.instanceId, { cwd, prompt, unattended: true });
+      return;
+    }
+    // Checked again after the await inside: a pane may have mounted meanwhile.
+    await this.spawnRecorded(
+      workspace,
+      session,
+      cwd,
+      { resume: true, initialPrompt: prompt, unattended: true },
       opened,
     );
   }

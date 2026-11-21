@@ -176,6 +176,13 @@ export const IPC_CHANNELS = {
   AUTOMATIONS_START_AUTHORING: 'automations:start-authoring', // A session that drafts an entry with the person
   AUTOMATIONS_ACKNOWLEDGE: 'automations:acknowledge', // Mark an agent-added automation as seen
   AUTOMATIONS_GET_ENTRY: 'automations:get-entry', // One factory.yml entry exactly as written, for its details
+  AUTOMATIONS_LIST_RUNS: 'automations:list-runs', // One page of a workspace's run history, filtered, newest first
+  AUTOMATIONS_GET_RUN_DEFINITION: 'automations:get-run-definition', // A steps run's whole definition snapshot
+  AUTOMATIONS_GET_STEP_DETAIL: 'automations:get-step-detail', // One step's record, definition, command.json and log tails
+  AUTOMATIONS_READ_STEP_LOG: 'automations:read-step-log', // One step log, up to the 1 MB it holds
+  AUTOMATIONS_READ_ARTIFACT: 'automations:read-artifact', // One declared artifact of a step's latest attempt
+  AUTOMATIONS_READ_STEP_CONVERSATION: 'automations:read-step-conversation', // A step's part of its transcript, read from disk
+  AUTOMATIONS_RETRY: 'automations:retry', // Retry a failed steps run from its failed step
 
   // Personal automations (main -> every renderer)
   AUTOMATIONS_CHANGED: 'automations:changed', // A workspace's fresh AutomationsSnapshot

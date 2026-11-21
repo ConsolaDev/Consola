@@ -7,12 +7,16 @@ import {
   CircleX,
   Copy,
   GitFork,
-  RotateCcw,
   Square,
   SquareTerminal,
   X,
 } from 'lucide-react';
-import { isAgentRunPreview, type RunListEntry, type RunRecord } from '../../../shared/automations';
+import {
+  isAgentRunPreview,
+  isStepsRunPreview,
+  type RunListEntry,
+  type RunRecord,
+} from '../../../shared/automations';
 import type { ConversationEntry } from '../../../shared/conversation';
 import type { Workspace } from '../../../shared/workspace';
 import { automationsBridge } from '../../services/automationsBridge';
@@ -23,9 +27,11 @@ import { activateSession } from '../../utils/sessionActions';
 import { ipcErrorMessage } from '../../utils/ipcErrorMessage';
 import { brokenStep, RunAnswer, RunSteps, stepRowId, useRunConversation } from './ConversationView';
 import { RunGraph } from './RunGraph';
+import { StepsRunView } from './StepsRunView';
 import {
   AgentRunDetails,
   CleanupDetails,
+  RunAgainButton,
   RunItemLink,
   StatusIcon,
   useIntent,
@@ -172,6 +178,37 @@ function RunView({ workspace, run }: { workspace: Workspace; run: RunRecord }) {
     ...(hasOutput && !stopped ? { run: sectionId('output') } : {}),
   };
 
+  if (isStepsRunPreview(run.result)) {
+    return (
+      <StepsRunView
+        key={run.id}
+        workspace={workspace}
+        run={run}
+        stages={stages}
+        history={history}
+        automation={automation}
+        lead={<RunLead run={run} now={now} place={place} history={history} landed={landed} />}
+        nav={
+          <RunNav
+            runId={run.id}
+            history={history}
+            onOpen={(runId) => openPanel({ kind: 'run', runId })}
+          />
+        }
+        stats={
+          <RunStats
+            run={run}
+            now={now}
+            history={history}
+            stages={stages}
+            askerName={asker}
+            sessionGone={false}
+          />
+        }
+      />
+    );
+  }
+
   return (
     <div className="automations-detail automations-run">
       <div className="automations-lead">
@@ -216,35 +253,14 @@ function RunView({ workspace, run }: { workspace: Workspace; run: RunRecord }) {
               </button>
             </>
           )}
-          {automation && !automation.onEvent && !LIVE.has(run.status) && (
-            <button
-              type="button"
-              className="dialog-button-secondary automations-small-button"
-              disabled={
-                busy !== null ||
-                Boolean(automation.problem) ||
-                history.some(
-                  (candidate) => candidate.status === 'running' || candidate.status === 'queued',
-                )
-              }
-              title={
-                automation.problem
-                  ? `Not running: ${automation.problem}`
-                  : automation.mode === 'auto' && !automation.asksFirst
-                    ? 'Run it again now'
-                    : 'Preview it again now; nothing changes until you approve'
-              }
-              onClick={() =>
-                void act('rerun', async () => {
-                  const next = await automationsBridge.runNow(workspace.id, run.automationId);
-                  if (next) openPanel({ kind: 'run', runId: next.id });
-                })
-              }
-            >
-              <RotateCcw size={12} aria-hidden="true" />
-              {busy === 'rerun' ? 'Starting…' : 'Run again'}
-            </button>
-          )}
+          <RunAgainButton
+            workspaceId={workspace.id}
+            run={run}
+            automation={automation}
+            history={history}
+            busy={busy}
+            act={act}
+          />
           <RunNav
             runId={run.id}
             history={history}

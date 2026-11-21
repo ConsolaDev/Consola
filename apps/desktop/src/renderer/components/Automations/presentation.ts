@@ -134,6 +134,33 @@ export function runAbout(run: RunFacts): string {
   return run.summary || run.status;
 }
 
+/**
+ * The summary the engine gives a run held for another run's checkout of the
+ * same item: its `WAITING_FOR_CHECKOUT`, which `stepWords.parity.test.ts`
+ * keeps this equal to.
+ */
+export const CHECKOUT_WAIT = "waiting for this item's checkout";
+
+/**
+ * Where a `steps:` run is, in the words a row shows in place of `runAbout`:
+ * "running · publish", "waiting for a slot before publish", "failed at
+ * publish" ("failed before publish" when it failed between steps, and the
+ * engine names the step it did not reach), or that it waits for its item's
+ * checkout. Null when there is nothing step-shaped to say (a legacy run, a
+ * run that finished), so the row keeps `runAbout`.
+ */
+export function stepWords(run: RunListEntry): string | null {
+  if (run.status === 'queued' && run.summary === CHECKOUT_WAIT) return CHECKOUT_WAIT;
+  const step = run.step;
+  if (!step) return null;
+  if (run.status === 'running' && step.status === 'running') return `running · ${step.id}`;
+  if (run.status === 'running' && step.status === 'queued')
+    return `waiting for a slot before ${step.id}`;
+  if (run.status === 'failed')
+    return step.status === 'not-run' ? `failed before ${step.id}` : `failed at ${step.id}`;
+  return null;
+}
+
 export type RunFilter = 'all' | 'agent' | 'tool' | 'failed';
 
 /** What narrows the run list: free text, a kind, and one automation. */
@@ -161,6 +188,30 @@ export function runKindCounts(
 ): Record<RunFilter, number> {
   const count = (kind: RunFilter) => filterRuns(runs, { ...filter, kind }, now).length;
   return { all: count('all'), agent: count('agent'), tool: count('tool'), failed: count('failed') };
+}
+
+/**
+ * The counts the run list shows while it is neither narrowed nor paged: the
+ * total, and each kind's. They come from the snapshot, which holds every live
+ * run but only the newest ended ones, so while it leaves older runs out
+ * (`hasOlder`) each is a floor and reads "N+".
+ */
+export function snapshotRunCounts(
+  snapshot: Pick<AutomationsSnapshot, 'runs' | 'hasOlder'>,
+  filter: RunListFilter,
+  now: Date,
+): { all: string; kinds: Record<RunFilter, string> } {
+  const said = (count: number) => `${count}${snapshot.hasOlder ? '+' : ''}`;
+  const kinds = runKindCounts(snapshot.runs, filter, now);
+  return {
+    all: said(filterRuns(snapshot.runs, NO_RUN_FILTER, now).length),
+    kinds: {
+      all: said(kinds.all),
+      agent: said(kinds.agent),
+      tool: said(kinds.tool),
+      failed: said(kinds.failed),
+    },
+  };
 }
 
 /** A local calendar day of a run list, as its heading says it, with its runs in the list's order. */
@@ -239,6 +290,70 @@ export function filterRuns(runs: RunListEntry[], filter: RunListFilter, now: Dat
       );
     })
     .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+}
+
+/** Newest first by `createdAt`, ties by id descending: the engine's `newestFirst`, so both sides order one way. */
+export function newestRunFirst(
+  a: { createdAt: string; id: string },
+  b: { createdAt: string; id: string },
+): number {
+  return (
+    Date.parse(b.createdAt) - Date.parse(a.createdAt) || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0)
+  );
+}
+
+/**
+ * Pages of runs laid together, newest first: `first` wins for a run in both,
+ * so the live snapshot's copy of a run is never replaced by an older fetch.
+ */
+export function mergeRunPages(first: RunListEntry[], ...rest: RunListEntry[][]): RunListEntry[] {
+  const seen = new Set<string>();
+  const merged: RunListEntry[] = [];
+  for (const run of [first, ...rest].flat()) {
+    if (seen.has(run.id)) continue;
+    seen.add(run.id);
+    merged.push(run);
+  }
+  return merged.sort(newestRunFirst);
+}
+
+/**
+ * The snapshot holds every live run and the newest 200 ended ones, so each
+ * push can move its edge: a run that ends pushes the 200th out. The ended
+ * runs the previous snapshot held and this one dropped go into `older`, so
+ * no run falls between the snapshot and the pages loaded below it.
+ */
+export function foldDroppedRuns(
+  previous: RunListEntry[],
+  next: RunListEntry[],
+  older: RunListEntry[],
+): RunListEntry[] {
+  const held = new Set(next.map((run) => run.id));
+  const dropped = previous.filter((run) => !LIVE_STATUSES.has(run.status) && !held.has(run.id));
+  return dropped.length === 0 ? older : mergeRunPages(older, dropped);
+}
+
+/**
+ * A row's words: its title, and where a steps run is beside it. An event
+ * run's title stays its item's; any other steps run says its step as its title.
+ */
+export function runRowWords(run: RunListEntry): { about: string; step: string | null } {
+  const step = stepWords(run);
+  if (step && !(run.trigger.kind === 'event' && run.trigger.item?.title))
+    return { about: step, step: null };
+  return { about: runAbout(run), step };
+}
+
+/**
+ * Where "Show older runs" continues from: the oldest run that has ended. Never
+ * the last row, which may be an old live run: continuing after it would skip
+ * ended runs (`ListRunsQuery.before`).
+ */
+export function olderRunsCursor(runs: RunListEntry[]): string | undefined {
+  for (let i = runs.length - 1; i >= 0; i--) {
+    if (!LIVE_STATUSES.has(runs[i].status)) return runs[i].id;
+  }
+  return undefined;
 }
 
 /** One automation the run list can narrow to, as its rows name it, with how many runs it has there. */
@@ -532,6 +647,16 @@ export interface ApprovalStep {
   detail: string;
 }
 
+/**
+ * What the Activity banner's Add writes, after "Adds review-assigned-prs to
+ * factory.yml": the same entry as the template (decision 8), which reviews
+ * read-only, posts as the person and never approves (decision 7).
+ */
+export const ASSIGNED_REVIEWS_OFFER =
+  'When a pull request asks for your review or is assigned to you, a read-only agent reviews it in a checkout of ' +
+  'its own, then Consola posts the review on GitHub as you, as a comment or a request for changes, never an ' +
+  'approval. It skips a commit it already reviewed, and asks you once first, with every command shown.';
+
 /** How a template's entry will treat the person once added: a card's line, where `approvalStep` is a pipeline's node. */
 export function templateModeWords(mode: AutomationMode): string {
   if (mode === 'confirm') return 'You approve each run';
@@ -539,15 +664,60 @@ export function templateModeWords(mode: AutomationMode): string {
   return 'Asks once, then runs on its own';
 }
 
+/**
+ * Run again's tooltip: what pressing it will do. An `auto` entry it no longer
+ * asks about runs now. So does a `notify` steps entry: it starts its agent
+ * steps (read-only) and its `dry_run: run` commands at once, said as its
+ * pipeline's approval node says it, or, when every step only reports, starts
+ * nothing. Anything that asks first previews and waits.
+ */
+export function runAgainTitle(
+  automation: Pick<AutomationView, 'mode' | 'asksFirst' | 'kind' | 'steps' | 'problem'>,
+): string {
+  if (automation.problem) return `Not running: ${automation.problem}`;
+  if (automation.mode === 'auto' && !automation.asksFirst) return 'Run it again now';
+  if (automation.mode === 'notify' && automation.steps && !automation.asksFirst) {
+    const starts = automation.steps.some((step) => step.kind === 'agent' || step.dryRun);
+    return starts
+      ? `Run it again now. ${approvalStep(automation)!.detail}`
+      : 'Run it again now; it starts nothing and reports what it would run';
+  }
+  return 'Preview it again now; nothing changes until you approve';
+}
+
 export function approvalStep(
-  automation: Pick<AutomationView, 'mode' | 'asksFirst' | 'kind'>,
+  automation: Pick<AutomationView, 'mode' | 'asksFirst' | 'kind' | 'steps'>,
   /** Not in the file yet (a template): an `auto` entry's first run is the one it asks about. */
   draft = false,
 ): ApprovalStep | null {
+  const { steps } = automation;
   if (automation.mode === 'notify') {
+    // A steps entry's dry run starts its agent steps (read-only) and the commands marked `dry_run: run`.
+    const runs = steps?.filter((step) => step.kind === 'agent' || step.dryRun) ?? [];
+    if (steps && runs.length > 0) {
+      const reports = steps.filter((step) => !runs.includes(step)).map((step) => step.id);
+      const agents = runs.filter((step) => step.kind === 'agent').map((step) => step.id);
+      const commands = runs.filter((step) => step.kind === 'run').map((step) => step.id);
+      // Two groups, said apart: an agent step is read-only, a command runs as the person.
+      const groups = [
+        ...(agents.length > 0 ? [`${agents.join(' and ')} read-only`] : []),
+        ...(commands.length > 0 ? [`${commands.join(' and ')} as you`] : []),
+      ].join(' and ');
+      return {
+        kind: 'notify',
+        title: 'Asks once, then runs',
+        detail: `Runs ${groups}${reports.length > 0 ? `; ${reports.join(', ')} only ${reports.length > 1 ? 'report' : 'reports'}` : ''}.`,
+      };
+    }
     return { kind: 'notify', title: 'Tells you what it would do', detail: 'Starts nothing' };
   }
   if (automation.mode === 'confirm') {
+    if (steps)
+      return {
+        kind: 'approve',
+        title: 'You approve each run',
+        detail: 'Its steps run when you press Start',
+      };
     return {
       kind: 'approve',
       title: 'You approve each run',
@@ -860,4 +1030,9 @@ export function finalAnswer(entries: ConversationEntry[]): {
   const { work, answer } = partition(entries);
   const texts = answer.flatMap((entry) => (entry.kind === 'text' ? [entry.text] : []));
   return { steps: work, answer: texts.length > 0 ? texts.join('\n\n') : null };
+}
+
+/** What a command node of a `steps:` entry does: under `notify` it only reports, unless marked `dry_run: run`. */
+export function commandFoot(step: { dryRun?: true }, mode: AutomationMode): string {
+  return mode === 'notify' && !step.dryRun ? 'Reports what it would run' : 'Runs as you';
 }

@@ -3368,3 +3368,202 @@
     display: none;
   }
 }
+
+/* A list that could not be fetched keeps its rows and says why above them. */
+.automations-runs-error {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--color-error);
+}
+
+/*
+ * A steps run: the node the person has open, a dry run's step that only
+ * reports, and the warning before retrying a command that may already have
+ * done its work.
+ */
+.automations-pipeline-run .automations-node-selected {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-accent) 30%, transparent);
+}
+
+.automations-pipeline-run .automations-node-selected.automations-stage-failed {
+  border-color: var(--color-error);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-error) 22%, transparent);
+}
+
+.automations-stage-dry-run {
+  --edge-color: var(--color-border-strong);
+  border-style: dashed;
+}
+
+.automations-stage-dry-run .automations-stage-icon,
+.automations-stage-dry-run .automations-node-foot > span {
+  color: var(--color-text-secondary);
+}
+
+.automations-lead-error {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+.automations-retry-warning {
+  flex-basis: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--color-warning);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-warning) 8%, var(--color-bg-primary));
+}
+
+.automations-retry-warning-text {
+  margin: 0;
+  font-size: var(--font-size-md);
+  line-height: var(--line-height-normal);
+  color: var(--color-text-primary);
+}
+
+/* A step's own detail: dense blocks, each with a quiet label. Logs, variables and outputs are plain text. */
+.automations-step-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.automations-step-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.automations-step-label {
+  margin: 0;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-tertiary);
+}
+
+.automations-step-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.automations-step-code {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.automations-step-command,
+.automations-step-log {
+  max-height: 320px;
+}
+
+.automations-step-error {
+  color: var(--color-error);
+}
+
+.automations-step-artifact {
+  padding: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+
+/* A steps run's approval card: every step as the file wrote it, as text. */
+.automations-approval {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.automations-approval-steps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.automations-approval-step {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-md);
+  color: var(--color-text-secondary);
+}
+
+.automations-approval-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text-primary);
+}
+
+.automations-approval-id {
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+
+.automations-approval-field {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.automations-approval-label {
+  flex-shrink: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-tertiary);
+}
+
+.automations-approval-code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+/* The edge into a step says when it runs: its if:, as written. */
+.automations-pipeline-gated {
+  --edge: 120px;
+}
+
+.automations-node-if {
+  position: absolute;
+  top: calc(50% - 20px);
+  left: calc(-1px - var(--edge));
+  width: calc(var(--edge) - 6px);
+  overflow: hidden;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-tertiary);
+}
+
+@container automations-detail (max-width: 620px) {
+  .automations-pipeline-gated {
+    --edge: 28px;
+  }
+
+  .automations-node-if {
+    top: calc(-1px - var(--edge));
+    left: 40px;
+    width: calc(100% - 52px);
+    line-height: var(--edge);
+    text-align: left;
+  }
+}

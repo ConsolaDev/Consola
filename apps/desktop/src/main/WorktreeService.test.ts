@@ -9,7 +9,7 @@ import type { WorkItemRef } from '../shared/workItems';
 import type { Scope, Workspace } from '../shared/workspace';
 import { getProviderDriver, type GitProviderDriver } from './providers';
 import { createStubDriver } from './providers/stubDriver.test-helpers';
-import { WorktreeService, worktreeDirName } from './WorktreeService';
+import { HeadCheckoutError, WorktreeService, worktreeDirName } from './WorktreeService';
 
 vi.mock('child_process', async (importOriginal) => ({
   ...(await importOriginal<typeof import('child_process')>()),
@@ -381,6 +381,206 @@ describe('WorktreeService.ensureWorktree', () => {
     );
     // Refusing must not touch cloneA's worktree.
     expect(fs.existsSync(path.join(dirA, '.git'))).toBe(true);
+  }, 30_000);
+});
+
+function revParse(dir: string, rev = 'HEAD'): string {
+  return execFileSync('git', ['-C', dir, 'rev-parse', rev], { encoding: 'utf8' }).trim();
+}
+
+function isDetached(dir: string): boolean {
+  try {
+    execFileSync('git', ['-C', dir, 'symbolic-ref', '--quiet', 'HEAD'], { stdio: 'ignore' });
+    return false;
+  } catch {
+    return true;
+  }
+}
+
+function localBranches(dir: string): string[] {
+  return execFileSync('git', ['-C', dir, 'branch', '--list', '--format=%(refname:short)'], {
+    encoding: 'utf8',
+  })
+    .split('\n')
+    .filter(Boolean)
+    .sort();
+}
+
+/** A commit on `branch` changing `file`, leaving `dir` on the branch it was on. */
+function commitOnBranch(dir: string, branch: string, file: string, content: string): string {
+  const back = currentBranch(dir);
+  execFileSync('git', ['-C', dir, 'checkout', '-q', '-B', branch]);
+  fs.writeFileSync(path.join(dir, file), content);
+  execFileSync('git', ['-C', dir, 'add', '.']);
+  execFileSync('git', ['-C', dir, 'commit', '-q', '-m', `change ${file}`]);
+  const sha = revParse(dir);
+  execFileSync('git', ['-C', dir, 'checkout', '-q', back]);
+  return sha;
+}
+
+describe('WorktreeService.syncAutomationCheckout', () => {
+  const pr51 = {
+    provider: 'github',
+    repo: 'sprocket/catalog-portal',
+    type: 'pr',
+    number: 51,
+  } as const;
+  const issue87 = {
+    provider: 'github',
+    repo: 'sprocket/catalog-portal',
+    type: 'issue',
+    number: 87,
+  } as const;
+
+  function setup() {
+    const clone = path.join(tmpDir('consola-ac-clone-'), 'catalog-portal');
+    initCloneWithCommit(clone, 'git@github.com:sprocket/catalog-portal.git');
+    const root = tmpDir('consola-ac-worktrees-');
+    return { clone, root, service: new WorktreeService(root) };
+  }
+
+  it("prepares a detached automation checkout beside the Inbox worktree, at the PR's head", async () => {
+    const { clone, root, service } = setup();
+    // The PR's head: a commit the clone has that neither checkout is at yet.
+    const prHead = commitOnBranch(clone, 'pr-51-head', 'feature.txt', 'from the pull request');
+    const inbox = await service.ensureWorktree(clone, pr51, { ...process.env });
+    const inboxHead = revParse(inbox);
+    const branchesBefore = localBranches(clone);
+    expect(currentBranch(inbox)).toBe('stub-pr-51');
+
+    const { dir, head } = await service.syncAutomationCheckout(clone, pr51, {
+      ...process.env,
+      STUB_GH_PR_HEAD: prHead,
+    });
+
+    expect(dir).toBe(path.join(root, 'catalog-portal-pr-51-automation'));
+    expect(service.automationCheckoutPathFor(pr51)).toBe(dir);
+    // A direct child of the root, so cleanup treats it as one of Consola's own.
+    expect(service.isManagedPath(dir)).toBe(true);
+    expect(isDetached(dir)).toBe(true);
+    expect(head).toBe(prHead);
+    expect(head).toBe(revParse(dir));
+    expect(fs.readFileSync(path.join(dir, 'feature.txt'), 'utf8')).toBe('from the pull request');
+    // The Inbox's worktree is untouched, and no branch was made for this one.
+    expect(revParse(inbox)).toBe(inboxHead);
+    expect(currentBranch(inbox)).toBe('stub-pr-51');
+    expect(localBranches(clone)).toEqual(branchesBefore);
+  }, 30_000);
+
+  it('a second preparation resets what a command left behind', async () => {
+    const { clone, service } = setup();
+    fs.writeFileSync(path.join(clone, '.gitignore'), 'build/\n');
+    execFileSync('git', ['-C', clone, 'add', '.gitignore']);
+    execFileSync('git', ['-C', clone, 'commit', '-q', '-m', 'ignore build output']);
+
+    const { dir } = await service.syncAutomationCheckout(clone, pr51, { ...process.env });
+    fs.writeFileSync(path.join(dir, 'left-behind.txt'), 'a command wrote this');
+    fs.mkdirSync(path.join(dir, 'scratch'));
+    fs.writeFileSync(path.join(dir, 'scratch', 'notes.txt'), 'and this');
+    fs.writeFileSync(path.join(dir, 'README.md'), 'edited by a command');
+    fs.mkdirSync(path.join(dir, 'build'));
+    fs.writeFileSync(path.join(dir, 'build', 'out.js'), 'cached build');
+
+    const again = await service.syncAutomationCheckout(clone, pr51, { ...process.env });
+
+    expect(again.dir).toBe(dir);
+    expect(fs.existsSync(path.join(dir, 'left-behind.txt'))).toBe(false);
+    expect(fs.existsSync(path.join(dir, 'scratch'))).toBe(false);
+    expect(fs.readFileSync(path.join(dir, 'README.md'), 'utf8')).toBe('fixture');
+    // Ignored files are kept: a build cache survives between runs.
+    expect(fs.readFileSync(path.join(dir, 'build', 'out.js'), 'utf8')).toBe('cached build');
+    expect(isDetached(dir)).toBe(true);
+  }, 30_000);
+
+  it("an issue checks out origin's HEAD detached", async () => {
+    const upstream = path.join(tmpDir('consola-ac-upstream-'), 'catalog-portal');
+    initCloneWithCommit(upstream, 'git@github.com:sprocket/catalog-portal.git');
+    const clone = path.join(tmpDir('consola-ac-clone-'), 'catalog-portal');
+    execFileSync('git', ['clone', '-q', upstream, clone]);
+    // origin moved on since the clone was made: the checkout must not read the clone's stale HEAD.
+    fs.writeFileSync(path.join(upstream, 'README.md'), 'newer on origin');
+    execFileSync('git', ['-C', upstream, 'commit', '-q', '-am', 'newer']);
+    const originHead = revParse(upstream);
+    expect(revParse(clone)).not.toBe(originHead);
+    const root = tmpDir('consola-ac-worktrees-');
+    const service = new WorktreeService(root);
+
+    const { dir, head } = await service.syncAutomationCheckout(clone, issue87, { ...process.env });
+
+    expect(dir).toBe(path.join(root, 'catalog-portal-issue-87-automation'));
+    expect(isDetached(dir)).toBe(true);
+    expect(head).toBe(originHead);
+    expect(revParse(dir)).toBe(originHead);
+    expect(fs.readFileSync(path.join(dir, 'README.md'), 'utf8')).toBe('newer on origin');
+    // Unlike the Inbox's issue worktree, no consola/issue-<n> branch.
+    expect(localBranches(clone)).toEqual(['main']);
+  }, 30_000);
+
+  it('marks only a failure to reach the head as one, and passes others through', async () => {
+    const { clone, service } = setup();
+
+    const unreachable = await service
+      .syncAutomationCheckout(clone, pr51, { ...process.env, STUB_GH_FAIL: '1' })
+      .catch((error: unknown) => error);
+    expect(unreachable).toBeInstanceOf(HeadCheckoutError);
+    expect((unreachable as Error).message).toMatch(/gh: canned failure \(STUB_GH_FAIL=1\)/);
+
+    // A folder a crashed `worktree add` left without .git fails on every retry, saying so.
+    const pr52 = { ...pr51, number: 52 };
+    fs.mkdirSync(service.automationCheckoutPathFor(pr52));
+    fs.writeFileSync(path.join(service.automationCheckoutPathFor(pr52), 'half-made.txt'), '');
+    const stuck = await service
+      .syncAutomationCheckout(clone, pr52, { ...process.env })
+      .catch((error: unknown) => error);
+    expect(stuck).not.toBeInstanceOf(HeadCheckoutError);
+    expect((stuck as Error).message).toMatch(/already exists/);
+  }, 30_000);
+
+  it('says a provider this build lacks is not a failure to reach the head, before making anything', async () => {
+    const clone = path.join(tmpDir('consola-ac-clone-'), 'catalog-portal');
+    initCloneWithCommit(clone, 'git@github.com:sprocket/catalog-portal.git');
+    const service = new WorktreeService(tmpDir('consola-ac-worktrees-'), () => {
+      throw new Error('Unknown git provider "github".');
+    });
+
+    const error = await service
+      .syncAutomationCheckout(clone, pr51, { ...process.env })
+      .catch((caught: unknown) => caught);
+
+    expect(error).not.toBeInstanceOf(HeadCheckoutError);
+    expect((error as Error).message).toBe('Unknown git provider "github".');
+    expect(fs.existsSync(service.automationCheckoutPathFor(pr51))).toBe(false);
+  }, 30_000);
+
+  it('turns git hooks off itself, whatever env it is given', async () => {
+    const { clone, service } = setup();
+    const marker = path.join(tmpDir('consola-ac-hook-'), 'hook-ran');
+    fs.mkdirSync(path.join(clone, '.husky'));
+    fs.writeFileSync(
+      path.join(clone, '.husky', 'post-checkout'),
+      `#!/bin/sh\ntouch '${marker}'\n`,
+      { mode: 0o755 },
+    );
+    execFileSync('git', ['-C', clone, 'config', 'core.hooksPath', '.husky']);
+    execFileSync('git', ['-C', clone, 'add', '.husky']);
+    execFileSync('git', ['-C', clone, 'commit', '-q', '-m', 'husky']);
+    execFileSync('git', ['-C', clone, 'remote', 'set-url', 'origin', clone]);
+
+    await service.syncAutomationCheckout(clone, pr51, { ...process.env });
+    await service.syncAutomationCheckout(clone, pr51, { ...process.env });
+    await service.syncAutomationCheckout(clone, issue87, { ...process.env });
+    expect(fs.existsSync(marker)).toBe(false);
+
+    // The tree's hook is live: a plain checkout there runs it.
+    execFileSync('git', [
+      '-C',
+      service.automationCheckoutPathFor(pr51),
+      'checkout',
+      '-q',
+      '--detach',
+      'HEAD',
+    ]);
+    expect(fs.existsSync(marker)).toBe(true);
   }, 30_000);
 });
 

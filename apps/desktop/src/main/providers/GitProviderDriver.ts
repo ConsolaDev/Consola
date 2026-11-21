@@ -19,6 +19,11 @@ import type { PullRequestLookup, PullRequestQuery } from './pullRequests';
 export interface CheckoutOptions {
   /** Move a reused local branch to the item's head even when that is not a fast-forward. */
   resetBranch?: boolean;
+  /**
+   * Leave HEAD detached at the item's head, making or moving no local branch:
+   * the automation checkout, beside a worktree that may have the PR's branch.
+   */
+  detach?: boolean;
 }
 
 export interface GitProviderDriver {

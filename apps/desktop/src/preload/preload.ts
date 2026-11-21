@@ -669,6 +669,19 @@ contextBridge.exposeInMainWorld('automationsAPI', {
   getRun: (runId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_GET_RUN, runId),
   readConversation: (runId) =>
     ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_READ_CONVERSATION, runId),
+  readStepConversation: (runId, stepId) =>
+    ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_READ_STEP_CONVERSATION, runId, stepId),
+  listRuns: (workspaceId, query) =>
+    ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_LIST_RUNS, workspaceId, query),
+  getRunDefinition: (runId) =>
+    ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_GET_RUN_DEFINITION, runId),
+  getStepDetail: (runId, stepId) =>
+    ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_GET_STEP_DETAIL, runId, stepId),
+  readStepLog: (runId, stepId, stream) =>
+    ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_READ_STEP_LOG, runId, stepId, stream),
+  readArtifact: (runId, ref) =>
+    ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_READ_ARTIFACT, runId, ref),
+  retry: (runId, stepId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_RETRY, runId, stepId),
   stop: (runId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_STOP, runId),
   addTemplate: (workspaceId, templateId) =>
     ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_ADD_TEMPLATE, workspaceId, templateId),

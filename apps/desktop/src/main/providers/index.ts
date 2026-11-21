@@ -53,11 +53,23 @@ export async function composeProviderEnv(
   driver: GitProviderDriver,
   accountLogin: string,
 ): Promise<NodeJS.ProcessEnv> {
+  return (await borrowProviderEnv(driver, accountLogin)).env;
+}
+
+/**
+ * `composeProviderEnv`, and the token it layered: for a caller that must
+ * mask it in what the spawned process prints (an automation's commands).
+ * Never put on IPC.
+ */
+export async function borrowProviderEnv(
+  driver: GitProviderDriver,
+  accountLogin: string,
+): Promise<{ env: NodeJS.ProcessEnv; token: string }> {
   // The driver finds its CLI on the login PATH, so a probe still being
   // retried is waited for rather than reported as a missing CLI.
   await loginEnvRetry();
   const token = await driver.token(accountLogin);
-  return layerProviderToken(getLoginEnv(), driver.tokenEnvVar, token);
+  return { env: layerProviderToken(getLoginEnv(), driver.tokenEnvVar, token), token };
 }
 
 export type { GitProviderDriver } from './GitProviderDriver';

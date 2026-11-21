@@ -1,3 +1,5 @@
+import { STEP_TOOL_NAMES } from '@consola/automation-engine';
+
 /**
  * The names a session's CLI sees for Consola's MCP server and its tools.
  *
@@ -20,5 +22,13 @@ export function mcpToolName(tool: string): string {
  * the item it is about, and the Inbox. Both are main's to fetch, with the
  * token main holds — the session itself holds none, so this is its only way
  * to see a pull request beyond the files in its folder.
+ *
+ * Then a step's own tools: its outputs and documents. Only a step session
+ * has them registered, and allowing a tool a session lacks grants nothing,
+ * so one static list serves every read-only session.
  */
-export const READ_ONLY_CONSOLA_TOOLS = ['work_item_context', 'list_inbox'] as const;
+export const READ_ONLY_CONSOLA_TOOLS = [
+  'work_item_context',
+  'list_inbox',
+  ...STEP_TOOL_NAMES,
+] as const;

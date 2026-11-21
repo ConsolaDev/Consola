@@ -446,6 +446,21 @@ describe('GitHubDriver.checkout', () => {
     expect(invocations()).toEqual(['pr checkout 51 GH_TOKEN=gho_test']);
   }, 30_000);
 
+  it('checks the pull request out detached when asked, making no branch', async () => {
+    const clone = path.join(dir, 'catalog-portal');
+    initCloneWithCommit(clone);
+    const worktree = path.join(dir, 'catalog-portal-pr-51-automation');
+    execFileSync('git', ['-C', clone, 'worktree', 'add', '--detach', worktree], {
+      stdio: 'ignore',
+    });
+    const driver = new GitHubDriver(() => ({ PATH: '' }));
+
+    await driver.checkout(worktree, pr51, fixtureEnv(), { detach: true });
+
+    expect(currentBranch(worktree)).toBe('HEAD'); // detached
+    expect(invocations()).toEqual(['pr checkout 51 --detach GH_TOKEN=gho_test']);
+  }, 30_000);
+
   it('does nothing for an issue — there is no remote branch to fetch', async () => {
     const driver = new GitHubDriver(() => ({ PATH: '' }));
 

@@ -190,6 +190,7 @@ async function clientFor(sessionId: string): Promise<Client> {
     registry: new ToolRegistry(),
     approvals: { request: vi.fn() },
     conductorTools: { addTo: vi.fn() },
+    stepTools: () => [],
     browserTools: browserTools({
       getWorkspaces: () => workspaces,
       browser,

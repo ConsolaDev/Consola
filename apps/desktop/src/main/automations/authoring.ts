@@ -6,7 +6,7 @@ import {
   type Workspace,
 } from '../../shared/workspace';
 import type { LaunchSessionFields } from '../SessionLauncher';
-import { AUTOMATION_TEMPLATES } from './templates';
+import { AUTOMATION_TEMPLATES } from '@consola/automation-engine';
 
 /**
  * "New automation", "Change with agent" and "Customize…": an ordinary

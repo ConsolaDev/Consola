@@ -3,6 +3,7 @@ import {
   TerminalService,
   type TerminalExitInfo,
   type TerminalServiceOptions,
+  type RelaunchFields,
   type TerminalHarnessSwitch,
 } from './TerminalService';
 import { IPC_CHANNELS } from '../shared/constants';
@@ -222,6 +223,17 @@ export class TerminalManager {
       };
     }
     return snapshot;
+  }
+
+  /**
+   * Start an exited terminal again, in place, resuming its conversation.
+   * The instance stays, so a window showing it keeps streaming and its
+   * "exited" overlay clears when the status moves.
+   */
+  public relaunch(instanceId: string, launch: RelaunchFields): void {
+    const terminal = this.terminals.get(instanceId);
+    if (!terminal) throw new Error(`No terminal for ${instanceId}.`);
+    terminal.relaunch(launch);
   }
 
   /**

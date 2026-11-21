@@ -1,4 +1,4 @@
-import type { RunRecord } from '@consola/factory-spec';
+import type { ConversationTarget } from '@consola/automation-engine';
 import type { RunConversation } from '../../shared/conversation';
 import type { Harness } from '../../shared/harness';
 import type { HarnessDriverId } from '../../shared/types';
@@ -22,7 +22,7 @@ export interface RunConversationDeps {
  * recorded their conversation falls back to its session, if that still exists.
  */
 export async function readRunConversation(
-  run: RunRecord,
+  run: ConversationTarget,
   deps: RunConversationDeps,
 ): Promise<RunConversation> {
   let pointer = run.conversation && {

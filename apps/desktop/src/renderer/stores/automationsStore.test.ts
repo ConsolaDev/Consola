@@ -30,8 +30,9 @@ function snap(filePath: string): AutomationsSnapshot {
     automations: [],
     issues: [],
     runs: [],
+    hasOlder: false,
     queue: {},
-    suggestAssignedReviews: null,
+    suggestAssignedReviews: false,
     templates: [],
   };
 }
