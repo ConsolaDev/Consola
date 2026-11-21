@@ -330,8 +330,15 @@ test.describe('⌘Q and ⌘W with the keyboard in the browser', () => {
     await page.getByTestId('files-tree').getByText('agent.sh', { exact: true }).click();
     const previewTabs = page.locator('.preview-tab');
     await expect(previewTabs).toHaveCount(1);
-    // Files took the Browser tab's place in front of its group: bring it back.
+    // Files took the Browser tab's place in front of its group: bring it back,
+    // then split it away, so the file is on screen beside the browser. What
+    // keeps it open below is then the keyboard being in the browser, and not
+    // the Files tab being out of sight.
     await showBrowser(page);
+    await page.getByRole('tab', { name: 'Browser', exact: true }).click({ button: 'right' });
+    await page.getByRole('menuitem', { name: 'Split down', exact: true }).click();
+    await expect(panel(page)).toBeVisible();
+    await expect(previewTabs).toBeVisible();
 
     const url = fixtures.url('/a.html');
     await openTabs(page, sessionId, ['/a.html']);

@@ -17,11 +17,13 @@ import {
   moveTab,
   NEW_TAB,
   openKind,
+  otherGroup,
   pressShortcut,
   type SidePanelLayout,
   type SplitOrientation,
   setVisible,
   splitWithTab,
+  tabMenuItems,
   toggleMaximize,
   visibleGroups,
 } from './layout';
@@ -328,6 +330,35 @@ describe('split', () => {
     expect(firstFreeId(new Set())).toBe('g1');
     expect(firstFreeId(new Set(['g1', 'g3']))).toBe('g2');
     expect(firstFreeId(new Set(['g2', 'g1']))).toBe('g3');
+  });
+});
+
+describe('the tab menu', () => {
+  const two = shown(split('stacked', group('g1', ['changes', NEW_TAB]), group('g2', ['files'])));
+
+  it('tabMenuItems offers what applies', () => {
+    expect(tabMenuItems(shown(group('g1', ['changes', 'files'])), 'g1', 'files')).toEqual([
+      'close',
+      'split-down',
+      'split-right',
+    ]);
+    expect(tabMenuItems(shown(group('g1', ['changes'])), 'g1', 'changes')).toEqual(['close']);
+    expect(tabMenuItems(two, 'g2', 'files')).toEqual(['close', 'move']);
+    expect(tabMenuItems(two, 'g1', 'changes')).toEqual(['close', 'move']);
+  });
+
+  it('offers the placeholder only Close', () => {
+    expect(tabMenuItems(shown(group('g1', ['changes', NEW_TAB], NEW_TAB)), 'g1', NEW_TAB)).toEqual([
+      'close',
+    ]);
+    expect(tabMenuItems(two, 'g1', NEW_TAB)).toEqual(['close']);
+  });
+
+  it('otherGroup is the group a tab moves to, only with two groups', () => {
+    expect(otherGroup(two, 'g1')?.id).toBe('g2');
+    expect(otherGroup(two, 'g2')?.id).toBe('g1');
+    expect(otherGroup(two, 'g3')).toBeUndefined();
+    expect(otherGroup(shown(group('g1', ['changes', 'files'])), 'g1')).toBeUndefined();
   });
 });
 

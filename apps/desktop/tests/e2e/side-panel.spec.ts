@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import type { ElectronApplication, Page } from '@playwright/test';
+import type { ElectronApplication, Locator, Page } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -112,6 +112,14 @@ test.describe('side panel', () => {
   const plusButton = () =>
     page.locator('.side-panel-tab-bar').getByRole('button', { name: 'New tab', exact: true });
   const newTabList = () => page.getByRole('listbox', { name: 'Open in this tab' });
+  const tabList = (name: string) => page.getByRole('tablist', { name, exact: true });
+  /** A group of the side panel, found by its tab list's name. */
+  const group = (tabs: string) => page.locator('.side-panel-group').filter({ has: tabList(tabs) });
+  /** Opens a tab's menu with the pointer and chooses `item`. */
+  async function chooseFromTabMenu(tab: Locator, item: string): Promise<void> {
+    await tab.click({ button: 'right' });
+    await page.getByRole('menuitem', { name: item, exact: true }).click();
+  }
 
   /**
    * Counts every session shell view that mounts from now on, however
@@ -370,12 +378,8 @@ test.describe('side panel', () => {
   });
 
   test('the conversation keeps its terminal while the Terminal tab opens, closes and moves', async () => {
-    const group = (tabs: string) =>
-      page.locator('.side-panel-group').filter({ has: page.getByRole('tablist', { name: tabs }) });
-
-    // Two groups, with Terminal in front of the bottom one. No control
-    // splits the panel yet, so the layout is restored from storage, which
-    // is also a mount nobody asked for: the keyboard stays where it was.
+    // Two groups, with Terminal in front of the bottom one, restored from
+    // storage: a mount nobody asked for, so the keyboard stays where it was.
     await openSession('Paginate the catalog search');
     await expect(conversation()).toBeVisible();
     await page.evaluate((key) => {
@@ -514,5 +518,76 @@ test.describe('side panel', () => {
     await page.keyboard.press('d');
     await expect(sidePanelTab('New tab')).toHaveAttribute('aria-selected', 'true');
     await expect(sidePanelTab('Changes')).toHaveCount(0);
+  });
+
+  test('the tab menu splits and moves tabs', async () => {
+    await openSession('Paginate the catalog search');
+    await changesShortcut().click();
+    await page.getByRole('button', { name: 'Files', exact: true }).click();
+    await expect(sidePanelTab('Files')).toHaveAttribute('aria-selected', 'true');
+
+    await chooseFromTabMenu(sidePanelTab('Files'), 'Split down');
+    await expect(tabList('Top group tabs').getByRole('tab')).toHaveText(['Changes']);
+    await expect(tabList('Bottom group tabs').getByRole('tab')).toHaveText(['Files']);
+
+    // From the keyboard, the same menu, under the tab. The tab is measured
+    // first: an open menu hides the rest of the window from the
+    // accessibility tree, and the tab with it.
+    const changes = tabList('Top group tabs').getByRole('tab', { name: 'Changes', exact: true });
+    const tabBox = (await changes.boundingBox())!;
+    await changes.focus();
+    await page.keyboard.press('Shift+F10');
+    const menu = page.getByRole('menu');
+    await expect(menu).toBeVisible();
+    await expect(menu.getByRole('menuitem')).toHaveText(['Close', 'Move to other group']);
+    // Its top-left corner at the tab's bottom-left, once it has slid into place.
+    const offTab = async () => {
+      const box = (await menu.boundingBox())!;
+      return Math.max(Math.abs(box.y - (tabBox.y + tabBox.height)), Math.abs(box.x - tabBox.x));
+    };
+    await expect.poll(offTab).toBeLessThanOrEqual(3);
+    await page.keyboard.press('ArrowDown');
+    await expect(menu.getByRole('menuitem', { name: 'Move to other group' })).toBeFocused();
+    await page.keyboard.press('Enter');
+
+    // The top group is gone; the keyboard went with the tab, along its new bar.
+    await expect(tabList('Top group tabs')).toHaveCount(0);
+    await expect(sidePanelTabs().getByRole('tab')).toHaveText(['Files', 'Changes']);
+    await expect(sidePanelTab('Changes')).toBeFocused();
+    await page.keyboard.press('ArrowLeft');
+    await expect(sidePanelTab('Files')).toBeFocused();
+    await page.keyboard.press('ArrowRight');
+    await expect(sidePanelTab('Changes')).toBeFocused();
+
+    // Side by side.
+    await chooseFromTabMenu(sidePanelTab('Changes'), 'Split right');
+    await expect(tabList('Left group tabs').getByRole('tab')).toHaveText(['Files']);
+    await expect(tabList('Right group tabs').getByRole('tab')).toHaveText(['Changes']);
+  });
+
+  test('a Terminal tab in a group hidden by Maximize starts no shell', async () => {
+    const shell = page.getByTestId('session-shell');
+    await openSession('Paginate the catalog search');
+    await changesShortcut().click();
+    await page.getByRole('button', { name: 'Terminal', exact: true }).click();
+    await expect(shell).toHaveCount(1);
+    await chooseFromTabMenu(sidePanelTab('Terminal'), 'Split down');
+    await expect(tabList('Bottom group tabs').getByRole('tab')).toHaveText(['Terminal']);
+    await expect(shell).toHaveCount(1);
+
+    await group('Top group tabs').getByRole('button', { name: 'Maximize group' }).click();
+    await expect(shell).toHaveCount(0);
+    const shellMounts = await countShellMounts();
+    await openSession('Fix flaky upload test');
+    await expect(page.locator('.workspace-view-session')).toHaveText('Fix flaky upload test');
+    await expect(page.locator('.git-review-panel')).toBeVisible();
+    await expect(shell).toHaveCount(0);
+    expect(await shellMounts()).toBe(0);
+
+    await group('Top group tabs').getByRole('button', { name: 'Restore group' }).click();
+    await expect(page.locator('.shell-directory')).toHaveText(
+      `Started in: ${path.join(root, 'catalog-portal')}`,
+    );
+    expect(await shellMounts()).toBe(1);
   });
 });

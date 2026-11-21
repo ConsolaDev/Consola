@@ -485,6 +485,33 @@ test.describe('in-app browser', () => {
     await openSession(page, 'Alpha');
     await expect.poll(presence).toBe('shown');
     await untouched();
+
+    // Split away from Files: the page follows its tab into the new group.
+    const tabs = (list: string) => page.getByRole('tablist', { name: list, exact: true });
+    const browserTab = (list: string) => tabs(list).getByRole('tab', { name: 'Browser' });
+    await browserTab('Side panel tabs').click({ button: 'right' });
+    await page.getByRole('menuitem', { name: 'Split down', exact: true }).click();
+    await expect(tabs('Top group tabs').getByRole('tab')).toHaveText(['Files']);
+    await expect(tabs('Bottom group tabs').getByRole('tab')).toHaveText(['Browser']);
+    await expect.poll(presence).toBe('shown');
+    await untouched();
+
+    // Files' group fills the panel and hides Browser's: the page only hides.
+    const filesGroup = page.locator('.side-panel-group').filter({ has: tabs('Top group tabs') });
+    await filesGroup.getByRole('button', { name: 'Maximize group' }).click();
+    await expect(panel(page)).toHaveCount(0);
+    await expect.poll(presence).toBe('hidden');
+    await untouched();
+    await filesGroup.getByRole('button', { name: 'Restore group' }).click();
+    await expect.poll(presence).toBe('shown');
+    await untouched();
+
+    // Back beside Files, at the end of its bar.
+    await browserTab('Bottom group tabs').click({ button: 'right' });
+    await page.getByRole('menuitem', { name: 'Move to other group', exact: true }).click();
+    await expect(tabs('Side panel tabs').getByRole('tab')).toHaveText(['Files', 'Browser']);
+    await expect.poll(presence).toBe('shown');
+    await untouched();
   });
 });
 

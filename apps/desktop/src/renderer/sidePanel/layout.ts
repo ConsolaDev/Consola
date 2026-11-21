@@ -102,6 +102,28 @@ export function canSplit(layout: SidePanelLayout, groupId: GroupId, tab: TabId):
   return group !== undefined && group.tabs.length > 1 && group.tabs.includes(tab);
 }
 
+/** The one group beside `groupId`, which a tab's "Move to other group" goes to. Only with two groups. */
+export function otherGroup(layout: SidePanelLayout, groupId: GroupId): TabGroupNode | undefined {
+  const groups = groupsOf(layout);
+  if (groups.length !== 2 || !groups.some((group) => group.id === groupId)) return undefined;
+  return groups.find((group) => group.id !== groupId);
+}
+
+export type TabMenuItem = 'close' | 'move' | 'split-down' | 'split-right';
+
+/**
+ * What a tab's menu offers: Close always; Move to the other group's end when
+ * there is one; Split down and Split right while `canSplit` allows. The
+ * placeholder is only ever closed, never moved or split.
+ */
+export function tabMenuItems(layout: SidePanelLayout, groupId: GroupId, tab: TabId): TabMenuItem[] {
+  if (tab === NEW_TAB) return ['close'];
+  const items: TabMenuItem[] = ['close'];
+  if (otherGroup(layout, groupId)) items.push('move');
+  if (canSplit(layout, groupId, tab)) items.push('split-down', 'split-right');
+  return items;
+}
+
 /**
  * Shows `kind`: fronts it where it is when it is open, and otherwise adds it
  * to the group it was last closed in, else the first group, taking the place

@@ -5,6 +5,7 @@ import { Maximize2, Minimize2, Plus, X } from 'lucide-react';
 import { NEW_TAB, type GroupPosition, type TabGroupNode, type TabId } from '../../sidePanel/layout';
 import { tabKind, type TabFacts } from '../../sidePanel/tabKinds';
 import { useSidePanelStore } from '../../stores/sidePanelStore';
+import { TabMenu } from './TabMenu';
 import { useTabMark } from './tabMarks';
 
 /** Each tab list is named by where its group sits, so two groups' lists can be told apart. */
@@ -79,10 +80,11 @@ export function TabBar({ group, position, facts, canMaximize, isMaximized }: Tab
 
 /**
  * One tab: its trigger, and a close button beside it rather than inside, so
- * the trigger stays a plain tab for the keyboard. A tab id the registry does
- * not list has nothing to show; the placeholder still gets its name, so it
- * can be closed. A kind's mark is drawn on its tab while the tab is behind
- * another: in front, its view is showing what the mark is about.
+ * the trigger stays a plain tab for the keyboard, all inside the tab's menu.
+ * A tab id the registry does not list has nothing to show; the placeholder
+ * still gets its name, so it can be closed. A kind's mark is drawn on its tab
+ * while the tab is behind another: in front, its view is showing what the
+ * mark is about.
  */
 function TabBarTab({
   groupId,
@@ -118,27 +120,30 @@ function TabBarTab({
   };
 
   return (
-    <div className={`side-panel-tab${inFront ? ' active' : ''}`}>
-      <Tabs.Trigger
-        value={tab}
-        className="side-panel-tab-trigger"
-        aria-label={marked ? `${title}, ${mark.onKind}` : title}
-        data-agent-dot={marked ? true : undefined}
-        onKeyDown={onKeyDown}
-      >
-        {Icon && <Icon size={14} aria-hidden="true" />}
-        <span className="side-panel-tab-label">{label}</span>
-      </Tabs.Trigger>
-      <button
-        type="button"
-        className="side-panel-tab-close"
-        tabIndex={-1}
-        aria-label={`Close ${title} tab`}
-        onClick={close}
-      >
-        <X size={12} aria-hidden="true" />
-      </button>
-    </div>
+    <TabMenu groupId={groupId} tab={tab}>
+      <div className={`side-panel-tab${inFront ? ' active' : ''}`}>
+        <Tabs.Trigger
+          value={tab}
+          className="side-panel-tab-trigger"
+          data-tab={tab}
+          aria-label={marked ? `${title}, ${mark.onKind}` : title}
+          data-agent-dot={marked ? true : undefined}
+          onKeyDown={onKeyDown}
+        >
+          {Icon && <Icon size={14} aria-hidden="true" />}
+          <span className="side-panel-tab-label">{label}</span>
+        </Tabs.Trigger>
+        <button
+          type="button"
+          className="side-panel-tab-close"
+          tabIndex={-1}
+          aria-label={`Close ${title} tab`}
+          onClick={close}
+        >
+          <X size={12} aria-hidden="true" />
+        </button>
+      </div>
+    </TabMenu>
   );
 }
 
