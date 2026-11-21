@@ -160,14 +160,18 @@ function RunOnSection({
       <ul className="automations-run-on-list">
         {rows.map((row) => (
           <li key={JSON.stringify(row.target)}>
+            {/* One it cannot run on stays listed, disabled, saying why. */}
             <button
               type="button"
               className="automations-run-on-row"
-              disabled={disabled}
+              disabled={disabled || row.unavailable !== undefined}
+              title={row.unavailable}
               onClick={() => void onPick(row.target)}
             >
               <span className="automations-run-on-label">{row.label}</span>
-              <span className="automations-run-on-when">{lastRunWords(row.lastRun, now)}</span>
+              <span className="automations-run-on-when">
+                {row.unavailable ?? lastRunWords(row.lastRun, now)}
+              </span>
             </button>
           </li>
         ))}

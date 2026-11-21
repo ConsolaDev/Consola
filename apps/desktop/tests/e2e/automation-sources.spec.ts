@@ -1015,9 +1015,19 @@ test('a repository that is not cloned fires nothing', async () => {
     await expect(panel.locator('.automations-lead-meta', { hasText: 'skipped' })).toContainText(
       '1 skipped: their repositories are not in this workspace',
     );
+    // Run on… lists it, but disabled, saying why; #51 can still be picked.
+    await panel.getByRole('button', { name: 'Run on…' }).click();
+    const picker = sources.page.getByRole('dialog', { name: 'Run on an item' });
+    const inCheck = picker.getByRole('region', { name: 'In its last check' });
+    const uncloned = inCheck.getByRole('button', { name: /sprocket\/inventory#7/ });
+    await expect(uncloned).toBeDisabled();
+    await expect(uncloned).toContainText('sprocket/inventory is not cloned in this workspace.');
+    await expect(inCheck.getByRole('button', { name: /#51/ })).toBeEnabled();
+    await sources.page.keyboard.press('Escape');
     // Nothing tried to check it out or review it.
     expect(sources.launches()).toEqual([]);
     expect(sources.ghLog().filter((line) => line.startsWith('pr checkout'))).toEqual([]);
+    expect(await runStatuses(sources, RE_REVIEW)).toEqual([]);
   } finally {
     await sources.close();
   }

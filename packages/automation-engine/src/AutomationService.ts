@@ -1302,6 +1302,9 @@ export class AutomationService {
         `${ref.repo}#${ref.number} is ${noun}; ${name} takes ${itemsInWords(source)}.`,
       );
     }
+    // Refused before anything is marked or started, so it fires once the repository is cloned.
+    const notCloned = this.notClonedReason(entry.workspaceId, ref);
+    if (notCloned) throw new Error(notCloned);
     const key = this.deps.workItems.keyOf(ref);
     const poll = pollOf(entry);
     if (poll) {
@@ -1324,6 +1327,13 @@ export class AutomationService {
     return poll
       ? { ...identity, object: { key, url, repo: ref.repo, number: ref.number, type: ref.type } }
       : identity;
+  }
+
+  /** Why Run on… cannot take a work item: its repository is in none of the workspace's scopes. Null when it can. */
+  private notClonedReason(workspaceId: string, ref: ItemRef): string | null {
+    return this.deps.workItems.inWorkspace(workspaceId, ref)
+      ? null
+      : `${ref.repo} is not cloned in this workspace.`;
   }
 
   /** The work item a target names on `connection`; null for one that names none (a key, or a work item of no shape). */
@@ -1376,7 +1386,14 @@ export class AutomationService {
     }
     const row = (target: ItemTarget, item: SourceItem): ItemTargetRow => {
       const lastRun = lastRuns.get(item.key);
-      return { target, label: source.label(item), url: item.url, ...(lastRun ? { lastRun } : {}) };
+      const unavailable = item.workItem ? this.notClonedReason(workspaceId, item.workItem) : null;
+      return {
+        target,
+        label: source.label(item),
+        url: item.url,
+        ...(lastRun ? { lastRun } : {}),
+        ...(unavailable ? { unavailable } : {}),
+      };
     };
     const asTarget = (item: SourceItem): ItemTarget =>
       item.workItem

@@ -90,6 +90,8 @@ export interface ItemTargetRow {
    * when it ended, or, while it has not, when it was made.
    */
   lastRun?: { id: string; status: RunStatus; at: string };
+  /** Why it cannot be run on: "<owner/repo> is not cloned in this workspace." Absent when it can. */
+  unavailable?: string;
 }
 
 /** What Run on… lists for an automation whose runs take an item. Read from memory and history only. */

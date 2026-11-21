@@ -2233,6 +2233,51 @@ describe('on a chosen item', () => {
     expect(h.store.runs()).toHaveLength(1);
   });
 
+  describe("a repository that is not cloned (the user's decision of 2026-11-21)", () => {
+    const INVENTORY_7 = { repo: 'sprocket/inventory', number: 7, type: 'pr' as const };
+    const INVENTORY_7_URL = 'https://github.com/sprocket/inventory/pull/7';
+    const INVENTORY_ROW = { url: INVENTORY_7_URL, title: 'Track stock levels', head: 'a' };
+    const NOT_CLONED = 'sprocket/inventory is not cloned in this workspace.';
+
+    it('Run on… refuses it for every caller, before it marks or starts anything', async () => {
+      const h = await allowedPoll(RE_REVIEW_ENTRY, [at('a'), INVENTORY_ROW]);
+      const seen = structuredClone(h.store.seen(KEY));
+      const commands = h.world.commands.length;
+      await refused(h.runOn({ workItem: INVENTORY_7 }), NOT_CLONED);
+      await refused(h.runOn({ url: INVENTORY_7_URL }), NOT_CLONED);
+      await refused(
+        h.runOn({ workItem: INVENTORY_7 }, RE_REVIEW_NAME, { sessionId: 's-9' }),
+        NOT_CLONED,
+      );
+      expect(h.store.runs()).toEqual([]);
+      expect(h.store.seen(KEY)).toEqual(seen);
+      // No check was asked for either.
+      expect(h.world.commands).toHaveLength(commands);
+
+      const event = await approvedEvent(onReview('auto'), [PR51]);
+      await refused(event.runOn({ workItem: INVENTORY_7 }, EVENT_NAME), NOT_CLONED);
+      expect(event.store.runs()).toEqual([]);
+    });
+
+    it('Run on… lists it unavailable, saying why', async () => {
+      const h = await allowedPoll(RE_REVIEW_ENTRY, [at('a'), INVENTORY_ROW]);
+      const { items } = h.service.listRunTargets(WORKSPACE_ID, RE_REVIEW_NAME);
+      expect(items).toEqual([
+        {
+          target: { workItem: PR_51 },
+          label: 'sprocket/catalog-portal#51 “Fix the cart total”',
+          url: PR_51_URL,
+        },
+        {
+          target: { workItem: INVENTORY_7 },
+          label: 'sprocket/inventory#7 “Track stock levels”',
+          url: INVENTORY_7_URL,
+          unavailable: NOT_CLONED,
+        },
+      ]);
+    });
+  });
+
   it('a pasted URL runs on its work item', async () => {
     const h = await approvedEvent(onReview('confirm'), [PR51]);
     const run = await h.runOn({ url: PR_51_URL }, EVENT_NAME);
