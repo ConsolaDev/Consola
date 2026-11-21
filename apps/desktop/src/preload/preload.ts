@@ -643,11 +643,12 @@ function readWindowContext(): WindowContext {
     // Main always sends a known overlay; anything else is read as none.
     const overlay =
       context.overlay === 'inbox' || context.overlay === 'automations' ? context.overlay : null;
-    const { automationsRunId: runId, ...rest } = context;
+    const { automationsRunId: runId, automationsName: name, ...rest } = context;
     return {
       ...rest,
       overlay,
       ...(typeof runId === 'string' && runId.length > 0 ? { automationsRunId: runId } : {}),
+      ...(typeof name === 'string' && name.length > 0 ? { automationsName: name } : {}),
     };
   } catch {
     return empty;
@@ -659,8 +660,12 @@ function readWindowContext(): WindowContext {
 contextBridge.exposeInMainWorld('automationsAPI', {
   getSnapshot: (workspaceId) =>
     ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_GET_SNAPSHOT, workspaceId),
-  runNow: (workspaceId, name) =>
-    ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_RUN_NOW, workspaceId, name),
+  runNow: (workspaceId, name, target) =>
+    ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_RUN_NOW, workspaceId, name, target),
+  allow: (workspaceId, name, version) =>
+    ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_ALLOW, workspaceId, name, version),
+  listRunTargets: (workspaceId, name) =>
+    ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_LIST_RUN_TARGETS, workspaceId, name),
   approve: (runId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_APPROVE, runId),
   dismiss: (runId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_DISMISS, runId),
   openFile: (workspaceId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_OPEN_FILE, workspaceId),

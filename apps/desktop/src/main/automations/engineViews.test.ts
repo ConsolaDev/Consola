@@ -5,13 +5,14 @@ import {
   describeError as engineDescribeError,
   fillActionPlaceholders,
   firstActionFor,
+  fallbackWorkItemTitle as engineFallbackTitle,
   firstScope,
   type ToolsPort,
 } from '@consola/automation-engine';
 import { describeError } from '../describeError';
 import { CONSOLA_NAMESPACE, ToolRegistry, agentContext } from '../tools/Tool';
 import { defaultActionFor, type WorkItemAction } from '../../shared/workItemActions';
-import { substitutePlaceholders } from '../../shared/workItemPrompt';
+import { fallbackWorkItemTitle, substitutePlaceholders } from '../../shared/workItemPrompt';
 import { primaryScope, type Scope, type Session, type Workspace } from '../../shared/workspace';
 import { workItemKey, type InboxItem } from '../../shared/workItems';
 import {
@@ -280,6 +281,15 @@ describe('parity: the engine copies equal their desktop originals', () => {
       expect(engineDescribeError(value)).toBe(describeError(value));
     },
   );
+
+  it.each([
+    { type: 'pr' as const, number: 51 },
+    { type: 'issue' as const, number: 87 },
+  ])("fallbackWorkItemTitle equals the desktop's for a $type", ({ type, number }) => {
+    expect(engineFallbackTitle({ type, number })).toBe(
+      fallbackWorkItemTitle({ provider: 'github', repo: 'sprocket/catalog-portal', type, number }),
+    );
+  });
 
   it('CONSOLA_NAMESPACE is the same constant', () => {
     expect(ENGINE_NAMESPACE).toBe(CONSOLA_NAMESPACE);

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import type { Session, Workspace } from '../../shared/workspace';
 import { makeSession, makeWorkspace } from '../conductor/ConductorTools.test-helpers';
 import type { LaunchSessionFields } from '../SessionLauncher';
-import type { AutomationCapabilities } from '@consola/automation-engine';
+import type { AutomationCapabilities, AutomationView } from '@consola/automation-engine';
 import type { SnoozeView } from '../../shared/attention';
 import {
   consolaTools,
@@ -35,6 +35,9 @@ let launchSession: Mock<(workspaceId: string, fields: LaunchSessionFields) => Pr
 let registry: ToolRegistry;
 let capabilities: Mock<AutomationControl['capabilities']>;
 let saveEntry: Mock<AutomationControl['saveEntry']>;
+let trigger: Mock<AutomationControl['trigger']>;
+let list: Mock<AutomationControl['list']>;
+let allow: Mock<(workspaceId: string, name: string, version: string) => Promise<void>>;
 let snoozer: { snooze: Mock<SnoozeControl['snooze']>; wake: Mock<SnoozeControl['wake']> };
 let snoozeViews: Map<string, SnoozeView>;
 
@@ -68,6 +71,9 @@ beforeEach(() => {
     entry: '- name: sweep',
     line: 3,
   }));
+  trigger = vi.fn(async () => null);
+  list = vi.fn(() => []);
+  allow = vi.fn(async () => {});
   launchSession = vi.fn(async (_workspaceId: string, fields: LaunchSessionFields) =>
     makeSession({
       ...fields,
@@ -97,7 +103,8 @@ beforeEach(() => {
     status: () => 'ready',
     attention: () => 'ready',
     isManagedPath: () => false,
-    automations: () => ({ list: () => [], trigger: vi.fn(), capabilities, saveEntry }),
+    // `allow` is the runner's, beside what the tools may call: a test that it is never reached.
+    automations: () => ({ list, trigger, capabilities, saveEntry, allow }) as AutomationControl,
     workItemContext: vi.fn(),
     inbox: () => null,
     launchSession,
@@ -265,6 +272,146 @@ describe('save_automation', () => {
     expect(saveEntry.mock.calls[0][2].replace).toBe(false);
     await expect(registry.invoke('save_automation', { entry: '' }, as('me'))).rejects.toThrow(
       /Invalid arguments/,
+    );
+  });
+});
+
+describe('save_automation and Allow', () => {
+  it('says a poll waits for Allow', async () => {
+    saveEntry.mockResolvedValueOnce({
+      name: 'sweep',
+      replaced: false,
+      entry: '- name: sweep',
+      needsAllow: true,
+    });
+    const result = await registry.invoke('save_automation', { entry: '- name: sweep' }, as('me'));
+    expect(result.summary).toBe(
+      'Added sweep in factory.yml. It does not check until the person allows it in Consola.',
+    );
+  });
+
+  it('does not say it waits for Allow when the entry has a problem, and says the problem', async () => {
+    list.mockReturnValueOnce([
+      { name: 'sweep', problem: 'its check command is empty' } as AutomationView,
+    ]);
+    const result = await registry.invoke('save_automation', { entry: '- name: sweep' }, as('me'));
+    expect(result.summary).not.toMatch(/allows it/);
+    expect(result.summary).toContain('It will not run: its check command is empty.');
+  });
+
+  it('says a problem that ends in a full stop with one full stop', async () => {
+    list.mockReturnValueOnce([
+      { name: 'sweep', problem: 'its check command is empty.' } as AutomationView,
+    ]);
+    const result = await registry.invoke('save_automation', { entry: '- name: sweep' }, as('me'));
+    expect(result.summary).toBe(
+      'Added sweep in factory.yml. It will not run: its check command is empty.',
+    );
+  });
+
+  it('leaves the summary alone for an entry that is neither', async () => {
+    const result = await registry.invoke('save_automation', { entry: '- name: sweep' }, as('me'));
+    expect(result.summary).toBe('Added sweep in factory.yml.');
+  });
+
+  it('gives an agent no way to allow: no tool allows, and running a poll does not', async () => {
+    expect(
+      registry
+        .list()
+        .map((tool) => tool.name)
+        .filter((name) => /allow|accept|approve_check/i.test(name)),
+    ).toEqual([]);
+    await registry.invoke('run_automation', { name: 'watch', item_key: 'k1' }, as('me'));
+    await registry.invoke('run_automation', { name: 'watch' }, as('me'));
+    expect(allow).not.toHaveBeenCalled();
+  });
+
+  it('types the control agents receive without allow', () => {
+    // Compiled, never run: the pin is the typecheck.
+    const pin = (control: AutomationControl, deps: ConsolaToolDeps) => {
+      // @ts-expect-error Allow is the person's only: adding it to AutomationControl breaks the typecheck here.
+      void control.allow;
+      // @ts-expect-error The deps' own `automations()` is that same interface.
+      void deps.automations().allow;
+    };
+    expect(pin).toBeTypeOf('function');
+  });
+});
+
+describe('run_automation on an item', () => {
+  const workItem = { repo: 'sprocket/catalog-portal', number: 51, type: 'pr' as const };
+
+  it('passes a work item as the target', async () => {
+    await registry.invoke('run_automation', { name: 'review', work_item: workItem }, as('me'));
+    expect(trigger).toHaveBeenCalledWith('ws-1', 'review', { sessionId: 'me' }, { workItem });
+  });
+
+  it('passes an item key as the target', async () => {
+    await registry.invoke('run_automation', { name: 'watch', item_key: 'alice/42' }, as('me'));
+    expect(trigger).toHaveBeenCalledWith('ws-1', 'watch', { sessionId: 'me' }, { key: 'alice/42' });
+  });
+
+  it('passes no target without either', async () => {
+    await registry.invoke('run_automation', { name: 'nightly' }, as('me'));
+    expect(trigger).toHaveBeenCalledWith('ws-1', 'nightly', { sessionId: 'me' }, undefined);
+  });
+
+  it('refuses both, and starts nothing', async () => {
+    await expect(
+      registry.invoke(
+        'run_automation',
+        { name: 'x', work_item: workItem, item_key: 'k' },
+        as('me'),
+      ),
+    ).rejects.toThrow('Pass work_item or item_key, not both.');
+    expect(trigger).not.toHaveBeenCalled();
+  });
+
+  it('refuses a malformed work item or an empty key before the runner sees it', async () => {
+    await expect(
+      registry.invoke('run_automation', { name: 'x', work_item: null }, as('me')),
+    ).rejects.toThrow(/Invalid arguments/);
+    await expect(
+      registry.invoke('run_automation', { name: 'x', work_item: 'repo#1' }, as('me')),
+    ).rejects.toThrow(/Invalid arguments/);
+    await expect(
+      registry.invoke('run_automation', { name: 'x', item_key: '' }, as('me')),
+    ).rejects.toThrow(/Invalid arguments/);
+    expect(trigger).not.toHaveBeenCalled();
+  });
+
+  it('builds the target from the known fields only', async () => {
+    await registry.invoke(
+      'run_automation',
+      { name: 'review', work_item: { ...workItem, extra: 'x' } },
+      as('me'),
+    );
+    expect(trigger.mock.calls[0][3]).toStrictEqual({ workItem });
+  });
+
+  it('says a check started, not that the event happens, when nothing ran', async () => {
+    const result = await registry.invoke('run_automation', { name: 'watch' }, as('me'));
+    expect(result.data).toBeNull();
+    expect(result.summary).toContain('watch');
+    expect(result.summary).toMatch(/check/i);
+    expect(result.summary).not.toMatch(/runs when its event happens/);
+  });
+
+  it('describes items, and no longer says events run only when they happen', () => {
+    const description = registry.get('run_automation')!.description;
+    expect(description).not.toMatch(/runs only when that event happens/);
+    expect(description).toContain('work_item for a pull request or issue');
+    expect(description).toContain('item_key for an item of a poll');
+    expect(description).toContain('It waits for the person to approve it.');
+    // The user's decision of 2026-11-21: what approving an agent's run does, and does not.
+    expect(description).toContain(
+      'Approving it runs that run only: it never lets the automation run on its own.',
+    );
+    expect(registry.get('save_automation')!.description).toContain(
+      'An auto entry asks the person once before its first unattended run, and a run you ask for with consola_run_automation does not count.',
+    );
+    expect(registry.get('list_automations')!.description).toContain(
+      'whether it takes an item, of which type',
     );
   });
 });

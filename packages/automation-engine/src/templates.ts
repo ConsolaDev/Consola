@@ -1,6 +1,12 @@
 import { describeRun, describeSteps, describeTriggerAsWritten } from './describeEntry';
 import { describeSchedule } from './describeSchedule';
-import { ASSIGNED_REVIEWS_NAME, assignedReviewsEntry, yamlName } from './factoryTemplates';
+import {
+  ASSIGNED_REVIEWS_NAME,
+  assignedReviewsEntry,
+  RE_REVIEW_NAME,
+  reReviewEntry,
+  yamlName,
+} from './factoryTemplates';
 import { firstScope } from './support';
 import type {
   TemplateNeedSection,
@@ -155,6 +161,24 @@ export const AUTOMATION_TEMPLATES: readonly AutomationTemplate[] = [
       (isStepsEntry(automation) || automation.run.kind === 'action'),
   }),
   template({
+    id: RE_REVIEW_NAME,
+    title: 'Re-review pull requests with new commits',
+    description:
+      'Every 30 minutes, finds the pull requests you reviewed that have new commits, and reviews each push again, ' +
+      'reading your last review. Posts as you, never an approval. Starts checking only once you allow it.',
+    category: 'Code review',
+    services: ['github', 'git'],
+    // Its prompt is inline, so it needs no action: only the account it checks and posts as.
+    needs: [GITHUB],
+    entry: () => reReviewEntry(),
+    // Its own name, or any poll on GitHub's items whose search is for what the person reviewed.
+    matches: ({ name, trigger }) =>
+      name === RE_REVIEW_NAME ||
+      (trigger.kind === 'poll' &&
+        trigger.item?.connection === 'github' &&
+        trigger.run.includes('reviewed-by:')),
+  }),
+  template({
     id: 'clean-up-stale-sessions',
     title: 'Clean up stale sessions',
     description:
@@ -285,7 +309,8 @@ export function previewOf(entry: string, now: Date): TemplatePreview | null {
         ? describeSchedule(cron)
         : describeTriggerAsWritten(automation),
     ...(cron ? { schedule: cron } : {}),
-    onEvent: trigger.kind === 'event',
+    source: trigger.kind,
+    onEvent: trigger.kind === 'event' || trigger.kind === 'poll',
     kind: automation.run?.kind === 'tool' ? 'tool' : 'agent',
     runs: describeRun(automation),
     target: automation.run?.ref ?? 'steps',

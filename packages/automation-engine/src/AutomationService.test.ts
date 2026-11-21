@@ -11,7 +11,12 @@ import {
   replaceAutomationEntry,
 } from '@consola/factory-spec';
 import { defineTool, FakeToolRegistry } from './tools.test-helpers';
-import { AutomationService, INTERRUPTED_PROMPT, type AutomationNotice } from './AutomationService';
+import {
+  AutomationService,
+  INTERRUPTED_PROMPT,
+  TICK_MS,
+  type AutomationNotice,
+} from './AutomationService';
 import { inboxItem, itemKey } from './inboxItems.test-helpers';
 import { assignedReviewsEntry, EMPTY_FACTORY_FILE, factoryTemplate } from './factoryTemplates';
 import { RunFolder } from './node/runFolder';
@@ -68,6 +73,8 @@ interface Setup {
   stopAgent?: (session: SessionView, reason: string) => boolean;
   /** Where runs keep their definitions and documents; by default, nowhere a test can reach. */
   runFolder?: RunFolderPort;
+  /** The host's tick, when it sets one (the e2e seam); by default the engine's own. */
+  tickMs?: number;
 }
 
 /** A run folder for tests that never touch one: any path it is asked for throws. */
@@ -123,8 +130,11 @@ function setup({
   harness = { name: 'Claude', problem: null },
   stopAgent = vi.fn(() => true),
   runFolder = NO_RUN_FOLDER,
+  tickMs,
 }: Setup = {}) {
   let clock = now;
+  /** Each interval the service armed, in milliseconds. */
+  const intervals: number[] = [];
   const world: AgentWorld = {
     inbox: new Map(),
     launches: [],
@@ -239,13 +249,24 @@ function setup({
     },
     store,
     runFolder,
+    workItems: {
+      canParseUrls: () => false,
+      parseUrl: () => null,
+      keyOf: (ref) => `${ref.provider}:${ref.repo.toLowerCase()}:${ref.type}:${ref.number}`,
+      urlOf: (ref) => `https://example.test/${ref.repo}/${ref.type}/${ref.number}`,
+      inWorkspace: () => true,
+    },
     registry,
     getWorkspaces: () => workspaces,
     now: () => clock,
     newId: () => `run-${++id}`,
     notify: (notice) => notices.push(notice),
     broadcast: vi.fn(),
-    every: () => () => {},
+    every: (ms) => {
+      intervals.push(ms);
+      return () => {};
+    },
+    ...(tickMs !== undefined ? { tickMs } : {}),
     inboxSnapshot: (workspaceId) => world.inbox.get(workspaceId) ?? null,
     refreshInbox: async (workspaceId) => {
       world.refreshes.push(workspaceId);
@@ -306,6 +327,7 @@ function setup({
   });
   const t = {
     service,
+    intervals,
     file,
     history,
     store,
@@ -436,6 +458,15 @@ describe('an agent’s destructive call', () => {
 });
 
 describe('scheduling', () => {
+  it('ticks every TICK_MS, or every tickMs when the host sets it', async () => {
+    const plain = setup();
+    await plain.start();
+    expect(plain.intervals).toEqual([TICK_MS]);
+    const fast = setup({ tickMs: 2000 });
+    await fast.start();
+    expect(fast.intervals).toEqual([2000]);
+  });
+
   it('never fires a new automation for an occurrence before it existed, then fires when due', async () => {
     const t = setup({ now: new Date(2026, 10, 4, 10, 0), accepted: true });
     await t.start();
@@ -650,6 +681,22 @@ describe('modes', () => {
       attribution: { actorId: 's-9' },
     });
     expect(t.calls.map((call) => call.mode)).toEqual(['preview']);
+  });
+
+  it("approving an agent's run runs that run only: the entry still asks once", async () => {
+    // The user's decision of 2026-11-21: only a run the person meant to be unattended accepts an entry.
+    const t = setup({ yaml: entry('    mode: auto\n') });
+    await t.start();
+    const asked = await t.trigger('ws-1', 'sweep', { sessionId: 's-9' });
+    expect(asked).toMatchObject({ status: 'needs-approval', mode: 'confirm' });
+    expect(asked.summary).toContain('An agent asked for this run: approving runs this run only.');
+    expect(await t.service.approve(asked.id)).toMatchObject({ status: 'completed' });
+    // Not accepted: its first unattended run still asks.
+    expect(t.store.acceptedVersion('ws-1 sweep')).toBeUndefined();
+    expect(t.service.list('ws-1')[0].asksFirst).toBe(true);
+    const next = await t.trigger('ws-1', 'sweep');
+    expect(next).toMatchObject({ status: 'needs-approval', mode: 'confirm' });
+    expect(next.summary).toMatch(/Approve once/);
   });
 
   it('an agent never supersedes a plan waiting for a person, nor notifies again', async () => {
@@ -1832,7 +1879,9 @@ describe('agent run problems', () => {
     expect(t.world.refreshes).toEqual(['ws-1']);
     await expect(
       t.service.trigger('ws-1', 'review-requests', { sessionId: 's-9' }),
-    ).rejects.toThrow(/not on request/);
+    ).rejects.toThrow(
+      new Error('review-requests runs on an item: pass work_item { repo, number, type }'),
+    );
   });
 });
 

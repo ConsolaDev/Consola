@@ -1,6 +1,10 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { ARTIFACT_NAME_PATTERN, STEP_ID_PATTERN } from '@consola/factory-spec';
+import {
+  ARTIFACT_NAME_PATTERN,
+  AUTOMATION_NAME_PATTERN,
+  STEP_ID_PATTERN,
+} from '@consola/factory-spec';
 import type { RunFolderPort } from '../ports';
 import { MAX_ARTIFACT_BYTES, type RunDefinition } from '../steps/definition';
 import { workspaceDataDir } from './factoryFile';
@@ -48,8 +52,8 @@ export class RunFolder implements RunFolderPort {
   constructor(private readonly root: (workspaceId: string) => string = workspaceDataDir) {}
 
   /**
-   * A path the file methods may touch: inside `<root>/<workspace token>/runs/`,
-   * compared by segments so `runs-evil` is not `runs`. Returns the resolved path.
+   * A path the file methods may touch: inside `<root>/<workspace token>/runs/`
+   * or `.../checks/`, compared by segments so `runs-evil` is not `runs`. Returns the resolved path.
    */
   private confine(file: string): string {
     if (typeof file !== 'string' || file === '' || file.includes('\0'))
@@ -57,11 +61,14 @@ export class RunFolder implements RunFolderPort {
     const base = path.dirname(this.root('w'));
     const relative = path.relative(base, path.resolve(file));
     const parts = relative.split(path.sep);
+    const inRuns = parts[1] === 'runs';
+    const inChecks =
+      parts[1] === 'checks' && parts.length > 3 && AUTOMATION_NAME_PATTERN.test(parts[2]);
     const inside =
       !path.isAbsolute(relative) &&
       parts.length > 2 &&
       TOKEN.test(parts[0]) &&
-      parts[1] === 'runs' &&
+      (inRuns || inChecks) &&
       !parts.includes('..');
     if (!inside) throw new Error(`Outside the run folder: ${JSON.stringify(file)}.`);
     return path.resolve(file);
@@ -69,6 +76,51 @@ export class RunFolder implements RunFolderPort {
 
   private runsDir(workspaceId: string): string {
     return path.join(this.root(token('workspace id', workspaceId, TOKEN)), 'runs');
+  }
+
+  private checksDir(workspaceId: string): string {
+    return path.join(this.root(token('workspace id', workspaceId, TOKEN)), 'checks');
+  }
+
+  /** Where `factory.yml` is: a check's working directory. */
+  public workspaceDir(workspaceId: string): string {
+    return this.root(token('workspace id', workspaceId, TOKEN));
+  }
+
+  /** `<workspace>/checks/<automation>/stdout.log` and `stderr.log`: overwritten each check. */
+  public checkFiles(workspaceId: string, automation: string): { stdout: string; stderr: string } {
+    const dir = path.join(
+      this.checksDir(workspaceId),
+      token('automation name', automation, AUTOMATION_NAME_PATTERN),
+    );
+    return { stdout: path.join(dir, 'stdout.log'), stderr: path.join(dir, 'stderr.log') };
+  }
+
+  public itemPath(workspaceId: string, runId: string): string {
+    return path.join(this.runDir(workspaceId, runId), 'item.json');
+  }
+
+  public writeItem(workspaceId: string, runId: string, item: Record<string, unknown>): void {
+    writeAtomically(this.itemPath(workspaceId, runId), JSON.stringify(item));
+  }
+
+  public readItem(workspaceId: string, runId: string): Record<string, unknown> | null {
+    const text = this.readText(this.itemPath(workspaceId, runId), MAX_DEFINITION_BYTES);
+    return text === null ? null : (JSON.parse(text) as Record<string, unknown>);
+  }
+
+  public latestAttempt(workspaceId: string, runId: string, stepId: string): number | null {
+    if (!STEP_ID_PATTERN.test(stepId) && !LEGACY_STEP.test(stepId))
+      throw new Error(`Not a step id: ${JSON.stringify(stepId)}.`);
+    let names: string[];
+    try {
+      names = fs.readdirSync(path.join(this.runDir(workspaceId, runId), stepId));
+    } catch (error) {
+      if (isMissing(error)) return null;
+      throw error;
+    }
+    const attempts = names.filter((name) => /^[1-9]\d*$/.test(name)).map(Number);
+    return attempts.length === 0 ? null : Math.max(...attempts);
   }
 
   public runDir(workspaceId: string, runId: string): string {
@@ -228,7 +280,22 @@ export class RunFolder implements RunFolderPort {
     }
   }
 
+  public sweepChecks(workspaceId: string, keep: ReadonlySet<string>): void {
+    const dir = this.checksDir(workspaceId);
+    let names: string[];
+    try {
+      names = fs.readdirSync(dir);
+    } catch (error) {
+      if (isMissing(error)) return;
+      throw error;
+    }
+    for (const name of names) {
+      if (!keep.has(name)) fs.rmSync(path.join(dir, name), { recursive: true, force: true });
+    }
+  }
+
   public removeAll(workspaceId: string): void {
     fs.rmSync(this.runsDir(workspaceId), { recursive: true, force: true });
+    fs.rmSync(this.checksDir(workspaceId), { recursive: true, force: true });
   }
 }

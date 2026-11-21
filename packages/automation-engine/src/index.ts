@@ -3,7 +3,7 @@
  * `node/`) is pure: no I/O module, no Electron. `node/` holds the adapters that
  * touch the machine, and this file re-exports them.
  */
-export { advanceSeen, type SeenRecord } from './seenRecord';
+export { advanceSeen, forgetFired, markFired, type OpenState, type SeenRecord } from './seenRecord';
 export {
   filterRuns,
   NO_RUN_FILTER,
@@ -13,9 +13,13 @@ export {
 } from './runFilter';
 export { SNAPSHOT_ENDED_RUNS } from './views';
 export { describeSchedule } from './describeSchedule';
-export { describeRun, describeTriggerAsWritten } from './describeEntry';
+export { describeEvery, describeRun, describeTriggerAsWritten } from './describeEntry';
 export type {
   AutomationView,
+  CheckView,
+  ItemTarget,
+  ItemTargetRow,
+  ItemTargets,
   TemplateView,
   TemplateService,
   TemplateNeedSection,
@@ -59,6 +63,7 @@ export type {
   AgentLaunchRequest,
   LaunchedSession,
   RunFolderPort,
+  WorkItemPort,
   CommandSpec,
   CommandResult,
   RunningCommand,
@@ -104,13 +109,16 @@ export {
   firstScope,
   fillActionPlaceholders,
   CONSOLA_NAMESPACE,
+  fallbackWorkItemTitle,
   StartedByHandError,
   SessionOpenedError,
 } from './support';
 export {
   ASSIGNED_REVIEWS_NAME,
+  RE_REVIEW_NAME,
   yamlName,
   assignedReviewsEntry,
+  reReviewEntry,
   EMPTY_FACTORY_FILE,
   factoryTemplate,
 } from './factoryTemplates';
@@ -131,9 +139,20 @@ export {
   resolveEventSource,
   scheduledPrompt,
   connectionCatalog,
+  workItemSource,
   type EventSource,
   type ConnectionCatalogEntry,
 } from './connections';
+export {
+  runItemSource,
+  POLL_FENCE_HEADING,
+  MAX_FENCED_FIELDS,
+  MAX_FENCED_CHARS,
+  type ItemSource,
+  type SourceItem,
+} from './sources/itemSource';
+export { pollSource } from './sources/pollSource';
+export { resolvePrevious, previousDocument, NO_EARLIER_RUN } from './sources/previous';
 export {
   describeCapabilities,
   type AutomationCapabilities,
@@ -147,3 +166,11 @@ export {
   type TemplateRequirement,
 } from './templates';
 export * from './node';
+export {
+  readCheckResult,
+  MAX_CHECK_STDOUT_BYTES,
+  MAX_CHECK_ITEMS,
+  MAX_CHECK_ITEM_BYTES,
+  TITLE_CHARS,
+  type PolledItem,
+} from './sources/checkResult';

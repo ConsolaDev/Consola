@@ -611,6 +611,36 @@ describe('GitHubDriver identity, URLs and header', () => {
     );
   });
 
+  it.each([
+    [
+      'https://github.com/sprocket/catalog-portal/pull/51',
+      { provider: 'github', repo: 'sprocket/catalog-portal', type: 'pr', number: 51 },
+    ],
+    [
+      'https://github.com/sprocket/catalog-portal/issues/87',
+      { provider: 'github', repo: 'sprocket/catalog-portal', type: 'issue', number: 87 },
+    ],
+  ])('parses %s into a work item', (url, ref) => {
+    expect(driver.parseWorkItemUrl(url)).toEqual(ref);
+  });
+
+  it.each([
+    'http://github.com/sprocket/catalog-portal/pull/51',
+    'https://www.github.com/sprocket/catalog-portal/pull/51',
+    'https://github.com/sprocket/catalog-portal/pull/51/files',
+    'https://github.com/sprocket/catalog-portal/pull/51/',
+    'https://github.com/sprocket/catalog-portal/pull/51?x=1',
+    'https://github.com/sprocket/catalog-portal/pull/51#r1',
+    'https://github.com/sprocket/catalog-portal/pull/0',
+    // Past Number.MAX_SAFE_INTEGER: it would read as another number.
+    'https://github.com/sprocket/catalog-portal/pull/99999999999999999999',
+    'https://github.com/sprocket/catalog-portal/pulls/51',
+    'https://gitlab.com/sprocket/catalog-portal/pull/51',
+    'https://github.com/sprocket/pull/51',
+  ])('refuses %s', (url) => {
+    expect(driver.parseWorkItemUrl(url)).toBeNull();
+  });
+
   it('renders the GitHub seed header, titled from the inbox item when there is one', () => {
     expect(driver.seedHeader(pr51, item51)).toBe(
       'This session is for pull request #51 ("Extract billing client") in sprocket/catalog-portal. ' +

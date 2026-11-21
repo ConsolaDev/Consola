@@ -295,31 +295,37 @@ export function getAnyWindow(): BrowserWindow | null {
 /**
  * Bring forward the window holding a workspace — opening one if none does —
  * with the Automations dashboard open over its session. How a notification
- * about an automation lands on the run it is about.
+ * about an automation lands on the run, or the automation, it is about.
  *
  * The overlay is written to view memory first, so a window created here opens
  * on it and a later switch back to the workspace returns to it. A window
- * created here carries the run in its context: its renderer subscribes only
- * once it has mounted, well after `did-finish-load`, so a push would be lost.
- * A window already open hears it as a push.
+ * created here carries the run or automation in its context: its renderer
+ * subscribes only once it has mounted, well after `did-finish-load`, so a
+ * push would be lost. A window already open hears it as a push.
  */
 export function showAutomations(
   workspaceId: string,
-  runId: string | undefined,
+  about: { runId?: string; automation?: string },
   viewMemory: ViewMemoryAccess,
 ): void {
+  const { runId, automation } = about;
   viewMemory.set(workspaceId, { ...viewMemory.get(workspaceId), overlay: 'automations' });
   if (!findWindowForWorkspace(workspaceId)) {
     const created = createWindow({
       workspaceId,
       ...viewMemory.get(workspaceId),
       ...(runId ? { automationsRunId: runId } : {}),
+      ...(automation ? { automationsName: automation } : {}),
     });
     if (!isBackgroundTest) created.show();
     return;
   }
   const target = focusOrCreate(workspaceId, viewMemory);
-  const request: AutomationsRequest = { workspaceId, runId };
+  const request: AutomationsRequest = {
+    workspaceId,
+    ...(runId ? { runId } : {}),
+    ...(automation ? { automation } : {}),
+  };
   const open = () => target.webContents.send(IPC_CHANNELS.WINDOW_SHOW_AUTOMATIONS, request);
   if (target.webContents.isLoadingMainFrame()) target.webContents.once('did-finish-load', open);
   else open();

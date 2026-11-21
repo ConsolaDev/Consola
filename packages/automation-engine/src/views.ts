@@ -2,6 +2,7 @@ import type {
   AutomationMode,
   FactorySpecIssue,
   RunRecord,
+  RunStatus,
   StepRunStatus,
 } from '@consola/factory-spec';
 import type { RunFilter } from './runFilter';
@@ -14,8 +15,22 @@ export interface AutomationView {
   trigger: string;
   /** A cron trigger's expression, as written. */
   schedule?: string;
-  /** Fired by a connection's event rather than a clock: its Run now is "Check now". */
+  /** What starts it: a clock, the Inbox's events, a check command, or only a person (or an agent) asking. */
+  source: 'cron' | 'event' | 'poll' | 'manual';
+  /** Fired by what it watches (an event or a poll) rather than a clock: its Run now is "Check now". */
   onEvent: boolean;
+  /**
+   * What one of its runs is about: pull requests, issues or either (work
+   * items), or an item of its poll's last check. Absent when its runs have
+   * no item, as a schedule's do, and while it has a problem.
+   */
+  takesItem?: 'pr' | 'issue' | 'pr-or-issue' | 'item';
+  /** A poll's check: its command and interval as written, and how its last check went. */
+  check?: CheckView;
+  /** A poll entry whose command no person has allowed at this version: it does not check. */
+  needsAllow?: true;
+  /** Present with `needsAllow`: the version Allow sends back, refused once the entry changed. */
+  version?: string;
   /** A tool run in-process, or an agent session. A `steps:` entry is `agent` when any step is an agent step. */
   kind: 'tool' | 'agent';
   /** What it runs, in words: "Review action", "Prompt", "Tool: cleanup_stale_sessions", "Steps: review → publish". */
@@ -49,6 +64,66 @@ export interface AutomationView {
   problem?: string;
   /** The session whose agent wrote it into the file; new until a person opens its details. */
   addedBy?: { sessionName: string; sessionId: string; isNew: boolean };
+}
+
+/**
+ * The item a person or an agent picks to run an automation on: a work item of
+ * its connection, by identity or by a pasted URL (Call 24), or an item of its
+ * poll's last check, by key. Not factory-spec's `RunTarget`, which is what a
+ * `run:` step runs.
+ */
+export type ItemTarget =
+  | { workItem: { repo: string; number: number; type: 'pr' | 'issue' } }
+  | { key: string }
+  | { url: string };
+
+/** One item Run on… offers (Call 26). */
+export interface ItemTargetRow {
+  /** What choosing it sends back. */
+  target: ItemTarget;
+  /** "sprocket/catalog-portal#51 “Fix the cart total”"; a key item's is "“Title”". */
+  label: string;
+  /** Its page; empty for an item of a poll with `key:`. */
+  url: string;
+  /**
+   * This automation's newest run on the item, from run history: `at` is
+   * when it ended, or, while it has not, when it was made.
+   */
+  lastRun?: { id: string; status: RunStatus; at: string };
+  /** Why it cannot be run on: "<owner/repo> is not cloned in this workspace." Absent when it can. */
+  unavailable?: string;
+}
+
+/** What Run on… lists for an automation whose runs take an item. Read from memory and history only. */
+export interface ItemTargets {
+  takesItem: NonNullable<AutomationView['takesItem']>;
+  /** It takes a pasted pull request or issue URL: its items are work items of a connection that reads URLs. */
+  acceptsUrl: boolean;
+  /** Its poll's last successful check, in the order the command printed it; empty for an entry without a check. */
+  items: ItemTargetRow[];
+  /** For an entry on work items, the Inbox's items of a type it takes; empty otherwise. */
+  inbox: ItemTargetRow[];
+}
+
+/** A poll entry's check, as its automation's page shows it. */
+export interface CheckView {
+  /** The command, in full, as written. */
+  command: string;
+  /** Its interval in words: "30 minutes". */
+  every: string;
+  /** The `changed:` field path as written (".head"), for "when `.head` changes". */
+  changed?: string;
+  /** When the last check ended (ISO), and what it found: items in its result, how many fired, how many were skipped. */
+  lastAt?: string;
+  items?: number;
+  fired?: number;
+  skipped?: number;
+  /** The last check recorded what was there and fired nothing. */
+  baseline?: true;
+  /** Why the last check failed. */
+  error?: string;
+  /** When the next check is due (ISO). */
+  nextAt?: string;
 }
 
 /** A ready-made automation Consola ships, as the Templates tab shows it. */
@@ -88,6 +163,7 @@ export interface TemplateNeed {
 export interface TemplatePreview {
   trigger: string;
   schedule?: string;
+  source: AutomationView['source'];
   onEvent: boolean;
   kind: 'tool' | 'agent';
   runs: string;
@@ -110,6 +186,8 @@ export interface SavedAutomation {
   entry: string;
   /** 1-based line of the entry in factory.yml. */
   line?: number;
+  /** A poll entry it wrote: it does not check until a person allows it on its page. */
+  needsAllow?: true;
 }
 
 /** What a run is, as the activity list groups it: an agent session, an in-process tool, or an agent's call waiting for a person. */
@@ -180,6 +258,13 @@ export interface AgentRunPreview {
   item?: { url: string; title: string; author: string; label: string };
   /** A scheduled run's scope. */
   scope?: string;
+  /**
+   * The seen record its item fired under (its `definition`), for a run its
+   * source fired: when Consola turns the run away because its automation
+   * changed, the item is given back to that record only, never to one that
+   * re-baselined since (Call 12).
+   */
+  firedUnder?: string;
 }
 
 /** Everything a workspace's Automations panel renders, pushed as one snapshot. */

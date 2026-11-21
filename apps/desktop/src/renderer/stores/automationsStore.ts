@@ -15,13 +15,16 @@ export type AutomationsPanel =
   | { kind: 'new'; basis?: AuthoringBasis };
 
 /**
- * The panel a window opens with: the run a notification was about, when that
- * notification opened this window on the dashboard. A window that was already
- * open hears it as a push (`subscribeToShowAutomations`) instead.
+ * The panel a window opens with: the run, or the automation, a notification
+ * was about, when that notification opened this window on the dashboard. A
+ * window that was already open hears it as a push
+ * (`subscribeToShowAutomations`) instead.
  */
 export function panelFromWindowContext(context: WindowContext): AutomationsPanel | null {
-  if (context.overlay !== 'automations' || !context.automationsRunId) return null;
-  return { kind: 'run', runId: context.automationsRunId };
+  if (context.overlay !== 'automations') return null;
+  if (context.automationsRunId) return { kind: 'run', runId: context.automationsRunId };
+  if (context.automationsName) return { kind: 'automation', name: context.automationsName };
+  return null;
 }
 
 const SEEN_KEY = 'consola-automations-seen';

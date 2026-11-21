@@ -89,10 +89,10 @@ export interface RunItem {
 
 export interface RunTrigger {
   /**
-   * What fired it: the schedule, a connection's event, or a request outside
-   * both. (A later slice adds `'poll'`.)
+   * What fired it: the schedule, a connection's event, a poll's check, or a
+   * request outside all three.
    */
-  kind: 'cron' | 'event' | 'manual';
+  kind: 'cron' | 'event' | 'poll' | 'manual';
   /** ISO time: the scheduled occurrence, the poll that saw the event, or the request. */
   at: string;
   /** A cron occurrence missed while the runner was down, fired late. */
@@ -107,10 +107,6 @@ export interface RunTrigger {
   item?: RunItem;
 }
 
-/**
- * (A later slice adds `previous?: { runId }`: the run a `previous` reference
- * resolved to.)
- */
 export interface RunRecord {
   id: string;
   runner: RunnerKind;
@@ -159,6 +155,8 @@ export interface RunRecord {
   conversation?: { harnessId: string; id: string; cwd?: string };
   /** A `steps:` run's steps, in file order. Absent for a legacy run. */
   steps?: StepRun[];
+  /** The run a `previous` reference resolved to. Absent when there was none. */
+  previous?: { runId: string };
   /** The run only reported what its commands would do. */
   dryRun?: boolean;
   /** Where an item run worked; `head` is the commit it checked out. */
@@ -185,9 +183,10 @@ export const TERMINAL_RUN_STATUSES: readonly RunStatus[] = ['completed', 'failed
  * approved.
  *
  * Covers the target and its arguments or body, the mode, the filter and
- * scope (which items, and where), and an event trigger (what fires it). Not
- * a cron schedule, which says when rather than what, and not the workspace,
- * which is where the file lives rather than something it says.
+ * scope (which items, and where), an event trigger (what fires it), a poll's
+ * check command, identity and `changed:` value and its timeout, and
+ * `applies_to`. Not a cron schedule or a poll's `every`, which say when
+ * rather than what, and not the workspace, which is where the file lives rather than something it says.
  *
  * A `steps:` entry is covered whole: prompts, action names, commands, env
  * templates, `if`, outputs, artifacts, reads, timeouts and `dry_run`. Its
@@ -201,7 +200,7 @@ export const TERMINAL_RUN_STATUSES: readonly RunStatus[] = ['completed', 'failed
  */
 export function automationVersion(
   automation: Pick<Automation, 'run' | 'steps' | 'mode' | 'trigger'> &
-    Partial<Pick<Automation, 'filter' | 'scope'>>,
+    Partial<Pick<Automation, 'filter' | 'scope' | 'appliesTo'>>,
   resolvedBody?: string,
 ): string {
   const { trigger } = automation;
@@ -216,6 +215,20 @@ export function automationVersion(
       trigger.kind === 'event'
         ? { connection: trigger.connection, events: trigger.events, params: trigger.params }
         : undefined,
+    // A poll's check is what Consola runs as the person, so it is what they approved.
+    // `every` is not here: it says when, like a cron schedule.
+    poll:
+      trigger.kind === 'poll'
+        ? {
+            run: trigger.run,
+            key: trigger.key,
+            item: trigger.item,
+            changed: trigger.changed,
+            timeoutMs: trigger.timeoutMs,
+          }
+        : undefined,
+    // Which items a run on demand takes.
+    appliesTo: automation.appliesTo,
     resolvedBody,
   });
   return createHash('sha256').update(canonical).digest('hex').slice(0, 16);

@@ -13,6 +13,11 @@ export function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/** "PR #51" / "Issue #87": the title when nothing else names the item. */
+export function fallbackWorkItemTitle(ref: Pick<ItemRef, 'type' | 'number'>): string {
+  return ref.type === 'pr' ? `PR #${ref.number}` : `Issue #${ref.number}`;
+}
+
 export const CONSOLA_NAMESPACE = 'consola';
 
 /**

@@ -3981,3 +3981,209 @@
     text-align: left;
   }
 }
+
+/* A poll entry that does not check until a person allows it. A literal radius: var(--radius-full) is 0 inside .radix-themes. */
+.automations-allow-pill {
+  flex-shrink: 0;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--color-accent-muted);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  line-height: 18px;
+  color: var(--color-accent);
+  white-space: nowrap;
+}
+
+.automations-allow-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 45%, transparent);
+  border-radius: var(--radius-lg);
+  background: var(--color-accent-muted);
+  font-size: var(--font-size-md);
+  line-height: var(--line-height-normal);
+  color: var(--color-text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.automations-allow-banner > svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--color-accent);
+}
+
+.automations-allow-banner strong {
+  display: block;
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-accent);
+}
+
+.automations-allow-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-secondary);
+}
+
+.automations-allow-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.automations-allow-label {
+  margin: 0;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-tertiary);
+}
+
+.automations-allow-command {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-tertiary);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.automations-allow-line {
+  margin: 0;
+  font-size: var(--font-size-md);
+  line-height: var(--line-height-normal);
+  color: var(--color-text-secondary);
+}
+
+.automations-allow-note {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-tertiary);
+}
+
+.automations-allow-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.automations-check-failed {
+  color: var(--color-error);
+}
+
+/* A poll's check command, in full: it wraps at any character instead of being cut or widening the node. */
+.automations-node .automations-node-code-wrap {
+  max-width: 100%;
+  font-family: var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-all;
+}
+
+/* Run on…: a popover of the items an automation can run on. */
+.automations-run-on {
+  z-index: calc(var(--z-modal) + 1);
+  width: 380px;
+  max-width: calc(100vw - 32px);
+  max-height: 60vh;
+  overflow: auto;
+  padding: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+}
+
+.automations-run-on-title {
+  margin: var(--space-1) var(--space-2);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-tertiary);
+}
+
+.automations-run-on-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.automations-run-on-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-1) var(--space-2);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.automations-run-on-row:hover:not(:disabled) {
+  background: var(--color-bg-tertiary);
+}
+
+.automations-run-on-row:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.automations-run-on-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.automations-run-on-when {
+  flex: none;
+  font-size: 12px;
+  color: var(--color-text-tertiary);
+}
+
+.automations-run-on-url {
+  display: flex;
+  gap: var(--space-2);
+  padding: var(--space-2);
+}
+
+.automations-run-on-url input {
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  font: inherit;
+}
+
+.automations-run-on-url input:focus {
+  border-color: var(--color-accent);
+  outline: none;
+}
+
+.automations-run-on .automations-error,
+.automations-run-on .automations-hint {
+  margin: var(--space-1) var(--space-2);
+}
+
+.automations-earlier-run {
+  align-self: flex-start;
+  font-size: var(--font-size-sm, 12px);
+}

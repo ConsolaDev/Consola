@@ -190,4 +190,83 @@ describe('RunFolder', () => {
     expect(() => folder.writeDefinition('ws', 'r1', big)).toThrow(/16 MB/);
     expect(folder.readDefinition('ws', 'r1')).toBeNull();
   });
+
+  describe('checks and the polled item', () => {
+    it("checkFiles puts a check's logs under checks/<automation>/", () => {
+      const files = folder.checkFiles('ws', 'review-prs');
+      expect(files.stdout).toBe(path.join(tmp, 'ws', 'checks', 'review-prs', 'stdout.log'));
+      expect(files.stderr).toBe(path.join(tmp, 'ws', 'checks', 'review-prs', 'stderr.log'));
+      folder.ensureEmptyFile(files.stdout);
+      expect(folder.readText(files.stdout, 10)).toBe('');
+    });
+
+    it('checkFiles refuses a name that is not a token', () => {
+      for (const bad of ['../x', 'a/b', '', 'A', '.', '-x'])
+        expect(() => folder.checkFiles('ws', bad)).toThrow();
+      expect(() => folder.checkFiles('../ws', 'a')).toThrow();
+      expect(fs.existsSync(path.join(tmp, 'x'))).toBe(false);
+    });
+
+    it('confine still refuses checks-evil and runs-evil', () => {
+      for (const dir of ['checks-evil', 'runs-evil', 'checks']) {
+        expect(() => folder.readText(path.join(tmp, 'ws', dir, 'x'), 10)).toThrow(
+          /Outside the run folder/,
+        );
+      }
+      expect(() =>
+        folder.readText(path.join(tmp, 'ws', 'checks', '..', 'factory.yml'), 10),
+      ).toThrow(/Outside the run folder/);
+    });
+
+    it('writeItem and readItem round-trip an object; readItem is null when there is none', () => {
+      expect(folder.readItem('ws', 'r1')).toBeNull();
+      const item = { id: 7, title: 'Add retries', nested: { a: [1, 2] } };
+      folder.writeItem('ws', 'r1', item);
+      expect(folder.readItem('ws', 'r1')).toEqual(item);
+      expect(fs.readdirSync(folder.runDir('ws', 'r1'))).toEqual(['item.json']);
+    });
+
+    it('latestAttempt is the highest numbered folder, null when the step has none', () => {
+      expect(folder.latestAttempt('ws', 'r1', 'review')).toBeNull();
+      for (const attempt of [1, 2, 10])
+        folder.writeArtifact('ws', 'r1', 'review', attempt, 'handover', 'x');
+      expect(folder.latestAttempt('ws', 'r1', 'review')).toBe(10);
+      expect(folder.latestAttempt('ws', 'r1', 'other')).toBeNull();
+    });
+
+    it('itemPath is runs/<run>/item.json', () => {
+      expect(folder.itemPath('ws', 'r1')).toBe(path.join(tmp, 'ws', 'runs', 'r1', 'item.json'));
+    });
+
+    it('sweep leaves checks/ alone', () => {
+      folder.ensureEmptyFile(folder.checkFiles('ws', 'a').stdout);
+      folder.writeArtifact('ws', 'drop', 'review', 1, 'handover', 'x');
+      folder.sweep('ws', new Set());
+      expect(fs.existsSync(folder.checkFiles('ws', 'a').stdout)).toBe(true);
+    });
+
+    it('sweepChecks removes the folders of names not kept, and nothing under runs/', () => {
+      for (const name of ['keep', 'drop'])
+        folder.ensureEmptyFile(folder.checkFiles('ws', name).stdout);
+      folder.writeArtifact('ws', 'r1', 'review', 1, 'handover', 'x');
+      folder.sweepChecks('ws', new Set(['keep']));
+      expect(fs.readdirSync(path.join(tmp, 'ws', 'checks'))).toEqual(['keep']);
+      expect(fs.existsSync(path.join(tmp, 'ws', 'runs', 'r1'))).toBe(true);
+      expect(() => folder.sweepChecks('never', new Set())).not.toThrow();
+    });
+
+    it('removeAll removes runs/ and checks/, and leaves factory.yml', () => {
+      fs.mkdirSync(path.join(tmp, 'ws'), { recursive: true });
+      fs.writeFileSync(path.join(tmp, 'ws', 'factory.yml'), 'automations: []');
+      folder.writeArtifact('ws', 'r1', 'review', 1, 'handover', 'x');
+      folder.ensureEmptyFile(folder.checkFiles('ws', 'a').stdout);
+      folder.removeAll('ws');
+      expect(fs.readdirSync(path.join(tmp, 'ws'))).toEqual(['factory.yml']);
+    });
+
+    it('workspaceDir is the folder factory.yml is in', () => {
+      expect(folder.workspaceDir('ws')).toBe(path.join(tmp, 'ws'));
+      expect(() => folder.workspaceDir('../x')).toThrow();
+    });
+  });
 });

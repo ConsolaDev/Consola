@@ -10,6 +10,9 @@
 #                                 same-repo PR (instead of a throwaway stub-pr-<n> branch)
 #   STUB_GH_PR_HEAD=rev           `pr checkout <n> --detach` detaches at this commit, the PR's
 #                                 head (default: HEAD, where the worktree already is); no branch
+#   STUB_GH_PR_HEAD_FILE=path     the same, from the commit this file holds when it exists (it
+#                                 wins over STUB_GH_PR_HEAD); read on every call, so a test can
+#                                 move the PR's head without relaunching
 #   STUB_GH_LOG=path              append one line per invocation: argv (newlines
 #                                 flattened — the GraphQL query spans lines) then
 #                                 the GH_TOKEN the call saw
@@ -17,6 +20,13 @@
 #   STUB_GH_REVIEWED=sha          `api graphql` with a `url=` field (a steps template's `fresh`
 #                                 check) prints this, as its `--jq` would: the commit the
 #                                 account last reviewed (default empty: never reviewed)
+#   STUB_GH_REVIEWED_FROM_POSTED=1  instead, that `url=` call prints the `commit_id=` of the last
+#                                 line of STUB_GH_POSTED that posted to that pull request (empty
+#                                 when none): the account's latest review is the one it posted
+#   STUB_GH_POLL_FILE=path        `api graphql` with a `--jq` argument and no `url=` field (a
+#                                 poll's check command) prints this file, as its `--jq` would;
+#                                 nothing when it is unset or missing. The Inbox's own fetch
+#                                 passes no `--jq`, so it never reads this
 #   STUB_GH_POSTED=path           `api repos/<o>/<r>/pulls/<n>/reviews` appends one line per
 #                                 review it finished posting: argv, then `BODY=` and the
 #                                 `-F body=@<file>` file's text (newlines flattened)
@@ -142,7 +152,28 @@ case "$cmd" in
     # account last reviewed, printed as the --jq expression would.
     for arg in "$@"; do
       if [[ "$arg" == url=* ]]; then
-        printf '%s\n' "${STUB_GH_REVIEWED:-}"
+        if [[ "${STUB_GH_REVIEWED_FROM_POSTED:-}" == "1" ]]; then
+          # The pull request's own reviews endpoint, as posting logs it.
+          pr="${arg#url=https://github.com/}"
+          endpoint="repos/${pr%/pull/*}/pulls/${pr##*/pull/}/reviews"
+          reviewed=''
+          if [[ -n "${STUB_GH_POSTED:-}" && -f "$STUB_GH_POSTED" ]]; then
+            reviewed="$(grep -F "api $endpoint " "$STUB_GH_POSTED" | tail -n 1 |
+              sed -nE 's/.* -f commit_id=([^ ]*) .*/\1/p')" || true
+          fi
+          printf '%s\n' "$reviewed"
+        else
+          printf '%s\n' "${STUB_GH_REVIEWED:-}"
+        fi
+        exit 0
+      fi
+    done
+    # A poll's check command: a query and a --jq, no url= field.
+    for arg in "$@"; do
+      if [[ "$arg" == --jq ]]; then
+        if [[ -n "${STUB_GH_POLL_FILE:-}" && -f "$STUB_GH_POLL_FILE" ]]; then
+          cat "$STUB_GH_POLL_FILE"
+        fi
         exit 0
       fi
     done
@@ -208,7 +239,11 @@ case "$cmd" in
   "pr checkout")
     if [[ " $* " == *" --detach "* ]]; then
       # gh fetches the head and detaches there, making no branch.
-      git checkout --quiet --detach "${STUB_GH_PR_HEAD:-HEAD}"
+      pr_head="${STUB_GH_PR_HEAD:-HEAD}"
+      if [[ -n "${STUB_GH_PR_HEAD_FILE:-}" && -f "$STUB_GH_PR_HEAD_FILE" ]]; then
+        pr_head="$(tr -d '[:space:]' < "$STUB_GH_PR_HEAD_FILE")"
+      fi
+      git checkout --quiet --detach "$pr_head"
     elif [[ -n "${STUB_GH_PR_BRANCH:-}" ]]; then
       # What real gh does for a same-repo PR: fetch the head branch into its
       # remote-tracking ref, then reuse a local branch of that name if one

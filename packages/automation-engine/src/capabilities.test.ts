@@ -7,9 +7,11 @@ import {
   REFUSED_ENV_NAMES,
   REFUSED_ENV_PREFIXES,
 } from '@consola/factory-spec';
+import { connectionCatalog } from './connections';
 import { describeCapabilities, GRAMMAR_EXAMPLES, TRUSTED_ITEM_FIELDS } from './capabilities';
 import { defineTool } from './tools.test-helpers';
-import { stepsHarness, WORKSPACE_ID } from './steps/steps.test-helpers';
+import { sourcesHarness } from './sources/sources.test-helpers';
+import { WORKSPACE_ID } from './steps/steps.test-helpers';
 
 const indent = (text: string, by: string) =>
   text
@@ -46,6 +48,7 @@ describe('what an agent writing an entry is told', () => {
       'An action, on an event',
       'A prompt, on a schedule',
       'Steps, on an event',
+      'Steps, on a poll',
     ]);
     // One name, one meaning: no two examples share an entry name.
     const names = GRAMMAR_EXAMPLES.map((example) => /^- name: (\S+)/.exec(example.entry)?.[1]);
@@ -57,7 +60,7 @@ describe('what an agent writing an entry is told', () => {
       // Each example appears in the grammar text as written.
       expect(grammar().grammar, example.title).toContain(example.entry);
 
-      const h = await stepsHarness({
+      const h = await sourcesHarness({
         tools: [CLEAN_UP],
         yaml: `version: 1\nautomations:\n${indent(example.entry, '  ')}\n`,
       });
@@ -154,5 +157,56 @@ describe('what an agent writing an entry is told', () => {
     const notify = grammar().modes.find((mode) => mode.mode === 'notify')?.means ?? '';
     expect(notify).toMatch(/dry run/);
     expect(notify).toMatch(/asks once first/);
+  });
+
+  it('auto says a run an agent asks for runs once and never lets the entry run on its own', () => {
+    // The user's decision of 2026-11-21.
+    const auto = grammar().modes.find((mode) => mode.mode === 'auto')?.means ?? '';
+    expect(auto).toContain(
+      'A run asked for with consola_run_automation always waits for the person, and approving it runs that run only: it never lets the entry run on its own.',
+    );
+  });
+
+  it('refires is set for review_requested only', () => {
+    const events = grammar().triggers.connections.find(
+      (connection) => connection.id === 'github',
+    )!.events;
+    expect(events.map((event) => [event.name, event.refires, event.refiresWhen])).toEqual([
+      ['pull_request.review_requested', true, 'fires again each time the review is re-requested'],
+      ['pull_request.assigned', false, undefined],
+    ]);
+    expect(connectionCatalog()[0].events.filter((event) => event.refires)).toHaveLength(1);
+  });
+
+  it('the grammar says a poll waits for Allow and baselines', () => {
+    const text = grammar().grammar;
+    expect(text).toContain(
+      "It is how to trigger on anything a CLI can answer, including what Consola's own events do not cover",
+    );
+    expect(text).toContain(
+      'An item that leaves the result is forgotten, so it fires again when it comes back; while it stays, it fires again only when its changed: value moves.',
+    );
+    expect(text).toContain(
+      'Changing the command, the item or changed: path, the timeout or the steps asks again; changing only every: does not.',
+    );
+    expect(text).not.toContain('a changed command or schedule asks again');
+    expect(text).toContain('The command does the filtering');
+    expect(text).toContain('--jq');
+    expect(text).toContain('A poll does not check until the person allows it');
+    expect(text).toContain('A new one records what is there on its first check and fires nothing');
+    expect(text).toContain('a JSON array of objects, one per item');
+    const { triggers } = grammar();
+    expect(triggers.poll).toContain('does not check until the person allows it');
+    expect(triggers.poll).toContain('records what is there and fires nothing');
+    expect(triggers.manual).toContain('applies_to');
+    expect(text).toContain('on: manual');
+    expect(text).toContain('applies_to:');
+  });
+
+  it('previous is said to be empty on the first run', () => {
+    const text = grammar().grammar;
+    expect(text).toContain('previous.<step>.<artifact>');
+    expect(text).toContain('It works in reads: and env: only');
+    expect(text).toContain('It is empty on the first run');
   });
 });

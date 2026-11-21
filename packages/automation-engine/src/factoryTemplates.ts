@@ -71,6 +71,72 @@ const ASSIGNED_REVIEWS_ENTRY = String.raw`- name: review-assigned-prs
         VERDICT: "{{steps.review.verdict}}"
         BODY_FILE: "{{steps.review.handover.file}}"`;
 
+/** The automation that reviews again each pull request the person reviewed, once it has new commits. */
+export const RE_REVIEW_NAME = 're-review-on-new-commits';
+
+/**
+ * `re-review-on-new-commits` as one list item: a poll that asks GitHub which
+ * of the pull requests the person reviewed have commits their latest review
+ * does not cover, then three steps as `review-assigned-prs` has them. The
+ * review reads the last one through `previous` and is posted pinned to the
+ * commit the run checked out, a comment or a request for changes, never an
+ * approval (decision 7). The spec's entry, verbatim.
+ */
+export function reReviewEntry(): string {
+  return RE_REVIEW_ENTRY;
+}
+
+const RE_REVIEW_ENTRY = String.raw`- name: re-review-on-new-commits
+  on:
+    poll:
+      every: 30m
+      run: |
+        gh api graphql -f query='
+          query { search(type: ISSUE, first: 50,
+              query: "is:pr is:open reviewed-by:@me -author:@me -review-requested:@me archived:false") {
+            nodes { ... on PullRequest { url title headRefOid viewerLatestReview { commit { oid } } } } } }' \
+          --jq '[.data.search.nodes[] | select(.viewerLatestReview.commit.oid != .headRefOid) | {url, title, head: .headRefOid}]'
+      item: { github: .url }
+      changed: .head
+  mode: auto
+  steps:
+    - id: fresh
+      run: |
+        reviewed=$(gh api graphql -f url="$PR" -f query='
+          query($url: URI!) { resource(url: $url) { ... on PullRequest {
+            viewerLatestReview { commit { oid } } } } }' \
+          --jq '.data.resource.viewerLatestReview.commit.oid // ""')
+        if [ "$reviewed" = "$CONSOLA_CHECKOUT_HEAD" ]; then needed=false; else needed=true; fi
+        echo "needed=$needed" >> "$CONSOLA_OUTPUT"
+      env: { PR: "{{item.url}}" }
+      outputs: { needed: boolean }
+      dry_run: run
+    - id: review
+      if: steps.fresh.needed
+      prompt: >-
+        This pull request has new commits since you last reviewed it. If there is an earlier review
+        (previous.review.handover), read it first and check whether each of its points was addressed.
+        Read the pull request with Consola's work_item_context tool, and the changed files in this folder
+        where it helps. Write your review as your handover, in Markdown, addressed to the author and under
+        60,000 characters: what was addressed, what was not, and anything new, each with its file and line.
+        Then set verdict: approve if you would merge it as it is, request-changes if something must change
+        first, comment otherwise.
+      reads: [previous.review.handover]
+      outputs:
+        verdict: { enum: [approve, comment, request-changes] }
+    - id: publish
+      if: steps.fresh.needed
+      run: |
+        event=COMMENT
+        if [ "$VERDICT" = "request-changes" ]; then event=REQUEST_CHANGES; fi
+        gh api "repos/$REPO/pulls/$NUMBER/reviews" \
+          -f commit_id="$CONSOLA_CHECKOUT_HEAD" -f event="$event" -F body=@"$BODY_FILE"
+      env:
+        REPO: "{{item.repo}}"
+        NUMBER: "{{item.number}}"
+        VERDICT: "{{steps.review.verdict}}"
+        BODY_FILE: "{{steps.review.handover.file}}"`;
+
 const indent = (text: string, prefix: string) =>
   text
     .split('\n')

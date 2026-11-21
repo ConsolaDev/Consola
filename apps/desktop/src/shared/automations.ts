@@ -12,6 +12,8 @@ import type { Session } from './workspace';
 import type {
   AgentRunPreview,
   AutomationsSnapshot,
+  ItemTarget,
+  ItemTargets,
   ListRunsQuery,
   LogTail,
   RunDefinition,
@@ -20,6 +22,10 @@ import type {
   StepsRunPreview,
 } from '@consola/automation-engine';
 export type {
+  ItemTarget,
+  ItemTargets,
+  ItemTargetRow,
+  CheckView,
   AutomationView,
   TemplateView,
   TemplateService,
@@ -77,8 +83,15 @@ export function isStepsRunPreview(value: unknown): value is StepsRunPreview {
  */
 export interface AutomationsAPI {
   getSnapshot: (workspaceId: string) => Promise<AutomationsSnapshot>;
-  /** Run now; for an event automation, check now — null, since only what is new fires. */
-  runNow: (workspaceId: string, name: string) => Promise<RunRecord | null>;
+  /**
+   * Run now, or Run on… an item; for an event or poll automation without a
+   * target, check now — null, since only what is new fires.
+   */
+  runNow: (workspaceId: string, name: string, target?: ItemTarget) => Promise<RunRecord | null>;
+  /** Let a poll entry's check command run: only the person's, at the version their page showed. */
+  allow: (workspaceId: string, name: string, version: string) => Promise<void>;
+  /** What Run on… lists for an automation that takes an item; read from memory and history only. */
+  listRunTargets: (workspaceId: string, name: string) => Promise<ItemTargets>;
   approve: (runId: string) => Promise<RunRecord>;
   /** Turn down a run waiting for approval, or take a queued one out of the line. */
   dismiss: (runId: string) => Promise<RunRecord>;

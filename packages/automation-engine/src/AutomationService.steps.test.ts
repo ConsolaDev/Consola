@@ -458,6 +458,8 @@ describe('firing a steps run', () => {
         { id: 'publish', kind: 'run' },
       ],
       item: { url: PR51.url, title: 'Add retries', author: 'alice', label: PR51_LABEL },
+      // The seen record its item fired under: the one an item is given back to.
+      firedUnder: event.store.seen(KEY)!.definition,
     });
     expect(JSON.stringify(reviewing)).not.toContain('say what should change');
   });
@@ -543,7 +545,8 @@ describe('firing a steps run', () => {
       status: 'needs-approval',
       mode: 'confirm',
       trigger: { kind: 'manual', by: 'agent', actorId: 's-9' },
-      summary: 'Steps: fresh → summary in api. An agent asked for this run.',
+      summary:
+        'Steps: fresh → summary in api. An agent asked for this run: approving runs this run only.',
     });
     expect(h.notices).toMatchObject([{ needsApproval: true }]);
 

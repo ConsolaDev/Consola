@@ -224,6 +224,9 @@ function parseGitHubRemote(url: string): string | null {
   return `${parts[parts.length - 2]}/${parts[parts.length - 1]}`.toLowerCase();
 }
 
+const WORK_ITEM_URL =
+  /^https:\/\/github\.com\/([A-Za-z0-9-]+)\/([A-Za-z0-9._-]+)\/(pull|issues)\/([1-9][0-9]*)$/;
+
 export class GitHubDriver implements GitProviderDriver {
   readonly id: GitProviderId = 'github';
   readonly tokenEnvVar = 'GH_TOKEN';
@@ -746,6 +749,21 @@ export class GitHubDriver implements GitProviderDriver {
 
   public matchesRemote(remoteUrl: string, repo: string): boolean {
     return parseGitHubRemote(remoteUrl) === repo.toLowerCase();
+  }
+
+  /** Exactly a github.com pull request or issue page: no query, fragment, trailing path or other host. */
+  public parseWorkItemUrl(url: string): WorkItemRef | null {
+    const match = WORK_ITEM_URL.exec(url);
+    if (!match) return null;
+    const number = Number(match[4]);
+    // Past Number.MAX_SAFE_INTEGER it would read as another number.
+    if (!Number.isSafeInteger(number)) return null;
+    return {
+      provider: 'github',
+      repo: `${match[1]}/${match[2]}`,
+      type: match[3] === 'pull' ? 'pr' : 'issue',
+      number,
+    };
   }
 
   public workItemUrl(ref: WorkItemRef): string {

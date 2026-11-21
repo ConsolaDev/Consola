@@ -114,6 +114,13 @@ async function runner(
     runFolder: new RunFolder(() => {
       throw new Error('These tests have no run folder.');
     }),
+    workItems: {
+      canParseUrls: (connection) => connection === 'github',
+      parseUrl: () => null,
+      keyOf: (ref) => `${ref.provider}:${ref.repo.toLowerCase()}:${ref.type}:${ref.number}`,
+      urlOf: (ref) => `https://example.test/${ref.repo}/${ref.type}/${ref.number}`,
+      inWorkspace: () => true,
+    },
     registry,
     getWorkspaces: () => [owner],
     now: () => new Date(2026, 10, 4, 8, 0),
@@ -211,6 +218,7 @@ describe("the runner against Consola's real tools", () => {
     const owner = workspace();
     expect(AUTOMATION_TEMPLATES.map((template) => template.id)).toEqual([
       'review-assigned-prs',
+      're-review-on-new-commits',
       'clean-up-stale-sessions',
       'morning-inbox-digest',
       'brief-review-requests',

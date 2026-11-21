@@ -16,6 +16,7 @@ import {
 import type { AutomationView, RunListEntry, RunRecord, StepRun } from '../../../shared/automations';
 import type { Workspace } from '../../../shared/workspace';
 import { automationsBridge } from '../../services/automationsBridge';
+import { useAutomationsStore } from '../../stores/automationsStore';
 import { RunAgainButton, useIntent } from './parts';
 import { StepDetail } from './StepDetailView';
 import { StepsApprovalCard } from './StepsApprovalCard';
@@ -85,6 +86,7 @@ export function StepsRunView({
   const [confirming, setConfirming] = useState(false);
   const [stopping, setStopping] = useState(false);
   const { busy, error, act } = useIntent();
+  const openPanel = useAutomationsStore((state) => state.openPanel);
 
   // The person's own choice per step wins; else a step is open once it has failed, run or waited.
   const [chosen, setChosen] = useState<Record<string, boolean>>({});
@@ -117,6 +119,15 @@ export function StepsRunView({
     <div className="automations-detail automations-run">
       <div className="automations-lead">
         {lead}
+        {run.previous && (
+          <button
+            type="button"
+            className="automations-link-button automations-earlier-run"
+            onClick={() => openPanel({ kind: 'run', runId: run.previous!.runId })}
+          >
+            Earlier run on this item
+          </button>
+        )}
         <div className="automations-lead-actions">
           {run.status === 'running' && (
             <button

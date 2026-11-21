@@ -20,6 +20,7 @@ import type {
   CommandSpec,
   FactoryFileHandle,
   RunningCommand,
+  WorkItemPort,
 } from '../ports';
 import { RunStore, type AutomationStateFile } from '../RunStore';
 import { memoryHistory } from '../runHistory.test-helpers';
@@ -78,6 +79,8 @@ export interface FakeCommand {
   neverStarted(error: unknown): Promise<void>;
   /** How many times it was asked to stop. */
   stops: number;
+  /** It was ended, or its result rejected: `end` or `neverStarted` was called. */
+  ended: boolean;
 }
 
 export interface StepsHarnessOptions {
@@ -95,6 +98,8 @@ export interface StepsHarnessOptions {
   maxConcurrentCommands?: number;
   /** Tools the registry offers; none by default. */
   tools?: TestTool[];
+  /** The host's work items. Default: a host that reads no work item URL. */
+  workItems?: WorkItemPort;
 }
 
 /** What the fake host holds and recorded. A test edits the first part to move the world, then resyncs. */
@@ -319,7 +324,9 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
     const command: FakeCommand = {
       spec,
       stops: 0,
+      ended: false,
       async end({ outputs, stdout = '', stderr = '', result: ending = {} } = {}) {
+        command.ended = true;
         if (outputs !== undefined) fs.appendFileSync(String(spec.env.CONSOLA_OUTPUT), outputs);
         fs.appendFileSync(spec.stdoutPath, maskSecrets(stdout, spec.secrets));
         fs.appendFileSync(spec.stderrPath, maskSecrets(stderr, spec.secrets));
@@ -336,6 +343,7 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
         await flush();
       },
       async neverStarted(error) {
+        command.ended = true;
         settle.reject(error);
         await flush();
       },
@@ -358,6 +366,13 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
     fileFor,
     store,
     runFolder: folder,
+    workItems: options.workItems ?? {
+      canParseUrls: () => false,
+      parseUrl: () => null,
+      keyOf: (ref) => `${ref.provider}:${ref.repo.toLowerCase()}:${ref.type}:${ref.number}`,
+      urlOf: (ref) => `https://example.test/${ref.repo}/${ref.type}/${ref.number}`,
+      inWorkspace: () => true,
+    },
     registry,
     getWorkspaces: () => (world.workspaceDeleted ? [] : [world.workspace]),
     now: () => clock,
