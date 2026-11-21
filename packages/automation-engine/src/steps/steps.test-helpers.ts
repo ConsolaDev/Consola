@@ -26,7 +26,16 @@ import { RunStore, type AutomationStateFile } from '../RunStore';
 import { memoryHistory } from '../runHistory.test-helpers';
 import { StartedByHandError } from '../support';
 import { FakeToolRegistry, type TestTool } from '../tools.test-helpers';
-import type { InboxItemView, ItemRef, ItemSnapshot, SessionView, WorkspaceView } from '../views';
+import type {
+  InboxItemView,
+  ItemRef,
+  ItemSnapshot,
+  SessionView,
+  TurnOutcome,
+  TurnReportView,
+  TurnResultView,
+  WorkspaceView,
+} from '../views';
 import type { CheckoutRequest } from './checkout';
 import { maskSecrets } from './commandIO';
 import type { StepToolAnswer } from './stepTools';
@@ -56,7 +65,62 @@ export function checkoutPathFor(workItem: ItemRef): string {
   return `/worktrees/${workItem.repo.split('/')[1]}-${workItem.type}-${workItem.number}-automation`;
 }
 
-type TurnOutcome = { exitCode: number; lastLine?: string; stopped?: string };
+/**
+ * A TurnReportView from flat fields, as the desktop would hand it over. A result is made
+ * (subtype `success`, `isError` false, `deniedTools` []) unless `noResult`; an init is made
+ * (`{ model, servers: [] }`) when `model` is given; `raw` holds CLI-shaped objects built from
+ * the same fields (`{ type: 'system', subtype: 'init', model }`, `{ type: 'result', subtype,
+ * is_error, total_cost_usd, num_turns, result }`), so turn.json assertions have something to match.
+ */
+export function turnReport(
+  fields: {
+    subtype?: string;
+    isError?: boolean;
+    cost?: number;
+    turns?: number;
+    text?: string;
+    model?: string;
+    deniedTools?: string[];
+    maxTurns?: number;
+    otherLines?: string[];
+    limitNotice?: boolean;
+    noResult?: boolean;
+  } = {},
+): TurnReportView {
+  const { subtype = 'success', isError = false, cost, turns, text, model } = fields;
+  const result: TurnResultView | undefined = fields.noResult
+    ? undefined
+    : {
+        subtype,
+        isError,
+        deniedTools: fields.deniedTools ?? [],
+        ...(cost !== undefined ? { costUsd: cost } : {}),
+        ...(turns !== undefined ? { turns } : {}),
+        ...(text !== undefined ? { text } : {}),
+      };
+  return {
+    ...(model !== undefined ? { init: { model, servers: [] } } : {}),
+    ...(result ? { result } : {}),
+    otherLines: fields.otherLines ?? [],
+    limitNotice: fields.limitNotice ?? false,
+    ...(fields.maxTurns !== undefined ? { maxTurns: fields.maxTurns } : {}),
+    raw: {
+      ...(model !== undefined ? { init: { type: 'system', subtype: 'init', model } } : {}),
+      ...(result
+        ? {
+            result: {
+              type: 'result',
+              subtype,
+              is_error: isError,
+              ...(cost !== undefined ? { total_cost_usd: cost } : {}),
+              ...(turns !== undefined ? { num_turns: turns } : {}),
+              ...(text !== undefined ? { result: text } : {}),
+            },
+          }
+        : {}),
+    },
+  };
+}
 
 /** The base environment the fake host gives every command: the login env and the bound account's token. */
 export const COMMAND_ENV = { env: { PATH: '/bin', GH_TOKEN: 'gho_stub' }, secrets: ['gho_stub'] };

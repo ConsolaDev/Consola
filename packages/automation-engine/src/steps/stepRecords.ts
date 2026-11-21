@@ -46,7 +46,8 @@ export type EndedAttempt = NonNullable<StepRun['previous']>[number];
  * `records` with one step given its next attempt, in a new session and a new
  * folder: its attempt as it ended kept in `previous` (as its record has it,
  * unless `ended` says otherwise), and everything that attempt produced or
- * named cleared, so nothing of it can settle or feed the next. A step that
+ * named cleared, so nothing of it can settle or feed the next. Its cost
+ * stays, as the remembered attempt's `costUsd`: the run spent it. A step that
  * never ran moves on too, `not-run` in its `previous`: its next launch is
  * then never a first attempt, which only a trigger's fire makes. A retry and
  * a restart that runs a step again both go through this.
@@ -54,7 +55,11 @@ export type EndedAttempt = NonNullable<StepRun['previous']>[number];
 export function withNextAttempt(
   records: StepRun[],
   stepId: string,
-  next: { status: 'pending' | 'queued'; nowIso: string; ended?: Omit<EndedAttempt, 'attempt'> },
+  next: {
+    status: 'pending' | 'queued';
+    nowIso: string;
+    ended?: Omit<EndedAttempt, 'attempt' | 'costUsd'>;
+  },
 ): StepRun[] {
   return records.map((record) => {
     if (record.id !== stepId) return record;
@@ -65,6 +70,8 @@ export function withNextAttempt(
       conversation: _conversation,
       reminded: _reminded,
       command: _command,
+      turn,
+      model: _model,
       error,
       finishedAt,
       startedAt: _startedAt,
@@ -79,6 +86,7 @@ export function withNextAttempt(
       status: ended.status,
       ...(ended.error !== undefined ? { error: ended.error } : {}),
       ...(ended.finishedAt !== undefined ? { finishedAt: ended.finishedAt } : {}),
+      ...(turn?.costUsd !== undefined ? { costUsd: turn.costUsd } : {}),
     };
     return {
       ...kept,

@@ -98,6 +98,7 @@ import type {
   SessionView,
   TemplateView,
   TurnOutcome,
+  TurnReportView,
   WorkspaceView,
 } from './views';
 import type { RunStore } from './RunStore';
@@ -118,7 +119,13 @@ import {
   type CheckState,
 } from './sources/pollRunner';
 import { reminderPrompt } from './steps/stepPrompt';
-import { reminderCap, turnFailure } from './steps/turnReport';
+import {
+  reminderCap,
+  reportedFailure,
+  runCostOf,
+  turnFailure,
+  withTurnRecorded,
+} from './steps/turnReport';
 import type { CheckoutPort, CheckoutRequest, PreparedCheckout } from './steps/checkout';
 import { describeFailure, LOG_CAP_BYTES, maskSecrets, utf8Bytes } from './steps/commandIO';
 import {
@@ -3394,10 +3401,14 @@ export class AutomationService {
   }
 
   /**
-   * A step's turn ended. A stop or a non-zero exit fails it, in the words a
-   * one-step run uses. A clean exit completes it only when every output it
-   * declares is set and every document it must write is written; its
-   * outputs are then kept beside its documents. A clean exit that left
+   * A step's turn ended. A turn that reported itself is recorded first: its
+   * figures on the step and the run's sum, its report in `turn.json`; then
+   * the CLI's own report decides whether it failed (`reportedFailure`). A
+   * turn without one fails on a stop or a non-zero exit, in the words a
+   * one-step run uses. A turn that hit its cap fails with no reminder,
+   * keeping what it set. A clean turn completes the step only when every
+   * output it declares is set and every document it must write is written;
+   * its outputs are then kept beside its documents. A clean turn that left
    * something out is given one reminder turn, the step still running and
    * holding its slot; a second one fails it.
    */
@@ -3407,12 +3418,112 @@ export class AutomationService {
     outcome: TurnOutcome,
     sessionId: string,
   ): void {
-    const failure = turnFailure(outcome);
-    if (failure) {
-      this.settleStep(run.id, record.id, { status: 'failed', error: failure });
+    const { report } = outcome;
+    const loaded = report ? this.definitionOf(run) : undefined;
+    if (report) {
+      const step =
+        loaded && 'definition' in loaded
+          ? loaded.definition.automation.steps.find((candidate) => candidate.id === record.id)
+          : undefined;
+      this.recordTurn(
+        run,
+        record,
+        outcome,
+        report,
+        step?.kind === 'agent' ? step.maxTurns : undefined,
+      );
+    }
+    let failed: { error: string; atTurnLimit: boolean } | null;
+    if (report) failed = reportedFailure({ ...outcome, report });
+    else {
+      const error = turnFailure(outcome);
+      failed = error ? { error, atTurnLimit: false } : null;
+    }
+    if (failed) {
+      if (failed.atTurnLimit) this.keepOutputs(run, record.id);
+      this.settleStep(run.id, record.id, { status: 'failed', error: failed.error });
       return;
     }
-    const loaded = this.definitionOf(run);
+    this.stepTurnFinished(run, record, sessionId, loaded ?? this.definitionOf(run));
+  }
+
+  /**
+   * One reporting turn, recorded: its figures added to the step
+   * (`withTurnRecorded`, with the step's own cap) and the run's cost summed
+   * again, in one write; then the CLI's own objects appended to the
+   * attempt's `turn.json`. That file is for reading later; a failure to
+   * write it is logged, and the record still holds the figures.
+   */
+  private recordTurn(
+    run: RunRecord,
+    record: StepRun,
+    outcome: TurnOutcome,
+    report: TurnReportView,
+    stepMaxTurns: number | undefined,
+  ): void {
+    const steps = this.stepsOf(run.id).map((candidate) =>
+      candidate.id === record.id ? withTurnRecorded(candidate, report, stepMaxTurns) : candidate,
+    );
+    const costUsd = runCostOf(steps);
+    this.deps.store.update(run.id, {
+      steps,
+      ...(costUsd !== undefined ? { costUsd } : {}),
+      updatedAt: this.iso(),
+    });
+    try {
+      this.deps.runFolder.appendTurn(
+        run.attribution.workspaceId ?? '',
+        run.id,
+        record.id,
+        record.attempt,
+        {
+          endedAt: this.iso(),
+          exitCode: outcome.exitCode,
+          ...(outcome.stopped !== undefined ? { stopped: outcome.stopped } : {}),
+          ...(report.maxTurns !== undefined ? { maxTurns: report.maxTurns } : {}),
+          ...(report.raw.init !== undefined ? { init: report.raw.init } : {}),
+          ...(report.raw.result !== undefined ? { result: report.raw.result } : {}),
+          otherLines: report.otherLines,
+        },
+      );
+    } catch (error) {
+      console.error(`Could not write turn.json for run ${run.id}, step ${record.id}.`, error);
+    }
+  }
+
+  /**
+   * A step that hit its turn cap keeps what it set: its outputs go beside
+   * its documents, as a completed step's do, though it failed. Nothing is
+   * written when it set none (the step tools never record an empty set). A
+   * failure to write them is logged; the step fails in its own words either
+   * way, and its record keeps the outputs.
+   */
+  private keepOutputs(run: RunRecord, stepId: string): void {
+    const record = this.stepsOf(run.id).find((candidate) => candidate.id === stepId);
+    if (!record?.outputs) return;
+    try {
+      const dir = this.deps.runFolder.attemptDir(
+        run.attribution.workspaceId ?? '',
+        run.id,
+        stepId,
+        record.attempt,
+      );
+      this.deps.runFolder.writeJson(dir, 'outputs.json', record.outputs);
+    } catch (error) {
+      console.error(`Could not write outputs.json for run ${run.id}, step ${stepId}.`, error);
+    }
+  }
+
+  /**
+   * A step's turn ended cleanly: it completes when nothing it declares is
+   * missing, is reminded once when something is, and fails after that.
+   */
+  private stepTurnFinished(
+    run: RunRecord,
+    record: StepRun,
+    sessionId: string,
+    loaded: LoadedDefinition,
+  ): void {
     if ('problem' in loaded) {
       this.failRun(run.id, loaded.problem);
       return;
@@ -3579,12 +3690,7 @@ export class AutomationService {
    * cannot go on without it: the file is gone, or reading it failed
    * (`error`), which a later read may not.
    */
-  private definitionOf(
-    run: RunRecord,
-  ):
-    | { definition: RunDefinition }
-    | { problem: string; gone: true }
-    | { problem: string; gone: false; error: unknown } {
+  private definitionOf(run: RunRecord): LoadedDefinition {
     const workspaceId = run.attribution.workspaceId ?? '';
     try {
       const definition = this.deps.runFolder.readDefinition(workspaceId, run.id);
@@ -4685,6 +4791,12 @@ function checkViewOf(trigger: PollTrigger, outcome: CheckState['outcome']): Chec
     ...last,
   };
 }
+
+/** A started run's definition, read from its folder, or why it cannot be (`definitionOf`). */
+type LoadedDefinition =
+  | { definition: RunDefinition }
+  | { problem: string; gone: true }
+  | { problem: string; gone: false; error: unknown };
 
 /** What an agent run says while its turn runs. */
 function runningIn(sessionName: string): string {

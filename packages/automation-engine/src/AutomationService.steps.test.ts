@@ -16,6 +16,7 @@ import {
   checkoutPathFor,
   REVIEW_BODY,
   stepsHarness,
+  turnReport,
   WORKSPACE_ID,
   type FakeCommand,
   type StepsHarness,
@@ -2926,6 +2927,348 @@ async function waitingAtTwo(h: StepsHarness): Promise<RunRecord> {
   expect(h.store.get(run.id)!.steps![1]).toMatchObject({ id: 'two', status: 'queued' });
   return run;
 }
+
+describe('a reporting turn', () => {
+  const CAPPED = entry(
+    'capped',
+    DAILY_AUTO,
+    '- id: one\n  prompt: Read what changed in api.\n  max_turns: 6',
+  );
+  const LONE = entry('lone', DAILY_AUTO, '- id: digest\n  prompt: Sum up the week in api.');
+  const turnFile = (h: StepsHarness, runId: string, stepId: string, attempt = 1) =>
+    JSON.parse(
+      fs.readFileSync(
+        path.join(h.folder.attemptDir(WORKSPACE_ID, runId, stepId, attempt), 'turn.json'),
+        'utf8',
+      ),
+    );
+
+  it('records cost, turns and the model on the step, and the sum on the run', async () => {
+    const h = await accepted(file(NIGHTLY));
+    const run = (await h.service.trigger(WORKSPACE_ID, 'nightly'))!;
+    await h.flush();
+    h.world.setOutputs('session-1', { mood: 'calm' });
+    await h.world.endTurn('session-1', {
+      exitCode: 0,
+      report: turnReport({ cost: 0.0123, turns: 3, model: 'claude-opus-5-5' }),
+    });
+    const first = h.store.get(run.id)!;
+    expect(first.steps?.[0].status).toBe('completed');
+    expect(first.steps?.[0].turn).toEqual({ costUsd: 0.0123, turns: 3 });
+    expect(first.steps?.[0].model).toBe('claude-opus-5-5');
+    expect(first.costUsd).toBe(0.0123);
+
+    await h.world.endTurn('session-2', {
+      exitCode: 0,
+      report: turnReport({ cost: 0.02, turns: 1 }),
+    });
+    const done = h.store.get(run.id)!;
+    expect(done.status).toBe('completed');
+    expect(done.steps?.[1].turn).toEqual({ costUsd: 0.02, turns: 1 });
+    expect(done.costUsd).toBeCloseTo(0.0323, 10);
+  });
+
+  it("records the step's own cap", async () => {
+    const h = await accepted(file(CAPPED));
+    const run = (await h.service.trigger(WORKSPACE_ID, 'capped'))!;
+    await h.flush();
+    // The cap the launch ran with is the report's; the step's own is the definition's.
+    await h.world.endTurn('session-1', {
+      exitCode: 0,
+      report: turnReport({ turns: 2, maxTurns: 6 }),
+    });
+    expect(h.store.get(run.id)?.steps?.[0].turn).toEqual({ turns: 2, maxTurns: 6 });
+  });
+
+  it('keeps the turn in turn.json', async () => {
+    const h = await accepted(file(CAPPED));
+    const run = (await h.service.trigger(WORKSPACE_ID, 'capped'))!;
+    await h.flush();
+    const report = turnReport({
+      cost: 0.0123,
+      turns: 3,
+      model: 'claude-opus-5-5',
+      maxTurns: 6,
+      otherLines: ['Warning: x'],
+      text: 'FINDINGS: none',
+    });
+    await h.world.endTurn('session-1', { exitCode: 0, report });
+    expect(turnFile(h, run.id, 'one')).toEqual({
+      turns: [
+        {
+          endedAt: h.now().toISOString(),
+          exitCode: 0,
+          maxTurns: 6,
+          init: report.raw.init,
+          result: report.raw.result,
+          otherLines: ['Warning: x'],
+        },
+      ],
+    });
+  });
+
+  it('fails on is_error whatever subtype says, and still records its cost', async () => {
+    const h = await accepted(file(NIGHTLY));
+    const run = (await h.service.trigger(WORKSPACE_ID, 'nightly'))!;
+    await h.flush();
+    h.world.setOutputs('session-1', { mood: 'calm' });
+    await h.world.endTurn('session-1', {
+      exitCode: 1,
+      report: turnReport({
+        subtype: 'success',
+        isError: true,
+        text: 'Not logged in · Please run /login',
+        cost: 0,
+        turns: 1,
+      }),
+    });
+    expect(h.world.reminders).toEqual([]);
+    expect(h.store.get(run.id)).toMatchObject({
+      status: 'failed',
+      costUsd: 0,
+      steps: [
+        {
+          id: 'one',
+          status: 'failed',
+          error: 'It stopped before finishing: Not logged in · Please run /login.',
+          turn: { costUsd: 0, turns: 1 },
+        },
+        { id: 'two', status: 'not-run' },
+      ],
+    });
+  });
+
+  it('error_max_turns fails with no reminder, and keeps what it set', async () => {
+    const h = await accepted(file(NIGHTLY));
+    const run = (await h.service.trigger(WORKSPACE_ID, 'nightly'))!;
+    await h.flush();
+    h.world.setOutputs('session-1', { mood: 'calm' });
+    await h.world.endTurn('session-1', {
+      exitCode: 1,
+      report: turnReport({
+        maxTurns: 6,
+        subtype: 'error_max_turns',
+        isError: true,
+        cost: 0.0123,
+        turns: 6,
+      }),
+    });
+    expect(h.world.reminders).toEqual([]);
+    expect(h.store.get(run.id)).toMatchObject({
+      status: 'failed',
+      costUsd: 0.0123,
+      steps: [
+        {
+          id: 'one',
+          status: 'failed',
+          error: 'It hit its limit of 6 turns before finishing.',
+          outputs: { mood: 'calm' },
+          turn: { costUsd: 0.0123, turns: 6 },
+        },
+        { id: 'two', status: 'not-run' },
+      ],
+    });
+    const dir = h.folder.attemptDir(WORKSPACE_ID, run.id, 'one', 1);
+    expect(JSON.parse(fs.readFileSync(path.join(dir, 'outputs.json'), 'utf8'))).toEqual({
+      mood: 'calm',
+    });
+  });
+
+  it('error_max_turns with nothing set writes no outputs.json', async () => {
+    const h = await accepted(file(NIGHTLY));
+    const run = (await h.service.trigger(WORKSPACE_ID, 'nightly'))!;
+    await h.flush();
+    const logged = vi.spyOn(console, 'error');
+    onTestFinished(() => logged.mockRestore());
+    await h.world.endTurn('session-1', {
+      exitCode: 1,
+      report: turnReport({ maxTurns: 6, subtype: 'error_max_turns', isError: true }),
+    });
+    expect(h.store.get(run.id)?.steps?.[0]).toMatchObject({
+      status: 'failed',
+      error: 'It hit its limit of 6 turns before finishing.',
+    });
+    const dir = h.folder.attemptDir(WORKSPACE_ID, run.id, 'one', 1);
+    expect(fs.existsSync(path.join(dir, 'outputs.json'))).toBe(false);
+    expect(logged).not.toHaveBeenCalled();
+  });
+
+  it('error_max_turns whose outputs.json cannot be written still fails in its own words', async () => {
+    const h = await accepted(file(NIGHTLY));
+    const run = (await h.service.trigger(WORKSPACE_ID, 'nightly'))!;
+    await h.flush();
+    h.world.setOutputs('session-1', { mood: 'calm' });
+    vi.spyOn(h.folder, 'writeJson').mockImplementation(() => {
+      throw new Error('disk full');
+    });
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    onTestFinished(() => logged.mockRestore());
+    await h.world.endTurn('session-1', {
+      exitCode: 1,
+      report: turnReport({ maxTurns: 6, subtype: 'error_max_turns', isError: true }),
+    });
+    expect(h.store.get(run.id)?.steps?.[0]).toMatchObject({
+      status: 'failed',
+      error: 'It hit its limit of 6 turns before finishing.',
+      outputs: { mood: 'calm' },
+    });
+    expect(logged).toHaveBeenCalledTimes(1);
+    expect(String(logged.mock.calls[0][0])).toContain('outputs.json');
+  });
+
+  it("a turn with no result fails with the CLI's last line, never the pane's", async () => {
+    const h = await accepted(file(NIGHTLY));
+    const run = (await h.service.trigger(WORKSPACE_ID, 'nightly'))!;
+    await h.flush();
+    await h.world.endTurn('session-1', {
+      exitCode: 1,
+      lastLine: 'Finished: 3 turns.',
+      report: turnReport({ noResult: true, otherLines: ['TypeError: boom'] }),
+    });
+    expect(h.store.get(run.id)?.steps?.[0]).toMatchObject({
+      status: 'failed',
+      error: 'It stopped before finishing (exit 1): TypeError: boom.',
+    });
+    expect(h.world.reminders).toEqual([]);
+  });
+
+  it('exit 0 with no result line fails', async () => {
+    const h = await accepted(file(NIGHTLY));
+    const run = (await h.service.trigger(WORKSPACE_ID, 'nightly'))!;
+    await h.flush();
+    h.world.setOutputs('session-1', { mood: 'calm' });
+    await h.world.endTurn('session-1', { exitCode: 0, report: turnReport({ noResult: true }) });
+    expect(h.store.get(run.id)?.steps?.[0]).toMatchObject({
+      status: 'failed',
+      error: 'It ended without reporting how its turn went.',
+    });
+  });
+
+  it('a stop is a stop', async () => {
+    const h = await accepted(file(NIGHTLY));
+    const run = (await h.service.trigger(WORKSPACE_ID, 'nightly'))!;
+    await h.flush();
+    await h.world.endTurn('session-1', {
+      exitCode: 0,
+      stopped: 'you pressed Ctrl+C',
+      report: turnReport({ noResult: true }),
+    });
+    expect(h.store.get(run.id)?.steps?.[0]).toMatchObject({
+      status: 'failed',
+      error: 'It stopped before finishing: you pressed Ctrl+C.',
+    });
+    expect(turnFile(h, run.id, 'one').turns[0]).toMatchObject({
+      exitCode: 0,
+      stopped: 'you pressed Ctrl+C',
+    });
+  });
+
+  it("the reminder's turn is recorded with the first's: its cost is the conversation's running total", async () => {
+    const h = await accepted(file(NIGHTLY));
+    const run = (await h.service.trigger(WORKSPACE_ID, 'nightly'))!;
+    await h.flush();
+    await h.world.endTurn('session-1', {
+      exitCode: 0,
+      report: turnReport({ cost: 0.0015, turns: 2 }),
+    });
+    expect(h.world.reminders).toHaveLength(1);
+    expect(h.world.reminderCaps).toEqual([3]);
+    h.world.setOutputs('session-1', { mood: 'calm' });
+    // A resumed turn reports the conversation's cost so far (canary row 14, Call 12's fallback).
+    await h.world.endTurn('session-1', {
+      exitCode: 0,
+      report: turnReport({ cost: 0.003, turns: 1, maxTurns: 3 }),
+    });
+    const stored = h.store.get(run.id)!;
+    expect(stored.steps?.[0].status).toBe('completed');
+    expect(stored.steps?.[0].turn?.costUsd).toBeCloseTo(0.003, 10);
+    expect(stored.steps?.[0].turn?.costUsd).not.toBeCloseTo(0.0045, 10);
+    expect(stored.steps?.[0].turn?.turns).toBe(3);
+    // The reminder ran with a cap of its own; the step has none.
+    expect(stored.steps?.[0].turn).not.toHaveProperty('maxTurns');
+    expect(stored.costUsd).toBeCloseTo(0.003, 10);
+    expect(
+      turnFile(h, run.id, 'one').turns.map((turn: { maxTurns?: number }) => turn.maxTurns),
+    ).toEqual([undefined, 3]);
+  });
+
+  it("a retry keeps the earlier attempt's cost", async () => {
+    const h = await accepted(file(NIGHTLY));
+    const run = (await h.service.trigger(WORKSPACE_ID, 'nightly'))!;
+    await h.flush();
+    await h.world.endTurn('session-1', {
+      exitCode: 1,
+      report: turnReport({
+        isError: true,
+        text: 'Overloaded',
+        cost: 0.01,
+        model: 'claude-opus-5-5',
+      }),
+    });
+    expect(h.store.get(run.id)?.status).toBe('failed');
+    await h.service.retry(run.id);
+    await h.flush();
+    const retried = h.store.get(run.id)!;
+    expect(retried.steps?.[0].previous?.[0].costUsd).toBe(0.01);
+    expect(retried.steps?.[0].turn).toBeUndefined();
+    expect(retried.steps?.[0].model).toBeUndefined();
+    expect(retried.costUsd).toBe(0.01);
+
+    // A new attempt is a new conversation: its first total is its own.
+    h.world.setOutputs('session-2', { mood: 'calm' });
+    await h.world.endTurn('session-2', { exitCode: 0, report: turnReport({ cost: 0.02 }) });
+    const after = h.store.get(run.id)!;
+    expect(after.steps?.[0].turn?.costUsd).toBe(0.02);
+    expect(after.costUsd).toBeCloseTo(0.03, 10);
+  });
+
+  it('a legacy agent run records nothing new', async () => {
+    const h = await accepted(file(legacy('digest')));
+    const run = (await h.service.trigger(WORKSPACE_ID, 'digest'))!;
+    await h.flush();
+    await h.world.endTurn('session-1', { exitCode: 0 });
+    const stored = h.store.get(run.id)!;
+    expect(stored.status).toBe('completed');
+    expect(stored.costUsd).toBeUndefined();
+    expect(Object.prototype.hasOwnProperty.call(stored, 'costUsd')).toBe(false);
+  });
+
+  it('a turn without a report takes the path it always did', async () => {
+    const h = await accepted(file(LONE));
+    const run = (await h.service.trigger(WORKSPACE_ID, 'lone'))!;
+    await h.flush();
+    await h.world.endTurn('session-1', { exitCode: 0 });
+    const stored = h.store.get(run.id)!;
+    expect(stored.status).toBe('completed');
+    expect(stored.steps?.[0].turn).toBeUndefined();
+    expect(Object.prototype.hasOwnProperty.call(stored, 'costUsd')).toBe(false);
+    const dir = h.folder.attemptDir(WORKSPACE_ID, run.id, 'digest', 1);
+    expect(fs.existsSync(path.join(dir, 'turn.json'))).toBe(false);
+  });
+
+  it('a turn.json that cannot be written fails nothing', async () => {
+    const h = await accepted(file(LONE));
+    const run = (await h.service.trigger(WORKSPACE_ID, 'lone'))!;
+    await h.flush();
+    vi.spyOn(h.folder, 'appendTurn').mockImplementation(() => {
+      throw new Error('disk full');
+    });
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    onTestFinished(() => logged.mockRestore());
+    await h.world.endTurn('session-1', {
+      exitCode: 0,
+      report: turnReport({ cost: 0.0123, turns: 3 }),
+    });
+    const stored = h.store.get(run.id)!;
+    expect(stored.steps?.[0]).toMatchObject({
+      status: 'completed',
+      turn: { costUsd: 0.0123, turns: 3 },
+    });
+    expect(stored.costUsd).toBe(0.0123);
+    expect(logged).toHaveBeenCalledTimes(1);
+    expect(String(logged.mock.calls[0][0])).toContain('turn.json');
+  });
+});
 
 describe('stop in every state', () => {
   it('a running agent step is stopped through its session; its turn end fails it, and its slot frees', async () => {
