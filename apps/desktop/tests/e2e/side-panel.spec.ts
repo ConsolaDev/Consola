@@ -252,6 +252,12 @@ test.describe('side panel', () => {
     await expect(page.getByRole('heading', { name: 'Open in this tab' })).toBeVisible();
     await expect(sidePanelToggle()).toHaveAccessibleName('Hide side panel');
     await expect(sidePanelToggle()).toHaveAttribute('aria-pressed', 'true');
+
+    // Escape closes the only tab, the panel hides, and the keyboard goes
+    // back to the conversation.
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('side-panel')).toHaveCount(0);
+    await expect(conversation()).toBeFocused();
   });
 
   test('the list opens a kind by mouse and by key', async () => {
@@ -571,6 +577,62 @@ test.describe('side panel', () => {
     await chooseFromTabMenu(sidePanelTab('Changes'), 'Split right');
     await expect(tabList('Left group tabs').getByRole('tab')).toHaveText(['Files']);
     await expect(tabList('Right group tabs').getByRole('tab')).toHaveText(['Changes']);
+  });
+
+  test('a tab closed from the keyboard hands it to a tab still on screen, else the conversation', async () => {
+    const bottomFiles = () =>
+      tabList('Bottom group tabs').getByRole('tab', { name: 'Files', exact: true });
+    await openSession('Paginate the catalog search');
+    await changesShortcut().click();
+    await page.getByRole('button', { name: 'Files', exact: true }).click();
+    await chooseFromTabMenu(sidePanelTab('Files'), 'Split down');
+
+    // A group's only tab, closed from its menu: its bar goes with it, and the
+    // keyboard goes to the group left.
+    await bottomFiles().focus();
+    await page.keyboard.press('Shift+F10');
+    await expect(page.getByRole('menuitem', { name: 'Close', exact: true })).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(tabList('Bottom group tabs')).toHaveCount(0);
+    await expect(sidePanelTab('Changes')).toBeFocused();
+
+    // The same by Delete.
+    await page.getByRole('button', { name: 'Files', exact: true }).click();
+    await chooseFromTabMenu(sidePanelTab('Files'), 'Split down');
+    await bottomFiles().focus();
+    await page.keyboard.press('Delete');
+    await expect(tabList('Bottom group tabs')).toHaveCount(0);
+    await expect(sidePanelTab('Changes')).toBeFocused();
+
+    // The last tab of all: the side panel hides, and the keyboard goes back
+    // to the conversation.
+    await page.keyboard.press('Delete');
+    await expect(page.getByTestId('side-panel')).toHaveCount(0);
+    await expect(conversation()).toBeFocused();
+  });
+
+  test('a right-click on a tab leaves the keyboard in the conversation', async () => {
+    await openSession('Paginate the catalog search');
+    await changesShortcut().click();
+    await page.getByRole('button', { name: 'Files', exact: true }).click();
+
+    // On its close button, then an item.
+    await conversation().focus();
+    await page.getByRole('button', { name: 'Close Files tab', exact: true }).click({
+      button: 'right',
+    });
+    await page.getByRole('menuitem', { name: 'Split down', exact: true }).click();
+    await expect(tabList('Bottom group tabs').getByRole('tab')).toHaveText(['Files']);
+    await expect(conversation()).toBeFocused();
+
+    // On the tab itself, then dismissed.
+    await tabList('Top group tabs')
+      .getByRole('tab', { name: 'Changes', exact: true })
+      .click({ button: 'right' });
+    await expect(page.getByRole('menu')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('menu')).toHaveCount(0);
+    await expect(conversation()).toBeFocused();
   });
 
   test('a Terminal tab in a group hidden by Maximize starts no shell', async () => {

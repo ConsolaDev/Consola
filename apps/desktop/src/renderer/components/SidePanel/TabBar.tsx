@@ -5,6 +5,7 @@ import { Maximize2, Minimize2, Plus, X } from 'lucide-react';
 import { NEW_TAB, type GroupPosition, type TabGroupNode, type TabId } from '../../sidePanel/layout';
 import { tabKind, type TabFacts } from '../../sidePanel/tabKinds';
 import { useSidePanelStore } from '../../stores/sidePanelStore';
+import { keyboardAfterClose } from './keyboardAfterClose';
 import { TabMenu } from './TabMenu';
 import { useTabMark } from './tabMarks';
 
@@ -111,12 +112,10 @@ function TabBarTab({
   const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
     if (event.key !== 'Delete' && event.key !== 'Backspace') return;
     event.preventDefault();
-    const list = event.currentTarget.closest('[role="tablist"]');
+    const handOn = keyboardAfterClose(event.currentTarget);
     close();
-    // The closed trigger took the focus with it: hand it to the tab now in front.
-    requestAnimationFrame(() =>
-      list?.querySelector<HTMLElement>('[role="tab"][data-state="active"]')?.focus(),
-    );
+    // The closed trigger took the keyboard with it: hand it on once the close has rendered.
+    requestAnimationFrame(() => handOn());
   };
 
   return (
@@ -138,6 +137,11 @@ function TabBarTab({
           className="side-panel-tab-close"
           tabIndex={-1}
           aria-label={`Close ${title} tab`}
+          // A press that opens the tab's menu (the right button, or Ctrl on
+          // macOS) leaves the keyboard where it was, as the trigger's does.
+          onMouseDown={(event) => {
+            if (event.button !== 0 || event.ctrlKey) event.preventDefault();
+          }}
           onClick={close}
         >
           <X size={12} aria-hidden="true" />

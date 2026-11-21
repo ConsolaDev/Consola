@@ -2,6 +2,7 @@ import { type KeyboardEvent, useEffect, useId, useRef, useState } from 'react';
 import { type GroupId, NEW_TAB } from '../../sidePanel/layout';
 import { newTabOptions, type TabFacts, type TabKindId } from '../../sidePanel/tabKinds';
 import { useSidePanelStore } from '../../stores/sidePanelStore';
+import { keyboardAfterClose } from './keyboardAfterClose';
 
 /**
  * The placeholder tab's body: every kind the side panel can show, the ones
@@ -70,12 +71,10 @@ export function NewTabList({ groupId, facts }: { groupId: GroupId; facts: TabFac
         return;
       case 'Escape': {
         event.preventDefault();
-        const group = event.currentTarget.closest('.side-panel-group');
+        const handOn = keyboardAfterClose(event.currentTarget);
         closeTab(groupId, NEW_TAB);
-        // The list took the focus with it: hand it to the tab now in front.
-        requestAnimationFrame(() =>
-          group?.querySelector<HTMLElement>('[role="tab"][data-state="active"]')?.focus(),
-        );
+        // The list took the keyboard with it: hand it on once the close has rendered.
+        requestAnimationFrame(() => handOn());
         return;
       }
     }
