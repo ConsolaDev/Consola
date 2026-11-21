@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { loadMe, loadOrg, type MeState } from './api';
-import { signOut } from './authClient';
 import { Footer } from './components/Footer';
 import { ProfileCard } from './components/ProfileCard';
 import { SignInCard } from './components/SignInCard';
+import { SignOutButton } from './components/SignOutButton';
 import { messageForSignInError } from './signInError';
 
 type Org = { name: string; slug: string } | null;
@@ -55,9 +55,7 @@ function view(state: MeState, orgName: string | null, error: string | null) {
         <>
           <header className="topbar">
             <span>Consola Cloud · {state.me.organization.name}</span>
-            <button type="button" className="link-button" onClick={() => void signOut()}>
-              Sign out
-            </button>
+            <SignOutButton className="link-button" />
           </header>
           <ProfileCard me={state.me} />
         </>
@@ -69,9 +67,7 @@ function view(state: MeState, orgName: string | null, error: string | null) {
             You’re signed in, but not a member of {orgName ?? 'this organisation'}. Sign out and
             sign in again.
           </p>
-          <button type="button" className="button" onClick={() => void signOut()}>
-            Sign out
-          </button>
+          <SignOutButton className="button" />
         </section>
       );
     case 'unavailable':

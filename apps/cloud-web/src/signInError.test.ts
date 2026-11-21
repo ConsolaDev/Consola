@@ -1,5 +1,25 @@
 import { describe, expect, it } from 'vitest';
-import { messageForSignInError } from './signInError';
+import { messageForActionFailure, messageForSignInError } from './signInError';
+
+describe('messageForActionFailure', () => {
+  const notAnswering = 'Consola Cloud’s service isn’t answering. Try again in a moment.';
+
+  it('asks to wait after a 429', () => {
+    expect(messageForActionFailure({ status: 429 })).toBe(
+      'Too many sign-in attempts. Wait a minute and try again.',
+    );
+  });
+
+  it('says the service is not answering for any other status', () => {
+    expect(messageForActionFailure({ status: 500 })).toBe(notAnswering);
+    expect(messageForActionFailure({})).toBe(notAnswering);
+  });
+
+  it('says the service is not answering for a thrown error', () => {
+    expect(messageForActionFailure(new TypeError('Failed to fetch'))).toBe(notAnswering);
+    expect(messageForActionFailure(undefined)).toBe(notAnswering);
+  });
+});
 
 describe('messageForSignInError', () => {
   it('says nothing when there is no error', () => {
