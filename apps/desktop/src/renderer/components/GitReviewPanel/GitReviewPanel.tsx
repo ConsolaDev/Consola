@@ -52,7 +52,10 @@ export const GitReviewPanel = memo(function GitReviewPanel({
   }, [rootPath, refresh]);
 
   // Only an Escape pressed inside the tab closes it. Anywhere else Escape
-  // belongs to something else, Claude's interrupt key among them.
+  // belongs to something else, Claude's interrupt key among them. Each root
+  // takes focus (`tabIndex={-1}`) so a click on diff text or blank space
+  // lands it here, rather than on the tab panel around the review, where
+  // this handler would never hear the Escape.
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Escape') onClose();
   };
@@ -71,7 +74,7 @@ export const GitReviewPanel = memo(function GitReviewPanel({
   if (!rootPath) {
     return (
       // biome-ignore lint/a11y/noStaticElementInteractions: catches Escape from the controls inside, it is not a control itself
-      <div className="git-review-panel" onKeyDown={handleKeyDown}>
+      <div className="git-review-panel" tabIndex={-1} onKeyDown={handleKeyDown}>
         <div className="git-review-empty">
           <GitBranch size={48} strokeWidth={1.5} className="git-review-empty-icon" />
           <h3 className="git-review-empty-title">No workspace selected</h3>
@@ -84,7 +87,7 @@ export const GitReviewPanel = memo(function GitReviewPanel({
   if (!isGitRepo) {
     return (
       // biome-ignore lint/a11y/noStaticElementInteractions: catches Escape from the controls inside, it is not a control itself
-      <div className="git-review-panel" onKeyDown={handleKeyDown}>
+      <div className="git-review-panel" tabIndex={-1} onKeyDown={handleKeyDown}>
         <div className="git-review-main">
           <div className="git-review-main-header">
             <div className="git-review-main-header-left">
@@ -108,7 +111,7 @@ export const GitReviewPanel = memo(function GitReviewPanel({
 
   const panelContent = (
     // biome-ignore lint/a11y/noStaticElementInteractions: catches Escape from the controls inside, it is not a control itself
-    <div className="git-review-panel" onKeyDown={handleKeyDown}>
+    <div className="git-review-panel" tabIndex={-1} onKeyDown={handleKeyDown}>
       {/* Sidebar */}
       <div className={`git-review-sidebar ${isSidebarCollapsed ? 'collapsed' : ''}`}>
         <div className="git-review-sidebar-header">

@@ -136,6 +136,18 @@ test.describe('side panel', () => {
     await expect(page.getByTestId('side-panel')).toHaveCount(0);
   });
 
+  test('Escape after a click on the diff closes the Changes tab', async () => {
+    await openSession('Paginate the catalog search');
+    await changesShortcut().click();
+    await expect(changesTab()).toHaveAttribute('aria-selected', 'true');
+
+    // Nothing in the diff can take focus itself, so the click must land it
+    // inside the review rather than on the tab panel around it.
+    await page.locator('.git-review-panel .git-review-inline-diff-content').first().click();
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('side-panel')).toHaveCount(0);
+  });
+
   test('the palette opens Changes', async () => {
     await openSession('Paginate the catalog search');
     await expect(page.locator('[data-conversation-terminal]')).toBeVisible();

@@ -86,6 +86,7 @@ function TabSlot({
     );
   }
 
+  const View = TAB_VIEWS[kind.id];
   return (
     <Tabs.Content
       key={`${kind.id}:${facts.session.id}`}
@@ -94,7 +95,7 @@ function TabSlot({
       hidden={!inFront}
       className="side-panel-tab-content"
     >
-      {TAB_VIEWS[kind.id]({ facts, close })}
+      <View facts={facts} close={close} />
     </Tabs.Content>
   );
 }

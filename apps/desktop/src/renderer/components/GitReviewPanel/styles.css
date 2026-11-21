@@ -10,6 +10,11 @@
   overflow: hidden;
 }
 
+/* Focused by a click inside, so Escape reaches it; never by Tab, so no ring */
+.git-review-panel:focus {
+  outline: none;
+}
+
 /* ========================================
    Sidebar
    ======================================== */
