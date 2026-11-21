@@ -9,7 +9,8 @@
  * The layout is a tree, a group or a split of nodes, so the format already
  * allows deeper splits: allowing them is a change of rule, not of format. The
  * rule today is at most `MAX_GROUPS` groups, and `canSplit` is the one place
- * that cap lives. Nothing else here counts groups before adding one.
+ * a change checks that cap. Nothing else here counts groups before adding
+ * one; `repairLayout` applies the cap to what storage holds.
  *
  * Every function is pure, and returns its input by reference when the action
  * does not apply, so a caller can tell that nothing happened with `===`.

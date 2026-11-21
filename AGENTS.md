@@ -210,7 +210,7 @@ upstream fixed.
 The in-app browser's pages are `<webview>` guests, and Electron destroys the
 guest of an element that moves. So no page lives in the Browser tab, which
 unmounts whenever it goes behind another tab, its group is hidden, the side
-panel hides, or an overlay covers it, and re-renders on every session switch:
+panel hides, or an overlay covers it, and remounts on every session switch:
 `BrowserHost`, at the layout's root, holds every page of the window's
 workspace in one parent, in creation order (`hostOrder`), and only ever adds
 or removes one. The tab's slot only says where to draw. A page out of sight
@@ -385,29 +385,34 @@ a harness switch leaves them alone.
 ### The Side Panel Holds Tabs
 
 Beside each session's conversation sits its side panel: one group of tabs,
-or two, stacked or side by side. Each tab is a kind (Changes, Files,
-Terminal, Browser, Pull request) or the "+" list's placeholder (`NEW_TAB`).
-It is view state, kept in the renderer, never on a `Workspace` or `Session`
+or two, stacked or side by side. It is not the Automations overlay's own
+side panel (`components/Automations/SidePanel.tsx`,
+`.automations-side-panel`). Each tab is a kind (Changes, Files, Terminal,
+Browser, Pull request) or the "+" list's placeholder (`NEW_TAB`). It is
+view state, kept in the renderer, never on a `Workspace` or `Session`
 record.
 
 - **`sidePanel/tabKinds.ts` is the only list of kinds** (`TAB_KINDS`), and its
   order is canonical: the header's shortcuts, the "+" list and the palette
-  iterate it, a stored layout is repaired against it, and none of them names
-  a kind id. A kind is an entry there, its view in `TAB_VIEWS`
-  (`SidePanel/tabViews.tsx`, a component per kind, keyed by every id, so a
-  kind without a view does not typecheck) and, if it has one, its mark in
-  `TAB_MARKS`. Whether a kind applies to the
-  session is its own `availability`, read from `TabFacts`, whose
-  `checkoutPath` is `checkoutPathForSession`'s: Changes, Files and Terminal
-  are unavailable while the worktree is removed, and say why in their tab.
+  iterate it, and a stored layout is repaired against it, so none of them
+  lists kinds by id; code that means one kind (a chord, the palette's commit
+  rows, a terminal link) names it. A kind is an entry there, its view in
+  `TAB_VIEWS` (`components/SidePanel/tabViews.tsx`, a component per kind,
+  keyed by every id, so a kind without a view does not typecheck) and, if it
+  has one, its mark in `TAB_MARKS`. Whether a kind applies to the session is
+  its own `availability`, read from `TabFacts`, whose `checkoutPath` is
+  `checkoutPathForSession`'s: Changes, Files and Terminal are unavailable
+  while the worktree is removed, and say why in their tab.
 - **Every arrangement change goes through `sidePanel/layout.ts`.** Its
   functions are pure and return their input when an action does not apply;
-  the store wraps each in an action of the same name, and components change
-  the layout only through those. The layout is a tree, so allowing deeper
-  splits is a change of rule, not of format: `canSplit` is the one place the
-  two-group cap (`MAX_GROUPS`) lives. A stored layout from another build goes
-  through `repairLayout`, which drops what it cannot keep (an unknown kind, a
-  kind twice, a third group) and never throws.
+  the store wraps each function that changes the layout in an action of the
+  same name, and components change the layout only through those; the
+  queries are called directly. The layout is a tree, so allowing deeper
+  splits is a change of rule, not of format: `canSplit` is the one place a
+  change checks the two-group cap (`MAX_GROUPS`). A stored layout from
+  another build goes through `repairLayout`, which applies the cap to what
+  storage holds, drops what it cannot keep (an unknown kind, a kind twice, a
+  third group) and never throws.
 - **The conversation's panel stays the unconditional first child of
   `ContentView`'s `Group`**, with the same key and no wrapper that differs
   between layouts. Opening, closing, splitting, maximizing or dragging in the
@@ -424,8 +429,11 @@ record.
   the person's own request (`takeFocusRequest`). `openKind`, `pressShortcut`,
   `bringToFront` and `choosePlaceholder` set a request only when the kind was
   not in front on screen before and is after; a launch, a session switch or
-  a return from an overlay sets none, so keys meant for Claude never land in
-  a shell. The "+" list takes the keyboard by the same rule.
+  a return from an overlay sets no request by itself, so keys meant for
+  Claude never land in a shell. The "+" list takes the keyboard by the same
+  rule. Under the Inbox or Automations the side panel's chords do nothing,
+  and the palette leaves out the side panel's rows, so the two agree; a row
+  the person runs there (the browser's, as on main) is their own action.
 - **The Browser tab holds no page.** Pages stay in `BrowserHost` (see "Pages
   Live in One Place"); the Browser kind's view only claims the slot a page is
   drawn over, and only while mounted (`mount: 'front'`), so a tab behind, a
@@ -434,8 +442,8 @@ record.
   showed it) is on its header shortcut while Browser is one of the three, on
   its tab while that is in a group on screen, and otherwise on the side panel
   toggle (`markPlaces`). `.side-panel-tab` is one of `BrowserHost`'s drag
-  handles, so a tab dragged across a shown page does not stall, and the drop
-  target and the tab menu draw above the page.
+  handles, so a tab dragged across a shown page does not stall. The drop
+  target and the tab menu draw above the page's layer (`--z-browser-page`).
 - **Layout, use counts and the setting live in `sidePanelStore`**, on
   localStorage (`consola-side-panel`), never in `Preferences`. The layout is
   written and read only while "Remember the side panel's layout" is on;

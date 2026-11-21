@@ -12,9 +12,8 @@ const CONVERSATION = '[data-conversation-terminal] .terminal-surface textarea';
  * 2. Else, the group having gone with its only tab, the front tab of the first
  *    group still on screen.
  * 3. Else, the side panel having hidden with its last tab, the conversation's
- *    terminal: the one place left in the session's view that takes typing,
- *    and where the keyboard was before the panel took it. The side panel's
- *    toggle stands in should the terminal not be there.
+ *    terminal: the one place left in the session's view that takes typing.
+ *    The side panel's toggle stands in should the terminal not be there.
  *
  * Never the body, where the next key would land nowhere. A key held down to
  * close a tab closes that one: once the keyboard is placed, its repeats stop
