@@ -434,8 +434,11 @@ record.
   rule. Under the Inbox or Automations the side panel's chords do nothing,
   and the palette leaves out the side panel's rows, so the two agree; a row
   the person runs there (the browser's, as on main) is their own action.
-- **A close or a hide never drops the keyboard to the body**
-  (`keyboardAfterClose.ts`). A close from the tab bar, with the keyboard on
+- **The side panel's own closes, and the chords that hide it, never drop
+  the keyboard to the body** (`keyboardAfterClose.ts`). The palette's
+  "Hide side panel" row is not one of them: run with the keyboard in a
+  shell or a page, it leaves the keyboard on the body, and that is
+  accepted. A close from the tab bar, with the keyboard on
   the tab or in what it shows, hands it to the tab now in front, else to the
   conversation (`keyboardAfterClose`). A tab closed from inside its own view
   (Changes' Escape, a view's own close button) or with the keyboard in its
