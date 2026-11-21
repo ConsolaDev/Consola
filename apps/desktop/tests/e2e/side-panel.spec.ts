@@ -993,6 +993,86 @@ test.describe('side panel', () => {
     expect(await heard()).toEqual(['Escape']);
   });
 
+  test('a tab closed while it is dragged still holds Escape until the drag is over', async () => {
+    await openSession('Paginate the catalog search');
+    await changesShortcut().click();
+    await page.getByRole('button', { name: 'Files', exact: true }).click();
+    // Every key anything in the window is sent, wherever the keyboard is.
+    await page.evaluate(() => {
+      const heard: string[] = [];
+      (window as unknown as { __heard: string[] }).__heard = heard;
+      document.addEventListener(
+        'keydown',
+        (event) => {
+          if (event.isTrusted) heard.push(event.key);
+        },
+        true,
+      );
+    });
+    const heard = () =>
+      page.evaluate(() => (window as unknown as { __heard: string[] }).__heard.splice(0));
+
+    // Pressed, the tab takes the keyboard, so Delete there closes it while
+    // it is dragged. The drag goes on without it until the release.
+    const area = (await page.locator('.side-panel-group-body').boundingBox())!;
+    await dragTab(sidePanelTab('Files'), {
+      x: area.x + area.width / 2,
+      y: area.y + area.height / 2,
+    });
+    await expect(page.locator('.side-panel-tab[data-dragging]')).toHaveCount(1);
+    await expect(sidePanelTab('Files')).toBeFocused();
+    await page.keyboard.press('Delete');
+    await expect(sidePanelTabs().getByRole('tab')).toHaveText(['Changes']);
+    await page.mouse.move(area.x + area.width / 2, area.y + area.height / 3, { steps: 2 });
+    expect(await heard()).toEqual(['Delete']);
+
+    // Escape cancels it, and reaches nothing else.
+    await page.keyboard.press('Escape');
+    expect(await heard()).toEqual([]);
+    await page.mouse.up();
+    await expect(sidePanelTabs().getByRole('tab')).toHaveText(['Changes']);
+    // Pressed once the drag is over, it is heard again.
+    await page.keyboard.press('Escape');
+    expect(await heard()).toEqual(['Escape']);
+  });
+
+  test('a tab closed while it is dragged leaves the keyboard where the close put it', async () => {
+    await openSession('Paginate the catalog search');
+    await changesShortcut().click();
+    const area = (await page.locator('.side-panel-group-body').boundingBox())!;
+    /** From the conversation, Files pressed, dragged, and closed by Delete on the way. */
+    const closeFilesMidDrag = async () => {
+      await page.getByRole('button', { name: 'Files', exact: true }).click();
+      await conversation().focus();
+      await dragTab(sidePanelTab('Files'), {
+        x: area.x + area.width / 2,
+        y: area.y + area.height / 2,
+      });
+      await expect(page.locator('.side-panel-tab[data-dragging]')).toHaveCount(1);
+      await page.keyboard.press('Delete');
+      await expect(sidePanelTabs().getByRole('tab')).toHaveText(['Changes']);
+      await expect(sidePanelTab('Changes')).toBeFocused();
+    };
+    const twoFrames = () =>
+      page.evaluate(
+        () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))),
+      );
+
+    // Released: there is no tab to drop, nor a keyboard to give back.
+    await closeFilesMidDrag();
+    await page.mouse.up();
+    await twoFrames();
+    await expect(sidePanelTab('Changes')).toBeFocused();
+
+    // Cancelled by Escape: the same.
+    await closeFilesMidDrag();
+    await page.keyboard.press('Escape');
+    await page.mouse.up();
+    await twoFrames();
+    await expect(sidePanelTab('Changes')).toBeFocused();
+    await expect(sidePanelTabs().getByRole('tab')).toHaveText(['Changes']);
+  });
+
   test('no layout change remounts the conversation terminal', async () => {
     await openSession('Paginate the catalog search');
     const xterm = page.locator('[data-conversation-terminal] .xterm');

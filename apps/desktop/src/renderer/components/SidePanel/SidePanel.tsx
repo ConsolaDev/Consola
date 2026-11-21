@@ -53,42 +53,53 @@ export function SidePanel({ facts }: { facts: TabFacts }) {
   /**
    * A drag is the pointer's, so the keyboard goes back to where it was before
    * the press. When that place went with the drop (the tab's own content,
-   * remounted in another group), it goes to the tab, in the bar it is in now.
+   * remounted in another group), or is out of sight or will not take it, it
+   * goes to the tab, in the bar it is in now.
+   *
+   * Out of sight is asked first: a page the drop sent behind another tab is
+   * still connected, only not drawn, and a `<webview>`'s own `focus()` takes
+   * the keyboard into it all the same, `display: none` or `inert`.
    */
   const giveKeyboardBack = (tab: TabId) => {
     const before = keyboardBefore.current;
     keyboardBefore.current = null;
     requestAnimationFrame(() => {
-      if (before instanceof HTMLElement && before.isConnected && before !== document.body) {
-        before.focus();
-      } else {
-        focusTrigger(tab);
-      }
+      const back =
+        before instanceof HTMLElement &&
+        before !== document.body &&
+        before.checkVisibility() &&
+        !before.closest('[inert]')
+          ? before
+          : null;
+      back?.focus();
+      if (back === null || document.activeElement !== back) focusTrigger(tab);
     });
   };
 
+  // A drag whose tab was closed on the way has nothing to drop, and the close
+  // has already placed the keyboard, so its end and its cancel leave both be.
   const drop = ({ active, over, activatorEvent, delta }: DragEndEvent) => {
-    const dragged = active.data.current as DraggedTab | undefined;
-    if (!dragged) return;
+    const tab = draggedTabOf(active);
+    if (tab === undefined) return;
     const zone = over?.data.current as DropZone | undefined;
     const pointer = pointerAt(activatorEvent, delta);
     const store = useSidePanelStore.getState();
     if (over && zone && pointer) {
       if (zone.part === 'bar') {
-        const place = zone.placeAt(dragged.tab, pointer.x);
-        if (place) store.moveTab(dragged.tab, zone.groupId, place.index);
+        const place = zone.placeAt(tab, pointer.x);
+        if (place) store.moveTab(tab, zone.groupId, place.index);
       } else {
-        const edge = splitEdge(store.layout, zone.groupId, dragged.tab, over.rect, pointer);
-        if (edge) store.splitWithTab(zone.groupId, dragged.tab, edge);
+        const edge = splitEdge(store.layout, zone.groupId, tab, over.rect, pointer);
+        if (edge) store.splitWithTab(zone.groupId, tab, edge);
       }
     }
-    giveKeyboardBack(dragged.tab);
+    giveKeyboardBack(tab);
   };
 
   // Said by the tab's title, rather than dnd-kit's ids.
   const titleOf = (active: Active) => {
-    const dragged = active.data.current as DraggedTab | undefined;
-    return (dragged && tabKind(dragged.tab)?.title(facts)) ?? 'tab';
+    const tab = draggedTabOf(active);
+    return (tab !== undefined && tabKind(tab)?.title(facts)) || 'tab';
   };
   const announcements: Announcements = {
     onDragStart: ({ active }) => `Picked up the ${titleOf(active)} tab.`,
@@ -114,8 +125,8 @@ export function SidePanel({ facts }: { facts: TabFacts }) {
         accessibility={{ announcements }}
         onDragEnd={drop}
         onDragCancel={({ active }) => {
-          const dragged = active.data.current as DraggedTab | undefined;
-          if (dragged) giveKeyboardBack(dragged.tab);
+          const tab = draggedTabOf(active);
+          if (tab !== undefined) giveKeyboardBack(tab);
         }}
       >
         <Group
@@ -166,17 +177,32 @@ export function SidePanel({ facts }: { facts: TabFacts }) {
  *   page to the dragged tab, as a press on the tab itself does; the drag
  *   gives it back when it is over (`giveKeyboardBack`).
  * - Escape cancels the drag, and nothing else hears it (`escapeCancelsDrag`).
+ *
+ * Both follow the drag's id, which lasts as long as the drag. Its tab can go
+ * first (`draggedTabOf`), and is read only for the keyboard's move at the start.
  */
 function KeyboardWhileDragging() {
   const { active } = useDndContext();
-  const tab = (active?.data.current as DraggedTab | undefined)?.tab;
+  const id = active?.id;
+  const tab = draggedTabOf(active);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the drag's id is the trigger; its tab is read once, at the start
   useEffect(() => {
-    if (tab === undefined) return undefined;
+    if (id === undefined) return undefined;
     const focused = document.activeElement;
-    if (focused?.tagName === 'WEBVIEW' || focused?.closest('.browser-host')) focusTrigger(tab);
+    const inPage = focused?.tagName === 'WEBVIEW' || !!focused?.closest('.browser-host');
+    if (tab !== undefined && inPage) focusTrigger(tab);
     return escapeCancelsDrag();
-  }, [tab]);
+  }, [id]);
   return null;
+}
+
+/**
+ * The tab a drag carries. Closing a tab while it is dragged (Delete on the
+ * trigger its press focused) unmounts its draggable, and dnd-kit then gives
+ * the drag, still under way, empty data: from there on it carries no tab.
+ */
+function draggedTabOf(active: Active | null): TabId | undefined {
+  return (active?.data.current as Partial<DraggedTab> | undefined)?.tab;
 }
 
 /**

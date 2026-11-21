@@ -600,6 +600,45 @@ test.describe('in-app browser', () => {
       page.getByRole('tablist', { name: 'Side panel tabs', exact: true }).getByRole('tab'),
     ).toHaveText(['Files', 'Browser']);
   });
+
+  test('a drop that hides the page the keyboard was in hands it to the dropped tab', async () => {
+    await openSession(page, 'Alpha');
+    await page.getByRole('button', { name: 'Files', exact: true }).click();
+    await showBrowser(page);
+    await typeAddress(page, `${fixtures.host}/a.html`);
+    await expect.poll(() => guestUrls(app)).toEqual([fixtures.url('/a.html')]);
+    const tabs = (list: string) => page.getByRole('tablist', { name: list, exact: true });
+    const files = (list: string) => tabs(list).getByRole('tab', { name: 'Files', exact: true });
+    const presence = () => page.locator('.browser-page').getAttribute('data-presence');
+    // Files in a group of its own, below the page's.
+    await files('Side panel tabs').click({ button: 'right' });
+    await page.getByRole('menuitem', { name: 'Split down', exact: true }).click();
+    await expect(tabs('Top group tabs').getByRole('tab')).toHaveText(['Browser']);
+    await expect(tabs('Bottom group tabs').getByRole('tab')).toHaveText(['Files']);
+    await expect.poll(presence).toBe('shown');
+    // The keyboard into the page, by a click in it.
+    const slot = (await page.getByTestId('browser-slot').boundingBox())!;
+    await page.mouse.click(slot.x + slot.width / 2, slot.y + slot.height / 2);
+    const inPage = () => page.evaluate(() => document.activeElement?.tagName === 'WEBVIEW');
+    await expect.poll(inPage).toBe(true);
+
+    // Files dropped on the page's bar comes in front there and hides the
+    // page, which cannot take the keyboard back: the dropped tab has it.
+    const from = (await files('Bottom group tabs').boundingBox())!;
+    const browser = (await tabs('Top group tabs')
+      .getByRole('tab', { name: 'Browser', exact: true })
+      .boundingBox())!;
+    await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(browser.x + browser.width + 20, browser.y + browser.height / 2, {
+      steps: 10,
+    });
+    await expect(page.locator('.side-panel-drop-caret')).toBeVisible();
+    await page.mouse.up();
+    await expect(tabs('Side panel tabs').getByRole('tab')).toHaveText(['Browser', 'Files']);
+    await expect.poll(presence).toBe('hidden');
+    await expect(files('Side panel tabs')).toBeFocused();
+  });
 });
 
 test('tabs and the address come back after a relaunch', async () => {
