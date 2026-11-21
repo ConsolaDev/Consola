@@ -1,5 +1,5 @@
 import { type TestHelpers, testUtils } from 'better-auth/plugins';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApp } from './app.js';
 import { type CloudAuth, createAuth } from './auth/auth.js';
 import type { CloudConfig } from './config.js';
@@ -24,8 +24,14 @@ let organization: Organization;
 let auth: CloudAuth;
 let test: TestHelpers;
 let app: ReturnType<typeof createApp>;
+// Better Auth keeps rate-limit counts per client address and path for the whole file, so each
+// test signs in from an address of its own (TEST-NET-3, never routed).
+let clients = 0;
+let clientIp: string;
 
 beforeEach(async () => {
+  clients += 1;
+  clientIp = `203.0.113.${clients}`;
   const opened = openDatabase(config.databaseUrl);
   db = opened.db;
   let closed = false;
@@ -43,12 +49,56 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   await closeDatabase();
 });
 
 async function signIn(email: string, name: string) {
-  const user = await test.saveUser(test.createUser({ email, name }));
+  const user = await test.saveUser(test.createUser({ email, name, emailVerified: true }));
   return test.login({ userId: user.id });
+}
+
+/** A request the web app's proxy forwards: from the web origin, with the client's address. */
+function fromBrowser(headers?: HeadersInit): Headers {
+  const forwarded = new Headers(headers);
+  forwarded.set('origin', WEB_ORIGIN);
+  forwarded.set('content-type', 'application/json');
+  forwarded.set('x-forwarded-for', clientIp);
+  return forwarded;
+}
+
+function startGoogleSignIn() {
+  return app.request('/api/auth/sign-in/social', {
+    method: 'POST',
+    headers: fromBrowser(),
+    body: JSON.stringify({ provider: 'google', callbackURL: '/', errorCallbackURL: '/' }),
+  });
+}
+
+/**
+ * Google's token endpoint, answering with an id token for `claims`. It is unsigned: Better Auth
+ * only decodes the id token it gets back from the token endpoint.
+ */
+function stubGoogleToken(claims: Record<string, unknown>) {
+  const encode = (part: object) => Buffer.from(JSON.stringify(part)).toString('base64url');
+  const idToken = `${encode({ alg: 'none', typ: 'JWT' })}.${encode({
+    iss: 'https://accounts.google.com',
+    aud: config.google.clientId,
+    ...claims,
+  })}.`;
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+    const url = input instanceof Request ? input.url : String(input);
+    if (!url.startsWith('https://oauth2.googleapis.com/token')) {
+      throw new Error(`The test made an unexpected request to ${url}`);
+    }
+    return Response.json({
+      access_token: 'sprocket-access-token',
+      token_type: 'Bearer',
+      expires_in: 3600,
+      scope: 'openid email profile',
+      id_token: idToken,
+    });
+  });
 }
 
 async function get(path: string, headers?: Headers, on = app) {
@@ -117,12 +167,9 @@ describe('who is signed in', () => {
 
   it('people cannot create organisations', async () => {
     const login = await signIn('dana@sprocket.test', 'Dana Ortiz');
-    const headers = new Headers(login.headers);
-    headers.set('origin', WEB_ORIGIN);
-    headers.set('content-type', 'application/json');
     const response = await app.request('/api/auth/organization/create', {
       method: 'POST',
-      headers,
+      headers: fromBrowser(login.headers),
       body: JSON.stringify({ name: 'Elsewhere', slug: 'elsewhere' }),
     });
     expect(response.status).toBe(403);
@@ -132,17 +179,56 @@ describe('who is signed in', () => {
 
 describe('Google sign-in', () => {
   it('starting Google sign-in points Google back at the web origin', async () => {
-    const response = await app.request('/api/auth/sign-in/social', {
-      method: 'POST',
-      headers: { origin: WEB_ORIGIN, 'content-type': 'application/json' },
-      body: JSON.stringify({ provider: 'google', callbackURL: '/', errorCallbackURL: '/' }),
-    });
+    const response = await startGoogleSignIn();
     expect(response.status).toBe(200);
     const { url } = (await response.json()) as { url: string };
     const google = new URL(url);
     expect(google.hostname).toBe('accounts.google.com');
     expect(google.searchParams.get('redirect_uri')).toBe(`${WEB_ORIGIN}/api/auth/callback/google`);
     expect(google.searchParams.get('prompt')).toBe('select_account');
+  });
+
+  it('an unverified Google email goes back to the web app with an error', async () => {
+    const started = await startGoogleSignIn();
+    const { url } = (await started.json()) as { url: string };
+    const state = new URL(url).searchParams.get('state') ?? '';
+    const cookie = started.headers
+      .getSetCookie()
+      .map((setCookie) => setCookie.split(';')[0])
+      .join('; ');
+    stubGoogleToken({
+      sub: 'google-sam',
+      email: 'sam@sprocket.test',
+      email_verified: false,
+      name: 'Sam Reyes',
+    });
+
+    const response = await app.request(
+      `/api/auth/callback/google?code=sprocket-code&state=${encodeURIComponent(state)}`,
+      { headers: { cookie, 'x-forwarded-for': clientIp } },
+    );
+
+    expect(response.status).toBe(302);
+    const location = new URL(response.headers.get('location') ?? '', WEB_ORIGIN);
+    expect(location.origin).toBe(WEB_ORIGIN);
+    expect(location.pathname).toBe('/');
+    expect(location.searchParams.get('error')).toBe('email_not_verified');
+    expect(location.searchParams.get('error_description')).toBe(
+      'A verified email address is required.',
+    );
+    expect(await db.select().from(schema.user)).toEqual([]);
+  });
+});
+
+describe('rate limiting', () => {
+  it('is on, whatever NODE_ENV says', async () => {
+    expect((await auth.$context).rateLimit.enabled).toBe(true);
+    const statuses: number[] = [];
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      statuses.push((await startGoogleSignIn()).status);
+    }
+    // Better Auth allows three sign-in attempts per address every ten seconds.
+    expect(statuses).toEqual([200, 200, 200, 429]);
   });
 });
 
