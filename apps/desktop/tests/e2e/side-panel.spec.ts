@@ -619,6 +619,42 @@ test.describe('side panel', () => {
     );
     await sidePanelToggle().click();
     await expect(page.getByTestId('side-panel')).toHaveCount(0);
+
+    // Terminal in front on a session with a checkout starts its shell: the
+    // control, which shows the probes below see one.
+    const shell = page.getByTestId('session-shell');
+    await openSession('Paginate the catalog search');
+    await changesShortcut().click();
+    await page.getByRole('button', { name: 'Files', exact: true }).click();
+    await page.getByRole('button', { name: 'Terminal', exact: true }).click();
+    await expect(page.locator('.shell-directory')).toHaveText(/^Started in: \//);
+    await expect(shell).toHaveCount(1);
+
+    // In front on the session whose worktree was removed, it starts none,
+    // not even for a moment: attaching a shell would rebuild the worktree.
+    const shellMounts = await countShellMounts();
+    await openSession('Old experiment');
+    await expect(page.locator('.workspace-view-session')).toHaveText('Old experiment');
+    await expect(sidePanelTab('Terminal')).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByTestId('side-panel')).toContainText(removedReason);
+    await expect(shell).toHaveCount(0);
+    expect(await shellMounts()).toBe(0);
+
+    // Changes and Files, brought to the front there, say why too.
+    for (const title of ['Changes', 'Files']) {
+      await sidePanelTab(title).click();
+      await expect(sidePanelTab(title)).toHaveAttribute('aria-selected', 'true');
+      await expect(page.locator('.side-panel-unavailable')).toHaveText(removedReason);
+    }
+    await expect(page.locator('.git-review-panel')).toHaveCount(0);
+    await expect(page.getByTestId('files-tree')).toHaveCount(0);
+    expect(await shellMounts()).toBe(0);
+
+    // Back on the session with a checkout, the count sees its shell mount.
+    await sidePanelTab('Terminal').click();
+    await openSession('Paginate the catalog search');
+    await expect(shell).toHaveCount(1);
+    expect(await shellMounts()).toBe(1);
   });
 
   test('⌥⌘B toggles the side panel from the conversation', async () => {
