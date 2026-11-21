@@ -773,8 +773,6 @@ test.describe('side panel', () => {
   test('with remembering off, a restart starts from the defaults', async () => {
     await splitChangesOverFiles();
 
-    // The side panel's edge dragged 60px into the conversation, so its width
-    // is no longer the default one.
     // A function, so that it finds the window of the app relaunched below.
     const sidePanel = () => page.getByTestId('side-panel');
     const panelWidth = async () => {
@@ -783,6 +781,8 @@ test.describe('side panel', () => {
       return box.width;
     };
     const atDefault = await panelWidth();
+    // The side panel's edge dragged 60px into the conversation, so its width
+    // is no longer the default one.
     const separator = page.locator('.resize-handle:has(+ [data-testid="side-panel"])');
     const edge = (await separator.boundingBox())!;
     await page.mouse.move(edge.x + edge.width / 2, edge.y + edge.height / 2);
