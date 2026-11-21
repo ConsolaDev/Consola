@@ -2376,6 +2376,68 @@ describe('on a chosen item', () => {
       expect(h.world.launches[0].item).not.toHaveProperty('startedByHandSince');
     });
 
+    /** Review requests reviewed by steps whose first agent step is the Review action. */
+    const onReviewSteps = `- name: ${EVENT_NAME}\n  on: { github: pull_request.review_requested }\n  mode: auto\n${ACTION_STEP('Review')}`;
+    /** A Review of #51 the person starts by hand now: after any run made before it. */
+    const reviewOf51ByHand = (h: SourcesHarness) =>
+      h.world.workspace.sessions.push({
+        id: 'by-hand',
+        workspaceId: WORKSPACE_ID,
+        name: 'Review #51',
+        scopeId: 'scope-catalog-portal',
+        harnessId: 'claude',
+        claudeSessionId: 'claude-by-hand',
+        createdAt: h.now().getTime(),
+        workItemKey: PR_51_KEY,
+        workItemAction: 'Review',
+      });
+
+    it('a session started by hand on the item does not reject a manual steps run on an event entry', async () => {
+      // No agent slot: the run waits in line while the person starts a Review on #51 by hand.
+      // Approved at the version a steps entry has: its action bodies, by step id.
+      const h = await approvedEvent(
+        onReviewSteps,
+        [PR51],
+        { maxConcurrentAgents: 0 },
+        stableStringify({ act: REVIEW_BODY }),
+      );
+      h.world.byHandRefuses = true;
+      const run = await h.runOn({ workItem: PR_51 }, EVENT_NAME);
+      expect(run.status).toBe('queued');
+      h.advance(MINUTE);
+      reviewOf51ByHand(h);
+      h.world.maxConcurrentAgents = undefined;
+      await h.tick();
+      await h.flush();
+      // It starts (`checkQueued` let it through), and its checkout asks nothing about a review by hand.
+      expect(h.store.get(run.id)).toMatchObject({ status: 'running' });
+      expect(h.world.checkouts.prepared).toEqual([
+        { workspaceId: WORKSPACE_ID, workItem: { provider: 'github', ...PR_51 } },
+      ]);
+      expect(h.world.launches).toHaveLength(1);
+      expect(h.world.launches[0].item).not.toHaveProperty('startedByHandSince');
+    });
+
+    it('a session started by hand on the item does not reject a manual steps run on a poll entry', async () => {
+      const entry = pollOnItems(ACTION_STEP('Review'), '  mode: auto\n');
+      // #51 is in the last check, so the run takes the poll's branch of `checkQueued`.
+      const h = await allowedPoll(entry, [PR_51_ROW], { maxConcurrentAgents: 0 }, 'checker');
+      h.world.byHandRefuses = true;
+      const run = await h.runOn({ workItem: PR_51 }, 'checker');
+      expect(run.status).toBe('queued');
+      h.advance(MINUTE);
+      reviewOf51ByHand(h);
+      h.world.maxConcurrentAgents = undefined;
+      await h.tick();
+      await h.flush();
+      expect(h.store.get(run.id)).toMatchObject({ status: 'running' });
+      expect(h.world.checkouts.prepared).toEqual([
+        { workspaceId: WORKSPACE_ID, workItem: { provider: 'github', ...PR_51 } },
+      ]);
+      expect(h.world.launches).toHaveLength(1);
+      expect(h.world.launches[0].item).not.toHaveProperty('startedByHandSince');
+    });
+
     it("a manual run waiting for approval absorbs a change, and starts with the latest result's object", async () => {
       const h = await allowedPoll(CONFIRM, [at('a')]);
       const run = await h.runOn({ workItem: PR_51 });
