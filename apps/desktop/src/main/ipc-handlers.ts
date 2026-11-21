@@ -228,6 +228,7 @@ import type { SnoozeWhen } from '../shared/snooze';
 import { activityOf, type AttentionState } from '../shared/attention';
 import type { ActivateWorkspaceResult, WorkspaceView } from '../shared/types';
 import { automationsTickMs } from './test-mode';
+import { noticeTarget } from './automations/noticeTarget';
 
 // One terminal per session tab, kept alive while the session is open
 let terminalManager: TerminalManager | null = null;
@@ -2055,13 +2056,17 @@ export function setupIpcHandlers(): boolean {
       // automation's page, or else that workspace's Automations dashboard
       // with the run open, in the window holding it.
       notification.on('click', () => {
-        if (notice.sessionId) focusOrCreate(notice.workspaceId, viewMemoryPort(), notice.sessionId);
-        else if (notice.automation)
-          showAutomations(notice.workspaceId, { automation: notice.automation }, viewMemoryPort());
+        const target = noticeTarget(notice);
+        if (target.kind === 'session')
+          focusOrCreate(notice.workspaceId, viewMemoryPort(), target.sessionId);
         else
           showAutomations(
             notice.workspaceId,
-            notice.runId ? { runId: notice.runId } : {},
+            target.kind === 'automation'
+              ? { automation: target.name }
+              : target.runId
+                ? { runId: target.runId }
+                : {},
             viewMemoryPort(),
           );
       });
