@@ -205,6 +205,40 @@ test.describe('side panel', () => {
     await expect(conversation()).toBeFocused();
   });
 
+  test('an Escape something inside Changes took, or one that ends a composition, leaves it open', async () => {
+    await openSession('Paginate the catalog search');
+    await changesShortcut().click();
+    const box = page.getByPlaceholder('Enter commit message...');
+    // Something inside that takes Escape for itself, while it has a use for it.
+    await box.evaluate((element) => {
+      element.addEventListener('keydown', (event) => {
+        if ((window as unknown as { __takeEscape?: boolean }).__takeEscape) event.preventDefault();
+      });
+    });
+    const takeEscape = (take: boolean) =>
+      page.evaluate((value) => {
+        (window as unknown as { __takeEscape?: boolean }).__takeEscape = value;
+      }, take);
+
+    await takeEscape(true);
+    await box.focus();
+    await page.keyboard.press('Escape');
+    await expect(changesTab()).toHaveAttribute('aria-selected', 'true');
+    await takeEscape(false);
+
+    // The Escape that ends an input method's composition belongs to it.
+    await box.evaluate((element) =>
+      element.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, isComposing: true }),
+      ),
+    );
+    await expect(changesTab()).toHaveAttribute('aria-selected', 'true');
+
+    // A plain Escape still closes it: the control.
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('side-panel')).toHaveCount(0);
+  });
+
   test('closing Changes from inside it hands the keyboard to the conversation, with a tab left behind it too', async () => {
     await openSession('Paginate the catalog search');
     await page.getByRole('button', { name: 'Files', exact: true }).click();

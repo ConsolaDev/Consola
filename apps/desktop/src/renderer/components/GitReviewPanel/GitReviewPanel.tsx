@@ -57,8 +57,12 @@ export const GitReviewPanel = memo(function GitReviewPanel({
   // Escape: on the diff's text it lands on the diff list, which the keys then
   // scroll, and on blank space on the root, which takes focus for that
   // (`tabIndex={-1}`, as the lists inside do).
+  // Not an Escape something inside already took for itself, nor one that
+  // ends an input method's composition.
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === 'Escape') onClose();
+    if (event.key === 'Escape' && !event.defaultPrevented && !event.nativeEvent.isComposing) {
+      onClose();
+    }
   };
 
   // Memoize file counts to prevent recalculation on every render
