@@ -83,6 +83,7 @@ export function usePaletteContext(open: boolean): PaletteContext {
   const attention = useAttentionStore((state) => state.records);
   const activeWorkspaceId = useNavigationStore((state) => state.activeWorkspaceId);
   const activeSessionId = useNavigationStore((state) => state.activeSessionId);
+  const isOverlayOpen = useNavigationStore((state) => state.overlay !== null);
   const terminals = useTerminalStore((state) => state.terminals);
   const statuses = useAttentionStore((state) => state.attention);
   const harnesses = useHarnessStore((state) => state.harnesses);
@@ -104,21 +105,22 @@ export function usePaletteContext(open: boolean): PaletteContext {
     [activeWorkspace, activeSessionId],
   );
 
-  // The tab kinds as the side panel would offer them for the active session.
+  // The tab kinds as the side panel would offer them for the active session,
+  // none while an overlay hides the side panel.
   const activeCheckout = useCheckout(
     activeWorkspace && activeSession
       ? checkoutPathForSession(activeWorkspace, activeSession)
       : null,
   );
   const tabKinds = useMemo(() => {
-    if (!activeWorkspace || !activeSession) return [];
+    if (!activeWorkspace || !activeSession || isOverlayOpen) return [];
     const facts = tabFactsFor(activeWorkspace, activeSession, activeCheckout);
     return TAB_KINDS.map((kind) => ({
       id: kind.id,
       title: kind.title(facts),
       available: kind.availability(facts).available,
     }));
-  }, [activeWorkspace, activeSession, activeCheckout]);
+  }, [activeWorkspace, activeSession, activeCheckout, isOverlayOpen]);
 
   // A session with no name yet is still being created; the sidebar hides those
   // too, and a blank row would be unselectable anyway.
@@ -168,6 +170,7 @@ export function usePaletteContext(open: boolean): PaletteContext {
       commitMessage,
       tabKinds,
       isSidePanelVisible,
+      isOverlayOpen,
       terminalFontSize,
       localServers,
       openSettings,
@@ -186,6 +189,7 @@ export function usePaletteContext(open: boolean): PaletteContext {
       commitMessage,
       tabKinds,
       isSidePanelVisible,
+      isOverlayOpen,
       terminalFontSize,
       localServers,
       openSettings,

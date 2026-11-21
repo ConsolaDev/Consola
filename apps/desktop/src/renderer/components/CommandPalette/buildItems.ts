@@ -73,10 +73,19 @@ export interface PaletteContext {
   gitStatusRootPath: string | null;
   stagedCount: number;
   commitMessage: string;
-  /** The side panel's tab kinds for the active session, in registry order; empty without one. */
+  /**
+   * The side panel's tab kinds for the active session, in registry order;
+   * empty without one, and while the Inbox or Automations lies over it.
+   */
   tabKinds: Array<{ id: TabKindId; title: string; available: boolean }>;
   /** Whether the side panel is showing, so its row says what choosing it will do. */
   isSidePanelVisible: boolean;
+  /**
+   * The Inbox or Automations lies over the active session. The session stays
+   * active behind it, but its side panel is not on screen, and the side
+   * panel's chords do nothing there.
+   */
+  isOverlayOpen: boolean;
   terminalFontSize: number;
   /** Servers running from the active session's folder, read when the palette opened. */
   localServers: LocalServer[];
@@ -223,8 +232,9 @@ export function buildActionItems(ctx: PaletteContext): ActionPaletteItem[] {
     run: () => useNavigationStore.getState().toggleSidebar(),
   });
 
-  // The side panel only exists beside a session.
-  if (activeSession) {
+  // The side panel only exists beside a session, and is not on screen under
+  // an overlay, where its chord does nothing either.
+  if (activeSession && !ctx.isOverlayOpen) {
     items.push({
       kind: 'action',
       section: 'actions',
@@ -259,7 +269,8 @@ export function buildActionItems(ctx: PaletteContext): ActionPaletteItem[] {
   }
 
   // One row per tab kind that applies to the active session. The side panel
-  // only exists inside one too, so without a session `tabKinds` is empty.
+  // only exists beside one, on screen, so without a session, or under an
+  // overlay, `tabKinds` is empty.
   for (const kind of TAB_KINDS) {
     const entry = ctx.tabKinds.find((candidate) => candidate.id === kind.id);
     if (!entry?.available) continue;

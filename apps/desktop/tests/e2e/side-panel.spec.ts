@@ -353,6 +353,42 @@ test.describe('side panel', () => {
     await expect(page.locator('.git-review-panel')).toContainText('search.ts');
   });
 
+  test('under the Inbox the palette offers no side panel rows, as the chords do nothing there', async () => {
+    await openSession('Paginate the catalog search');
+    await expect(page.locator('[data-conversation-terminal]')).toBeVisible();
+    const search = page.getByRole('combobox');
+    const results = page.getByRole('listbox', { name: 'Command palette results' });
+    /** The palette's rows for `query` whose label starts with `label`. */
+    const rows = async (query: string, label: string) => {
+      await search.fill(query);
+      await expect(search).toHaveValue(query);
+      return results.getByRole('option', { name: new RegExp(`^${label}`) });
+    };
+
+    // Beside the session they are there: the control.
+    await page.keyboard.press(commandPaletteChord());
+    await expect(await rows('side panel', 'Show side panel')).toHaveCount(1);
+    await expect(await rows('Open Changes', 'Open Changes')).toHaveCount(1);
+    await page.keyboard.press('Escape');
+
+    // The session stays behind the Inbox, but its side panel is not on screen.
+    await page.getByRole('button', { name: 'Inbox', exact: true }).click();
+    await expect(page.locator('[data-conversation-terminal]')).toHaveCount(0);
+    await page.keyboard.press(commandPaletteChord());
+    await expect(await rows('side panel', 'Show side panel')).toHaveCount(0);
+    for (const title of ['Changes', 'Files', 'Terminal', 'Browser']) {
+      await expect(await rows(`Open ${title}`, `Open ${title}`)).toHaveCount(0);
+    }
+    // The browser's own row is as it was before the side panel.
+    await expect(await rows('Open address', 'Open address in browser')).toHaveCount(1);
+    await page.keyboard.press('Escape');
+
+    // Nothing changed behind it.
+    await page.getByRole('button', { name: 'Home', exact: true }).click();
+    await expect(page.locator('.workspace-view-session')).toHaveText('Paginate the catalog search');
+    await expect(page.getByTestId('side-panel')).toHaveCount(0);
+  });
+
   test('⇧⌘E opens Files and a chosen file opens beside the tree', async () => {
     await openSession('Paginate the catalog search');
     await page.locator('[data-conversation-terminal] .terminal-surface textarea').focus();
