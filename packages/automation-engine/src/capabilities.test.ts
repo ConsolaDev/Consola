@@ -159,6 +159,14 @@ describe('what an agent writing an entry is told', () => {
     expect(notify).toMatch(/asks once first/);
   });
 
+  it('auto says a run an agent asks for runs once and never lets the entry run on its own', () => {
+    // The user's decision of 2026-11-21.
+    const auto = grammar().modes.find((mode) => mode.mode === 'auto')?.means ?? '';
+    expect(auto).toContain(
+      'A run asked for with consola_run_automation always waits for the person, and approving it runs that run only: it never lets the entry run on its own.',
+    );
+  });
+
   it('refires is set for review_requested only', () => {
     const events = grammar().triggers.connections.find(
       (connection) => connection.id === 'github',

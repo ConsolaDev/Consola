@@ -683,6 +683,22 @@ describe('modes', () => {
     expect(t.calls.map((call) => call.mode)).toEqual(['preview']);
   });
 
+  it("approving an agent's run runs that run only: the entry still asks once", async () => {
+    // The user's decision of 2026-11-21: only a run the person meant to be unattended accepts an entry.
+    const t = setup({ yaml: entry('    mode: auto\n') });
+    await t.start();
+    const asked = await t.trigger('ws-1', 'sweep', { sessionId: 's-9' });
+    expect(asked).toMatchObject({ status: 'needs-approval', mode: 'confirm' });
+    expect(asked.summary).toContain('An agent asked for this run: approving runs this run only.');
+    expect(await t.service.approve(asked.id)).toMatchObject({ status: 'completed' });
+    // Not accepted: its first unattended run still asks.
+    expect(t.store.acceptedVersion('ws-1 sweep')).toBeUndefined();
+    expect(t.service.list('ws-1')[0].asksFirst).toBe(true);
+    const next = await t.trigger('ws-1', 'sweep');
+    expect(next).toMatchObject({ status: 'needs-approval', mode: 'confirm' });
+    expect(next.summary).toMatch(/Approve once/);
+  });
+
   it('an agent never supersedes a plan waiting for a person, nor notifies again', async () => {
     const t = setup({ yaml: entry('    mode: confirm\n') });
     await t.start();

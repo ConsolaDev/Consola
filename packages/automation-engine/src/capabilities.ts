@@ -182,7 +182,9 @@ const MODES: AutomationCapabilities['modes'] = [
     mode: 'auto',
     means:
       'Runs on its own when its trigger fires. A new or changed auto entry asks once before its first run, ' +
-      'and so does any entry saved with consola_save_automation, whatever changed.',
+      'and so does any entry saved with consola_save_automation, whatever changed. ' +
+      'A run asked for with consola_run_automation always waits for the person, and approving it runs that run only: ' +
+      'it never lets the entry run on its own.',
   },
   {
     mode: 'confirm',

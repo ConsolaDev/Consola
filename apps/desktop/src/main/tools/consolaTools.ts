@@ -381,7 +381,8 @@ export function consolaTools(deps: ConsolaToolDeps): ToolDefinition[] {
         'the run’s id, status and a one-line summary; the person reviews the details in Consola. ' +
         'An automation that runs on items takes one: work_item for a pull request or issue, ' +
         'item_key for an item of a poll’s last check (see consola_list_automations, which says ' +
-        'what each takes). It waits for the person to approve it.',
+        'what each takes). It waits for the person to approve it. Approving it runs that run only: ' +
+        'it never lets the automation run on its own.',
       input: {
         name: z.string().min(1).describe('The automation’s name, as in factory.yml.'),
         work_item: z
@@ -461,7 +462,9 @@ export function consolaTools(deps: ConsolaToolDeps): ToolDefinition[] {
         'consola_automation_capabilities first, so the entry uses what exists here, and confirm ' +
         'with the person what it should do and when before saving. Takes one entry as YAML (a ' +
         '`- name: …` list item); the file is checked the way the runner checks it, and nothing is ' +
-        'written when it is refused, with the reason. The person sees it as new, added by you.',
+        'written when it is refused, with the reason. The person sees it as new, added by you. ' +
+        'An auto entry asks the person once before its first unattended run, and a run you ask for ' +
+        'with consola_run_automation does not count.',
       input: {
         entry: z
           .string()

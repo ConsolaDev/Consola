@@ -537,7 +537,10 @@ of the session's `toolPolicy`.
 A Consola tool marked `fullToolsOnly` is never offered to a read-only
 session. And whatever `save_automation` writes or replaces gives up the
 entry's acceptance, so it asks once before its next unattended run — even
-when only its schedule changed, which a hand edit would not ask about.
+when only its schedule changed, which a hand edit would not ask about. No
+run an agent asks for (`run_automation`) ever gives it back: approving that
+run runs it only (`acceptApproved`), so an entry is accepted only when a
+person approves a run that really is unattended, or allows a poll.
 
 An automation's run on a work item refreshes an existing worktree to the PR's
 latest head only because its session is read-only. Claude trusts a folder per

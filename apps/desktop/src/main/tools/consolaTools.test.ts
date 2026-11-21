@@ -393,6 +393,13 @@ describe('run_automation on an item', () => {
     expect(description).toContain('work_item for a pull request or issue');
     expect(description).toContain('item_key for an item of a poll');
     expect(description).toContain('It waits for the person to approve it.');
+    // The user's decision of 2026-11-21: what approving an agent's run does, and does not.
+    expect(description).toContain(
+      'Approving it runs that run only: it never lets the automation run on its own.',
+    );
+    expect(registry.get('save_automation')!.description).toContain(
+      'An auto entry asks the person once before its first unattended run, and a run you ask for with consola_run_automation does not count.',
+    );
     expect(registry.get('list_automations')!.description).toContain(
       'whether it takes an item, of which type',
     );

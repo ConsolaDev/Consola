@@ -291,6 +291,9 @@ const NEVER_STARTED = 'It never started; run it again.';
  * What a run of a poll entry not allowed yet says when it asks: approving it
  * runs that run, and only Allow lets the entry check.
  */
+/** Why an agent's run waits, and what approving it does: it never accepts the entry. */
+const AN_AGENT_ASKED = 'An agent asked for this run: approving runs this run only.';
+
 const NOT_CHECKING_YET =
   'It is not checking yet: approving runs this run only. Allow it on its page to let it check and run on its own.';
 
@@ -1559,10 +1562,14 @@ export class AutomationService {
    * since the run was asked for, or in the same instant: that approval was
    * for the entry before. Only Allow accepts a poll entry: otherwise an
    * agent could save one, ask for a run, and have the person's approval of
-   * that run start a check command they never saw.
+   * that run start a check command they never saw. And no run an agent asked
+   * for accepts any entry: approving it runs that run only, so trust is given
+   * only when a person approves a run that really is unattended.
    */
   private acceptApproved(key: string, entry: Resolved, run: RunRecord): void {
     if (!asksUntilAccepted(entry) || pollOf(entry)) return;
+    // An agent asked for it: approving runs that run only (the user's decision of 2026-11-21).
+    if (run.trigger.by === 'agent') return;
     const revoked = this.deps.store.revokedAt(key);
     if (revoked !== undefined && !(Date.parse(run.createdAt) > Date.parse(revoked))) return;
     this.deps.store.accept(key, entry.version);
@@ -4016,7 +4023,7 @@ export class AutomationService {
   ): { mode: AutomationMode; asks?: string } {
     const { mode } = entry.automation;
     if (!asksUntilAccepted(entry)) return { mode };
-    if (trigger.by === 'agent') return { mode: 'confirm', asks: 'An agent asked for this run.' };
+    if (trigger.by === 'agent') return { mode: 'confirm', asks: AN_AGENT_ASKED };
     if (this.deps.store.acceptedVersion(automationKey(entry)) !== entry.version) {
       // Approving a poll entry's run does not accept it (`acceptApproved`), so it must not say it does.
       const asks = pollOf(entry)

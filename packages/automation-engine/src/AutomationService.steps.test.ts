@@ -545,7 +545,8 @@ describe('firing a steps run', () => {
       status: 'needs-approval',
       mode: 'confirm',
       trigger: { kind: 'manual', by: 'agent', actorId: 's-9' },
-      summary: 'Steps: fresh → summary in api. An agent asked for this run.',
+      summary:
+        'Steps: fresh → summary in api. An agent asked for this run: approving runs this run only.',
     });
     expect(h.notices).toMatchObject([{ needsApproval: true }]);
 

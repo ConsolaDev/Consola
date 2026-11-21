@@ -1805,7 +1805,7 @@ describe('on a chosen item', () => {
   const KEY = `${WORKSPACE_ID} ${RE_REVIEW_NAME}`;
   const NOT_CHECKING_YET =
     'It is not checking yet: approving runs this run only. Allow it on its page to let it check and run on its own.';
-  const AN_AGENT_ASKED = 'An agent asked for this run.';
+  const AN_AGENT_ASKED = 'An agent asked for this run: approving runs this run only.';
   const BOOM = { stderr: 'boom\n', result: { exitCode: 1, lastStderrLine: 'boom' } };
   /** The template asking a person for each run. */
   const CONFIRM = RE_REVIEW_ENTRY.replace('mode: auto', 'mode: confirm');
@@ -2111,6 +2111,21 @@ describe('on a chosen item', () => {
       summary: expect.stringContaining(AN_AGENT_ASKED),
     });
     expect(h.world.launches).toEqual([]);
+  });
+
+  it("approving an agent's run of an auto event entry runs that run only", async () => {
+    // The user's decision of 2026-11-21: an agent's run never accepts the entry it runs.
+    const h = await sourcesHarness({ yaml: factoryWith(onReview('auto')) });
+    await h.poll([PR51]);
+    const run = await h.runOn({ workItem: PR_51 }, EVENT_NAME, { sessionId: 's-9' });
+    expect(run).toMatchObject({ status: 'needs-approval', mode: 'confirm' });
+    expect(run.summary).toContain(AN_AGENT_ASKED);
+    await h.service.approve(run.id);
+    await h.flush();
+    expect(h.store.get(run.id)).toMatchObject({ status: 'running', sessionId: 'session-1' });
+    expect(h.store.acceptedVersion(EVENT_KEY)).toBeUndefined();
+    const listed = h.service.list(WORKSPACE_ID).find((entry) => entry.name === EVENT_NAME)!;
+    expect(listed.asksFirst).toBe(true);
   });
 
   it('the filter is not applied', async () => {
