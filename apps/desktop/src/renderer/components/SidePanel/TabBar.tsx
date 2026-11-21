@@ -3,6 +3,7 @@ import {
   type MouseEvent,
   type ReactNode,
   useCallback,
+  useEffect,
   useRef,
   useState,
 } from 'react';
@@ -237,6 +238,13 @@ function TabBarTab({
     data: { groupId, tab } satisfies DraggedTab,
     disabled: tab === NEW_TAB,
   });
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  // A tab that comes in front is scrolled into its bar, which a narrow side
+  // panel cannot show whole, and whose scrollbar is hidden: the person sees
+  // which tab is in front, and can reach its ✕. Only the bar scrolls.
+  useEffect(() => {
+    if (inFront) scrollIntoBar(triggerRef.current?.closest('.side-panel-tab'));
+  }, [inFront]);
   const kind = tabKind(tab);
   if (!kind && tab !== NEW_TAB) return null;
 
@@ -275,6 +283,7 @@ function TabBarTab({
         data-dragging={isDragging || undefined}
       >
         <Tabs.Trigger
+          ref={triggerRef}
           value={tab}
           className="side-panel-tab-trigger"
           data-tab={tab}
@@ -307,6 +316,20 @@ function TabBarTab({
       </div>
     </TabMenu>
   );
+}
+
+/**
+ * Scrolls the tab list just enough to show the whole of `entry`, a tab in
+ * it. By hand rather than `scrollIntoView`, which would also scroll any box
+ * around the bar that clips it.
+ */
+function scrollIntoBar(entry: Element | null | undefined): void {
+  const list = entry?.closest('.side-panel-tab-list');
+  if (!entry || !list) return;
+  const tab = entry.getBoundingClientRect();
+  const shown = list.getBoundingClientRect();
+  if (tab.left < shown.left) list.scrollLeft -= shown.left - tab.left;
+  else if (tab.right > shown.right) list.scrollLeft += tab.right - shown.right;
 }
 
 function BarButton({

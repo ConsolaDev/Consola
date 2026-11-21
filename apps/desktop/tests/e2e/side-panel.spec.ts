@@ -780,6 +780,38 @@ test.describe('side panel', () => {
     await expect(sidePanelTab('Changes')).toHaveCount(0);
   });
 
+  test('a tab that comes in front is scrolled into view in a narrow bar', async () => {
+    // At the window's default size, where four tabs do not fit in the bar.
+    await openSession('Paginate the catalog search');
+    await changesShortcut().click();
+    await page.getByRole('button', { name: 'Files', exact: true }).click();
+    await page.getByRole('button', { name: 'Terminal', exact: true }).click();
+    await expect(sidePanelTab('Terminal')).toHaveAttribute('aria-selected', 'true');
+    /** Whether the tab, its ✕ included, is inside what its bar shows. */
+    const shown = async (title: string) => {
+      const tab = await tabBox(sidePanelTab(title));
+      const bar = (await sidePanelTabs().boundingBox())!;
+      return tab.x >= bar.x - 0.5 && tab.x + tab.width <= bar.x + bar.width + 0.5;
+    };
+
+    // A fourth, by its chord.
+    await page.keyboard.press(browserChord());
+    await expect(sidePanelTab('Browser')).toHaveAttribute('aria-selected', 'true');
+    // The bar is narrower than its tabs, or this proves nothing.
+    expect(await sidePanelTabs().evaluate((list) => list.scrollWidth > list.clientWidth)).toBe(
+      true,
+    );
+    await expect.poll(() => shown('Browser')).toBe(true);
+
+    // The first, by its shortcut, and the "+" list's placeholder, last of all.
+    await changesShortcut().click();
+    await expect(sidePanelTab('Changes')).toHaveAttribute('aria-selected', 'true');
+    await expect.poll(() => shown('Changes')).toBe(true);
+    await plusButton().click();
+    await expect(sidePanelTab('New tab')).toHaveAttribute('aria-selected', 'true');
+    await expect.poll(() => shown('New tab')).toBe(true);
+  });
+
   test('the tab menu splits and moves tabs', async () => {
     await openSession('Paginate the catalog search');
     await changesShortcut().click();
