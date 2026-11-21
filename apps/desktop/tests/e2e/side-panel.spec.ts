@@ -346,6 +346,17 @@ test.describe('side panel', () => {
   test('the header shows the three most-used kinds, worked out at launch', async () => {
     await openSession('Paginate the catalog search');
     await expect.poll(headerControls).toEqual(['Changes', 'Files', 'Terminal', 'Show side panel']);
+    // Each says its chord, as main's header toggles did.
+    const controls = page.locator('.side-panel-controls');
+    await expect(controls.getByRole('button', { name: 'Files', exact: true })).toHaveAttribute(
+      'aria-keyshortcuts',
+      process.platform === 'darwin' ? 'Meta+Shift+E' : 'Control+Shift+E',
+    );
+    await expect(controls.getByRole('button', { name: 'Terminal', exact: true })).toHaveAttribute(
+      'aria-keyshortcuts',
+      'Control+`',
+    );
+    await expect(changesShortcut()).not.toHaveAttribute('aria-keyshortcuts');
 
     // Pull request opened five times today, read at the next launch.
     await page.evaluate((key) => {

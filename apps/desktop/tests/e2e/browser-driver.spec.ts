@@ -542,6 +542,10 @@ test.describe('an agent call on a page', () => {
     );
     const shortcut = page.locator('.side-panel-controls').getByRole('button', { name: /^Browser/ });
     await expect(shortcut).toHaveAccessibleName('Browser');
+    await expect(shortcut).toHaveAttribute(
+      'aria-keyshortcuts',
+      process.platform === 'darwin' ? 'Meta+Shift+L' : 'Control+Shift+L',
+    );
     await expect(shortcut).not.toHaveAttribute('data-agent-dot');
 
     await beginCall(app, tab!.id);

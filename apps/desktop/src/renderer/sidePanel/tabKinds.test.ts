@@ -316,6 +316,17 @@ describe('bodyFor', () => {
 });
 
 describe('the header shortcuts', () => {
+  // Main's header toggles said their chords to assistive tech; the
+  // shortcuts that replace them say the same, in `aria-keyshortcuts` form.
+  it('a kind with a chord names its keys for assistive tech, and only such a kind', () => {
+    for (const kind of TAB_KINDS) {
+      expect(kind.keyshortcuts === undefined).toBe(kind.chord === undefined);
+    }
+    expect(filesKind.keyshortcuts).toBe(isMac ? 'Meta+Shift+E' : 'Control+Shift+E');
+    expect(terminalKind.keyshortcuts).toBe('Control+`');
+    expect(tabKind('browser')!.keyshortcuts).toBe(isMac ? 'Meta+Shift+L' : 'Control+Shift+L');
+  });
+
   it('a shortcut acts while its kind applies, and in front whether it applies or not', () => {
     expect(shortcutActs(changesKind, inGit, false)).toBe(true);
     expect(shortcutActs(changesKind, inGit, true)).toBe(true);

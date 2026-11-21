@@ -44,6 +44,7 @@ export function ShortcutButton({ kind, facts }: { kind: TabKindId; facts: TabFac
             aria-label={label}
             aria-pressed={inFront}
             aria-disabled={acts ? undefined : true}
+            aria-keyshortcuts={entry.keyshortcuts}
             data-agent-dot={mark ? true : undefined}
             onClick={() => {
               if (acts) pressShortcut(kind);

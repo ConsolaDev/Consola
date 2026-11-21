@@ -46,6 +46,8 @@ export interface TabKind {
   icon: LucideIcon;
   /** Shown beside the title in tooltips, when the kind has a chord. */
   chord?: string;
+  /** The same chord in `aria-keyshortcuts` form, for assistive tech. Set exactly when `chord` is. */
+  keyshortcuts?: string;
   title(facts: TabFacts): string;
   /** The tab bar's label, when it is shorter than the title. */
   tabTitle?(facts: TabFacts): string;
@@ -101,6 +103,7 @@ export const TAB_KINDS: readonly TabKind[] = [
     key: 'F',
     icon: FolderTree,
     chord: isMac ? '⇧⌘E' : 'Ctrl+Shift+E',
+    keyshortcuts: isMac ? 'Meta+Shift+E' : 'Control+Shift+E',
     title: () => 'Files',
     availability: folderAvailability,
     mount: 'keep',
@@ -116,6 +119,7 @@ export const TAB_KINDS: readonly TabKind[] = [
     key: 'T',
     icon: TerminalSquare,
     chord: SHELL_SHORTCUT_LABEL,
+    keyshortcuts: 'Control+`',
     title: () => 'Terminal',
     availability: folderAvailability,
     mount: 'front',
@@ -132,6 +136,7 @@ export const TAB_KINDS: readonly TabKind[] = [
     key: 'B',
     icon: Globe,
     chord: BROWSER_SHORTCUT_LABEL,
+    keyshortcuts: isMac ? 'Meta+Shift+L' : 'Control+Shift+L',
     title: () => 'Browser',
     availability: () => ({ available: true }),
     mount: 'front',
