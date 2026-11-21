@@ -4,24 +4,6 @@ import { schema } from '../adapters/persistence/schema.js';
 import { createDrizzleStores } from '../adapters/persistence/stores.js';
 import { mayCreateAccount, mayStartSession } from './signIn.js';
 
-let db: Database;
-let close: () => Promise<void>;
-let stores: ReturnType<typeof createDrizzleStores>;
-
-beforeEach(async () => {
-  ({ db, close } = openDatabase('pglite:memory'));
-  await migrateDatabase(db);
-  await db.insert(schema.user).values([
-    { id: 'dana', name: 'Dana', email: 'dana@sprocket.test', emailVerified: true },
-    { id: 'sam', name: 'Sam', email: 'sam@sprocket.test', emailVerified: false },
-  ]);
-  stores = createDrizzleStores(db);
-});
-
-afterEach(async () => {
-  await close();
-});
-
 describe('mayCreateAccount', () => {
   it('asks mayJoin', () => {
     expect(mayCreateAccount({ emailVerified: true })).toBe(true);
@@ -30,6 +12,24 @@ describe('mayCreateAccount', () => {
 });
 
 describe('mayStartSession', () => {
+  let db: Database;
+  let close: () => Promise<void>;
+  let stores: ReturnType<typeof createDrizzleStores>;
+
+  beforeEach(async () => {
+    ({ db, close } = openDatabase('pglite:memory'));
+    await migrateDatabase(db);
+    await db.insert(schema.user).values([
+      { id: 'dana', name: 'Dana', email: 'dana@sprocket.test', emailVerified: true },
+      { id: 'sam', name: 'Sam', email: 'sam@sprocket.test', emailVerified: false },
+    ]);
+    stores = createDrizzleStores(db);
+  });
+
+  afterEach(async () => {
+    await close();
+  });
+
   it('lets a person whose email is verified in', async () => {
     expect(await mayStartSession(stores.people, 'dana')).toBe(true);
   });

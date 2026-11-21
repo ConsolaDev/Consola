@@ -40,7 +40,10 @@ The service is built in rings, and imports point inward only.
 ## The dependency rule
 
 - `domain` imports only `domain`. `application` imports only `domain` and
-  `application`. Neither imports a package or a `node:` builtin.
+  `application`. Neither imports a package or a `node:` builtin, and neither
+  refers to a global that reaches the machine: `process`, `fetch`, `require`,
+  `XMLHttpRequest`, `WebSocket`, the timers (`setTimeout`, `setInterval`,
+  `setImmediate`), `globalThis` or `global`.
 - An adapter imports `domain`, `application`, its own folder and
   `src/config.ts`, and never the composition ring. Beyond that:
   - `adapters/http` never imports `better-auth`, `drizzle-orm`,
@@ -49,7 +52,9 @@ The service is built in rings, and imports point inward only.
     `compose.ts` passes in;
   - `adapters/persistence` never imports `hono`, `better-auth` or another
     adapter;
-  - `adapters/auth` never imports `hono` or `adapters/http`. It may import
+  - `adapters/auth` never imports `hono`, `adapters/http` or a database
+    library (`drizzle-orm`, `pg`, `@electric-sql/pglite`): its hooks call use
+    cases, and the stores run the queries. It may import
     `adapters/persistence`, because Better Auth's Drizzle adapter needs the
     database and its schema.
 - No file imports another app or a workspace package (`@consola/*`).
@@ -58,8 +63,11 @@ The service is built in rings, and imports point inward only.
 
 `src/boundary.test.ts` enforces the rule. It reads every file's imports from
 the TypeScript syntax tree (`import`, `import type`, `export … from`, dynamic
-`import()`), and a file that sits in no layer fails it too. The rules are data
-at its top (`LAYERS`), so a new layer or folder is added there first.
+`import()`), and the globals `domain` and `application` refer to. Only a
+reference counts, directly or through `globalThis`, never a property or a
+member that shares the name (`request.process`, `{ fetch: 1 }`). A file that
+sits in no layer fails it too. The rules are data at its top (`LAYERS`), so a
+new layer or folder is added there first.
 
 ## Adding a feature
 

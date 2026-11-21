@@ -28,8 +28,8 @@ type Layer = {
   reaches: string[];
   /** Packages it may not import: a name, a scope (`@scope/*`), `node:*` or `*`. */
   refuses: string[];
-  /** Names it may not use at all, whatever they refer to: the browser's I/O. */
-  noNames: string[];
+  /** Globals it may not refer to: the browser's I/O. */
+  noGlobals: string[];
 };
 
 const ENTRY = ['main', 'env.d'];
@@ -39,27 +39,48 @@ const LAYERS: Layer[] = [
     at: 'domain',
     reaches: ['domain'],
     refuses: [ANY_PACKAGE],
-    noNames: ['window', 'document', 'fetch', 'history', 'localStorage'],
+    noGlobals: [
+      'window',
+      'document',
+      'fetch',
+      'history',
+      'location',
+      'localStorage',
+      'sessionStorage',
+      'navigator',
+      'XMLHttpRequest',
+      'WebSocket',
+      'globalThis',
+      'self',
+    ],
   },
   {
     // `better-auth/react` is allowed here: it is the auth client, not React.
     at: 'services',
     reaches: ['domain', 'services'],
     refuses: ['react', 'react-dom', '@radix-ui/*', NODE_BUILTINS],
-    noNames: [],
+    noGlobals: [],
   },
   {
     at: 'ui',
     reaches: ['domain', 'services', 'ui'],
     refuses: ['better-auth', '@better-auth/*', NODE_BUILTINS],
-    noNames: ['fetch', 'history', 'location'],
+    noGlobals: [
+      'fetch',
+      'history',
+      'location',
+      'localStorage',
+      'sessionStorage',
+      'XMLHttpRequest',
+      'WebSocket',
+    ],
   },
   // The entry, where everything meets.
   ...ENTRY.map((at) => ({
     at,
     reaches: ['domain', 'services', 'ui', ...ENTRY],
     refuses: [],
-    noNames: [],
+    noGlobals: [],
   })),
 ];
 
@@ -106,16 +127,96 @@ function importsOf(source: string, fileName = 'x.ts'): string[] {
   return specifiers;
 }
 
-/** Every identifier a source file spells, so `window.location` yields `window` and `location`. */
-function identifiersOf(source: string, fileName = 'x.ts'): string[] {
+/** Objects whose members are globals, so `window.location` refers to `location`. */
+const GLOBAL_OBJECTS = new Set(['globalThis', 'global', 'window', 'self']);
+
+const isGlobalObject = (node: ts.Node): boolean =>
+  ts.isIdentifier(node) && GLOBAL_OBJECTS.has(node.text);
+
+/**
+ * Every name a source file refers to, as a value or a type, in the order it appears. A name is
+ * not a reference when it is a property's or a member's own name (`props.location`,
+ * `{ location: '/' }`, a method, a type member, a JSX attribute), when it is being declared (a
+ * variable, a parameter, a destructured prop, a function, a class, an import), or when it is
+ * `require` called as an import, which `importsOf` judges by what it loads. A member of `window`
+ * (or `globalThis`, `global`, `self`) refers to the global it names. It does not follow scopes,
+ * so a local that shares a global's name is reported where it is read.
+ */
+function referencesOf(source: string, fileName = 'x.ts'): string[] {
   const tree = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true);
-  const names: string[] = [];
+  const found: string[] = [];
+
+  const isOwnName = (node: ts.Identifier): boolean => {
+    const parent = node.parent;
+    if (ts.isPropertyAccessExpression(parent)) return parent.name === node;
+    if (ts.isQualifiedName(parent)) return parent.right === node;
+    if (ts.isBindingElement(parent) || ts.isImportSpecifier(parent)) {
+      return parent.name === node || parent.propertyName === node;
+    }
+    if (ts.isExportSpecifier(parent)) {
+      // `export { a } from './y'` names another module's export; `export { a as b }` declares `b`.
+      const reexport = parent.parent.parent.moduleSpecifier !== undefined;
+      return reexport || (parent.propertyName !== undefined && parent.name === node);
+    }
+    if (
+      ts.isPropertyAssignment(parent) ||
+      ts.isPropertySignature(parent) ||
+      ts.isPropertyDeclaration(parent) ||
+      ts.isMethodDeclaration(parent) ||
+      ts.isMethodSignature(parent) ||
+      ts.isGetAccessorDeclaration(parent) ||
+      ts.isSetAccessorDeclaration(parent) ||
+      ts.isEnumMember(parent) ||
+      ts.isJsxAttribute(parent) ||
+      ts.isVariableDeclaration(parent) ||
+      ts.isParameter(parent) ||
+      ts.isFunctionDeclaration(parent) ||
+      ts.isFunctionExpression(parent) ||
+      ts.isClassDeclaration(parent) ||
+      ts.isClassExpression(parent) ||
+      ts.isInterfaceDeclaration(parent) ||
+      ts.isTypeAliasDeclaration(parent) ||
+      ts.isTypeParameterDeclaration(parent) ||
+      ts.isImportClause(parent) ||
+      ts.isNamespaceImport(parent) ||
+      ts.isImportEqualsDeclaration(parent)
+    ) {
+      return parent.name === node;
+    }
+    return false;
+  };
+
+  const isRequireImport = (node: ts.Identifier): boolean => {
+    if (node.text !== 'require') return false;
+    const parent = node.parent;
+    if (ts.isCallExpression(parent) && parent.expression === node) return true;
+    return (
+      ts.isPropertyAccessExpression(parent) &&
+      parent.expression === node &&
+      parent.name.text === 'resolve'
+    );
+  };
+
   const visit = (node: ts.Node): void => {
-    if (ts.isIdentifier(node)) names.push(node.text);
+    if (ts.isIdentifier(node)) {
+      const parent = node.parent;
+      const globalMember =
+        ts.isPropertyAccessExpression(parent) &&
+        parent.name === node &&
+        isGlobalObject(parent.expression);
+      if (globalMember || (!isOwnName(node) && !isRequireImport(node))) found.push(node.text);
+    } else if (
+      ts.isStringLiteralLike(node) &&
+      ts.isElementAccessExpression(node.parent) &&
+      node.parent.argumentExpression === node &&
+      isGlobalObject(node.parent.expression)
+    ) {
+      found.push(node.text); // self['localStorage']
+    }
     ts.forEachChild(node, visit);
   };
   visit(tree);
-  return names;
+  return found;
 }
 
 function packageName(specifier: string): string {
@@ -163,13 +264,11 @@ function violationsOf(file: string, source: string): string[] {
   const imports = importsOf(source, file)
     .filter(broken)
     .map((specifier) => `${file} imports ${specifier}`);
-  const names =
+  const globals =
     test || !own
       ? []
-      : [...new Set(identifiersOf(source, file).filter((name) => own.noNames.includes(name)))].map(
-          (name) => `${file} uses ${name}`,
-        );
-  return [...imports, ...names];
+      : [...new Set(referencesOf(source, file).filter((name) => own.noGlobals.includes(name)))];
+  return [...imports, ...globals.map((name) => `${file} uses ${name}`)];
 }
 
 /** Every source file under `src/`, relative to it. */
@@ -262,7 +361,7 @@ describe('the dependency rule', () => {
     );
   });
 
-  // One case for each name a layer refuses.
+  // One case for each global a layer refuses, and for each way to reach one.
   it.each([
     ['domain/x.ts', 'window', 'const here = window;'],
     ['domain/x.ts', 'document', 'const here = document;'],
@@ -272,8 +371,43 @@ describe('the dependency rule', () => {
     ['ui/x.tsx', 'fetch', "void fetch('/');"],
     ['ui/x.tsx', 'history', 'window.history.replaceState(null, "", "/");'],
     ['ui/x.tsx', 'location', 'window.location.reload();'],
+    ['domain/x.ts', 'location', 'const here = location.href;'],
+    ['domain/x.ts', 'sessionStorage', 'const here = sessionStorage;'],
+    ['domain/x.ts', 'navigator', 'const here = navigator.language;'],
+    ['domain/x.ts', 'XMLHttpRequest', 'const request = new XMLHttpRequest();'],
+    ['domain/x.ts', 'WebSocket', "const socket = new WebSocket('ws://sprocket.test');"],
+    ['domain/x.ts', 'globalThis', 'const here = globalThis;'],
+    ['domain/x.ts', 'self', 'const here = self;'],
+    ['ui/x.tsx', 'location', 'const here = location.pathname;'],
+    ['ui/x.tsx', 'localStorage', "localStorage.setItem('a', 'b');"],
+    ['ui/x.tsx', 'sessionStorage', "sessionStorage.setItem('a', 'b');"],
+    ['ui/x.tsx', 'XMLHttpRequest', 'const request = new XMLHttpRequest();'],
+    ['ui/x.tsx', 'WebSocket', "const socket = new WebSocket('ws://sprocket.test');"],
+    ['ui/x.tsx', 'fetch', "void globalThis.fetch('/');"],
+    ['ui/x.tsx', 'localStorage', "self['localStorage'].clear();"],
   ])('%s using %s is reported', (file, name, source) => {
     expect(violationsOf(file, source)).toEqual([`${file} uses ${name}`]);
+  });
+
+  it('the checker reads a global reached through window as that global', () => {
+    expect(violationsOf('domain/x.ts', 'const here = window.location.href;')).toEqual([
+      'domain/x.ts uses window',
+      'domain/x.ts uses location',
+    ]);
+  });
+
+  // Only a reference to the global counts, never a name that merely spells it.
+  it.each([
+    ['ui/x.tsx', 'a property read', 'const here = props.location;'],
+    ['ui/x.tsx', 'an object key', "const link = { location: '/', history: [] };"],
+    ['ui/x.tsx', 'a type member', 'type Props = { location: string; fetch(): void };'],
+    ['ui/x.tsx', 'a destructured prop', 'function Card({ location }: Props) {}'],
+    ['ui/x.tsx', 'a JSX attribute', 'const card = <Card location="/" history={[]} />;'],
+    ['ui/x.tsx', 'a method', 'class Pager { history() {} }'],
+    ['domain/x.ts', 'a property read', 'const here = state.location;'],
+    ['domain/x.ts', 'a string or a comment', "// window.location\nconst a = 'fetch(document)';"],
+  ])('%s with location as %s is not reported', (file, _name, source) => {
+    expect(violationsOf(file, source)).toEqual([]);
   });
 
   it('the checker lets services and the entry use the browser', () => {

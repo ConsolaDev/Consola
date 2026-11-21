@@ -113,9 +113,9 @@ Postgres) and `apps/cloud-web` (`@consola/cloud-web`, Vite and React) are the
 company layer's first piece: Google sign-in and the deployment's one
 organisation. Nothing in `apps/desktop` depends on them, and neither imports
 from the desktop, the website or `packages/*`. Setup is in
-`apps/cloud-api/README.md`, and each app's layers and the dependency rule that
-keeps them apart are in `apps/cloud-api/AGENTS.md` and
-`apps/cloud-web/AGENTS.md`.
+`apps/cloud-api/README.md`. Before changing either cloud app, read its own
+`AGENTS.md` (`apps/cloud-api/AGENTS.md`, `apps/cloud-web/AGENTS.md`): it holds
+the layer rules and the dependency rule that keeps them apart.
 
 The browser talks only to the web app's origin. Vite proxies `/api` to the API,
 so the session cookie is first-party and the API needs no CORS. Better Auth

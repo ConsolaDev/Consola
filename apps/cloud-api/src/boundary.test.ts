@@ -9,8 +9,10 @@ import { describe, expect, it } from 'vitest';
  * Keeps the dependency rule: imports point inward only. `domain` holds rules and types,
  * `application` the use cases and the ports they need, `adapters/*` what implements those ports
  * with a library, and the composition ring (`compose.ts`, `main.ts`, `startupError.ts`) wires
- * them together. `config.ts` is shared configuration that any adapter may read. Test files are
- * exempt from the layer rules, since they wire real pieces together the way the ring does.
+ * them together. `config.ts` is shared configuration that any adapter may read. `domain` and
+ * `application` also reach no global that touches the machine (`process`, `fetch`, timers).
+ * Test files are exempt from the layer rules, since they wire real pieces together the way the
+ * ring does.
  */
 
 const SRC = dirname(fileURLToPath(import.meta.url));
@@ -27,37 +29,68 @@ type Layer = {
   reaches: string[];
   /** Packages it may not import: a name, a scope (`@scope/*`), `node:*` or `*`. */
   refuses: string[];
+  /** Globals it may not refer to. */
+  noGlobals: string[];
 };
+
+/** Globals that reach the machine or the network without an import, timers included. */
+const MACHINE_GLOBALS = [
+  'process',
+  'fetch',
+  'require',
+  'XMLHttpRequest',
+  'WebSocket',
+  'setTimeout',
+  'setInterval',
+  'setImmediate',
+  'globalThis',
+  'global',
+];
 
 const ADAPTERS = ['adapters/persistence', 'adapters/auth', 'adapters/http'];
 const RING = ['compose', 'main', 'startupError'];
 
 const LAYERS: Layer[] = [
-  { at: 'domain', reaches: ['domain'], refuses: [ANY_PACKAGE] },
-  { at: 'application', reaches: ['domain', 'application'], refuses: [ANY_PACKAGE] },
+  {
+    at: 'domain',
+    reaches: ['domain'],
+    refuses: [ANY_PACKAGE],
+    noGlobals: MACHINE_GLOBALS,
+  },
+  {
+    at: 'application',
+    reaches: ['domain', 'application'],
+    refuses: [ANY_PACKAGE],
+    noGlobals: MACHINE_GLOBALS,
+  },
   {
     at: 'adapters/persistence',
     reaches: ['domain', 'application', 'adapters/persistence', 'config'],
     refuses: ['hono', '@hono/*', 'better-auth', '@better-auth/*'],
+    noGlobals: [],
   },
   {
+    // No database library either: its hooks call use cases, and the stores run the queries.
     at: 'adapters/auth',
     reaches: ['domain', 'application', 'adapters/auth', 'adapters/persistence', 'config'],
-    refuses: ['hono', '@hono/*'],
+    refuses: ['hono', '@hono/*', 'drizzle-orm', '@electric-sql/pglite', 'pg'],
+    noGlobals: [],
   },
   {
     // Not `adapters/auth` either: that would bring Better Auth in through the side door.
     at: 'adapters/http',
     reaches: ['domain', 'application', 'adapters/http', 'config'],
     refuses: ['better-auth', '@better-auth/*', 'drizzle-orm', '@electric-sql/pglite', 'pg'],
+    noGlobals: [],
   },
   // A pure parser of the environment, so it reaches no other file and no I/O.
-  { at: 'config', reaches: [], refuses: [NODE_BUILTINS] },
+  { at: 'config', reaches: [], refuses: [NODE_BUILTINS], noGlobals: [] },
   // The composition ring, where everything meets.
   ...RING.map((at) => ({
     at,
     reaches: ['domain', 'application', ...ADAPTERS, 'config', ...RING],
     refuses: [],
+    noGlobals: [],
   })),
 ];
 
@@ -104,6 +137,98 @@ function importsOf(source: string, fileName = 'x.ts'): string[] {
   return specifiers;
 }
 
+/** Objects whose members are globals, so `globalThis.fetch` refers to `fetch`. */
+const GLOBAL_OBJECTS = new Set(['globalThis', 'global', 'window', 'self']);
+
+const isGlobalObject = (node: ts.Node): boolean =>
+  ts.isIdentifier(node) && GLOBAL_OBJECTS.has(node.text);
+
+/**
+ * Every name a source file refers to, as a value or a type, in the order it appears. A name is
+ * not a reference when it is a property's or a member's own name (`request.process`,
+ * `{ fetch: 1 }`, a method, a type member, a JSX attribute), when it is being declared (a
+ * variable, a parameter, a destructured property, a function, a class, an import), or when it is
+ * `require` called as an import, which `importsOf` judges by what it loads. A member of
+ * `globalThis` (or `global`, `window`, `self`) refers to the global it names. It does not follow
+ * scopes, so a local that shares a global's name is reported where it is read.
+ */
+function referencesOf(source: string, fileName = 'x.ts'): string[] {
+  const tree = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true);
+  const found: string[] = [];
+
+  const isOwnName = (node: ts.Identifier): boolean => {
+    const parent = node.parent;
+    if (ts.isPropertyAccessExpression(parent)) return parent.name === node;
+    if (ts.isQualifiedName(parent)) return parent.right === node;
+    if (ts.isBindingElement(parent) || ts.isImportSpecifier(parent)) {
+      return parent.name === node || parent.propertyName === node;
+    }
+    if (ts.isExportSpecifier(parent)) {
+      // `export { a } from './y'` names another module's export; `export { a as b }` declares `b`.
+      const reexport = parent.parent.parent.moduleSpecifier !== undefined;
+      return reexport || (parent.propertyName !== undefined && parent.name === node);
+    }
+    if (
+      ts.isPropertyAssignment(parent) ||
+      ts.isPropertySignature(parent) ||
+      ts.isPropertyDeclaration(parent) ||
+      ts.isMethodDeclaration(parent) ||
+      ts.isMethodSignature(parent) ||
+      ts.isGetAccessorDeclaration(parent) ||
+      ts.isSetAccessorDeclaration(parent) ||
+      ts.isEnumMember(parent) ||
+      ts.isJsxAttribute(parent) ||
+      ts.isVariableDeclaration(parent) ||
+      ts.isParameter(parent) ||
+      ts.isFunctionDeclaration(parent) ||
+      ts.isFunctionExpression(parent) ||
+      ts.isClassDeclaration(parent) ||
+      ts.isClassExpression(parent) ||
+      ts.isInterfaceDeclaration(parent) ||
+      ts.isTypeAliasDeclaration(parent) ||
+      ts.isTypeParameterDeclaration(parent) ||
+      ts.isImportClause(parent) ||
+      ts.isNamespaceImport(parent) ||
+      ts.isImportEqualsDeclaration(parent)
+    ) {
+      return parent.name === node;
+    }
+    return false;
+  };
+
+  const isRequireImport = (node: ts.Identifier): boolean => {
+    if (node.text !== 'require') return false;
+    const parent = node.parent;
+    if (ts.isCallExpression(parent) && parent.expression === node) return true;
+    return (
+      ts.isPropertyAccessExpression(parent) &&
+      parent.expression === node &&
+      parent.name.text === 'resolve'
+    );
+  };
+
+  const visit = (node: ts.Node): void => {
+    if (ts.isIdentifier(node)) {
+      const parent = node.parent;
+      const globalMember =
+        ts.isPropertyAccessExpression(parent) &&
+        parent.name === node &&
+        isGlobalObject(parent.expression);
+      if (globalMember || (!isOwnName(node) && !isRequireImport(node))) found.push(node.text);
+    } else if (
+      ts.isStringLiteralLike(node) &&
+      ts.isElementAccessExpression(node.parent) &&
+      node.parent.argumentExpression === node &&
+      isGlobalObject(node.parent.expression)
+    ) {
+      found.push(node.text); // globalThis['fetch']
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(tree);
+  return found;
+}
+
 function packageName(specifier: string): string {
   const parts = specifier.split('/');
   return specifier.startsWith('@') ? parts.slice(0, 2).join('/') : (parts[0] ?? specifier);
@@ -122,9 +247,9 @@ function layerOf(path: string): Layer | null {
 }
 
 /**
- * Every way one file breaks the rule, as `<file> imports <specifier>` (or `<file> is in no
- * layer`). `file` is relative to `src/`; nothing is read from disk, so a test can feed it any
- * source.
+ * Every way one file breaks the rule, as `<file> imports <specifier>`, `<file> uses <global>`
+ * (or `<file> is in no layer`). `file` is relative to `src/`; nothing is read from disk, so a
+ * test can feed it any source.
  */
 function violationsOf(file: string, source: string): string[] {
   const test = isTestFile(file);
@@ -146,9 +271,14 @@ function violationsOf(file: string, source: string): string[] {
     return own?.refuses.some((pattern) => matches(pattern, specifier)) ?? false;
   };
 
-  return importsOf(source, file)
+  const imports = importsOf(source, file)
     .filter(broken)
     .map((specifier) => `${file} imports ${specifier}`);
+  const globals =
+    test || !own
+      ? []
+      : [...new Set(referencesOf(source, file).filter((name) => own.noGlobals.includes(name)))];
+  return [...imports, ...globals.map((name) => `${file} uses ${name}`)];
 }
 
 /** Every source file under `src/`, relative to it. */
@@ -216,6 +346,9 @@ describe('the dependency rule', () => {
     ['adapters/auth/x.ts', 'better-auth', true],
     ['adapters/auth/x.ts', '../persistence/database.js', true],
     ['adapters/auth/x.ts', 'hono', false],
+    ['adapters/auth/x.ts', 'drizzle-orm', false],
+    ['adapters/auth/x.ts', 'pg', false],
+    ['adapters/auth/x.ts', '@electric-sql/pglite', false],
     ['adapters/auth/x.ts', '../http/app.js', false],
     ['adapters/auth/x.ts', '../../compose.js', false],
     ['adapters/http/x.ts', 'hono', true],
@@ -239,6 +372,60 @@ describe('the dependency rule', () => {
     expect(violationsOf(file, `import x from '${specifier}';`)).toEqual(
       allowed ? [] : [`${file} imports ${specifier}`],
     );
+  });
+
+  it('the checker reports a global that reaches the machine', () => {
+    expect(violationsOf('domain/x.ts', 'const home = process.env.HOME;')).toEqual([
+      'domain/x.ts uses process',
+    ]);
+    expect(violationsOf('application/x.ts', "await fetch('https://sprocket.test');")).toEqual([
+      'application/x.ts uses fetch',
+    ]);
+  });
+
+  // One case for each global `domain` and `application` refuse.
+  it.each([
+    ['process', 'const home = process.env.HOME;'],
+    ['fetch', "void fetch('/');"],
+    ['require', 'const load = require;'],
+    ['XMLHttpRequest', 'const request = new XMLHttpRequest();'],
+    ['WebSocket', "const socket = new WebSocket('ws://sprocket.test');"],
+    ['setTimeout', 'setTimeout(() => {}, 1);'],
+    ['setInterval', 'setInterval(() => {}, 1);'],
+    ['setImmediate', 'setImmediate(() => {});'],
+    ['globalThis', 'const here = globalThis;'],
+    ['global', 'const here = global;'],
+    ['process', 'let here: typeof process;'],
+    ['process', 'const reached = { process };'],
+  ])('the checker reports %s in the inner layers: %s', (name, source) => {
+    expect(violationsOf('domain/x.ts', source)).toEqual([`domain/x.ts uses ${name}`]);
+    expect(violationsOf('application/x.ts', source)).toEqual([`application/x.ts uses ${name}`]);
+  });
+
+  it('the checker reads a global reached through globalThis as that global', () => {
+    expect(violationsOf('domain/x.ts', "void globalThis.fetch('/');")).toEqual([
+      'domain/x.ts uses globalThis',
+      'domain/x.ts uses fetch',
+    ]);
+  });
+
+  it.each([
+    ['a property read', 'const a = request.process;'],
+    ['a method call', 'const a = client.fetch(1);'],
+    ['an object key', 'const a = { process: 1, fetch: 2 };'],
+    ['a method', 'class A { fetch() {} }'],
+    ['a type member', 'type A = { process: string; fetch(): void };'],
+    ['a destructured property', 'function a({ fetch }: { fetch: number }) {}'],
+    ['a string or a comment', "// process.env\nconst a = 'fetch(require)';"],
+    ['require called as an import', "const a = require('./y.js');"],
+  ])('the checker does not report %s', (_name, source) => {
+    expect(violationsOf('domain/x.ts', source)).toEqual([]);
+  });
+
+  it('the checker lets adapters, the ring and tests reach the machine', () => {
+    expect(violationsOf('adapters/persistence/x.ts', 'const a = process.env.HOME;')).toEqual([]);
+    expect(violationsOf('main.ts', 'process.exit(1);')).toEqual([]);
+    expect(violationsOf('domain/x.test.ts', "process.env.X = '1';")).toEqual([]);
   });
 
   it('the checker refuses a file in no layer, and an import it cannot read', () => {
