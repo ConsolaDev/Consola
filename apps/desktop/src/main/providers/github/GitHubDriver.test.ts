@@ -446,6 +446,21 @@ describe('GitHubDriver.checkout', () => {
     expect(invocations()).toEqual(['pr checkout 51 GH_TOKEN=gho_test']);
   }, 30_000);
 
+  it('checks the pull request out detached when asked, making no branch', async () => {
+    const clone = path.join(dir, 'catalog-portal');
+    initCloneWithCommit(clone);
+    const worktree = path.join(dir, 'catalog-portal-pr-51-automation');
+    execFileSync('git', ['-C', clone, 'worktree', 'add', '--detach', worktree], {
+      stdio: 'ignore',
+    });
+    const driver = new GitHubDriver(() => ({ PATH: '' }));
+
+    await driver.checkout(worktree, pr51, fixtureEnv(), { detach: true });
+
+    expect(currentBranch(worktree)).toBe('HEAD'); // detached
+    expect(invocations()).toEqual(['pr checkout 51 --detach GH_TOKEN=gho_test']);
+  }, 30_000);
+
   it('does nothing for an issue — there is no remote branch to fetch', async () => {
     const driver = new GitHubDriver(() => ({ PATH: '' }));
 
@@ -594,6 +609,36 @@ describe('GitHubDriver identity, URLs and header', () => {
     expect(driver.workItemUrl(issue87)).toBe(
       'https://github.com/sprocket/media-upload-api/issues/87',
     );
+  });
+
+  it.each([
+    [
+      'https://github.com/sprocket/catalog-portal/pull/51',
+      { provider: 'github', repo: 'sprocket/catalog-portal', type: 'pr', number: 51 },
+    ],
+    [
+      'https://github.com/sprocket/catalog-portal/issues/87',
+      { provider: 'github', repo: 'sprocket/catalog-portal', type: 'issue', number: 87 },
+    ],
+  ])('parses %s into a work item', (url, ref) => {
+    expect(driver.parseWorkItemUrl(url)).toEqual(ref);
+  });
+
+  it.each([
+    'http://github.com/sprocket/catalog-portal/pull/51',
+    'https://www.github.com/sprocket/catalog-portal/pull/51',
+    'https://github.com/sprocket/catalog-portal/pull/51/files',
+    'https://github.com/sprocket/catalog-portal/pull/51/',
+    'https://github.com/sprocket/catalog-portal/pull/51?x=1',
+    'https://github.com/sprocket/catalog-portal/pull/51#r1',
+    'https://github.com/sprocket/catalog-portal/pull/0',
+    // Past Number.MAX_SAFE_INTEGER: it would read as another number.
+    'https://github.com/sprocket/catalog-portal/pull/99999999999999999999',
+    'https://github.com/sprocket/catalog-portal/pulls/51',
+    'https://gitlab.com/sprocket/catalog-portal/pull/51',
+    'https://github.com/sprocket/pull/51',
+  ])('refuses %s', (url) => {
+    expect(driver.parseWorkItemUrl(url)).toBeNull();
   });
 
   it('renders the GitHub seed header, titled from the inbox item when there is one', () => {

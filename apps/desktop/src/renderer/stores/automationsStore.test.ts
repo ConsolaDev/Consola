@@ -30,8 +30,9 @@ function snap(filePath: string): AutomationsSnapshot {
     automations: [],
     issues: [],
     runs: [],
+    hasOlder: false,
     queue: {},
-    suggestAssignedReviews: null,
+    suggestAssignedReviews: false,
     templates: [],
   };
 }
@@ -88,6 +89,30 @@ describe('automationsStore', () => {
     const { snapshots } = useAutomationsStore.getState();
     expect(snapshots.w1.filePath).toBe('/one');
     expect(snapshots.w2.filePath).toBe('/two');
+  });
+});
+
+describe('a window opened by a notification about an automation', () => {
+  it('panelFromWindowContext opens the automation it names', () => {
+    const base: WindowContext = {
+      workspaceId: 'w1',
+      activeSessionId: null,
+      overlay: 'automations',
+    };
+    expect(
+      panelFromWindowContext({ ...base, automationsName: 're-review-on-new-commits' }),
+    ).toEqual({
+      kind: 'automation',
+      name: 're-review-on-new-commits',
+    });
+    // With the dashboard closed it names nothing to show.
+    expect(
+      panelFromWindowContext({
+        ...base,
+        overlay: null,
+        automationsName: 're-review-on-new-commits',
+      }),
+    ).toBeNull();
   });
 });
 

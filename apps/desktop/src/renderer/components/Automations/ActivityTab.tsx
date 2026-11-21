@@ -1,7 +1,8 @@
-import { useId, useRef, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import { History, Search } from 'lucide-react';
 import type { AutomationsSnapshot, RunListEntry } from '../../../shared/automations';
 import type { Workspace } from '../../../shared/workspace';
+import { automationsBridge } from '../../services/automationsBridge';
 import { useAutomationsStore } from '../../stores/automationsStore';
 import { AutomationInsights } from './AutomationInsights';
 import { AutomationFilterMenu, RunItem, useArrivals, useMarkRunsSeen, useNow } from './parts';
@@ -9,10 +10,14 @@ import {
   filterRuns,
   groupRunsByDay,
   isRunFilterNarrowed,
+  foldDroppedRuns,
+  mergeRunPages,
+  newestRunFirst,
+  olderRunsCursor,
   NO_RUN_FILTER,
   runAutomationOptions,
   runInsights,
-  runKindCounts,
+  snapshotRunCounts,
   type RunAutomationOption,
   type RunFilter,
   type RunListFilter,
@@ -80,6 +85,7 @@ export function ActivityTab({
         </section>
       )}
       <RunList
+        workspaceId={workspace.id}
         snapshot={snapshot}
         filter={filter}
         options={options}
@@ -115,6 +121,7 @@ function NoRunsYet() {
  * show). ↑ and ↓ move between runs; Enter opens one.
  */
 function RunList({
+  workspaceId,
   snapshot,
   filter,
   options,
@@ -122,6 +129,7 @@ function RunList({
   now,
   onChange,
 }: {
+  workspaceId: string;
   snapshot: AutomationsSnapshot;
   filter: RunListFilter;
   options: RunAutomationOption[];
@@ -136,8 +144,13 @@ function RunList({
     state.panel?.kind === 'run' ? state.panel.runId : null,
   );
   const arrivals = useArrivals(snapshot.runs);
-  const runs = filterRuns(snapshot.runs, filter, now);
-  const kindCounts = runKindCounts(snapshot.runs, filter, now);
+  const { runs, hasOlder, loading, error, showOlder, paged } = useRunPages(
+    workspaceId,
+    snapshot,
+    filter,
+    now,
+  );
+  const counts = snapshotRunCounts(snapshot, filter, now);
   const narrowed = isRunFilterNarrowed(filter);
   const running = history.filter((run) => run.status === 'running').length;
   const queued = history.filter((run) => run.status === 'queued').length;
@@ -166,7 +179,11 @@ function RunList({
             Runs
           </h2>
           <span className="automations-runs-count" aria-live="polite">
-            {narrowed ? `${runs.length} of ${history.length}` : history.length}
+            {narrowed
+              ? `${runs.length}${hasOlder ? '+' : ''}`
+              : paged
+                ? `${runs.length}${hasOlder ? '+' : ''}`
+                : counts.all}
           </span>
           {running + queued > 0 && (
             <span className="automations-live" title="Updates as runs start and finish">
@@ -192,7 +209,10 @@ function RunList({
               onClick={() => onChange({ kind: id })}
             >
               {label}
-              <span className="automations-segment-count">{kindCounts[id]}</span>
+              {/* Counts come from the snapshot: beside narrowed or paged rows they could read "Failed 0". */}
+              {!narrowed && !paged && (
+                <span className="automations-segment-count">{counts.kinds[id]}</span>
+              )}
             </button>
           ))}
         </div>
@@ -207,6 +227,11 @@ function RunList({
           />
         </label>
       </div>
+      {error && (
+        <p className="automations-runs-error" role="alert">
+          Could not load runs: {error}
+        </p>
+      )}
       {runs.length > 0 ? (
         <div ref={listRef} className="automations-run-days" onKeyDown={onKeyDown}>
           {groupRunsByDay(runs, now).map((group) => (
@@ -234,7 +259,21 @@ function RunList({
               </ul>
             </div>
           ))}
+          {hasOlder && (
+            <button
+              type="button"
+              className="automations-link-button"
+              disabled={loading}
+              onClick={showOlder}
+            >
+              {loading ? 'Loading…' : 'Show older runs'}
+            </button>
+          )}
         </div>
+      ) : loading && narrowed ? (
+        <p className="automations-runs-count" aria-live="polite">
+          Searching…
+        </p>
       ) : (
         <div className="automations-runs-empty">
           <Search size={16} className="automations-status-icon" aria-hidden="true" />
@@ -258,6 +297,164 @@ function RunList({
       )}
     </section>
   );
+}
+
+/** How many runs one page of the list asks main for. */
+const PAGE = 200;
+const SEARCH_DEBOUNCE_MS = 250;
+
+/**
+ * The rows of the run list. Unnarrowed, they are the snapshot's (so they stay
+ * live with every push) with any older pages loaded below them, the
+ * snapshot's copy of a run winning. Narrowed, they come from `listRuns`
+ * (main's history, not just the snapshot): re-asked when the filter changes,
+ * the search text 250 ms after typing stops, and when the set of live runs
+ * changes, so a run that finishes while a search is open does not stay
+ * "running". An answer that arrives after a newer question was sent is
+ * dropped. A failed call keeps the rows and reports why.
+ */
+function useRunPages(
+  workspaceId: string,
+  snapshot: AutomationsSnapshot,
+  filter: RunListFilter,
+  now: Date,
+) {
+  const narrowed = isRunFilterNarrowed(filter);
+  const query = filter.query.trim();
+  const { kind, automation } = filter;
+  const [older, setOlder] = useState<RunListEntry[]>([]);
+  const [found, setFound] = useState<RunListEntry[]>([]);
+  // Whether runs remain after the latest page asked for; null until one was.
+  const [more, setMore] = useState<boolean | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // One counter for the first page of a filter, one for "Show older runs": a
+  // live refresh bumps only the first, so it cannot drop an older page.
+  const request = useRef(0);
+  const olderRequest = useRef(0);
+  const lastQuery = useRef('');
+  const lastShape = useRef('');
+  const pagedOlder = useRef(false);
+
+  // The live runs' ids and statuses: when they change, a narrowed list is stale.
+  const liveKey = snapshot.runs
+    .filter(
+      (run) =>
+        run.status === 'queued' || run.status === 'running' || run.status === 'needs-approval',
+    )
+    .map((run) => `${run.id}:${run.status}`)
+    .sort()
+    .join(',');
+  const shape = `${workspaceId}|${narrowed ? `${query}|${kind}|${automation}` : ''}`;
+
+  // The snapshot's edge moves as runs end: what it dropped goes into `older`.
+  const [seen, setSeen] = useState({ workspaceId, runs: snapshot.runs });
+  if (seen.runs !== snapshot.runs || seen.workspaceId !== workspaceId) {
+    if (seen.workspaceId === workspaceId && older.length > 0 && !narrowed) {
+      setOlder(foldDroppedRuns(seen.runs, snapshot.runs, older));
+    }
+    setSeen({ workspaceId, runs: snapshot.runs });
+  }
+
+  // A different workspace or filter starts over; anything still in flight is stale.
+  useEffect(() => {
+    request.current++;
+    olderRequest.current++;
+    pagedOlder.current = false;
+    setFound([]);
+    setOlder([]);
+    setMore(null);
+    setError(null);
+    setLoading(false);
+  }, [shape]);
+
+  // Nothing sets state after the list is gone.
+  useEffect(
+    () => () => {
+      request.current++;
+      olderRequest.current++;
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!narrowed) return;
+    const id = ++request.current;
+    const filterChanged = lastShape.current !== shape;
+    // Only a kind or automation change asks at once; typing and live changes wait for a pause.
+    const immediate = filterChanged && lastQuery.current === query;
+    lastShape.current = shape;
+    lastQuery.current = query;
+    if (filterChanged) setLoading(true);
+    const timer = setTimeout(
+      () => {
+        automationsBridge
+          .listRuns(workspaceId, { limit: PAGE, query, kind, automation })
+          .then((page) => {
+            if (id !== request.current) return;
+            setError(null);
+            // A refresh from a live change keeps the older pages already loaded.
+            if (pagedOlder.current) {
+              const edge = page.runs[page.runs.length - 1];
+              setFound((prev) =>
+                mergeRunPages(
+                  page.runs,
+                  edge ? prev.filter((run) => newestRunFirst(run, edge) > 0) : [],
+                ),
+              );
+            } else {
+              setFound(page.runs);
+              setMore(page.hasOlder);
+            }
+          })
+          .catch((reason: unknown) => {
+            if (id === request.current)
+              setError(reason instanceof Error ? reason.message : String(reason));
+          })
+          .finally(() => {
+            if (id === request.current) setLoading(false);
+          });
+      },
+      immediate ? 0 : SEARCH_DEBOUNCE_MS,
+    );
+    return () => clearTimeout(timer);
+  }, [workspaceId, narrowed, query, kind, automation, liveKey, shape]);
+
+  const rows = narrowed ? found : filterRuns(mergeRunPages(snapshot.runs, older), filter, now);
+  const cursor = olderRunsCursor(rows);
+  // Without a cursor the page would start over at the newest run.
+  const hasOlder =
+    (narrowed ? (more ?? false) : (more ?? snapshot.hasOlder)) && cursor !== undefined;
+
+  const showOlder = useCallback(() => {
+    const id = olderRequest.current;
+    setLoading(true);
+    automationsBridge
+      .listRuns(workspaceId, {
+        before: cursor,
+        limit: PAGE,
+        query: narrowed ? query : undefined,
+        kind: narrowed ? kind : undefined,
+        automation: narrowed ? automation : undefined,
+      })
+      .then((page) => {
+        if (id !== olderRequest.current) return;
+        setError(null);
+        pagedOlder.current = true;
+        setMore(page.hasOlder);
+        if (narrowed) setFound((prev) => mergeRunPages(prev, page.runs));
+        else setOlder((prev) => mergeRunPages(prev, page.runs));
+      })
+      .catch((reason: unknown) => {
+        if (id === olderRequest.current)
+          setError(reason instanceof Error ? reason.message : String(reason));
+      })
+      .finally(() => {
+        if (id === olderRequest.current) setLoading(false);
+      });
+  }, [workspaceId, narrowed, query, kind, automation, cursor]);
+
+  return { runs: rows, hasOlder, loading, error, showOlder, paged: older.length > 0 };
 }
 
 /** Why the list is empty, as specifically as the filter allows. */

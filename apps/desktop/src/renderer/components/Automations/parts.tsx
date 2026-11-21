@@ -13,6 +13,7 @@ import {
   LoaderCircle,
   Play,
   RefreshCw,
+  RotateCcw,
   Timer,
   Trash2,
   type LucideIcon,
@@ -31,6 +32,7 @@ import type {
   SessionVerdict,
   StalePreview,
 } from '../../../shared/sessionCleanup';
+import { automationsBridge } from '../../services/automationsBridge';
 import { useAutomationsStore } from '../../stores/automationsStore';
 import { ipcErrorMessage } from '../../utils/ipcErrorMessage';
 import { isLookedAt } from '../../utils/windowAttention';
@@ -38,7 +40,9 @@ import {
   formatAgo,
   formatDuration,
   formatTime,
-  runAbout,
+  runAgainTitle,
+  runAgainTarget,
+  runRowWords,
   runTitle,
   statusLabel,
   triggerInWords,
@@ -106,7 +110,7 @@ export function RunItem({
   onOpen: () => void;
 }) {
   const washed = useArrivedOnMount(arrived);
-  const about = runAbout(run);
+  const { about, step } = runRowWords(run);
   const status = `${statusLabel(run.status)}${run.status === 'queued' && place !== undefined ? ` · ${place} in line` : ''}`;
   // With nothing to say about itself, a run's "about" is its status: the title says that instead.
   const title = about !== run.status ? about : status;
@@ -133,6 +137,7 @@ export function RunItem({
           name,
           status,
           title !== status ? title : null,
+          step,
           fired,
           full,
           duration ? `took ${duration}` : null,
@@ -157,6 +162,7 @@ export function RunItem({
                 {' · '}
               </>
             )}
+            {step && `${step} · `}
             {fired}
           </span>
         </span>
@@ -382,14 +388,20 @@ export function RunNowButton({
     <button
       type="button"
       className={`${primary ? 'dialog-button-primary' : 'dialog-button-secondary'} automations-small-button`}
-      disabled={disabled || running || Boolean(automation.problem)}
+      disabled={
+        disabled || running || Boolean(automation.problem) || Boolean(automation.needsAllow)
+      }
       onClick={onRun}
       title={
-        checks
-          ? 'Refresh the Inbox now; only what is new since the last check fires'
-          : automation.mode === 'auto' && !automation.asksFirst
-            ? 'Runs now'
-            : 'Previews now; nothing changes until you approve'
+        automation.source === 'poll'
+          ? automation.needsAllow
+            ? 'Not checking yet: allow it first'
+            : 'Run the check command now; only what is new or changed fires'
+          : checks
+            ? 'Refresh the Inbox now; only what is new since the last check fires'
+            : automation.mode === 'auto' && !automation.asksFirst
+              ? 'Runs now'
+              : 'Previews now; nothing changes until you approve'
       }
     >
       {checks ? (
@@ -414,10 +426,14 @@ export function AgentRunDetails({ preview }: { preview: AgentRunPreview }) {
     <div className="automations-details">
       {preview.item && (
         <div>
-          <a href={preview.item.url} target="_blank" rel="noreferrer">
-            {preview.item.title}
-          </a>{' '}
-          by @{preview.item.author}
+          {preview.item.url ? (
+            <a href={preview.item.url} target="_blank" rel="noreferrer">
+              {preview.item.title}
+            </a>
+          ) : (
+            preview.item.title
+          )}
+          {preview.item.author ? ` by @${preview.item.author}` : ''}
         </div>
       )}
       <div>
@@ -436,6 +452,8 @@ export function AgentRunDetails({ preview }: { preview: AgentRunPreview }) {
 export function RunItemLink({ run, fallback }: { run: RunRecord; fallback?: string }) {
   const item = run.trigger.item;
   if (!item) return <>{fallback ?? null}</>;
+  // An item of a poll with `key:` has no page: its title is text.
+  if (!item.url) return <>{item.title}</>;
   return (
     <a href={item.url} target="_blank" rel="noreferrer">
       {item.title}
@@ -579,4 +597,74 @@ function outcomeEffect(outcome: SessionOutcome): string {
     ...outcome.notes,
   ].filter((part): part is string => Boolean(part));
   return parts.join(' · ');
+}
+
+/** A run still moving: Run again waits for it to end. */
+const MOVING: ReadonlySet<RunRecord['status']> = new Set(['running', 'queued', 'needs-approval']);
+
+/**
+ * Run again, as a run's page offers it: a new run of the automation's current
+ * version through its mode, for an automation that is not triggered by events,
+ * once this run is over and nothing of the automation is working. Renders
+ * nothing otherwise. `act` is the page's intent runner, so its busy state and
+ * error stay the page's.
+ */
+export function RunAgainButton({
+  workspaceId,
+  run,
+  automation,
+  history,
+  busy,
+  act,
+}: {
+  workspaceId: string;
+  run: RunRecord;
+  automation: AutomationView | undefined;
+  history: RunListEntry[];
+  busy: string | null;
+  act: (key: string, intent: () => Promise<unknown>) => Promise<void>;
+}) {
+  const openPanel = useAutomationsStore((state) => state.openPanel);
+  if (!automation || MOVING.has(run.status)) return null;
+  // A run on an item runs again on that item; the engine refuses a key its last check no longer holds, and `act` shows why.
+  const target = automation.takesItem ? runAgainTarget(run) : null;
+  if (automation.takesItem && !target) return null;
+  const itemKey = run.trigger.item?.key;
+  const itemBusy =
+    target !== null &&
+    history.some(
+      (candidate) =>
+        candidate.automationId === run.automationId &&
+        candidate.trigger.item?.key === itemKey &&
+        MOVING.has(candidate.status),
+    );
+  return (
+    <button
+      type="button"
+      className="dialog-button-secondary automations-small-button"
+      disabled={
+        busy !== null ||
+        Boolean(automation.problem) ||
+        (target
+          ? itemBusy
+          : history.some(
+              (candidate) => candidate.status === 'running' || candidate.status === 'queued',
+            ))
+      }
+      title={target && itemBusy ? 'A run on this item is still open' : runAgainTitle(automation)}
+      onClick={() =>
+        void act('rerun', async () => {
+          const next = await automationsBridge.runNow(
+            workspaceId,
+            run.automationId,
+            target ?? undefined,
+          );
+          if (next) openPanel({ kind: 'run', runId: next.id });
+        })
+      }
+    >
+      <RotateCcw size={12} aria-hidden="true" />
+      {busy === 'rerun' ? 'Starting…' : 'Run again'}
+    </button>
+  );
 }

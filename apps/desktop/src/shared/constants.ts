@@ -176,6 +176,15 @@ export const IPC_CHANNELS = {
   AUTOMATIONS_START_AUTHORING: 'automations:start-authoring', // A session that drafts an entry with the person
   AUTOMATIONS_ACKNOWLEDGE: 'automations:acknowledge', // Mark an agent-added automation as seen
   AUTOMATIONS_GET_ENTRY: 'automations:get-entry', // One factory.yml entry exactly as written, for its details
+  AUTOMATIONS_LIST_RUNS: 'automations:list-runs', // One page of a workspace's run history, filtered, newest first
+  AUTOMATIONS_GET_RUN_DEFINITION: 'automations:get-run-definition', // A steps run's whole definition snapshot
+  AUTOMATIONS_GET_STEP_DETAIL: 'automations:get-step-detail', // One step's record, definition, command.json and log tails
+  AUTOMATIONS_READ_STEP_LOG: 'automations:read-step-log', // One step log, up to the 1 MB it holds
+  AUTOMATIONS_READ_ARTIFACT: 'automations:read-artifact', // One declared artifact of a step's latest attempt
+  AUTOMATIONS_READ_STEP_CONVERSATION: 'automations:read-step-conversation', // A step's part of its transcript, read from disk
+  AUTOMATIONS_ALLOW: 'automations:allow', // A person lets a poll entry's check command run, at one version
+  AUTOMATIONS_LIST_RUN_TARGETS: 'automations:list-run-targets', // The items Run on… offers an automation
+  AUTOMATIONS_RETRY: 'automations:retry', // Retry a failed steps run from its failed step
 
   // Personal automations (main -> every renderer)
   AUTOMATIONS_CHANGED: 'automations:changed', // A workspace's fresh AutomationsSnapshot
@@ -250,10 +259,12 @@ export const HARNESS_DRIVERS: ReadonlyArray<{
   available: boolean;
   /** Binary this CLI installs as, shown as the binary-path placeholder. */
   binaryName: string;
-  /** Environment variable that redirects this CLI's profile directory. */
-  configDirEnvVar: string;
+  /** Environment variable that redirects this CLI's profile directory, when supported. */
+  configDirEnvVar?: string;
   /** Where that CLI keeps its profile when the variable is unset. */
   defaultConfigDir: string;
+  /** Example launch arguments shown as the extra-args placeholder. */
+  launchArgsPlaceholder: string;
   /**
    * Whether this CLI can describe its own commands, agents and models.
    *
@@ -278,6 +289,7 @@ export const HARNESS_DRIVERS: ReadonlyArray<{
     binaryName: 'claude',
     configDirEnvVar: 'CLAUDE_CONFIG_DIR',
     defaultConfigDir: '~/.claude',
+    launchArgsPlaceholder: 'e.g. --permission-mode plan',
     supportsCapabilities: true,
     defaultTitleModel: 'haiku',
     supportsConversationReading: true,
@@ -290,6 +302,18 @@ export const HARNESS_DRIVERS: ReadonlyArray<{
     binaryName: 'codex',
     configDirEnvVar: 'CODEX_HOME',
     defaultConfigDir: '~/.codex',
+    launchArgsPlaceholder: 'e.g. --sandbox read-only',
+    supportsCapabilities: true,
+    supportsConversationReading: true,
+  },
+  {
+    id: 'antigravity',
+    label: 'Antigravity',
+    description: "Google's Antigravity CLI.",
+    available: true,
+    binaryName: 'agy',
+    defaultConfigDir: '~/.gemini/antigravity-cli',
+    launchArgsPlaceholder: 'e.g. --mode plan',
     supportsCapabilities: true,
     supportsConversationReading: true,
   },

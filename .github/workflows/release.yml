@@ -48,7 +48,9 @@ jobs:
           node -e 'for (const key of ["CSC_LINK", "CSC_KEY_PASSWORD", "APPLE_ID", "APPLE_APP_SPECIFIC_PASSWORD", "APPLE_TEAM_ID"]) { if (!process.env[key]) throw new Error(`Missing release secret: ${key}`) }'
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter consola typecheck
-      - run: pnpm --filter consola test
+      - run: pnpm --filter @consola/automation-engine typecheck
+      - run: pnpm --filter @consola/factory-spec typecheck
+      - run: pnpm --filter @consola/factory-spec --filter @consola/automation-engine --filter consola test
       - name: Build signed and notarized installers
         env:
           CSC_LINK: ${{ secrets.CSC_LINK }}

@@ -13,12 +13,19 @@ import {
   LoaderCircle,
   Play,
   ScanSearch,
+  SquareTerminal,
   Wrench,
   type LucideIcon,
 } from 'lucide-react';
 import { isAgentRunPreview, type RunRecord } from '../../../shared/automations';
 import { formatElapsed } from './presentation';
-import { foundNothingToDo, type RunStage, type RunStageKey, type RunStageState } from './runPage';
+import {
+  foundNothingToDo,
+  triggerStageWords,
+  type RunStage,
+  type RunStageKey,
+  type RunStageState,
+} from './runPage';
 
 const STATE_ICONS: Record<RunStageState, LucideIcon> = {
   passed: CircleCheck,
@@ -29,6 +36,7 @@ const STATE_ICONS: Record<RunStageState, LucideIcon> = {
   running: LoaderCircle,
   skipped: CircleDashed,
   pending: CircleDashed,
+  reported: ScanSearch,
 };
 
 /** The pipeline graph's own classes for the states it already draws: the flowing arrow, the amber wait. */
@@ -74,7 +82,7 @@ export function RunGraph({
         const target = targets[stage.key];
         return (
           <li
-            key={stage.key}
+            key={stage.step ? `step:${stage.step.id}` : stage.key}
             className={`automations-node automations-stage-${stage.state} ${LIVE_CLASSES[stage.state] ?? ''}`}
             aria-label={`${view.kicker}: ${view.outcome}`}
           >
@@ -132,40 +140,14 @@ function stageView(
 
   switch (stage.key) {
     case 'trigger': {
-      const { trigger } = run;
-      const time = new Date(trigger.at).toLocaleTimeString(undefined, {
-        hour: '2-digit',
-        minute: '2-digit',
-      });
-      const late = Date.parse(run.createdAt) - Date.parse(trigger.at);
-      if (trigger.kind === 'cron') {
-        return {
-          icon: Clock,
-          kicker: trigger.catchUp ? 'Schedule, caught up' : 'Schedule',
-          title: schedule ?? 'On schedule',
-          outcome:
-            trigger.catchUp && late >= 1000
-              ? `Due ${time} · ran ${formatElapsed(late)} late`
-              : `Fired ${time}`,
-        };
-      }
-      if (trigger.kind === 'event') {
-        return {
-          icon: Inbox,
-          kicker: 'Inbox event',
-          title: agent?.item?.label ?? 'An item arrived',
-          outcome: `Seen ${time}`,
-        };
-      }
-      if (trigger.by === 'agent') {
-        return {
-          icon: Bot,
-          kicker: 'Agent request',
-          title: askerName ? `Asked by ${askerName}` : 'Asked by an agent',
-          outcome: `Asked ${time}`,
-        };
-      }
-      return { icon: Play, kicker: 'Run now', title: 'Run by you', outcome: `Started ${time}` };
+      const words = triggerStageWords(run, askerName, schedule);
+      const icon = {
+        cron: Clock,
+        event: Inbox,
+        poll: ScanSearch,
+        manual: run.trigger.by === 'agent' ? Bot : Play,
+      }[run.trigger.kind];
+      return { icon: icon ?? Play, ...words };
     }
     case 'preview':
       return {
@@ -241,6 +223,31 @@ function stageView(
                   ? 'Not needed'
                   : unreached,
       };
+    case 'step': {
+      const step = stage.step!;
+      const outcome =
+        stage.state === 'passed'
+          ? `Completed${took ? ` in ${took}` : ''}`
+          : stage.state === 'failed'
+            ? `Failed${took ? ` after ${took}` : ''}`
+            : stage.state === 'running'
+              ? `Running${took ? ` · ${took}` : ''}`
+              : stage.state === 'queued'
+                ? run.status === 'running'
+                  ? 'Waiting for a slot'
+                  : 'Queued'
+                : stage.state === 'reported'
+                  ? 'Would have run'
+                  : stage.state === 'skipped'
+                    ? 'Skipped'
+                    : 'Next';
+      return {
+        icon: step.kind === 'agent' ? Bot : SquareTerminal,
+        kicker: step.kind === 'agent' ? 'Agent step' : 'Command',
+        title: step.id,
+        outcome,
+      };
+    }
     case 'notify':
       return {
         icon: Bell,

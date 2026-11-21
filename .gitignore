@@ -19,6 +19,10 @@ release/
 # Local Vercel project link
 .vercel/
 .env*
+!.env.example
+
+# Local data (PGlite databases)
+.data/
 
 # Turborepo task cache
 .turbo/

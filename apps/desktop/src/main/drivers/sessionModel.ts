@@ -6,7 +6,7 @@ const cache = new Map<string, { size: number; mtimeMs: number; model: string | n
 /** Read backwards so long conversations cost only their most recent turn. */
 export async function readSessionModel(
   file: string,
-  driver: 'claude' | 'codex',
+  driver: 'claude' | 'codex' | 'antigravity',
 ): Promise<string | null> {
   let handle: Awaited<ReturnType<typeof fs.open>> | undefined;
   try {
@@ -35,7 +35,9 @@ export async function readSessionModel(
           const candidate =
             driver === 'claude'
               ? record?.type === 'assistant' && record.message?.model
-              : record?.type === 'turn_context' && record.payload?.model;
+              : driver === 'codex'
+                ? record?.type === 'turn_context' && record.payload?.model
+                : record?.type === 'PLANNER_RESPONSE' && record.model;
           if (typeof candidate === 'string' && candidate.trim() && !candidate.startsWith('<')) {
             model = candidate.trim();
             break;

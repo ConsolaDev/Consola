@@ -19,6 +19,11 @@ import type { PullRequestLookup, PullRequestQuery } from './pullRequests';
 export interface CheckoutOptions {
   /** Move a reused local branch to the item's head even when that is not a fast-forward. */
   resetBranch?: boolean;
+  /**
+   * Leave HEAD detached at the item's head, making or moving no local branch:
+   * the automation checkout, beside a worktree that may have the PR's branch.
+   */
+  detach?: boolean;
 }
 
 export interface GitProviderDriver {
@@ -46,6 +51,13 @@ export interface GitProviderDriver {
    * reply: a plausible-looking empty list would read as "nothing to do".
    */
   fetchInbox(binding: ProviderBinding, env: NodeJS.ProcessEnv): Promise<InboxItem[]>;
+
+  /**
+   * The work item a URL names, or null when it is not exactly one of this
+   * provider's item URLs. Optional: a provider that cannot read its own URLs
+   * leaves it out, and a trigger that needs them refuses that connection.
+   */
+  parseWorkItemUrl?(url: string): WorkItemRef | null;
 
   fetchDetails?(ref: WorkItemRef, env: NodeJS.ProcessEnv): Promise<SharedWorkItemDetails>;
   mutateItem?(ref: WorkItemRef, mutation: WorkItemMutation, env: NodeJS.ProcessEnv): Promise<void>;

@@ -1,5 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { RunRecord } from '@consola/factory-spec';
+import type { StepToolSpec } from '@consola/automation-engine';
 import type { Workspace } from '../../shared/workspace';
 import { browserRefusal } from '../browser/browserToolAccess';
 import { agentContext, type ToolRegistry, type ToolResult } from '../tools/Tool';
@@ -18,6 +19,8 @@ export interface SessionServerDeps {
   };
   /** Adds the group tools; called only for conductors. */
   conductorTools: { addTo(server: McpServer, conductorSessionId: string): void };
+  /** A step session's outputs and documents (`stepToolSpecs`); none for any other session. */
+  stepTools(sessionId: string): StepToolSpec[];
   /** Adds the in-app browser tools; called only when `browserRefusal` allows the session. */
   browserTools: { addTo(server: McpServer, sessionId: string): void };
   getWorkspaces(): Workspace[];
@@ -36,9 +39,9 @@ function describeFor(tool: { description: string; destructive?: boolean }): stri
  * The MCP server one session sees, built fresh for each connection.
  *
  * Every session gets the Consola tools, acting on its own workspace and never
- * on itself; a conductor also gets its group tools, and a session that may use
- * its workspace's browser gets the browser tools. The session id comes
- * from the endpoint the connection
+ * on itself; a conductor also gets its group tools, a session that may use
+ * its workspace's browser gets the browser tools, and a step of a run its
+ * step tools. The session id comes from the endpoint the connection
  * arrived on (SessionMcpHost), and the caller is re-resolved on every call,
  * so a deleted or moved session loses its authority immediately.
  *
@@ -91,6 +94,23 @@ export function buildSessionServer(sessionId: string, deps: SessionServerDeps): 
   // Browser access, unlike the kind, can be turned off later: the tools ask
   // again on every call.
   if (browserRefusal(workspace, caller) === null) deps.browserTools.addTo(server, sessionId);
+
+  // Even for a read-only session: a step's outputs and documents reach
+  // Consola only through these, scoped by its provenance, never its args.
+  for (const spec of deps.stepTools(sessionId)) {
+    server.registerTool(
+      mcpToolName(spec.name),
+      {
+        description: spec.description,
+        inputSchema: spec.inputSchema,
+        annotations: spec.annotations,
+      },
+      (args: unknown) => {
+        const { text, isError } = spec.handle(args);
+        return { content: [{ type: 'text' as const, text }], isError };
+      },
+    );
+  }
 
   return server;
 }

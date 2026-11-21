@@ -643,11 +643,12 @@ function readWindowContext(): WindowContext {
     // Main always sends a known overlay; anything else is read as none.
     const overlay =
       context.overlay === 'inbox' || context.overlay === 'automations' ? context.overlay : null;
-    const { automationsRunId: runId, ...rest } = context;
+    const { automationsRunId: runId, automationsName: name, ...rest } = context;
     return {
       ...rest,
       overlay,
       ...(typeof runId === 'string' && runId.length > 0 ? { automationsRunId: runId } : {}),
+      ...(typeof name === 'string' && name.length > 0 ? { automationsName: name } : {}),
     };
   } catch {
     return empty;
@@ -659,8 +660,12 @@ function readWindowContext(): WindowContext {
 contextBridge.exposeInMainWorld('automationsAPI', {
   getSnapshot: (workspaceId) =>
     ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_GET_SNAPSHOT, workspaceId),
-  runNow: (workspaceId, name) =>
-    ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_RUN_NOW, workspaceId, name),
+  runNow: (workspaceId, name, target) =>
+    ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_RUN_NOW, workspaceId, name, target),
+  allow: (workspaceId, name, version) =>
+    ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_ALLOW, workspaceId, name, version),
+  listRunTargets: (workspaceId, name) =>
+    ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_LIST_RUN_TARGETS, workspaceId, name),
   approve: (runId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_APPROVE, runId),
   dismiss: (runId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_DISMISS, runId),
   openFile: (workspaceId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_OPEN_FILE, workspaceId),
@@ -669,6 +674,19 @@ contextBridge.exposeInMainWorld('automationsAPI', {
   getRun: (runId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_GET_RUN, runId),
   readConversation: (runId) =>
     ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_READ_CONVERSATION, runId),
+  readStepConversation: (runId, stepId) =>
+    ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_READ_STEP_CONVERSATION, runId, stepId),
+  listRuns: (workspaceId, query) =>
+    ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_LIST_RUNS, workspaceId, query),
+  getRunDefinition: (runId) =>
+    ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_GET_RUN_DEFINITION, runId),
+  getStepDetail: (runId, stepId) =>
+    ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_GET_STEP_DETAIL, runId, stepId),
+  readStepLog: (runId, stepId, stream) =>
+    ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_READ_STEP_LOG, runId, stepId, stream),
+  readArtifact: (runId, ref) =>
+    ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_READ_ARTIFACT, runId, ref),
+  retry: (runId, stepId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_RETRY, runId, stepId),
   stop: (runId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_STOP, runId),
   addTemplate: (workspaceId, templateId) =>
     ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_ADD_TEMPLATE, workspaceId, templateId),

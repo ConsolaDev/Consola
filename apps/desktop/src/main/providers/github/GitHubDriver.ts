@@ -224,6 +224,9 @@ function parseGitHubRemote(url: string): string | null {
   return `${parts[parts.length - 2]}/${parts[parts.length - 1]}`.toLowerCase();
 }
 
+const WORK_ITEM_URL =
+  /^https:\/\/github\.com\/([A-Za-z0-9-]+)\/([A-Za-z0-9._-]+)\/(pull|issues)\/([1-9][0-9]*)$/;
+
 export class GitHubDriver implements GitProviderDriver {
   readonly id: GitProviderId = 'github';
   readonly tokenEnvVar = 'GH_TOKEN';
@@ -714,7 +717,8 @@ export class GitHubDriver implements GitProviderDriver {
    * and the fetch, with GH_TOKEN in `env`. An issue has no branch on
    * GitHub to fetch; WorktreeService creates its local `consola/issue-<n>`
    * branch itself, so for an issue there is nothing to do here.
-   * `--force` is gh's own reset of a local branch it reuses.
+   * `--force` is gh's own reset of a local branch it reuses; `--detach`
+   * fetches the head and checks it out with no branch at all.
    */
   public async checkout(
     worktreeDir: string,
@@ -723,11 +727,11 @@ export class GitHubDriver implements GitProviderDriver {
     options: CheckoutOptions = {},
   ): Promise<void> {
     if (ref.type !== 'pr') return;
-    await this.exec(
-      ['pr', 'checkout', String(ref.number), ...(options.resetBranch ? ['--force'] : [])],
-      env,
-      worktreeDir,
-    );
+    const flags = [
+      ...(options.detach ? ['--detach'] : []),
+      ...(options.resetBranch ? ['--force'] : []),
+    ];
+    await this.exec(['pr', 'checkout', String(ref.number), ...flags], env, worktreeDir);
   }
 
   /**
@@ -745,6 +749,21 @@ export class GitHubDriver implements GitProviderDriver {
 
   public matchesRemote(remoteUrl: string, repo: string): boolean {
     return parseGitHubRemote(remoteUrl) === repo.toLowerCase();
+  }
+
+  /** Exactly a github.com pull request or issue page: no query, fragment, trailing path or other host. */
+  public parseWorkItemUrl(url: string): WorkItemRef | null {
+    const match = WORK_ITEM_URL.exec(url);
+    if (!match) return null;
+    const number = Number(match[4]);
+    // Past Number.MAX_SAFE_INTEGER it would read as another number.
+    if (!Number.isSafeInteger(number)) return null;
+    return {
+      provider: 'github',
+      repo: `${match[1]}/${match[2]}`,
+      type: match[3] === 'pull' ? 'pr' : 'issue',
+      number,
+    };
   }
 
   public workItemUrl(ref: WorkItemRef): string {

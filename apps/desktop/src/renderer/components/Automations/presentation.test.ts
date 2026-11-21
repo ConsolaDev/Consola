@@ -7,6 +7,7 @@ import type {
 } from '../../../shared/automations';
 import type { ConversationEntry } from '../../../shared/conversation';
 import {
+  ASSIGNED_REVIEWS_OFFER,
   collapseSteps,
   filterRuns,
   finalAnswer,
@@ -30,13 +31,25 @@ import {
   tableShowsUnseenFailures,
   unseenFailures,
   statusWord,
+  stepWords,
+  mergeRunPages,
+  foldDroppedRuns,
+  runRowWords,
+  newestRunFirst,
+  olderRunsCursor,
   triggerLabel,
   approvalStep,
+  runAgainTitle,
+  commandFoot,
   formatElapsed,
   groupRunsByDay,
   runKindCounts,
+  snapshotRunCounts,
   templateModeWords,
   triggerInWords,
+  lastRunWords,
+  runOnRows,
+  runAgainTarget,
   runInsights,
   runsByDay,
   statusCountsInWords,
@@ -84,8 +97,9 @@ function snapshot(
     automations,
     issues: [],
     runs,
+    hasOlder: false,
     queue: {},
-    suggestAssignedReviews: null,
+    suggestAssignedReviews: false,
     templates: [],
   };
 }
@@ -173,7 +187,138 @@ describe('runAbout', () => {
   });
 });
 
+describe('mergeRunPages / olderRunsCursor', () => {
+  it('lists each run once, newest first, the first page winning', () => {
+    const live = run({ id: 'a', createdAt: ago(HOUR), summary: 'live copy' });
+    const stale = run({ id: 'a', createdAt: ago(HOUR), summary: 'stale copy' });
+    const older = run({ id: 'b', createdAt: ago(2 * HOUR) });
+    const merged = mergeRunPages([live], [older, stale]);
+    expect(merged.map((r) => r.id)).toEqual(['a', 'b']);
+    expect(merged[0].summary).toBe('live copy');
+  });
+
+  it('continues from the oldest ended run, not an old live one at the end', () => {
+    const runs = [
+      run({ id: 'new' }),
+      run({ id: 'ended', createdAt: ago(2 * HOUR) }),
+      run({ id: 'old-live', status: 'running', createdAt: ago(40 * DAY) }),
+    ];
+    expect(olderRunsCursor(runs)).toBe('ended');
+    expect(olderRunsCursor([run({ status: 'queued' })])).toBeUndefined();
+  });
+});
+
+describe('foldDroppedRuns', () => {
+  it('keeps a run the snapshot dropped as its edge moved, once', () => {
+    const r200 = run({ id: 'r200', createdAt: ago(10 * HOUR) });
+    const r1 = run({ id: 'r1', createdAt: ago(2 * HOUR) });
+    const fresh = run({ id: 'fresh', createdAt: ago(HOUR) });
+    const older = [run({ id: 'r201', createdAt: ago(11 * HOUR) })];
+    const folded = foldDroppedRuns([r1, r200], [fresh, r1], older);
+    expect(folded.map((r) => r.id)).toEqual(['r200', 'r201']);
+    expect(foldDroppedRuns([r1, r200], [fresh, r1], folded).map((r) => r.id)).toEqual([
+      'r200',
+      'r201',
+    ]);
+  });
+
+  it('follows a run from live to ended without dropping or doubling it, and ignores dropped live runs', () => {
+    const live = run({ id: 'x', status: 'running', createdAt: ago(40 * DAY) });
+    const ended = { ...live, status: 'completed' as const };
+    const older = [run({ id: 'o', createdAt: ago(5 * HOUR) })];
+    // Still in the snapshot, now ended: nothing to fold.
+    expect(foldDroppedRuns([live], [ended], older)).toBe(older);
+    // A live run that vanished is not an ended run to keep.
+    expect(foldDroppedRuns([live], [], older)).toBe(older);
+    // Ended, then pushed out of the edge: kept below.
+    expect(foldDroppedRuns([ended], [], older).map((r) => r.id)).toEqual(['o', 'x']);
+    expect(mergeRunPages([ended], [live]).map((r) => r.status)).toEqual(['completed']);
+  });
+
+  it('orders ties by id descending, as the engine does', () => {
+    const at = ago(HOUR);
+    const sorted = [run({ id: 'a', createdAt: at }), run({ id: 'b', createdAt: at })].sort(
+      newestRunFirst,
+    );
+    expect(sorted.map((r) => r.id)).toEqual(['b', 'a']);
+  });
+});
+
+describe('runRowWords', () => {
+  const item = { key: 'k', url: 'u', title: 'Fix the cart' };
+  const step = { id: 'publish', status: 'failed' as const, index: 2, count: 3 };
+
+  it("keeps an event run's item title and puts the step beside it", () => {
+    const failed = run({
+      status: 'failed',
+      trigger: { kind: 'event', at: '', item },
+      step,
+      error: 'boom',
+    });
+    expect(runRowWords(failed)).toEqual({ about: 'Fix the cart', step: 'failed at publish' });
+  });
+
+  it('uses the step as the title of a steps run with no item', () => {
+    expect(runRowWords(run({ status: 'failed', step }))).toEqual({
+      about: 'failed at publish',
+      step: null,
+    });
+  });
+
+  it("keeps a legacy failed run's error line", () => {
+    const legacy = run({ status: 'failed', error: 'It stopped before finishing (exit 1)\nmore' });
+    expect(stepWords(legacy)).toBeNull();
+    expect(runRowWords(legacy)).toEqual({
+      about: 'It stopped before finishing (exit 1)',
+      step: null,
+    });
+  });
+});
+
+describe('stepWords', () => {
+  const at = (
+    status: RunListEntry['status'],
+    stepStatus: 'queued' | 'running' | 'failed' | 'completed' | 'not-run',
+    extra: Partial<RunListEntry> = {},
+  ) => run({ status, step: { id: 'publish', status: stepStatus, index: 2, count: 3 }, ...extra });
+
+  it('says which step a run is at', () => {
+    expect(stepWords(at('running', 'running'))).toBe('running · publish');
+    expect(stepWords(at('running', 'queued'))).toBe('waiting for a slot before publish');
+    expect(stepWords(at('failed', 'failed'))).toBe('failed at publish');
+  });
+
+  it('says a run that failed between steps failed before the one it did not reach', () => {
+    // The engine names the step it stopped before (`not-run`): "failed at" it would be untrue.
+    expect(stepWords(at('failed', 'not-run'))).toBe('failed before publish');
+  });
+
+  it("says a run waits for its item's checkout", () => {
+    expect(stepWords(run({ status: 'queued', summary: "waiting for this item's checkout" }))).toBe(
+      "waiting for this item's checkout",
+    );
+  });
+
+  it('is null for a legacy run, and for states with nothing to add', () => {
+    expect(stepWords(run({ status: 'running' }))).toBeNull();
+    expect(stepWords(run({ status: 'queued', summary: 'queued' }))).toBeNull();
+    expect(stepWords(at('completed', 'completed'))).toBeNull();
+  });
+});
+
 describe('filterRuns', () => {
+  it('lists a steps run of kind agent under Prompts & reviews', () => {
+    const runs = [
+      run({
+        id: 's',
+        kind: 'agent',
+        step: { id: 'review', status: 'completed', index: 1, count: 2 },
+      }),
+      run({ id: 't', kind: 'tool' }),
+    ];
+    expect(filterRuns(runs, by({ kind: 'agent' }), NOW).map((r) => r.id)).toEqual(['s']);
+  });
+
   it('keeps what history keeps: a run that ended in the last 30 days, and every live one; newest first', () => {
     const runs = [
       run({ id: 'old', createdAt: ago(31 * DAY) }),
@@ -491,7 +636,34 @@ describe('modeInWords', () => {
     expect(modeInWords('confirm')).toBe('Asks you before each run');
     expect(modeInWords('notify')).toBe('Tells you what it would do, and starts nothing');
     expect(modeInWords('auto')).toBe('Runs on its own');
-    expect(modeInWords('auto', true)).toBe('Runs on its own once you approve its next run');
+    expect(modeInWords('auto', true)).toBe(
+      'Runs on its own once you approve a run no agent asked for',
+    );
+  });
+
+  it("keeps today's words for cron, event and manual entries", () => {
+    for (const source of ['cron', 'event', 'manual'] as const) {
+      expect(modeInWords('auto', true, source, true)).toBe(
+        'Runs on its own once you approve a run no agent asked for',
+      );
+      expect(modeInWords('confirm', false, source)).toBe('Asks you before each run');
+      expect(modeInWords('notify', false, source)).toBe(
+        'Tells you what it would do, and starts nothing',
+      );
+    }
+  });
+
+  it('says a poll waits for Allow, not for approving a run', () => {
+    expect(modeInWords('auto', false, 'poll', true)).toBe('Runs on its own once you allow it');
+    expect(modeInWords('confirm', false, 'poll', true)).toBe(
+      'Asks you before each run, once you allow it',
+    );
+    expect(modeInWords('notify', false, 'poll', true)).toBe('Runs dry runs once you allow it');
+  });
+
+  it("says today's words for a poll once it is allowed", () => {
+    expect(modeInWords('auto', false, 'poll', false)).toBe('Runs on its own');
+    expect(modeInWords('confirm', false, 'poll', false)).toBe('Asks you before each run');
   });
 });
 
@@ -801,6 +973,100 @@ describe('runsByDay', () => {
   });
 });
 
+describe('runAgainTitle', () => {
+  const agent = { id: 'review', kind: 'agent' as const, summary: 'Review action' };
+  const fetch = { id: 'fresh', kind: 'run' as const, summary: 'git fetch', dryRun: true as const };
+  const publish = { id: 'publish', kind: 'run' as const, summary: 'gh pr review' };
+  const PREVIEW = 'Preview it again now; nothing changes until you approve';
+
+  it('says an accepted notify steps entry starts its agent steps and dry_run: run commands at once', () => {
+    expect(runAgainTitle({ mode: 'notify', kind: 'agent', steps: [agent, publish] })).toBe(
+      'Run it again now. Runs review read-only; publish only reports.',
+    );
+    expect(runAgainTitle({ mode: 'notify', kind: 'agent', steps: [fetch, agent, publish] })).toBe(
+      'Run it again now. Runs review read-only and fresh as you; publish only reports.',
+    );
+  });
+
+  it('says a notify steps entry that only reports starts nothing', () => {
+    expect(runAgainTitle({ mode: 'notify', kind: 'tool', steps: [publish] })).toBe(
+      'Run it again now; it starts nothing and reports what it would run',
+    );
+  });
+
+  it('previews an entry that asks first or waits for approval, and keeps the other words', () => {
+    expect(
+      runAgainTitle({ mode: 'notify', kind: 'agent', steps: [agent, publish], asksFirst: true }),
+    ).toBe(PREVIEW);
+    expect(runAgainTitle({ mode: 'confirm', kind: 'agent', steps: [agent] })).toBe(PREVIEW);
+    expect(runAgainTitle({ mode: 'notify', kind: 'tool' })).toBe(PREVIEW);
+    expect(runAgainTitle({ mode: 'auto', kind: 'agent', steps: [agent], asksFirst: true })).toBe(
+      PREVIEW,
+    );
+    expect(runAgainTitle({ mode: 'auto', kind: 'agent', steps: [agent] })).toBe('Run it again now');
+    expect(
+      runAgainTitle({
+        mode: 'notify',
+        kind: 'agent',
+        steps: [agent],
+        problem: 'no scope named "api"',
+      }),
+    ).toBe('Not running: no scope named "api"');
+  });
+});
+
+describe('approvalStep for a poll', () => {
+  const run = { id: 'tell', kind: 'run' as const, summary: 'gh pr comment' };
+  const agent = { id: 'review', kind: 'agent' as const, summary: 'Prompt' };
+
+  it('has the person allow an auto poll first, never approve its first run', () => {
+    const node = {
+      kind: 'approve',
+      title: 'You allow it first',
+      detail: 'Then it checks, and runs on its own',
+    };
+    expect(
+      approvalStep({ mode: 'auto', kind: 'agent', source: 'poll', needsAllow: true }),
+    ).toMatchObject(node);
+    expect(approvalStep({ mode: 'auto', kind: 'agent', source: 'poll' }, true)).toMatchObject(node);
+    expect(approvalStep({ mode: 'auto', kind: 'agent', source: 'poll' })).toBeNull();
+  });
+
+  it('says a notify poll runs dry runs once allowed, instead of asking once', () => {
+    expect(
+      approvalStep({ mode: 'notify', kind: 'agent', source: 'poll', steps: [agent, run] }),
+    ).toMatchObject({
+      kind: 'notify',
+      title: 'Runs dry runs once you allow it',
+      detail: 'Runs review read-only; tell only reports.',
+    });
+  });
+
+  it('says a notify poll whose steps only report still checks', () => {
+    expect(
+      approvalStep({ mode: 'notify', kind: 'tool', source: 'poll', steps: [run] }),
+    ).toMatchObject({
+      kind: 'notify',
+      title: 'Checks once you allow it',
+      detail: 'Its check command runs as you; its steps only report.',
+    });
+  });
+
+  it("keeps today's words for cron, event and manual entries", () => {
+    for (const source of ['cron', 'event', 'manual'] as const) {
+      expect(
+        approvalStep({ mode: 'notify', kind: 'agent', source, steps: [agent, run] })?.title,
+      ).toBe('Asks once, then runs');
+      expect(approvalStep({ mode: 'notify', kind: 'tool', source, steps: [run] })?.title).toBe(
+        'Tells you what it would do',
+      );
+      expect(approvalStep({ mode: 'auto', kind: 'agent', source }, true)?.title).toBe(
+        'You approve its first run',
+      );
+    }
+  });
+});
+
 describe('approvalStep', () => {
   it('is a person approving each run in confirm mode, worded by what runs', () => {
     expect(approvalStep({ mode: 'confirm', kind: 'tool' })).toMatchObject({
@@ -814,9 +1080,12 @@ describe('approvalStep', () => {
   });
 
   it('is approving the next run for an auto entry that asks first, and nothing once trusted', () => {
-    expect(approvalStep({ mode: 'auto', kind: 'tool', asksFirst: true })?.title).toBe(
-      'You approve its next run',
-    );
+    expect(approvalStep({ mode: 'auto', kind: 'tool', asksFirst: true })).toMatchObject({
+      title: 'You approve its next run',
+      // The user's decision of 2026-11-21: approving a run an agent asked for trusts nothing.
+      detail:
+        'New or changed since you last did. Once you approve a run no agent asked for, it runs on its own',
+    });
     expect(approvalStep({ mode: 'auto', kind: 'tool' })).toBeNull();
   });
 
@@ -836,6 +1105,58 @@ describe('approvalStep', () => {
       detail: 'Starts nothing',
     });
   });
+
+  it('says what a notify steps entry really runs', () => {
+    const agent = { id: 'review', kind: 'agent' as const, summary: 'Review action' };
+    const fetch = {
+      id: 'fresh',
+      kind: 'run' as const,
+      summary: 'git fetch',
+      dryRun: true as const,
+    };
+    const publish = { id: 'publish', kind: 'run' as const, summary: 'gh pr review' };
+    expect(approvalStep({ mode: 'notify', kind: 'agent', steps: [agent, publish] })).toMatchObject({
+      title: 'Asks once, then runs',
+      detail: 'Runs review read-only; publish only reports.',
+    });
+    expect(
+      approvalStep({ mode: 'notify', kind: 'agent', steps: [fetch, agent, publish] })?.detail,
+    ).toBe('Runs review read-only and fresh as you; publish only reports.');
+    expect(approvalStep({ mode: 'notify', kind: 'tool', steps: [fetch] })?.detail).toBe(
+      'Runs fresh as you.',
+    );
+    const second = { id: 'summarise', kind: 'agent' as const, summary: 'Summarise action' };
+    const fetchMore = {
+      id: 'fetch',
+      kind: 'run' as const,
+      summary: 'git fetch',
+      dryRun: true as const,
+    };
+    expect(
+      approvalStep({
+        mode: 'notify',
+        kind: 'agent',
+        steps: [fetch, agent, fetchMore, second, publish],
+      })?.detail,
+    ).toBe('Runs review and summarise read-only and fresh and fetch as you; publish only reports.');
+    // Nothing starts: every step is a command that only reports.
+    expect(approvalStep({ mode: 'notify', kind: 'tool', steps: [publish] })).toMatchObject({
+      detail: 'Starts nothing',
+    });
+    // Other modes.
+    expect(approvalStep({ mode: 'confirm', kind: 'tool', steps: [publish] })?.detail).toBe(
+      'Its steps run when you press Start',
+    );
+    expect(
+      approvalStep({ mode: 'auto', kind: 'agent', steps: [agent], asksFirst: true })?.title,
+    ).toBe('You approve its next run');
+  });
+
+  it('says what a command node does by mode', () => {
+    expect(commandFoot({}, 'notify')).toBe('Reports what it would run');
+    expect(commandFoot({ dryRun: true }, 'notify')).toBe('Runs as you');
+    expect(commandFoot({}, 'confirm')).toBe('Runs as you');
+  });
 });
 
 describe('runKindCounts', () => {
@@ -852,6 +1173,36 @@ describe('runKindCounts', () => {
       agent: 0,
       tool: 2,
       failed: 1,
+    });
+  });
+});
+
+describe('snapshotRunCounts', () => {
+  const runs = [
+    run({ id: 'a', kind: 'agent', automationId: 'review' }),
+    run({ id: 'b', kind: 'tool', automationId: 'tidy' }),
+    run({ id: 'c', kind: 'tool', automationId: 'tidy', status: 'failed' }),
+    run({
+      id: 'old',
+      kind: 'tool',
+      createdAt: ago(31 * DAY),
+      updatedAt: ago(31 * DAY),
+      finishedAt: ago(31 * DAY),
+    }),
+  ];
+
+  it('says the total and each kind as counted, when the snapshot holds every run', () => {
+    expect(snapshotRunCounts({ runs, hasOlder: false }, by(), NOW)).toEqual({
+      all: '3',
+      kinds: { all: '3', agent: '1', tool: '2', failed: '1' },
+    });
+  });
+
+  it('says each as at least that many when the snapshot leaves older runs out', () => {
+    // The snapshot holds the newest 200 ended runs (and every live one): past them, its counts are floors.
+    expect(snapshotRunCounts({ runs, hasOlder: true }, by(), NOW)).toEqual({
+      all: '3+',
+      kinds: { all: '3+', agent: '1+', tool: '2+', failed: '1+' },
     });
   });
 });
@@ -891,6 +1242,18 @@ describe('templateModeWords', () => {
     expect(templateModeWords('confirm')).toBe('You approve each run');
     expect(templateModeWords('auto')).toBe('Asks once, then runs on its own');
     expect(templateModeWords('notify')).toBe('Only tells you what it would do');
+  });
+
+  it("keeps today's words for cron, event and manual entries", () => {
+    for (const source of ['cron', 'event', 'manual'] as const) {
+      expect(templateModeWords('auto', source)).toBe('Asks once, then runs on its own');
+    }
+  });
+
+  it('says a poll starts once allowed', () => {
+    expect(templateModeWords('auto', 'poll')).toBe(
+      'Starts once you allow it, then runs on its own',
+    );
   });
 });
 
@@ -970,5 +1333,154 @@ describe('yamlTokens', () => {
     expect(lines.map((tokens) => tokens.map((token) => token.text).join('')).join('\n')).toBe(
       source,
     );
+  });
+});
+
+describe('the assigned reviews banner', () => {
+  it('says who reviews, who posts, that it never approves, and that it asks first', () => {
+    expect(ASSIGNED_REVIEWS_OFFER).toMatch(/asks for your review or is assigned to you/);
+    expect(ASSIGNED_REVIEWS_OFFER).toMatch(/a read-only agent reviews it in a checkout of its own/);
+    expect(ASSIGNED_REVIEWS_OFFER).toMatch(
+      /Consola posts the review on GitHub as you, as a comment or a request for changes, never an approval/,
+    );
+    expect(ASSIGNED_REVIEWS_OFFER).toMatch(/skips a commit it already reviewed/);
+    expect(ASSIGNED_REVIEWS_OFFER).toMatch(/asks you once first, with every command shown/);
+    // No action to name: the entry needs none.
+    expect(ASSIGNED_REVIEWS_OFFER).not.toMatch(/action/);
+  });
+});
+
+describe('runOnRows', () => {
+  const row = (repo: string, number: number, label = `${repo}#${number}`) => ({
+    target: { workItem: { repo, number, type: 'pr' as const } },
+    label,
+    url: `https://github.com/${repo}/pull/${number}`,
+  });
+
+  it('lists a work item once: in its last check, not again from the Inbox', () => {
+    const rows = runOnRows({
+      takesItem: 'pr',
+      acceptsUrl: true,
+      items: [row('sprocket/catalog-portal', 51)],
+      // The Inbox names the repository in its own case: the same pull request.
+      inbox: [
+        row('Sprocket/Catalog-Portal', 51, 'from the Inbox'),
+        row('sprocket/catalog-portal', 52),
+      ],
+    });
+    expect(rows.items).toEqual([row('sprocket/catalog-portal', 51)]);
+    expect(rows.inbox).toEqual([row('sprocket/catalog-portal', 52)]);
+  });
+
+  it('keeps an issue and a pull request of one number apart, and key items as they are', () => {
+    const issue = {
+      target: { workItem: { repo: 'sprocket/catalog-portal', number: 51, type: 'issue' as const } },
+      label: 'issue 51',
+      url: 'https://github.com/sprocket/catalog-portal/issues/51',
+    };
+    const keyed = { target: { key: 'T-1' }, label: '“Ticket”', url: '' };
+    const rows = runOnRows({
+      takesItem: 'pr-or-issue',
+      acceptsUrl: true,
+      items: [row('sprocket/catalog-portal', 51), keyed],
+      inbox: [issue],
+    });
+    expect(rows.items).toEqual([row('sprocket/catalog-portal', 51), keyed]);
+    expect(rows.inbox).toEqual([issue]);
+  });
+});
+
+describe('lastRunWords', () => {
+  const lastRun = (status: RunRecord['status'], at: string) => ({ id: 'r', status, at });
+
+  it.each([
+    [undefined, 'never run'],
+    [lastRun('completed', ago(2 * DAY)), 'ran 2 days ago'],
+    [lastRun('failed', ago(DAY)), 'failed yesterday'],
+    [lastRun('running', ago(HOUR)), 'running now'],
+    [lastRun('needs-approval', ago(HOUR)), 'waiting for you'],
+    [lastRun('completed', ago(3 * HOUR)), 'ran 3 hours ago'],
+    [lastRun('completed', ago(10 * 60_000)), 'ran 10 minutes ago'],
+  ])('says %j as %s', (input, words) => {
+    expect(lastRunWords(input, NOW)).toBe(words);
+  });
+
+  it('says when a dismissed run was dismissed', () => {
+    expect(lastRunWords({ id: 'r', status: 'rejected', at: ago(2 * DAY) }, NOW)).toBe(
+      'dismissed 2 days ago',
+    );
+  });
+});
+
+describe('a run found by a poll or run on an item', () => {
+  const item = { key: 'k', url: '', title: 'Fix the cart' };
+
+  it("says its check found it, and shows its item's title", () => {
+    const found = run({ trigger: { kind: 'poll', at: '', item } });
+    expect(triggerLabel(found)).toBe('check');
+    expect(triggerInWords(found)).toBe('Found by its check');
+    expect(runAbout(found)).toBe('Fix the cart');
+    expect(runRowWords(found).about).toBe('Fix the cart');
+  });
+
+  it("is run by you, and shows its item's title, when a person ran it on an item", () => {
+    const manual = run({ trigger: { kind: 'manual', at: '', by: 'person', item } });
+    expect(triggerLabel(manual)).toBe('run now');
+    expect(triggerInWords(manual)).toBe('Run by you');
+    expect(runAbout(manual)).toBe('Fix the cart');
+    expect(runRowWords(manual).about).toBe('Fix the cart');
+  });
+});
+
+describe('runAgainTarget', () => {
+  const base = { key: 'github:sprocket/catalog-portal:pr:51', url: 'u', title: 'Fix the cart' };
+
+  it('is the work item of an event run', () => {
+    const event = run({
+      trigger: {
+        kind: 'event',
+        at: '',
+        item: { ...base, repo: 'sprocket/catalog-portal', number: 51, type: 'pr' },
+      },
+    });
+    expect(runAgainTarget(event as RunRecord)).toEqual({
+      workItem: { repo: 'sprocket/catalog-portal', number: 51, type: 'pr' },
+    });
+  });
+
+  it('is the key of a poll run on a key-only item', () => {
+    const poll = run({
+      trigger: { kind: 'poll', at: '', item: { key: 'ticket-7', url: '', title: 'T' } },
+    });
+    expect(runAgainTarget(poll as RunRecord)).toEqual({ key: 'ticket-7' });
+  });
+
+  it('is the key of a manual run on a key item', () => {
+    const manual = run({
+      trigger: {
+        kind: 'manual',
+        at: '',
+        by: 'person',
+        item: { key: 'ticket-7', url: '', title: 'T' },
+      },
+    });
+    expect(runAgainTarget(manual as RunRecord)).toEqual({ key: 'ticket-7' });
+  });
+
+  it('is the URL of an event run whose item kept no identity', () => {
+    const event = run({ trigger: { kind: 'event', at: '', connection: 'github', item: base } });
+    expect(runAgainTarget(event as RunRecord)).toEqual({ url: 'u' });
+  });
+
+  it('is nothing for a schedule run, or an event run from before its item had a type', () => {
+    expect(runAgainTarget(run() as RunRecord)).toBeNull();
+    const old = run({
+      trigger: {
+        kind: 'event',
+        at: '',
+        item: { ...base, repo: 'sprocket/catalog-portal', number: 51 },
+      },
+    });
+    expect(runAgainTarget(old as RunRecord)).toBeNull();
   });
 });

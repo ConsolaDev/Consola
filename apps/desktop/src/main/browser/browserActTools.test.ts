@@ -270,6 +270,7 @@ async function call(name: string, args: Record<string, unknown>, sessionId = 'w-
     registry: new ToolRegistry(),
     approvals: { request: vi.fn() },
     conductorTools: { addTo: vi.fn() },
+    stepTools: () => [],
     browserTools: browserTools({
       getWorkspaces: () => workspaces,
       browser: new FakeBrowser(),

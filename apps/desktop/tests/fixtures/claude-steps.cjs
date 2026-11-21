@@ -1,0 +1,337 @@
+#!/usr/bin/env node
+// A stub `claude` for automation steps. Never contacts a model.
+//
+// Plain Node, no dependencies. `node` is not on the app's PATH in e2e, so a
+// spec runs it through a generated `#!/bin/sh` wrapper that execs the test
+// runner's own Node on this file with every argument.
+//
+//   --version            prints `2.0.0 (Claude Code)` (the health probe); logs nothing
+//   --input-format …     exits 1: the capabilities probe is refused, so it
+//                        neither counts as a launch nor waits out its timeout
+//   anything else        appends `<cwd> :: <argv>` to STUB_CLAUDE_LOG (newlines
+//                        flattened), then:
+//   -p (print mode)      reads `--mcp-config <path>`, spawns its `mcpServers.consola`
+//                        (command, args, env over this process's env) and speaks MCP
+//                        to it: newline-delimited JSON-RPC, `initialize` (protocol
+//                        2025-06-18), `notifications/initialized`, then `tools/call`
+//                        - consola_write_artifact { name: 'handover', content }
+//                          when the STUB_CLAUDE_HANDOVER file exists,
+//                        - consola_set_outputs { outputs } when the STUB_CLAUDE_OUTPUTS
+//                          file holds JSON,
+//                        logging `TOOL <name> <first line of the result>` for each.
+//                        Before those, with STUB_CLAUDE_READS, it reads each document
+//                        named there (below) and logs what came back.
+//                        Both files are read again on every launch, so a resumed turn
+//                        (a reminder) acts on what they hold by then. It writes a
+//                        transcript where Claude would,
+//                        $CLAUDE_CONFIG_DIR/projects/p/<id>.jsonl (the id from
+//                        --session-id, else --resume): the prompt (after `--`), then
+//                        `FINDINGS: done`. Then it prints `FINDINGS: done` and exits 0.
+//                        Its last log line is `END <id> exit <code>`: the turn is over.
+//   otherwise            shows an empty composer (`❯ `) and sleeps; with STUB_CLAUDE_CALLS
+//                        (below) it first makes those calls, as an agent in a session would.
+//
+// A planned call that fails fails the turn, loudly. A tool answer with
+// `isError: true` (how a server reports a failed tool) or a rejected call is
+// logged as `TOOL <name> ERROR <first line>`; a server that cannot be reached
+// as `MCP <what went wrong>`. The remaining calls are still made, then the
+// turn writes no findings, prints nothing to stdout, says so on stderr, and
+// exits 1. A launch that plans no call (neither file usable) is not a failure.
+//
+// Env knobs:
+//   STUB_CLAUDE_LOG=path        the launch and tool log above
+//   STUB_CLAUDE_HANDOVER=path   the handover to write (Markdown); absent file: none
+//   STUB_CLAUDE_OUTPUTS=path    the outputs to set, as JSON; absent or not JSON: none
+//   STUB_CLAUDE_RESUME_GATE=path  a resumed print turn (`--resume`, the reminder) waits
+//                               until this file exists before it reads the two files
+//                               above, so a test can change them between turns without
+//                               racing the relaunch. It logs `GATE open` when it goes on,
+//                               or `GATE timed out` and fails after 30 s: sooner than a
+//                               test's own wait for the run, so the stub's failure shows first.
+//   STUB_CLAUDE_READS=a,b       print mode: before its writes, calls consola_read_artifact { name }
+//                               for each comma-separated ref, and logs `READ <ref> <answer>` (the
+//                               whole answer, newlines flattened, so a fenced document's text is
+//                               in the line), or `READ <ref> ERROR <answer>` for an error answer.
+//                               An error here does not fail the turn: "no earlier run" is an answer.
+//   STUB_CLAUDE_CALLS=path      an interactive launch (no -p) whose file holds `[[tool, args], …]`
+//                               makes those calls once, in order, against --mcp-config's consola
+//                               server, logs `TOOL <name> <first line>` for each (`TOOL <name>
+//                               ERROR <first line>` for a failed one), then shows the composer.
+//                               Once per file: it writes `<path>.done` after, and a relaunch that
+//                               finds it makes none.
+'use strict';
+const fs = require('node:fs');
+const path = require('node:path');
+const readline = require('node:readline');
+const { spawn } = require('node:child_process');
+
+const PROTOCOL_VERSION = '2025-06-18';
+/** Long enough for a loaded machine; short of the test's own timeouts. */
+const REQUEST_TIMEOUT_MS = 20_000;
+/** How long a resumed turn waits for STUB_CLAUDE_RESUME_GATE before failing: under the 60 s a test waits for its run. */
+const GATE_TIMEOUT_MS = 30_000;
+
+const args = process.argv.slice(2);
+const dashes = args.indexOf('--');
+const flags = dashes === -1 ? args : args.slice(0, dashes);
+const prompt = dashes === -1 ? '' : args.slice(dashes + 1).join(' ');
+
+function log(line) {
+  if (!process.env.STUB_CLAUDE_LOG) return;
+  // One write per line, so a concurrent launch cannot split it.
+  fs.appendFileSync(process.env.STUB_CLAUDE_LOG, line.replace(/\n/g, ' ') + '\n');
+}
+
+function flagValue(name) {
+  const at = flags.indexOf(name);
+  return at === -1 ? undefined : flags[at + 1];
+}
+
+/** A file's text, or null when the knob is unset or the file is absent. */
+function readKnob(name) {
+  const file = process.env[name];
+  if (!file || !fs.existsSync(file)) return null;
+  return fs.readFileSync(file, 'utf8');
+}
+
+function firstLine(text) {
+  return String(text).split('\n')[0];
+}
+
+/** One stdio MCP server, spoken to line by line. */
+function connect(server) {
+  const child = spawn(server.command, server.args ?? [], {
+    env: { ...process.env, ...(server.env ?? {}) },
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  let stderr = '';
+  child.stderr.on('data', (chunk) => {
+    stderr += chunk.toString('utf8');
+  });
+  const pending = new Map();
+  let nextId = 1;
+  const failAll = (reason) => {
+    for (const { reject, timer } of pending.values()) {
+      clearTimeout(timer);
+      reject(new Error(reason));
+    }
+    pending.clear();
+  };
+  child.on('error', (error) => failAll(`could not start ${server.command}: ${error.message}`));
+  child.on('exit', (code, signal) =>
+    failAll(`the server exited (${signal ?? code}): ${firstLine(stderr.trim())}`),
+  );
+  readline.createInterface({ input: child.stdout }).on('line', (line) => {
+    let message;
+    try {
+      message = JSON.parse(line);
+    } catch {
+      return;
+    }
+    // Only answers to our requests matter; notifications and server requests are ignored.
+    const waiting = message.id === undefined ? undefined : pending.get(message.id);
+    if (!waiting || message.method !== undefined) return;
+    pending.delete(message.id);
+    clearTimeout(waiting.timer);
+    if (message.error)
+      waiting.reject(new Error(message.error.message ?? JSON.stringify(message.error)));
+    else waiting.resolve(message.result);
+  });
+  const send = (message) =>
+    child.stdin.write(JSON.stringify({ jsonrpc: '2.0', ...message }) + '\n');
+  const request = (method, params) =>
+    new Promise((resolve, reject) => {
+      const id = nextId++;
+      const timer = setTimeout(() => {
+        pending.delete(id);
+        reject(new Error(`no answer to ${method} within ${REQUEST_TIMEOUT_MS} ms`));
+      }, REQUEST_TIMEOUT_MS);
+      pending.set(id, { resolve, reject, timer });
+      send({ id, method, params });
+    });
+  return {
+    async initialize() {
+      await request('initialize', {
+        protocolVersion: PROTOCOL_VERSION,
+        capabilities: {},
+        clientInfo: { name: 'claude-steps-stub', version: '2.0.0' },
+      });
+      send({ method: 'notifications/initialized' });
+    },
+    callTool: (name, toolArgs) => request('tools/call', { name, arguments: toolArgs }),
+    close() {
+      child.stdin.end();
+      child.kill();
+    },
+  };
+}
+
+/** The tool calls this launch makes, from the knobs' files as they are now. */
+function plannedCalls() {
+  const calls = [];
+  const handover = readKnob('STUB_CLAUDE_HANDOVER');
+  if (handover !== null)
+    calls.push(['consola_write_artifact', { name: 'handover', content: handover }]);
+  const outputs = readKnob('STUB_CLAUDE_OUTPUTS');
+  if (outputs !== null) {
+    try {
+      calls.push(['consola_set_outputs', { outputs: JSON.parse(outputs) }]);
+    } catch {
+      // Not JSON (an empty file, say): the turn sets nothing.
+    }
+  }
+  return calls;
+}
+
+/**
+ * Connects to --mcp-config's consola server, hands the client to `use`, and
+ * closes it; false when the server cannot be reached (logged as `MCP …`), else
+ * what `use` returned.
+ */
+async function withConsola(use) {
+  const configPath = flagValue('--mcp-config');
+  if (!configPath) {
+    log('MCP no --mcp-config');
+    return false;
+  }
+  const server = JSON.parse(fs.readFileSync(configPath, 'utf8')).mcpServers?.consola;
+  if (!server) {
+    log(`MCP no mcpServers.consola in ${configPath}`);
+    return false;
+  }
+  const client = connect(server);
+  try {
+    await client.initialize();
+    return await use(client);
+  } catch (error) {
+    log(`MCP ${firstLine(error.message)}`);
+    return false;
+  } finally {
+    client.close();
+  }
+}
+
+/** One call: its text and whether it failed (an `isError` answer or a rejected call). */
+async function call(client, name, toolArgs) {
+  try {
+    const result = await client.callTool(name, toolArgs);
+    const text = (result?.content ?? []).find((part) => part.type === 'text')?.text ?? '';
+    // How a server reports a tool that failed: an answer, not a JSON-RPC error.
+    return { text, failed: result?.isError === true };
+  } catch (error) {
+    return { text: error.message, failed: true };
+  }
+}
+
+/** Makes every call, in order, logging `TOOL …` for each; true only when each one succeeded. */
+async function callTools(client, calls) {
+  let ok = true;
+  for (const [name, toolArgs] of calls) {
+    const { text, failed } = await call(client, name, toolArgs);
+    if (failed) ok = false;
+    log(`TOOL ${name} ${failed ? 'ERROR ' : ''}${firstLine(text)}`);
+  }
+  return ok;
+}
+
+/** Reads each document STUB_CLAUDE_READS names, logging the whole answer; never fails the turn by itself. */
+async function readDocuments(client, refs) {
+  for (const ref of refs) {
+    const { text, failed } = await call(client, 'consola_read_artifact', { name: ref });
+    log(`READ ${ref} ${failed ? 'ERROR ' : ''}${text}`);
+  }
+  return true;
+}
+
+/** The refs STUB_CLAUDE_READS names, in order. */
+function plannedReads() {
+  return (process.env.STUB_CLAUDE_READS ?? '')
+    .split(',')
+    .map((ref) => ref.trim())
+    .filter(Boolean);
+}
+
+/** A resumed turn, with STUB_CLAUDE_RESUME_GATE set, waits for its file; false when it never came. */
+async function passGate() {
+  const gate = process.env.STUB_CLAUDE_RESUME_GATE;
+  if (!gate || flagValue('--resume') === undefined) return true;
+  const until = Date.now() + GATE_TIMEOUT_MS;
+  while (!fs.existsSync(gate)) {
+    if (Date.now() > until) {
+      log('GATE timed out');
+      return false;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  log('GATE open');
+  return true;
+}
+
+async function printTurn() {
+  const id = flagValue('--session-id') ?? flagValue('--resume');
+  // The last line a turn logs, so a test can tell it is over.
+  const end = (code, stream, text) => {
+    log(`END ${id} exit ${code}`);
+    stream.write(text, () => process.exit(code));
+  };
+  const dir = path.join(process.env.CLAUDE_CONFIG_DIR, 'projects', 'p');
+  fs.mkdirSync(dir, { recursive: true });
+  const transcript = path.join(dir, `${id}.jsonl`);
+  // Written by Node so timestamps carry milliseconds: a run's conversation is
+  // the records from its start, and a second-truncated stamp would fall before it.
+  const record = (type, content) =>
+    JSON.stringify({ type, timestamp: new Date().toISOString(), message: { role: type, content } });
+  fs.appendFileSync(transcript, record('user', prompt) + '\n');
+  if (!(await passGate())) {
+    end(1, process.stderr, 'stub claude: STUB_CLAUDE_RESUME_GATE never opened\n');
+    return;
+  }
+  const calls = plannedCalls();
+  const reads = plannedReads();
+  const ok =
+    calls.length + reads.length === 0 ||
+    (await withConsola(
+      async (client) => (await readDocuments(client, reads)) && callTools(client, calls),
+    ));
+  if (!ok) {
+    // A turn whose tool failed is a failed turn: no findings, a non-zero exit.
+    end(1, process.stderr, 'stub claude: a step tool call failed (see STUB_CLAUDE_LOG)\n');
+    return;
+  }
+  fs.appendFileSync(
+    transcript,
+    record('assistant', [{ type: 'text', text: 'FINDINGS: done' }]) + '\n',
+  );
+  end(0, process.stdout, 'FINDINGS: done\n');
+}
+
+if (flags.includes('--version')) {
+  process.stdout.write('2.0.0 (Claude Code)\n');
+} else if (flags.includes('--input-format')) {
+  process.exitCode = 1;
+} else {
+  log(`${process.cwd()} :: ${args.join(' ')}`);
+  if (flags.includes('-p')) {
+    printTurn().catch((error) => {
+      log(`STUB ${firstLine(error.stack ?? error.message)}`);
+      process.exit(1);
+    });
+  } else {
+    interactive().catch((error) => {
+      log(`STUB ${firstLine(error.stack ?? error.message)}`);
+      process.stdout.write('❯ ');
+    });
+    setTimeout(() => {}, 300_000);
+  }
+}
+
+/** An interactive launch: STUB_CLAUDE_CALLS' calls once, then an empty composer. */
+async function interactive() {
+  const file = process.env.STUB_CLAUDE_CALLS;
+  if (file && fs.existsSync(file) && !fs.existsSync(`${file}.done`)) {
+    const calls = JSON.parse(fs.readFileSync(file, 'utf8'));
+    fs.writeFileSync(`${file}.done`, '');
+    await withConsola((client) => callTools(client, calls));
+  }
+  process.stdout.write('❯ ');
+}

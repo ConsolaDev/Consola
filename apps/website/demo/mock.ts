@@ -192,9 +192,13 @@ function write(instanceId: string, text: string) {
 const cyan = (text: string) => `\x1b[36m${text}\x1b[0m`;
 const green = (text: string) => `\x1b[32m${text}\x1b[0m`;
 function initialTerminal(options: TerminalCreateOptions) {
-  const codex = options.driverId === 'codex';
   const prompt = prompts.get(options.instanceId) || options.initialPrompt;
-  const title = codex ? '›_ Codex' : '✳ Claude Code';
+  const title =
+    options.driverId === 'codex'
+      ? '›_ Codex'
+      : options.driverId === 'antigravity'
+        ? '▲ Antigravity'
+        : '✳ Claude Code';
   if (options.instanceId === 'demo-retry')
     return `${cyan(title)}\r\n${options.cwd}\r\n\r\n❯ Review PR #248 and fix the retry guard.\r\n\r\n${green('✓')} Read the PR diff and traced error handling.\r\n${green('✓')} Added a guard for non-retryable errors.\r\n${green('✓')} Added a regression test.\r\n${green('✓')} 8 tests passed (sample result).\r\n\r\nThe changes are ready for your review.\r\nInspect the diff, approve files, and try a commit.\r\n\r\n${cyan('Interactive demo · simulated agent output')}\r\nTry "run tests" or "help".\r\n\r\n❯ `;
   return `\x1b[1m${cyan(title)}\x1b[0m\r\n${options.cwd}\r\n\r\n${prompt ? `❯ ${prompt}\r\n\r\n` : ''}${prompt ? `${green('✓')} Read the pull request and related tests.\r\n\r\nFound an edge case: client errors are retried.\r\nAdd an isRetryable guard and a regression test.\r\n\r\n` : `${green('✓')} Your session is ready.\r\n\r\n`}${cyan('Interactive demo · simulated agent output')}\r\nTry "fix the retry guard", "run tests", or "help".\r\n\r\n❯ `;
@@ -744,6 +748,45 @@ export function installMock() {
   const automationsUnavailable = async (): Promise<never> => {
     throw new Error('Automations run in the desktop app.');
   };
+  // The entry desktop's Templates tab previews for review-assigned-prs, as it ships (factoryTemplates.ts).
+  const REVIEW_ASSIGNED_PRS_ENTRY = String.raw`- name: review-assigned-prs
+  on: { github: [pull_request.review_requested, pull_request.assigned] }
+  filter: { authors_not: ["dependabot[bot]"] }
+  mode: auto
+  steps:
+    - id: fresh
+      run: |
+        reviewed=$(gh api graphql -f url="$PR" -f query='
+          query($url: URI!) { resource(url: $url) { ... on PullRequest {
+            viewerLatestReview { commit { oid } } } } }' \
+          --jq '.data.resource.viewerLatestReview.commit.oid // ""')
+        if [ "$reviewed" = "$CONSOLA_CHECKOUT_HEAD" ]; then needed=false; else needed=true; fi
+        echo "needed=$needed" >> "$CONSOLA_OUTPUT"
+      env: { PR: "{{item.url}}" }
+      outputs: { needed: boolean }
+      dry_run: run
+    - id: review
+      if: steps.fresh.needed
+      prompt: >-
+        Review this pull request. Read it with Consola's work_item_context tool, and read the changed files
+        in this folder where it helps. Write your review as your handover, in Markdown, addressed to the
+        author and under 60,000 characters: what it changes, then each finding with its file and line.
+        Then set verdict: approve if you would merge it as it is, request-changes if something must change
+        first, comment otherwise.
+      outputs:
+        verdict: { enum: [approve, comment, request-changes] }
+    - id: publish
+      if: steps.fresh.needed
+      run: |
+        event=COMMENT
+        if [ "$VERDICT" = "request-changes" ]; then event=REQUEST_CHANGES; fi
+        gh api "repos/$REPO/pulls/$NUMBER/reviews" \
+          -f commit_id="$CONSOLA_CHECKOUT_HEAD" -f event="$event" -F body=@"$BODY_FILE"
+      env:
+        REPO: "{{item.repo}}"
+        NUMBER: "{{item.number}}"
+        VERDICT: "{{steps.review.verdict}}"
+        BODY_FILE: "{{steps.review.handover.file}}"`;
   const automationsAPI: Window['automationsAPI'] = {
     getSnapshot: async () => ({
       filePath: '',
@@ -751,13 +794,15 @@ export function installMock() {
       automations: [],
       issues: [],
       runs: [],
+      hasOlder: false,
       queue: {},
-      suggestAssignedReviews: null,
+      suggestAssignedReviews: false,
       templates: [
         {
           id: 'review-assigned-prs',
           title: 'Review PRs assigned to me',
-          description: 'Reviews each pull request that asks for your review.',
+          description:
+            'When a pull request asks for your review or is assigned to you, a read-only agent reviews it in a checkout of its own, and Consola posts the review on GitHub as you, as a comment or a request for changes, never an approval. Skips a commit it already reviewed. Asks once first, with every command shown.',
           category: 'Code review',
           services: ['github', 'git'],
           needs: [
@@ -768,15 +813,25 @@ export function installMock() {
             },
           ],
           preview: {
-            trigger: 'When a pull request asks for your review',
+            trigger: 'When a pull request asks for your review or is assigned to you',
+            source: 'event',
             onEvent: true,
             kind: 'agent',
-            runs: 'Review action',
-            target: 'Review',
+            runs: 'Steps: fresh → review → publish',
+            target: 'steps',
             mode: 'auto',
             nextRunAt: null,
-            entry:
-              '- name: review-assigned-prs\n  on: { github: pull_request.review_requested }\n  run: { action: Review }\n  mode: auto',
+            steps: [
+              {
+                id: 'fresh',
+                kind: 'run',
+                dryRun: true,
+                summary: `reviewed=$(gh api graphql -f url="$PR" -f query='`,
+              },
+              { id: 'review', kind: 'agent', if: 'steps.fresh.needed', summary: 'Prompt' },
+              { id: 'publish', kind: 'run', if: 'steps.fresh.needed', summary: 'event=COMMENT' },
+            ],
+            entry: REVIEW_ASSIGNED_PRS_ENTRY,
           },
         },
         {
@@ -795,6 +850,7 @@ export function installMock() {
           preview: {
             trigger: 'Weekdays at 8:30',
             schedule: '30 8 * * 1-5',
+            source: 'cron',
             onEvent: false,
             kind: 'agent',
             runs: 'Prompt',
@@ -808,12 +864,26 @@ export function installMock() {
       ],
     }),
     runNow: automationsUnavailable,
+    allow: automationsUnavailable,
+    listRunTargets: async () => ({
+      takesItem: 'item' as const,
+      acceptsUrl: false,
+      items: [],
+      inbox: [],
+    }),
     approve: automationsUnavailable,
     dismiss: automationsUnavailable,
     openFile: automationsUnavailable,
     addAssignedReviews: automationsUnavailable,
     getRun: async () => null,
     readConversation: async () => ({ readable: false }),
+    readStepConversation: async () => ({ readable: false }),
+    listRuns: async () => ({ runs: [], hasOlder: false }),
+    getRunDefinition: async () => null,
+    getStepDetail: async () => null,
+    readStepLog: async () => null,
+    readArtifact: async () => null,
+    retry: automationsUnavailable,
     stop: async () => {},
     addTemplate: automationsUnavailable,
     startAuthoring: automationsUnavailable,

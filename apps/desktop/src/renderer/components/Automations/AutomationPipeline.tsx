@@ -11,6 +11,8 @@ import {
   Hand,
   Inbox,
   LoaderCircle,
+  MousePointerClick,
+  ScanSearch,
   Wrench,
   Zap,
   type LucideIcon,
@@ -18,8 +20,10 @@ import {
 import type { AutomationView, RunListEntry } from '../../../shared/automations';
 import { automationsBridge } from '../../services/automationsBridge';
 import { ipcErrorMessage } from '../../utils/ipcErrorMessage';
+import { triggerNodeWords } from './checkWords';
 import {
   approvalStep,
+  commandFoot,
   formatCountdown,
   formatDueAt,
   formatDuration,
@@ -71,17 +75,58 @@ export function PipelineGraph({
         : undefined;
   const pathLit = targetState === 'running' || targetState === 'queued';
 
-  const TriggerIcon: LucideIcon = automation.onEvent ? Inbox : automation.schedule ? Clock : Zap;
+  // A poll or a manual entry is not an Inbox event (`onEvent` is true for both event and poll).
+  const own = triggerNodeWords(automation);
+  const TriggerIcon: LucideIcon =
+    automation.source === 'poll'
+      ? ScanSearch
+      : automation.source === 'manual'
+        ? MousePointerClick
+        : automation.onEvent
+          ? Inbox
+          : automation.schedule
+            ? Clock
+            : Zap;
   const trigger = (
     <PipelineNode
       key="trigger"
       state={due ? 'due' : undefined}
       icon={TriggerIcon}
-      kicker={automation.onEvent ? 'Inbox event' : automation.schedule ? 'Schedule' : 'Trigger'}
-      title={automation.trigger}
-      code={automation.schedule}
+      kicker={
+        own?.kicker ??
+        (automation.onEvent ? 'Inbox event' : automation.schedule ? 'Schedule' : 'Trigger')
+      }
+      title={own?.title ?? automation.trigger}
+      code={automation.source === 'poll' ? automation.check?.command : automation.schedule}
+      wrapCode={automation.source === 'poll'}
     >
-      {draft ? (
+      {!draft &&
+      automation.problem &&
+      (automation.source === 'poll' || automation.source === 'manual') ? (
+        automation.source === 'poll' ? (
+          'Not checking while it has a problem'
+        ) : (
+          'Not runnable while it has a problem'
+        )
+      ) : automation.source === 'manual' ? (
+        'Starts when you or an agent run it'
+      ) : automation.source === 'poll' ? (
+        draft ? (
+          'Checks once added and allowed'
+        ) : automation.needsAllow ? (
+          'Not checking until you allow it'
+        ) : automation.check?.nextAt ? (
+          <span title={formatTime(automation.check.nextAt)}>
+            Next check {formatCountdown(automation.check.nextAt, now)}
+            <span className="automations-node-quiet">
+              {' '}
+              · {formatDueAt(automation.check.nextAt, now)}
+            </span>
+          </span>
+        ) : (
+          'Checks on its interval'
+        )
+      ) : draft ? (
         automation.onEvent ? (
           'Checked on each Inbox refresh, once added'
         ) : automation.nextRunAt && Date.parse(automation.nextRunAt) > now.getTime() ? (
@@ -141,6 +186,50 @@ export function PipelineGraph({
     </PipelineNode>
   );
 
+  const liveAction = running ? (
+    <button type="button" className="automations-node-action" onClick={() => onOpenRun(running.id)}>
+      <LoaderCircle size={12} className="automations-spin" aria-hidden="true" />
+      Running · {formatDuration(running, now) ?? '0s'}
+      <ArrowRight size={12} aria-hidden="true" />
+    </button>
+  ) : queued ? (
+    <button type="button" className="automations-node-action" onClick={() => onOpenRun(queued.id)}>
+      Queued{place(queued.id) !== undefined ? ` · ${place(queued.id)} in line` : ''}
+      <ArrowRight size={12} aria-hidden="true" />
+    </button>
+  ) : null;
+
+  // A `steps:` entry draws one node per step after the approval, the step's own
+  // `if:` on the edge into it; what a run is doing is the run page's to say.
+  if (automation.steps) {
+    const gated = automation.steps.some((entry) => entry.if !== undefined);
+    const stepNodes = automation.steps.map((entry, index) => (
+      <PipelineNode
+        key={`step:${entry.id}`}
+        state={pathLit && index === 0 ? targetState : undefined}
+        icon={entry.kind === 'agent' ? Bot : Wrench}
+        kicker={entry.kind === 'agent' ? 'Agent step' : 'Command'}
+        title={entry.kind === 'agent' ? entry.summary : <code>{entry.summary}</code>}
+        code={entry.id}
+        edgeLabel={entry.if}
+      >
+        {index === 0 && liveAction
+          ? liveAction
+          : entry.kind === 'agent'
+            ? 'Read-only, in a session of its own'
+            : commandFoot(entry, automation.mode)}
+      </PipelineNode>
+    ));
+    return (
+      <ol
+        className={`automations-pipeline ${gated ? 'automations-pipeline-gated' : ''} ${automation.problem ? 'automations-pipeline-paused' : ''}`}
+        aria-label="Pipeline"
+      >
+        {[trigger, gate, ...stepNodes]}
+      </ol>
+    );
+  }
+
   const isAgent = automation.kind === 'agent';
   const target = (
     <PipelineNode
@@ -150,32 +239,13 @@ export function PipelineGraph({
       kicker={isAgent ? 'Agent session' : 'Consola tool'}
       title={isAgent ? automation.runs : <code>{automation.target.split('#').pop()}</code>}
     >
-      {running ? (
-        <button
-          type="button"
-          className="automations-node-action"
-          onClick={() => onOpenRun(running.id)}
-        >
-          <LoaderCircle size={12} className="automations-spin" aria-hidden="true" />
-          Running · {formatDuration(running, now) ?? '0s'}
-          <ArrowRight size={12} aria-hidden="true" />
-        </button>
-      ) : queued ? (
-        <button
-          type="button"
-          className="automations-node-action"
-          onClick={() => onOpenRun(queued.id)}
-        >
-          Queued{place(queued.id) !== undefined ? ` · ${place(queued.id)} in line` : ''}
-          <ArrowRight size={12} aria-hidden="true" />
-        </button>
-      ) : step?.kind === 'notify' ? (
-        'Previews only'
-      ) : isAgent ? (
-        'Read-only, in a session of its own'
-      ) : (
-        'Runs inside Consola, no session'
-      )}
+      {liveAction
+        ? liveAction
+        : step?.kind === 'notify'
+          ? 'Previews only'
+          : isAgent
+            ? 'Read-only, in a session of its own'
+            : 'Runs inside Consola, no session'}
     </PipelineNode>
   );
 
@@ -197,6 +267,8 @@ function PipelineNode({
   kicker,
   title,
   code,
+  wrapCode = false,
+  edgeLabel,
   children,
 }: {
   state?: NodeState;
@@ -204,16 +276,30 @@ function PipelineNode({
   kicker: string;
   title: ReactNode;
   code?: string;
+  /** The code is a command shown in full: it wraps rather than running past the node. */
+  wrapCode?: boolean;
+  /** Drawn on the edge into this node, as text. */
+  edgeLabel?: string;
   children: ReactNode;
 }) {
   return (
     <li className={`automations-node ${state ? `automations-node-${state}` : ''}`}>
+      {edgeLabel !== undefined && (
+        <span className="automations-node-if" title={`if: ${edgeLabel}`}>
+          <span className="sr-only">Runs if </span>
+          {edgeLabel}
+        </span>
+      )}
       <div className="automations-node-kicker">
         <Icon size={13} aria-hidden="true" />
         {kicker}
       </div>
       <div className="automations-node-title">{title}</div>
-      {code && <code className="automations-node-code">{code}</code>}
+      {code && (
+        <code className={`automations-node-code ${wrapCode ? 'automations-node-code-wrap' : ''}`}>
+          {code}
+        </code>
+      )}
       <div className="automations-node-foot">{children}</div>
     </li>
   );

@@ -9,6 +9,10 @@
  * the renderer sends are read by code that does not know about them yet. The
  * symptoms look like renderer bugs, which is what makes it expensive.
  *
+ * The workspace packages main loads (`packages/factory-spec`,
+ * `packages/automation-engine`) are watched too: main requires their `dist` at
+ * launch like its own, and an engine built hours earlier is the same mismatch.
+ *
  * Watches the compiled output rather than the sources, so a restart happens
  * after `tsc --watch` has finished writing — never on a half-emitted build.
  *
@@ -24,7 +28,12 @@ const electronBinary = require('electron');
 
 const projectRoot = path.join(__dirname, '..');
 const mainEntry = path.join(projectRoot, 'dist/main/main/index.js');
-const watchDirs = [path.join(projectRoot, 'dist/main'), path.join(projectRoot, 'dist/preload')];
+const watchDirs = [
+  path.join(projectRoot, 'dist/main'),
+  path.join(projectRoot, 'dist/preload'),
+  path.join(projectRoot, '../../packages/factory-spec/dist'),
+  path.join(projectRoot, '../../packages/automation-engine/dist'),
+];
 
 /**
  * How often the build output is scanned for a newer file.
@@ -167,7 +176,7 @@ function stopElectron() {
 
 async function restart() {
   restarting = true;
-  log('Main process rebuilt — restarting Electron');
+  log('Main process, preload or a workspace package rebuilt — restarting Electron');
   await stopElectron();
   if (shuttingDown) return;
   restarting = false;
@@ -238,7 +247,9 @@ async function main() {
   await waitForEntry();
   startElectron();
   watchBuildOutput();
-  log('Watching dist/main and dist/preload for rebuilds');
+  log(
+    "Watching dist/main, dist/preload and the factory-spec and automation-engine packages' dist for rebuilds",
+  );
 }
 
 for (const signal of ['SIGINT', 'SIGTERM']) {

@@ -9,7 +9,12 @@ vi.mock('../LoginEnvironment', () => ({
 }));
 
 import type { GitProviderDriver } from './GitProviderDriver';
-import { composeProviderEnv, getProviderDriver, layerProviderToken } from './index';
+import {
+  borrowProviderEnv,
+  composeProviderEnv,
+  getProviderDriver,
+  layerProviderToken,
+} from './index';
 
 function fakeDriver(overrides: Partial<GitProviderDriver> = {}): GitProviderDriver {
   return {
@@ -85,5 +90,24 @@ describe('composeProviderEnv', () => {
     });
 
     await expect(composeProviderEnv(driver, 'nobody')).rejects.toThrow('no oauth token found');
+  });
+});
+
+describe('borrowProviderEnv', () => {
+  it('gives the token it layered beside the environment, so the caller can mask it', async () => {
+    await expect(borrowProviderEnv(fakeDriver(), 'JaviDev')).resolves.toEqual({
+      env: { PATH: '/usr/bin', FAKE_TOKEN: 'tok-JaviDev' },
+      token: 'tok-JaviDev',
+    });
+  });
+
+  it('rejects when the token cannot be borrowed', async () => {
+    const driver = fakeDriver({
+      token: async () => {
+        throw new Error('no oauth token found');
+      },
+    });
+
+    await expect(borrowProviderEnv(driver, 'nobody')).rejects.toThrow('no oauth token found');
   });
 });

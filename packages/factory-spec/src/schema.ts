@@ -1,7 +1,16 @@
 import { stringify } from 'yaml';
 import { z } from 'zod';
 import { cronError } from './cron';
+import { parseManualTrigger, parsePollTrigger, type ManualTrigger, type PollTrigger } from './poll';
 import { parseToolRef, type RunTarget } from './runTarget';
+import {
+  ACTION_ON_KEYED_POLL,
+  checkSteps,
+  LATER_KEYS,
+  laterKeyMessage,
+  stepsSchema,
+  type Step,
+} from './steps';
 
 /**
  * `auto` runs as soon as the trigger fires. `confirm` previews and waits for
@@ -39,23 +48,47 @@ export interface EventTrigger {
   params: Record<string, unknown>;
 }
 
-export type Trigger = CronTrigger | EventTrigger;
+export type Trigger = CronTrigger | EventTrigger | PollTrigger | ManualTrigger;
 
-export interface Automation {
+interface AutomationCommon {
   name: string;
   trigger: Trigger;
-  run: RunTarget;
   /** Which items fire an event trigger; fields are the connection's, validated by the runner. */
   filter?: Record<string, unknown>;
   /** One of the workspace's scopes, by name: where an agent runs when there is no item repo to run in. */
   scope?: string;
+  /** `on: manual` only: which items a run on demand takes. */
+  appliesTo?: Array<'pr' | 'issue'>;
   mode: AutomationMode;
   /** 1-based line of the entry in the file, for error and UI pointers. */
   line?: number;
 }
 
+/**
+ * An entry has `run:` (one thing, today's shape) or `steps:` (a pipeline),
+ * never both. A legacy entry carries no `steps` key at all, so it parses and
+ * hashes exactly as it did before steps existed.
+ */
+export type Automation = AutomationCommon &
+  ({ run: RunTarget; steps?: never } | { steps: Step[]; run?: never });
+
+export type StepsAutomation = Extract<Automation, { steps: Step[] }>;
+
+export function isStepsEntry(automation: Automation): automation is StepsAutomation {
+  return automation.steps !== undefined;
+}
+
 const TRIGGER_EXAMPLE =
-  'e.g. `on: { cron: "0 9 * * *" }` or `on: { github: pull_request.review_requested }`';
+  'e.g. `on: { cron: "0 9 * * *" }`, `on: { poll: { every: 30m, run: …, key: .id } }`, `on: manual` or `on: { github: pull_request.review_requested }`';
+
+const NOT_A_CONNECTION = (id: string) =>
+  `"${id}" is not a trigger. The first key of \`on\` is \`cron\`, \`poll\`, \`manual\` or a lowercase connection id, ${TRIGGER_EXAMPLE}.`;
+
+/** Triggers a later slice brings, refused with what they arrive with. */
+const LATER_TRIGGERS: Record<string, string> = {
+  webhook: '`webhook` arrives with the headless runner; it is not supported yet.',
+  consola: '`consola` arrives with connections as data; it is not supported yet.',
+};
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -72,6 +105,7 @@ const triggerSchema = z.unknown().transform((on, ctx): Trigger => {
     ctx.addIssue({ code: 'custom', message, path });
     return z.NEVER;
   };
+  if (on === 'manual') return { kind: 'manual' };
   if (!isRecord(on)) return fail(`Expected a trigger, ${TRIGGER_EXAMPLE}.`);
   const [kind, ...rest] = Object.keys(on);
   if (!kind) return fail(`Expected a trigger, ${TRIGGER_EXAMPLE}.`);
@@ -90,12 +124,23 @@ const triggerSchema = z.unknown().transform((on, ctx): Trigger => {
     return { kind: 'cron', cron: on.cron.trim() };
   }
 
-  if (!CONNECTION_ID_PATTERN.test(kind)) {
-    return fail(
-      `"${kind}" is not a trigger. The first key of \`on\` is \`cron\` or a lowercase connection id, ${TRIGGER_EXAMPLE}.`,
-      [kind],
-    );
+  if (kind === 'poll' || kind === 'manual') {
+    let reported = false;
+    const report = (message: string, path: string[] = []) => {
+      reported = true;
+      ctx.addIssue({ code: 'custom', message, path });
+    };
+    const parsed =
+      kind === 'poll'
+        ? parsePollTrigger(on.poll, rest, report, NOT_A_CONNECTION, CONNECTION_ID_PATTERN)
+        : parseManualTrigger(on.manual, rest, report);
+    return parsed && !reported ? parsed : z.NEVER;
   }
+  // Own keys only: `in` would take `constructor` or `toString` for a later trigger.
+  if (Object.prototype.hasOwnProperty.call(LATER_TRIGGERS, kind))
+    return fail(LATER_TRIGGERS[kind], [kind]);
+
+  if (!CONNECTION_ID_PATTERN.test(kind)) return fail(NOT_A_CONNECTION(kind), [kind]);
   const written = on[kind];
   const listed = Array.isArray(written) ? written : [written];
   if (listed.length === 0) return fail(`List at least one event after \`${kind}:\`.`, [kind]);
@@ -147,6 +192,23 @@ function foldStringRun(entry: unknown): unknown {
   const { with: args, ...rest } = entry;
   return { ...rest, run: new StringRun(entry.run, args) };
 }
+
+/** `applies_to: [pr, issue]`: one or both, each once, in the order written. */
+const appliesToSchema = z.unknown().transform((written, ctx): Array<'pr' | 'issue'> => {
+  const fail = (message: string): never => {
+    ctx.addIssue({ code: 'custom', message });
+    return z.NEVER;
+  };
+  const expected = 'Expected `pr`, `issue` or both.';
+  if (!Array.isArray(written) || written.length === 0) return fail(expected);
+  const kinds: Array<'pr' | 'issue'> = [];
+  for (const kind of written) {
+    if (kind !== 'pr' && kind !== 'issue') return fail(expected);
+    if (kinds.includes(kind)) return fail(`\`${kind}\` is listed twice.`);
+    kinds.push(kind);
+  }
+  return kinds;
+});
 
 /** `run:` as an object with exactly one of action, prompt or tool. */
 const runSchema = z.unknown().transform((run, ctx): RunTarget => {
@@ -211,8 +273,53 @@ function explained(message: string) {
   return z.never({ error: message }).optional();
 }
 
+/** Every key a later slice owns, refused with what it arrives with; `with` keeps its own message above. */
+function laterEntryKeys() {
+  return Object.fromEntries(
+    Object.keys(LATER_KEYS)
+      .filter((key) => key !== 'with')
+      .map((key) => [key, explained(laterKeyMessage(key))]),
+  );
+}
+
+/**
+ * Exactly one of `run:` and `steps:`. Checked before the object is parsed: an
+ * issue in the trigger, or a refused key, aborts the object and would hide it.
+ */
+function requireOneOf(entry: unknown, ctx: z.RefinementCtx): unknown {
+  if (!isRecord(entry)) return entry;
+  const has = (key: string) =>
+    Object.prototype.hasOwnProperty.call(entry, key) && entry[key] !== undefined;
+  if (has('run') && has('steps')) {
+    ctx.addIssue({
+      code: 'custom',
+      path: [],
+      message: 'An entry has `run:` or `steps:`, not both.',
+    });
+  } else if (!has('run') && !has('steps')) {
+    ctx.addIssue({
+      code: 'custom',
+      path: [],
+      message: 'Expected `run:` or `steps:`: say what this automation does.',
+    });
+  }
+  return entry;
+}
+
 export function automationSchema() {
-  return z.preprocess(foldStringRun, automationEntrySchema());
+  const entrySchema = automationEntrySchema();
+  // Not `z.preprocess`: zod 4 stops a pipe at the first issue, which would
+  // hide the entry's own issues behind the one-of issue. The entry is parsed
+  // whatever that check found, and both are reported, one-of first.
+  return z.unknown().transform((raw, ctx): Automation => {
+    const entry = requireOneOf(foldStringRun(raw), ctx);
+    const parsed = entrySchema.safeParse(entry);
+    if (!parsed.success) {
+      for (const issue of parsed.error.issues) ctx.addIssue({ ...issue });
+      return z.NEVER;
+    }
+    return parsed.data;
+  });
 }
 
 function automationEntrySchema() {
@@ -225,13 +332,16 @@ function automationEntrySchema() {
           'Use lowercase letters, digits and dashes, e.g. clean-up-stale-sessions.',
         ),
       on: triggerSchema,
-      run: runSchema,
+      run: runSchema.optional(),
+      steps: stepsSchema().optional(),
       filter: z.record(z.string(), z.unknown()).optional(),
       scope: z.string().trim().min(1, 'Name one of the workspace’s scopes.').optional(),
+      applies_to: appliesToSchema.optional(),
       mode: z.enum(AUTOMATION_MODES).default('confirm'),
       with: explained(
         'Move `with:` under `run:` — only a tool takes arguments: `run: { tool: …, with: { … } }`.',
       ),
+      ...laterEntryKeys(),
       // A file belongs to one workspace, so there is nothing to select.
       workspace: explained(
         'Not needed: this file belongs to one workspace, and its automations act only on it.',
@@ -241,25 +351,76 @@ function automationEntrySchema() {
     .superRefine((entry, ctx) => {
       const issue = (path: string, message: string) =>
         ctx.addIssue({ code: 'custom', path: [path], message });
-      const { on: trigger, run } = entry;
+      const { on: trigger, run, steps } = entry;
       // A field that failed is already reported, and its value is not one.
-      if (!trigger?.kind || !run?.kind) return;
-      if (trigger.kind === 'cron') {
-        if (entry.filter)
-          issue('filter', '`filter` narrows which items fire an event; a schedule has no items.');
-        if (run.kind === 'action') {
+      if (!trigger?.kind) return;
+      if (entry.applies_to && trigger.kind !== 'manual') {
+        issue(
+          'applies_to',
+          '`applies_to` is for `on: manual`: it says which items a run on demand takes.',
+        );
+      }
+      // `run:` or `steps:` is checked before parsing (`requireOneOf`), so it is reported with every other issue.
+      if (run && steps) return;
+      if (!run && !steps) return;
+
+      // An automation with no item: a schedule, or a run on demand that names no kind of item.
+      const noItem = trigger.kind === 'cron' || (trigger.kind === 'manual' && !entry.applies_to);
+      const poll = trigger.kind === 'poll';
+      // Wording is today's for a schedule; the last sentence says why for the others.
+      const why =
+        trigger.kind === 'cron'
+          ? 'A schedule has no item to run on.'
+          : 'This automation has no item to run on.';
+      const needsScope = () => {
+        if (!entry.scope)
+          issue('scope', `Say where this runs: \`scope: <one of the workspace’s scopes>\`. ${why}`);
+      };
+      if (trigger.kind === 'cron' && entry.filter) {
+        issue('filter', '`filter` narrows which items fire an event; a schedule has no items.');
+      }
+      if (poll && entry.filter) issue('filter', 'Filter in the command, for example with `--jq`.');
+      if (trigger.kind === 'manual' && entry.filter) {
+        issue(
+          'filter',
+          '`filter` narrows which items fire an event; a run on demand has no event.',
+        );
+      }
+      if (trigger.kind === 'manual' && entry.applies_to && entry.scope && run?.kind !== 'tool') {
+        issue(
+          'scope',
+          'A run on a pull request or issue works in a checkout of its own repository, so it takes no scope.',
+        );
+      }
+      const keyed = poll && trigger.key !== undefined;
+
+      if (steps) {
+        if (noItem || keyed) needsScope();
+        // A step that failed its own checks leaves no list to resolve against.
+        if (Array.isArray(steps)) {
+          checkSteps(steps, { trigger, appliesTo: entry.applies_to }, ['steps'], (message, path) =>
+            ctx.addIssue({ code: 'custom', path, message }),
+          );
+        }
+        return;
+      }
+      if (!run?.kind) return;
+      if (run.kind === 'action') {
+        if (trigger.kind === 'cron') {
           issue(
             'run',
             'An action is a verb on an item, and a schedule has no item: write the job as `run: { prompt: "…" }`.',
           );
-        }
-        if (run.kind === 'prompt' && !entry.scope) {
+        } else if (noItem) {
           issue(
-            'scope',
-            'Say where this runs: `scope: <one of the workspace’s scopes>`. A schedule has no item to run on.',
+            'run',
+            'An action is a verb on an item, and this automation has none: write the job as `run: { prompt: "…" }`.',
           );
+        } else if (keyed) {
+          issue('run', ACTION_ON_KEYED_POLL);
         }
       }
+      if (run.kind === 'prompt' && (noItem || keyed)) needsScope();
       if (run.kind === 'tool' && entry.scope) {
         issue(
           'scope',
@@ -267,16 +428,17 @@ function automationEntrySchema() {
         );
       }
     })
-    .transform(
-      (entry): Automation => ({
+    .transform((entry): Automation => {
+      const common = {
         name: entry.name,
         trigger: entry.on,
-        run: entry.run,
         ...(entry.filter ? { filter: entry.filter } : {}),
         ...(entry.scope ? { scope: entry.scope } : {}),
+        ...(entry.applies_to ? { appliesTo: entry.applies_to } : {}),
         mode: entry.mode,
-      }),
-    );
+      };
+      return entry.steps ? { ...common, steps: entry.steps } : { ...common, run: entry.run! };
+    });
 }
 
 /**

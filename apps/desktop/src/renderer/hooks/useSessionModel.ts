@@ -16,7 +16,6 @@ export function useSessionModel(session: Session, enabled: boolean): string | un
 
   useEffect(() => {
     if (!enabled || !session.claudeSessionId) return;
-    if (fields.driverId && fields.driverId !== 'claude' && fields.driverId !== 'codex') return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const refresh = async () => {

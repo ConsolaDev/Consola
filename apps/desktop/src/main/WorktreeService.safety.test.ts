@@ -24,6 +24,22 @@ function tmp(prefix: string): string {
   return dir;
 }
 
+/** `worktree.useRelativePaths` arrived in git 2.48. */
+const GIT_HAS_RELATIVE_WORKTREE_PATHS = (() => {
+  const [major, minor] = (
+    execFileSync('git', ['--version'], { encoding: 'utf8' }).match(/(\d+)\.(\d+)/) ?? []
+  )
+    .slice(1)
+    .map(Number);
+  return major > 2 || (major === 2 && minor >= 48);
+})();
+
+/** Whether the temp folder's filesystem ignores case, as macOS's does by default. */
+const CASE_INSENSITIVE_TMP = (() => {
+  const probe = tmp('consola-case-');
+  return fs.existsSync(path.join(path.dirname(probe), path.basename(probe).toUpperCase()));
+})();
+
 function git(cwd: string, ...args: string[]): string {
   return execFileSync('git', ['-C', cwd, ...args], {
     encoding: 'utf8',
@@ -263,6 +279,165 @@ describe('deleteBranchAt', () => {
       reason: expect.stringMatching(/checked out/),
     });
   });
+});
+
+describe('syncAutomationCheckout never resets a folder it cannot prove is its own', () => {
+  const pr51 = {
+    provider: 'github',
+    repo: 'sprocket/catalog-portal',
+    type: 'pr',
+    number: 51,
+  } as const;
+  const automationDir = () => path.join(r.root, 'catalog-portal-pr-51-automation');
+
+  beforeEach(() => {
+    process.env.CONSOLA_GH_PATH = path.resolve(__dirname, '../../tests/fixtures/stub-gh/gh');
+  });
+  afterEach(() => {
+    delete process.env.CONSOLA_GH_PATH;
+  });
+
+  /** Untracked, modified and staged work in `dir`, and a check that all of it is still there. */
+  function workIn(dir: string, tracked: string) {
+    fs.writeFileSync(path.join(dir, 'wip.txt'), 'untracked work');
+    fs.writeFileSync(path.join(dir, tracked), 'edited, not staged');
+    fs.writeFileSync(path.join(dir, 'staged.txt'), 'staged work');
+    git(dir, 'add', 'staged.txt');
+    const branch = git(dir, 'symbolic-ref', '--short', 'HEAD');
+    return () => {
+      expect(fs.readFileSync(path.join(dir, 'wip.txt'), 'utf8')).toBe('untracked work');
+      expect(fs.readFileSync(path.join(dir, tracked), 'utf8')).toBe('edited, not staged');
+      expect(git(dir, 'diff', '--cached', '--name-only')).toBe('staged.txt');
+      expect(git(dir, 'symbolic-ref', '--short', 'HEAD')).toBe(branch);
+    };
+  }
+
+  it('refuses a symlink to the clone', async () => {
+    const survives = workIn(r.clone, 'README');
+    fs.symlinkSync(r.clone, automationDir());
+
+    await expect(
+      r.service.syncAutomationCheckout(r.clone, pr51, { ...process.env }),
+    ).rejects.toThrow(/symbolic link/);
+    survives();
+  });
+
+  it('refuses a symlink to the Inbox worktree', async () => {
+    const inbox = r.addWorktree('catalog-portal-pr-51', 'feature');
+    const survives = workIn(inbox.dir, 'catalog-portal-pr-51.txt');
+    fs.symlinkSync(inbox.dir, automationDir());
+
+    await expect(
+      r.service.syncAutomationCheckout(r.clone, pr51, { ...process.env }),
+    ).rejects.toThrow(/symbolic link/);
+    survives();
+    expect(git(inbox.dir, 'rev-parse', 'HEAD')).toBe(inbox.head);
+  });
+
+  it('refuses a folder whose .git names the clone’s own git dir', async () => {
+    const survives = workIn(r.clone, 'README');
+    fs.mkdirSync(automationDir());
+    fs.writeFileSync(path.join(automationDir(), '.git'), `gitdir: ${path.join(r.clone, '.git')}\n`);
+
+    await expect(
+      r.service.syncAutomationCheckout(r.clone, pr51, { ...process.env }),
+    ).rejects.toThrow(/not a linked worktree/);
+    survives();
+  });
+
+  it('refuses a folder whose .git names the Inbox worktree’s git dir', async () => {
+    const inbox = r.addWorktree('catalog-portal-pr-51', 'feature');
+    const survives = workIn(inbox.dir, 'catalog-portal-pr-51.txt');
+    fs.mkdirSync(automationDir());
+    fs.writeFileSync(
+      path.join(automationDir(), '.git'),
+      `gitdir: ${path.join(r.clone, '.git', 'worktrees', 'catalog-portal-pr-51')}\n`,
+    );
+
+    await expect(
+      r.service.syncAutomationCheckout(r.clone, pr51, { ...process.env }),
+    ).rejects.toThrow(/another worktree/);
+    survives();
+    expect(git(inbox.dir, 'rev-parse', 'HEAD')).toBe(inbox.head);
+  });
+
+  it('refuses a folder whose .git is a link to the Inbox worktree’s .git', async () => {
+    const inbox = r.addWorktree('catalog-portal-pr-51', 'feature');
+    const survives = workIn(inbox.dir, 'catalog-portal-pr-51.txt');
+    fs.mkdirSync(automationDir());
+    fs.symlinkSync(path.join(inbox.dir, '.git'), path.join(automationDir(), '.git'));
+
+    await expect(
+      r.service.syncAutomationCheckout(r.clone, pr51, { ...process.env }),
+    ).rejects.toThrow(/its \.git is a symbolic link/);
+    survives();
+    expect(git(inbox.dir, 'rev-parse', 'HEAD')).toBe(inbox.head);
+  });
+
+  it('refuses a folder whose .git is a link to a linked worktree outside the root', async () => {
+    const mine = path.join(tmp('consola-outside-'), 'mine');
+    git(r.clone, 'worktree', 'add', '-q', '-b', 'mine', mine);
+    const head = commit(mine, 'mine.txt');
+    const survives = workIn(mine, 'mine.txt');
+    fs.mkdirSync(automationDir());
+    fs.symlinkSync(path.join(mine, '.git'), path.join(automationDir(), '.git'));
+
+    await expect(
+      r.service.syncAutomationCheckout(r.clone, pr51, { ...process.env }),
+    ).rejects.toThrow(/its \.git is a symbolic link/);
+    survives();
+    expect(git(mine, 'rev-parse', 'HEAD')).toBe(head);
+  });
+
+  it('keeps the clone’s index when the env points git at it', async () => {
+    const survives = workIn(r.clone, 'README');
+    // A login shell that exports GIT_INDEX_FILE would aim every git call at the clone's index.
+    const env = { ...process.env, GIT_INDEX_FILE: path.join(r.clone, '.git', 'index') };
+
+    const { dir } = await r.service.syncAutomationCheckout(r.clone, pr51, env);
+    fs.writeFileSync(path.join(dir, 'left-behind.txt'), 'a command wrote this');
+    await r.service.syncAutomationCheckout(r.clone, pr51, env);
+
+    expect(fs.existsSync(path.join(dir, 'left-behind.txt'))).toBe(false);
+    survives();
+  });
+
+  it('still prepares the one it made', async () => {
+    const { dir } = await r.service.syncAutomationCheckout(r.clone, pr51, { ...process.env });
+    fs.writeFileSync(path.join(dir, 'left-behind.txt'), 'a command wrote this');
+    await r.service.syncAutomationCheckout(r.clone, pr51, { ...process.env });
+    expect(fs.existsSync(path.join(dir, 'left-behind.txt'))).toBe(false);
+  });
+
+  it.skipIf(!GIT_HAS_RELATIVE_WORKTREE_PATHS)(
+    'still prepares the one it made when git writes relative paths',
+    async () => {
+      git(r.clone, 'config', 'worktree.useRelativePaths', 'true');
+      const { dir } = await r.service.syncAutomationCheckout(r.clone, pr51, { ...process.env });
+      const admin = git(dir, 'rev-parse', '--path-format=absolute', '--git-dir');
+      // The setting took: git's back-pointer to this folder is relative.
+      expect(path.isAbsolute(fs.readFileSync(path.join(admin, 'gitdir'), 'utf8').trim())).toBe(
+        false,
+      );
+
+      fs.writeFileSync(path.join(dir, 'left-behind.txt'), 'a command wrote this');
+      await r.service.syncAutomationCheckout(r.clone, pr51, { ...process.env });
+      expect(fs.existsSync(path.join(dir, 'left-behind.txt'))).toBe(false);
+    },
+  );
+
+  it.skipIf(!CASE_INSENSITIVE_TMP)(
+    'still prepares the one it made under a root written in another case',
+    async () => {
+      const service = new WorktreeService(
+        path.join(path.dirname(r.root), path.basename(r.root).toUpperCase()),
+      );
+      const { dir } = await service.syncAutomationCheckout(r.clone, pr51, { ...process.env });
+      fs.writeFileSync(path.join(dir, 'left-behind.txt'), 'a command wrote this');
+      await service.syncAutomationCheckout(r.clone, pr51, { ...process.env });
+      expect(fs.existsSync(path.join(dir, 'left-behind.txt'))).toBe(false);
+    },
+  );
 });
 
 describe('checking a pull request out onto a branch an earlier checkout left behind', () => {

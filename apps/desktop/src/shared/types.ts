@@ -25,7 +25,7 @@ import type { InboxSnapshot, WorkItemLaunchAction, WorkItemRef } from './workIte
 import type { TerminalStatus } from './terminalStatus';
 
 /** Agent CLI a harness drives. One driver per supported CLI. */
-export type HarnessDriverId = 'claude' | 'codex';
+export type HarnessDriverId = 'claude' | 'codex' | 'antigravity';
 
 /**
  * How a session's harness is described across the IPC boundary.
@@ -529,6 +529,8 @@ export interface WindowContext extends WorkspaceView {
    * so the run travels with the window instead.
    */
   automationsRunId?: string;
+  /** The automation to open beside the dashboard, the same way: a window opened by a notification about it. */
+  automationsName?: string;
 }
 
 /**
@@ -544,11 +546,12 @@ export type ActivateWorkspaceResult =
 
 /**
  * The Automations dashboard, opened by main: how a notification about an
- * automation lands on its run.
+ * automation lands on its run, or on the automation's page.
  */
 export interface AutomationsRequest {
   workspaceId: string;
   runId?: string;
+  automation?: string;
 }
 
 /**

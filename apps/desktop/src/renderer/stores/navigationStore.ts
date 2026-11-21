@@ -200,14 +200,17 @@ export function subscribeToActivateSession(): () => void {
 }
 
 /**
- * React to main opening Automations — a notification click about a run. Main
- * already wrote the overlay into the workspace's view memory, so only the
- * store moves here. The session stays active behind the overlay, as it does
- * for the Inbox, and the run the notice names opens in the side panel.
+ * React to main opening Automations — a notification click about a run or an
+ * automation. Main already wrote the overlay into the workspace's view
+ * memory, so only the store moves here. The session stays active behind the
+ * overlay, as it does for the Inbox, and the run or automation the notice
+ * names opens in the side panel.
  */
 export function subscribeToShowAutomations(): () => void {
-  return windowBridge.onShowAutomations(({ runId }) => {
+  return windowBridge.onShowAutomations(({ runId, automation }) => {
     useNavigationStore.setState({ overlay: 'automations' });
     if (runId) useAutomationsStore.getState().openPanel({ kind: 'run', runId });
+    else if (automation)
+      useAutomationsStore.getState().openPanel({ kind: 'automation', name: automation });
   });
 }

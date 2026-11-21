@@ -1,7 +1,7 @@
 import type { RunRecord } from '@consola/factory-spec';
 import type { Attention } from '../../shared/attention';
 import type { AttentionSource } from '../attention/AttentionSource';
-import { OPEN_STATUSES, runAttention } from './AutomationService';
+import { OPEN_STATUSES, runAttention } from '@consola/automation-engine';
 
 /** The key a run's entry has. */
 export const runKey = (runId: string): string => `run:${runId}`;
