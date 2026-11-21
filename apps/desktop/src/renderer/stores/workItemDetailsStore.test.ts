@@ -9,6 +9,7 @@ vi.mock('../services/inboxBridge', () => ({
 import { inboxBridge } from '../services/inboxBridge';
 import {
   DETAILS_REFRESH_MS,
+  MAX_UNWATCHED_DETAILS,
   MERGE_STATE_POLL_MS,
   type DetailsTarget,
   detailsKey,
@@ -58,8 +59,8 @@ const load = (target: DetailsTarget, options?: { force?: boolean; quiet?: boolea
   useWorkItemDetailsStore.getState().load(target, options);
 
 const releases: Array<() => void> = [];
-function watch(): () => void {
-  const release = useWorkItemDetailsStore.getState().watch(target);
+function watch(watched: DetailsTarget = target): () => void {
+  const release = useWorkItemDetailsStore.getState().watch(watched);
   releases.push(release);
   return release;
 }
@@ -97,21 +98,65 @@ describe('workItemDetailsStore', () => {
     expect(getDetails).toHaveBeenCalledTimes(2);
   });
 
-  it('force reads again, but joins a read already running', async () => {
+  it('force joins a loud forced read already running', async () => {
     await load(target);
     await load(target, { force: true });
     expect(getDetails).toHaveBeenCalledTimes(2);
 
     const read = deferred();
-    const first = load(target, { force: true });
-    const joined = load(target, { force: true });
+    const refresh = load(target, { force: true });
+    const anotherRefresh = load(target, { force: true });
+    const quietReread = load(target, { force: true, quiet: true });
     const plain = load(target);
     expect(getDetails).toHaveBeenCalledTimes(3);
     read.answer(details({ title: 'Extract the billing client' }));
-    const [a, b, c] = await Promise.all([first, joined, plain]);
-    expect(b).toBe(a);
-    expect(c).toBe(a);
-    expect(a.details?.title).toBe('Extract the billing client');
+    const answers = await Promise.all([refresh, anotherRefresh, quietReread, plain]);
+    for (const answer of answers) expect(answer).toBe(answers[0]);
+    expect(answers[0].details?.title).toBe('Extract the billing client');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(getDetails).toHaveBeenCalledTimes(3);
+  });
+
+  it('force during a quiet poll, or during an unforced read, makes exactly one more read, after the first one lands, and answers with it', async () => {
+    // During an unforced read: two forced loads share the one read after it.
+    const first = deferred();
+    const second = deferred();
+    const unforced = load(target);
+    const reread = load(target, { force: true });
+    const quietReread = load(target, { force: true, quiet: true });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(getDetails).toHaveBeenCalledTimes(1);
+    first.answer(details({ title: 'Before the write' }));
+    expect((await unforced).details?.title).toBe('Before the write');
+    expect(getDetails).toHaveBeenCalledTimes(2);
+    second.answer(details({ title: 'After the write' }));
+    const [loud, quiet] = await Promise.all([reread, quietReread]);
+    expect(quiet).toBe(loud);
+    expect(loud.details?.title).toBe('After the write');
+    expect(entry().details?.title).toBe('After the write');
+
+    // During a quiet poll: a quiet re-read waits for one more read, and the
+    // person's Refresh joins it, showing loading at once and making it loud.
+    const poll = deferred();
+    const after = deferred();
+    const polling = load(target, { force: true, quiet: true });
+    const quietAfterWrite = load(target, { force: true, quiet: true });
+    expect(entry().loading).toBe(false);
+    const refresh = load(target, { force: true });
+    expect(entry().loading).toBe(true);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(getDetails).toHaveBeenCalledTimes(3);
+    poll.answer(details({ title: 'Polled' }));
+    expect((await polling).details?.title).toBe('Polled');
+    expect(getDetails).toHaveBeenCalledTimes(4);
+    expect(entry().loading).toBe(true);
+    after.answer(details({ title: 'Refreshed' }));
+    const [refreshed, quietly] = await Promise.all([refresh, quietAfterWrite]);
+    expect(quietly).toBe(refreshed);
+    expect(refreshed.details?.title).toBe('Refreshed');
+    expect(entry()).toMatchObject({ loading: false, details: { title: 'Refreshed' } });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(getDetails).toHaveBeenCalledTimes(4);
   });
 
   it('a watched item is read again once stale, an unwatched one never', async () => {
@@ -175,6 +220,55 @@ describe('workItemDetailsStore', () => {
     const healed = await load(target, { force: true });
     expect(healed.error).toBeUndefined();
     expect(healed.errorAt).toBeUndefined();
+  });
+
+  it('keeps the details of at most 20 unwatched items, dropping the least recently read', async () => {
+    const item = (number: number): DetailsTarget => ({ ...target, ref: { ...ref, number } });
+    const has = (number: number) =>
+      useWorkItemDetailsStore.getState().entries[detailsKey(item(number))]?.details !== undefined;
+    // Read first, and still on screen.
+    watch(item(1));
+    await vi.advanceTimersByTimeAsync(0);
+    for (let number = 2; number <= 22; number++) {
+      vi.advanceTimersByTime(1_000);
+      await load(item(number));
+    }
+    expect(MAX_UNWATCHED_DETAILS).toBe(20);
+    expect(has(2)).toBe(false);
+    for (let number = 3; number <= 22; number++) expect(has(number)).toBe(true);
+    expect(has(1)).toBe(true);
+    expect(Object.keys(useWorkItemDetailsStore.getState().entries)).toHaveLength(21);
+  });
+
+  it('never drops an item whose read is running, nor one still watched', async () => {
+    const item = (number: number): DetailsTarget => ({ ...target, ref: { ...ref, number } });
+    const has = (number: number) =>
+      useWorkItemDetailsStore.getState().entries[detailsKey(item(number))]?.details !== undefined;
+    for (let number = 1; number <= 20; number++) {
+      vi.advanceTimersByTime(1_000);
+      await load(item(number));
+    }
+    // The oldest is being read again when the 21st lands.
+    const reread = deferred();
+    const pending = load(item(1), { force: true });
+    vi.advanceTimersByTime(1_000);
+    await load(item(21));
+    expect(has(1)).toBe(true);
+    expect(has(2)).toBe(false);
+
+    // A watched item stays, however old; released, it can go, oldest first.
+    reread.answer(details());
+    await pending;
+    const release = watch(item(3));
+    for (const number of [22, 23]) {
+      vi.advanceTimersByTime(1_000);
+      await load(item(number));
+    }
+    expect(has(3)).toBe(true);
+    expect(has(4)).toBe(false);
+    release();
+    expect(has(3)).toBe(false);
+    expect(has(5)).toBe(true);
   });
 
   it('a forced read updates what every viewer shows', async () => {

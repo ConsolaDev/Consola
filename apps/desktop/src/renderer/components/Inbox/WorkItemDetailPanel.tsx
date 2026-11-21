@@ -14,6 +14,7 @@ import type { WorkItemDetails, WorkItemMutation } from '../../../shared/workItem
 import { inboxBridge } from '../../services/inboxBridge';
 import {
   type DetailsTarget,
+  detailsKey,
   useWorkItemDetails,
   useWorkItemDetailsStore,
 } from '../../stores/workItemDetailsStore';
@@ -86,7 +87,14 @@ export function WorkItemDetailPanel({
   const ref = item.workItem;
   const target: DetailsTarget = { workspaceId, accountLogin, ref };
   const entry = useWorkItemDetails(target, active);
-  const details = entry?.details ?? null;
+  // The store drops the details of items nobody watches past its cap. A pane
+  // behind another tab still holds its drafts and scroll in what it shows, so
+  // it keeps the last details it showed until it reads again or unmounts, as
+  // it kept them itself before the store.
+  const key = detailsKey(target);
+  const shown = useRef<{ key: string; details: WorkItemDetails } | null>(null);
+  if (entry?.details) shown.current = { key, details: entry.details };
+  const details = entry?.details ?? (shown.current?.key === key ? shown.current.details : null);
   const loading = entry?.loading ?? true;
   const [tab, setTab] = useState<Tab>('Conversation');
   const [busy, setBusy] = useState(false);
