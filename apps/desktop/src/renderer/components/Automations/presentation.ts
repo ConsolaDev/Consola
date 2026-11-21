@@ -54,7 +54,9 @@ export function modeInWords(
   if (source === 'poll') asksFirst = false;
   if (mode === 'confirm') return 'Asks you before each run';
   if (mode === 'notify') return 'Tells you what it would do, and starts nothing';
-  return asksFirst ? 'Runs on its own once you approve its next run' : 'Runs on its own';
+  return asksFirst
+    ? 'Runs on its own once you approve a run no agent asked for'
+    : 'Runs on its own';
 }
 
 /** What a run ran: an agent run's "Review action" or "Prompt", else its tool. */
@@ -777,7 +779,8 @@ export function approvalStep(
     return {
       kind: 'approve',
       title: 'You approve its next run',
-      detail: 'New or changed since you last did; then it runs on its own',
+      detail:
+        'New or changed since you last did. Once you approve a run no agent asked for, it runs on its own',
     };
   }
   return null;

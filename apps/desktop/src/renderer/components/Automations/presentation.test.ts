@@ -636,13 +636,15 @@ describe('modeInWords', () => {
     expect(modeInWords('confirm')).toBe('Asks you before each run');
     expect(modeInWords('notify')).toBe('Tells you what it would do, and starts nothing');
     expect(modeInWords('auto')).toBe('Runs on its own');
-    expect(modeInWords('auto', true)).toBe('Runs on its own once you approve its next run');
+    expect(modeInWords('auto', true)).toBe(
+      'Runs on its own once you approve a run no agent asked for',
+    );
   });
 
   it("keeps today's words for cron, event and manual entries", () => {
     for (const source of ['cron', 'event', 'manual'] as const) {
       expect(modeInWords('auto', true, source, true)).toBe(
-        'Runs on its own once you approve its next run',
+        'Runs on its own once you approve a run no agent asked for',
       );
       expect(modeInWords('confirm', false, source)).toBe('Asks you before each run');
       expect(modeInWords('notify', false, source)).toBe(
@@ -1078,9 +1080,12 @@ describe('approvalStep', () => {
   });
 
   it('is approving the next run for an auto entry that asks first, and nothing once trusted', () => {
-    expect(approvalStep({ mode: 'auto', kind: 'tool', asksFirst: true })?.title).toBe(
-      'You approve its next run',
-    );
+    expect(approvalStep({ mode: 'auto', kind: 'tool', asksFirst: true })).toMatchObject({
+      title: 'You approve its next run',
+      // The user's decision of 2026-11-21: approving a run an agent asked for trusts nothing.
+      detail:
+        'New or changed since you last did. Once you approve a run no agent asked for, it runs on its own',
+    });
     expect(approvalStep({ mode: 'auto', kind: 'tool' })).toBeNull();
   });
 
