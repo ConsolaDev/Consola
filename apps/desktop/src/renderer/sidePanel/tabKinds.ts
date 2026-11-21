@@ -195,6 +195,17 @@ export function bodyFor(
   return 'view';
 }
 
+/**
+ * Whether pressing a kind's shortcut, its header button or its chord, does
+ * anything. A kind in front on screen always does, even one that does not
+ * apply to the session, because pressing it only hides the side panel.
+ * Otherwise it does only while the kind applies. The header button is
+ * dimmed exactly while this is false, so the button and the chord agree.
+ */
+export function shortcutActs(kind: TabKind, facts: TabFacts, inFront: boolean): boolean {
+  return inFront || kind.availability(facts).available;
+}
+
 /** The "+" list: the available kinds, then the unavailable ones, each in registry order. */
 export function newTabOptions(
   facts: TabFacts,

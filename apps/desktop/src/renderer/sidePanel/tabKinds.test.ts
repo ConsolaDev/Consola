@@ -13,6 +13,7 @@ import {
   bodyFor,
   isTabKindId,
   newTabOptions,
+  shortcutActs,
   TAB_KIND_IDS,
   TAB_KINDS,
   type TabKind,
@@ -311,6 +312,18 @@ describe('bodyFor', () => {
     const kind = mount === 'keep' ? changesKind : frontOnly;
     const facts = availability === 'available' ? inGit : removed;
     expect(bodyFor(kind, facts, position === 'in front')).toBe(body);
+  });
+});
+
+describe('the header shortcuts', () => {
+  it('a shortcut acts while its kind applies, and in front whether it applies or not', () => {
+    expect(shortcutActs(changesKind, inGit, false)).toBe(true);
+    expect(shortcutActs(changesKind, inGit, true)).toBe(true);
+    expect(shortcutActs(changesKind, outsideGit, false)).toBe(false);
+    expect(shortcutActs(filesKind, removed, false)).toBe(false);
+    // In front, a press only hides the side panel, which is never wrong.
+    expect(shortcutActs(changesKind, outsideGit, true)).toBe(true);
+    expect(shortcutActs(filesKind, removed, true)).toBe(true);
   });
 });
 

@@ -4,7 +4,13 @@
  */
 import { checkoutPathForSession } from '../../shared/workspace';
 import { isInFront } from '../sidePanel/layout';
-import { tabFactsFor, tabKind, type TabFacts, type TabKindId } from '../sidePanel/tabKinds';
+import {
+  shortcutActs,
+  tabFactsFor,
+  tabKind,
+  type TabFacts,
+  type TabKindId,
+} from '../sidePanel/tabKinds';
 import { useCheckoutStore } from '../stores/checkoutStore';
 import { useNavigationStore } from '../stores/navigationStore';
 import { usePreviewTabStore } from '../stores/previewTabStore';
@@ -34,17 +40,19 @@ function appliesTo(kind: TabKindId, facts: TabFacts): boolean {
 
 /**
  * What the kind's header button does, for its chord: opens its tab, or hides
- * the side panel while that tab is in front on screen. A kind in front is
- * always pressed, even one that does not apply to the session, because
- * pressing it only hides the panel. Does nothing, and answers false, with no
- * session on screen, or for a kind that does not apply and is not in front,
- * so the caller can leave the key to whatever else wants it.
+ * the side panel while that tab is in front on screen. It acts when the
+ * button would (`shortcutActs`): a kind in front is always pressed, even one
+ * that does not apply to the session, because pressing it only hides the
+ * panel. Does nothing, and answers false, with no session on screen, or for
+ * a kind that does not apply and is not in front, so the caller can leave
+ * the key to whatever else wants it.
  */
 export function pressShortcutOnScreen(kind: TabKindId): boolean {
   const facts = currentTabFacts();
-  if (!facts) return false;
+  const entry = tabKind(kind);
+  if (!facts || !entry) return false;
   const { layout, pressShortcut } = useSidePanelStore.getState();
-  if (!isInFront(layout, kind) && !appliesTo(kind, facts)) return false;
+  if (!shortcutActs(entry, facts, isInFront(layout, kind))) return false;
   pressShortcut(kind);
   return true;
 }

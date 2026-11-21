@@ -388,6 +388,22 @@ test.describe('side panel', () => {
     // Forced: Playwright does not click what says it is disabled.
     await changesShortcut().click({ force: true });
     await expect(page.getByTestId('side-panel')).toHaveCount(0);
+
+    // In front it is pressed and not dimmed, though Changes still does not
+    // apply: opened on a session in git, the tab stays in front on this one,
+    // saying why, and pressing the shortcut only hides the side panel.
+    await openSession('Paginate the catalog search');
+    await changesShortcut().click();
+    await expect(changesTab()).toHaveAttribute('aria-selected', 'true');
+    await openSession('Review notes');
+    await expect(changesShortcut()).toHaveAttribute('aria-pressed', 'true');
+    await expect(changesShortcut()).not.toHaveAttribute('aria-disabled');
+    await changesShortcut().hover();
+    await expect(page.getByRole('tooltip')).toHaveText('This folder is not a git repository.');
+    await changesShortcut().click();
+    await expect(page.getByTestId('side-panel')).toHaveCount(0);
+    await expect(changesShortcut()).toHaveAttribute('aria-pressed', 'false');
+    await expect(changesShortcut()).toHaveAttribute('aria-disabled', 'true');
   });
 
   test('the header keeps its shortcuts and side panel toggle for a session with no checkout', async () => {
