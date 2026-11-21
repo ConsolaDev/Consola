@@ -506,6 +506,33 @@ test.describe('side panel', () => {
     await expect(page.getByTestId('side-panel')).toHaveCount(0);
   });
 
+  test('⌘W closes a file preview only while the Files tab is on screen', async () => {
+    test.skip(process.platform !== 'darwin', '⌘W is a macOS chord; Ctrl+W is a byte');
+    await openSession('Paginate the catalog search');
+    await page.getByRole('button', { name: 'Files', exact: true }).click();
+    const tree = page.getByTestId('files-tree');
+    await tree.getByText('src', { exact: true }).click();
+    await tree.getByText('search.ts', { exact: true }).click();
+    const previews = page.locator('.preview-tab');
+    await expect(previews).toHaveCount(1);
+
+    // Behind Changes the preview is out of sight, so ⌘W from the
+    // conversation leaves it open.
+    await changesShortcut().click();
+    await expect(changesTab()).toHaveAttribute('aria-selected', 'true');
+    await conversation().focus();
+    await page.keyboard.press('Meta+w');
+    // Give a close every chance to land before saying none did.
+    await page.waitForTimeout(500);
+    await sidePanelTab('Files').click();
+    await expect(previews).toHaveCount(1);
+
+    // In front, the control: the same ⌘W closes it.
+    await conversation().focus();
+    await page.keyboard.press('Meta+w');
+    await expect(previews).toHaveCount(0);
+  });
+
   test('a changed file chosen in the palette opens in the Files tab', async () => {
     await openSession('Paginate the catalog search');
     await expect(page.locator('[data-conversation-terminal]')).toBeVisible();
