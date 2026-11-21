@@ -157,15 +157,16 @@ upstream fixed.
 ### Pages Live in One Place
 
 The in-app browser's pages are `<webview>` guests, and Electron destroys the
-guest of an element that moves. So no page lives in the browser panel, which
-unmounts under every overlay and re-renders on every session switch:
+guest of an element that moves. So no page lives in the Browser tab, which
+unmounts whenever it goes behind another tab, its group is hidden, the side
+panel hides, or an overlay covers it, and re-renders on every session switch:
 `BrowserHost`, at the layout's root, holds every page of the window's
 workspace in one parent, in creation order (`hostOrder`), and only ever adds
-or removes one. The panel's slot only says where to draw. A page out of sight
+or removes one. The tab's slot only says where to draw. A page out of sight
 is `display: none`, or painting but `inert` while an agent reads it
 (`pagePresence`), never `visibility: hidden`, after which Electron 43 can
 leave a macOS guest blank for good. DevTools open in a window of their own
-(`mode: 'detach'`), so the page keeps its whole panel.
+(`mode: 'detach'`), so the page keeps its whole slot.
 
 - **Main decides what a guest is.** `will-attach-webview` asks `decideAttach`
   (`browser/guestPolicy.ts`): the workspace's own partition, a web address (or
@@ -279,9 +280,10 @@ a harness switch leaves them alone.
   insists on a real press may ignore them. An agent's script carries no user
   gesture (`withoutUserGesture`), so it opens no file chooser or fullscreen,
   and a popup window needs the person's press (`decidePopup`). Nothing an
-  agent does opens the panel or focuses the window or the page's web contents;
-  an act's in-page `focus()` moves only the page's focus. Its tabs open behind
-  the one showing; its use marks the tab and the globe button.
+  agent does opens the Browser tab or the side panel, or focuses the window
+  or the page's web contents; an act's in-page `focus()` moves only the
+  page's focus. Its tabs open behind the one showing; its use marks the tab,
+  and sets the Browser kind's mark.
 - **The person comes first.** Their input on a tab (`PersonInput.noteInput`)
   is a key or button going down in its page, or a move or answer they make
   from Consola's controls (`personNavigated`: an address, back, forward,
@@ -328,6 +330,68 @@ a harness switch leaves them alone.
   (`expectOffScreen`). It cannot see Electron also show dialogs another way
   (nothing asserts on a box on screen), nor what Electron's listener does with
   a dialog handed back, which the recorder stands in for.
+
+### The Side Panel Holds Tabs
+
+Beside each session's conversation sits its side panel: one group of tabs,
+or two, stacked or side by side. Each tab is a kind (Changes, Files,
+Terminal, Browser, Pull request) or the "+" list's placeholder (`NEW_TAB`).
+It is view state, kept in the renderer, never on a `Workspace` or `Session`
+record.
+
+- **`sidePanel/tabKinds.ts` is the only list of kinds** (`TAB_KINDS`), and its
+  order is canonical: the header's shortcuts, the "+" list, the palette and
+  the layout all iterate it, and none of them names a kind id. A kind is an
+  entry there, its view in `TAB_VIEWS` (`SidePanel/tabViews.tsx`, a component
+  per kind, keyed by every id, so a kind without a view does not typecheck)
+  and, if it has one, its mark in `TAB_MARKS`. Whether a kind applies to the
+  session is its own `availability`, read from `TabFacts`, whose
+  `checkoutPath` is `checkoutPathForSession`'s: Changes, Files and Terminal
+  are unavailable while the worktree is removed, and say why in their tab.
+- **Every arrangement change goes through `sidePanel/layout.ts`.** Its
+  functions are pure and return their input when an action does not apply;
+  the store wraps each in an action of the same name, and components change
+  the layout only through those. The layout is a tree, so allowing deeper
+  splits is a change of rule, not of format: `canSplit` is the one place the
+  two-group cap (`MAX_GROUPS`) lives. A stored layout from another build goes
+  through `repairLayout`, which drops what it cannot keep (an unknown kind, a
+  kind twice, a third group) and never throws.
+- **The conversation's panel stays the unconditional first child of
+  `ContentView`'s `Group`**, with the same key and no wrapper that differs
+  between layouts. Opening, closing, splitting, maximizing or dragging in the
+  side panel then only resizes the conversation; a remount would reattach
+  its terminal at a captured size (see "Terminals Outlive Their Views").
+  Each group's panel is keyed by its group's id, so a group that survives a
+  split or unsplit is not remounted either.
+- **A shell mounts only through `bodyFor`**: in front, in a visible group
+  (`isInFront`, `visibleGroups`), and available. A kind with `mount: 'front'`
+  renders nothing anywhere else, and Terminal is one, because its view
+  attaching spawns the shell and main rebuilds a removed worktree first: a
+  tab behind another, in a group Maximize hides, in a hidden side panel or
+  for a removed worktree starts nothing. A shell takes the keyboard only on
+  the person's own request (`takeFocusRequest`). `openKind`, `pressShortcut`,
+  `bringToFront` and `choosePlaceholder` set a request only when the kind was
+  not in front on screen before and is after; a launch, a session switch or
+  a return from an overlay sets none, so keys meant for Claude never land in
+  a shell. The "+" list takes the keyboard by the same rule.
+- **The Browser tab holds no page.** Pages stay in `BrowserHost` (see "Pages
+  Live in One Place"); the Browser kind's view only claims the slot a page is
+  drawn over, and only while mounted (`mount: 'front'`), so a tab behind, a
+  hidden group or a hidden side panel never leaves a page drawn over the
+  window. Its mark (an agent used the session's browser while no Browser tab
+  showed it) is on its header shortcut if it has one, on its tab while that
+  is in a group on screen, and otherwise on the side panel toggle
+  (`markPlaces`). `.side-panel-tab` is one of `BrowserHost`'s drag handles,
+  so a tab dragged across a shown page does not stall, and the drop target
+  and the tab menu draw above the page.
+- **Layout, use counts and the setting live in `sidePanelStore`**, on
+  localStorage (`consola-side-panel`), never in `Preferences`. The layout is
+  written and read only while "Remember the side panel's layout" is on;
+  otherwise the panel starts as one hidden group at every launch. The
+  header's three shortcuts are the most used kinds, ranked once per run
+  (`shortcutKinds`), so nothing moves under the pointer. Sizes live apart,
+  in `useDefaultLayout`'s keys (the session pane, each orientation's groups,
+  the Files tab), and are always remembered, whatever the setting.
 
 ### Each Workspace Remembers Where It Was Left
 
