@@ -1,4 +1,4 @@
-import type { Me } from '../api';
+import type { Me } from '../domain/me';
 
 function initials(name: string): string {
   const letters = name

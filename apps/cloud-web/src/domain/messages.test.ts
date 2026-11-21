@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { messageForActionFailure, messageForSignInError } from './signInError';
+import { messageForActionFailure, messageForSignInError } from './messages';
 
 describe('messageForActionFailure', () => {
   const notAnswering = 'Consola Cloud’s service isn’t answering. Try again in a moment.';

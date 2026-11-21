@@ -1,28 +1,17 @@
 import { useEffect, useState } from 'react';
-import { loadMe, loadOrg, type MeState } from './api';
-import { Footer } from './components/Footer';
-import { ProfileCard } from './components/ProfileCard';
-import { SignInCard } from './components/SignInCard';
-import { SignOutButton } from './components/SignOutButton';
-import { messageForSignInError } from './signInError';
-
-type Org = { name: string; slug: string } | null;
-
-/** Reads `?error=` once and removes it, so a reload does not show it again. */
-function takeSignInError(): string | null {
-  const url = new URL(window.location.href);
-  const code = url.searchParams.get('error');
-  if (code === null) return null;
-  url.searchParams.delete('error');
-  url.searchParams.delete('error_description');
-  window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
-  return messageForSignInError(code);
-}
+import type { MeState, Org } from '../domain/me';
+import { messageForSignInError } from '../domain/messages';
+import { loadMe, loadOrg } from '../services/api';
+import { takeSignInErrorCode } from '../services/signInRedirect';
+import { Footer } from './Footer';
+import { ProfileCard } from './ProfileCard';
+import { SignInCard } from './SignInCard';
+import { SignOutButton } from './SignOutButton';
 
 export function App() {
-  const [error] = useState(takeSignInError);
+  const [error] = useState(() => messageForSignInError(takeSignInErrorCode()));
   const [state, setState] = useState<MeState | null>(null);
-  const [org, setOrg] = useState<Org>(null);
+  const [org, setOrg] = useState<Org | null>(null);
 
   useEffect(() => {
     let current = true;

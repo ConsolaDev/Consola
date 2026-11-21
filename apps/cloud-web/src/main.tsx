@@ -2,8 +2,8 @@ import '@radix-ui/themes/styles.css';
 import { Theme } from '@radix-ui/themes';
 import { StrictMode, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { App } from './App';
-import './styles.css';
+import { App } from './ui/App';
+import './ui/styles.css';
 
 const DARK_QUERY = '(prefers-color-scheme: dark)';
 

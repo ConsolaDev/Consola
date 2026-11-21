@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { sourceUrl } from './buildInfo';
+import { sourceUrl } from './source';
 
 describe('sourceUrl', () => {
   it('points at the running commit', () => {

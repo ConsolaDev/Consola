@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { signInWithGoogle } from '../authClient';
+import { signInWithGoogle } from '../services/authClient';
 
 export function SignInCard({ orgName, error }: { orgName: string | null; error: string | null }) {
   const [pending, setPending] = useState(false);

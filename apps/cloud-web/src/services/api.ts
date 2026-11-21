@@ -1,14 +1,4 @@
-export type Me = {
-  user: { id: string; name: string; email: string; image: string | null };
-  organization: { id: string; name: string; slug: string };
-  role: string;
-};
-
-export type MeState =
-  | { kind: 'signed-in'; me: Me }
-  | { kind: 'signed-out' }
-  | { kind: 'not-member' }
-  | { kind: 'unavailable' };
+import type { Me, MeState, Org } from '../domain/me';
 
 /**
  * Who is signed in. Only a 401 means signed out and only a 403 means not a member: a failed
@@ -28,13 +18,11 @@ export async function loadMe(fetchFn: typeof fetch = fetch): Promise<MeState> {
 }
 
 /** The deployment's organisation, or null when the service does not answer. */
-export async function loadOrg(
-  fetchFn: typeof fetch = fetch,
-): Promise<{ name: string; slug: string } | null> {
+export async function loadOrg(fetchFn: typeof fetch = fetch): Promise<Org | null> {
   try {
     const response = await fetchFn('/api/org');
     if (!response.ok) return null;
-    return (await response.json()) as { name: string; slug: string };
+    return (await response.json()) as Org;
   } catch {
     return null;
   }

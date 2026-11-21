@@ -1,5 +1,5 @@
 import { createAuthClient } from 'better-auth/react';
-import { messageForActionFailure } from './signInError';
+import { messageForActionFailure } from '../domain/messages';
 
 // No baseURL: the page and the API share one origin, through the dev server's /api proxy.
 const client = createAuthClient();

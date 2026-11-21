@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { signOut } from '../authClient';
+import { signOut } from '../services/authClient';
 
 export function SignOutButton({ className }: { className: string }) {
   const [pending, setPending] = useState(false);

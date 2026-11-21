@@ -1,4 +1,4 @@
-import { sourceUrl } from '../buildInfo';
+import { sourceUrl } from '../domain/source';
 
 export function Footer() {
   return (
