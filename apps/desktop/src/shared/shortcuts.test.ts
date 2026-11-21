@@ -117,7 +117,8 @@ describe('side panel chord', () => {
     expect(isSidePanelShortcut(other(), 'other')).toBe(true);
   });
 
-  it('is not with Shift, which is the Working shelf’s', () => {
+  // The Working shelf's chord is Shift+Cmd+B, without Option: this one never has Shift.
+  it('is not with Shift', () => {
     expect(isSidePanelShortcut(mac({ shift: true }), 'mac')).toBe(false);
     expect(isSidePanelShortcut(other({ shift: true }), 'other')).toBe(false);
   });

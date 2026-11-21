@@ -137,8 +137,9 @@ export const BROWSER_SHORTCUT_LABELS: Record<ShortcutPlatform, string> = {
 /**
  * Shows or hides the side panel beside the session: Option+Cmd+B on macOS,
  * Ctrl+Alt+B elsewhere. Matched on the physical key, because Option turns
- * `key` into `∫` on a Mac. Never with Shift, which makes it the Working
- * shelf's chord.
+ * `key` into `∫` on a Mac. Never with Shift: the chord is exactly these keys.
+ * Shift+Option+Cmd+B is no chord of the app's, and the Working shelf's is
+ * Shift+Cmd+B, without Option.
  */
 export function isSidePanelShortcut(chord: KeyChord, platform: ShortcutPlatform): boolean {
   return hasPrimary(chord, platform) && chord.alt && !chord.shift && chord.code === 'KeyB';

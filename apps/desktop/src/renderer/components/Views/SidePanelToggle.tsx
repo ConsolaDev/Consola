@@ -40,7 +40,7 @@ export function SidePanelToggle({
         <Tooltip.Trigger asChild>
           <button
             type="button"
-            className={`path-display-toggle side-panel-toggle ${visible ? 'active' : ''}`}
+            className={`path-display-toggle side-panel-toggle${visible ? ' active' : ''}`}
             aria-label={label}
             aria-pressed={visible}
             aria-keyshortcuts={isMac ? 'Alt+Meta+B' : 'Control+Alt+B'}
