@@ -8,6 +8,7 @@ import {
   closeTab,
   defaultLayout,
   type Edge,
+  firstFreeId,
   groupOfTab,
   groupPosition,
   groupsOf,
@@ -178,6 +179,22 @@ describe('closeTab', () => {
     });
   });
 
+  it('the last group keeps its own id when it empties, and forgets what it remembered', () => {
+    const layout = shown(group('g2', ['files']), { lastGroupOf: { changes: 'g2' } });
+    expect(closeTab(layout, 'g2', 'files')).toEqual({
+      ...defaultLayout(),
+      root: group('g2', [], null),
+    });
+  });
+
+  it('closing the last tab of a group forgets where that kind was closed before', () => {
+    // Files was closed in g1 once, and is open in g2 now.
+    const layout = shown(split('stacked', group('g1', ['changes']), group('g2', ['files'])), {
+      lastGroupOf: { files: 'g1' },
+    });
+    expect(closeTab(layout, 'g2', 'files').lastGroupOf).toEqual({});
+  });
+
   it('returns the same layout for a tab that is not there', () => {
     const layout = shown(group('g1', ['changes']));
     expect(closeTab(layout, 'g1', 'files')).toBe(layout);
@@ -197,9 +214,19 @@ describe('closeGroup', () => {
     expect(closeGroup(shown(group('g1', ['changes', 'files'])), 'g1')).toEqual(defaultLayout());
   });
 
-  it('returns the same layout for a group that is not there', () => {
+  it('forgets where the kinds it closes were closed before', () => {
+    const layout = shown(
+      split('stacked', group('g1', ['changes']), group('g2', ['files', 'terminal'])),
+      { lastGroupOf: { files: 'g1', terminal: 'g1', 'pull-request': 'g1' } },
+    );
+    expect(closeGroup(layout, 'g2').lastGroupOf).toEqual({ 'pull-request': 'g1' });
+  });
+
+  it('returns the same layout for a group that is not there, or holds nothing', () => {
     const layout = shown(group('g1', ['changes']));
     expect(closeGroup(layout, 'g2')).toBe(layout);
+    const empty = defaultLayout();
+    expect(closeGroup(empty, 'g1')).toBe(empty);
   });
 });
 
@@ -295,6 +322,12 @@ describe('split', () => {
     expect(splitWithTab(layout, 'g2', 'files', 'right').root).toEqual(
       split('side-by-side', group('g2', ['changes']), group('g1', ['files'])),
     );
+  });
+
+  it('firstFreeId is the lowest id not taken', () => {
+    expect(firstFreeId(new Set())).toBe('g1');
+    expect(firstFreeId(new Set(['g1', 'g3']))).toBe('g2');
+    expect(firstFreeId(new Set(['g2', 'g1']))).toBe('g3');
   });
 });
 

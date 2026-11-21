@@ -1,8 +1,10 @@
 /**
  * The side panel's arrangement: its groups, how they are split, the tabs each
  * holds and which one is in front. This module is the only code that changes
- * it. The store wraps each function below in an action of the same name, and
- * components only read the result.
+ * it. The store wraps each function below that changes the layout in an
+ * action of the same name, and components change it only through those. The
+ * queries (`groupsOf`, `isInFront`, `canSplit` and the like) are called
+ * directly.
  *
  * The layout is a tree, a group or a split of nodes, so the format already
  * allows deeper splits: allowing them is a change of rule, not of format. The
@@ -137,7 +139,7 @@ export function closeTab(layout: SidePanelLayout, groupId: GroupId, tab: TabId):
   const group = findGroup(layout, groupId);
   if (!group?.tabs.includes(tab)) return layout;
   const left = withoutTab(group, tab);
-  if (left.tabs.length === 0) return withoutGroup(layout, groupId);
+  if (left.tabs.length === 0) return withoutGroup(layout, groupId, [tab]);
   const lastGroupOf =
     tab === NEW_TAB ? layout.lastGroupOf : { ...layout.lastGroupOf, [tab]: groupId };
   return { ...withGroup(layout, left), lastGroupOf };
@@ -145,8 +147,9 @@ export function closeTab(layout: SidePanelLayout, groupId: GroupId, tab: TabId):
 
 /** Closes every tab in the group. */
 export function closeGroup(layout: SidePanelLayout, groupId: GroupId): SidePanelLayout {
-  if (!findGroup(layout, groupId)) return layout;
-  return withoutGroup(layout, groupId);
+  const group = findGroup(layout, groupId);
+  if (!group || group.tabs.length === 0) return layout;
+  return withoutGroup(layout, groupId, group.tabs);
 }
 
 /**
@@ -173,7 +176,7 @@ export function moveTab(
   const arrived = withGroup(layout, { ...to, tabs: insertAt(to.tabs, index, tab), active: tab });
   const left = withoutTab(from, tab);
   const departed =
-    left.tabs.length === 0 ? withoutGroup(arrived, from.id) : withGroup(arrived, left);
+    left.tabs.length === 0 ? withoutGroup(arrived, from.id, []) : withGroup(arrived, left);
   return reveal(departed, to.id);
 }
 
@@ -187,7 +190,8 @@ export function splitWithTab(
   const group = findGroup(layout, groupId);
   if (!group || !canSplit(layout, groupId, tab)) return layout;
   const kept = withoutTab(group, tab);
-  const added: TabGroupNode = { type: 'group', id: freeGroupId(layout), tabs: [tab], active: tab };
+  const taken = new Set(groupsOf(layout).map((each) => each.id));
+  const added: TabGroupNode = { type: 'group', id: firstFreeId(taken), tabs: [tab], active: tab };
   const split: SplitNode = {
     type: 'split',
     orientation: edge === 'top' || edge === 'bottom' ? 'stacked' : 'side-by-side',
@@ -244,19 +248,19 @@ export function pressShortcut(layout: SidePanelLayout, kind: string): SidePanelL
   return isInFront(layout, kind) ? setVisible(layout, false) : openKind(layout, kind);
 }
 
+/** The lowest group id not taken: what a new group is called, here and in a repaired layout. */
+export function firstFreeId(taken: ReadonlySet<GroupId>): GroupId {
+  let n = 1;
+  while (taken.has(`g${n}`)) n += 1;
+  return `g${n}`;
+}
+
 function emptyGroup(id: GroupId): TabGroupNode {
   return { type: 'group', id, tabs: [], active: null };
 }
 
 function findGroup(layout: SidePanelLayout, groupId: GroupId): TabGroupNode | undefined {
   return groupsOf(layout).find((group) => group.id === groupId);
-}
-
-function freeGroupId(layout: SidePanelLayout): GroupId {
-  const taken = new Set(groupsOf(layout).map((group) => group.id));
-  let n = 1;
-  while (taken.has(`g${n}`)) n += 1;
-  return `g${n}`;
 }
 
 function show(layout: SidePanelLayout): SidePanelLayout {
@@ -299,12 +303,21 @@ function replaceGroup(node: LayoutNode, groupId: GroupId, replacement: LayoutNod
 
 /**
  * Removes a group, and everything `lastGroupOf` remembers of it, so a later
- * group reusing the id inherits nothing. A split left with one child becomes
- * that child. The last group stays, emptied, and the panel hides.
+ * group reusing the id inherits nothing. The kinds `closed` with it forget
+ * where they were closed before, too: the group they were last closed in is
+ * gone, so they open in the first group, not in one they left long ago. A
+ * split left with one child becomes that child. The last group stays,
+ * emptied, under its own id, and the panel hides.
  */
-function withoutGroup(layout: SidePanelLayout, groupId: GroupId): SidePanelLayout {
+function withoutGroup(
+  layout: SidePanelLayout,
+  groupId: GroupId,
+  closed: readonly TabId[],
+): SidePanelLayout {
   const lastGroupOf = Object.fromEntries(
-    Object.entries(layout.lastGroupOf).filter(([, id]) => id !== groupId),
+    Object.entries(layout.lastGroupOf).filter(
+      ([kind, id]) => id !== groupId && !closed.includes(kind),
+    ),
   );
   const root = removeGroup(layout.root, groupId);
   if (root === null) {

@@ -7,6 +7,7 @@
  */
 import {
   defaultLayout,
+  firstFreeId,
   type GroupId,
   type LayoutNode,
   MAX_GROUPS,
@@ -103,12 +104,6 @@ function keptTabs(stored: unknown, known: ReadonlySet<string>, opened: Set<strin
     }
   }
   return tabs;
-}
-
-function firstFreeId(taken: ReadonlySet<GroupId>): GroupId {
-  let n = 1;
-  while (taken.has(`g${n}`)) n += 1;
-  return `g${n}`;
 }
 
 function orientationOf(root: unknown): SplitOrientation {
