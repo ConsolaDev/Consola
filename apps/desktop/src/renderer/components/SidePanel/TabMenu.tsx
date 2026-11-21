@@ -79,9 +79,10 @@ export function TabMenu({
 
   // Once an item has taken the tab out of its bar. Dismissed, or opened with
   // the keyboard elsewhere, the menu hands it back to where it was itself, as
-  // it also does should no place be found here. A page the tab shows stays
-  // drawn when the tab moves, and keeps the keyboard; it goes with the tab
-  // when it closes, and the keyboard goes to the conversation.
+  // it also does should no place be found here. With the keyboard in the
+  // page the tab shows, only Close places it here, in the conversation: the
+  // page goes with the tab. Moved, the page stays drawn, and the menu hands
+  // the keyboard back as it does from anywhere else.
   const placeKeyboard = (event: Event) => {
     const afterClose = keyboardOnTab.current;
     const inItsPage = keyboardInItsPage.current;
