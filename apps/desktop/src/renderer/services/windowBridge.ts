@@ -2,6 +2,7 @@ import type {
   ActivateWorkspaceResult,
   WindowContext,
   AutomationsRequest,
+  QuitShortcutState,
   WorkspaceView,
 } from '../../shared/types';
 
@@ -52,5 +53,10 @@ export const windowBridge = {
   /** A notification click chose a session in this window's workspace. */
   onActivateSession(callback: (sessionId: string) => void): () => void {
     return window.windowAPI.onActivateSession(callback);
+  },
+
+  /** ⌘Q went down or was let go: main is waiting for a hold or a second press. */
+  onQuitShortcut(callback: (state: QuitShortcutState) => void): () => void {
+    return window.windowAPI.onQuitShortcut(callback);
   },
 };

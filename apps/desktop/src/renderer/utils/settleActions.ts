@@ -11,11 +11,17 @@ export async function settleWithUndo(
   sessionId: string,
   name: string,
 ): Promise<void> {
-  const { settled, memento } = await attentionBridge.settle(workspaceId, sessionId);
+  const { settled, memento, removed } = await attentionBridge.settle(workspaceId, sessionId);
   if (!settled) {
     // Main checked and the row did not move (something still holds it), so claim no
     // destination and offer no Undo for a move that did not happen.
     showToast(`Could not settle ${name || 'session'}: it is still in use.`);
+    return;
+  }
+  if (removed?.includes(sessionId)) {
+    // It never got a message, so main deleted it rather than shelving an empty row.
+    // A delete has no Undo.
+    showToast(`Removed ${name || 'session'}: it never had a message.`);
     return;
   }
   showToast(`Settled ${name || 'session'}. It is on the Settled shelf.`, {

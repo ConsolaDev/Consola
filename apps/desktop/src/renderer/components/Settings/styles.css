@@ -110,3 +110,225 @@
   font-size: var(--font-size-xs);
   color: var(--color-text-tertiary);
 }
+
+/* --- Settings → Sessions → Session rows -------------------------------------
+
+   The two densities side by side, each a slice of the sidebar drawing the
+   same four sessions its own way: Detailed fits two of them where Compact
+   fits all four. The cards are the radio buttons. */
+.session-rows-picker {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.session-rows-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.session-rows-card-preview {
+  display: block;
+  height: 132px;
+  padding: 4px;
+  overflow: hidden;
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-sidebar);
+  box-shadow: inset 0 0 0 1px var(--color-border);
+  transition: box-shadow 160ms var(--ease-out-quart);
+}
+
+.session-rows-card:hover .session-rows-card-preview {
+  box-shadow: inset 0 0 0 1px var(--color-border-hover);
+}
+
+.session-rows-card[data-state="checked"] .session-rows-card-preview {
+  box-shadow:
+    inset 0 0 0 1.5px var(--color-accent),
+    0 0 0 3px color-mix(in srgb, var(--color-accent) 14%, transparent);
+}
+
+/* The radio itself is out of sight; the card says its state, and its ring
+   says where the keyboard is. */
+.session-rows-card-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.session-rows-card:has(.session-rows-card-input:focus-visible) .session-rows-card-preview {
+  outline: 1px solid var(--color-accent);
+  outline-offset: 3px;
+}
+
+.session-rows-card-caption {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+/* A radio dot as well as the ring, so the choice is never told by colour alone. */
+.session-rows-card-radio {
+  box-sizing: border-box;
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin-top: 1px;
+  border: 1.5px solid var(--color-border-hover);
+  border-radius: 999px;
+  transition:
+    border-color 160ms var(--ease-out-quart),
+    border-width 160ms var(--ease-out-quart);
+}
+
+.session-rows-card[data-state="checked"] .session-rows-card-radio {
+  border: 4px solid var(--color-accent);
+}
+
+.session-rows-card-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.session-rows-card-label {
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+}
+
+.session-rows-card-hint {
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-xs);
+  line-height: 15px;
+}
+
+/* The sample rows: the sidebar's own sizes, 13px names over 11px metadata,
+   28px a line in Compact. */
+.density-sample {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.density-sample-row {
+  display: flex;
+  min-width: 0;
+  padding: 10px 8px;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-primary);
+}
+
+.density-sample--detailed .density-sample-row {
+  flex-direction: column;
+}
+
+.density-sample--compact .density-sample-row {
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding-block: 4px;
+}
+
+.density-sample-row--active {
+  background: var(--color-bg-active);
+}
+
+.density-sample-meta {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 2px;
+  color: var(--color-text-tertiary);
+  font-size: 11px;
+  line-height: 14px;
+}
+
+.density-sample-meta .harness-driver-icon.density-sample-harness {
+  width: 12px;
+  height: 12px;
+}
+
+.density-sample-meta .harness-driver-icon.density-sample-harness > svg {
+  width: 10px;
+  height: 10px;
+}
+
+.density-sample--compact .harness-driver-icon.density-sample-harness {
+  margin-right: 2px;
+}
+
+.density-sample--compact .harness-driver-icon.density-sample-harness > svg {
+  width: 13px;
+  height: 13px;
+}
+
+.density-sample-model {
+  color: var(--color-text-secondary);
+}
+
+.density-sample-spacer {
+  flex: 1;
+}
+
+.density-sample-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: var(--font-weight-medium);
+  line-height: 17px;
+}
+
+.density-sample--compact .density-sample-name {
+  flex: 1;
+  line-height: 20px;
+}
+
+.density-sample-age {
+  flex: none;
+  color: var(--color-text-tertiary);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.density-sample .session-row-status {
+  font-size: 11px;
+}
+
+.density-sample-worktree {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 3px;
+  color: color-mix(in srgb, var(--color-worktree) 72%, var(--color-text-secondary));
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.density-sample-worktree > svg {
+  color: var(--color-worktree);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .session-rows-card-preview,
+  .session-rows-card-radio {
+    transition: none;
+  }
+}

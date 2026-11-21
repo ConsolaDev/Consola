@@ -3,7 +3,12 @@ import type { ElectronApplication, Locator, Page } from '@playwright/test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { commandPaletteChord, createProfileDir, launchElectron } from './helpers/electron';
+import {
+  commandPaletteChord,
+  createProfileDir,
+  launchElectron,
+  settingsChord,
+} from './helpers/electron';
 import { createBuiltInHarness } from '../../src/shared/harness';
 
 let app: ElectronApplication;
@@ -340,6 +345,64 @@ test.describe('Home scopes and groups', () => {
     await expect(page.locator('.session-nav-item-harness')).toHaveCount(0);
     await page.getByRole('menuitemcheckbox', { name: 'Harness icon', exact: true }).click();
     await expect(page.locator('.session-nav-item-harness')).toHaveCount(3);
+  });
+
+  test('compact rows say each session in one line, chosen in the menu or Settings, and stay after relaunch', async () => {
+    test.setTimeout(60_000);
+    await chooseScope(page, 'catalog-portal');
+    const controller = rowFor(page, 'Controller boot');
+    const listed = page.locator('.sidebar-bucket--waiting .session-nav-item');
+    // Detailed is the default: the model rides the line above the name.
+    await expect(controller.locator('.session-row-meta .session-nav-item-model')).toHaveText(
+      'Opus 4.6',
+    );
+
+    await page.getByRole('button', { name: 'Navigation settings', exact: true }).click();
+    const detailed = page.getByRole('menuitemradio', { name: 'Detailed', exact: true });
+    const compact = page.getByRole('menuitemradio', { name: 'Compact', exact: true });
+    await expect(detailed).toBeChecked();
+    await compact.click();
+    // The menu stays open, so the list behind it is what answers the click.
+    await expect(compact).toBeChecked();
+    await expect(controller).toHaveClass(/session-nav-item--dense/);
+    // One line: the harness leads the name, and the model moves to the
+    // tooltip. The menu says where the model went.
+    await expect(controller.locator('.session-row-meta')).toHaveCount(0);
+    await expect(controller.locator('.session-row-lead .session-nav-item-harness')).toHaveCount(1);
+    await expect(page.locator('.sidebar .session-nav-item-model')).toHaveCount(0);
+    await expect(controller).toHaveAttribute('title', /claude-opus-4-6/);
+    await expect(page.getByRole('menuitemcheckbox', { name: 'Model', exact: true })).toContainText(
+      'Detailed rows only',
+    );
+    // Every row is the same height, whatever it carries.
+    const heights = await listed.evaluateAll((rows) =>
+      rows.map((row) => Math.round(row.getBoundingClientRect().height)),
+    );
+    expect(new Set(heights).size).toBe(1);
+    // The harness toggle still applies to a compact row.
+    await page.getByRole('menuitemcheckbox', { name: 'Harness icon', exact: true }).click();
+    await expect(controller.locator('.session-nav-item-harness')).toHaveCount(0);
+    await page.getByRole('menuitemcheckbox', { name: 'Harness icon', exact: true }).click();
+    await page.keyboard.press('Escape');
+
+    await app.close();
+    ({ app, page } = await launchElectron({ userDataDir }));
+    await holdWorkspace(page);
+    await expect(rowFor(page, 'Controller boot')).toHaveClass(/session-nav-item--dense/);
+
+    // Settings → Sessions offers the same choice, and says which is in use.
+    await page.keyboard.press(settingsChord());
+    const settings = page.getByRole('dialog', { name: 'Settings', exact: true });
+    await settings.getByRole('button', { name: 'Sessions', exact: true }).first().click();
+    const rows = settings.getByRole('radiogroup', { name: 'Session rows' });
+    await expect(rows.getByRole('radio', { name: 'Compact', exact: true })).toBeChecked();
+    await rows.locator('.session-rows-card').filter({ hasText: 'Detailed' }).click();
+    await expect(rows.getByRole('radio', { name: 'Detailed', exact: true })).toBeChecked();
+    await page.keyboard.press('Escape');
+    await expect(rowFor(page, 'Controller boot')).not.toHaveClass(/session-nav-item--dense/);
+    await expect(
+      rowFor(page, 'Controller boot').locator('.session-row-meta .session-nav-item-model'),
+    ).toHaveText('Opus 4.6');
   });
 
   test('the row follows runtime model changes without replacing the pinned launch model', async () => {

@@ -1,4 +1,6 @@
-import { app, BrowserWindow, dialog, ipcMain } from 'electron';
+import { app, dialog } from 'electron';
+import { guardedIpc as ipcMain } from './guardedIpc';
+import { consolaWindows } from './window-manager';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { autoUpdater } from 'electron-updater';
@@ -12,7 +14,7 @@ export function setupAppUpdates() {
     enabled = metadata.consolaAutoUpdates === true;
   }
   const service = new AppUpdateService(autoUpdater, app.getVersion(), enabled, (state) => {
-    for (const window of BrowserWindow.getAllWindows()) {
+    for (const window of consolaWindows()) {
       if (!window.isDestroyed() && !window.webContents.isDestroyed()) {
         window.webContents.send(UPDATE_CHANNELS.CHANGED, state);
       }

@@ -4,6 +4,7 @@ import type { AttentionChange, AttentionState } from '../shared/attention';
 import type {
   BatchResult,
   Preferences,
+  SettleBatchResult,
   SettleMemento,
   SettleResult,
   SnoozeBatchResult,
@@ -20,6 +21,7 @@ import type {
   WorktreeCleanupRules,
 } from '../shared/worktreeCleanup';
 import type { ShellAPI } from '../shared/shell';
+import type { BrowserAPI, TerminalLinkRule } from '../shared/browser';
 import type { SessionCheckout, CheckoutContext, CheckoutInfo } from '../shared/sessionCheckout';
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import type {
@@ -37,6 +39,7 @@ import type {
   WorkspaceSnapshot,
   WindowContext,
   WorkspaceView,
+  QuitShortcutState,
   ActivateWorkspaceResult,
   WorkItemLaunchResult,
   RunActionInSessionResult,
@@ -94,6 +97,42 @@ contextBridge.exposeInMainWorld('shellAPI', {
   onData: (callback) => subscribe(IPC_CHANNELS.SHELL_DATA, callback),
   onExit: (callback) => subscribe(IPC_CHANNELS.SHELL_EXIT, callback),
 } satisfies ShellAPI);
+
+contextBridge.exposeInMainWorld('browserAPI', {
+  get: (sessionId) => ipcRenderer.invoke(IPC_CHANNELS.BROWSER_GET, sessionId),
+  open: (sessionId, url) => ipcRenderer.invoke(IPC_CHANNELS.BROWSER_OPEN, sessionId, url),
+  close: (tabId) => ipcRenderer.invoke(IPC_CHANNELS.BROWSER_CLOSE, tabId),
+  activate: (tabId) => ipcRenderer.invoke(IPC_CHANNELS.BROWSER_ACTIVATE, tabId),
+  navigate: (tabId, url) => ipcRenderer.invoke(IPC_CHANNELS.BROWSER_NAVIGATE, tabId, url),
+  retry: (tabId, url) => ipcRenderer.invoke(IPC_CHANNELS.BROWSER_RETRY, tabId, url),
+  back: (tabId) => ipcRenderer.invoke(IPC_CHANNELS.BROWSER_BACK, tabId),
+  forward: (tabId) => ipcRenderer.invoke(IPC_CHANNELS.BROWSER_FORWARD, tabId),
+  reload: (tabId) => ipcRenderer.invoke(IPC_CHANNELS.BROWSER_RELOAD, tabId),
+  stop: (tabId) => ipcRenderer.invoke(IPC_CHANNELS.BROWSER_STOP, tabId),
+  hardReload: (tabId) => ipcRenderer.invoke(IPC_CHANNELS.BROWSER_HARD_RELOAD, tabId),
+  find: (tabId, text, options) =>
+    ipcRenderer.invoke(IPC_CHANNELS.BROWSER_FIND, tabId, text, options),
+  stopFind: (tabId) => ipcRenderer.invoke(IPC_CHANNELS.BROWSER_STOP_FIND, tabId),
+  zoom: (tabId, step) => ipcRenderer.invoke(IPC_CHANNELS.BROWSER_ZOOM, tabId, step),
+  openDevTools: (tabId) => ipcRenderer.invoke(IPC_CHANNELS.BROWSER_DEVTOOLS, tabId),
+  history: () => ipcRenderer.invoke(IPC_CHANNELS.BROWSER_HISTORY),
+  capture: (tabId) => ipcRenderer.invoke(IPC_CHANNELS.BROWSER_CAPTURE, tabId),
+  localServers: (sessionId) => ipcRenderer.invoke(IPC_CHANNELS.BROWSER_LOCAL_SERVERS, sessionId),
+  continueCertificate: (tabId) =>
+    ipcRenderer.invoke(IPC_CHANNELS.BROWSER_CERTIFICATE_CONTINUE, tabId),
+  answerAuth: (id, credentials) =>
+    ipcRenderer.invoke(IPC_CHANNELS.BROWSER_AUTH_ANSWER, id, credentials),
+  clearData: () => ipcRenderer.invoke(IPC_CHANNELS.BROWSER_CLEAR_DATA),
+  attach: (tabId, webContentsId) =>
+    ipcRenderer.invoke(IPC_CHANNELS.BROWSER_ATTACH, tabId, webContentsId),
+  setVisible: (sessionId, tabId) =>
+    ipcRenderer.invoke(IPC_CHANNELS.BROWSER_SET_VISIBLE, sessionId, tabId),
+  onSnapshot: (callback) => subscribe(IPC_CHANNELS.BROWSER_SNAPSHOT, callback),
+  onShortcut: (callback) => subscribe(IPC_CHANNELS.BROWSER_SHORTCUT, callback),
+  onFound: (callback) => subscribe(IPC_CHANNELS.BROWSER_FOUND, callback),
+  onAuthRequest: (callback) => subscribe(IPC_CHANNELS.BROWSER_AUTH_REQUEST, callback),
+  onAuthCancelled: (callback) => subscribe(IPC_CHANNELS.BROWSER_AUTH_CANCELLED, callback),
+} satisfies BrowserAPI);
 
 // Expose protected methods to the renderer process
 contextBridge.exposeInMainWorld('terminalAPI', {
@@ -497,7 +536,7 @@ contextBridge.exposeInMainWorld('attentionAPI', {
   wake: (workspaceId: string, sessionIds: string[]): Promise<BatchResult> => {
     return ipcRenderer.invoke(IPC_CHANNELS.ATTENTION_WAKE, workspaceId, sessionIds);
   },
-  settleMany: (workspaceId: string, sessionIds: string[]): Promise<BatchResult> => {
+  settleMany: (workspaceId: string, sessionIds: string[]): Promise<SettleBatchResult> => {
     return ipcRenderer.invoke(IPC_CHANNELS.ATTENTION_SETTLE_MANY, workspaceId, sessionIds);
   },
   unsettleMany: (workspaceId: string, sessionIds: string[]): Promise<BatchResult> => {
@@ -542,6 +581,8 @@ contextBridge.exposeInMainWorld('preferencesAPI', {
   get: (): Promise<Preferences> => ipcRenderer.invoke(IPC_CHANNELS.PREFERENCES_GET),
   setWorktreeCleanup: (rules: WorktreeCleanupRules): Promise<void> =>
     ipcRenderer.invoke(IPC_CHANNELS.PREFERENCES_SET_WORKTREE_CLEANUP, rules),
+  setTerminalLinks: (rule: TerminalLinkRule): Promise<void> =>
+    ipcRenderer.invoke(IPC_CHANNELS.PREFERENCES_SET_TERMINAL_LINKS, rule),
   setAutoSettleDays: (days: number): Promise<void> =>
     ipcRenderer.invoke(IPC_CHANNELS.PREFERENCES_SET_AUTO_SETTLE_DAYS, days),
   acknowledgeAutoSettle: (): Promise<void> =>
@@ -682,6 +723,9 @@ contextBridge.exposeInMainWorld('windowAPI', {
 
   onActivateSession: (callback: (sessionId: string) => void) =>
     subscribe<string>(IPC_CHANNELS.WINDOW_ACTIVATE_SESSION, callback),
+
+  onQuitShortcut: (callback: (state: QuitShortcutState) => void) =>
+    subscribe<QuitShortcutState>(IPC_CHANNELS.WINDOW_QUIT_SHORTCUT, callback),
 });
 
 // Session storage types

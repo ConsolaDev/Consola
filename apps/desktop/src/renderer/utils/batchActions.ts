@@ -1,4 +1,4 @@
-import type { BatchResult } from '../../shared/preferences';
+import type { BatchResult, SettleBatchResult } from '../../shared/preferences';
 import type { Session } from '../../shared/workspace';
 import { attentionBridge } from '../services/attentionBridge';
 import { showToast } from '../stores/toastStore';
@@ -26,8 +26,7 @@ export function batchMessage(verb: Verb, result: BatchResult, asked: number): st
 }
 
 /** Toast a batch with one Undo for all of it, when anything changed. */
-function announce(verb: Verb, result: BatchResult, asked: number): void {
-  const message = batchMessage(verb, result, asked);
+function announce(message: string, result: BatchResult): void {
   if (result.applied.length === 0 || Object.keys(result.memento).length === 0) {
     showToast(message);
     return;
@@ -35,9 +34,28 @@ function announce(verb: Verb, result: BatchResult, asked: number): void {
   showToast(message, { label: 'Undo', run: () => void attentionBridge.restore(result.memento) });
 }
 
-/** Settle every selected session in one write, with one Undo. */
+/**
+ * What a batch settle toast says, counting apart the sessions main deleted
+ * rather than shelved because they never had a message:
+ * "Settled 3 sessions. 1 never had a message, so it was removed."
+ */
+export function settleBatchMessage(result: SettleBatchResult, asked: number): string {
+  const removed = new Set(result.removed ?? []);
+  if (removed.size === 0) return batchMessage(SETTLE, result, asked);
+  // Everything asked for was deleted: nothing went to the shelf to speak of.
+  if (result.applied.length === asked && result.applied.every((id) => removed.has(id)))
+    return `Removed ${sessions(removed.size)}: ${removed.size === 1 ? 'it' : 'they'} never had a message.`;
+  const removal =
+    removed.size === 1
+      ? '1 never had a message, so it was removed.'
+      : `${removed.size} never had a message, so they were removed.`;
+  return `${batchMessage(SETTLE, result, asked)} ${removal}`;
+}
+
+/** Settle every selected session in one write, with one Undo for what stayed on the shelf. */
 export async function settleManyWithUndo(workspaceId: string, sessionIds: string[]): Promise<void> {
-  announce(SETTLE, await attentionBridge.settleMany(workspaceId, sessionIds), sessionIds.length);
+  const result = await attentionBridge.settleMany(workspaceId, sessionIds);
+  announce(settleBatchMessage(result, sessionIds.length), result);
 }
 
 /** Bring every selected settled session back, with one Undo. */

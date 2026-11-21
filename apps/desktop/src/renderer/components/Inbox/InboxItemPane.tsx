@@ -147,7 +147,7 @@ export function InboxItemPane({
       )
     : null;
 
-  // Task 8 fix-wave rule: name the bound provider, never hardcode "GitHub".
+  // Name the bound provider, never hardcode "GitHub": a workspace can be bound to another.
   // The pane only ever renders under a provider-bound workspace in practice
   // (the Inbox view itself returns null without one), but the field is
   // optional on the type, so this degrades to a neutral label instead of

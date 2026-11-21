@@ -16,6 +16,7 @@ import { useRenamingStore } from '../../stores/renamingStore';
 import { effectiveFilters, hasActiveFilters, matchesFilters } from '../../utils/sessionFilters';
 import { SidebarSearch } from './SidebarSearch';
 import { NavigationSettings } from './NavigationSettings';
+import { useDensityShift } from './useDensityShift';
 import { NewMenu } from '../Layout/NewMenu';
 import { clearAllFilters, revealSessionScope } from '../../utils/sessionActions';
 import { useSettleOnChange } from '../../hooks/useSettleOnChange';
@@ -80,6 +81,7 @@ export function Sidebar() {
     useAutomationsStore((state) => state.snapshots[activeWorkspaceId ?? '']?.runs) ?? NO_RUNS;
   const shelves = useSettingsStore((state) => state.sidebarShelfOpen);
   const workingSection = useSettingsStore((state) => state.sidebarWorkingSection);
+  const densityShift = useDensityShift(useSettingsStore((state) => state.sidebarDensity));
   const toggleShelf = useSettingsStore((state) => state.toggleSidebarShelf);
   const workspace = workspaces.find((candidate) => candidate.id === activeWorkspaceId);
   const filterId = useHomeStore((state) => state.scopeFilters[activeWorkspaceId ?? '']);
@@ -320,6 +322,7 @@ export function Sidebar() {
     <aside
       ref={sidebarRef}
       className="sidebar"
+      data-density-shift={densityShift}
       aria-label={isInbox ? 'Inbox sidebar' : 'Home sidebar'}
       // Esc ends a selection, here only: in the terminal it is the agent's key.
       onKeyDown={(event) => {
@@ -334,7 +337,6 @@ export function Sidebar() {
           {selectedCount > 1 ? `${selectedCount} sessions selected` : ''}
         </span>
         <SidebarSearch>
-          <NavigationSettings />
           <NewMenu />
         </SidebarSearch>
         <nav className="app-navigation" aria-label="Main navigation">
@@ -393,7 +395,7 @@ export function Sidebar() {
             <AutomationsNavItem workspace={workspace} />
             {/* Always there, even with one scope: it is also where scopes are added. */}
             <hr className="sidebar-scope-divider" />
-            <FilterBar workspace={workspace} />
+            <FilterBar workspace={workspace} accessory={<NavigationSettings />} />
             <div
               ref={sessionPanelRef}
               className={`home-session-panel sidebar-sessions${wakeDrop ? ' sidebar-sessions--wake-drop' : ''}`}
@@ -497,7 +499,8 @@ export function Sidebar() {
                   </section>
                 )}
                 {/* Only what was put away, by hand or after sitting idle (see
-              AutoSettler). Nothing is deleted. */}
+              AutoSettler). A session that never had a message, and has no
+              page open, is deleted rather than kept here (EmptySessionReaper). */}
                 <section
                   className="sidebar-bucket sidebar-bucket--settled"
                   data-shelf="settled"

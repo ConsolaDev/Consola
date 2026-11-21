@@ -84,6 +84,7 @@ export const workspaces: Workspace[] = [
       { id: 'reviews', name: 'pr-reviews', emoji: '✅', createdAt: now },
       { id: 'research', name: 'research', emoji: '🔎', createdAt: now },
     ],
+    labels: [],
     actions: [
       {
         id: 'review',
@@ -145,6 +146,7 @@ export const workspaces: Workspace[] = [
       { id: 'weekend', name: 'weekend-app', emoji: '🌱', createdAt: now },
       { id: 'ideas', name: 'ideas', emoji: '💡', createdAt: now },
     ],
+    labels: [],
     actions: [
       {
         id: 'personal-review',

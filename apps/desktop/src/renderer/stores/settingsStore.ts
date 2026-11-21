@@ -10,6 +10,22 @@ import {
 export type ThemeMode = 'light' | 'dark' | 'system';
 
 /**
+ * How much a session row in the sidebar says.
+ *
+ * `detailed` is the two-line row: what runs it and its state above the name,
+ * the worktree and labels under it. `compact` is one line, the harness mark,
+ * the name and its state or age, so a long list fits on screen; everything
+ * else moves into the row's tooltip.
+ */
+export type SidebarDensity = 'detailed' | 'compact';
+
+export const SIDEBAR_DENSITIES: readonly SidebarDensity[] = ['detailed', 'compact'];
+
+export function isSidebarDensity(value: unknown): value is SidebarDensity {
+  return value === 'detailed' || value === 'compact';
+}
+
+/**
  * Bounds for the terminal font size.
  *
  * Below 11px JetBrains Mono's hinting stops rescuing the stems on a 1x display;
@@ -63,6 +79,9 @@ interface SettingsState {
    */
   sidebarWorkingSection: boolean;
   setSidebarWorkingSection: (show: boolean) => void;
+  /** One line per session, or the two-line row (`SidebarDensity`). */
+  sidebarDensity: SidebarDensity;
+  setSidebarDensity: (density: SidebarDensity) => void;
   /** The Inbox's repository and Updated filters, per workspace id. */
   inboxFilters: Record<string, InboxFilterState>;
   /**
@@ -137,6 +156,8 @@ export const useSettingsStore = create<SettingsState>()(
       setShowSidebarWorktree: (showSidebarWorktree) => set({ showSidebarWorktree }),
       sidebarWorkingSection: true,
       setSidebarWorkingSection: (sidebarWorkingSection) => set({ sidebarWorkingSection }),
+      sidebarDensity: 'detailed',
+      setSidebarDensity: (sidebarDensity) => set({ sidebarDensity }),
       inboxFilters: {},
       sidebarShelfOpen: {},
       toggleSidebarShelf: (id, open) =>
@@ -182,6 +203,7 @@ export const useSettingsStore = create<SettingsState>()(
         showSidebarHarness: state.showSidebarHarness,
         showSidebarWorktree: state.showSidebarWorktree,
         sidebarWorkingSection: state.sidebarWorkingSection,
+        sidebarDensity: state.sidebarDensity,
         terminalFontSize: state.terminalFontSize,
         inboxFilters: state.inboxFilters,
         sidebarShelfOpen: state.sidebarShelfOpen,
@@ -202,6 +224,9 @@ export const useSettingsStore = create<SettingsState>()(
             typeof saved?.showSidebarWorktree === 'boolean' ? saved.showSidebarWorktree : true,
           sidebarWorkingSection:
             typeof saved?.sidebarWorkingSection === 'boolean' ? saved.sidebarWorkingSection : true,
+          sidebarDensity: isSidebarDensity(saved?.sidebarDensity)
+            ? saved.sidebarDensity
+            : 'detailed',
           terminalFontSize: clampTerminalFontSize(
             saved?.terminalFontSize ?? TERMINAL_FONT_SIZE_DEFAULT,
           ),

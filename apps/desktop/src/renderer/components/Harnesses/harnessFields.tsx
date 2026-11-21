@@ -130,32 +130,43 @@ export function ConfigFields({ draft, onChange }: { draft: HarnessDraft; onChang
         </span>
       </div>
 
-      <div className="dialog-field">
-        <label className="dialog-label" htmlFor="harness-config-dir">
-          {driver.configDirEnvVar} path
-        </label>
-        <div className="harness-input-row">
-          <input
-            id="harness-config-dir"
-            className="dialog-input"
-            value={draft.configDir}
-            onChange={(event) => onChange({ configDir: event.target.value })}
-            placeholder={driver.defaultConfigDir}
-          />
-          <button
-            type="button"
-            className="dialog-button-secondary harness-browse-button"
-            onClick={browseForConfigDir}
-          >
-            <FolderOpen size={14} />
-            Browse
-          </button>
+      {driver.configDirEnvVar ? (
+        <div className="dialog-field">
+          <label className="dialog-label" htmlFor="harness-config-dir">
+            {driver.configDirEnvVar} path
+          </label>
+          <div className="harness-input-row">
+            <input
+              id="harness-config-dir"
+              className="dialog-input"
+              value={draft.configDir}
+              onChange={(event) => onChange({ configDir: event.target.value })}
+              placeholder={driver.defaultConfigDir}
+            />
+            <button
+              type="button"
+              className="dialog-button-secondary harness-browse-button"
+              onClick={browseForConfigDir}
+            >
+              <FolderOpen size={14} />
+              Browse
+            </button>
+          </div>
+          <span className="harness-field-hint">
+            A separate config directory keeps this harness's login and history to itself. Leave
+            blank to share the default one.
+          </span>
         </div>
-        <span className="harness-field-hint">
-          A separate config directory keeps this harness's login and history to itself. Leave blank
-          to share the default one.
-        </span>
-      </div>
+      ) : (
+        <div className="dialog-field">
+          <span className="dialog-label">Configuration directory</span>
+          <span className="harness-field-hint">
+            <code>{driver.binaryName}</code> uses <code>{driver.defaultConfigDir}</code> and your
+            system keyring. Pass <code>--settings &lt;file&gt;</code> in launch arguments for
+            per-harness overrides.
+          </span>
+        </div>
+      )}
 
       <div className="dialog-field">
         <label className="dialog-label" htmlFor="harness-args">
@@ -166,9 +177,7 @@ export function ConfigFields({ draft, onChange }: { draft: HarnessDraft; onChang
           className="dialog-input"
           value={draft.launchArgs}
           onChange={(event) => onChange({ launchArgs: event.target.value })}
-          placeholder={
-            draft.driverId === 'codex' ? 'e.g. --sandbox read-only' : 'e.g. --permission-mode plan'
-          }
+          placeholder={driver.launchArgsPlaceholder}
         />
         <span className="harness-field-hint">Passed to every session this harness starts.</span>
       </div>

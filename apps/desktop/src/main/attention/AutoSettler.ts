@@ -2,6 +2,7 @@ import { activityOf, type Attention } from '../../shared/attention';
 import type { Preferences } from '../../shared/preferences';
 import type { Session, Workspace } from '../../shared/workspace';
 import type { AttentionLedger } from './AttentionLedger';
+import { mayBeEmpty } from './EmptySessionReaper';
 import { sessionTrees, settleable, settleTargets } from './settling';
 
 export const SWEEP_INTERVAL_MS = 5 * 60_000;
@@ -35,13 +36,19 @@ export interface AutoSettlerDeps {
    * waits for it; returns an unsubscribe.
    */
   onWindowReport(listener: () => void): () => void;
+  /**
+   * Runs after every sweep, whether or not it moved anything: what is on the
+   * shelf and never got a message leaves it (`EmptySessionReaper`).
+   */
+  swept?(): void;
   now?: () => number;
 }
 
 /**
- * Moves old, idle work onto the Settled shelf. Nothing is deleted: settled is
- * a derived state (`settledAt` at or after the last activity), so any new
- * activity brings the session back without a write.
+ * Moves old, idle work onto the Settled shelf. Settling deletes nothing:
+ * settled is a derived state (`settledAt` at or after the last activity), so
+ * any new activity brings the session back without a write. Only a session
+ * that never got a message is then removed, by `swept`.
  *
  * The decision is main's alone, from the same derived attention the sidebar
  * reads. Built on `ready` and `exited`, which already exclude every session
@@ -100,6 +107,12 @@ export class AutoSettler {
 
   /** Settle every tree whose members are all eligible. Returns the session ids moved. */
   public sweep(): string[] {
+    const moved = this.settleIdle();
+    this.deps.swept?.();
+    return moved;
+  }
+
+  private settleIdle(): string[] {
     const { autoSettleDays } = this.deps.preferences.get();
     if (autoSettleDays <= 0) return [];
 
@@ -107,6 +120,10 @@ export class AutoSettler {
     const attention = this.deps.attention();
     const now = this.now();
     const moved: string[] = [];
+    // What the first-run explanation names. Not a session that may never have
+    // had a message: it is removed straight after, and the explanation would
+    // open on a row that is gone a moment later.
+    const explained: string[] = [];
     // One ledger call for the whole sweep: it is one write, not one per session.
     const targets: ReturnType<typeof settleTargets> = [];
 
@@ -123,13 +140,14 @@ export class AutoSettler {
           continue;
         targets.push(...settleTargets(workspace, tree, this.deps.ledger));
         moved.push(...tree.map((session) => session.id));
+        explained.push(...tree.filter((session) => !mayBeEmpty(session)).map(({ id }) => id));
       }
     }
     if (targets.length === 0) return [];
 
     this.deps.ledger.settle(targets, now, { markSeen: false });
     // Before anything announces it: a window that hears of the settle must be able to explain it.
-    this.deps.preferences.addPendingAutoSettle(moved);
+    this.deps.preferences.addPendingAutoSettle(explained);
     this.deps.changed();
     return moved;
   }

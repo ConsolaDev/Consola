@@ -41,12 +41,13 @@ export interface HarnessDriver {
   readonly id: HarnessDriverId;
 
   /**
-   * Environment variable this CLI reads for its config/profile directory.
+   * Environment variable this CLI reads for its config/profile directory, when
+   * the CLI supports redirecting its profile that way.
    *
    * Named per driver rather than assumed, so a second CLI with a differently
    * named variable is a new driver rather than a change to shared code.
    */
-  readonly configDirEnvVar: string;
+  readonly configDirEnvVar?: string;
 
   /** Absolute path to the binary, or a bare name to let the spawn fail loudly. */
   resolveBinary(config: HarnessConfig): string;

@@ -48,6 +48,18 @@ describe('shortModelName', () => {
     expect(shortModelName('gpt-5.1-codex')).toBe('GPT-5.1 Codex');
     expect(shortModelName('gpt-5.1-codex-max')).toBe('GPT-5.1 Codex Max');
     expect(shortModelName('gpt-5')).toBe('GPT-5');
+    expect(shortModelName('gpt-oss-120b-medium')).toBe('GPT-OSS 120B');
+  });
+
+  it('reads Antigravity Gemini, Orchestrator and effort-suffixed Claude ids', () => {
+    expect(shortModelName('gemini-4-neon-xhigh')).toBe('Gemini 4 Neon');
+    expect(shortModelName('gemini-4-argon-medium')).toBe('Gemini 4 Argon');
+    expect(shortModelName('gemini-4-hydrogen-low')).toBe('Gemini 4 Hydrogen');
+    expect(shortModelName('gemini-3.8-flash-high')).toBe('Gemini 3.8 Flash');
+    expect(shortModelName('gemini-pro-orchestrator-neon')).toBe('Orchestrator (Neon)');
+    expect(shortModelName('gemini-pro-orchestrator-g1-pro')).toBe('Orchestrator (Argon)');
+    expect(shortModelName('claude-opus-5-5-high')).toBe('Opus 5.5');
+    expect(shortModelName('claude-sonnet-5-5-medium')).toBe('Sonnet 5.5');
   });
 
   it('leaves anything else whole', () => {

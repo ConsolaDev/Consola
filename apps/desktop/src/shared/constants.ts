@@ -86,6 +86,7 @@ export const IPC_CHANNELS = {
   PREFERENCES_SET_SNOOZE_AT_USAGE_LIMIT: 'preferences:set-snooze-at-usage-limit',
   PREFERENCES_CHANGED: 'preferences:changed', // main -> renderer: the full preferences, to every window
   PREFERENCES_SET_WORKTREE_CLEANUP: 'preferences:set-worktree-cleanup',
+  PREFERENCES_SET_TERMINAL_LINKS: 'preferences:set-terminal-links',
   WORKTREE_CLEANUP_PREVIEW: 'worktree-cleanup:preview', // renderer -> main: what the rules would remove now, and why the rest stays
   WORKTREE_CLEANUP_RUN: 'worktree-cleanup:run', // renderer -> main: "Clean up now"; answers the report
   WORKTREE_CLEANUP_HISTORY: 'worktree-cleanup:history', // renderer -> main: what was removed and rebuilt, newest first
@@ -159,6 +160,7 @@ export const IPC_CHANNELS = {
   WINDOW_OPEN_SETTINGS: 'window:open-settings',
   WINDOW_SHOW_AUTOMATIONS: 'window:show-automations', // A notification click chose the Automations dashboard
   WINDOW_ACTIVATE_SESSION: 'window:activate-session', // A notification click chose a session
+  WINDOW_QUIT_SHORTCUT: 'window:quit-shortcut', // ⌘Q is down ('down') or let go ('up'): show the hold-to-quit hint
 
   // Personal automations, one factory.yml per workspace (renderer -> main; main runs them)
   AUTOMATIONS_GET_SNAPSHOT: 'automations:get-snapshot', // A workspace's parsed factory.yml, schedule and runs
@@ -186,6 +188,38 @@ export const IPC_CHANNELS = {
 
   // Personal automations (main -> every renderer)
   AUTOMATIONS_CHANGED: 'automations:changed', // A workspace's fresh AutomationsSnapshot
+
+  // In-app browser (renderer -> main). Every handler checks the tab belongs to the sender's workspace.
+  BROWSER_GET: 'browser:get', // One session's BrowserSessionSnapshot, for the first paint
+  BROWSER_OPEN: 'browser:open', // Open a tab in a session
+  BROWSER_CLOSE: 'browser:close', // Close a tab
+  BROWSER_ACTIVATE: 'browser:activate', // Make a tab the visible one
+  BROWSER_NAVIGATE: 'browser:navigate', // Send a tab to an address
+  BROWSER_RETRY: 'browser:retry', // A shown tab's automatic retry of an unreachable page on this machine: never the person's input
+  BROWSER_BACK: 'browser:back',
+  BROWSER_FORWARD: 'browser:forward',
+  BROWSER_RELOAD: 'browser:reload',
+  BROWSER_STOP: 'browser:stop',
+  BROWSER_ATTACH: 'browser:attach', // Bind a mounted <webview> to its tab once it attaches
+  BROWSER_SET_VISIBLE: 'browser:set-visible', // Which tab the person is looking at, or none
+  BROWSER_HARD_RELOAD: 'browser:hard-reload', // Reload a tab ignoring its cache
+  BROWSER_FIND: 'browser:find', // Search a tab's page for text
+  BROWSER_STOP_FIND: 'browser:stop-find', // Clear a tab's find highlights
+  BROWSER_ZOOM: 'browser:zoom', // Step, reset or read a tab's zoom level
+  BROWSER_DEVTOOLS: 'browser:devtools', // Open a tab's DevTools in their own window
+  BROWSER_HISTORY: 'browser:history', // The sender's workspace's visited pages, newest first
+  BROWSER_CERTIFICATE_CONTINUE: 'browser:certificate-continue', // Trust a refused loopback certificate and reload
+  BROWSER_AUTH_ANSWER: 'browser:auth-answer', // The credentials (or a cancel) for a sign-in dialog
+  BROWSER_CLEAR_DATA: 'browser:clear-data', // Wipe the sender's workspace's browsing data
+  BROWSER_CAPTURE: 'browser:capture', // Save a tab's page as a PNG and answer its path
+  BROWSER_LOCAL_SERVERS: 'browser:local-servers', // Servers running from a session's folder
+
+  // In-app browser (main -> renderer)
+  BROWSER_SNAPSHOT: 'browser:snapshot', // A session's fresh BrowserSessionSnapshot
+  BROWSER_SHORTCUT: 'browser:shortcut', // A shortcut pressed while a page had focus
+  BROWSER_FOUND: 'browser:found', // A tab's find result: which match, out of how many
+  BROWSER_AUTH_REQUEST: 'browser:auth-request', // A page asks for a username and password
+  BROWSER_AUTH_CANCELLED: 'browser:auth-cancelled', // A sign-in dialog's request is over; close it
 } as const;
 
 export const DEFAULT_DIMENSIONS = {
@@ -225,10 +259,12 @@ export const HARNESS_DRIVERS: ReadonlyArray<{
   available: boolean;
   /** Binary this CLI installs as, shown as the binary-path placeholder. */
   binaryName: string;
-  /** Environment variable that redirects this CLI's profile directory. */
-  configDirEnvVar: string;
+  /** Environment variable that redirects this CLI's profile directory, when supported. */
+  configDirEnvVar?: string;
   /** Where that CLI keeps its profile when the variable is unset. */
   defaultConfigDir: string;
+  /** Example launch arguments shown as the extra-args placeholder. */
+  launchArgsPlaceholder: string;
   /**
    * Whether this CLI can describe its own commands, agents and models.
    *
@@ -253,6 +289,7 @@ export const HARNESS_DRIVERS: ReadonlyArray<{
     binaryName: 'claude',
     configDirEnvVar: 'CLAUDE_CONFIG_DIR',
     defaultConfigDir: '~/.claude',
+    launchArgsPlaceholder: 'e.g. --permission-mode plan',
     supportsCapabilities: true,
     defaultTitleModel: 'haiku',
     supportsConversationReading: true,
@@ -265,6 +302,18 @@ export const HARNESS_DRIVERS: ReadonlyArray<{
     binaryName: 'codex',
     configDirEnvVar: 'CODEX_HOME',
     defaultConfigDir: '~/.codex',
+    launchArgsPlaceholder: 'e.g. --sandbox read-only',
+    supportsCapabilities: true,
+    supportsConversationReading: true,
+  },
+  {
+    id: 'antigravity',
+    label: 'Antigravity',
+    description: "Google's Antigravity CLI.",
+    available: true,
+    binaryName: 'agy',
+    defaultConfigDir: '~/.gemini/antigravity-cli',
+    launchArgsPlaceholder: 'e.g. --mode plan',
     supportsCapabilities: true,
     supportsConversationReading: true,
   },

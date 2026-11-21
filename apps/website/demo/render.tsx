@@ -5,6 +5,7 @@ import App from '../../desktop/src/renderer/App';
 import { hydrateWorkspaceStore } from '../../desktop/src/renderer/stores/workspaceStore';
 import { hydrateHarnessStore } from '../../desktop/src/renderer/stores/harnessStore';
 import { hydrateTerminalStatus } from '../../desktop/src/renderer/stores/terminalStore';
+import { subscribeToBrowser } from '../../desktop/src/renderer/stores/browserStore';
 import { useNavigationStore } from '../../desktop/src/renderer/stores/navigationStore';
 import { useGitReviewStore } from '../../desktop/src/renderer/stores/gitReviewStore';
 import { useGitStatusStore } from '../../desktop/src/renderer/stores/gitStatusStore';
@@ -96,6 +97,9 @@ window.addEventListener('message', async (event) => {
   if (event.data.command === 'changes') await openChanges();
   if (event.data.command === 'reset') location.reload();
 });
+// As the desktop's own bootstrap does: the browser panel shows only what is
+// pushed, so the subscription comes before anything can open a tab.
+subscribeToBrowser();
 await Promise.all([hydrateWorkspaceStore(), hydrateHarnessStore(), hydrateTerminalStatus()]);
 useGitReviewStore.setState({ isSidebarCollapsed: true });
 useNavigationStore.setState({

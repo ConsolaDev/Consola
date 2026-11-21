@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { DEFAULT_INBOX_FILTER } from '../components/Inbox/inboxFilters';
 import {
   isShelfOpen,
+  isSidebarDensity,
   sanitizeShelfOpen,
   sanitizeInboxFilters,
   useSettingsStore,
@@ -11,6 +12,26 @@ import {
 describe('sidebar model visibility', () => {
   it('shows models by default', () => {
     expect(useSettingsStore.getInitialState().showSidebarModel).toBe(true);
+  });
+});
+
+describe('sidebar density', () => {
+  it('starts on the detailed two-line row', () => {
+    expect(useSettingsStore.getInitialState().sidebarDensity).toBe('detailed');
+  });
+
+  it('knows only its two densities, so a stale profile falls back', () => {
+    expect(isSidebarDensity('detailed')).toBe(true);
+    expect(isSidebarDensity('compact')).toBe(true);
+    expect(isSidebarDensity('comfortable')).toBe(false);
+    expect(isSidebarDensity(undefined)).toBe(false);
+    expect(isSidebarDensity(1)).toBe(false);
+  });
+
+  it('is written by its setter', () => {
+    useSettingsStore.getState().setSidebarDensity('compact');
+    expect(useSettingsStore.getState().sidebarDensity).toBe('compact');
+    useSettingsStore.getState().setSidebarDensity('detailed');
   });
 });
 

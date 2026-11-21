@@ -25,7 +25,7 @@ import type { InboxSnapshot, WorkItemLaunchAction, WorkItemRef } from './workIte
 import type { TerminalStatus } from './terminalStatus';
 
 /** Agent CLI a harness drives. One driver per supported CLI. */
-export type HarnessDriverId = 'claude' | 'codex';
+export type HarnessDriverId = 'claude' | 'codex' | 'antigravity';
 
 /**
  * How a session's harness is described across the IPC boundary.
@@ -576,4 +576,8 @@ export interface WindowAPI {
   onWorkspaceChanged: (callback: (workspaceId: string | null) => void) => () => void;
   /** A notification click chose a session; this window should show it. */
   onActivateSession: (callback: (sessionId: string) => void) => () => void;
+  /** ⌘Q went down or was let go in this window; quitting needs a hold or a second press. */
+  onQuitShortcut: (callback: (state: QuitShortcutState) => void) => () => void;
 }
+
+export type QuitShortcutState = 'down' | 'up';
