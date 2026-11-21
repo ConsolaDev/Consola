@@ -70,6 +70,9 @@ import { createRunInSessionCoalescer } from './providers/runActionInSession';
 import { cloneWorkspaceRepo } from './providers/cloneRepo';
 import { WorktreeService } from './WorktreeService';
 import { readCheckout } from './gitCheckout';
+import { isPlainBranchName, readBranchFacts } from './gitBranch';
+import { readComputerName } from './computerName';
+import { NO_BRANCH_FACTS } from '../shared/branchFacts';
 import {
   NotificationPolicy,
   findSessionById,
@@ -2670,6 +2673,22 @@ export function setupIpcHandlers(): boolean {
     typeof dir === 'string' && path.isAbsolute(dir) ? readCheckout(dir) : { kind: 'none' },
   );
 
+  // A branch's push and base counts, from what the clone already has.
+  // Anything but an absolute path gets no facts, and a base that is not a
+  // plain branch name is dropped, leaving origin's default branch.
+  ipcMain.handle(
+    IPC_CHANNELS.GIT_GET_BRANCH_FACTS,
+    async (_event, dir: unknown, baseBranch: unknown) =>
+      typeof dir === 'string' && path.isAbsolute(dir)
+        ? readBranchFacts(
+            dir,
+            typeof baseBranch === 'string' && isPlainBranchName(baseBranch)
+              ? baseBranch
+              : undefined,
+          )
+        : NO_BRANCH_FACTS,
+  );
+
   // Status, diffs, staging and commits live in gitWorkingTree, which never
   // hands a file name or a commit message to a shell.
   ipcMain.handle(IPC_CHANNELS.GIT_GET_STATUS, (_event, rootPath: string) => readStatus(rootPath));
@@ -2861,6 +2880,8 @@ ${truncatedDiff}`;
       createWindow();
     }
   });
+
+  ipcMain.handle(IPC_CHANNELS.APP_GET_COMPUTER_NAME, () => readComputerName());
 
   ipcMain.on(
     IPC_CHANNELS.WINDOW_SET_VIEW,
@@ -3107,6 +3128,7 @@ export function cleanupIpcHandlers(): void {
   // Remove git IPC handlers
   ipcMain.removeHandler(IPC_CHANNELS.GIT_GET_STATUS);
   ipcMain.removeHandler(IPC_CHANNELS.GIT_GET_CHECKOUT);
+  ipcMain.removeHandler(IPC_CHANNELS.GIT_GET_BRANCH_FACTS);
   ipcMain.removeHandler(IPC_CHANNELS.GIT_GET_DIFF);
   ipcMain.removeHandler(IPC_CHANNELS.GIT_STAGE_FILE);
   ipcMain.removeHandler(IPC_CHANNELS.GIT_UNSTAGE_FILE);
@@ -3117,5 +3139,6 @@ export function cleanupIpcHandlers(): void {
   // Remove window identity IPC handlers
   ipcMain.removeHandler(IPC_CHANNELS.WINDOW_ACTIVATE_WORKSPACE);
   ipcMain.removeHandler(IPC_CHANNELS.WINDOW_OPEN);
+  ipcMain.removeHandler(IPC_CHANNELS.APP_GET_COMPUTER_NAME);
   ipcMain.removeAllListeners(IPC_CHANNELS.WINDOW_SET_VIEW);
 }

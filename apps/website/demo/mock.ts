@@ -21,6 +21,7 @@ import type { WorkspaceView, TerminalCreateOptions } from '../../desktop/src/sha
 import type { WorkItemRef } from '../../desktop/src/shared/workItems';
 import type { WorkItemDetails, WorkItemMutation } from '../../desktop/src/shared/workItemDetails';
 import type { GitStatusResult } from '../../desktop/src/renderer/types/electron';
+import { NO_BRANCH_FACTS } from '../../desktop/src/shared/branchFacts';
 import type { BrowserSnapshotMessage } from '../../desktop/src/shared/browser';
 import { browserMock } from './mockBrowser';
 
@@ -296,6 +297,7 @@ export function installMock() {
     onQuitShortcut: noSubscription,
     onOpenSettings: noSubscription,
     onShowAutomations: noSubscription,
+    getComputerName: async () => null,
     openWindow: async (id) => {
       if (id) {
         windowWorkspace = id;
@@ -628,6 +630,15 @@ export function installMock() {
       mainCheckout: path.split('/.worktrees/')[0],
       branch: branchOf(path),
     }),
+    // A worktree's branch has one commit to push and two files changed since main.
+    getBranchFacts: async (path) => {
+      const branch = branchOf(path);
+      if (branch === 'main') return NO_BRANCH_FACTS;
+      return {
+        upstream: { ref: `origin/${branch}`, ahead: 1, behind: 0 },
+        base: { ref: 'origin/main', files: 2, additions: 9, deletions: 1 },
+      };
+    },
     getDiff: async (_path, file, staged) => diff(file, staged),
     stageFile: async (path, file) => {
       const f = changes.get(path)?.find((f) => f.path === file);

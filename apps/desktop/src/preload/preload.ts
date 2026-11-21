@@ -23,6 +23,7 @@ import type {
 import type { ShellAPI } from '../shared/shell';
 import type { BrowserAPI, TerminalLinkRule } from '../shared/browser';
 import type { SessionCheckout, CheckoutContext, CheckoutInfo } from '../shared/sessionCheckout';
+import type { BranchFacts } from '../shared/branchFacts';
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import type {
   TerminalCreateOptions,
@@ -607,6 +608,9 @@ contextBridge.exposeInMainWorld('gitAPI', {
   getCheckout: (dir: string): Promise<CheckoutInfo> => {
     return ipcRenderer.invoke(IPC_CHANNELS.GIT_GET_CHECKOUT, dir);
   },
+  getBranchFacts: (dir: string, baseBranch?: string): Promise<BranchFacts> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.GIT_GET_BRANCH_FACTS, dir, baseBranch);
+  },
   getDiff: (rootPath: string, filePath: string, staged: boolean): Promise<GitDiffResult> => {
     return ipcRenderer.invoke(IPC_CHANNELS.GIT_GET_DIFF, { rootPath, filePath, staged });
   },
@@ -726,6 +730,9 @@ contextBridge.exposeInMainWorld('windowAPI', {
 
   onQuitShortcut: (callback: (state: QuitShortcutState) => void) =>
     subscribe<QuitShortcutState>(IPC_CHANNELS.WINDOW_QUIT_SHORTCUT, callback),
+
+  getComputerName: (): Promise<string | null> =>
+    ipcRenderer.invoke(IPC_CHANNELS.APP_GET_COMPUTER_NAME),
 });
 
 // Session storage types

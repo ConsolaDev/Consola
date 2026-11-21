@@ -124,6 +124,7 @@ export const IPC_CHANNELS = {
   // Git operations
   GIT_GET_STATUS: 'git:get-status', // Get git status and stats
   GIT_GET_CHECKOUT: 'git:get-checkout', // Main checkout or linked worktree, and its branch
+  GIT_GET_BRANCH_FACTS: 'git:get-branch-facts', // Commits to push or pull, and the distance from the base, never fetched
   GIT_GET_DIFF: 'git:get-diff', // Get file diff
   GIT_STAGE_FILE: 'git:stage-file', // Stage a file (git add)
   GIT_UNSTAGE_FILE: 'git:unstage-file', // Unstage a file (git reset HEAD)
@@ -154,6 +155,9 @@ export const IPC_CHANNELS = {
   WINDOW_ACTIVATE_WORKSPACE: 'window:activate-workspace', // Claim a workspace, or be told who holds it
   WINDOW_OPEN: 'window:open', // Open another window
   WINDOW_SET_VIEW: 'window:set-view', // Remember what this workspace is showing
+
+  // The machine Consola runs on (renderer -> main)
+  APP_GET_COMPUTER_NAME: 'app:get-computer-name', // The name this computer goes by, read once per run
 
   // Window identity (main -> one renderer)
   WINDOW_WORKSPACE_CHANGED: 'window:workspace-changed',

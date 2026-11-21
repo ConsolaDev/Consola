@@ -578,6 +578,8 @@ export interface WindowAPI {
   onActivateSession: (callback: (sessionId: string) => void) => () => void;
   /** ⌘Q went down or was let go in this window; quitting needs a hold or a second press. */
   onQuitShortcut: (callback: (state: QuitShortcutState) => void) => () => void;
+  /** The name this computer goes by, or null when it has none. */
+  getComputerName: () => Promise<string | null>;
 }
 
 export type QuitShortcutState = 'down' | 'up';
