@@ -801,6 +801,13 @@
   color: var(--color-accent);
 }
 
+/* The header's last button. Without a checkout nothing fills the row before
+   it, so it keeps to the right edge on its own. */
+.side-panel-toggle {
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
 /* A shortcut for a tab that does not apply here: dimmed, its tooltip says why */
 .path-display-toggle[aria-disabled="true"],
 .path-display-toggle[aria-disabled="true"]:hover {

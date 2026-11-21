@@ -38,6 +38,7 @@ import { focusSessionAddressBar, openInSessionBrowser } from '../Browser/browser
 import { createQuickSession, openNewSessionDialog } from '../../utils/sessionActions';
 import { workspaceStatusFor, type AttentionMap } from '../../utils/sessionStatus';
 import { BROWSER_SHORTCUT_LABEL, isMac, WORKING_SHELF_SHORTCUT_LABEL } from '../../utils/platform';
+import { SIDE_PANEL_SHORTCUT_LABEL } from '../../utils/sidePanelShortcut';
 import type {
   PaletteMode,
   ActionPaletteItem,
@@ -74,6 +75,8 @@ export interface PaletteContext {
   commitMessage: string;
   /** The side panel's tab kinds for the active session, in registry order; empty without one. */
   tabKinds: Array<{ id: TabKindId; title: string; available: boolean }>;
+  /** Whether the side panel is showing, so its row says what choosing it will do. */
+  isSidePanelVisible: boolean;
   terminalFontSize: number;
   /** Servers running from the active session's folder, read when the palette opened. */
   localServers: LocalServer[];
@@ -219,6 +222,19 @@ export function buildActionItems(ctx: PaletteContext): ActionPaletteItem[] {
     shortcutHint: isMac ? '⌘\\' : 'Ctrl+\\',
     run: () => useNavigationStore.getState().toggleSidebar(),
   });
+
+  // The side panel only exists beside a session.
+  if (activeSession) {
+    items.push({
+      kind: 'action',
+      section: 'actions',
+      id: 'action.view.toggle-side-panel',
+      label: ctx.isSidePanelVisible ? 'Hide side panel' : 'Show side panel',
+      icon: PanelRight,
+      shortcutHint: SIDE_PANEL_SHORTCUT_LABEL,
+      run: () => useSidePanelStore.getState().toggleVisible(),
+    });
+  }
 
   // The browser only exists inside a session's content view.
   if (activeSession) {

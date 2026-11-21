@@ -36,6 +36,7 @@ import {
   kindOnScreen,
   openDiffInFilesTab,
   pressShortcutOnScreen,
+  toggleSidePanelOnScreen,
 } from './sidePanelActions';
 
 const workspace = createWorkspaceRecord('catalog-portal', '/repos/catalog-portal', true);
@@ -128,6 +129,23 @@ describe('pressShortcutOnScreen', () => {
     show({ removed: true });
     expect(pressShortcutOnScreen('files')).toBe(true);
     expect(layout().visible).toBe(false);
+  });
+});
+
+describe('toggleSidePanelOnScreen', () => {
+  it('shows and hides the side panel beside the session on screen', () => {
+    show();
+    expect(toggleSidePanelOnScreen()).toBe(true);
+    expect(layout().visible).toBe(true);
+    expect(toggleSidePanelOnScreen()).toBe(true);
+    expect(layout().visible).toBe(false);
+  });
+
+  it('does nothing without a session on screen or under an overlay', () => {
+    expect(toggleSidePanelOnScreen()).toBe(false);
+    show({ overlay: 'inbox' });
+    expect(toggleSidePanelOnScreen()).toBe(false);
+    expect(layout()).toEqual(useSidePanelStore.getInitialState().layout);
   });
 });
 

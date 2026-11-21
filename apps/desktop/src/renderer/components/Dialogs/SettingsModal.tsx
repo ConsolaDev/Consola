@@ -1,6 +1,7 @@
 import { useId, type ReactNode } from 'react';
 import { AppUpdatesSection } from '../AppUpdates';
 import { SHELL_SHORTCUT_LABEL } from '../../utils/shellShortcut';
+import { SIDE_PANEL_SHORTCUT_LABEL } from '../../utils/sidePanelShortcut';
 import * as Dialog from '@radix-ui/react-dialog';
 import {
   X,
@@ -399,6 +400,7 @@ function ShortcutsSection() {
     { label: 'Files tab', key: `${mod}${shift}E` },
     { label: 'Toggle browser', key: BROWSER_SHORTCUT_LABEL },
     { label: 'Toggle terminal', key: SHELL_SHORTCUT_LABEL },
+    { label: 'Show or hide the side panel', key: SIDE_PANEL_SHORTCUT_LABEL },
     { label: 'Open settings', key: `${mod},` },
     { label: 'Cycle theme', key: `${mod}${shift}T` },
     { label: 'Rename session', key: 'F2' },

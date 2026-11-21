@@ -11,6 +11,7 @@ import { useGitStatusStore } from '../../stores/gitStatusStore';
 import { isSelectableHarness, useHarnessStore } from '../../stores/harnessStore';
 import { useNavigationStore } from '../../stores/navigationStore';
 import { useSettingsStore } from '../../stores/settingsStore';
+import { useSidePanelStore } from '../../stores/sidePanelStore';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { useSettings } from '../../contexts/SettingsContext';
@@ -89,6 +90,7 @@ export function usePaletteContext(open: boolean): PaletteContext {
   const gitStatusRootPath = useGitStatusStore((state) => state.rootPath);
   const commitMessage = useGitReviewStore((state) => state.commitMessage);
   const terminalFontSize = useSettingsStore((state) => state.terminalFontSize);
+  const isSidePanelVisible = useSidePanelStore((state) => state.layout.visible);
   const { openSettings } = useSettings();
   const localServers = useLocalServers(open, activeSessionId ?? undefined);
 
@@ -165,6 +167,7 @@ export function usePaletteContext(open: boolean): PaletteContext {
       stagedCount,
       commitMessage,
       tabKinds,
+      isSidePanelVisible,
       terminalFontSize,
       localServers,
       openSettings,
@@ -182,6 +185,7 @@ export function usePaletteContext(open: boolean): PaletteContext {
       stagedCount,
       commitMessage,
       tabKinds,
+      isSidePanelVisible,
       terminalFontSize,
       localServers,
       openSettings,

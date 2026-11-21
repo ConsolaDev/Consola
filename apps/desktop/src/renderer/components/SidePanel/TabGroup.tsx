@@ -1,8 +1,15 @@
 import { useCallback } from 'react';
 import * as Tabs from '@radix-ui/react-tabs';
-import type { GroupId, GroupPosition, TabGroupNode, TabId } from '../../sidePanel/layout';
+import {
+  type GroupId,
+  type GroupPosition,
+  NEW_TAB,
+  type TabGroupNode,
+  type TabId,
+} from '../../sidePanel/layout';
 import { bodyFor, tabKind, type TabFacts } from '../../sidePanel/tabKinds';
 import { useSidePanelStore } from '../../stores/sidePanelStore';
+import { NewTabList } from './NewTabList';
 import { TabBar } from './TabBar';
 import { TAB_VIEWS } from './tabViews';
 
@@ -56,7 +63,8 @@ export function TabGroup({ group, position, facts, canMaximize, isMaximized }: T
  * What one tab renders, as `bodyFor` decides. A view behind another tab stays
  * mounted but hidden, and is keyed by the session, so it follows the session
  * on screen rather than carrying one session's state into the next. A tab id
- * the registry does not list renders nothing.
+ * the registry does not list renders nothing. The placeholder is not a kind:
+ * it shows the "+" list while it is in front, and nothing behind.
  */
 function TabSlot({
   groupId,
@@ -71,6 +79,17 @@ function TabSlot({
 }) {
   const closeTab = useSidePanelStore((state) => state.closeTab);
   const close = useCallback(() => closeTab(groupId, tab), [closeTab, groupId, tab]);
+
+  if (tab === NEW_TAB) {
+    if (!inFront) return null;
+    // The list inside is the one stop for the keyboard, not this panel too.
+    return (
+      <Tabs.Content value={tab} tabIndex={-1} className="side-panel-tab-content">
+        <NewTabList groupId={groupId} facts={facts} />
+      </Tabs.Content>
+    );
+  }
+
   const kind = tabKind(tab);
   if (!kind) return null;
 

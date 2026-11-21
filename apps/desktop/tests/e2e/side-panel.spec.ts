@@ -101,6 +101,17 @@ test.describe('side panel', () => {
   const filesTab = () => page.getByRole('tab', { name: 'Files', exact: true });
   const filesChord = process.platform === 'darwin' ? 'Meta+Shift+KeyE' : 'Control+Shift+KeyE';
   const filesScopeChord = process.platform === 'darwin' ? 'Meta+Shift+KeyO' : 'Control+Shift+KeyO';
+  const sidePanelChord = process.platform === 'darwin' ? 'Meta+Alt+KeyB' : 'Control+Alt+KeyB';
+  const conversation = () =>
+    page.locator('[data-conversation-terminal] .terminal-surface textarea');
+  const sidePanelToggle = () => page.getByRole('button', { name: /^(Show|Hide) side panel$/ });
+  // The browser has a `New tab` button and tabs of its own, so these are
+  // found inside the side panel's tab bar.
+  const sidePanelTabs = () => page.getByRole('tablist', { name: 'Side panel tabs' });
+  const sidePanelTab = (name: string) => sidePanelTabs().getByRole('tab', { name, exact: true });
+  const plusButton = () =>
+    page.locator('.side-panel-tab-bar').getByRole('button', { name: 'New tab', exact: true });
+  const newTabList = () => page.getByRole('listbox', { name: 'Open in this tab' });
 
   test('the Changes shortcut opens its tab and hides the side panel when pressed again', async () => {
     await openSession('Paginate the catalog search');
@@ -195,5 +206,102 @@ test.describe('side panel', () => {
 
     await expect(filesTab()).toHaveAttribute('aria-selected', 'true');
     await expect(page.locator('.preview-tab-bar')).toContainText('search.ts');
+  });
+  test('showing an empty side panel shows the list of tabs', async () => {
+    await openSession('Paginate the catalog search');
+    // Last in the header, after the folder's own toggles.
+    await expect(page.locator('.workspace-view-header button').last()).toHaveAccessibleName(
+      'Show side panel',
+    );
+    await sidePanelToggle().click();
+
+    await expect(sidePanelTab('New tab')).toHaveAttribute('aria-selected', 'true');
+    await expect(newTabList()).toBeFocused();
+    await expect(page.getByRole('heading', { name: 'Open in this tab' })).toBeVisible();
+    await expect(sidePanelToggle()).toHaveAccessibleName('Hide side panel');
+    await expect(sidePanelToggle()).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  test('the list opens a kind by mouse and by key', async () => {
+    await openSession('Paginate the catalog search');
+    await sidePanelToggle().click();
+
+    // A click turns the placeholder into the kind, in place.
+    await newTabList().getByRole('option', { name: 'Files' }).click();
+    await expect(sidePanelTab('Files')).toHaveAttribute('aria-selected', 'true');
+    await expect(sidePanelTab('New tab')).toHaveCount(0);
+
+    // A letter chooses its kind. A chord with it does not.
+    await plusButton().click();
+    await expect(newTabList()).toBeFocused();
+    await page.keyboard.press('Control+KeyD');
+    await expect(sidePanelTab('New tab')).toHaveAttribute('aria-selected', 'true');
+    await page.keyboard.press('d');
+    await expect(sidePanelTab('Changes')).toHaveAttribute('aria-selected', 'true');
+    await expect(sidePanelTab('New tab')).toHaveCount(0);
+
+    // The first available row is highlighted; the arrows move among them.
+    await plusButton().click();
+    await expect(newTabList().getByRole('option', { name: 'Changes' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    await page.keyboard.press('ArrowDown');
+    await expect(newTabList().getByRole('option', { name: 'Files' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    await page.keyboard.press('Enter');
+    // Files is open already: it comes to the front where it is.
+    await expect(sidePanelTab('Files')).toHaveAttribute('aria-selected', 'true');
+    await expect(sidePanelTab('New tab')).toHaveCount(0);
+    await expect(sidePanelTabs().getByRole('tab')).toHaveCount(2);
+
+    // Escape takes the placeholder away and fronts the tab before it.
+    await plusButton().click();
+    await expect(newTabList()).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(sidePanelTab('New tab')).toHaveCount(0);
+    await expect(sidePanelTab('Changes')).toHaveAttribute('aria-selected', 'true');
+  });
+
+  test('a kind that does not apply is dimmed and says why', async () => {
+    await openSession('Paginate the catalog search');
+    await changesShortcut().click();
+    await plusButton().click();
+
+    const pullRequest = newTabList().getByRole('option', { name: 'Pull request' });
+    await expect(pullRequest).toHaveAttribute('aria-disabled', 'true');
+    await expect(pullRequest).toContainText(
+      'This session is not linked to a pull request or issue.',
+    );
+
+    await expect(newTabList()).toBeFocused();
+    await page.keyboard.press('p');
+    await expect(sidePanelTab('New tab')).toHaveAttribute('aria-selected', 'true');
+    await expect(newTabList()).toBeVisible();
+  });
+
+  test('⌥⌘B toggles the side panel from the conversation', async () => {
+    await openSession('Paginate the catalog search');
+    await conversation().focus();
+    await page.keyboard.press(sidePanelChord);
+    await expect(page.getByTestId('side-panel')).toBeVisible();
+    await expect(sidePanelToggle()).toHaveAttribute('aria-pressed', 'true');
+
+    await conversation().focus();
+    await page.keyboard.press(sidePanelChord);
+    await expect(page.getByTestId('side-panel')).toHaveCount(0);
+    await expect(sidePanelToggle()).toHaveAttribute('aria-pressed', 'false');
+
+    // From a shell, and from the list itself, whose letters never take a chord.
+    await conversation().focus();
+    await page.keyboard.press('Control+Backquote');
+    const shell = page.getByTestId('session-shell').locator('textarea');
+    await expect(shell).toBeFocused();
+    await page.keyboard.press(sidePanelChord);
+    await expect(newTabList()).toBeFocused();
+    await page.keyboard.press(sidePanelChord);
+    await expect(page.getByTestId('side-panel')).toHaveCount(0);
   });
 });

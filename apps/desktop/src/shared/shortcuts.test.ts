@@ -7,9 +7,11 @@ import {
   isCommandPaletteShortcut,
   isShellShortcut,
   isSidebarShortcut,
+  isSidePanelShortcut,
   matchBrowserFocusedShortcut,
   matchScopeShortcut,
   matchWorkspaceShortcut,
+  SIDE_PANEL_SHORTCUT_LABELS,
   type KeyChord,
 } from './shortcuts';
 
@@ -105,6 +107,44 @@ describe('browser toggle chord', () => {
   });
 });
 
+describe('side panel chord', () => {
+  // Option turns B into ∫ on a Mac, so the chord is matched on the physical key.
+  const mac = (mods: Partial<KeyChord> = {}) => cmd('∫', { alt: true, code: 'KeyB', ...mods });
+  const other = (mods: Partial<KeyChord> = {}) => ctrl('b', { alt: true, code: 'KeyB', ...mods });
+
+  it('is Option+Cmd+B on macOS and Ctrl+Alt+B elsewhere', () => {
+    expect(isSidePanelShortcut(mac(), 'mac')).toBe(true);
+    expect(isSidePanelShortcut(other(), 'other')).toBe(true);
+  });
+
+  it('is not with Shift, which is the Working shelf’s', () => {
+    expect(isSidePanelShortcut(mac({ shift: true }), 'mac')).toBe(false);
+    expect(isSidePanelShortcut(other({ shift: true }), 'other')).toBe(false);
+  });
+
+  it('is not another key', () => {
+    expect(isSidePanelShortcut(mac({ code: 'KeyN' }), 'mac')).toBe(false);
+    expect(isSidePanelShortcut(other({ code: 'KeyN' }), 'other')).toBe(false);
+  });
+
+  it('is not the other platform’s chord, nor both modifiers at once', () => {
+    expect(isSidePanelShortcut(other(), 'mac')).toBe(false);
+    expect(isSidePanelShortcut(mac(), 'other')).toBe(false);
+    expect(isSidePanelShortcut(mac({ ctrl: true }), 'mac')).toBe(false);
+    expect(isSidePanelShortcut(other({ meta: true }), 'other')).toBe(false);
+  });
+
+  it('needs Alt', () => {
+    expect(isSidePanelShortcut(cmd('b', { code: 'KeyB' }), 'mac')).toBe(false);
+    expect(isSidePanelShortcut(ctrl('b', { code: 'KeyB' }), 'other')).toBe(false);
+  });
+
+  it('is labelled for each platform', () => {
+    expect(SIDE_PANEL_SHORTCUT_LABELS.mac).toBe('⌥⌘B');
+    expect(SIDE_PANEL_SHORTCUT_LABELS.other).toBe('Ctrl+Alt+B');
+  });
+});
+
 describe('close chord', () => {
   it('is Cmd+W on macOS', () => {
     expect(isCloseShortcut(cmd('w'), 'mac')).toBe(true);
@@ -163,6 +203,12 @@ describe('forwardedShortcutFor', () => {
     expect(forwardedShortcutFor(cmd('\\'), 'mac')).toEqual({ kind: 'sidebar' });
     expect(forwardedShortcutFor(ctrl('`'), 'other')).toEqual({ kind: 'terminal' });
     expect(forwardedShortcutFor(ctrl('L', { shift: true }), 'other')).toEqual({ kind: 'browser' });
+    expect(forwardedShortcutFor(cmd('∫', { alt: true, code: 'KeyB' }), 'mac')).toEqual({
+      kind: 'side-panel',
+    });
+    expect(forwardedShortcutFor(ctrl('b', { alt: true, code: 'KeyB' }), 'other')).toEqual({
+      kind: 'side-panel',
+    });
   });
 
   it('forwards the browser chords as their action', () => {

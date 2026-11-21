@@ -16,6 +16,7 @@ import { SessionNameEditor } from '../SessionName/SessionNameEditor';
 import { useTabFacts } from '../SidePanel/useTabFacts';
 import { PathDisplay } from './PathDisplay';
 import { ShortcutButton } from './ShortcutButton';
+import { SidePanelToggle } from './SidePanelToggle';
 import { CheckoutChip } from './CheckoutChip';
 import { SnoozeChip } from '../Snooze/SnoozeChip';
 import './styles.css';
@@ -93,6 +94,8 @@ export function SessionHeader({ workspace, session }: { workspace: Workspace; se
           <ShortcutButton kind="files" facts={facts} />
         </PathDisplay>
       )}
+      {/* Outside PathDisplay, which needs a checkout: the side panel does not. */}
+      <SidePanelToggle />
     </div>
   );
 }

@@ -1,7 +1,7 @@
-import type { KeyboardEvent, ReactNode } from 'react';
+import type { KeyboardEvent, MouseEvent, ReactNode } from 'react';
 import * as Tabs from '@radix-ui/react-tabs';
 import * as Tooltip from '@radix-ui/react-tooltip';
-import { Maximize2, Minimize2, X } from 'lucide-react';
+import { Maximize2, Minimize2, Plus, X } from 'lucide-react';
 import { NEW_TAB, type GroupPosition, type TabGroupNode, type TabId } from '../../sidePanel/layout';
 import { tabKind, type TabFacts } from '../../sidePanel/tabKinds';
 import { useSidePanelStore } from '../../stores/sidePanelStore';
@@ -25,25 +25,39 @@ interface TabBarProps {
   isMaximized: boolean;
 }
 
-/** A group's tabs, then the controls for the group as a whole. */
+/** A group's tabs and its "+", then the controls for the group as a whole. */
 export function TabBar({ group, position, facts, canMaximize, isMaximized }: TabBarProps) {
   const toggleMaximize = useSidePanelStore((state) => state.toggleMaximize);
   const closeGroup = useSidePanelStore((state) => state.closeGroup);
+  const addPlaceholder = useSidePanelStore((state) => state.addPlaceholder);
+
+  // A fresh list takes the keyboard itself. One already in front does not
+  // appear again, so it is handed the keyboard here.
+  const openNewTab = (event: MouseEvent<HTMLButtonElement>) => {
+    const groupElement = event.currentTarget.closest('.side-panel-group');
+    addPlaceholder(group.id);
+    requestAnimationFrame(() =>
+      groupElement?.querySelector<HTMLElement>('[role="listbox"]')?.focus(),
+    );
+  };
 
   return (
-    <div className="side-panel-tab-bar">
-      <Tabs.List className="side-panel-tab-list" aria-label={TAB_LIST_NAMES[position]}>
-        {group.tabs.map((tab) => (
-          <TabBarTab
-            key={tab}
-            groupId={group.id}
-            tab={tab}
-            inFront={tab === group.active}
-            facts={facts}
-          />
-        ))}
-      </Tabs.List>
-      <Tooltip.Provider delayDuration={300}>
+    <Tooltip.Provider delayDuration={300}>
+      <div className="side-panel-tab-bar">
+        <Tabs.List className="side-panel-tab-list" aria-label={TAB_LIST_NAMES[position]}>
+          {group.tabs.map((tab) => (
+            <TabBarTab
+              key={tab}
+              groupId={group.id}
+              tab={tab}
+              inFront={tab === group.active}
+              facts={facts}
+            />
+          ))}
+        </Tabs.List>
+        <BarButton label="New tab" onClick={openNewTab}>
+          <Plus size={14} />
+        </BarButton>
         <div className="side-panel-group-controls">
           {canMaximize && (
             <BarButton
@@ -57,8 +71,8 @@ export function TabBar({ group, position, facts, canMaximize, isMaximized }: Tab
             <X size={14} />
           </BarButton>
         </div>
-      </Tooltip.Provider>
-    </div>
+      </div>
+    </Tooltip.Provider>
   );
 }
 
@@ -129,7 +143,7 @@ function BarButton({
   children,
 }: {
   label: string;
-  onClick: () => void;
+  onClick: (event: MouseEvent<HTMLButtonElement>) => void;
   children: ReactNode;
 }) {
   return (

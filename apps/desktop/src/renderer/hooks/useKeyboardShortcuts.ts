@@ -9,7 +9,12 @@ import { useBrowserSlotStore } from '../stores/browserSlotStore';
 import { useBrowserStore } from '../stores/browserStore';
 import { requestBrowserPanelFocus } from '../stores/browserPanelFocusStore';
 import { closeTarget, isCloseShortcut, type KeyboardPlace } from '../utils/closeShortcut';
-import { kindOnScreen, pressShortcutOnScreen } from '../utils/sidePanelActions';
+import {
+  kindOnScreen,
+  pressShortcutOnScreen,
+  toggleSidePanelOnScreen,
+} from '../utils/sidePanelActions';
+import { isSidePanelShortcut } from '../utils/sidePanelShortcut';
 import {
   isBrowserShortcut,
   isCommandPaletteShortcut,
@@ -110,6 +115,13 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
         return;
       }
 
+      // Shows or hides the side panel beside the session on screen.
+      if (isSidePanelShortcut(event)) {
+        event.preventDefault();
+        if (!event.repeat) toggleSidePanelOnScreen();
+        return;
+      }
+
       if (isShellShortcut(event)) {
         if (toggleOpenSessionShell(event.repeat)) event.preventDefault();
         return;
@@ -196,6 +208,9 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
           return;
         case 'browser':
           toggleBrowser();
+          return;
+        case 'side-panel':
+          toggleSidePanelOnScreen();
           return;
         // Main sends a held ⌘W once, so this is one press.
         case 'close':

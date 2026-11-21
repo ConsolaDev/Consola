@@ -50,6 +50,17 @@ export function pressShortcutOnScreen(kind: TabKindId): boolean {
 }
 
 /**
+ * What the header's side panel toggle does, for its chord: shows or hides
+ * the side panel. Does nothing, and answers false, with no session on screen,
+ * the Inbox or Automations included, since there is no side panel there.
+ */
+export function toggleSidePanelOnScreen(): boolean {
+  if (!currentTabFacts()) return false;
+  useSidePanelStore.getState().toggleVisible();
+  return true;
+}
+
+/**
  * Whether the kind's view is on screen: a session is showing, the kind is in
  * front in a group on screen, and it applies to that session. A kind in front
  * that does not apply shows only why, with its view unmounted.
