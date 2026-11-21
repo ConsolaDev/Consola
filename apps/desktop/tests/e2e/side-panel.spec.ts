@@ -944,4 +944,51 @@ test.describe('side panel', () => {
     await page.keyboard.press('Escape');
     expect(await heard()).toEqual(['Escape']);
   });
+
+  test('Escape is held only while a drag lasts, even one that ends before it begins', async () => {
+    await openSession('Paginate the catalog search');
+    await changesShortcut().click();
+    await page.getByRole('button', { name: 'Files', exact: true }).click();
+    await conversation().evaluate((element) => {
+      const heard: string[] = [];
+      (window as unknown as { __heard: string[] }).__heard = heard;
+      element.addEventListener('keydown', (event) => heard.push(event.key), true);
+    });
+    const heard = () =>
+      page.evaluate(() => (window as unknown as { __heard: string[] }).__heard.splice(0));
+    await conversation().focus();
+
+    // A press, a move past the 6px that starts a drag, and the release, all
+    // in one task: the drag ends before dnd-kit has rendered its start, and
+    // so with neither its end nor its cancel.
+    await sidePanelTab('Files').evaluate((trigger) => {
+      const box = trigger.getBoundingClientRect();
+      const at = { clientX: box.left + box.width / 2, clientY: box.top + box.height / 2 };
+      const send = (target: EventTarget, type: string, dx: number) =>
+        target.dispatchEvent(
+          new MouseEvent(type, { bubbles: true, button: 0, ...at, clientX: at.clientX + dx }),
+        );
+      send(trigger, 'mousedown', 0);
+      send(document, 'mousemove', 10);
+      send(document, 'mouseup', 10);
+    });
+    await expect(conversation()).toBeFocused();
+    await page.keyboard.press('Escape');
+    expect(await heard()).toEqual(['Escape']);
+    await expect(sidePanelTabs().getByRole('tab')).toHaveText(['Changes', 'Files']);
+
+    // A drag that does begin holds Escape until it is over, and no longer.
+    const area = (await page.locator('.side-panel-group-body').boundingBox())!;
+    await dragTab(page.getByRole('button', { name: 'Close Files tab', exact: true }), {
+      x: area.x + area.width / 2,
+      y: area.y + area.height * 0.9,
+    });
+    await expect(page.locator('.side-panel-drop-target')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.side-panel-drop-target')).toHaveCount(0);
+    await page.mouse.up();
+    expect(await heard()).toEqual([]);
+    await page.keyboard.press('Escape');
+    expect(await heard()).toEqual(['Escape']);
+  });
 });

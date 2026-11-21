@@ -8,6 +8,7 @@ import {
   DragOverlay,
   MouseSensor,
   pointerWithin,
+  useDndContext,
   useSensor,
   useSensors,
 } from '@dnd-kit/core';
@@ -48,14 +49,6 @@ export function SidePanel({ facts }: { facts: TabFacts }) {
   // Where the keyboard was before the press that began a drag: the press
   // itself moves it onto the tab.
   const keyboardBefore = useRef<Element | null>(null);
-  // Ends Escape's hold on the drag under way.
-  const releaseEscape = useRef<(() => void) | null>(null);
-  const endDrag = () => {
-    releaseEscape.current?.();
-    releaseEscape.current = null;
-  };
-  // A panel that goes mid-drag lets go of Escape too.
-  useEffect(() => () => releaseEscape.current?.(), []);
 
   /**
    * A drag is the pointer's, so the keyboard goes back to where it was before
@@ -75,7 +68,6 @@ export function SidePanel({ facts }: { facts: TabFacts }) {
   };
 
   const drop = ({ active, over, activatorEvent, delta }: DragEndEvent) => {
-    endDrag();
     const dragged = active.data.current as DraggedTab | undefined;
     if (!dragged) return;
     const zone = over?.data.current as DropZone | undefined;
@@ -120,12 +112,8 @@ export function SidePanel({ facts }: { facts: TabFacts }) {
         // a scroll during the drag would move.
         autoScroll={false}
         accessibility={{ announcements }}
-        onDragStart={() => {
-          releaseEscape.current = escapeCancelsDrag();
-        }}
         onDragEnd={drop}
         onDragCancel={({ active }) => {
-          endDrag();
           const dragged = active.data.current as DraggedTab | undefined;
           if (dragged) giveKeyboardBack(dragged.tab);
         }}
@@ -152,6 +140,7 @@ export function SidePanel({ facts }: { facts: TabFacts }) {
             </Fragment>
           ))}
         </Group>
+        <KeyboardWhileDragging />
         {createPortal(
           <DragOverlay dropAnimation={null}>
             <DraggedTabPreview facts={facts} />
@@ -164,14 +153,39 @@ export function SidePanel({ facts }: { facts: TabFacts }) {
 }
 
 /**
+ * What a drag does to the keyboard while dnd-kit has it under way, read from
+ * dnd-kit's rendered state rather than its callbacks. A drag released before
+ * dnd-kit renders its start (a flick, or a click that slipped past the 6px)
+ * ends with neither `onDragEnd` nor `onDragCancel`, but it never shows as
+ * under way here either, so nothing is held for it, and the press leaves the
+ * keyboard where a click would.
+ *
+ * - A page with the keyboard keeps its own keys, which never reach this
+ *   window, so Escape typed there could not cancel the drag. A drag begun
+ *   from a ✕, whose press leaves the keyboard where it was, takes it from a
+ *   page to the dragged tab, as a press on the tab itself does; the drag
+ *   gives it back when it is over (`giveKeyboardBack`).
+ * - Escape cancels the drag, and nothing else hears it (`escapeCancelsDrag`).
+ */
+function KeyboardWhileDragging() {
+  const { active } = useDndContext();
+  const tab = (active?.data.current as DraggedTab | undefined)?.tab;
+  useEffect(() => {
+    if (tab === undefined) return undefined;
+    const focused = document.activeElement;
+    if (focused?.tagName === 'WEBVIEW' || focused?.closest('.browser-host')) focusTrigger(tab);
+    return escapeCancelsDrag();
+  }, [tab]);
+  return null;
+}
+
+/**
  * While a tab is dragged, Escape cancels the drag and reaches nothing else,
  * wherever the keyboard is: not the conversation's terminal, where it would
  * interrupt Claude, nor a shell, nor anything else in the window. It is taken
  * on the window's capture, ahead of them all, and the drag is cancelled with
  * dnd-kit's own key, sent to the document alone, where its sensor listens and
- * no element does. The held key's repeats stop there too. A page with the
- * keyboard keeps its own keys, which never reach this window, so an Escape
- * typed there is the page's, and the drag lasts until the button is let go.
+ * no element does. The held key's repeats stop there too.
  *
  * Returns what ends the hold, for when the drag is over.
  */

@@ -563,6 +563,43 @@ test.describe('in-app browser', () => {
     await expect.poll(presence).toBe('shown');
     await untouched();
   });
+
+  test('a drag begun from a ✕ takes the keyboard out of a page while it lasts, then gives it back', async () => {
+    await openSession(page, 'Alpha');
+    await page.getByRole('button', { name: 'Files', exact: true }).click();
+    await showBrowser(page);
+    await typeAddress(page, `${fixtures.host}/a.html`);
+    await expect.poll(() => guestUrls(app)).toEqual([fixtures.url('/a.html')]);
+    // The keyboard into the page, by a click in it.
+    const slot = (await page.getByTestId('browser-slot').boundingBox())!;
+    await page.mouse.click(slot.x + slot.width / 2, slot.y + slot.height / 2);
+    const inPage = () => page.evaluate(() => document.activeElement?.tagName === 'WEBVIEW');
+    await expect.poll(inPage).toBe(true);
+
+    // A press on a ✕ leaves the keyboard where it is, and a page keeps the
+    // keys it has, Escape among them: the drag takes it to the tab instead.
+    const files = page
+      .getByRole('tablist', { name: 'Side panel tabs', exact: true })
+      .getByRole('tab', { name: 'Files', exact: true });
+    const close = (await page
+      .getByRole('button', { name: 'Close Files tab', exact: true })
+      .boundingBox())!;
+    await page.mouse.move(close.x + close.width / 2, close.y + close.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(slot.x + slot.width / 2, slot.y + slot.height / 2, { steps: 10 });
+    const dragged = page.locator('.side-panel-tab[data-dragging]');
+    await expect(dragged).toHaveCount(1);
+    await expect(files).toBeFocused();
+
+    // Escape, there, cancels the drag; the keyboard goes back to the page.
+    await page.keyboard.press('Escape');
+    await expect(dragged).toHaveCount(0);
+    await page.mouse.up();
+    await expect.poll(inPage).toBe(true);
+    await expect(
+      page.getByRole('tablist', { name: 'Side panel tabs', exact: true }).getByRole('tab'),
+    ).toHaveText(['Files', 'Browser']);
+  });
 });
 
 test('tabs and the address come back after a relaunch', async () => {
