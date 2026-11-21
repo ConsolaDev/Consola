@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  closeTab,
   defaultLayout,
+  groupsOf,
+  isInFront,
   type LayoutNode,
   NEW_TAB,
   openKind,
@@ -9,6 +12,10 @@ import {
   setVisible,
 } from './layout';
 import { repairLayout } from './repairLayout';
+
+/** How many tabs the layout holds, placeholders included. */
+const tabCount = (layout: SidePanelLayout) =>
+  groupsOf(layout).reduce((count, each) => count + each.tabs.length, 0);
 
 const known = ['changes', 'files', 'terminal'];
 
@@ -39,21 +46,52 @@ const malformed: unknown[] = [
   { version: 1, root: null, lastGroupOf: [] },
 ];
 
+// Stored layouts the cases below repair, each into something other than
+// the default: what the layout module must then be able to act on.
+const wellFormed = shown(
+  split(
+    'stacked',
+    group('g1', ['changes', NEW_TAB], NEW_TAB),
+    group('g2', ['files', 'terminal'], 'terminal'),
+  ),
+  { maximized: 'g2', lastGroupOf: { changes: 'g2' } },
+);
+const overfull = shown(
+  split(
+    'stacked',
+    split('side-by-side', group('g1', ['changes']), group('g2', ['files'])),
+    group('g3', ['terminal']),
+  ),
+);
+const repeats = shown(
+  split(
+    'side-by-side',
+    group('g1', ['changes', NEW_TAB, 'changes', NEW_TAB, 'files']),
+    group('g2', [NEW_TAB, 'files', 'terminal', NEW_TAB], 'files'),
+  ),
+);
+const unnamed = shown(
+  split(
+    'stacked',
+    { type: 'group', tabs: ['changes'], active: 'changes' } as unknown as LayoutNode,
+    group('g1', ['files']),
+  ),
+);
+const sameNames = shown(split('stacked', group('g1', ['changes']), group('g1', ['files'])));
+const maximizedGone = shown(split('stacked', group('g1', ['changes']), group('g2', ['files'])), {
+  maximized: 'g3',
+});
+const maximizedAlone = shown(split('stacked', group('g1', ['changes']), group('g2', ['browser'])), {
+  maximized: 'g1',
+});
+
 describe('repairLayout', () => {
   it('answers the default for anything unusable', () => {
     for (const raw of unusable) expect(repairLayout(raw, known)).toEqual(defaultLayout());
   });
 
   it('keeps a well-formed split as it is', () => {
-    const stored = shown(
-      split(
-        'stacked',
-        group('g1', ['changes', NEW_TAB], NEW_TAB),
-        group('g2', ['files', 'terminal'], 'terminal'),
-      ),
-      { maximized: 'g2', lastGroupOf: { changes: 'g2' } },
-    );
-    expect(repairLayout(stored, known)).toEqual(stored);
+    expect(repairLayout(wellFormed, known)).toEqual(wellFormed);
     const lone = { ...shown(group('g1', ['files'])), visible: false };
     expect(repairLayout(lone, known)).toEqual(lone);
   });
@@ -64,14 +102,7 @@ describe('repairLayout', () => {
   });
 
   it('keeps one tab per kind and one placeholder per group', () => {
-    const stored = shown(
-      split(
-        'side-by-side',
-        group('g1', ['changes', NEW_TAB, 'changes', NEW_TAB, 'files']),
-        group('g2', [NEW_TAB, 'files', 'terminal', NEW_TAB], 'files'),
-      ),
-    );
-    expect(repairLayout(stored, known)).toEqual(
+    expect(repairLayout(repeats, known)).toEqual(
       shown(
         split(
           'side-by-side',
@@ -90,19 +121,12 @@ describe('repairLayout', () => {
   });
 
   it('keeps at most two groups', () => {
-    const stored = shown(
-      split(
-        'stacked',
-        split('side-by-side', group('g1', ['changes']), group('g2', ['files'])),
-        group('g3', ['terminal']),
-      ),
-    );
-    expect(repairLayout(stored, known)).toEqual(
+    expect(repairLayout(overfull, known)).toEqual(
       shown(split('stacked', group('g1', ['changes']), group('g2', ['files']))),
     );
 
     const unoriented = {
-      ...stored,
+      ...overfull,
       root: {
         type: 'split',
         children: [group('g1', ['changes']), group('g2', ['files']), group('g3', ['terminal'])],
@@ -114,15 +138,8 @@ describe('repairLayout', () => {
   });
 
   it('clears a maximized group that is gone, or that has no partner', () => {
-    const gone = shown(split('stacked', group('g1', ['changes']), group('g2', ['files'])), {
-      maximized: 'g3',
-    });
-    expect(repairLayout(gone, known)).toEqual({ ...gone, maximized: null });
-
-    const alone = shown(split('stacked', group('g1', ['changes']), group('g2', ['browser'])), {
-      maximized: 'g1',
-    });
-    expect(repairLayout(alone, known)).toEqual(shown(group('g1', ['changes'])));
+    expect(repairLayout(maximizedGone, known)).toEqual({ ...maximizedGone, maximized: null });
+    expect(repairLayout(maximizedAlone, known)).toEqual(shown(group('g1', ['changes'])));
   });
 
   it('hides a panel left with nothing in it', () => {
@@ -139,19 +156,10 @@ describe('repairLayout', () => {
   });
 
   it('renames missing or repeated group ids', () => {
-    const missing = shown(
-      split(
-        'stacked',
-        { type: 'group', tabs: ['changes'], active: 'changes' } as unknown as LayoutNode,
-        group('g1', ['files']),
-      ),
-    );
-    expect(repairLayout(missing, known)).toEqual(
+    expect(repairLayout(unnamed, known)).toEqual(
       shown(split('stacked', group('g2', ['changes']), group('g1', ['files']))),
     );
-
-    const repeated = shown(split('stacked', group('g1', ['changes']), group('g1', ['files'])));
-    expect(repairLayout(repeated, known)).toEqual(
+    expect(repairLayout(sameNames, known)).toEqual(
       shown(split('stacked', group('g1', ['changes']), group('g2', ['files']))),
     );
   });
@@ -202,10 +210,37 @@ describe('repairLayout', () => {
   });
 
   it('answers a layout the layout module can act on', () => {
-    for (const raw of [...unusable, ...malformed]) {
+    const repairedToDefault = [...unusable, ...malformed];
+    const repairedOtherwise = [
+      wellFormed,
+      overfull,
+      repeats,
+      unnamed,
+      sameNames,
+      maximizedGone,
+      maximizedAlone,
+    ];
+    for (const raw of [...repairedToDefault, ...repairedOtherwise]) {
       const repaired = repairLayout(raw, known);
-      expect(() => openKind(repaired, 'changes')).not.toThrow();
       expect(() => setVisible(repaired, true)).not.toThrow();
+      // Every kind opens, in front on screen, maximized groups included.
+      for (const kind of known) {
+        const opened = openKind(repaired, kind);
+        expect(isInFront(opened, kind), kind).toBe(true);
+        expect(opened.visible).toBe(true);
+      }
+      // Every tab closes, one at a time, until the panel hides with the last.
+      let layout = repaired;
+      for (let left = tabCount(layout); left > 0; left -= 1) {
+        const [first] = groupsOf(layout);
+        layout = closeTab(layout, first.id, first.tabs[0]);
+        expect(tabCount(layout)).toBe(left - 1);
+      }
+      expect(layout.visible).toBe(false);
+    }
+    // Not all of them repair to the default, or this shows little.
+    for (const raw of repairedOtherwise) {
+      expect(repairLayout(raw, known)).not.toEqual(defaultLayout());
     }
   });
 });
