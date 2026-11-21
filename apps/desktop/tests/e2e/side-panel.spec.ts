@@ -556,6 +556,17 @@ test.describe('side panel', () => {
     const toggleBox = (await sidePanelToggle().boundingBox())!;
     expect(separatorBox.x).toBeGreaterThanOrEqual(lastShortcut.x + lastShortcut.width);
     expect(separatorBox.x + separatorBox.width).toBeLessThanOrEqual(toggleBox.x);
+    // Drawn in the stronger border colour, which still shows in dark, where
+    // the plain one is a tenth of white.
+    const drawn = await separator.evaluate((element) => {
+      const probe = document.createElement('span');
+      probe.style.backgroundColor = 'var(--color-border-hover)';
+      element.after(probe);
+      const want = getComputedStyle(probe).backgroundColor;
+      probe.remove();
+      return { color: getComputedStyle(element).backgroundColor, want };
+    });
+    expect(drawn.color).toBe(drawn.want);
     // Each says its chord, as main's header toggles did.
     await expect(controls.getByRole('button', { name: 'Files', exact: true })).toHaveAttribute(
       'aria-keyshortcuts',
@@ -1340,6 +1351,13 @@ test.describe('side panel', () => {
     // has moved before the drop.
     await expect(host).toHaveAttribute('data-dragging', '');
     await expect(sidePanelTabs().getByRole('tab')).toHaveText(['Changes', 'Files']);
+    // What follows the pointer is drawn opaque, as a menu is, so it reads
+    // over a page of any colour, in either theme.
+    const preview = page.locator('.side-panel-tab-drag-preview');
+    await expect(preview).toHaveText('Files');
+    expect(await preview.evaluate((element) => getComputedStyle(element).backgroundColor)).toMatch(
+      /^rgb\(/,
+    );
     await page.mouse.up();
 
     await expect(page.locator('.side-panel-drop-target')).toHaveCount(0);

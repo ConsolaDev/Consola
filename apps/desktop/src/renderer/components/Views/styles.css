@@ -820,7 +820,8 @@
   margin: 0 4px;
   padding: 0;
   border: none;
-  background: var(--color-border);
+  /* The plain border colour is a tenth of white in dark: almost invisible */
+  background: var(--color-border-hover);
 }
 
 /* A shortcut for a tab that does not apply here: dimmed, its tooltip says why */

@@ -203,8 +203,10 @@
   height: 24px;
   padding: 0 var(--space-2);
   border-radius: var(--radius-sm);
-  background: var(--color-bg-active);
-  box-shadow: var(--shadow-md);
+  /* Opaque, as a menu is: over a page of any colour it still reads */
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-elevation-2);
   color: var(--color-text-primary);
   font-size: var(--font-size-sm);
   white-space: nowrap;
