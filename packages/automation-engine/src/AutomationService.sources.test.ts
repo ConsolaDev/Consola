@@ -2160,10 +2160,62 @@ describe('on a chosen item', () => {
     expect(revOf51(h)).toBe('b');
     expect(h.store.seen(KEY)).toMatchObject({ fired: [PR_51_KEY] });
     expect(itemJson(h, run)).toEqual(at('b'));
+    // It starts after the check its Run on… asked for (the user's decision of 2026-11-21).
+    await h.check();
     await stepCommand(h, run, 'fresh').end({ outputs: 'needed=false\n' });
     expect(h.store.get(run.id)!.status).toBe('completed');
     await h.checkSees([at('b')]);
     expect(runsOn51(h)).toHaveLength(2);
+  });
+
+  it('Run on… after the head moved marks the state the run reads: that head runs nothing, a later push runs', async () => {
+    // The user's decision of 2026-11-21 (review Should-fix 2).
+    const h = await allowedPoll(RE_REVIEW_ENTRY, [at('a')]);
+    // #51 moves to `b`; no check has seen it.
+    h.pollOutput([at('b')]);
+    const run = await h.runOn({ workItem: PR_51 });
+    // Run on… asked for a check, and the run waits for it.
+    expect(checks(h)).toHaveLength(2);
+    expect(h.store.get(run.id)!.status).toBe('queued');
+    expect(h.world.commands.filter((command) => command.spec.env.CONSOLA_STEP)).toEqual([]);
+    await h.check();
+    // It found `b`: the run reads `b`, and the item is marked fired at `b`.
+    expect(revOf51(h)).toBe('b');
+    expect(h.store.get(run.id)!.status).toBe('running');
+    expect(itemJson(h, run)).toEqual(at('b'));
+    await stepCommand(h, run, 'fresh').end({ outputs: 'needed=false\n' });
+    expect(h.store.get(run.id)!.status).toBe('completed');
+    await h.checkSees([at('b')]);
+    expect(runsOn51(h)).toHaveLength(1);
+    await h.checkSees([at('c')]);
+    expect(runsOn51(h)).toHaveLength(2);
+  });
+
+  it('Run on… with no check since launch reads the state the first check finds', async () => {
+    const first = await allowedPoll(RE_REVIEW_ENTRY, [at('a')]);
+    // #51 moved to `b` while Consola was closed.
+    first.pollOutput([at('b')]);
+    const h = await first.relaunch();
+    const run = await h.runOn({ workItem: PR_51 });
+    expect(h.store.get(run.id)!.status).toBe('queued');
+    await h.check();
+    expect(revOf51(h)).toBe('b');
+    expect(itemJson(h, run)).toEqual(at('b'));
+    await stepCommand(h, run, 'fresh').end({ outputs: 'needed=false\n' });
+    expect(h.store.get(run.id)!.status).toBe('completed');
+    await h.checkSees([at('b')]);
+    expect(runsOn51(h)).toHaveLength(1);
+    await h.checkSees([at('c')]);
+    expect(runsOn51(h)).toHaveLength(2);
+  });
+
+  it('Run on… of an entry not allowed yet starts no check: it cannot know a newer state', async () => {
+    const h = await sourcesHarness({ yaml: factoryWith(RE_REVIEW_ENTRY) });
+    const run = await h.runOn({ workItem: PR_51 });
+    expect(run.status).toBe('needs-approval');
+    await h.flush();
+    expect(checks(h)).toEqual([]);
+    expect(h.world.commandEnvAsked).toEqual([]);
   });
 
   it('a manual run on an event draft counts too', async () => {
@@ -2404,7 +2456,10 @@ describe('on a chosen item', () => {
 
     it('a pasted-URL run on a poll entry, for an item not in the last result, starts', async () => {
       const h = await allowedPoll(RE_REVIEW_ENTRY, [at('a')]);
-      const run = await h.runOn({ url: PR_77_URL });
+      const asked = await h.runOn({ url: PR_77_URL });
+      // It starts after the check its Run on… asked for (the user's decision of 2026-11-21).
+      await h.check();
+      const run = h.store.get(asked.id)!;
       expect(run).toMatchObject({
         status: 'running',
         trigger: { kind: 'manual', item: { key: PR_77_KEY, title: 'PR #77', ...PR_77 } },
@@ -2498,6 +2553,8 @@ describe('on a chosen item', () => {
       h.advance(MINUTE);
       reviewOf51ByHand(h);
       h.world.maxConcurrentAgents = undefined;
+      // The check its Run on… asked for ends first (the user's decision of 2026-11-21).
+      await h.check();
       await h.tick();
       await h.flush();
       expect(h.store.get(run.id)).toMatchObject({ status: 'running' });

@@ -1031,6 +1031,9 @@ test('Run on… runs a chosen pull request, and the next check does not run it a
     await allowedAndBaselined(sources);
     // Already waiting for a re-review before it was allowed: nothing ran for it.
     expect(await runStatuses(sources, RE_REVIEW)).toEqual([]);
+    // A push no check has seen yet: the run reads it, so the mark must be at it.
+    const pushed = pushAndPoll(sources);
+    const polls = pollCalls(sources).length;
 
     const panel = await openAutomation(sources, RE_REVIEW);
     await panel.getByRole('button', { name: 'Run on…' }).click();
@@ -1047,18 +1050,27 @@ test('Run on… runs a chosen pull request, and the next check does not run it a
     await expect
       .poll(() => runStatuses(sources, RE_REVIEW), { timeout: 60_000 })
       .toEqual(['completed']);
+    // Run on… checked first, and the run read what that check found: the pushed head.
+    expect(pollCalls(sources)).toHaveLength(polls + 1);
     const [run] = await runsOf(sources, RE_REVIEW);
     expect(run.trigger).toMatchObject({ kind: 'manual', by: 'person' });
     expect(run.trigger.item).toMatchObject({ url: PR_URL });
-    expect(run.checkout).toMatchObject({ head: sources.head });
+    expect(run.checkout).toMatchObject({ head: pushed });
     expect(sources.posted()).toHaveLength(1);
-    expect(sources.posted()[0]).toContain(`-f commit_id=${sources.head} `);
+    expect(sources.posted()[0]).toContain(`-f commit_id=${pushed} `);
 
-    // The next check, at the same head: it was run, so nothing new.
+    // The next check, at that head: it was run, so nothing new.
     await checkNow(sources);
     expect(await checkOf(sources, RE_REVIEW)).toMatchObject({ items: 1, fired: 0 });
     expect(await runStatuses(sources, RE_REVIEW)).toEqual(['completed']);
     expect(sources.posted()).toHaveLength(1);
+
+    // A later push runs it again.
+    pushAndPoll(sources);
+    await checkNow(sources);
+    await expect
+      .poll(() => runStatuses(sources, RE_REVIEW), { timeout: 60_000 })
+      .toEqual(['completed', 'completed']);
   } finally {
     await sources.close();
   }

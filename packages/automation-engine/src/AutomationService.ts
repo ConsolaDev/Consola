@@ -1261,6 +1261,10 @@ export class AutomationService {
     const record = this.deps.store.seen(key);
     if (record?.items.includes(item.key))
       this.deps.store.setSeen(key, markFired(record, item.key, item.rev));
+    // What the item is now is what the run will read: a poll that may check is checked first,
+    // and the run waits for it (`checkQueued`). Its result marks the item at the state found,
+    // as it does for any run still waiting. One not allowed yet is never checked for this.
+    if (this.mayCheck(entry)) this.checkNow(entry);
     return entry.steps
       ? this.fireSteps(entry, trigger, item)
       : this.fireAgentOnItem(entry, trigger, item);
@@ -1630,6 +1634,13 @@ export class AutomationService {
     return this.deps.store.acceptedVersion(automationKey(entry)) === entry.version ? trigger : null;
   }
 
+  /** Whether a check of the entry is running or due now: one its result will soon say more than the last. */
+  private checkPending(entry: Resolved): boolean {
+    if (!this.mayCheck(entry)) return false;
+    const state = this.checkStateOf(automationKey(entry));
+    return state.running !== undefined || state.lastEndedAt === undefined;
+  }
+
   private checkStateOf(key: string): CheckState {
     return this.checks.get(key) ?? { failures: 0 };
   }
@@ -1698,6 +1709,8 @@ export class AutomationService {
         this.checks.set(key, rest);
       }
       this.runDueChecks();
+      // A run on a chosen item may be waiting for this check, whatever it came to.
+      void this.pump();
     }
   }
 
@@ -2559,6 +2572,8 @@ export class AutomationService {
     const fired = firedBySource(run);
     let item: SourceItem;
     if (pollOf(entry)) {
+      // A run on a chosen item starts after the check its Run on… asked for, so it reads the item as found now.
+      if (!fired && this.checkPending(entry)) return { go: false, wait: true };
       // Its latest result at this version: one taken at another may have come from another command.
       const items = latestResult(this.checks.get(automationKey(entry)), entry.version);
       const polled = items?.find((candidate) => candidate.key === wanted.key);
