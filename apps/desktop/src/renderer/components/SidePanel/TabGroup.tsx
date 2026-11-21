@@ -1,6 +1,9 @@
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
+import { type DragMoveEvent, useDndMonitor, useDroppable } from '@dnd-kit/core';
 import * as Tabs from '@radix-ui/react-tabs';
+import { type DraggedTab, type DropZone, pointerAt, splitEdge } from '../../sidePanel/dropTarget';
 import {
+  type Edge,
   type GroupId,
   type GroupPosition,
   NEW_TAB,
@@ -54,8 +57,44 @@ export function TabGroup({ group, position, facts, canMaximize, isMaximized }: T
             facts={facts}
           />
         ))}
+        <ContentDropZone groupId={group.id} />
       </div>
     </Tabs.Root>
+  );
+}
+
+/**
+ * The group's content as a place to drop a tab. Near an edge, while the tab
+ * can split from this group, it shows the half the new group would take.
+ * Laid over the content without taking the pointer, and alone in
+ * re-rendering as the pointer moves, so the views under it never do. The
+ * target draws over a page, which sits above the layout over its slot.
+ */
+function ContentDropZone({ groupId }: { groupId: GroupId }) {
+  const zone: DropZone = { part: 'content', groupId };
+  const { setNodeRef } = useDroppable({ id: `content:${groupId}`, data: zone });
+  const [edge, setEdge] = useState<Edge | null>(null);
+  const follow = ({ active, over, activatorEvent, delta }: DragMoveEvent) => {
+    const target = over?.data.current as DropZone | undefined;
+    const dragged = active.data.current as DraggedTab | undefined;
+    const pointer = pointerAt(activatorEvent, delta);
+    const layout = useSidePanelStore.getState().layout;
+    setEdge(
+      over && target?.part === 'content' && target.groupId === groupId && dragged && pointer
+        ? splitEdge(layout, groupId, dragged.tab, over.rect, pointer)
+        : null,
+    );
+  };
+  useDndMonitor({
+    onDragMove: follow,
+    onDragOver: follow,
+    onDragEnd: () => setEdge(null),
+    onDragCancel: () => setEdge(null),
+  });
+  return (
+    <div ref={setNodeRef} className="side-panel-drop-zone">
+      {edge && <div className="side-panel-drop-target" data-edge={edge} />}
+    </div>
   );
 }
 

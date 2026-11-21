@@ -1,8 +1,23 @@
-import { Fragment } from 'react';
+import { Fragment, useRef } from 'react';
+import { createPortal } from 'react-dom';
+import {
+  type Active,
+  type Announcements,
+  DndContext,
+  type DragEndEvent,
+  DragOverlay,
+  MouseSensor,
+  pointerWithin,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core';
 import { Group, Panel, Separator, useDefaultLayout } from 'react-resizable-panels';
-import { groupPosition, groupsOf, visibleGroups } from '../../sidePanel/layout';
-import type { TabFacts } from '../../sidePanel/tabKinds';
+import { type DraggedTab, type DropZone, pointerAt, splitEdge } from '../../sidePanel/dropTarget';
+import { groupPosition, groupsOf, type TabId, visibleGroups } from '../../sidePanel/layout';
+import { tabKind, type TabFacts } from '../../sidePanel/tabKinds';
 import { useSidePanelStore } from '../../stores/sidePanelStore';
+import { focusTrigger } from './keyboardAfterClose';
+import { DraggedTabPreview } from './TabBar';
 import { TabGroup } from './TabGroup';
 import './styles.css';
 
@@ -11,6 +26,12 @@ import './styles.css';
  * by side or stacked. The `Group` is rendered even for one group, and each
  * panel is keyed by its group's id, so splitting and unsplitting never
  * remount a group that survives the change.
+ *
+ * Tabs are dragged with the pointer: along a bar, onto the other group's bar,
+ * or to an edge of their group's content to split it. Nothing in the layout
+ * changes until the drop, so no tab's view moves or re-renders while the
+ * pointer does; only the caret and the drop target follow it. There is no
+ * keyboard sensor: the tab menu is the keyboard's way to move a tab.
  */
 export function SidePanel({ facts }: { facts: TabFacts }) {
   const layout = useSidePanelStore((state) => state.layout);
@@ -23,31 +44,108 @@ export function SidePanel({ facts }: { facts: TabFacts }) {
     panelIds: groups.map((group) => `side-group-${group.id}`),
     storage: localStorage,
   });
+  const sensors = useSensors(useSensor(MouseSensor, { activationConstraint: { distance: 6 } }));
+  // Where the keyboard was before the press that began a drag: the press
+  // itself moves it onto the tab.
+  const keyboardBefore = useRef<Element | null>(null);
+
+  /**
+   * A drag is the pointer's, so the keyboard goes back to where it was before
+   * the press. When that place went with the drop (the tab's own content,
+   * remounted in another group), it goes to the tab, in the bar it is in now.
+   */
+  const giveKeyboardBack = (tab: TabId) => {
+    const before = keyboardBefore.current;
+    keyboardBefore.current = null;
+    requestAnimationFrame(() => {
+      if (before instanceof HTMLElement && before.isConnected && before !== document.body) {
+        before.focus();
+      } else {
+        focusTrigger(tab);
+      }
+    });
+  };
+
+  const drop = ({ active, over, activatorEvent, delta }: DragEndEvent) => {
+    const dragged = active.data.current as DraggedTab | undefined;
+    if (!dragged) return;
+    const zone = over?.data.current as DropZone | undefined;
+    const pointer = pointerAt(activatorEvent, delta);
+    const store = useSidePanelStore.getState();
+    if (over && zone && pointer) {
+      if (zone.part === 'bar') {
+        const place = zone.placeAt(dragged.tab, pointer.x);
+        if (place) store.moveTab(dragged.tab, zone.groupId, place.index);
+      } else {
+        const edge = splitEdge(store.layout, zone.groupId, dragged.tab, over.rect, pointer);
+        if (edge) store.splitWithTab(zone.groupId, dragged.tab, edge);
+      }
+    }
+    giveKeyboardBack(dragged.tab);
+  };
+
+  // Said by the tab's title, rather than dnd-kit's ids.
+  const titleOf = (active: Active) => {
+    const dragged = active.data.current as DraggedTab | undefined;
+    return (dragged && tabKind(dragged.tab)?.title(facts)) ?? 'tab';
+  };
+  const announcements: Announcements = {
+    onDragStart: ({ active }) => `Picked up the ${titleOf(active)} tab.`,
+    onDragOver: () => undefined,
+    onDragEnd: ({ active }) => `Dropped the ${titleOf(active)} tab.`,
+    onDragCancel: ({ active }) => `The ${titleOf(active)} tab was not moved.`,
+  };
 
   return (
-    <aside aria-label="Side panel" className="side-panel">
-      <Group
-        orientation={orientation}
-        defaultLayout={defaultLayout}
-        onLayoutChanged={onLayoutChanged}
+    <aside
+      aria-label="Side panel"
+      className="side-panel"
+      onPointerDownCapture={() => {
+        keyboardBefore.current = document.activeElement;
+      }}
+    >
+      <DndContext
+        sensors={sensors}
+        collisionDetection={pointerWithin}
+        // The pointer is read as where it pressed plus the drag's delta, which
+        // a scroll during the drag would move.
+        autoScroll={false}
+        accessibility={{ announcements }}
+        onDragEnd={drop}
+        onDragCancel={({ active }) => {
+          const dragged = active.data.current as DraggedTab | undefined;
+          if (dragged) giveKeyboardBack(dragged.tab);
+        }}
       >
-        {groups.map((group, index) => (
-          <Fragment key={group.id}>
-            {index > 0 && (
-              <Separator className={stacked ? 'side-panel-split-handle' : 'resize-handle'} />
-            )}
-            <Panel id={`side-group-${group.id}`} minSize="120px">
-              <TabGroup
-                group={group}
-                position={groupPosition(layout, group.id)}
-                facts={facts}
-                canMaximize={total > 1}
-                isMaximized={groups.length < total}
-              />
-            </Panel>
-          </Fragment>
-        ))}
-      </Group>
+        <Group
+          orientation={orientation}
+          defaultLayout={defaultLayout}
+          onLayoutChanged={onLayoutChanged}
+        >
+          {groups.map((group, index) => (
+            <Fragment key={group.id}>
+              {index > 0 && (
+                <Separator className={stacked ? 'side-panel-split-handle' : 'resize-handle'} />
+              )}
+              <Panel id={`side-group-${group.id}`} minSize="120px">
+                <TabGroup
+                  group={group}
+                  position={groupPosition(layout, group.id)}
+                  facts={facts}
+                  canMaximize={total > 1}
+                  isMaximized={groups.length < total}
+                />
+              </Panel>
+            </Fragment>
+          ))}
+        </Group>
+        {createPortal(
+          <DragOverlay dropAnimation={null}>
+            <DraggedTabPreview facts={facts} />
+          </DragOverlay>,
+          document.body,
+        )}
+      </DndContext>
     </aside>
   );
 }

@@ -120,6 +120,15 @@ test.describe('side panel', () => {
     await tab.click({ button: 'right' });
     await page.getByRole('menuitem', { name: item, exact: true }).click();
   }
+  /** Presses on `tab` and moves the pointer to `to` in 10 steps, leaving the button down. */
+  async function dragTab(tab: Locator, to: { x: number; y: number }): Promise<void> {
+    const box = (await tab.boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(to.x, to.y, { steps: 10 });
+  }
+  /** A tab's whole box in its bar, its close button included: its trigger's parent. */
+  const tabBox = async (tab: Locator) => (await tab.locator('xpath=..').boundingBox())!;
 
   /**
    * Counts every session shell view that mounts from now on, however
@@ -659,5 +668,93 @@ test.describe('side panel', () => {
       `Started in: ${path.join(root, 'catalog-portal')}`,
     );
     expect(await shellMounts()).toBe(1);
+  });
+
+  test('dragging a tab to the bottom edge splits the panel', async () => {
+    await openSession('Paginate the catalog search');
+    await changesShortcut().click();
+    await page.getByRole('button', { name: 'Files', exact: true }).click();
+    await expect(sidePanelTab('Files')).toHaveAttribute('aria-selected', 'true');
+    // A drag is the pointer's: the keyboard stays in the conversation.
+    await conversation().focus();
+    const host = page.locator('.browser-host');
+    await expect(host).not.toHaveAttribute('data-dragging');
+
+    const area = (await page.locator('.side-panel-group-body').boundingBox())!;
+    await dragTab(sidePanelTab('Files'), {
+      x: area.x + area.width / 2,
+      y: area.y + area.height * 0.9,
+    });
+    await expect(page.locator('.side-panel-drop-target[data-edge="bottom"]')).toBeVisible();
+    // Pages let the pointer through while the tab is dragged, and nothing
+    // has moved before the drop.
+    await expect(host).toHaveAttribute('data-dragging', '');
+    await expect(sidePanelTabs().getByRole('tab')).toHaveText(['Changes', 'Files']);
+    await page.mouse.up();
+
+    await expect(page.locator('.side-panel-drop-target')).toHaveCount(0);
+    await expect(host).not.toHaveAttribute('data-dragging');
+    await expect(tabList('Top group tabs').getByRole('tab')).toHaveText(['Changes']);
+    await expect(tabList('Bottom group tabs').getByRole('tab')).toHaveText(['Files']);
+    await expect(conversation()).toBeFocused();
+
+    // Back onto the top bar, before Changes: one group again.
+    const changes = await tabBox(
+      tabList('Top group tabs').getByRole('tab', { name: 'Changes', exact: true }),
+    );
+    await dragTab(tabList('Bottom group tabs').getByRole('tab', { name: 'Files', exact: true }), {
+      x: changes.x + 4,
+      y: changes.y + changes.height / 2,
+    });
+    await expect(page.locator('.side-panel-drop-caret')).toBeVisible();
+    await page.mouse.up();
+    await expect(tabList('Bottom group tabs')).toHaveCount(0);
+    await expect(sidePanelTabs().getByRole('tab')).toHaveText(['Files', 'Changes']);
+    await expect(conversation()).toBeFocused();
+  });
+
+  test('a tab dragged along its bar lands where the caret shows, never past the "+"', async () => {
+    // Wide enough that the bar has room after its "+".
+    const appWindow = await app.browserWindow(page);
+    await appWindow.evaluate((browserWindow) => browserWindow.setContentSize(1400, 800));
+    await openSession('Paginate the catalog search');
+    await changesShortcut().click();
+    await page.getByRole('button', { name: 'Files', exact: true }).click();
+    await plusButton().click();
+    await expect(sidePanelTabs().getByRole('tab')).toHaveText(['Changes', 'Files', 'New tab']);
+    const caret = page.locator('.side-panel-drop-caret');
+    const middle = (box: { x: number; width: number }) => box.x + box.width / 2;
+
+    // Past the middle of Files, Changes goes one place along: between Files
+    // and the placeholder, counted without Changes itself.
+    const files = await tabBox(sidePanelTab('Files'));
+    const placeholder = await tabBox(sidePanelTab('New tab'));
+    await dragTab(sidePanelTab('Changes'), {
+      x: files.x + files.width - 2,
+      y: files.y + files.height / 2,
+    });
+    await expect(caret).toBeVisible();
+    const between = middle((await caret.boundingBox())!);
+    expect(between).toBeGreaterThanOrEqual(files.x + files.width - 1);
+    expect(between).toBeLessThanOrEqual(placeholder.x + 1);
+    await page.mouse.up();
+    await expect(sidePanelTabs().getByRole('tab')).toHaveText(['Files', 'Changes', 'New tab']);
+
+    // The bar's free space after its "+" is the bar too: a drop there goes
+    // at the end, and the caret is drawn before the "+".
+    const plus = (await plusButton().boundingBox())!;
+    const controls = (await group('Side panel tabs')
+      .getByRole('button', { name: 'Close group' })
+      .boundingBox())!;
+    expect(controls.x - (plus.x + plus.width)).toBeGreaterThan(40);
+    await dragTab(sidePanelTab('Changes'), {
+      x: (plus.x + plus.width + controls.x) / 2,
+      y: plus.y + plus.height / 2,
+    });
+    await expect(caret).toBeVisible();
+    const end = (await caret.boundingBox())!;
+    expect(end.x + end.width).toBeLessThanOrEqual(plus.x);
+    await page.mouse.up();
+    await expect(sidePanelTabs().getByRole('tab')).toHaveText(['Files', 'New tab', 'Changes']);
   });
 });

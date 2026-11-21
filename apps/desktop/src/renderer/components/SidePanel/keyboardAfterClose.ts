@@ -31,3 +31,16 @@ export function keyboardAfterClose(closing: Element): () => boolean {
     return true;
   };
 }
+
+/**
+ * Focuses a tab's trigger, in whichever group's bar it is now: where the
+ * keyboard goes with a tab that moved. Only for a moved, split or dragged
+ * tab: those are never the placeholder, so `tab` is a kind, open once.
+ */
+export function focusTrigger(tab: string): boolean {
+  const trigger = document.querySelector<HTMLElement>(
+    `.side-panel-tab-trigger[data-tab="${CSS.escape(tab)}"]`,
+  );
+  trigger?.focus();
+  return trigger !== null;
+}

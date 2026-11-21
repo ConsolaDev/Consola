@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import type { ElectronApplication, Page } from '@playwright/test';
+import type { ElectronApplication, Locator, Page } from '@playwright/test';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -406,7 +406,7 @@ test.describe('in-app browser', () => {
     await expect(address(page)).toHaveValue(fixtures.url('/c.html'));
   });
 
-  test('the Browser tab keeps its page when it goes behind, when the side panel hides, and through a split, Maximize and a move', async () => {
+  test('the Browser tab keeps its page when it goes behind, when the side panel hides, and through a split, Maximize, a move and a drag', async () => {
     await openSession(page, 'Alpha');
     await showBrowser(page);
     const url = fixtures.url('/a.html');
@@ -509,6 +509,56 @@ test.describe('in-app browser', () => {
     // Back beside Files, at the end of its bar.
     await browserTab('Bottom group tabs').click({ button: 'right' });
     await page.getByRole('menuitem', { name: 'Move to other group', exact: true }).click();
+    await expect(tabs('Side panel tabs').getByRole('tab')).toHaveText(['Files', 'Browser']);
+    await expect.poll(presence).toBe('shown');
+    await untouched();
+
+    // Dragged over its own page to the bottom edge. Until the drop the page
+    // stays shown in its slot, and the drop target is drawn over it.
+    const dragTo = async (tab: Locator, to: { x: number; y: number }) => {
+      const box = (await tab.boundingBox())!;
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(to.x, to.y, { steps: 10 });
+    };
+    const area = (await page.locator('.side-panel-group-body').boundingBox())!;
+    await dragTo(browserTab('Side panel tabs'), {
+      x: area.x + area.width / 2,
+      y: area.y + area.height * 0.9,
+    });
+    const target = page.locator('.side-panel-drop-target[data-edge="bottom"]');
+    await expect(target).toBeVisible();
+    expect(await presence()).toBe('shown');
+    await untouched();
+    expect(
+      await target.evaluate((element) => {
+        const drawn = document.querySelector<HTMLElement>('.browser-page')!;
+        const box = element.getBoundingClientRect();
+        // The page lets the pointer through while the drag lasts, which
+        // would hide whether it is drawn over the target. Ask with it solid.
+        const through = getComputedStyle(drawn).pointerEvents;
+        drawn.style.pointerEvents = 'auto';
+        const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+        drawn.style.pointerEvents = '';
+        return { through, onTop: hit === element };
+      }),
+    ).toEqual({ through: 'none', onTop: true });
+    await page.mouse.up();
+    await expect(tabs('Top group tabs').getByRole('tab')).toHaveText(['Files']);
+    await expect(tabs('Bottom group tabs').getByRole('tab')).toHaveText(['Browser']);
+    await expect.poll(presence).toBe('shown');
+    await untouched();
+
+    // Dragged onto the other group's bar, after Files: one group again.
+    const files = (await tabs('Top group tabs').getByRole('tab', { name: 'Files' }).boundingBox())!;
+    await dragTo(browserTab('Bottom group tabs'), {
+      x: files.x + files.width + 20,
+      y: files.y + files.height / 2,
+    });
+    await expect(page.locator('.side-panel-drop-caret')).toBeVisible();
+    await expect.poll(presence).toBe('shown');
+    await untouched();
+    await page.mouse.up();
     await expect(tabs('Side panel tabs').getByRole('tab')).toHaveText(['Files', 'Browser']);
     await expect.poll(presence).toBe('shown');
     await untouched();

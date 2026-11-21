@@ -8,7 +8,7 @@ import {
   tabMenuItems,
 } from '../../sidePanel/layout';
 import { useSidePanelStore } from '../../stores/sidePanelStore';
-import { keyboardAfterClose } from './keyboardAfterClose';
+import { focusTrigger, keyboardAfterClose } from './keyboardAfterClose';
 
 const ITEM_LABELS: Record<TabMenuItem, string> = {
   close: 'Close',
@@ -122,17 +122,4 @@ export function TabMenu({
       </ContextMenu.Portal>
     </ContextMenu.Root>
   );
-}
-
-/**
- * Focuses a tab's trigger, in whichever group's bar it is now. Only for a
- * moved or split tab: those are never the placeholder, so `tab` is a kind,
- * open once.
- */
-function focusTrigger(tab: TabId): boolean {
-  const trigger = document.querySelector<HTMLElement>(
-    `.side-panel-tab-trigger[data-tab="${CSS.escape(tab)}"]`,
-  );
-  trigger?.focus();
-  return trigger !== null;
 }

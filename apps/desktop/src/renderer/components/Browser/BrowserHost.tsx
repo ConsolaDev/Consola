@@ -33,8 +33,11 @@ import {
 } from './browserView';
 import './styles.css';
 
-/** A press on one of these starts a drag that a page must not swallow. */
-const DRAG_HANDLES = '[data-separator], .resize-handle, .sidebar-resize-handle';
+/**
+ * A press on one of these can start a drag that a page must not swallow: a
+ * panel separator, the sidebar's edge, or a side panel tab.
+ */
+const DRAG_HANDLES = '[data-separator], .resize-handle, .sidebar-resize-handle, .side-panel-tab';
 
 /** The parts of Electron's `<webview>` element the host calls. */
 interface WebviewElement extends HTMLElement {

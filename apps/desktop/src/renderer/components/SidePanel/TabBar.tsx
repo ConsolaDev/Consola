@@ -1,7 +1,27 @@
-import type { KeyboardEvent, MouseEvent, ReactNode } from 'react';
+import {
+  type KeyboardEvent,
+  type MouseEvent,
+  type ReactNode,
+  useCallback,
+  useRef,
+  useState,
+} from 'react';
+import {
+  type DragMoveEvent,
+  useDndContext,
+  useDndMonitor,
+  useDraggable,
+  useDroppable,
+} from '@dnd-kit/core';
 import * as Tabs from '@radix-ui/react-tabs';
 import * as Tooltip from '@radix-ui/react-tooltip';
 import { Maximize2, Minimize2, Plus, X } from 'lucide-react';
+import {
+  type DraggedTab,
+  type DropZone,
+  insertionIndex,
+  pointerAt,
+} from '../../sidePanel/dropTarget';
 import { NEW_TAB, type GroupPosition, type TabGroupNode, type TabId } from '../../sidePanel/layout';
 import { tabKind, type TabFacts } from '../../sidePanel/tabKinds';
 import { useSidePanelStore } from '../../stores/sidePanelStore';
@@ -28,11 +48,36 @@ interface TabBarProps {
   isMaximized: boolean;
 }
 
-/** A group's tabs and its "+", then the controls for the group as a whole. */
+/**
+ * A group's tabs and its "+", then the controls for the group as a whole.
+ * The whole bar is a place to drop a dragged tab, the free space after the
+ * "+" included: a tab dropped past the last one goes at the end.
+ */
 export function TabBar({ group, position, facts, canMaximize, isMaximized }: TabBarProps) {
   const toggleMaximize = useSidePanelStore((state) => state.toggleMaximize);
   const closeGroup = useSidePanelStore((state) => state.closeGroup);
   const addPlaceholder = useSidePanelStore((state) => state.addPlaceholder);
+  const barRef = useRef<HTMLDivElement | null>(null);
+  const zone: DropZone = {
+    part: 'bar',
+    groupId: group.id,
+    // Counted among this group's tabs without the dragged one, as `moveTab` counts.
+    placeAt: (tab, x) => {
+      const place = barInsertion(barRef.current, tab, x);
+      if (!place) return null;
+      const rest = group.tabs.filter((each) => each !== tab);
+      const index = place.before === null ? rest.length : rest.indexOf(place.before);
+      return { index: index === -1 ? rest.length : index, caretLeft: place.caretLeft };
+    },
+  };
+  const { setNodeRef } = useDroppable({ id: `bar:${group.id}`, data: zone });
+  const setBar = useCallback(
+    (node: HTMLDivElement | null) => {
+      barRef.current = node;
+      setNodeRef(node);
+    },
+    [setNodeRef],
+  );
 
   // A fresh list takes the keyboard itself. One already in front does not
   // appear again, so it is handed the keyboard here.
@@ -46,7 +91,7 @@ export function TabBar({ group, position, facts, canMaximize, isMaximized }: Tab
 
   return (
     <Tooltip.Provider delayDuration={300}>
-      <div className="side-panel-tab-bar">
+      <div ref={setBar} className="side-panel-tab-bar">
         <Tabs.List className="side-panel-tab-list" aria-label={TAB_LIST_NAMES[position]}>
           {group.tabs.map((tab) => (
             <TabBarTab
@@ -74,8 +119,83 @@ export function TabBar({ group, position, facts, canMaximize, isMaximized }: Tab
             <X size={14} />
           </BarButton>
         </div>
+        <DropCaret groupId={group.id} />
       </div>
     </Tooltip.Provider>
+  );
+}
+
+/**
+ * Where a tab dropped at `x` goes in this bar: before which of its other
+ * tabs (`null` for the end), and the caret's place from the bar's left edge.
+ * The caret stays inside the tab list, so past the last tab it is drawn
+ * before the "+", never after it.
+ */
+function barInsertion(
+  bar: HTMLElement | null,
+  dragged: TabId,
+  x: number,
+): { before: TabId | null; caretLeft: number } | null {
+  const list = bar?.querySelector('.side-panel-tab-list');
+  if (!bar || !list) return null;
+  const tabs = [...list.querySelectorAll<HTMLElement>('.side-panel-tab[data-tab]')]
+    .filter((tab) => tab.dataset.tab !== dragged)
+    .map((tab) => ({ tab: tab.dataset.tab as TabId, box: tab.getBoundingClientRect() }));
+  const index = insertionIndex(
+    tabs.map(({ box }) => box),
+    x,
+  );
+  const bounds = list.getBoundingClientRect();
+  const last = tabs[tabs.length - 1];
+  // In the middle of the 2px gap before the tab it goes before, else after the last tab.
+  const boundary =
+    index < tabs.length ? tabs[index].box.left - 1 : last ? last.box.right + 1 : bounds.left;
+  const caret = Math.min(Math.max(boundary, bounds.left), bounds.right);
+  return {
+    before: index < tabs.length ? tabs[index].tab : null,
+    caretLeft: caret - bar.getBoundingClientRect().left,
+  };
+}
+
+/**
+ * The 2px caret where a tab dragged over this bar would go. Only this
+ * re-renders as the pointer moves: nothing in the layout changes until the
+ * drop, so the tabs and their views stay as they are.
+ */
+function DropCaret({ groupId }: { groupId: string }) {
+  const [left, setLeft] = useState<number | null>(null);
+  const follow = ({ active, over, activatorEvent, delta }: DragMoveEvent) => {
+    const zone = over?.data.current as DropZone | undefined;
+    const dragged = active.data.current as DraggedTab | undefined;
+    const pointer = pointerAt(activatorEvent, delta);
+    const place =
+      zone?.part === 'bar' && zone.groupId === groupId && dragged && pointer
+        ? zone.placeAt(dragged.tab, pointer.x)
+        : null;
+    setLeft(place ? place.caretLeft : null);
+  };
+  useDndMonitor({
+    onDragMove: follow,
+    onDragOver: follow,
+    onDragEnd: () => setLeft(null),
+    onDragCancel: () => setLeft(null),
+  });
+  if (left === null) return null;
+  return <span className="side-panel-drop-caret" style={{ left: left - 1 }} aria-hidden="true" />;
+}
+
+/** What follows the pointer while a tab is dragged: the tab's icon and label. */
+export function DraggedTabPreview({ facts }: { facts: TabFacts }) {
+  const { active } = useDndContext();
+  const dragged = active?.data.current as DraggedTab | undefined;
+  const kind = dragged ? tabKind(dragged.tab) : undefined;
+  if (!kind) return null;
+  const Icon = kind.icon;
+  return (
+    <div className="side-panel-tab-drag-preview" aria-hidden="true">
+      <Icon size={14} aria-hidden="true" />
+      <span className="side-panel-tab-label">{kind.tabTitle?.(facts) ?? kind.title(facts)}</span>
+    </div>
   );
 }
 
@@ -85,7 +205,8 @@ export function TabBar({ group, position, facts, canMaximize, isMaximized }: Tab
  * A tab id the registry does not list has nothing to show; the placeholder
  * still gets its name, so it can be closed. A kind's mark is drawn on its tab
  * while the tab is behind another: in front, its view is showing what the
- * mark is about.
+ * mark is about. Every tab but the placeholder can be dragged by the pointer;
+ * the menu is the keyboard's way to move one.
  */
 function TabBarTab({
   groupId,
@@ -100,6 +221,11 @@ function TabBarTab({
 }) {
   const closeTab = useSidePanelStore((state) => state.closeTab);
   const mark = useTabMark(tab, facts);
+  const { setNodeRef, listeners, isDragging } = useDraggable({
+    id: `tab:${groupId}:${tab}`,
+    data: { groupId, tab } satisfies DraggedTab,
+    disabled: tab === NEW_TAB,
+  });
   const kind = tabKind(tab);
   if (!kind && tab !== NEW_TAB) return null;
 
@@ -120,7 +246,13 @@ function TabBarTab({
 
   return (
     <TabMenu groupId={groupId} tab={tab}>
-      <div className={`side-panel-tab${inFront ? ' active' : ''}`}>
+      <div
+        ref={setNodeRef}
+        {...listeners}
+        className={`side-panel-tab${inFront ? ' active' : ''}`}
+        data-tab={tab}
+        data-dragging={isDragging || undefined}
+      >
         <Tabs.Trigger
           value={tab}
           className="side-panel-tab-trigger"
