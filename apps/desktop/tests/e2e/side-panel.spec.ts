@@ -235,6 +235,10 @@ test.describe('side panel', () => {
     await changesShortcut().focus();
     await page.keyboard.press('Escape');
     await expect(changesTab()).toHaveAttribute('aria-selected', 'true');
+    // The shortcut's tooltip, which the focus showed, is the topmost layer
+    // until it has faded, and would take the next Escape first (see the test
+    // below): it is let go before the Escape inside the tab.
+    await expect(page.getByRole('tooltip')).toHaveCount(0);
 
     // Escape pressed inside the tab is the one that closes it, and the
     // keyboard goes back to the conversation, never to the page's body.
@@ -271,6 +275,18 @@ test.describe('side panel', () => {
         new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, isComposing: true }),
       ),
     );
+    await expect(changesTab()).toHaveAttribute('aria-selected', 'true');
+
+    // A tooltip on screen, from the pointer over a header button, is the
+    // topmost layer: the first Escape closes it, as Escape closes the
+    // topmost layer first, and the tab stays. The pointer leaves the button
+    // the opening click left it on, which keeps its tooltip shut.
+    await page.mouse.move(5, 300);
+    await changesShortcut().hover();
+    await expect(page.getByRole('tooltip')).toBeVisible();
+    await box.focus();
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('tooltip')).toHaveCount(0);
     await expect(changesTab()).toHaveAttribute('aria-selected', 'true');
 
     // A plain Escape still closes it: the control.
