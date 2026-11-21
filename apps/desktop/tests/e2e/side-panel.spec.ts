@@ -129,6 +129,17 @@ test.describe('side panel', () => {
     await page.mouse.down();
     await page.mouse.move(to.x, to.y, { steps: 10 });
   }
+  /**
+   * Waits out dnd-kit's click guard, before a click that follows a drag. A
+   * drag that began stops every click in the document (a capture listener
+   * its sensor adds as the drag starts) until 50ms after it ends (the
+   * sensor's `detach` removes it in a `setTimeout` of 50), so a click sent
+   * sooner is swallowed. A page timer queued now for 60ms fires after that
+   * one, since timers fire in order of expiry: a click after this lands.
+   */
+  async function waitOutDragClickGuard(): Promise<void> {
+    await page.evaluate(() => new Promise((done) => setTimeout(done, 60)));
+  }
   /** A tab's whole box in its bar, its close button included: its trigger's parent. */
   const tabBox = async (tab: Locator) => (await tab.locator('xpath=..').boundingBox())!;
 
@@ -1297,7 +1308,8 @@ test.describe('side panel', () => {
     await twoFrames();
     await expect(sidePanelTab('Changes')).toBeFocused();
 
-    // Cancelled by Escape: the same.
+    // Cancelled by Escape: the same. It begins with a click on Files.
+    await waitOutDragClickGuard();
     await closeFilesMidDrag();
     await page.keyboard.press('Escape');
     await page.mouse.up();
@@ -1394,6 +1406,7 @@ test.describe('side panel', () => {
     await untouched('Terminal dropped on the bottom bar');
 
     // The bottom group closed, with its two tabs.
+    await waitOutDragClickGuard();
     await group('Bottom group tabs').getByRole('button', { name: 'Close group' }).click();
     await expect(tabList('Bottom group tabs')).toHaveCount(0);
     await expect(sidePanelTabs().getByRole('tab')).toHaveText(['Changes', 'Browser']);
