@@ -17,15 +17,11 @@ import {
 import * as Tabs from '@radix-ui/react-tabs';
 import * as Tooltip from '@radix-ui/react-tooltip';
 import { Maximize2, Minimize2, Plus, X } from 'lucide-react';
-import {
-  type DraggedTab,
-  type DropZone,
-  insertionIndex,
-  pointerAt,
-} from '../../sidePanel/dropTarget';
+import { type DraggedTab, type DropZone, insertionIndex } from '../../sidePanel/dropTarget';
 import { NEW_TAB, type GroupPosition, type TabGroupNode, type TabId } from '../../sidePanel/layout';
 import { tabKind, type TabFacts } from '../../sidePanel/tabKinds';
 import { useSidePanelStore } from '../../stores/sidePanelStore';
+import { dragPointer } from './dragPointer';
 import { keyboardAfterClose, keyboardInTab } from './keyboardAfterClose';
 import { TabMenu } from './TabMenu';
 import { useTabMark } from './tabMarks';
@@ -176,10 +172,10 @@ function barInsertion(
  */
 function DropCaret({ groupId }: { groupId: string }) {
   const [left, setLeft] = useState<number | null>(null);
-  const follow = ({ active, over, activatorEvent, delta }: DragMoveEvent) => {
+  const follow = ({ active, over }: DragMoveEvent) => {
     const zone = over?.data.current as DropZone | undefined;
     const dragged = active.data.current as DraggedTab | undefined;
-    const pointer = pointerAt(activatorEvent, delta);
+    const pointer = dragPointer();
     const place =
       zone?.part === 'bar' && zone.groupId === groupId && dragged && pointer
         ? zone.placeAt(dragged.tab, pointer.x)
@@ -241,7 +237,10 @@ function TabBarTab({
   const triggerRef = useRef<HTMLButtonElement>(null);
   // A tab that comes in front is scrolled into its bar, which a narrow side
   // panel cannot show whole, and whose scrollbar is hidden: the person sees
-  // which tab is in front, and can reach its ✕. Only the bar scrolls.
+  // which tab is in front, and can reach its ✕. Only the bar scrolls. A tab
+  // pressed to drag it comes in front as the button goes down, so its bar
+  // may scroll as the drag begins: the drag goes by the pointer itself
+  // (`dragPointer`), never by how far it moved, so it still lands there.
   useEffect(() => {
     if (inFront) scrollIntoBar(triggerRef.current?.closest('.side-panel-tab'));
   }, [inFront]);

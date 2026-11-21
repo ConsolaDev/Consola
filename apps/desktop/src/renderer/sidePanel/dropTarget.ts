@@ -91,10 +91,3 @@ export function splitEdge(
 ): Edge | null {
   return canSplit(layout, groupId, tab) ? edgeAt(rect, point) : null;
 }
-
-/** Where the pointer is during a drag: where it was pressed, moved by the drag's delta. */
-export function pointerAt(pressed: Event, delta: Point): Point | null {
-  if (!('clientX' in pressed) || !('clientY' in pressed)) return null;
-  const { clientX, clientY } = pressed as { clientX: number; clientY: number };
-  return { x: clientX + delta.x, y: clientY + delta.y };
-}

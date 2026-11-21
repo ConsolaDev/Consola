@@ -1623,11 +1623,16 @@ test.describe('side panel', () => {
     const files = await tabBox(
       tabList('Bottom group tabs').getByRole('tab', { name: 'Files', exact: true }),
     );
+    // The top bar is scrolled sideways, to show Browser in front: a tab
+    // dragged out of it still lands where the pointer lets go.
+    expect(await tabList('Top group tabs').evaluate((list) => list.scrollLeft)).toBeGreaterThan(0);
     await dragTab(tabList('Top group tabs').getByRole('tab', { name: 'Terminal', exact: true }), {
       x: files.x + files.width + 20,
       y: files.y + files.height / 2,
     });
     await expect(page.locator('.side-panel-drop-caret')).toBeVisible();
+    const caret = (await page.locator('.side-panel-drop-caret').boundingBox())!;
+    expect(caret.x).toBeGreaterThanOrEqual(files.x + files.width - 2);
     await untouched('Terminal dragged');
     await page.mouse.up();
     await expect(tabList('Top group tabs').getByRole('tab')).toHaveText(['Changes', 'Browser']);

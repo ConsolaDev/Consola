@@ -7,16 +7,16 @@ import {
   type DragEndEvent,
   DragOverlay,
   MouseSensor,
-  pointerWithin,
   useDndContext,
   useSensor,
   useSensors,
 } from '@dnd-kit/core';
 import { Group, Panel, Separator, useDefaultLayout } from 'react-resizable-panels';
-import { type DraggedTab, type DropZone, pointerAt, splitEdge } from '../../sidePanel/dropTarget';
+import { type DraggedTab, type DropZone, splitEdge } from '../../sidePanel/dropTarget';
 import { groupPosition, groupsOf, type TabId, visibleGroups } from '../../sidePanel/layout';
 import { tabKind, type TabFacts } from '../../sidePanel/tabKinds';
 import { useSidePanelStore } from '../../stores/sidePanelStore';
+import { dragPointer, pointerWithinNoted } from './dragPointer';
 import { focusTrigger, swallowHeldKeyRepeats } from './keyboardAfterClose';
 import { DraggedTabPreview } from './TabBar';
 import { TabGroup } from './TabGroup';
@@ -78,11 +78,11 @@ export function SidePanel({ facts }: { facts: TabFacts }) {
 
   // A drag whose tab was closed on the way has nothing to drop, and the close
   // has already placed the keyboard, so its end and its cancel leave both be.
-  const drop = ({ active, over, activatorEvent, delta }: DragEndEvent) => {
+  const drop = ({ active, over }: DragEndEvent) => {
     const tab = draggedTabOf(active);
     if (tab === undefined) return;
     const zone = over?.data.current as DropZone | undefined;
-    const pointer = pointerAt(activatorEvent, delta);
+    const pointer = dragPointer();
     const store = useSidePanelStore.getState();
     if (over && zone && pointer) {
       if (zone.part === 'bar') {
@@ -118,9 +118,11 @@ export function SidePanel({ facts }: { facts: TabFacts }) {
     >
       <DndContext
         sensors={sensors}
-        collisionDetection={pointerWithin}
-        // The pointer is read as where it pressed plus the drag's delta, which
-        // a scroll during the drag would move.
+        // The zone under the pointer, and the pointer it was found at, which
+        // the caret, the drop target and the drop read (`dragPointer`).
+        collisionDetection={pointerWithinNoted}
+        // No box scrolls by itself during a drag, so the tabs stay where the
+        // person aims.
         autoScroll={false}
         accessibility={{ announcements }}
         onDragEnd={drop}

@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react';
 import { type DragMoveEvent, useDndMonitor, useDroppable } from '@dnd-kit/core';
 import * as Tabs from '@radix-ui/react-tabs';
-import { type DraggedTab, type DropZone, pointerAt, splitEdge } from '../../sidePanel/dropTarget';
+import { type DraggedTab, type DropZone, splitEdge } from '../../sidePanel/dropTarget';
 import {
   type Edge,
   type GroupId,
@@ -12,6 +12,7 @@ import {
 } from '../../sidePanel/layout';
 import { bodyFor, tabKind, type TabFacts } from '../../sidePanel/tabKinds';
 import { useSidePanelStore } from '../../stores/sidePanelStore';
+import { dragPointer } from './dragPointer';
 import { NewTabList } from './NewTabList';
 import { TabBar } from './TabBar';
 import { TAB_VIEWS } from './tabViews';
@@ -74,10 +75,10 @@ function ContentDropZone({ groupId }: { groupId: GroupId }) {
   const zone: DropZone = { part: 'content', groupId };
   const { setNodeRef } = useDroppable({ id: `content:${groupId}`, data: zone });
   const [edge, setEdge] = useState<Edge | null>(null);
-  const follow = ({ active, over, activatorEvent, delta }: DragMoveEvent) => {
+  const follow = ({ active, over }: DragMoveEvent) => {
     const target = over?.data.current as DropZone | undefined;
     const dragged = active.data.current as DraggedTab | undefined;
-    const pointer = pointerAt(activatorEvent, delta);
+    const pointer = dragPointer();
     const layout = useSidePanelStore.getState().layout;
     setEdge(
       over && target?.part === 'content' && target.groupId === groupId && dragged && pointer

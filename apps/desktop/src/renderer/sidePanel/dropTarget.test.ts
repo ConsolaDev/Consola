@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { edgeAt, insertionIndex, pointerAt, splitEdge } from './dropTarget';
+import { edgeAt, insertionIndex, splitEdge } from './dropTarget';
 import { defaultLayout, NEW_TAB, openKind, splitWithTab } from './layout';
 
 const area = { left: 0, top: 0, width: 400, height: 300 };
@@ -63,18 +63,5 @@ describe('splitEdge', () => {
     expect(splitEdge(split, 'g1', 'changes', area, bottom)).toBeNull();
     expect(splitEdge(split, 'g1', 'files', area, bottom)).toBeNull();
     expect(splitEdge(opened('changes', 'files'), 'g1', NEW_TAB, area, bottom)).toBeNull();
-  });
-});
-
-describe('pointerAt', () => {
-  it('is where the press was, moved by the delta', () => {
-    expect(pointerAt({ clientX: 10, clientY: 20 } as unknown as Event, { x: 5, y: -3 })).toEqual({
-      x: 15,
-      y: 17,
-    });
-  });
-
-  it('knows nothing of an event without a position', () => {
-    expect(pointerAt({} as Event, { x: 5, y: -3 })).toBeNull();
   });
 });
