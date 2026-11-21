@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import type { ElectronApplication, Locator, Page } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -346,8 +347,19 @@ test.describe('side panel', () => {
   test('the header shows the three most-used kinds, worked out at launch', async () => {
     await openSession('Paginate the catalog search');
     await expect.poll(headerControls).toEqual(['Changes', 'Files', 'Terminal', 'Show side panel']);
-    // Each says its chord, as main's header toggles did.
     const controls = page.locator('.side-panel-controls');
+    // One upright separator, between the shortcuts and the toggle.
+    const separator = controls.getByRole('separator');
+    await expect(separator).toHaveCount(1);
+    await expect(separator).toHaveAttribute('aria-orientation', 'vertical');
+    const separatorBox = (await separator.boundingBox())!;
+    const lastShortcut = (await controls
+      .getByRole('button', { name: 'Terminal', exact: true })
+      .boundingBox())!;
+    const toggleBox = (await sidePanelToggle().boundingBox())!;
+    expect(separatorBox.x).toBeGreaterThanOrEqual(lastShortcut.x + lastShortcut.width);
+    expect(separatorBox.x + separatorBox.width).toBeLessThanOrEqual(toggleBox.x);
+    // Each says its chord, as main's header toggles did.
     await expect(controls.getByRole('button', { name: 'Files', exact: true })).toHaveAttribute(
       'aria-keyshortcuts',
       process.platform === 'darwin' ? 'Meta+Shift+E' : 'Control+Shift+E',
@@ -420,36 +432,35 @@ test.describe('side panel', () => {
   test('the header keeps its shortcuts and side panel toggle for a session with no checkout', async () => {
     // A worktree a cleanup rule removed, which cannot be rebuilt: its
     // repository is gone too. So the session keeps no checkout to show.
-    await page.evaluate(
-      async ({ worktree, gone, stub }) => {
-        const { workspaces } = await window.workspaceAPI.getSnapshot();
-        const workspace = workspaces.find((candidate) => candidate.name === 'Sprocket')!;
-        const fields = {
-          name: 'Old experiment',
-          nameIsUserSet: true,
-          workspaceId: workspace.id,
-          instanceId: 'side-d',
-          harnessId: stub,
-          scopeId: workspace.scopes[0].id,
-          cwd: worktree,
-          removedWorktree: {
-            path: worktree,
-            mainRepo: gone,
-            commit: 'a'.repeat(40),
-            branch: 'consola/old-experiment',
-            keepRef: 'refs/consola/worktrees/old-experiment',
-            trigger: 'settled',
-            removedAt: Date.now(),
-          },
-        };
-        await window.workspaceAPI.createSession(workspace.id, fields);
+    // `removedWorktree` has one writer in main, which no window reaches, so
+    // the record is written where main keeps it and read at the next launch.
+    await app.close();
+    const stateFile = path.join(`${userDataDir} Test`, 'workspaces.json');
+    const saved = JSON.parse(fs.readFileSync(stateFile, 'utf8')) as {
+      workspaces: { name: string; sessions: Record<string, unknown>[] }[];
+    };
+    const workspace = saved.workspaces.find((candidate) => candidate.name === 'Sprocket')!;
+    const sibling = workspace.sessions.find((session) => session.name === 'Review notes')!;
+    const worktree = path.join(root, 'old-experiment');
+    workspace.sessions.push({
+      ...sibling,
+      id: 'side-d',
+      name: 'Old experiment',
+      instanceId: 'side-d',
+      claudeSessionId: randomUUID(),
+      cwd: worktree,
+      removedWorktree: {
+        path: worktree,
+        mainRepo: path.join(root, 'gone'),
+        commit: 'a'.repeat(40),
+        branch: 'consola/old-experiment',
+        keepRef: 'refs/consola/worktrees/old-experiment',
+        trigger: 'settled',
+        removedAt: Date.now(),
       },
-      {
-        worktree: path.join(root, 'old-experiment'),
-        gone: path.join(root, 'gone'),
-        stub: 'side-panel-stub',
-      },
-    );
+    });
+    fs.writeFileSync(stateFile, JSON.stringify(saved));
+    ({ app, page } = await launchElectron({ userDataDir }));
     await openSession('Old experiment');
     await expect(page.locator('.workspace-view-session')).toHaveText('Old experiment');
     // No folder to show, so no git stats either.
