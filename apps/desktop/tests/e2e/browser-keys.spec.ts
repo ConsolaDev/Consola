@@ -3,7 +3,7 @@ import type { ElectronApplication, Page } from '@playwright/test';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { showBrowser } from './helpers/browserTab';
+import { showBrowser, sidePanelChord } from './helpers/browserTab';
 import { launchElectron, removeProfile } from './helpers/electron';
 import { type FixtureServer, startFixtureServer } from './helpers/fixtureServer';
 
@@ -286,7 +286,7 @@ test.describe('⌘Q and ⌘W with the keyboard in the browser', () => {
     expect(await lastPersonInput(app, tab.id)).toBeGreaterThan(before);
 
     // The same chord from the window shows them again, on the same page.
-    await page.keyboard.press('Meta+Alt+KeyB');
+    await page.keyboard.press(sidePanelChord());
     await expect(panel(page)).toBeVisible();
     await expect(shown).toHaveAttribute('data-presence', 'shown');
 
@@ -347,7 +347,11 @@ test.describe('⌘Q and ⌘W with the keyboard in the browser', () => {
     // keeps it open below is then the keyboard being in the browser, and not
     // the Files tab being out of sight.
     await showBrowser(page);
-    await page.getByRole('tab', { name: 'Browser', exact: true }).click({ button: 'right' });
+    // The side panel's tab, not one of the browser's own tabs.
+    await page
+      .getByRole('tablist', { name: 'Side panel tabs' })
+      .getByRole('tab', { name: 'Browser', exact: true })
+      .click({ button: 'right' });
     await page.getByRole('menuitem', { name: 'Split down', exact: true }).click();
     await expect(panel(page)).toBeVisible();
     await expect(previewTabs).toBeVisible();
@@ -362,7 +366,8 @@ test.describe('⌘Q and ⌘W with the keyboard in the browser', () => {
     // The keyboard is still in the browser, which has nothing left to close.
     await page.keyboard.press('Meta+w');
     await page.waitForTimeout(500);
-    await expect(previewTabs).toHaveCount(1);
+    // Still open, and still on screen beside the browser.
+    await expect(previewTabs).toBeVisible();
     await expect(panel(page)).toBeVisible();
   });
 

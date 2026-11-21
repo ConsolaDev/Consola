@@ -525,7 +525,42 @@ test.describe('in-app browser', () => {
     // Split away from Files: the page follows its tab into the new group.
     const tabs = (list: string) => page.getByRole('tablist', { name: list, exact: true });
     const browserTab = (list: string) => tabs(list).getByRole('tab', { name: 'Browser' });
-    await browserTab('Side panel tabs').click({ button: 'right' });
+    // Pressed low on the tab, so the menu, which opens at the pointer,
+    // reaches past the browser's toolbar over its page.
+    const tabHeight = (await browserTab('Side panel tabs').boundingBox())!.height;
+    await browserTab('Side panel tabs').click({
+      button: 'right',
+      position: { x: 8, y: tabHeight - 2 },
+    });
+    await expect(page.getByRole('menu')).toBeVisible();
+    // The tab's menu draws above the page, where the two overlap. An open
+    // menu stops the pointer everywhere else, the page included, so it is
+    // asked with the page taking the pointer, as it does with no menu open.
+    // Lowered under the app's root, in whose layer the page is drawn, the
+    // menu loses that point to the page: the control, which shows the check
+    // can tell.
+    const onTop = (lowered: boolean) =>
+      page.evaluate((lower) => {
+        const menu = document.querySelector<HTMLElement>('[role="menu"]')!;
+        const layer = menu.closest<HTMLElement>('[data-radix-popper-content-wrapper]') ?? menu;
+        const drawn = document.querySelector<HTMLElement>('.browser-page')!;
+        const a = menu.getBoundingClientRect();
+        const b = document.querySelector('[data-testid="browser-slot"]')!.getBoundingClientRect();
+        const [left, right] = [Math.max(a.left, b.left), Math.min(a.right, b.right)];
+        const [top, bottom] = [Math.max(a.top, b.top), Math.min(a.bottom, b.bottom)];
+        if (left >= right || top >= bottom) return 'apart';
+        const zIndex = layer.style.zIndex;
+        // Under the app's root, whose layer the page is drawn in.
+        if (lower) layer.style.zIndex = '-1';
+        drawn.style.pointerEvents = 'auto';
+        const hit = document.elementFromPoint((left + right) / 2, (top + bottom) / 2);
+        drawn.style.pointerEvents = '';
+        layer.style.zIndex = zIndex;
+        if (hit?.closest('[role="menu"]')) return 'menu';
+        return hit?.closest('.browser-page') ? 'page' : 'neither';
+      }, lowered);
+    expect(await onTop(false)).toBe('menu');
+    expect(await onTop(true)).toBe('page');
     await page.getByRole('menuitem', { name: 'Split down', exact: true }).click();
     await expect(tabs('Top group tabs').getByRole('tab')).toHaveText(['Files']);
     await expect(tabs('Bottom group tabs').getByRole('tab')).toHaveText(['Browser']);
