@@ -854,6 +854,17 @@ test.describe('side panel', () => {
     const caret = page.locator('.side-panel-drop-caret');
     const middle = (box: { x: number; width: number }) => box.x + box.width / 2;
 
+    // The placeholder is never dragged: no caret follows it.
+    const first = await tabBox(sidePanelTab('Changes'));
+    await dragTab(sidePanelTab('New tab'), { x: first.x + 4, y: first.y + first.height / 2 });
+    await page.evaluate(
+      () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))),
+    );
+    await expect(caret).toHaveCount(0);
+    await expect(page.locator('.side-panel-tab[data-dragging]')).toHaveCount(0);
+    await page.mouse.up();
+    await expect(sidePanelTabs().getByRole('tab')).toHaveText(['Changes', 'Files', 'New tab']);
+
     // Past the middle of Files, Changes goes one place along: between Files
     // and the placeholder, counted without Changes itself.
     const files = await tabBox(sidePanelTab('Files'));
