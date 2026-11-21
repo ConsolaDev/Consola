@@ -809,6 +809,24 @@
   cursor: default;
 }
 
+/* The globe's dot: an agent opened or used a page the person has not seen.
+   A literal radius: var(--radius-full) resolves to 0 inside .radix-themes. */
+.path-display-toggle[data-agent-dot] {
+  position: relative;
+}
+
+.path-display-toggle[data-agent-dot]::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  pointer-events: none;
+}
+
 /* Git stats badge */
 .git-stats-badge {
   display: flex;

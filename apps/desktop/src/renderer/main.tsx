@@ -9,6 +9,7 @@ import { hydrateTerminalStatus } from './stores/terminalStore';
 import { hydrateAttention, subscribeToAttention } from './stores/attentionStore';
 import { hydratePreferences, subscribeToPreferences } from './stores/preferencesStore';
 import { hydrateUsageLimits, subscribeToUsageLimits } from './stores/usageLimitsStore';
+import { subscribeToBrowser } from './stores/browserStore';
 import '@fontsource-variable/jetbrains-mono';
 import '@radix-ui/themes/styles.css';
 import './styles/themes/index.css';
@@ -45,6 +46,8 @@ async function bootstrap() {
   subscribeToAttention();
   subscribeToPreferences();
   subscribeToUsageLimits();
+  // Before any panel reads a session's pages, so no push is missed.
+  subscribeToBrowser();
 
   try {
     // Records live in the main process now, so they have to arrive before the

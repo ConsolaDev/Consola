@@ -1,11 +1,11 @@
 import type { ReactNode } from 'react';
 import { SHELL_SHORTCUT_LABEL } from '../../utils/shellShortcut';
 import * as Tooltip from '@radix-ui/react-tooltip';
-import { FolderTree, RotateCw, TerminalSquare } from 'lucide-react';
+import { FolderTree, Globe, RotateCw, TerminalSquare } from 'lucide-react';
 import { useGitStatusStore } from '../../stores/gitStatusStore';
 import { useCheckoutStore } from '../../stores/checkoutStore';
 import { tildePath } from '../../utils/displayPath';
-import { isMac } from '../../utils/platform';
+import { BROWSER_SHORTCUT_LABEL, isMac } from '../../utils/platform';
 
 interface PathDisplayProps {
   path: string;
@@ -15,6 +15,10 @@ interface PathDisplayProps {
   showExplorerToggle?: boolean;
   isExplorerVisible?: boolean;
   onToggleExplorer?: () => void;
+  isBrowserVisible?: boolean;
+  onToggleBrowser?: () => void;
+  /** An agent opened or used the session's browser since its panel last showed it: a dot on the globe. */
+  browserAgentDot?: boolean;
   isTerminalVisible?: boolean;
   onToggleTerminal?: () => void;
   /** More header buttons, placed after the git stats. */
@@ -48,6 +52,9 @@ export function PathDisplay({
   showExplorerToggle = false,
   isExplorerVisible = false,
   onToggleExplorer,
+  isBrowserVisible = false,
+  onToggleBrowser,
+  browserAgentDot = false,
   isTerminalVisible = false,
   onToggleTerminal,
   children,
@@ -57,6 +64,13 @@ export function PathDisplay({
   const isLoading = useGitStatusStore((state) => state.isLoading);
   const isGitRepo = useGitStatusStore((state) => state.isGitRepo);
   const refresh = useGitStatusStore((state) => state.refresh);
+
+  // The dot is drawn; the label says it too, for whoever cannot see it.
+  const browserLabel = isBrowserVisible
+    ? 'Hide browser'
+    : browserAgentDot
+      ? 'Show browser, which the agent used'
+      : 'Show browser';
 
   // The branch lives in the checkout chip beside the title, so a manual
   // refresh re-reads that too: one button, one answer.
@@ -143,6 +157,31 @@ export function PathDisplay({
                 <Tooltip.Content className="tooltip-content" sideOffset={5}>
                   {isExplorerVisible ? 'Hide file explorer' : 'Show file explorer'} (
                   {explorerShortcut})
+                  <Tooltip.Arrow className="tooltip-arrow" />
+                </Tooltip.Content>
+              </Tooltip.Portal>
+            </Tooltip.Root>
+          </Tooltip.Provider>
+        )}
+        {onToggleBrowser && (
+          <Tooltip.Provider delayDuration={300}>
+            <Tooltip.Root>
+              <Tooltip.Trigger asChild>
+                <button
+                  type="button"
+                  className={`path-display-toggle ${isBrowserVisible ? 'active' : ''}`}
+                  onClick={onToggleBrowser}
+                  aria-label={browserLabel}
+                  aria-pressed={isBrowserVisible}
+                  aria-keyshortcuts={isMac ? 'Meta+Shift+L' : 'Control+Shift+L'}
+                  data-agent-dot={browserAgentDot || undefined}
+                >
+                  <Globe size={14} />
+                </button>
+              </Tooltip.Trigger>
+              <Tooltip.Portal>
+                <Tooltip.Content className="tooltip-content" sideOffset={5}>
+                  {browserLabel} ({BROWSER_SHORTCUT_LABEL})
                   <Tooltip.Arrow className="tooltip-arrow" />
                 </Tooltip.Content>
               </Tooltip.Portal>

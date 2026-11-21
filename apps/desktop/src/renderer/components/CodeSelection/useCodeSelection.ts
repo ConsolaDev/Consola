@@ -406,7 +406,8 @@ export function useCodeSelection({
     const handleKeyDown = (e: KeyboardEvent) => {
       const modifier = hasPlatformModifier(e);
 
-      if (modifier && e.key.toLowerCase() === 'l' && selection) {
+      // Shift makes it the browser panel's toggle (⇧⌘L), not this.
+      if (modifier && !e.shiftKey && e.key.toLowerCase() === 'l' && selection) {
         e.preventDefault();
         addToChat();
       }

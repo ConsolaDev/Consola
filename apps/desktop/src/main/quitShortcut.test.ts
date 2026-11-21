@@ -1,5 +1,11 @@
+import { EventEmitter } from 'node:events';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { QUIT_DOUBLE_PRESS_MS, QUIT_HOLD_MS, createQuitShortcut } from './quitShortcut';
+import {
+  attachQuitGuard,
+  QUIT_DOUBLE_PRESS_MS,
+  QUIT_HOLD_MS,
+  createQuitShortcut,
+} from './quitShortcut';
 
 const REPEAT_MS = 35;
 
@@ -153,5 +159,33 @@ describe('createQuitShortcut', () => {
 
     expect(t.prevented()).toBe(0);
     expect(t.notify).not.toHaveBeenCalled();
+  });
+});
+
+describe('attachQuitGuard', () => {
+  it('attaches a guard to a web contents once, so a second attach never makes one ⌘Q a quit', () => {
+    const quit = vi.fn();
+    const guard = createQuitShortcut({ notify: vi.fn(), conceal: vi.fn(), quit });
+    const contents = new EventEmitter();
+    attachQuitGuard(contents, guard);
+    // A page's DevTools reopened, or a contents handed over twice.
+    attachQuitGuard(contents, guard);
+    expect(contents.listenerCount('before-input-event')).toBe(1);
+    const prevented = vi.fn();
+    contents.emit(
+      'before-input-event',
+      { preventDefault: prevented },
+      {
+        type: 'keyDown',
+        key: 'q',
+        meta: true,
+        control: false,
+        alt: false,
+        shift: false,
+        isAutoRepeat: false,
+      },
+    );
+    expect(prevented).toHaveBeenCalled();
+    expect(quit).not.toHaveBeenCalled();
   });
 });

@@ -13,6 +13,7 @@ import { tabFactsFor } from '../../sidePanel/tabKinds';
 import { TerminalPanel } from '../Terminal';
 import { PreviewPanel } from '../PreviewPanel';
 import { SidePanel } from '../SidePanel/SidePanel';
+import { BrowserPanel } from '../Browser';
 import { WorkItemStrip } from '../WorkItemStrip';
 import { WorkItemPanel } from '../WorkItemPanel';
 import { SessionHeader } from './SessionHeader';
@@ -28,6 +29,7 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
   const isExplorerVisible = useNavigationStore((state) => state.isExplorerVisible);
   const isSidePanelVisible = useSidePanelStore((state) => state.layout.visible);
   const isWorkItemPanelVisible = useNavigationStore((state) => state.isWorkItemPanelVisible);
+  const isBrowserVisible = useNavigationStore((state) => state.isBrowserVisible);
 
   const getWorkspace = useWorkspaceStore((state) => state.getWorkspace);
   const getSession = useWorkspaceStore((state) => state.getSession);
@@ -66,6 +68,7 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
     'agent',
     ...(showWorkItemPanel ? ['work-item'] : []),
     ...(hasOpenTabs ? ['preview'] : []),
+    ...(isBrowserVisible ? ['browser'] : []),
     ...(isSidePanelVisible ? ['side-panel'] : []),
   ];
   // Not the id the columns before the side panel saved under, so none of
@@ -149,7 +152,7 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
               could lose the prompt's frame (CLAUDE.md, "Terminals Outlive
               Their Views"). */}
           <Panel id="agent" minSize="20%">
-            <SessionTerminalLayout instanceId={instanceId}>
+            <SessionTerminalLayout instanceId={instanceId} sessionId={session.id}>
               <TerminalPanel
                 instanceId={instanceId}
                 workspaceId={workspaceId}
@@ -184,6 +187,14 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
               <Separator className="resize-handle" />
               <Panel id="preview" defaultSize="40%" minSize="20%">
                 <PreviewPanel />
+              </Panel>
+            </>
+          )}
+          {isBrowserVisible && (
+            <>
+              <Separator className="resize-handle" />
+              <Panel id="browser" defaultSize="45%" minSize="320px">
+                <BrowserPanel sessionId={session.id} instanceId={instanceId} cwd={cwd} />
               </Panel>
             </>
           )}

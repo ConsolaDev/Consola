@@ -1,4 +1,6 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import type { LocalServer } from '../../../shared/browser';
+import { browserBridge } from '../../services/browserBridge';
 import { activityOf } from '../../../shared/attention';
 import { checkoutPathForSession } from '../../../shared/workspace';
 import { TAB_KINDS, tabFactsFor } from '../../sidePanel/tabKinds';
@@ -46,8 +48,36 @@ function sectionLimit(section: PaletteItem['section'], scope: PaletteScope | nul
   return MAX_PER_SECTION;
 }
 
+/**
+ * The servers running from the active session's folder, asked for each time
+ * the palette opens: one `lsof` pair on demand, never while it is closed.
+ * Nothing outside a session, and nothing until the answer arrives.
+ */
+function useLocalServers(open: boolean, sessionId: string | undefined): LocalServer[] {
+  const [servers, setServers] = useState<LocalServer[]>(NO_SERVERS);
+  useEffect(() => {
+    if (!open || !sessionId) {
+      setServers(NO_SERVERS);
+      return;
+    }
+    let cancelled = false;
+    browserBridge.localServers(sessionId).then(
+      (found) => {
+        if (!cancelled) setServers(found ?? NO_SERVERS);
+      },
+      () => {},
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [open, sessionId]);
+  return servers;
+}
+
+const NO_SERVERS: LocalServer[] = [];
+
 /** Live snapshot of everything the palette can act on. */
-export function usePaletteContext(): PaletteContext {
+export function usePaletteContext(open: boolean): PaletteContext {
   const workspaces = useWorkspaceStore((state) => state.workspaces);
   const attention = useAttentionStore((state) => state.records);
   const activeWorkspaceId = useNavigationStore((state) => state.activeWorkspaceId);
@@ -60,6 +90,7 @@ export function usePaletteContext(): PaletteContext {
   const commitMessage = useGitReviewStore((state) => state.commitMessage);
   const terminalFontSize = useSettingsStore((state) => state.terminalFontSize);
   const { openSettings } = useSettings();
+  const localServers = useLocalServers(open, activeSessionId ?? undefined);
 
   const activeWorkspace = useMemo(
     () => workspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? null,
@@ -135,6 +166,7 @@ export function usePaletteContext(): PaletteContext {
       commitMessage,
       tabKinds,
       terminalFontSize,
+      localServers,
       openSettings,
     }),
     [
@@ -151,6 +183,7 @@ export function usePaletteContext(): PaletteContext {
       commitMessage,
       tabKinds,
       terminalFontSize,
+      localServers,
       openSettings,
     ],
   );

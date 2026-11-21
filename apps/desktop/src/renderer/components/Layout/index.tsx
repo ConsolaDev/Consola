@@ -26,6 +26,7 @@ import { useInboxStore } from '../../stores/inboxStore';
 import { Toaster } from '../Toast/Toaster';
 import { QuitHint } from '../QuitHint/QuitHint';
 import { AutoSettleExplanation } from '../AutoSettle/AutoSettleExplanation';
+import { BrowserHost } from '../Browser';
 import './styles.css';
 
 export function Layout() {
@@ -106,6 +107,9 @@ export function Layout() {
       <main className="content-area">
         <MainContent />
       </main>
+      {/* After main, never inside it: pages are drawn over the browser panel's
+          slot from here, so no view change can move or unmount them. */}
+      <BrowserHost />
     </div>
   );
 }

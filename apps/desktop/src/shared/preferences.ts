@@ -1,4 +1,5 @@
 import type { AttentionRecord } from './attention';
+import type { TerminalLinkRule } from './browser';
 import { DEFAULT_WORKTREE_CLEANUP_RULES, type WorktreeCleanupRules } from './worktreeCleanup';
 import { DEFAULT_SNOOZE_PRESETS, type SnoozePresetSetting } from './snooze';
 
@@ -23,6 +24,15 @@ export interface Preferences {
   snoozePresets: SnoozePresetSetting[];
   /** A session that stops on a usage limit snoozes itself until the limit resets. Off by default. */
   snoozeAtUsageLimit: boolean;
+  /** Where a link clicked in a terminal opens. Shift does the opposite for one click. */
+  terminalLinks: TerminalLinkRule;
+}
+
+/** Every rule a terminal link can follow, for validating what main reads or is sent. */
+export const TERMINAL_LINK_RULES: readonly TerminalLinkRule[] = ['local', 'all', 'never'];
+
+export function isTerminalLinkRule(value: unknown): value is TerminalLinkRule {
+  return TERMINAL_LINK_RULES.some((rule) => rule === value);
 }
 
 /** On by default: old work leaves the list by itself, and says so the first time. */
@@ -38,6 +48,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   worktreeCleanup: DEFAULT_WORKTREE_CLEANUP_RULES,
   snoozePresets: [...DEFAULT_SNOOZE_PRESETS],
   snoozeAtUsageLimit: false,
+  terminalLinks: 'local',
 };
 
 /**

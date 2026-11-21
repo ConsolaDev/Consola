@@ -73,6 +73,7 @@ src/shared/         → Shared types and IPC channel constants
 - `harnessSwitch/` - Moves a session onto another harness: plan, handoff documents, `HarnessSwitcher`
 - `sessionTitles/` - Names sessions automatically: `SessionNamer`, title text and prompts
 - `worktreeCleanup/` - Removes Consola's worktrees when their work is done, and rebuilds them: `policy.judge`, `WorktreeExecutor`, `WorktreeRebuilder`, the sweep
+- `browser/` - The in-app browser's tabs and pages, and the agent's tools on them: `BrowserService`, `guestPolicy`, `PageDriver` over `CdpRelay`, `browserTools`
 
 ### Renderer Organization
 - `components/` - React components with co-located `styles.css`
@@ -101,6 +102,14 @@ Bridge services are in `src/renderer/services/`:
 - `dialogBridge.ts` - Native dialogs
 - `fileBridge.ts` - File system reads
 - `gitBridge.ts` - Git status
+- `browserBridge.ts` - In-app browser tabs and page actions
+
+The website's demo runs the renderer against a hand-written stand-in for the
+whole bridge (`apps/website/demo/mock.ts`, typed by `DemoBridge` to hold every
+`window.*API` the app declares, less the few in `Unprovided` that the renderer
+checks for before using). A new API, or a new member of one, must land there
+too, or the site breaks: its Vercel build does not typecheck, so CI's
+`pnpm --filter @consola/website typecheck` is what notices.
 
 ### Terminals Outlive Their Views
 
@@ -144,6 +153,181 @@ textures and contexts) and three scroll fixes in xterm. The runtime reads the
 minified `lib/` files; each hunk is repeated in `src/` so the patch can be
 read. Bumping either package means carrying the patch over or dropping what
 upstream fixed.
+
+### Pages Live in One Place
+
+The in-app browser's pages are `<webview>` guests, and Electron destroys the
+guest of an element that moves. So no page lives in the browser panel, which
+unmounts under every overlay and re-renders on every session switch:
+`BrowserHost`, at the layout's root, holds every page of the window's
+workspace in one parent, in creation order (`hostOrder`), and only ever adds
+or removes one. The panel's slot only says where to draw. A page out of sight
+is `display: none`, or painting but `inert` while an agent reads it
+(`pagePresence`), never `visibility: hidden`, after which Electron 43 can
+leave a macOS guest blank for good. DevTools open in a window of their own
+(`mode: 'detach'`), so the page keeps its whole panel.
+
+- **Main decides what a guest is.** `will-attach-webview` asks `decideAttach`
+  (`browser/guestPolicy.ts`): the workspace's own partition, a web address (or
+  `about:blank`), and preferences built from nothing (sandboxed, no preload,
+  no nested `<webview>`), never copied from the element. Nothing the renderer
+  puts on it is trusted; binding a guest to a tab is checked again
+  (`decideGuestBinding`), and every later navigation goes through main
+  (`browserBridge.navigate`), never `<webview>.src`.
+- **Only a Consola window's main frame may call IPC.** Handlers register
+  through `guardedIpc` (`isTrustedSender`), the second wall behind "no
+  preload", so neither has to be right alone. A page's popup is a
+  `BrowserWindow` too, so "a Consola window" means one `createWindow`
+  registered (`isConsolaContents`), and broadcasts go through
+  `consolaWindows()`, never `BrowserWindow.getAllWindows()`.
+- **Logins are per workspace.** Its pages share the partition
+  `persist:consola-browser-<workspaceId>` (`browserPartitionFor`), whose
+  permission, device, screen-sharing and download rules `configurePartition`
+  (`sessionPolicy.ts`) sets once. Navigation and popups are guarded per guest
+  (`secureGuest`, `installPopupPolicy`), certificates per page.
+- **Electron says yes for a page unless told no.** Left alone it hands a
+  page the first client certificate in the system store and the first
+  matching Bluetooth device, and lets its `beforeunload` keep it.
+  `refusePageRequests` answers each no on every guest (`secureGuest`) and
+  every popup (`hardenPopup`); a new request Electron answers itself goes
+  there. A page never holds an unload: main's own ending of it
+  (`destroyGuest`'s blanking, the navigation guard's revert) must go through.
+- **A page does not outlive its window. The tab list does.** Unlike a PTY, a
+  guest needs a DOM element in a window, so a window that closes or changes
+  workspace takes its pages (`detachWindow`). Main owns the tabs
+  (`BrowserService`), saves them in `browser-state.json` and pushes changes to
+  the workspace's window; a page reloads from its address when shown. Main
+  decides which tabs have a page (`LivePages`, `decideLive`): one hidden for
+  `HIDDEN_UNLOAD_MS` (15 minutes) unloads, and past `MAX_LIVE_PAGES` (8) the
+  least recently shown goes, never the visible page or one an agent's call
+  holds. Tabs go with the session, logins with the workspace
+  (`destroyWorkspace`), its pages ended first (`destroyGuest`) so none writes
+  the cleared partition. A tab on an address also keeps a session that never
+  had a message from being removed as empty (`browsedIn`,
+  `EmptySessionReaper`): the person used it.
+- **A page ends when its window removes the element**, once a snapshot stops
+  calling the tab `live`; until then main blanks it (`destroyGuest`). Never
+  `close()` a loaded guest: on Electron 43 that ends only main's handle while
+  the page runs on, and a `window.open` from it then takes main down. Only a
+  guest refused as it attaches, still on its first load, is stopped and closed
+  (`installGuestPolicy`).
+- **Three Electron traps.** Never stop or load a page inside its own navigation
+  event, which takes the app down (`guardNavigation` waits for it to return).
+  Read a web contents' `id` once, as it is created: a destroyed one throws on
+  `.id`, and in an event handler the throw is swallowed and the entry leaks.
+  It throws on almost any other read too, so each watcher of a page runs on
+  its own (`isolated`): one that throws must not stop the others.
+- **A page keeps its own keys.** A page or popup with the keyboard gets them
+  on its own web contents, so a key rule on the window's, or in the renderer's
+  keydown, never hears them. Main takes the app's chords
+  (`forwardedShortcutFor`) from each page (`forwardGuestShortcuts`) and sends
+  them on `browser:shortcut` to `useKeyboardShortcuts`; a popup closes itself
+  on ⌘W (`popupWindows.ts`), and pages and popups share their window's ⌘Q
+  guard (`createQuitShortcut`, `shareQuitGuard`). ⌘W closes a browser tab only
+  with the keyboard in the browser (`closeShortcut.ts`): a page's ⌘W arrives
+  with its tab, and the window's own counts when focus is in the panel, over
+  a page or in the toolbar's menu (`keyboardPlaceOf`). After a close the
+  keyboard stays in the panel (`browserPanelFocusStore.ts`), so the next ⌘W
+  closes the next tab, and with no tab left it closes nothing. A new
+  window-level shortcut must join the forwarded set, or be attached to pages
+  and popups, or it is dead in a page. A key taken for the app is still the
+  person's input on the tab.
+
+### Agents Use Pages Without Taking Them
+
+An agent uses its session's tabs through the `consola_browser_*` tools, plain
+MCP tools, so nothing branches on a driver id; the tabs are the session's, so
+a harness switch leaves them alone.
+
+- **Tool authority comes from the endpoint.** The tools are on the session's
+  own MCP server (`buildSessionServer`, `browserTools.addTo`), so the caller
+  is the session bound to the socket, never an argument, and a tool reaches
+  only its tabs (`CallerAccess.tab`). The socket and its token are in a file
+  any process of the person's can read, so this boundary, between sessions
+  and between a workspace with agent access on and one with it off, holds
+  against mistakes, not against an agent with a shell that goes looking.
+  `browserRefusal` is the one access rule: no tools for a read-only session
+  or a workspace with agent access off. The server is built when the CLI
+  connects, so turning access on reaches a session at its next start; every
+  call asks again, and again once the page answers (`stillAllowed`). An
+  agent's navigation goes through `BrowserService` by the person's address
+  rules, never Playwright's.
+- **Playwright drives one page, in process.** `PageDriver` hands
+  `playwright-core` a `CdpRelay`, a `ConnectOverCDPTransport` over the guest's
+  `webContents.debugger`. Nothing listens on a port: never
+  `--remote-debugging-port`, which would expose every window, and never a
+  WebSocket. Chromium answers a page's CDP session for the whole app, so
+  `cdpRelayProtocol.ts` is the wall, an allow-list: a command it does not
+  name (`FORWARDED_COMMANDS`) is refused, and logged. Within it: one page and
+  nothing past it (other targets, every site's cookies, where downloads go),
+  no files for the page, no bringing it to front or closing it, no address
+  but http or https. It also swallows Playwright's focus emulation (main's,
+  on only while an act runs) and hides a held dialog from it (it would
+  dismiss it at once). When Playwright needs a command, ask what it reaches
+  first; never widen the list just to make Playwright work.
+- **A page cannot fill main's memory through an agent.** Page text main keeps
+  (a console error, a dialog's message) is a copy (`cutCopy`), never a slice,
+  which keeps the whole original alive. An agent's connection has a budget
+  in events and size (`relayBudget`); past it the relay closes the connection.
+- **Agent input never takes the person's keyboard or the window's focus.**
+  Chromium sends a guest's CDP keys and text to whatever the window has
+  focused (the terminal, say), and a CDP press would focus the page in the
+  window and count as the person's. So the relay refuses all `Input` but a
+  buttonless mouse move or wheel (`inputRefusal`), and acts click and type in
+  the page with synthetic events (`pageInput.ts`, whose functions run in the
+  page and use nothing from the module, not even a constant); a page that
+  insists on a real press may ignore them. An agent's script carries no user
+  gesture (`withoutUserGesture`), so it opens no file chooser or fullscreen,
+  and a popup window needs the person's press (`decidePopup`). Nothing an
+  agent does opens the panel or focuses the window or the page's web contents;
+  an act's in-page `focus()` moves only the page's focus. Its tabs open behind
+  the one showing; its use marks the tab and the globe button.
+- **The person comes first.** Their input on a tab (`PersonInput.noteInput`)
+  is a key or button going down in its page, or a move or answer they make
+  from Consola's controls (`personNavigated`: an address, back, forward,
+  reload, "Continue anyway" past a certificate, a sign-in answered or
+  cancelled), never the window's automatic retry, a timer on a channel of its
+  own that records nothing. An act, evaluate, move or close gives way for
+  `PERSON_INPUT_GUARD_MS` after it (`giveWay`), which must outlast the user
+  activation a real press leaves, or the agent's script could spend it. A tab
+  is in its opener's hands until the other takes it: the agent by moving it,
+  acting or evaluating on it, answering its dialog, or a call that has to load
+  its page (`noteAgentUse`); the person by their input. A download is decided
+  in this order (`downloadRefusal`): none from a tab in the agent's hands;
+  none while a save dialog already waits in the session; the person's input
+  on the tab within the guard pays for one; else the session gets one
+  uninvited download until the person's next input on any of its tabs. A tab
+  its page opens is the person's, and shown, after their input on the opener
+  within the guard; else it opens behind, the agent's if the opener is in the
+  agent's hands, was opened by one, or has a call on it (`placePopupTab`). A
+  new tool or control that moves a tab, acts or answers on it, or loads its
+  page for an agent must record one or the other, or downloads go by the
+  wrong hands, or an agent acts over the person; looking takes nothing.
+  DevTools open on a page shuts the agent out.
+- **Page content is untrusted.** A page can carry text written to instruct the
+  agent, and the agent has a shell. Every answer with page text opens with
+  `UNTRUSTED_NOTE`, and each string the page chose stays on one line
+  (`quoted`), so it cannot pose as Consola's. What an in-page function
+  returns is the page's to shape, so main validates it before wording an
+  answer (`readFillOutcome`).
+- **A dialog is held for the agent, not shown** (`PageDialogs`), only while
+  `shouldHoldDialog` allows: the session may use the browser, an agent is
+  connected, the person gave no input on the tab within the guard, and the tab
+  is in the agent's hands or off screen. A press in the tab hands it to the
+  person; the connection ending, or `DIALOG_HOLD_MS` (60 s), dismisses it. It
+  rests on Electron's internal `-run-dialog` event: unless `takeOver` finds
+  exactly one listener, it warns and leaves the page to native boxes. On a new
+  Electron, check by hand first: raise a `confirm()` on an agent's tab in a
+  normal run and see no `takeOver` warning logged, no box while the agent
+  holds the tab, and a press in the tab hand it to Electron's box. Only then
+  rely on the held confirm in `tests/e2e/browser-agent-safety.spec.ts`, which
+  stops on a new Electron major until the check is done and
+  `DIALOG_TAKEOVER_VERIFIED_ELECTRON_MAJOR` (`screenGuard.ts`) is moved to it.
+  Its screen guard (`keepOffScreen`) swaps the listener for a recorder only if
+  it finds exactly one, and otherwise stops the test before any dialog
+  (`expectOffScreen`). It cannot see Electron also show dialogs another way
+  (nothing asserts on a box on screen), nor what Electron's listener does with
+  a dialog handed back, which the recorder stands in for.
 
 ### Each Workspace Remembers Where It Was Left
 
@@ -568,6 +752,7 @@ All channel names are defined in `src/shared/constants.ts`. Key patterns:
 - `git:*` - Git status and commit message generation
 - `dialog:*` - Native dialogs
 - `worktree-cleanup:*` - Cleanup preview, "Clean up now", history, and a deleted session's outcome
+- `browser:*` - In-app browser tabs, page actions and snapshots; every id is checked against the sender's workspace
 
 Every terminal message carries `instanceId`; there is one terminal per session.
 

@@ -89,6 +89,10 @@
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
 
   /* Z-index layers */
+  /* In-app browser pages float over their panel from the layout's root (an
+     element that moves loses its page). Under everything that must draw over
+     a page: the sidebar's drag ghost, menus, tooltips, dialogs, the toaster. */
+  --z-browser-page: 50;
   --z-sidebar: 100;
   --z-dropdown: 150;
   --z-tooltip: 200;

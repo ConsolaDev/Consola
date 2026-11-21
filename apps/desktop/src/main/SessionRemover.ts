@@ -6,6 +6,10 @@ export interface SessionRemoverDeps {
   /** The agent PTY and its attention state (badge, notification edge). */
   destroyTerminal(instanceId: string): void;
   destroyShell(instanceId: string): void;
+  /** The session's browser tabs and the pages behind them. */
+  destroyBrowser(sessionId: string): void;
+  /** The screenshots it sent from its browser, as files. */
+  removeCaptures(sessionId: string): Promise<void>;
   /** The session's MCP endpoint: socket, config file and live connections. */
   releaseMcp(sessionId: string): void;
   /**
@@ -62,6 +66,21 @@ export class SessionRemover {
    */
   public discard(session: Pick<Session, 'id' | 'instanceId' | 'removedWorktree'>): void {
     this.stop(session);
+    // Not in stop(): a stopped session keeps its record, and its tabs with it.
+    // On its own, so a browser teardown that throws cannot skip what follows,
+    // nor a workspace delete's clearing of its logins after it.
+    try {
+      this.deps.destroyBrowser(session.id);
+    } catch (error) {
+      console.error(`Could not close the browser tabs of session ${session.id}:`, error);
+    }
+    try {
+      this.deps.removeCaptures(session.id).catch((error) => {
+        console.error(`Could not delete the browser captures of session ${session.id}:`, error);
+      });
+    } catch (error) {
+      console.error(`Could not delete the browser captures of session ${session.id}:`, error);
+    }
     try {
       this.deps.releaseRemovedWorktree?.(session);
     } catch (error) {

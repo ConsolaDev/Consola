@@ -3,6 +3,7 @@ import {
   FolderPlus,
   FolderTree,
   GitCommit,
+  Globe,
   Minus,
   PanelLeft,
   PanelRight,
@@ -15,6 +16,7 @@ import {
   Sparkles,
   Trash2,
 } from 'lucide-react';
+import type { LocalServer } from '../../../shared/browser';
 import type { GitFileStatus } from '../../types/electron';
 import type { SettingsSection } from '../Dialogs/settingsSections';
 import type { Harness } from '../../stores/harnessStore';
@@ -33,9 +35,10 @@ import {
 } from '../../stores/settingsStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { dialogBridge } from '../../services/dialogBridge';
+import { focusSessionAddressBar, openInSessionBrowser } from '../Browser/browserActions';
 import { createQuickSession, openNewSessionDialog } from '../../utils/sessionActions';
 import { workspaceStatusFor, type AttentionMap } from '../../utils/sessionStatus';
-import { isMac, WORKING_SHELF_SHORTCUT_LABEL } from '../../utils/platform';
+import { BROWSER_SHORTCUT_LABEL, isMac, WORKING_SHELF_SHORTCUT_LABEL } from '../../utils/platform';
 import type {
   PaletteMode,
   ActionPaletteItem,
@@ -73,6 +76,8 @@ export interface PaletteContext {
   /** The side panel's tab kinds for the active session, in registry order; empty without one. */
   tabKinds: Array<{ id: TabKindId; title: string; available: boolean }>;
   terminalFontSize: number;
+  /** Servers running from the active session's folder, read when the palette opened. */
+  localServers: LocalServer[];
   openSettings: (section?: SettingsSection) => void;
 }
 
@@ -227,6 +232,33 @@ export function buildActionItems(ctx: PaletteContext): ActionPaletteItem[] {
       shortcutHint: isMac ? '⇧⌘E' : 'Ctrl+Shift+E',
       run: () => useNavigationStore.getState().toggleExplorer(),
     });
+    items.push({
+      kind: 'action',
+      section: 'actions',
+      id: 'action.view.toggle-browser',
+      label: 'Toggle browser',
+      icon: Globe,
+      shortcutHint: BROWSER_SHORTCUT_LABEL,
+      run: () => useNavigationStore.getState().toggleBrowser(),
+    });
+    items.push({
+      kind: 'action',
+      section: 'actions',
+      id: 'action.browser.open-address',
+      label: 'Open address in browser…',
+      icon: Globe,
+      run: () => void focusSessionAddressBar(activeSession.id),
+    });
+    for (const server of ctx.localServers) {
+      items.push({
+        kind: 'action',
+        section: 'actions',
+        id: `action.browser.open-server.${server.port}`,
+        label: `Open localhost:${server.port} — ${server.command}`,
+        icon: Globe,
+        run: () => void openInSessionBrowser(activeSession.id, server.url),
+      });
+    }
   }
 
   // One row per tab kind that applies to the active session. The side panel

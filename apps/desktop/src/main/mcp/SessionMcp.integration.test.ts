@@ -202,6 +202,8 @@ beforeEach(() => {
       registry,
       approvals: { request: requestApproval },
       conductorTools,
+      // Their own suite covers them (browser/browserTools.test.ts).
+      browserTools: { addTo: () => {} },
       getWorkspaces: workspaces,
     });
   host = new SessionMcpHost({

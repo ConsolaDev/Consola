@@ -1,10 +1,20 @@
-import { BrowserWindow, app, screen, shell } from 'electron';
+import { BrowserWindow, app, screen, session, shell, type WebContents } from 'electron';
 import * as path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import type { WindowContext, AutomationsRequest, WorkspaceView } from '../shared/types';
 import { JsonStateFile } from './state/JsonStateFile';
 import { IPC_CHANNELS } from '../shared/constants';
 import { isBackgroundTest } from './test-mode';
-import { createQuitShortcut } from './quitShortcut';
+import { decideAppNavigation, installGuestPolicy } from './browser/guestPolicy';
+import { configurePartition } from './browser/sessionPolicy';
+import {
+  consolaWindowClosed,
+  forgetConsolaContents,
+  registerConsolaContents,
+} from './windowRegistry';
+import { attachQuitGuard, createQuitShortcut } from './quitShortcut';
+
+const DEV_SERVER_ORIGIN = 'http://localhost:5173';
 
 /**
  * The open windows, and which workspace each one holds.
@@ -52,6 +62,9 @@ export interface ViewMemoryAccess {
  */
 let lastHeldWorkspaceId: string | null = null;
 
+/** Each Consola window's ⌘Q guard (macOS), by the window's web contents id. */
+const quitGuards = new Map<number, ReturnType<typeof createQuitShortcut>>();
+
 export function createWindow(
   context: WindowContext = EMPTY_CONTEXT,
   bounds?: Electron.Rectangle,
@@ -80,6 +93,10 @@ export function createWindow(
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: false,
+      // Lets the renderer embed the in-app browser's pages. What a guest may be
+      // is decided in main on every attach (`installGuestPolicy`), never by
+      // what the renderer puts on the element.
+      webviewTag: true,
       // Chromium throttles timers in a window it considers non-visible,
       // which would stretch the suite's waits into flakiness.
       backgroundThrottling: !isTest,
@@ -98,6 +115,14 @@ export function createWindow(
     return { action: 'deny' };
   });
 
+  // The app's own window never navigates away from the app: a link or script
+  // that moved it would put a foreign page where the preload bridge is.
+  const pageFileUrl = pathToFileURL(path.join(__dirname, '../../../dist/renderer/index.html')).href;
+  window.webContents.on('will-navigate', (event, url) => {
+    const own = isDev ? { devOrigin: DEV_SERVER_ORIGIN } : { pageFileUrl };
+    if (!decideAppNavigation(url, own)) event.preventDefault();
+  });
+
   // ⌘Q quits only when held or pressed twice (quitShortcut.ts). macOS only:
   // elsewhere the quit chord is Ctrl+Q, which the terminal needs as a byte.
   if (process.platform === 'darwin') {
@@ -110,10 +135,13 @@ export function createWindow(
         if (window.isDestroyed()) return;
         if (window.isFullScreen()) window.setFullScreen(false);
         window.setOpacity(0);
+        // A page's popups are the window's children: they hide with it.
+        for (const child of window.getChildWindows()) child.setOpacity(0);
       },
       quit: () => app.quit(),
     });
     window.webContents.on('before-input-event', quitShortcut);
+    quitGuards.set(window.webContents.id, quitShortcut);
   }
 
   // Captured now, not in the handler: by the time 'closed' fires Electron has
@@ -121,9 +149,19 @@ export function createWindow(
   // native event dispatch swallows it. The entry would leak forever.
   const windowId = window.webContents.id;
   contexts.set(windowId, { workspaceId: context.workspaceId });
+  registerConsolaContents(windowId);
+
+  installGuestPolicy(window, {
+    workspaceOf: () => getWorkspaceFor(window),
+    prepare: (partition) => {
+      const target = session.fromPartition(partition);
+      configurePartition(partition, target);
+      return target;
+    },
+  });
 
   if (isDev) {
-    window.loadURL('http://localhost:5173');
+    window.loadURL(DEV_SERVER_ORIGIN);
     window.webContents.openDevTools();
   } else {
     window.loadFile(path.join(__dirname, '../../../dist/renderer/index.html'));
@@ -137,9 +175,27 @@ export function createWindow(
     // already what happens with nothing remembered at all.
     if (closing?.workspaceId) lastHeldWorkspaceId = closing.workspaceId;
     contexts.delete(windowId);
+    quitGuards.delete(windowId);
+    forgetConsolaContents(windowId);
+    consolaWindowClosed(window);
   });
 
   return window;
+}
+
+/**
+ * Holds ⌘Q back in `contents` by `window`'s own guard: a page the window
+ * shows, a popup one of its pages opened, or a page's DevTools window. Whatever has the keyboard gets
+ * the key on its own web contents, so without this the window's guard never
+ * sees it and the menu's Quit takes one press. One guard for all of them, so
+ * a second press counts wherever the first one landed, and the hint shows in
+ * the window.
+ */
+export function shareQuitGuard(window: BrowserWindow, contents: WebContents): void {
+  if (window.isDestroyed() || contents.isDestroyed()) return;
+  const guard = quitGuards.get(window.webContents.id);
+  // Once per contents, however often it is handed over (`attachQuitGuard`).
+  if (guard) attachQuitGuard(contents, guard);
 }
 
 /** Which workspace a window holds, or undefined if it is not in the registry. */
@@ -215,8 +271,25 @@ export function focusOrCreate(
   return createWindow({ workspaceId, ...view });
 }
 
+/**
+ * The app's own windows. Every broadcast and every "any window" choice goes
+ * through here rather than `BrowserWindow.getAllWindows()`, which also lists a
+ * page's popup: app data sent to it would reach untrusted content.
+ */
+export function consolaWindows(): BrowserWindow[] {
+  return BrowserWindow.getAllWindows().filter(
+    (window) => !window.isDestroyed() && contexts.has(window.webContents.id),
+  );
+}
+
+/** The focused window, if it is one of the app's own. */
+export function getFocusedConsolaWindow(): BrowserWindow | null {
+  const focused = BrowserWindow.getFocusedWindow();
+  return focused && consolaWindows().includes(focused) ? focused : null;
+}
+
 export function getAnyWindow(): BrowserWindow | null {
-  return BrowserWindow.getAllWindows()[0] ?? null;
+  return consolaWindows()[0] ?? null;
 }
 
 /**
@@ -449,7 +522,7 @@ export function restoreWindowLayout(
   // Checked rather than assumed: a failure part-way through the loop has
   // already opened windows, and a blank extra one on top would be its own
   // small bug.
-  if (BrowserWindow.getAllWindows().length === 0) {
+  if (consolaWindows().length === 0) {
     createWindow();
   }
 }

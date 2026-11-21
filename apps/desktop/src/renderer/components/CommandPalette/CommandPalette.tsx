@@ -83,7 +83,7 @@ export function CommandPalette({ open, onOpenChange, initialScope }: CommandPale
   const rowRefs = useRef(new Map<number, HTMLDivElement>());
 
   const mode = modeStack[modeStack.length - 1];
-  const context = usePaletteContext();
+  const context = usePaletteContext(open);
   const { groups, flat } = usePaletteResults(open, mode, scope, query, context);
   const { title, placeholder } = useMemo(() => describeMode(mode, scope), [mode, scope]);
 
