@@ -1,0 +1,97 @@
+import { type ComponentType, useState } from 'react';
+import { isInFront } from '../../sidePanel/layout';
+import type { TabFacts, TabKindId } from '../../sidePanel/tabKinds';
+import { useSidePanelStore } from '../../stores/sidePanelStore';
+import { BrowserPanel } from '../Browser';
+import { GitReviewPanel } from '../GitReviewPanel';
+import { ShellPanel } from '../Terminal/ShellPanel';
+import { WorkItemPanel } from '../WorkItemPanel';
+import { FilesTab } from './FilesTab';
+
+export interface TabViewProps {
+  facts: TabFacts;
+  /** Closes this tab, as its close button does. */
+  close: () => void;
+}
+
+/**
+ * The session's pull request or issue. The pane reads the item's details
+ * from GitHub, as the workspace's account, as soon as it mounts, and a pane
+ * nobody can see must not spend that account's request budget. So it mounts
+ * only once this tab has been in front on screen, and from then on stays
+ * mounted behind other tabs, keeping its drafts, scroll and own tab. The slot
+ * is keyed by session, so arriving on another session starts unseen again:
+ * with the tab behind, nothing is read until the person brings it forward.
+ */
+function PullRequestView({ facts, close }: TabViewProps) {
+  const inFront = useSidePanelStore((state) => isInFront(state.layout, 'pull-request'));
+  const [hasBeenInFront, setHasBeenInFront] = useState(inFront);
+  // Derived from the previous render, so set during render rather than in an
+  // effect: the pane mounts in the same commit that brings the tab forward.
+  if (inFront && !hasBeenInFront) setHasBeenInFront(true);
+
+  // Pull request is unavailable without a linked item, so that null never shows.
+  const workItem = facts.session.workItem;
+  if (!hasBeenInFront || !workItem) return null;
+  return (
+    <WorkItemPanel
+      workspaceId={facts.workspace.id}
+      session={facts.session}
+      workItem={workItem}
+      onClose={close}
+    />
+  );
+}
+
+/**
+ * The session's shell. Terminal mounts only in front, so this mounts each
+ * time the tab comes in front on screen and attaches, which spawns the shell
+ * the first time and otherwise repaints it from main's snapshot. It takes the
+ * keyboard only when the person's own action brought the tab in front, never
+ * when a session switch, a relaunch or a return from an overlay mounts it.
+ */
+function TerminalView({ facts }: TabViewProps) {
+  return (
+    <ShellPanel
+      key={facts.session.instanceId}
+      instanceId={facts.session.instanceId}
+      sessionId={facts.session.id}
+      focusOnAttach={() => useSidePanelStore.getState().takeFocusRequest('terminal')}
+    />
+  );
+}
+
+/**
+ * The session's browser: main's own panel, unchanged. Browser mounts only in
+ * front, so this mounts exactly while its tab is in front on screen, which is
+ * when it claims the slot its page is drawn over and clears the agent's dot.
+ * The pages are never in here: they live in `BrowserHost`, so the tab going
+ * behind, its group hidden or the side panel hidden only hides the page.
+ */
+function BrowserView({ facts }: TabViewProps) {
+  return (
+    <BrowserPanel
+      sessionId={facts.session.id}
+      instanceId={facts.session.instanceId}
+      cwd={facts.checkoutPath ?? ''}
+    />
+  );
+}
+
+/**
+ * What each kind shows in its tab. Keyed by every kind id, so a kind added to
+ * the registry without a view does not typecheck. A view is rendered only
+ * where `bodyFor` answers 'view', which is the gate its own effects sit behind.
+ * Each is a component, rendered as one, so the hooks a view uses are its own
+ * and never join those of the slot that holds it.
+ */
+export const TAB_VIEWS: Record<TabKindId, ComponentType<TabViewProps>> = {
+  changes: ({ facts, close }) => (
+    <GitReviewPanel instanceId={facts.session.instanceId} onClose={close} />
+  ),
+  // Files is unavailable whenever there is no path, so the null never shows.
+  files: ({ facts }) => (facts.checkoutPath ? <FilesTab rootPath={facts.checkoutPath} /> : null),
+  terminal: TerminalView,
+  browser: BrowserView,
+  'pull-request': PullRequestView,
+};

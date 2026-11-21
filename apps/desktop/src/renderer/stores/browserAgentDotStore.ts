@@ -3,11 +3,12 @@ import type { BrowserSessionSnapshot } from '../../shared/browser';
 import { useBrowserSlotStore } from './browserSlotStore';
 
 /**
- * The dot on a session's globe button: an agent opened or used one of the
- * session's tabs while the browser panel was not showing that session. An
- * agent never opens the panel itself, since nothing it does may change what
+ * The Browser kind's mark for a session: an agent opened or used one of the
+ * session's tabs while no Browser tab was showing that session. An agent
+ * never opens the Browser tab itself, since nothing it does may change what
  * the person is looking at, so this is how the person learns there is
- * something to look at. It goes out when the panel shows the session.
+ * something to look at. It goes out when a Browser tab shows the session.
+ * Where it is drawn is `markPlaces`' to say.
  *
  * Per window and never persisted, like the snapshots it is read from.
  */

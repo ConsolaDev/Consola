@@ -50,10 +50,15 @@ export function CodeFileView({ filePath }: CodeFileViewProps) {
   return (
     <div className="code-file-view">
       <div ref={contentRef} tabIndex={0} className="code-file-content">
+        {/* The <pre> is what scrolls, so Tab stops on it and a click on the
+            code focuses it: either way the keys then scroll it. 0, not -1:
+            a keyboard user has to reach it to scroll it, as on main, where
+            the overflowing <pre> was a Tab stop by itself. */}
         <SyntaxHighlighter
           style={codeTheme}
           language={language}
           showLineNumbers
+          tabIndex={0}
           customStyle={{
             ...codeCustomStyle,
             height: '100%',

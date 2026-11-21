@@ -1,20 +1,21 @@
 import { browserBridge } from '../../services/browserBridge';
 import { requestAddressFocus } from '../../stores/addressFocusStore';
 import { activeTabOf, loadBrowser, useBrowserStore } from '../../stores/browserStore';
-import { useNavigationStore } from '../../stores/navigationStore';
+import { useSidePanelStore } from '../../stores/sidePanelStore';
 import { isBlankUrl } from './browserView';
 
 /** The palette closes and hands focus back; the address bar asks for it once that has settled. */
 const FOCUS_AFTER_PALETTE_MS = 150;
 
 /**
- * Opens an address in a session's browser, for the palette's rows: shows the
- * panel, and loads the address in a blank tab if that is what is showing, else
- * in a new tab so the page the person was on stays. A session at its tab cap
- * reuses the one showing.
+ * Opens an address in a session's browser, for the palette's rows: opens the
+ * Browser tab, and loads the address in a blank tab if that is what is
+ * showing, else in a new tab so the page the person was on stays. A session
+ * at its tab cap reuses the one showing.
  */
 export async function openInSessionBrowser(sessionId: string, url: string): Promise<void> {
-  useNavigationStore.getState().setBrowserVisible(true);
+  // The person's own palette row, so it counts as a use of the kind.
+  useSidePanelStore.getState().openKind('browser');
   try {
     await loadBrowser(sessionId);
     const tab = activeTabOf(
@@ -31,13 +32,13 @@ export async function openInSessionBrowser(sessionId: string, url: string): Prom
 }
 
 /**
- * Puts the caret in the address bar of the session's browser, showing the
- * panel and a blank tab first when there is none, so the person can type
- * where the address will go. The one other place focus enters the panel, and
- * like the chord it only ever follows the person's own action.
+ * Puts the caret in the address bar of the session's browser, opening the
+ * Browser tab and a blank page tab first when there is none, so the person
+ * can type where the address will go. The one other place focus enters the
+ * browser, and like the chord it only ever follows the person's own action.
  */
 export async function focusSessionAddressBar(sessionId: string): Promise<void> {
-  useNavigationStore.getState().setBrowserVisible(true);
+  useSidePanelStore.getState().openKind('browser');
   let tabId: string | null = null;
   try {
     await loadBrowser(sessionId);

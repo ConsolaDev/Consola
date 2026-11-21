@@ -3,6 +3,7 @@ import type { ElectronApplication, Page } from '@playwright/test';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { showBrowser, sidePanelChord } from './helpers/browserTab';
 import { launchElectron, removeProfile } from './helpers/electron';
 import { type FixtureServer, startFixtureServer } from './helpers/fixtureServer';
 
@@ -74,13 +75,6 @@ const address = (page: Page) => page.getByRole('textbox', { name: 'Address' });
 const quitHint = (page: Page) =>
   page.getByRole('status').filter({ hasText: 'Hold ⌘Q or press twice to quit' });
 
-async function showBrowser(page: Page): Promise<void> {
-  if (!(await panel(page).isVisible())) {
-    await page.getByRole('button', { name: /^(Show|Hide) browser$/ }).click();
-  }
-  await expect(panel(page)).toBeVisible();
-}
-
 async function typeAddress(page: Page, text: string): Promise<void> {
   await address(page).click();
   await address(page).fill(text);
@@ -96,7 +90,7 @@ async function tabsOf(page: Page, sessionId: string): Promise<{ id: string; url:
 /** Opens a tab on each address, in order; the last one is left showing. */
 async function openTabs(page: Page, sessionId: string, files: string[]): Promise<void> {
   for (const [index, file] of files.entries()) {
-    if (index > 0) await page.getByRole('button', { name: 'New tab', exact: true }).click();
+    if (index > 0) await panel(page).getByRole('button', { name: 'New tab', exact: true }).click();
     await typeAddress(page, `${fixtures.host}${file}`);
   }
   await expect
@@ -183,7 +177,7 @@ async function pressInPage(
   where: Where,
   url: string,
   key: string,
-  modifiers: Array<'meta'> = ['meta'],
+  modifiers: Array<'meta' | 'alt' | 'shift'> = ['meta'],
 ): Promise<void> {
   await app.evaluate(
     ({ BrowserWindow, webContents }, args) => {
@@ -261,6 +255,51 @@ test.describe('⌘Q and ⌘W with the keyboard in the browser', () => {
     expect(await tabsOf(page, sessionId)).toEqual([tab]);
   });
 
+  test('⌥⌘B and ⇧⌘L in a page hide the side panel and the browser with it, and the page never hears them', async () => {
+    const url = fixtures.url('/a.html');
+    await openTabs(page, sessionId, ['/a.html']);
+    await loaded(app, 'guest', url);
+    await recordPageKeys(app, 'guest', url);
+    const [tab] = await tabsOf(page, sessionId);
+    const shown = page.locator(`.browser-page[data-tab-id="${tab.id}"]`);
+    await expect(shown).toHaveAttribute('data-presence', 'shown');
+    const before = (await lastPersonInput(app, tab.id)) ?? 0;
+    const conversation = page.locator('[data-conversation-terminal] .terminal-surface textarea');
+    /** The keyboard in the page, as a click in it leaves it. */
+    const keyboardInPage = async () => {
+      await shown.locator('webview').evaluate((webview) => (webview as HTMLElement).focus());
+      expect(await page.evaluate(() => document.activeElement?.tagName)).toBe('WEBVIEW');
+    };
+
+    // The side panel's chord, with the keyboard in the page. The page goes
+    // with the side panel, so the keyboard goes back to the conversation,
+    // never to the window's body.
+    await keyboardInPage();
+    await pressInPage(app, 'guest', url, 'B', ['meta', 'alt']);
+    await expect(page.getByTestId('side-panel')).toHaveCount(0);
+    await expect(panel(page)).toHaveCount(0);
+    await expect(shown).toHaveAttribute('data-presence', 'hidden');
+    await expect(conversation).toBeFocused();
+    // Taken for the app, so the page never saw it, and still the person's
+    // own key on the tab.
+    expect(await pageKeys(app, 'guest', url)).toEqual(['a']);
+    expect(await lastPersonInput(app, tab.id)).toBeGreaterThan(before);
+
+    // The same chord from the window shows them again, on the same page.
+    await page.keyboard.press(sidePanelChord());
+    await expect(panel(page)).toBeVisible();
+    await expect(shown).toHaveAttribute('data-presence', 'shown');
+
+    // The Browser tab's own chord, in the page with its tab in front, hides it too.
+    await keyboardInPage();
+    await pressInPage(app, 'guest', url, 'L', ['meta', 'shift']);
+    await expect(page.getByTestId('side-panel')).toHaveCount(0);
+    await expect(shown).toHaveAttribute('data-presence', 'hidden');
+    await expect(conversation).toBeFocused();
+    expect(await pageKeys(app, 'guest', url)).toEqual(['a']);
+    expect(await tabsOf(page, sessionId)).toEqual([tab]);
+  });
+
   test('⌘W in a page closes its tab and only that one, and the keyboard stays in the browser', async () => {
     await openTabs(page, sessionId, ['/a.html', '/b.html', '/c.html']);
     const [a, b, c] = await tabsOf(page, sessionId);
@@ -299,10 +338,23 @@ test.describe('⌘Q and ⌘W with the keyboard in the browser', () => {
   });
 
   test('after the last browser tab, ⌘W in the browser leaves the preview panel’s file open', async () => {
-    await page.getByRole('button', { name: 'Show file explorer', exact: true }).click();
-    await page.getByTestId('explorer').getByText('agent.sh', { exact: true }).click();
+    await page.getByRole('button', { name: 'Files', exact: true }).click();
+    await page.getByTestId('files-tree').getByText('agent.sh', { exact: true }).click();
     const previewTabs = page.locator('.preview-tab');
     await expect(previewTabs).toHaveCount(1);
+    // Files took the Browser tab's place in front of its group: bring it back,
+    // then split it away, so the file is on screen beside the browser. What
+    // keeps it open below is then the keyboard being in the browser, and not
+    // the Files tab being out of sight.
+    await showBrowser(page);
+    // The side panel's tab, not one of the browser's own tabs.
+    await page
+      .getByRole('tablist', { name: 'Side panel tabs' })
+      .getByRole('tab', { name: 'Browser', exact: true })
+      .click({ button: 'right' });
+    await page.getByRole('menuitem', { name: 'Split down', exact: true }).click();
+    await expect(panel(page)).toBeVisible();
+    await expect(previewTabs).toBeVisible();
 
     const url = fixtures.url('/a.html');
     await openTabs(page, sessionId, ['/a.html']);
@@ -314,7 +366,8 @@ test.describe('⌘Q and ⌘W with the keyboard in the browser', () => {
     // The keyboard is still in the browser, which has nothing left to close.
     await page.keyboard.press('Meta+w');
     await page.waitForTimeout(500);
-    await expect(previewTabs).toHaveCount(1);
+    // Still open, and still on screen beside the browser.
+    await expect(previewTabs).toBeVisible();
     await expect(panel(page)).toBeVisible();
   });
 

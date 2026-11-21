@@ -1,12 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import { type CloseState, closeTarget } from './closeShortcut';
 
-/** A session pane with nothing else open, and the keyboard outside the browser. */
+/**
+ * A session pane with nothing else open, the Files tab in front on screen
+ * (so a preview, when one is open, is showing), and the keyboard outside the
+ * browser.
+ */
 function state(overrides: Partial<CloseState> = {}): CloseState {
   return {
     overlay: null,
     activeSessionId: 's1',
     activePreviewTabId: null,
+    filesTabOnScreen: true,
     shownBrowserTabId: null,
     keyboard: { in: 'elsewhere' },
     ...overrides,
@@ -25,6 +30,10 @@ describe('closeTarget', () => {
 
   it('closes the active preview tab beside a session', () => {
     expect(closeTarget(state({ activePreviewTabId: '/a.ts' }))).toBe('preview-tab');
+  });
+
+  it('leaves a preview alone while the Files tab is behind or hidden', () => {
+    expect(closeTarget(state({ activePreviewTabId: '/a.ts', filesTabOnScreen: false }))).toBeNull();
   });
 
   it('leaves tabs alone when no session pane is showing them', () => {

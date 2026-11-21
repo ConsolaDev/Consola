@@ -1,21 +1,16 @@
-import { SessionTerminalLayout } from '../Terminal/SessionTerminalLayout';
 import { useEffect, useMemo } from 'react';
 import { Group, Panel, Separator, useDefaultLayout } from 'react-resizable-panels';
 import { checkoutPathForSession, scopeForSession } from '../../../shared/workspace';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { useHarnessStore } from '../../stores/harnessStore';
-import { usePreviewTabStore } from '../../stores/previewTabStore';
-import { useNavigationStore } from '../../stores/navigationStore';
 import { useGitStatusAutoRefresh } from '../../stores/gitStatusStore';
-import { useGitReviewStore } from '../../stores/gitReviewStore';
+import { useCheckout } from '../../stores/checkoutStore';
+import { useSidePanelStore } from '../../stores/sidePanelStore';
+import { tabFactsFor } from '../../sidePanel/tabKinds';
 import { TerminalPanel } from '../Terminal';
-import { PreviewPanel } from '../PreviewPanel';
-import { GitReviewPanel } from '../GitReviewPanel';
-import { BrowserPanel } from '../Browser';
+import { SidePanel } from '../SidePanel/SidePanel';
 import { WorkItemStrip } from '../WorkItemStrip';
-import { WorkItemPanel } from '../WorkItemPanel';
 import { SessionHeader } from './SessionHeader';
-import { FileExplorer } from '../FileExplorer';
 import './styles.css';
 
 interface ContentViewProps {
@@ -24,17 +19,11 @@ interface ContentViewProps {
 }
 
 export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
-  const isExplorerVisible = useNavigationStore((state) => state.isExplorerVisible);
-  const isGitReviewOpen = useGitReviewStore((state) => state.isOpen);
-  const isWorkItemPanelVisible = useNavigationStore((state) => state.isWorkItemPanelVisible);
-  const isBrowserVisible = useNavigationStore((state) => state.isBrowserVisible);
+  const isSidePanelVisible = useSidePanelStore((state) => state.layout.visible);
 
   const getWorkspace = useWorkspaceStore((state) => state.getWorkspace);
   const getSession = useWorkspaceStore((state) => state.getSession);
   const updateSession = useWorkspaceStore((state) => state.updateSession);
-  const openFile = usePreviewTabStore((state) => state.openFile);
-  const hasOpenTabs = usePreviewTabStore((state) => state.tabs.length > 0);
-  const activePreviewTabId = usePreviewTabStore((state) => state.activeTabId);
 
   const workspace = getWorkspace(workspaceId);
 
@@ -51,23 +40,17 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
   // show, but the terminal still launches where the session belongs: main
   // rebuilds the worktree there before it spawns.
   const terminalCwd = cwd || (session?.removedWorktree ? (session.cwd ?? scope?.path ?? '') : '');
-  // Details are read as the workspace's account, so a workspace without one
-  // has nothing to show even when the session still names an item.
-  const showWorkItemPanel =
-    isWorkItemPanelVisible && Boolean(session?.workItem) && Boolean(workspace?.provider);
+  // What the side panel's tabs read: `useTabFacts`, split around the early
+  // return below, since hooks cannot wait for the session to be found.
+  const checkout = useCheckout(cwd || null);
 
-  // Conditional panels must have separate saved layouts: hiding the explorer
-  // must not overwrite the layout that remembers its width.
-  const panelIds = [
-    ...(isExplorerVisible && cwd ? ['explorer'] : []),
-    'agent',
-    ...(showWorkItemPanel ? ['work-item'] : []),
-    ...(hasOpenTabs ? ['preview'] : []),
-    ...(isGitReviewOpen ? ['git-review'] : []),
-    ...(isBrowserVisible ? ['browser'] : []),
-  ];
+  // Conditional panels must have separate saved layouts: hiding the side
+  // panel must not overwrite the layout that remembers its width.
+  const panelIds = ['agent', ...(isSidePanelVisible ? ['side-panel'] : [])];
+  // Not the id the columns before the side panel saved under, so none of
+  // their layouts is read back.
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({
-    id: 'content-view-split',
+    id: 'session-pane',
     panelIds,
     storage: localStorage,
   });
@@ -111,9 +94,7 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
     );
   }
 
-  const handleSelectFile = (path: string) => {
-    openFile(path);
-  };
+  const facts = tabFactsFor(workspace, session, checkout);
 
   return (
     <div className="workspace-view">
@@ -125,69 +106,38 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
           defaultLayout={defaultLayout}
           onLayoutChanged={onLayoutChanged}
         >
-          {isExplorerVisible && cwd && (
-            <>
-              <Panel id="explorer" defaultSize="240px" minSize="160px" maxSize="40%">
-                <FileExplorer
-                  rootPath={cwd}
-                  selectedPath={activePreviewTabId}
-                  onSelectFile={handleSelectFile}
-                />
-              </Panel>
-              <Separator className="resize-handle" />
-            </>
-          )}
+          {/* The conversation. It stays an unconditional child of this Group,
+              with no wrapper that differs between layouts and the same key,
+              so opening, closing or resizing the side panel only resizes it:
+              a remount would reattach the terminal at a captured size and
+              could lose the prompt's frame (CLAUDE.md, "Terminals Outlive
+              Their Views"). */}
           <Panel id="agent" minSize="20%">
-            <SessionTerminalLayout instanceId={instanceId} sessionId={session.id}>
-              <TerminalPanel
-                instanceId={instanceId}
-                workspaceId={workspaceId}
-                sessionId={session.id}
-                readOnly={
-                  session.toolPolicy === 'read-only'
-                    ? { startedBy: session.automation?.name }
-                    : undefined
-                }
-                cwd={terminalCwd}
-                claudeSessionId={session.claudeSessionId}
-                resume={session.hasStarted}
-                harness={launchFields}
-                // Read from the session record rather than re-resolved: unlike
-                // the harness's launch fields, this was chosen once for this
-                // conversation and must not drift.
-                model={session.model}
-              />
-            </SessionTerminalLayout>
+            <TerminalPanel
+              instanceId={instanceId}
+              workspaceId={workspaceId}
+              sessionId={session.id}
+              readOnly={
+                session.toolPolicy === 'read-only'
+                  ? { startedBy: session.automation?.name }
+                  : undefined
+              }
+              cwd={terminalCwd}
+              claudeSessionId={session.claudeSessionId}
+              resume={session.hasStarted}
+              harness={launchFields}
+              // Read from the session record rather than re-resolved: unlike
+              // the harness's launch fields, this was chosen once for this
+              // conversation and must not drift.
+              model={session.model}
+            />
           </Panel>
-          {showWorkItemPanel && (
+          {/* The info panel (PR 2) goes here, between the conversation and the side panel. */}
+          {isSidePanelVisible && (
             <>
               <Separator className="resize-handle" />
-              <Panel id="work-item" defaultSize="38%" minSize="320px" maxSize="70%">
-                <WorkItemPanel workspaceId={workspaceId} session={session} />
-              </Panel>
-            </>
-          )}
-          {hasOpenTabs && (
-            <>
-              <Separator className="resize-handle" />
-              <Panel id="preview" defaultSize="40%" minSize="20%">
-                <PreviewPanel />
-              </Panel>
-            </>
-          )}
-          {isGitReviewOpen && (
-            <>
-              <Separator className="resize-handle" />
-              <Panel id="git-review" defaultSize="40%" minSize="20%">
-                <GitReviewPanel instanceId={instanceId} />
-              </Panel>
-            </>
-          )}
-          {isBrowserVisible && (
-            <>
-              <Separator className="resize-handle" />
-              <Panel id="browser" defaultSize="45%" minSize="320px">
-                <BrowserPanel sessionId={session.id} instanceId={instanceId} cwd={cwd} />
+              <Panel id="side-panel" defaultSize="40%" minSize="280px" maxSize="75%">
+                <SidePanel facts={facts} />
               </Panel>
             </>
           )}

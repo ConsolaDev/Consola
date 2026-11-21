@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const open = vi.fn();
-const setBrowserVisible = vi.fn();
+const openKind = vi.fn();
 let rule: 'local' | 'all' | 'never' = 'local';
 
 vi.mock('../../services/browserBridge', () => ({
@@ -10,8 +10,8 @@ vi.mock('../../services/browserBridge', () => ({
 vi.mock('../../stores/preferencesStore', () => ({
   usePreferencesStore: { getState: () => ({ terminalLinks: rule }) },
 }));
-vi.mock('../../stores/navigationStore', () => ({
-  useNavigationStore: { getState: () => ({ setBrowserVisible }) },
+vi.mock('../../stores/sidePanelStore', () => ({
+  useSidePanelStore: { getState: () => ({ openKind }) },
 }));
 
 import { openTerminalLink } from './terminalLinks';
@@ -24,7 +24,7 @@ describe('openTerminalLink', () => {
   beforeEach(() => {
     rule = 'local';
     open.mockReset().mockResolvedValue({ id: 'tab' });
-    setBrowserVisible.mockReset();
+    openKind.mockReset();
     windowOpen.mockReset();
     vi.stubGlobal('window', { open: windowOpen });
   });
@@ -33,10 +33,10 @@ describe('openTerminalLink', () => {
     vi.unstubAllGlobals();
   });
 
-  it('opens a local address in the session browser and shows the panel', () => {
+  it('opens a local address in the session browser and its tab', () => {
     openTerminalLink('session-1', click(), 'http://localhost:5173/');
     expect(open).toHaveBeenCalledWith('session-1', 'http://localhost:5173/');
-    expect(setBrowserVisible).toHaveBeenCalledWith(true);
+    expect(openKind).toHaveBeenCalledWith('browser');
     expect(windowOpen).not.toHaveBeenCalled();
   });
 
@@ -47,7 +47,7 @@ describe('openTerminalLink', () => {
     expect(windowOpen).toHaveBeenCalledTimes(1);
     expect(windowOpen).toHaveBeenCalledWith('https://github.com/example/repo/pull/1', '_blank');
     expect(open).not.toHaveBeenCalled();
-    expect(setBrowserVisible).not.toHaveBeenCalled();
+    expect(openKind).not.toHaveBeenCalled();
   });
 
   it('Shift sends a local address to the system browser and an outside one to Consola', () => {

@@ -111,6 +111,23 @@
   color: var(--color-text-tertiary);
 }
 
+/* --- Settings → Appearance → Remember the side panel's layout ---------------
+
+   The checkbox beside the option's own label, level with its first line, and
+   the description under the label as in every other row. */
+.remember-layout-option {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  cursor: pointer;
+}
+
+.remember-layout-option input[type="checkbox"] {
+  margin: 2px 0 0;
+  accent-color: var(--color-accent);
+  flex-shrink: 0;
+}
+
 /* --- Settings → Sessions → Session rows -------------------------------------
 
    The two densities side by side, each a slice of the sidebar drawing the
