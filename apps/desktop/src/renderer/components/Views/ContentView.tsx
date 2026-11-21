@@ -11,6 +11,7 @@ import { useGitReviewStore } from '../../stores/gitReviewStore';
 import { TerminalPanel } from '../Terminal';
 import { PreviewPanel } from '../PreviewPanel';
 import { GitReviewPanel } from '../GitReviewPanel';
+import { BrowserPanel } from '../Browser';
 import { WorkItemStrip } from '../WorkItemStrip';
 import { WorkItemPanel } from '../WorkItemPanel';
 import { SessionHeader } from './SessionHeader';
@@ -26,6 +27,7 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
   const isExplorerVisible = useNavigationStore((state) => state.isExplorerVisible);
   const isGitReviewOpen = useGitReviewStore((state) => state.isOpen);
   const isWorkItemPanelVisible = useNavigationStore((state) => state.isWorkItemPanelVisible);
+  const isBrowserVisible = useNavigationStore((state) => state.isBrowserVisible);
 
   const getWorkspace = useWorkspaceStore((state) => state.getWorkspace);
   const getSession = useWorkspaceStore((state) => state.getSession);
@@ -62,6 +64,7 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
     ...(showWorkItemPanel ? ['work-item'] : []),
     ...(hasOpenTabs ? ['preview'] : []),
     ...(isGitReviewOpen ? ['git-review'] : []),
+    ...(isBrowserVisible ? ['browser'] : []),
   ];
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({
     id: 'content-view-split',
@@ -135,7 +138,7 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
             </>
           )}
           <Panel id="agent" minSize="20%">
-            <SessionTerminalLayout instanceId={instanceId}>
+            <SessionTerminalLayout instanceId={instanceId} sessionId={session.id}>
               <TerminalPanel
                 instanceId={instanceId}
                 workspaceId={workspaceId}
@@ -177,6 +180,14 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
               <Separator className="resize-handle" />
               <Panel id="git-review" defaultSize="40%" minSize="20%">
                 <GitReviewPanel instanceId={instanceId} />
+              </Panel>
+            </>
+          )}
+          {isBrowserVisible && (
+            <>
+              <Separator className="resize-handle" />
+              <Panel id="browser" defaultSize="45%" minSize="320px">
+                <BrowserPanel sessionId={session.id} instanceId={instanceId} cwd={cwd} />
               </Panel>
             </>
           )}

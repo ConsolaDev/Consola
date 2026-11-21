@@ -483,6 +483,7 @@ test('one Settings dialog lists the app, the workspace and Updates, whichever do
     await expect(appGroup.locator('.settings-modal-nav-item')).toHaveText([
       'Appearance',
       'Sessions',
+      'Browser links',
       'Harnesses',
       'Keyboard shortcuts',
     ]);
@@ -495,6 +496,7 @@ test('one Settings dialog lists the app, the workspace and Updates, whichever do
       'Actions',
       'Labels',
       'Worktrees',
+      'Browser',
       'Danger zone',
     ]);
 
@@ -502,7 +504,7 @@ test('one Settings dialog lists the app, the workspace and Updates, whichever do
     // bottom edge of the list.
     const nav = modal.getByRole('navigation', { name: 'Settings sections', exact: true });
     await expect(nav.locator('.settings-modal-nav-item').last()).toHaveText('Updates');
-    await expect(nav.locator('.settings-modal-nav-item')).toHaveCount(12);
+    await expect(nav.locator('.settings-modal-nav-item')).toHaveCount(15);
     const navBox = (await nav.boundingBox())!;
     const updatesBox = (await nav
       .getByRole('button', { name: 'Updates', exact: true })
@@ -568,6 +570,7 @@ test('the rail gear opens Settings on Appearance with no Workspace group until a
     await expect(modal.locator('.settings-modal-nav-item')).toHaveText([
       'Appearance',
       'Sessions',
+      'Browser links',
       'Harnesses',
       'Keyboard shortcuts',
       'Updates',

@@ -12,16 +12,44 @@ import {
 import { describeError } from './describeError';
 import { SessionCheckoutService } from './SessionCheckoutService';
 import type { SessionCheckout } from '../shared/sessionCheckout';
+import { guardedIpc as ipcMain } from './guardedIpc';
 import {
-  ipcMain,
   BrowserWindow,
   dialog,
   app,
   Notification,
   powerMonitor,
   protocol,
+  screen as electronScreen,
+  session as electronSession,
   shell,
+  webContents as electronWebContents,
 } from 'electron';
+import type { BrowserStateFile } from '../shared/browser';
+import { AgentPages } from './browser/AgentPages';
+import { BrowserService } from './browser/BrowserService';
+import { PageDriver } from './browser/PageDriver';
+import { BrowserStateStore } from './browser/BrowserStateStore';
+import { CaptureStore } from './browser/CaptureStore';
+import { LocalServers } from './browser/LocalServers';
+import { browserTools } from './browser/browserTools';
+import { registerBrowserHandlers } from './browser/browserIpc';
+import { onGuestAttached } from './browser/guestPolicy';
+import { placePopupTab } from './browser/popupPolicy';
+import { installPopupPolicy } from './browser/popupWindows';
+import { exposeToTests, isBackgroundTest } from './test-mode';
+import { forwardGuestShortcuts } from './browser/guestShortcuts';
+import {
+  clearBrowsingData,
+  type DownloadPlaces,
+  gateDownloads,
+  partitionFor,
+} from './browser/sessionPolicy';
+import { createDownloadGate, SessionDownloads } from './browser/downloadGate';
+import { PersonInput, watchPersonInput } from './browser/PersonInput';
+import { PageDialogs } from './browser/PageDialogs';
+import { browserRefusal, closeConnectionsWithoutAccess } from './browser/browserToolAccess';
+import { isolated } from './browser/isolated';
 import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -147,14 +175,18 @@ import type {
 import type { Harness, HarnessUpdates, NewHarnessFields } from '../shared/harness';
 import {
   assignWorkspace,
+  consolaWindows,
   createWindow,
   findWindowForWorkspace,
   focusOrCreate,
+  getFocusedConsolaWindow,
   getWorkspaceFor,
+  shareQuitGuard,
   showAutomations,
   viewsFromStoredLayout,
   type ViewMemoryAccess,
 } from './window-manager';
+import { onConsolaWindowClosed } from './windowRegistry';
 import {
   EMPTY_VIEW,
   ViewMemoryService,
@@ -171,6 +203,7 @@ import { HookSignals, type AttentionSignal } from './attention/hookSignals';
 import { SteadyStatus } from './attention/steadyStatus';
 import { ViewingTracker } from './attention/ViewingTracker';
 import { AutoSettler } from './attention/AutoSettler';
+import { EmptySessionReaper } from './attention/EmptySessionReaper';
 import { settleAndVerify, settleMany, unsettleMany, unsettleSession } from './attention/settling';
 import { Snoozer } from './attention/Snoozer';
 import { HarnessLimitsCache } from './usageLimits/HarnessLimitsCache';
@@ -184,6 +217,7 @@ import { launchFieldsFor as harnessLaunchFields } from '../shared/harness';
 import { PreferencesService } from './state/PreferencesService';
 import type {
   BatchResult,
+  SettleBatchResult,
   SettleMemento,
   SettleResult,
   SnoozeBatchResult,
@@ -195,6 +229,11 @@ import type { ActivateWorkspaceResult, WorkspaceView } from '../shared/types';
 // One terminal per session tab, kept alive while the session is open
 let terminalManager: TerminalManager | null = null;
 let shellManager: ShellManager | null = null;
+// The in-app browser: tabs per session and the pages behind them.
+let browserService: BrowserService | null = null;
+let browserHandlers: { remove(): void } | null = null;
+// What an agent's browser tools drive the pages with.
+let pageDriver: PageDriver | null = null;
 
 // Where each workspace was left, so returning to one lands where you were.
 let viewMemoryService: ViewMemoryService | null = null;
@@ -290,6 +329,211 @@ export function setupIpcHandlers(): boolean {
   );
   preferences.load();
 
+  // The in-app browser's tabs. Not loaded through loadOrExit: the store never
+  // throws, and a lost file only costs the open tabs.
+  const browserStore = new BrowserStateStore(
+    new JsonStateFile<BrowserStateFile>(path.join(app.getPath('userData'), 'browser-state.json')),
+  );
+  browserStore.load();
+  // Screenshots sent to a session, as files its agent can read.
+  const captures = new CaptureStore(path.join(app.getPath('userData'), 'browser-captures'));
+  const browser = new BrowserService({
+    store: browserStore,
+    workspaceIdForSession: (sessionId) =>
+      workspaces
+        .getAll()
+        .find((workspace) => workspace.sessions.some((session) => session.id === sessionId))?.id,
+    findWindowForWorkspace: (workspaceId) => findWindowForWorkspace(workspaceId) ?? undefined,
+    send: (window, channel, payload) => window.webContents.send(channel, payload),
+    // Logged and rethrown: a deleted workspace's caller already ignores the
+    // rejection, while "Clear browsing data" must tell the person it failed.
+    clearPartition: async (workspaceId) => {
+      try {
+        await clearBrowsingData(electronSession.fromPartition(partitionFor(workspaceId)));
+      } catch (error) {
+        console.error(`Could not clear the browser data of workspace ${workspaceId}:`, error);
+        throw error;
+      }
+    },
+  });
+  browserService = browser;
+  // An agent's calls on a tab, and the Playwright connections behind them. A
+  // connection ends with the page it drives.
+  // A tab whose page an agent's call is what loads is in the agent's hands
+  // from that moment: whatever the page does as it loads is the agent's doing.
+  const agentPages = new AgentPages(browser, (tabId) => personInput.noteAgentUse(tabId));
+  const driver = new PageDriver({
+    calls: agentPages,
+    // A dialog held for an agent whose connection ended is nobody's: dismissed.
+    disconnected: (guest) => pageDialogs.letGo(guest),
+  });
+  const stopForgettingPages = browser.onGuestGone((tabId, guest) => driver.forget(tabId, guest));
+  // Every Consola window lets go of its pages as it closes, and of what it
+  // reported showing, whether or not a page ever bound in it.
+  const stopDetachingWindows = onConsolaWindowClosed((window) => browser.detachWindow(window));
+  pageDriver = driver;
+  // The person's input per tab, which an agent's acts give way to, and whose
+  // hands each tab is in: a download from one in the agent's is cancelled.
+  const personInput = new PersonInput(
+    Date.now,
+    (tabId) => browser.pageAvailability(tabId) !== 'missing',
+  );
+  // Why a tab's session may not use the browser now, or null when it may.
+  const refusalForTab = (tabId: string): string | null => {
+    const sessionId = browser.sessionIdForTab(tabId);
+    const workspace = sessionId
+      ? workspaces.getAll().find((candidate) => candidate.sessions.some((s) => s.id === sessionId))
+      : undefined;
+    return browserRefusal(
+      workspace,
+      workspace?.sessions.find((candidate) => candidate.id === sessionId),
+    );
+  };
+  // A page's alerts and confirms, held for the agent only while it may and
+  // can answer them and they are not the person's (`shouldHoldDialog`).
+  const pageDialogs = new PageDialogs({
+    tabIdFor: (guestId) => browser.tabIdForGuest(guestId),
+    agentAllowed: (tabId) => refusalForTab(tabId) === null,
+    isAgentConnected: (guest) => driver.isConnected(guest),
+    personIsUsing: (tabId) => personInput.refusal(tabId) !== null,
+    inAgentHands: (tabId) => {
+      const tab = browser.tabFor(tabId);
+      return !!tab && personInput.handsOf(tabId, tab.openedBy) === 'agent';
+    },
+    onScreen: (tabId) => browser.isShown(tabId),
+  });
+  // A page's downloads are decided by its tab (`downloadRefusal`): whose
+  // hands it is in, the person's input on it, and its session. A popup
+  // window by its opener's tab, a page not bound yet by each tab its window
+  // has a page coming for, any other page in a browser partition not at all.
+  const downloadPlaces: DownloadPlaces = {
+    tabsForPage: (contents) => {
+      const host = contents.hostWebContents;
+      const window = host && !host.isDestroyed() ? BrowserWindow.fromWebContents(host) : null;
+      return browser.tabsForPage(contents.id, window ?? undefined);
+    },
+    popupOpener: (contents) => {
+      const tabId = browser.popups.openerTabOf(contents.id);
+      return tabId ? browser.tabFor(tabId) : undefined;
+    },
+    handsOf: (tab) => personInput.handsOf(tab.id, tab.openedBy),
+    // Only an input within the guard counts; an older one names no click.
+    personInputAt: (tab) =>
+      personInput.refusal(tab.id) === null ? undefined : personInput.lastInput(tab.id),
+    sessionOf: (tab) => browser.sessionIdForTab(tab.id),
+  };
+  // One save dialog at a time per session, one download per input of the
+  // person's, and one nobody asked for per stretch without their input; their
+  // next input in the session's browser gives that one back.
+  const sessionDownloads = new SessionDownloads();
+  const stopHearingPerson = personInput.onInput((tabId) => {
+    const sessionId = browser.sessionIdForTab(tabId);
+    if (sessionId) sessionDownloads.personInput(sessionId);
+  });
+  gateDownloads(createDownloadGate(downloadPlaces, sessionDownloads));
+  exposeToTests('browserAgent', { calls: agentPages, driver, personInput, pageDialogs });
+  // Watch each page from the moment it attaches: the renderer binds it to its
+  // tab a moment later, when its first load may already have finished or failed.
+  // Here rather than in `secureGuest` because only an accepted guest has a
+  // host window worth forwarding to; a refused one is closed straight away.
+  const stopWatchingGuests = onGuestAttached((guest, window, workspaceId, guestId) => {
+    browser.noteAttached(guest, guestId);
+    browser.guardGuest(guest, window, workspaceId, guestId);
+    forwardGuestShortcuts(guest, window, () => browser.tabIdForGuest(guestId));
+    shareQuitGuard(window, guest);
+    // A page's DevTools open in a window of their own, which has the keyboard
+    // when the person types there: ⌘Q is held back there too.
+    guest.on('devtools-opened', () => {
+      const devTools = guest.devToolsWebContents;
+      if (devTools) shareQuitGuard(window, devTools);
+    });
+    pageDialogs.takeOver(guest, guestId);
+    watchPersonInput(
+      guest,
+      () => browser.tabIdForGuest(guestId),
+      (tabId) => {
+        personInput.noteInput(tabId);
+        // A page waiting on a dialog held for the agent looks frozen: it is the person's now.
+        pageDialogs.handToPerson(tabId);
+      },
+    );
+    installPopupPolicy(guest, {
+      host: window,
+      guestId,
+      sessionIdOf: (id) => browser.sessionIdForGuest(id),
+      tabIdOf: (id) => browser.tabIdForGuest(id),
+      workspaceId,
+      atTabCap: (sessionId) => browser.atTabCap(sessionId),
+      // Only the person's own press in the opener makes the page's new tab
+      // theirs to look at; any other opens behind, the agent's when an agent
+      // is on the opener or has it in its hands (`placePopupTab`).
+      openTab: (sessionId, url) => {
+        const openerTabId = browser.tabIdForGuest(guestId);
+        const opener = browser.snapshotFor(sessionId).tabs.find((tab) => tab.id === openerTabId);
+        const openerOpenedBy = opener?.openedBy ?? 'person';
+        const { openedBy, activate } = placePopupTab({
+          personInputAt: openerTabId ? personInput.lastInput(openerTabId) : undefined,
+          now: Date.now(),
+          openerOpenedBy,
+          agentCallInFlight: opener?.agentActive ?? false,
+          openerHands: openerTabId ? personInput.handsOf(openerTabId, openerOpenedBy) : 'person',
+        });
+        void browser.openTab(sessionId, url, openedBy, { keepActiveTab: !activate });
+      },
+      popups: browser.popups,
+      certificates: browser.certificates,
+      // `webContents` is accepted by the constructor though not typed.
+      createWindow: (options) =>
+        new BrowserWindow(options as Electron.BrowserWindowConstructorOptions),
+      maxSize: () => {
+        const { width, height } = electronScreen.getDisplayNearestPoint(
+          electronScreen.getCursorScreenPoint(),
+        ).workArea;
+        return { width, height };
+      },
+      hidden: isBackgroundTest,
+      guardQuit: (contents) => shareQuitGuard(window, contents),
+    });
+  });
+  const localServers = new LocalServers();
+  const registered = registerBrowserHandlers({
+    ipc: ipcMain,
+    service: browser,
+    workspaceForSender: (sender) => {
+      const window = BrowserWindow.fromWebContents(sender);
+      return (window && getWorkspaceFor(window)) || undefined;
+    },
+    windowForSender: (sender) => BrowserWindow.fromWebContents(sender) ?? undefined,
+    sessionInWorkspace: (sessionId, workspaceId) =>
+      !!workspaces
+        .getAll()
+        .find((workspace) => workspace.id === workspaceId)
+        ?.sessions.some((session) => session.id === sessionId),
+    localServersFor: (sessionId) => {
+      const workspace = workspaces
+        .getAll()
+        .find((candidate) => candidate.sessions.some((session) => session.id === sessionId));
+      const session = workspace?.sessions.find((candidate) => candidate.id === sessionId);
+      // Undefined while a cleanup rule has the worktree removed: no folder, no servers.
+      const folder = workspace && checkoutPathForSession(workspace, session);
+      return localServers.scanFor(folder);
+    },
+    saveCapture: (sessionId, png) => captures.write(sessionId, png),
+    webContentsFromId: (id) => electronWebContents.fromId(id),
+    sessionForWorkspace: (workspaceId) => electronSession.fromPartition(partitionFor(workspaceId)),
+    personNavigated: (tabId) => personInput.notePersonNavigation(tabId),
+  });
+  browserHandlers = {
+    remove: () => {
+      registered.remove();
+      stopWatchingGuests();
+      stopForgettingPages();
+      stopDetachingWindows();
+      stopHearingPerson();
+      gateDownloads(null);
+    },
+  };
+
   // Every window renders the same records, so a change goes to all of them
   // rather than to whoever asked for it. A deleted workspace also has to be
   // dropped from any window still holding it, or that window would keep
@@ -300,11 +544,25 @@ export function setupIpcHandlers(): boolean {
     // already refuses to surface it, so this is housekeeping rather than
     // correctness — it stops the file growing forever.
     viewMemory.prune(liveIds);
+    // The browser's steps each on their own: a throw from either must not
+    // cut short a workspace delete whose record is already gone.
+    isolated("Pruning the browser's tabs", () => {
+      const liveSessionIds = new Set(
+        all.flatMap((workspace) => workspace.sessions.map((session) => session.id)),
+      );
+      browser.prune(liveSessionIds, liveIds);
+      sessionDownloads.prune(liveSessionIds);
+    });
     attentionLedger.prune(
       new Set(all.flatMap((workspace) => workspace.sessions.map((session) => session.id))),
     );
+    // Access turned off, or a session gone or no longer eligible: its agent
+    // lets go of its pages, and of any dialog held on them.
+    isolated("Closing agents' connections without access", () =>
+      closeConnectionsWithoutAccess(driver, refusalForTab),
+    );
 
-    for (const window of BrowserWindow.getAllWindows()) {
+    for (const window of consolaWindows()) {
       if (window.isDestroyed()) continue;
       window.webContents.send(IPC_CHANNELS.WORKSPACE_CHANGED, all);
 
@@ -353,6 +611,8 @@ export function setupIpcHandlers(): boolean {
       forgetTerminalAttention(instanceId);
     },
     destroyShell: (instanceId) => shellManager?.destroy(instanceId),
+    destroyBrowser: (sessionId) => browser.destroySession(sessionId),
+    removeCaptures: (sessionId) => captures.removeAll(sessionId),
     // A session's endpoint would otherwise outlive its record as a
     // listening socket and a config file nothing can name again.
     releaseMcp: (sessionId) => mcpHost.unregister(sessionId),
@@ -386,7 +646,17 @@ export function setupIpcHandlers(): boolean {
     // and leaves the workspace, and its terminals, intact. destroy() clears
     // the session's attention goes with it, so the PTY and the
     // badge close together; the MCP endpoint goes with them.
-    stranded.forEach((session) => sessionRemover.discard(session));
+    // Its tabs, history and logins go the same way: not before the delete
+    // has succeeded, or a failed write would leave a workspace without them;
+    // and even if a session's teardown throws, or its logins stay on disk.
+    try {
+      stranded.forEach((session) => sessionRemover.discard(session));
+    } finally {
+      browser.destroyWorkspace(
+        id,
+        stranded.map((session) => session.id),
+      );
+    }
   });
 
   const sessionCheckouts = new SessionCheckoutService();
@@ -645,7 +915,7 @@ export function setupIpcHandlers(): boolean {
   if (!loadOrExit(() => harnesses.load(), 'harnesses')) return false;
 
   harnesses.onChange((all) => {
-    for (const window of BrowserWindow.getAllWindows()) {
+    for (const window of consolaWindows()) {
       if (!window.isDestroyed()) {
         window.webContents.send(IPC_CHANNELS.HARNESS_CHANGED, all);
       }
@@ -695,7 +965,7 @@ export function setupIpcHandlers(): boolean {
   );
   cleanupHistory.load();
   cleanupHistory.onChange(() => {
-    for (const window of BrowserWindow.getAllWindows()) {
+    for (const window of consolaWindows()) {
       if (!window.isDestroyed()) window.webContents.send(IPC_CHANNELS.WORKTREE_CLEANUP_CHANGED);
     }
   });
@@ -757,7 +1027,7 @@ export function setupIpcHandlers(): boolean {
     // renderer-bound payload.
     composeEnv: composeProviderEnv,
     broadcast: (snapshot: InboxSnapshot) => {
-      for (const window of BrowserWindow.getAllWindows()) {
+      for (const window of consolaWindows()) {
         if (!window.isDestroyed()) {
           window.webContents.send(IPC_CHANNELS.INBOX_CHANGED, snapshot);
         }
@@ -904,7 +1174,7 @@ export function setupIpcHandlers(): boolean {
     },
   );
 
-  terminalManager = new TerminalManager(() => BrowserWindow.getAllWindows());
+  terminalManager = new TerminalManager(() => consolaWindows());
   const manager = terminalManager;
   shellManager = new ShellManager();
   const shells = shellManager;
@@ -1001,6 +1271,53 @@ export function setupIpcHandlers(): boolean {
   });
   attention.register(attentionSessions);
 
+  // A settled session that never got a message is deleted rather than kept on
+  // the shelf, where it would only be an empty row. Its CLI's own transcript
+  // says whether it ever got one. One with a browser tab on an address was
+  // used all the same, and is kept.
+  const emptySessions = new EmptySessionReaper({
+    getWorkspaces: () => workspaces.getAll(),
+    attention: () => attention.snapshot(),
+    isShown: (instanceId) => viewing.isShown(instanceId),
+    hasFirstMessage: async (session) => {
+      // Without its harness record there is no saying where the transcript is.
+      const harness = harnesses.getAll().find((candidate) => candidate.id === session.harnessId);
+      if (!harness) return null;
+      const fields = harnessLaunchFields(harness);
+      const driver = getDriver(fields.driverId);
+      if (!driver.readFirstPrompt) return null;
+      const first = await driver.readFirstPrompt(toHarnessConfig(fields), session.claudeSessionId);
+      return first !== null;
+    },
+    // As a person's delete, so the "you delete the session" rule decides the worktree.
+    remove: async (workspace, session) => {
+      const remove = () => sessionRemover.remove(workspace.id, session);
+      if (!worktreeCleanupService) return remove();
+      // What happens to a worktree is in the cleanup history; no window asked to hear it.
+      await worktreeCleanupService.deleteForPerson(workspace, session, remove, () => {});
+    },
+    // A session the person only browsed in was used: its tabs keep it. Null,
+    // keeping every session, while the stored tab list is known to be wrong.
+    browserTabs: (session) => browser.storedTabsFor(session.id),
+  });
+  /** A hand settle, with what it shelved that never got a message deleted instead. */
+  const removingEmpty = async <T extends SettleResult | SettleBatchResult>(
+    result: T,
+  ): Promise<T> => {
+    let removed: string[];
+    try {
+      removed = await emptySessions.settled(Object.keys(result.memento));
+    } catch (error) {
+      // The settle itself stands: it is the shelf, with its Undo, rather than nothing.
+      console.error('Could not remove empty settled sessions:', error);
+      return result;
+    }
+    if (removed.length === 0) return result;
+    const memento = { ...result.memento };
+    for (const id of removed) delete memento[id];
+    return { ...result, memento, removed };
+  };
+
   // Old, idle work leaves the list on its own — and the first time it does,
   // every window is told what happened (the renderer reads `pendingAutoSettle`).
   const settler = new AutoSettler({
@@ -1012,6 +1329,10 @@ export function setupIpcHandlers(): boolean {
     preferences,
     changed: () => attentionSessions.refresh(),
     onWindowReport: (listener) => viewing.onReport(listener),
+    swept: () =>
+      void emptySessions
+        .sweep()
+        .catch((error) => console.error('Could not remove empty settled sessions:', error)),
   });
   autoSettler = settler;
 
@@ -1037,7 +1358,7 @@ export function setupIpcHandlers(): boolean {
   app.once('before-quit', () => sessionSnoozer.stop());
   let sweptDays = preferences.get().autoSettleDays;
   preferences.onChange((next) => {
-    for (const window of BrowserWindow.getAllWindows()) {
+    for (const window of consolaWindows()) {
       if (!window.isDestroyed()) window.webContents.send(IPC_CHANNELS.PREFERENCES_CHANGED, next);
     }
     // A threshold the person just changed applies now, not in five minutes.
@@ -1055,6 +1376,9 @@ export function setupIpcHandlers(): boolean {
   );
   ipcMain.handle(IPC_CHANNELS.PREFERENCES_SET_WORKTREE_CLEANUP, (_event, rules: unknown) =>
     preferences.setWorktreeCleanup(rules),
+  );
+  ipcMain.handle(IPC_CHANNELS.PREFERENCES_SET_TERMINAL_LINKS, (_event, rule: unknown) =>
+    preferences.setTerminalLinks(rule),
   );
   /** The cleanup rules that apply in a workspace now: its own, none, or the global ones. */
   const cleanupRulesFor = (workspace: Workspace) =>
@@ -1078,9 +1402,9 @@ export function setupIpcHandlers(): boolean {
       attentionSessions.refresh();
       return result;
     };
-  ipcMain.handle(
-    IPC_CHANNELS.ATTENTION_SETTLE,
-    withWorkspace<SettleResult>({ settled: false, memento: {} }, (workspace, sessionId) =>
+  const settleOne = withWorkspace<SettleResult>(
+    { settled: false, memento: {} },
+    (workspace, sessionId) =>
       settleAndVerify(
         workspace,
         sessionId,
@@ -1088,7 +1412,9 @@ export function setupIpcHandlers(): boolean {
         () => attentionSessions.read(),
         Date.now(),
       ),
-    ),
+  );
+  ipcMain.handle(IPC_CHANNELS.ATTENTION_SETTLE, (event, workspaceId: unknown, sessionId: unknown) =>
+    removingEmpty(settleOne(event, workspaceId, sessionId)),
   );
   ipcMain.handle(
     IPC_CHANNELS.ATTENTION_UNSETTLE,
@@ -1131,7 +1457,7 @@ export function setupIpcHandlers(): boolean {
   usageLimitService = usageLimits;
   usageLimits.load();
   usageLimits.onChange((state) => {
-    for (const window of BrowserWindow.getAllWindows()) {
+    for (const window of consolaWindows()) {
       if (!window.isDestroyed()) window.webContents.send(IPC_CHANNELS.USAGE_LIMITS_CHANGED, state);
     }
   });
@@ -1174,11 +1500,13 @@ export function setupIpcHandlers(): boolean {
       attentionSessions.refresh();
       return result;
     };
+  const settleSeveral = inWorkspace((workspace, ids) =>
+    settleMany(workspace, ids, attentionLedger, () => attentionSessions.read(), Date.now()),
+  );
   ipcMain.handle(
     IPC_CHANNELS.ATTENTION_SETTLE_MANY,
-    inWorkspace((workspace, ids) =>
-      settleMany(workspace, ids, attentionLedger, () => attentionSessions.read(), Date.now()),
-    ),
+    (event, workspaceId: unknown, sessionIds: unknown): Promise<SettleBatchResult> =>
+      removingEmpty<SettleBatchResult>(settleSeveral(event, workspaceId, sessionIds)),
   );
   ipcMain.handle(
     IPC_CHANNELS.ATTENTION_UNSETTLE_MANY,
@@ -1200,7 +1528,7 @@ export function setupIpcHandlers(): boolean {
   });
   workspaces.onChange(() => attentionSessions.refresh());
   attention.onChange((change) => {
-    for (const window of BrowserWindow.getAllWindows()) {
+    for (const window of consolaWindows()) {
       if (!window.isDestroyed()) window.webContents.send(IPC_CHANNELS.ATTENTION_CHANGED, change);
     }
     if (typeof app.setBadgeCount === 'function') app.setBadgeCount(attention.needsAttentionCount());
@@ -1312,7 +1640,7 @@ export function setupIpcHandlers(): boolean {
     const ringing = sessionsToNotify(
       change,
       notificationPolicy,
-      BrowserWindow.getFocusedWindow() !== null,
+      getFocusedConsolaWindow() !== null,
     );
     for (const sessionId of ringing) {
       if (!Notification.isSupported()) continue;
@@ -1634,8 +1962,22 @@ export function setupIpcHandlers(): boolean {
     launchSession: (workspaceId, fields) => launcher.launchSession(workspaceId, fields),
   }).forEach((tool) => tools.register(tool));
 
+  // A session's agent in its own session's browser: tabs, pages, and the
+  // servers running from its folder.
+  const sessionBrowserTools = browserTools({
+    getWorkspaces: () => workspaces.getAll(),
+    browser,
+    driver,
+    person: personInput,
+    dialogs: pageDialogs,
+    localServers: (folder) => localServers.listFor(folder),
+  });
+  // The tools themselves, for an end-to-end test to put on a server of its own.
+  exposeToTests('browserTools', sessionBrowserTools);
+
   // Every session's private MCP endpoint (see SessionMcpHost): the Consola
-  // tools for all, plus the group tools for conductors.
+  // tools for all, plus the group tools for conductors and the browser tools
+  // where the workspace allows them.
   const mcpHost = new SessionMcpHost({
     // In the packaged app the shim must be a real file on disk — the
     // claude CLI, an outside process, spawns it. Hence asarUnpack.
@@ -1650,6 +1992,7 @@ export function setupIpcHandlers(): boolean {
         },
         conductorTools,
         stepTools: (id) => stepToolSpecs(automations.stepIO(), id),
+        browserTools: sessionBrowserTools,
         getWorkspaces: () => workspaces.getAll(),
       }),
   });
@@ -1712,7 +2055,7 @@ export function setupIpcHandlers(): boolean {
     broadcast: (workspaceId, snapshot) => {
       attentionRuns.refresh();
       const change: AutomationsChange = { workspaceId, snapshot };
-      for (const window of BrowserWindow.getAllWindows()) {
+      for (const window of consolaWindows()) {
         if (!window.isDestroyed())
           window.webContents.send(IPC_CHANNELS.AUTOMATIONS_CHANGED, change);
       }
@@ -2416,12 +2759,19 @@ ${truncatedDiff}`;
       const requesting = BrowserWindow.fromWebContents(event.sender);
       if (!requesting) return { verdict: 'focused-elsewhere' };
 
+      // A window that leaves its workspace stops showing its pages: its
+      // webviews unmount, and main lets go of them (the tabs stay).
+      const before = getWorkspaceFor(requesting);
+      const letGoOfPages = () => {
+        if (before && before !== workspaceId) browser.detachWindow(requesting);
+      };
+
       if (workspaceId === null) {
         // Home shows no workspace, so there is nothing remembered to
         // hand back — but the window did take the change.
-        return assignWorkspace(requesting, null)
-          ? { verdict: 'took', view: EMPTY_VIEW }
-          : { verdict: 'focused-elsewhere' };
+        if (!assignWorkspace(requesting, null)) return { verdict: 'focused-elsewhere' };
+        letGoOfPages();
+        return { verdict: 'took', view: EMPTY_VIEW };
       }
 
       // A dropdown rendered before another window deleted this workspace
@@ -2443,6 +2793,7 @@ ${truncatedDiff}`;
       if (!assignWorkspace(requesting, workspaceId)) {
         return { verdict: 'focused-elsewhere' };
       }
+      letGoOfPages();
       // Answered in the same round trip the claim rides on: asking
       // separately would paint the blank composer and correct it a
       // frame later, on every switch.
@@ -2543,6 +2894,7 @@ export function cleanupIpcHandlers(): void {
   worktreeCleanupService = null;
   ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_SESSION_DELETE_PREVIEW);
   ipcMain.removeHandler(IPC_CHANNELS.PREFERENCES_SET_WORKTREE_CLEANUP);
+  ipcMain.removeHandler(IPC_CHANNELS.PREFERENCES_SET_TERMINAL_LINKS);
   ipcMain.removeHandler(IPC_CHANNELS.WORKTREE_CLEANUP_PREVIEW);
   ipcMain.removeHandler(IPC_CHANNELS.WORKTREE_CLEANUP_RUN);
   ipcMain.removeHandler(IPC_CHANNELS.WORKTREE_CLEANUP_HISTORY);
@@ -2660,6 +3012,13 @@ export function cleanupIpcHandlers(): void {
   ipcMain.removeAllListeners(IPC_CHANNELS.SHELL_RESIZE);
   shellManager?.destroyAll();
   shellManager = null;
+  browserHandlers?.remove();
+  browserHandlers = null;
+  // Before the pages go, so no connection outlives the page it drives.
+  pageDriver?.closeAll();
+  pageDriver = null;
+  browserService?.destroyAll();
+  browserService = null;
   terminalManager?.destroyAll();
   terminalManager = null;
 

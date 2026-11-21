@@ -1,12 +1,14 @@
-import { BrowserWindow, Menu, MenuItem, app, protocol } from 'electron';
+import { Menu, MenuItem, app, protocol } from 'electron';
 import { IPC_CHANNELS } from '../shared/constants';
 import { WORK_ITEM_ASSET_SCHEME } from '../shared/workItemAssets';
 import { setupAppUpdates } from './appUpdates';
 import { isBackgroundTest } from './test-mode';
 import {
+  consolaWindows,
   contextToReopen,
   createWindow,
   getAnyWindow,
+  getFocusedConsolaWindow,
   restoreWindowLayout,
   saveWindowLayout,
 } from './window-manager';
@@ -89,19 +91,24 @@ app.whenReady().then(() => {
   restoreWindowLayout(getKnownWorkspaceIds(), viewMemoryPort());
 
   if (process.platform === 'darwin') {
-    const menu =
-      Menu.getApplicationMenu() ??
-      Menu.buildFromTemplate([
-        { role: 'appMenu' },
-        { role: 'fileMenu' },
-        { role: 'editMenu' },
-        { role: 'viewMenu' },
-        { role: 'windowMenu' },
-      ]);
+    // Built here rather than taken from Electron's default, whose File menu
+    // binds ⌘W to Close Window. With one window open that reads as quitting
+    // Consola, so ⌘W goes to the renderer instead (closeShortcut.ts) and the
+    // window takes ⇧⌘W, as it does in a browser.
+    const menu = Menu.buildFromTemplate([
+      { role: 'appMenu' },
+      {
+        label: 'File',
+        submenu: [{ role: 'close', label: 'Close Window', accelerator: 'Shift+Command+W' }],
+      },
+      { role: 'editMenu' },
+      { role: 'viewMenu' },
+      { role: 'windowMenu' },
+    ]);
     const applicationMenu = menu.items[0]?.submenu;
     if (applicationMenu) {
       const showSettings = (section?: 'updates') => {
-        const existing = BrowserWindow.getFocusedWindow() ?? getAnyWindow();
+        const existing = getFocusedConsolaWindow() ?? getAnyWindow();
         const target =
           existing ?? createWindow(contextToReopen(getKnownWorkspaceIds(), viewMemoryPort()));
         const openSettings = () =>
@@ -141,7 +148,7 @@ app.whenReady().then(() => {
   }
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
+    if (consolaWindows().length === 0) {
       // Reopen where the user left off, not on an empty Home. The window
       // registry was emptied as each window closed and the layout file is
       // only written at quit, so the last workspace a window held is all

@@ -5,9 +5,12 @@ import { ShellPanel } from './ShellPanel';
 
 export function SessionTerminalLayout({
   instanceId,
+  sessionId,
   children,
 }: {
   instanceId: string;
+  /** The session record, which the shell's links open the browser of. */
+  sessionId: string;
   children: ReactNode;
 }) {
   const open = useShellStore((state) => state.open[instanceId] ?? false);
@@ -21,7 +24,7 @@ export function SessionTerminalLayout({
           <>
             <Separator className="shell-resize-handle" />
             <Panel id="shell" defaultSize="35%" minSize="20%">
-              <ShellPanel key={instanceId} instanceId={instanceId} />
+              <ShellPanel key={instanceId} instanceId={instanceId} sessionId={sessionId} />
             </Panel>
           </>
         )}

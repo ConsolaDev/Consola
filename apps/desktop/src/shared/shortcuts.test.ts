@@ -1,0 +1,189 @@
+import { describe, expect, it } from 'vitest';
+import {
+  BROWSER_SHORTCUT_LABELS,
+  forwardedShortcutFor,
+  isBrowserShortcut,
+  isCloseShortcut,
+  isCommandPaletteShortcut,
+  isShellShortcut,
+  isSidebarShortcut,
+  matchBrowserFocusedShortcut,
+  matchScopeShortcut,
+  matchWorkspaceShortcut,
+  type KeyChord,
+} from './shortcuts';
+
+function chord(key: string, mods: Partial<KeyChord> = {}): KeyChord {
+  return { key, meta: false, ctrl: false, shift: false, alt: false, ...mods };
+}
+const cmd = (key: string, mods: Partial<KeyChord> = {}) => chord(key, { meta: true, ...mods });
+const ctrl = (key: string, mods: Partial<KeyChord> = {}) => chord(key, { ctrl: true, ...mods });
+
+describe('workspace chords', () => {
+  it('maps the platform modifier plus 1-9 to a zero-based index', () => {
+    expect(matchWorkspaceShortcut(cmd('3'), 'mac')).toBe(2);
+    expect(matchWorkspaceShortcut(ctrl('9'), 'other')).toBe(8);
+  });
+
+  it('ignores the other platform modifier, extra modifiers, zero and composition', () => {
+    expect(matchWorkspaceShortcut(ctrl('3'), 'mac')).toBeNull();
+    expect(matchWorkspaceShortcut(cmd('3'), 'other')).toBeNull();
+    expect(matchWorkspaceShortcut(cmd('3', { shift: true }), 'mac')).toBeNull();
+    expect(matchWorkspaceShortcut(cmd('0'), 'mac')).toBeNull();
+    expect(matchWorkspaceShortcut(cmd('3', { isComposing: true }), 'mac')).toBeNull();
+  });
+
+  it('reads the physical digit so shifted layouts still match', () => {
+    expect(matchWorkspaceShortcut(cmd('&', { code: 'Digit1' }), 'mac')).toBe(0);
+  });
+});
+
+describe('palette chords', () => {
+  it('is Cmd+K on macOS and Ctrl+Shift+P elsewhere', () => {
+    expect(isCommandPaletteShortcut(cmd('k'), 'mac')).toBe(true);
+    expect(isCommandPaletteShortcut(ctrl('k'), 'mac')).toBe(false);
+    expect(isCommandPaletteShortcut(ctrl('P', { shift: true }), 'other')).toBe(true);
+    expect(isCommandPaletteShortcut(ctrl('k'), 'other')).toBe(false);
+  });
+
+  it('opens the scoped palettes per platform', () => {
+    expect(matchScopeShortcut(cmd('p'), 'mac')).toBe('sessions');
+    expect(matchScopeShortcut(cmd('P', { shift: true }), 'mac')).toBe('workspaces');
+    expect(matchScopeShortcut(cmd('o', { shift: true }), 'mac')).toBe('files');
+    expect(matchScopeShortcut(ctrl('s', { shift: true }), 'other')).toBe('sessions');
+    expect(matchScopeShortcut(ctrl('w', { shift: true }), 'other')).toBe('workspaces');
+    expect(matchScopeShortcut(ctrl('p'), 'other')).toBeNull();
+    expect(matchScopeShortcut(cmd('p', { alt: true }), 'mac')).toBeNull();
+  });
+});
+
+describe('sidebar and terminal chords', () => {
+  it('toggles the sidebar on the platform modifier plus backslash', () => {
+    expect(isSidebarShortcut(cmd('\\'))).toBe(true);
+    expect(isSidebarShortcut(ctrl('\\'))).toBe(true);
+  });
+
+  it('accepts either modifier on either platform, as it always did', () => {
+    expect(isSidebarShortcut(ctrl('\\'))).toBe(true); // Ctrl+\ on macOS
+    expect(isSidebarShortcut(cmd('\\'))).toBe(true); // Cmd+\ elsewhere
+  });
+
+  it('accepts layouts that type backslash with Option or AltGr', () => {
+    expect(isSidebarShortcut(cmd('\\', { alt: true }))).toBe(true);
+    expect(isSidebarShortcut(ctrl('\\', { alt: true }))).toBe(true);
+  });
+
+  it('needs a modifier and the backslash', () => {
+    expect(isSidebarShortcut(chord('\\'))).toBe(false);
+    expect(isSidebarShortcut(cmd('/'))).toBe(false);
+  });
+
+  it('toggles the terminal on a bare Ctrl+backtick, by key or physical key', () => {
+    expect(isShellShortcut(ctrl('`'))).toBe(true);
+    expect(isShellShortcut(ctrl('¸', { code: 'Backquote' }))).toBe(true);
+    expect(isShellShortcut(ctrl('`', { shift: true }))).toBe(false);
+    expect(isShellShortcut(cmd('`'))).toBe(false);
+  });
+});
+
+describe('browser toggle chord', () => {
+  it('is Shift+Cmd+L on macOS and Ctrl+Shift+L elsewhere', () => {
+    expect(isBrowserShortcut(cmd('L', { shift: true }), 'mac')).toBe(true);
+    expect(isBrowserShortcut(ctrl('L', { shift: true }), 'other')).toBe(true);
+  });
+
+  it('is not Cmd+L alone, the wrong platform modifier, or with Alt', () => {
+    expect(isBrowserShortcut(cmd('l'), 'mac')).toBe(false);
+    expect(isBrowserShortcut(ctrl('L', { shift: true }), 'mac')).toBe(false);
+    expect(isBrowserShortcut(cmd('L', { shift: true }), 'other')).toBe(false);
+    expect(isBrowserShortcut(cmd('L', { shift: true, alt: true }), 'mac')).toBe(false);
+  });
+
+  it('is labelled for each platform', () => {
+    expect(BROWSER_SHORTCUT_LABELS.mac).toBe('⇧⌘L');
+    expect(BROWSER_SHORTCUT_LABELS.other).toBe('Ctrl+Shift+L');
+  });
+});
+
+describe('close chord', () => {
+  it('is Cmd+W on macOS', () => {
+    expect(isCloseShortcut(cmd('w'), 'mac')).toBe(true);
+    expect(isCloseShortcut(cmd('W'), 'mac')).toBe(true);
+  });
+
+  it('is nothing elsewhere: Ctrl+W deletes a word in the terminal', () => {
+    expect(isCloseShortcut(ctrl('w'), 'other')).toBe(false);
+    expect(isCloseShortcut(cmd('w'), 'other')).toBe(false);
+  });
+
+  it('leaves Shift+Cmd+W to the window, and other modifiers alone', () => {
+    expect(isCloseShortcut(cmd('W', { shift: true }), 'mac')).toBe(false);
+    expect(isCloseShortcut(cmd('w', { alt: true }), 'mac')).toBe(false);
+    expect(isCloseShortcut(cmd('w', { ctrl: true }), 'mac')).toBe(false);
+    expect(isCloseShortcut(ctrl('w'), 'mac')).toBe(false);
+  });
+});
+
+describe('browser-focused chords', () => {
+  it('maps each chord to its action on macOS', () => {
+    expect(matchBrowserFocusedShortcut(cmd('l'), 'mac')).toBe('focus-address');
+    expect(matchBrowserFocusedShortcut(cmd('r'), 'mac')).toBe('reload');
+    expect(matchBrowserFocusedShortcut(cmd('R', { shift: true }), 'mac')).toBe('hard-reload');
+    expect(matchBrowserFocusedShortcut(cmd('['), 'mac')).toBe('back');
+    expect(matchBrowserFocusedShortcut(cmd(']'), 'mac')).toBe('forward');
+    expect(matchBrowserFocusedShortcut(cmd('f'), 'mac')).toBe('find');
+    expect(matchBrowserFocusedShortcut(cmd('='), 'mac')).toBe('zoom-in');
+    expect(matchBrowserFocusedShortcut(cmd('+', { shift: true }), 'mac')).toBe('zoom-in');
+    expect(matchBrowserFocusedShortcut(cmd('-'), 'mac')).toBe('zoom-out');
+    expect(matchBrowserFocusedShortcut(cmd('0'), 'mac')).toBe('zoom-reset');
+  });
+
+  it('uses Ctrl elsewhere and ignores the other platform modifier', () => {
+    expect(matchBrowserFocusedShortcut(ctrl('l'), 'other')).toBe('focus-address');
+    expect(matchBrowserFocusedShortcut(ctrl('r'), 'other')).toBe('reload');
+    expect(matchBrowserFocusedShortcut(cmd('r'), 'other')).toBeNull();
+    expect(matchBrowserFocusedShortcut(ctrl('r'), 'mac')).toBeNull();
+  });
+
+  it('leaves Alt chords and bare keys to the page', () => {
+    expect(matchBrowserFocusedShortcut(cmd('r', { alt: true }), 'mac')).toBeNull();
+    expect(matchBrowserFocusedShortcut(chord('r'), 'mac')).toBeNull();
+    expect(matchBrowserFocusedShortcut(cmd('c'), 'mac')).toBeNull();
+  });
+});
+
+describe('forwardedShortcutFor', () => {
+  it('forwards the app chords with their payload', () => {
+    expect(forwardedShortcutFor(cmd('k'), 'mac')).toEqual({ kind: 'command-palette' });
+    expect(forwardedShortcutFor(cmd('2'), 'mac')).toEqual({ kind: 'workspace', index: 1 });
+    expect(forwardedShortcutFor(cmd('p'), 'mac')).toEqual({
+      kind: 'scoped-palette',
+      scope: 'sessions',
+    });
+    expect(forwardedShortcutFor(cmd('\\'), 'mac')).toEqual({ kind: 'sidebar' });
+    expect(forwardedShortcutFor(ctrl('`'), 'other')).toEqual({ kind: 'terminal' });
+    expect(forwardedShortcutFor(ctrl('L', { shift: true }), 'other')).toEqual({ kind: 'browser' });
+  });
+
+  it('forwards the browser chords as their action', () => {
+    expect(forwardedShortcutFor(cmd('l'), 'mac')).toEqual({ kind: 'focus-address' });
+    expect(forwardedShortcutFor(cmd('0'), 'mac')).toEqual({ kind: 'zoom-reset' });
+  });
+
+  it('forwards the close chord on macOS only', () => {
+    expect(forwardedShortcutFor(cmd('w'), 'mac')).toEqual({ kind: 'close' });
+    expect(forwardedShortcutFor(cmd('W', { shift: true }), 'mac')).toBeNull();
+    expect(forwardedShortcutFor(ctrl('w'), 'other')).toBeNull();
+  });
+
+  it('prefers the toggle over the focus-address chord that shares its letter', () => {
+    expect(forwardedShortcutFor(cmd('L', { shift: true }), 'mac')).toEqual({ kind: 'browser' });
+  });
+
+  it('forwards nothing for page input', () => {
+    expect(forwardedShortcutFor(chord('a'), 'mac')).toBeNull();
+    expect(forwardedShortcutFor(cmd('c'), 'mac')).toBeNull();
+    expect(forwardedShortcutFor(cmd('v'), 'mac')).toBeNull();
+    expect(forwardedShortcutFor(chord('Enter'), 'mac')).toBeNull();
+  });
+});

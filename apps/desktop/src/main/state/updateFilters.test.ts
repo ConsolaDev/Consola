@@ -126,6 +126,20 @@ describe('allowedWorkspaceUpdates', () => {
 
     expect('name' in result).toBe(false);
   });
+
+  it('turns agent browser access off, and back on by removing the field', () => {
+    expect(allowedWorkspaceUpdates({ browserAgentAccess: 'off' })).toEqual({
+      browserAgentAccess: 'off',
+    });
+    const on = allowedWorkspaceUpdates({ browserAgentAccess: undefined });
+    expect('browserAgentAccess' in on && on.browserAgentAccess === undefined).toBe(true);
+    expect(allowedWorkspaceUpdates({ name: 'x' })).not.toHaveProperty('browserAgentAccess');
+    expect(() =>
+      allowedWorkspaceUpdates({
+        browserAgentAccess: 'on',
+      } as unknown as WorkspaceUpdates),
+    ).toThrow('Agent access to the browser is either off or absent.');
+  });
 });
 
 describe('allowedScopeUpdates', () => {

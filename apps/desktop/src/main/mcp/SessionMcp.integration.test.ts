@@ -274,6 +274,8 @@ beforeEach(() => {
       approvals: { request: requestApproval },
       conductorTools,
       stepTools: (id) => stepToolSpecs(stepIO, id),
+      // Their own suite covers them (browser/browserTools.test.ts).
+      browserTools: { addTo: () => {} },
       getWorkspaces: workspaces,
     });
   host = new SessionMcpHost({

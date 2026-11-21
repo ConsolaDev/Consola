@@ -709,3 +709,24 @@ test('the dashboard is where the workspace was left, and Open session leaves it'
     fs.rmSync(`${sprocket.userDataDir} Test`, { recursive: true, force: true });
   }
 });
+
+test('⌘W closes the dashboard and leaves the window open', async () => {
+  test.skip(process.platform !== 'darwin', '⌘W is a macOS chord; Ctrl+W belongs to the terminal');
+  const sprocket = await setUpSprocket();
+  const { app, page } = sprocket;
+  try {
+    const dashboard = await openAutomations(page);
+    await expect(dashboard).toBeVisible();
+
+    await page.keyboard.press('Meta+w');
+    await expect(dashboard).toHaveCount(0);
+    await expect(automationsRow(page)).not.toHaveAttribute('aria-current');
+
+    // Nothing is left to close: a second ⌘W keeps the window.
+    await page.keyboard.press('Meta+w');
+    await expect(page.locator('.layout')).toBeVisible();
+    expect(app.windows()).toHaveLength(1);
+  } finally {
+    await sprocket.close();
+  }
+});

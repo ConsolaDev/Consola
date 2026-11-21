@@ -1,6 +1,7 @@
 import type { AttentionChange, AttentionState } from '../../shared/attention';
 import type {
   BatchResult,
+  SettleBatchResult,
   SettleMemento,
   SettleResult,
   SnoozeBatchResult,
@@ -71,7 +72,7 @@ export const attentionBridge = {
     (await getAPI()?.wake(workspaceId, sessionIds)) ?? EMPTY_BATCH,
 
   /** Settle several sessions in one write, with one memento. */
-  settleMany: async (workspaceId: string, sessionIds: string[]): Promise<BatchResult> =>
+  settleMany: async (workspaceId: string, sessionIds: string[]): Promise<SettleBatchResult> =>
     (await getAPI()?.settleMany(workspaceId, sessionIds)) ?? EMPTY_BATCH,
 
   /** Bring several settled sessions back in one write, with one memento. */

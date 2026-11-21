@@ -9,7 +9,7 @@ import {
 
 describe('the settings list', () => {
   it('keeps Updates out of the App group: it is pinned below both groups', () => {
-    expect(APP_GROUP).toEqual(['appearance', 'sessions', 'harnesses', 'shortcuts']);
+    expect(APP_GROUP).toEqual(['appearance', 'sessions', 'appBrowser', 'harnesses', 'shortcuts']);
     expect(APP_GROUP).not.toContain('updates');
   });
 
@@ -22,6 +22,7 @@ describe('the settings list', () => {
       'actions',
       'labels',
       'worktrees',
+      'browser',
       'danger',
     ]);
   });

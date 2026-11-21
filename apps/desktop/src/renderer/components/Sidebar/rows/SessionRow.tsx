@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react';
-import { AlarmClockOff, Check, FolderGit2, FolderSync, Lock, Undo2 } from 'lucide-react';
+import { AlarmClockOff, Check, FolderGit2, FolderSync, Lock, Tag, Undo2 } from 'lucide-react';
 import { sessionLabel } from '../../../../shared/sessionLabel';
 import { checkoutRef } from '../../../../shared/sessionCheckout';
 import { checkoutPathForSession } from '../../../../shared/workspace';
@@ -109,16 +109,22 @@ function SessionRowBody({
   const showModel = useSettingsStore((state) => state.showSidebarModel);
   const showHarnessSetting = useSettingsStore((state) => state.showSidebarHarness);
   const showWorktree = useSettingsStore((state) => state.showSidebarWorktree);
+  const density = useSettingsStore((state) => state.sidebarDensity);
   // A settled row is finished work, so it says what the session was rather
   // than how it ran: one line, its name and its age, with no harness, model,
   // worktree or labels, whatever the settings say for the rest of the list.
   // An archive is scanned for a name; two-line rows made it a wall.
   // A snoozed row is the same: put away, with only its countdown to say.
-  const compact = bucket === 'settled' || bucket === 'snoozed';
+  const shelved = bucket === 'settled' || bucket === 'snoozed';
+  // The Compact density: every other row on one line too, but still a live
+  // row — its harness leads, its state keeps the trailing column, and its
+  // worktree, lock and labels shrink to marks beside the name. The model and
+  // the rest of what the second line said move into the tooltip.
+  const dense = density === 'compact' && !shelved;
   const snoozedUntil = bucket === 'snoozed' ? entry.snoozedUntil : undefined;
-  const showHarness = showHarnessSetting && !compact;
-  const showWorktreeLine = showWorktree && !compact;
-  const model = useSessionModel(session, showModel && !compact);
+  const showHarness = showHarnessSetting && !shelved;
+  const showWorktreeLine = showWorktree && !shelved;
+  const model = useSessionModel(session, showModel && !shelved);
   // Read from the folder, not the record: a scope can itself be a worktree.
   // Nothing is read at all while the line is switched off.
   const checkoutPath = useWorkspaceStore((state) => {
@@ -128,7 +134,7 @@ function SessionRowBody({
   const checkout = useCheckout(showWorktreeLine ? checkoutPath : null);
   const worktreeRef =
     showWorktreeLine && checkout?.kind === 'worktree' ? checkoutRef(checkout) : undefined;
-  const shownModel = showModel && !compact ? model : undefined;
+  const shownModel = showModel && !shelved ? model : undefined;
   // A state, not decoration: shown on every row, settled ones included,
   // whatever the worktree setting says — a rule removed the folder, and
   // opening the session is what brings it back.
@@ -211,7 +217,7 @@ function SessionRowBody({
   // Stopped on its harness's usage limit: said in the status column, over
   // Woke, with the reset when the CLI gave one. Not while it works again.
   const usageLimit = useSessionUsageLimit(session.id);
-  const limited = usageLimit && displayStatus !== 'working' && !compact ? usageLimit : undefined;
+  const limited = usageLimit && displayStatus !== 'working' && !shelved ? usageLimit : undefined;
   const limitWord = limited
     ? `Limited${limited.resetsAt !== undefined ? ` · resets ${formatClock(limited.resetsAt)}` : ''}`
     : undefined;
@@ -222,7 +228,9 @@ function SessionRowBody({
       ? entry.wakeMark
       : undefined;
   // The quiet word ("exited") gives way to what the status column already says.
-  const statusWord = woke || limited ? undefined : STATUS_WORDS[displayStatus];
+  // A compact row leaves the word to its dimmed name and its tooltip: on one
+  // line, "exited" cost the name more than it told anyone.
+  const statusWord = woke || limited || dense ? undefined : STATUS_WORDS[displayStatus];
   // The hover action is a toggle, and only where it works: the tree decides
   // (`settleOffer`), because a child or a busy session cannot reach the shelf.
   const isSettled = settle?.kind === 'unsettle';
@@ -254,6 +262,9 @@ function SessionRowBody({
       ? 'worktree removed, rebuilt when opened'
       : worktreeRef && `worktree ${worktreeRef}`,
     shownModel,
+    // A detailed row prints its labels; a compact one only marks them, so
+    // the names are said here.
+    dense && labelNames.length > 0 && `labels ${labelNames.map((item) => item.name).join(', ')}`,
   ]
     .filter(Boolean)
     .join(' — ');
@@ -348,13 +359,103 @@ function SessionRowBody({
     limited ||
     age;
 
+  // The trailing column, the same in both densities: what the row is doing,
+  // or its age where it is doing nothing. Keyed on the status, so each change
+  // is a fresh element and replays its arrival instead of mutating the words
+  // under the person's eyes. "exited" rides in the same column, before the
+  // age, where it reads as "exited 47m".
+  const trailingState = (
+    <>
+      {limitWord && (
+        <span
+          className="session-row-status session-row-status--limited"
+          title="Stopped on its harness's usage limit"
+        >
+          <span className="session-row-status-word">{limitWord}</span>
+        </span>
+      )}
+      {!limitWord && live && !(woke && displayStatus !== 'working') && (
+        <RowStatus key={displayStatus} status={displayStatus} since={entry.activityAt} />
+      )}
+      {!limitWord && woke && displayStatus !== 'working' && (
+        <span
+          className="session-row-status session-row-status--woke"
+          title={WAKE_CAUSE_WORDS[woke]}
+        >
+          <span className="session-row-status-mark" aria-hidden="true" />
+          <span className="session-row-status-word">Woke</span>
+        </span>
+      )}
+      {(statusWord || showAge) && (
+        <span className="session-row-age">
+          {statusWord && (
+            <span className={`session-status-word session-status-word--${displayStatus}`}>
+              {statusWord}{' '}
+            </span>
+          )}
+          {showAge && age}
+        </span>
+      )}
+    </>
+  );
+
+  // A compact row's marks, between the name and the trailing column: what
+  // the detailed row's second line spells out, as glyphs with their words in
+  // the tooltip. Labels show their emoji where they have one; a label
+  // without one is a tag.
+  const labelEmoji = labelNames.flatMap((item) => (item.emoji ? [item.emoji] : []));
+  const unmarkedLabels = labelNames.some((item) => !item.emoji);
+  const denseMarks = dense &&
+    (readOnly || removedWorktree || worktreeRef || labelNames.length > 0) && (
+      <span className="session-row-marks">
+        {labelNames.length > 0 && (
+          <span
+            className="session-row-mark session-row-mark--labels"
+            title={labelNames.map((item) => item.name).join(', ')}
+          >
+            {labelEmoji.slice(0, 3).join('')}
+            {(unmarkedLabels || labelEmoji.length > 3) && <Tag size={10} aria-hidden="true" />}
+          </span>
+        )}
+        {removedWorktree ? (
+          <span
+            className="session-row-mark session-row-mark--worktree-removed"
+            title="Worktree removed · rebuilt when opened"
+          >
+            <FolderSync size={11} aria-hidden="true" />
+          </span>
+        ) : (
+          worktreeRef && (
+            <span
+              className="session-row-mark session-row-mark--worktree"
+              title={`Worktree · ${worktreeRef}`}
+            >
+              <FolderGit2 size={11} aria-hidden="true" />
+            </span>
+          )
+        )}
+        {readOnly && (
+          <span
+            className="session-row-mark session-nav-item-read-only"
+            title={`${readOnlyNote}. Open it and choose “Continue with full tools” to make changes.`}
+          >
+            <Lock size={10} aria-hidden="true" />
+          </span>
+        )}
+      </span>
+    );
+  // Where a compact row runs, when the list does not already say: the scope's
+  // own name and a fan-out member's folder, quieter than the name and the
+  // first thing to give way to it.
+  const densePlace = dense ? [scopeLabel?.label, subtitle].filter(Boolean).join(' · ') : '';
+
   return (
     <div
       ref={rowRef}
       role="button"
       tabIndex={0}
       data-entry-key={entry.key}
-      className={`session-nav-item ${child ? 'session-nav-item--child' : ''} ${compact ? 'session-nav-item--compact' : ''} ${isActive ? 'active' : ''} ${isDragging ? 'dragging' : ''} ${PAST.has(displayStatus) ? 'session-nav-item--past' : ''} ${selected ? 'session-nav-item--selected' : ''}`}
+      className={`session-nav-item ${child ? 'session-nav-item--child' : ''} ${shelved || dense ? 'session-nav-item--compact' : ''} ${dense ? 'session-nav-item--dense' : ''} ${isActive ? 'active' : ''} ${isDragging ? 'dragging' : ''} ${PAST.has(displayStatus) ? 'session-nav-item--past' : ''} ${selected ? 'session-nav-item--selected' : ''}`}
       aria-selected={selected || undefined}
       onClick={isRenaming ? undefined : handleClick}
       onDoubleClick={handleDoubleClick}
@@ -396,7 +497,7 @@ function SessionRowBody({
           onCommit={(name) => renameSession(workspaceId, session, name)}
           onClose={finishRename}
         />
-      ) : compact ? (
+      ) : shelved ? (
         // One line: the name, then the lock where it applies, then the age.
         // The lock trails so every name on the shelf starts on one edge. The
         // age keeps the trailing column every other row's age sits in, and
@@ -425,6 +526,31 @@ function SessionRowBody({
           ) : (
             age && <span className="session-row-age">{age}</span>
           )}
+        </span>
+      ) : dense ? (
+        // One line: what runs it, the name, the marks, then the trailing
+        // column. The harness leads so every name starts on one edge, the
+        // way the shelf's do; the state keeps the column every row's age
+        // sits in, and steps aside for Settle on hover.
+        <span className="session-nav-item-text">
+          {(session.kind === 'conductor' || showHarness) && (
+            <span className="session-row-lead">
+              {session.kind === 'conductor' && (
+                <span className="session-conductor-glyph" aria-hidden>
+                  🧠
+                </span>
+              )}
+              {showHarness && (
+                <SessionHarnessIcon harnessId={session.harnessId} initials="same-cli" />
+              )}
+            </span>
+          )}
+          <span className="session-nav-item-title">
+            <span className="session-nav-item-name">{label}</span>
+          </span>
+          {densePlace && <span className="session-row-place">{densePlace}</span>}
+          {denseMarks}
+          {trailingState}
         </span>
       ) : (
         <span className="session-nav-item-text">
@@ -463,42 +589,9 @@ function SessionRowBody({
               {subtitle && <span className="session-nav-item-subtitle">{subtitle}</span>}
               {/* Pushed right by the spacer, so what a row is doing — and the
                   age where it is doing nothing — keeps one column down the
-                  list however much or little precedes it. Keyed on the status,
-                  so each change is a fresh element and replays its arrival
-                  instead of mutating the words under the person's eyes.
-                  "exited" rides in the same column, before the age, where it
-                  reads as "exited 47m" rather than running into the model. */}
+                  list however much or little precedes it. */}
               <span className="session-row-meta-spacer" />
-              {limitWord && (
-                <span
-                  className="session-row-status session-row-status--limited"
-                  title="Stopped on its harness's usage limit"
-                >
-                  <span className="session-row-status-word">{limitWord}</span>
-                </span>
-              )}
-              {!limitWord && live && !(woke && displayStatus !== 'working') && (
-                <RowStatus key={displayStatus} status={displayStatus} since={entry.activityAt} />
-              )}
-              {!limitWord && woke && displayStatus !== 'working' && (
-                <span
-                  className="session-row-status session-row-status--woke"
-                  title={WAKE_CAUSE_WORDS[woke]}
-                >
-                  <span className="session-row-status-mark" aria-hidden="true" />
-                  <span className="session-row-status-word">Woke</span>
-                </span>
-              )}
-              {(statusWord || showAge) && (
-                <span className="session-row-age">
-                  {statusWord && (
-                    <span className={`session-status-word session-status-word--${displayStatus}`}>
-                      {statusWord}{' '}
-                    </span>
-                  )}
-                  {showAge && age}
-                </span>
-              )}
+              {trailingState}
             </span>
           )}
           {/* The hero. It owns the full width of the column and may take a

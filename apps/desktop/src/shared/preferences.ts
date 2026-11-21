@@ -1,4 +1,5 @@
 import type { AttentionRecord } from './attention';
+import type { TerminalLinkRule } from './browser';
 import { DEFAULT_WORKTREE_CLEANUP_RULES, type WorktreeCleanupRules } from './worktreeCleanup';
 import { DEFAULT_SNOOZE_PRESETS, type SnoozePresetSetting } from './snooze';
 
@@ -23,6 +24,15 @@ export interface Preferences {
   snoozePresets: SnoozePresetSetting[];
   /** A session that stops on a usage limit snoozes itself until the limit resets. Off by default. */
   snoozeAtUsageLimit: boolean;
+  /** Where a link clicked in a terminal opens. Shift does the opposite for one click. */
+  terminalLinks: TerminalLinkRule;
+}
+
+/** Every rule a terminal link can follow, for validating what main reads or is sent. */
+export const TERMINAL_LINK_RULES: readonly TerminalLinkRule[] = ['local', 'all', 'never'];
+
+export function isTerminalLinkRule(value: unknown): value is TerminalLinkRule {
+  return TERMINAL_LINK_RULES.some((rule) => rule === value);
 }
 
 /** On by default: old work leaves the list by itself, and says so the first time. */
@@ -38,6 +48,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   worktreeCleanup: DEFAULT_WORKTREE_CLEANUP_RULES,
   snoozePresets: [...DEFAULT_SNOOZE_PRESETS],
   snoozeAtUsageLimit: false,
+  terminalLinks: 'local',
 };
 
 /**
@@ -48,6 +59,12 @@ export const DEFAULT_PREFERENCES: Preferences = {
 export interface SettleResult {
   settled: boolean;
   memento: SettleMemento;
+  /**
+   * Sessions the settle deleted instead of shelving, because they never got
+   * a message (`EmptySessionReaper`). They are left out of `memento`: no Undo
+   * brings a deleted session back.
+   */
+  removed?: string[];
 }
 
 /** What undoing a settle (or un-settle) restores: each session's ledger entry as it was, null for none. */
@@ -70,6 +87,11 @@ export interface BatchResult {
   applied: string[];
   refused: Refusal[];
   memento: SettleMemento;
+}
+
+/** A batch settle, and what it deleted instead of shelving, as `SettleResult.removed`. */
+export interface SettleBatchResult extends BatchResult {
+  removed?: string[];
 }
 
 /** A batch snooze, and the one time every applied session comes back at; null when they differ. */
