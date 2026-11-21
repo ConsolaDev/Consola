@@ -34,7 +34,7 @@ const UNEXPECTED_ELECTRON = "Electron's page dialog event is not what the app ex
  * that raises a dialog stops on any other major before anything is raised:
  * the guard here can see Electron's listener count, but not whether a new
  * Electron also shows dialogs some other way. Move it only after doing the
- * hand check in CLAUDE.md ("A dialog is held for the agent, not shown") on
+ * hand check in AGENTS.md ("A dialog is held for the agent, not shown") on
  * the new major.
  */
 const DIALOG_TAKEOVER_VERIFIED_ELECTRON_MAJOR = 43;
@@ -159,7 +159,7 @@ export function offScreenProblem(
       if (!guard) return 'The screen guard was never installed.';
       const major = Number(process.versions.electron.split('.')[0]);
       if (args.risk === 'dialog' && major !== args.verifiedMajor) {
-        return `The app's page dialog takeover was checked by hand on Electron ${args.verifiedMajor}, and this is Electron ${major}, so no dialog may be raised yet. Do the hand check in CLAUDE.md ("A dialog is held for the agent, not shown") on Electron ${major}, then move DIALOG_TAKEOVER_VERIFIED_ELECTRON_MAJOR (tests/e2e/helpers/screenGuard.ts) to ${major}.`;
+        return `The app's page dialog takeover was checked by hand on Electron ${args.verifiedMajor}, and this is Electron ${major}, so no dialog may be raised yet. Do the hand check in AGENTS.md ("A dialog is held for the agent, not shown") on Electron ${major}, then move DIALOG_TAKEOVER_VERIFIED_ELECTRON_MAJOR (tests/e2e/helpers/screenGuard.ts) to ${major}.`;
       }
       const guest = webContents
         .getAllWebContents()

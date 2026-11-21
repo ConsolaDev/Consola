@@ -19,7 +19,7 @@ import { capText, ConversationBuilder } from '../conversationBuilder';
  * not part of the conversation.
  *
  * The format is the CLI's own, not a promised contract, so it is read the way
- * CLAUDE.md asks for one: a line cut off mid-write is skipped, but a file
+ * AGENTS.md asks for one: a line cut off mid-write is skipped, but a file
  * whose lines are none of them envelopes throws, rather than reading as a
  * conversation where nothing was said.
  */
