@@ -432,8 +432,9 @@ test.describe('side panel', () => {
   test('the header keeps its shortcuts and side panel toggle for a session with no checkout', async () => {
     // A worktree a cleanup rule removed, which cannot be rebuilt: its
     // repository is gone too. So the session keeps no checkout to show.
-    // `removedWorktree` has one writer in main, which no window reaches, so
-    // the record is written where main keeps it and read at the next launch.
+    // `removedWorktree` is main's to write (`recordWorktreesRemoved`), so the
+    // test seeds it through the profile: the record is written where main
+    // keeps it and read at the next launch.
     await app.close();
     const stateFile = path.join(`${userDataDir} Test`, 'workspaces.json');
     const saved = JSON.parse(fs.readFileSync(stateFile, 'utf8')) as {
