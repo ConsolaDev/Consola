@@ -32,6 +32,7 @@ import {
   useMarkRunsSeen,
   useNow,
 } from './parts';
+import { noNextCheckWords } from './checkWords';
 import {
   ASSIGNED_REVIEWS_OFFER,
   formatAgo,
@@ -566,7 +567,7 @@ function NextRunCell({ automation, now }: { automation: AutomationView; now: Dat
       return (
         <div className="automations-row-line automations-row-quiet">
           <span className="sr-only">Next check: </span>
-          {automation.needsAllow ? 'Not checking yet' : 'Not checked yet'}
+          {noNextCheckWords(automation.check, Boolean(automation.needsAllow))}
         </div>
       );
     }

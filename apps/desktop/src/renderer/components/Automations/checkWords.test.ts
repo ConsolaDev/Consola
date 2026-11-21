@@ -5,6 +5,7 @@ import {
   allowNotes,
   checkStatusLine,
   grantWords,
+  noNextCheckWords,
   skippedWords,
   triggerNodeWords,
 } from './checkWords';
@@ -57,6 +58,25 @@ describe('checkStatusLine', () => {
 
   it('says nothing before the first check', () => {
     expect(checkStatusLine(check(), now)).toBeNull();
+  });
+});
+
+describe('noNextCheckWords', () => {
+  it('says a check is running once it has checked before, rather than that it never has', () => {
+    expect(noNextCheckWords(check({ lastAt: '2026-11-16T11:58:00.000Z' }), false)).toBe(
+      'Checking…',
+    );
+  });
+
+  it('says it has not checked before its first check ends', () => {
+    expect(noNextCheckWords(check(), false)).toBe('Not checked yet');
+  });
+
+  it('says it is not checking while it waits for Allow, whatever it checked before', () => {
+    expect(noNextCheckWords(check({ lastAt: '2026-11-16T11:58:00.000Z' }), true)).toBe(
+      'Not checking yet',
+    );
+    expect(noNextCheckWords(undefined, true)).toBe('Not checking yet');
   });
 });
 

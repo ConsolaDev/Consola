@@ -15,6 +15,16 @@ export function checkStatusLine(check: CheckView, now: Date): string | null {
   return `Checked ${formatAgo(check.lastAt, now)}: ${found}, ${check.fired ?? 0} new`;
 }
 
+/**
+ * A poll's next-check cell when no next check is given: it waits for Allow,
+ * or a check is running now (the engine gives no `nextAt` while one runs).
+ * One that has checked before is checking, not "not checked yet".
+ */
+export function noNextCheckWords(check: CheckView | undefined, needsAllow: boolean): string {
+  if (needsAllow) return 'Not checking yet';
+  return check?.lastAt ? 'Checking…' : 'Not checked yet';
+}
+
 /** The items a check left out because their repository is not here; null when none. */
 export function skippedWords(skipped: number): string | null {
   return skipped > 0 ? `${skipped} skipped: their repositories are not in this workspace` : null;
