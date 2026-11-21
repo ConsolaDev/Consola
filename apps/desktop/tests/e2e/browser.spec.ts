@@ -419,7 +419,11 @@ test.describe('in-app browser', () => {
         document.querySelector('.browser-page webview');
     });
     const presence = () => page.locator('.browser-page').getAttribute('data-presence');
-    /** The same element, the same guest, and a page that never reloaded. */
+    /**
+     * The same element, the same guest, and a page that never reloaded. A
+     * page shown is drawn exactly over its slot: without a slot to anchor to
+     * it would cover the whole window, and still be the same page.
+     */
     const untouched = async () => {
       expect(
         await page.evaluate(() => {
@@ -429,6 +433,12 @@ test.describe('in-app browser', () => {
       ).toBe(true);
       expect((await guests(app)).map((each) => each.id)).toEqual([guest.id]);
       expect(await inGuest(app, url, 'window.__kept')).toBe(1);
+      if ((await presence()) !== 'shown') return;
+      const drawn = (await page.locator('.browser-page').boundingBox())!;
+      const slot = (await page.getByTestId('browser-slot').boundingBox())!;
+      for (const side of ['x', 'y', 'width', 'height'] as const) {
+        expect(Math.abs(drawn[side] - slot[side]), side).toBeLessThanOrEqual(2);
+      }
     };
     expect((await page.getByTestId('browser-slot').boundingBox())!.height).toBeGreaterThan(200);
 
