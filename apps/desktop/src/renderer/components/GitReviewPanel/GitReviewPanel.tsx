@@ -52,10 +52,11 @@ export const GitReviewPanel = memo(function GitReviewPanel({
   }, [rootPath, refresh]);
 
   // Only an Escape pressed inside the tab closes it. Anywhere else Escape
-  // belongs to something else, Claude's interrupt key among them. Each root
-  // takes focus (`tabIndex={-1}`) so a click on diff text or blank space
-  // lands it here, rather than on the tab panel around the review, where
-  // this handler would never hear the Escape.
+  // belongs to something else, Claude's interrupt key among them. A click
+  // must leave the keyboard inside the review, where this handler hears the
+  // Escape: on the diff's text it lands on the diff list, which the keys then
+  // scroll, and on blank space on the root, which takes focus for that
+  // (`tabIndex={-1}`, as the lists inside do).
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Escape') onClose();
   };

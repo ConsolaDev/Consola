@@ -46,6 +46,9 @@ export function DiffView({ rootPath, relativePath, staged }: DiffViewProps) {
   const [diffData, setDiffData] = useState<GitDiffResult | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Cmd+A selects what the view holds while the keyboard is anywhere in it.
+  // Its lines scroll in `.diff-unified-content`, which a click on them
+  // focuses (never Tab), so the keys then scroll it.
   const contentRef = useSelectAll<HTMLDivElement>();
 
   const language = useMemo(() => getLanguageFromPath(relativePath), [relativePath]);
@@ -115,7 +118,7 @@ export function DiffView({ rootPath, relativePath, staged }: DiffViewProps) {
           <span className="diff-header-label diff-header-new">New File</span>
           <span className="diff-header-path">{relativePath}</span>
         </div>
-        <div className="diff-unified-content">
+        <div className="diff-unified-content" tabIndex={-1}>
           {lines.map((line, idx) => (
             <div key={idx} className="diff-unified-line diff-unified-line-add">
               <span className="diff-unified-gutter diff-unified-gutter-add">+</span>
@@ -140,7 +143,7 @@ export function DiffView({ rootPath, relativePath, staged }: DiffViewProps) {
           <span className="diff-header-label diff-header-deleted">Deleted File</span>
           <span className="diff-header-path">{relativePath}</span>
         </div>
-        <div className="diff-unified-content">
+        <div className="diff-unified-content" tabIndex={-1}>
           {lines.map((line, idx) => (
             <div key={idx} className="diff-unified-line diff-unified-line-remove">
               <span className="diff-unified-gutter diff-unified-gutter-remove">-</span>
@@ -163,7 +166,7 @@ export function DiffView({ rootPath, relativePath, staged }: DiffViewProps) {
         <span className="diff-header-label">{staged ? 'Staged' : 'Modified'}</span>
         <span className="diff-header-path">{relativePath}</span>
       </div>
-      <div className="diff-unified-content">
+      <div className="diff-unified-content" tabIndex={-1}>
         {unifiedLines.map((line, idx) => {
           const lineClass =
             line.type === 'add'

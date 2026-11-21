@@ -964,6 +964,11 @@
   margin: 0 !important;
 }
 
+/* Focused by a click, so the keys scroll it; never by Tab, so no ring */
+.code-file-content pre:focus {
+  outline: none;
+}
+
 /* ========================================
    Markdown View Toggle
    ======================================== */
@@ -1146,6 +1151,11 @@
   font-family: var(--font-mono);
   font-size: 13px;
   line-height: 1.5;
+}
+
+/* Focused by a click, so the keys scroll it; never by Tab, so no ring */
+.diff-unified-content:focus {
+  outline: none;
 }
 
 .diff-unified-line {

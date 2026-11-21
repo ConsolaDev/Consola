@@ -50,10 +50,13 @@ export function CodeFileView({ filePath }: CodeFileViewProps) {
   return (
     <div className="code-file-view">
       <div ref={contentRef} tabIndex={0} className="code-file-content">
+        {/* The <pre> is what scrolls, so a click on the code focuses it
+            (never by Tab), and the keys then scroll it. */}
         <SyntaxHighlighter
           style={codeTheme}
           language={language}
           showLineNumbers
+          tabIndex={-1}
           customStyle={{
             ...codeCustomStyle,
             height: '100%',

@@ -145,12 +145,18 @@ function TabSlot({
   }
 
   const View = TAB_VIEWS[kind.id];
+  // No `tabIndex`, unlike Radix's default of 0: a click on text in a view
+  // would focus this panel, which does not scroll, and the keys would then
+  // scroll nothing. Left unfocused, a click focuses the view's own scroller,
+  // or leaves the keyboard on the page, where the browser scrolls what was
+  // clicked.
   return (
     <Tabs.Content
       key={`${kind.id}:${facts.session.id}`}
       value={tab}
       forceMount
       hidden={!inFront}
+      tabIndex={undefined}
       className="side-panel-tab-content"
     >
       <View facts={facts} close={close} />

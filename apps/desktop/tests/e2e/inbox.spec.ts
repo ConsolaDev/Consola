@@ -1054,6 +1054,19 @@ test('a linked session shows its item pane beside the terminal, and Fix pastes i
     await expect(thisRow.getByRole('button', { name: /^Open / })).toHaveCount(0);
     await expect(pane.locator('[data-action-id="review"]')).toBeVisible();
 
+    // After a click on its text, the keys scroll the pane, as reading it by
+    // the keys needs. The pane is taller than its tab, or this proves nothing.
+    const scroll = () => panel.evaluate((element) => element.scrollTop);
+    expect(
+      await panel.evaluate((element) => element.scrollHeight - element.clientHeight),
+    ).toBeGreaterThan(100);
+    await pane.getByRole('heading', { name: 'Extract billing client' }).click();
+    await page.keyboard.press('PageDown');
+    await expect.poll(scroll).toBeGreaterThan(0);
+    await panel.evaluate((element) => {
+      element.scrollTop = 0;
+    });
+
     // A Fix goes to the session on screen, not to a new one: pasted into its
     // composer and left for the person to send.
     const merge = remote.getByRole('region', { name: 'Merge' });

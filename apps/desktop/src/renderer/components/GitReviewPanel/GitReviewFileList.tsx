@@ -91,9 +91,11 @@ export const GitReviewFileList = memo(function GitReviewFileList({
     return parts[parts.length - 1];
   };
 
+  // The list is focusable, though never by Tab, as the diff list is: a click
+  // in it focuses it, so the keys scroll it.
   if (staged.length === 0 && changes.length === 0) {
     return (
-      <div className="git-review-sidebar-content">
+      <div className="git-review-sidebar-content" tabIndex={-1}>
         <div className="git-review-empty" style={{ height: 'auto', padding: 'var(--space-4)' }}>
           <p style={{ fontSize: '11px' }}>No changes</p>
         </div>
@@ -102,7 +104,7 @@ export const GitReviewFileList = memo(function GitReviewFileList({
   }
 
   return (
-    <div className="git-review-sidebar-content">
+    <div className="git-review-sidebar-content" tabIndex={-1}>
       {staged.length > 0 && (
         <Collapsible.Root open={stagedOpen} onOpenChange={setStagedOpen}>
           <Collapsible.Trigger className="git-review-section-header">

@@ -10,8 +10,11 @@
   overflow: hidden;
 }
 
-/* Focused by a click inside, so Escape reaches it; never by Tab, so no ring */
-.git-review-panel:focus {
+/* Focused by a click inside, so Escape reaches it and the keys scroll what
+   was clicked; never by Tab, so no ring */
+.git-review-panel:focus,
+.git-review-diff-list:focus,
+.git-review-sidebar-content:focus {
   outline: none;
 }
 

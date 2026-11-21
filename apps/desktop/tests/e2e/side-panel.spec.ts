@@ -203,16 +203,95 @@ test.describe('side panel', () => {
     await expect(page.getByTestId('side-panel')).toHaveCount(0);
   });
 
-  test('Escape after a click on the diff closes the Changes tab', async () => {
+  /** Writes `lines` numbered lines into a file of the repository, so what shows it has to scroll. */
+  function writeLongFile(relative: string, lines = 300): void {
+    const body = Array.from({ length: lines }, (_, line) => `export const row${line} = ${line};`);
+    fs.writeFileSync(path.join(root, 'catalog-portal', relative), `${body.join('\n')}\n`);
+  }
+  const scrollTopOf = (scroller: Locator) => scroller.evaluate((element) => element.scrollTop);
+  /**
+   * How far the box that scrolls `target` up and down has scrolled: the
+   * nearest such box around it, itself included, which is what the keys
+   * should move after a click on it.
+   */
+  const scrolledAround = (target: Locator) =>
+    target.evaluate((element) => {
+      for (let node: Element | null = element; node; node = node.parentElement) {
+        const { overflowY } = getComputedStyle(node);
+        if (/auto|scroll/.test(overflowY) && node.scrollHeight > node.clientHeight) {
+          return node.scrollTop;
+        }
+      }
+      throw new Error('nothing around it scrolls');
+    });
+
+  test('after a click on the diff, the keys scroll it and Escape closes the Changes tab', async () => {
+    writeLongFile('src/search.ts');
+    // Wide enough that the diff has room beside the review's file list.
+    const appWindow = await app.browserWindow(page);
+    await appWindow.evaluate((browserWindow) => browserWindow.setContentSize(1400, 800));
     await openSession('Paginate the catalog search');
     await changesShortcut().click();
     await expect(changesTab()).toHaveAttribute('aria-selected', 'true');
+    const diffList = page.locator('.git-review-diff-list');
+    await expect(diffList).toContainText('row40');
 
-    // Nothing in the diff can take focus itself, so the click must land it
-    // inside the review rather than on the tab panel around it.
-    await page.locator('.git-review-panel .git-review-inline-diff-content').first().click();
+    // Nothing in the diff takes focus itself. A click on its text must leave
+    // the keyboard where it scrolls the diff, as reading one by the keys needs,
+    // and inside the review, where its Escape is heard.
+    await page.locator('.git-review-inline-diff-content').nth(3).click();
+    expect(await scrollTopOf(diffList)).toBe(0);
+    await page.keyboard.press('PageDown');
+    await expect.poll(() => scrollTopOf(diffList)).toBeGreaterThan(0);
+    const afterPage = await scrollTopOf(diffList);
+    await page.keyboard.press('ArrowDown');
+    await expect.poll(() => scrollTopOf(diffList)).toBeGreaterThan(afterPage);
+    // No new stop for Tab: what the click focused is out of the Tab order.
+    expect(
+      await page.evaluate(() => (document.activeElement as HTMLElement | null)?.tabIndex),
+    ).toBe(-1);
+
     await page.keyboard.press('Escape');
     await expect(page.getByTestId('side-panel')).toHaveCount(0);
+  });
+
+  test('after a click on a file in the Files tab, the keys scroll its preview', async () => {
+    writeLongFile('src/catalog.ts');
+    writeLongFile('src/search.ts');
+    const notes = Array.from({ length: 300 }, (_, line) => `- note ${line}`);
+    fs.writeFileSync(path.join(root, 'catalog-portal', 'NOTES.md'), `${notes.join('\n')}\n`);
+    await openSession('Paginate the catalog search');
+    await conversation().focus();
+    await page.keyboard.press(filesChord);
+    const tree = page.getByTestId('files-tree');
+    await tree.getByText('src', { exact: true }).click();
+    await tree.getByText('catalog.ts', { exact: true }).click();
+    const code = page.locator('.code-file-content pre');
+    await expect(code).toContainText('row40');
+    await code.click({ position: { x: 120, y: 60 } });
+    await page.keyboard.press('PageDown');
+    await expect.poll(() => scrolledAround(code)).toBeGreaterThan(0);
+
+    // A Markdown file's preview, the same.
+    await tree.getByText('NOTES.md', { exact: true }).click();
+    const markdown = page.locator('.markdown-preview-view');
+    await expect(markdown).toContainText('note 40');
+    const note = markdown.getByText('note 3', { exact: true });
+    await note.click();
+    await page.keyboard.press('PageDown');
+    await expect.poll(() => scrolledAround(note)).toBeGreaterThan(0);
+
+    // A changed file's diff, opened from the palette, the same.
+    await page.keyboard.press(filesScopeChord);
+    await page.keyboard.type('search.ts');
+    await expect(page.getByRole('option', { name: /search\.ts/ })).toBeVisible();
+    await page.keyboard.press('Enter');
+    const diff = page.locator('.diff-unified-content');
+    await expect(diff).toContainText('row40');
+    const line = diff.locator('.diff-unified-line-content').nth(3);
+    await line.click();
+    await page.keyboard.press('PageDown');
+    await expect.poll(() => scrolledAround(line)).toBeGreaterThan(0);
   });
 
   test('the palette opens Changes', async () => {
