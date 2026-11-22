@@ -103,6 +103,15 @@ const MESSAGES = {
 } as const;
 
 const listedTwice = (name: string) => `\`${name}\` is listed twice.`;
+/**
+ * Format characters (`\p{Cf}`: bidi overrides, zero-width joiners and
+ * spaces) change how text shows without showing, so a description or a
+ * server name on a card could read as other text, and from slice 6 these
+ * can be other people's.
+ */
+const FORMAT_CHARACTER = /\p{Cf}/u;
+const plainTextOnly = (what: string) =>
+  `${what} is plain text: no bidi overrides or zero-width characters, which make text read as something else.`;
 const own = (object: object, key: string) => Object.prototype.hasOwnProperty.call(object, key);
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -117,6 +126,9 @@ function readServers(value: unknown): AgentServer[] | string {
   if (value.length > MAX_AGENT_SERVERS) return MESSAGES.tooManyServers;
   const servers: AgentServer[] = [];
   for (const item of value) {
+    const name = isRecord(item) && Object.keys(item).length === 1 ? Object.keys(item)[0] : item;
+    if (typeof name === 'string' && FORMAT_CHARACTER.test(name))
+      return plainTextOnly('A server name');
     let server: AgentServer;
     if (isServerName(item)) server = { name: item };
     else if (isRecord(item) && Object.keys(item).length === 1) {
@@ -211,7 +223,9 @@ export function parseAgentFile(
   let description: string | undefined;
   if (has('description')) {
     const given = front.description;
-    if (
+    if (typeof given === 'string' && FORMAT_CHARACTER.test(given))
+      issue(plainTextOnly('`description`'), 'description', lineOf('description'));
+    else if (
       typeof given === 'string' &&
       given.trim() !== '' &&
       !/[\r\n]/.test(given) &&

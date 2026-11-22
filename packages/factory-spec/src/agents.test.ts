@@ -42,6 +42,8 @@ const COMPILED =
   "Consola compiles an agent's permissions from `tools`, `mcpServers` and `skills`; it takes no others.";
 const NEEDS_HARNESS =
   'An agent that names servers or skills names its harness too: add `harness: <id>`, the harness whose CLI has them.';
+const FORMAT_CHARACTERS = (what: string) =>
+  `${what} is plain text: no bidi overrides or zero-width characters, which make text read as something else.`;
 const SERVERS =
   'Expected `mcpServers` to be a list of server names, each optionally narrowed to its tools: `- notion` or `- grafana: [query_logs]`.';
 const TOOL_NAME =
@@ -147,6 +149,13 @@ describe('parseAgentFile', () => {
       'description',
       'Expected `description` to be one line of at most 200 characters.',
     ],
+    // Format characters (bidi overrides, zero-width) make shown text read as other text (review M8).
+    [
+      'description: "Reviews \\u202Egnp.sdrawkcab"\n',
+      'description',
+      FORMAT_CHARACTERS('`description`'),
+    ],
+    ['description: "Reviews\\u200Bquietly"\n', 'description', FORMAT_CHARACTERS('`description`')],
     [
       'harness: claude work\n',
       'harness',
@@ -169,6 +178,12 @@ describe('parseAgentFile', () => {
     ],
     [`${H}mcpServers: notion\n`, 'mcpServers', SERVERS],
     [`${H}mcpServers: ["a\\nb"]\n`, 'mcpServers', SERVERS],
+    [`${H}mcpServers: ["noti\\u200Bon"]\n`, 'mcpServers', FORMAT_CHARACTERS('A server name')],
+    [
+      `${H}mcpServers: [{ "noti\\u202Eon": [search] }]\n`,
+      'mcpServers',
+      FORMAT_CHARACTERS('A server name'),
+    ],
     [`${H}mcpServers: [{ grafana: [] }]\n`, 'mcpServers', SERVERS],
     [`${H}mcpServers: ${list(21, 's')}\n`, 'mcpServers', 'An agent names at most 20 servers.'],
     [`${H}mcpServers: [notion, notion]\n`, 'mcpServers', '`notion` is listed twice.'],
