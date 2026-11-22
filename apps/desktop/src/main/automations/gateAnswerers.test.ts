@@ -65,6 +65,10 @@ describe('who can answer a gate', () => {
     const to = ipc.indexOf('ipcMain.handle(', from + 1);
     expect(to).toBeGreaterThan(from);
     expect(count(ipc.slice(from, to), /\.answerGate\(/g)).toBe(1);
+    // And it hands on only what its argument check let through (3-A code review M10).
+    expect(ipc.slice(from, to)).toMatch(
+      /const \{ runId, stepId, decision \} = gateAnswerArgs\(rawRunId, rawStepId, rawDecision\);\s*return automations\.answerGate\(runId, stepId, decision\);/,
+    );
   });
 
   it('no engine code calls answerGate: AutomationService.ts holds only its definition', () => {

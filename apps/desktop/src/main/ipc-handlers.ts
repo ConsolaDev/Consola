@@ -138,6 +138,7 @@ import {
   type ItemWorktreeDeps,
 } from './automations/launchAgentRun';
 import { entryArgs, openFileArgs, workspaceArg } from './automations/factoryFileArgs';
+import { gateAnswerArgs, gateArgs } from './automations/gateArgs';
 import { openFactoryFile } from './automations/openFactoryFile';
 import { automationCheckoutPort } from './automations/automationCheckout';
 import { readRunConversation } from './automations/runConversation';
@@ -2415,20 +2416,19 @@ export function setupIpcHandlers(): boolean {
     }
     return automations.retry(runId, stepId);
   });
-  ipcMain.handle(IPC_CHANNELS.AUTOMATIONS_GET_GATE, (_event, runId: unknown, stepId: unknown) => {
-    if (typeof runId !== 'string' || typeof stepId !== 'string') {
-      throw new Error('Run id and step id required.');
-    }
-    return automations.gateOf(runId, stepId);
-  });
+  ipcMain.handle(
+    IPC_CHANNELS.AUTOMATIONS_GET_GATE,
+    (_event, rawRunId: unknown, rawStepId: unknown) => {
+      const { runId, stepId } = gateArgs(rawRunId, rawStepId);
+      return automations.gateOf(runId, stepId);
+    },
+  );
   // The one way a gate is answered: the person, from the renderer. No MCP tool, conductor tool or step tool
   // reaches it (`gateAnswerers.test.ts`).
   ipcMain.handle(
     IPC_CHANNELS.AUTOMATIONS_ANSWER_GATE,
-    (_event, runId: unknown, stepId: unknown, decision: unknown) => {
-      if (typeof runId !== 'string' || typeof stepId !== 'string' || typeof decision !== 'string') {
-        throw new Error('Run id, step id and decision required.');
-      }
+    (_event, rawRunId: unknown, rawStepId: unknown, rawDecision: unknown) => {
+      const { runId, stepId, decision } = gateAnswerArgs(rawRunId, rawStepId, rawDecision);
       return automations.answerGate(runId, stepId, decision);
     },
   );
