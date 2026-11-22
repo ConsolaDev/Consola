@@ -25,7 +25,8 @@ const ANY_PACKAGE = '*';
 const NODE_BUILTINS = 'node:*';
 /**
  * t3's test kits: `@t3tools/provider-testing`, any package's `testing` entry
- * (`@t3tools/provider-claude/testing`), and any `testkit` module of the lifted server
+ * (`@t3tools/provider-claude/testing`), Codex's app-server replay
+ * (`effect-codex-app-server/replay`), and any `testkit` module of the lifted server
  * (`t3/orchestration-v2/testkit/…`, `….testkit.ts`). Replays and fakes are for tests only.
  */
 const TEST_KITS = 'test-kits';
@@ -299,6 +300,8 @@ function matches(pattern: string, specifier: string): boolean {
   if (pattern === TEST_KITS) {
     return (
       packageName(specifier) === '@t3tools/provider-testing' ||
+      specifier === 'effect-codex-app-server/replay' ||
+      specifier.startsWith('effect-codex-app-server/replay/') ||
       /\/testing$/.test(specifier) ||
       /(^|\/)testkit\//.test(specifier) ||
       /\.testkit\.ts$/.test(specifier)
@@ -425,6 +428,10 @@ describe('the dependency rule', () => {
     ['runtime/x.ts', '@t3tools/server-orchestration/testing', false],
     ['runtime/x.ts', 't3/orchestration-v2/testkit/ProviderReplayHarness.ts', false],
     ['runtime/x.ts', 't3/mcp/McpSessionRegistry.testkit.ts', false],
+    ['runtime/x.ts', 'effect-codex-app-server/replay', false],
+    ['adapters/x.ts', 'effect-codex-app-server/replay', false],
+    ['runtime/x.ts', 'effect-codex-app-server', true],
+    ['runtime/x.test.ts', 'effect-codex-app-server/replay', true],
     ['runtime/x.test.ts', '@t3tools/provider-claude/testing', true],
     ['adapters/x.ts', '@t3tools/provider-claude/testing', false],
     ['bin.ts', '@t3tools/provider-testing/replayGate', false],

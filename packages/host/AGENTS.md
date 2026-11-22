@@ -560,8 +560,8 @@ stubbed, and any request fails the test.
 
 The replay tests compose the same production orchestration through
 `layerForTests`, with one change: the host's guarded Claude driver whose
-adapter is t3's Claude replay adapter. Test kits (`@t3tools/provider-testing`, any `…/testing` entry, any
-`testkit` module) are imported only from `*.test.ts` files; `boundary.test.ts`
+adapter is t3's Claude replay adapter. Test kits (`@t3tools/provider-testing`, any `…/testing`
+entry, `effect-codex-app-server/replay`, any `testkit` module) are imported only from `*.test.ts` files; `boundary.test.ts`
 refuses them anywhere else.
 
 ## The `session` command
