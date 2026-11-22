@@ -10,15 +10,26 @@
   overflow: hidden;
 }
 
+/* Focused by a click inside, so Escape reaches it and the keys scroll what
+   was clicked; never by Tab, so no ring */
+.git-review-panel:focus,
+.git-review-diff-list:focus,
+.git-review-sidebar-content:focus {
+  outline: none;
+}
+
 /* ========================================
    Sidebar
    ======================================== */
 
+/* A share of the review, at most 240px: in a side panel at its narrowest
+   (280px) the list keeps about 100px and the diff the rest. */
 .git-review-sidebar {
   display: flex;
   flex-direction: column;
-  width: 240px;
-  min-width: 240px;
+  flex-shrink: 0;
+  width: clamp(96px, 35%, 240px);
+  min-width: 0;
   border-right: 1px solid var(--color-border);
   background: var(--color-bg-secondary);
   transition:

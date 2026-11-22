@@ -801,13 +801,48 @@
   color: var(--color-accent);
 }
 
-/* The globe's dot: an agent opened or used a page the person has not seen.
+/* The header's right end: the shortcuts, a separator, then the side panel
+   toggle. Without a checkout nothing fills the row before it, so it keeps to
+   the right edge on its own. */
+.side-panel-controls {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+
+/* 4px of margin on each side, with the 4px gap, leaves 8px around it */
+.side-panel-controls-separator {
+  flex-shrink: 0;
+  width: 1px;
+  height: 16px;
+  margin: 0 4px;
+  padding: 0;
+  border: none;
+  /* The plain border colour is a tenth of white in dark: almost invisible */
+  background: var(--color-border-hover);
+}
+
+/* A shortcut for a tab that does not apply here: dimmed, its tooltip says why */
+.path-display-toggle[aria-disabled="true"],
+.path-display-toggle[aria-disabled="true"]:hover {
+  background: transparent;
+  color: var(--color-text-disabled);
+  cursor: default;
+}
+
+/* A kind's mark (`markPlaces`), such as an agent having used a page the person has not seen:
+   on a header shortcut, on the side panel toggle, or on a tab in the side panel's bar. One rule
+   draws it for all three, so the dot cannot differ between them; only a tab places it apart.
    A literal radius: var(--radius-full) resolves to 0 inside .radix-themes. */
-.path-display-toggle[data-agent-dot] {
+.path-display-toggle[data-agent-dot],
+.side-panel-tab-trigger[data-agent-dot] {
   position: relative;
 }
 
-.path-display-toggle[data-agent-dot]::after {
+.path-display-toggle[data-agent-dot]::after,
+.side-panel-tab-trigger[data-agent-dot]::after {
   content: "";
   position: absolute;
   top: 3px;
@@ -817,6 +852,15 @@
   border-radius: 50%;
   background: var(--color-accent);
   pointer-events: none;
+}
+
+/* On a tab the dot sits on its icon's corner, as it does on a header button's
+   icon: at the tab's own corner it touched the label's last letter, which ends
+   4px from that edge. The 14px icon starts at the trigger's left padding, and
+   the dot overlaps its corner by 4px, as on the header. */
+.side-panel-tab-trigger[data-agent-dot]::after {
+  right: auto;
+  left: calc(var(--space-2) + 10px);
 }
 
 /* Git stats badge */
@@ -919,6 +963,12 @@
 .code-file-content pre {
   height: 100%;
   margin: 0 !important;
+}
+
+/* Focused by Tab or a click, so the keys scroll it; ringed for the keyboard only */
+.code-file-content pre:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
 }
 
 /* ========================================
@@ -1103,6 +1153,12 @@
   font-family: var(--font-mono);
   font-size: 13px;
   line-height: 1.5;
+}
+
+/* Focused by Tab or a click, so the keys scroll it; ringed for the keyboard only */
+.diff-unified-content:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
 }
 
 .diff-unified-line {

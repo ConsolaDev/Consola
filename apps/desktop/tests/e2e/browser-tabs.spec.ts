@@ -3,6 +3,7 @@ import type { ElectronApplication, Locator, Page } from '@playwright/test';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { showBrowser } from './helpers/browserTab';
 import { launchElectron, removeProfile } from './helpers/electron';
 import { type FixtureServer, startFixtureServer } from './helpers/fixtureServer';
 
@@ -94,16 +95,11 @@ async function openSession(
   await page.locator('.session-nav-item').filter({ hasText: sessionName }).click();
 }
 
-const globe = (page: Page) => page.getByRole('button', { name: /^(Show|Hide) browser$/ });
 const panel = (page: Page) => page.getByTestId('browser-panel');
 const address = (page: Page) => page.getByRole('textbox', { name: 'Address' });
-const tabs = (page: Page) => page.getByRole('tab');
-const newTab = (page: Page) => page.getByRole('button', { name: 'New tab', exact: true });
-
-async function showBrowser(page: Page): Promise<void> {
-  if (!(await panel(page).isVisible())) await globe(page).click();
-  await expect(panel(page)).toBeVisible();
-}
+// Scoped to the browser: the side panel around it has a Browser tab and a "+" of its own.
+const tabs = (page: Page) => panel(page).getByRole('tab');
+const newTab = (page: Page) => panel(page).getByRole('button', { name: 'New tab', exact: true });
 
 async function typeAddress(page: Page, text: string): Promise<void> {
   const field = address(page);
@@ -433,7 +429,7 @@ test.describe('in-app browser tabs', () => {
     await expect(tabs(page)).toHaveCount(12);
     const strip = page.locator('.browser-tab-strip');
     const tabList = page.getByRole('tablist', { name: 'Browser tabs' });
-    const active = page.getByRole('tab', { selected: true });
+    const active = tabList.getByRole('tab', { selected: true });
 
     /** Whether all of `inner` lies inside `outer`'s box, give or take a pixel. */
     const inside = async (inner: Locator, outer: Locator): Promise<boolean> => {
@@ -452,11 +448,11 @@ test.describe('in-app browser tabs', () => {
       await expect.poll(() => inside(active, tabList)).toBe(true);
     };
     const panelWidth = async () => (await panel(page).boundingBox())?.width ?? 0;
-    /** Drags the separator before the browser panel to `x`, as the person does. */
+    /** Drags the separator before the side panel, which holds the browser, to `x`, as the person does. */
     const dragSeparatorTo = async (x: number) => {
-      const separator = page.locator('.resize-handle:has(+ [data-testid="browser"])');
+      const separator = page.locator('.resize-handle:has(+ [data-testid="side-panel"])');
       const box = await separator.boundingBox();
-      if (!box) throw new Error('no separator before the browser panel');
+      if (!box) throw new Error('no separator before the side panel');
       await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
       await page.mouse.down();
       await page.mouse.move(x, box.y + box.height / 2, { steps: 8 });

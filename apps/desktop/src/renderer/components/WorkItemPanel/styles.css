@@ -1,4 +1,4 @@
-/* A linked session's PR or issue, in a resizable panel beside its terminal.
+/* A session's PR or issue, in the side panel's Pull request tab.
    It plays the part of the Inbox's .inbox-pane-slot: the scroll container,
    with the top/right inset the pane assumes, and the inset the detail tabs
    offset by to stick to its visible edge (see .inbox-detail-tabs). */

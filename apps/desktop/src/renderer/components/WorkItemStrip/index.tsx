@@ -4,8 +4,9 @@ import { PROVIDER_META } from '../../../shared/providers';
 import { sessionLabel } from '../../../shared/sessionLabel';
 import { sameWorkItem, workItemUrl } from '../../../shared/workItems';
 import type { Session } from '../../../shared/workspace';
+import { isInFront } from '../../sidePanel/layout';
 import { useInboxStore } from '../../stores/inboxStore';
-import { useNavigationStore } from '../../stores/navigationStore';
+import { useSidePanelStore } from '../../stores/sidePanelStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { tildePath } from '../../utils/displayPath';
 import { activateSession } from '../../utils/sessionActions';
@@ -24,9 +25,9 @@ interface WorkItemStripProps {
  * the action this session was started as, its siblings on the same item,
  * and where it physically runs. It reads the same cache as the Inbox — one
  * fetcher, one rate-limit budget. Run sends one of the workspace's actions
- * into this session (a follow-up pass, in this tab); its Details toggle
- * opens the item beside the terminal (WorkItemPanel), which is where the
- * item itself can be acted on.
+ * into this session (a follow-up pass, in this tab); its Details button is
+ * the Pull request tab's shortcut, opening the item in the side panel
+ * (WorkItemPanel), which is where the item itself can be acted on.
  *
  * Only what can be pressed has an edge: the action and the worktree are
  * facts about this session, so they read as text, never as buttons.
@@ -50,8 +51,8 @@ export function WorkItemStrip({ workspaceId, session }: WorkItemStripProps) {
     state.workspaces.find((candidate) => candidate.id === workspaceId),
   );
   const attention = useAttentionStore((state) => state.attention);
-  const isPanelVisible = useNavigationStore((state) => state.isWorkItemPanelVisible);
-  const togglePanel = useNavigationStore((state) => state.toggleWorkItemPanel);
+  const isTabInFront = useSidePanelStore((state) => isInFront(state.layout, 'pull-request'));
+  const pressShortcut = useSidePanelStore((state) => state.pressShortcut);
 
   if (!workItem) return null;
   const label = workItem.type === 'pr' ? 'PR' : 'Issue';
@@ -140,17 +141,17 @@ export function WorkItemStrip({ workspaceId, session }: WorkItemStripProps) {
       >
         Open on {providerName} <ExternalLink size={12} />
       </a>
-      {/* The panel reads as the workspace's account; without one it has
-          nothing to show, so there is nothing to toggle. */}
+      {/* The tab reads as the workspace's account; without one it has
+          nothing to show, so there is nothing to open. With an item and an
+          account the kind applies, so a press always does what it says:
+          opens the tab, or hides the side panel while the tab is in front. */}
       {workspace?.provider && (
         <button
           type="button"
           className="work-item-strip-button"
-          aria-pressed={isPanelVisible}
-          title={
-            isPanelVisible ? `Hide ${noun} details` : `Show ${noun} details beside the session`
-          }
-          onClick={togglePanel}
+          aria-pressed={isTabInFront}
+          title={isTabInFront ? 'Hide the side panel' : `Show ${noun} details in the side panel`}
+          onClick={() => pressShortcut('pull-request')}
         >
           <PanelRight size={13} aria-hidden="true" />
           Details

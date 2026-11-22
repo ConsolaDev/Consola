@@ -24,10 +24,11 @@ interface BrowserPanelProps {
 }
 
 /**
- * The browser beside a session: its toolbar, and the slot its page is drawn
- * over. The page is not in here. It lives in `BrowserHost` at the layout's
- * root, because this panel unmounts with every overlay and a `<webview>` that
- * moves loses its page; the slot only says where to draw it.
+ * The browser beside a session, in its Browser tab: its toolbar, and the slot
+ * its page is drawn over. The page is not in here. It lives in `BrowserHost`
+ * at the layout's root, because this panel unmounts whenever its tab goes
+ * behind, the side panel hides, or an overlay covers it, and a `<webview>`
+ * that moves loses its page; the slot only says where to draw it.
  */
 export function BrowserPanel({ sessionId, instanceId, cwd }: BrowserPanelProps) {
   const snapshot = useBrowserSnapshot(sessionId);
@@ -107,8 +108,8 @@ export function BrowserPanel({ sessionId, instanceId, cwd }: BrowserPanelProps) 
       />
       {findOpen && tab && <FindBar key={tab.id} tabId={tab.id} onClose={closeFind} />}
       <div className="browser-slot" data-testid="browser-slot">
-        {/* Keyed by session: the panel stays mounted across a session switch, and
-            one session's server list, or its scan still in flight, is not another's. */}
+        {/* Keyed by session: one session's server list, or its scan still in
+            flight, is not another's, wherever this panel is mounted. */}
         {(!tab || isBlankUrl(tab.url)) && (
           <BrowserEmptyTab key={sessionId} sessionId={sessionId} onOpen={open} />
         )}

@@ -1,9 +1,10 @@
 import { expect, test } from '@playwright/test';
-import type { ElectronApplication, Page } from '@playwright/test';
+import type { ElectronApplication, Locator, Page } from '@playwright/test';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { commandPaletteChord, launchElectron, removeProfile } from './helpers/electron';
+import { browserChord, showBrowser, sidePanelChord } from './helpers/browserTab';
 import { type FixtureServer, PROBE_SCRIPT, startFixtureServer } from './helpers/fixtureServer';
 
 /**
@@ -12,8 +13,6 @@ import { type FixtureServer, PROBE_SCRIPT, startFixtureServer } from './helpers/
  * (`electronApp.evaluate`), and everything about the tab list through
  * `window.browserAPI` in the host, which is main's answer.
  */
-
-const toggleChord = process.platform === 'darwin' ? 'Meta+Shift+KeyL' : 'Control+Shift+KeyL';
 
 let fixtures: FixtureServer;
 
@@ -79,7 +78,6 @@ async function openSession(page: Page, workspace: string): Promise<void> {
     .click();
 }
 
-const globe = (page: Page) => page.getByRole('button', { name: /^(Show|Hide) browser$/ });
 const panel = (page: Page) => page.getByTestId('browser-panel');
 const address = (page: Page) => page.getByRole('textbox', { name: 'Address' });
 
@@ -157,40 +155,45 @@ test.describe('in-app browser', () => {
     fs.rmSync(root, { recursive: true, force: true });
   });
 
-  test('the globe, the chord and the palette each toggle the panel', async () => {
+  test('the "+" list, the chord and the palette each open the Browser tab, and the chord hides it', async () => {
     await openSession(page, 'Alpha');
-    await expect(globe(page)).toBeVisible();
-    const initiallyOpen = await panel(page).isVisible();
-    if (initiallyOpen) await globe(page).click();
     await expect(panel(page)).toHaveCount(0);
-
-    await globe(page).click();
+    await page.getByRole('button', { name: 'Show side panel', exact: true }).click();
+    await page
+      .getByRole('listbox', { name: 'Open in this tab' })
+      .getByRole('option', { name: /^Browser/ })
+      .click();
     await expect(panel(page)).toBeVisible();
-    await globe(page).click();
-    await expect(panel(page)).toHaveCount(0);
+    await expect(page.getByRole('tab', { name: 'Browser', exact: true })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
 
-    // The chord from the terminal, where a stray key is most likely swallowed.
-    await page.locator('.terminal-surface textarea').focus();
-    await page.keyboard.press(toggleChord);
+    // The chord from the conversation, where a stray key is most likely swallowed.
+    await page.locator('[data-conversation-terminal] .terminal-surface textarea').focus();
+    await page.keyboard.press(browserChord());
+    await expect(page.getByTestId('side-panel')).toHaveCount(0);
+    await page.keyboard.press(browserChord());
     await expect(panel(page)).toBeVisible();
-    await page.keyboard.press(toggleChord);
-    await expect(panel(page)).toHaveCount(0);
 
+    // The palette opens it, and opening it again leaves it open.
+    await page.keyboard.press(browserChord());
+    await expect(panel(page)).toHaveCount(0);
     const viaPalette = async () => {
       await page.keyboard.press(commandPaletteChord());
       const palette = page.getByRole('dialog', { name: 'Command palette', exact: true });
-      await palette.getByRole('combobox').fill('Toggle browser');
-      await palette.getByRole('option', { name: /Toggle browser/ }).click();
+      await palette.getByRole('combobox').fill('Open Browser');
+      await palette.getByRole('option', { name: /^Open Browser/ }).click();
     };
     await viaPalette();
     await expect(panel(page)).toBeVisible();
     await viaPalette();
-    await expect(panel(page)).toHaveCount(0);
+    await expect(panel(page)).toBeVisible();
   });
 
   test('an address loads, links, Back, Forward and Reload work', async () => {
     await openSession(page, 'Alpha');
-    if (!(await panel(page).isVisible())) await globe(page).click();
+    await showBrowser(page);
 
     await typeAddress(page, `${fixtures.host}/a.html`);
     await expect.poll(() => guestUrls(app)).toEqual([fixtures.url('/a.html')]);
@@ -223,7 +226,7 @@ test.describe('in-app browser', () => {
 
   test('a page finds no Consola API and no Node', async () => {
     await openSession(page, 'Alpha');
-    if (!(await panel(page).isVisible())) await globe(page).click();
+    await showBrowser(page);
     await typeAddress(page, `${fixtures.host}/probe.html`);
     await expect.poll(() => guestUrls(app)).toEqual([fixtures.url('/probe.html')]);
 
@@ -255,7 +258,7 @@ test.describe('in-app browser', () => {
 
   test('a cookie set in one workspace is absent from another', async () => {
     await openSession(page, 'Alpha');
-    if (!(await panel(page).isVisible())) await globe(page).click();
+    await showBrowser(page);
     await typeAddress(page, `${fixtures.host}/set-cookie.html`);
     await expect.poll(() => guestUrls(app)).toEqual([fixtures.url('/set-cookie.html')]);
 
@@ -280,7 +283,7 @@ test.describe('in-app browser', () => {
 
   test('the palette draws over a visible page, and a page taking focus closes a menu', async () => {
     await openSession(page, 'Alpha');
-    if (!(await panel(page).isVisible())) await globe(page).click();
+    await showBrowser(page);
     await typeAddress(page, `${fixtures.host}/a.html`);
     await expect.poll(() => guestUrls(app)).toEqual([fixtures.url('/a.html')]);
 
@@ -346,7 +349,7 @@ test.describe('in-app browser', () => {
 
   test('a drag across a page lets the pointer through, and only while it lasts', async () => {
     await openSession(page, 'Alpha');
-    if (!(await panel(page).isVisible())) await globe(page).click();
+    await showBrowser(page);
     await typeAddress(page, `${fixtures.host}/a.html`);
     await expect.poll(() => guestUrls(app)).toEqual([fixtures.url('/a.html')]);
     const host = page.locator('.browser-host');
@@ -357,12 +360,12 @@ test.describe('in-app browser', () => {
     expect(await pointerEvents()).toBe('auto');
     await expect(host).not.toHaveAttribute('data-dragging');
 
-    // The person takes the browser panel's edge, which lies against the page.
-    const separator = page.locator('.resize-handle:has(+ [data-testid="browser"])');
+    // The person takes the side panel's edge, which lies against the page.
+    const separator = page.locator('.resize-handle:has(+ [data-testid="side-panel"])');
     const width = async () => (await panel(page).boundingBox())?.width ?? 0;
     const grab = async () => {
       const box = await separator.boundingBox();
-      if (!box) throw new Error('no separator before the browser panel');
+      if (!box) throw new Error('no separator before the side panel');
       const at = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
       await page.mouse.move(at.x, at.y);
       await page.mouse.down();
@@ -387,7 +390,7 @@ test.describe('in-app browser', () => {
 
   test('switching workspace and back returns the page at its latest address', async () => {
     await openSession(page, 'Alpha');
-    if (!(await panel(page).isVisible())) await globe(page).click();
+    await showBrowser(page);
     await typeAddress(page, `${fixtures.host}/a.html`);
     await expect.poll(() => guestUrls(app)).toEqual([fixtures.url('/a.html')]);
     await typeAddress(page, `${fixtures.host}/c.html`);
@@ -402,6 +405,311 @@ test.describe('in-app browser', () => {
     await expect.poll(() => guestUrls(app)).toEqual([fixtures.url('/c.html')]);
     await expect(address(page)).toHaveValue(fixtures.url('/c.html'));
   });
+
+  test('closing the Browser tab with the keyboard in its page hands the keyboard to the conversation', async () => {
+    await openSession(page, 'Alpha');
+    await page.getByRole('button', { name: 'Files', exact: true }).click();
+    await showBrowser(page);
+    await typeAddress(page, `${fixtures.host}/a.html`);
+    await expect.poll(() => guestUrls(app)).toEqual([fixtures.url('/a.html')]);
+    const shown = page.locator('.browser-page');
+    await expect(shown).toHaveAttribute('data-presence', 'shown');
+    const conversation = page.locator('[data-conversation-terminal] .terminal-surface textarea');
+    const browserTab = page
+      .getByRole('tablist', { name: 'Side panel tabs' })
+      .getByRole('tab', { name: 'Browser', exact: true });
+    /** The keyboard in the page, as a click in it leaves it. */
+    const keyboardInPage = async () => {
+      await shown.locator('webview').evaluate((webview) => (webview as HTMLElement).focus());
+      expect(await page.evaluate(() => document.activeElement?.tagName)).toBe('WEBVIEW');
+    };
+
+    // By its ✕. The page goes with its tab and Files comes in front, so the
+    // keyboard goes back to the conversation, never to the window's body.
+    await keyboardInPage();
+    await page.getByRole('button', { name: 'Close Browser tab', exact: true }).click();
+    await expect(browserTab).toHaveCount(0);
+    await expect(shown).toHaveAttribute('data-presence', 'hidden');
+    await expect(conversation).toBeFocused();
+
+    // By its menu's Close, the same.
+    await showBrowser(page);
+    await expect(shown).toHaveAttribute('data-presence', 'shown');
+    await keyboardInPage();
+    await browserTab.click({ button: 'right' });
+    await page.getByRole('menuitem', { name: 'Close', exact: true }).click();
+    await expect(browserTab).toHaveCount(0);
+    await expect(conversation).toBeFocused();
+  });
+
+  test('the Browser tab keeps its page when it goes behind, when the side panel hides, and through a split, Maximize, a move and a drag', async () => {
+    await openSession(page, 'Alpha');
+    await showBrowser(page);
+    const url = fixtures.url('/a.html');
+    await typeAddress(page, `${fixtures.host}/a.html`);
+    await expect.poll(() => guestUrls(app)).toEqual([url]);
+    const [guest] = await guests(app);
+    await inGuest(app, url, 'window.__kept = 1');
+    await page.evaluate(() => {
+      (window as unknown as { __page?: Element | null }).__page =
+        document.querySelector('.browser-page webview');
+    });
+    const presence = () => page.locator('.browser-page').getAttribute('data-presence');
+    /**
+     * The same element, the same guest, and a page that never reloaded. A
+     * page shown is drawn exactly over its slot: without a slot to anchor to
+     * it would cover the whole window, and still be the same page.
+     */
+    const untouched = async () => {
+      expect(
+        await page.evaluate(() => {
+          const kept = (window as unknown as { __page?: Element | null }).__page;
+          return !!kept?.isConnected && document.querySelector('.browser-page webview') === kept;
+        }),
+      ).toBe(true);
+      expect((await guests(app)).map((each) => each.id)).toEqual([guest.id]);
+      expect(await inGuest(app, url, 'window.__kept')).toBe(1);
+      if ((await presence()) !== 'shown') return;
+      const drawn = (await page.locator('.browser-page').boundingBox())!;
+      const slot = (await page.getByTestId('browser-slot').boundingBox())!;
+      for (const side of ['x', 'y', 'width', 'height'] as const) {
+        expect(Math.abs(drawn[side] - slot[side]), side).toBeLessThanOrEqual(2);
+      }
+    };
+    expect((await page.getByTestId('browser-slot').boundingBox())!.height).toBeGreaterThan(200);
+
+    // Behind another tab: the panel unmounts, and the page only hides.
+    await page.getByRole('button', { name: 'Files', exact: true }).click();
+    await expect(panel(page)).toHaveCount(0);
+    await expect.poll(presence).toBe('hidden');
+    await untouched();
+
+    await page.getByRole('tab', { name: 'Browser', exact: true }).click();
+    await expect.poll(presence).toBe('shown');
+    await untouched();
+
+    // The side panel hidden and shown again.
+    await page.keyboard.press(sidePanelChord());
+    await expect(page.getByTestId('side-panel')).toHaveCount(0);
+    await expect.poll(presence).toBe('hidden');
+    await untouched();
+    await page.keyboard.press(sidePanelChord());
+    await expect.poll(presence).toBe('shown');
+    await untouched();
+
+    // Another session of the same workspace, whose own Browser tab takes the
+    // slot, and back: the page is hidden meanwhile, never ended.
+    await page.evaluate(
+      async ({ workspaceId }) => {
+        const { workspaces } = await window.workspaceAPI.getSnapshot();
+        const workspace = workspaces.find((each) => each.id === workspaceId)!;
+        await window.workspaceAPI.createSession(workspaceId, {
+          name: 'Alpha second',
+          nameIsUserSet: true,
+          workspaceId,
+          instanceId: 'browser-Alpha-2',
+          harnessId: 'browser-test',
+          scopeId: workspace.scopes[0].id,
+        });
+      },
+      { workspaceId: ids.alpha.workspaceId },
+    );
+    await page.locator('.session-nav-item').filter({ hasText: 'Alpha second' }).click();
+    await expect(panel(page)).toBeVisible();
+    await expect.poll(presence).toBe('hidden');
+    await untouched();
+    await openSession(page, 'Alpha');
+    await expect.poll(presence).toBe('shown');
+    await untouched();
+
+    // Split away from Files: the page follows its tab into the new group.
+    const tabs = (list: string) => page.getByRole('tablist', { name: list, exact: true });
+    const browserTab = (list: string) => tabs(list).getByRole('tab', { name: 'Browser' });
+    // Pressed low on the tab, so the menu, which opens at the pointer,
+    // reaches past the browser's toolbar over its page.
+    const tabHeight = (await browserTab('Side panel tabs').boundingBox())!.height;
+    await browserTab('Side panel tabs').click({
+      button: 'right',
+      position: { x: 8, y: tabHeight - 2 },
+    });
+    await expect(page.getByRole('menu')).toBeVisible();
+    // The tab's menu draws above the page, where the two overlap. An open
+    // menu stops the pointer everywhere else, the page included, so it is
+    // asked with the page taking the pointer, as it does with no menu open.
+    // Lowered under the app's root, in whose layer the page is drawn, the
+    // menu loses that point to the page: the control, which shows the check
+    // can tell.
+    const onTop = (lowered: boolean) =>
+      page.evaluate((lower) => {
+        const menu = document.querySelector<HTMLElement>('[role="menu"]')!;
+        const layer = menu.closest<HTMLElement>('[data-radix-popper-content-wrapper]') ?? menu;
+        const drawn = document.querySelector<HTMLElement>('.browser-page')!;
+        const a = menu.getBoundingClientRect();
+        const b = document.querySelector('[data-testid="browser-slot"]')!.getBoundingClientRect();
+        const [left, right] = [Math.max(a.left, b.left), Math.min(a.right, b.right)];
+        const [top, bottom] = [Math.max(a.top, b.top), Math.min(a.bottom, b.bottom)];
+        if (left >= right || top >= bottom) return 'apart';
+        const zIndex = layer.style.zIndex;
+        // Under the app's root, whose layer the page is drawn in.
+        if (lower) layer.style.zIndex = '-1';
+        drawn.style.pointerEvents = 'auto';
+        const hit = document.elementFromPoint((left + right) / 2, (top + bottom) / 2);
+        drawn.style.pointerEvents = '';
+        layer.style.zIndex = zIndex;
+        if (hit?.closest('[role="menu"]')) return 'menu';
+        return hit?.closest('.browser-page') ? 'page' : 'neither';
+      }, lowered);
+    expect(await onTop(false)).toBe('menu');
+    expect(await onTop(true)).toBe('page');
+    await page.getByRole('menuitem', { name: 'Split down', exact: true }).click();
+    await expect(tabs('Top group tabs').getByRole('tab')).toHaveText(['Files']);
+    await expect(tabs('Bottom group tabs').getByRole('tab')).toHaveText(['Browser']);
+    await expect.poll(presence).toBe('shown');
+    await untouched();
+
+    // Files' group fills the panel and hides Browser's: the page only hides.
+    const filesGroup = page.locator('.side-panel-group').filter({ has: tabs('Top group tabs') });
+    await filesGroup.getByRole('button', { name: 'Maximize group' }).click();
+    await expect(panel(page)).toHaveCount(0);
+    await expect.poll(presence).toBe('hidden');
+    await untouched();
+    await filesGroup.getByRole('button', { name: 'Restore group' }).click();
+    await expect.poll(presence).toBe('shown');
+    await untouched();
+
+    // Back beside Files, at the end of its bar.
+    await browserTab('Bottom group tabs').click({ button: 'right' });
+    await page.getByRole('menuitem', { name: 'Move to other group', exact: true }).click();
+    await expect(tabs('Side panel tabs').getByRole('tab')).toHaveText(['Files', 'Browser']);
+    await expect.poll(presence).toBe('shown');
+    await untouched();
+
+    // Dragged over its own page to the bottom edge. Until the drop the page
+    // stays shown in its slot, and the drop target is drawn over it.
+    const dragTo = async (tab: Locator, to: { x: number; y: number }) => {
+      const box = (await tab.boundingBox())!;
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(to.x, to.y, { steps: 10 });
+    };
+    const area = (await page.locator('.side-panel-group-body').boundingBox())!;
+    await dragTo(browserTab('Side panel tabs'), {
+      x: area.x + area.width / 2,
+      y: area.y + area.height * 0.9,
+    });
+    const target = page.locator('.side-panel-drop-target[data-edge="bottom"]');
+    await expect(target).toBeVisible();
+    expect(await presence()).toBe('shown');
+    await untouched();
+    expect(
+      await target.evaluate((element) => {
+        const drawn = document.querySelector<HTMLElement>('.browser-page')!;
+        const box = element.getBoundingClientRect();
+        // The page lets the pointer through while the drag lasts, which
+        // would hide whether it is drawn over the target. Ask with it solid.
+        const through = getComputedStyle(drawn).pointerEvents;
+        drawn.style.pointerEvents = 'auto';
+        const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+        drawn.style.pointerEvents = '';
+        return { through, onTop: hit === element };
+      }),
+    ).toEqual({ through: 'none', onTop: true });
+    await page.mouse.up();
+    await expect(tabs('Top group tabs').getByRole('tab')).toHaveText(['Files']);
+    await expect(tabs('Bottom group tabs').getByRole('tab')).toHaveText(['Browser']);
+    await expect.poll(presence).toBe('shown');
+    await untouched();
+
+    // Dragged onto the other group's bar, after Files: one group again.
+    const files = (await tabs('Top group tabs').getByRole('tab', { name: 'Files' }).boundingBox())!;
+    await dragTo(browserTab('Bottom group tabs'), {
+      x: files.x + files.width + 20,
+      y: files.y + files.height / 2,
+    });
+    await expect(page.locator('.side-panel-drop-caret')).toBeVisible();
+    await expect.poll(presence).toBe('shown');
+    await untouched();
+    await page.mouse.up();
+    await expect(tabs('Side panel tabs').getByRole('tab')).toHaveText(['Files', 'Browser']);
+    await expect.poll(presence).toBe('shown');
+    await untouched();
+  });
+
+  test('a drag begun from a ✕ takes the keyboard out of a page while it lasts, then gives it back', async () => {
+    await openSession(page, 'Alpha');
+    await page.getByRole('button', { name: 'Files', exact: true }).click();
+    await showBrowser(page);
+    await typeAddress(page, `${fixtures.host}/a.html`);
+    await expect.poll(() => guestUrls(app)).toEqual([fixtures.url('/a.html')]);
+    // The keyboard into the page, by a click in it.
+    const slot = (await page.getByTestId('browser-slot').boundingBox())!;
+    await page.mouse.click(slot.x + slot.width / 2, slot.y + slot.height / 2);
+    const inPage = () => page.evaluate(() => document.activeElement?.tagName === 'WEBVIEW');
+    await expect.poll(inPage).toBe(true);
+
+    // A press on a ✕ leaves the keyboard where it is, and a page keeps the
+    // keys it has, Escape among them: the drag takes it to the tab instead.
+    const files = page
+      .getByRole('tablist', { name: 'Side panel tabs', exact: true })
+      .getByRole('tab', { name: 'Files', exact: true });
+    const close = (await page
+      .getByRole('button', { name: 'Close Files tab', exact: true })
+      .boundingBox())!;
+    await page.mouse.move(close.x + close.width / 2, close.y + close.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(slot.x + slot.width / 2, slot.y + slot.height / 2, { steps: 10 });
+    const dragged = page.locator('.side-panel-tab[data-dragging]');
+    await expect(dragged).toHaveCount(1);
+    await expect(files).toBeFocused();
+
+    // Escape, there, cancels the drag; the keyboard goes back to the page.
+    await page.keyboard.press('Escape');
+    await expect(dragged).toHaveCount(0);
+    await page.mouse.up();
+    await expect.poll(inPage).toBe(true);
+    await expect(
+      page.getByRole('tablist', { name: 'Side panel tabs', exact: true }).getByRole('tab'),
+    ).toHaveText(['Files', 'Browser']);
+  });
+
+  test('a drop that hides the page the keyboard was in hands it to the dropped tab', async () => {
+    await openSession(page, 'Alpha');
+    await page.getByRole('button', { name: 'Files', exact: true }).click();
+    await showBrowser(page);
+    await typeAddress(page, `${fixtures.host}/a.html`);
+    await expect.poll(() => guestUrls(app)).toEqual([fixtures.url('/a.html')]);
+    const tabs = (list: string) => page.getByRole('tablist', { name: list, exact: true });
+    const files = (list: string) => tabs(list).getByRole('tab', { name: 'Files', exact: true });
+    const presence = () => page.locator('.browser-page').getAttribute('data-presence');
+    // Files in a group of its own, below the page's.
+    await files('Side panel tabs').click({ button: 'right' });
+    await page.getByRole('menuitem', { name: 'Split down', exact: true }).click();
+    await expect(tabs('Top group tabs').getByRole('tab')).toHaveText(['Browser']);
+    await expect(tabs('Bottom group tabs').getByRole('tab')).toHaveText(['Files']);
+    await expect.poll(presence).toBe('shown');
+    // The keyboard into the page, by a click in it.
+    const slot = (await page.getByTestId('browser-slot').boundingBox())!;
+    await page.mouse.click(slot.x + slot.width / 2, slot.y + slot.height / 2);
+    const inPage = () => page.evaluate(() => document.activeElement?.tagName === 'WEBVIEW');
+    await expect.poll(inPage).toBe(true);
+
+    // Files dropped on the page's bar comes in front there and hides the
+    // page, which cannot take the keyboard back: the dropped tab has it.
+    const from = (await files('Bottom group tabs').boundingBox())!;
+    const browser = (await tabs('Top group tabs')
+      .getByRole('tab', { name: 'Browser', exact: true })
+      .boundingBox())!;
+    await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(browser.x + browser.width + 20, browser.y + browser.height / 2, {
+      steps: 10,
+    });
+    await expect(page.locator('.side-panel-drop-caret')).toBeVisible();
+    await page.mouse.up();
+    await expect(tabs('Side panel tabs').getByRole('tab')).toHaveText(['Browser', 'Files']);
+    await expect.poll(presence).toBe('hidden');
+    await expect(files('Side panel tabs')).toBeFocused();
+  });
 });
 
 test('tabs and the address come back after a relaunch', async () => {
@@ -413,7 +721,7 @@ test('tabs and the address come back after a relaunch', async () => {
     try {
       ids = await seed(first.page, root);
       await openSession(first.page, 'Alpha');
-      if (!(await panel(first.page).isVisible())) await globe(first.page).click();
+      await showBrowser(first.page);
       await typeAddress(first.page, `${fixtures.host}/b.html`);
       await expect.poll(() => guestUrls(first.app)).toEqual([fixtures.url('/b.html')]);
 
@@ -430,7 +738,7 @@ test('tabs and the address come back after a relaunch', async () => {
     const second = await launchElectron({ userDataDir: first.userDataDir });
     try {
       await openSession(second.page, 'Alpha');
-      if (!(await panel(second.page).isVisible())) await globe(second.page).click();
+      await showBrowser(second.page);
       await expect(address(second.page)).toHaveValue(fixtures.url('/b.html'));
       await expect.poll(() => guestUrls(second.app)).toEqual([fixtures.url('/b.html')]);
       const snapshot = await tabsOf(second.page, ids.alpha.sessionId);
@@ -450,7 +758,7 @@ test('a guest paints in the hidden test window', async () => {
   try {
     await seed(page, root);
     await openSession(page, 'Alpha');
-    if (!(await panel(page).isVisible())) await globe(page).click();
+    await showBrowser(page);
     await typeAddress(page, `${fixtures.host}/a.html`);
     await expect.poll(() => guestUrls(app)).toEqual([fixtures.url('/a.html')]);
 

@@ -1,4 +1,4 @@
-import { expect, type ElectronApplication, type Page } from '@playwright/test';
+import type { ElectronApplication, Page } from '@playwright/test';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -149,14 +149,7 @@ export async function closeAgentWorkspace(workspace: AgentWorkspace | undefined)
   fs.rmSync(workspace.root, { recursive: true, force: true });
 }
 
-const globe = (page: Page) => page.getByRole('button', { name: /^(Show|Hide) browser/ });
-const panel = (page: Page) => page.getByTestId('browser-panel');
-
-/** The person opens the session's browser panel, which shows its active tab. */
-export async function showBrowser(page: Page): Promise<void> {
-  if (!(await panel(page).isVisible())) await globe(page).click();
-  await expect(panel(page)).toBeVisible();
-}
+export { showBrowser } from './browserTab';
 
 /** Runs a script in the page at `urlPrefix`, from main (not the agent's connection); its value. */
 export function inPage<T>(app: ElectronApplication, urlPrefix: string, script: string): Promise<T> {
