@@ -196,6 +196,9 @@ it with `@tailwindcss/postcss`, then `build/scopeCss.ts` rewrites every selector
   `.consola-agent-ui-portal` (and `dark`) while mounted, and the scope includes them. A page
   that uses Base UI itself would see its own portals marked too.
 
+Then `scopeCss` puts the whole stylesheet in one cascade layer, under one unlayered rule, the
+guard, so the page's own CSS does not reach in either ("The page's CSS" below).
+
 Nothing else on the page is styled; `AgentChat.browser.test.tsx` checks a paragraph beside the
 chat keeps its font, margin, line height and colour.
 
@@ -212,10 +215,12 @@ other kind:
   `--assistant-citation-highlight-opacity`. They give those custom properties a type and initial
   value page-wide, which matters only where something reads them; no Consola page does.
 - `@font-face` for KaTeX's fonts (`KaTeX_Main`, …), used only by a rule naming them.
-- The `@layer` names `properties, theme, base, clerk, components, utilities`. A page with layers
-  of the same names would have t3's rules merged into them; no Consola page declares any of
-  them. The dev page has one layer of its own, `consola-dev-page` (`dev/index.html`, html, body
-  and `#root` only), declared before the chat's stylesheet loads, so it is the lowest layer.
+- The `@layer` name `consola-agent-ui`, the chat's layer ("The page's CSS"). t3's layers are
+  its sublayers, so a page's own layers of the same names (`theme`, `base`, `utilities`) stay
+  apart from t3's. The dev page has one layer of its own, `consola-dev-page` (`dev/index.html`,
+  html, body and `#root` only), declared before the chat's stylesheet loads, so it is below the
+  chat's.
+- The guard, the one unlayered rule: it styles nothing, and rolls back only inside the chat.
 
 The root has `contain: layout`, so t3's fixed-position controls are placed inside the chat, not
 on the page's viewport.
@@ -237,6 +242,93 @@ directions, and the system's only on a page without one:
   `t3code:theme-appearance-mode`) to the chat's, light or dark, whenever that changes, so t3
   never follows the system. t3 has one appearance per page: two chats in differently themed
   parts of one page share the last one's.
+
+### The page's CSS
+
+A page's CSS reaches the chat's elements too, and the cascade favours it. The desktop's
+`global.css` has unlayered rules for every element (`* { margin: 0; padding: 0; box-sizing:
+border-box }`, `button { font-size: inherit }`, `a { color }`, `:focus-visible { outline }`,
+scrollbars); a page with Tailwind 3 has Tailwind's preflight unlayered and sets the `--tw-*`
+properties t3's utilities read on every element. A rule in no cascade layer outranks every
+layered one, whatever their weights, and t3's Tailwind is layered: the desktop's reset took away
+every padding and margin utility of t3's (`AgentChat.pageCss.browser.test.tsx` found about 385
+properties of the chat's elements changed by the desktop's CSS and 650 by Tailwind's resets;
+cloud-web's Radix Themes, whose rules name its own classes, changed none).
+
+So the stylesheet is in one layer, under a guard:
+
+- **One layer.** `scopeCss` moves every rule into `@layer consola-agent-ui` (`CHAT_LAYER`),
+  where it stood. t3's layers become its sublayers (`consola-agent-ui.base`, …), and the rules
+  that were in none (t3's own, KaTeX's, the PDF viewer's, `styles.css`'s) are the layer's own,
+  which outrank its sublayers as unlayered rules outrank layers. t3's cascade is the same inside
+  it, `!important` included, and a page's own `base` or `utilities` layer stays apart from t3's.
+  `@keyframes`, `@property` and `@font-face` stay where they were.
+- **The guard** (`styles.css`, completed by `scopeCss`) is the stylesheet's only unlayered rule.
+  It matches every element inside the chat's root and in its popups, with an ID's weight
+  (`GUARDED`: `:not(#consola-agent-ui-guard)` names an id no element has), and sets
+  `all: revert-layer`, on the pseudo-elements a reset reaches too (`GUARDED_PSEUDO_ELEMENTS`),
+  and `revert-layer` on every custom property the stylesheet registers (`all` leaves custom
+  properties alone; a Tailwind 3 page's `--tw-shadow: 0 0 #0000` would take t3's shadows away).
+  A page rule without an ID that matches inside the chat loses to the guard, and the guard
+  sends each property back to the layers: to t3's stylesheet, or where t3 sets none to the
+  browser's default, as on a page of t3's own. So a property t3 never sets (the desktop's focus
+  outline, `a:hover`'s underline) comes out as on a bare page as well. Only `GUARDED` and
+  `GUARDED_PSEUDO_ELEMENTS` are unlayered, and only to roll back: `check:css` fails on any other
+  unlayered rule, a guard that sets a value, a pseudo-element or registered property it leaves
+  out, and a layer of any other name.
+- **Why not the alternatives.**
+  - *Raising the scope's weight* (`.consola-agent-ui` instead of `:where(…)`) keeps t3's order,
+    but does nothing against an unlayered page rule while t3's rules are layered.
+  - *t3's rules unlayered*, with that weight, would outrank the page's rules only for the
+    properties t3 sets: where it sets none, the page's still apply (the desktop's
+    `:focus-visible` outline on t3's elements that have no focus style). It also turns t3's six
+    layers into specificity, which reorders t3's own cascade wherever a lower layer's rule
+    weighs more than a utility (`button:not(:disabled)`'s cursor over `cursor-default`) and
+    inverts `!important` between layers, unless each layer gets a band of weight of its own.
+  - *A shadow root* would keep every page rule out, but t3's popups are Base UI portals to
+    `document.body`, outside it, and t3 gives them no container, so it would take editing t3's
+    files. Chromium also ignores `@property` and `@font-face` inside a shadow root (Tailwind 4's
+    `--tw-*` initial values, KaTeX's fonts), and t3 reads the page's `document` (its root font
+    size, `<html>`'s `dark`).
+- **What still reaches the chat.**
+  - The root font size, by design: t3 sizes in `rem` and measures `document.documentElement`
+    (`ComposerCommandMenuLayer.tsx`, `useTallEnoughToFold.ts`), so it follows the page's. The
+    desktop's 14px root makes the chat 7/8 of its size in t3's own window. The test reads both
+    pages at the page's root size.
+  - What the chat's container inherits, where t3's document sets nothing: t3 sets the font
+    family, line height, colour and background on the theme element, so Radix's `.radix-themes`
+    passes on only its `-webkit-font-smoothing`, `overflow-wrap` and the like.
+  - A page rule with an ID, or with `!important`, outweighs the guard.
+  - A page's own layers: the guard sends properties back to every layer, the page's included,
+    so a page layer that outranks `consola-agent-ui` reaches in. A layer outranks it when the
+    page names it after the chat's stylesheet has loaded (a page's global CSS usually loads
+    first, below it).
+  - `::selection`: Chromium's highlight pseudo-elements inherit from the parent element's, so
+    where t3 sets none the page's selection colour shows in the chat (the desktop's accent).
+  - A custom property t3 uses but does not register, if the page sets it on every element
+    (`* { --x }`). t3 defines its variables on the theme element, so a page's own on an
+    ancestor (`:root`, `.radix-themes`) do not reach in.
+  - The chat's root, `.consola-agent-ui`, is the page's to place, and is not guarded.
+- **Cost.** The guard puts `all` (and the registered properties) into every element's cascade,
+  and `revert-layer` looks each property up again in the layers below. In Chromium a style
+  recalculation of 20,000 elements styled by this stylesheet took 1.6 to 1.9 times as long with
+  the guard as without it, almost all of it `all` (measured on a loaded machine, so only the
+  ratio means much). The chat itself is a few hundred elements to a few thousand (t3 virtualises
+  its message list). The guard adds about 7 KB to the stylesheet, most of it the registered
+  properties.
+
+`AgentChat.pageCss.browser.test.tsx` mounts the chat inside each embedder's element, with its
+real stylesheets (`src/testing/embeddingPages.ts`): the desktop's tokens and `global.css`,
+cloud-web's Radix Themes (from cloud-web's `node_modules`) and `ui/styles.css`, and Tailwind's
+`preflight.css` unlayered with Tailwind 3's per-element defaults. It reads every element of the
+chat and of a popup (spacing, borders, sizes, fonts, colours, decoration, shadows, outlines,
+scrollbars, `::before`, `::after` and `::placeholder`), at rest, with a link hovered and with the
+composer and a button focused from the keyboard, with the page's rules and without, and expects
+no difference. The page's root font size is held in both (above), and a reading with the page's
+rules counts only between two without them that agree: t3 goes on loading the thread's details
+for a while after the answer shows, which changes what it renders. The popup is a
+`data-base-ui-portal` element the test adds, which `AgentChat` marks as the chat's, standing in
+for one of t3's.
 
 ### t3 does not write the page's document
 
@@ -304,8 +396,8 @@ what t3's modules import (KaTeX, the PDF viewer) and the chat is unstyled. `pnpm
 @consola/agent-ui check:css` (`build/checkBuiltCss.ts`, run by CI after the build) checks the
 built file: t3's theme, a Tailwind utility and Consola's token mapping are in it, every rule is
 scoped to the chat (a `+` or `~` straight after the scope styles the chat's siblings, so it
-fails), and nothing page-global is there beyond the at-rules listed in "What is
-page-global" below. The output must contain no `@cursor/sdk` and no
+fails) and in its layer but the guard's, the guard is whole, and nothing page-global is there
+beyond what "What is page-global" lists. The output must contain no `@cursor/sdk` and no
 `@anthropic-ai/claude-agent-sdk` (CI greps `dist/` for both); either would mean server code
 reached the browser bundle. `dist/` is large (t3's lazy office, PDF, HEIC and syntax-highlighting
 workers and its translations), loaded only when used.
