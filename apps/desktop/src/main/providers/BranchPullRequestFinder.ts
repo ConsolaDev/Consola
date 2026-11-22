@@ -7,6 +7,7 @@ import type { BranchIdentity } from '../gitBranch';
 import { describeError } from './errors';
 import type { GitProviderDriver } from './GitProviderDriver';
 import type { PullRequestQuery, PullRequestState } from './pullRequests';
+import { repoInOrg } from './repoInOrg';
 
 /** A branch's pull request is asked about at most once per Inbox interval. */
 export const BRANCH_LOOKUP_TTL_MS = INBOX_REFRESH_INTERVAL_MS;
@@ -94,9 +95,7 @@ export class BranchPullRequestFinder {
     if (!canLookUp(driver) || !identity.originUrl) return { kind: 'none', branch };
     const repo = driver.repoOfRemote(identity.originUrl);
     if (!repo) return { kind: 'none', branch };
-    if (provider.org && repo.split('/')[0].toLowerCase() !== provider.org.toLowerCase()) {
-      return { kind: 'none', branch };
-    }
+    if (!repoInOrg(repo, provider.org)) return { kind: 'none', branch };
 
     const query = { repo, headBranch: identity.remoteBranch ?? branch };
     const key = JSON.stringify([
