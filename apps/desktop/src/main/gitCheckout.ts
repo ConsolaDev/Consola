@@ -1,27 +1,10 @@
-import { execFile } from 'node:child_process';
 import * as path from 'node:path';
-import { promisify } from 'node:util';
 import type { CheckoutInfo } from '../shared/sessionCheckout';
-
-const execFileAsync = promisify(execFile);
-
-/** A hung git (a stale lock on a network drive) must not hold a header hostage. */
-const GIT_TIMEOUT_MS = 10_000;
-
-/** stdout, or null when git fails — which here only ever means "not this". */
-async function git(cwd: string, args: string[]): Promise<string | null> {
-  try {
-    const { stdout } = await execFileAsync('git', ['-C', cwd, ...args], {
-      timeout: GIT_TIMEOUT_MS,
-    });
-    return stdout.trim();
-  } catch {
-    return null;
-  }
-}
+import { readGit as git } from './gitRead';
 
 /**
- * Which checkout `dir` is: the repository's own, or a linked worktree.
+ * Which checkout `dir` is: the repository's own, or a linked worktree. When
+ * git cannot say where `dir` is (outside git, a timeout, no git), it is none.
  *
  * A linked worktree's git directory is `<common dir>/worktrees/<name>`, which
  * is the test used here rather than "git dir differs from common dir": that

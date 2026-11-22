@@ -908,7 +908,8 @@ describe('checking', () => {
     await h.check();
     const logs = path.dirname(h.folder.checkFiles(WORKSPACE_ID, RE_REVIEW_NAME).stdout);
     expect(fs.existsSync(logs)).toBe(true);
-    // A typo hides the entry: its logs stay, as its records do.
+    // A typo: the folder does not apply, the entry runs at the version that
+    // applied, and its logs stay, as its records do.
     const broken = factoryWith(RE_REVIEW_ENTRY.replace('every: 30m', 'every: 30x'));
     expect(parseFactorySpec(broken).issues).not.toEqual([]);
     await h.setYaml(broken);

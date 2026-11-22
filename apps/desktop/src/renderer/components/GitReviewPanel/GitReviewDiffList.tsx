@@ -89,8 +89,10 @@ export function GitReviewDiffList({ rootPath }: GitReviewDiffListProps) {
     );
   }
 
+  // Focusable, though never by Tab: a click on the diff's text focuses the
+  // list, so the keys scroll it, and Escape still reaches the review.
   return (
-    <div className="git-review-diff-list" ref={listRef}>
+    <div className="git-review-diff-list" ref={listRef} tabIndex={-1}>
       {files.map(({ path, status }) => (
         <GitReviewFileSection
           key={path}

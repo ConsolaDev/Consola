@@ -6,10 +6,12 @@ import {
   Bot,
   Clock,
   Ellipsis,
+  ExternalLink,
   Hand,
   History,
   Inbox,
   MousePointerClick,
+  RefreshCw,
   ScanSearch,
   Wrench,
 } from 'lucide-react';
@@ -42,8 +44,12 @@ import {
   formatRunWhen,
   formatTime,
   historySlots,
+  isOpenableFile,
+  issuesByFile,
+  issuesTitle,
   latestRun,
   modeInWords,
+  noticesLine,
   recentRuns,
   recentRunsInWords,
   runAbout,
@@ -95,6 +101,8 @@ export function AutomationsTab({
   const attention = useAttentionStore((state) => state.attention);
   // The sidebar's own answer, so the two cannot list different runs as pending.
   const waiting = waitingRuns(snapshot.runs, { attention });
+  // Later slices' folders and model warnings: worth knowing, and none stops anything.
+  const notices = noticesLine(snapshot.notices);
 
   return (
     <div className="automations-activity">
@@ -103,7 +111,23 @@ export function AutomationsTab({
           {error}
         </div>
       )}
-      {snapshot.issues.length > 0 && <FileIssues snapshot={snapshot} />}
+      {snapshot.standing && (
+        <FactoryStandingBanner
+          message={snapshot.standing.message}
+          checking={busy === 'recheck'}
+          onRecheck={() => void act('recheck', () => automationsBridge.recheck(workspace.id))}
+        />
+      )}
+      {snapshot.issues.length > 0 && (
+        <FileIssues
+          snapshot={snapshot}
+          opening={busy !== null && busy.startsWith('open:')}
+          onOpen={(file) =>
+            void act(`open:${file}`, () => automationsBridge.openFile(workspace.id, file))
+          }
+        />
+      )}
+      {notices && <p className="automations-hint automations-notices">{notices}</p>}
       {waiting.length > 0 && (
         <WaitingForYou
           runs={waiting}
@@ -172,6 +196,10 @@ export function AutomationsTab({
                       }
                       onShowRuns={() => showAutomationRuns(workspace.id, name)}
                       onChange={() => openPanel({ kind: 'new', basis: { automation: name } })}
+                      checking={busy === 'recheck'}
+                      onRecheck={() =>
+                        void act('recheck', () => automationsBridge.recheck(workspace.id))
+                      }
                     />
                   );
                 })}
@@ -187,24 +215,87 @@ export function AutomationsTab({
   );
 }
 
-/** What in factory.yml did not load, each with its line: the whole file, or the entries left out. */
-function FileIssues({ snapshot }: { snapshot: AutomationsSnapshot }) {
+/**
+ * The factory folder does not apply: the last applied version keeps running,
+ * and the banner says so, with what was removed regardless. Check again
+ * re-reads the folder, for a fix the poll has not seen yet or a harness
+ * turned back on.
+ */
+function FactoryStandingBanner({
+  message,
+  checking,
+  onRecheck,
+}: {
+  message: string;
+  checking: boolean;
+  onRecheck: () => void;
+}) {
+  return (
+    <div className="automations-standing" role="status">
+      <AlertTriangle size={14} aria-hidden="true" />
+      <p className="automations-standing-text">{message}</p>
+      <button
+        type="button"
+        className="dialog-button-secondary automations-small-button"
+        disabled={checking}
+        onClick={onRecheck}
+      >
+        <RefreshCw size={12} aria-hidden="true" />
+        Check again
+      </button>
+    </div>
+  );
+}
+
+/**
+ * What in the factory folder did not load, by the file it is in, each with
+ * its line: the whole folder, the entries left out, or, while the folder does
+ * not apply, everything that keeps it from applying. Each file opens in the
+ * person's editor; the line is shown beside it, since an editor is opened at
+ * a file, not at a line.
+ */
+function FileIssues({
+  snapshot,
+  opening,
+  onOpen,
+}: {
+  snapshot: AutomationsSnapshot;
+  opening: boolean;
+  onOpen: (file: string) => void;
+}) {
   return (
     <div className="automations-issues" role="status">
       <div className="automations-issues-title">
         <AlertTriangle size={13} />
-        {snapshot.automations.length === 0
-          ? 'factory.yml did not load'
-          : 'Some entries did not load'}
+        {issuesTitle(snapshot)}
       </div>
-      <ul>
-        {snapshot.issues.map((issue, index) => (
-          <li key={index}>
-            {issue.line ? <span className="automations-line">line {issue.line}</span> : null}
-            {issue.path ? <code>{issue.path}</code> : null} {issue.message}
-          </li>
-        ))}
-      </ul>
+      {issuesByFile(snapshot.issues).map(({ file, issues }) => (
+        <div key={file} className="automations-issues-file">
+          <div className="automations-issues-file-head">
+            <code>{file}</code>
+            {isOpenableFile(file) && (
+              <button
+                type="button"
+                className="automations-link-button"
+                aria-label={`Open ${file}`}
+                disabled={opening}
+                onClick={() => onOpen(file)}
+              >
+                <ExternalLink size={11} aria-hidden="true" />
+                Open
+              </button>
+            )}
+          </div>
+          <ul>
+            {issues.map((issue, index) => (
+              <li key={index}>
+                {issue.line ? <span className="automations-line">line {issue.line}</span> : null}
+                {issue.path ? <code>{issue.path}</code> : null} {issue.message}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
     </div>
   );
 }
@@ -277,6 +368,8 @@ function AutomationRow({
   onRun,
   onShowRuns,
   onChange,
+  checking,
+  onRecheck,
 }: {
   automation: AutomationView;
   runs: RunListEntry[];
@@ -291,6 +384,10 @@ function AutomationRow({
   onRun: () => void;
   onShowRuns: () => void;
   onChange: () => void;
+  /** Check again, the banner's own, is under way. */
+  checking: boolean;
+  /** Asks every harness's CLI again, as the banner's Check again does. */
+  onRecheck: () => void;
 }) {
   const isAgent = automation.kind === 'agent';
   const TriggerIcon =
@@ -348,7 +445,9 @@ function AutomationRow({
           {!automation.problem && (automation.line !== undefined || automation.addedBy) && (
             <div className="automations-row-sub automations-row-meta">
               {automation.line !== undefined && (
-                <span className="automations-row-file">factory.yml:{automation.line}</span>
+                <span className="automations-row-file">
+                  {automation.file ?? 'factory.yml'}:{automation.line}
+                </span>
               )}
               {automation.line !== undefined && automation.addedBy && ' · '}
               {automation.addedBy && `added by ${automation.addedBy.sessionName}`}
@@ -365,6 +464,18 @@ function AutomationRow({
                 Not running: {automation.problem}
                 {automation.line ? ` (line ${automation.line})` : ''}
               </span>
+              {/* A problem from asking a harness's CLI about servers is asked again from here (review B4). */}
+              {automation.recheck && (
+                <button
+                  type="button"
+                  className="dialog-button-secondary automations-small-button"
+                  disabled={checking}
+                  onClick={inside(onRecheck)}
+                >
+                  <RefreshCw size={12} aria-hidden="true" />
+                  Check again
+                </button>
+              )}
             </div>
           )}
         </div>

@@ -124,6 +124,7 @@ export const IPC_CHANNELS = {
   // Git operations
   GIT_GET_STATUS: 'git:get-status', // Get git status and stats
   GIT_GET_CHECKOUT: 'git:get-checkout', // Main checkout or linked worktree, and its branch
+  GIT_GET_BRANCH_FACTS: 'git:get-branch-facts', // Commits to push or pull, and the distance from the base, never fetched
   GIT_GET_DIFF: 'git:get-diff', // Get file diff
   GIT_STAGE_FILE: 'git:stage-file', // Stage a file (git add)
   GIT_UNSTAGE_FILE: 'git:unstage-file', // Unstage a file (git reset HEAD)
@@ -140,6 +141,7 @@ export const IPC_CHANNELS = {
   PROVIDER_LAUNCH_WORK_ITEM: 'provider:launch-work-item', // Resolve -> worktree -> session record; returns the session
   PROVIDER_RUN_ACTION_IN_SESSION: 'provider:run-action-in-session', // An action's prompt into an existing work-item session
   PROVIDER_CLONE_REPO: 'provider:clone-repo', // Clone an un-cloned repo into a chosen directory
+  PROVIDER_FIND_BRANCH_PULL_REQUEST: 'provider:find-branch-pull-request', // A checkout's branch's PR, cached per account, repo and branch
 
   // Inbox (renderer -> main; main owns the cache)
   INBOX_DETAILS: 'inbox:details',
@@ -155,6 +157,13 @@ export const IPC_CHANNELS = {
   WINDOW_OPEN: 'window:open', // Open another window
   WINDOW_SET_VIEW: 'window:set-view', // Remember what this workspace is showing
 
+  // The machine Consola runs on (renderer -> main)
+  APP_GET_COMPUTER_NAME: 'app:get-computer-name', // The name this computer goes by, read once per run
+
+  // "Open in" a session's folder (renderer -> main; main finds the apps and opens)
+  OPEN_IN_LIST: 'open-in:list', // The apps on this computer a folder can be opened in, the file manager last
+  OPEN_IN_OPEN: 'open-in:open', // Open a folder in one of them; main checks the app and the folder first
+
   // Window identity (main -> one renderer)
   WINDOW_WORKSPACE_CHANGED: 'window:workspace-changed',
   WINDOW_OPEN_SETTINGS: 'window:open-settings',
@@ -167,7 +176,8 @@ export const IPC_CHANNELS = {
   AUTOMATIONS_RUN_NOW: 'automations:run-now', // Fire one of a workspace's automations now
   AUTOMATIONS_APPROVE: 'automations:approve', // Approve a run waiting in confirm mode
   AUTOMATIONS_DISMISS: 'automations:dismiss', // Dismiss a run waiting in confirm mode
-  AUTOMATIONS_OPEN_FILE: 'automations:open-file', // Open a workspace's factory.yml, creating it from a template
+  AUTOMATIONS_OPEN_FILE: 'automations:open-file', // Open one of a workspace's factory files; factory.yml is created from a template
+  AUTOMATIONS_RECHECK: 'automations:recheck', // Check again: re-read a workspace's factory folder and re-check what applies
   AUTOMATIONS_ADD_ASSIGNED_REVIEWS: 'automations:add-assigned-reviews', // Add review-assigned-prs to a workspace's factory.yml
   AUTOMATIONS_GET_RUN: 'automations:get-run', // One run's full record, for its side panel
   AUTOMATIONS_READ_CONVERSATION: 'automations:read-conversation', // A run's part of its transcript, read from disk
@@ -176,6 +186,7 @@ export const IPC_CHANNELS = {
   AUTOMATIONS_START_AUTHORING: 'automations:start-authoring', // A session that drafts an entry with the person
   AUTOMATIONS_ACKNOWLEDGE: 'automations:acknowledge', // Mark an agent-added automation as seen
   AUTOMATIONS_GET_ENTRY: 'automations:get-entry', // One factory.yml entry exactly as written, for its details
+  AUTOMATIONS_GET_ENTRY_AGENTS: 'automations:get-entry-agents', // An entry's agents as the version that runs has them, for the Allow card
   AUTOMATIONS_LIST_RUNS: 'automations:list-runs', // One page of a workspace's run history, filtered, newest first
   AUTOMATIONS_GET_RUN_DEFINITION: 'automations:get-run-definition', // A steps run's whole definition snapshot
   AUTOMATIONS_GET_STEP_DETAIL: 'automations:get-step-detail', // One step's record, definition, command.json and log tails

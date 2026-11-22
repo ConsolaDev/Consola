@@ -23,6 +23,9 @@ import type {
 import type { ShellAPI } from '../shared/shell';
 import type { BrowserAPI, TerminalLinkRule } from '../shared/browser';
 import type { SessionCheckout, CheckoutContext, CheckoutInfo } from '../shared/sessionCheckout';
+import type { BranchFacts } from '../shared/branchFacts';
+import type { BranchPullRequestAnswer } from '../shared/branchPullRequest';
+import type { OpenInAPI } from '../shared/openIn';
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import type {
   TerminalCreateOptions,
@@ -262,6 +265,13 @@ contextBridge.exposeInMainWorld('providerAPI', {
     destinationDir: string,
   ): Promise<CloneRepoResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.PROVIDER_CLONE_REPO, workspaceId, repo, destinationDir),
+
+  findBranchPullRequest: (
+    workspaceId: string,
+    dir: string,
+    options?: { force?: boolean },
+  ): Promise<BranchPullRequestAnswer> =>
+    ipcRenderer.invoke(IPC_CHANNELS.PROVIDER_FIND_BRANCH_PULL_REQUEST, workspaceId, dir, options),
 });
 
 // Expose workspace state to the renderer. Main owns the records; the renderer
@@ -607,6 +617,9 @@ contextBridge.exposeInMainWorld('gitAPI', {
   getCheckout: (dir: string): Promise<CheckoutInfo> => {
     return ipcRenderer.invoke(IPC_CHANNELS.GIT_GET_CHECKOUT, dir);
   },
+  getBranchFacts: (dir: string, baseBranch?: string): Promise<BranchFacts> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.GIT_GET_BRANCH_FACTS, dir, baseBranch);
+  },
   getDiff: (rootPath: string, filePath: string, staged: boolean): Promise<GitDiffResult> => {
     return ipcRenderer.invoke(IPC_CHANNELS.GIT_GET_DIFF, { rootPath, filePath, staged });
   },
@@ -668,7 +681,9 @@ contextBridge.exposeInMainWorld('automationsAPI', {
     ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_LIST_RUN_TARGETS, workspaceId, name),
   approve: (runId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_APPROVE, runId),
   dismiss: (runId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_DISMISS, runId),
-  openFile: (workspaceId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_OPEN_FILE, workspaceId),
+  openFile: (workspaceId, file) =>
+    ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_OPEN_FILE, workspaceId, file),
+  recheck: (workspaceId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_RECHECK, workspaceId),
   addAssignedReviews: (workspaceId) =>
     ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_ADD_ASSIGNED_REVIEWS, workspaceId),
   getRun: (runId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_GET_RUN, runId),
@@ -696,6 +711,8 @@ contextBridge.exposeInMainWorld('automationsAPI', {
     ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_ACKNOWLEDGE, workspaceId, name),
   getEntry: (workspaceId, name) =>
     ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_GET_ENTRY, workspaceId, name),
+  getEntryAgents: (workspaceId, name) =>
+    ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_GET_ENTRY_AGENTS, workspaceId, name),
   onChanged: (callback) => subscribe(IPC_CHANNELS.AUTOMATIONS_CHANGED, callback),
 } satisfies AutomationsAPI);
 
@@ -726,6 +743,14 @@ contextBridge.exposeInMainWorld('windowAPI', {
 
   onQuitShortcut: (callback: (state: QuitShortcutState) => void) =>
     subscribe<QuitShortcutState>(IPC_CHANNELS.WINDOW_QUIT_SHORTCUT, callback),
+
+  getComputerName: (): Promise<string | null> =>
+    ipcRenderer.invoke(IPC_CHANNELS.APP_GET_COMPUTER_NAME),
 });
+
+contextBridge.exposeInMainWorld('openInAPI', {
+  list: () => ipcRenderer.invoke(IPC_CHANNELS.OPEN_IN_LIST),
+  open: (request) => ipcRenderer.invoke(IPC_CHANNELS.OPEN_IN_OPEN, request),
+} satisfies OpenInAPI);
 
 // Session storage types

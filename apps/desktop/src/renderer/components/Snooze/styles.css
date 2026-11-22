@@ -37,9 +37,13 @@
 }
 
 /* --- The chip on a snoozed session's pane --------------------------------- */
+/* In a header short of room it gives way once the session's name is down to
+   its minimum (see `.workspace-view-header`): its words are cut, never Wake,
+   and it is clipped rather than drawn over its neighbours. */
 .snooze-chip {
   display: inline-flex;
-  flex-shrink: 0;
+  flex-shrink: 1;
+  overflow: hidden;
   align-items: center;
   gap: var(--space-2);
   height: 22px;
@@ -51,7 +55,14 @@
   white-space: nowrap;
 }
 
+.snooze-chip-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .snooze-chip-wake {
+  flex-shrink: 0;
   height: 100%;
   padding: 0 var(--space-2);
   border: none;
@@ -65,6 +76,12 @@
 
 .snooze-chip-wake:hover {
   background: var(--color-bg-hover);
+}
+
+/* The chip clips what lies outside it, so the ring is drawn inside Wake,
+   where it shows whole. */
+.snooze-chip-wake:focus-visible {
+  outline-offset: -2px;
 }
 
 /* --- Custom… ------------------------------------------------------------- */

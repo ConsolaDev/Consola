@@ -6,7 +6,7 @@ import {
   type RunRecord,
   type StepRun,
 } from '@consola/factory-spec';
-import type { AgentLaunchRequest, RunFolderPort } from '../ports';
+import type { AgentLaunchRequest, CheckoutKind, RunFolderPort } from '../ports';
 import type { ItemSource } from '../sources/itemSource';
 import { previousDocument } from '../sources/previous';
 import { fillActionPlaceholders } from '../support';
@@ -144,6 +144,16 @@ export type AgentStepLaunch =
   | { ok: false; error: string };
 
 /**
+ * The cap an agent step's turn runs under: its own `max_turns`, else its
+ * agent's; undefined when neither writes one, or for a command step.
+ */
+export function stepCap(definition: RunDefinition, stepId: string): number | undefined {
+  const step = definition.automation.steps.find((candidate) => candidate.id === stepId);
+  if (step?.kind !== 'agent') return undefined;
+  return step.maxTurns ?? definition.agents?.[stepId]?.maxTurns;
+}
+
+/**
  * The launch of an agent step's current attempt, in the folder the run
  * prepared: its session's name, its prompt (north-star §6.2), and, for an
  * item run, the item it is about, labelled with the step's action (or the
@@ -158,7 +168,13 @@ export type AgentStepLaunch =
  * `source` is the run's own (`runItemSource`), and `polled` a poll run's
  * `item.json`: what its header, fence and item fields come from. `previous`
  * is the earlier run on its item (`run.previous`), whose documents a
- * `previous.*` read lists from `folder`.
+ * `previous.*` read lists from `folder`. `checkoutKind` is the run's
+ * (`runCheckoutKind`), which the request carries as `step.checkout`;
+ * `skillsDir` and `pluginDir`, given when the step's agent names skills,
+ * are the run's checked copy of them and where the host builds its plugin;
+ * the request then also carries each of those skills' hashes as the
+ * definition holds them (`skillHashes`), which the host checks what it
+ * builds, and every later launch, against (review M1).
  */
 export function agentStepLaunch(input: {
   workspaceId: string;
@@ -166,6 +182,9 @@ export function agentStepLaunch(input: {
   definition: RunDefinition;
   stepId: string;
   checkout: { cwd: string; scopeId: string };
+  checkoutKind: CheckoutKind;
+  skillsDir?: string;
+  pluginDir?: string;
   source: ItemSource | undefined;
   polled: Record<string, unknown> | undefined;
   previous: { runId: string } | undefined;
@@ -173,6 +192,7 @@ export function agentStepLaunch(input: {
 }): AgentStepLaunch {
   const { workspaceId, run, definition, stepId, checkout, source, polled, previous, folder } =
     input;
+  const { checkoutKind, skillsDir, pluginDir } = input;
   const { steps } = definition.automation;
   const index = steps.findIndex((candidate) => candidate.id === stepId);
   const step = steps[index];
@@ -180,12 +200,18 @@ export function agentStepLaunch(input: {
   if (step?.kind !== 'agent' || !record)
     return { ok: false, error: `Its definition has no agent step ${stepId}.` };
 
+  // A step that names an agent runs as the agent its definition snapshot holds, never the file as it is now.
+  const agent = step.agent !== undefined ? definition.agents?.[step.id] : undefined;
+  if (step.agent !== undefined && !agent)
+    return { ok: false, error: `Its definition has no agent for step ${step.id}.` };
+
   const automation = run.automationId;
   const item = run.trigger.item;
   const workItem = itemRefOf(run);
   const action = definition.actions[step.id];
 
-  let body: string;
+  // Absent only for a step that names its agent and nothing else: the agent's instructions are its whole body.
+  let body: string | undefined;
   if (action) {
     if (!item || !workItem)
       return { ok: false, error: `${action.name} is an action, and this run has no item for it.` };
@@ -197,7 +223,7 @@ export function agentStepLaunch(input: {
       title: 'the title quoted below',
       url: item.url,
     });
-  } else {
+  } else if (step.prompt !== undefined || !agent) {
     const filled = fillPrompt(step.prompt ?? '', run, source, polled);
     if (!filled.ok) return filled;
     body = filled.text;
@@ -219,6 +245,16 @@ export function agentStepLaunch(input: {
     index: index + 1,
     count: steps.length,
     body,
+    ...(agent
+      ? {
+          agent: {
+            name: agent.name,
+            body: agent.body,
+            mcpServers: agent.mcpServers,
+            skills: agent.skills,
+          },
+        }
+      : {}),
     ...(source && item
       ? { item: { header: source.describeItemHeader(item), fence: source.fenceItem(item, polled) } }
       : {}),
@@ -235,6 +271,7 @@ export function agentStepLaunch(input: {
   const retried = (run.steps ?? []).some((candidate) => (candidate.previous?.length ?? 0) > 0);
   const fired = run.trigger.kind === 'event' || run.trigger.kind === 'poll';
   const askByHand = fired && firstAgentStep && action !== undefined && !retried;
+  const maxTurns = stepCap(definition, step.id);
   return {
     ok: true,
     request: {
@@ -247,6 +284,34 @@ export function agentStepLaunch(input: {
         cwd: checkout.cwd,
         scopeId: checkout.scopeId,
         name,
+        checkout: checkoutKind,
+        ...(pluginDir !== undefined ? { pluginDir } : {}),
+        ...(maxTurns !== undefined ? { maxTurns } : {}),
+        ...(agent
+          ? {
+              agent: {
+                name: agent.name,
+                ...(agent.harnessId !== undefined ? { harnessId: agent.harnessId } : {}),
+                ...(agent.model !== undefined ? { model: agent.model } : {}),
+                mcpServers: agent.mcpServers.map((server) => ({
+                  name: server.name,
+                  ...(server.tools !== undefined ? { tools: [...server.tools] } : {}),
+                })),
+                skills: [...agent.skills],
+                ...(skillsDir !== undefined
+                  ? {
+                      skillsDir,
+                      skillHashes: Object.fromEntries(
+                        agent.skills.flatMap((name) => {
+                          const hash = definition.skills?.[name];
+                          return hash !== undefined ? [[name, hash]] : [];
+                        }),
+                      ),
+                    }
+                  : {}),
+              },
+            }
+          : {}),
       },
       ...(item && workItem
         ? {

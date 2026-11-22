@@ -7,7 +7,7 @@ vi.mock('../services/harnessBridge', () => ({
   harnessBridge: { getCapabilities: () => getCapabilities() },
 }));
 
-const { useHarnessCapabilitiesStore } = await import('./harnessCapabilitiesStore');
+const { launchSignature, useHarnessCapabilitiesStore } = await import('./harnessCapabilitiesStore');
 
 const READY: HarnessCapabilitiesResult = {
   supported: true,
@@ -56,6 +56,46 @@ describe('harnessCapabilitiesStore', () => {
     await ensure('h1', { ...CLAUDE, configDirOverride: '~/.claude-work' });
 
     expect(getCapabilities).toHaveBeenCalledTimes(2);
+  });
+
+  it('while an edited harness is asked again, holds no answer for its new launch', async () => {
+    // `signature` says what the held answer is for. An old install's answer
+    // kept under the new launch would pass for the CLI's word about it, its
+    // account included, until the new probe answered.
+    const { ensure } = useHarnessCapabilitiesStore.getState();
+    const before = { ...CLAUDE, binaryOverride: '/old/claude' };
+    const after = { ...CLAUDE, binaryOverride: '/new/claude' };
+    await ensure('h1', before);
+
+    let answer!: (result: HarnessCapabilitiesResult) => void;
+    getCapabilities.mockReturnValueOnce(new Promise((resolve) => (answer = resolve)));
+    const asking = ensure('h1', after);
+    const entry = useHarnessCapabilitiesStore.getState().get('h1');
+    expect(entry).toEqual({ state: 'loading', signature: launchSignature(after) });
+
+    answer(READY);
+    await asking;
+    expect(useHarnessCapabilitiesStore.getState().get('h1')).toEqual({
+      state: 'ready',
+      result: READY,
+      signature: launchSignature(after),
+    });
+  });
+
+  it('keeps its answer while the same launch is asked again', async () => {
+    const { ensure, refresh } = useHarnessCapabilitiesStore.getState();
+    await ensure('h1', CLAUDE);
+
+    let answer!: (result: HarnessCapabilitiesResult) => void;
+    getCapabilities.mockReturnValueOnce(new Promise((resolve) => (answer = resolve)));
+    const asking = refresh('h1', CLAUDE);
+    expect(useHarnessCapabilitiesStore.getState().get('h1')).toEqual({
+      state: 'loading',
+      result: READY,
+      signature: launchSignature(CLAUDE),
+    });
+    answer(READY);
+    await asking;
   });
 
   it('retries after a failure rather than holding on to it', async () => {

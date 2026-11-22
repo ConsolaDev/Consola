@@ -1,4 +1,4 @@
-import { STEP_TOOL_NAMES } from '@consola/automation-engine';
+import { CONSOLA_SERVER_NAME, STEP_TOOL_NAMES } from '@consola/automation-engine';
 
 /**
  * The names a session's CLI sees for Consola's MCP server and its tools.
@@ -9,8 +9,11 @@ import { STEP_TOOL_NAMES } from '@consola/automation-engine';
  * session out of its only window on the item.
  */
 
-/** The server's key in every session's MCP config. */
-export const CONSOLA_MCP_SERVER = 'consola';
+/**
+ * The server's key in every session's MCP config: the engine's name for it,
+ * the one server a step's `init` may list beside its agent's grants.
+ */
+export const CONSOLA_MCP_SERVER = CONSOLA_SERVER_NAME;
 
 /** A registry tool's name as the session sees it: `list_sessions` → `consola_list_sessions`. */
 export function mcpToolName(tool: string): string {

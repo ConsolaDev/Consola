@@ -3,6 +3,7 @@ import type { ElectronApplication, Page } from '@playwright/test';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { showBrowser } from './helpers/browserTab';
 import { launchElectron, removeProfile } from './helpers/electron';
 import { type FixtureServer, startFixtureServer } from './helpers/fixtureServer';
 
@@ -61,13 +62,6 @@ async function seed(page: Page, root: string): Promise<void> {
 
 const panel = (page: Page) => page.getByTestId('browser-panel');
 const address = (page: Page) => page.getByRole('textbox', { name: 'Address' });
-
-async function showBrowser(page: Page): Promise<void> {
-  if (!(await panel(page).isVisible())) {
-    await page.getByRole('button', { name: /^(Show|Hide) browser$/ }).click();
-  }
-  await expect(panel(page)).toBeVisible();
-}
 
 async function typeAddress(page: Page, text: string): Promise<void> {
   await address(page).click();
@@ -182,7 +176,7 @@ test.describe('in-app browser menu', () => {
     await page.keyboard.press('Escape');
 
     // A second tab on the same host starts at the level the host has.
-    await page.getByRole('button', { name: 'New tab', exact: true }).click();
+    await panel(page).getByRole('button', { name: 'New tab', exact: true }).click();
     await typeAddress(page, `${fixtures.host}/b.html`);
     const b = fixtures.url('/b.html');
     await expect.poll(() => guestUrls(app)).toContain(b);

@@ -15,18 +15,32 @@ import { probeClaudeCapabilities, requestUsage } from './claudeCapabilities';
 import { mapClaudeUsage, showsClaudeLimitNotice } from './claudeUsage';
 import type { ConversationRecord, ConversationWindow } from '../../shared/conversation';
 import type { HarnessAccount, HarnessCapabilities, HarnessProbeResult } from '../../shared/types';
+import type { AgentGrants, ClaudeAgentGrants } from '../../shared/agentGrants';
 import type { HarnessLimits } from '../../shared/usageLimits';
 import type { SessionToolPolicy } from '../../shared/workspace';
 import { CONSOLA_MCP_SERVER, mcpToolName, READ_ONLY_CONSOLA_TOOLS } from '../mcp/names';
-import { claudeAttentionHooks, claudeHookSettings } from './claudeHooks';
+import {
+  askSkillDenyRules,
+  buildStepPlugin,
+  stepPluginProblem,
+  CONSOLA_STEP_PLUGIN,
+  compileClaudeAgent,
+  probeClaudeMcpServers,
+} from './claudeAgent';
+import { claudeAttentionHooks, claudeSettings } from './claudeHooks';
+import { createClaudeTurnReader } from './claudeTurnReader';
 import {
   looseningProblem,
   namedFlags,
   type CliNameRead,
+  type CompileAgentInput,
+  type CompiledAgent,
   type HarnessConfig,
   type HarnessDriver,
+  type McpServerReport,
   type SessionLaunch,
   type TextGenerationRequest,
+  type TurnReader,
   type UsageLimitReporting,
 } from './HarnessDriver';
 
@@ -73,19 +87,110 @@ function claudeToolName(tool: string): string {
  *   asking. Pinned because the CLI's default is now `auto`, whose classifier
  *   approves calls on its own; and denying rather than asking means an
  *   unattended review can never stall on a prompt nobody is there to answer.
+ *
+ * `readOnlyArgs({})` is exactly that. A step's grants change only what
+ * they compiled: `strict` (off when a connector is granted), the tools
+ * (`Skill` when its skills are there), allow rules after Consola's, and
+ * deny rules; every one of them before `--restricted`.
  */
-const READ_ONLY_ARGS = [
-  '--strict-mcp-config',
-  '--permission-mode',
-  'dontAsk',
-  '--tools',
-  'Read,Grep,Glob',
-  '--allowedTools',
-  ...READ_ONLY_CONSOLA_TOOLS.map(claudeToolName),
-  // Last, and taking no value: it closes the variadic tool list above, so
-  // nothing after it — the harness's extra args — can join that list.
-  '--restricted',
-];
+function readOnlyArgs(grant: {
+  strict?: boolean;
+  tools?: string;
+  allowed?: readonly string[];
+  deny?: readonly string[];
+}): string[] {
+  return [
+    ...(grant.strict === false ? [] : ['--strict-mcp-config']),
+    '--permission-mode',
+    'dontAsk',
+    '--tools',
+    grant.tools ?? 'Read,Grep,Glob',
+    '--allowedTools',
+    ...READ_ONLY_CONSOLA_TOOLS.map(claudeToolName),
+    ...(grant.allowed ?? []),
+    ...(grant.deny && grant.deny.length > 0 ? ['--disallowedTools', ...grant.deny] : []),
+    // Last, and taking no value: it closes the variadic tool lists above, so
+    // nothing after it — the harness's extra args — can join them.
+    '--restricted',
+  ];
+}
+
+/** The tools a step whose skills are there has: reading files, and the Skill tool. */
+const SKILL_TOOLS = 'Read,Grep,Glob,Skill';
+
+const OTHER_CLI_GRANTS =
+  'These grants were compiled for another CLI, so this session cannot launch on Claude.';
+const GRANTS_NEED_READ_ONLY =
+  "An agent's grants hold only in a read-only session, so this session cannot launch with them.";
+const GRANTS_NEED_CONSOLA =
+  "A step whose agent names MCP servers needs Consola's own server too, so it did not start.";
+const SKILLS_GONE = "This step's skills are no longer kept; it continues without them.";
+const SKILLS_CHANGED =
+  "This step's skills are not the ones its run holds; it continues without them.";
+const SKILLS_UNCHECKED =
+  "This step's skills cannot be checked against its run; it continues without them.";
+
+/** The launch's grants, checked: Claude's own, on a read-only session, with Consola's server when they name servers. */
+function claudeGrants(launch: SessionLaunch): ClaudeAgentGrants | undefined {
+  const grants = launch.grants;
+  if (!grants) return undefined;
+  if ((grants as { driverId: string }).driverId !== 'claude') throw new Error(OTHER_CLI_GRANTS);
+  if (launch.toolPolicy !== 'read-only') throw new Error(GRANTS_NEED_READ_ONLY);
+  if (grants.servers.length > 0 && !launch.mcpConfigPath) throw new Error(GRANTS_NEED_CONSOLA);
+  return grants;
+}
+
+/**
+ * Whether the step's skills can load, checked at every launch: granted,
+ * their plugin dir still a folder on disk, and still the plugin its run's
+ * definition holds (`stepPluginProblem` against the grants' hashes: review
+ * M1). It sits in the run folder, which is swept with its run; once it is
+ * gone, changed, or cannot be checked, the session launches without its
+ * skills (fewer grants, never more), and `notice` says why. Null for grants
+ * with no skills.
+ */
+function stepPlugin(
+  grants: ClaudeAgentGrants | undefined,
+): { dir: string } | { notice: string } | null {
+  if (!grants || grants.skills.length === 0 || !grants.pluginDir) return null;
+  let isFolder = false;
+  try {
+    isFolder = fs.statSync(grants.pluginDir).isDirectory();
+  } catch {
+    isFolder = false;
+  }
+  if (!isFolder) return { notice: SKILLS_GONE };
+  if (!grants.skillHashes) return { notice: SKILLS_UNCHECKED };
+  return stepPluginProblem(grants.pluginDir, grants.skills, grants.skillHashes) === null
+    ? { dir: grants.pluginDir }
+    : { notice: SKILLS_CHANGED };
+}
+
+/** The step's plugin dir when its skills can load (`stepPlugin`). */
+function livePluginDir(grants: ClaudeAgentGrants | undefined): string | undefined {
+  const plugin = stepPlugin(grants);
+  return plugin && 'dir' in plugin ? plugin.dir : undefined;
+}
+
+/**
+ * The flags the deny list's `initialize` runs with (the plan's Call 10):
+ * the skill flags only, no server, no hook and none of the harness's extra
+ * args, so it starts nothing and lists every skill a launch could see.
+ */
+function denyListFlags(pluginDir: string): string[] {
+  return [
+    '--strict-mcp-config',
+    '--plugin-dir',
+    pluginDir,
+    '--add-dir',
+    pluginDir,
+    '--permission-mode',
+    'dontAsk',
+    '--tools',
+    SKILL_TOOLS,
+    '--restricted',
+  ];
+}
 
 /**
  * Print mode never shows the folder-trust prompt and, unless restricted,
@@ -115,6 +220,28 @@ const LOOSENING_FLAGS = [
   '--agent',
   '--agents',
 ];
+
+/**
+ * Extra args that would override what a step's reporting turn is launched
+ * with: Claude takes a flag's last occurrence, and the harness's extra args
+ * come last, so `--output-format text` there would replace the report and
+ * `--max-turns` the step's cap. `--input-format` is the driver's alone to
+ * add, for a later session that takes several turns over stream-json.
+ */
+const STEP_TURN_FLAGS = ['--output-format', '--input-format', '--max-turns'];
+
+/**
+ * Extra args that would override the servers an agent's grants load: a
+ * second `--mcp-config` replaces the step's list, `--strict-mcp-config` drops
+ * the connectors it grants.
+ */
+const SERVER_FLAGS = ['--mcp-config', '--strict-mcp-config'];
+
+/** `a`, `a` and `b`, `a`, `b` and `c`, each in backticks. */
+function namedList(flags: readonly string[]): string {
+  const named = flags.map((flag) => `\`${flag}\``);
+  return named.length === 1 ? named[0] : `${named.slice(0, -1).join(', ')} and ${named.at(-1)}`;
+}
 
 // The binary found on PATH, cached for the app's lifetime. Only auto-detection
 // is cached: a pinned path is cheap to check and must never be answered from a
@@ -337,39 +464,139 @@ export class ClaudeDriver implements HarnessDriver {
    * reconnected to the same conversation later. `--session-id` only works
    * once per ID — Claude rejects reuse — so every launch after the first
    * resumes instead.
+   *
+   * A step's grants are replayed on every launch. When they hold skills
+   * whose plugin dir is there, the CLI is first asked which skills it has
+   * (`askSkillDenyRules`, never cached), so the argv comes as a promise;
+   * otherwise it comes at once.
    */
-  public buildSessionArgs(config: HarnessConfig, launch: SessionLaunch): string[] {
+  public buildSessionArgs(
+    config: HarnessConfig,
+    launch: SessionLaunch & { grants?: undefined },
+  ): string[];
+  public buildSessionArgs(
+    config: HarnessConfig,
+    launch: SessionLaunch,
+  ): string[] | Promise<string[]>;
+  public buildSessionArgs(
+    config: HarnessConfig,
+    launch: SessionLaunch,
+  ): string[] | Promise<string[]> {
     const problem = this.toolPolicyProblem(config, launch.toolPolicy);
     if (problem) throw new Error(problem);
     if (launch.unattended && launch.toolPolicy !== 'read-only')
       throw new Error(UNATTENDED_NEEDS_READ_ONLY);
     if (launch.unattended && !launch.initialPrompt)
       throw new Error('An unattended turn needs the prompt it runs.');
+    const grants = claudeGrants(launch);
+    if (launch.unattended && launch.reportTurn) {
+      // A harness edited after its run was queued: fail the step rather
+      // than launch a turn whose report, cap or servers its extra args
+      // replace. An interactive reopen checks nothing more: there they
+      // could only take servers away.
+      const overridden = this.stepTurnProblem(config, {
+        model: Boolean(launch.model),
+        servers: (grants?.servers.length ?? 0) > 0,
+      });
+      if (overridden) throw new Error(overridden);
+    }
     const base = launch.resume
       ? ['--resume', launch.sessionId]
       : launch.forkFrom
         ? ['--resume', launch.forkFrom, '--fork-session', '--session-id', launch.sessionId]
         : ['--session-id', launch.sessionId];
     const model = launch.model ? ['--model', launch.model] : [];
-    const mcp = launch.mcpConfigPath ? ['--mcp-config', launch.mcpConfigPath] : [];
+    // Consola's own server first; a step granted a user server loads the
+    // person's account file after it, where the CLI reads user servers.
+    const mcp = launch.mcpConfigPath
+      ? ['--mcp-config', launch.mcpConfigPath, ...(grants?.accountFile ? [grants.accountFile] : [])]
+      : [];
     // The harness's own extra args come after Consola's so a hand-written
     // `--model` there still wins: Claude takes the last occurrence of a
     // flag. A tool policy comes before them, so an extra arg left wanting
     // a value (`--append-system-prompt` with none) cannot take one of its
     // flags as that value; every extra arg that could override the policy
     // is refused above.
-    const policy = launch.toolPolicy === 'read-only' ? READ_ONLY_ARGS : [];
     // Hooks ride in `--settings`, which adds to the user's own and writes
     // nothing to disk. Under `--restricted` it is one of the only two
-    // sources still loaded, so a read-only turn reports too.
-    const hooks = launch.attentionUrl
-      ? ['--settings', claudeHookSettings(launch.attentionUrl)]
-      : [];
-    const args = [...base, ...model, ...mcp, ...hooks, ...policy, ...config.extraArgs];
-    // Print mode: one turn, its answer, and exit. The prompt goes after
-    // `--`, because `--allowedTools` takes every value up to the next
-    // flag and would otherwise swallow it.
-    return launch.unattended ? ['-p', ...args, '--', launch.initialPrompt!] : args;
+    // sources still loaded, so a read-only turn reports too. A step's
+    // allow-list of servers rides in the same one value.
+    const settingsValue = claudeSettings({
+      attentionUrl: launch.attentionUrl,
+      allowedMcpServers: grants?.allowedMcpServers,
+    });
+    const settings = settingsValue ? ['--settings', settingsValue] : [];
+    // A step's unattended turn reports itself as stream-json, and takes its
+    // cap; an interactive launch of the same session gets neither, so a
+    // person's reopen is exactly what it was before steps reported.
+    const report =
+      launch.unattended && launch.reportTurn ? ['--output-format', 'stream-json', '--verbose'] : [];
+    const turns =
+      launch.unattended && launch.maxTurns !== undefined
+        ? ['--max-turns', String(launch.maxTurns)]
+        : [];
+    const pluginDir = livePluginDir(grants);
+    const plugin = pluginDir ? ['--plugin-dir', pluginDir, '--add-dir', pluginDir] : [];
+    // Without its plugin dir a step has none of its skills: no Skill tool, no allow rule.
+    const allowed = grants?.allowedTools.filter(
+      (rule) =>
+        pluginDir !== undefined ||
+        !grants.skills.some((skill) => rule === `Skill(${CONSOLA_STEP_PLUGIN}:${skill})`),
+    );
+    const assemble = (deny: readonly string[]): string[] => {
+      const policy =
+        launch.toolPolicy === 'read-only'
+          ? readOnlyArgs({
+              strict: grants?.strict,
+              tools: pluginDir ? SKILL_TOOLS : undefined,
+              allowed,
+              deny,
+            })
+          : [];
+      const args = [
+        ...base,
+        ...model,
+        ...mcp,
+        ...settings,
+        ...report,
+        ...turns,
+        ...plugin,
+        ...policy,
+        ...config.extraArgs,
+      ];
+      // Print mode: one turn, its answer, and exit. The prompt goes after
+      // `--`, because `--allowedTools` takes every value up to the next
+      // flag and would otherwise swallow it.
+      return launch.unattended ? ['-p', ...args, '--', launch.initialPrompt!] : args;
+    };
+    if (!pluginDir || !grants) return assemble([]);
+    // Never the Skill tool without a deny list: every other skill and
+    // command the CLI lists here is denied, asked where the session runs.
+    return askSkillDenyRules(
+      this.resolveBinary(config),
+      launch.cwd ?? os.homedir(),
+      this.composeEnv(config, getLoginEnv()),
+      denyListFlags(pluginDir),
+      grants.skills,
+    ).then(assemble);
+  }
+
+  /** Build the step's plugin dir from the run's skills copy, before an attempt's first launch. */
+  public async stageSkills(grants: AgentGrants, skillsDir: string): Promise<void> {
+    if ((grants as { driverId: string }).driverId !== 'claude') throw new Error(OTHER_CLI_GRANTS);
+    if (grants.skills.length === 0) return;
+    if (!grants.pluginDir) {
+      throw new Error('These grants name skills but no plugin dir to build them in.');
+    }
+    await buildStepPlugin(skillsDir, grants.pluginDir, grants.skills, grants.skillHashes ?? {});
+  }
+
+  /** The pane's notice when a step's skills were granted but cannot load: their plugin dir gone, changed or unchecked. */
+  public launchNotice(launch: SessionLaunch): string | null {
+    const grants = launch.grants;
+    if (!grants || (grants as { driverId: string }).driverId !== 'claude') return null;
+    const plugin = stepPlugin(grants);
+    return plugin && 'notice' in plugin ? plugin.notice : null;
   }
 
   public toolPolicyProblem(
@@ -378,6 +605,35 @@ export class ClaudeDriver implements HarnessDriver {
   ): string | null {
     if (!policy) return null;
     return looseningProblem(namedFlags(config.extraArgs, LOOSENING_FLAGS));
+  }
+
+  public stepTurnProblem(
+    config: HarnessConfig,
+    compiled?: { model?: boolean; servers?: boolean },
+  ): string | null {
+    // A step that sets no model compiles none, so the harness's own `--model`
+    // is left to win; one whose agent names no server compiles no server
+    // flags, so the harness's own `--mcp-config` is left alone too.
+    const flags = namedFlags(config.extraArgs, [
+      ...(compiled?.model ? ['--model'] : []),
+      ...(compiled?.servers ? SERVER_FLAGS : []),
+      ...STEP_TURN_FLAGS,
+    ]);
+    if (flags.length === 0) return null;
+    return (
+      `This harness's extra arguments set ${namedList(flags)}, which would override what ` +
+      `Consola launches each step's turn with. Remove ${flags.length === 1 ? 'it' : 'them'} ` +
+      'in Settings › Harnesses.'
+    );
+  }
+
+  /** Whether a step may run `input.agent` on this harness, against its account file. Pure. */
+  public compileAgent(input: CompileAgentInput): CompiledAgent {
+    return compileClaudeAgent({ ...input, accountFile: resolveAccountFile(input.config) });
+  }
+
+  public createTurnReader(): TurnReader {
+    return createClaudeTurnReader();
   }
 
   /**
@@ -478,6 +734,36 @@ export class ClaudeDriver implements HarnessDriver {
         resolvedBinary,
         os.homedir(),
         this.composeEnv(config, getLoginEnv()),
+      );
+    } catch (error) {
+      throw new Error(
+        describeSpawnFailure(
+          resolvedBinary,
+          error instanceof Error ? error : new Error(String(error)),
+        ),
+      );
+    }
+  }
+
+  /**
+   * Ask this harness's CLI which MCP servers it would offer a step: its
+   * user servers, from the account file when there is one (whether it is
+   * there is all that is looked at: its contents are the CLI's to read),
+   * and its claude.ai connectors. From the home directory, as
+   * `probeCapabilities`, and without the harness's extra args. It connects
+   * to every server it lists, so it starts the profile's stdio servers.
+   */
+  public async probeMcpServers(config: HarnessConfig): Promise<McpServerReport[]> {
+    if (config.binaryPath && !isExecutable(config.binaryPath)) {
+      throw new Error(`Not executable: ${config.binaryPath}`);
+    }
+    const resolvedBinary = this.resolveBinary(config);
+    const accountFile = resolveAccountFile(config);
+    try {
+      return await probeClaudeMcpServers(
+        resolvedBinary,
+        this.composeEnv(config, getLoginEnv()),
+        fs.existsSync(accountFile) ? accountFile : null,
       );
     } catch (error) {
       throw new Error(
@@ -616,8 +902,8 @@ export interface HeadlessResult {
 export async function runHeadless(
   prompt: string,
   options: { cwd: string; timeoutMs?: number } = { cwd: process.cwd() },
+  driver: HarnessDriver = new ClaudeDriver(),
 ): Promise<HeadlessResult> {
-  const driver = new ClaudeDriver();
   const config: HarnessConfig = { extraArgs: [] };
   const binary = driver.resolveBinary(config);
   const args = ['-p', prompt, '--output-format', 'json', '--allowed-tools', ''];

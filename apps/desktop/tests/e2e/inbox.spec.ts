@@ -4,7 +4,9 @@ import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import type { WorkItemRef } from '../../src/shared/workItems';
 import { createProfileDir, launchElectron } from './helpers/electron';
+import { infoSection, roomForBothPanels } from './helpers/infoPanel';
 
 const STUB_GH_DIR = path.resolve(__dirname, '../fixtures/stub-gh');
 const PR51_KEY = 'github:sprocket/catalog-portal:pr:51';
@@ -940,6 +942,7 @@ test('a linked session shows its item pane beside the terminal, and Fix pastes i
   const fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-session-details-'));
   const fixturePath = path.join(fixtureDir, 'inbox.json');
   const pastedPath = path.join(fixtureDir, 'pasted.txt');
+  const logPath = path.join(fixtureDir, 'calls.log');
   const agent = path.join(fixtureDir, 'agent.sh');
   // Raw mode hands the agent every byte as it arrives: a paste has no newline
   // to wait for. Appending, because a health or capability probe runs this
@@ -967,10 +970,22 @@ test('a linked session shows its item pane beside the terminal, and Fix pastes i
       env: {
         CONSOLA_GH_PATH: path.join(STUB_GH_DIR, 'gh'),
         GRAPHQL_INBOX_FIXTURE: fixturePath,
+        STUB_GH_LOG: logPath,
       },
     });
     app = launched.app;
     const { page } = launched;
+    // The info panel's Pull request section is counted beside the side
+    // panel's tab, so both stay on screen: a wide window.
+    await roomForBothPanels(app, page);
+    // Every read of an item's details asks REST for its changed files,
+    // alongside its GraphQL queries, so those requests count the reads.
+    const detailReadsOf = (number: number) =>
+      (fs.existsSync(logPath) ? fs.readFileSync(logPath, 'utf8') : '')
+        .split('\n')
+        .filter((line) => line.includes(`repos/sprocket/catalog-portal/pulls/${number}/files`))
+        .length;
+    const stateFile = path.join(`${userDataDir} Test`, 'workspaces.json');
     await page.evaluate(
       async ({ workspaceId, binaryPath }) => {
         await window.harnessStateAPI.addHarness({
@@ -993,6 +1008,14 @@ test('a linked session shows its item pane beside the terminal, and Fix pastes i
         await link(51, 'Fix CI', 'details-e2e');
         // #52 is not in the Inbox: merged, closed, or out of its window.
         await link(52, 'Review', 'details-e2e-unlisted');
+        // A session with no item: its Pull request tab can only say why.
+        await window.workspaceAPI.createSession(workspaceId, {
+          name: 'Notes on billing',
+          workspaceId,
+          instanceId: 'details-e2e-unlinked',
+          harnessId: 'stub',
+          scopeId: 'scope-controller',
+        });
       },
       { workspaceId, binaryPath: agent },
     );
@@ -1004,19 +1027,24 @@ test('a linked session shows its item pane beside the terminal, and Fix pastes i
     // The agent is up, in raw mode, and listening.
     await expect.poll(() => fs.existsSync(pastedPath), { timeout: 15_000 }).toBe(true);
 
-    // Facts about the session are text; only the toggle is a button.
-    const strip = page.locator('.work-item-strip');
-    await expect(strip.getByText('Fix CI', { exact: true })).toBeVisible();
-    await expect(strip.getByRole('button', { name: 'Fix CI' })).toHaveCount(0);
-    const toggle = strip.getByRole('button', { name: 'Details' });
-    await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    // Facts about the session are text; the item's title is the way in.
+    const prSection = infoSection(page, 'Pull request');
+    await expect(prSection.getByText('Fix CI', { exact: true })).toBeVisible();
+    await expect(prSection.getByRole('button', { name: 'Fix CI' })).toHaveCount(0);
+    const sidePanel = page.getByTestId('side-panel');
+    await expect(sidePanel).toHaveCount(0);
     const panel = page.getByTestId('work-item-panel');
     await expect(panel).toHaveCount(0);
-    await toggle.click();
-    await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    await prSection.getByRole('button', { name: /^Extract billing client #51$/ }).click();
+    // The title opens the side panel's Pull request tab, named by the item.
+    const tabs = sidePanel.getByRole('tablist', { name: 'Side panel tabs' });
+    const tabOf51 = tabs.getByRole('tab', { name: 'Pull request #51', exact: true });
+    await expect(tabOf51).toHaveAttribute('aria-selected', 'true');
+    await expect(tabOf51).toHaveText('#51');
 
-    // The whole Inbox pane: header, remote details, sessions, ways to start one.
-    const pane = panel.getByRole('complementary', { name: 'Work item details' });
+    // The whole Inbox pane: header, remote details, sessions, ways to start
+    // one. Inside the side panel, itself the landmark, it is a region.
+    const pane = panel.getByRole('region', { name: 'Work item details' });
     await expect(pane.getByRole('heading', { name: 'Extract billing client' })).toBeVisible();
     const remote = pane.getByRole('region', { name: 'Remote item details' });
     await expect(remote.getByText('regression coverage', { exact: true })).toBeVisible({
@@ -1031,6 +1059,19 @@ test('a linked session shows its item pane beside the terminal, and Fix pastes i
     await expect(thisRow.getByRole('button', { name: /^Open / })).toHaveCount(0);
     await expect(pane.locator('[data-action-id="review"]')).toBeVisible();
 
+    // After a click on its text, the keys scroll the pane, as reading it by
+    // the keys needs. The pane is taller than its tab, or this proves nothing.
+    const scroll = () => panel.evaluate((element) => element.scrollTop);
+    expect(
+      await panel.evaluate((element) => element.scrollHeight - element.clientHeight),
+    ).toBeGreaterThan(100);
+    await pane.getByRole('heading', { name: 'Extract billing client' }).click();
+    await page.keyboard.press('PageDown');
+    await expect.poll(scroll).toBeGreaterThan(0);
+    await panel.evaluate((element) => {
+      element.scrollTop = 0;
+    });
+
     // A Fix goes to the session on screen, not to a new one: pasted into its
     // composer and left for the person to send.
     const merge = remote.getByRole('region', { name: 'Merge' });
@@ -1043,24 +1084,126 @@ test('a linked session shows its item pane beside the terminal, and Fix pastes i
       .toContain(
         '\x1b[200~Investigate and fix the failing CI checks for https://github.com/sprocket/catalog-portal/pull/51.',
       );
-    await expect(page.locator('.terminal-panel .terminal-surface textarea')).toBeFocused();
+    // The keyboard goes back to the conversation, never to a shell beside it.
+    await expect(
+      page.locator('[data-conversation-terminal] .terminal-surface textarea'),
+    ).toBeFocused();
     await expect(pane.getByRole('textbox', { name: 'Custom prompt' })).toHaveCount(0);
     await page.screenshot({
       path: path.join(test.info().outputDir, 'session-work-item-panel.png'),
     });
 
-    // The panel is a preference: the next linked session shows it too. Its
-    // item is not in the Inbox, so the pane names it from a fresh read.
+    // The Inbox's pane shares the tab's read: what was read moments ago is
+    // shown again without asking, until the person refreshes it. The cached
+    // details draw at once, before any read the pane might start could be
+    // logged, so the count is taken after a moment for one to show.
+    expect(detailReadsOf(51)).toBe(1);
+    const inboxPane = await openPaneFor51(page);
+    await expect(inboxPane.getByRole('heading', { name: 'Extract billing client' })).toBeVisible();
+    await expect(
+      inboxPane
+        .getByRole('region', { name: 'Remote item details' })
+        .getByText('regression coverage', { exact: true }),
+    ).toBeVisible();
+    await page.waitForTimeout(1000);
+    expect(detailReadsOf(51)).toBe(1);
+    const refreshInInbox = inboxPane.getByRole('button', { name: 'Refresh details' });
+    await refreshInInbox.click();
+    await expect.poll(() => detailReadsOf(51)).toBe(2);
+    await expect(refreshInInbox).toBeEnabled();
+    // Back by the pane's own row: under the Inbox, the sidebar lists no
+    // sessions. The tab's pane shows the Inbox's read, and asks nothing.
+    await inboxPane.getByRole('button', { name: 'Open PR #51 · Fix CI' }).click();
+    await expect(pane.getByRole('heading', { name: 'Extract billing client' })).toBeVisible();
+    await page.waitForTimeout(1000);
+    expect(detailReadsOf(51)).toBe(2);
+
+    // Once seen, the pane stays mounted behind another tab, keeping what it holds.
+    await page.getByRole('button', { name: 'Changes', exact: true }).click();
+    await expect(tabs.getByRole('tab', { name: 'Changes', exact: true })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    await expect(panel).toHaveCount(1);
+    await expect(panel).toBeHidden();
+
+    // A pane nobody can see reads nothing: the next linked session arrives
+    // with its Pull request tab behind Changes, and its item is not read.
+    // The info panel's Pull request section would read #52 at once, so it is
+    // folded first: folded, it reads nothing, and only the pane is counted.
+    const prHeading = prSection.getByRole('button', { name: 'Pull request', exact: true });
+    await prHeading.click();
+    await expect(prHeading).toHaveAttribute('aria-expanded', 'false');
     await page.locator('.session-nav-item', { hasText: 'PR #52 · Review' }).click();
+    await expect(tabs.getByRole('tab', { name: 'Pull request #52', exact: true })).toBeVisible();
+    await expect(panel).toHaveCount(0);
+    expect(detailReadsOf(52)).toBe(0);
+
+    // The tab belongs to the side panel, which every session shares: brought
+    // forward, it shows this session's own item. That item is not in the
+    // Inbox, so the pane names it from a fresh read.
+    await tabs.getByRole('tab', { name: 'Pull request #52', exact: true }).click();
     await expect(pane.locator('.inbox-pane-meta')).toContainText('sprocket/catalog-portal#52');
+    await expect.poll(() => detailReadsOf(52)).toBeGreaterThan(0);
     await expect(pane.getByRole('heading', { name: 'Extract billing client' })).toBeVisible({
       timeout: 15_000,
     });
     await expect(pane.locator('.inbox-pane-meta .inbox-detail-state')).toHaveText('Open');
+    await prHeading.click();
+    await expect(prHeading).toHaveAttribute('aria-expanded', 'true');
+    await expect(prSection).toContainText('#52');
+
+    // A session with no item keeps the tab, and says why it has nothing to show.
+    await page.locator('.session-nav-item', { hasText: 'Notes on billing' }).click();
+    await expect(sidePanel).toContainText('This session is not linked to a pull request or issue.');
+    await expect(panel).toHaveCount(0);
+
+    // An unavailable tab stays in the layout: the linked session shows its pane again.
+    await page.locator('.session-nav-item', { hasText: 'PR #51 · Fix CI' }).click();
+    await expect(pane.getByRole('heading', { name: 'Extract billing client' })).toBeVisible();
+    await expect(thisRow).toContainText('This session');
+    await expect(tabOf51).toHaveAttribute('aria-selected', 'true');
+
+    // Folded again, and left so: the info panel would read #53 the moment
+    // the session is relinked, and this counts the pane's reads alone.
+    await prHeading.click();
+    await expect(prHeading).toHaveAttribute('aria-expanded', 'false');
+
+    // A pane relinked behind another tab reads nothing until it is in front.
+    // Main relinks only a session that was unlinked first, and an unlinked
+    // session's tab has nothing to show, so the seen pane goes with the link
+    // and the relinked one starts unseen.
+    await page.getByRole('button', { name: 'Changes', exact: true }).click();
+    await expect(tabs.getByRole('tab', { name: 'Changes', exact: true })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    await expect(panel).toBeHidden();
+    const [fixCi] = sessionsOn51(stateFile);
+    expect(fixCi?.id).toBeTruthy();
+    const setWorkItem = (workItem?: WorkItemRef) =>
+      page.evaluate(
+        ({ workspaceId, sessionId, workItem }) =>
+          window.workspaceAPI.updateSession(workspaceId, sessionId, { workItem }),
+        { workspaceId, sessionId: fixCi.id as string, workItem },
+      );
+    await setWorkItem(undefined);
+    await expect(panel).toHaveCount(0);
+    await setWorkItem({
+      provider: 'github',
+      repo: 'sprocket/catalog-portal',
+      type: 'pr',
+      number: 53,
+    });
+    await expect(tabs.getByRole('tab', { name: 'Pull request #53', exact: true })).toBeVisible();
+    await page.waitForTimeout(1500);
+    expect(detailReadsOf(53)).toBe(0);
+    await tabs.getByRole('tab', { name: 'Pull request #53', exact: true }).click();
+    await expect.poll(() => detailReadsOf(53)).toBeGreaterThan(0);
 
     await pane.getByRole('button', { name: 'Close details' }).click();
     await expect(panel).toHaveCount(0);
-    await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    await expect(tabs.getByRole('tab', { name: /^Pull request/ })).toHaveCount(0);
   } finally {
     await app?.close();
     fs.rmSync(userDataDir, { recursive: true, force: true });
@@ -1179,8 +1322,8 @@ test('an action runs again in its own session: Continue types into it, Fresh sta
     await expect.poll(() => read(argsPath), { timeout: 15_000 }).toContain(`--session-id ${first}`);
 
     // Continue: the body alone goes into the running conversation.
-    const strip = page.locator('.work-item-strip');
-    await strip.getByRole('button', { name: /^Run an action in / }).click();
+    const prSection = infoSection(page, 'Pull request');
+    await prSection.getByRole('button', { name: /^Run an action in / }).click();
     const menu = page.getByTestId('run-action-menu');
     await expect(menu.getByText('Run in this session')).toBeVisible();
     await expect(menu.locator('[data-action-id="review"]')).toContainText(
@@ -1204,7 +1347,7 @@ test('an action runs again in its own session: Continue types into it, Fresh sta
 
     // Fresh: the same tab moves onto a new conversation, created rather than
     // resumed, and it opens with the item's header and the action's body.
-    await strip.getByRole('button', { name: /^Run an action in / }).click();
+    await prSection.getByRole('button', { name: /^Run an action in / }).click();
     await menu.locator('.run-action-item', { hasText: 'Re-review' }).click();
     await expect.poll(() => record()[0]?.claudeSessionId, { timeout: 10_000 }).not.toBe(first);
     const [{ id: sameId, claudeSessionId: second }] = record();
@@ -1231,7 +1374,7 @@ test('an action runs again in its own session: Continue types into it, Fresh sta
     await row.getByRole('button', { name: /^Run an action in / }).click();
     await expect(menu.locator('.run-action-item', { hasText: 'Re-review' })).toBeVisible();
     await menu.locator('[data-action-id="fix-ci"]').click();
-    await expect(page.locator('.work-item-strip')).toBeVisible();
+    await expect(prSection).toContainText('#51');
     await expect
       .poll(() => read(inputPath), { timeout: 10_000 })
       .toContain('Find the failing checks with `gh pr checks 51`, reproduce locally, fix, push.');

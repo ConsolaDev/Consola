@@ -4,13 +4,15 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { PERSON_INPUT_GUARD_MS } from '../../src/main/browser/PersonInput';
+import { hideBrowser, showBrowser, sidePanelToggle } from './helpers/browserTab';
 import { launchElectron, removeProfile } from './helpers/electron';
 import { type FixtureServer, startFixtureServer } from './helpers/fixtureServer';
 
 /**
  * Whose a tab is, end to end: a tab a page opens shows only when the
- * person's press caused it, an agent's move marks the tab and dots the globe,
- * and a download from a tab in the agent's hands never reaches a save dialog.
+ * person's press caused it, an agent's move marks the tab and dots the side
+ * panel toggle, and a download from a tab in the agent's hands never reaches
+ * a save dialog.
  * The agent is the session's real browser tools, put on a server of the
  * test's own in main (`__consolaTest.browserTools`); the person is stood in
  * for by `sendInputEvent`, which reaches a page as a real press does.
@@ -72,13 +74,7 @@ async function openSession(page: Page): Promise<void> {
   await page.locator('.session-nav-item').filter({ hasText: 'Alpha session' }).click();
 }
 
-const globe = (page: Page) => page.getByRole('button', { name: /^(Show|Hide) browser/ });
 const panel = (page: Page) => page.getByTestId('browser-panel');
-
-async function showBrowser(page: Page): Promise<void> {
-  if (!(await panel(page).isVisible())) await globe(page).click();
-  await expect(panel(page)).toBeVisible();
-}
 
 async function typeAddress(page: Page, text: string): Promise<void> {
   const field = page.getByRole('textbox', { name: 'Address' });
@@ -258,7 +254,7 @@ test.describe('whose hands a tab is in', () => {
     await expect.poll(() => guestUrls(app)).toEqual([fixtures.url('/opener.html')]);
     const opener = (await tabsOf(page, sessionId)).tabs[0];
     // The person shuts the panel; the page goes on running behind it.
-    await globe(page).click();
+    await hideBrowser(page);
     await expect(panel(page)).toBeHidden();
     const focus = await hostFocus(page);
 
@@ -307,13 +303,13 @@ test.describe('whose hands a tab is in', () => {
     expect(closed.isError).toBe(false);
   });
 
-  test('an agent moving the person’s tab dots the globe while the panel is shut, and mounts nothing', async () => {
+  test('an agent moving the person’s tab dots the side panel toggle while the browser is not on screen, and mounts nothing', async () => {
     const tab = await page.evaluate(({ id, url }) => window.browserAPI.open(id, url), {
       id: sessionId,
       url: fixtures.url('/a.html'),
     });
-    await expect(globe(page)).toBeVisible();
-    await expect(globe(page)).not.toHaveAttribute('data-agent-dot');
+    await expect(sidePanelToggle(page)).toBeVisible();
+    await expect(sidePanelToggle(page)).not.toHaveAttribute('data-agent-dot');
     await connectAgent(app, sessionId);
 
     const moved = await tool(app, 'consola_browser_navigate', {
@@ -321,7 +317,7 @@ test.describe('whose hands a tab is in', () => {
       url: fixtures.url('/b.html'),
     });
     expect(moved.isError).toBe(false);
-    await expect(globe(page)).toHaveAttribute('data-agent-dot', 'true');
+    await expect(sidePanelToggle(page)).toHaveAttribute('data-agent-dot', 'true');
     const after = (await tabsOf(page, sessionId)).tabs[0];
     expect(after).toMatchObject({ url: fixtures.url('/b.html'), live: false, agentActive: false });
     expect(await guestUrls(app)).toEqual([]);

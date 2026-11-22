@@ -2,6 +2,7 @@ import type { RunRecord } from '@consola/factory-spec';
 
 export type {
   AutomationMode,
+  FactoryNotice,
   FactorySpecIssue,
   RunRecord,
   StepRun,
@@ -12,6 +13,7 @@ import type { Session } from './workspace';
 import type {
   AgentRunPreview,
   AutomationsSnapshot,
+  EntryAgentsView,
   ItemTarget,
   ItemTargets,
   ListRunsQuery,
@@ -41,6 +43,9 @@ export type {
   RunListFilter,
   AgentRunPreview,
   AutomationsSnapshot,
+  FactoryStanding,
+  EntryAgentView,
+  EntryAgentsView,
   RunDefinition,
   StepsRunPreview,
   StepDetail,
@@ -95,7 +100,14 @@ export interface AutomationsAPI {
   approve: (runId: string) => Promise<RunRecord>;
   /** Turn down a run waiting for approval, or take a queued one out of the line. */
   dismiss: (runId: string) => Promise<RunRecord>;
-  openFile: (workspaceId: string) => Promise<void>;
+  /**
+   * Open one of the workspace's factory files in the person's editor: its
+   * factory.yml when `file` is absent (created from the template when
+   * missing), else that file by its path in the folder (`agents/reviewer.md`).
+   */
+  openFile: (workspaceId: string, file?: string) => Promise<void>;
+  /** Check again: re-read the workspace's factory folder and re-check what applies. */
+  recheck: (workspaceId: string) => Promise<void>;
   /** Add review-assigned-prs to the workspace's factory.yml, creating the file when it is missing. */
   addAssignedReviews: (workspaceId: string) => Promise<void>;
   /** One run's full record; null once history has dropped it. */
@@ -132,6 +144,12 @@ export interface AutomationsAPI {
   acknowledge: (workspaceId: string, name: string) => Promise<void>;
   /** One entry exactly as factory.yml has it (`- name: …`); null when there is no such entry or no file. */
   getEntry: (workspaceId: string, name: string) => Promise<string | null>;
+  /**
+   * The agents an entry's steps run as, as the version it lists has them (the
+   * version Allow accepts); while the folder does not apply, the running
+   * version's, never the live files. Null when there is no such entry.
+   */
+  getEntryAgents: (workspaceId: string, name: string) => Promise<EntryAgentsView | null>;
   onChanged: (callback: (change: AutomationsChange) => void) => () => void;
 }
 

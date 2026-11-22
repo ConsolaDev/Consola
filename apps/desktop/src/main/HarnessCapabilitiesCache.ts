@@ -35,6 +35,15 @@ export class HarnessCapabilitiesCache {
     return probe;
   }
 
+  /**
+   * The settled answer for this harness, or undefined (none asked yet, one
+   * still pending, or the last probe failed). Starts nothing: a reader that
+   * must never run the person's SessionStart hooks asks this, not `get`.
+   */
+  public peek(driver: HarnessDriver, config: HarnessConfig): HarnessCapabilitiesResult | undefined {
+    return this.settled.get(signature(driver.id, config));
+  }
+
   /** Forget every answer, so the next ask re-probes. */
   public clear(): void {
     this.settled.clear();

@@ -2,20 +2,14 @@
  * What a host supplies to the engine. The host's full contract is this file
  * plus `AutomationServiceDeps` in `AutomationService.ts`.
  */
-import type { FactorySpecParseResult, RunRecord } from '@consola/factory-spec';
-import type { ItemRef, SessionView } from './views';
+import type { FactoryFiles, RunRecord } from '@consola/factory-spec';
+import type { ItemRef, SessionView, StepTurnFile } from './views';
 import type { RunDefinition } from './steps/definition';
 
 /** One persisted JSON document, read and written whole. The engine's stores take this; `node/JsonStateFile` is the disk-backed one. */
 export interface StateFile<T> {
   read(): T | null;
   write(value: T): void;
-}
-
-/** What reading a workspace's factory file yields: whether it exists, and its parse. */
-export interface LoadedFactoryFile {
-  exists: boolean;
-  spec: FactorySpecParseResult;
 }
 
 /** Where runs live: one log per workspace, so recording a change never rewrites another workspace's. */
@@ -30,20 +24,74 @@ export interface RunHistory {
   remove(workspaceId: string): void;
 }
 
-/** One workspace's spec file. */
-export interface FactoryFileHandle {
+/** What reading a workspace's factory folder yields. */
+export interface FactoryFolderRead {
+  /** `factory.yml` exists: what Open file creates. */
+  exists: boolean;
+  files: FactoryFiles;
+}
+
+/**
+ * One workspace's factory folder: `factory.yml`, `automations/`, `agents/`
+ * and `skills/`, read, watched and written. Every write is whole and atomic,
+ * through a symlink that stays inside the folder; one whose real path
+ * leaves it is never read nor written through.
+ */
+export interface FactoryFolderHandle {
+  readonly folderPath: string;
+  /** Its `factory.yml`. */
   readonly filePath: string;
-  load(): Promise<LoadedFactoryFile>;
+  read(): Promise<FactoryFolderRead>;
   watch(onChange: () => void): void;
   unwatch(): void;
-  /** Create the file from `template` when it is missing; returns its path. */
+  /** Create `factory.yml` from `template` when it is missing; returns its path. */
   ensureExists(template: string): Promise<string>;
-  /** Add one automation (a `- name: …` item) at the end of the list, keeping everything else. */
+  /** Add one automation (a `- name: …` item) at the end of `factory.yml`'s list, keeping everything else. */
   appendAutomation(entryYaml: string): Promise<void>;
-  /** Swap the automation called `name` for `entryYaml`, in place, keeping every byte outside it. */
+  /** Swap the automation called `name` in `factory.yml` for `entryYaml`, in place, keeping every byte outside it. */
   replaceAutomation(name: string, entryYaml: string): Promise<void>;
-  /** The file as written, or null when there is none yet. */
+  /** Write `automations/<name>.yaml` whole, atomically. */
+  writeAutomationFile(name: string, text: string): Promise<void>;
+  /** Where an entry of that name is written now, read now: `factory.yml` first. */
+  whereIs(name: string): Promise<'factory.yml' | 'file' | null>;
+  /** `factory.yml` as written, or null when there is none yet. */
   readText(): Promise<string | null>;
+  /** `automations/<name>.yaml` as written, or null when there is none. */
+  readAutomationFile(name: string): Promise<string | null>;
+  /** The absolute path of one of the folder's own files; null for any other path. */
+  pathOf(relative: string): string | null;
+}
+
+/** One skill of an applied version: its files, by path inside its folder, and `skillHash` of them. */
+export interface AppliedSkill {
+  hash: string;
+  files: Array<{ path: string; bytes: Uint8Array }>;
+}
+
+/** A factory folder's last applied version: the texts and skill files it applied from. */
+export interface AppliedFactory {
+  folder: string;
+  /** When it applied (ISO). */
+  appliedAt: string;
+  /** It applied as a unit; false while a first start applies entries one by one. */
+  clean: boolean;
+  /** By path relative to the folder. No list of removals: they are recomputed at each read. */
+  texts: Record<string, string>;
+  /**
+   * By skill name: every skill a clean apply read, or, on a first start, the
+   * skills of the agents its applied entries name. Absent when there are
+   * none (and in a version kept before skills were).
+   */
+  skills?: Record<string, AppliedSkill>;
+}
+
+/** Where the applied version of each factory folder is kept, in Consola's own state. */
+export interface AppliedFactoryStore {
+  /** Null when none was written, or when what was written is damaged. */
+  read(folder: string): AppliedFactory | null;
+  write(applied: AppliedFactory): void;
+  /** The folder's workspace was deleted: its applied version goes with it. */
+  forget(folder: string): void;
 }
 
 /*
@@ -102,6 +150,14 @@ export interface ToolsPort {
   ): Promise<EngineToolResult>;
 }
 
+/**
+ * Whose checkout a run works in: `item`, a checkout of the item's own
+ * repository (someone else's pull request or issue, the author's code), or
+ * `scope`, one of the workspace's own folders. What a host compiles an
+ * agent's servers for.
+ */
+export type CheckoutKind = 'item' | 'scope';
+
 /** A request to start one agent run's session. */
 export interface AgentLaunchRequest {
   workspaceId: string;
@@ -126,9 +182,85 @@ export interface AgentLaunchRequest {
   /**
    * A step of a `steps:` run: the session is that step's attempt, named
    * `name`, in the folder the engine prepared (`cwd`, in scope `scopeId`),
-   * so the host prepares no worktree of its own.
+   * so the host prepares no worktree of its own. `maxTurns` is the step's
+   * cap (`stepCap`: its own `max_turns`, else its agent's), present only when
+   * a file writes one. `agent` is the step's agent's requirements, present
+   * only when the step names one: the host launches on its harness (absent,
+   * the workspace's default) with its model, and refuses what it cannot
+   * compile rather than launch looser.
    */
-  step?: { id: string; attempt: number; cwd: string; scopeId: string; name: string };
+  step?: {
+    id: string;
+    attempt: number;
+    cwd: string;
+    scopeId: string;
+    name: string;
+    /** The run's checkout kind (`runCheckoutKind`): what the host compiles the agent's servers for. */
+    checkout: CheckoutKind;
+    /** `<attempt dir>/plugin`, where the host builds the step's plugin: only when its agent names skills. */
+    pluginDir?: string;
+    maxTurns?: number;
+    agent?: {
+      name: string;
+      harnessId?: string;
+      model?: string;
+      mcpServers: Array<{ name: string; tools?: string[] }>;
+      skills: string[];
+      /** The run's copy of its skills (`runs/<run>/skills/`), checked against its definition: only when it names skills. */
+      skillsDir?: string;
+      /**
+       * Beside `skillsDir`: each of its skills' `skillHash` as the run's
+       * definition holds it. The host builds the step's plugin from the copy
+       * only if what it built hashes to these, and launches the session with
+       * its skills again only while they still do (review M1).
+       */
+      skillHashes?: Record<string, string>;
+    };
+  };
+}
+
+/** What the engine asks the host of an agent: whether its harness can run it (`agentHarness`). */
+export interface AgentHarnessQuery {
+  /** The agent file's `harness:`; absent, the workspace's default. */
+  harnessId?: string;
+  model?: string;
+  mcpServers: ReadonlyArray<{ name: string; tools?: readonly string[] }>;
+  skills: readonly string[];
+  /** Whose checkout its entry's runs work in: what its servers are checked for (an item's runs start them in the author's). */
+  checkout: CheckoutKind;
+}
+
+/** The host's answer of a harness: the workspace's default, or the one an agent names. */
+export interface AgentHarnessAnswer {
+  /** Its display name (an unknown harness's id). */
+  name: string;
+  /** Why it cannot run a read-only unattended session; null when it can. */
+  problem: string | null;
+  /**
+   * Why its steps' reporting turns would not launch as Consola compiles them
+   * (its extra arguments override a flag they need); absent or null, they would.
+   */
+  stepProblem?: string | null;
+  /** Why this agent cannot run on that harness at all: unknown, archived, turned off, or what it names. */
+  agentProblem?: string | null;
+  /** Shown, never blocking: a model the harness does not list. */
+  warning?: string | null;
+  /** A server the agent names, refused against what the harness's CLI said: blocks like `agentProblem`, shown at the agent file's `mcpServers:` line. */
+  serversProblem?: string | null;
+  /** The harness's CLI is being asked which MCP servers it has: blocks a changed entry, nothing for an unchanged one. */
+  serversPending?: string | null;
+  /** It could not be asked: the entry's problem, never a reason the folder does not apply. */
+  serversUnknown?: string | null;
+  /** Notices at the agent file's `mcpServers:` line: a server not connected when asked, a narrowing that could not be checked. */
+  serverWarnings?: readonly string[];
+  /**
+   * By name, each whole server the agent names that its CLI listed with
+   * tools, in the answer this was compiled against: those tools. A run's
+   * definition keeps them, so its approval card names what the person
+   * accepts as that version had it (review S1); nothing is granted,
+   * compiled or prompted from them.
+   */
+  knownTools?: Readonly<Record<string, readonly string[]>>;
 }
 
 /**
@@ -171,6 +303,24 @@ export interface RunFolderPort {
   itemPath(workspaceId: string, runId: string): string;
   runDir(workspaceId: string, runId: string): string;
   attemptDir(workspaceId: string, runId: string, stepId: string, attempt: number): string;
+  /** `runs/<run>/skills/`: the run's copy of every skill its steps' agents name. */
+  skillsDir(workspaceId: string, runId: string): string;
+  /** Each skill written whole under `runs/<run>/skills/<name>/`; refuses a name or a path that is no token, writing nothing. */
+  writeSkills(
+    workspaceId: string,
+    runId: string,
+    skills: Readonly<Record<string, ReadonlyArray<{ path: string; bytes: Uint8Array }>>>,
+  ): void;
+  /**
+   * Each named skill's files as the run folder holds them, regular files
+   * only, sorted by path; null for a skill that is not there, or that holds
+   * anything but folders and regular files. Throws on a read that fails.
+   */
+  readSkills(
+    workspaceId: string,
+    runId: string,
+    names: readonly string[],
+  ): Record<string, Array<{ path: string; bytes: Uint8Array }> | null>;
   writeDefinition(workspaceId: string, runId: string, definition: RunDefinition): void;
   readDefinition(workspaceId: string, runId: string): RunDefinition | null;
   /** Atomic; throws over `MAX_ARTIFACT_BYTES`. `format` is required for `output`. */
@@ -199,6 +349,14 @@ export interface RunFolderPort {
     name: string,
   ): string | null;
   writeJson(dir: string, file: 'command.json' | 'outputs.json', value: unknown): void;
+  /** Atomic: `runs/<run>/<step>/<attempt>/turn.json` gains `turn` at the end of its `turns`. */
+  appendTurn(
+    workspaceId: string,
+    runId: string,
+    stepId: string,
+    attempt: number,
+    turn: StepTurnFile,
+  ): void;
   tail(file: string, bytes?: number): { text: string; bytes: number; truncated: boolean } | null;
   /** Null when missing; throws past `maxBytes`. */
   readText(file: string, maxBytes: number): string | null;

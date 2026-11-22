@@ -3,6 +3,7 @@ import type { ElectronApplication, Page } from '@playwright/test';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { showBrowser, sidePanelToggle } from './helpers/browserTab';
 import { launchElectron, removeProfile } from './helpers/electron';
 import { type FixtureServer, startFixtureServer } from './helpers/fixtureServer';
 
@@ -456,7 +457,7 @@ test.describe('an agent call on a page', () => {
     await expect.poll(async () => (await guestFacts(app, url)).exists).toBe(false);
   });
 
-  test("dots the globe while the panel is shut, and marks the tab the agent's call is on", async () => {
+  test("dots the side panel toggle while the browser is not on screen, and marks the tab the agent's call is on", async () => {
     const seeded = await seed(page, root);
     await openSession(page, 'Alpha', 'Alpha session');
     const tab = await page.evaluate(
@@ -466,27 +467,100 @@ test.describe('an agent call on a page', () => {
         url: fixtures.url('/agent.html'),
       },
     );
-    const globe = page.getByRole('button', { name: /^Show browser/ });
+    const toggle = sidePanelToggle(page);
     // The person's own tab is no news.
-    await expect(globe).toBeVisible();
-    await expect(globe).not.toHaveAttribute('data-agent-dot');
+    await expect(toggle).toBeVisible();
+    await expect(toggle).not.toHaveAttribute('data-agent-dot');
 
     await beginCall(app, tab!.id);
-    await expect(globe).toHaveAttribute('data-agent-dot', 'true');
-    await expect(globe).toHaveAccessibleName('Show browser, which the agent used');
+    await expect(toggle).toHaveAttribute('data-agent-dot', 'true');
+    await expect(toggle).toHaveAccessibleName('Show side panel, where the agent used the browser');
     await expect(panel(page)).toBeHidden();
 
     // Showing the session's browser is seeing it: the dot goes, the mark stays for the call.
-    await globe.click();
+    await showBrowser(page);
     const marker = panel(page)
       .locator(`.browser-tab[data-tab-id="${tab!.id}"]`)
       .getByRole('img', { name: 'An agent is using this tab' });
     await expect(marker).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Hide browser' })).not.toHaveAttribute(
+    await expect(page.getByRole('button', { name: /^Hide side panel/ })).not.toHaveAttribute(
       'data-agent-dot',
     );
     await endCall(app);
     await expect(marker).toBeHidden();
+  });
+
+  test('dots the Browser tab while another tab is in front of it, and not the toggle', async () => {
+    const seeded = await seed(page, root);
+    await openSession(page, 'Alpha', 'Alpha session');
+    const tab = await page.evaluate(
+      ({ sessionId, url }) => window.browserAPI.open(sessionId, url),
+      { sessionId: seeded.alpha, url: fixtures.url('/agent.html') },
+    );
+    await showBrowser(page);
+    await page.getByRole('button', { name: 'Files', exact: true }).click();
+    const browserTab = page
+      .getByRole('tablist', { name: 'Side panel tabs' })
+      .getByRole('tab', { name: /^Browser/ });
+    await expect(browserTab).not.toHaveAttribute('data-agent-dot');
+
+    await beginCall(app, tab!.id);
+    await expect(browserTab).toHaveAttribute('data-agent-dot', 'true');
+    await expect(browserTab).toHaveAccessibleName('Browser, which the agent used');
+    await expect(sidePanelToggle(page)).not.toHaveAttribute('data-agent-dot');
+
+    await browserTab.click();
+    await expect(panel(page)).toBeVisible();
+    await expect(browserTab).not.toHaveAttribute('data-agent-dot');
+    // Seen is seen: behind again, the tab carries no dot for the call it showed.
+    await page.getByRole('button', { name: 'Files', exact: true }).click();
+    await expect(panel(page)).toHaveCount(0);
+    await expect(browserTab).not.toHaveAttribute('data-agent-dot');
+    await endCall(app);
+  });
+
+  test('dots the Browser shortcut while Browser is one of the header’s kinds, and not the toggle', async () => {
+    const seeded = await seed(page, root);
+    // Browser opened five times today: at the next launch it is one of the
+    // header's three shortcuts.
+    await page.evaluate((key) => {
+      const now = Date.now();
+      localStorage.setItem(
+        key,
+        JSON.stringify({
+          state: { uses: { browser: [now, now, now, now, now] }, rememberLayout: true },
+          version: 0,
+        }),
+      );
+    }, 'consola-side-panel');
+    await app.close();
+    ({ app, page } = await launchElectron({ userDataDir }));
+    await openSession(page, 'Alpha', 'Alpha session');
+    const tab = await page.evaluate(
+      ({ sessionId, url }) => window.browserAPI.open(sessionId, url),
+      { sessionId: seeded.alpha, url: fixtures.url('/agent.html') },
+    );
+    const shortcut = page.locator('.side-panel-controls').getByRole('button', { name: /^Browser/ });
+    await expect(shortcut).toHaveAccessibleName('Browser');
+    await expect(shortcut).toHaveAttribute(
+      'aria-keyshortcuts',
+      process.platform === 'darwin' ? 'Meta+Shift+L' : 'Control+Shift+L',
+    );
+    await expect(shortcut).not.toHaveAttribute('data-agent-dot');
+
+    await beginCall(app, tab!.id);
+    await expect(shortcut).toHaveAttribute('data-agent-dot', 'true');
+    await expect(shortcut).toHaveAccessibleName('Browser, which the agent used');
+    await expect(sidePanelToggle(page)).toHaveAccessibleName('Show side panel');
+    await expect(sidePanelToggle(page)).not.toHaveAttribute('data-agent-dot');
+
+    // Pressing it shows the page, and seen is seen.
+    await shortcut.click();
+    await expect(panel(page)).toBeVisible();
+    await expect(shortcut).toHaveAttribute('aria-pressed', 'true');
+    await expect(shortcut).toHaveAccessibleName('Browser');
+    await expect(shortcut).not.toHaveAttribute('data-agent-dot');
+    await endCall(app);
   });
 
   test('DevTools on the page refuses the agent, and opening it detaches the agent', async () => {

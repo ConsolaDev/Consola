@@ -18,6 +18,7 @@ import {
   type RunRecord,
 } from '../../../shared/automations';
 import type { ConversationEntry } from '../../../shared/conversation';
+import { formatCostUsd } from '../../../shared/cost';
 import type { Workspace } from '../../../shared/workspace';
 import { automationsBridge } from '../../services/automationsBridge';
 import { workspaceBridge } from '../../services/workspaceBridge';
@@ -595,6 +596,11 @@ function RunStats({
       >
         {usual ? usual.text : run.status === 'running' ? 'and counting' : null}
       </Stat>
+      {run.costUsd !== undefined && (
+        <Stat label="Cost" value={formatCostUsd(run.costUsd)}>
+          from the CLI’s report
+        </Stat>
+      )}
       {waited && (
         <Stat label="Waited" value={waited.value}>
           {waited.sub}

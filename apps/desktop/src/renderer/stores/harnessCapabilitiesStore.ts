@@ -56,12 +56,19 @@ interface HarnessCapabilitiesState {
 export const useHarnessCapabilitiesStore = create<HarnessCapabilitiesState>()((set, get) => {
   const probe = async (harnessId: string, fields: HarnessLaunchFields): Promise<void> => {
     const signature = launchSignature(fields);
-    set((state) => ({
-      byHarness: {
-        ...state.byHarness,
-        [harnessId]: { ...state.byHarness[harnessId], state: 'loading', signature },
-      },
-    }));
+    set((state) => {
+      const previous = state.byHarness[harnessId];
+      // `signature` says what the held answer is for, so an answer stays
+      // only while the same launch is asked again: an edited harness's old
+      // answer is another install's, its account included.
+      const kept = previous?.signature === signature ? previous.result : undefined;
+      return {
+        byHarness: {
+          ...state.byHarness,
+          [harnessId]: { state: 'loading', signature, ...(kept ? { result: kept } : {}) },
+        },
+      };
+    });
 
     // The bridge resolves an unavailable harness rather than rejecting, so
     // a rejection here means the IPC call itself failed. Reported the same

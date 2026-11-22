@@ -35,6 +35,8 @@
 #   STUB_GH_PULLS=path            `api repos/...` (endpoint first) answers from this file:
 #                                 one `<endpoint> <json>` pair per line; an endpoint
 #                                 with no line is a 404, as GitHub would answer
+#   STUB_GH_PULLS_HOLD=path       while this file exists, those lookups wait for it to go
+#                                 (at most 10 s), so a test can see what shows while one runs
 #   STUB_GH_DETAILS_DIR=path      an item's details answer from this directory instead of
 #                                 ./details: one `<Operation>.json` per named GraphQL
 #                                 operation (`query ConsolaPullRequest(...)`), and
@@ -204,6 +206,12 @@ case "$cmd" in
       exit 0
     fi
     # REST lookups (pull request state): gh api <endpoint> --hostname github.com
+    if [[ -n "${STUB_GH_PULLS_HOLD:-}" ]]; then
+      for _ in {1..100}; do
+        [[ -f "$STUB_GH_PULLS_HOLD" ]] || break
+        sleep 0.1
+      done
+    fi
     if [[ -n "${STUB_GH_PULLS:-}" && -f "$STUB_GH_PULLS" ]]; then
       while IFS= read -r line || [[ -n "$line" ]]; do
         if [[ "${line%% *}" == "$2" ]]; then

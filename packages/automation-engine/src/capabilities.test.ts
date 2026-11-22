@@ -2,16 +2,23 @@ import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import {
   ENV_PREFIX_EXCEPTIONS,
+  factoryFilesOf,
   LATER_KEYS,
   parseAutomationEntry,
+  parseFactory,
   REFUSED_ENV_NAMES,
   REFUSED_ENV_PREFIXES,
 } from '@consola/factory-spec';
 import { connectionCatalog } from './connections';
-import { describeCapabilities, GRAMMAR_EXAMPLES, TRUSTED_ITEM_FIELDS } from './capabilities';
+import {
+  AGENT_EXAMPLES,
+  describeCapabilities,
+  GRAMMAR_EXAMPLES,
+  TRUSTED_ITEM_FIELDS,
+} from './capabilities';
 import { defineTool } from './tools.test-helpers';
 import { sourcesHarness } from './sources/sources.test-helpers';
-import { WORKSPACE_ID } from './steps/steps.test-helpers';
+import { skillFilesOf, stepsHarness, WORKSPACE_ID } from './steps/steps.test-helpers';
 
 const indent = (text: string, by: string) =>
   text
@@ -41,6 +48,38 @@ const grammar = () =>
     harness: { name: 'Claude', problem: null },
   });
 
+describe('the harness, as an agent writing an entry is told it', () => {
+  const told = (harness: Parameters<typeof describeCapabilities>[0]['harness']) =>
+    describeCapabilities({
+      filePath: '/f/factory.yml',
+      fileExists: true,
+      tools: [],
+      actions: [],
+      scopes: [],
+      taken: [],
+      boundConnection: 'github',
+      harness,
+    }).harness;
+
+  it('tells an agent when the harness cannot run steps', () => {
+    expect(
+      told({ name: 'Claude', problem: null, stepProblem: 'Claude can’t run automation steps: x' }),
+    ).toEqual({
+      name: 'Claude',
+      canRunAgents: true,
+      stepsProblem: 'Claude can’t run automation steps: x',
+    });
+  });
+
+  it('says nothing of steps when they would run', () => {
+    expect(told({ name: 'Claude', problem: null, stepProblem: null })).toEqual({
+      name: 'Claude',
+      canRunAgents: true,
+    });
+    expect(told({ name: 'Claude', problem: null })).toEqual({ name: 'Claude', canRunAgents: true });
+  });
+});
+
 describe('what an agent writing an entry is told', () => {
   it('every GRAMMAR example parses and resolves', async () => {
     expect(GRAMMAR_EXAMPLES.map((example) => example.title)).toEqual([
@@ -49,6 +88,7 @@ describe('what an agent writing an entry is told', () => {
       'A prompt, on a schedule',
       'Steps, on an event',
       'Steps, on a poll',
+      'Steps with a turn cap, on a schedule',
     ]);
     // One name, one meaning: no two examples share an entry name.
     const names = GRAMMAR_EXAMPLES.map((example) => /^- name: (\S+)/.exec(example.entry)?.[1]);
@@ -68,6 +108,16 @@ describe('what an agent writing an entry is told', () => {
       expect(listed.name, example.title).toBe(parsed.automation.name);
       expect(listed.problem, example.title).toBeUndefined();
     }
+  });
+
+  it('tells an agent about max_turns, and no longer calls it unsupported', () => {
+    const text = grammar().grammar;
+    expect(text).toContain("- max_turns: 1 to 500, an agent step's turn cap");
+    const unsupported = text
+      .split('\n')
+      .find((line) => line.startsWith('Not supported yet, refused with a reason:'));
+    expect(unsupported).toBeDefined();
+    expect(unsupported).not.toContain('max_turns');
   });
 
   it('the grammar names every refused key and $CONSOLA_OUTPUT', () => {
@@ -208,5 +258,214 @@ describe('what an agent writing an entry is told', () => {
     expect(text).toContain('previous.<step>.<artifact>');
     expect(text).toContain('It works in reads: and env: only');
     expect(text).toContain('It is empty on the first run');
+  });
+});
+
+describe('what an agent writing agent files and automation files is told', () => {
+  /** The grammar's factory.yml envelope: an example's entries live in their own files. */
+  const ENVELOPE = 'version: 1\nautomations: []\n';
+
+  it('every agent example parses with its folder and resolves', async () => {
+    expect(AGENT_EXAMPLES.map((example) => example.title)).toEqual([
+      'An agent on a schedule',
+      'An investigator with a connector and a skill',
+    ]);
+    for (const example of AGENT_EXAMPLES) {
+      const read = parseFactory(
+        factoryFilesOf(
+          { 'factory.yml': ENVELOPE, ...example.files },
+          skillFilesOf(new Map(Object.entries(example.files))),
+        ),
+      );
+      expect(read.issues, example.title).toEqual([]);
+      expect(read.notices, example.title).toEqual([]);
+      expect(read.automations.length, example.title).toBeGreaterThan(0);
+      expect(Object.keys(read.agents).length, example.title).toBeGreaterThan(0);
+      // Each file appears in the grammar as written, under its path.
+      for (const [file, text] of Object.entries(example.files))
+        expect(grammar().grammar, file).toContain(`${file}:\n\n${text}`);
+
+      // Resolved on a workspace whose host answers every harness clean.
+      const h = await stepsHarness({
+        yaml: ENVELOPE,
+        files: { ...example.files },
+        agentHarnesses: { 'claude-work': { name: 'Claude work', problem: null } },
+      });
+      const listed = h.service.list(WORKSPACE_ID);
+      expect(listed.map((view) => view.name)).toEqual(
+        read.automations.map((automation) => automation.name),
+      );
+      for (const view of listed) expect(view.problem, view.name).toBeUndefined();
+      expect(h.service.snapshot(WORKSPACE_ID).issues).toEqual([]);
+    }
+  });
+
+  it('the investigator example names a connector, a narrowed server and a skill, on a keyed poll in a scope (2-C)', () => {
+    const example = AGENT_EXAMPLES.find(
+      (candidate) => candidate.title === 'An investigator with a connector and a skill',
+    )!;
+    const read = parseFactory(
+      factoryFilesOf(
+        { 'factory.yml': ENVELOPE, ...example.files },
+        skillFilesOf(new Map(Object.entries(example.files))),
+      ),
+    );
+    expect(read.agents.investigator).toMatchObject({
+      harness: 'claude-work',
+      mcpServers: [{ name: 'claude.ai Coralogix' }, { name: 'grafana', tools: ['query_logs'] }],
+      skills: ['incident-triage'],
+    });
+    expect(Object.keys(read.skills)).toEqual(['incident-triage']);
+    const [automation] = read.automations;
+    expect(automation).toMatchObject({ name: 'investigate-alerts', scope: expect.any(String) });
+    expect(automation.trigger).toMatchObject({ kind: 'poll', key: expect.anything() });
+  });
+
+  it("tells an agent the workspace's agents and harnesses", async () => {
+    const reviewer = {
+      name: 'reviewer',
+      description: "Reviews catalog-portal's changes.",
+      harness: 'claude-work',
+      model: 'opus',
+      maxTurns: 30,
+      mcpServers: [],
+      skills: [],
+    };
+    const told = describeCapabilities({
+      filePath: '/f/factory.yml',
+      fileExists: true,
+      tools: [],
+      actions: [],
+      scopes: [],
+      taken: [],
+      boundConnection: null,
+      harness: { name: 'Claude', problem: null },
+      agents: [{ ...reviewer, mcpServers: ['notion'], skills: ['incident-triage'] }],
+      harnesses: [
+        { id: 'claude', name: 'Claude' },
+        { id: 'claude-work', name: 'Claude work' },
+      ],
+      folderPath: '/home/alice/.consola/workspaces/ws-1',
+    });
+    expect(told.agents).toEqual([
+      { ...reviewer, mcpServers: ['notion'], skills: ['incident-triage'] },
+    ]);
+    expect(told.harnesses).toEqual([
+      { id: 'claude', name: 'Claude' },
+      { id: 'claude-work', name: 'Claude work' },
+    ]);
+    expect(told.folder).toEqual({ path: '/home/alice/.consola/workspaces/ws-1' });
+    // Without the three, none and none, and the file's own folder.
+    const bare = grammar();
+    expect(bare.agents).toEqual([]);
+    expect(bare.harnesses).toEqual([]);
+    expect(bare.folder).toEqual({ path: '/f' });
+
+    // A workspace's: the agents its folder holds, and the harnesses an agent may name.
+    const h = await stepsHarness({
+      yaml: ENVELOPE,
+      files: {
+        'agents/reviewer.md': `---\ndescription: Reviews catalog-portal's changes.\nharness: claude-work\nmodel: opus\nmax_turns: 30\nmcpServers:\n  - notion\n  - grafana: [query_logs]\n---\nYou review catalog-portal's changes.\n`,
+        'agents/broken.md': '---\ntools: write\n---\nYou write.\n',
+      },
+    });
+    h.world.harnessRecords = [
+      { id: 'claude', name: 'Claude', enabled: true, archived: false },
+      { id: 'claude-work', name: 'Claude work', enabled: true, archived: false },
+      { id: 'claude-old', name: 'Claude old', enabled: true, archived: true },
+      { id: 'claude-off', name: 'Claude off', enabled: false, archived: false },
+    ];
+    const capabilities = h.service.capabilities(WORKSPACE_ID);
+    // Its servers by name: what each grants is the host's to say (2-C).
+    expect(capabilities.agents).toEqual([{ ...reviewer, mcpServers: ['notion', 'grafana'] }]);
+    expect(capabilities.harnesses).toEqual([
+      { id: 'claude', name: 'Claude' },
+      { id: 'claude-work', name: 'Claude work' },
+    ]);
+    expect(capabilities.folder).toEqual({ path: '/home/me/.consola/workspaces/ws-1' });
+  });
+
+  it('says when an agent edit asks again, and how a body that opens with a rule is written', () => {
+    const text = grammar().grammar;
+    expect(text).toContain(
+      'An edit to an agent file or a skill makes every automation that uses it ask again before its next unattended run; a poll entry stops checking until the person allows it.',
+    );
+    expect(text).toContain(
+      'A file whose first line is --- begins with its frontmatter, so a body that should open with a Markdown rule (---) needs frontmatter first, even an empty one: a line ---, then a line ---.',
+    );
+  });
+
+  it("teaches an agent's servers and skills, and no longer says they arrive later (2-C)", () => {
+    const text = grammar().grammar;
+    // 2-B's sentence, which said they do not apply yet (quoted in part: no file may hold it now, review S10).
+    expect(text).not.toContain('names mcpServers or skills does not apply yet');
+    expect(text).toContain(
+      "On a step that works in someone else's checkout (a pull request or issue), only claude.ai connectors are offered.",
+    );
+    expect(text).toContain(
+      'Naming a server grants every tool it has, writing ones included; narrow it to named tools with - <server>: [<tool>, …].',
+    );
+  });
+
+  it("tells an agent each harness's servers, once its CLI has been asked (2-C)", async () => {
+    const told = describeCapabilities({
+      filePath: '/f/factory.yml',
+      fileExists: true,
+      tools: [],
+      actions: [],
+      scopes: [],
+      taken: [],
+      boundConnection: null,
+      harness: { name: 'Claude', problem: null },
+      harnesses: [
+        { id: 'claude', name: 'Claude' },
+        { id: 'claude-work', name: 'Claude work', servers: ['notion', 'claude.ai Coralogix'] },
+      ],
+    });
+    expect(told.harnesses).toEqual([
+      { id: 'claude', name: 'Claude' },
+      { id: 'claude-work', name: 'Claude work', servers: ['notion', 'claude.ai Coralogix'] },
+    ]);
+    expect(Object.prototype.hasOwnProperty.call(told.harnesses[0], 'servers')).toBe(false);
+
+    // A workspace's: the host's records, with the names its last settled probe listed.
+    const h = await stepsHarness({ yaml: 'version: 1\nautomations: []\n' });
+    h.world.harnessRecords = [
+      { id: 'claude', name: 'Claude', enabled: true, archived: false },
+      {
+        id: 'claude-work',
+        name: 'Claude work',
+        enabled: true,
+        archived: false,
+        servers: ['claude.ai Coralogix', 'grafana'],
+      },
+    ];
+    expect(h.service.capabilities(WORKSPACE_ID).harnesses).toEqual([
+      { id: 'claude', name: 'Claude' },
+      { id: 'claude-work', name: 'Claude work', servers: ['claude.ai Coralogix', 'grafana'] },
+    ]);
+  });
+
+  it('teaches the folder, agent files, automation files and skills', () => {
+    const text = grammar().grammar;
+    for (const section of ['The factory folder.', 'Agent files.', 'Automation files.', 'Skills.'])
+      expect(text, section).toContain(`\n\n${section} `);
+    // A step's agent is said where steps are: one of four, or beside a prompt or an action.
+    expect(text).toContain('agent: <name>');
+    expect(text).not.toContain('Each step has exactly one of prompt:, action: or run:.');
+    // A binary is not scanned for a command at load (review S2).
+    expect(text).toContain(
+      'a command at load (the characters ! and ` together) anywhere in SKILL.md, in a file with a text extension, or in any file that is valid UTF-8 (a binary, such as an image or a font, is not read for it).',
+    );
+    // Card text is visible text (the validator differential).
+    expect(text).toContain(
+      "It, a server's name and the model are visible text: letters, numbers, punctuation, symbols and plain spaces",
+    );
+    // An editor's leftovers are passed over (review S5).
+    expect(text).toContain('such as x.md~, #x.md#, x.orig or Thumbs.db, are passed over');
+    // A link out of the folder is never read (review S3).
+    expect(text).toContain(
+      'a link leading outside the folder: Consola reads only files inside it.',
+    );
   });
 });

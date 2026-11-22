@@ -18,12 +18,13 @@ export function SnoozeChip({ workspaceId, session }: { workspaceId: string; sess
   const now = useMinuteTick(snoozed);
   if (!snoozed || snooze?.until === undefined) return null;
   const when = describeWake(snooze.until, now);
+  const label = `${snooze.reason === 'usage-limit' ? 'Snoozed until its limit resets' : 'Snoozed until'} ${when}`;
   return (
     <span className="snooze-chip" role="status">
       <AlarmClock size={12} aria-hidden="true" />
-      <span>
-        {snooze.reason === 'usage-limit' ? 'Snoozed until its limit resets' : 'Snoozed until'}{' '}
-        {when}
+      {/* Cut in a narrow header; the title keeps it whole. */}
+      <span className="snooze-chip-label" title={label}>
+        {label}
       </span>
       <button
         type="button"

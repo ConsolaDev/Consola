@@ -1,0 +1,22 @@
+{
+  "name": "@consola/sandbox",
+  "version": "0.0.0",
+  "private": true,
+  "description": "One interface for starting and driving sandboxes, whichever provider runs them, with the contract every provider passes and an in-memory fake for tests.",
+  "license": "AGPL-3.0-only",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.19",
+    "typescript": "^5.3.3",
+    "vitest": "^4.1.12"
+  }
+}

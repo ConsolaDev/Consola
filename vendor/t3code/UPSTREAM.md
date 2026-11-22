@@ -2611,7 +2611,7 @@ use:
 
 | Dependency | agent-ui | t3 | Why |
 |---|---|---|---|
-| `react`, `react-dom` | 19.2.4 (peer `^19.2.4`) | 19.3.0 | Consola's apps are on `^19.2.4` (`apps/desktop`, `apps/website`, `apps/cloud-web`). With 19.3.0 in the workspace, pnpm moved the React peer that `better-auth` resolves for `cloud-api` and `cloud-web`, and that `@pierre/diffs` resolves for `client-runtime`, so packages that never import the chat would run on another React. The chat typechecks and runs on 19.2.4; React is a peer and external in the build, so a page renders it with its own. |
+| `react`, `react-dom` | 19.2.4 (peer `^19.2.4`) | 19.3.0 | Consola's apps are on `^19.2.4` (`apps/desktop`, `apps/website`, `apps/cloud-web`). With 19.3.0 in the workspace, pnpm moved the React peer that `better-auth` resolves for `cloud-api` (now `cloud-global`) and `cloud-web`, and that `@pierre/diffs` resolves for `client-runtime`, so packages that never import the chat would run on another React. The chat typechecks and runs on 19.2.4; React is a peer and external in the build, so a page renders it with its own. |
 | `@types/react`, `@types/react-dom` | 19.2.10, 19.2.3 | `~19.3.0` | Follow `react`: the 19.2 types for the 19.2 runtime. |
 | `playwright` | 1.62.1 | 1.64.1 | Consola's E2E suites use `@playwright/test` `^1.62.1` (`apps/desktop`, `apps/website`). 1.64.1 moved the `playwright` peer of `vite-plus` in 33 importers. The chat's browser tests run on 1.62.1's Chromium. |
 
@@ -2675,8 +2675,11 @@ In the repository root:
   `mdast-util-to-hast`) and teach the table tokenizer about math
   (`micromark-extension-gfm-table`), which changes nothing without a math
   extension.
-- `pnpm-workspace.yaml`, translating what the copied packages need from t3's
-  pnpm 12 settings into pnpm 10's:
+- `pnpm-workspace.yaml`, carrying over what the copied packages need from
+  t3's settings. Consola and t3 are both on pnpm 12 (Consola on 12.21.0 since
+  its PR #69, t3 on 12.14.0), so each setting keeps t3's key and nothing is
+  translated; until that move this branch wrote them for pnpm 10, whose
+  `onlyBuiltDependencies` it never added to:
   - `packages`: `vendor/t3code`, `vendor/t3code/packages/*` and
     `vendor/t3code/apps/*` (`t3`, the lifted server).
   - `catalog`: every entry of t3's catalog a copied `package.json` names with
@@ -2703,13 +2706,21 @@ In the repository root:
   - `peerDependencyRules.allowedVersions`: `vite` is allowed for
     `vitest@5` and `@vitest/mocker@5`. Vite+ runs its Vitest on its own Vite
     build, `@voidzero-dev/vite-plus-core`, whose version (1.4.0) is outside
-    Vitest's range. t3 allows any `vite` for every package.
+    Vitest's range. t3 allows any `vite` for every package. pnpm 12 still
+    needs them: without them `pnpm peers check` reports an unmet `vite` in
+    `t3`, `client-runtime` and `@consola/agent-ui`.
   - `publicHoistPattern: ['@effect/tsgo']`. t3 runs `effect-tsgo` from its
     repository root's `node_modules/.bin`, which pnpm puts on every package
     script's PATH. Here the root is Consola's, so `@effect/tsgo` (held by
     `vendor/t3code/package.json`) is hoisted to put its bin there.
 - `biome.jsonc` ignores `vendor`, so Consola's formatter never rewrites the
   copy.
+- `.github/scripts/ci-scope.mjs`: the packages under `vendor/` never get a
+  job of their own in CI's per-package matrix; when any of them is affected
+  (or the change checks everything) the script's `vendor` output runs the
+  job below. `@consola/agent-ui` has a job of its own (`Agent UI`), for its
+  browser tests and the checks of its built library, and `@consola/host` is
+  checked by the per-package matrix.
 - `.github/workflows/ci.yml`, job `vendor`: installs, then runs the own
   `typecheck` of every package under `vendor/t3code/packages/*` and
   `vendor/t3code/apps/*`, and their own `test`, on Linux like t3's CI, but
@@ -2721,8 +2732,15 @@ In the repository root:
 
 ### t3 settings not carried over
 
-- `allowBuilds` (pnpm 11+): no package the copy installs needs an install
-  script approved; pnpm 10 reports no new ignored build.
+- t3's `allowBuilds` entries. Consola's `allowBuilds` is its own (pnpm 12
+  fails an install on any build script it does not name, strictDepBuilds),
+  and the copy adds nothing to it: no package the copied packages install has
+  an install script (`preinstall`, `install`, `postinstall` or a
+  `binding.gyp`), checked over `node_modules/.pnpm` after the install, so none
+  of t3's entries (`bufferutil`, `utf-8-validate`, `koffi`, `sharp`,
+  `objc-js`, `workerd`, `browser-tabs-lock`) applies here. A re-sync that
+  brings one in fails the install until it is decided there, `true` or
+  `false`, as t3 decides it.
 - The global `overrides` t3 uses to pin every patched package, `vite`,
   `@types/node`, `effect` and others for lockfile-free installs. Consola
   installs from its lockfile, and a global pin would move Consola's own
@@ -2737,6 +2755,8 @@ In the repository root:
   stays out.
 - `strictPeerDependencies`, `minimumReleaseAgeExclude`, `permissions`,
   `.pnpmfile.cjs`: install policy for t3's own repository and mobile app.
+  pnpm 12.21.0 installs the copy from the lockfile without them (it reports
+  "Lockfile passes supply-chain policies").
 
 ### Resolved differently from t3's lockfile
 
@@ -2751,31 +2771,41 @@ The lifted server (`t3`) names every dependency at the version t3's lockfile res
 for its `apps/server` importer, `yaml` 2.9.0 included, and the Claude Agent
 SDK's peers resolve as in t3: `@anthropic-ai/sdk` 0.93.0 (by the override
 above), `@modelcontextprotocol/sdk` 1.32.2, `zod` 4.6.7. Every dependency Consola's own
-packages name (`apps/*`, `packages/factory-spec`, `packages/automation-engine`) resolves
-to the version it did before the lift. What moved is only which optional peers some
-of them are linked with: the copied packages bring those peers into the workspace,
-and pnpm links an optional peer wherever it is present. From the lockfile's importers,
-c61ec752 against this branch:
+packages name (`apps/*`, `packages/factory-spec`, `packages/automation-engine`,
+`packages/sandbox`, `packages/cloud-contract`) resolves to the version it does on
+Consola's main. The lockfile was regenerated by pnpm 12.21.0 from main's (2737c399)
+when main was merged in, and compared importer by importer with it. What moved is
+which optional peers some of them are linked with, since the copied packages bring
+those peers into the workspace and pnpm links an optional peer wherever it is
+present, and three transitive patch releases:
 
-- `zustand` 5.0.11 (`apps/desktop`): its peer `use-sync-external-store`, 1.6.0 → 1.7.0
-  (zustand reads it only in `zustand/traditional`).
 - Vite 7.3.8 now with its optional peer `lightningcss` 1.33.0, and so `@vitejs/plugin-react`
-  5.1.3 and Vitest 4.1.12 over it: `apps/desktop`, `apps/website`, `apps/cloud-web`,
-  `apps/cloud-api` (Vitest), `packages/factory-spec` and `packages/automation-engine`
-  (Vitest). Vite loads it only when a config asks for it (`css.transformer` or
-  `build.cssMinify` set to `'lightningcss'`), and none of Consola's does.
+  5.1.3 and Vitest 4.1.12 over it: `apps/desktop`, `apps/website`, `apps/cloud-web`, and
+  Vitest in `apps/cloud-global`, `apps/cloud-region`, `packages/factory-spec`,
+  `packages/automation-engine`, `packages/sandbox` and `packages/cloud-contract`. Vite
+  loads it only when a config asks for it (`css.transformer` or `build.cssMinify` set to
+  `'lightningcss'`), and none of Consola's does.
 - `drizzle-orm` 0.45.4 now with its optional peers `sql.js` 1.15.0 and `@types/sql.js`
   1.4.11, and so `@better-auth/drizzle-adapter` and `better-auth` 1.7.27 over it:
-  `apps/cloud-api`, `apps/cloud-web` (`better-auth`). Drizzle loads it only for its
-  `sql.js` driver, which Consola does not use.
+  `apps/cloud-global`, `apps/cloud-region` (`drizzle-orm`), `apps/cloud-web`
+  (`better-auth`). Drizzle loads it only for its `sql.js` driver, which Consola does
+  not use.
 - `posthog-js` 1.450.0 (`apps/website`) now with its optional peer
   `preact-render-to-string` 6.6.5 (over `preact` 11.0.0-beta.0).
+- `debug` 4.4.3 now with its optional peer `supports-color` 10.2.2, already in the
+  workspace (`concurrently`'s), and so every desktop dependency over it: `electron`,
+  `electron-builder`, `electron-updater`, `@electron/rebuild`, `@modelcontextprotocol/sdk`,
+  `react-markdown`, `remark-gfm`, `wait-on` and `@vitejs/plugin-react` (`apps/desktop`,
+  `apps/cloud-web`). `debug` reads it only to colour its output. This one is new with
+  pnpm 12: on pnpm 10 the lift left `debug` without it.
 
-Each is a new snapshot key for the same package version. One of them pnpm
-would otherwise have moved while resolving the new packages:
-`@jridgewell/trace-mapping`'s `@jridgewell/sourcemap-codec`, from 1.5.5 to
-1.6.0, both already in the lockfile; the lockfile keeps 1.5.5, which pnpm
-accepts and leaves as it is.
+Each is a new snapshot key for the same package version. The three patch releases
+are dependencies of dependencies that the copy also installs at a newer patch, which
+pnpm 12 settles on where pnpm 10 had kept both: Vite 7.3.8's `postcss` 8.5.26 → 8.5.33
+(and its `nanoid` 3.3.18 → 3.3.20), and `@types/hast` 3.0.4 → 3.0.5 under the desktop's
+markdown (`react-markdown`, `rehype-raw`, `rehype-sanitize` and the `hast-util-*`
+packages). `@jridgewell/trace-mapping`'s `@jridgewell/sourcemap-codec` stays at 1.5.5,
+as on main.
 
 ## Tests
 

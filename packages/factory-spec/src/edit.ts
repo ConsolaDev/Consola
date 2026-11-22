@@ -1,4 +1,4 @@
-import { isMap, isPair, isScalar, isSeq, parseDocument, type Document } from 'yaml';
+import { Document, isMap, isPair, isScalar, isSeq, parseDocument, YAMLSeq } from 'yaml';
 import { parseAutomationEntry } from './entry';
 
 /**
@@ -181,4 +181,50 @@ function findEntry(text: string, doc: Document, name: string): FoundEntry | null
 function lineEnd(text: string, offset: number): number {
   const newline = text.indexOf('\n', offset);
   return newline === -1 ? text.length : newline;
+}
+
+/**
+ * A `- name: x` list item (as `parseAutomationEntry` returns it) as the text
+ * of `automations/x.yaml`: its mapping at the root, `name:` removed, the
+ * comments inside the entry kept. It parses back, with `parseAutomationFile`,
+ * to the same automation. Throws on anything but one automation item.
+ */
+export function automationFileText(item: string): string {
+  const doc = parseDocument(item);
+  if (doc.errors.length > 0 || !isSeq(doc.contents) || doc.contents.items.length !== 1) {
+    throw new Error('Expected exactly one automation, written as a list item.');
+  }
+  const [entry] = doc.contents.items;
+  if (!isMap(entry)) throw new Error('Expected exactly one automation, written as a list item.');
+  entry.delete('name');
+  doc.contents = entry;
+  return doc.toString({ lineWidth: 0 });
+}
+
+/**
+ * The inverse of `automationFileText`: an automation file's text as the
+ * `- name: <name>` item `parseAutomationEntry` takes (no trailing newline),
+ * comments kept, a comment above the first key moved inside the item so the
+ * item still starts with its dash. Throws on a file whose root is no mapping.
+ */
+export function automationItemText(name: string, fileText: string): string {
+  const doc = parseDocument(fileText);
+  if (doc.errors.length > 0 || !isMap(doc.contents)) {
+    throw new Error('Expected an automation file: a mapping of its keys at the top level.');
+  }
+  const entry = doc.contents;
+  entry.delete('name');
+  const first = entry.items[0];
+  if (doc.commentBefore && first && isScalar(first.key)) {
+    first.key.commentBefore = [doc.commentBefore, first.key.commentBefore]
+      .filter(Boolean)
+      .join('\n');
+    doc.commentBefore = null;
+  }
+  const item = new Document();
+  const list = new YAMLSeq();
+  list.items.push(entry);
+  entry.items.unshift(item.createPair('name', name) as (typeof entry.items)[number]);
+  item.contents = list;
+  return item.toString({ lineWidth: 0 }).trimEnd();
 }

@@ -1,13 +1,21 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { LocalServer } from '../../../shared/browser';
+import type { OpenInTarget } from '../../../shared/openIn';
 import { browserBridge } from '../../services/browserBridge';
 import { activityOf } from '../../../shared/attention';
+import { checkoutPathForSession } from '../../../shared/workspace';
+import { TAB_KINDS, tabFactsFor } from '../../sidePanel/tabKinds';
 import { useAttentionStore } from '../../stores/attentionStore';
+import { useFoundPullRequest } from '../../stores/branchPullRequestStore';
+import { useCheckout } from '../../stores/checkoutStore';
 import { useGitReviewStore } from '../../stores/gitReviewStore';
 import { useGitStatusStore } from '../../stores/gitStatusStore';
+import { useInfoPanelShown } from '../../stores/infoPanelRoomStore';
 import { isSelectableHarness, useHarnessStore } from '../../stores/harnessStore';
 import { useNavigationStore } from '../../stores/navigationStore';
+import { loadOpenInTargets, useOpenInFavourite, useOpenInStore } from '../../stores/openInStore';
 import { useSettingsStore } from '../../stores/settingsStore';
+import { useSidePanelStore } from '../../stores/sidePanelStore';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { useSettings } from '../../contexts/SettingsContext';
@@ -73,22 +81,47 @@ function useLocalServers(open: boolean, sessionId: string | undefined): LocalSer
 
 const NO_SERVERS: LocalServer[] = [];
 
+/**
+ * The apps a session's folder can be opened in, and the favourite's id: what
+ * main last listed, asked again each time the palette opens with a session
+ * active, as the info panel's menu asks when it opens.
+ */
+function useOpenInTargets(
+  open: boolean,
+  sessionId: string | undefined,
+): { targets: readonly OpenInTarget[]; favouriteId: string | undefined } {
+  const targets = useOpenInStore((state) => state.targets) ?? NO_TARGETS;
+  const favourite = useOpenInFavourite();
+  useEffect(() => {
+    if (open && sessionId) void loadOpenInTargets();
+  }, [open, sessionId]);
+  return { targets, favouriteId: favourite?.id };
+}
+
+const NO_TARGETS: OpenInTarget[] = [];
+
 /** Live snapshot of everything the palette can act on. */
 export function usePaletteContext(open: boolean): PaletteContext {
   const workspaces = useWorkspaceStore((state) => state.workspaces);
   const attention = useAttentionStore((state) => state.records);
   const activeWorkspaceId = useNavigationStore((state) => state.activeWorkspaceId);
   const activeSessionId = useNavigationStore((state) => state.activeSessionId);
+  const isOverlayOpen = useNavigationStore((state) => state.overlay !== null);
   const terminals = useTerminalStore((state) => state.terminals);
   const statuses = useAttentionStore((state) => state.attention);
   const harnesses = useHarnessStore((state) => state.harnesses);
   const fileStatuses = useGitStatusStore((state) => state.fileStatuses);
   const gitStatusRootPath = useGitStatusStore((state) => state.rootPath);
   const commitMessage = useGitReviewStore((state) => state.commitMessage);
-  const isGitReviewOpen = useGitReviewStore((state) => state.isOpen);
   const terminalFontSize = useSettingsStore((state) => state.terminalFontSize);
+  const isSidePanelVisible = useSidePanelStore((state) => state.layout.visible);
+  const isInfoPanelVisible = useInfoPanelShown();
   const { openSettings } = useSettings();
   const localServers = useLocalServers(open, activeSessionId ?? undefined);
+  const { targets: openInTargets, favouriteId: openInFavouriteId } = useOpenInTargets(
+    open,
+    activeSessionId ?? undefined,
+  );
 
   const activeWorkspace = useMemo(
     () => workspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? null,
@@ -99,6 +132,29 @@ export function usePaletteContext(open: boolean): PaletteContext {
     () => activeWorkspace?.sessions.find((session) => session.id === activeSessionId) ?? null,
     [activeWorkspace, activeSessionId],
   );
+
+  // The tab kinds as the side panel would offer them for the active session,
+  // none while an overlay hides the side panel.
+  const activeCheckout = useCheckout(
+    activeWorkspace && activeSession
+      ? checkoutPathForSession(activeWorkspace, activeSession)
+      : null,
+  );
+  // Subscribed, so a lookup that lands while the palette is open refreshes its rows.
+  const activeFound = useFoundPullRequest(
+    activeWorkspace ?? undefined,
+    activeSession ?? undefined,
+    activeCheckout,
+  );
+  const tabKinds = useMemo(() => {
+    if (!activeWorkspace || !activeSession || isOverlayOpen) return [];
+    const facts = tabFactsFor(activeWorkspace, activeSession, activeCheckout, activeFound);
+    return TAB_KINDS.map((kind) => ({
+      id: kind.id,
+      title: kind.title(facts),
+      available: kind.availability(facts).available,
+    }));
+  }, [activeWorkspace, activeSession, activeCheckout, activeFound, isOverlayOpen]);
 
   // A session with no name yet is still being created; the sidebar hides those
   // too, and a blank row would be unselectable anyway.
@@ -146,9 +202,14 @@ export function usePaletteContext(open: boolean): PaletteContext {
       gitStatusRootPath,
       stagedCount,
       commitMessage,
-      isGitReviewOpen,
+      tabKinds,
+      isSidePanelVisible,
+      isInfoPanelVisible,
+      isOverlayOpen,
       terminalFontSize,
       localServers,
+      openInTargets,
+      openInFavouriteId,
       openSettings,
     }),
     [
@@ -163,9 +224,14 @@ export function usePaletteContext(open: boolean): PaletteContext {
       gitStatusRootPath,
       stagedCount,
       commitMessage,
-      isGitReviewOpen,
+      tabKinds,
+      isSidePanelVisible,
+      isInfoPanelVisible,
+      isOverlayOpen,
       terminalFontSize,
       localServers,
+      openInTargets,
+      openInFavouriteId,
       openSettings,
     ],
   );

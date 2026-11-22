@@ -1,0 +1,183 @@
+import { REGIONS, type Region } from '@consola/cloud-contract';
+import { z } from 'zod';
+
+/**
+ * An Ed25519 private key as a JSON Web Key (RFC 8037): `x` is its public key and `d` its private
+ * key, each 32 bytes in base64url.
+ */
+export type Ed25519PrivateJwk = { kty: 'OKP'; crv: 'Ed25519'; x: string; d: string };
+
+export type CloudConfig = {
+  databaseUrl: string;
+  authSecret: string;
+  publicUrl: string;
+  port: number;
+  google: { clientId: string; clientSecret: string };
+  /**
+   * The key cell tokens and outbox messages are signed with. It is never logged, and never sent
+   * anywhere.
+   */
+  cellTokenPrivateKey: Ed25519PrivateJwk;
+  /**
+   * Each region's cell, as an origin, from `CELL_URL_<REGION>`. A region with none keeps its
+   * outbox messages until one is set.
+   */
+  cellUrls: Partial<Record<Region, string>>;
+};
+
+/** The variable that names a region's cell: `CELL_URL_EU` for `eu`. */
+export function cellUrlVariable(region: Region): string {
+  return `CELL_URL_${region.toUpperCase()}`;
+}
+
+export class ConfigError extends Error {
+  readonly problems: string[];
+
+  constructor(problems: string[]) {
+    super(`The configuration is not valid:\n${problems.map((p) => `  - ${p}`).join('\n')}`);
+    this.name = 'ConfigError';
+    this.problems = problems;
+  }
+}
+
+const DATABASE_SCHEMES = ['postgres://', 'postgresql://', 'pglite:'];
+
+/** An http(s) address with no path, query or hash beyond a single `/`, returned without it. */
+function originOf(value: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+  if (url.pathname !== '/' || url.search !== '' || url.hash !== '') return null;
+  return url.origin;
+}
+
+const required = (what: string, hint?: string) => {
+  const message = hint ? `${what} is required (${hint})` : `${what} is required`;
+  return z.string({ error: message }).min(1, message);
+};
+
+const MAKE_A_KEY = 'make one with `pnpm --filter @consola/cloud-global cell-key:generate`';
+
+/** 32 bytes in unpadded base64url. */
+const KEY_BYTES = /^[A-Za-z0-9_-]{43}$/;
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+/**
+ * The configured private key, as a JWK of exactly `kty`, `crv`, `x` and `d`, or what is wrong
+ * with it. Other members (`kid`, `alg`) are dropped: the contract fixes both. Whether `x` really
+ * is the public key of `d` takes cryptography, so the signer checks that when it is built. No
+ * problem quotes the value, `JSON.parse`'s own words included, since they can.
+ */
+function readPrivateJwk(
+  value: string,
+): { ok: true; key: Ed25519PrivateJwk } | { ok: false; problem: string } {
+  let jwk: unknown;
+  try {
+    jwk = JSON.parse(value);
+  } catch {
+    jwk = undefined;
+  }
+  if (!isRecord(jwk)) {
+    return { ok: false, problem: `must be a JSON Web Key on one line (${MAKE_A_KEY})` };
+  }
+  if (jwk.kty !== 'OKP' || jwk.crv !== 'Ed25519') {
+    return { ok: false, problem: 'must be an Ed25519 key (`kty` OKP, `crv` Ed25519)' };
+  }
+  if (jwk.d === undefined) {
+    return {
+      ok: false,
+      problem: `must be a private key, and this one has no \`d\` (${MAKE_A_KEY})`,
+    };
+  }
+  const { x, d } = jwk;
+  if (typeof x !== 'string' || !KEY_BYTES.test(x) || typeof d !== 'string' || !KEY_BYTES.test(d)) {
+    return { ok: false, problem: '`x` and `d` must each be 32 bytes in base64url' };
+  }
+  return { ok: true, key: { kty: 'OKP', crv: 'Ed25519', x, d } };
+}
+
+const rawEnv = z.object({
+  DATABASE_URL: required('a database URL').refine(
+    (value) => DATABASE_SCHEMES.some((scheme) => value.startsWith(scheme)),
+    'must start with postgres://, postgresql:// or pglite:',
+  ),
+  BETTER_AUTH_SECRET: required('a secret').min(32, 'must be at least 32 characters'),
+  PUBLIC_URL: required('the public address')
+    .refine(
+      (value) => originOf(value) !== null,
+      'must be an http or https address with no path, query or fragment',
+    )
+    .transform((value) => originOf(value) as string),
+  GOOGLE_CLIENT_ID: required('a Google client ID'),
+  GOOGLE_CLIENT_SECRET: required('a Google client secret'),
+  CELL_TOKEN_PRIVATE_KEY: required("the cell token's private key", MAKE_A_KEY).transform(
+    (value, ctx) => {
+      const read = readPrivateJwk(value);
+      if (read.ok) return read.key;
+      ctx.addIssue({ code: 'custom', message: read.problem });
+      return z.NEVER;
+    },
+  ),
+  PORT: z.coerce
+    .number()
+    .int('must be a whole number')
+    .min(1, 'must be between 1 and 65535')
+    .max(65535, 'must be between 1 and 65535')
+    .optional(),
+});
+
+/** A region's cell, optional, as an origin like `PUBLIC_URL`. */
+const cellUrl = z
+  .string()
+  .refine(
+    (value) => originOf(value) !== null,
+    'must be an http or https address with no path, query or fragment',
+  )
+  .transform((value) => originOf(value) as string)
+  .optional();
+
+/** One cell variable per region the contract lists, so a new region gets its own. */
+const cellEnv: z.ZodType<Record<string, string | undefined>> = z.object(
+  Object.fromEntries(REGIONS.map((region) => [cellUrlVariable(region), cellUrl])),
+);
+
+/** An optional variable set to nothing is unset, as `.env.example` leaves one. */
+const unsetWhenEmpty = (value: string | undefined) => (value === '' ? undefined : value);
+
+export function loadConfig(env: Record<string, string | undefined>): CloudConfig {
+  const optional = ['PORT', ...REGIONS.map(cellUrlVariable)];
+  const input = {
+    ...env,
+    ...Object.fromEntries(optional.map((name) => [name, unsetWhenEmpty(env[name])])),
+  };
+  const result = rawEnv.safeParse(input);
+  const cellResult = cellEnv.safeParse(input);
+  if (!result.success || !cellResult.success) {
+    const issues = [
+      ...(result.success ? [] : result.error.issues),
+      ...(cellResult.success ? [] : cellResult.error.issues),
+    ];
+    throw new ConfigError(issues.map((issue) => `${String(issue.path[0])}: ${issue.message}`));
+  }
+  const parsed = result.data;
+  const cells: Partial<Record<Region, string>> = {};
+  for (const region of REGIONS) {
+    const url = cellResult.data[cellUrlVariable(region)];
+    if (url !== undefined) cells[region] = url;
+  }
+  return {
+    databaseUrl: parsed.DATABASE_URL,
+    authSecret: parsed.BETTER_AUTH_SECRET,
+    publicUrl: parsed.PUBLIC_URL,
+    port: parsed.PORT ?? 3100,
+    google: { clientId: parsed.GOOGLE_CLIENT_ID, clientSecret: parsed.GOOGLE_CLIENT_SECRET },
+    cellTokenPrivateKey: parsed.CELL_TOKEN_PRIVATE_KEY,
+    cellUrls: cells,
+  };
+}

@@ -173,6 +173,40 @@ describe('LoginEnvironment', () => {
     expect(loginEnvProblem()).toMatch(/-ilc` failed: Command failed: \/bin\/zsh -ilc env -0$/);
   });
 
+  describe("the login shell's CLAUDE_CONFIG_DIR", () => {
+    const originalNodeEnv = process.env.NODE_ENV;
+    const originalConfigDir = process.env.CLAUDE_CONFIG_DIR;
+    const LAUNCH_DIR = '/tmp/consola-e2e-a1/claude/config';
+
+    beforeEach(() => {
+      process.env.CLAUDE_CONFIG_DIR = LAUNCH_DIR;
+      execFileSync.mockReturnValue(
+        `PATH=${LOGIN_PATH}\0CLAUDE_CONFIG_DIR=/Users/javidev/.claude-work\0`,
+      );
+    });
+
+    afterEach(() => {
+      process.env.NODE_ENV = originalNodeEnv;
+      if (originalConfigDir === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+      else process.env.CLAUDE_CONFIG_DIR = originalConfigDir;
+    });
+
+    it('gives way to the launch’s in a test run, so an end-to-end test never reads the person’s config', async () => {
+      process.env.NODE_ENV = 'test';
+      const { getLoginEnv } = await load();
+
+      expect(getLoginEnv().CLAUDE_CONFIG_DIR).toBe(LAUNCH_DIR);
+      expect(getLoginEnv().PATH).toBe(LOGIN_PATH);
+    });
+
+    it('wins outside a test run, as always', async () => {
+      process.env.NODE_ENV = 'production';
+      const { getLoginEnv } = await load();
+
+      expect(getLoginEnv().CLAUDE_CONFIG_DIR).toBe('/Users/javidev/.claude-work');
+    });
+  });
+
   it('does not carry an enclosing Claude session into the retried environment', async () => {
     execFileSync.mockImplementation(() => {
       throw timeout();

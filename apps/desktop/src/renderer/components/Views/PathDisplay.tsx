@@ -1,29 +1,15 @@
-import { SHELL_SHORTCUT_LABEL } from '../../utils/shellShortcut';
 import * as Tooltip from '@radix-ui/react-tooltip';
-import { FolderTree, Globe, RotateCw, GitPullRequestDraft, TerminalSquare } from 'lucide-react';
-import { useGitStatusStore } from '../../stores/gitStatusStore';
-import { useGitReviewStore } from '../../stores/gitReviewStore';
+import { RotateCw } from 'lucide-react';
+import { statsFor, useGitStatusStore } from '../../stores/gitStatusStore';
 import { useCheckoutStore } from '../../stores/checkoutStore';
 import { tildePath } from '../../utils/displayPath';
-import { BROWSER_SHORTCUT_LABEL, isMac } from '../../utils/platform';
 
 interface PathDisplayProps {
   path: string;
   className?: string;
-  /** Print the folder itself. Off where the checkout chip already names it. */
+  /** Print the folder itself. Off where the info panel's Folder row already names it. */
   showPath?: boolean;
-  showExplorerToggle?: boolean;
-  isExplorerVisible?: boolean;
-  onToggleExplorer?: () => void;
-  isBrowserVisible?: boolean;
-  onToggleBrowser?: () => void;
-  /** An agent opened or used the session's browser since its panel last showed it: a dot on the globe. */
-  browserAgentDot?: boolean;
-  isTerminalVisible?: boolean;
-  onToggleTerminal?: () => void;
 }
-
-const explorerShortcut = isMac ? '⇧⌘E' : 'Ctrl+Shift+E';
 
 /**
  * Truncate a file path to show a sensible shortened version.
@@ -43,36 +29,17 @@ function truncatePath(fullPath: string): string {
   return `${firstPart}/.../${lastSegments}`;
 }
 
-export function PathDisplay({
-  path,
-  className,
-  showPath = true,
-  showExplorerToggle = false,
-  isExplorerVisible = false,
-  onToggleExplorer,
-  isBrowserVisible = false,
-  onToggleBrowser,
-  browserAgentDot = false,
-  isTerminalVisible = false,
-  onToggleTerminal,
-}: PathDisplayProps) {
-  // Use granular selectors to prevent unnecessary re-renders
-  const stats = useGitStatusStore((state) => state.stats);
+export function PathDisplay({ path, className, showPath = true }: PathDisplayProps) {
+  // This checkout's counts only: during a session switch the store still
+  // holds the last checkout's until its own read lands, and until then the
+  // header shows none.
+  const stats = useGitStatusStore((state) => statsFor(state, path));
   const isLoading = useGitStatusStore((state) => state.isLoading);
   const isGitRepo = useGitStatusStore((state) => state.isGitRepo);
   const refresh = useGitStatusStore((state) => state.refresh);
-  const isReviewOpen = useGitReviewStore((state) => state.isOpen);
-  const toggleReview = useGitReviewStore((state) => state.toggle);
 
-  // The dot is drawn; the label says it too, for whoever cannot see it.
-  const browserLabel = isBrowserVisible
-    ? 'Hide browser'
-    : browserAgentDot
-      ? 'Show browser, which the agent used'
-      : 'Show browser';
-
-  // The branch lives in the checkout chip beside the title, so a manual
-  // refresh re-reads that too: one button, one answer.
+  // The info panel names the checkout and its branch from the same store, so
+  // a manual refresh re-reads that too: one button, one answer.
   const handleRefresh = () => {
     if (path && !isLoading) {
       void refresh(path);
@@ -80,8 +47,10 @@ export function PathDisplay({
     }
   };
 
+  // Marked when it prints the folder, which then gives way to the controls
+  // after it (see the stylesheet).
   return (
-    <div className="path-display-container">
+    <div className="path-display-container" data-path={showPath || undefined}>
       {showPath && (
         <Tooltip.Provider delayDuration={300}>
           <Tooltip.Root>
@@ -98,13 +67,13 @@ export function PathDisplay({
         </Tooltip.Provider>
       )}
 
-      {/* Right side actions - git status and explorer toggle */}
+      {/* Right side: the checkout's git status */}
       <div className="path-display-actions">
-        {/* Uncommitted changes in this checkout. Its branch is named by the
-            checkout chip beside the title, with what kind of checkout it is. */}
+        {/* Uncommitted changes in this checkout. Its branch, and what kind
+            of checkout it is, are named in the info panel. */}
         {isGitRepo && (
           <div className="git-stats-badge">
-            {stats.modifiedCount > 0 && (
+            {stats && stats.modifiedCount > 0 && (
               <>
                 <span className="git-stats-count">
                   {stats.modifiedCount} file{stats.modifiedCount !== 1 ? 's' : ''}
@@ -135,103 +104,6 @@ export function PathDisplay({
               </Tooltip.Root>
             </Tooltip.Provider>
           </div>
-        )}
-
-        {/* Git Review Panel toggle */}
-        {isGitRepo && (
-          <Tooltip.Provider delayDuration={300}>
-            <Tooltip.Root>
-              <Tooltip.Trigger asChild>
-                <button
-                  className={`path-display-toggle ${isReviewOpen ? 'active' : ''}`}
-                  onClick={toggleReview}
-                  aria-label={isReviewOpen ? 'Close review panel' : 'Open review panel'}
-                  aria-pressed={isReviewOpen}
-                >
-                  <GitPullRequestDraft size={14} />
-                </button>
-              </Tooltip.Trigger>
-              <Tooltip.Portal>
-                <Tooltip.Content className="tooltip-content" sideOffset={5}>
-                  {isReviewOpen ? 'Close review panel' : 'Review changes'}
-                  <Tooltip.Arrow className="tooltip-arrow" />
-                </Tooltip.Content>
-              </Tooltip.Portal>
-            </Tooltip.Root>
-          </Tooltip.Provider>
-        )}
-
-        {showExplorerToggle && onToggleExplorer && (
-          <Tooltip.Provider delayDuration={300}>
-            <Tooltip.Root>
-              <Tooltip.Trigger asChild>
-                <button
-                  className={`path-display-toggle ${isExplorerVisible ? 'active' : ''}`}
-                  onClick={onToggleExplorer}
-                  aria-label={isExplorerVisible ? 'Hide file explorer' : 'Show file explorer'}
-                  aria-pressed={isExplorerVisible}
-                >
-                  <FolderTree size={14} />
-                </button>
-              </Tooltip.Trigger>
-              <Tooltip.Portal>
-                <Tooltip.Content className="tooltip-content" sideOffset={5}>
-                  {isExplorerVisible ? 'Hide file explorer' : 'Show file explorer'} (
-                  {explorerShortcut})
-                  <Tooltip.Arrow className="tooltip-arrow" />
-                </Tooltip.Content>
-              </Tooltip.Portal>
-            </Tooltip.Root>
-          </Tooltip.Provider>
-        )}
-        {onToggleBrowser && (
-          <Tooltip.Provider delayDuration={300}>
-            <Tooltip.Root>
-              <Tooltip.Trigger asChild>
-                <button
-                  type="button"
-                  className={`path-display-toggle ${isBrowserVisible ? 'active' : ''}`}
-                  onClick={onToggleBrowser}
-                  aria-label={browserLabel}
-                  aria-pressed={isBrowserVisible}
-                  aria-keyshortcuts={isMac ? 'Meta+Shift+L' : 'Control+Shift+L'}
-                  data-agent-dot={browserAgentDot || undefined}
-                >
-                  <Globe size={14} />
-                </button>
-              </Tooltip.Trigger>
-              <Tooltip.Portal>
-                <Tooltip.Content className="tooltip-content" sideOffset={5}>
-                  {browserLabel} ({BROWSER_SHORTCUT_LABEL})
-                  <Tooltip.Arrow className="tooltip-arrow" />
-                </Tooltip.Content>
-              </Tooltip.Portal>
-            </Tooltip.Root>
-          </Tooltip.Provider>
-        )}
-        {onToggleTerminal && (
-          <Tooltip.Provider delayDuration={300}>
-            <Tooltip.Root>
-              <Tooltip.Trigger asChild>
-                <button
-                  type="button"
-                  className={`path-display-toggle ${isTerminalVisible ? 'active' : ''}`}
-                  onClick={onToggleTerminal}
-                  aria-label={isTerminalVisible ? 'Hide terminal' : 'Show terminal'}
-                  aria-pressed={isTerminalVisible}
-                  aria-keyshortcuts="Control+`"
-                >
-                  <TerminalSquare size={14} />
-                </button>
-              </Tooltip.Trigger>
-              <Tooltip.Portal>
-                <Tooltip.Content className="tooltip-content" sideOffset={5}>
-                  {isTerminalVisible ? 'Hide terminal' : 'Show terminal'} ({SHELL_SHORTCUT_LABEL})
-                  <Tooltip.Arrow className="tooltip-arrow" />
-                </Tooltip.Content>
-              </Tooltip.Portal>
-            </Tooltip.Root>
-          </Tooltip.Provider>
         )}
       </div>
     </div>

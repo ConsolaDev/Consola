@@ -238,6 +238,99 @@ describe('requestControl', () => {
   });
 });
 
+/**
+ * A CLI that answers `initialize`, then each `poll` with how many it has
+ * read so far and whether its stdin had ended by then.
+ */
+const POLL_CLI = `
+  const lines = require('readline').createInterface({ input: process.stdin });
+  let polls = 0;
+  let stdinEnded = false;
+  lines.on('close', () => { stdinEnded = true; });
+  lines.on('line', (line) => {
+    const message = JSON.parse(line);
+    const response = message.request.subtype === 'initialize'
+      ? { commands: [] }
+      : { polls: ++polls, stdinEnded };
+    process.stdout.write(JSON.stringify({
+      type: 'control_response',
+      response: { subtype: 'success', request_id: message.request_id, response },
+    }) + '\\n');
+  });
+  setTimeout(() => {}, 5000);
+`;
+
+describe('requestControl, repeating its last request', () => {
+  const POLLING = [
+    { requestId: 'a', request: { subtype: 'initialize' } },
+    { requestId: 'b', request: { subtype: 'poll' } },
+  ];
+
+  it('asks the last request again until its answer holds, with stdin still open', async () => {
+    const [initialize, last] = await requestControl(
+      fakeCli(POLL_CLI),
+      scriptDir,
+      process.env,
+      POLLING,
+      {
+        repeat: {
+          until: (answer) => (answer as { polls: number }).polls >= 3,
+          everyMs: 20,
+          forMs: 3000,
+        },
+      },
+    );
+
+    expect(initialize).toEqual({ commands: [] });
+    expect(last).toEqual({ polls: 3, stdinEnded: false });
+  });
+
+  it('answers with the last answer once its time is up', async () => {
+    const [, last] = await requestControl(fakeCli(POLL_CLI), scriptDir, process.env, POLLING, {
+      repeat: { until: () => false, everyMs: 20, forMs: 250 },
+    });
+
+    expect((last as { polls: number }).polls).toBeGreaterThan(1);
+  });
+
+  it('asks once when the first answer already holds', async () => {
+    const [, last] = await requestControl(fakeCli(POLL_CLI), scriptDir, process.env, POLLING, {
+      repeat: { until: () => true, everyMs: 20, forMs: 3000 },
+    });
+
+    expect(last).toEqual({ polls: 1, stdinEnded: false });
+  });
+
+  it('rejects with what a check that throws said, rather than throwing in the stream', async () => {
+    await expect(
+      requestControl(fakeCli(POLL_CLI), scriptDir, process.env, POLLING, {
+        repeat: {
+          until: () => {
+            throw new Error('an answer the caller cannot read');
+          },
+          everyMs: 20,
+          forMs: 3000,
+        },
+      }),
+    ).rejects.toThrow('an answer the caller cannot read');
+  });
+
+  it('without repeat, asks each request once, as before', async () => {
+    const [, last] = await requestControl(fakeCli(POLL_CLI), scriptDir, process.env, POLLING);
+
+    expect(last).toMatchObject({ polls: 1 });
+  });
+
+  it('still gives up at its deadline while repeating', async () => {
+    await expect(
+      requestControl(fakeCli(POLL_CLI), scriptDir, process.env, POLLING, {
+        timeoutMs: 300,
+        repeat: { until: () => false, everyMs: 20, forMs: 3000 },
+      }),
+    ).rejects.toThrow(/within 300ms/);
+  });
+});
+
 describe('requestUsage', () => {
   it('asks for usage without running hooks or scanning transcripts, after initialising', async () => {
     const usage = await requestUsage(fakeCli(SEQUENCE_CLI), scriptDir, process.env);

@@ -31,6 +31,8 @@ export interface CloseState {
   overlay: string | null;
   activeSessionId: string | null;
   activePreviewTabId: string | null;
+  /** The Files tab's view, where previews show, is on screen: in front in a group on screen, for a session it applies to. */
+  filesTabOnScreen: boolean;
   /** The browser tab showing beside the session, while its panel is on screen. */
   shownBrowserTabId: string | null;
   keyboard: KeyboardPlace;
@@ -40,20 +42,25 @@ export interface CloseState {
  * What ⌘W would close right now, front to back.
  *
  * The Inbox or Automations lies over the session pane, so it goes first; the
- * preview panel lives inside that pane and is only on screen without one.
+ * previews live in that pane's Files tab, and are on screen only without one
+ * and while that tab's view is on screen. Behind another tab, in a group
+ * hidden by Maximize, in a hidden side panel, or in front for a session
+ * Files does not apply to (which shows only why), a preview is not the
+ * nearest thing, and ⌘W leaves it alone.
+ *
  * The browser tab showing beside the session comes between them, but only
  * while the keyboard is in the browser: in a page, or in the panel's toolbar
  * or tab strip. Anywhere else (the terminal, say) a page is not the nearest
  * thing, and ⌘W leaves it alone. The panel itself never closes, and with the
  * keyboard in it and no tab left, ⌘W closes nothing: closing a run of tabs
- * must not run on into a file in the preview panel.
+ * must not run on into a file in the previews.
  */
 export function closeTarget(state: CloseState): CloseTarget | null {
   if (state.overlay !== null) return 'overlay';
   if (state.activeSessionId === null) return null;
   if (keyboardIsOnShownTab(state.keyboard, state.shownBrowserTabId)) return 'browser-tab';
   if (state.keyboard.in === 'browser-panel') return null;
-  if (state.activePreviewTabId !== null) return 'preview-tab';
+  if (state.activePreviewTabId !== null && state.filesTabOnScreen) return 'preview-tab';
   return null;
 }
 

@@ -10,6 +10,13 @@ import { isGitProviderId, PROVIDER_META } from './providers';
  */
 
 /**
+ * How long a read from the provider stays fresh: the Inbox refreshes on this
+ * timer, and a branch's pull request is not asked about again sooner. Shared,
+ * so main and the renderer spend the account's requests by one clock.
+ */
+export const INBOX_REFRESH_INTERVAL_MS = 3 * 60 * 1000;
+
+/**
  * Why an item is in the inbox. An item can carry several: a PR you authored
  * and were also asked to review is both, and the sections care which.
  */
@@ -98,8 +105,8 @@ export function workItemKey(ref: WorkItemRef): string {
 /**
  * Canonical web URL for a work item, for when no fetched item carries one.
  *
- * Renderer-reachable on purpose (the strip needs a link with no driver round
- * trip); the GitHub driver's own workItemUrl delegates here. A plain
+ * Renderer-reachable on purpose (the info panel needs a link with no driver
+ * round trip); the GitHub driver's own workItemUrl delegates here. A plain
  * find-and-replace rather than workItemPrompt.ts's substitutePlaceholders:
  * that module imports from this one, so borrowing it back would be a cycle.
  */

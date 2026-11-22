@@ -1,0 +1,561 @@
+/* The info panel beside a session's conversation: sections of short rows,
+   scrolling on their own. */
+.info-panel {
+  height: 100%;
+  min-width: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  background: var(--color-bg-primary);
+}
+
+.info-section {
+  padding: 9px 4px 7px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.info-section-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 4px 3px;
+}
+
+.info-section-heading {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 11.5px;
+  font-weight: 500;
+}
+
+/* The heading is the disclosure button: it folds the section. */
+.info-section-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 1px 4px;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--color-text-secondary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.info-section-toggle:hover {
+  color: var(--color-text-primary);
+}
+.info-section-toggle:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+
+.info-section-chevron {
+  flex: none;
+  color: var(--color-text-tertiary);
+  transition: transform var(--transition-fast);
+}
+.info-section-toggle[aria-expanded="true"] .info-section-chevron {
+  transform: rotate(90deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .info-section-chevron {
+    transition: none;
+  }
+}
+
+.info-section-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+}
+
+/* A control beside a heading: open on the provider, refresh, Run. Quiet
+   until pointed at, so the heading still reads first. */
+.info-section-action {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--color-text-tertiary);
+  font: inherit;
+  font-size: 11.5px;
+  text-decoration: none;
+  cursor: pointer;
+}
+.info-section-action:hover,
+.info-section-action[data-state="open"] {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+.info-section-action:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+
+/* The Run menu's trigger, the one with words. */
+.info-section-run {
+  padding: 0 4px 0 6px;
+  color: var(--color-text-secondary);
+}
+
+/* Kept under reduced motion: it is the only sign a read is in flight. */
+.info-section-action-spin {
+  animation: info-section-spin 900ms linear infinite;
+}
+@keyframes info-section-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.info-section-body {
+  display: flex;
+  flex-direction: column;
+}
+
+/* One row: an icon, what it is about, and a short value at its end. Its
+   tint over the panel's colour: none, or the hover's (see `.info-reviewer`). */
+.info-row {
+  --info-row-tint: transparent;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 26px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  text-align: left;
+}
+.info-row[data-tone="muted"] {
+  color: var(--color-text-tertiary);
+}
+.info-row[data-tone="error"],
+.info-row[data-tone="error"] .info-row-icon {
+  color: var(--color-error);
+}
+
+/* A row with something behind it: a button, which is what takes the hover. */
+button.info-row {
+  width: 100%;
+  border: none;
+  background: none;
+  font-family: inherit;
+  line-height: inherit;
+  cursor: pointer;
+}
+button.info-row:hover {
+  --info-row-tint: var(--color-bg-hover);
+  background: var(--info-row-tint);
+}
+button.info-row:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+
+/* One box for every icon, the harness mark's 16px included, so the labels
+   line up. */
+.info-row-icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  color: var(--color-text-tertiary);
+}
+
+.info-row-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.info-row-value {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  color: var(--color-text-tertiary);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.info-row-muted {
+  color: var(--color-text-tertiary);
+}
+
+/* The folder's path, cut in the middle: the head gives way to an ellipsis,
+   the tail stays whole. */
+.info-folder {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+.info-folder-kind {
+  flex: none;
+}
+.info-folder-path {
+  display: flex;
+  min-width: 0;
+  color: var(--color-text-tertiary);
+}
+.info-folder-path-head {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.info-folder-path-tail {
+  flex: none;
+  white-space: pre;
+}
+
+/* "Open in", under the Folder row: one control in two parts, the folder
+   opened in the favourite app and the chevron that lists the others. As wide
+   as the rows, its icon in their icon column, so it reads as the Folder
+   row's action rather than a new block. */
+.info-open-in {
+  display: flex;
+  min-width: 0;
+  height: 28px;
+  margin: 2px 0 4px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 6px;
+}
+
+.info-open-in-main,
+.info-open-in-more {
+  display: inline-flex;
+  align-items: center;
+  border: none;
+  background: none;
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+.info-open-in-main:hover:not(:disabled),
+.info-open-in-more:hover:not(:disabled),
+.info-open-in-more[data-state="open"] {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+.info-open-in-main:focus-visible,
+.info-open-in-more:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+.info-open-in-main:disabled,
+.info-open-in-more:disabled {
+  cursor: default;
+}
+
+/* Padded so its icon sits where the rows' icons do (8px in, past the border). */
+.info-open-in-main {
+  flex: 1;
+  gap: 8px;
+  min-width: 0;
+  padding: 0 8px 0 7px;
+  border-radius: 5px 0 0 5px;
+  text-align: left;
+}
+
+.info-open-in-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.info-open-in-more {
+  flex: none;
+  justify-content: center;
+  width: 26px;
+  border-left: 1px solid var(--color-border-strong);
+  border-radius: 0 5px 5px 0;
+  color: var(--color-text-tertiary);
+}
+
+/* One box for an app's own icon and the folder drawn while there is none. */
+.info-open-in-icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  color: var(--color-text-tertiary);
+}
+.info-open-in-icon img {
+  display: block;
+  width: 16px;
+  height: 16px;
+}
+
+/* The menu, portaled to <body>: each app with its icon, the favourite's
+   chord at its end. */
+.info-open-in-menu {
+  min-width: 200px;
+  max-width: 280px;
+}
+.info-open-in-item-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.info-open-in-shortcut {
+  flex: none;
+  padding-left: var(--space-3);
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-xs);
+}
+
+/* The Folder row's card explains the checkout as labelled facts — branch,
+   folder, main checkout — because the worktree's folder is named by Consola
+   and never matches its branch. Portaled to <body>, so not scoped under
+   .info-panel. Doubled class: .tooltip-content is declared in other sheets
+   that may load later. */
+.tooltip-content.checkout-tooltip {
+  display: flex;
+  flex-direction: column;
+  /* The shared tooltip centres its items; this one reads as a left-aligned
+     note. */
+  align-items: stretch;
+  gap: 8px;
+  width: max-content;
+  max-width: 440px;
+  padding: 10px 12px;
+  font-size: var(--font-size-xs);
+  text-align: left;
+  word-break: normal;
+}
+
+/* A small-caps label naming the kind of checkout, so the card reads as the
+   row's explanation. */
+.checkout-tooltip-title {
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-secondary);
+}
+
+.checkout-tooltip-title[data-kind="worktree"] {
+  color: var(--color-worktree);
+}
+
+.checkout-tooltip-lead {
+  margin: 0;
+  max-width: 46ch;
+  font-family: var(--font-sans);
+  font-size: var(--font-size-sm);
+  line-height: 1.45;
+  color: var(--color-text-secondary);
+}
+
+.checkout-tooltip-lead strong {
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+}
+
+.checkout-tooltip-facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  column-gap: 12px;
+  row-gap: 8px;
+  margin: 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--color-border);
+}
+
+.checkout-tooltip-facts dt {
+  font-family: var(--font-sans);
+  line-height: 18px;
+  color: var(--color-text-secondary);
+}
+
+.checkout-tooltip-facts dd {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  margin: 0;
+}
+
+.checkout-tooltip-value {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-family: var(--font-mono);
+  line-height: 18px;
+  color: var(--color-text-primary);
+  overflow-wrap: anywhere;
+}
+
+.checkout-tooltip-value > svg {
+  flex-shrink: 0;
+  margin-top: 3px;
+  color: var(--color-text-tertiary);
+}
+
+.checkout-tooltip-value[data-kind="worktree"] > svg {
+  color: var(--color-worktree);
+}
+
+.checkout-tooltip-note {
+  padding-left: 18px;
+  font-family: var(--font-sans);
+  line-height: 1.4;
+  color: var(--color-text-secondary);
+}
+
+.checkout-tooltip-hint {
+  font-family: var(--font-sans);
+  color: var(--color-text-tertiary);
+}
+
+.checkout-tooltip-hint[data-copied] {
+  color: var(--color-success);
+}
+
+/* A branch's name, as git spells it. */
+.info-branch {
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+/* The Inbox's +/− counts (`DiffCounts`), set close in a row's value. */
+.info-row-value .inbox-detail-counts {
+  gap: 4px;
+}
+
+/* A linked worktree, in the hue the sidebar and the Folder row's card give one. */
+.info-icon-worktree {
+  color: var(--color-worktree);
+}
+
+/* Under a pull request's title, lined up with it: its state (the pane's own
+   badge, smaller), the branch it merges into, and the session's action. */
+.info-pr-meta {
+  --inbox-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  padding: 0 8px 4px 32px;
+  color: var(--color-text-secondary);
+  font-size: 11.5px;
+}
+.info-pr-meta .inbox-detail-state {
+  height: 20px;
+  gap: 4px;
+  padding: 0 7px 0 5px;
+  font-size: 11px;
+}
+.info-pr-meta .inbox-detail-state svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* A fact about the session, never a control: no edge, no hover. */
+.info-pr-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  color: var(--color-text-tertiary);
+}
+
+/* The reviewers, overlapping, each ringed by where they stand: a gap in the
+   row's colour, then the ring. The row is the panel's colour, and on a
+   button row's hover the hover tint over it (`--info-row-tint`), so the gap
+   takes the same tint: in the panel's colour alone it drew a solid disc
+   round each avatar on the hovered row. */
+.info-reviewers {
+  display: inline-flex;
+  align-items: center;
+  /* The rings are drawn outside each avatar's box. */
+  padding: 0 1.5px;
+}
+.info-reviewer {
+  --ring: color-mix(in srgb, var(--color-text-tertiary) 75%, transparent);
+  display: inline-flex;
+  padding: 1.5px;
+  border-radius: 999px;
+  background:
+    linear-gradient(var(--info-row-tint, transparent), var(--info-row-tint, transparent)),
+    var(--color-bg-primary);
+  box-shadow: 0 0 0 1.5px var(--ring);
+}
+.info-reviewer + .info-reviewer {
+  margin-left: -4px;
+}
+.info-reviewer[data-ring="approved"] {
+  --ring: var(--color-success);
+}
+.info-reviewer[data-ring="changes-requested"] {
+  --ring: var(--color-error);
+}
+
+/* A quiet state: one muted sentence, wrapped, and what can be done about it. */
+.info-quiet {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 4px 8px;
+}
+.info-quiet-text {
+  margin: 0;
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-sm);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.info-quiet-action {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 6px;
+  background: none;
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.info-quiet-action:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+.info-quiet-action:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+.info-quiet-action[aria-busy="true"] {
+  cursor: progress;
+}
+.info-quiet-error {
+  margin: 0;
+  color: var(--color-error);
+  font-size: var(--font-size-sm);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
