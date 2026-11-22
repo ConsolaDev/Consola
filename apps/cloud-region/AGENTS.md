@@ -7,10 +7,10 @@ it too. The repository's guide is the root `AGENTS.md`, and setup is in
 
 ## What the cell is
 
-The control plane has a global part, `cloud-global` (today's `apps/cloud-api`,
-renamed by issue 1.1), and one cell per region. Each region runs a copy of this
-app, configured with its region (`REGION`, `eu` or `us`) and given a database of
-its own, never `cloud-global`'s, so the global side cannot read regional data.
+The control plane has a global part, `cloud-global` (`apps/cloud-global`), and
+one cell per region. Each region runs a copy of this app, configured with its
+region (`REGION`, `eu` or `us`) and given a database of its own, never
+`cloud-global`'s, so the global side cannot read regional data.
 
 - **The cell holds no accounts.** People, sign-in, sessions, workspaces and
   their members are `cloud-global`'s. A cell refers to a person by their global

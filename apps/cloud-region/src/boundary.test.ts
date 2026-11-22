@@ -355,10 +355,10 @@ describe('the dependency rule', () => {
     ['compose.ts', '@consola/factory-spec', false],
     ['compose.ts', 'better-auth', false],
     ['adapters/persistence/x.ts', '@better-auth/drizzle-adapter', false],
-    ['domain/x.ts', '../../../cloud-api/src/domain/joinRule.js', false],
+    ['domain/x.ts', '../../../cloud-global/src/domain/joinRule.js', false],
     ['domain/x.ts', './y.test.js', false],
     ['domain/x.test.ts', '../adapters/http/app.js', true],
-    ['x.test.ts', '../../cloud-api/src/compose.js', false],
+    ['x.test.ts', '../../cloud-global/src/compose.js', false],
     ['x.test.ts', 'better-auth/plugins', false],
   ])('%s importing %s is allowed: %s', (file, specifier, allowed) => {
     expect(violationsOf(file, `import x from '${specifier}';`)).toEqual(

@@ -39,7 +39,7 @@ describe('the database', () => {
   });
 
   it('keeps data in a pglite folder across reopen', async () => {
-    const folder = await mkdtemp(join(tmpdir(), 'cloud-api-db-'));
+    const folder = await mkdtemp(join(tmpdir(), 'cloud-global-db-'));
     const url = `pglite:${join(folder, 'db')}`;
     try {
       const first = openDatabase(url);

@@ -1,9 +1,10 @@
 # AGENTS.md
 
-This file guides coding agents working in `apps/cloud-api`, Consola Cloud's
-API. `CLAUDE.md` imports it with `@AGENTS.md`, so Claude Code reads it too. The
-repository's guide is the root `AGENTS.md`, and setup is in `README.md`. Paths
-below are relative to `apps/cloud-api`.
+This file guides coding agents working in `apps/cloud-global`, the global part
+of Consola Cloud's control plane: the API every region shares. `CLAUDE.md`
+imports it with `@AGENTS.md`, so Claude Code reads it too. The repository's
+guide is the root `AGENTS.md`, and setup is in `README.md`. Paths below are
+relative to `apps/cloud-global`.
 
 ## The layers
 
@@ -93,10 +94,10 @@ wiring that runs.
 ## Generated files
 
 - `src/adapters/persistence/auth-schema.ts` holds Better Auth's tables,
-  written by `pnpm --filter @consola/cloud-api auth:generate` from
+  written by `pnpm --filter @consola/cloud-global auth:generate` from
   `src/adapters/auth/cli-config.ts`. Never edit it by hand. The CLI drops the
   header comment and writes double quotes, so after it, restore the header,
   run Biome, and check that `git diff` shows only the change you meant.
 - `drizzle/` holds the migrations, written by
-  `pnpm --filter @consola/cloud-api db:generate` after the schema changes.
+  `pnpm --filter @consola/cloud-global db:generate` after the schema changes.
   They apply when the API starts.
