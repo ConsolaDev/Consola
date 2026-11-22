@@ -41,7 +41,10 @@ export function statusWord(status: RunFacts['status']): string {
   return STATUS_WORDS[status];
 }
 
-/** What `rejectedAtGate` reads: a record's steps, or a list entry's `step`, which has no records; and whether it started. */
+/**
+ * What `rejectedAtGate` reads: a record's steps, or a list entry's `step`,
+ * which has no records; and whether the run started.
+ */
 export type RejectedFacts = Pick<RunFacts, 'status' | 'steps' | 'startedAt'> & {
   step?: RunListEntry['step'];
 };
@@ -232,8 +235,8 @@ export const CHECKOUT_WAIT = "waiting for this item's checkout";
  * Where a `steps:` run is, in the words a row shows in place of `runAbout`:
  * "waiting for you at decide" at a gate, "retrying fix at 10:42" out a
  * step's retry, "retrying the run at 10:42" out the entry's (it waits at no
- * step, and may wait before any ran), "round 2 of 3 · review" inside a loop, "running · publish",
- * "waiting for a slot before publish", "failed at publish" ("failed before
+ * step, and may wait before any ran), "round 2 of 3 · review" inside a
+ * loop, "running · publish", "waiting for a slot before publish", "failed at publish" ("failed before
  * publish" when it failed between steps, and the engine names the step it
  * did not reach), or that it waits for its item's checkout (for another
  * run's gate, `waitingForWords`). Null when there is nothing step-shaped to
