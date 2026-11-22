@@ -14,6 +14,7 @@ import {
   MousePointerClick,
   Repeat,
   ScanSearch,
+  UserCheck,
   Wrench,
   Zap,
   type LucideIcon,
@@ -23,6 +24,7 @@ import { automationsBridge } from '../../services/automationsBridge';
 import { useAutomationsStore } from '../../stores/automationsStore';
 import { ipcErrorMessage } from '../../utils/ipcErrorMessage';
 import { agentStepFoot, nodeGrantsLine } from './agentGrantWords';
+import { gateChoicesWords, loopFoot } from './approvalCard';
 import { openFileWords, RUNNING_VERSION_NOTE, triggerNodeWords } from './checkWords';
 import {
   approvalStep,
@@ -203,31 +205,19 @@ export function PipelineGraph({
   ) : null;
 
   // A `steps:` entry draws one node per step after the approval, the step's own
-  // `if:` on the edge into it; what a run is doing is the run page's to say.
+  // `if:` on the edge into it, and a loop as a frame around its steps' nodes;
+  // what a run is doing is the run page's to say.
   if (automation.steps) {
-    const gated = automation.steps.some((entry) => entry.if !== undefined);
-    const stepNodes = automation.steps.map((entry, index) => (
+    const described = automation.steps;
+    type Described = (typeof described)[number];
+    // The first step a run takes: the first node, or a loop's first step.
+    const first = described.find((entry) => entry.kind !== 'repeat');
+    const stepNode = (entry: Described) => (
       <PipelineNode
         key={`step:${entry.id}`}
-        state={pathLit && index === 0 ? targetState : undefined}
-        icon={
-          entry.kind === 'agent'
-            ? Bot
-            : entry.kind === 'gate'
-              ? Hand
-              : entry.kind === 'repeat'
-                ? Repeat
-                : Wrench
-        }
-        kicker={
-          entry.kind === 'agent'
-            ? 'Agent step'
-            : entry.kind === 'gate'
-              ? 'Gate'
-              : entry.kind === 'repeat'
-                ? 'Loop'
-                : 'Command'
-        }
+        state={pathLit && entry === first ? targetState : undefined}
+        icon={entry.kind === 'agent' ? Bot : entry.kind === 'gate' ? UserCheck : Wrench}
+        kicker={entry.kind === 'agent' ? 'Agent step' : entry.kind === 'gate' ? 'Gate' : 'Command'}
         title={entry.kind === 'run' ? <code>{entry.summary}</code> : entry.summary}
         subtitle={
           entry.agent !== undefined && entry.agent !== entry.summary ? entry.agent : undefined
@@ -236,15 +226,43 @@ export function PipelineGraph({
         code={entry.id}
         edgeLabel={entry.if}
       >
-        {index === 0 && liveAction
+        {entry === first && liveAction
           ? liveAction
           : entry.kind === 'agent'
             ? agentStepFoot(entry.servers)
-            : entry.kind === 'gate' || entry.kind === 'repeat'
-              ? null
+            : entry.kind === 'gate'
+              ? gateChoicesWords(entry.choices)
               : commandFoot(entry, automation.mode)}
       </PipelineNode>
-    ));
+    );
+    const top = described.filter((entry) => entry.loop === undefined);
+    const gated = described.some((entry) => entry.if !== undefined && entry.loop === undefined);
+    const stepNodes = top.map((entry) => {
+      if (entry.kind !== 'repeat') return stepNode(entry);
+      const inner = described.filter((step) => step.loop === entry.id);
+      const innerGated = inner.some((step) => step.if !== undefined);
+      return (
+        <PipelineNode
+          key={`loop:${entry.id}`}
+          className="automations-node-loop"
+          icon={Repeat}
+          kicker="Loop"
+          title={entry.summary}
+          code={entry.id}
+          edgeLabel={entry.if}
+          inside={
+            <ol
+              className={`automations-pipeline automations-pipeline-loop ${innerGated ? 'automations-pipeline-gated' : ''}`}
+              aria-label={`Steps of ${entry.id}`}
+            >
+              {inner.map((step) => stepNode(step))}
+            </ol>
+          }
+        >
+          {loopFoot(entry.exhausted)}
+        </PipelineNode>
+      );
+    });
     return (
       <ol
         className={`automations-pipeline ${gated ? 'automations-pipeline-gated' : ''} ${automation.problem ? 'automations-pipeline-paused' : ''}`}
@@ -288,6 +306,7 @@ export function PipelineGraph({
 
 function PipelineNode({
   state,
+  className,
   icon: Icon,
   kicker,
   title,
@@ -296,9 +315,12 @@ function PipelineNode({
   code,
   wrapCode = false,
   edgeLabel,
+  inside,
   children,
 }: {
   state?: NodeState;
+  /** A kind of node drawn apart: a loop's frame. */
+  className?: string;
   icon: LucideIcon;
   kicker: string;
   title: ReactNode;
@@ -311,10 +333,14 @@ function PipelineNode({
   wrapCode?: boolean;
   /** Drawn on the edge into this node, as text. */
   edgeLabel?: string;
+  /** Nodes drawn inside this one, above its foot: a loop's steps. */
+  inside?: ReactNode;
   children: ReactNode;
 }) {
   return (
-    <li className={`automations-node ${state ? `automations-node-${state}` : ''}`}>
+    <li
+      className={`automations-node ${state ? `automations-node-${state}` : ''} ${className ?? ''}`}
+    >
       {edgeLabel !== undefined && (
         <span className="automations-node-if" title={`if: ${edgeLabel}`}>
           <span className="sr-only">Runs if </span>
@@ -333,6 +359,7 @@ function PipelineNode({
           {code}
         </code>
       )}
+      {inside}
       <div className="automations-node-foot">{children}</div>
     </li>
   );

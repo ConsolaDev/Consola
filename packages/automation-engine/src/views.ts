@@ -71,6 +71,12 @@ export interface AutomationView {
     /** The skills its agent names, by folder name; absent when it names none. */
     skills?: string[];
   }>;
+  /**
+   * A `steps:` entry's flow in words (`describeFlow`): its loops, gates,
+   * commands inside a loop, declared retries and budget, as the Allow card
+   * and the automation page say them. Absent for a legacy entry.
+   */
+  flow?: string[];
   /** The file it lives in, relative to the factory folder: `factory.yml` or `automations/<name>.yaml`. */
   file?: string;
   /** 1-based line in its file: an automation file's entry is its line 1. */

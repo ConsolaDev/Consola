@@ -7,6 +7,7 @@ import {
   type RepeatStep,
   type Step,
   type StepEntry,
+  type StepsAutomation,
 } from '@consola/factory-spec';
 import { clipText } from './steps/commandIO';
 import type { AutomationView } from './views';
@@ -39,6 +40,64 @@ export function dryRunStarts(entries: readonly StepEntry[]): boolean {
   return leafSteps(entries).some(
     (step) => step.kind === 'agent' || (step.kind === 'run' && step.dryRun === 'run'),
   );
+}
+
+/** `1 time`, `3 times`. */
+const times = (n: number) => `${n} ${n === 1 ? 'time' : 'times'}`;
+
+/** An id in backticks, as the card's lines name steps. */
+const quoted = (id: string) => `\`${id}\``;
+
+/** `` `a` ``, `` `a` and `b` ``, `` `a`, `b` and `c` ``. */
+function idsInWords(ids: readonly string[]): string {
+  const words = ids.map(quoted);
+  return words.length < 2
+    ? words.join('')
+    : `${words.slice(0, -1).join(', ')} and ${words[words.length - 1]}`;
+}
+
+const EXHAUSTED_WORDS = { fail: 'fails', continue: 'goes on', gate: 'asks you' } as const;
+
+/**
+ * How a run of this entry flows, as the approval and Allow cards say it
+ * (Call 13), in this order: each loop, each gate, each command inside a
+ * loop (how often it may run), each declared retry (a step's, then the
+ * entry's; "Nothing retries by itself." when none is above 0), the budget.
+ * The budget is the number as the file writes it (`$5`), never the
+ * run-time `usdWords` (`$5.00`).
+ */
+export function describeFlow(automation: StepsAutomation): string[] {
+  const entries = automation.steps;
+  const loops = entries.filter((step): step is RepeatStep => step.kind === 'repeat');
+  const leaves = leafSteps(entries);
+  const loopLines = loops.map(
+    (loop) =>
+      `Repeats ${idsInWords(loop.steps.map((step) => step.id))} up to ${times(loop.max)} until ${quoted(loop.until)}; then ${EXHAUSTED_WORDS[describeLoop(loop).exhausted ?? 'fail']}.`,
+  );
+  const gateLines = leaves
+    .filter((step) => step.kind === 'gate')
+    .map((step) => `Stops for you at ${quoted(step.id)}.`);
+  const commandLines = loops.flatMap((loop) =>
+    loop.steps
+      .filter((step) => step.kind === 'run')
+      .map((step) => `${quoted(step.id)} runs once per round (up to ${times(loop.max)}).`),
+  );
+  const retryLines = leaves.flatMap((step) => {
+    const retry = step.kind === 'gate' ? 0 : (step.onFailure?.retry ?? 0);
+    return retry > 0 ? [`${quoted(step.id)} retries by itself up to ${times(retry)}.`] : [];
+  });
+  const entryRetry = automation.onFailure?.retry ?? 0;
+  if (entryRetry > 0)
+    retryLines.push(
+      `The whole run starts again by itself up to ${times(entryRetry)}, only if nothing in it acted.`,
+    );
+  return [
+    ...loopLines,
+    ...gateLines,
+    ...commandLines,
+    ...(retryLines.length > 0 ? retryLines : ['Nothing retries by itself.']),
+    automation.budget ? `Budget: $${String(automation.budget.usd)} at most (est.).` : 'No budget.',
+  ];
 }
 
 /** A tool run in-process, or agent sessions; an entry of commands only runs no agent, so it reads as a tool. */

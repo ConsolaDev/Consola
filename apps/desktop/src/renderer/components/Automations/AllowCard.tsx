@@ -77,6 +77,14 @@ export function AllowCard({
             {note}
           </p>
         ))}
+        {/* How each run flows (`describeFlow`): its loops, gates, retries and budget. */}
+        {automation.flow && automation.flow.length > 0 && (
+          <div className="automations-approval-flow" role="group" aria-label="How a run flows">
+            {automation.flow.map((line) => (
+              <p key={line}>{line}</p>
+            ))}
+          </div>
+        )}
       </div>
       <EntrySource
         workspaceId={workspaceId}

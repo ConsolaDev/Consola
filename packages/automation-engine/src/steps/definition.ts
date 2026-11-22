@@ -102,6 +102,13 @@ export interface RunDefinition {
 }
 
 /**
+ * A run's definition as main hands it to the approval card: the snapshot,
+ * and its flow lines (`describeFlow`) computed when read, never written to
+ * the run folder.
+ */
+export type RunDefinitionView = RunDefinition & { flow: string[] };
+
+/**
  * What a `steps:` run will do, kept on its run as `result`: which steps, and
  * the item or scope it is about. Light, so history's cap never blanks an
  * approval; what each step says is in the run folder's definition.

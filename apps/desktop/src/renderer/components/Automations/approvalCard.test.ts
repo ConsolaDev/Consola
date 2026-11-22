@@ -6,7 +6,10 @@ import {
   approvalSkills,
   definitionEntries,
   definitionLeaves,
+  definitionRows,
   dryRunCommands,
+  gateChoicesWords,
+  loopFoot,
 } from './approvalCard';
 
 type Step = RunDefinition['automation']['steps'][number];
@@ -122,6 +125,41 @@ describe('a definition with a loop (slice 3)', () => {
       'check',
       'pr',
     ]);
+  });
+
+  it("lists a loop's steps under it", () => {
+    // North-star §4.1's steps, as the approval card draws them.
+    const SECTION_41_AUTOMATION = definitionOf(
+      agent('triage'),
+      command('not-ours'),
+      agent('fix'),
+      loop('polish', agent('review'), agent('address')),
+      command('pr'),
+      command('ticket'),
+    ).automation;
+    expect(
+      definitionRows(SECTION_41_AUTOMATION).map(({ step, depth }) => [step.id, depth]),
+    ).toEqual([
+      ['triage', 0],
+      ['not-ours', 0],
+      ['fix', 0],
+      ['polish', 0],
+      ['review', 1],
+      ['address', 1],
+      ['pr', 0],
+      ['ticket', 0],
+    ]);
+  });
+
+  it("words a loop's foot by how it ends, and a gate's choices with Reject last", () => {
+    expect(loopFoot('fail')).toBe('then fails');
+    expect(loopFoot('continue')).toBe('then goes on');
+    expect(loopFoot('gate')).toBe('then asks you');
+    expect(loopFoot(undefined)).toBe('then fails');
+    expect(gateChoicesWords(['approve', 'request-changes'])).toBe(
+      'Approve, Request changes or Reject',
+    );
+    expect(gateChoicesWords(undefined)).toBe('Approve or Reject');
   });
 });
 

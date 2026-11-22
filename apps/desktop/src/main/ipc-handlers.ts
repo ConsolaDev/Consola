@@ -153,12 +153,14 @@ import {
   RunFolder,
   RunHistoryFiles,
   RunStore,
+  describeFlow,
   startCommand,
   stepToolSpecs,
   workspaceDataDir,
   workspaceFactoryPath,
   type AutomationStateFile,
   type ListRunsQuery,
+  type RunDefinitionView,
 } from '@consola/automation-engine';
 import { createConductor } from './conductor/createConductor';
 import { scaffold } from './conductor/ConductorScaffold';
@@ -2369,8 +2371,13 @@ export function setupIpcHandlers(): boolean {
     },
   );
   // The reads answer null for a bad argument or something that is not there, and start nothing.
-  ipcMain.handle(IPC_CHANNELS.AUTOMATIONS_GET_RUN_DEFINITION, (_event, runId: unknown) =>
-    typeof runId === 'string' ? automations.getRunDefinition(runId) : null,
+  // The snapshot with its flow lines, computed here and never written to the run folder (Call 13).
+  ipcMain.handle(
+    IPC_CHANNELS.AUTOMATIONS_GET_RUN_DEFINITION,
+    (_event, runId: unknown): RunDefinitionView | null => {
+      const definition = typeof runId === 'string' ? automations.getRunDefinition(runId) : null;
+      return definition ? { ...definition, flow: describeFlow(definition.automation) } : null;
+    },
   );
   ipcMain.handle(
     IPC_CHANNELS.AUTOMATIONS_GET_STEP_DETAIL,

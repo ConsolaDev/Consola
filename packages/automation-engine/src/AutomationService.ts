@@ -68,6 +68,7 @@ import {
 } from './factoryTemplates';
 import {
   describeEvery,
+  describeFlow,
   describeKind,
   describeRun,
   describeSteps,
@@ -2430,7 +2431,10 @@ export class AutomationService {
         runs: describeRun(automation),
         target: automation.run?.ref ?? 'steps',
         ...(isStepsEntry(automation)
-          ? { steps: describeSteps(automation.steps, entry.agents) }
+          ? {
+              steps: describeSteps(automation.steps, entry.agents),
+              flow: describeFlow(automation),
+            }
           : {}),
         file: automation.file,
         ...(automation.line ? { line: automation.line } : {}),

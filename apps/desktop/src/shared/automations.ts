@@ -19,7 +19,7 @@ import type {
   ItemTargets,
   ListRunsQuery,
   LogTail,
-  RunDefinition,
+  RunDefinitionView,
   RunListPage,
   StepDetail,
   StepsRunPreview,
@@ -48,6 +48,7 @@ export type {
   EntryAgentView,
   EntryAgentsView,
   RunDefinition,
+  RunDefinitionView,
   StepsRunPreview,
   StepDetail,
   LogTail,
@@ -121,7 +122,7 @@ export interface AutomationsAPI {
   /** One page of a workspace's history, newest first, narrowed before it is paged; `before` is the last run of the page before. */
   listRuns: (workspaceId: string, query: ListRunsQuery) => Promise<RunListPage>;
   /** A steps run's whole definition snapshot; null for a run without one. */
-  getRunDefinition: (runId: string) => Promise<RunDefinition | null>;
+  getRunDefinition: (runId: string) => Promise<RunDefinitionView | null>;
   /** A step's latest attempt: record, definition, `command.json` and the last 64 KB of each log. Null when there is no such step. */
   getStepDetail: (runId: string, stepId: string) => Promise<StepDetail | null>;
   /** "Show all": a step log up to the 1 MB it holds. Null when there is no such step or log. */

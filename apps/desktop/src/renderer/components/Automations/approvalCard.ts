@@ -1,5 +1,6 @@
 import type { RunDefinition, StepDetail } from '../../../shared/automations';
 import { agentStepHead, serverGrantLine, skillsLine } from './agentGrantWords';
+import { gateChoiceLabel } from './gateCardWords';
 
 type DefinitionEntry = RunDefinition['automation']['steps'][number];
 type DefinitionStep = Exclude<DefinitionEntry, { kind: 'repeat' }>;
@@ -21,6 +22,28 @@ export function definitionEntries(
         ? [{ step }, ...step.steps.map((inner) => ({ step: inner, loop: step.id }))]
         : [{ step }],
   );
+}
+
+/** The approval card's rows: record order, a loop's steps at depth 1 under its own row. */
+export function definitionRows(
+  automation: RunDefinition['automation'],
+): Array<{ step: DefinitionEntry; depth: 0 | 1 }> {
+  return definitionEntries(automation.steps).map(({ step, loop }) => ({
+    step,
+    depth: loop === undefined ? 0 : 1,
+  }));
+}
+
+/** How a loop ends when its `until` is still not met after its last round, as its frame's foot says it. */
+export function loopFoot(exhausted: 'fail' | 'continue' | 'gate' | undefined): string {
+  if (exhausted === 'continue') return 'then goes on';
+  return exhausted === 'gate' ? 'then asks you' : 'then fails';
+}
+
+/** A gate's answers as its card offers them: `Approve, Comment or Reject`; without choices, `Approve or Reject`. */
+export function gateChoicesWords(choices: readonly string[] | undefined): string {
+  const labels = [...(choices ?? ['approve'])].map(gateChoiceLabel);
+  return `${labels.join(', ')} or Reject`;
 }
 
 /** Every leaf step, a loop's included, in file order: what every "does any step…" question reads. */

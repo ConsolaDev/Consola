@@ -8,7 +8,7 @@ import type {
   ItemTargets,
   ListRunsQuery,
   LogTail,
-  RunDefinition,
+  RunDefinitionView,
   RunListPage,
   RunRecord,
   StepDetail,
@@ -87,7 +87,7 @@ export const automationsBridge = {
     (getAPI() ?? unavailable()).listRuns(workspaceId, query),
 
   /** A steps run's whole definition snapshot; null for a run without one. */
-  getRunDefinition: async (runId: string): Promise<RunDefinition | null> =>
+  getRunDefinition: async (runId: string): Promise<RunDefinitionView | null> =>
     getAPI()?.getRunDefinition(runId) ?? null,
 
   /** A step's latest attempt, with its command and the end of each log; null when there is no such step. */

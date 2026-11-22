@@ -2227,6 +2227,30 @@
   --edge-color: var(--color-info);
 }
 
+/*
+ * A loop: a frame around its steps, drawn as a node of the pipeline (arrows
+ * enter and leave the frame), its own steps joined inside it. Its label is
+ * its bound and its until; its foot says how it ends when that is never met.
+ */
+.automations-node-loop {
+  flex: 2 1 auto;
+  border-style: dashed;
+  background: color-mix(in srgb, var(--color-text-primary) 2%, var(--color-bg-primary));
+  box-shadow: none;
+}
+
+.automations-pipeline-loop {
+  --edge: 28px;
+  padding: var(--space-2) 0;
+  border: none;
+  background: none;
+  overflow: visible;
+}
+
+.automations-pipeline-loop.automations-pipeline-gated {
+  --edge: 96px;
+}
+
 /* Notify: the target only previews, so it is drawn as an outline of a step. */
 .automations-node-preview {
   border-style: dashed;
@@ -4030,6 +4054,26 @@
   min-width: 0;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
+}
+
+/* A step inside a loop: set in under the loop's own row, joined to it by a rule. */
+.automations-approval-step-inner {
+  margin-left: var(--space-4);
+  border-left: 2px solid var(--color-border-strong);
+}
+
+/* How the run flows: its loops, gates, retries and budget, a line each, under its steps. */
+.automations-approval-flow {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.automations-approval-flow > p {
+  margin: 0;
+  overflow-wrap: anywhere;
 }
 
 /* An agent's own description, as its file writes it, under its name. */

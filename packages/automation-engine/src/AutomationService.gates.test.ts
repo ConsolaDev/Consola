@@ -1030,3 +1030,16 @@ describe('a parked run holds its item and its checkout (Review Focus 3)', () => 
     expect(h.service.checkoutHeld(DIR, PR_51_KEY)).toBe(false);
   });
 });
+
+describe("the cards' flow lines (Call 13)", () => {
+  it("puts them on a steps entry's view, and never in its run's definition", async () => {
+    const h = await stepsHarness({ yaml: GATED_ENTRY });
+    expect(h.service.list(WORKSPACE_ID)[0].flow).toEqual([
+      'Stops for you at `decide`.',
+      'Nothing retries by itself.',
+      'No budget.',
+    ]);
+    const run = await fire(h);
+    expect(h.service.getRunDefinition(run.id)).not.toHaveProperty('flow');
+  });
+});

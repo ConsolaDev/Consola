@@ -20,7 +20,12 @@ export {
 } from './runFilter';
 export { SNAPSHOT_ENDED_RUNS } from './views';
 export { describeSchedule } from './describeSchedule';
-export { describeEvery, describeRun, describeTriggerAsWritten } from './describeEntry';
+export {
+  describeEvery,
+  describeFlow,
+  describeRun,
+  describeTriggerAsWritten,
+} from './describeEntry';
 export type {
   AutomationView,
   CheckView,
@@ -123,6 +128,7 @@ export {
   type CommandFile,
   type LogTail,
   type RunDefinition,
+  type RunDefinitionView,
   type StepDetail,
   type StepsRunPreview,
 } from './steps/definition';
