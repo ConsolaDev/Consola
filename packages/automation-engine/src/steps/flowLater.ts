@@ -11,7 +11,7 @@ export type FlowKey = 'gate' | 'then' | 'repeat' | 'on_failure' | 'budget';
 
 const NOT_YET: readonly FlowKey[] = ['gate', 'then', 'repeat', 'on_failure', 'budget'];
 
-/** Whether the entry writes `key`, a loop's steps included. `on_failure` and `budget` are still refused by the format. */
+/** Whether the entry writes `key`, a loop's steps included. */
 function writes(automation: StepsAutomation, key: FlowKey): boolean {
   switch (key) {
     case 'gate':
@@ -21,8 +21,14 @@ function writes(automation: StepsAutomation, key: FlowKey): boolean {
     case 'repeat':
       return automation.steps.some((step) => step.kind === 'repeat');
     case 'on_failure':
+      return (
+        automation.onFailure !== undefined ||
+        leafSteps(automation.steps).some(
+          (step) => step.kind !== 'gate' && step.onFailure !== undefined,
+        )
+      );
     case 'budget':
-      return false;
+      return automation.budget !== undefined;
   }
 }
 

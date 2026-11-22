@@ -12,7 +12,13 @@ import {
   stepsSchema,
   type StepEntry,
 } from './steps';
-import { ON_EXHAUSTED_OUTSIDE } from './flow';
+import {
+  ON_EXHAUSTED_OUTSIDE,
+  parseBudget,
+  parseEntryCheckout,
+  parseRetry,
+  type Fail,
+} from './flow';
 
 /**
  * `auto` runs as soon as the trigger fires. `confirm` previews and waits for
@@ -61,6 +67,15 @@ interface AutomationCommon {
   /** `on: manual` only: which items a run on demand takes. */
   appliesTo?: Array<'pr' | 'issue'>;
   mode: AutomationMode;
+  /**
+   * `checkout: { pr: item }`: the run works in its item's read-only checkout,
+   * as an item run does without it. Steps entries only; present only when written.
+   */
+  checkout?: { pr: 'item' };
+  /** `budget: { usd }`: what a run may spend, checked between steps. Steps entries only; present only when written. */
+  budget?: { usd: number };
+  /** `on_failure: { retry }`: how many times the whole run starts again by itself. Steps entries only; present only when written. */
+  onFailure?: { retry: number };
   /** 1-based line of the entry in the file, for error and UI pointers. */
   line?: number;
   /**
@@ -284,6 +299,25 @@ function explained(message: string) {
   return z.never({ error: message }).optional();
 }
 
+/**
+ * An entry key read by one of `flow.ts`' parsers, which names its own key
+ * first in each issue's path: here the path is already at the key.
+ */
+function flowKey<T>(parse: (value: unknown, fail: Fail) => T | undefined) {
+  return z
+    .unknown()
+    .transform((value, ctx): T => {
+      const parsed = parse(value, (message, path = []) =>
+        ctx.addIssue({ code: 'custom', message, path: path.slice(1) }),
+      );
+      return parsed === undefined ? z.NEVER : parsed;
+    })
+    .optional();
+}
+
+/** `checkout: { pr: item }`'s words where an entry's items are never pull requests. */
+export const PR_ITEM_NEEDS_PRS = '`pr: item` needs items that are pull requests.';
+
 /** Every key a later slice owns, refused with what it arrives with; `with` keeps its own message above. */
 function laterEntryKeys() {
   return Object.fromEntries(
@@ -349,6 +383,9 @@ function automationEntrySchema() {
       scope: z.string().trim().min(1, 'Name one of the workspace’s scopes.').optional(),
       applies_to: appliesToSchema.optional(),
       mode: z.enum(AUTOMATION_MODES).default('confirm'),
+      checkout: flowKey(parseEntryCheckout),
+      budget: flowKey(parseBudget),
+      on_failure: flowKey(parseRetry),
       with: explained(
         'Move `with:` under `run:` — only a tool takes arguments: `run: { tool: …, with: { … } }`.',
       ),
@@ -415,8 +452,23 @@ function automationEntrySchema() {
       }
       const keyed = poll && trigger.key !== undefined;
 
+      // What a run of `steps:` has, one per run: on a single `run:` they say where they go.
+      if (run) {
+        for (const key of ['checkout', 'budget', 'on_failure'] as const)
+          if (entry[key] !== undefined) issue(key, `\`${key}\` goes with \`steps:\`.`);
+      }
+      if (steps && entry.checkout) {
+        // Items that are never pull requests: none, a keyed poll's, or a run on demand's that names no `pr`.
+        const neverPrs =
+          noItem ||
+          keyed ||
+          (trigger.kind === 'manual' && !(entry.applies_to ?? []).includes('pr'));
+        if (neverPrs) issue('checkout', PR_ITEM_NEEDS_PRS);
+        else if (entry.scope) issue('scope', 'The checkout says where this runs; remove `scope:`.');
+      }
+
       if (steps) {
-        if (noItem || keyed) needsScope();
+        if ((noItem || keyed) && !entry.checkout) needsScope();
         // A step that failed its own checks leaves no list to resolve against.
         if (Array.isArray(steps)) {
           checkSteps(steps, { trigger, appliesTo: entry.applies_to }, ['steps'], (message, path) =>
@@ -458,7 +510,16 @@ function automationEntrySchema() {
         ...(entry.applies_to ? { appliesTo: entry.applies_to } : {}),
         mode: entry.mode,
       };
-      return entry.steps ? { ...common, steps: entry.steps } : { ...common, run: entry.run! };
+      // Only when written, so an entry without them parses, and hashes, as before (contract 14).
+      return entry.steps
+        ? {
+            ...common,
+            ...(entry.checkout ? { checkout: entry.checkout } : {}),
+            ...(entry.budget ? { budget: entry.budget } : {}),
+            ...(entry.on_failure ? { onFailure: entry.on_failure } : {}),
+            steps: entry.steps,
+          }
+        : { ...common, run: entry.run! };
     });
 }
 

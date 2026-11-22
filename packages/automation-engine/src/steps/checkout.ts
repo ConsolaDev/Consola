@@ -1,4 +1,5 @@
-import type { Automation, RunRecord } from '@consola/factory-spec';
+import { PR_ITEM_NEEDS_PRS, type Automation, type RunRecord } from '@consola/factory-spec';
+import type { ItemSource } from '../sources/itemSource';
 import type { CheckoutKind } from '../ports';
 import type { ItemRef } from '../views';
 import { itemRefOf } from './agentStep';
@@ -86,4 +87,19 @@ export function entryReadsItems(automation: Automation): boolean {
     case 'cron':
       return false;
   }
+}
+
+/**
+ * Why an entry's `checkout: { pr: item }` cannot hold: its source's items are
+ * never pull requests (an event or a poll's `item:` whose connection gives
+ * none), or it has no source at all. Null when it holds, or the entry does
+ * not name it. Factory-spec refuses what it can tell from the file alone (a
+ * schedule, a keyed poll, `on: manual` without `pr`); this is the rest.
+ */
+export function prCheckoutProblem(
+  automation: Pick<Automation, 'checkout'>,
+  source: Pick<ItemSource, 'itemTypes'> | undefined,
+): string | null {
+  if (automation.checkout?.pr !== 'item') return null;
+  return source?.itemTypes.includes('pr') ? null : PR_ITEM_NEEDS_PRS;
 }

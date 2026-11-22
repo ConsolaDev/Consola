@@ -44,6 +44,49 @@ const withArgs = (args: Record<string, unknown>): Automation => ({
   run: { ...(tool.run as Extract<Automation['run'], { kind: 'tool' }>), with: args },
 });
 
+/**
+ * review-assigned-prs as PR A ships it (the engine's factoryTemplates.ts), pasted here because
+ * factory-spec imports nothing from the engine. Its version is pinned at 6dfd57fa0f97c2ff.
+ */
+const PR_A_REVIEW_YAML = String.raw`- name: review-assigned-prs
+  on: { github: [pull_request.review_requested, pull_request.assigned] }
+  filter: { authors_not: ["dependabot[bot]"] }
+  mode: auto
+  steps:
+    - id: fresh
+      run: |
+        reviewed=$(gh api graphql -f url="$PR" -f query='
+          query($url: URI!) { resource(url: $url) { ... on PullRequest {
+            viewerLatestReview { commit { oid } } } } }' \
+          --jq '.data.resource.viewerLatestReview.commit.oid // ""')
+        if [ "$reviewed" = "$CONSOLA_CHECKOUT_HEAD" ]; then needed=false; else needed=true; fi
+        echo "needed=$needed" >> "$CONSOLA_OUTPUT"
+      env: { PR: "{{item.url}}" }
+      outputs: { needed: boolean }
+      dry_run: run
+    - id: review
+      if: steps.fresh.needed
+      prompt: >-
+        Review this pull request. Read it with Consola's work_item_context tool, and read the changed files
+        in this folder where it helps. Write your review as your handover, in Markdown, addressed to the
+        author and under 60,000 characters: what it changes, then each finding with its file and line.
+        Then set verdict: approve if you would merge it as it is, request-changes if something must change
+        first, comment otherwise.
+      outputs:
+        verdict: { enum: [approve, comment, request-changes] }
+    - id: publish
+      if: steps.fresh.needed
+      run: |
+        event=COMMENT
+        if [ "$VERDICT" = "request-changes" ]; then event=REQUEST_CHANGES; fi
+        gh api "repos/$REPO/pulls/$NUMBER/reviews" \
+          -f commit_id="$CONSOLA_CHECKOUT_HEAD" -f event="$event" -F body=@"$BODY_FILE"
+      env:
+        REPO: "{{item.repo}}"
+        NUMBER: "{{item.number}}"
+        VERDICT: "{{steps.review.verdict}}"
+        BODY_FILE: "{{steps.review.handover.file}}"`;
+
 describe('automationVersion', () => {
   it('is stable across key order and absent values', () => {
     expect(automationVersion(tool)).toBe(
@@ -111,47 +154,7 @@ describe('automationVersion', () => {
   });
 
   it('keeps the steps template hash taken at PR A', () => {
-    // review-assigned-prs as PR A ships it (the engine's factoryTemplates.ts), pasted here because
-    // factory-spec imports nothing from the engine.
-    const entry = String.raw`- name: review-assigned-prs
-  on: { github: [pull_request.review_requested, pull_request.assigned] }
-  filter: { authors_not: ["dependabot[bot]"] }
-  mode: auto
-  steps:
-    - id: fresh
-      run: |
-        reviewed=$(gh api graphql -f url="$PR" -f query='
-          query($url: URI!) { resource(url: $url) { ... on PullRequest {
-            viewerLatestReview { commit { oid } } } } }' \
-          --jq '.data.resource.viewerLatestReview.commit.oid // ""')
-        if [ "$reviewed" = "$CONSOLA_CHECKOUT_HEAD" ]; then needed=false; else needed=true; fi
-        echo "needed=$needed" >> "$CONSOLA_OUTPUT"
-      env: { PR: "{{item.url}}" }
-      outputs: { needed: boolean }
-      dry_run: run
-    - id: review
-      if: steps.fresh.needed
-      prompt: >-
-        Review this pull request. Read it with Consola's work_item_context tool, and read the changed files
-        in this folder where it helps. Write your review as your handover, in Markdown, addressed to the
-        author and under 60,000 characters: what it changes, then each finding with its file and line.
-        Then set verdict: approve if you would merge it as it is, request-changes if something must change
-        first, comment otherwise.
-      outputs:
-        verdict: { enum: [approve, comment, request-changes] }
-    - id: publish
-      if: steps.fresh.needed
-      run: |
-        event=COMMENT
-        if [ "$VERDICT" = "request-changes" ]; then event=REQUEST_CHANGES; fi
-        gh api "repos/$REPO/pulls/$NUMBER/reviews" \
-          -f commit_id="$CONSOLA_CHECKOUT_HEAD" -f event="$event" -F body=@"$BODY_FILE"
-      env:
-        REPO: "{{item.repo}}"
-        NUMBER: "{{item.number}}"
-        VERDICT: "{{steps.review.verdict}}"
-        BODY_FILE: "{{steps.review.handover.file}}"`;
-    const parsed = parseAutomationEntry(entry);
+    const parsed = parseAutomationEntry(PR_A_REVIEW_YAML);
     if (!parsed.ok) throw new Error(JSON.stringify(parsed.issues));
     expect(automationVersion(parsed.automation)).toBe('6dfd57fa0f97c2ff');
   });
@@ -566,5 +569,78 @@ describe('a parked run (slice 3, contract 2)', () => {
       ],
     };
     expect(JSON.parse(JSON.stringify(parked))).toEqual(parked);
+  });
+});
+
+describe('the version of what slice 3 adds (Task 5)', () => {
+  /** The parsed entry of `yaml`, written on its own (review M7). */
+  const parsedEntry = (yaml: string): Automation => {
+    const parsed = parseAutomationEntry(yaml);
+    if (!parsed.ok) throw new Error(JSON.stringify(parsed.issues));
+    return parsed.automation;
+  };
+  const LOOP_YAML = [
+    '- name: polished',
+    '  on: { github: pull_request.review_requested }',
+    '  mode: auto',
+    '  steps:',
+    '    - id: polish',
+    '      repeat: { max: 3, until: steps.review.findings == 0 }',
+    '      steps:',
+    '        - id: review',
+    '          prompt: Review it.',
+    '          outputs: { findings: integer }',
+    '    - id: decide',
+    '      gate: { ask: Post it? }',
+  ].join('\n');
+
+  it('hashes checkout, budget and on_failure only when written', () => {
+    const base = parsedEntry(PR_A_REVIEW_YAML);
+    expect(automationVersion(base)).toBe('6dfd57fa0f97c2ff');
+    for (const extra of [
+      { checkout: { pr: 'item' as const } },
+      { budget: { usd: 5 } },
+      { onFailure: { retry: 1 } },
+    ])
+      expect(automationVersion({ ...base, ...extra })).not.toBe('6dfd57fa0f97c2ff');
+    expect(automationVersion({ ...base, budget: { usd: 5 } })).not.toBe(
+      automationVersion({ ...base, budget: { usd: 6 } }),
+    );
+    expect(automationVersion({ ...base, onFailure: { retry: 1 } })).not.toBe(
+      automationVersion({ ...base, onFailure: { retry: 2 } }),
+    );
+  });
+
+  it('reads them from the file: the same keys written move the version, and parse to the same hash', () => {
+    const written = parsedEntry(
+      PR_A_REVIEW_YAML.replace(
+        '  mode: auto\n',
+        '  mode: auto\n  checkout: { pr: item }\n  budget: { usd: 5 }\n  on_failure: { retry: 1 }\n',
+      ),
+    );
+    expect(written).toMatchObject({
+      checkout: { pr: 'item' },
+      budget: { usd: 5 },
+      onFailure: { retry: 1 },
+    });
+    const base = parsedEntry(PR_A_REVIEW_YAML);
+    expect(automationVersion(written)).toBe(
+      automationVersion({
+        ...base,
+        checkout: { pr: 'item' },
+        budget: { usd: 5 },
+        onFailure: { retry: 1 },
+      }),
+    );
+  });
+
+  it("moves with a loop's bound and a gate's question, which steps carry", () => {
+    const looped = parsedEntry(LOOP_YAML);
+    expect(automationVersion(parsedEntry(LOOP_YAML.replace('max: 3', 'max: 4')))).not.toBe(
+      automationVersion(looped),
+    );
+    expect(automationVersion(parsedEntry(LOOP_YAML.replace('Post it?', 'Post it now?')))).not.toBe(
+      automationVersion(looped),
+    );
   });
 });

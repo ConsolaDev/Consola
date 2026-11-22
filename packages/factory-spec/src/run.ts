@@ -256,8 +256,11 @@ export const TERMINAL_RUN_STATUSES: readonly RunStatus[] = ['completed', 'failed
  *
  * A `steps:` entry is covered whole: prompts, action names, agent names,
  * commands, env templates, `if`, outputs, artifacts, reads, timeouts and
- * `dry_run`. Its `resolvedBody` is `stepsResolvedBody`'s: the bodies of the
- * actions its steps name and, when a step names one, its agents' hashes.
+ * `dry_run`, and its loops, gates and retries, which its steps carry. Its
+ * `checkout`, `budget` and `on_failure` are covered only when written, so an
+ * entry without them hashes as before. Its `resolvedBody` is
+ * `stepsResolvedBody`'s: the bodies of the actions its steps name and, when a
+ * step names one, its agents' hashes.
  *
  * `resolvedBody` is what the runner resolved the target to — an action's
  * prompt, which lives in the workspace's settings rather than the file — so
@@ -266,7 +269,9 @@ export const TERMINAL_RUN_STATUSES: readonly RunStatus[] = ['completed', 'failed
  */
 export function automationVersion(
   automation: Pick<Automation, 'run' | 'steps' | 'mode' | 'trigger'> &
-    Partial<Pick<Automation, 'filter' | 'scope' | 'appliesTo'>>,
+    Partial<
+      Pick<Automation, 'filter' | 'scope' | 'appliesTo' | 'checkout' | 'budget' | 'onFailure'>
+    >,
   resolvedBody?: string,
 ): string {
   const { trigger } = automation;
@@ -295,6 +300,10 @@ export function automationVersion(
         : undefined,
     // Which items a run on demand takes.
     appliesTo: automation.appliesTo,
+    // Where a run works, what it may spend, and how often it starts again by itself (slice 3).
+    checkout: automation.checkout,
+    budget: automation.budget,
+    onFailure: automation.onFailure,
     resolvedBody,
   });
   return createHash('sha256').update(canonical).digest('hex').slice(0, 16);

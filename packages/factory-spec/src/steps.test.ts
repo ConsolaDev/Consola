@@ -146,10 +146,7 @@ describe('ids', () => {
 });
 
 const STEP_KEYS: Record<string, string> = {
-  on_failure: 'write steps',
-  checkout: 'write steps',
   environment: 'write steps',
-  budget: 'write steps',
   wait: 'waiting runs',
   concurrency: 'waiting runs',
   uses: 'connections as data',

@@ -173,6 +173,7 @@ import {
 import {
   entryCheckoutKind,
   entryReadsItems,
+  prCheckoutProblem,
   runCheckoutKind,
   type CheckoutPort,
   type CheckoutRequest,
@@ -4870,6 +4871,10 @@ export class AutomationService {
         ? stepItemFieldProblems(automation.steps, fields, source.connection)
         : [];
     if (fieldProblem) return unable(fieldProblem);
+
+    // `checkout: { pr: item }` on items its source can never give as pull requests (Call 15).
+    const prCheckout = prCheckoutProblem(automation, source);
+    if (prCheckout) return unable(prCheckout);
 
     if (this.deps.platform === 'win32' && steps.some((step) => step.kind === 'run'))
       return unable(NO_POSIX_SHELL);

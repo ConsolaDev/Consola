@@ -26,6 +26,7 @@ import {
   parseGateBody,
   parseOnExhausted,
   parseRepeatHeader,
+  parseRetry,
   parseThen,
 } from './flow';
 import { AUTOMATION_NAME_PATTERN } from './names';
@@ -147,6 +148,8 @@ export interface AgentStep extends StepCommon {
   handover: 'required' | 'optional';
   /** Its turn's cap (`max_turns`), present only when the file writes one. */
   maxTurns?: number;
+  /** `on_failure: { retry: <n> }`: how many times it starts again by itself. Present only when written. */
+  onFailure?: { retry: number };
 }
 
 export interface CommandStep extends StepCommon {
@@ -159,6 +162,8 @@ export interface CommandStep extends StepCommon {
   stdout?: 'json' | 'text';
   timeoutMs: number;
   dryRun: 'report' | 'run';
+  /** `on_failure: { retry: <n> }`, present only when written; above 0 only with `dry_run: run` (`checkSteps`). */
+  onFailure?: { retry: number };
 }
 
 /**
@@ -184,6 +189,7 @@ export {
   MAX_GATE_ASK,
   MAX_GATE_SHOW,
   MAX_LOOP_STEPS,
+  MAX_RETRIES,
   MAX_ROUNDS,
   type OnExhausted,
 } from './flow';
@@ -248,10 +254,7 @@ export function gateChoices(gate: { choices?: readonly string[] }): string[] {
  * the step it guards.
  */
 export const LATER_KEYS: Readonly<Record<string, string>> = {
-  on_failure: 'write steps',
-  checkout: 'write steps',
   environment: 'write steps',
-  budget: 'write steps',
   wait: 'waiting runs',
   concurrency: 'waiting runs',
   uses: 'connections as data',
@@ -265,12 +268,21 @@ export function laterKeyMessage(key: string): string {
   return `\`${key}\` arrives with ${LATER_KEYS[key]}; it is not supported yet.`;
 }
 
-const COMMON_KEYS = ['id', 'if', 'then'];
+const COMMON_KEYS = ['id', 'if', 'then', 'on_failure'];
 const AGENT_KEYS = ['prompt', 'action', 'agent', 'outputs', 'artifacts', 'reads', 'max_turns'];
 const COMMAND_KEYS = ['run', 'env', 'outputs', 'timeout', 'dry_run'];
 const ALL_KEYS = new Set([...COMMON_KEYS, ...AGENT_KEYS, ...COMMAND_KEYS]);
 /** Exclusive: a step names one thing to do. `agent:` goes with `prompt:` or `action:`, or alone. */
 const ONE_OF = ['prompt', 'action', 'run'] as const;
+/** A run has one checkout and one budget, so on a step (or a loop) they say where they go. */
+const STEP_CHECKOUT = '`checkout:` belongs to the automation: one checkout per run.';
+const STEP_BUDGET = '`budget:` belongs to the automation: one budget per run.';
+/** The run's own keys, refused on a step or a loop in their words. */
+const RUN_KEYS_ON_A_STEP: Readonly<Record<string, string>> = {
+  checkout: STEP_CHECKOUT,
+  budget: STEP_BUDGET,
+};
+
 /** Skills and servers are an agent's, named in its file; on a step they say where they go. */
 const STEP_SKILLS_AND_SERVERS =
   'Name skills and servers in an agent file (`agents/<name>.md`), then set `agent:` on this step.';
@@ -575,6 +587,8 @@ function parseStep(raw: unknown, index: number, fail: Fail, position = index): S
       bad('`inputs` is not a step key: use `reads` to name what an earlier step wrote.', [key]);
     else if (key === 'skills' || key === 'mcpServers') bad(STEP_SKILLS_AND_SERVERS, [key]);
     else if (key === 'on_exhausted') bad(ON_EXHAUSTED_OUTSIDE, [key]);
+    else if (Object.prototype.hasOwnProperty.call(RUN_KEYS_ON_A_STEP, key))
+      bad(RUN_KEYS_ON_A_STEP[key], [key]);
     else if (Object.prototype.hasOwnProperty.call(LATER_KEYS, key))
       bad(laterKeyMessage(key), [key]);
     else bad(`Unrecognized key in a step: ${key}.`, [key]);
@@ -593,8 +607,9 @@ function parseStep(raw: unknown, index: number, fail: Fail, position = index): S
   const kind: 'prompt' | 'action' | 'run' | 'agent' = present.length > 0 ? present[0] : 'agent';
 
   const { id, named, condition } = parseIdAndIf(raw, position, bad);
-  // `then: stop`, only when written, so a step without it parses, and hashes, as before.
+  // `then: stop` and `on_failure`, only when written, so a step without them parses, and hashes, as before.
   const stop = 'then' in raw ? parseThen(raw.then, bad) : undefined;
+  const onFailure = 'on_failure' in raw ? parseRetry(raw.on_failure, bad) : undefined;
 
   // outputs (a command may name its stdout instead).
   let outputs: Record<string, OutputType> = {};
@@ -684,6 +699,7 @@ function parseStep(raw: unknown, index: number, fail: Fail, position = index): S
       timeoutMs,
       dryRun,
       ...(stop ? { stop } : {}),
+      ...(onFailure ? { onFailure } : {}),
     };
   }
 
@@ -813,6 +829,7 @@ function parseStep(raw: unknown, index: number, fail: Fail, position = index): S
     handover,
     ...(maxTurns !== undefined ? { maxTurns } : {}),
     ...(stop ? { stop } : {}),
+    ...(onFailure ? { onFailure } : {}),
   };
 }
 
@@ -844,6 +861,8 @@ function parseBlock(
         "`on_failure` goes on a step or on the automation; a loop's rounds are bounded by `max`.",
         [key],
       );
+    else if (Object.prototype.hasOwnProperty.call(RUN_KEYS_ON_A_STEP, key))
+      bad(RUN_KEYS_ON_A_STEP[key], [key]);
     else bad(`Unrecognized key in a loop: ${key}.`, [key]);
   }
   if (!('id' in raw)) bad('A loop needs an `id`, e.g. `id: polish`.');
@@ -1235,6 +1254,13 @@ export function checkSteps(
 
     if (step.kind === 'agent' && step.action !== undefined && actionProblem)
       fail(actionProblem, at('action'));
+
+    // Only what cannot have acted retries by itself (Call 8): a command that is not safe to run in a dry run may push or post.
+    if (step.kind === 'run' && (step.onFailure?.retry ?? 0) > 0 && step.dryRun !== 'run')
+      fail(
+        `\`${step.id}\` runs a command that may push or post, so it never retries by itself; a person retries it from the run page.`,
+        at('on_failure'),
+      );
 
     if (step.if !== undefined) here.condition(step.if, at('if'));
 

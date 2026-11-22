@@ -516,3 +516,237 @@ describe('a loop, read by every other part of the format', () => {
     ]);
   });
 });
+
+const DAILY = '    on: { cron: "0 9 * * 1-5" }\n';
+
+/** Every issue's message. */
+const issueMessages = (result: ReturnType<typeof one>) =>
+  result.issues.map((issue) => issue.message);
+
+describe('on_failure, budget and checkout', () => {
+  it('parses on_failure on a step and on the entry, and budget and checkout on the entry', () => {
+    const result = one(
+      `${REVIEW}    checkout: { pr: item }\n    budget: { usd: 5 }\n    on_failure: { retry: 1 }\n    steps:\n      - id: fresh\n        run: echo\n        dry_run: run\n        on_failure: { retry: 2 }\n`,
+    );
+    expect(result.issues).toEqual([]);
+    expect(result.automations[0]).toMatchObject({
+      checkout: { pr: 'item' },
+      budget: { usd: 5 },
+      onFailure: { retry: 1 },
+      steps: [{ id: 'fresh', onFailure: { retry: 2 } }],
+    });
+  });
+
+  it('leaves every new key out of an entry and a step that do not write it', () => {
+    const result = steps('- id: look\n  prompt: Look.', '- id: fresh\n  run: echo');
+    const automation = result.automations[0] as StepsAutomation;
+    for (const key of ['checkout', 'budget', 'onFailure'])
+      expect(Object.prototype.hasOwnProperty.call(automation, key)).toBe(false);
+    for (const step of automation.steps)
+      expect(Object.prototype.hasOwnProperty.call(step, 'onFailure')).toBe(false);
+  });
+
+  it('takes a retry of 0 to 3 on an agent step, and a budget of cents', () => {
+    const result = one(
+      `${REVIEW}    budget: { usd: 0.01 }\n    on_failure: { retry: 0 }\n    steps:\n      - id: look\n        prompt: Look.\n        on_failure: { retry: 3 }\n`,
+    );
+    expect(result.issues).toEqual([]);
+    expect(result.automations[0]).toMatchObject({
+      budget: { usd: 0.01 },
+      onFailure: { retry: 0 },
+      steps: [{ id: 'look', onFailure: { retry: 3 } }],
+    });
+    expect(
+      issueMessages(one(`${REVIEW}    budget: { usd: 1000 }\n    steps:\n      - prompt: hi\n`)),
+    ).toEqual([]);
+  });
+
+  it.each([
+    ['    budget: { usd: 0 }\n', '`budget:` is `{ usd: <n> }`, with n from 0.01 to 1000.'],
+    ['    budget: { usd: 1001 }\n', '`budget:` is `{ usd: <n> }`, with n from 0.01 to 1000.'],
+    ['    on_failure: { retry: 4 }\n', '`on_failure:` is `{ retry: <n> }`, with n from 0 to 3.'],
+    [
+      '    checkout: { repo: sprocket/catalog-portal, branch: "fix/{{item.key}}" }\n',
+      '`checkout: { repo, branch }` arrives with write steps; it is not supported yet.',
+    ],
+    ['    checkout: { pr: head }\n', '`pr:` takes `item`.'],
+    [
+      '    checkout: { pr: item }\n    scope: catalog-portal\n',
+      'The checkout says where this runs; remove `scope:`.',
+    ],
+    ['    gate: { ask: ok }\n', 'A gate is a step; put it in `steps:`.'],
+    ['    repeat: { max: 2, until: x }\n', 'A loop is a step; put it in `steps:`.'],
+    ['    then: stop\n', '`then:` goes on a step.'],
+  ])('refuses on an entry: %s', (lines, message) => {
+    expect(issueMessages(one(`${REVIEW}${lines}    steps:\n      - prompt: hi\n`))).toContain(
+      message,
+    );
+  });
+
+  it.each([
+    ['    budget: 5\n', 'budget', '`budget:` is `{ usd: <n> }`, with n from 0.01 to 1000.'],
+    [
+      '    budget: { usd: "5" }\n',
+      'budget',
+      '`budget:` is `{ usd: <n> }`, with n from 0.01 to 1000.',
+    ],
+    [
+      '    budget: { usd: 5, eur: 4 }\n',
+      'budget',
+      '`budget:` is `{ usd: <n> }`, with n from 0.01 to 1000.',
+    ],
+    [
+      '    on_failure: retry\n',
+      'on_failure',
+      '`on_failure:` is `{ retry: <n> }`, with n from 0 to 3.',
+    ],
+    [
+      '    on_failure: { retry: 1.5 }\n',
+      'on_failure',
+      '`on_failure:` is `{ retry: <n> }`, with n from 0 to 3.',
+    ],
+    [
+      '    on_failure: { retry: -1 }\n',
+      'on_failure',
+      '`on_failure:` is `{ retry: <n> }`, with n from 0 to 3.',
+    ],
+    [
+      '    on_failure: { retry: 1, wait: 5m }\n',
+      'on_failure',
+      '`on_failure:` is `{ retry: <n> }`, with n from 0 to 3.',
+    ],
+    ['    checkout: item\n', 'checkout', 'Write the checkout as `checkout: { pr: item }`.'],
+    ['    checkout: {}\n', 'checkout', 'Write the checkout as `checkout: { pr: item }`.'],
+    [
+      '    checkout: { pr: item, depth: 1 }\n',
+      'checkout.depth',
+      'Unrecognized key in `checkout`: depth.',
+    ],
+    [
+      '    checkout: { from: main }\n',
+      'checkout',
+      '`checkout: { repo, branch }` arrives with write steps; it is not supported yet.',
+    ],
+    [
+      '    checkout: { pr: item, branch: x }\n',
+      'checkout',
+      '`checkout: { repo, branch }` arrives with write steps; it is not supported yet.',
+    ],
+  ])('refuses the shape %s, at its key', (lines, at, message) => {
+    const issue = only(one(`${REVIEW}${lines}    steps:\n      - prompt: hi\n`));
+    expect(issue).toMatchObject({ path: `automations[0].${at}`, message });
+  });
+
+  it('refuses pr: item where items are never pull requests', () => {
+    expect(
+      issueMessages(
+        one(
+          `${DAILY}    scope: catalog-portal\n    checkout: { pr: item }\n    steps:\n      - prompt: hi\n`,
+        ),
+      ),
+    ).toContain('`pr: item` needs items that are pull requests.');
+  });
+
+  it.each([
+    ['a schedule', `${DAILY}    scope: api\n`],
+    ['a run on demand with no item', '    on: manual\n    scope: api\n'],
+    ['a run on demand on issues', '    on: manual\n    applies_to: [issue]\n'],
+    [
+      'a poll with key:',
+      '    on: { poll: { every: 5m, run: "echo []", key: .id } }\n    scope: api\n',
+    ],
+  ])('refuses pr: item on %s, and only that', (_, head) => {
+    const issue = only(one(`${head}    checkout: { pr: item }\n    steps:\n      - prompt: hi\n`));
+    expect(issue).toMatchObject({
+      path: 'automations[0].checkout',
+      message: '`pr: item` needs items that are pull requests.',
+    });
+  });
+
+  it('says only what to fix first on a schedule with pr: item and no scope', () => {
+    expect(
+      issueMessages(one(`${DAILY}    checkout: { pr: item }\n    steps:\n      - prompt: hi\n`)),
+    ).toEqual(['`pr: item` needs items that are pull requests.']);
+  });
+
+  it.each([
+    ['an event', REVIEW],
+    ['a run on demand on pull requests', '    on: manual\n    applies_to: [pr]\n'],
+    ['a run on demand on either', '    on: manual\n    applies_to: [pr, issue]\n'],
+    [
+      'a poll with item:',
+      '    on: { poll: { every: 5m, run: "echo []", item: { github: .url } } }\n',
+    ],
+  ])('takes pr: item on %s', (_, head) => {
+    const result = one(`${head}    checkout: { pr: item }\n    steps:\n      - prompt: hi\n`);
+    expect(result.issues).toEqual([]);
+    expect(result.automations[0]).toMatchObject({ checkout: { pr: 'item' } });
+  });
+
+  it('refuses checkout, budget and on_failure on a step, and on a run: entry', () => {
+    expect(only(command('  budget: { usd: 1 }')).message).toBe(
+      '`budget:` belongs to the automation: one budget per run.',
+    );
+    expect(only(command('  checkout: { pr: item }')).message).toBe(
+      '`checkout:` belongs to the automation: one checkout per run.',
+    );
+    expect(
+      issueMessages(one(`${REVIEW}    run: { action: Review }\n    budget: { usd: 1 }\n`)),
+    ).toContain('`budget` goes with `steps:`.');
+    for (const [key, value] of [
+      ['checkout', '{ pr: item }'],
+      ['on_failure', '{ retry: 1 }'],
+    ]) {
+      expect(
+        only(one(`${REVIEW}    run: { action: Review }\n    ${key}: ${value}\n`)),
+      ).toMatchObject({
+        path: `automations[0].${key}`,
+        message: `\`${key}\` goes with \`steps:\`.`,
+      });
+    }
+  });
+
+  it("refuses checkout and budget on a loop, in a step's words", () => {
+    expect(only(steps(loopPlus('  budget: { usd: 1 }')))).toMatchObject({
+      path: 'automations[0].steps[0].budget',
+      message: '`budget:` belongs to the automation: one budget per run.',
+    });
+    expect(only(steps(loopPlus('  checkout: { pr: item }')))).toMatchObject({
+      path: 'automations[0].steps[0].checkout',
+      message: '`checkout:` belongs to the automation: one checkout per run.',
+    });
+  });
+
+  it("refuses a step's on_failure that is not a retry of 0 to 3, at its key", () => {
+    expect(only(command('  on_failure: { retry: 4 }'))).toMatchObject({
+      path: 'automations[0].steps[0].on_failure',
+      message: '`on_failure:` is `{ retry: <n> }`, with n from 0 to 3.',
+    });
+  });
+
+  it('refuses a declared retry on a command that may have acted', () => {
+    expect(only(steps('- id: pr\n  run: git push\n  on_failure: { retry: 1 }'))).toMatchObject({
+      path: 'automations[0].steps[0].on_failure',
+      message:
+        '`pr` runs a command that may push or post, so it never retries by itself; a person retries it from the run page.',
+    });
+    expect(steps('- id: pr\n  run: git push\n  on_failure: { retry: 0 }').issues).toEqual([]);
+    expect(
+      steps('- id: pr\n  run: git push\n  dry_run: run\n  on_failure: { retry: 1 }').issues,
+    ).toEqual([]);
+  });
+
+  it("refuses a declared retry on a loop's command that may have acted, at its own line", () => {
+    expect(
+      only(
+        steps(
+          '- id: polish\n  repeat: { max: 2, until: steps.look.done }\n  steps:\n    - id: look\n      prompt: Look.\n      outputs: { done: boolean }\n    - id: post\n      run: gh pr comment\n      on_failure: { retry: 2 }',
+        ),
+      ),
+    ).toMatchObject({
+      path: 'automations[0].steps[0].steps[1].on_failure',
+      message:
+        '`post` runs a command that may push or post, so it never retries by itself; a person retries it from the run page.',
+    });
+  });
+});

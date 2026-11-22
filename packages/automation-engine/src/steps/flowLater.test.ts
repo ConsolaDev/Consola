@@ -68,6 +68,24 @@ describe('flowNotYet', () => {
     );
   });
 
+  it('names on_failure on a step or on the entry, and budget', () => {
+    expect(flowNotYet(entryWith(commandStep('a', { onFailure: { retry: 1 } })))).toBe(
+      '`on_failure` runs from the next update; this automation does not run yet.',
+    );
+    expect(flowNotYet({ ...entryWith(commandStep('a')), onFailure: { retry: 1 } })).toBe(
+      '`on_failure` runs from the next update; this automation does not run yet.',
+    );
+    expect(flowNotYet({ ...entryWith(commandStep('a')), budget: { usd: 5 } })).toBe(
+      '`budget` runs from the next update; this automation does not run yet.',
+    );
+    // A retry of 0 is written, so it is refused as any other: the key is what the engine does not run.
+    expect(flowNotYet(entryWith(commandStep('a', { onFailure: { retry: 0 } })))).toBe(
+      '`on_failure` runs from the next update; this automation does not run yet.',
+    );
+    // `checkout: { pr: item }` means what absent means: nothing to lift.
+    expect(flowNotYet({ ...entryWith(commandStep('a')), checkout: { pr: 'item' } })).toBeNull();
+  });
+
   it('names gate before then when an entry writes both', () => {
     expect(flowNotYet(entryWith(commandStep('a', { stop: true }), gateStep('decide')))).toBe(
       '`gate` runs from the next update; this automation does not run yet.',

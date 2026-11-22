@@ -220,3 +220,79 @@ export function parseOnExhausted(value: unknown, fail: Fail): OnExhausted | unde
   const body = parseGateBody(gate, (message, path = []) => fail(message, at(path)));
   return body ? { ask: body.ask, show: body.show } : undefined;
 }
+
+/** The most times a step, or a whole run, may start again by itself. */
+export const MAX_RETRIES = 3;
+/** The least and the most a run's budget may be, in US dollars. */
+export const MIN_BUDGET_USD = 0.01;
+export const MAX_BUDGET_USD = 1000;
+
+const RETRY_SHAPE = `\`on_failure:\` is \`{ retry: <n> }\`, with n from 0 to ${MAX_RETRIES}.`;
+const BUDGET_SHAPE = `\`budget:\` is \`{ usd: <n> }\`, with n from ${MIN_BUDGET_USD} to ${MAX_BUDGET_USD}.`;
+const CHECKOUT_SHAPE = 'Write the checkout as `checkout: { pr: item }`.';
+const CHECKOUT_WRITES =
+  '`checkout: { repo, branch }` arrives with write steps; it is not supported yet.';
+/** What a checkout of a branch to write names: write steps' (3-B), refused until then. */
+const CHECKOUT_WRITE_KEYS = ['repo', 'branch', 'from'];
+
+/**
+ * `on_failure: { retry: <n> }`, on a step or on an entry: how many times it
+ * starts again by itself, 0 to 3. What may retry at all is `checkSteps`' and
+ * `parseFactory`'s (a command that may have acted, an agent naming a server).
+ */
+export function parseRetry(value: unknown, fail: Fail): { retry: number } | undefined {
+  const retry = isRecord(value) && Object.keys(value).length === 1 ? value.retry : undefined;
+  if (typeof retry !== 'number' || !Number.isInteger(retry) || retry < 0 || retry > MAX_RETRIES) {
+    fail(RETRY_SHAPE, ['on_failure']);
+    return undefined;
+  }
+  return { retry };
+}
+
+/** `budget: { usd: <n> }`, an entry's spend ceiling per run, from a cent to a thousand dollars. */
+export function parseBudget(value: unknown, fail: Fail): { usd: number } | undefined {
+  const usd = isRecord(value) && Object.keys(value).length === 1 ? value.usd : undefined;
+  if (
+    typeof usd !== 'number' ||
+    !Number.isFinite(usd) ||
+    usd < MIN_BUDGET_USD ||
+    usd > MAX_BUDGET_USD
+  ) {
+    fail(BUDGET_SHAPE, ['budget']);
+    return undefined;
+  }
+  return { usd };
+}
+
+/**
+ * An entry's `checkout:`. In this slice only `{ pr: item }`, slice 1's
+ * read-only checkout of the item's pull request, which is what an item run
+ * works in already; a checkout of a branch to write (`repo`, `branch`,
+ * `from`) arrives with write steps. Where items can never be pull requests is
+ * the entry's to say.
+ */
+export function parseEntryCheckout(value: unknown, fail: Fail): { pr: 'item' } | undefined {
+  const at = (path: Array<string | number> = []) => ['checkout', ...path];
+  if (!isRecord(value)) {
+    fail(CHECKOUT_SHAPE, at());
+    return undefined;
+  }
+  if (CHECKOUT_WRITE_KEYS.some((key) => key in value)) {
+    fail(CHECKOUT_WRITES, at());
+    return undefined;
+  }
+  const strangers = Object.keys(value).filter((key) => key !== 'pr');
+  if (strangers.length > 0) {
+    fail(`Unrecognized key in \`checkout\`: ${strangers[0]}.`, at([strangers[0]]));
+    return undefined;
+  }
+  if (!('pr' in value)) {
+    fail(CHECKOUT_SHAPE, at());
+    return undefined;
+  }
+  if (value.pr !== 'item') {
+    fail('`pr:` takes `item`.', at(['pr']));
+    return undefined;
+  }
+  return { pr: 'item' };
+}

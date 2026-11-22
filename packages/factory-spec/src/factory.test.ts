@@ -608,6 +608,64 @@ automations:
     });
   });
 
+  describe('declared retries (slice 3, Call 8)', () => {
+    const retrying = (agent: string, retry: number, looped = false) =>
+      files({
+        automations: {
+          looked: [
+            'on: { cron: "0 9 * * *" }',
+            'scope: ops-notes',
+            'steps:',
+            ...(looped
+              ? [
+                  '  - id: polish',
+                  '    repeat: { max: 2, until: steps.look.done }',
+                  '    steps:',
+                  '      - id: look',
+                  `        agent: ${agent}`,
+                  '        outputs: { done: boolean }',
+                  `        on_failure: { retry: ${retry} }`,
+                ]
+              : ['  - id: look', `    agent: ${agent}`, `    on_failure: { retry: ${retry} }`]),
+            '',
+          ].join('\n'),
+        },
+        agents: { investigator: INVESTIGATOR, summariser: SUMMARISER },
+        skills: { 'incident-triage': TRIAGE },
+      });
+    const NEVER =
+      "`look`'s agent names an MCP server, which may post or change things, so it never retries by itself; a person retries it from the run page.";
+
+    it('refuses a declared retry on an agent step whose agent names a server, at its on_failure', () => {
+      const result = parseFactory(retrying('investigator', 1));
+      expect(names(result)).toEqual([]);
+      expect(result.issues).toEqual([
+        {
+          message: NEVER,
+          file: 'automations/looked.yaml',
+          path: 'steps[0].on_failure',
+          line: 6,
+          automation: 'looked',
+        },
+      ]);
+    });
+
+    it("refuses it on a loop's step too, at the step's own line", () => {
+      const result = parseFactory(retrying('investigator', 2, true));
+      expect(names(result)).toEqual([]);
+      expect(result.issues).toEqual([
+        expect.objectContaining({ message: NEVER, path: 'steps[0].steps[0].on_failure', line: 10 }),
+      ]);
+    });
+
+    it('takes a retry of 0 on it, and any retry on an agent that names no server', () => {
+      expect(parseFactory(retrying('investigator', 0)).issues).toEqual([]);
+      const plain = parseFactory(retrying('summariser', 3));
+      expect(plain.issues).toEqual([]);
+      expect(names(plain)).toEqual(['looked']);
+    });
+  });
+
   describe('factoryFilesOf', () => {
     it("round-trips a folder's texts to the same automations and agents", () => {
       const folder = ACCEPTANCE();

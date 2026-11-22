@@ -1361,6 +1361,29 @@ describe('running a steps run', () => {
     );
   });
 
+  it("checkout: { pr: item } names the item's automation checkout, and runs exactly as without it (Call 15)", async () => {
+    const LOOK = '- id: look\n  prompt: Look at {{item.url}}.';
+    const runOn51 = async (yaml: string) => {
+      const h = await watching({ yaml });
+      acceptEvery(h, yaml);
+      expect(h.service.list(WORKSPACE_ID)[0].problem).toBeUndefined();
+      await h.poll([PR51]);
+      const [run] = h.store.runs();
+      return { h, run };
+    };
+    const without = await runOn51(factory(ON_REVIEW_AUTO, LOOK));
+    const named = await runOn51(factory(`${ON_REVIEW_AUTO}    checkout: { pr: item }\n`, LOOK));
+    expect(named.run).toMatchObject({
+      status: 'running',
+      checkout: { cwd: CHECKOUT, scopeId: 'scope-catalog-portal', head: CHECKOUT_HEAD },
+    });
+    expect(named.run.checkout).toEqual(without.run.checkout);
+    expect(named.h.world.checkouts.prepared).toEqual(without.h.world.checkouts.prepared);
+    expect(named.h.world.launches.map((launch) => launch.step?.cwd)).toEqual([CHECKOUT]);
+    // The key is in the version, so the entry that writes it is approved apart.
+    expect(named.run.actionVersion).not.toBe(without.run.actionVersion);
+  });
+
   it('a checkout failure fails the run before its first step, saying why', async () => {
     const h = await watching({ yaml: TEMPLATE });
     h.store.accept(KEY, TEMPLATE_VERSION);

@@ -302,6 +302,29 @@ export function parseFactory(files: FactoryFiles): FactoryParseResult {
     return kept;
   });
 
+  // Only what cannot have acted retries by itself (slice 3, Call 8): an agent naming a server may have posted.
+  candidates = candidates.filter((candidate) => {
+    const { automation } = candidate;
+    if (!isStepsEntry(automation)) return true;
+    let kept = true;
+    flatSteps(automation.steps).forEach(({ step, path: at }) => {
+      if (step.kind !== 'agent' || step.agent === undefined || (step.onFailure?.retry ?? 0) === 0)
+        return;
+      if (agents[step.agent].mcpServers.length === 0) return;
+      kept = false;
+      const path = candidate.pathTo(['steps', ...at, 'on_failure']);
+      const line = candidate.lineAt(path);
+      issues.push({
+        message: `\`${step.id}\`'s agent names an MCP server, which may post or change things, so it never retries by itself; a person retries it from the run page.`,
+        file: candidate.file,
+        path: formatPath(path),
+        ...(line !== undefined ? { line } : {}),
+        automation: automation.name,
+      });
+    });
+    return kept;
+  });
+
   // A dry run's agents may name no server: naming one grants all its tools, writes included.
   candidates = candidates.filter((candidate) => {
     const { automation } = candidate;

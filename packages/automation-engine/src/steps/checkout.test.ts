@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
   parseAutomationEntry,
+  PR_ITEM_NEEDS_PRS,
   type Automation,
   type RunRecord,
   type StepsAutomation,
 } from '@consola/factory-spec';
-import { entryCheckoutKind, entryReadsItems, runCheckoutKind } from './checkout';
+import { entryCheckoutKind, entryReadsItems, prCheckoutProblem, runCheckoutKind } from './checkout';
 import type { RunDefinition } from './definition';
 
 /*
@@ -122,5 +123,33 @@ describe('runCheckoutKind', () => {
       ),
     ).toBe('scope');
     expect(runCheckoutKind(run(), definition(scheduled))).toBe('scope');
+  });
+});
+
+describe('prCheckoutProblem (slice 3, Call 15)', () => {
+  const PR_CHECKOUT = '  checkout: { pr: item }\n';
+  const REVIEW = '  on: { github: pull_request.review_requested }\n';
+
+  it('says nothing of an entry that does not name the checkout', () => {
+    expect(prCheckoutProblem(entry(REVIEW), { itemTypes: ['issue'] })).toBeNull();
+    expect(prCheckoutProblem(entry(REVIEW), undefined)).toBeNull();
+  });
+
+  it('takes pr: item on a source whose items can be pull requests', () => {
+    expect(prCheckoutProblem(entry(`${REVIEW}${PR_CHECKOUT}`), { itemTypes: ['pr'] })).toBeNull();
+    expect(
+      prCheckoutProblem(entry(`${REVIEW}${PR_CHECKOUT}`), { itemTypes: ['pr', 'issue'] }),
+    ).toBeNull();
+  });
+
+  it('refuses it on a source whose items are never pull requests, or on no source at all', () => {
+    // No connection's event gives issues alone yet (GitHub's events are pull requests'), so the source is hand-built.
+    expect(prCheckoutProblem(entry(`${REVIEW}${PR_CHECKOUT}`), { itemTypes: ['issue'] })).toBe(
+      '`pr: item` needs items that are pull requests.',
+    );
+    expect(prCheckoutProblem(entry(`${REVIEW}${PR_CHECKOUT}`), { itemTypes: [] })).toBe(
+      PR_ITEM_NEEDS_PRS,
+    );
+    expect(prCheckoutProblem(entry(`${REVIEW}${PR_CHECKOUT}`), undefined)).toBe(PR_ITEM_NEEDS_PRS);
   });
 });
