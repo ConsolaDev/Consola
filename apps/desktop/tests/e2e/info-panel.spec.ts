@@ -703,6 +703,8 @@ test.describe('info panel', () => {
     });
 
   test("the pull request's red mark goes on its shortcut, else its tab, else the side panel toggle", async () => {
+    // Three launches.
+    test.setTimeout(60_000);
     const checksFailing = () => prSection().getByRole('button', { name: /^1 check failing/ });
     const onKind = 'Pull request #51, a check is failing and changes are requested';
 
@@ -737,7 +739,11 @@ test.describe('info panel', () => {
     await expect(sidePanelToggle()).toHaveAccessibleName('Hide side panel');
 
     // The shortcut: Pull request opened five times today is one of the
-    // header's three at the next launch, which keeps the layout.
+    // header's three at the next launch, which keeps the layout. Left on a
+    // session with no pull request, which the next launch returns to, so
+    // nothing reads #51 there before the Inbox has been read.
+    await openSession('Review notes');
+    await expect(prSection()).toHaveCount(0);
     await page.evaluate((key) => {
       const stored = JSON.parse(localStorage.getItem(key) ?? '{}');
       const now = Date.now();
@@ -760,13 +766,30 @@ test.describe('info panel', () => {
     await expect(sidePanelToggle()).toHaveAccessibleName('Show side panel');
     await expect(sidePanelToggle()).not.toHaveAttribute('data-alert-dot');
 
-    // No reads: with nothing on screen to show #51, the mark stays on what
-    // was read, and asks for nothing.
-    const reads = detailReadsOf51();
+    // With nothing on screen to show #51, the mark stays on what was read.
     await page.getByRole('button', { name: 'Hide info panel', exact: true }).click();
     await expect(infoPanel(page)).toHaveCount(0);
-    await page.waitForTimeout(2000);
     await expect(shortcut).toHaveAttribute('data-alert-dot', 'true');
+
+    // No reads. At the next launch both panels are still hidden and nothing
+    // is cached, so nothing on screen shows #51: the mark says only what the
+    // Inbox says, a failing check with no review yet, and #51's details are
+    // never read. A mark that watched or loaded would read them at once.
+    const reads = detailReadsOf51();
+    await app.close();
+    ({ app, page } = await launchElectron({ userDataDir, env }));
+    await expect.poll(inboxReadAt).toBeGreaterThan(0);
+    await openSession(FIX_CI);
+    await expect(infoPanel(page)).toHaveCount(0);
+    await expect(page.getByTestId('side-panel')).toHaveCount(0);
+    const inboxOnly = 'Pull request #51, a check is failing';
+    const prShortcut = page
+      .locator('.side-panel-controls')
+      .getByRole('button', { name: /^Pull request #51/ });
+    await expect(prShortcut).toHaveAccessibleName(inboxOnly);
+    await expect(prShortcut).toHaveAttribute('data-alert-dot', 'true');
+    await page.waitForTimeout(2000);
+    await expect(prShortcut).toHaveAccessibleName(inboxOnly);
     expect(detailReadsOf51()).toBe(reads);
   });
 });
