@@ -484,7 +484,8 @@ panel it is view state, kept in the renderer.
   the Folder row copies its path, and its card, on hover or focus, explains
   the checkout (its branch, the session's folder (the path the row copies)
   and a worktree's main checkout). Under it, "Open in" opens that folder in
-  the app last picked (`settingsStore.openInFavourite`, else Finder), as ⌘O
+  the app last picked (`settingsStore.openInFavourite`, else the file
+  manager, Finder on a Mac), as ⌘O
   (Ctrl+Alt+O elsewhere: a bare Ctrl+O is the terminal's) does from
   anywhere in a session pane; its chevron lists the apps main found
   (`main/openIn/`, one table), and a pick there or in the palette becomes
@@ -548,8 +549,9 @@ panel it is view state, kept in the renderer.
   never ends a lookup (one more is asked), a failed lookup keeps a pull
   request already found for the same branch, and an answer that read no
   branch keeps the asked branch's answer, or fails it so Retry is offered.
-- **Branch facts never fetch** (`readBranchFacts`, through `readGit`:
-  `GIT_NO_LAZY_FETCH=1`, which git honours from 2.44, `GIT_TERMINAL_PROMPT=0`,
+- **Branch facts never fetch**, on git 2.44 and later (`readBranchFacts`,
+  through `readGit`: `GIT_NO_LAZY_FETCH=1`, which an older git ignores, so a
+  partial clone's diff there fetches what it lacks; `GIT_TERMINAL_PROMPT=0`,
   a 10 s timeout and argument lists): every count is against what the clone
   already has, and what git cannot answer is a line not drawn, never a throw.
   "vs" compares with the session's pull request's base when its details are
