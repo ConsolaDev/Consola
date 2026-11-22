@@ -7,6 +7,18 @@
  * which tools, actions, connections or events exist: that is each runner's
  * registry.
  */
+export {
+  HARNESS_ID_PATTERN,
+  MAX_AGENT_BODY_BYTES,
+  MAX_AGENT_SERVERS,
+  MAX_AGENT_SKILLS,
+  TOOL_NAME_PATTERN,
+  agentHash,
+  parseAgentFile,
+  type AgentDefinition,
+  type AgentServer,
+  type ParsedAgent,
+} from './agents';
 export { cronError, nextCronOccurrence } from './cron';
 export { appendAutomationEntry, automationEntryText, replaceAutomationEntry } from './edit';
 export {
