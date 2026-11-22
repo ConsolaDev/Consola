@@ -119,7 +119,7 @@ they need, and gives them entry packages shaped like `provider-pi`. The rules:
   (below). It exposes its source as `t3/<path under src/>`. It stays
   `private`, so it is never published, and no Consola package depends on
   npm's `t3`.
-- An entry package (`packages/provider-claude`, later `provider-codex` and
+- An entry package (`packages/provider-claude`, `provider-codex`, later
   `server-orchestration`) holds only Consola's `package.json`, `tsconfig.json`,
   test selection (`vitest.config.ts`) and entry files, which re-export from `t3/…` under t3's names.
 
@@ -128,8 +128,8 @@ they need, and gives them entry packages shaped like `provider-pi`. The rules:
 - `package.json` is Consola's: `version` `0.1.11` (t3's server version at
   `d51d8c47`; thirteen lifted files read `.version`, and nothing else, from
   `../package.json` or `../../package.json`, which is this file), `"license":
-  "MIT"`, `"exports": { "./*": "./src/*" }`, `provider-pi`'s `typecheck` and
-  `test` scripts, and only the dependencies the lifted files import, each at
+  "MIT"`, `"exports": { "./*": "./src/*" }`, `provider-pi`'s `typecheck` script, a
+  `test` script that runs `vitest.config.ts` (below), and only the dependencies the lifted files import, each at
   the version t3's lockfile resolves for its `apps/server` importer
   (`@anthropic-ai/claude-agent-sdk` 0.3.321, `@effect/platform-node` and
   `-shared` 4.1.5, `@ff-labs/fff-node` 0.11.0, `@napi-rs/keyring` 1.3.0,
@@ -147,6 +147,10 @@ they need, and gives them entry packages shaped like `provider-pi`. The rules:
   effect-tsgo's `deterministicKeys` rule expects (`<package name>/<path under
   src>`), as in t3. Under another name the same tsconfig fails with 135
   `deterministicKeys` errors.
+- `vitest.config.ts` is Consola's: the shared `../../vite.config.ts` plus
+  one `testNamePattern` that skips the tests listed in `NOT_RUN_HERE` (today
+  one, see "The lifted server's tests"). The entry packages' test configs
+  spread it.
 - t3's `apps/server/vite.config.ts` is not copied: it does not load here. It
   imports `../../scripts/lib/public-config.ts`, `tagged-source-version.ts`,
   `cli-external-packages.ts` and `./src/testUtils/weightedShardSequencer.ts`,
@@ -154,8 +158,8 @@ they need, and gives them entry packages shaped like `provider-pi`. The rules:
   Most of it is t3's executable packaging. Its test part runs the server's
   tests one file at a time (`fileParallelism: false`, against SQLite and git
   flakes under load), with two setup files and 120 s timeouts. The package's
-  `test` uses the shared `../../vite.config.ts` instead, as every copied
-  package does; its setup files cover the same git and provider environment,
+  `test` uses the shared `../../vite.config.ts` (through `vitest.config.ts`)
+  instead, as every copied package does; its setup files cover the same git and provider environment,
   and the tests pass with it.
 
 ### `@t3tools/provider-claude` (`packages/provider-claude`)
@@ -194,6 +198,41 @@ What each entry reaches matters to anything that bundles it. `./server` reaches
 subpaths of the other providers, so not the Cursor SDK. `./testing` reaches
 the whole Claude closure below, `@t3tools/provider-cursor/server` (and with it
 `@cursor/sdk`) included, and is for tests only.
+
+### `@t3tools/provider-codex` (`packages/provider-codex`)
+
+Codex's adapter, driver and replay testkit, re-exported. A thin entry package
+like `provider-claude`: `package.json`, `tsconfig.json`, `vitest.config.ts`
+and three entry files that only re-export from `t3/…`.
+
+| Export | Re-exports | From |
+|---|---|---|
+| `./server` | `CodexDriver`, `type CodexDriverEnv`; the module as `CodexAdapterV2` (as t3's server imports it); `CODEX_DRIVER_KIND`, `createCodexAdapterV2`, `type CodexAdapterV2DriverEnv` | `t3/provider/Drivers/CodexDriver.ts`, `t3/orchestration-v2/Adapters/CodexAdapterV2.ts` |
+| `./settings` | `CodexSettings` | `@t3tools/contracts`, where t3 defines it |
+| `./testing` | everything `CodexAdapterV2.testkit.ts` exports (`CodexOrchestratorReplayHarness`, `withCodexReplayChildMetadata`, `layer`, the replay errors) | `t3/orchestration-v2/Adapters/CodexAdapterV2.testkit.ts` |
+
+No `./client`, for the reason `provider-claude` has none: t3 has no Codex
+client module (Codex's client is an object in `@t3tools/client-runtime`'s
+`providerClients` registry). t3 does not export a `CODEX_PROVIDER` constant
+(`CodexAdapterV2.ts` keeps it module-private); `CODEX_DRIVER_KIND`, which is
+that value, is exported instead.
+
+Its `test` runs the Codex tests of the lifted tree with the server's own
+Vitest, as `provider-claude`'s does, with `include`
+`src/**/{Codex,codex}*.test.ts`: the 20 test files whose names start with
+`Codex` or `codex`, and no other (Claude's glob, `{Claude,claude}*`, selects
+none of them, and its 16 files are unchanged). The config spreads the
+server's `vitest.config.ts`, so the test that is not run here is skipped in
+both. CI needs no edit: it runs every lifted test once, in `t3`, and leaves out
+the packages that depend on `t3` (`--filter "!...^t3"`), which includes this one.
+
+What each entry reaches matters to anything that bundles it. `./server`
+reaches 211 lifted files and, among native or vendor code, only `ffi-rs`
+(through `src/policy/ManagedPolicy.ts`) and the `client` and `server/driver`
+subpaths of the other providers and source-control packages: neither the
+Claude Agent SDK nor the Cursor SDK. `./testing` reaches the whole lifted
+tree's testkit (the same one `provider-claude`'s does, Cursor SDK included) and
+is for tests only.
 
 ### What is lifted, and why
 
@@ -285,7 +324,7 @@ Every lifted file is byte-identical to `d51d8c47` (checked by comparing each
 one with the clone). The paths, relative to `apps/server/`:
 
 <details>
-<summary>All 756 lifted paths</summary>
+<summary>All 806 lifted paths</summary>
 
 ```
 schema/expo.graphql.ts
@@ -315,6 +354,7 @@ src/cloud/serviceLauncherClient.ts
 src/cloud/servicePreflight.ts
 src/cloud/serviceProtocol.ts
 src/cloud/serviceSelectionLock.ts
+src/codexModelOptions.test.ts
 src/codexModelOptions.ts
 src/config.ts
 src/desktopUpdate/DesktopAppUpdate.ts
@@ -383,6 +423,8 @@ src/orchestration-v2/Adapters/ClaudeAdapterV2.ts
 src/orchestration-v2/Adapters/ClaudeAgentSdkQueryRunner.test.ts
 src/orchestration-v2/Adapters/ClaudeTaskOutputTail.test.ts
 src/orchestration-v2/Adapters/ClaudeTaskOutputTail.ts
+src/orchestration-v2/Adapters/CodexAdapterV2.test.ts
+src/orchestration-v2/Adapters/CodexAdapterV2.testkit.ts
 src/orchestration-v2/Adapters/CodexAdapterV2.ts
 src/orchestration-v2/Adapters/ProviderTextDeltaCoalescer.ts
 src/orchestration-v2/Adapters/claudeWorkflowProgress.test.ts
@@ -455,6 +497,7 @@ src/orchestration-v2/placeholderThreadTitle.ts
 src/orchestration-v2/pullRequestWatch.ts
 src/orchestration-v2/runOutput.ts
 src/orchestration-v2/testkit/ClaudeReplayFixtures.integration.test.ts
+src/orchestration-v2/testkit/CodexReplayFixtures.integration.test.ts
 src/orchestration-v2/testkit/CommandOutputRecorder.ts
 src/orchestration-v2/testkit/DeterministicRuntime.ts
 src/orchestration-v2/testkit/OrchestratorScenario.ts
@@ -513,8 +556,10 @@ src/orchestration-v2/testkit/fixtures/claude_nested_subagent_model/output.ts
 src/orchestration-v2/testkit/fixtures/claude_result_is_error/claude_transcript.ndjson
 src/orchestration-v2/testkit/fixtures/claude_result_is_error/input.ts
 src/orchestration-v2/testkit/fixtures/claude_result_is_error/output.ts
+src/orchestration-v2/testkit/fixtures/codex_model_reroute/codex_transcript.ndjson
 src/orchestration-v2/testkit/fixtures/codex_model_reroute/output.ts
 src/orchestration-v2/testkit/fixtures/command_output_streaming/claude_transcript.ndjson
+src/orchestration-v2/testkit/fixtures/command_output_streaming/codex_transcript.ndjson
 src/orchestration-v2/testkit/fixtures/command_output_streaming/input.ts
 src/orchestration-v2/testkit/fixtures/command_output_streaming/output.ts
 src/orchestration-v2/testkit/fixtures/fx_early_stop/fx_output.ts
@@ -557,6 +602,7 @@ src/orchestration-v2/testkit/fixtures/malformed_session_update/output.ts
 src/orchestration-v2/testkit/fixtures/message_steering/claude_output.ts
 src/orchestration-v2/testkit/fixtures/message_steering/claude_transcript.ndjson
 src/orchestration-v2/testkit/fixtures/message_steering/codex_output.ts
+src/orchestration-v2/testkit/fixtures/message_steering/codex_transcript.ndjson
 src/orchestration-v2/testkit/fixtures/message_steering/cursor_output.ts
 src/orchestration-v2/testkit/fixtures/message_steering/grok_output.ts
 src/orchestration-v2/testkit/fixtures/message_steering/input.ts
@@ -564,6 +610,7 @@ src/orchestration-v2/testkit/fixtures/message_steering/pi_output.ts
 src/orchestration-v2/testkit/fixtures/multi_turn/claude_output.ts
 src/orchestration-v2/testkit/fixtures/multi_turn/claude_transcript.ndjson
 src/orchestration-v2/testkit/fixtures/multi_turn/codex_output.ts
+src/orchestration-v2/testkit/fixtures/multi_turn/codex_transcript.ndjson
 src/orchestration-v2/testkit/fixtures/multi_turn/input.ts
 src/orchestration-v2/testkit/fixtures/multi_turn/muse_output.ts
 src/orchestration-v2/testkit/fixtures/multi_turn/pi_output.ts
@@ -616,9 +663,11 @@ src/orchestration-v2/testkit/fixtures/opencode_subagent/output.ts
 src/orchestration-v2/testkit/fixtures/pi_compaction/input.ts
 src/orchestration-v2/testkit/fixtures/pi_compaction/output.ts
 src/orchestration-v2/testkit/fixtures/plan_questions/codex_output.ts
+src/orchestration-v2/testkit/fixtures/plan_questions/codex_transcript.ndjson
 src/orchestration-v2/testkit/fixtures/plan_questions/input.ts
 src/orchestration-v2/testkit/fixtures/plan_questions/opencode_output.ts
 src/orchestration-v2/testkit/fixtures/proposed_plan/codex_output.ts
+src/orchestration-v2/testkit/fixtures/proposed_plan/codex_transcript.ndjson
 src/orchestration-v2/testkit/fixtures/proposed_plan/cursor_output.ts
 src/orchestration-v2/testkit/fixtures/proposed_plan/input.ts
 src/orchestration-v2/testkit/fixtures/provider_thread_resume/input.ts
@@ -627,11 +676,13 @@ src/orchestration-v2/testkit/fixtures/queued_cancelled_while_active/codex_output
 src/orchestration-v2/testkit/fixtures/queued_cancelled_while_active/input.ts
 src/orchestration-v2/testkit/fixtures/queued_turn/claude_transcript.ndjson
 src/orchestration-v2/testkit/fixtures/queued_turn/codex_output.ts
+src/orchestration-v2/testkit/fixtures/queued_turn/codex_transcript.ndjson
 src/orchestration-v2/testkit/fixtures/queued_turn/input.ts
 src/orchestration-v2/testkit/fixtures/shared.ts
 src/orchestration-v2/testkit/fixtures/simple/claude_output.ts
 src/orchestration-v2/testkit/fixtures/simple/claude_transcript.ndjson
 src/orchestration-v2/testkit/fixtures/simple/codex_output.ts
+src/orchestration-v2/testkit/fixtures/simple/codex_transcript.ndjson
 src/orchestration-v2/testkit/fixtures/simple/input.ts
 src/orchestration-v2/testkit/fixtures/simple/pi_output.ts
 src/orchestration-v2/testkit/fixtures/skill_invocation/cursor_output.ts
@@ -641,31 +692,41 @@ src/orchestration-v2/testkit/fixtures/stop_background_work_after_failed_turn/out
 src/orchestration-v2/testkit/fixtures/subagent/claude_output.ts
 src/orchestration-v2/testkit/fixtures/subagent/claude_transcript.ndjson
 src/orchestration-v2/testkit/fixtures/subagent/codex_output.ts
+src/orchestration-v2/testkit/fixtures/subagent/codex_transcript.ndjson
 src/orchestration-v2/testkit/fixtures/subagent/cursor_output.ts
 src/orchestration-v2/testkit/fixtures/subagent/input.ts
 src/orchestration-v2/testkit/fixtures/subagent/kiro_output.ts
 src/orchestration-v2/testkit/fixtures/subagent_continue/codex_output.ts
+src/orchestration-v2/testkit/fixtures/subagent_continue/codex_transcript.ndjson
 src/orchestration-v2/testkit/fixtures/subagent_continue/input.ts
 src/orchestration-v2/testkit/fixtures/subagent_v2/codex_output.ts
+src/orchestration-v2/testkit/fixtures/subagent_v2/codex_transcript.ndjson
 src/orchestration-v2/testkit/fixtures/subagent_v2/input.ts
 src/orchestration-v2/testkit/fixtures/subagent_v2/muse_output.ts
 src/orchestration-v2/testkit/fixtures/subagent_v2_approval/codex_output.ts
+src/orchestration-v2/testkit/fixtures/subagent_v2_approval/codex_transcript.ndjson
 src/orchestration-v2/testkit/fixtures/subagent_v2_approval/input.ts
 src/orchestration-v2/testkit/fixtures/subagent_v2_nested/codex_output.ts
+src/orchestration-v2/testkit/fixtures/subagent_v2_nested/codex_transcript.ndjson
 src/orchestration-v2/testkit/fixtures/subagent_v2_nested_approval/codex_output.ts
+src/orchestration-v2/testkit/fixtures/subagent_v2_nested_approval/codex_transcript.ndjson
 src/orchestration-v2/testkit/fixtures/subagent_v2_nested_approval/input.ts
 src/orchestration-v2/testkit/fixtures/thread_rollback/claude_output.ts
 src/orchestration-v2/testkit/fixtures/thread_rollback/claude_transcript.ndjson
 src/orchestration-v2/testkit/fixtures/thread_rollback/codex_output.ts
+src/orchestration-v2/testkit/fixtures/thread_rollback/codex_transcript.ndjson
 src/orchestration-v2/testkit/fixtures/thread_rollback/input.ts
 src/orchestration-v2/testkit/fixtures/thread_rollback/pi_output.ts
 src/orchestration-v2/testkit/fixtures/thread_rollback_after_restart/codex_output.ts
+src/orchestration-v2/testkit/fixtures/thread_rollback_after_restart/codex_transcript.ndjson
 src/orchestration-v2/testkit/fixtures/thread_rollback_after_restart/input.ts
 src/orchestration-v2/testkit/fixtures/thread_rollback_after_stop/input.ts
 src/orchestration-v2/testkit/fixtures/thread_rollback_after_stop/pi_output.ts
 src/orchestration-v2/testkit/fixtures/thread_rollback_to_stopped_turn/codex_output.ts
+src/orchestration-v2/testkit/fixtures/thread_rollback_to_stopped_turn/codex_transcript.ndjson
 src/orchestration-v2/testkit/fixtures/thread_rollback_to_stopped_turn/input.ts
 src/orchestration-v2/testkit/fixtures/todo_list/codex_output.ts
+src/orchestration-v2/testkit/fixtures/todo_list/codex_transcript.ndjson
 src/orchestration-v2/testkit/fixtures/todo_list/cursor_output.ts
 src/orchestration-v2/testkit/fixtures/todo_list/grok_output.ts
 src/orchestration-v2/testkit/fixtures/todo_list/input.ts
@@ -678,25 +739,30 @@ src/orchestration-v2/testkit/fixtures/tool_call_read_only/claude_transcript.ndjs
 src/orchestration-v2/testkit/fixtures/tool_call_read_only/cursor_output.ts
 src/orchestration-v2/testkit/fixtures/tool_call_read_only/input.ts
 src/orchestration-v2/testkit/fixtures/tool_call_read_only_on_request/claude_transcript.ndjson
+src/orchestration-v2/testkit/fixtures/tool_call_read_only_on_request/codex_transcript.ndjson
 src/orchestration-v2/testkit/fixtures/tool_call_read_only_on_request/fx_output.ts
 src/orchestration-v2/testkit/fixtures/tool_call_read_only_on_request/input.ts
 src/orchestration-v2/testkit/fixtures/tool_call_read_only_on_request/output.ts
 src/orchestration-v2/testkit/fixtures/tool_call_restricted_granular/claude_output.ts
 src/orchestration-v2/testkit/fixtures/tool_call_restricted_granular/claude_transcript.ndjson
 src/orchestration-v2/testkit/fixtures/tool_call_restricted_granular/codex_output.ts
+src/orchestration-v2/testkit/fixtures/tool_call_restricted_granular/codex_transcript.ndjson
 src/orchestration-v2/testkit/fixtures/tool_call_restricted_granular/input.ts
 src/orchestration-v2/testkit/fixtures/tool_call_workspace_never/claude_output.ts
 src/orchestration-v2/testkit/fixtures/tool_call_workspace_never/claude_transcript.ndjson
 src/orchestration-v2/testkit/fixtures/tool_call_workspace_never/codex_output.ts
+src/orchestration-v2/testkit/fixtures/tool_call_workspace_never/codex_transcript.ndjson
 src/orchestration-v2/testkit/fixtures/tool_call_workspace_never/input.ts
 src/orchestration-v2/testkit/fixtures/turn_interrupt/claude_output.ts
 src/orchestration-v2/testkit/fixtures/turn_interrupt/claude_transcript.ndjson
 src/orchestration-v2/testkit/fixtures/turn_interrupt/codex_output.ts
+src/orchestration-v2/testkit/fixtures/turn_interrupt/codex_transcript.ndjson
 src/orchestration-v2/testkit/fixtures/turn_interrupt/input.ts
 src/orchestration-v2/testkit/fixtures/turn_interrupt/muse_output.ts
 src/orchestration-v2/testkit/fixtures/turn_interrupt_mid_tool/claude_output.ts
 src/orchestration-v2/testkit/fixtures/turn_interrupt_mid_tool/claude_transcript.ndjson
 src/orchestration-v2/testkit/fixtures/turn_interrupt_mid_tool/codex_output.ts
+src/orchestration-v2/testkit/fixtures/turn_interrupt_mid_tool/codex_transcript.ndjson
 src/orchestration-v2/testkit/fixtures/turn_interrupt_mid_tool/cursor_output.ts
 src/orchestration-v2/testkit/fixtures/turn_interrupt_mid_tool/fx_output.ts
 src/orchestration-v2/testkit/fixtures/turn_interrupt_mid_tool/input.ts
@@ -710,6 +776,7 @@ src/orchestration-v2/testkit/fixtures/usage_limit/claude_transcript.ndjson
 src/orchestration-v2/testkit/fixtures/web_search/claude_output.ts
 src/orchestration-v2/testkit/fixtures/web_search/claude_transcript.ndjson
 src/orchestration-v2/testkit/fixtures/web_search/codex_output.ts
+src/orchestration-v2/testkit/fixtures/web_search/codex_transcript.ndjson
 src/orchestration-v2/testkit/fixtures/web_search/input.ts
 src/orchestration-v2/threadHistoryPaging.ts
 src/orchestration-v2/toolOutputImageBytes.ts
@@ -887,18 +954,29 @@ src/provider/ClaudeModelManifest.ts
 src/provider/ClaudeProvider.ts
 src/provider/ClaudeTurnTokenUsage.ts
 src/provider/CodexAuthCallbackPage.ts
+src/provider/CodexChatGptAuth.test.ts
 src/provider/CodexChatGptAuth.ts
+src/provider/CodexChatGptHandoff.ts
+src/provider/CodexChatGptModels.test.ts
 src/provider/CodexChatGptModels.ts
+src/provider/CodexChatGptSessionLock.test.ts
 src/provider/CodexChatGptSessionLock.ts
+src/provider/CodexDeveloperInstructions.test.ts
 src/provider/CodexDeveloperInstructions.ts
+src/provider/CodexInstallation.test.ts
 src/provider/CodexInstallation.ts
+src/provider/CodexManagedErrors.test.ts
 src/provider/CodexManagedErrors.ts
 src/provider/CodexManagedHome.ts
+src/provider/CodexManagedRuntime.test.ts
 src/provider/CodexManagedRuntime.ts
 src/provider/CodexManagedTokenBroker.ts
 src/provider/CodexManagedTokenProtocol.ts
+src/provider/CodexMcpElicitation.test.ts
 src/provider/CodexMcpElicitation.ts
+src/provider/CodexProvider.test.ts
 src/provider/CodexProvider.ts
+src/provider/CodexThreadRevert.test.ts
 src/provider/CodexThreadRevert.ts
 src/provider/CodexToolPresentation.ts
 src/provider/CodexTurnTokenUsage.ts
@@ -917,11 +995,14 @@ src/provider/Drivers/ClaudeSkillDispatch.test.ts
 src/provider/Drivers/ClaudeSkillDispatch.ts
 src/provider/Drivers/ClaudeSkills.test.ts
 src/provider/Drivers/ClaudeSkills.ts
+src/provider/Drivers/CodexDriver.test.ts
 src/provider/Drivers/CodexDriver.ts
+src/provider/Drivers/CodexHomeLayout.test.ts
 src/provider/Drivers/CodexHomeLayout.ts
 src/provider/Drivers/CodexManagedProvider.ts
 src/provider/Drivers/antigravityUsageReader.ts
 src/provider/Drivers/claudeUsage.ts
+src/provider/Drivers/codexUsage.test.ts
 src/provider/Drivers/codexUsage.ts
 src/provider/Errors.ts
 src/provider/EventNdjsonLogger.ts
@@ -954,14 +1035,20 @@ src/provider/claudeResetCredits.test.ts
 src/provider/claudeResetCredits.ts
 src/provider/claudeUsageLimits.test.ts
 src/provider/claudeUsageLimits.ts
+src/provider/codexLaunchArgs.test.ts
 src/provider/codexLaunchArgs.ts
+src/provider/codexModelCatalog.test.ts
 src/provider/codexModelCatalog.ts
+src/provider/codexUsageLimits.test.ts
 src/provider/codexUsageLimits.ts
 src/provider/managedRelease.ts
 src/provider/model-manifest.json
 src/provider/providerCompatibility.ts
 src/provider/providerStatusCache.ts
 src/provider/resetCreditCoordinator.ts
+src/provider/testFixtures/codexCollabMockPeer.mjs
+src/provider/testFixtures/codexCollabMockPeer.sh
+src/provider/testFixtures/codexMultiAgentWire.json
 src/provider/unavailableProviderSnapshot.ts
 src/pullRequest/PullRequestProviderRegistry.ts
 src/pullRequest/PullRequestReadCache.ts
@@ -1005,8 +1092,10 @@ src/telemetry/ProviderDimensions.ts
 src/telemetry/ProviderUsageAnalytics.ts
 src/terminal/Manager.ts
 src/terminal/OutputProtocol.ts
+src/testUtils/processProbe.ts
 src/textGeneration/AntigravityTextGeneration.ts
 src/textGeneration/ClaudeTextGeneration.ts
+src/textGeneration/CodexTextGeneration.test.ts
 src/textGeneration/CodexTextGeneration.ts
 src/textGeneration/TextGeneration.ts
 src/textGeneration/TextGenerationPresets.ts
@@ -1048,10 +1137,55 @@ src/zipArchive.ts
 
 </details>
 
+### The Codex lift
+
+Same method and tree as Claude's; only files the tree lacked were copied, 50
+(26 source files and 24 transcripts), each byte for byte from `d51d8c47`.
+Everything else the Codex closure reaches (the orchestrator, persistence, the
+other drivers' fixtures' scenario code, and Codex's own `CodexDriver.ts`,
+`CodexAdapterV2.ts`, `CodexProvider.ts`, `codexLaunchArgs.ts`,
+`codexUsageLimits.ts`, `codexModelCatalog.ts`, `codexModelOptions.ts`, the
+`codex_output.ts` fixtures and the rest) was already there, pulled in by the
+Claude closure. The `./server` closure (`CodexDriver.ts` and
+`CodexAdapterV2.ts`) is 211 files, all already lifted.
+
+Seeds (paths under `src/`): every file whose name starts with `Codex` or
+`codex` under `src/` (75 files, with the `codex_output.ts` scenario
+outputs), `orchestration-v2/testkit/fixtures/index.ts`, and the Codex
+fixtures it names; not `scripts/record-codex-app-server-replay-fixture.ts`,
+`scripts/codexReplayRecordingRecords.ts` or the migration
+`persistence/Migrations/065_CodexUsageNativeTurnIndex.ts` (already lifted),
+which no test imports. The copied source files:
+
+- Tests (20): `codexModelOptions.test.ts`; in `orchestration-v2/`
+  `Adapters/CodexAdapterV2.test.ts` and
+  `testkit/CodexReplayFixtures.integration.test.ts`; in `provider/`
+  `CodexChatGptAuth`, `CodexChatGptModels`, `CodexChatGptSessionLock`,
+  `CodexDeveloperInstructions`, `CodexInstallation`, `CodexManagedErrors`,
+  `CodexManagedRuntime`, `CodexMcpElicitation`, `CodexProvider`,
+  `CodexThreadRevert`, `codexLaunchArgs`, `codexModelCatalog`,
+  `codexUsageLimits`; in `provider/Drivers/` `CodexDriver`,
+  `CodexHomeLayout`, `codexUsage`; `textGeneration/CodexTextGeneration.test.ts`.
+- `orchestration-v2/Adapters/CodexAdapterV2.testkit.ts` (the `./testing`
+  entry), `provider/CodexChatGptHandoff.ts` (imported by
+  `CodexChatGptAuth.test.ts`), `testUtils/processProbe.ts` (imported by
+  `CodexAdapterV2.test.ts`), and the three fixtures
+  `provider/testFixtures/codexCollabMockPeer.mjs`, `.sh` and
+  `codexMultiAgentWire.json`, which the tests run by path.
+- 24 `codex_transcript.ndjson` under `orchestration-v2/testkit/fixtures/`:
+  every one `fixtures/index.ts` names for the `codex` driver. The other
+  drivers' transcripts it names, and the transcripts only t3's other
+  orchestrator tests read, are not copied (no lifted test reads them).
+
+The closure added no dependency: every package the 26 files import
+(`effect`, `@effect/vitest`, `yaml`, `diff`, `proper-lockfile`, `ffi-rs`,
+the copied packages, `effect-codex-app-server` among them) was already in
+`apps/server/package.json`. The lifted tree is now 806 files.
+
 ### Known runtime gaps
 
 Paths the lifted code builds only at run time, which no import names, are not
-followed. Two of them are code, and what needs them does not work here:
+followed. Three of them are code, and what needs them does not work here:
 
 - **Text extraction from document attachments** (`__document-text`):
   `src/provider/DocumentText.ts`, which `ClaudeAdapterV2.ts` imports, starts
@@ -1062,10 +1196,22 @@ followed. Two of them are code, and what needs them does not work here:
   `src/provider/ProviderOrchestrationAdapterInfrastructure.ts` starts the same
   entry, the same way.
 
+- **The managed ChatGPT token helper** (`managed-chatgpt-token`, Codex):
+  `src/cli/managedChatGptToken.ts`, started by `CodexManagedTokenBroker` the
+  same way (`HostProcess.Arguments` is `[node, bin.ts]`). Consola never signs
+  a CLI in (it runs the person's own `codex` with its own login), so the
+  broker's managed accounts are not used here. One lifted test reaches it,
+  the first below.
+
 t3's `src/bin.ts` is not lifted: it is started by path, not imported, and
-through `binMain.ts` → `binCli.ts` it is t3's whole CLI and HTTP server (260
-more source files, and `node-pty`, `playwright-core`, `undici`, `stream-json`
-and `saxes` among new dependencies). No lifted test reaches either path.
+through `binMain.ts` → `binCli.ts` it is t3's whole CLI and HTTP server (the
+Codex closure's `new URL("../bin.ts", …)` in `CodexManagedRuntime.test.ts`
+would add about 295 more files to the lifted tree, and `node-pty`, `playwright-core`,
+`undici`, `stream-json`, `saxes`, `character-entities` and `stream-chain`
+among new dependencies). Of the lifted tests, only one reaches it, and it is
+not run here: `CodexManagedRuntime.test.ts` "managed Codex primary account
+shares home state without routing owned tokens through ambient CLI overrides"
+(see "The lifted server's tests").
 
 Also not followed, and optional where they are looked for: `src/config.ts`'s
 `client` and `../../web/dist` (t3's web client build),
@@ -1092,9 +1238,9 @@ Files Consola writes for this folder (not copied):
   expect at the root: `@effect/tsgo` 0.67.1, `vite-plus` and `@types/node`
   (catalog).
 - This file.
-- `apps/server/package.json` (`t3`), and
-  `packages/provider-claude/`'s `package.json`, `tsconfig.json`,
-  `vitest.config.ts` and entry files: see "Lifted by Consola".
+- `apps/server/package.json` (`t3`), `apps/server/vitest.config.ts`, and
+  `packages/provider-claude/`'s and `packages/provider-codex/`'s
+  `package.json`, `tsconfig.json`, `vitest.config.ts` and entry files: see "Lifted by Consola".
 
 In the repository root:
 
@@ -1232,14 +1378,16 @@ The two packages the lifted server files brought in fail on macOS in the same wa
 ### The lifted server's tests
 
 They live in `apps/server/`, and `pnpm --filter t3 test` runs
-them all; `pnpm --filter @t3tools/provider-claude test` runs the Claude ones,
-which today are the same 16 files (its script runs the server's own Vitest,
+them all (36 files, 1,168 tests); `pnpm --filter @t3tools/provider-claude test`
+runs the Claude ones (16 files, 657 tests) and
+`pnpm --filter @t3tools/provider-codex test` the Codex ones (20 files, 511
+tests, below). The entry packages' scripts run the server's own Vitest,
 because the server's `vite-plus` is a different install from an entry
-package's, `yaml` 2.9.0 against 2.9.1, and test files register with the
-runner of the install they import). CI runs them once, in the server.
+package's (`yaml` 2.9.0 against 2.9.1), and test files register with the
+runner of the install they import. CI runs them once, in the server.
 
-All 16 lifted test files run; nothing is listed as "not run here", since
-everything they need was lifted with them (the orchestrator, its SQLite
+**Claude.** All 16 lifted test files run; nothing of Claude's is listed as
+"not run here", since everything they need was lifted with them (the orchestrator, its SQLite
 persistence on `node:sqlite`, the fake Claude CLIs they write). 657 tests,
 all passing on Linux. On macOS one is skipped by t3's own condition,
 `ClaudeCapabilitiesProbe.test.ts` "starts a Bash launcher that calls an
@@ -1261,6 +1409,28 @@ default) refuses. Both pass with `TMPDIR` on a case-sensitive volume reached
 by its real path. The `ClaudeAgentSdkQueryRunner` "Claude CLI process" tests
 print Node's `MaxListenersExceededWarning` twice: the Claude Agent SDK adds an
 `exit` listener per message read (`waitForExit`).
+
+**Codex.** 20 test files, 511 tests, upstream's own counts (the files are
+byte-identical): `CodexAdapterV2.test.ts` 210, `CodexChatGptAuth` 56,
+`codexUsage` 45, `CodexInstallation` 41, `CodexTextGeneration` 34,
+`CodexReplayFixtures.integration` 26 (24 fixture variants and two of its
+own), `codexUsageLimits` 20, `CodexDriver` 19, `codexLaunchArgs` 11,
+`CodexMcpElicitation` 9, `CodexHomeLayout` 9, `CodexProvider` 7,
+`CodexManagedErrors` 6, `CodexDeveloperInstructions` 5,
+`CodexManagedRuntime` 4, `CodexChatGptModels`, `CodexChatGptSessionLock`,
+`CodexThreadRevert` and `codexModelCatalog` 2 each, `codexModelOptions` 1.
+510 pass and one is not run here, on macOS and on Linux; the output is
+clean. They need no `codex` binary and no login (fake app-server peers and
+recorded transcripts).
+
+Not run here: `CodexManagedRuntime.test.ts` "managed Codex primary account
+shares home state without routing owned tokens through ambient CLI
+overrides". It runs t3's `src/bin.ts` as a child process for the managed
+ChatGPT token helper, and `bin.ts` is not lifted (see "Known runtime gaps").
+The test file is not edited; `apps/server/vitest.config.ts`
+(`NOT_RUN_HERE`) skips that one test by name, in `t3`'s test and in
+`provider-codex`'s, and the file's other three run. The skip shows as one
+skipped test. Without it, the test fails with `Cannot find module …/bin.ts`.
 
 ## Re-syncing
 
