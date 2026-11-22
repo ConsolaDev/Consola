@@ -101,6 +101,20 @@ const ALWAYS_GLOBAL: Record<string, { holds: string; columns: string[] }> = {
       'connected_at',
     ],
   },
+  github_token_mint: {
+    holds:
+      'App installs: each token minted from the GitHub App, as its workspace, installation, purpose, repository ids, permissions and times, never the token or a repository name',
+    columns: [
+      'id',
+      'organization_id',
+      'installation_id',
+      'purpose',
+      'repository_ids',
+      'permissions',
+      'minted_at',
+      'expires_at',
+    ],
+  },
 };
 
 const WHERE_THE_LIST_IS =
