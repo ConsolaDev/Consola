@@ -2,7 +2,7 @@
   "name": "@consola/cloud-web",
   "version": "0.0.0",
   "private": true,
-  "description": "Consola Cloud's web app: sign in with Google and see who you are.",
+  "description": "Consola Cloud's web app: sign in with Google, then create and switch workspaces.",
   "license": "AGPL-3.0-only",
   "type": "module",
   "scripts": {

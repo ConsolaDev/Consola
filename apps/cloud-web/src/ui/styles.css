@@ -27,10 +27,79 @@ body {
 
 .topbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
+  gap: 4px;
   font-size: 14px;
   color: var(--gray-11);
+}
+
+.topbar > .link-button {
+  margin-left: auto;
+}
+
+/* A failed switch or sign-out says so on a line of its own, under the bar. */
+.topbar > .error {
+  flex-basis: 100%;
+  order: 1;
+}
+
+.crumb {
+  color: var(--gray-8);
+}
+
+.switcher-trigger {
+  font: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 200px;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--gray-12);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.switcher-trigger:hover:not(:disabled),
+.switcher-trigger[data-state="open"] {
+  background: var(--gray-a3);
+}
+
+.switcher-trigger:focus-visible {
+  outline: 2px solid var(--accent-8);
+  outline-offset: 0;
+}
+
+.switcher-trigger:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.switcher-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.switcher-menu {
+  min-width: 220px;
+}
+
+.switcher-item-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.switcher-item-region {
+  margin-left: auto;
+  padding-left: 16px;
+  font-size: 12px;
+  opacity: 0.7;
 }
 
 .card {
@@ -71,8 +140,152 @@ body {
   cursor: pointer;
 }
 
-.button:hover {
+.button:hover:not(:disabled) {
   background: var(--gray-4);
+}
+
+.button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.button.primary {
+  border-color: var(--accent-9);
+  background: var(--accent-9);
+  color: var(--accent-contrast);
+}
+
+.button.primary:hover:not(:disabled) {
+  background: var(--accent-10);
+}
+
+.button:focus-visible,
+.link-button:focus-visible {
+  outline: 2px solid var(--accent-8);
+  outline-offset: 2px;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.label {
+  padding: 0;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.hint {
+  font-size: 12px;
+  color: var(--gray-11);
+}
+
+.field .error {
+  font-size: 13px;
+}
+
+.input {
+  font: inherit;
+  padding: 7px 10px;
+  border: 1px solid var(--gray-7);
+  border-radius: 6px;
+  background: var(--color-surface);
+  color: inherit;
+}
+
+.input::placeholder {
+  color: var(--gray-9);
+}
+
+.input:focus {
+  outline: 2px solid var(--accent-8);
+  outline-offset: -1px;
+  border-color: transparent;
+}
+
+.input[aria-invalid="true"] {
+  border-color: var(--red-8);
+}
+
+/* A legend is not a flex item, so the region fieldset spaces its parts with margins. */
+.regions {
+  display: block;
+}
+
+.regions .label {
+  margin-bottom: 6px;
+}
+
+.regions .hint,
+.regions .error {
+  margin-top: 6px;
+}
+
+.region-options {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.region-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--gray-6);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.region-option:hover {
+  border-color: var(--gray-8);
+}
+
+.region-option:has(input:checked) {
+  border-color: var(--accent-8);
+  background: var(--accent-a2);
+}
+
+.region-option:has(input:focus-visible) {
+  outline: 2px solid var(--accent-8);
+  outline-offset: 1px;
+}
+
+.region-option input {
+  margin: 2px 0 0;
+  accent-color: var(--accent-9);
+}
+
+.region-option input:focus-visible {
+  outline: none;
+}
+
+.region-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.region-name {
+  font-weight: 600;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .link-button {
