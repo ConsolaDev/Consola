@@ -125,7 +125,7 @@ describe('approvalAgent', () => {
     expect(Object.prototype.hasOwnProperty.call(shown, 'description')).toBe(false);
   });
 
-  it("gives its agent's servers, skills and the item line, with no tool names (2-C)", () => {
+  it("gives its agent's servers, skills and the item line, with no tool names where its definition keeps none (2-C)", () => {
     const investigator = {
       name: 'investigator',
       hash: 'c'.repeat(64),
@@ -148,6 +148,28 @@ describe('approvalAgent', () => {
     });
     // A cron entry's run, or a definition from before 2-C, has no `readsItems`.
     expect(approvalAgent(withAgents({ look: investigator }), 'look')?.readsOthers).toBe(false);
+  });
+
+  it("names each whole server's tools as its run's definition keeps them, as the Allow card does (review S1)", () => {
+    const definition = withAgents({
+      look: {
+        name: 'investigator',
+        hash: 'c'.repeat(64),
+        harnessId: 'stub-work',
+        body: 'INVESTIGATOR-BODY-1\n',
+        mcpServers: [
+          { name: 'claude.ai Coralogix', knownTools: ['query_logs', 'list_alerts'] },
+          { name: 'claude.ai Slack', knownTools: [] },
+          { name: 'grafana', tools: ['query_logs'] },
+        ],
+        skills: [],
+      },
+    });
+    expect(approvalAgent(definition, 'look')?.servers).toEqual([
+      'claude.ai Coralogix: all its tools (query_logs, list_alerts), including any that post or change things',
+      'claude.ai Slack: all its tools, including any that post or change things',
+      'grafana: query_logs only',
+    ]);
   });
 
   it('is null for a step with no agent', () => {

@@ -856,7 +856,10 @@ in `allowedSessionUpdates`) replays them every launch; skills are copied at
 fire, re-hashed at launch; `init` must show each granted server connected. A
 step's session keeps its harness while its run is open (provenance and run
 record, not `attention.holds()`), then loses its grants. "Reads text other
-people wrote" marks runs that carry an item. Canary rows 20–28.
+people wrote" marks runs that carry an item. A card names a whole server's
+tools: Allow from the last answer, a run's approval from its definition,
+which keeps the answer the run was made with (`knownTools`, never a grant).
+Canary rows 20–28.
 
 ### Harnesses Are Launch Descriptions
 

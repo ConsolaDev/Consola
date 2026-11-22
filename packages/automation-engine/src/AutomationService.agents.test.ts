@@ -621,4 +621,71 @@ describe("an entry's agents, with their servers and skills (2-C, Task 13)", () =
     });
     expect(h.service.getStepDetail(asked.id, 'post')).not.toHaveProperty('agent');
   });
+
+  const MANUAL = `on: manual\nscope: catalog-portal\nmode: auto\nsteps:\n  - id: investigate\n    agent: investigator\n`;
+
+  it("a run's definition keeps each whole server's tools as the answer it resolved against listed them; a later answer reaches only later runs (review S1)", async () => {
+    // The host's own list, which a later probe changes in place.
+    const listed = ['query_logs', 'list_alerts'];
+    const h = await stepsHarness({
+      files: files(MANUAL),
+      agentHarnesses: {
+        'claude-work': () => ({ ...CLAUDE_WORK, knownTools: { 'claude.ai Coralogix': listed } }),
+      },
+    });
+    const first = (await h.service.trigger(WORKSPACE_ID, 'investigate-alerts'))!;
+    expect(first.status).toBe('needs-approval');
+    const whole = { name: 'claude.ai Coralogix', knownTools: ['query_logs', 'list_alerts'] };
+    const narrowed = { name: 'grafana', tools: ['query_logs'] };
+    const serversOf = (runId: string) =>
+      h.service.getRunDefinition(runId)?.agents?.investigate.mcpServers;
+    expect(serversOf(first.id)).toStrictEqual([whole, narrowed]);
+
+    // The server gains a tool: the waiting run still shows what it was made with.
+    listed.push('delete_alert');
+    expect(serversOf(first.id)).toStrictEqual([whole, narrowed]);
+
+    // Nothing is granted or prompted from them: the launch asks for the servers as the agent names them.
+    await h.service.approve(first.id);
+    await h.flush();
+    expect(h.world.launches).toHaveLength(1);
+    expect(h.world.launches[0].step?.agent?.mcpServers).toStrictEqual([
+      { name: 'claude.ai Coralogix' },
+      narrowed,
+    ]);
+    expect(h.world.launches[0].prompt).not.toContain('list_alerts');
+    await h.world.endTurn('session-1', { exitCode: 0, report: turnReport({ turns: 1 }) });
+    await h.flush();
+
+    // Until the folder resolves again, a new run is made from the answer it resolved against.
+    const second = (await h.service.trigger(WORKSPACE_ID, 'investigate-alerts'))!;
+    expect(second.id).not.toBe(first.id);
+    expect(serversOf(second.id)).toStrictEqual([whole, narrowed]);
+    await h.flush();
+    await h.world.endTurn('session-2', { exitCode: 0, report: turnReport({ turns: 1 }) });
+    await h.flush();
+
+    // Once it has, a new run shows the new list.
+    await h.service.syncWorkspaces();
+    const third = (await h.service.trigger(WORKSPACE_ID, 'investigate-alerts'))!;
+    expect([first.id, second.id]).not.toContain(third.id);
+    expect(serversOf(third.id)).toStrictEqual([
+      { ...whole, knownTools: ['query_logs', 'list_alerts', 'delete_alert'] },
+      narrowed,
+    ]);
+  });
+
+  it('a definition keeps no tools for a server the answer lists none for, nor for a narrowed one (review S1)', async () => {
+    const h = await stepsHarness({
+      files: files(MANUAL),
+      agentHarnesses: {
+        'claude-work': { ...CLAUDE_WORK, knownTools: { grafana: ['query_logs', 'drop_table'] } },
+      },
+    });
+    const run = (await h.service.trigger(WORKSPACE_ID, 'investigate-alerts'))!;
+    expect(h.service.getRunDefinition(run.id)?.agents?.investigate.mcpServers).toStrictEqual([
+      { name: 'claude.ai Coralogix' },
+      { name: 'grafana', tools: ['query_logs'] },
+    ]);
+  });
 });

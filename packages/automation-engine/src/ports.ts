@@ -246,6 +246,14 @@ export interface AgentHarnessAnswer {
   serversUnknown?: string | null;
   /** Notices at the agent file's `mcpServers:` line: a server not connected when asked, a narrowing that could not be checked. */
   serverWarnings?: readonly string[];
+  /**
+   * By name, each whole server the agent names that its CLI listed with
+   * tools, in the answer this was compiled against: those tools. A run's
+   * definition keeps them, so its approval card names what the person
+   * accepts as that version had it (review S1); nothing is granted,
+   * compiled or prompted from them.
+   */
+  knownTools?: Readonly<Record<string, readonly string[]>>;
 }
 
 /**

@@ -1242,7 +1242,8 @@ test("a step on someone else's pull request is offered connectors only", async (
     await expect(rowOf(steps.page, 'read-prs')).toHaveCount(1, { timeout: 30_000 });
     expect((await viewOf(steps, 'read-prs'))?.problem).toBeUndefined();
 
-    // Run on… #51: its approval card says what the connector grants, and that the agent reads other people's text.
+    // Run on… #51: its approval card says what the connector grants, naming its tools as the run's
+    // definition keeps them, as the Allow card does (review S1), and that the agent reads other people's text.
     const prPage = await openAutomation(steps, 'read-prs');
     await prPage.getByRole('button', { name: 'Run on…' }).click();
     const picker = steps.page.getByRole('dialog', { name: 'Run on an item' });
@@ -1257,9 +1258,8 @@ test("a step on someone else's pull request is offered connectors only", async (
       'Agent, read-only but for its servers',
     );
     await expect(look).toContainText(
-      'claude.ai Coralogix: all its tools, including any that post or change things',
+      'claude.ai Coralogix: all its tools (query_logs, list_alerts), including any that post or change things',
     );
-    await expect(look).not.toContainText('query_logs');
     await expect(look).toContainText(ITEM_TEXT_LINE);
     await approval.getByRole('button', { name: 'Start', exact: true }).click();
 
@@ -1279,7 +1279,7 @@ test("a step on someone else's pull request is offered connectors only", async (
     expect(launch).not.toContain('--strict-mcp-config');
     expect(launch).toContain(' mcp__claude_ai_Coralogix__* ');
 
-    // (f) The scheduled entry's card: the same connector, and no item line.
+    // (f) The scheduled entry's card: the same connector, its tools named, and no item line.
     await expect
       .poll(async () => (await runOf(steps, 'read-prs'))?.status, { timeout: 60_000 })
       .not.toBe('running');
@@ -1293,7 +1293,7 @@ test("a step on someone else's pull request is offered connectors only", async (
     await rowOf(steps.page, 'read-nightly').getByRole('button', { name: 'Run now' }).click();
     const nightly = approvalStepOf(await reviewTheRun(steps), 'look');
     await expect(nightly).toContainText(
-      'claude.ai Coralogix: all its tools, including any that post or change things',
+      'claude.ai Coralogix: all its tools (query_logs, list_alerts), including any that post or change things',
     );
     await expect(nightly).not.toContainText(ITEM_TEXT_LINE);
   } finally {

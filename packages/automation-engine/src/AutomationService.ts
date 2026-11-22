@@ -188,6 +188,7 @@ import {
 } from './steps/commandStep';
 import {
   agentRequirements,
+  withKnownTools,
   type AgentRequirements,
   type CommandFile,
   type LogTail,
@@ -4809,10 +4810,14 @@ export class AutomationService {
     const refused = onDefault ? this.stepHarnessProblem(workspaceId) : null;
     if (refused) return unable(refused);
     // Each agent's harness, as the host answers for it, for this entry's checkout kind: a problem stops the
-    // entry, and so does a CLI that could not be asked (`stops`); a wait or a warning stops nothing.
-    const { problems, stops, warnings } = agentIssues(automation, agents, (agent, checkout) =>
-      this.deps.agentHarness(workspaceId, agentQuery(agent, checkout)),
-    );
+    // entry, and so does a CLI that could not be asked (`stops`); a wait or a warning stops nothing. Each
+    // answer's `knownTools` go into the definition, for the approval card (review S1).
+    const answers = new Map<string, AgentHarnessAnswer>();
+    const { problems, stops, warnings } = agentIssues(automation, agents, (agent, checkout) => {
+      const answer = this.deps.agentHarness(workspaceId, agentQuery(agent, checkout));
+      answers.set(agent.name, answer);
+      return answer;
+    });
     if (problems.length > 0) {
       const [first] = problems;
       return unable(first.message, warnings, first.path === 'mcpServers' ? { recheck: true } : {});
@@ -4840,7 +4845,16 @@ export class AutomationService {
           automation,
           version,
           actions,
-          ...(Object.keys(stepAgents).length > 0 ? { agents: stepAgents } : {}),
+          ...(Object.keys(stepAgents).length > 0
+            ? {
+                agents: Object.fromEntries(
+                  Object.entries(stepAgents).map(([id, agent]) => [
+                    id,
+                    withKnownTools(agent, answers.get(agent.name)?.knownTools),
+                  ]),
+                ),
+              }
+            : {}),
           // Every run of an item entry has a work item, and no other entry's run works in one.
           checkout: entryCheckoutKind(automation),
           ...(entryReadsItems(automation) ? { readsItems: true as const } : {}),

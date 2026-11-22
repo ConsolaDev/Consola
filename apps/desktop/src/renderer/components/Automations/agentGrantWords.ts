@@ -1,9 +1,10 @@
 /*
  * What an agent step's servers and skills grant, in the words the cards, the
  * pipeline and the step detail use. A whole server brings every tool it has,
- * write tools with it, so its line says so; only the Allow card can name
- * those tools, from the last answer its harness's CLI gave (main fills in
- * `knownTools`), since a run's definition holds requirements and no probe.
+ * write tools with it, so its line says so, and names those tools when they
+ * are known (`knownTools`): the Allow card's from the last answer its
+ * harness's CLI gave (main fills them in), the approval card's from the run's
+ * definition, which kept the answer the run was made with (review S1).
  */
 
 type Server = { name: string; tools?: readonly string[]; knownTools?: readonly string[] };

@@ -259,7 +259,7 @@ describe("agentHarnessView, for an agent's servers and skills", () => {
   };
   const GRAFANA_AGENT = { mcpServers: [{ name: 'grafana' }] };
 
-  it('a server its harness has: nothing to say, but no warning either', () => {
+  it('a server its harness has: nothing to say, no warning, and its tools as the CLI listed them', () => {
     const { result, serversNow } = view(query(GRAFANA_AGENT));
     expect(result).toEqual({
       name: 'Claude work',
@@ -268,8 +268,51 @@ describe("agentHarnessView, for an agent's servers and skills", () => {
       agentProblem: null,
       warning: null,
       serverWarnings: [],
+      knownTools: { grafana: ['query_logs'] },
     });
     expect(serversNow).toHaveBeenCalledWith(HARNESSES[1]);
+  });
+
+  it('gives each whole server its tools from the answer it compiled against, and a narrowed or untooled one none (review S1)', () => {
+    const coralogix: McpServerReport = {
+      name: 'claude.ai Coralogix',
+      source: 'connector',
+      transport: 'claudeai-proxy',
+      url: 'https://mcp.coralogix.example/mcp',
+      tools: ['query_logs', 'list_alerts'],
+      status: 'connected',
+    };
+    const tracker: McpServerReport = {
+      name: 'tracker',
+      source: 'user',
+      transport: 'http',
+      url: 'https://tracker.example/mcp',
+      status: 'pending',
+    };
+    const answer: ServersAnswer = { state: 'settled', servers: [GRAFANA, coralogix, tracker] };
+    const { result } = view(
+      query({
+        mcpServers: [
+          { name: 'claude.ai Coralogix' },
+          { name: 'grafana', tools: ['query_logs'] },
+          { name: 'tracker' },
+        ],
+      }),
+      answer,
+    );
+    expect(result.serversProblem ?? null).toBeNull();
+    expect(result.knownTools).toEqual({ 'claude.ai Coralogix': ['query_logs', 'list_alerts'] });
+    // A copy: the cached answer is never handed out to be kept.
+    expect(result.knownTools?.['claude.ai Coralogix']).not.toBe(coralogix.tools);
+
+    // A refused compile lists nothing.
+    const refused = view(query({ ...GRAFANA_AGENT, checkout: 'item' }), answer).result;
+    expect(refused.serversProblem).toBeTruthy();
+    expect(refused).not.toHaveProperty('knownTools');
+    // Nor does an agent naming skills alone.
+    expect(view(query({ skills: ['incident-triage'] }), answer).result).not.toHaveProperty(
+      'knownTools',
+    );
   });
 
   it("the person's own server on an item step is refused, at the servers", () => {

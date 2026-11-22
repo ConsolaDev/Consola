@@ -142,8 +142,9 @@ export function settledServerTools(
  * them: a probe under way (`serversPending`), one that failed
  * (`serversUnknown`), or the driver's compile against the answer, a refusal
  * (`serversProblem`, its missing names asked about once more) or warnings
- * (`serverWarnings`). Nothing is asked or compiled for an agent the harness
- * already refuses.
+ * (`serverWarnings`) with each whole server's tools as that answer lists
+ * them (`knownTools`, which a run's definition keeps for its approval card).
+ * Nothing is asked or compiled for an agent the harness already refuses.
  */
 export function agentHarnessView(input: {
   harnesses: readonly Harness[];
@@ -243,7 +244,20 @@ export function agentHarnessView(input: {
     checkout: agent.checkout,
     servers: reported,
   });
-  if (compiled.ok) return { ...answer, serverWarnings: compiled.warnings };
+  if (compiled.ok) {
+    // Each whole server's tools as this answer lists them: what a run's definition keeps for its approval card (review S1).
+    const knownTools: Record<string, string[]> = {};
+    for (const server of agent.mcpServers) {
+      if (server.tools !== undefined) continue;
+      const tools = reported.find((candidate) => candidate.name === server.name)?.tools;
+      if (tools !== undefined) knownTools[server.name] = [...tools];
+    }
+    return {
+      ...answer,
+      serverWarnings: compiled.warnings,
+      ...(Object.keys(knownTools).length > 0 ? { knownTools } : {}),
+    };
+  }
   const lacking = agent.mcpServers
     .map((server) => server.name)
     .filter((wanted) => !reported.some((server) => server.name === wanted));

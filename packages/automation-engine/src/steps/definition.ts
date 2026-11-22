@@ -20,7 +20,13 @@ export interface AgentRequirements {
   maxTurns?: number;
   /** Its instructions, exactly as written. */
   body: string;
-  mcpServers: Array<{ name: string; tools?: string[] }>;
+  /**
+   * As the file names them, each narrowed to `tools` when it is. A whole
+   * server's `knownTools`: its tools as its harness's CLI listed them when
+   * the entry resolved (`withKnownTools`), what the approval card names;
+   * absent when unknown, and never part of what the launch asks for.
+   */
+  mcpServers: Array<{ name: string; tools?: string[]; knownTools?: string[] }>;
   skills: string[];
 }
 
@@ -39,6 +45,27 @@ export function agentRequirements(agent: AgentDefinition): AgentRequirements {
       ...(server.tools !== undefined ? { tools: [...server.tools] } : {}),
     })),
     skills: [...agent.skills],
+  };
+}
+
+/**
+ * The agent's requirements with each whole server's `knownTools`, from the
+ * host's answer the entry resolved against (`AgentHarnessAnswer.knownTools`).
+ * A narrowed server is shown by its own tools and gains none; a server the
+ * answer lists no tools for gains no key.
+ */
+export function withKnownTools(
+  agent: AgentRequirements,
+  known: Readonly<Record<string, readonly string[]>> | undefined,
+): AgentRequirements {
+  if (known === undefined) return agent;
+  return {
+    ...agent,
+    mcpServers: agent.mcpServers.map((server) => {
+      if (server.tools !== undefined || !Object.prototype.hasOwnProperty.call(known, server.name))
+        return server;
+      return { ...server, knownTools: [...known[server.name]] };
+    }),
   };
 }
 

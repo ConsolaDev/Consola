@@ -44,8 +44,9 @@ export function dryRunCommands(definition: RunDefinition): string[] {
  * What a step's agent is, as the approval card shows it from the run's
  * definition: the node's words (`reviewer · claude-work · opus`), its file,
  * its description when it has one and its body, exactly as approved; the
- * step's head, a line per server it names (no tool names: a definition holds
- * no probe), its skills, and whether its run reads text other people wrote
+ * step's head, a line per server it names (a whole server's tools named as
+ * the definition keeps them, from its harness's CLI when the run was made:
+ * review S1), its skills, and whether its run reads text other people wrote
  * (`readsItems`, absent from a cron entry's definition and one from before
  * 2-C). Null for a step with no agent.
  */
