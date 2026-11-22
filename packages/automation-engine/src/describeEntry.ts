@@ -64,19 +64,23 @@ const EXHAUSTED_WORDS = { fail: 'fails', continue: 'goes on', gate: 'asks you' }
  * loop (how often it may run), each declared retry (a step's, then the
  * entry's; "Nothing retries by itself." when none is above 0), the budget.
  * The budget is the number as the file writes it (`$5`), never the
- * run-time `usdWords` (`$5.00`).
+ * run-time `usdWords` (`$5.00`). Inside a loop a gate asks, and a step's
+ * retries count, once per round; an entry that starts again begins its
+ * loops again, so `max` bounds each start (3-A code review M7).
  */
 export function describeFlow(automation: StepsAutomation): string[] {
   const entries = automation.steps;
   const loops = entries.filter((step): step is RepeatStep => step.kind === 'repeat');
   const leaves = leafSteps(entries);
+  const inLoop = new Set(loops.flatMap((loop) => loop.steps.map((step) => step.id)));
+  const eachRound = (id: string) => (inLoop.has(id) ? ' each round' : '');
   const loopLines = loops.map(
     (loop) =>
       `Repeats ${idsInWords(loop.steps.map((step) => step.id))} up to ${times(loop.max)} until ${quoted(loop.until)}; then ${EXHAUSTED_WORDS[describeLoop(loop).exhausted ?? 'fail']}.`,
   );
   const gateLines = leaves
     .filter((step) => step.kind === 'gate')
-    .map((step) => `Stops for you at ${quoted(step.id)}.`);
+    .map((step) => `Stops for you at ${quoted(step.id)}${eachRound(step.id)}.`);
   const commandLines = loops.flatMap((loop) =>
     loop.steps
       .filter((step) => step.kind === 'run')
@@ -84,12 +88,14 @@ export function describeFlow(automation: StepsAutomation): string[] {
   );
   const retryLines = leaves.flatMap((step) => {
     const retry = step.kind === 'gate' ? 0 : (step.onFailure?.retry ?? 0);
-    return retry > 0 ? [`${quoted(step.id)} retries by itself up to ${times(retry)}.`] : [];
+    return retry > 0
+      ? [`${quoted(step.id)} retries by itself up to ${times(retry)}${eachRound(step.id)}.`]
+      : [];
   });
   const entryRetry = automation.onFailure?.retry ?? 0;
   if (entryRetry > 0)
     retryLines.push(
-      `The whole run starts again by itself up to ${times(entryRetry)}, only if nothing in it acted.`,
+      `The whole run starts again by itself up to ${times(entryRetry)}, only if nothing in it acted${loops.length > 0 ? ', its loops from round 1' : ''}.`,
     );
   return [
     ...loopLines,

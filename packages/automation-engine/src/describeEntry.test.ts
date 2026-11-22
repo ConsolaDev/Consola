@@ -338,8 +338,10 @@ describe('describeFlow (slice 3, the cards)', () => {
     expect(describeFlow(LOOP_WITH_NOTIFY)).toEqual([
       'Repeats `look` and `notify-slack` up to 3 times until `steps.look.findings == 0`; then fails.',
       '`notify-slack` runs once per round (up to 3 times).',
-      '`look` retries by itself up to 2 times.',
-      'The whole run starts again by itself up to 1 time, only if nothing in it acted.',
+      // Inside a loop, a retry and a gate are each round's (3-A code review M7).
+      '`look` retries by itself up to 2 times each round.',
+      // A start again begins the loops again: `max` bounds each start, not the run.
+      'The whole run starts again by itself up to 1 time, only if nothing in it acted, its loops from round 1.',
       'No budget.',
     ]);
   });
@@ -373,8 +375,8 @@ describe('describeFlow (slice 3, the cards)', () => {
       'Repeats `a`, `b` and `c` up to 1 time until `steps.a.done`; then goes on.',
       'Stops for you at `ask`.',
       '`b` runs once per round (up to 1 time).',
-      '`a` retries by itself up to 1 time.',
-      '`b` retries by itself up to 3 times.',
+      '`a` retries by itself up to 1 time each round.',
+      '`b` retries by itself up to 3 times each round.',
       'Budget: $2.5 at most (est.).',
     ]);
   });
@@ -399,8 +401,28 @@ describe('describeFlow (slice 3, the cards)', () => {
       prompt: Solo.`);
     expect(describeFlow(automation)).toEqual([
       'Repeats `look` and `check` up to 2 times until `steps.look.ok`; then fails.',
-      'Stops for you at `check`.',
+      'Stops for you at `check` each round.',
       'Nothing retries by itself.',
+      'No budget.',
+    ]);
+  });
+
+  it('says a top-level retry and gate once, and an entry retry with no loop as before (3-A code review M7)', () => {
+    const automation = parsedEntry(`- name: flat
+  on: manual
+  scope: catalog-portal
+  mode: auto
+  on_failure: { retry: 2 }
+  steps:
+    - id: look
+      prompt: Look.
+      on_failure: { retry: 1 }
+    - id: decide
+      gate: { ask: Go on? }`);
+    expect(describeFlow(automation)).toEqual([
+      'Stops for you at `decide`.',
+      '`look` retries by itself up to 1 time.',
+      'The whole run starts again by itself up to 2 times, only if nothing in it acted.',
       'No budget.',
     ]);
   });
