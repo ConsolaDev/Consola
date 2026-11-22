@@ -8,6 +8,12 @@ const config: CloudConfig = {
   publicUrl: 'http://localhost:5175',
   port: 3100,
   google: { clientId: 'sprocket-test-client-id', clientSecret: 'sprocket-test-client-secret' },
+  cellTokenPrivateKey: {
+    kty: 'OKP',
+    crv: 'Ed25519',
+    x: 'sprocket-test-cell-key-public-part',
+    d: 'sprocket-test-cell-key-private-part',
+  },
 };
 
 describe('describeStartupFailure', () => {
@@ -46,6 +52,11 @@ describe('describeStartupFailure', () => {
     );
     const line = describeStartupFailure(failure, config);
     expect(line).toBe('could not use <hidden> (password <hidden>, client <hidden>, <hidden>)');
+  });
+
+  it("never shows the cell token's private key", () => {
+    const failure = new Error(`could not sign with ${config.cellTokenPrivateKey.d}`);
+    expect(describeStartupFailure(failure, config)).toBe('could not sign with <hidden>');
   });
 
   it('says something for a failure with no message', () => {

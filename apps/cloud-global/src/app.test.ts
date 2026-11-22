@@ -1,3 +1,4 @@
+import { generateKeyPairSync } from 'node:crypto';
 import { organization, type TestHelpers, testUtils } from 'better-auth/plugins';
 import { eq } from 'drizzle-orm';
 import type { Hono } from 'hono';
@@ -6,9 +7,14 @@ import { type CloudAuth, closedPaths } from './adapters/auth/betterAuth.js';
 import { type Database, migrateDatabase, openDatabase } from './adapters/persistence/database.js';
 import { schema } from './adapters/persistence/schema.js';
 import { composeApi } from './compose.js';
-import type { CloudConfig } from './config.js';
+import type { CloudConfig, Ed25519PrivateJwk } from './config.js';
 
 const WEB_ORIGIN = 'http://localhost:5175';
+
+// A key made for this run only, never one written down.
+const cellKey = generateKeyPairSync('ed25519').privateKey.export({
+  format: 'jwk',
+}) as Ed25519PrivateJwk;
 
 const config: CloudConfig = {
   databaseUrl: 'pglite:memory',
@@ -16,6 +22,7 @@ const config: CloudConfig = {
   publicUrl: WEB_ORIGIN,
   port: 3100,
   google: { clientId: 'sprocket-test-client-id', clientSecret: 'sprocket-test-client-secret' },
+  cellTokenPrivateKey: cellKey,
 };
 
 let db: Database;
