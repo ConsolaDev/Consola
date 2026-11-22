@@ -63,6 +63,7 @@ export {
   LATER_FOLDERS,
   MAX_FACTORY_TEXT_BYTES,
   factoryFilesOf,
+  isIgnoredFileName,
   parseFactory,
   type FactoryFiles,
   type FactoryNotice,

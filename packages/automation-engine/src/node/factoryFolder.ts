@@ -5,6 +5,7 @@ import {
   appendAutomationEntry,
   AUTOMATION_NAME_PATTERN,
   automationEntryText,
+  isIgnoredFileName,
   LATER_FOLDERS,
   MAX_FACTORY_TEXT_BYTES,
   MAX_SKILL_BYTES,
@@ -50,7 +51,6 @@ const NOT_A_FILE = 'it is not a regular file';
 const outsideWords = (relative: string) =>
   `\`${relative}\` links outside the factory folder; Consola reads only files inside it.`;
 
-const isDotfile = (name: string) => name.startsWith('.');
 const byName = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 const errorCode = (error: unknown) => (error as NodeJS.ErrnoException | undefined)?.code;
 const describe = (error: unknown) => (error instanceof Error ? error.message : String(error));
@@ -108,11 +108,13 @@ function decode(bytes: Uint8Array): string {
   return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
 }
 
-/** The names in a folder that is there, dotfiles left out, sorted; [] when it is not there. */
+/** The names in a folder that is there, dotfiles and leftovers left out, sorted; [] when it is not there. */
 async function listNames(dir: string): Promise<fs.Dirent[]> {
   try {
     const entries = await fs.promises.readdir(dir, { withFileTypes: true });
-    return entries.filter((entry) => !isDotfile(entry.name)).sort((a, b) => byName(a.name, b.name));
+    return entries
+      .filter((entry) => !isIgnoredFileName(entry.name))
+      .sort((a, b) => byName(a.name, b.name));
   } catch (error) {
     const code = errorCode(error);
     if (code === 'ENOENT' || code === 'ENOTDIR') return [];
@@ -171,12 +173,12 @@ function statOrNull(file: string, follow: boolean): fs.Stats | null {
   }
 }
 
-/** The names in a folder, dotfiles left out, sorted; [] where it cannot be listed. */
+/** The names in a folder, dotfiles and leftovers left out, sorted; [] where it cannot be listed. */
 function namesOrNone(dir: string): string[] {
   try {
     return fs
       .readdirSync(dir)
-      .filter((name) => !isDotfile(name))
+      .filter((name) => !isIgnoredFileName(name))
       .sort(byName);
   } catch {
     return [];
@@ -187,8 +189,9 @@ function namesOrNone(dir: string): string[] {
  * One workspace's factory folder: read, watched and written.
  *
  * It reads `factory.yml`, `automations/*`, `agents/*` and `skills/**` only:
- * dotfiles, `runs/`, `checks/` and every other root entry are not the
- * factory's. `factory.yml` and the agent and automation files are read
+ * dotfiles and what editors and the OS leave beside a file
+ * (`isIgnoredFileName`), `runs/`, `checks/` and every other root entry are
+ * not the factory's. `factory.yml` and the agent and automation files are read
  * through a symlink only while its real path stays inside the folder's
  * (`locateInFolder`); one that leaves it, or a folder of the three that
  * does, is `outside`, never read nor written through. Nothing inside
@@ -365,7 +368,7 @@ export class FactoryFolder implements FactoryFolderHandle {
     let names: string[];
     try {
       names = (await fs.promises.readdir(full(inside)))
-        .filter((name) => !isDotfile(name))
+        .filter((name) => !isIgnoredFileName(name))
         .sort(byName);
     } catch (error) {
       files.unread.push({

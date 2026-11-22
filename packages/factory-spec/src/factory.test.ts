@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { factoryFilesOf, parseFactory, type FactoryFiles } from './factory';
+import { factoryFilesOf, isIgnoredFileName, parseFactory, type FactoryFiles } from './factory';
 import { parseFactorySpec } from './parse';
 import type { SkillFileEntry } from './skills';
 
@@ -567,4 +567,30 @@ automations:
       expect(factoryFilesOf({ 'factory.yml': EMPTY_YML }).factoryYml).toBe(EMPTY_YML);
     });
   });
+});
+
+describe('isIgnoredFileName (review S5)', () => {
+  it.each([
+    '.DS_Store',
+    '.investigator.md.swp',
+    '.investigator.md.swo',
+    '.#investigator.md',
+    'investigator.md~',
+    '#investigator.md#',
+    'catalog-review.yaml.orig',
+    'catalog-review.yaml.rej',
+    'catalog-review.yaml.bak',
+    'CATALOG-REVIEW.YAML.BAK',
+    'Thumbs.db',
+    'desktop.ini',
+  ])('passes over %s', (name) => {
+    expect(isIgnoredFileName(name)).toBe(true);
+  });
+
+  it.each(['investigator.md', 'notes.txt', 'x.yml', '#', 'drafts', 'a#b.md'])(
+    'reads %s, a file or a stray',
+    (name) => {
+      expect(isIgnoredFileName(name)).toBe(false);
+    },
+  );
 });

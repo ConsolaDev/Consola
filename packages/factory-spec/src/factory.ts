@@ -24,6 +24,26 @@ export const LATER_FOLDERS: Readonly<Record<string, string>> = {
   evals: 'slice 8 (evals)',
 };
 
+/** What editors and the OS leave beside a file, by suffix: a backup (`x.md~`, `x.bak`), a merge's or a patch's (`x.orig`, `x.rej`). */
+const LEFTOVER_SUFFIXES = ['~', '.bak', '.orig', '.rej'];
+/** Files an OS writes into any folder it shows (Windows's; macOS's `.DS_Store` is a dotfile). */
+const OS_FILES = ['Thumbs.db', 'desktop.ini'];
+
+/**
+ * A name a folder's reader passes over, so it is neither a file of the
+ * factory nor a stray: a dotfile (Vim's swap `.x.md.swp`, Emacs's lock
+ * `.#x.md`, `.DS_Store`, the reader's own temporary files), Emacs's autosave
+ * `#x.md#`, a leftover by its suffix, or an OS's own file. So an editor's
+ * backup beside a file never stops the folder applying; any other stray still
+ * does. Every runner's adapter passes over the same names.
+ */
+export function isIgnoredFileName(name: string): boolean {
+  if (name.startsWith('.') || OS_FILES.includes(name)) return true;
+  if (name.length > 1 && name.startsWith('#') && name.endsWith('#')) return true;
+  const lower = name.toLowerCase();
+  return LEFTOVER_SUFFIXES.some((suffix) => lower.endsWith(suffix));
+}
+
 /** What a runner's adapter read from a factory folder. */
 export interface FactoryFiles {
   /** `factory.yml`, or `null` when there is none. */
@@ -34,7 +54,7 @@ export interface FactoryFiles {
   agents: Record<string, string>;
   /** `skills/<name>/`, by `<name>`, each entry's path relative to the skill's folder. */
   skills: Record<string, SkillFileEntry[]>;
-  /** Paths in the three folders that are none of these. */
+  /** Paths in the three folders that are none of these, but for the names `isIgnoredFileName` passes over. */
   stray: string[];
   /** Which of `LATER_FOLDERS`' keys exist. */
   laterFolders: string[];

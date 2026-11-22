@@ -115,6 +115,32 @@ describe('FactoryFolder.read', () => {
     expect(files.skills).toEqual({});
   });
 
+  it("passes over an editor's or the OS's leftovers beside a file, as it does dotfiles; other strays stay (review S5)", async () => {
+    const dir = tmp();
+    layout(dir, {
+      'factory.yml': FACTORY,
+      'agents/investigator.md': AGENT,
+      'agents/investigator.md~': AGENT,
+      'agents/#investigator.md#': AGENT,
+      'agents/.#investigator.md': AGENT,
+      'agents/.investigator.md.swp': 'swap',
+      'agents/.DS_Store': 'finder',
+      'automations/investigate-alerts.yaml': ENTRY,
+      'automations/investigate-alerts.yaml.orig': ENTRY,
+      'automations/investigate-alerts.yaml.rej': ENTRY,
+      'automations/investigate-alerts.yaml.bak': ENTRY,
+      'skills/incident-triage/SKILL.md': SKILL,
+      'skills/incident-triage/SKILL.md~': SKILL,
+      'skills/Thumbs.db': 'explorer',
+      'agents/notes.txt': 'notes',
+    });
+    const { files } = await new FactoryFolder(dir).read();
+    expect(files.agents).toEqual({ investigator: AGENT });
+    expect(files.automations).toEqual({ 'investigate-alerts': ENTRY });
+    expect(files.skills['incident-triage'].map((entry) => entry.path)).toEqual(['SKILL.md']);
+    expect(files.stray).toEqual(['agents/notes.txt']);
+  });
+
   it('a folder that is not there reads as empty', async () => {
     const dir = path.join(tmp(), 'never-made');
     expect(await new FactoryFolder(dir).read()).toEqual({
@@ -365,12 +391,15 @@ describe('FactoryFolder.watch', () => {
     await eventually(() => changes() > 0);
   });
 
-  it('a write under runs/, checks/ or to a dotfile does not count', async () => {
+  it("a write under runs/, checks/, to a dotfile or an editor's leftover does not count", async () => {
     const { dir, changes } = watched();
     layout(dir, {
       'runs/r1/x': 'run state',
       'checks/c/stdout.log': 'a log',
       'agents/.investigator.md.swp': 'an editor',
+      'agents/investigator.md~': 'an editor',
+      'automations/#investigate-alerts.yaml#': 'an editor',
+      'skills/incident-triage/SKILL.md~': 'an editor',
       'orchestrator.md': 'not read',
     });
     await pause(200);

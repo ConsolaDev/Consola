@@ -376,6 +376,8 @@ describe('what an agent writing agent files and automation files is told', () =>
     expect(text).toContain(
       'a command at load (the characters ! and ` together) anywhere in SKILL.md, in a file with a text extension, or in any file that is valid UTF-8 (a binary, such as an image or a font, is not read for it).',
     );
+    // An editor's leftovers are passed over (review S5).
+    expect(text).toContain('such as x.md~, #x.md#, x.orig or Thumbs.db, are passed over');
     // A link out of the folder is never read (review S3).
     expect(text).toContain(
       'a link leading outside the folder: Consola reads only files inside it.',
