@@ -48,7 +48,7 @@ const MACHINE_GLOBALS = [
   'global',
 ];
 
-const ADAPTERS = ['adapters/persistence', 'adapters/auth', 'adapters/http'];
+const ADAPTERS = ['adapters/persistence', 'adapters/auth', 'adapters/http', 'adapters/cellToken'];
 const RING = ['compose', 'main', 'startupError'];
 
 const LAYERS: Layer[] = [
@@ -67,21 +67,37 @@ const LAYERS: Layer[] = [
   {
     at: 'adapters/persistence',
     reaches: ['domain', 'application', 'adapters/persistence', 'config'],
-    refuses: ['hono', '@hono/*', 'better-auth', '@better-auth/*'],
+    refuses: ['hono', '@hono/*', 'better-auth', '@better-auth/*', 'jose'],
     noGlobals: [],
   },
   {
     // No database library either: its hooks call use cases, and the stores run the queries.
     at: 'adapters/auth',
     reaches: ['domain', 'application', 'adapters/auth', 'adapters/persistence', 'config'],
-    refuses: ['hono', '@hono/*', 'drizzle-orm', '@electric-sql/pglite', 'pg'],
+    refuses: ['hono', '@hono/*', 'drizzle-orm', '@electric-sql/pglite', 'pg', 'jose'],
     noGlobals: [],
   },
   {
     // Not `adapters/auth` either: that would bring Better Auth in through the side door.
     at: 'adapters/http',
     reaches: ['domain', 'application', 'adapters/http', 'config'],
-    refuses: ['better-auth', '@better-auth/*', 'drizzle-orm', '@electric-sql/pglite', 'pg'],
+    refuses: ['better-auth', '@better-auth/*', 'drizzle-orm', '@electric-sql/pglite', 'pg', 'jose'],
+    noGlobals: [],
+  },
+  {
+    // Signing the cell token, with `jose`: the only place that holds the private key, and the
+    // only one that imports `jose`.
+    at: 'adapters/cellToken',
+    reaches: ['domain', 'application', 'adapters/cellToken', 'config'],
+    refuses: [
+      'hono',
+      '@hono/*',
+      'better-auth',
+      '@better-auth/*',
+      'drizzle-orm',
+      '@electric-sql/pglite',
+      'pg',
+    ],
     noGlobals: [],
   },
   // A pure parser of the environment, so it reaches no other file and no I/O.
@@ -383,6 +399,25 @@ describe('the dependency rule', () => {
     ['adapters/http/x.ts', '../persistence/database.js', false],
     ['adapters/http/x.ts', '../auth/betterAuth.js', false],
     ['adapters/http/x.ts', '../../main.js', false],
+    ['adapters/http/x.ts', 'jose', false],
+    ['adapters/http/x.ts', '../cellToken/cellTokenSigner.js', false],
+    ['adapters/persistence/x.ts', 'jose', false],
+    ['adapters/auth/x.ts', 'jose', false],
+    ['adapters/cellToken/x.ts', 'jose', true],
+    ['adapters/cellToken/x.ts', 'node:crypto', true],
+    ['adapters/cellToken/x.ts', '../../config.js', true],
+    ['adapters/cellToken/x.ts', '../../application/ports.js', true],
+    ['adapters/cellToken/x.ts', 'hono', false],
+    ['adapters/cellToken/x.ts', 'better-auth', false],
+    ['adapters/cellToken/x.ts', 'drizzle-orm', false],
+    ['adapters/cellToken/x.ts', 'pg', false],
+    ['adapters/cellToken/x.ts', '../persistence/database.js', false],
+    ['adapters/cellToken/x.ts', '../http/app.js', false],
+    ['adapters/cellToken/x.ts', '../../compose.js', false],
+    ['adapters/cellToken/x.ts', '@consola/cloud-contract', true],
+    ['domain/x.ts', 'jose', false],
+    ['application/x.ts', 'jose', false],
+    ['compose.ts', './adapters/cellToken/cellTokenSigner.js', true],
     ['config.ts', 'zod', true],
     ['config.ts', 'node:fs', false],
     ['config.ts', './domain/organization.js', false],
