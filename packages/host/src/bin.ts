@@ -179,24 +179,23 @@ export const parseSessionArgs = (
 type Access = { readonly publicKeyPem: string; readonly devPass: DevAccess | null };
 
 /**
- * The pass key, read and checked before the session starts, so a missing or misconfigured key
- * costs no CLI start. `listenHost` parses it again as it binds.
+ * The cell's pass key, read and checked before the session starts, so a missing or misconfigured
+ * key costs no CLI start. `listenHost` parses it again as it binds.
  */
-const accessFor = (args: SessionArgs): Effect.Effect<Access, StartFailed | PassKeyInvalid> => {
-  if (args.access.type === 'dev') {
-    return makeDevAccess(args.spec.sessionId).pipe(
-      Effect.map((devPass) => ({ publicKeyPem: devPass.publicKeyPem, devPass })),
-    );
-  }
-  const file = args.access.publicKeyFile;
-  return Effect.try({
+const readPassKey = (file: string): Effect.Effect<Access, StartFailed | PassKeyInvalid> =>
+  Effect.try({
     try: () => readFileSync(file, 'utf8'),
     catch: () => new StartFailed({ problem: `Cannot read the pass public key file ${file}.` }),
   }).pipe(
     Effect.tap(parsePassKey),
     Effect.map((publicKeyPem) => ({ publicKeyPem, devPass: null })),
   );
-};
+
+/** A dev host's key pair and pass, made as it is about to listen, so the pass lasts its time. */
+const devAccess = (sessionId: string): Effect.Effect<Access> =>
+  makeDevAccess(sessionId).pipe(
+    Effect.map((devPass) => ({ publicKeyPem: devPass.publicKeyPem, devPass })),
+  );
 
 const isFolder = (path: string): boolean => {
   try {
@@ -273,13 +272,15 @@ export const runSession = (
   runtimeFor: RuntimeFor,
 ): Effect.Effect<void, StartFailed | PassKeyInvalid | ThreadRuntime.ThreadRuntimeError> =>
   Effect.gen(function* () {
-    const access = yield* accessFor(args);
+    const cellKey =
+      args.access.type === 'key' ? yield* readPassKey(args.access.publicKeyFile) : null;
     yield* folderMustExist(args.spec.cwd);
     const stateDir = args.stateDir ?? (yield* temporaryStateDir);
     const handle = yield* Effect.gen(function* () {
       const runtime = yield* ThreadRuntime.ThreadRuntime;
       return yield* runtime.open(args.spec);
     }).pipe(Effect.provide(runtimeFor({ stateDir })));
+    const access = cellKey ?? (yield* devAccess(args.spec.sessionId));
     const listening = yield* listenHost({
       port: args.port,
       host: args.bind,

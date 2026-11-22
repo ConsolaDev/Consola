@@ -345,12 +345,18 @@ describe('consola-host session', () => {
         );
 
         const ready = yield* host.next;
+        const readyAt = Math.floor((yield* Clock.currentTimeMillis) / 1000);
         expect(ready).toEqual({ type: 'ready', port: expect.any(Number) });
         const devPass = yield* host.next;
         expect(devPass).toMatchObject({ type: 'dev-pass', expiresInSeconds: 43_200 });
         const pass = devPass.pass as string;
         // Without `--session-id`, `--dev` serves `DEV_SESSION_ID`, and the pass names it.
-        expect(decodeJwt(pass)).toMatchObject({ sid: DEV_SESSION_ID, sub: 'dev', ws: 'local' });
+        const claims = decodeJwt(pass);
+        expect(claims).toMatchObject({ sid: DEV_SESSION_ID, sub: 'dev', ws: 'local' });
+        // Signed as the host is about to listen, not before the CLI's slow start: it lasts the
+        // twelve hours `expiresInSeconds` says from about the moment it is printed.
+        expect(claims.iat).toBeGreaterThanOrEqual(readyAt - 3);
+        expect(claims.iat).toBeLessThanOrEqual(readyAt);
 
         // t3's own client is let in and gets its first config snapshot.
         const connected = yield* connectT3Client(hostSocketUrl(ready.port as number, pass));
