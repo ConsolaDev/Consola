@@ -23,4 +23,6 @@ module.exports = defineConfig({
     url: 'http://localhost:5174',
     reuseExistingServer: !process.env.CI,
   },
+  // Runs after the server answers: compiles the demo once, before any test waits on it.
+  globalSetup: require.resolve('./tests/warm-demo.cjs'),
 });
