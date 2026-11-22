@@ -46,6 +46,36 @@ beforeEach(() => {
 afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
 
 /**
+ * Whether this git honours `GIT_NO_LAZY_FETCH` (2.44 and later). An older one
+ * ignores it and fills a partial clone in from origin, so the reads cannot
+ * keep a partial clone from fetching there.
+ */
+const GIT_STOPS_LAZY_FETCH = (() => {
+  const [major, minor] = (
+    execFileSync('git', ['--version'], { encoding: 'utf8' }).match(/(\d+)\.(\d+)/) ?? []
+  )
+    .slice(1)
+    .map(Number);
+  return major > 2 || (major === 2 && minor >= 44);
+})();
+const GIT_BEFORE_2_44 = 'git before 2.44 ignores GIT_NO_LAZY_FETCH and fetches the blob';
+
+/**
+ * Points every way git reaches origin from `repos` at a program that leaves a
+ * mark and refuses. Answers the mark's path.
+ */
+function trapOrigin(...repos: string[]): string {
+  const marker = path.join(root, 'origin-reached');
+  const trap = path.join(root, 'trap.sh');
+  fs.writeFileSync(trap, `#!/bin/sh\ntouch "${marker}"\nexit 1\n`, { mode: 0o755 });
+  for (const repo of repos) {
+    git(repo, 'config', 'remote.origin.uploadpack', trap);
+    git(repo, 'config', 'remote.origin.receivepack', trap);
+  }
+  return marker;
+}
+
+/**
  * A partial clone of origin at `feat/billing`, missing main's copy of
  * `src/client.ts`, which a diff against origin/main needs.
  */
@@ -152,14 +182,40 @@ describe('readBranchFacts', () => {
     expect(await readBranchFacts(clone)).toEqual(before);
   });
 
-  it('never fetches a blob a partial clone is missing', async () => {
+  it('runs nothing against origin, which is there to reach, in any read', async () => {
+    // origin is the real bare repo, so a fetch could succeed; the trap
+    // catches every way git would reach it.
+    const marker = trapOrigin(clone);
+
+    expect(await readBranchFacts(clone)).toMatchObject({
+      upstream: { ahead: 2 },
+      base: { ref: 'origin/main' },
+    });
+    expect((await readBranchFacts(clone, 'main')).base?.ref).toBe('origin/main');
+    expect((await readBranchIdentity(clone, (url) => url))?.branch).toBe('feat/search-pagination');
+    expect(fs.existsSync(marker)).toBe(false);
+
+    // The trap does catch a fetch.
+    expect(() => git(clone, 'fetch')).toThrow();
+    expect(fs.existsSync(marker)).toBe(true);
+  });
+
+  it('never fetches a blob a partial clone is missing', async ({ skip }) => {
+    skip(!GIT_STOPS_LAZY_FETCH, GIT_BEFORE_2_44);
     // Cloned at the branch, so main's copy of client.ts, which the diff
     // needs, was never fetched.
     const partial = partialCloneMissingABlob();
+    const marker = trapOrigin(partial);
 
     expect((await readBranchFacts(partial)).base).toBeNull();
+    expect((await readBranchIdentity(partial, (url) => url))?.branch).toBe('feat/billing');
+    expect(fs.existsSync(marker)).toBe(false);
 
-    // git itself would have fetched it, and then the line is there.
+    // git itself would fetch it to fill the clone in, which the trap catches.
+    expect(() => git(partial, 'diff', '--numstat', 'origin/main...HEAD')).toThrow();
+    expect(fs.existsSync(marker)).toBe(true);
+    // With origin reachable it does, and then the line is there.
+    git(partial, 'config', '--unset', 'remote.origin.uploadpack');
     git(partial, 'diff', '--numstat', 'origin/main...HEAD');
     expect((await readBranchFacts(partial)).base).toEqual({
       ref: 'origin/main',
@@ -167,40 +223,6 @@ describe('readBranchFacts', () => {
       additions: 1,
       deletions: 0,
     });
-  });
-
-  it('runs nothing against origin, which is there to reach, in any read', async () => {
-    // origin is the real bare repo, so a fetch could succeed. Every way git
-    // reaches it runs one of these programs, which here leaves a mark and
-    // refuses.
-    const marker = path.join(root, 'origin-reached');
-    const trap = path.join(root, 'trap.sh');
-    fs.writeFileSync(trap, `#!/bin/sh\ntouch "${marker}"\nexit 1\n`, { mode: 0o755 });
-    const partial = partialCloneMissingABlob();
-    git(clone, 'checkout', 'feat/search-pagination');
-    for (const repo of [clone, partial]) {
-      git(repo, 'config', 'remote.origin.uploadpack', trap);
-      git(repo, 'config', 'remote.origin.receivepack', trap);
-    }
-    const identity = (url: string) => url;
-
-    expect(await readBranchFacts(clone)).toMatchObject({
-      upstream: { ahead: 2 },
-      base: { ref: 'origin/main' },
-    });
-    expect((await readBranchFacts(clone, 'main')).base?.ref).toBe('origin/main');
-    expect((await readBranchIdentity(clone, identity))?.branch).toBe('feat/search-pagination');
-    expect((await readBranchFacts(partial)).base).toBeNull();
-    expect((await readBranchIdentity(partial, identity))?.branch).toBe('feat/billing');
-    expect(fs.existsSync(marker)).toBe(false);
-
-    // The trap does catch a fetch: an explicit one, and the one git itself
-    // makes to fill a partial clone in.
-    expect(() => git(clone, 'fetch')).toThrow();
-    expect(fs.existsSync(marker)).toBe(true);
-    fs.rmSync(marker);
-    expect(() => git(partial, 'diff', '--numstat', 'origin/main...HEAD')).toThrow();
-    expect(fs.existsSync(marker)).toBe(true);
   });
 
   it('answers no facts for a folder outside git', async () => {

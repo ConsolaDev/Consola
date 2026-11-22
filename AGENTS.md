@@ -529,13 +529,14 @@ panel it is view state, kept in the renderer.
   never ends a lookup (one more is asked), a failed lookup keeps a pull
   request already found for the same branch, and an answer that read no
   branch keeps the asked branch's answer, or fails it so Retry is offered.
-- **Branch facts never fetch** (`readBranchFacts`, with
-  `GIT_NO_LAZY_FETCH=1`, a 10 s timeout and argument lists): every count is
-  against what the clone already has, and what git cannot answer is a line
-  not drawn, never a throw. "vs" compares with the session's pull request's
-  base when its details are cached, else `origin/HEAD`, never a guessed
-  `main`. They are read while the Branch section is open and again after
-  each git status refresh of that checkout (`gitStatusStore.refreshedAt`);
+- **Branch facts never fetch** (`readBranchFacts`, through `readGit`:
+  `GIT_NO_LAZY_FETCH=1`, which git honours from 2.44, `GIT_TERMINAL_PROMPT=0`,
+  a 10 s timeout and argument lists): every count is against what the clone
+  already has, and what git cannot answer is a line not drawn, never a throw.
+  "vs" compares with the session's pull request's base when its details are
+  cached, else `origin/HEAD`, never a guessed `main`. They are read while the
+  Branch section is open and again after each git status refresh of that
+  checkout (`gitStatusStore.refreshedAt`);
   a load during a read gets one more read after it (`branchFactsStore`), so
   a commit made mid-read is counted. Uncommitted reads the stats of its own
   checkout (`statsFor`, `statsRoot`), never the last checkout's during a

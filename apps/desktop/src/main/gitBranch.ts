@@ -1,6 +1,5 @@
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 import type { BranchFacts } from '../shared/branchFacts';
+import { readGit as git } from './gitRead';
 import { resolveSshRemote } from './sshRemote';
 
 /**
@@ -10,28 +9,14 @@ import { resolveSshRemote } from './sshRemote';
  *
  * These reads never fetch. Every count compares with the remote-tracking refs
  * the clone kept from its last fetch, so nothing here reaches the remote or
- * waits on it. `GIT_NO_LAZY_FETCH=1` keeps that true in a partial clone, where
- * git would otherwise fetch, unasked, a blob the diff needs from the remote it
- * was cloned from; there the diff fails instead, and its line is not drawn.
+ * waits on it. In a partial clone git would otherwise fetch, unasked, a blob
+ * the diff needs from the remote it was cloned from; `GIT_NO_LAZY_FETCH=1`
+ * (`readGit`'s, honoured from git 2.44) makes the diff fail instead, and its
+ * line is not drawn. An older git ignores it and fetches.
+ *
+ * A read git cannot answer (it failed, timed out, is missing, or wrote more
+ * than its buffer) is null, and the fact it was for is not drawn.
  */
-
-const execFileAsync = promisify(execFile);
-
-/** A hung git (a stale lock on a network drive) must not hold the panel hostage. */
-const GIT_TIMEOUT_MS = 10_000;
-
-/** stdout, or null when git fails, which here only ever means "no such fact". */
-async function git(dir: string, args: string[]): Promise<string | null> {
-  try {
-    const { stdout } = await execFileAsync('git', ['-C', dir, ...args], {
-      timeout: GIT_TIMEOUT_MS,
-      env: { ...process.env, GIT_NO_LAZY_FETCH: '1' },
-    });
-    return stdout.trim();
-  } catch {
-    return null;
-  }
-}
 
 /**
  * A branch name that can follow `origin/` in an argument: no leading dash, so
