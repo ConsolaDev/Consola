@@ -402,7 +402,6 @@ export interface TurnReportView {
   result?: TurnResultView;
   /** The lines that were not JSON, the last 200. */
   otherLines: string[];
-  limitNotice: boolean;
   /** The cap this launch ran with, as the host launched it. */
   maxTurns?: number;
   /** The CLI's own `system/init` and `result` objects, for turn.json. */

@@ -83,7 +83,6 @@ export function turnReport(
     deniedTools?: string[];
     maxTurns?: number;
     otherLines?: string[];
-    limitNotice?: boolean;
     noResult?: boolean;
   } = {},
 ): TurnReportView {
@@ -102,7 +101,6 @@ export function turnReport(
     ...(model !== undefined ? { init: { model, servers: [] } } : {}),
     ...(result ? { result } : {}),
     otherLines: fields.otherLines ?? [],
-    limitNotice: fields.limitNotice ?? false,
     ...(fields.maxTurns !== undefined ? { maxTurns: fields.maxTurns } : {}),
     raw: {
       ...(model !== undefined ? { init: { type: 'system', subtype: 'init', model } } : {}),

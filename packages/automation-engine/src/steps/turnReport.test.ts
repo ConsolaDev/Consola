@@ -15,7 +15,6 @@ import {
 
 const report = (fields: Partial<TurnReportView> = {}): TurnReportView => ({
   otherLines: [],
-  limitNotice: false,
   raw: {},
   ...fields,
 });

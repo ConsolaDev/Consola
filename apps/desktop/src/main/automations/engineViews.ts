@@ -138,7 +138,6 @@ export function toTurnReportView(report: TurnReport): TurnReportView {
     ...(report.init ? { init: toTurnInitView(report.init) } : {}),
     ...(report.result ? { result: toTurnResultView(report.result) } : {}),
     otherLines: [...report.otherLines],
-    limitNotice: report.limitNotice,
     ...(report.maxTurns !== undefined ? { maxTurns: report.maxTurns } : {}),
     raw,
   };

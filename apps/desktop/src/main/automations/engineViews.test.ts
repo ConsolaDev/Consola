@@ -326,15 +326,15 @@ describe('turn views', () => {
       init: { model: 'claude-stub-1', servers: [], signInHint: 'run `claude`, then /mcp' },
       result: { subtype: 'success', isError: false, costUsd: 0.0123, turns: 3, deniedTools: [] },
       otherLines: ['Warning: x'],
-      limitNotice: false,
       maxTurns: 6,
       raw: { init, result },
     });
   });
 
-  it('a report with neither keeps raw empty', () => {
+  it('a report with neither keeps raw empty, and its limit notice stays in main', () => {
+    // The terminal raises `limit-notice` from it; the engine has no use for it.
     const view = toTurnReportView({ otherLines: [], limitNotice: true });
-    expect(view).toEqual({ otherLines: [], limitNotice: true, raw: {} });
+    expect(view).toEqual({ otherLines: [], raw: {} });
     expect(Object.prototype.hasOwnProperty.call(view, 'maxTurns')).toBe(false);
   });
 
