@@ -1,3 +1,4 @@
+import { execFileSync, type ExecFileSyncOptionsWithStringEncoding } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -16,7 +17,10 @@ import * as path from 'node:path';
  * PATH without any folder holding an agent CLI, and none of their API keys or
  * of an enclosing Claude session's variables. A CLI installed system-wide,
  * where a driver looks whatever the home and PATH say, cannot be hidden: the
- * setup refuses to run there instead.
+ * setup refuses to run there instead. So does one the login shell's own PATH
+ * reaches, which the drivers search rather than the process's: a login shell
+ * adds `/etc/paths`, `/etc/paths.d` (macOS's `path_helper`) and whatever
+ * `/etc/profile` sets, none of which a home or PATH hides (review S2).
  *
  * Only node's own modules are imported, so loading this from the setup file
  * caches nothing a test file mocks.
@@ -62,6 +66,46 @@ export function systemInstallProblem(dirs: readonly string[] = SYSTEM_INSTALL_DI
   return null;
 }
 
+/** How long the setup waits for the login shell: `getLoginEnv`'s retry allows as long. */
+const LOGIN_PROBE_TIMEOUT_MS = 20_000;
+
+/**
+ * The PATH a login shell gives the drivers: `getLoginEnv`'s own probe
+ * (`<shell> -ilc 'env -0'`, the shell `env.SHELL` names), asked with `env`,
+ * whose PATH stands when the shell prints none. Throws when the shell cannot
+ * be asked.
+ */
+export function loginShellPath(
+  env: NodeJS.ProcessEnv,
+  shell: string = env.SHELL || '/bin/sh',
+): string {
+  // Detached, as `getLoginEnv`'s probe is: an interactive shell must not take the terminal.
+  const options: ExecFileSyncOptionsWithStringEncoding & { detached: boolean } = {
+    env,
+    encoding: 'utf8',
+    timeout: LOGIN_PROBE_TIMEOUT_MS,
+    stdio: ['ignore', 'pipe', 'ignore'],
+    detached: true,
+  };
+  const printed = execFileSync(shell, ['-ilc', 'env -0'], options);
+  const entry = printed.split('\0').find((line) => line.startsWith('PATH='));
+  return entry !== undefined ? entry.slice('PATH='.length) : (env.PATH ?? '');
+}
+
+/** Why the unit tests must not run here: a folder on the login shell's PATH holds an agent CLI; else null. */
+export function loginPathProblem(loginPath: string): string | null {
+  for (const dir of loginPath.split(path.delimiter)) {
+    if (dir === '') continue;
+    for (const name of AGENT_CLIS) {
+      const file = path.join(dir, name);
+      if (isExecutable(file)) {
+        return `A real CLI is installed at ${file}, on the login shell's PATH (which /etc/paths, /etc/paths.d or /etc/profile set), where every driver looks, so a unit test could reach it; the desktop unit tests do not run on this machine until it is moved.`;
+      }
+    }
+  }
+  return null;
+}
+
 /**
  * Point `env` at `home` (created, with an empty `.claude` and `.codex`):
  * `HOME`, `CLAUDE_CONFIG_DIR`, `CODEX_HOME`; `SHELL` is `/bin/sh` and `ENV`
@@ -88,19 +132,41 @@ export function isolateFromRealClis(env: NodeJS.ProcessEnv, home: string): void 
 /**
  * The setup's whole job, for a process about to run tests: refuses (throws
  * `systemInstallProblem`'s words, touching nothing) where a CLI is installed
- * in `systemDirs`; else isolates `env` in a fresh home under `tmp`, which it
- * returns for the setup to remove once the file's tests are done.
+ * in `systemDirs`; else isolates a copy of `env` in a fresh home under `tmp`
+ * and asks its login shell for the PATH the drivers will search
+ * (`loginPath`), refusing, the home removed and `env` untouched, when a
+ * folder on it holds an agent CLI or the shell cannot be asked; else
+ * isolates `env` there and returns the home, for the setup to remove once
+ * the file's tests are done.
  */
 export function isolateTestProcess(
   env: NodeJS.ProcessEnv,
   {
     tmp = os.tmpdir(),
     systemDirs = SYSTEM_INSTALL_DIRS,
-  }: { tmp?: string; systemDirs?: readonly string[] } = {},
+    loginPath = loginShellPath,
+  }: {
+    tmp?: string;
+    systemDirs?: readonly string[];
+    loginPath?: (env: NodeJS.ProcessEnv) => string;
+  } = {},
 ): string {
   const problem = systemInstallProblem(systemDirs);
   if (problem) throw new Error(problem);
   const home = fs.mkdtempSync(path.join(tmp, 'consola-unit-home-'));
+  const isolated: NodeJS.ProcessEnv = { ...env };
+  isolateFromRealClis(isolated, home);
+  let onLogin: string | null;
+  try {
+    onLogin = loginPathProblem(loginPath(isolated));
+  } catch (error) {
+    const reason = (error instanceof Error ? error.message : String(error)).split('\n')[0];
+    onLogin = `Could not ask the login shell for its PATH (${reason}), so it may reach a real CLI; the desktop unit tests do not run until it answers.`;
+  }
+  if (onLogin) {
+    fs.rmSync(home, { recursive: true, force: true });
+    throw new Error(onLogin);
+  }
   isolateFromRealClis(env, home);
   return home;
 }
