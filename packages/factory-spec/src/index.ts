@@ -19,6 +19,14 @@ export {
   type AgentServer,
   type ParsedAgent,
 } from './agents';
+export {
+  BRANCH_PLACEHOLDERS,
+  branchTemplateProblem,
+  cleanBranchPart,
+  refFormatProblem,
+  renderBranch,
+  type BranchValues,
+} from './branchName';
 export { cronError, nextCronOccurrence } from './cron';
 export { parseAutomationFile, type AutomationFileResult } from './automationFile';
 export {
