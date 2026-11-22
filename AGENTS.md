@@ -13,6 +13,7 @@ Consola is an Electron desktop application that provides a structured AI-assiste
 ```bash
 pnpm run dev              # Full dev environment (Vite HMR + tsc --watch + Electron auto-restart)
 pnpm run dev:cloud        # Consola Cloud: the API (3100) and the web app (5175)
+pnpm run dev:cloud-region # Consola Cloud's regional cell (3101), set up by its .env
 pnpm run build            # Production build (all processes)
 pnpm start                # Run production build
 pnpm run test:e2e         # Run Playwright E2E tests
@@ -40,7 +41,8 @@ front. E2E runs themselves are already hidden and unfocusable
 
 All commands above run from the repository root. The pnpm workspace contains
 `apps/desktop` (`consola`), `apps/website` (`@consola/website`),
-`apps/cloud-api` (`@consola/cloud-api`), `apps/cloud-web` (`@consola/cloud-web`),
+`apps/cloud-api` (`@consola/cloud-api`), `apps/cloud-region`
+(`@consola/cloud-region`), `apps/cloud-web` (`@consola/cloud-web`),
 `packages/factory-spec` (`@consola/factory-spec`, MIT) and
 `packages/automation-engine` (`@consola/automation-engine`). Turborepo
 orchestrates builds, tests, and typechecking. Paths below beginning with `src/`,
@@ -111,11 +113,16 @@ parser and Run record that every runner shares.
 `apps/cloud-api` (`@consola/cloud-api`, Hono, Better Auth, Drizzle on PGlite or
 Postgres) and `apps/cloud-web` (`@consola/cloud-web`, Vite and React) are the
 company layer's first piece: Google sign-in and the deployment's one
-organisation. Nothing in `apps/desktop` depends on them, and neither imports
-from the desktop, the website or `packages/*`. Setup is in
-`apps/cloud-api/README.md`. Before changing either cloud app, read its own
-`AGENTS.md` (`apps/cloud-api/AGENTS.md`, `apps/cloud-web/AGENTS.md`): it holds
-the layer rules and the dependency rule that keeps them apart.
+organisation. `apps/cloud-region` (`@consola/cloud-region`, Hono, Drizzle on
+PGlite or Postgres) is the regional cell: one copy per region, configured with
+its region, holding what a workspace has there that is not global. It holds no
+accounts (people are referenced by their global id), and every table carries
+the workspace id. Nothing in `apps/desktop` depends on the cloud apps, and none
+imports from the desktop, the website, another app or `packages/*`. Setup is in
+`apps/cloud-api/README.md` and `apps/cloud-region/README.md`. Before changing a
+cloud app, read its own `AGENTS.md` (`apps/cloud-api/AGENTS.md`,
+`apps/cloud-region/AGENTS.md`, `apps/cloud-web/AGENTS.md`): it holds the layer
+rules and the dependency rule that keeps them apart.
 
 The browser talks only to the web app's origin. Vite proxies `/api` to the API,
 so the session cookie is first-party and the API needs no CORS. Better Auth
