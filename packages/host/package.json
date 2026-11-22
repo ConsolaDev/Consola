@@ -1,0 +1,38 @@
+{
+  "name": "@consola/host",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Runs t3code's agent adapters for one Consola session and serves t3's chat RPC to a browser.",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "bin": {
+    "consola-host": "./src/bin.ts"
+  },
+  "scripts": {
+    "typecheck": "effect-tsgo tsrs --noEmit",
+    "test": "vp test run"
+  },
+  "dependencies": {
+    "@effect/platform-node": "catalog:",
+    "@t3tools/contracts": "workspace:*",
+    "@t3tools/provider-acp-registry": "workspace:*",
+    "@t3tools/provider-claude": "workspace:*",
+    "@t3tools/provider-codex": "workspace:*",
+    "@t3tools/provider-core": "workspace:*",
+    "@t3tools/provider-opencode": "workspace:*",
+    "@t3tools/provider-pi": "workspace:*",
+    "@t3tools/server-orchestration": "workspace:*",
+    "@t3tools/shared": "workspace:*",
+    "@t3tools/source-control-core": "workspace:*",
+    "effect": "catalog:",
+    "jose": "6.2.10",
+    "t3": "workspace:*"
+  },
+  "devDependencies": {
+    "@t3tools/client-runtime": "workspace:*",
+    "@t3tools/provider-testing": "workspace:*",
+    "@types/node": "catalog:",
+    "typescript": "^5.9.3",
+    "vite-plus": "catalog:"
+  }
+}

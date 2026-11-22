@@ -104,3 +104,38 @@ test('a change to no package checks no package', () => {
   assert.deepEqual(checks(result), { desktop: false, website: false, packages: [] });
   assert.equal(result.reason, 'This change affects no package.');
 });
+
+// The chat view and the copied t3code packages (vendor/t3code), which have
+// jobs of their own.
+const vendored = ['@t3tools/contracts', 't3'];
+const withOwnJobs = [...all, '@consola/agent-ui', '@consola/host', ...vendored];
+const jobs = ({ agentUi, vendor, packages }) => ({ agentUi, vendor, packages });
+
+test('a push checks the chat view and the vendored packages in their own jobs', () => {
+  assert.deepEqual(
+    jobs(scope({ event: 'push', changedFiles: [], affected: [], all: withOwnJobs, vendored })),
+    { agentUi: true, vendor: true, packages: [...everything.packages, '@consola/host'].sort() },
+  );
+});
+
+test('a change to a vendored package runs the vendor job, never one job per copied package', () => {
+  const result = scope({
+    event: 'pull_request',
+    changedFiles: ['vendor/t3code/packages/contracts/src/index.ts'],
+    affected: ['@consola/agent-ui', '@consola/host', '@t3tools/contracts', 't3'],
+    all: withOwnJobs,
+    vendored,
+  });
+  assert.deepEqual(jobs(result), { agentUi: true, vendor: true, packages: ['@consola/host'] });
+});
+
+test('a change to the chat view alone runs its job and nothing vendored', () => {
+  const result = scope({
+    event: 'pull_request',
+    changedFiles: ['packages/agent-ui/src/AgentChat.tsx'],
+    affected: ['@consola/agent-ui'],
+    all: withOwnJobs,
+    vendored,
+  });
+  assert.deepEqual(jobs(result), { agentUi: true, vendor: false, packages: [] });
+});

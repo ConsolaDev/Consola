@@ -17,7 +17,9 @@ pnpm run dev:cloud-region # Consola Cloud's regional cell (3101), set up by its 
 pnpm run build            # Production build (all processes)
 pnpm start                # Run production build
 pnpm run test:e2e         # Run Playwright E2E tests
-pnpm test                 # Every package's tests via Turborepo (the website's Playwright suite included)
+pnpm test                 # Every Consola package's tests via Turborepo (the website's Playwright suite included; not vendor/)
+pnpm run test:vendor      # The copied t3code packages' own tests, as CI's vendor job runs them (Linux)
+pnpm run typecheck:vendor # The copied t3code packages' own typecheck, as CI's vendor job runs it
 pnpm --filter @consola/automation-engine test   # Just the engine's tests
 ```
 
@@ -53,10 +55,12 @@ All commands above run from the repository root. The pnpm workspace contains
 (`@consola/cloud-region`), `apps/cloud-web` (`@consola/cloud-web`),
 `packages/factory-spec` (`@consola/factory-spec`, MIT),
 `packages/automation-engine` (`@consola/automation-engine`),
-`packages/sandbox` (`@consola/sandbox`) and `packages/cloud-contract`
-(`@consola/cloud-contract`). Turborepo
-orchestrates builds, tests, and typechecking. Paths below beginning with `src/`,
-`scripts/`, or `dist/` are relative to `apps/desktop`. Use
+`packages/sandbox` (`@consola/sandbox`), `packages/cloud-contract`
+(`@consola/cloud-contract`), `packages/host` (`@consola/host`, AGPL),
+`packages/agent-ui` (`@consola/agent-ui`, MIT) and the copied t3code packages
+under `vendor/t3code/` ("Vendored t3code", below). Turborepo orchestrates
+builds, tests, and typechecking; the root runs leave `vendor/` out. Paths below
+beginning with `src/`, `scripts/`, or `dist/` are relative to `apps/desktop`. Use
 `pnpm --filter consola exec <tool>` for app-specific tools.
 
 Tooling runs on one exact Node version, named in three places that move
@@ -86,8 +90,11 @@ change can fail them. `.github/scripts/ci-scope.mjs` asks Turborepo which
 packages the change affects (`turbo ls --affected`: the changed packages and
 every package that depends on them), and each job runs for those alone, so
 a change to one cloud app never starts the desktop's macOS jobs. A new
-workspace package gets its own job without the workflow naming it. The
-script also holds three rules the package graph cannot see:
+workspace package gets its own job without the workflow naming it, except
+under `vendor/`: the copied t3code packages are checked together, with their
+own scripts, in the `vendor` job. `@consola/agent-ui` has a job of its own,
+like the website, for its browser tests and the checks of its built library.
+The script also holds three rules the package graph cannot see:
 
 - A change to the desktop checks the website too, because the site's demo
   imports the desktop's renderer by path, not as a dependency.
@@ -239,6 +246,19 @@ later rule that limits it to the company lands in `mayJoin` and so gates every
 sign-in (sessions already open when the rule changes are not ended this
 round). The web app's footer links to the source of the commit it runs
 (AGPL §13).
+
+### Vendored t3code
+
+`vendor/t3code/` is t3code's packages and server files, copied byte for byte (MIT, its own
+`LICENSE`). Never edit a copied file there or in `packages/agent-ui/src/t3/`; Biome ignores
+them. A change that cannot be avoided, every file copied and every re-sync are recorded in
+`vendor/t3code/UPSTREAM.md`, in the same commit. Two Consola packages build on it:
+`packages/host` (`@consola/host`, AGPL), which runs t3's orchestration for one session and
+serves t3's RPC behind a session pass, and `packages/agent-ui` (`@consola/agent-ui`, MIT),
+t3's chat view behind `AgentChat`. Read each one's `AGENTS.md` before changing it. The
+copied packages' own checks are not part of `pnpm test` or `pnpm typecheck`: run
+`pnpm run test:vendor` and `pnpm run typecheck:vendor` (CI's `vendor` job, on Linux, where a
+few of t3's tests assume Linux and fail on macOS).
 
 ## Critical Patterns
 
@@ -1225,7 +1245,11 @@ rules follow:
 - **Dependencies must be AGPL-compatible**: MIT, ISC, BSD, Apache-2.0,
   MPL-2.0, LGPL and GPL-3.0 are; GPL-2.0-only is not. CI checks every
   installed dependency's declared licence against the list in
-  `.github/scripts/check-licenses.mjs`.
+  `.github/scripts/check-licenses.mjs`. Its `NOT_SHIPPED` names the few
+  that are not (the Claude Agent SDK and the Cursor SDK, which the copied
+  t3code packages install), each with what keeps it out of everything
+  Consola publishes or releases; a package joins it only when nothing that
+  ships may bundle it.
 
 Outside contributions need a signed CLA (`CLA.md`, checked by
 `.github/workflows/cla.yml`). It is what keeps relicensing — a commercial

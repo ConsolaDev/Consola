@@ -1,0 +1,31 @@
+{
+  "name": "@t3tools/provider-codex",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    "./settings": {
+      "types": "./src/settings.ts",
+      "import": "./src/settings.ts"
+    },
+    "./server": {
+      "types": "./src/server.ts",
+      "import": "./src/server.ts"
+    },
+    "./testing": {
+      "types": "./src/testing.ts",
+      "import": "./src/testing.ts"
+    }
+  },
+  "scripts": {
+    "typecheck": "effect-tsgo tsrs --noEmit",
+    "test": "pnpm --dir ../../apps/server exec vp test run --config ../../packages/provider-codex/vitest.config.ts --dir ."
+  },
+  "dependencies": {
+    "@t3tools/contracts": "workspace:*",
+    "t3": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:"
+  }
+}
