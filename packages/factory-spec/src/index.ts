@@ -81,6 +81,7 @@ export {
   TERMINAL_RUN_STATUSES,
   automationVersion,
   stableStringify,
+  stepsResolvedBody,
   type RunItem,
   type RunnerKind,
   type RunRecord,

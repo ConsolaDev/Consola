@@ -63,6 +63,8 @@ export interface StepRun {
   reminded?: boolean;
   /** The model the CLI reported in its turn's `system/init`, the latest turn's. */
   model?: string;
+  /** The agent file's name (`agents/<name>.md`), when the step named one. */
+  agent?: string;
   /**
    * The latest attempt's turns, summed: its first turn, a resume, its
    * reminder. `costUsd` is the CLI's estimate, present only when a turn
@@ -213,10 +215,10 @@ export const TERMINAL_RUN_STATUSES: readonly RunStatus[] = ['completed', 'failed
  * `applies_to`. Not a cron schedule or a poll's `every`, which say when
  * rather than what, and not the workspace, which is where the file lives rather than something it says.
  *
- * A `steps:` entry is covered whole: prompts, action names, commands, env
- * templates, `if`, outputs, artifacts, reads, timeouts and `dry_run`. Its
- * `resolvedBody` is `stableStringify({ <stepId>: <body> })` over the actions
- * its steps name.
+ * A `steps:` entry is covered whole: prompts, action names, agent names,
+ * commands, env templates, `if`, outputs, artifacts, reads, timeouts and
+ * `dry_run`. Its `resolvedBody` is `stepsResolvedBody`'s: the bodies of the
+ * actions its steps name and, when a step names one, its agents' hashes.
  *
  * `resolvedBody` is what the runner resolved the target to — an action's
  * prompt, which lives in the workspace's settings rather than the file — so
@@ -257,6 +259,24 @@ export function automationVersion(
     resolvedBody,
   });
   return createHash('sha256').update(canonical).digest('hex').slice(0, 16);
+}
+
+/**
+ * A steps entry's `resolvedBody`: today's `stableStringify({ <stepId>: <action body> })`, or undefined, when no step
+ * names an agent; `stableStringify({ actions, agents: { <agent>: <agentHash> } })` when one does (`actions` absent
+ * when none is used). Every runner hashes an entry through this.
+ *
+ * So an entry no step of which names an agent (every slice-1 entry) hashes byte for byte as before, and an agent
+ * file, a skill it names or a server it names changes the version of exactly the entries that use that agent.
+ */
+export function stepsResolvedBody(
+  actionBodies: Readonly<Record<string, string>>,
+  agentHashes: Readonly<Record<string, string>>,
+): string | undefined {
+  const actions = Object.keys(actionBodies).length > 0 ? actionBodies : undefined;
+  if (Object.keys(agentHashes).length === 0)
+    return actions === undefined ? undefined : stableStringify(actions);
+  return stableStringify({ actions, agents: agentHashes });
 }
 
 /** JSON with sorted keys and undefined dropped, so equal definitions hash equal. */
