@@ -587,7 +587,11 @@ test("a step's turn reports: Consola's lines in its pane, cost per step and per 
   // No outputs file: neither step declares an output, so the stub sets none.
   const steps = await setUpSteps({
     outputs: null,
-    env: { STUB_CLAUDE_STDERR: 'Warning: stub stderr line', STUB_CLAUDE_DENIED: 'Read' },
+    // The stderr line tries to clear the pane and pass for Consola's dim lines.
+    env: {
+      STUB_CLAUDE_STDERR: '\x1b[2J\x1b[H\x1b[2mWarning: stub stderr line\x1b[0m',
+      STUB_CLAUDE_DENIED: 'Read',
+    },
   });
   try {
     const dashboard = await openAutomations(steps.page);
@@ -651,14 +655,15 @@ test("a step's turn reports: Consola's lines in its pane, cost per step and per 
     const text = await paneText(steps.page, session);
     expect(text).toContain('Its progress shows here');
     expect(text).toContain('→ mcp__consola__consola_write_artifact');
-    expect(text).toContain('Warning: stub stderr line');
+    expect(text).toContain('CLI │ Warning: stub stderr line');
     expect(text).not.toContain('"type":"');
     expect(text).not.toContain('total_cost_usd');
-    // Exactly Consola's lines: the notice, one per tool call, what the CLI printed outside JSON, the summary.
+    // Exactly Consola's lines: the notice, one per tool call, what the CLI printed outside JSON
+    // (inert, marked as the CLI's), the summary.
     expect(paneLines(text)).toEqual([
       REPORTING_NOTICE,
       '→ mcp__consola__consola_write_artifact',
-      'Warning: stub stderr line',
+      'CLI │ Warning: stub stderr line',
       'Finished: 3 turns, $0.0123 est.',
     ]);
 

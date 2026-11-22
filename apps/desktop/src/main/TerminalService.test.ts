@@ -1351,6 +1351,84 @@ describe('TerminalService a reporting turn', () => {
     service.destroy();
   });
 
+  describe('a line the CLI printed outside its JSON', () => {
+    /** The mark Consola puts in front of each such line: dim, then the CLI's text, plain. */
+    const marked = (text: string) => `\x1b[2mCLI │\x1b[0m ${text}\r\n`;
+
+    it('arrives inert and marked as the CLI’s: no escape or control reaches the pane', async () => {
+      const fake = installFakePty();
+      const service = reporting();
+      const output: string[] = [];
+      service.on('data', (data) => output.push(data));
+      service.start();
+      await vi.advanceTimersByTimeAsync(0);
+      output.length = 0;
+      // A clear, a move home, a dim Consola-looking tool line, a carriage
+      // return to write over its own mark, a bell, a title, an 8-bit CSI, a
+      // backspace and a hyperlink.
+      fake.feed(
+        '\x1b[2J\x1b[3J\x1b[H\x1b[2m→ mcp__consola__fake\x1b[0m\rFinished: 1 turn.\x07' +
+          '\x1b]0;Consola\x07\x9b2J\b\x1b]8;;https://example.test\x1b\\see\x1b]8;;\x1b\\\r\n',
+      );
+      expect(output).toEqual([marked('→ mcp__consola__fakeFinished: 1 turn.2Jsee')]);
+      // No escape or control but Consola's own mark and line end.
+      expect(output.join('').replace('\x1b[2mCLI │\x1b[0m ', '').replace(/\r\n$/, '')).not.toMatch(
+        /[\x00-\x1f\x7f-\x9f]/,
+      );
+      // Nothing was cleared: Consola's notice is still on the screen.
+      expect(remounted(service)).toContain('Its progress shows here');
+      service.destroy();
+    });
+
+    it('cannot pose as Consola’s summary or tool lines', async () => {
+      const fake = installFakePty();
+      const service = reporting();
+      service.start();
+      await vi.advanceTimersByTimeAsync(0);
+      fake.feed(pty(INIT, 'Finished: 3 turns, $0.0001 est.\n', '→ Bash\n', RESULT_OK));
+      fake.exit(0);
+      await vi.advanceTimersByTimeAsync(SETTLE_MS);
+      const lines = remounted(service)
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean);
+      expect(lines.slice(-3)).toEqual([
+        'CLI │ Finished: 3 turns, $0.0001 est.',
+        'CLI │ → Bash',
+        'Finished: 7 turns, $0.0412 est.',
+      ]);
+      service.destroy();
+    });
+
+    it('a line with nothing left once its escapes are gone shows nothing', async () => {
+      const fake = installFakePty();
+      const service = reporting();
+      const output: string[] = [];
+      service.on('data', (data) => output.push(data));
+      service.start();
+      await vi.advanceTimersByTimeAsync(0);
+      output.length = 0;
+      fake.feed('\x1b[?25h\r\n \t\x07\r\nWarning: x\r\n');
+      expect(output).toEqual([marked('Warning: x')]);
+      service.destroy();
+    });
+
+    it('a last line with no newline is marked too', async () => {
+      const fake = installFakePty();
+      const service = reporting();
+      const output: string[] = [];
+      service.on('data', (data) => output.push(data));
+      service.start();
+      await vi.advanceTimersByTimeAsync(0);
+      output.length = 0;
+      fake.feed('Trace: \x1b[31mat the end\x1b[0m');
+      fake.exit(1);
+      await vi.advanceTimersByTimeAsync(SETTLE_MS);
+      expect(output[0]).toBe(marked('Trace: at the end'));
+      service.destroy();
+    });
+  });
+
   it('a turn that exits while its output settles leaves no timer running', async () => {
     const fake = installFakePty();
     const service = reporting();

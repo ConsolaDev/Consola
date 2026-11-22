@@ -226,6 +226,16 @@ describe('createClaudeTurnReader', () => {
     expect(otherError.report.limitNotice).toBe(false);
   });
 
+  it('notices a usage limit printed outside its JSON, as a screen would have shown it', () => {
+    // The pane marks such a line as the CLI's, so the screen no longer has it at a line's start.
+    const reader = createClaudeTurnReader();
+    reader.push(INIT);
+    reader.push("\x1b[31mYou've hit your limit · resets 3pm (Europe/Madrid)\x1b[0m\r\n");
+    expect(reader.limitNotice).toBe(true);
+    expect(reader.end().report.limitNotice).toBe(true);
+    expect(readAll("if you've hit your rate limit, wait.\n").report.limitNotice).toBe(false);
+  });
+
   it('notices a rejected rate_limit_event', () => {
     const reader = createClaudeTurnReader();
     reader.push(RATE_LIMIT_REJECTED);

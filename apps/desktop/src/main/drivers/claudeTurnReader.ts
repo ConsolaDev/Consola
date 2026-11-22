@@ -15,8 +15,9 @@ import type { TurnEvent, TurnInit, TurnReader, TurnReport, TurnResult } from './
  * `{`. The `result` line's first key is `duration_api_ms`, so nothing here
  * looks for `{"type"`.
  *
- * What is not JSON (a warning, a crash's stack) is shown as printed and kept,
- * cleaned, for the step's error and `turn.json`. Pure: no I/O, no timers.
+ * What is not JSON (a warning, a crash's stack) is handed over as printed for
+ * the pane, which shows it inert and marked, and kept, cleaned, for the step's
+ * error and `turn.json`. Pure: no I/O, no timers.
  */
 
 /** Where Claude signs in to an MCP server, for the `init` check's words. */
@@ -128,11 +129,17 @@ export function createClaudeTurnReader(): TurnReader {
   let limitNotice = false;
   const otherLines: string[] = [];
 
-  /** A line outside JSON: shown as printed, kept when it says anything. */
+  /**
+   * A line outside JSON: handed to the pane as printed (which shows it inert
+   * and marked as the CLI's), kept when it says anything. A usage limit in it
+   * counts as one on screen would: the mark keeps it off a line's start.
+   */
   const other = (shown: string, events: TurnEvent[]) => {
     events.push({ kind: 'line', text: shown });
     if (!saysSomething(shown)) return;
-    otherLines.push(kept(shown));
+    const line = kept(shown);
+    if (showsClaudeLimitNotice(line)) limitNotice = true;
+    otherLines.push(line);
     if (otherLines.length > MAX_OTHER_LINES) otherLines.shift();
   };
 

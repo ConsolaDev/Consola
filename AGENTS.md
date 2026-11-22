@@ -607,9 +607,11 @@ runs again.
 A step's unattended turns run with `--output-format stream-json`: the driver's
 reader parses it (`createTurnReader`) and `TerminalService` shows Consola's
 lines instead (notice, tool calls, non-JSON lines, summary), so never read such
-a turn from its pane. Only Ctrl+C reaches the CLI (the PTY echoes other keys
-into the stream), what Consola quotes of the report goes through `oneLine`, and
-the report stays in main. The engine decides failure, cost and the reminder's
+a turn from its pane. A non-JSON line loses every escape and control character
+and is marked as the CLI's (`formatCliLine`), so it can neither repaint the
+pane nor pass for Consola's dim lines. Only Ctrl+C reaches the CLI (the PTY
+echoes other keys into the stream), what Consola quotes of the report goes
+through `oneLine`, and the report stays in main. The engine decides failure, cost and the reminder's
 cap from `TurnReportView` (`steps/turnReport.ts`). It checks the servers an
 agent grants against the turn's `init` as it is printed and again at the
 turn's end, so a turn whose `init` never arrived never completes a step that

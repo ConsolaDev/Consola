@@ -18,7 +18,7 @@ import { PROVIDER_META, isGitProviderId, type GitProviderId } from '../shared/pr
 import { getProviderDriver, layerProviderToken } from './providers';
 import { deriveTerminalStatus, type TerminalStatus } from '../shared/terminalStatus';
 import type { SessionToolPolicy } from '../shared/workspace';
-import { oneLine } from '../shared/oneLine';
+import { oneLine, withoutControls } from '../shared/oneLine';
 import { formatCostUsd } from '../shared/cost';
 
 /**
@@ -124,6 +124,21 @@ const MAX_TOOL_NAME_CHARS = 200;
 function formatTool(name: string): string {
   const shown = oneLine(name, MAX_TOOL_NAME_CHARS);
   return shown ? `\x1b[2m→ ${shown}\x1b[0m\r\n` : '';
+}
+
+/** What a reporting turn's pane puts in front of each line its CLI printed outside its JSON. */
+const CLI_LINE_MARK = '\x1b[2mCLI │\x1b[0m ';
+
+/**
+ * A line the CLI printed outside its JSON (a warning, a crash's stack), as
+ * its pane shows it: every escape sequence and control character removed, so
+ * it cannot move the cursor, clear the screen or write over its own mark, and
+ * marked as the CLI's, its text plain, so it cannot pass for Consola's dim
+ * lines. Nothing for a line with nothing left.
+ */
+function formatCliLine(text: string): string {
+  const shown = withoutControls(text).trimEnd();
+  return shown.trim() ? `${CLI_LINE_MARK}${shown}\r\n` : '';
 }
 
 /**
@@ -1010,15 +1025,15 @@ export class TerminalService extends EventEmitter {
 
   /**
    * A reporting turn's events as its pane shows them: a tool call as a dim
-   * line, a line outside JSON as printed. `init` shows nothing; it goes to
-   * whoever checks it, at once.
+   * line, a line outside JSON inert and marked as the CLI's (`formatCliLine`).
+   * `init` shows nothing; it goes to whoever checks it, at once.
    */
   private shownFor(events: TurnEvent[]): string {
     let shown = '';
     for (const event of events) {
       if (event.kind === 'init') this.emit('turn-init', event.init);
       else if (event.kind === 'tool') shown += formatTool(event.name);
-      else shown += `${event.text}\r\n`;
+      else shown += formatCliLine(event.text);
     }
     return shown;
   }
