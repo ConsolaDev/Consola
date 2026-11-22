@@ -14,7 +14,6 @@ import {
 } from '@consola/cloud-contract';
 import { organization, type TestHelpers, testUtils } from 'better-auth/plugins';
 import { eq } from 'drizzle-orm';
-import type { Hono } from 'hono';
 import {
   calculateJwkThumbprint,
   compactVerify,
@@ -22,8 +21,10 @@ import {
   type JSONWebKeySet,
   jwtVerify,
 } from 'jose';
+import type { OpenAPIHono } from '@hono/zod-openapi';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type CloudAuth, closedPaths } from './adapters/auth/betterAuth.js';
+import { ROUTES } from './adapters/http/contract.js';
 import type { OutboxWorker } from './adapters/outbox/outboxWorker.js';
 import { type Database, migrateDatabase, openDatabase } from './adapters/persistence/database.js';
 import { schema } from './adapters/persistence/schema.js';
@@ -54,7 +55,7 @@ let db: Database;
 let closeDatabase: () => Promise<void>;
 let auth: CloudAuth;
 let test: TestHelpers;
-let app: Hono;
+let app: OpenAPIHono;
 let outbox: OutboxWorker;
 // Better Auth keeps rate-limit counts per client address and path for the whole file, so each
 // test signs in from an address of its own (TEST-NET-3, never routed).
@@ -169,9 +170,32 @@ function expectStateLogged() {
     );
 }
 
+/**
+ * A route's answer, checked against the contract: its status must be one the route declares,
+ * and its body must match that status's schema, with no field the contract does not name.
+ */
+async function answerOf(method: string, path: string, response: Response) {
+  const body: unknown = await response.json();
+  const route = ROUTES.find((r) => r.method === method.toLowerCase() && r.path === path);
+  expect(route, `${method} ${path} is in the contract`).toBeDefined();
+  const responses = (route?.responses ?? {}) as Record<number, ContractResponse | undefined>;
+  const declared = responses[response.status];
+  expect(declared, `${method} ${path} declares ${response.status}`).toBeDefined();
+  const parsed = declared?.content['application/json'].schema.safeParse(body);
+  expect(
+    parsed?.error,
+    `${method} ${path} ${response.status} matches the contract`,
+  ).toBeUndefined();
+  // biome-ignore lint/suspicious/noExplicitAny: the tests read bodies by their fields.
+  return { status: response.status, body: body as any };
+}
+
+type ContractResponse = {
+  content: { 'application/json': { schema: { safeParse(value: unknown): { error?: unknown } } } };
+};
+
 async function get(path: string, headers?: Headers) {
-  const response = await app.request(path, { headers });
-  return { status: response.status, body: await response.json() };
+  return answerOf('GET', path, await app.request(path, { headers }));
 }
 
 /** A change the web app sends: a JSON body, from the web origin, as `headers`' session. */
@@ -181,7 +205,7 @@ async function send(method: 'POST' | 'PUT', path: string, body: unknown, headers
     headers: fromBrowser(headers),
     body: typeof body === 'string' ? body : JSON.stringify(body),
   });
-  return { status: response.status, body: await response.json() };
+  return answerOf(method, path, response);
 }
 
 const acme = { name: 'Acme', slug: 'acme', region: 'eu' };
@@ -335,12 +359,21 @@ describe('workspaces', () => {
         problems: ['name_missing', 'slug_invalid', 'region_unknown'],
       },
     });
-    for (const body of ['not json', '[]', 'null']) {
-      expect(await send('POST', '/api/workspaces', body, login.headers)).toMatchObject({
+    // JSON of the wrong shape is a workspace with every problem; a body that is not JSON at all
+    // is refused before the rules see it, as on every route.
+    for (const body of ['[]', 'null', '{}']) {
+      expect(await send('POST', '/api/workspaces', body, login.headers)).toEqual({
         status: 400,
-        body: { error: 'invalid_workspace' },
+        body: {
+          error: 'invalid_workspace',
+          problems: ['name_missing', 'slug_invalid', 'region_unknown'],
+        },
       });
     }
+    expect(await send('POST', '/api/workspaces', 'not json', login.headers)).toEqual({
+      status: 400,
+      body: { error: 'invalid_request' },
+    });
     expect(await storedWorkspaces()).toEqual([]);
   });
 
@@ -376,6 +409,38 @@ describe('workspaces', () => {
       expect(await send('PUT', '/api/me/workspace', body, login.headers)).toEqual({
         status: 400,
         body: { error: 'invalid_request' },
+      });
+    }
+  });
+
+  it('a body must be sent as JSON', async () => {
+    const login = await signIn('dana@acme.test', 'Dana Ortiz');
+    for (const contentType of ['text/plain;charset=UTF-8', null]) {
+      const headers = fromBrowser(login.headers);
+      if (contentType === null) headers.delete('content-type');
+      else headers.set('content-type', contentType);
+      const response = await app.request('/api/workspaces', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(acme),
+      });
+      expect(await answerOf('POST', '/api/workspaces', response)).toEqual({
+        status: 415,
+        body: { error: 'unsupported_media_type' },
+      });
+    }
+    expect(await storedWorkspaces()).toEqual([]);
+  });
+
+  it('signed out is 401 whatever the body', async () => {
+    for (const body of ['not json', '{}', { workspaceId: 7 }]) {
+      expect(await send('PUT', '/api/me/workspace', body)).toEqual({
+        status: 401,
+        body: { error: 'signed_out' },
+      });
+      expect(await send('POST', '/api/workspaces', body)).toEqual({
+        status: 401,
+        body: { error: 'signed_out' },
       });
     }
   });
@@ -416,18 +481,15 @@ describe('the cell token', () => {
       headers: fromBrowser(headers),
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
-    return {
-      status: response.status,
-      cacheControl: response.headers.get('cache-control'),
-      body: await response.json(),
-    };
+    const cacheControl = response.headers.get('cache-control');
+    return { ...(await answerOf('POST', '/api/cell-token', response)), cacheControl };
   }
 
   /** The published key set, fetched as a cell fetches it: with no sign-in. */
   async function publishedKeys(): Promise<JSONWebKeySet> {
-    const response = await app.request(CELL_TOKEN_KEYS_PATH);
-    expect(response.status).toBe(200);
-    return response.json();
+    const answer = await get(CELL_TOKEN_KEYS_PATH);
+    expect(answer.status).toBe(200);
+    return answer.body;
   }
 
   /**
@@ -747,7 +809,8 @@ describe('the outbox', () => {
 
 describe('routes', () => {
   it('are these, and no other', () => {
-    expect(app.routes.map((route) => `${route.method} ${route.path}`)).toEqual([
+    // A route with middleware or a body schema is one entry per handler in its chain.
+    expect([...new Set(app.routes.map((route) => `${route.method} ${route.path}`))]).toEqual([
       'ALL /api/auth/*',
       'ALL /api/*',
       'GET /api/me',

@@ -17,7 +17,10 @@
       // Captured GitHub API responses, kept byte for byte.
       "!apps/desktop/tests/fixtures/stub-gh",
       // Hand-minified, and parts of it do not parse.
-      "!apps/website/src/styles.css"
+      "!apps/website/src/styles.css",
+      // The API's contract and the web app's types, generated and compared byte for byte.
+      "!apps/cloud-global/openapi.json",
+      "!apps/cloud-web/src/domain/apiContract.ts"
     ]
   },
   "formatter": {

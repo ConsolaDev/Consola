@@ -196,6 +196,11 @@ changing a cloud app, read its own `AGENTS.md` (`apps/cloud-global/AGENTS.md`,
 `apps/cloud-region/AGENTS.md`, `apps/cloud-web/AGENTS.md`): it holds the layer
 rules and the dependency rule that keeps them apart.
 
+`cloud-global`'s API is declared in Zod (`adapters/http/contract.ts`), and
+`openapi.json` is generated from it. The web app's types are generated from
+that file, which it reads and never imports, so CI checks `cloud-web` with
+every change to `cloud-global` (`.github/scripts/ci-scope.mjs`).
+
 The browser talks only to the web app's origin. Vite proxies `/api` to the API,
 so the session cookie is first-party and the API needs no CORS. Better Auth
 owns sign-in and sessions, and its tables are generated

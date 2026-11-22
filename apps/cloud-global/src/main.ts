@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { serve } from '@hono/node-server';
-import type { Hono } from 'hono';
+import type { OpenAPIHono } from '@hono/zod-openapi';
 import type { OutboxWorker } from './adapters/outbox/outboxWorker.js';
 import {
   migrateDatabase,
@@ -38,7 +38,7 @@ try {
   cannotStart([`The database could not be prepared: ${describeStartupFailure(error, config)}`]);
 }
 
-let app: Hono;
+let app: OpenAPIHono;
 let outbox: OutboxWorker;
 try {
   ({ app, outbox } = await composeApi({ db: database.db, config }));
