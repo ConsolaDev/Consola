@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Workspace, WorkspaceProvider } from '../../shared/workspace';
 import type { BranchIdentity } from '../gitBranch';
 import {
+  ASK_SLACK_MS,
   BRANCH_LOOKUP_TTL_MS,
   BranchPullRequestFinder,
   type BranchPullRequestFinderDeps,
@@ -78,6 +79,7 @@ function setup(
     workspace,
     driver,
     composeEnv,
+    readIdentity,
     lookupPullRequests: driver.lookupPullRequests as ReturnType<typeof answering>,
     advance: (ms: number) => {
       clock += ms;
@@ -259,7 +261,7 @@ describe('BranchPullRequestFinder', () => {
   it('asks again once the answer is old, or when forced', async () => {
     const { finder, lookupPullRequests, advance } = setup();
     await finder.find('ws', DIR);
-    advance(BRANCH_LOOKUP_TTL_MS - 1);
+    advance(BRANCH_LOOKUP_TTL_MS - ASK_SLACK_MS - 1);
     await finder.find('ws', DIR);
     expect(lookupPullRequests).toHaveBeenCalledTimes(1);
     advance(2);
@@ -269,7 +271,7 @@ describe('BranchPullRequestFinder', () => {
     expect(lookupPullRequests).toHaveBeenCalledTimes(3);
   });
 
-  it('dates an answer from when it was asked, so a slow one is old one interval after the ask', async () => {
+  it('dates an answer from when it was asked, so a slow one is old one interval (less the slack) after the ask', async () => {
     let release!: () => void;
     const held = new Promise<void>((resolve) => {
       release = resolve;
@@ -286,10 +288,25 @@ describe('BranchPullRequestFinder', () => {
     release();
     await expect(first).resolves.toMatchObject({ kind: 'found' });
 
-    advance(BRANCH_LOOKUP_TTL_MS - 30_000 - 1);
+    advance(BRANCH_LOOKUP_TTL_MS - ASK_SLACK_MS - 30_000 - 1);
     await finder.find('ws', DIR);
     expect(lookupPullRequests).toHaveBeenCalledTimes(1);
     advance(1);
+    await finder.find('ws', DIR);
+    expect(lookupPullRequests).toHaveBeenCalledTimes(2);
+  });
+
+  it('asks again when a caller asks one interval after its last ask began, though reading the branch held that ask back', async () => {
+    const { finder, readIdentity, lookupPullRequests, advance } = setup();
+    // The first find reads the branch for 50 ms (its `ssh -G`); the next
+    // one reads it from memory, at once.
+    readIdentity.mockImplementationOnce(async () => {
+      advance(50);
+      return IDENTITY;
+    });
+    await finder.find('ws', DIR);
+    // The renderer asks again one interval after it first asked.
+    advance(BRANCH_LOOKUP_TTL_MS - 50);
     await finder.find('ws', DIR);
     expect(lookupPullRequests).toHaveBeenCalledTimes(2);
   });

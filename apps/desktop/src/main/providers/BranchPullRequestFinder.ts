@@ -12,6 +12,22 @@ import { repoInOrg } from './repoInOrg';
 /** A branch's pull request is asked about at most once per Inbox interval. */
 export const BRANCH_LOOKUP_TTL_MS = INBOX_REFRESH_INTERVAL_MS;
 
+/**
+ * How much earlier than one interval an answer counts as old. The renderer
+ * asks on a fixed interval from its first ask, but an answer is dated after
+ * the branch is read (`readIdentity`), and the first read of a branch pays
+ * for `ssh -G` while later ones come from memory. So the next ask can reach
+ * the check a little short of one interval after the answer's date, and
+ * without this slack it would be served the old answer and the real request
+ * would wait for the interval after.
+ */
+export const ASK_SLACK_MS = 10_000;
+
+/** Whether an answer dated `at` may still be served at `now`. */
+function isFresh(at: number, now: number): boolean {
+  return now - at < BRANCH_LOOKUP_TTL_MS - ASK_SLACK_MS;
+}
+
 export interface BranchPullRequestFinderDeps {
   getWorkspace(id: string): Workspace | undefined;
   /** getProviderDriver: throws on an id this build does not know. */
@@ -38,12 +54,12 @@ type Outcome =
   | { kind: 'failed'; error: string };
 
 /**
- * Drops every answer asked `BRANCH_LOOKUP_TTL_MS` ago or longer: no find
- * serves it again, so the map holds only branches asked about lately.
+ * Drops every answer that is no longer fresh: no find serves it again, so
+ * the map holds only branches asked about lately.
  */
 function dropStaleAnswers(answers: Map<string, { at: number }>, now: number): void {
   for (const [key, { at }] of answers) {
-    if (now - at >= BRANCH_LOOKUP_TTL_MS) answers.delete(key);
+    if (!isFresh(at, now)) answers.delete(key);
   }
 }
 
@@ -58,14 +74,17 @@ export function pickPullRequest(states: readonly PullRequestState[]): PullReques
  * Main reads the branch from the folder itself, so the renderer never names
  * one, and the driver maps origin to the repository the pull request lives in.
  *
- * The budget: the provider is asked at most once per `BRANCH_LOOKUP_TTL_MS`
- * (the Inbox's own interval) for each provider, account, repository and
- * branch name on the remote, however many sessions, folders or windows ask.
- * Callers that ask at once share one request, and only `force` (the person's
- * Refresh or Retry) asks sooner. A failure is kept as long as an answer, so a
- * broken CLI is not asked again on every session switch. An answer is dated
- * from when it was asked, not when it landed, so a caller that asks again one
- * interval after its answer arrived finds it old.
+ * The budget: the provider is asked about once per `BRANCH_LOOKUP_TTL_MS`
+ * (the Inbox's own interval, less `ASK_SLACK_MS`) for each provider,
+ * account, repository and branch name on the remote, however many sessions,
+ * folders or windows ask. Callers that ask at once share one request, and
+ * only `force` (the person's Refresh or Retry) asks sooner. A failure is
+ * kept as long as an answer, so a broken CLI is not asked again on every
+ * session switch. An answer is dated from when it was asked, not when it
+ * landed, and counts as old `ASK_SLACK_MS` before a full interval, so a
+ * caller that asks once per interval (the renderer, on a timer from its
+ * first ask) finds it old at each ask, and the provider is asked once per
+ * interval, not once per two.
  *
  * An answer is never written to the session record. It is only shown, and
  * the session is linked when the person presses Link.
