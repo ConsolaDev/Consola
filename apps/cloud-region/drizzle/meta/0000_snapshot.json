@@ -33,12 +33,8 @@
           "name": "workspace_member_workspace_id_workspace_workspace_id_fk",
           "tableFrom": "workspace_member",
           "tableTo": "workspace",
-          "columnsFrom": [
-            "workspace_id"
-          ],
-          "columnsTo": [
-            "workspace_id"
-          ],
+          "columnsFrom": ["workspace_id"],
+          "columnsTo": ["workspace_id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -46,10 +42,7 @@
       "compositePrimaryKeys": {
         "workspace_member_workspace_id_person_id_pk": {
           "name": "workspace_member_workspace_id_person_id_pk",
-          "columns": [
-            "workspace_id",
-            "person_id"
-          ]
+          "columns": ["workspace_id", "person_id"]
         }
       },
       "uniqueConstraints": {},

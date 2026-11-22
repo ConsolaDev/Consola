@@ -43,9 +43,11 @@ describe('copyChangeOf', () => {
   });
 
   it('puts the member with their role when they were added, or their role changed', () => {
-    expect(copyChangeOf({ type: 'member.added', personId: 'person-dana', role: 'admin' })).toEqual(
-      { kind: 'put-member', personId: 'person-dana', role: 'admin' },
-    );
+    expect(copyChangeOf({ type: 'member.added', personId: 'person-dana', role: 'admin' })).toEqual({
+      kind: 'put-member',
+      personId: 'person-dana',
+      role: 'admin',
+    });
     expect(
       copyChangeOf({ type: 'member.role-changed', personId: 'person-dana', role: 'member' }),
     ).toEqual({ kind: 'put-member', personId: 'person-dana', role: 'member' });

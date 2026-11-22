@@ -8,9 +8,9 @@ import { createRemoteJWKSet, errors, type JWTVerifyGetKey, jwtVerify } from 'jos
 import type { SignatureCheck, TokenVerifier } from '../../application/ports.js';
 
 /**
- * Where the cell finds the public keys its tokens are signed with: `cloud-global`'s key set
- * (`cloudGlobalKeys`), or one a test hands it (`createLocalJWKSet`). Either picks the key by the
- * `kid` a token names.
+ * Where the cell finds the public keys its tokens and outbox deliveries are signed with (one key
+ * signs both): `cloud-global`'s key set (`cloudGlobalKeys`), or one a test hands it
+ * (`createLocalJWKSet`). Either picks the key by the `kid` a header names.
  */
 export type CellTokenKeys = JWTVerifyGetKey;
 
@@ -24,10 +24,17 @@ export function cloudGlobalKeys(cloudGlobalUrl: string): CellTokenKeys {
 }
 
 /** The key set failed, not the token: it could not be fetched, or was not a key set. */
-class KeysUnavailable extends Error {}
+export class KeysUnavailable extends Error {}
 
-/** A token that names no key. Every cell token names its key's `kid` in its header. */
-class NoKeyNamed extends Error {}
+/**
+ * A token or a delivery that names no key. Everything `cloud-global` signs names its key's `kid`
+ * in its header.
+ */
+export class NoKeyNamed extends Error {}
+
+/** What the cell logs when `cloud-global`'s keys cannot be had: why, never what it was checking. */
+export const keysUnavailableLine = (error: KeysUnavailable): string =>
+  `The cell could not get cloud-global's cell token keys: ${error.message}`;
 
 /** An error's message and its causes', one line each, joined: what went wrong, for the log. */
 function describe(error: unknown): string {
@@ -39,6 +46,24 @@ function describe(error: unknown): string {
     current = current.cause;
   }
   return messages.join(': ') || 'an unexpected error';
+}
+
+/**
+ * The key from `keys` that a header names by its `kid`. A header that names none is refused
+ * (`NoKeyNamed`) before any key is looked for. When the key set itself fails, the failure is
+ * `KeysUnavailable`; only a set that answered but holds no key the header names
+ * (`JWKSNoMatchingKey`) counts against what is being checked.
+ */
+export function keyNamedBy(keys: CellTokenKeys): CellTokenKeys {
+  return async (header, token) => {
+    if (typeof header.kid !== 'string' || header.kid === '') throw new NoKeyNamed();
+    try {
+      return await keys(header, token);
+    } catch (error) {
+      if (error instanceof errors.JWKSNoMatchingKey) throw error;
+      throw new KeysUnavailable(describe(error), { cause: error });
+    }
+  };
 }
 
 /**
@@ -55,15 +80,7 @@ export function createJoseTokenVerifier(
   keys: CellTokenKeys,
   report: (line: string) => void = console.error,
 ): TokenVerifier {
-  const keyFor: JWTVerifyGetKey = async (header, token) => {
-    if (typeof header.kid !== 'string' || header.kid === '') throw new NoKeyNamed();
-    try {
-      return await keys(header, token);
-    } catch (error) {
-      if (error instanceof errors.JWKSNoMatchingKey) throw error;
-      throw new KeysUnavailable(describe(error), { cause: error });
-    }
-  };
+  const keyFor: JWTVerifyGetKey = keyNamedBy(keys);
 
   return {
     async verify(token, nowSeconds): Promise<SignatureCheck> {
@@ -77,7 +94,7 @@ export function createJoseTokenVerifier(
         return { kind: 'verified', payload };
       } catch (error) {
         if (!(error instanceof KeysUnavailable)) return { kind: 'invalid' };
-        report(`The cell could not get cloud-global's cell token keys: ${error.message}`);
+        report(keysUnavailableLine(error));
         return { kind: 'keys-unavailable' };
       }
     },
