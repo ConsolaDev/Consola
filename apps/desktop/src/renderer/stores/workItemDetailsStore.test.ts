@@ -272,6 +272,69 @@ describe('workItemDetailsStore', () => {
     expect(healed.errorAt).toBeUndefined();
   });
 
+  it('a failed read is as fresh as an answer: a watch within the interval after it reads nothing, Retry reads at once', async () => {
+    getDetails.mockRejectedValue(new Error('rate limited'));
+    const first = watch();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(getDetails).toHaveBeenCalledTimes(1);
+    expect(entry().error).toBe('rate limited');
+    first();
+
+    // The pane shown again two minutes later.
+    vi.advanceTimersByTime(2 * MINUTE);
+    const again = watch();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(getDetails).toHaveBeenCalledTimes(1);
+    again();
+
+    // The person's Retry.
+    await load(target, { force: true });
+    expect(getDetails).toHaveBeenCalledTimes(2);
+
+    // An interval after that failure, a watch reads.
+    vi.advanceTimersByTime(DETAILS_REFRESH_MS - 1);
+    const early = watch();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(getDetails).toHaveBeenCalledTimes(2);
+    early();
+    vi.advanceTimersByTime(1);
+    watch();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(getDetails).toHaveBeenCalledTimes(3);
+  });
+
+  it('a quiet failure counts too, though it says nothing', async () => {
+    await load(target);
+    vi.advanceTimersByTime(DETAILS_REFRESH_MS);
+    getDetails.mockRejectedValueOnce(new Error('rate limited'));
+    const first = watch();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(getDetails).toHaveBeenCalledTimes(2);
+    expect(entry().error).toBeUndefined();
+    first();
+
+    vi.advanceTimersByTime(MINUTE);
+    watch();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(getDetails).toHaveBeenCalledTimes(2);
+  });
+
+  it("the store's own re-check waits an interval after a failure, not after the last answer", async () => {
+    watch();
+    await vi.advanceTimersByTimeAsync(MINUTE);
+    expect(getDetails).toHaveBeenCalledTimes(1);
+
+    // A Refresh a minute after the first read fails.
+    getDetails.mockRejectedValueOnce(new Error('rate limited'));
+    await load(target, { force: true });
+    expect(getDetails).toHaveBeenCalledTimes(2);
+
+    await vi.advanceTimersByTimeAsync(DETAILS_REFRESH_MS - 1_000);
+    expect(getDetails).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(getDetails).toHaveBeenCalledTimes(3);
+  });
+
   it('keeps the details of at most 20 unwatched items, dropping the least recently read', async () => {
     const item = (number: number): DetailsTarget => ({ ...target, ref: { ...ref, number } });
     const has = (number: number) =>
@@ -339,7 +402,9 @@ describe('workItemDetailsStore', () => {
     first.answer(details());
     await vi.advanceTimersByTimeAsync(0);
 
-    refresh.fail(new Error("Error invoking remote method 'inbox:get-details': Error: rate limited"));
+    refresh.fail(
+      new Error("Error invoking remote method 'inbox:get-details': Error: rate limited"),
+    );
     const answer = await refreshed;
     expect(answer).toMatchObject({ loading: false, error: 'rate limited', details: details() });
     expect(useWorkItemDetailsStore.getState().entries[detailsKey(item(1))]).toBeUndefined();

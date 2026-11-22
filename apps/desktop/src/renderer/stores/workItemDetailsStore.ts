@@ -37,6 +37,12 @@ export interface DetailsEntry {
   /** Why the last read that showed itself failed, until a read succeeds. */
   error?: string;
   errorAt?: number;
+  /**
+   * When a read last failed, quiet or loud, until a read succeeds. A failure
+   * is as fresh as an answer: only a forced load reads the item again before
+   * `DETAILS_REFRESH_MS` has passed since it.
+   */
+  failedAt?: number;
 }
 
 interface LoadOptions {
@@ -99,7 +105,8 @@ const watches = new Map<string, Watch>();
  * pane, the Pull request tab and the info panel. Each read spends the
  * account's request budget, so an item is read only for a viewer that can be
  * seen (`watch`), once at a time however many ask, and no more than once per
- * `DETAILS_REFRESH_MS` unless someone forces it. At most
+ * `DETAILS_REFRESH_MS` unless someone forces it, a failed read counting as
+ * one: asking again at once would only spend the budget again. At most
  * `MAX_UNWATCHED_DETAILS` items nobody watches keep their details.
  *
  * Kept in the renderer rather than main: main allows one window per
@@ -116,7 +123,7 @@ export const useWorkItemDetailsStore = create<WorkItemDetailsState>((_, get) => 
       return readNext(key, target, quiet);
     }
     const known = get().entries[key];
-    if (!force && known && Date.now() - known.fetchedAt < DETAILS_REFRESH_MS) {
+    if (!force && known && Date.now() - lastReadAt(known) < DETAILS_REFRESH_MS) {
       return Promise.resolve(known);
     }
     return read(key, target, { force, quiet });
@@ -149,6 +156,11 @@ function entryOf(key: string): DetailsEntry {
   return useWorkItemDetailsStore.getState().entries[key] ?? NEVER_READ;
 }
 
+/** When the item was last read, answered or failed: what its freshness is timed from. */
+function lastReadAt(entry: DetailsEntry | undefined): number {
+  return Math.max(entry?.fetchedAt ?? 0, entry?.failedAt ?? 0);
+}
+
 function patch(key: string, change: Partial<DetailsEntry>): void {
   useWorkItemDetailsStore.setState((state) => ({
     entries: { ...state.entries, [key]: { ...(state.entries[key] ?? NEVER_READ), ...change } },
@@ -170,12 +182,18 @@ function read(
         fetchedAt: Date.now(),
         error: undefined,
         errorAt: undefined,
+        failedAt: undefined,
         ...(quiet ? {} : { loading: false }),
       });
     } catch (error) {
       // A failure keeps the last details: what the item was is still worth showing.
-      if (!quiet)
-        patch(key, { loading: false, error: ipcErrorMessage(error), errorAt: Date.now() });
+      const failedAt = Date.now();
+      patch(
+        key,
+        quiet
+          ? { failedAt }
+          : { loading: false, error: ipcErrorMessage(error), errorAt: failedAt, failedAt },
+      );
     }
     // Taken before anything after it can change the entry: pruning may drop it.
     const answer = entryOf(key);
@@ -264,7 +282,7 @@ function follow(key: string): void {
   clearTimeout(watch.poll);
   if (inFlight.has(key)) return;
   const entry = useWorkItemDetailsStore.getState().entries[key];
-  const age = Date.now() - (entry?.fetchedAt ?? 0);
+  const age = Date.now() - lastReadAt(entry);
   const untilStale = age < DETAILS_REFRESH_MS ? DETAILS_REFRESH_MS - age : DETAILS_REFRESH_MS;
   watch.recheck = setTimeout(() => check(key), untilStale);
   if (entry?.details?.mergeState === 'UNKNOWN' && watch.polls < MERGE_STATE_POLLS) {

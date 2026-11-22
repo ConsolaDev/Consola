@@ -500,8 +500,8 @@ panel it is view state, kept in the renderer.
   panel share its entries (`detailsKey`: workspace, account, item). It reads
   only for an active viewer (`watch`, through `useWorkItemDetails`), one
   read per item at a time, at most once per `INBOX_REFRESH_INTERVAL_MS`
-  unless forced by the person's Refresh or Retry or the re-read after a
-  write. A forced load never takes the answer of a read already in flight,
+  (a failed read counts as one, quiet or loud) unless forced by the person's
+  Refresh or Retry or the re-read after a write. A forced load never takes the answer of a read already in flight,
   which may predate the write, unless a loud forced load started that read;
   it waits, then gets one more. The store's own reads (a watch's first load,
   the re-check once an entry goes stale) are quiet once the entry holds
