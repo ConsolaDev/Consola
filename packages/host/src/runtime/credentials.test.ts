@@ -15,7 +15,15 @@ import * as Result from 'effect/Result';
 import * as ClaudeResetCredits from 't3/provider/claudeResetCredits.ts';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vite-plus/test';
 import { withoutCliCredentials } from './credentials.ts';
-import { HOST_DRIVERS, T3_HOST_DRIVERS } from './drivers.ts';
+import { AcpRegistryDriver } from '@t3tools/provider-acp-registry/server';
+import { ClaudeDriver } from '@t3tools/provider-claude/server';
+import { CodexDriver } from '@t3tools/provider-codex/server';
+import { OpenCodeDriver } from '@t3tools/provider-opencode/server';
+import { PiDriver } from '@t3tools/provider-pi/server';
+import { HOST_DRIVERS } from './drivers.ts';
+
+/** t3's own drivers, unguarded, in t3's order. */
+const T3_DRIVERS = [CodexDriver, ClaudeDriver, OpenCodeDriver, PiDriver, AcpRegistryDriver];
 
 const DUMMY_TOKEN = 'sprocket-dummy-oauth-token';
 
@@ -133,10 +141,10 @@ describe('withoutCliCredentials', () => {
 describe('HOST_DRIVERS', () => {
   it('create every instance under the guard', () => {
     expect(HOST_DRIVERS.map((driver) => driver.driverKind)).toEqual(
-      T3_HOST_DRIVERS.map((driver) => driver.driverKind),
+      T3_DRIVERS.map((driver) => driver.driverKind),
     );
     for (const [index, driver] of HOST_DRIVERS.entries()) {
-      expect(driver.create).not.toBe(T3_HOST_DRIVERS[index]?.create);
+      expect(driver.create).not.toBe(T3_DRIVERS[index]?.create);
     }
   });
 

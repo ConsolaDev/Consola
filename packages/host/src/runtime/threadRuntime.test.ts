@@ -12,9 +12,8 @@ import {
   type ServerProvider,
   ThreadId,
 } from '@t3tools/contracts';
-import { ClaudeDriver } from '@t3tools/provider-claude/server';
 import { ClaudeOrchestratorReplayHarness } from '@t3tools/provider-claude/testing';
-import type { AnyProviderDriver } from '@t3tools/provider-core/server/driver';
+import type { AnyProviderDriver, ProviderInstance } from '@t3tools/provider-core/server/driver';
 import { checkpointWorkspace } from '@t3tools/provider-testing/replayWorkspace';
 import {
   ORCHESTRATOR_REPLAY_FIXTURES,
@@ -34,7 +33,8 @@ import * as ProviderAdapterRegistry from 't3/orchestration-v2/ProviderAdapterReg
 import { materializeReplayTranscriptRuntimeInstructions } from 't3/orchestration-v2/testkit/ReplayRuntimeInstructions.ts';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vite-plus/test';
 import type { SessionSpec } from '../core/sessionSpec.ts';
-import type { HostDriversEnv } from './drivers.ts';
+import { FAKE_CLIS, isolateMachine } from '../testing/machine.ts';
+import { HOST_DRIVERS, type HostDriversEnv } from './drivers.ts';
 import * as ThreadRuntime from './threadRuntime.ts';
 
 /** A replay runs a whole recorded turn through t3's orchestrator; under load that takes a while. */
@@ -43,36 +43,34 @@ const REPLAY_TIMEOUT_MS = 60_000;
 /** The title the replay's text generation gives every thread. */
 const REPLAY_TITLE = 'Sprocket replay title';
 
+/**
+ * Each test runs on a machine of its own: a temporary home, no CLI config variables, and fake
+ * `claude`, `codex`, `opencode` and `pi` first on the PATH, which record each call and fail; every
+ * recorded call must have seen the test's home (`../testing/machine.ts`).
+ */
+const machine = isolateMachine();
+
 /** t3's settings for a test: no update checks, so nothing asks npm or GitHub. */
 const TEST_SETTINGS = { enableProviderUpdateChecks: false };
 
 /**
- * Temporary folders for one session, removed when `use` ends: t3's state folder, an empty
- * `bin` for the PATH and a home of its own, so no probe reaches the developer's own CLIs or
- * logins. `settings` joins `TEST_SETTINGS` in t3's settings file
- * (`<stateDir>/userdata/settings.json`).
+ * A state folder for one session, removed when `use` ends, with t3's settings file
+ * (`<stateDir>/userdata/settings.json`): `TEST_SETTINGS` and `settings`.
  */
-const withFolders = <A, E, R>(
-  use: (folders: { stateDir: string; env: Record<string, string> }) => Effect.Effect<A, E, R>,
+const withState = <A, E, R>(
+  use: (stateDir: string) => Effect.Effect<A, E, R>,
   settings: Record<string, unknown> = {},
 ) => {
   const settingsFile = JSON.stringify({ ...TEST_SETTINGS, ...settings });
   return Effect.acquireUseRelease(
     Effect.sync(() => {
       const stateDir = mkdtempSync(join(tmpdir(), 'consola-host-state-'));
-      const emptyBin = mkdtempSync(join(tmpdir(), 'consola-host-bin-'));
-      const home = mkdtempSync(join(tmpdir(), 'consola-host-home-'));
       mkdirSync(join(stateDir, 'userdata'), { recursive: true });
       writeFileSync(join(stateDir, 'userdata', 'settings.json'), settingsFile);
-      return { stateDir, emptyBin, home };
+      return stateDir;
     }),
-    ({ stateDir, emptyBin, home }) => use({ stateDir, env: { PATH: emptyBin, HOME: home } }),
-    (folders) =>
-      Effect.sync(() => {
-        for (const dir of [folders.stateDir, folders.emptyBin, folders.home]) {
-          rmSync(dir, { recursive: true, force: true });
-        }
-      }),
+    use,
+    (stateDir) => Effect.sync(() => rmSync(stateDir, { recursive: true, force: true })),
   );
 };
 
@@ -109,40 +107,51 @@ const asInstalled = (provider: ServerProvider): ServerProvider => ({
   auth: { ...provider.auth, status: 'authenticated' },
 });
 
-/**
- * t3's Claude driver with its orchestration adapter replaced by t3's Claude replay adapter, the
- * way t3's replay harness substitutes it, and a fixed thread title in place of the CLI's. No
- * `claude` is on the PATH, so its snapshot is made to read as installed.
- */
 type ReplayTranscript = Effect.Success<
   ReturnType<typeof ClaudeOrchestratorReplayHarness.decodeTranscript>
 >;
 
-const replayClaudeDriver = (transcript: ReplayTranscript): AnyProviderDriver<HostDriversEnv> => ({
-  ...ClaudeDriver,
-  create: Effect.fn('replayClaudeDriver.create')(function* (input) {
-    const instance = yield* ClaudeDriver.create(input);
-    const replay = yield* Layer.build(
-      ClaudeOrchestratorReplayHarness.makeProviderAdapterRegistryLayer(transcript),
-    ).pipe(Effect.orDie);
-    const adapter = yield* Context.get(replay, ProviderAdapterRegistry.ProviderAdapterRegistryV2)
-      .get(instance.instanceId)
-      .pipe(Effect.orDie);
-    return {
-      ...instance,
-      snapshot: {
-        ...instance.snapshot,
-        getSnapshot: instance.snapshot.getSnapshot.pipe(Effect.map(asInstalled)),
-        refresh: instance.snapshot.refresh.pipe(Effect.map(asInstalled)),
-        streamChanges: instance.snapshot.streamChanges.pipe(Stream.map(asInstalled)),
-      },
-      orchestrationAdapter: adapter,
-      textGeneration: {
-        ...instance.textGeneration,
-        generateThreadTitle: () => Effect.succeed({ title: REPLAY_TITLE }),
-      },
-    };
-  }),
+/** The host's own Claude driver: t3's, guarded by `withoutCliCredentialsDriver`. */
+const hostClaudeDriver = HOST_DRIVERS.find((driver) => driver.driverKind === 'claudeAgent');
+
+/**
+ * The host's Claude driver with its orchestration adapter replaced by t3's Claude replay adapter,
+ * the way t3's replay harness substitutes it, and a fixed thread title in place of the CLI's. The
+ * `claude` on the PATH is the machine's fake, so its snapshot is made to read as installed.
+ */
+const replayClaudeDriver = (transcript: ReplayTranscript): AnyProviderDriver<HostDriversEnv> => {
+  if (hostClaudeDriver === undefined) throw new Error('HOST_DRIVERS has no Claude driver.');
+  return {
+    ...hostClaudeDriver,
+    create: (input) => replayInstance(hostClaudeDriver.create(input), transcript),
+  };
+};
+
+const replayInstance = Effect.fn('replayInstance')(function* <E, R>(
+  created: Effect.Effect<ProviderInstance, E, R>,
+  transcript: ReplayTranscript,
+) {
+  const instance = yield* created;
+  const replay = yield* Layer.build(
+    ClaudeOrchestratorReplayHarness.makeProviderAdapterRegistryLayer(transcript),
+  ).pipe(Effect.orDie);
+  const adapter = yield* Context.get(replay, ProviderAdapterRegistry.ProviderAdapterRegistryV2)
+    .get(instance.instanceId)
+    .pipe(Effect.orDie);
+  return {
+    ...instance,
+    snapshot: {
+      ...instance.snapshot,
+      getSnapshot: instance.snapshot.getSnapshot.pipe(Effect.map(asInstalled)),
+      refresh: instance.snapshot.refresh.pipe(Effect.map(asInstalled)),
+      streamChanges: instance.snapshot.streamChanges.pipe(Stream.map(asInstalled)),
+    },
+    orchestrationAdapter: adapter,
+    textGeneration: {
+      ...instance.textGeneration,
+      generateThreadTitle: () => Effect.succeed({ title: REPLAY_TITLE }),
+    },
+  };
 });
 
 const sessionSpec = (name: string, cwd: string, modelSelection?: ModelSelection): SessionSpec => ({
@@ -210,8 +219,8 @@ const withReplay = <A, E>(
       }),
     );
     const cwd = yield* checkpointWorkspace(name, input?.workspaceFiles);
-    return yield* withFolders(
-      ({ stateDir, env }) =>
+    return yield* withState(
+      (stateDir) =>
         Effect.gen(function* () {
           const spec = sessionSpec(name, cwd, variant.modelSelection);
           const handle = yield* (yield* ThreadRuntime.ThreadRuntime).open(spec);
@@ -224,7 +233,7 @@ const withReplay = <A, E>(
           Effect.scoped,
           Effect.provide(
             ThreadRuntime.layerForTests(
-              { stateDir, env },
+              { stateDir },
               {
                 drivers: [replayClaudeDriver(transcript)],
                 ...(runtimeMode === undefined ? {} : { runtimeMode }),
@@ -303,14 +312,14 @@ describe('ThreadRuntime', () => {
   it(
     'opens a thread in approval-required mode, with the session id as its id',
     () =>
-      withFolders(({ stateDir, env }) =>
+      withState((stateDir) =>
         Effect.gen(function* () {
           const spec = sessionSpec('defaults', stateDir);
           const handle = yield* (yield* ThreadRuntime.ThreadRuntime).open(spec);
           expect(handle.snapshot().thread.id).toBe(spec.sessionId);
           expect(handle.snapshot().thread.runtimeMode).toBe('approval-required');
           expect(ThreadRuntime.HOST_RUNTIME_MODE).toBe('approval-required');
-        }).pipe(Effect.scoped, Effect.provide(ThreadRuntime.layer({ stateDir, env }))),
+        }).pipe(Effect.scoped, Effect.provide(ThreadRuntime.layer({ stateDir }))),
       ).pipe(Effect.runPromise),
     REPLAY_TIMEOUT_MS,
   );
@@ -458,16 +467,42 @@ describe('ThreadRuntime', () => {
         handle: ThreadRuntime.ThreadHandle;
       }) => Effect.Effect<A, E, Scope.Scope>,
     ) => {
-      return withFolders(
-        ({ stateDir, env }) =>
+      return withState(
+        (stateDir) =>
           Effect.gen(function* () {
             const spec = sessionSpec('host', stateDir);
             const handle = yield* (yield* ThreadRuntime.ThreadRuntime).open(spec);
             return yield* body({ spec, handle });
-          }).pipe(Effect.scoped, Effect.provide(ThreadRuntime.layer({ stateDir, env }))),
+          }).pipe(Effect.scoped, Effect.provide(ThreadRuntime.layer({ stateDir }))),
         settings,
       ).pipe(Effect.runPromise);
     };
+
+    it(
+      'probes only the machine’s fake CLIs, with the test’s home',
+      () =>
+        withHostSession({}, () =>
+          Effect.gen(function* () {
+            // Hydration probes every installed CLI; on this machine each is a fake that records it.
+            yield* Effect.gen(function* () {
+              while (!machine.calls().some((call) => call.cli === 'claude')) {
+                yield* Effect.sleep(Duration.millis(20));
+              }
+            }).pipe(Effect.timeout(Duration.seconds(20)), Effect.orDie);
+            const calls = machine.calls();
+            expect(calls.map((call) => call.cli)).toContain('claude');
+            for (const call of calls) {
+              expect(FAKE_CLIS).toContain(call.cli);
+              expect(call).toMatchObject({
+                home: machine.home(),
+                claudeConfigDir: '',
+                codexHome: '',
+              });
+            }
+          }),
+        ),
+      REPLAY_TIMEOUT_MS,
+    );
 
     it(
       'refuses thread.fork with NotOfferedError, before the orchestrator sees it',
@@ -508,12 +543,14 @@ describe('ThreadRuntime', () => {
             },
           },
         },
+        false,
       ],
-      ['no claude on the PATH', {}],
+      ['no claude on the PATH', {}, true],
     ] as const)(
       'missing CLI (%s): the run fails with an error item within 5 s',
-      (_case, settings) =>
-        withHostSession(settings, ({ spec, handle }) =>
+      (_case, settings, noClaudeOnPath) => {
+        if (noClaudeOnPath) machine.withoutCli('claude');
+        return withHostSession(settings, ({ spec, handle }) =>
           Effect.gen(function* () {
             const modelSelection = handle.snapshot().thread.modelSelection;
             yield* handle
@@ -533,8 +570,11 @@ describe('ThreadRuntime', () => {
             expect(error?.type === 'error' && error.failure.message).toMatch(
               /^Claude Code process exited with code \d+ before it started\./,
             );
+            // No `claude` ran at all: neither the fake nor the developer's own.
+            expect(machine.calls().filter((call) => call.cli === 'claude')).toEqual([]);
           }),
-        ),
+        );
+      },
       REPLAY_TIMEOUT_MS,
     );
   });

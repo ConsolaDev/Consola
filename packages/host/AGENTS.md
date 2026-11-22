@@ -26,6 +26,9 @@ Imports point inward only; `src/boundary.test.ts` fails on any that does not.
   `runtime/`.
 - `src/bin.ts` is the only wiring: it builds the adapters and hands them to the
   runtime.
+- `src/testing/` is what tests share (an isolated machine with fake CLIs). No
+  other ring reaches it, so only `*.test.ts` files import it; it may use the
+  test runner and t3's test kits.
 
 To add a ring, add a row to `LAYERS` and a case to the table in
 `boundary.test.ts`. Test files are exempt from the layer rules, but never import
@@ -62,7 +65,8 @@ handling, ingestion or projection of its own.
   its project) and dispatches `thread.create`.
 - `drivers.ts`: `HOST_DRIVERS`, t3's `BUILT_IN_DRIVERS` for the five harnesses
   (never Cursor), each wrapped by `withoutCliCredentialsDriver`, and each
-  harness's default model.
+  harness's default model. The unguarded list is not exported, and
+  `layerOrchestration` takes no drivers: it always hydrates `HOST_DRIVERS`.
 - `credentials.ts`: the guard that keeps every driver off a CLI's login (below).
 - `standIns.ts`: services that are not t3's own (below, with the rest).
 
@@ -95,10 +99,25 @@ before running a command or writing a file, and the chat shows the request.
 t3's own default (`DEFAULT_RUNTIME_MODE`) is `full-access`, which asks nothing;
 the host never uses it, and `SessionSpec` has no field to ask for it.
 Tests that replay a fixture recorded in another mode, or substitute t3's replay
-adapter, use `layerForTests(options, { drivers, runtimeMode })`. Every name
-ending in `ForTests` is refused outside `*.test.ts` by `boundary.test.ts`
-(imports, renamed imports and namespace members alike), so no host code can
-reach the seam; `layer(options)` takes neither.
+adapter, use `layerForTests(options, { drivers, runtimeMode })`, which builds on
+`layerOrchestrationForTests(options, drivers)`. `boundary.test.ts` refuses
+every use of a name ending in `ForTests` outside `*.test.ts` (a call, a
+namespace member, an import under another name) but inside another seam's own
+definition, so no host code can reach a seam; `layer(options)` takes neither.
+
+### The CLIs inherit the host's environment
+
+`ThreadRuntimeOptions` is the state folder alone. Each CLI inherits the host
+process's environment, as in t3, which is where it finds its own login. t3
+reads that environment two ways: Claude's driver (`ClaudeDriver.ts:124`) and
+`mergeProviderInstanceEnvironment` (OpenCode, Pi;
+`provider-core/src/server/instanceEnvironment.ts:9`) read `process.env`
+directly; the Codex and ACP drivers, Claude's and Pi's adapters and every home
+lookup read t3's `HostProcess.Environment` and `HostProcess.HomeDirectory`,
+whose defaults t3 caches once per process. The composition provides those two
+from `process.env` and `os.homedir()` when it is built, so both ways agree. For
+the drivers, t3's managed policy may drop launch overrides from it, as in t3's
+own hydration.
 
 ### The host never reads a CLI's login
 
@@ -148,18 +167,27 @@ of the account's synced plugins.
 
 ### What `open` does on the person's machine
 
-Each `open` hydrates every driver in `HOST_DRIVERS`, as t3's server does:
+Each `open` hydrates every driver in `HOST_DRIVERS`, as t3's server does. For
+each CLI it finds (on the `PATH`, or at a configured `binaryPath`), its driver:
 
-- each driver probes its CLI if one is installed (`claude --version` and a
-  capabilities probe that starts `claude`, which runs the person's own
-  `SessionStart` hooks; `codex`, `opencode`, `pi` likewise);
-- with `enableProviderUpdateChecks` on (t3's default), it asks npm for each
-  CLI's latest version and fetches t3's model manifest from GitHub
-  (`raw.githubusercontent.com`);
-- it reads Claude's account metadata (above).
+- runs it to read its version (`claude --version`, `codex --version`, and so
+  on); Codex's also starts `codex app-server` and runs `codex mcp list --json`;
+- for Claude, runs t3's capabilities probe (`ClaudeProvider.ts:271-300`): the
+  Agent SDK starts `claude` with `persistSession: false`, `disableAllHooks:
+  true` (no hook runs, `SessionStart` included), no MCP servers and no tools,
+  reading the person's settings for slash commands, and asks it for its
+  commands, models, account and usage, with no turn;
+- works out how the CLI was installed, which can run the package manager that
+  owns it (`mise which`/`mise ls`, `npm`, `bun`, `vp env current`;
+  `provider-core/src/server/maintenanceResolver.ts`), and reads Claude's
+  managed-settings drop-ins (`ClaudeMaintenance.ts`);
+- with `enableProviderUpdateChecks` on (t3's default), looks up the CLI's
+  latest version (npm, mise, `downloads.claude.ai`, `releases.openai.com`), and
+  t3 fetches its model manifest from GitHub (`raw.githubusercontent.com`).
 
-Tests turn update checks off, give each session an empty `PATH` and a home of
-its own, and fail on any network request.
+It also reads Claude's account metadata (above). A thread's first message asks
+t3's title model (Codex by default, falling back to another installed CLI) for
+a title: `codex exec --ephemeral --skip-git-repo-check -s read-only …`.
 
 ### Stand-ins
 
@@ -220,9 +248,22 @@ must check the output (no `@cursor/sdk` in the bundle) before it ships.
 
 ### Tests
 
+Each test that composes the orchestration runs on a machine of its own
+(`isolateMachine`, `src/testing/machine.ts`), set on the test process itself
+with `vi.stubEnv` and restored after the test: `HOME`, `USERPROFILE` and the
+XDG folders are a temporary folder; the variables t3's five drivers read for a
+CLI's config, login or data (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `OPENCODE_*`,
+`PI_CODING_AGENT_DIR`, API keys, …) are cleared; `PATH` is a folder of fake
+`claude`, `codex`, `opencode` and `pi` before `/usr/bin:/bin` (for `git` and
+`sh`). A fake records its call (its `HOME`, `CLAUDE_CONFIG_DIR`, `CODEX_HOME`
+and arguments) and exits 1, so no CLI of the developer's runs; after each test
+every recorded call must have seen the temporary home and no config folder.
+`CONSOLA_HOST_CLI_RECORD=<file>` copies the record out. t3's settings file
+turns update checks off, `fetch` is stubbed, and any request fails the test.
+
 The replay tests compose the same production orchestration through
-`layerForTests`, with one change: t3's Claude driver whose adapter is t3's
-Claude replay adapter. Test kits (`@t3tools/provider-testing`, any `…/testing` entry, any
+`layerForTests`, with one change: the host's guarded Claude driver whose
+adapter is t3's Claude replay adapter. Test kits (`@t3tools/provider-testing`, any `…/testing` entry, any
 `testkit` module) are imported only from `*.test.ts` files; `boundary.test.ts`
 refuses them anywhere else.
 

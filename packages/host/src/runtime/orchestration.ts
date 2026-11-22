@@ -1,3 +1,5 @@
+// @effect-diagnostics nodeBuiltinImport:off - The host's home is read from the OS once per build.
+import { homedir } from 'node:os';
 import * as NodeCrypto from '@effect/platform-node/NodeCrypto';
 import * as NodeServices from '@effect/platform-node/NodeServices';
 import type { ProviderInstanceConfig, ProviderInstanceConfigMap } from '@t3tools/contracts';
@@ -69,15 +71,12 @@ import * as VcsProcess from 't3/vcs/VcsProcess.ts';
 import * as VcsProjectConfig from 't3/vcs/VcsProjectConfig.ts';
 import * as TaskFolders from 't3/workspace/TaskFolders.ts';
 import * as TaskFolderStore from 't3/workspace/TaskFolderStore.ts';
+import { HOST_DRIVERS } from './drivers.ts';
 import * as HostStandIns from './standIns.ts';
 
-export interface OrchestrationOptions<R> {
+export interface OrchestrationOptions {
   /** Where t3's server paths live (`userdata/`, `caches/`, `worktrees/`). */
   readonly stateDir: string;
-  /** The environment the CLIs start with. */
-  readonly env: Record<string, string | undefined>;
-  /** The drivers to hydrate t3's provider instances from. */
-  readonly drivers: ReadonlyArray<AnyProviderDriver<R>>;
 }
 
 /** t3's `ServerConfig` for a host: t3's own paths under `stateDir`, and no HTTP server. */
@@ -139,12 +138,12 @@ const isManagedCodex = (entry: ProviderInstanceConfig): boolean =>
  * `drivers` rather than t3's `BUILT_IN_DRIVERS` (which include Cursor): the instances t3 derives
  * from the settings, for those drivers only, over the adapters' own infrastructure.
  */
-const layerProviderInstances = <R>(options: OrchestrationOptions<R>) =>
+const layerProviderInstances = <R>(drivers: ReadonlyArray<AnyProviderDriver<R>>) =>
   Layer.unwrap(
     Effect.gen(function* () {
       const serverSettings = yield* ServerSettings.ServerSettingsService;
       const settings = yield* serverSettings.getSettings;
-      const kinds = new Set(options.drivers.map((driver) => driver.driverKind));
+      const kinds = new Set(drivers.map((driver) => driver.driverKind));
       const configMap = Object.fromEntries(
         Object.entries(
           ProviderInstanceRegistryHydration.deriveProviderInstanceConfigMap(settings),
@@ -152,10 +151,10 @@ const layerProviderInstances = <R>(options: OrchestrationOptions<R>) =>
       ) as ProviderInstanceConfigMap;
       const hostEnvironment = ManagedProviders.providerHostEnvironment(
         serverSettings.managedPolicy,
-        options.env,
+        yield* HostProcess.Environment,
       );
       return ProviderInstanceRegistry.layer({
-        drivers: options.drivers,
+        drivers,
         configMap,
         blockedReason: (driver) =>
           ManagedProviders.disallowedDriverReason(serverSettings.managedPolicy, driver),
@@ -169,8 +168,8 @@ const layerProviderInstances = <R>(options: OrchestrationOptions<R>) =>
             ProviderContinuationRequests.layer,
           ),
         ),
-        // Drivers launch from the host environment less what a managed policy ignores, as in
-        // t3's hydration; this sits closest to the registry, so it wins over `env`.
+        // Drivers launch from the host's environment less what a managed policy ignores, as in
+        // t3's hydration.
         Layer.provide(Layer.succeed(HostProcess.Environment, hostEnvironment)),
         Layer.provide(AcpRegistrySupport.layerFromHost),
         Layer.provide(SecretResolver.layer),
@@ -230,7 +229,7 @@ const layerTaskFolders = TaskFolders.layer.pipe(
  * the port scanner (t3's mock).
  */
 /** t3's config, persistence, settings and background policy beneath its provider services. */
-const layerServerBase = (stateDir: string, env: Record<string, string | undefined>) =>
+const layerServerBase = (stateDir: string) =>
   BackgroundPolicy.layer.pipe(
     // t3's power monitor with no desktop app to report the host's power state: unknown.
     Layer.provideMerge(Layer.effect(HostPowerMonitor.HostPowerMonitor, HostPowerMonitor.make())),
@@ -238,16 +237,15 @@ const layerServerBase = (stateDir: string, env: Record<string, string | undefine
     Layer.provideMerge(HostStandIns.layerSecretStore),
     Layer.provideMerge(SqlitePersistence.layerMemory),
     Layer.provideMerge(layerServerConfig(stateDir)),
-    // What every process the composition starts (git, a CLI) inherits, and the home t3 reads.
-    Layer.provideMerge(Layer.succeed(HostProcess.Environment, env)),
-    Layer.provideMerge(
-      env.HOME === undefined ? Layer.empty : Layer.succeed(HostProcess.HomeDirectory, env.HOME),
-    ),
+    // The host process's own environment and home, read when the composition is built, so every
+    // t3 service agrees with what a CLI it starts inherits (t3 caches its defaults for good).
+    Layer.provideMerge(Layer.sync(HostProcess.Environment, () => process.env)),
+    Layer.provideMerge(Layer.sync(HostProcess.HomeDirectory, () => homedir())),
     Layer.provideMerge(FetchHttpClient.layer),
     Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
   );
 
-const layerServerInfrastructure = (stateDir: string, env: Record<string, string | undefined>) =>
+const layerServerInfrastructure = (stateDir: string) =>
   OpenCodeRuntime.layer.pipe(
     Layer.provide(
       Layer.unwrap(
@@ -275,15 +273,19 @@ const layerServerInfrastructure = (stateDir: string, env: Record<string, string 
         ProviderEventLoggers.NoOpProviderEventLoggers,
       ),
     ),
-    Layer.provideMerge(layerServerBase(stateDir, env)),
+    Layer.provideMerge(layerServerBase(stateDir)),
   );
 
 /**
  * t3's orchestration core (`runtimeLayer.ts` `layer`) with its event infrastructure and t3's
  * provider-continuation worker, over the infrastructure t3's `server.ts` gives it, less the HTTP
- * server. Every service is t3's own but those in `standIns.ts`.
+ * server, with provider instances hydrated from `drivers`. Every service is t3's own but those in
+ * `standIns.ts`.
  */
-export const layerOrchestration = <R>(options: OrchestrationOptions<R>) =>
+const makeOrchestration = <R>(
+  options: OrchestrationOptions,
+  drivers: ReadonlyArray<AnyProviderDriver<R>>,
+) =>
   Layer.mergeAll(
     RuntimeLayer.layer,
     // t3's worker for the requests adapters queue (a background task's wake-up), as
@@ -308,12 +310,25 @@ export const layerOrchestration = <R>(options: OrchestrationOptions<R>) =>
     ),
     Layer.provide(WorkspacePaths.layer),
     Layer.provide(ProviderRegistry.layer),
-    Layer.provideMerge(layerProviderInstances(options)),
+    Layer.provideMerge(layerProviderInstances(drivers)),
     Layer.provide(HostStandIns.layerMcp),
     Layer.provide(HostStandIns.layerTerminals),
     Layer.provideMerge(Layer.mergeAll(IdAllocator.layer, VcsProcess.layer, ProcessRunner.layer)),
-    Layer.provideMerge(layerServerInfrastructure(options.stateDir, options.env)),
+    Layer.provideMerge(layerServerInfrastructure(options.stateDir)),
   );
+
+/** The host's orchestration: provider instances from `HOST_DRIVERS`, every one guarded. */
+export const layerOrchestration = (options: OrchestrationOptions) =>
+  makeOrchestration(options, HOST_DRIVERS);
+
+/**
+ * The orchestration over other drivers, for tests only (t3's replay adapter in place of a CLI):
+ * `boundary.test.ts` refuses every name ending in `ForTests` outside tests and other seams.
+ */
+export const layerOrchestrationForTests = <R>(
+  options: OrchestrationOptions,
+  drivers: ReadonlyArray<AnyProviderDriver<R>>,
+) => makeOrchestration(options, drivers);
 
 /**
  * t3's startup and shutdown of the orchestration, in the order `serverRuntimeStartup.ts` runs

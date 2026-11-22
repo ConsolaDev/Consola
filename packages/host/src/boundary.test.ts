@@ -78,6 +78,14 @@ const LAYERS: Layer[] = [
     refuses: [TEST_KITS],
     noGlobals: [],
   },
+  {
+    // What tests share (an isolated machine, fake CLIs). No other ring reaches it, so only tests
+    // import it; it may use the test runner and t3's test kits.
+    at: 'testing',
+    reaches: ['core', 'runtime', 'testing'],
+    refuses: [],
+    noGlobals: [],
+  },
   // The one wiring file, where everything meets.
   {
     at: 'bin',
@@ -95,12 +103,38 @@ const isTestFile = (file: string): boolean => /\.test\.(?:[cm]?[jt]s|tsx)$/.test
 
 /**
  * A name ending in `ForTests` is a seam only tests may use (`layerForTests`). A module may declare
- * one; a file that is not a test may not refer to one: not import it, not reach it through a
- * namespace, not call it.
+ * one, and one seam may be built from another inside its own body: a seam that is a function,
+ * so that code runs only when a test calls it, never as the module loads. Anywhere else, a file
+ * that is not a test may not refer to one: not call it, not reach it through a namespace, not
+ * import it under another name. A plain import is judged by those uses.
  */
 const TEST_ONLY_NAME = /ForTests$/;
 
-/** Every reference to a test-only name in `source`, its own declarations aside. */
+const isTestOnlyName = (name: ts.Node | undefined): boolean =>
+  name !== undefined && ts.isIdentifier(name) && TEST_ONLY_NAME.test(name.text);
+
+/**
+ * Whether `node` sits in the body of a seam that is a function: `function xForTests() {…}`, or
+ * `const xForTests = (…) => …` / `= function (…) {…}`.
+ */
+function insideSeam(node: ts.Node): boolean {
+  let child: ts.Node = node;
+  for (let current = node.parent; current !== undefined; current = current.parent) {
+    if (ts.isFunctionDeclaration(current) && isTestOnlyName(current.name)) return true;
+    if (
+      ts.isVariableDeclaration(current) &&
+      isTestOnlyName(current.name) &&
+      current.initializer === child &&
+      (ts.isArrowFunction(child) || ts.isFunctionExpression(child))
+    ) {
+      return true;
+    }
+    child = current;
+  }
+  return false;
+}
+
+/** Every use of a test-only name in `source` that is not a seam's own definition. */
 function testOnlyReferencesOf(source: string, fileName = 'x.ts'): string[] {
   const tree = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true);
   const found: string[] = [];
@@ -110,7 +144,10 @@ function testOnlyReferencesOf(source: string, fileName = 'x.ts'): string[] {
       const declared =
         (ts.isVariableDeclaration(parent) || ts.isFunctionDeclaration(parent)) &&
         parent.name === node;
-      if (!declared) found.push(node.text);
+      const imported = ts.isImportSpecifier(parent);
+      const renamed =
+        imported && parent.propertyName === node && !TEST_ONLY_NAME.test(parent.name.text);
+      if (renamed || (!declared && !imported && !insideSeam(node))) found.push(node.text);
     }
     ts.forEachChild(node, visit);
   };
@@ -384,6 +421,13 @@ describe('the dependency rule', () => {
     ['runtime/x.test.ts', '@t3tools/provider-claude/testing', true],
     ['adapters/x.ts', '@t3tools/provider-claude/testing', false],
     ['bin.ts', '@t3tools/provider-testing/replayGate', false],
+    ['runtime/x.ts', '../testing/machine.ts', false],
+    ['adapters/x.ts', '../testing/machine.ts', false],
+    ['bin.ts', './testing/machine.ts', false],
+    ['testing/x.ts', '@t3tools/provider-claude/testing', true],
+    ['testing/x.ts', 'vite-plus/test', true],
+    ['testing/x.ts', '../adapters/ws.ts', false],
+    ['runtime/x.test.ts', '../testing/machine.ts', true],
     ['runtime/x.ts', '../adapters/ws.ts', false],
     ['runtime/x.ts', '../bin.ts', false],
     ['adapters/x.ts', '../core/pass.ts', true],
@@ -406,7 +450,10 @@ describe('the dependency rule', () => {
   });
 
   it.each([
-    ['an import', "import { layerForTests } from './runtime/threadRuntime.ts';"],
+    [
+      'a call',
+      "import { layerForTests } from './runtime/threadRuntime.ts';\nlayerForTests({}, {});",
+    ],
     [
       'a namespace member',
       "import * as T from './runtime/threadRuntime.ts';\nT.layerForTests({}, {});",
@@ -416,8 +463,33 @@ describe('the dependency rule', () => {
     expect(violationsOf('bin.ts', source)).toContain('bin.ts uses layerForTests');
   });
 
-  it('a module may declare a test-only seam, and a test may use it', () => {
+  it('a module may declare a test-only seam, build one from another, and a test may use it', () => {
     expect(violationsOf('runtime/x.ts', 'export const layerForTests = () => 1;')).toEqual([]);
+    expect(
+      violationsOf(
+        'runtime/x.ts',
+        "import { innerForTests } from './y.ts';\nexport const layerForTests = () => innerForTests();",
+      ),
+    ).toEqual([]);
+    expect(
+      violationsOf(
+        'runtime/x.ts',
+        "import { innerForTests } from './y.ts';\nexport const layer = () => innerForTests();",
+      ),
+    ).toEqual(['runtime/x.ts uses innerForTests']);
+    // A seam that is not a function would run its body as the module loads, test or not.
+    expect(
+      violationsOf(
+        'runtime/x.ts',
+        "import { innerForTests } from './y.ts';\nexport const layerForTests = innerForTests();",
+      ),
+    ).toEqual(['runtime/x.ts uses innerForTests']);
+    expect(
+      violationsOf(
+        'runtime/x.ts',
+        "import { innerForTests } from './y.ts';\nexport function layerForTests() {\n  return innerForTests();\n}",
+      ),
+    ).toEqual([]);
     expect(
       violationsOf(
         'runtime/x.test.ts',

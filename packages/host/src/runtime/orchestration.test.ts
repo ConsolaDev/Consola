@@ -10,8 +10,11 @@ import * as Option from 'effect/Option';
 import * as ServerConfig from 't3/config.ts';
 import * as ServerSettings from 't3/serverSettings.ts';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vite-plus/test';
-import { HOST_DRIVERS } from './drivers.ts';
+import { isolateMachine } from '../testing/machine.ts';
 import { layerOrchestration } from './orchestration.ts';
+
+/** A machine of the test's own: a temporary home and fake CLIs (`../testing/machine.ts`). */
+isolateMachine();
 
 const fetched: string[] = [];
 beforeAll(() => {
@@ -35,18 +38,11 @@ const SETTINGS = {
 describe('layerOrchestration', () => {
   it('gives the drivers t3’s own provider host, over the same paths and settings', async () => {
     const stateDir = mkdtempSync(join(tmpdir(), 'consola-host-state-'));
-    const home = mkdtempSync(join(tmpdir(), 'consola-host-home-'));
     mkdirSync(join(stateDir, 'userdata'), { recursive: true });
     writeFileSync(join(stateDir, 'userdata', 'settings.json'), JSON.stringify(SETTINGS));
     try {
       await Effect.gen(function* () {
-        const context = yield* Layer.build(
-          layerOrchestration({
-            stateDir,
-            env: { PATH: home, HOME: home },
-            drivers: HOST_DRIVERS.slice(0, 0),
-          }),
-        );
+        const context = yield* Layer.build(layerOrchestration({ stateDir }));
         const host = Context.get(context, ProviderHost.ProviderHost);
         const config = Context.get(context, ServerConfig.ServerConfig);
         const settings = Context.get(context, ServerSettings.ServerSettingsService);
@@ -74,7 +70,6 @@ describe('layerOrchestration', () => {
       }).pipe(Effect.scoped, Effect.runPromise);
     } finally {
       rmSync(stateDir, { recursive: true, force: true });
-      rmSync(home, { recursive: true, force: true });
     }
   }, 60_000);
 });

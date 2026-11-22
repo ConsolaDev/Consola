@@ -24,7 +24,11 @@ import * as ProjectService from 't3/project/ProjectService.ts';
 import { decideCommand } from '../core/commandPolicy.ts';
 import type { SessionSpec } from '../core/sessionSpec.ts';
 import { defaultModelSelection, HOST_DRIVERS, type HostDriversEnv } from './drivers.ts';
-import { layerOrchestration, startOrchestration } from './orchestration.ts';
+import {
+  layerOrchestration,
+  layerOrchestrationForTests,
+  startOrchestration,
+} from './orchestration.ts';
 
 /** One stored event of the thread: `{ sequence, event }`, and the command that caused it. */
 export type ThreadEvent = OrchestrationV2StoredEvent;
@@ -74,11 +78,13 @@ export class NotOfferedError extends Schema.TaggedError<NotOfferedError>()('NotO
   }
 }
 
+/**
+ * A host's runtime is configured by its state folder alone. The CLIs inherit the host process's
+ * environment, as in t3, which is where each finds its own login.
+ */
 export interface ThreadRuntimeOptions {
   /** Where t3's server paths live; nothing the host keeps there is a credential. */
   readonly stateDir: string;
-  /** The environment the CLIs start with, where each finds its own login. */
-  readonly env: Record<string, string | undefined>;
 }
 
 /** What only a test may change: see `layerForTests`. */
@@ -109,7 +115,11 @@ export class ThreadRuntime extends Context.Service<
  * files the session's folder as its project, and creates its thread. Closing the scope stops the
  * provider session and drops the thread. t3's logs go to stderr.
  */
-const make = (options: ThreadRuntimeOptions, seam: ThreadRuntimeTestSeam) =>
+const make = (
+  options: ThreadRuntimeOptions,
+  runtimeMode: RuntimeMode,
+  orchestration: typeof layerOrchestration,
+) =>
   Layer.succeed(
     ThreadRuntime,
     ThreadRuntime.of({
@@ -120,13 +130,10 @@ const make = (options: ThreadRuntimeOptions, seam: ThreadRuntimeTestSeam) =>
           new ThreadRuntimeError({ sessionId, operation, cause });
         const toStderr = Effect.provideService(Logger.LogToStderr, true);
 
-        const context = yield* Layer.build(
-          layerOrchestration({
-            stateDir: options.stateDir,
-            env: options.env,
-            drivers: seam.drivers ?? HOST_DRIVERS,
-          }),
-        ).pipe(Effect.mapError(failed('open')), toStderr);
+        const context = yield* Layer.build(orchestration({ stateDir: options.stateDir })).pipe(
+          Effect.mapError(failed('open')),
+          toStderr,
+        );
         yield* startOrchestration.pipe(
           Effect.provideContext(context),
           Effect.mapError(failed('open')),
@@ -154,7 +161,7 @@ const make = (options: ThreadRuntimeOptions, seam: ThreadRuntimeTestSeam) =>
             projectId,
             title: 'New thread',
             modelSelection: spec.modelSelection ?? defaultModelSelection(spec.harness),
-            runtimeMode: seam.runtimeMode ?? HOST_RUNTIME_MODE,
+            runtimeMode,
             interactionMode: 'default',
             branch: null,
             worktreePath: null,
@@ -218,13 +225,17 @@ const make = (options: ThreadRuntimeOptions, seam: ThreadRuntimeTestSeam) =>
 
 /** The host's thread runtime: `HOST_DRIVERS`, every thread in `HOST_RUNTIME_MODE`. */
 export const layer = (options: ThreadRuntimeOptions): Layer.Layer<ThreadRuntime> =>
-  make(options, {});
+  make(options, HOST_RUNTIME_MODE, layerOrchestration);
 
 /**
  * `layer` with the seam t3's replay harness uses, for tests only: `boundary.test.ts` refuses
- * every name ending in `ForTests` outside a test file, so the host cannot reach it.
+ * every name ending in `ForTests` outside a test file (but in another seam's own definition, as
+ * here), so the host cannot reach it.
  */
 export const layerForTests = (
   options: ThreadRuntimeOptions,
   seam: ThreadRuntimeTestSeam,
-): Layer.Layer<ThreadRuntime> => make(options, seam);
+): Layer.Layer<ThreadRuntime> =>
+  make(options, seam.runtimeMode ?? HOST_RUNTIME_MODE, (orchestrationOptions) =>
+    layerOrchestrationForTests(orchestrationOptions, seam.drivers ?? HOST_DRIVERS),
+  );

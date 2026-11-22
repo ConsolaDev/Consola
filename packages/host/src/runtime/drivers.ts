@@ -26,9 +26,9 @@ export type HostDriversEnv =
 /**
  * t3's drivers for the CLIs a Consola session offers, as t3's `BUILT_IN_DRIVERS`
  * (`apps/server/src/provider/builtInDrivers.ts`) lists them and in its order. Cursor is never one
- * of them.
+ * of them. Not exported: the host only ever hydrates them guarded, as `HOST_DRIVERS`.
  */
-export const T3_HOST_DRIVERS: ReadonlyArray<AnyProviderDriver<HostDriversEnv>> = [
+const T3_HOST_DRIVERS: ReadonlyArray<AnyProviderDriver<HostDriversEnv>> = [
   CodexDriver,
   ClaudeDriver,
   OpenCodeDriver,
