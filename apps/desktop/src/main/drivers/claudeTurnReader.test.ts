@@ -319,6 +319,26 @@ describe('createClaudeTurnReader', () => {
     ]);
   });
 
+  it('shapes the model and each server’s name and status, which reach the record and the step’s error', () => {
+    const init = jsonLine({
+      ...JSON.parse(INIT),
+      model: `\x1b[31mclaude-opus-5-5\x1b[0m\nsecond line`,
+      mcp_servers: [
+        { name: `gra\x07fana${'n'.repeat(300)}`, status: '\x1b]0;x\x07needs-auth\r' },
+        { name: '\x1b[2K', status: 'connected' },
+        { name: 'consola', status: '\x07' },
+      ],
+    });
+    const { report } = readAll(init);
+    expect(report.init?.model).toBe('claude-opus-5-5');
+    // A name or status with nothing left names nothing: that server is dropped.
+    expect(report.init?.servers).toEqual([
+      { name: `grafana${'n'.repeat(193)}…`, status: 'needs-auth' },
+    ]);
+    const blank = readAll(jsonLine({ ...JSON.parse(INIT), model: '\x1b[0m ' })).report;
+    expect(blank.init).not.toHaveProperty('model');
+  });
+
   it('reads a line a typed key was echoed in front of', () => {
     const echoed = readAll(`abc${INIT}`);
     expect(echoed.events).toMatchObject([{ kind: 'line', text: 'abc' }, { kind: 'init' }]);

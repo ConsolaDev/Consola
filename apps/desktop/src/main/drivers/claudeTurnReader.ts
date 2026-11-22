@@ -68,16 +68,28 @@ function saysSomething(line: string): boolean {
   return withoutControls(stripEscapes(line).replace(ECHOED_KEY, '')).trim() !== '';
 }
 
+/** The most of a model's, a server's name or a status the record keeps. */
+const MAX_INIT_FIELD_CHARS = 200;
+
+/**
+ * The CLI's `init`, its words shaped with `oneLine`: the model reaches the
+ * step's record and the run page, a server's name and status the step's
+ * error. A server whose name or status has nothing left is dropped.
+ */
 function readInit(event: JsonObject): TurnInit {
   const servers: TurnInit['servers'] = [];
   if (Array.isArray(event.mcp_servers)) {
     for (const server of event.mcp_servers) {
-      if (isObject(server) && typeof server.name === 'string' && typeof server.status === 'string')
-        servers.push({ name: server.name, status: server.status });
+      if (!isObject(server) || typeof server.name !== 'string' || typeof server.status !== 'string')
+        continue;
+      const name = oneLine(server.name, MAX_INIT_FIELD_CHARS);
+      const status = oneLine(server.status, MAX_INIT_FIELD_CHARS);
+      if (name && status) servers.push({ name, status });
     }
   }
+  const model = typeof event.model === 'string' ? oneLine(event.model, MAX_INIT_FIELD_CHARS) : '';
   return {
-    ...(typeof event.model === 'string' ? { model: event.model } : {}),
+    ...(model ? { model } : {}),
     servers,
     signInHint: CLAUDE_SIGN_IN_HINT,
     raw: event,
