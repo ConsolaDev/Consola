@@ -475,10 +475,17 @@ test.describe('info panel', () => {
     await expect(infoPanel(page)).toBeVisible();
     await holdConversation();
     const sidePanel = () => page.getByTestId('side-panel');
+    /** The panels' widths and their total, which each size is a share of (no separators). */
+    const widths = async () => {
+      const [agent, info, side] = await Promise.all(
+        (['agent', 'info-panel', 'side-panel'] as const).map(panelWidth),
+      );
+      return { agent, side, panels: agent + info + side };
+    };
 
     // A pane just over the room for all three, and the side panel opened at
     // its default 40%, which would leave the conversation about 360px: the
-    // panels give way instead.
+    // panels give way instead, the side panel among them.
     await windowForPane(INFO_PANEL_ROOM_PX + 10);
     await page
       .locator('.side-panel-controls')
@@ -487,7 +494,8 @@ test.describe('info panel', () => {
     await expect(sidePanel()).toBeVisible();
     await expect(infoPanel(page)).toBeVisible();
     await expect.poll(() => panelWidth('agent')).toBeGreaterThanOrEqual(SIXTY_COLUMNS);
-    expect(await panelWidth('side-panel')).toBeLessThan(0.4 * (await paneWidth()));
+    const opened = await widths();
+    expect(opened.side).toBeLessThan(0.4 * opened.panels - 4);
     expect(await sameConversation(), 'the side panel opened beside both').toBe(true);
 
     // The default window: the info panel steps aside, and the 60 columns go
@@ -508,10 +516,8 @@ test.describe('info panel', () => {
     await page.mouse.move(paneLeft + 4, edge.y + edge.height / 2, { steps: 8 });
     await page.mouse.up();
     const conversationShare = async () => {
-      const [agent, info, side] = await Promise.all(
-        (['agent', 'info-panel', 'side-panel'] as const).map(panelWidth),
-      );
-      return agent / (agent + info + side);
+      const { agent, panels } = await widths();
+      return agent / panels;
     };
     await expect.poll(conversationShare).toBeLessThan(0.21);
     expect(await conversationShare()).toBeGreaterThan(0.19);

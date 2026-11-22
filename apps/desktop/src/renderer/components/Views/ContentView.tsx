@@ -42,9 +42,10 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
   const infoShown = useInfoPanelShown();
   // The conversation's floor: 60 columns while all three are on screen on a
   // pane that holds them, so the panels give way first; else 20%. The
-  // library checks the layout on screen against a changed `minSize`, and a
-  // saved layout as it restores, so a split saved while the person kept the
-  // info panel on a narrow pane comes back with those columns.
+  // library re-registers a Panel whose `minSize` changes and re-validates its
+  // remembered layout, and a saved one as it restores, so a split saved while
+  // the person kept the info panel on a narrow pane comes back with those
+  // columns.
   const conversationMinSize = useConversationKeepsRoom() ? `${CONVERSATION_ROOM_PX}px` : '20%';
   const groupRef = useRef<HTMLDivElement | null>(null);
 
@@ -183,7 +184,7 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
           {/* The info panel, always the first thing after the conversation.
               Its default width, the side panel's minimum and the
               conversation's floor are `infoPanel/stepAside.ts`'s, which
-              reckons `INFO_PANEL_ROOM_PX` from them. */}
+              reckons `INFO_PANEL_ROOM_PX` from them and the two separators. */}
           {infoShown && (
             <>
               <Separator className="resize-handle info-panel-resize-handle" />

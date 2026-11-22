@@ -456,7 +456,9 @@
   margin-top: var(--space-2);
 }
 
-/* Resize handle for split panels */
+/* Resize handle for split panels. Its width is `PANEL_SEPARATOR_PX`
+   (infoPanel/stepAside.ts), which the session pane's room for all three
+   panels counts twice: change both. */
 .resize-handle {
   width: 8px;
   background: transparent;

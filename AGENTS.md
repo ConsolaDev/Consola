@@ -488,8 +488,9 @@ panel it is view state, kept in the renderer.
   Visibility rides with the layout (`sidePanelStore.infoVisible`,
   written only under the remember setting, shown when absent); folds sit in
   `settingsStore.infoSectionOpen` and are always kept. While the side panel
-  is open on a session pane narrower than `INFO_PANEL_ROOM_PX` (1010px: 60
-  columns of conversation beside both panels), the panel steps aside
+  is open on a session pane narrower than `INFO_PANEL_ROOM_PX` (1026px: 60
+  columns of conversation beside both panels and their two separators,
+  `PANEL_SEPARATOR_PX`), the panel steps aside
   (`infoPanelShown`, `infoPanel/stepAside.ts`) without writing `infoVisible`,
   everything that asks whether it shows reads that answer, and its toggle
   shows it anyway until the side panel hides or the pane has room. While all
@@ -497,8 +498,9 @@ panel it is view state, kept in the renderer.
   60 columns (`CONVERSATION_ROOM_PX`, `conversationKeepsRoom`), else 20%: the
   panels give way before it, and a split saved while the person kept the
   panel on a narrow pane never restores it narrower on a pane that holds
-  them. That leans on react-resizable-panels checking the layout on screen
-  against a changed `minSize`, and a saved one as it restores. A folded section
+  them. That leans on react-resizable-panels, which re-registers a Panel
+  whose `minSize` changes and re-validates its remembered layout, and a saved
+  one as it restores. A folded section
   renders neither its rows nor its heading's actions (`InfoSection`), so
   whatever they read never starts. Showing, hiding or resizing the panel
   only resizes the conversation, which stays `ContentView`'s first child.

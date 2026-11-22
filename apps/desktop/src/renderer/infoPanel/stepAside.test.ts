@@ -22,8 +22,8 @@ const room = (over: Partial<InfoPanelRoom> = {}): InfoPanelRoom => ({
 });
 
 describe('INFO_PANEL_ROOM_PX', () => {
-  it('holds 60 columns of conversation beside both panels at their narrowest defaults', () => {
-    expect(INFO_PANEL_ROOM_PX).toBe(480 + 250 + 280);
+  it('holds 60 columns of conversation beside both panels at their narrowest defaults, and the two separators between them', () => {
+    expect(INFO_PANEL_ROOM_PX).toBe(480 + 250 + 280 + 2 * 8);
   });
 });
 

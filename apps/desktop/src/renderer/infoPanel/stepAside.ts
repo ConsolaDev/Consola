@@ -30,12 +30,20 @@ export const INFO_PANEL_DEFAULT_PX = 250;
 /** The side panel's `minSize` in `ContentView`. */
 export const SIDE_PANEL_MIN_PX = 280;
 /**
+ * The width of each separator between the session pane's panels: the
+ * `.resize-handle` rule in `components/Views/styles.css`, which must move
+ * with it. The panels' sizes are shares of what the separators leave.
+ */
+export const PANEL_SEPARATOR_PX = 8;
+/**
  * The narrowest session pane that holds all three: 60 columns of
  * conversation beside the info panel at its default width and the side panel
- * at its narrowest, 480 + 250 + 280 = 1010px. Narrower, with the side panel
- * open, the info panel steps aside.
+ * at its narrowest, with the two separators between them,
+ * 480 + 250 + 280 + 2 × 8 = 1026px. Narrower, with the side panel open, the
+ * info panel steps aside.
  */
-export const INFO_PANEL_ROOM_PX = CONVERSATION_ROOM_PX + INFO_PANEL_DEFAULT_PX + SIDE_PANEL_MIN_PX;
+export const INFO_PANEL_ROOM_PX =
+  CONVERSATION_ROOM_PX + INFO_PANEL_DEFAULT_PX + SIDE_PANEL_MIN_PX + 2 * PANEL_SEPARATOR_PX;
 
 export interface InfoPanelRoom {
   /** Whether the person wants the info panel: `sidePanelStore.infoVisible`. */
