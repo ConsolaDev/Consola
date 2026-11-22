@@ -71,12 +71,15 @@ import * as VcsProcess from 't3/vcs/VcsProcess.ts';
 import * as VcsProjectConfig from 't3/vcs/VcsProjectConfig.ts';
 import * as TaskFolders from 't3/workspace/TaskFolders.ts';
 import * as TaskFolderStore from 't3/workspace/TaskFolderStore.ts';
-import { HOST_DRIVERS } from './drivers.ts';
+import type { SessionSpec } from '../core/sessionSpec.ts';
+import { hostDriverFor } from './drivers.ts';
 import * as HostStandIns from './standIns.ts';
 
 export interface OrchestrationOptions {
   /** Where t3's server paths live (`userdata/`, `caches/`, `worktrees/`). */
   readonly stateDir: string;
+  /** The session's harness: the one provider the composition hydrates (`hostDriverFor`). */
+  readonly harness: SessionSpec['harness'];
 }
 
 /** t3's `ServerConfig` for a host: t3's own paths under `stateDir`, and no HTTP server. */
@@ -245,7 +248,7 @@ const layerServerBase = (stateDir: string) =>
     Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
   );
 
-const layerServerInfrastructure = (stateDir: string) =>
+const layerServerInfrastructure = (stateDir: string, harness: SessionSpec['harness']) =>
   OpenCodeRuntime.layer.pipe(
     Layer.provide(
       Layer.unwrap(
@@ -256,7 +259,12 @@ const layerServerInfrastructure = (stateDir: string) =>
       ),
     ),
     Layer.provideMerge(CodexManagedTokenBroker.layer),
-    Layer.provideMerge(CodexInstallation.CodexInstallation.layer),
+    // t3's probes the machine's `codex` as it is built; only a Codex session runs Codex.
+    Layer.provideMerge(
+      harness === 'codex'
+        ? CodexInstallation.CodexInstallation.layer
+        : HostStandIns.layerNoCodexInstallation,
+    ),
     // t3's own provider host, over the same config, settings and (refusing) secret store.
     Layer.provideMerge(ProviderHostLive.layer),
     Layer.provideMerge(ServerEnvironment.layerIdentity),
@@ -315,12 +323,15 @@ const makeOrchestration = <R>(
     Layer.provide(HostStandIns.layerMcp),
     Layer.provide(HostStandIns.layerTerminals),
     Layer.provideMerge(Layer.mergeAll(IdAllocator.layer, VcsProcess.layer, ProcessRunner.layer)),
-    Layer.provideMerge(layerServerInfrastructure(options.stateDir)),
+    Layer.provideMerge(layerServerInfrastructure(options.stateDir, options.harness)),
   );
 
-/** The host's orchestration: provider instances from `HOST_DRIVERS`, every one guarded. */
+/**
+ * The host's orchestration: one provider instance, hydrated from the guarded driver of the
+ * session's harness only (`hostDriverFor`).
+ */
 export const layerOrchestration = (options: OrchestrationOptions) =>
-  makeOrchestration(options, HOST_DRIVERS);
+  makeOrchestration(options, [hostDriverFor(options.harness)]);
 
 /**
  * The orchestration over other drivers, for tests only (t3's replay adapter in place of a CLI):

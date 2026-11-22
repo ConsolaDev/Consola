@@ -31,7 +31,12 @@ import * as ProviderRegistry from 't3/provider/ProviderRegistry.ts';
 import * as ServerSettings from 't3/serverSettings.ts';
 import { decideCommand } from '../core/commandPolicy.ts';
 import type { SessionSpec } from '../core/sessionSpec.ts';
-import { defaultModelSelection, HOST_DRIVERS, type HostDriversEnv } from './drivers.ts';
+import {
+  defaultModelSelection,
+  type HostDriversEnv,
+  hostDriverFor,
+  titleModelSelection,
+} from './drivers.ts';
 import {
   layerOrchestration,
   layerOrchestrationForTests,
@@ -90,7 +95,8 @@ export type ThreadHandle = {
 export type ThreadServerView = {
   /**
    * t3's `ProviderRegistry`: one snapshot per provider instance in the `ProviderInstanceRegistry`
-   * the composition hydrated from `HOST_DRIVERS`, its changes, and its refreshes.
+   * the composition hydrated from the session's one driver (`hostDriverFor`), its changes, and
+   * its refreshes.
    */
   readonly providers: ProviderRegistry.ProviderRegistry['Service'];
   /** t3's settings, as its settings service reads them, and their changes. */
@@ -135,7 +141,10 @@ export interface ThreadRuntimeOptions {
 
 /** What only a test may change: see `layerForTests`. */
 export interface ThreadRuntimeTestSeam {
-  /** Drivers in place of `HOST_DRIVERS`, such as Claude's driver on t3's replay adapter. */
+  /**
+   * Drivers in place of the session's guarded driver (`hostDriverFor`), such as Claude's driver
+   * on t3's replay adapter.
+   */
   readonly drivers?: ReadonlyArray<AnyProviderDriver<HostDriversEnv>>;
   /** The mode a replayed fixture was recorded in, in place of `HOST_RUNTIME_MODE`. */
   readonly runtimeMode?: RuntimeMode;
@@ -157,9 +166,10 @@ export class ThreadRuntime extends Context.Service<
 >()('@consola/host/runtime/threadRuntime') {}
 
 /**
- * Each `open` builds t3's production orchestration (`layerOrchestration`) in the caller's scope,
- * files the session's folder as its project, and creates its thread. Closing the scope stops the
- * provider session and drops the thread. t3's logs go to stderr.
+ * Each `open` builds t3's production orchestration (`layerOrchestration`) for the session's
+ * harness in the caller's scope, points t3's thread titles at the session's provider, files the
+ * session's folder as its project, and creates its thread. Closing the scope stops the provider
+ * session and drops the thread. t3's logs go to stderr.
  */
 const make = (
   options: ThreadRuntimeOptions,
@@ -176,10 +186,9 @@ const make = (
           new ThreadRuntimeError({ sessionId, operation, cause });
         const toStderr = Effect.provideService(Logger.LogToStderr, true);
 
-        const context = yield* Layer.build(orchestration({ stateDir: options.stateDir })).pipe(
-          Effect.mapError(failed('open')),
-          toStderr,
-        );
+        const context = yield* Layer.build(
+          orchestration({ stateDir: options.stateDir, harness: spec.harness }),
+        ).pipe(Effect.mapError(failed('open')), toStderr);
         yield* startOrchestration.pipe(
           Effect.provideContext(context),
           Effect.mapError(failed('open')),
@@ -190,6 +199,17 @@ const make = (
         const commandOutput = Context.get(context, CommandOutputHub.CommandOutputHub);
         const settings = Context.get(context, ServerSettings.ServerSettingsService);
         const config = Context.get(context, ServerConfig.ServerConfig);
+
+        // t3 titles a thread with `textGenerationModelSelection`, Codex by default, whatever the
+        // thread runs on. The session's provider is the only one hydrated, so titles go there:
+        // a selection already on the session's instance (the state folder's own) is kept.
+        const titles = titleModelSelection(spec);
+        const settingsNow = yield* settings.getSettings.pipe(Effect.mapError(failed('open')));
+        if (settingsNow.textGenerationModelSelection.instanceId !== titles.instanceId) {
+          yield* settings
+            .updateSettings({ textGenerationModelSelection: titles })
+            .pipe(Effect.mapError(failed('open')), toStderr);
+        }
 
         const projectId = ProjectId.make(`project:${sessionId}`);
         yield* projects
@@ -287,7 +307,10 @@ const make = (
     }),
   );
 
-/** The host's thread runtime: `HOST_DRIVERS`, every thread in `HOST_RUNTIME_MODE`. */
+/**
+ * The host's thread runtime: each session on its harness's guarded driver alone, every thread in
+ * `HOST_RUNTIME_MODE`.
+ */
 export const layer = (options: ThreadRuntimeOptions): Layer.Layer<ThreadRuntime> =>
   make(options, HOST_RUNTIME_MODE, layerOrchestration);
 
@@ -301,5 +324,8 @@ export const layerForTests = (
   seam: ThreadRuntimeTestSeam,
 ): Layer.Layer<ThreadRuntime> =>
   make(options, seam.runtimeMode ?? HOST_RUNTIME_MODE, (orchestrationOptions) =>
-    layerOrchestrationForTests(orchestrationOptions, seam.drivers ?? HOST_DRIVERS),
+    layerOrchestrationForTests(
+      orchestrationOptions,
+      seam.drivers ?? [hostDriverFor(orchestrationOptions.harness)],
+    ),
   );

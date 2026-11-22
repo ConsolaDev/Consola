@@ -14,7 +14,6 @@ import {
   sendMessage,
   sessionSpec,
   statuses,
-  TITLE_WITH_CLAUDE,
   waitForSnapshot,
   withState,
 } from '../testing/replay.ts';
@@ -63,30 +62,28 @@ const withReportedReplay = <A, E>(
 ) =>
   Effect.gen(function* () {
     const { variant, transcript, text, cwd } = yield* loadReplay(name);
-    return yield* withState(
-      (stateDir) =>
-        Effect.gen(function* () {
-          const spec = sessionSpec(name, cwd, variant.modelSelection);
-          const handle = yield* (yield* ThreadRuntime.ThreadRuntime).open(spec);
-          const lines: HostLine[] = [];
-          yield* reportSession(handle, (line) => Effect.sync(() => lines.push(line))).pipe(
-            Effect.forkScoped,
-          );
-          const send = handle.dispatch(sendMessage(spec, text, variant.modelSelection));
-          return yield* body({ spec, handle, lines, text, send });
-        }).pipe(
-          Effect.scoped,
-          Effect.provide(
-            ThreadRuntime.layerForTests(
-              { stateDir },
-              {
-                drivers: [replayClaudeDriver(transcript)],
-                ...(runtimeMode === undefined ? {} : { runtimeMode }),
-              },
-            ),
+    return yield* withState((stateDir) =>
+      Effect.gen(function* () {
+        const spec = sessionSpec(name, cwd, variant.modelSelection);
+        const handle = yield* (yield* ThreadRuntime.ThreadRuntime).open(spec);
+        const lines: HostLine[] = [];
+        yield* reportSession(handle, (line) => Effect.sync(() => lines.push(line))).pipe(
+          Effect.forkScoped,
+        );
+        const send = handle.dispatch(sendMessage(spec, text, variant.modelSelection));
+        return yield* body({ spec, handle, lines, text, send });
+      }).pipe(
+        Effect.scoped,
+        Effect.provide(
+          ThreadRuntime.layerForTests(
+            { stateDir },
+            {
+              drivers: [replayClaudeDriver(transcript)],
+              ...(runtimeMode === undefined ? {} : { runtimeMode }),
+            },
           ),
         ),
-      TITLE_WITH_CLAUDE,
+      ),
     );
   }).pipe(Effect.scoped, Effect.runPromise);
 

@@ -8,6 +8,7 @@ import * as Ref from 'effect/Ref';
 import * as Stream from 'effect/Stream';
 import * as ServerSecretStore from 't3/auth/ServerSecretStore.ts';
 import * as McpSessionRegistry from 't3/mcp/McpSessionRegistry.ts';
+import * as CodexInstallation from 't3/provider/CodexInstallation.ts';
 import * as TerminalManager from 't3/terminal/Manager.ts';
 
 /**
@@ -20,8 +21,11 @@ const NEVER_STORED = 'The Consola host never stores credentials; a CLI keeps its
 
 /**
  * t3's server secret store keeps logins and API keys on disk (`secretsDir`). The host keeps none:
- * reading a secret finds nothing, and writing, creating or removing one fails. The random values
- * t3 makes for itself (`getOrCreateRandom`: an environment id, a signing key) live in memory only.
+ * reading a secret finds nothing, and writing or creating one fails. Removing one succeeds, as
+ * there is none to keep: every t3 settings write removes the secrets its empty fields name, so a
+ * refused removal would refuse every settings write (the host's title model, `threadRuntime.ts`).
+ * The random values t3 makes for itself (`getOrCreateRandom`: an environment id, a signing key)
+ * live in memory only, and a removal drops one there.
  */
 export const layerSecretStore = Layer.effect(
   ServerSecretStore.ServerSecretStore,
@@ -36,7 +40,13 @@ export const layerSecretStore = Layer.effect(
       ),
       set: Effect.fn('HostSecretStore.set')((name) => Effect.fail(refuse(name))),
       create: Effect.fn('HostSecretStore.create')((name) => Effect.fail(refuse(name))),
-      remove: Effect.fn('HostSecretStore.remove')((name) => Effect.fail(refuse(name))),
+      remove: Effect.fn('HostSecretStore.remove')((name) =>
+        Ref.update(generated, (values) => {
+          const next = new Map(values);
+          next.delete(name);
+          return next;
+        }),
+      ),
       getOrCreateRandom: Effect.fn('HostSecretStore.getOrCreateRandom')(function* (name, bytes) {
         const existing = (yield* Ref.get(generated)).get(name);
         if (existing !== undefined) return existing;
@@ -128,5 +138,31 @@ export const layerTerminals = Layer.succeed(
     ),
     subscribe: Effect.fn('HostTerminals.subscribe')(() => Effect.succeed(() => {})),
     subscribeMetadata: Effect.fn('HostTerminals.subscribeMetadata')(() => Effect.succeed(() => {})),
+  }),
+);
+
+const NO_CODEX = 'This session runs no Codex: its harness is another CLI.';
+const noCodex = (operation: string) =>
+  new CodexInstallation.CodexInstallationError({ operation, detail: NO_CODEX });
+
+/**
+ * t3's Codex installation service runs the machine's `codex` as it is built (`codex --version`,
+ * then `codex app-server --help`: `reuseLocal` in `CodexInstallation.ts`), whatever the session
+ * runs. Only Codex's driver reads it (and t3's managed Codex, which the host never hydrates), so a
+ * session on another harness gets this one: it runs nothing, finds no Codex, and installs none.
+ */
+export const layerNoCodexInstallation = Layer.succeed(
+  CodexInstallation.CodexInstallation,
+  CodexInstallation.CodexInstallation.of({
+    managedDirectory: '',
+    resolve: Effect.fn('HostNoCodexInstallation.resolve')(() => Effect.fail(noCodex('resolve'))),
+    acquire: Effect.fn('HostNoCodexInstallation.acquire')(() => Effect.fail(noCodex('acquire'))),
+    compatibility: Effect.fn('HostNoCodexInstallation.compatibility')(() => Effect.undefined),
+    start: Effect.fail(noCodex('start')),
+    cancel: Effect.fn('HostNoCodexInstallation.cancel')(() => Effect.fail(noCodex('cancel'))),
+    state: Effect.die(new Error(NO_CODEX)),
+    changes: Stream.empty,
+    checkForUpdate: Effect.void,
+    remove: Effect.fn('HostNoCodexInstallation.remove')(() => Effect.fail(noCodex('remove'))),
   }),
 );

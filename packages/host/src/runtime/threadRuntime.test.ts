@@ -1,5 +1,6 @@
 import {
   CommandId,
+  type ModelSelection,
   type OrchestrationV2Command,
   type RuntimeMode,
   ThreadId,
@@ -14,7 +15,7 @@ import type * as Scope from 'effect/Scope';
 import * as Stream from 'effect/Stream';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vite-plus/test';
 import type { SessionSpec } from '../core/sessionSpec.ts';
-import { FAKE_CLIS, isolateMachine } from '../testing/machine.ts';
+import { isolateMachine } from '../testing/machine.ts';
 import {
   loadReplay,
   REPLAY_TIMEOUT_MS,
@@ -23,7 +24,6 @@ import {
   sendMessage,
   sessionSpec,
   statuses,
-  TITLE_WITH_CLAUDE,
   waitForSnapshot,
   withState,
 } from '../testing/replay.ts';
@@ -64,6 +64,8 @@ type Replay = {
   readonly prompt: OrchestrationV2Command;
   /** t3's own checks of this replay, from the fixture's `claude_output.ts`. */
   readonly assertT3Output: Effect.Effect<void, ThreadRuntime.ThreadRuntimeError>;
+  /** Each thread title t3 asked the replayed Claude instance for (`replayClaudeDriver`). */
+  readonly titleRequests: ReadonlyArray<ModelSelection>;
 };
 
 /**
@@ -80,29 +82,28 @@ const withReplay = <A, E>(
 ) =>
   Effect.gen(function* () {
     const { variant, transcript, text, cwd } = yield* loadReplay(name);
-    return yield* withState(
-      (stateDir) =>
-        Effect.gen(function* () {
-          const spec = sessionSpec(name, cwd, variant.modelSelection);
-          const handle = yield* (yield* ThreadRuntime.ThreadRuntime).open(spec);
-          const assertT3Output = scenarioResult(handle).pipe(
-            Effect.map((result) => variant.assertOutput(result, transcript)),
-          );
-          const prompt = sendMessage(spec, text, variant.modelSelection);
-          return yield* body({ spec, handle, prompt, assertT3Output });
-        }).pipe(
-          Effect.scoped,
-          Effect.provide(
-            ThreadRuntime.layerForTests(
-              { stateDir },
-              {
-                drivers: [replayClaudeDriver(transcript)],
-                ...(runtimeMode === undefined ? {} : { runtimeMode }),
-              },
-            ),
+    const titleRequests: ModelSelection[] = [];
+    return yield* withState((stateDir) =>
+      Effect.gen(function* () {
+        const spec = sessionSpec(name, cwd, variant.modelSelection);
+        const handle = yield* (yield* ThreadRuntime.ThreadRuntime).open(spec);
+        const assertT3Output = scenarioResult(handle).pipe(
+          Effect.map((result) => variant.assertOutput(result, transcript)),
+        );
+        const prompt = sendMessage(spec, text, variant.modelSelection);
+        return yield* body({ spec, handle, prompt, assertT3Output, titleRequests });
+      }).pipe(
+        Effect.scoped,
+        Effect.provide(
+          ThreadRuntime.layerForTests(
+            { stateDir },
+            {
+              drivers: [replayClaudeDriver(transcript, titleRequests)],
+              ...(runtimeMode === undefined ? {} : { runtimeMode }),
+            },
           ),
         ),
-      TITLE_WITH_CLAUDE,
+      ),
     );
   }).pipe(Effect.scoped, Effect.runPromise);
 
@@ -164,7 +165,7 @@ describe('ThreadRuntime', () => {
   it(
     'simple: a message gets one answer, the run completes, and t3 titles the thread',
     () =>
-      withReplay('simple', 'full-access', ({ handle, prompt, assertT3Output }) =>
+      withReplay('simple', 'full-access', ({ handle, prompt, assertT3Output, titleRequests }) =>
         Effect.gen(function* () {
           const sentAt = yield* Clock.currentTimeMillis;
           const before = handle.snapshotSequence();
@@ -196,12 +197,14 @@ describe('ThreadRuntime', () => {
             Array.from({ length: through - before }, (_, index) => before + 1 + index),
           );
 
-          // t3's title generation runs, through the provider's own text generation.
+          // t3's title generation runs, through the session's own provider: the state folder
+          // names no title model (t3 would ask Codex), so the host pointed titles at Claude.
           const titled = yield* waitForSnapshot(
             handle,
             (current) => current.thread.title === REPLAY_TITLE,
           );
           expect(titled.thread.title).toBe(REPLAY_TITLE);
+          expect(titleRequests).toEqual([{ instanceId: 'claudeAgent', model: 'claude-haiku-5-5' }]);
           yield* assertT3Output;
         }),
       ),
@@ -293,7 +296,7 @@ describe('ThreadRuntime', () => {
     REPLAY_TIMEOUT_MS,
   );
 
-  describe('with the person’s CLI (HOST_DRIVERS)', () => {
+  describe('with the person’s CLI (the session’s guarded driver)', () => {
     /** Runs `body` on a session over t3's real drivers, with `settings` in t3's settings file. */
     const withHostSession = <A, E>(
       settings: Record<string, unknown>,
@@ -313,36 +316,68 @@ describe('ThreadRuntime', () => {
       ).pipe(Effect.runPromise);
     };
 
+    /** Every enabled instance would probe if hydrated: t3 leaves OpenCode and Pi off, so on. */
+    const EVERY_PROVIDER_ON = {
+      providerInstances: {
+        opencode: { driver: 'opencode', enabled: true },
+        pi: { driver: 'pi', enabled: true },
+      },
+    };
+
     it(
-      'probes only the machine’s fake CLIs, with the test’s home',
+      'a Claude session hydrates only Claude: only the fake claude is probed, with the test’s home',
       () =>
-        withHostSession(
-          // t3 leaves OpenCode and Pi off until enabled; on here, so all four drivers probe.
-          {
-            providerInstances: {
-              opencode: { driver: 'opencode', enabled: true },
-              pi: { driver: 'pi', enabled: true },
-            },
-          },
-          () =>
-            Effect.gen(function* () {
-              // Hydration probes every enabled CLI; on this machine each is a fake that records it.
-              const probed = () => new Set(machine.calls().map((call) => call.cli));
-              yield* Effect.gen(function* () {
-                while (!FAKE_CLIS.every((cli) => probed().has(cli))) {
-                  yield* Effect.sleep(Duration.millis(20));
-                }
-              }).pipe(Effect.timeout(Duration.seconds(20)), Effect.orDie);
-              const calls = machine.calls();
-              expect([...probed()].sort()).toEqual([...FAKE_CLIS].sort());
-              for (const call of calls) {
-                expect(call).toMatchObject({
-                  home: machine.home(),
-                  claudeConfigDir: '',
-                  codexHome: '',
-                });
-              }
-            }),
+        withHostSession(EVERY_PROVIDER_ON, ({ handle }) =>
+          Effect.gen(function* () {
+            // The provider list t3 serves (and the model picker offers) names only the session's.
+            const providers = yield* handle.server.providers.getProviders;
+            expect(providers.map((provider) => provider.instanceId)).toEqual(['claudeAgent']);
+
+            // Hydration probes the CLI; on this machine each CLI is a fake that records its calls.
+            const probed = () => new Set(machine.calls().map((call) => call.cli));
+            yield* Effect.gen(function* () {
+              while (!probed().has('claude')) yield* Effect.sleep(Duration.millis(20));
+            }).pipe(Effect.timeout(Duration.seconds(20)), Effect.orDie);
+            // Every hydrated CLI probes at once, and t3's Codex installation service probes
+            // `codex` as it is built: a second CLI would have been called by now.
+            yield* Effect.sleep(Duration.seconds(2));
+            expect([...probed()]).toEqual(['claude']);
+            for (const call of machine.calls()) {
+              expect(call).toMatchObject({
+                home: machine.home(),
+                claudeConfigDir: '',
+                codexHome: '',
+              });
+            }
+          }),
+        ),
+      REPLAY_TIMEOUT_MS,
+    );
+
+    it.each([
+      [
+        'names none (t3 would ask Codex)',
+        {},
+        { instanceId: 'claudeAgent', model: 'claude-haiku-5-5' },
+      ],
+      [
+        'already names the session’s instance',
+        { textGenerationModelSelection: { instanceId: 'claudeAgent', model: 'claude-sonnet-5-5' } },
+        { instanceId: 'claudeAgent', model: 'claude-sonnet-5-5' },
+      ],
+      [
+        'names another provider',
+        { textGenerationModelSelection: { instanceId: 'codex', model: 'gpt-6-luna' } },
+        { instanceId: 'claudeAgent', model: 'claude-haiku-5-5' },
+      ],
+    ] as const)(
+      'titles go to the session’s provider when the state folder %s',
+      (_case, settings, expected) =>
+        withHostSession(settings, ({ handle }) =>
+          Effect.gen(function* () {
+            const read = yield* handle.server.settings;
+            expect(read.textGenerationModelSelection).toMatchObject(expected);
+          }),
         ),
       REPLAY_TIMEOUT_MS,
     );

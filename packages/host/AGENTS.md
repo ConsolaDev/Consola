@@ -75,18 +75,23 @@ handling, ingestion or projection of its own.
   in-memory `node:sqlite`, t3's settings service (shipped defaults,
   `<stateDir>/userdata/settings.json`), t3's `ProviderHostLive` over that same
   config and settings, the model manifest, git and source control, and t3's
-  `ProviderInstanceRegistry` hydrated from `HOST_DRIVERS`, with t3's
-  `ProviderRegistry` (its provider list) over it.
+  `ProviderInstanceRegistry` hydrated from one driver, the session's harness's
+  (`hostDriverFor`), with t3's `ProviderRegistry` (its provider list) over it.
+  t3's Codex installation service is composed only for a Codex session
+  (`layerNoCodexInstallation`, "Stand-ins").
   `startOrchestration` runs t3's startup order (`serverRuntimeStartup.ts`):
   settings, recovery, delegated tasks, then the effect worker; closing the
   scope shuts the providers down.
-- `threadRuntime.ts`: `ThreadRuntime.open(spec)` builds that in the caller's
-  scope, files the session's folder as its project (t3 takes a turn's cwd from
-  its project) and dispatches `thread.create`.
+- `threadRuntime.ts`: `ThreadRuntime.open(spec)` builds that for the session's
+  harness in the caller's scope, points t3's thread titles at the session's
+  provider (below), files the session's folder as its project (t3 takes a
+  turn's cwd from its project) and dispatches `thread.create`.
 - `drivers.ts`: `HOST_DRIVERS`, t3's `BUILT_IN_DRIVERS` for the five harnesses
-  (never Cursor), each wrapped by `withoutCliCredentialsDriver`, and each
-  harness's default model. The unguarded list is not exported, and
-  `layerOrchestration` takes no drivers: it always hydrates `HOST_DRIVERS`.
+  (never Cursor), each wrapped by `withoutCliCredentialsDriver`; `hostDriverFor`,
+  the one of them a harness runs; each harness's default model; and
+  `titleModelSelection`, where its titles go. The unguarded list is not
+  exported, and `layerOrchestration` takes no drivers: it hydrates
+  `hostDriverFor(harness)` alone.
 - `credentials.ts`: the guard that keeps every driver off a CLI's login (below).
 - `standIns.ts`: services that are not t3's own (below, with the rest).
 
@@ -276,7 +281,7 @@ every use of a name ending in `ForTests` outside `*.test.ts` and `src/testing/`
 of another seam that is a function (code that runs only when a test calls it,
 never as a module loads), so no host code can reach a seam (`bin.ts` included);
 `layer(options)` takes neither, and `layerOrchestration(options)` always
-hydrates `HOST_DRIVERS`.
+hydrates the session's guarded driver alone (`hostDriverFor`).
 
 ### The CLIs inherit the host's environment
 
@@ -345,12 +350,28 @@ of the account's synced plugins.
 
 ### What `open` does on the person's machine
 
-Each `open` hydrates t3's provider instances from `HOST_DRIVERS`, as t3's
-server does. With t3's defaults those are Claude and Codex: OpenCode and Pi
-are off until enabled (`DEFAULT_DISABLED_PROVIDER_DRIVERS`,
-`packages/contracts/src/settings.ts`), and the ACP registry has no instance
-until an agent is configured (`hasDefaultInstance: false`). For each enabled
-CLI it finds (on the `PATH`, or at a configured `binaryPath`), its driver:
+Each `open` hydrates t3's provider instances from one driver, the session's
+harness's (`hostDriverFor`), where t3's server hydrates every built-in one.
+Whatever else the state folder's settings enable, no other provider instance
+exists in the session's composition, so:
+
+- only the session's CLI is probed (no `codex` runs in a Claude session: t3's
+  Codex installation service, which runs `codex --version` as it is built, is
+  composed only for a Codex session, "Stand-ins");
+- t3's provider list (`ProviderRegistry`, which `subscribeServerConfig` and
+  `server.refreshProviders` serve, and the composer's model picker reads) names
+  only the session's provider, so the picker offers no other provider to switch
+  the thread to (t3's `ProviderSwitchService`; switching is a spec §3 non-goal),
+  and a command naming another provider's instance fails as t3 fails it for an
+  instance it has not registered;
+- nothing, a thread title included, can reach another provider.
+
+The session's own instance is there only when enabled: with t3's defaults
+Claude and Codex are, OpenCode and Pi are off until enabled
+(`DEFAULT_DISABLED_PROVIDER_DRIVERS`, `packages/contracts/src/settings.ts`),
+and the ACP registry has no instance until an agent is configured
+(`hasDefaultInstance: false`). If it finds the CLI (on the `PATH`, or at a
+configured `binaryPath`), its driver:
 
 - runs it to read its version (`claude --version`, `codex --version`,
   `opencode --version`, `pi --version`); Codex's also starts
@@ -373,13 +394,28 @@ CLI it finds (on the `PATH`, or at a configured `binaryPath`), its driver:
   latest version (npm, mise, `downloads.claude.ai`, `releases.openai.com`), and
   t3 fetches its model manifest from GitHub (`raw.githubusercontent.com`).
 
-It also reads Claude's account metadata (above). A thread's first message asks
-t3's title model (Codex by default, `textGenerationModelSelection`; the first
-enabled instance in t3's fallback order when Codex's is not,
-`packages/shared/src/serverSettings.ts:63-108`) for a title:
-`codex mcp list --json`, then
-`codex exec --ephemeral --skip-git-repo-check -s read-only …`
-(`apps/server/src/textGeneration/CodexTextGeneration.ts`).
+It also reads Claude's account metadata (above).
+
+**Titles.** A thread's first message asks t3's title model
+(`textGenerationModelSelection`) for a title. t3 defaults it to Codex whatever
+the thread runs on, so `open` sets it, through t3's own settings service
+(`updateSettings`, which writes `<stateDir>/userdata/settings.json`), to the
+session's own instance (its `modelSelection.instanceId`, or the harness's
+default one) on the model t3 picks for that driver's text generation
+(`titleModelSelection`: t3's per-driver text model, else the driver's default
+model; for Claude `claude-haiku-5-5`). A selection the state folder already
+puts on that instance is kept. The session's driver then generates the title
+as t3 has it do. Claude: `claude -p --output-format json --json-schema …
+--model <title model> --settings {"disableAllHooks":true} --tools ""
+--disable-slash-commands --strict-mcp-config --permission-mode dontAsk`, the
+message on stdin, in the session's folder
+(`apps/server/src/textGeneration/ClaudeTextGeneration.ts:255-320`). Codex:
+`codex mcp list --json`, then `codex exec --ephemeral --skip-git-repo-check -s
+read-only …` (`CodexTextGeneration.ts`). Where t3 has no title
+generation for a harness (the ACP registry's is `makeUnsupportedTextGeneration`),
+or the session's instance cannot run it, t3's title generation fails, logs a
+warning, and the thread keeps the title seeded from the first message. t3's
+fallback to another provider's title model finds no other instance to use.
 
 ### Stand-ins
 
@@ -387,8 +423,16 @@ Everything in the composition is t3's own, but these. Each is the smallest
 version that keeps what is built on it working.
 
 - `layerSecretStore` for `ServerSecretStore`: t3's keeps logins and API keys
-  on disk. The host keeps none: reading finds nothing, writing fails; the
-  random values t3 makes for itself (an environment id) live in memory.
+  on disk. The host keeps none: reading finds nothing, writing fails, and
+  removing succeeds (there is none to keep; every t3 settings write removes
+  the secrets its empty fields name, so a refused removal would refuse the
+  title setting above); the random values t3 makes for itself (an environment
+  id) live in memory.
+- `layerNoCodexInstallation` for `CodexInstallation`, in every session but a
+  Codex one: t3's runs the machine's `codex` as it is built (`codex --version`,
+  `codex app-server --help`; `reuseLocal`, `CodexInstallation.ts`). Only
+  Codex's driver (and t3's managed Codex, never hydrated) reads it; this one
+  runs nothing, finds no Codex and installs none.
 - `layerMcp` for `McpSessionRegistry` and `McpProviderSessions`: t3 gives each
   provider session an MCP server of its own tools, served by its HTTP server
   (`McpSessionRegistry.layer` needs `HttpServer`). The host serves none, so it
@@ -461,8 +505,9 @@ isolate that process, not the runtime's options, in two layers:
   with the same variables cleared. A fake records its call (its `HOME`,
   `CLAUDE_CONFIG_DIR`, `CODEX_HOME` and arguments) and exits 1. After each test
   every recorded call must have seen that test's home and no config folder.
-  The probe test turns OpenCode and Pi on, so all four drivers run against the
-  fakes; the missing-CLI tests take the fake `claude` away
+  The probe test turns OpenCode and Pi on and checks that a Claude session
+  still runs only the fake `claude` and lists only Claude's provider; the
+  missing-CLI tests take the fake `claude` away
   (`withoutCli('claude')`) or point `binaryPath` nowhere, and check that no
   `claude` ran.
 

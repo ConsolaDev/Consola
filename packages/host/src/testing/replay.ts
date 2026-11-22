@@ -13,6 +13,7 @@ import {
 } from '@t3tools/contracts';
 import { ClaudeOrchestratorReplayHarness } from '@t3tools/provider-claude/testing';
 import type { AnyProviderDriver, ProviderInstance } from '@t3tools/provider-core/server/driver';
+import type { ThreadTitleGenerationInput } from '@t3tools/provider-core/server/textGeneration';
 import { checkpointWorkspace } from '@t3tools/provider-testing/replayWorkspace';
 import {
   ORCHESTRATOR_REPLAY_FIXTURES,
@@ -26,7 +27,7 @@ import * as Stream from 'effect/Stream';
 import * as ProviderAdapterRegistry from 't3/orchestration-v2/ProviderAdapterRegistry.ts';
 import { materializeReplayTranscriptRuntimeInstructions } from 't3/orchestration-v2/testkit/ReplayRuntimeInstructions.ts';
 import type { SessionSpec } from '../core/sessionSpec.ts';
-import { HOST_DRIVERS, type HostDriversEnv } from '../runtime/drivers.ts';
+import { type HostDriversEnv, hostDriverFor } from '../runtime/drivers.ts';
 import type { ThreadHandle } from '../runtime/threadRuntime.ts';
 
 /** A replay runs a whole recorded turn through t3's orchestrator; under load that takes a while. */
@@ -37,11 +38,6 @@ export const REPLAY_TITLE = 'Sprocket replay title';
 
 /** t3's settings for a test: no update checks, so nothing asks npm or GitHub. */
 const TEST_SETTINGS = { enableProviderUpdateChecks: false };
-
-/** t3 titles threads with Codex by default; a replay session has only Claude to ask. */
-export const TITLE_WITH_CLAUDE = {
-  textGenerationModelSelection: { instanceId: 'claudeAgent', model: 'claude-haiku-5-5' },
-};
 
 /**
  * A state folder for one session, removed when `use` ends, with t3's settings file
@@ -78,26 +74,28 @@ export type ReplayTranscript = Effect.Success<
 >;
 
 /** The host's own Claude driver: t3's, guarded by `withoutCliCredentialsDriver`. */
-const hostClaudeDriver = HOST_DRIVERS.find((driver) => driver.driverKind === 'claudeAgent');
+const hostClaudeDriver = hostDriverFor('claude');
 
 /**
  * The host's Claude driver with its orchestration adapter replaced by t3's Claude replay adapter,
  * the way t3's replay harness substitutes it, and a fixed thread title in place of the CLI's. The
  * `claude` on the PATH is the machine's fake, so its snapshot is made to read as installed.
+ *
+ * Each title t3 asks this instance for is pushed to `titleRequests` (its model selection): a
+ * title t3 asked of any other provider never reaches it.
  */
 export const replayClaudeDriver = (
   transcript: ReplayTranscript,
-): AnyProviderDriver<HostDriversEnv> => {
-  if (hostClaudeDriver === undefined) throw new Error('HOST_DRIVERS has no Claude driver.');
-  return {
-    ...hostClaudeDriver,
-    create: (input) => replayInstance(hostClaudeDriver.create(input), transcript),
-  };
-};
+  titleRequests: ModelSelection[] = [],
+): AnyProviderDriver<HostDriversEnv> => ({
+  ...hostClaudeDriver,
+  create: (input) => replayInstance(hostClaudeDriver.create(input), transcript, titleRequests),
+});
 
 const replayInstance = Effect.fn('replayInstance')(function* <E, R>(
   created: Effect.Effect<ProviderInstance, E, R>,
   transcript: ReplayTranscript,
+  titleRequests: ModelSelection[],
 ) {
   const instance = yield* created;
   const replay = yield* Layer.build(
@@ -117,7 +115,11 @@ const replayInstance = Effect.fn('replayInstance')(function* <E, R>(
     orchestrationAdapter: adapter,
     textGeneration: {
       ...instance.textGeneration,
-      generateThreadTitle: () => Effect.succeed({ title: REPLAY_TITLE }),
+      generateThreadTitle: (request: ThreadTitleGenerationInput) =>
+        Effect.sync(() => {
+          titleRequests.push(request.modelSelection);
+          return { title: REPLAY_TITLE };
+        }),
     },
   };
 });

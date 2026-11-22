@@ -42,7 +42,7 @@ describe('layerOrchestration', () => {
     writeFileSync(join(stateDir, 'userdata', 'settings.json'), JSON.stringify(SETTINGS));
     try {
       await Effect.gen(function* () {
-        const context = yield* Layer.build(layerOrchestration({ stateDir }));
+        const context = yield* Layer.build(layerOrchestration({ stateDir, harness: 'claude' }));
         const host = Context.get(context, ProviderHost.ProviderHost);
         const config = Context.get(context, ServerConfig.ServerConfig);
         const settings = Context.get(context, ServerSettings.ServerSettingsService);
@@ -67,6 +67,12 @@ describe('layerOrchestration', () => {
         expect(Option.isNone(yield* credentials.get)).toBe(true);
         const written = yield* credentials.set(new TextEncoder().encode('acme')).pipe(Effect.flip);
         expect(written).toMatchObject({ _tag: 'ProviderCredentialError', operation: 'set' });
+        // Removing one succeeds (there is none), so t3's settings writes, which remove the
+        // secrets their empty fields name, go through.
+        yield* credentials.remove;
+        expect(Option.isNone(yield* credentials.get)).toBe(true);
+        const saved = yield* settings.updateSettings({ threadTitleInstructions: 'Name it, Acme.' });
+        expect(saved.threadTitleInstructions).toBe('Name it, Acme.');
       }).pipe(Effect.scoped, Effect.runPromise);
     } finally {
       rmSync(stateDir, { recursive: true, force: true });

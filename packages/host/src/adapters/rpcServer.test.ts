@@ -43,7 +43,6 @@ import {
   sendMessage,
   sessionSpec,
   statuses,
-  TITLE_WITH_CLAUDE,
   waitForSnapshot,
   withState,
 } from '../testing/replay.ts';
@@ -150,47 +149,45 @@ const withServedReplay = <A, E>(
 ) =>
   Effect.gen(function* () {
     const { variant, transcript, text, cwd } = yield* loadReplay(name);
-    return yield* withState(
-      (stateDir) =>
-        Effect.gen(function* () {
-          const spec = sessionSpec(name, cwd, variant.modelSelection);
-          const handle = yield* (yield* ThreadRuntime.ThreadRuntime).open(spec);
-          const keys = makeKeys();
-          const listening = listenHost({
-            port: 0,
-            host: '127.0.0.1',
-            sessionId: spec.sessionId,
-            publicKeyPem: keys.publicKeyPem,
-            runtime: handle,
-          });
-          const { port, connectedClients } = yield* tracer === undefined
-            ? listening
-            : listening.pipe(Effect.withTracer(tracer));
-          const connect = (given?: string) =>
-            (given === undefined ? signPass(keys, spec.sessionId) : Effect.succeed(given)).pipe(
-              Effect.flatMap((pass) => connectT3Client(hostSocketUrl(port, pass))),
-            );
-          return yield* body({
-            spec,
-            handle,
-            keys,
-            port,
-            connectedClients,
-            prompt: sendMessage(spec, text, variant.modelSelection),
-            modelSelection: variant.modelSelection,
-            connect,
-            signPass: () => signPass(keys, spec.sessionId),
-          });
-        }).pipe(
-          Effect.scoped,
-          Effect.provide(
-            ThreadRuntime.layerForTests(
-              { stateDir },
-              { drivers: [replayClaudeDriver(transcript)], runtimeMode: 'full-access' },
-            ),
+    return yield* withState((stateDir) =>
+      Effect.gen(function* () {
+        const spec = sessionSpec(name, cwd, variant.modelSelection);
+        const handle = yield* (yield* ThreadRuntime.ThreadRuntime).open(spec);
+        const keys = makeKeys();
+        const listening = listenHost({
+          port: 0,
+          host: '127.0.0.1',
+          sessionId: spec.sessionId,
+          publicKeyPem: keys.publicKeyPem,
+          runtime: handle,
+        });
+        const { port, connectedClients } = yield* tracer === undefined
+          ? listening
+          : listening.pipe(Effect.withTracer(tracer));
+        const connect = (given?: string) =>
+          (given === undefined ? signPass(keys, spec.sessionId) : Effect.succeed(given)).pipe(
+            Effect.flatMap((pass) => connectT3Client(hostSocketUrl(port, pass))),
+          );
+        return yield* body({
+          spec,
+          handle,
+          keys,
+          port,
+          connectedClients,
+          prompt: sendMessage(spec, text, variant.modelSelection),
+          modelSelection: variant.modelSelection,
+          connect,
+          signPass: () => signPass(keys, spec.sessionId),
+        });
+      }).pipe(
+        Effect.scoped,
+        Effect.provide(
+          ThreadRuntime.layerForTests(
+            { stateDir },
+            { drivers: [replayClaudeDriver(transcript)], runtimeMode: 'full-access' },
           ),
         ),
-      TITLE_WITH_CLAUDE,
+      ),
     );
   }).pipe(Effect.scoped, Effect.runPromise);
 
