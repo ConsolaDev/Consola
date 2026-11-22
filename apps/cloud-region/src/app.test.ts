@@ -1047,6 +1047,23 @@ describe('teams', () => {
     );
   });
 
+  it('refuse an admin demoted since their token was minted, as soon as the outbox says so', async () => {
+    await acmeWithMembers();
+    expect((await ask(postTeam, '/api/teams', admin, { body: { name: 'Apps' } })).status).toBe(201);
+    const demoted = outboxMessage(5, {
+      type: 'member.role-changed',
+      personId: admin.personId,
+      role: 'member',
+    });
+    expect((await deliver(demoted)).status).toBe(200);
+    // The same token, still in date, still saying admin.
+    expect(await ask(postTeam, '/api/teams', admin, { body: { name: 'Design' } })).toEqual({
+      status: 403,
+      body: { error: 'not_allowed' },
+    });
+    expect((await teamsSeenBy(admin)).canManage).toBe(false);
+  });
+
   it("take only the workspace's members, and let them go", async () => {
     await acmeWithMembers();
     const platform = await makeTeam('Platform');
@@ -1087,7 +1104,13 @@ describe('teams', () => {
   it("of another workspace are none of the caller's: not found, never changed", async () => {
     await acmeWithMembers();
     const platform = await makeTeam('Platform');
-    expect((await deliver(created({ workspaceId: 'sprocket' }))).status).toBe(200);
+    // Sprocket, where Dana is an owner too.
+    for (const message of [
+      created({ workspaceId: 'sprocket' }),
+      outboxMessage(2, { type: 'member.added', ...owner }, { workspaceId: 'sprocket' }),
+    ]) {
+      expect((await deliver(message)).status).toBe(200);
+    }
     const stranger = { ...owner, workspaceId: 'sprocket' };
     const path = `/api/teams/${platform.id}`;
     const notFound = { status: 404, body: { error: 'team_not_found' } };

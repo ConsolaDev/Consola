@@ -49,13 +49,26 @@ describe('openapi.json', () => {
     expect(described.sort()).toEqual(ROUTES.map((r) => `${r.method} ${r.path}`).sort());
   });
 
-  it('describes every route the app serves', () => {
-    // Hono lists one entry per handler in a route's chain, and the token check as `ALL /*`.
-    const served = new Set(
-      app.routes
-        .filter((route) => route.method !== 'ALL')
-        .map(({ method, path }) => `${method.toLowerCase()} ${path.replace(/:([^/]+)/g, '{$1}')}`),
+  // Hono lists a route once per handler in its chain, so each is counted once.
+  const served = [...new Set(app.routes.map((route) => `${route.method} ${route.path}`))];
+
+  it('declares every route the app serves, but the ones outside the contract', () => {
+    const declared = ROUTES.map(
+      (route) => `${route.method.toUpperCase()} ${route.path.replaceAll(/\{(.+?)\}/g, ':$1')}`,
     );
-    expect([...served].sort()).toEqual(ROUTES.map((r) => `${r.method} ${r.path}`).sort());
+    expect(served.filter((route) => !OUTSIDE_THE_CONTRACT.includes(route)).sort()).toEqual(
+      declared.sort(),
+    );
+  });
+
+  it('lists no exception the app no longer serves', () => {
+    expect(OUTSIDE_THE_CONTRACT.filter((route) => !served.includes(route))).toEqual([]);
   });
 });
+
+/** What the app serves that is no route of the contract, each with why. */
+const OUTSIDE_THE_CONTRACT = [
+  // The token check in front of every route after the open ones (`requireCaller`): it answers
+  // nothing of its own but the token failures each of those routes declares.
+  'ALL /*',
+];

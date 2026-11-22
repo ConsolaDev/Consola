@@ -187,18 +187,27 @@ would put teams in `cloud-global`'s database. The rules are in
   character (`checkTeamName`, every problem at once as 400 `invalid_team`),
   and unique in the workspace whatever their case (`team_name_unique`, on
   `lower(name)`; 409 `name_taken`).
-- **Who may do what**, by the role in the caller's token
-  (`mayManageTeams`): owners and admins make, rename and delete teams and
-  choose their members, and see every team; a member sees only the teams they
-  are in, and is refused any change (403 `not_allowed`). The list says which
-  (`canManage`), so the web app shows controls by the answer, never by the
-  role.
-- **The order of the checks** is the same in every use case: the role, then
-  the name, then whether the cell holds the workspace yet (409
-  `workspace_pending` until `cloud-global` has delivered its
-  `workspace.created`; asking again later helps), then what the store finds.
-  A team id is looked up in the caller's workspace alone, so another
-  workspace's team is 404 `team_not_found`, never changed.
+- **Who may do what** (`mayManageTeams`): owners and admins make, rename and
+  delete teams and choose their members, and see every team; a member sees
+  only the teams they are in, and is refused any change (403 `not_allowed`).
+  The list says which (`canManage`), so the web app shows controls by the
+  answer, never by the role.
+- **The role a caller acts with** is the lesser of their token's and their
+  role in the cell's copy (`actingRole`), and none when the copy holds no such
+  member. A token lives five minutes, so without the copy someone demoted or
+  removed would keep managing teams until theirs ran out; the copy follows
+  `cloud-global` within the outbox's delivery, so they are refused from then
+  on. A promotion counts once both say so. Someone the copy does not hold sees
+  no team (they are in none) and may change nothing.
+- **The order of the checks** is the same in every change: the token's role
+  (a member is refused without anything being read), then the name, then
+  whether the cell holds the workspace yet (409 `workspace_pending` until
+  `cloud-global` has delivered its `workspace.created`; asking again later
+  helps), then the role in the copy, then what the store finds. The role is
+  read just before the write, not in its transaction: a demotion applied in
+  between is one write late, never more. A team id is looked up in the
+  caller's workspace alone, so another workspace's team is 404
+  `team_not_found`, never changed.
 - **Members** are added by their global id, `PUT
   /api/teams/{teamId}/members/{personId}`, and only if the cell's copy has
   them (409 `not_a_workspace_member`); adding someone already in the team, or

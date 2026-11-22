@@ -77,6 +77,19 @@ export function createTeamStore(db: Database): TeamStore {
       return row !== undefined;
     },
 
+    async roleInCopy(workspaceId, personId) {
+      const [row] = await db
+        .select({ role: workspaceMembers.role })
+        .from(workspaceMembers)
+        .where(
+          and(
+            eq(workspaceMembers.workspaceId, workspaceId),
+            eq(workspaceMembers.personId, personId),
+          ),
+        );
+      return row?.role ?? null;
+    },
+
     list(workspaceId) {
       return readTeams(db, workspaceId);
     },

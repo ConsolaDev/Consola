@@ -4,6 +4,7 @@ import { type Database, migrateDatabase, openDatabase } from '../adapters/persis
 import { createDrizzleStores } from '../adapters/persistence/stores.js';
 import { admitClaims, type Caller } from '../domain/caller.js';
 import { FIRST_TEAM_NAME, TEAM_NAME_MAX } from '../domain/team.js';
+import type { CopyChange } from '../domain/workspaceCopy.js';
 import type { TeamStore, WorkspaceCopies } from './ports.js';
 import {
   addTeamMember,
@@ -109,6 +110,12 @@ describe('listTeams', () => {
       after: null,
       change: { kind: 'open-workspace' },
     });
+    await workspaceCopies.applyAfter({
+      workspaceId: 'sprocket',
+      sequence: 2,
+      after: 1,
+      change: { kind: 'put-member', personId: 'person-dana', role: 'owner' },
+    });
     const answer = await listTeams(teams, caller('person-dana', 'owner', 'sprocket'));
     expect(answer.kind === 'listed' && answer.teams.map((team) => team.name)).toEqual([
       FIRST_TEAM_NAME,
@@ -162,6 +169,43 @@ describe('changing teams', () => {
     const listed = await listTeams(teams, dana());
     const first = listed.kind === 'listed' ? listed.teams[0] : undefined;
     expect(await deleteTeam(teams, dana(), first?.id ?? '')).toEqual({ kind: 'first-team' });
+  });
+
+  it('judge a token older than the copy by the lesser of the two roles', async () => {
+    await acme();
+    const made = await platform();
+    const apply = (sequence: number, change: CopyChange) =>
+      workspaceCopies.applyAfter({ workspaceId: 'acme', sequence, after: sequence - 1, change });
+    // Since their tokens were minted: Eli was made a member, and Dana left the workspace.
+    await apply(5, { kind: 'put-member', personId: 'person-eli', role: 'member' });
+    await apply(6, { kind: 'drop-member', personId: 'person-dana' });
+
+    for (const stale of [eli(), dana()]) {
+      expect(await createTeam(teams, stale, { name: 'Apps' })).toEqual({ kind: 'not-allowed' });
+      expect(await renameTeam(teams, stale, made.id, { name: 'Apps' })).toEqual({
+        kind: 'not-allowed',
+      });
+      expect(await deleteTeam(teams, stale, made.id)).toEqual({ kind: 'not-allowed' });
+      expect(await addTeamMember(teams, stale, made.id, 'person-fay')).toEqual({
+        kind: 'not-allowed',
+      });
+      expect(await removeTeamMember(teams, stale, made.id, 'person-fay')).toEqual({
+        kind: 'not-allowed',
+      });
+    }
+    // Eli sees what a member sees; Dana, in no team any more, sees none.
+    const seenByEli = await listTeams(teams, eli());
+    expect(seenByEli).toMatchObject({ kind: 'listed', canManage: false });
+    expect(seenByEli.kind === 'listed' && seenByEli.teams.map((team) => team.name)).toEqual([
+      FIRST_TEAM_NAME,
+    ]);
+    expect(await listTeams(teams, dana())).toEqual({ kind: 'listed', teams: [], canManage: false });
+
+    // A promotion counts once the copy has it too: Fay's new token alone is not enough.
+    const promoted = caller('person-fay', 'admin');
+    expect(await createTeam(teams, promoted, { name: 'Apps' })).toEqual({ kind: 'not-allowed' });
+    await apply(7, { kind: 'put-member', personId: 'person-fay', role: 'admin' });
+    expect(await createTeam(teams, promoted, { name: 'Apps' })).toMatchObject({ kind: 'created' });
   });
 
   it("adds only the workspace's members, and takes people out", async () => {
