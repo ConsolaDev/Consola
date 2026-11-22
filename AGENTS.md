@@ -56,7 +56,8 @@ All commands above run from the repository root. The pnpm workspace contains
 `packages/factory-spec` (`@consola/factory-spec`, MIT),
 `packages/automation-engine` (`@consola/automation-engine`),
 `packages/sandbox` (`@consola/sandbox`), `packages/cloud-contract`
-(`@consola/cloud-contract`), `packages/host` (`@consola/host`, AGPL),
+(`@consola/cloud-contract`), `packages/runner-protocol`
+(`@consola/runner-protocol`, MIT), `packages/host` (`@consola/host`, AGPL),
 `packages/agent-ui` (`@consola/agent-ui`, MIT) and the copied t3code packages
 under `vendor/t3code/` ("Vendored t3code", below). Turborepo orchestrates
 builds, tests, and typechecking; the root runs leave `vendor/` out. Paths below
@@ -1235,7 +1236,8 @@ Consola is AGPL-3.0-only (`LICENSE`), and every `package.json` says so. Three
 rules follow:
 
 - **Packages other people build against are MIT.** Plugin API types
-  (`@consola/plugin-types`), the `factory-spec` schema, integration manifest
+  (`@consola/plugin-types`), the `factory-spec` schema, the runner protocol
+  (`@consola/runner-protocol`), integration manifest
   formats: anything a third party compiles against gets its own MIT `LICENSE`
   and `"license": "MIT"`, so plugin and integration authors choose their own
   license. Such a package must not import from `apps/*` — that would pull
