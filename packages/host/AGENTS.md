@@ -139,7 +139,9 @@ handlers are host glue that calls the helpers `ws.ts` calls
   with `passCloseCode`: `4403` for a valid pass for another session, `4401`
   for every other refusal (missing, invalid, expired, not yet valid). The
   pass and its claims are never logged, and `PassRejected` carries the reason
-  only. Then, as t3, a client must speak orchestration protocol 2 (`426`
+  only. No tracer sees it either: the server makes no HTTP request span
+  (`HttpMiddleware.TracerDisabledWhen`), which would record the URL the pass
+  travels in, and the RPC server traces nothing (`disableTracing`). Then, as t3, a client must speak orchestration protocol 2 (`426`
   otherwise).
 - **What is served** is `SERVED_METHODS`, the one list, with why each is
   there: `orchestration.subscribeThread`, `orchestration.dispatchCommand` and

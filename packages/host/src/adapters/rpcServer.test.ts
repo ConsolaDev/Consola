@@ -16,6 +16,7 @@ import * as Effect from 'effect/Effect';
 import * as Exit from 'effect/Exit';
 import * as Queue from 'effect/Queue';
 import type * as Scope from 'effect/Scope';
+import * as Tracer from 'effect/Tracer';
 import * as Stream from 'effect/Stream';
 import { SignJWT } from 'jose';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vite-plus/test';
@@ -94,8 +95,9 @@ type Served = {
   /** The fixture's first message, as t3's chat sends it. */
   readonly prompt: OrchestrationV2Command;
   readonly modelSelection: ModelSelection;
-  /** A client of t3's, connected with a valid pass for the session. */
-  readonly connect: () => Effect.Effect<T3Client, ConnectError, Scope.Scope>;
+  /** A client of t3's, connected with a valid pass for the session (or `pass`). */
+  readonly connect: (pass?: string) => Effect.Effect<T3Client, ConnectError, Scope.Scope>;
+  readonly signPass: () => Effect.Effect<string>;
 };
 
 /**
@@ -106,6 +108,8 @@ type Served = {
 const withServedReplay = <A, E>(
   name: string,
   body: (served: Served) => Effect.Effect<A, E, Scope.Scope>,
+  /** A tracer for the server's own work: what it serves runs under it. */
+  tracer?: Tracer.Tracer,
 ) =>
   Effect.gen(function* () {
     const { variant, transcript, text, cwd } = yield* loadReplay(name);
@@ -115,15 +119,18 @@ const withServedReplay = <A, E>(
           const spec = sessionSpec(name, cwd, variant.modelSelection);
           const handle = yield* (yield* ThreadRuntime.ThreadRuntime).open(spec);
           const keys = makeKeys();
-          const { port } = yield* listenHost({
+          const listening = listenHost({
             port: 0,
             host: '127.0.0.1',
             sessionId: spec.sessionId,
             publicKeyPem: keys.publicKeyPem,
             runtime: handle,
           });
-          const connect = () =>
-            signPass(keys, spec.sessionId).pipe(
+          const { port } = yield* tracer === undefined
+            ? listening
+            : listening.pipe(Effect.withTracer(tracer));
+          const connect = (given?: string) =>
+            (given === undefined ? signPass(keys, spec.sessionId) : Effect.succeed(given)).pipe(
               Effect.flatMap((pass) => connectT3Client(hostSocketUrl(port, pass))),
             );
           return yield* body({
@@ -134,6 +141,7 @@ const withServedReplay = <A, E>(
             prompt: sendMessage(spec, text, variant.modelSelection),
             modelSelection: variant.modelSelection,
             connect,
+            signPass: () => signPass(keys, spec.sessionId),
           });
         }).pipe(
           Effect.scoped,
@@ -147,6 +155,30 @@ const withServedReplay = <A, E>(
       TITLE_WITH_CLAUDE,
     );
   }).pipe(Effect.scoped, Effect.runPromise);
+
+/** Every span a tracer was asked for, as t3's or Effect's native spans record them. */
+const recordingTracer = () => {
+  const spans: Tracer.NativeSpan[] = [];
+  const tracer = Tracer.make({
+    span(options) {
+      const span = new Tracer.NativeSpan(options);
+      spans.push(span);
+      return span;
+    },
+  });
+  return { tracer, spans };
+};
+
+/** The spans' names, attributes and events, as one text to search. */
+function describeSpans(spans: ReadonlyArray<Tracer.NativeSpan>): string {
+  return JSON.stringify(
+    spans.map((span) => ({
+      name: span.name,
+      attributes: [...(span._attributes ?? [])],
+      events: span._events ?? [],
+    })),
+  );
+}
 
 type StreamItem = OrchestrationV2ThreadStreamItem;
 type EventItem = Extract<StreamItem, { readonly kind: 'event' }>;
@@ -237,6 +269,33 @@ describe('serveHost', () => {
           yield* runTheTurn(handle, prompt);
         }),
       ),
+    REPLAY_TIMEOUT_MS,
+  );
+
+  it(
+    'hands the pass to no tracer: no span the server makes carries it',
+    () => {
+      const { tracer, spans } = recordingTracer();
+      return withServedReplay(
+        'simple',
+        ({ handle, prompt, connect, signPass }) =>
+          Effect.gen(function* () {
+            const pass = yield* signPass();
+            const { client } = yield* connect(pass);
+            yield* client[WS_METHODS.serverProbe]({});
+            yield* runTheTurn(handle, prompt);
+            // The tracer was the server's: it saw the server's own work, but no HTTP request
+            // span, which would record the request's URL, and the pass travels in it.
+            const names = spans.map((span) => span.name);
+            expect(names).toContain('host.app');
+            expect(names).not.toContain('GET');
+            const recorded = describeSpans(spans);
+            expect(recorded).not.toContain(pass);
+            expect(recorded).not.toContain('person-acme-1');
+          }),
+        tracer,
+      );
+    },
     REPLAY_TIMEOUT_MS,
   );
 

@@ -41,6 +41,7 @@ import * as Layer from 'effect/Layer';
 import * as Schema from 'effect/Schema';
 import type * as Scope from 'effect/Scope';
 import * as Stream from 'effect/Stream';
+import * as HttpMiddleware from 'effect/http/HttpMiddleware';
 import * as HttpServerRequest from 'effect/http/HttpServerRequest';
 import * as HttpServerResponse from 'effect/http/HttpServerResponse';
 import { RpcGroup, RpcSchema, RpcSerialization, RpcServer } from 'effect/rpc';
@@ -661,7 +662,10 @@ export const listenHost = (
       // connected client would hang. The server tracks its sockets itself (`upgradedWebSockets`).
       websocket: { clientTracking: false },
     }).pipe(Effect.mapError((cause) => new HostListenError({ cause })));
-    yield* server.serve(app(options));
+    // No request span: one would record the request's URL, and the pass travels in it.
+    yield* server
+      .serve(app(options))
+      .pipe(Effect.provideService(HttpMiddleware.TracerDisabledWhen, () => true));
     const address = server.address;
     return { port: address._tag === 'UnixPathAddress' ? options.port : address.port };
   });
