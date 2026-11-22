@@ -163,7 +163,7 @@ describe('who is signed in', () => {
       status: 200,
       body: {
         user: { id: login.user.id, name: 'Dana Ortiz', email: 'dana@sprocket.test', image: null },
-        organization: { id: organization.id, name: 'Sprocket', slug: 'sprocket' },
+        organization: { id: organization.id, name: 'Sprocket', slug: 'sprocket', region: 'eu' },
         role: 'owner',
       },
     });
@@ -227,6 +227,30 @@ describe('who is signed in', () => {
     });
     expect(response.status).toBe(403);
     expect(await db.select().from(schema.organization)).toHaveLength(1);
+  });
+
+  it("the owner cannot change the organisation's region", async () => {
+    const login = await signIn('dana@sprocket.test', 'Dana Ortiz');
+    expect((await get('/api/me', login.headers)).body.role).toBe('owner');
+    const update = (data: Record<string, unknown>) =>
+      app.request('/api/auth/organization/update', {
+        method: 'POST',
+        headers: fromBrowser(login.headers),
+        body: JSON.stringify({ organizationId: organization.id, data }),
+      });
+
+    // Better Auth drops the region from what it accepts, so this is an empty update, which it
+    // answers with a 500 whatever the field. Only what is stored matters here.
+    await update({ region: 'us' });
+    // With a name beside it, the route runs and takes the name: it is the region alone it drops.
+    const withName = await update({ name: 'Sprocket Labs', region: 'us' });
+    expect(withName.status).toBe(200);
+    expect(await withName.json()).toMatchObject({ name: 'Sprocket Labs', region: 'eu' });
+
+    expect(await db.select().from(schema.organization)).toEqual([
+      expect.objectContaining({ id: organization.id, name: 'Sprocket Labs', region: 'eu' }),
+    ]);
+    expect((await get('/api/me', login.headers)).body.organization.region).toBe('eu');
   });
 
   it('the owner cannot delete the organisation', async () => {

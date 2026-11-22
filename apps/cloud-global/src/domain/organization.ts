@@ -1,5 +1,7 @@
-/** The deployment's one organisation. */
-export type Organization = { id: string; name: string; slug: string };
+import type { Region } from './region.js';
+
+/** The deployment's one organisation, and the region it is in. */
+export type Organization = { id: string; name: string; slug: string; region: Region };
 
 /** A person's place in the organisation. */
 export type Membership = { role: string };

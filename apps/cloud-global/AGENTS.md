@@ -11,7 +11,8 @@ relative to `apps/cloud-global`.
 The service is built in rings, and imports point inward only.
 
 - `src/domain/` holds the rules and the types they speak of: who may join
-  (`mayJoin`), which role a new member gets (`roleForNewMember`), and
+  (`mayJoin`), which role a new member gets (`roleForNewMember`), the regions a
+  workspace can be in (`REGIONS`, `isRegion`, `DEPLOYMENT_REGION`), and
   `Organization`, `Membership` and `Person`. It is plain TypeScript, with no
   package, no `node:` builtin and no I/O.
 - `src/application/` holds the use cases (`ensureOrganization`,
@@ -81,6 +82,22 @@ new layer or folder is added there first.
 5. `compose.ts` builds the adapter and hands it its ports, and nothing else
    does. A new startup step goes there too, beside `prepareOrganization`.
 
+## Regions
+
+Every workspace (the `organization` row) has a `region`, one of `REGIONS`
+(`eu`, `us`). It is picked when the workspace is made and nothing changes it
+afterwards:
+
+- `OrganizationStore.ensure` writes it only when it makes the row, and reads
+  back only a listed region;
+- Better Auth's organisation plugin declares it with `input: false`, so none of
+  the plugin's own routes (`organization/update` among them) accepts it;
+- a new route or hook that writes `organization` must leave `region` alone, and
+  `src/app.test.ts` checks that the owner cannot move it.
+
+The deployment's one organisation is in `DEPLOYMENT_REGION` (`eu`), as is every
+organisation made before regions existed: migration `0001` fills them.
+
 ## Tests
 
 A test sits beside its module and is named after it (`membershipStore.ts`,
@@ -100,4 +117,9 @@ wiring that runs.
   run Biome, and check that `git diff` shows only the change you meant.
 - `drizzle/` holds the migrations, written by
   `pnpm --filter @consola/cloud-global db:generate` after the schema changes.
-  They apply when the API starts.
+  They apply when the API starts. For a required column on a table that has
+  rows, drizzle-kit writes `ADD COLUMN … NOT NULL`, which fails on those rows:
+  edit the generated SQL to add the column, fill it and then require it, as
+  `0001_organization_region.sql` does, and test it from a database migrated
+  only that far (`database.test.ts`, `migrateUpTo`). `db:generate` should then
+  report no schema changes.
