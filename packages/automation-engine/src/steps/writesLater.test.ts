@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  factoryFilesOf,
   isStepsEntry,
   parseAutomationEntry,
+  parseFactory,
   type AgentDefinition,
   type StepsAutomation,
 } from '@consola/factory-spec';
@@ -24,8 +26,17 @@ function stepsEntry(
 
 const RUN_OWNED = '  on: manual\n  checkout: { repo: sprocket/catalog-portal, branch: "fix/a" }\n';
 
-/** An agent as `parseFactory` keeps it, with the `tools:` a later task's format writes. */
-const agent = (tools: string) => ({ name: 'fixer', tools }) as unknown as AgentDefinition;
+/** An agent as `parseFactory` keeps it, with its `tools:` (and an environment, for a write agent). */
+const agent = (tools: string): AgentDefinition => {
+  const read = parseFactory(
+    factoryFilesOf({
+      'agents/fixer.md': `---\ntools: ${tools}\n${tools === 'read-only' ? '' : 'environment: sandboxed\n'}---\nFix it.\n`,
+      'environments/sandboxed.yaml': 'isolation: sandbox\n',
+    }),
+  );
+  if (!read.agents.fixer) throw new Error(JSON.stringify(read.issues));
+  return read.agents.fixer;
+};
 
 describe('writesNotYet', () => {
   it('refuses a run-owned checkout until it runs', () =>

@@ -641,7 +641,8 @@ describe('saving while the folder does not apply', () => {
     const saved = await h.service.saveEntry(WORKSPACE_ID, NOTES, { replace: false });
     expect(saved.notApplied).toEqual({
       issues: [
-        'agents/reviewer.md:4: Write tools arrive with write steps; an agent is read-only until then',
+        // `tools: write` with no environment (slice 3-B).
+        'agents/reviewer.md:4: A write agent must name its environment (invariant 9); add `environment: <name>`',
         'automations/catalog-review.yaml:6: `reviewer` has problems of its own in agents/reviewer.md; this step runs once they are fixed',
       ],
       since: '08:00',

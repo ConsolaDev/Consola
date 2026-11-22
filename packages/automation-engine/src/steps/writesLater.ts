@@ -31,8 +31,7 @@ export function writesNotYet(
   if (isRunOwnedCheckout(automation.checkout)) return notYet('checkout: { repo, branch }');
   for (const step of leafSteps(automation.steps)) {
     if (step.kind !== 'agent' || step.agent === undefined) continue;
-    // Read as text: the format's `tools:` grows `edit` and `write` with write agents.
-    const tools: string = agents[step.agent]?.tools ?? 'read-only';
+    const tools = agents[step.agent]?.tools ?? 'read-only';
     if (tools !== 'read-only') return notYet(`tools: ${tools}`);
   }
   return null;

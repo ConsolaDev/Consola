@@ -239,7 +239,8 @@ automations:
         {
           file: 'agents/summariser.md',
           path: 'tools',
-          message: expect.stringMatching(/^Write tools/),
+          // `tools: write` with no environment (slice 3-B; before it, write tools were refused outright).
+          message: expect.stringMatching(/^A write agent must name its environment/),
         },
         {
           file: 'automations/investigate-alerts.yaml',
@@ -873,5 +874,143 @@ describe('environments/ (slice 3-B)', () => {
       'environments/x.yml': 'isolation: host\n',
     });
     expect(read.environments).toEqual({ sandboxed: 'isolation: sandbox\n' });
+  });
+});
+
+describe('write agents across the folder (slice 3-B)', () => {
+  const WRITE_AGENT =
+    '---\nharness: claude-work\ntools: write\nenvironment: sandboxed\n---\nFix it.\n';
+  const OWNED = (steps: string) =>
+    `version: 1\nrepos: [sprocket/catalog-portal]\nautomations:\n  - name: fix\n    on: manual\n    checkout: { repo: sprocket/catalog-portal, branch: "consola/run-{{run.id}}" }\n    steps:\n${steps}`;
+  const FIX_STEP = '      - id: fix\n        agent: fixer\n        prompt: Fix.\n';
+
+  it('an environment that is not there keeps the agent out, at its environment line', () => {
+    const parsed = parseFactory(files({ agents: { fixer: WRITE_AGENT } }));
+    expect(parsed.agents.fixer).toBeUndefined();
+    expect(parsed.issues).toEqual([
+      {
+        message: '`sandboxed` is not an environment here: there is no environments/sandboxed.yaml.',
+        file: 'agents/fixer.md',
+        path: 'environment',
+        line: 4,
+      },
+    ]);
+  });
+
+  it('one with problems of its own keeps the agent out too, naming its file', () => {
+    const parsed = parseFactory(
+      files({ agents: { fixer: WRITE_AGENT }, environments: { sandboxed: 'isolation: vm\n' } }),
+    );
+    expect(parsed.agents.fixer).toBeUndefined();
+    expect(parsed.issues).toContainEqual({
+      message:
+        '`sandboxed` has problems of its own in environments/sandboxed.yaml; this agent applies once they are fixed.',
+      file: 'agents/fixer.md',
+      path: 'environment',
+      line: 4,
+      cause: 'environments/sandboxed.yaml',
+    });
+  });
+
+  it('keeps a write agent whose environment is valid', () => {
+    const parsed = parseFactory(
+      files({
+        agents: { fixer: WRITE_AGENT },
+        environments: { sandboxed: 'isolation: sandbox\n' },
+      }),
+    );
+    expect(parsed.issues).toEqual([]);
+    expect(parsed.agents.fixer).toMatchObject({ tools: 'write', environment: 'sandboxed' });
+  });
+
+  it('a write agent needs a run-owned checkout, at its step', () => {
+    const parsed = parseFactory(
+      files({
+        agents: { fixer: WRITE_AGENT },
+        environments: { sandboxed: 'isolation: sandbox\n' },
+        factoryYml:
+          'version: 1\nautomations:\n  - name: fix\n    on: manual\n    scope: app\n    steps:\n      - agent: fixer\n        prompt: Fix.\n',
+      }),
+    );
+    expect(names(parsed)).toEqual([]);
+    expect(parsed.issues).toEqual([
+      {
+        message:
+          'A write agent changes code only on a branch the run cuts from one of `repos:` (invariant 9). Add `checkout: { repo: …, branch: … }`.',
+        file: 'factory.yml',
+        path: 'automations[0].steps[0].agent',
+        line: 7,
+        automation: 'fix',
+      },
+    ]);
+  });
+
+  it("an item checkout is not one the run owns: a loop's write agent is refused there too", () => {
+    const parsed = parseFactory(
+      files({
+        agents: { fixer: WRITE_AGENT.replace('tools: write', 'tools: edit') },
+        environments: { sandboxed: 'isolation: sandbox\n' },
+        factoryYml:
+          'version: 1\nautomations:\n  - name: fix\n    on: { github: pull_request.opened }\n    checkout: { pr: item }\n    steps:\n      - id: polish\n        repeat: { max: 2, until: steps.fix.done }\n        steps:\n          - id: fix\n            agent: fixer\n            prompt: Fix.\n            outputs: { done: boolean }\n',
+      }),
+    );
+    expect(names(parsed)).toEqual([]);
+    expect(parsed.issues).toEqual([
+      expect.objectContaining({
+        message: expect.stringContaining('A write agent changes code only on a branch'),
+        path: 'automations[0].steps[0].steps[0].agent',
+      }),
+    ]);
+  });
+
+  it('a write agent on host never retries by itself; one in a sandbox, or an edit agent on host, may', () => {
+    const entry = (env: string, tools = 'write') =>
+      parseFactory(
+        files({
+          agents: {
+            fixer: WRITE_AGENT.replace('sandboxed', env).replace('tools: write', `tools: ${tools}`),
+          },
+          environments: { [env]: env === 'mine' ? 'isolation: host\n' : 'isolation: sandbox\n' },
+          factoryYml: OWNED(`${FIX_STEP}        on_failure: { retry: 1 }\n`),
+        }),
+      );
+    const host = entry('mine');
+    expect(names(host)).toEqual([]);
+    expect(host.issues).toEqual([
+      {
+        message:
+          "`fix`'s agent writes and runs commands on `host`, so it never retries by itself; a person retries it from the run page.",
+        file: 'factory.yml',
+        path: 'automations[0].steps[0].on_failure',
+        line: 11,
+        automation: 'fix',
+      },
+    ]);
+    expect(entry('sandboxed').issues).toEqual([]);
+    expect(names(entry('sandboxed'))).toEqual(['fix']);
+    expect(entry('mine', 'edit').issues).toEqual([]);
+    // A retry of 0 is no retry.
+    expect(
+      parseFactory(
+        files({
+          agents: { fixer: WRITE_AGENT.replace('sandboxed', 'mine') },
+          environments: { mine: 'isolation: host\n' },
+          factoryYml: OWNED(`${FIX_STEP}        on_failure: { retry: 0 }\n`),
+        }),
+      ).issues,
+    ).toEqual([]);
+  });
+
+  it('a read-only agent in a run-owned entry is kept as before', () => {
+    const parsed = parseFactory(
+      files({
+        agents: { reader: '---\nharness: claude-work\n---\nRead it.\n' },
+        factoryYml: OWNED(
+          '      - id: look\n        agent: reader\n        on_failure: { retry: 2 }\n',
+        ),
+      }),
+    );
+    expect(parsed.issues).toEqual([]);
+    expect(names(parsed)).toEqual(['fix']);
   });
 });

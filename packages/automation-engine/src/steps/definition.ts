@@ -1,4 +1,10 @@
-import type { AgentDefinition, Step, StepRun, StepsAutomation } from '@consola/factory-spec';
+import type {
+  AgentDefinition,
+  EnvironmentDefinition,
+  Step,
+  StepRun,
+  StepsAutomation,
+} from '@consola/factory-spec';
 import type { CheckoutKind } from '../ports';
 
 /**
@@ -28,10 +34,49 @@ export interface AgentRequirements {
    */
   mcpServers: Array<{ name: string; tools?: string[]; knownTools?: string[] }>;
   skills: string[];
+  /** A write agent's `tools:` (slice 3-B); absent, the agent is read-only. */
+  tools?: 'edit' | 'write';
+  /** A write agent's environment, as the version covers it; absent on a read-only agent. */
+  environment?: RunEnvironment;
 }
 
-/** An agent file's requirements: its `harness:` as `harnessId`, the rest as written, each absent key absent. */
-export function agentRequirements(agent: AgentDefinition): AgentRequirements {
+/** `environments/<name>.yaml` as a run's definition keeps it: what a write agent's launch holds it to. */
+export interface RunEnvironment {
+  name: string;
+  isolation: 'host' | 'sandbox';
+  network: string[];
+  env: string[];
+  /** `environmentHash`: what the entry's version covers of it. */
+  hash: string;
+}
+
+/** An environment as a run's definition keeps it, each list its own copy. */
+export function runEnvironment(environment: EnvironmentDefinition): RunEnvironment {
+  return {
+    name: environment.name,
+    isolation: environment.isolation,
+    network: [...environment.network],
+    env: [...environment.env],
+    hash: environment.hash,
+  };
+}
+
+/**
+ * An agent file's requirements: its `harness:` as `harnessId`, the rest as
+ * written, each absent key absent. A write agent also carries its `tools`
+ * and the environment it names, from `environments` (slice 3-B); a
+ * read-only agent's requirements are what they were before write agents.
+ */
+export function agentRequirements(
+  agent: AgentDefinition,
+  environments?: Readonly<Record<string, EnvironmentDefinition>>,
+): AgentRequirements {
+  const environment =
+    agent.environment !== undefined &&
+    environments !== undefined &&
+    Object.prototype.hasOwnProperty.call(environments, agent.environment)
+      ? environments[agent.environment]
+      : undefined;
   return {
     name: agent.name,
     hash: agent.hash,
@@ -45,6 +90,10 @@ export function agentRequirements(agent: AgentDefinition): AgentRequirements {
       ...(server.tools !== undefined ? { tools: [...server.tools] } : {}),
     })),
     skills: [...agent.skills],
+    ...(agent.tools !== 'read-only' ? { tools: agent.tools } : {}),
+    ...(agent.tools !== 'read-only' && environment
+      ? { environment: runEnvironment(environment) }
+      : {}),
   };
 }
 

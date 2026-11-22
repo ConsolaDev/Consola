@@ -5,6 +5,7 @@ import {
   stepsResolvedBody,
   type AgentDefinition,
   type Automation,
+  type EnvironmentDefinition,
   type FactoryFiles,
   type FactoryNotice,
   type FactoryParseResult,
@@ -33,27 +34,61 @@ function agentNamesOf(automation: Automation): string[] {
 }
 
 /**
+ * By name, the hash of each environment an entry's agents name (slice 3-B):
+ * what its version covers of `environments/`, beside the agents' hashes. An
+ * agent or environment the maps lack adds nothing.
+ */
+export function entryEnvironmentHashes(
+  automation: Automation,
+  agents: Readonly<Record<string, AgentDefinition>>,
+  environments: Readonly<Record<string, EnvironmentDefinition>> = {},
+): Record<string, string> {
+  const hashes: Record<string, string> = {};
+  for (const name of agentNamesOf(automation)) {
+    const environment = own(agents, name) ? agents[name].environment : undefined;
+    if (environment !== undefined && own(environments, environment))
+      hashes[environment] = environments[environment].hash;
+  }
+  return hashes;
+}
+
+/**
  * The version as the files alone decide it: what "changed" compares between
  * the latest read and the applied version. Action bodies, which live in
  * settings, are left out, so a settings edit is never a changed file; a
  * schedule-only edit is no change either, as `automationVersion` decides.
+ * The environments its agents name are in it as they are in the resolved
+ * version (slice 3-B), so an environment edit is a changed file.
  */
 export function fileVersion(
   automation: Automation,
   agents: Readonly<Record<string, AgentDefinition>>,
+  environments?: Readonly<Record<string, EnvironmentDefinition>>,
 ): string {
   const hashes: Record<string, string> = {};
   for (const name of agentNamesOf(automation))
     if (own(agents, name)) hashes[name] = agents[name].hash;
-  return automationVersion(automation, stepsResolvedBody({}, hashes));
+  return automationVersion(
+    automation,
+    stepsResolvedBody({}, hashes, entryEnvironmentHashes(automation, agents, environments)),
+  );
 }
 
 /**
  * What the engine asks the host of an agent: its harness (absent, the
  * default), its model, its servers and skills, and the kind of checkout its
- * entry's runs work in, which decides what a server may start.
+ * entry's runs work in, which decides what a server may start. A write agent
+ * also says its tools and its environment, from `environments` (slice 3-B).
  */
-export function agentQuery(agent: AgentDefinition, checkout: CheckoutKind): AgentHarnessQuery {
+export function agentQuery(
+  agent: AgentDefinition,
+  checkout: CheckoutKind,
+  environments?: Readonly<Record<string, EnvironmentDefinition>>,
+): AgentHarnessQuery {
+  const environment =
+    agent.environment !== undefined && environments && own(environments, agent.environment)
+      ? environments[agent.environment]
+      : undefined;
   return {
     ...(agent.harness !== undefined ? { harnessId: agent.harness } : {}),
     ...(agent.model !== undefined ? { model: agent.model } : {}),
@@ -63,6 +98,17 @@ export function agentQuery(agent: AgentDefinition, checkout: CheckoutKind): Agen
     })),
     skills: [...agent.skills],
     checkout,
+    ...(agent.tools !== 'read-only' ? { tools: agent.tools } : {}),
+    ...(agent.tools !== 'read-only' && environment
+      ? {
+          environment: {
+            name: environment.name,
+            isolation: environment.isolation,
+            network: [...environment.network],
+            env: [...environment.env],
+          },
+        }
+      : {}),
   };
 }
 
@@ -225,9 +271,16 @@ export function decideApply(input: {
   }
   const appliedVersions = new Map<string, string>();
   for (const automation of applied.parse.automations)
-    appliedVersions.set(automation.name, fileVersion(automation, applied.parse.agents));
+    appliedVersions.set(
+      automation.name,
+      fileVersion(automation, applied.parse.agents, applied.parse.environments),
+    );
   for (const automation of read.automations) {
-    if (appliedVersions.get(automation.name) === fileVersion(automation, read.agents)) continue;
+    if (
+      appliedVersions.get(automation.name) ===
+      fileVersion(automation, read.agents, read.environments)
+    )
+      continue;
     ask(automation);
   }
   if (blocking.length === 0 && waiting.length === 0) return { kind: 'applies' };
@@ -243,8 +296,8 @@ export function decideApply(input: {
  * The texts a version persists: every text read (environment files
  * included, slice 3-B), or, given `only` (the entries a first start
  * applied), the texts those entries use: `factory.yml` whole when one of
- * them lives there, each one's own automation file, and every agent file
- * they name.
+ * them lives there, each one's own automation file, every agent file they
+ * name and the environment file each of those agents names.
  */
 export function appliedTexts(
   files: FactoryFiles,
@@ -273,6 +326,9 @@ export function appliedTexts(
     for (const agent of agentNamesOf(automation)) {
       if (own(read.agents, agent) && own(files.agents, agent))
         texts[`agents/${agent}.md`] = files.agents[agent];
+      const environment = own(read.agents, agent) ? read.agents[agent].environment : undefined;
+      if (environment !== undefined && own(files.environments ?? {}, environment))
+        texts[`environments/${environment}.yaml`] = files.environments![environment];
     }
   }
   return texts;

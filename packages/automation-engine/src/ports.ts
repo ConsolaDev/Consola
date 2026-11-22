@@ -228,6 +228,15 @@ export interface AgentHarnessQuery {
   skills: readonly string[];
   /** Whose checkout its entry's runs work in: what its servers are checked for (an item's runs start them in the author's). */
   checkout: CheckoutKind;
+  /** A write agent's `tools:` (slice 3-B); absent, read-only. */
+  tools?: 'edit' | 'write';
+  /** A write agent's environment, as its file says it; absent on a read-only agent. */
+  environment?: {
+    name: string;
+    isolation: 'host' | 'sandbox';
+    network: readonly string[];
+    env: readonly string[];
+  };
 }
 
 /** The host's answer of a harness: the workspace's default, or the one an agent names. */

@@ -764,8 +764,66 @@ describe('agentRequirements', () => {
     const parsed = parseAgentFile('summariser', 'You summarise.\n');
     if (!parsed.agent) throw new Error(parsed.issues.map((issue) => issue.message).join('; '));
     const requirements = agentRequirements({ ...parsed.agent, hash: 'd'.repeat(64) });
-    for (const key of ['description', 'harnessId', 'model', 'maxTurns'])
+    for (const key of ['description', 'harnessId', 'model', 'maxTurns', 'tools', 'environment'])
       expect(Object.prototype.hasOwnProperty.call(requirements, key)).toBe(false);
+  });
+
+  it('a read-only agent gains nothing from the environments it is given (slice 3-B)', () => {
+    const parsed = parseAgentFile(
+      'investigator',
+      '---\nharness: claude-work\n---\nYou investigate.\n',
+    );
+    if (!parsed.agent) throw new Error(parsed.issues.map((issue) => issue.message).join('; '));
+    const agent = { ...parsed.agent, hash: 'c'.repeat(64) };
+    const environments = parseFactory(
+      factoryFilesOf({ 'environments/sandboxed.yaml': 'isolation: sandbox\n' }),
+    ).environments;
+    expect(agentRequirements(agent, environments)).toEqual(agentRequirements(agent));
+  });
+
+  it('a write agent carries its tools and its environment, with its hash (slice 3-B)', () => {
+    const read = parseFactory(
+      factoryFilesOf({
+        'agents/fixer.md':
+          '---\nharness: claude-work\ntools: write\nenvironment: sandboxed\n---\nFix it.\n',
+        'environments/sandboxed.yaml':
+          'isolation: sandbox\nnetwork: [registry.npmjs.org]\nenv: [CI]\ndescription: npm only\n',
+      }),
+    );
+    expect(read.issues).toEqual([]);
+    const requirements = agentRequirements(read.agents.fixer, read.environments);
+    expect(requirements).toMatchObject({
+      name: 'fixer',
+      harnessId: 'claude-work',
+      tools: 'write',
+      environment: {
+        name: 'sandboxed',
+        isolation: 'sandbox',
+        network: ['registry.npmjs.org'],
+        env: ['CI'],
+        hash: read.environments.sandboxed.hash,
+      },
+    });
+    // What a run's definition keeps: no description, and lists of its own.
+    expect(Object.keys(requirements.environment!).sort()).toEqual([
+      'env',
+      'hash',
+      'isolation',
+      'name',
+      'network',
+    ]);
+    expect(requirements.environment!.network).not.toBe(read.environments.sandboxed.network);
+    const edit = parseFactory(
+      factoryFilesOf({
+        'agents/fixer.md':
+          '---\nharness: claude-work\ntools: edit\nenvironment: mine\n---\nFix it.\n',
+        'environments/mine.yaml': 'isolation: host\n',
+      }),
+    );
+    expect(agentRequirements(edit.agents.fixer, edit.environments)).toMatchObject({
+      tools: 'edit',
+      environment: { name: 'mine', isolation: 'host', network: [], env: [] },
+    });
   });
 });
 

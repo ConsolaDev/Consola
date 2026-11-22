@@ -187,7 +187,7 @@ export function parseFactory(files: FactoryFiles): FactoryParseResult {
   }
   const skillIsThere = (name: string) => own(files.skills, name) || unreadUnder(`skills/${name}/`);
 
-  // Environments (slice 3-B): the valid ones are kept; an agent names one from Task 6 on.
+  // Environments (slice 3-B): the valid ones are kept, for the write agents that name them.
   const environments: Record<string, EnvironmentDefinition> = {};
   for (const name of sortedKeys(files.environments ?? {})) {
     const file = `environments/${name}.yaml`;
@@ -229,6 +229,21 @@ export function parseFactory(files: FactoryFiles): FactoryParseResult {
       });
     }
     if (missing.length > 0) continue;
+    // A write agent's environment must be a valid one, or the agent is not kept (slice 3-B).
+    if (agent.environment !== undefined && !own(environments, agent.environment)) {
+      const env = agent.environment;
+      const there = own(files.environments ?? {}, env) || coveredBy(`environments/${env}.yaml`);
+      issues.push({
+        message: there
+          ? `\`${env}\` has problems of its own in environments/${env}.yaml; this agent applies once they are fixed.`
+          : `\`${env}\` is not an environment here: there is no environments/${env}.yaml.`,
+        file,
+        path: 'environment',
+        ...(agent.lines.environment !== undefined ? { line: agent.lines.environment } : {}),
+        ...(there ? { cause: `environments/${env}.yaml` } : {}),
+      });
+      continue;
+    }
     const skillHashes: Record<string, string> = {};
     for (const skill of agent.skills) skillHashes[skill] = skills[skill].hash;
     agents[name] = { ...agent, hash: agentHash(agent, skillHashes) };
@@ -347,7 +362,31 @@ export function parseFactory(files: FactoryFiles): FactoryParseResult {
     return kept;
   });
 
-  // Only what cannot have acted retries by itself (slice 3, Call 8): an agent naming a server may have posted.
+  // A write agent changes code only on a branch its run cuts (invariant 9): its entry owns its checkout (slice 3-B).
+  candidates = candidates.filter((candidate) => {
+    const { automation } = candidate;
+    if (!isStepsEntry(automation) || isRunOwnedCheckout(automation.checkout)) return true;
+    let kept = true;
+    flatSteps(automation.steps).forEach(({ step, path: at }) => {
+      if (step.kind !== 'agent' || step.agent === undefined) return;
+      if (agents[step.agent].tools === 'read-only') return;
+      kept = false;
+      const path = candidate.pathTo(['steps', ...at, 'agent']);
+      const line = candidate.lineAt(path);
+      issues.push({
+        message:
+          'A write agent changes code only on a branch the run cuts from one of `repos:` (invariant 9). Add `checkout: { repo: …, branch: … }`.',
+        file: candidate.file,
+        path: formatPath(path),
+        ...(line !== undefined ? { line } : {}),
+        automation: automation.name,
+      });
+    });
+    return kept;
+  });
+
+  // Only what cannot have acted retries by itself (slice 3, Call 8): an agent naming a server may have posted,
+  // and a write agent on `host` may have done anything the person can (slice 3-B).
   candidates = candidates.filter((candidate) => {
     const { automation } = candidate;
     if (!isStepsEntry(automation)) return true;
@@ -355,12 +394,20 @@ export function parseFactory(files: FactoryFiles): FactoryParseResult {
     flatSteps(automation.steps).forEach(({ step, path: at }) => {
       if (step.kind !== 'agent' || step.agent === undefined || (step.onFailure?.retry ?? 0) === 0)
         return;
-      if (agents[step.agent].mcpServers.length === 0) return;
+      const agent = agents[step.agent];
+      const onHost =
+        agent.tools === 'write' &&
+        agent.environment !== undefined &&
+        environments[agent.environment].isolation === 'host';
+      if (agent.mcpServers.length === 0 && !onHost) return;
       kept = false;
       const path = candidate.pathTo(['steps', ...at, 'on_failure']);
       const line = candidate.lineAt(path);
       issues.push({
-        message: `\`${step.id}\`'s agent names an MCP server, which may post or change things, so it never retries by itself; a person retries it from the run page.`,
+        message:
+          agent.mcpServers.length > 0
+            ? `\`${step.id}\`'s agent names an MCP server, which may post or change things, so it never retries by itself; a person retries it from the run page.`
+            : `\`${step.id}\`'s agent writes and runs commands on \`host\`, so it never retries by itself; a person retries it from the run page.`,
         file: candidate.file,
         path: formatPath(path),
         ...(line !== undefined ? { line } : {}),

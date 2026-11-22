@@ -126,7 +126,9 @@ const BROKEN_REVIEWER_BANNER = new RegExp(
   `^Your changes didn't apply: 1 problem in agents/reviewer\\.md\\. The version from ${AT} keeps running\\.$`,
 );
 
-const WRITE_TOOLS = 'Write tools arrive with write steps; an agent is read-only until then.';
+/** What `tools: write` with no `environment:` is told (slice 3-B). */
+const WRITE_TOOLS =
+  'A write agent must name its environment (invariant 9); add `environment: <name>`.';
 /** What the reviewer naming `notion` is told when Personal stub's CLI lists only `grafana`. */
 const UNKNOWN_NOTION =
   "`notion` isn't one of Personal stub's MCP servers (it has: grafana). Add it with `claude mcp add --scope user`, or fix the name.";

@@ -37,6 +37,7 @@ import {
   type RunStatus,
   type RunTrigger,
   type SkillDefinition,
+  type EnvironmentDefinition,
   type Step,
   type StepEntry,
   type StepRun,
@@ -79,6 +80,7 @@ import { describeSchedule } from './describeSchedule';
 import {
   agentIssues,
   agentQuery,
+  entryEnvironmentHashes,
   appliedSkills,
   appliedTexts,
   decideApply,
@@ -1211,6 +1213,7 @@ export class AutomationService {
       automation,
       factory.read.parse.agents,
       factory.read.parse.skills,
+      factory.read.parse.environments,
     );
     // A CLI that could not be asked is no fault of the entry: it is saved, and shows that problem.
     if (resolved.problem && !resolved.unasked) throw notSaved([resolved.problem]);
@@ -5000,7 +5003,7 @@ export class AutomationService {
     if (!factory.storeRead) return;
     const { read, applied } = factory;
     const ask = (agent: AgentDefinition, checkout: CheckoutKind) =>
-      this.deps.agentHarness(workspaceId, agentQuery(agent, checkout));
+      this.deps.agentHarness(workspaceId, agentQuery(agent, checkout, read.parse.environments));
     // Each changed entry's agents asked once, for both what blocks it and what it waits for.
     const asked = new Map<Automation, ReturnType<typeof agentIssues>>();
     const issuesOf = (automation: Automation) => {
@@ -5021,7 +5024,14 @@ export class AutomationService {
       factory.standing = { decision, appliedAt: applied.record.appliedAt };
       const removed = new Set(decision.removed);
       const running = applied.parse.automations.filter((entry) => !removed.has(entry.name));
-      this.resolveAll(workspaceId, factory, running, applied.parse.agents, applied.parse.skills);
+      this.resolveAll(
+        workspaceId,
+        factory,
+        running,
+        applied.parse.agents,
+        applied.parse.skills,
+        applied.parse.environments,
+      );
       return;
     }
     factory.standing = undefined;
@@ -5040,6 +5050,7 @@ export class AutomationService {
       read.parse.automations,
       read.parse.agents,
       read.parse.skills,
+      read.parse.environments,
     );
   }
 
@@ -5099,16 +5110,17 @@ export class AutomationService {
     }
   }
 
-  /** Resolve what runs, each entry against the agents and skills of the version it comes from; their warnings once each. */
+  /** Resolve what runs, each entry against the agents, skills and environments of the version it comes from; their warnings once each. */
   private resolveAll(
     workspaceId: string,
     factory: WorkspaceFactory,
     automations: readonly Automation[],
     agents: Readonly<Record<string, AgentDefinition>>,
     skills: Readonly<Record<string, SkillDefinition>>,
+    environments: Readonly<Record<string, EnvironmentDefinition>>,
   ): void {
     factory.resolved = automations.map((automation) =>
-      this.resolve(workspaceId, automation, agents, skills),
+      this.resolve(workspaceId, automation, agents, skills, environments),
     );
     const warnings = new Map<string, FactoryNotice>();
     for (const entry of factory.resolved)
@@ -5187,6 +5199,8 @@ export class AutomationService {
     automation: Automation,
     agents: Readonly<Record<string, AgentDefinition>>,
     skills: Readonly<Record<string, SkillDefinition>>,
+    // Absent in a persisted parse from before environments (slice 3-B): none.
+    environments: Readonly<Record<string, EnvironmentDefinition>> = {},
   ): Resolved {
     const workspace = this.deps.getWorkspaces().find((candidate) => candidate.id === workspaceId);
     const base = automationVersion(automation);
@@ -5283,7 +5297,15 @@ export class AutomationService {
 
     // The checks above are a steps entry's too; the rest are its own.
     if (isStepsEntry(automation))
-      return this.resolveSteps(workspaceId, automation, agents, skills, source, event);
+      return this.resolveSteps(
+        workspaceId,
+        automation,
+        agents,
+        skills,
+        environments,
+        source,
+        event,
+      );
     const { run } = automation;
 
     if (run.kind === 'tool') {
@@ -5359,6 +5381,7 @@ export class AutomationService {
     automation: StepsAutomation,
     agents: Readonly<Record<string, AgentDefinition>>,
     skills: Readonly<Record<string, SkillDefinition>>,
+    environments: Readonly<Record<string, EnvironmentDefinition>>,
     source: ItemSource | undefined,
     event: EventSource | undefined,
   ): Resolved {
@@ -5406,7 +5429,15 @@ export class AutomationService {
             );
           stepSkills[skill] = skills[skill];
         }
-        stepAgents[step.id] = agentRequirements(agent);
+        // Nor any write agent whose environment is not valid (slice 3-B): its launch is held to it.
+        if (
+          agent.environment !== undefined &&
+          !Object.prototype.hasOwnProperty.call(environments, agent.environment)
+        )
+          return unable(
+            `agents/${agent.name}.md names the environment \`${agent.environment}\`, and environments/${agent.environment}.yaml is not in this factory`,
+          );
+        stepAgents[step.id] = agentRequirements(agent, environments);
         agentHashes[agent.name] = agent.hash;
       }
       if (step.action === undefined) continue;
@@ -5447,7 +5478,7 @@ export class AutomationService {
     // answer's `knownTools` go into the definition, for the approval card (review S1).
     const answers = new Map<string, AgentHarnessAnswer>();
     const { problems, stops, warnings } = agentIssues(automation, agents, (agent, checkout) => {
-      const answer = this.deps.agentHarness(workspaceId, agentQuery(agent, checkout));
+      const answer = this.deps.agentHarness(workspaceId, agentQuery(agent, checkout, environments));
       answers.set(agent.name, answer);
       return answer;
     });
@@ -5467,7 +5498,15 @@ export class AutomationService {
     const bodies = Object.fromEntries(
       Object.entries(actions).map(([id, action]) => [id, action.body]),
     );
-    const version = automationVersion(automation, stepsResolvedBody(bodies, agentHashes));
+    // So does editing an environment one of its agents names (slice 3-B), as `fileVersion` counts it.
+    const version = automationVersion(
+      automation,
+      stepsResolvedBody(
+        bodies,
+        agentHashes,
+        entryEnvironmentHashes(automation, agents, environments),
+      ),
+    );
     const firstAgent = steps.find((step): step is AgentStep => step.kind === 'agent');
     return {
       workspaceId,
