@@ -177,6 +177,8 @@ function read(
       if (!quiet)
         patch(key, { loading: false, error: ipcErrorMessage(error), errorAt: Date.now() });
     }
+    // Taken before anything after it can change the entry: pruning may drop it.
+    const answer = entryOf(key);
     const next = nextReads.get(key);
     if (next) {
       nextReads.delete(key);
@@ -186,7 +188,7 @@ function read(
       prune();
       follow(key);
     }
-    return entryOf(key);
+    return answer;
   })();
   inFlight.set(key, { promise, loudForced: force && !quiet });
   return promise;
@@ -247,7 +249,8 @@ function check(key: string, options?: LoadOptions): void {
 
 /**
  * What a watched item does next, planned when watching starts and after
- * every read of it; while a read runs, its end plans instead. The item is
+ * every read of it; while a read runs, its end plans instead, so nothing
+ * planned before it is left to fire meanwhile. The item is
  * checked once its entry goes stale, timed from the read rather than from a
  * fixed interval, which would find the entry a read's latency short of stale
  * and wait out a second interval. And while GitHub is still working
@@ -256,9 +259,10 @@ function check(key: string, options?: LoadOptions): void {
  */
 function follow(key: string): void {
   const watch = watches.get(key);
-  if (!watch || inFlight.has(key)) return;
+  if (!watch) return;
   clearTimeout(watch.recheck);
   clearTimeout(watch.poll);
+  if (inFlight.has(key)) return;
   const entry = useWorkItemDetailsStore.getState().entries[key];
   const age = Date.now() - (entry?.fetchedAt ?? 0);
   const untilStale = age < DETAILS_REFRESH_MS ? DETAILS_REFRESH_MS - age : DETAILS_REFRESH_MS;

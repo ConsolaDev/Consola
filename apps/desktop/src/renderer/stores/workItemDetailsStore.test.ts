@@ -222,6 +222,25 @@ describe('workItemDetailsStore', () => {
     expect(getDetails).toHaveBeenCalledTimes(7);
   });
 
+  it('a re-check read ends the mergeability poll it finds pending', async () => {
+    // Watched a second before its details go stale: the re-check is due
+    // before the poll their unknown mergeability asks for.
+    getDetails.mockResolvedValueOnce(details({ mergeState: 'UNKNOWN' }));
+    await load(target);
+    vi.advanceTimersByTime(DETAILS_REFRESH_MS - 1_000);
+    watch();
+    const recheck = deferred();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(getDetails).toHaveBeenCalledTimes(2);
+
+    // The poll would fall due while the re-check runs. The re-check's own
+    // answer plans what follows, and GitHub has worked mergeability out.
+    await vi.advanceTimersByTimeAsync(MERGE_STATE_POLL_MS);
+    recheck.answer(details({ mergeState: 'BLOCKED' }));
+    await vi.advanceTimersByTimeAsync(MERGE_STATE_POLL_MS);
+    expect(getDetails).toHaveBeenCalledTimes(2);
+  });
+
   it('a quiet read neither shows loading nor records its failure; a loud one does, and keeps the last details', async () => {
     await load(target);
     const last = entry().details;
@@ -300,6 +319,30 @@ describe('workItemDetailsStore', () => {
     release();
     expect(has(3)).toBe(false);
     expect(has(5)).toBe(true);
+  });
+
+  it('a failed forced read of the oldest unwatched item answers with its failure, though the item is then dropped', async () => {
+    const item = (number: number): DetailsTarget => ({ ...target, ref: { ...ref, number } });
+    for (let number = 1; number <= 20; number++) {
+      vi.advanceTimersByTime(1_000);
+      await load(item(number));
+    }
+    // The oldest is read again, the person's Refresh...
+    const refresh = deferred();
+    const refreshed = load(item(1), { force: true });
+    // ...while a 21st item's first read lands with a forced read queued
+    // behind it, so the store holds one item past its cap until a read ends.
+    const first = deferred();
+    deferred();
+    void load(item(21));
+    void load(item(21), { force: true });
+    first.answer(details());
+    await vi.advanceTimersByTimeAsync(0);
+
+    refresh.fail(new Error("Error invoking remote method 'inbox:get-details': Error: rate limited"));
+    const answer = await refreshed;
+    expect(answer).toMatchObject({ loading: false, error: 'rate limited', details: details() });
+    expect(useWorkItemDetailsStore.getState().entries[detailsKey(item(1))]).toBeUndefined();
   });
 
   it('a forced read updates what every viewer shows', async () => {
