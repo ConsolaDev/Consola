@@ -248,8 +248,12 @@ export interface AutomationServiceDeps {
    * with `instanceof`.
    */
   launchAgent(request: AgentLaunchRequest): Promise<LaunchedSession>;
-  /** Run `prompt` as an unattended turn in a recorded automation session; throws with the reason it could not. */
-  resumeAgent(session: SessionView, prompt: string): Promise<void>;
+  /**
+   * Run `prompt` as an unattended turn in a recorded automation session; throws with the reason
+   * it could not. `maxTurns` caps this turn alone (a step's reminder, resumed under its own
+   * cap); without it the turn runs under the record's.
+   */
+  resumeAgent(session: SessionView, prompt: string, maxTurns?: number): Promise<void>;
   /**
    * Run a step's one reminder turn: its session's exited terminal relaunched in place, or
    * resumed if it has none, unattended, with `prompt` as its turn; throws with the reason
@@ -3177,9 +3181,11 @@ export class AutomationService {
   /**
    * A step a restart put back in line with its session (`recoverAfterRestart`).
    * It resumes there, with `INTERRUPTED_PROMPT` and the same attempt, keeping
-   * what it set and wrote. When that session is gone, or the person opened
-   * it first, it runs as its next attempt in a new session instead, as a
-   * retry would: it is read-only, so running it again is safe.
+   * what it set and wrote. A reminder cut off resumes under the reminder's
+   * own cap, for what is still missing (`reminderCap`); a first turn, under
+   * the record's. When that session is gone, or the person opened it first,
+   * it runs as its next attempt in a new session instead, as a retry would:
+   * it is read-only, so running it again is safe.
    */
   private async resumeStep(runId: string, stepId: string): Promise<void> {
     const run = this.deps.store.get(runId)!;
@@ -3196,7 +3202,9 @@ export class AutomationService {
     this.starting.add(runId);
     try {
       try {
-        await this.deps.resumeAgent(session, INTERRUPTED_PROMPT);
+        // What is missing cannot be read: the step fails with why, as its end would.
+        const cap = record.reminded ? reminderCap(this.stepIO().missing(runId, stepId)) : undefined;
+        await this.deps.resumeAgent(session, INTERRUPTED_PROMPT, cap);
       } catch (error) {
         if (!this.stepRunning(runId, stepId, attempt)) return;
         // Its pane mounted after the look, before the resume spawned: opened, as if it had been at the look.

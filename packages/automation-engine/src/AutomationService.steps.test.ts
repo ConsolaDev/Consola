@@ -2792,6 +2792,42 @@ describe('the reminder turn', () => {
     expect(both.world.reminderCaps).toEqual([5]);
   });
 
+  it('a quit during it resumes it under its own cap, and a quit in the first turn under the record’s', async () => {
+    let h = await accepted(file(NIGHTLY));
+    await h.service.trigger(WORKSPACE_ID, 'nightly');
+    await h.flush();
+    h = await h.relaunch();
+    // The first turn, cut off: its resume runs under the step's own cap, the record's.
+    expect(h.world.resumes).toEqual([{ sessionId: 'session-1', prompt: INTERRUPTED_PROMPT }]);
+    expect(h.world.resumeCaps).toEqual([undefined]);
+    await h.world.endTurn('session-1');
+    expect(h.world.reminderCaps).toEqual([3]);
+    // The reminder, cut off: resumed under the reminder's cap, for what is still missing.
+    h = await h.relaunch();
+    expect(h.world.resumes).toHaveLength(2);
+    expect(h.world.resumeCaps).toEqual([undefined, 3]);
+  });
+
+  it('a reminder cut off whose missing items cannot be read fails, and is not resumed uncapped', async () => {
+    let h = await accepted(file(NIGHTLY));
+    const run = (await h.service.trigger(WORKSPACE_ID, 'nightly'))!;
+    await h.flush();
+    await h.world.endTurn('session-1');
+    expect(h.world.reminders).toHaveLength(1);
+    // Its step tools can no longer say what it left out.
+    h.store.update(run.id, {
+      steps: h.store
+        .get(run.id)!
+        .steps!.map((step) => (step.id === 'one' ? { ...step, id: 'renamed' } : step)),
+    });
+    h = await h.relaunch();
+    expect(h.world.resumes).toEqual([]);
+    expect(h.store.get(run.id)?.steps?.[0]).toMatchObject({
+      status: 'failed',
+      error: `Run ${run.id} has no agent step renamed.`,
+    });
+  });
+
   it('that sets the outputs completes the step', async () => {
     const h = await accepted(file(NIGHTLY));
     const run = (await h.service.trigger(WORKSPACE_ID, 'nightly'))!;

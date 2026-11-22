@@ -756,6 +756,25 @@ describe('SessionLauncher', () => {
       expect(terminals.startHeadless.mock.calls[0][1]).not.toHaveProperty('turnMaxTurns');
     });
 
+    it('resumeUnattended runs a reminder cut off by a quit under the reminder’s own cap', async () => {
+      const session = sessionFixture({
+        toolPolicy: 'read-only',
+        hasStarted: true,
+        automation: STEP,
+        maxTurns: 6,
+      });
+      const { launcher, workspaces, terminals } = buildLauncher(session);
+      workspaces.getAll.mockReturnValue([{ ...workspaceFixture(), sessions: [session] }]);
+      await launcher.resumeUnattended('ws-1', 'session-1', 'Go on.', { maxTurns: 3 });
+      expect(terminals.startHeadless.mock.calls[0][1]).toMatchObject({
+        resume: true,
+        unattended: true,
+        reportTurns: true,
+        turnMaxTurns: 3,
+        maxTurns: 6,
+      });
+    });
+
     it('the reminder’s cap reaches an exited terminal', async () => {
       const session = sessionFixture({
         toolPolicy: 'read-only',

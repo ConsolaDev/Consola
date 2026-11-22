@@ -2119,9 +2119,10 @@ export function setupIpcHandlers(): boolean {
         },
         request,
       ),
-    // A turn Consola quit in the middle of picks up in its own session.
-    resumeAgent: (session, prompt) =>
-      launcher.resumeUnattended(session.workspaceId, session.id, prompt),
+    // A turn Consola quit in the middle of picks up in its own session, a
+    // reminder under its own cap.
+    resumeAgent: (session, prompt, maxTurns) =>
+      launcher.resumeUnattended(session.workspaceId, session.id, prompt, { maxTurns }),
     // A step that ended without its outputs is resumed once, in place, to
     // set them, under a cap of its own.
     remindAgent: (session, prompt, maxTurns) =>

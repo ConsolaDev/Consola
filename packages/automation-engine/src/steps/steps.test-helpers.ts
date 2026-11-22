@@ -237,6 +237,8 @@ export interface StepsWorld {
 
   launches: AgentLaunchRequest[];
   resumes: Array<{ sessionId: string; prompt: string }>;
+  /** The cap each resume was asked for with (undefined: the record's own), in the same order. */
+  resumeCaps: Array<number | undefined>;
   /** Every reminder turn asked for, in order. */
   reminders: Array<{ sessionId: string; prompt: string }>;
   /** The cap each reminder turn was asked for with, in the same order. */
@@ -341,6 +343,7 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
       current.stepIO().writeArtifact(sessionId, name, content),
     launches: [],
     resumes: [],
+    resumeCaps: [],
     reminders: [],
     reminderCaps: [],
     stops: [],
@@ -495,8 +498,9 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
       world.onLaunch?.(request, session);
       return session;
     },
-    resumeAgent: async (session, prompt) => {
+    resumeAgent: async (session, prompt, maxTurns) => {
       world.resumes.push({ sessionId: session.id, prompt });
+      world.resumeCaps.push(maxTurns);
       if (world.resumeGate) await world.resumeGate;
       if (world.resumeThrows) throw world.resumeThrows;
     },

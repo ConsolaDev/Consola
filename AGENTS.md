@@ -611,11 +611,13 @@ a turn from its pane. A non-JSON line loses every escape and control character
 and is marked as the CLI's (`formatCliLine`), so it can neither repaint the
 pane nor pass for Consola's dim lines. Only Ctrl+C reaches the CLI (the PTY
 echoes other keys into the stream), what Consola quotes of the report goes
-through `oneLine`, and the report stays in main. The engine decides failure, cost and the reminder's
-cap from `TurnReportView` (`steps/turnReport.ts`). It checks the servers an
-agent grants against the turn's `init` as it is printed and again at the
-turn's end, so a turn whose `init` never arrived never completes a step that
-grants one. Attention never reads the
+through `oneLine`, and the report stays in main. The engine decides failure,
+cost and the reminder's cap from `TurnReportView` (`steps/turnReport.ts`). It
+checks the servers an agent grants against the turn's `init` as it is printed
+and again at the turn's end, so a turn whose `init` never arrived never
+completes a step that grants one. A cap counts one launch's turns: a resume
+after a quit runs under the step's `max_turns` again, a reminder cut off by a
+quit under the reminder's own cap. Attention never reads the
 pane's prose: `working` is the turn's own status, a question comes from hooks
 and non-JSON lines, a limit from `StopFailure` and the stream (OR'd into
 `limit-notice`). The reopen is a plain resume: no stream-json, no `--max-turns`.

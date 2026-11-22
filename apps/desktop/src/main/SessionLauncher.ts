@@ -200,11 +200,14 @@ export class SessionLauncher {
    * Only a read-only session — an unattended turn skips the CLI's trust
    * prompt — and only one with no terminal yet: once the person opened it,
    * it is theirs, and a second process on one conversation would fork it.
+   * `maxTurns` caps this turn alone (a step's reminder, cut off by the quit);
+   * the record's cap stays for every later launch.
    */
   public async resumeUnattended(
     workspaceId: string,
     sessionId: string,
     prompt: string,
+    options: { maxTurns?: number } = {},
   ): Promise<void> {
     const workspace = this.workspaces.getAll().find((candidate) => candidate.id === workspaceId);
     const session = workspace?.sessions.find((candidate) => candidate.id === sessionId);
@@ -221,7 +224,13 @@ export class SessionLauncher {
       workspace,
       session,
       cwd,
-      { resume: true, initialPrompt: prompt, unattended: true, launchNotice: notice },
+      {
+        resume: true,
+        initialPrompt: prompt,
+        unattended: true,
+        launchNotice: notice,
+        ...(options.maxTurns !== undefined ? { turnMaxTurns: options.maxTurns } : {}),
+      },
       opened,
     );
   }
