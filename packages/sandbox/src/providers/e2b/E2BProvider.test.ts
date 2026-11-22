@@ -51,8 +51,10 @@ class StubCommand {
       this.exit(-1);
       return true;
     },
+    // As E2B's: its stream is aborted, so its wait rejects.
     disconnect: async () => {
       this.disconnects += 1;
+      this.fail(new Error('The operation was aborted.'));
     },
   };
 
@@ -268,6 +270,8 @@ describe('E2BProvider', () => {
     inner.commands[0]?.print('after the stop\n');
     expect(heard).toEqual([]);
     expect(inner.commands[0]?.disconnects).toBe(1);
+    await inner.commands[0]?.done.catch(() => undefined);
+    expect(inner.isRunning).not.toHaveBeenCalled();
     await handle.stop();
     expect(inner.kill).toHaveBeenCalledTimes(1);
 

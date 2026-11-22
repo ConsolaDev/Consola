@@ -255,7 +255,8 @@ class E2BSandboxHandle implements ProviderSandbox {
   private async exitOf(error: unknown): Promise<number | null> {
     const code = exitCodeOf(error);
     if (code !== undefined) return code;
-    if (error instanceof SandboxNotRunningError) return null;
+    // This handle's own stop disconnected it: it ended with the sandbox, so ask nothing.
+    if (this.stopped || error instanceof SandboxNotRunningError) return null;
     // The stream broke without saying why: it ended with its sandbox when that is gone.
     const running = await this.inner.isRunning().catch(() => undefined);
     if (running === false) return null;
