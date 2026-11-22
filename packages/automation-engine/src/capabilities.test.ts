@@ -397,8 +397,8 @@ describe('what an agent writing agent files and automation files is told', () =>
 
   it("teaches an agent's servers and skills, and no longer says they arrive later (2-C)", () => {
     const text = grammar().grammar;
-    // 2-B's sentence, which said they do not apply yet (and which no file may hold now: review S10).
-    expect(text).not.toContain('arrive with the next update');
+    // 2-B's sentence, which said they do not apply yet (quoted in part: no file may hold it now, review S10).
+    expect(text).not.toContain('names mcpServers or skills does not apply yet');
     expect(text).toContain(
       "On a step that works in someone else's checkout (a pull request or issue), only claude.ai connectors are offered.",
     );
