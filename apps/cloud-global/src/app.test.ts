@@ -323,7 +323,15 @@ describe('workspaces', () => {
     const made = await send('POST', '/api/workspaces', { ...acme, region: 'us' }, login.headers);
     expect(made).toEqual({
       status: 201,
-      body: { id: expect.any(String), name: 'Acme', slug: 'acme', region: 'us', role: 'owner' },
+      body: {
+        id: expect.any(String),
+        name: 'Acme',
+        slug: 'acme',
+        region: 'us',
+        role: 'owner',
+        icon: null,
+        canManage: true,
+      },
     });
     expect((await get('/api/me', login.headers)).body.workspace).toEqual(made.body);
     expect(await get('/api/workspaces', login.headers)).toEqual({
@@ -1315,6 +1323,112 @@ describe('GitHub as a connection', () => {
   });
 });
 
+describe('PUT /api/me/workspace/icon', () => {
+  const path = '/api/me/workspace/icon';
+
+  it('is 401 signed out', async () => {
+    expect(await send('PUT', path, { icon: 'rocket' })).toEqual({
+      status: 401,
+      body: { error: 'signed_out' },
+    });
+  });
+
+  it('is 409 with no workspace open', async () => {
+    const login = await signIn('dana@acme.test', 'Dana Ortiz');
+    expect(await send('PUT', path, { icon: 'rocket' }, login.headers)).toEqual({
+      status: 409,
+      body: { error: 'no_active_workspace' },
+    });
+  });
+
+  it("sets the active workspace's icon for its owner, and every answer then wears it", async () => {
+    const dana = await signIn('dana@acme.test', 'Dana Ortiz');
+    const workspace = await makeWorkspace(dana.headers);
+    expect(workspace).toMatchObject({ icon: null, canManage: true });
+
+    const set = await send('PUT', path, { icon: 'emoji-fox' }, dana.headers);
+    expect(set).toEqual({ status: 200, body: { ...workspace, icon: 'emoji-fox' } });
+    expect((await get('/api/me', dana.headers)).body.workspace).toEqual(set.body);
+    expect((await get('/api/workspaces', dana.headers)).body.workspaces).toEqual([set.body]);
+    expect(await storedWorkspaces()).toEqual([
+      { id: workspace.id, name: 'Acme', slug: 'acme', region: 'eu' },
+    ]);
+  });
+
+  it('takes the icon off with null', async () => {
+    const dana = await signIn('dana@acme.test', 'Dana Ortiz');
+    const workspace = await makeWorkspace(dana.headers);
+    await send('PUT', path, { icon: 'rocket' }, dana.headers);
+    expect(await send('PUT', path, { icon: null }, dana.headers)).toEqual({
+      status: 200,
+      body: { ...workspace, icon: null },
+    });
+  });
+
+  it('refuses an icon outside the set, and a body of the wrong shape', async () => {
+    const dana = await signIn('dana@acme.test', 'Dana Ortiz');
+    await makeWorkspace(dana.headers);
+    for (const icon of ['', 'unicorn', 'https://example.test/logo.png']) {
+      expect(await send('PUT', path, { icon }, dana.headers)).toEqual({
+        status: 400,
+        body: { error: 'icon_unknown' },
+      });
+    }
+    for (const body of [{}, { icon: 7 }]) {
+      expect(await send('PUT', path, body, dana.headers)).toEqual({
+        status: 400,
+        body: { error: 'invalid_request' },
+      });
+    }
+  });
+
+  it('is 403 for a member, who may see the icon but not change it', async () => {
+    const dana = await signIn('dana@acme.test', 'Dana Ortiz');
+    const workspace = await makeWorkspace(dana.headers);
+    await send('PUT', path, { icon: 'leaf' }, dana.headers);
+    const lee = await signIn('lee@acme.test', 'Lee Park');
+    await db.insert(schema.member).values({
+      id: 'acme-lee',
+      organizationId: workspace.id,
+      userId: lee.user.id,
+      role: 'member',
+      createdAt: new Date(Date.now() + 1000),
+    });
+    await send('PUT', '/api/me/workspace', { workspaceId: workspace.id }, lee.headers);
+
+    expect((await get('/api/me', lee.headers)).body.workspace).toMatchObject({
+      icon: 'leaf',
+      role: 'member',
+      canManage: false,
+    });
+    expect(await send('PUT', path, { icon: 'moon' }, lee.headers)).toEqual({
+      status: 403,
+      body: { error: 'not_allowed' },
+    });
+    expect((await get('/api/me', dana.headers)).body.workspace.icon).toBe('leaf');
+  });
+
+  it('is 403 for a session whose workspace the person has left', async () => {
+    const dana = await signIn('dana@acme.test', 'Dana Ortiz');
+    const workspace = await makeWorkspace(dana.headers);
+    await db.delete(schema.member).where(eq(schema.member.organizationId, workspace.id));
+    expect(await send('PUT', path, { icon: 'moon' }, dana.headers)).toEqual({
+      status: 403,
+      body: { error: 'not_a_member' },
+    });
+  });
+
+  it('reads a logo it did not write as no icon', async () => {
+    const dana = await signIn('dana@acme.test', 'Dana Ortiz');
+    const workspace = await makeWorkspace(dana.headers);
+    await db
+      .update(schema.organization)
+      .set({ logo: 'https://example.test/logo.png' })
+      .where(eq(schema.organization.id, workspace.id));
+    expect((await get('/api/me', dana.headers)).body.workspace.icon).toBeNull();
+  });
+});
+
 describe('GitHub tokens for a cell', () => {
   // A key made for this run only, never one written down, in a folder of its own.
   const appKey = generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey;
@@ -1790,6 +1904,7 @@ describe('routes', () => {
       'ALL /api/*',
       'GET /api/me',
       'PUT /api/me/workspace',
+      'PUT /api/me/workspace/icon',
       'GET /api/me/workspace/members',
       'GET /api/workspaces',
       'POST /api/workspaces',
@@ -1851,6 +1966,12 @@ describe('regions', () => {
       { workspaceId: workspace.id, region: 'eu' },
       login.headers,
     );
+    await send(
+      'PUT',
+      '/api/me/workspace/icon',
+      { icon: 'emoji-rocket', region: 'eu', name: 'Moved', slug: 'moved' },
+      login.headers,
+    );
     await app.request('/api/auth/update-session', {
       method: 'POST',
       headers: fromBrowser(login.headers),
@@ -1860,7 +1981,10 @@ describe('regions', () => {
     expect(await storedWorkspaces()).toEqual([
       { id: workspace.id, name: 'Acme', slug: 'acme', region: 'us' },
     ]);
-    expect((await get('/api/me', login.headers)).body.workspace).toEqual(workspace);
+    expect((await get('/api/me', login.headers)).body.workspace).toEqual({
+      ...workspace,
+      icon: 'emoji-rocket',
+    });
   });
 });
 
@@ -1909,13 +2033,17 @@ describe('the organisation from before workspaces', () => {
     expect((await get('/api/me', danaLogin.headers)).body.workspace).toEqual({
       ...sprocket,
       role: 'owner',
+      icon: null,
+      canManage: true,
     });
     expect((await get('/api/workspaces', leeLogin.headers)).body).toEqual({
-      workspaces: [{ ...sprocket, role: 'member' }],
+      workspaces: [{ ...sprocket, role: 'member', icon: null, canManage: false }],
     });
     expect((await get('/api/me', leeLogin.headers)).body.workspace).toEqual({
       ...sprocket,
       role: 'member',
+      icon: null,
+      canManage: false,
     });
     expect(await storedWorkspaces()).toEqual([sprocket]);
   });
@@ -1943,7 +2071,7 @@ describe('the organisation from before workspaces', () => {
     const own = await makeWorkspace(login.headers, acme);
 
     expect((await get('/api/workspaces', login.headers)).body).toEqual({
-      workspaces: [{ ...sprocket, role: 'member' }, own],
+      workspaces: [{ ...sprocket, role: 'member', icon: null, canManage: false }, own],
     });
   });
 });

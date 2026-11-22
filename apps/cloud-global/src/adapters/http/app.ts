@@ -30,10 +30,11 @@ import {
   createWorkspace,
   listMyWorkspaces,
   setActiveWorkspace,
+  setWorkspaceIcon,
 } from '../../application/workspaces.js';
 import { installationSettingsUrl, readGitHubId } from '../../domain/connections.js';
 import type { SignedIn } from '../../domain/person.js';
-import { checkNewWorkspace } from '../../domain/workspace.js';
+import { checkNewWorkspace, type MyWorkspace, mayManageWorkspace } from '../../domain/workspace.js';
 import {
   deleteGitHubInstallation,
   type GITHUB_CALLBACK_RESULTS,
@@ -50,6 +51,7 @@ import {
   postGitHubToken,
   postWorkspace,
   putActiveWorkspace,
+  putActiveWorkspaceIcon,
 } from './contract.js';
 
 const CHANGES = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
@@ -82,6 +84,12 @@ const CALLBACK_RESULT = {
 
 /** Now, in whole seconds since the epoch: what a cell token's times are in. */
 const nowSeconds = () => Math.floor(Date.now() / 1000);
+
+/** A workspace as the answers name it: with whether the person may change it (`canManage`). */
+const workspaceAnswer = (workspace: MyWorkspace) => ({
+  ...workspace,
+  canManage: mayManageWorkspace(workspace.role),
+});
 
 /** The request's session, set by `requireSession` on the routes that need one. */
 type WithSession = { Variables: { session: SignedIn } };
@@ -226,7 +234,8 @@ export function createApp(deps: {
   app.openapi(getMe, async (c) => {
     const answer = await describeMe(memberships, await currentSession(c.req.raw.headers));
     if (answer.kind === 'signed-out') return c.json({ error: 'signed_out' } as const, 401);
-    return c.json(answer.me, 200);
+    const { user, workspace } = answer.me;
+    return c.json({ user, workspace: workspace && workspaceAnswer(workspace) }, 200);
   });
 
   app.openapi({ ...putActiveWorkspace, middleware: [requireSession] as const }, async (c) => {
@@ -238,7 +247,24 @@ export function createApp(deps: {
     if (answer.kind === 'not-found') {
       return c.json({ error: 'workspace_not_found' } as const, 404);
     }
-    return c.json(answer.workspace, 200);
+    return c.json(workspaceAnswer(answer.workspace), 200);
+  });
+
+  // The icon of the session's active workspace. Nothing in the request names the workspace or
+  // the role: both are read from the database, and only the icon is written.
+  app.openapi({ ...putActiveWorkspaceIcon, middleware: [requireSession] as const }, async (c) => {
+    const answer = await setWorkspaceIcon(
+      { memberships, workspaces },
+      c.var.session,
+      c.req.valid('json'),
+    );
+    if (answer.kind === 'no-workspace') {
+      return c.json({ error: 'no_active_workspace' } as const, 409);
+    }
+    if (answer.kind === 'not-a-member') return c.json({ error: 'not_a_member' } as const, 403);
+    if (answer.kind === 'not-allowed') return c.json({ error: 'not_allowed' } as const, 403);
+    if (answer.kind === 'invalid') return c.json({ error: answer.problem } as const, 400);
+    return c.json(workspaceAnswer(answer.workspace), 200);
   });
 
   app.openapi(
@@ -254,7 +280,14 @@ export function createApp(deps: {
   );
 
   app.openapi({ ...listWorkspaces, middleware: [requireSession] as const }, async (c) =>
-    c.json({ workspaces: await listMyWorkspaces(memberships, c.var.session.person) }, 200),
+    c.json(
+      {
+        workspaces: (await listMyWorkspaces(memberships, c.var.session.person)).map(
+          workspaceAnswer,
+        ),
+      },
+      200,
+    ),
   );
 
   app.openapi(
@@ -269,7 +302,7 @@ export function createApp(deps: {
         return c.json({ error: 'invalid_workspace', problems: answer.problems } as const, 400);
       }
       if (answer.kind === 'slug-taken') return c.json({ error: 'slug_taken' } as const, 409);
-      return c.json(answer.workspace, 201);
+      return c.json(workspaceAnswer(answer.workspace), 201);
     },
     // A body of the wrong shape still gets every problem named: the rules say what they are.
     // The schema checks only types the rules check too, so the rules refuse whatever it does.

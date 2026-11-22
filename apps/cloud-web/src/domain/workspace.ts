@@ -25,6 +25,11 @@ export function regionName(region: string): string {
   return REGIONS.find((listed) => listed.id === region)?.name ?? region;
 }
 
+/** Where a listed region is, in words ("Europe"); null for a region the page does not list. */
+export function regionPlace(region: string): string | null {
+  return REGIONS.find((listed) => listed.id === region)?.place ?? null;
+}
+
 /** A workspace as the person signed in sees it: with their role in it. */
 export type MyWorkspace = components['schemas']['MyWorkspace'];
 

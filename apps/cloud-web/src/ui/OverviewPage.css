@@ -1,0 +1,274 @@
+/* The Overview, in the desktop's shapes: the workspace's icon in a 44px tile beside its name, over
+   a monospace row of its facts (General's manifest); then groups drawn as Connections draws them,
+   a quiet label over a bordered, rounded box. The one bold thing is the region's map, its own
+   region lit in the accent, once, as the page opens (and not at all under reduced motion). */
+
+.overview-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.overview-tile {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  box-sizing: border-box;
+  border: 1px solid var(--gray-a5);
+  border-radius: var(--radius-md);
+  background: var(--gray-2);
+  color: var(--gray-a11);
+}
+
+.overview-head-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.overview-name {
+  margin: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The desktop's fact row: monospace, small and quiet, its parts set apart by a dot of their own. */
+.overview-facts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.overview-facts > * + *::before {
+  content: "";
+  display: inline-block;
+  width: 3px;
+  height: 3px;
+  margin: 0 8px;
+  border-radius: 50%;
+  background: currentColor;
+  vertical-align: middle;
+  opacity: 0.6;
+}
+
+/* ---- The slug, which copies itself ---- */
+
+.copy-slug {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+
+.slug {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: -2px -4px;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.slug:hover {
+  background: var(--hover);
+  color: var(--text-2);
+}
+
+.slug-icon {
+  display: inline-flex;
+  opacity: 0.55;
+  transition: opacity 100ms ease;
+}
+
+.slug:hover .slug-icon,
+.slug:focus-visible .slug-icon,
+.slug[data-copied] .slug-icon {
+  opacity: 1;
+}
+
+.slug[data-copied] .slug-icon {
+  color: var(--cyan-text);
+}
+
+.slug[data-copied] .slug-icon svg {
+  animation: slug-check 260ms var(--ease-out-expo);
+}
+
+@keyframes slug-check {
+  from {
+    opacity: 0;
+    transform: scale(0.5) rotate(-20deg);
+  }
+}
+
+.slug-refused {
+  color: var(--text-2);
+  font-family: var(--font-sans);
+}
+
+/* ---- Where the workspace is ---- */
+
+.overview-region {
+  display: grid;
+  grid-template-columns: minmax(150px, 190px) minmax(0, 1fr);
+  align-items: center;
+  gap: 20px 32px;
+  padding: 16px 20px;
+}
+
+.overview-region-text {
+  display: flex;
+  flex-direction: column;
+  align-self: stretch;
+}
+
+.overview-region-code {
+  margin: 0;
+  color: var(--text);
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+
+.overview-region-place {
+  margin: 4px 0 0;
+  color: var(--text-2);
+  font-size: 13px;
+}
+
+.overview-region-note {
+  display: flex;
+  gap: 6px;
+  margin: auto 0 0;
+  padding-top: 16px;
+  color: var(--gray-a10);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.overview-region-note svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.region-map {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.region-map-land {
+  fill: var(--dot);
+}
+
+.region-map-lit {
+  fill: var(--cyan);
+  filter: drop-shadow(0 0 3px var(--cyan-glow));
+}
+
+.region-map-lit circle {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: region-dot 640ms var(--ease-out-quart) both;
+}
+
+/* A lit dot starts as land, swells as it takes the accent, and settles. */
+@keyframes region-dot {
+  0% {
+    fill: var(--dot);
+    transform: scale(1);
+  }
+  45% {
+    fill: var(--cyan);
+    transform: scale(1.7);
+  }
+  100% {
+    fill: var(--cyan);
+    transform: scale(1);
+  }
+}
+
+/* ---- Who is looking: one row, as a connected account is ---- */
+
+.overview-you {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+}
+
+.overview-you-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.overview-you-text p {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.overview-you-name {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.overview-you-email {
+  color: var(--gray-a10);
+  font-size: 11px;
+}
+
+/* Settings' chip: a small outlined tag. A literal radius: Radix's is 0 inside its theme. */
+.overview-role {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 1px 8px;
+  border: 1px solid var(--gray-a6);
+  border-radius: 999px;
+  color: var(--gray-a10);
+  font-size: 11px;
+}
+
+@media (max-width: 640px) {
+  .overview-region {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .overview-region-note {
+    margin-top: 8px;
+    padding-top: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .region-map-lit circle,
+  .slug[data-copied] .slug-icon svg {
+    animation: none;
+  }
+
+  .slug-icon {
+    transition: none;
+  }
+}

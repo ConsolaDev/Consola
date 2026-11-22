@@ -6,12 +6,29 @@ import {
   loadConnections,
   loadMe,
   loadWorkspaces,
+  setWorkspaceIcon,
   startGitHubConnect,
   switchWorkspace,
 } from './api';
 
-const acme = { id: 'w1', name: 'Acme', slug: 'acme', region: 'eu', role: 'owner' };
-const sprocket = { id: 'w2', name: 'Sprocket', slug: 'sprocket', region: 'us', role: 'member' };
+const acme = {
+  id: 'w1',
+  name: 'Acme',
+  slug: 'acme',
+  region: 'eu',
+  role: 'owner',
+  icon: null,
+  canManage: true,
+};
+const sprocket = {
+  id: 'w2',
+  name: 'Sprocket',
+  slug: 'sprocket',
+  region: 'us',
+  role: 'member',
+  icon: 'emoji-fox',
+  canManage: false,
+};
 
 const me = {
   user: { id: 'u1', name: 'Dana', email: 'dana@sprocket.test', image: null },
@@ -192,6 +209,49 @@ describe('createWorkspace', () => {
       rejects,
     ]) {
       expect(await createWorkspace(asked, api)).toEqual({ kind: 'unavailable' });
+    }
+  });
+});
+
+describe('setWorkspaceIcon', () => {
+  it('puts the icon as JSON with the person’s cookie', async () => {
+    const api = reply(200, { ...acme, icon: 'leaf' });
+    await setWorkspaceIcon('leaf', api);
+    expect(api.calls).toEqual([
+      {
+        method: 'PUT',
+        url: `${ORIGIN}/api/me/workspace/icon`,
+        credentials: 'same-origin',
+        contentType: 'application/json',
+        body: JSON.stringify({ icon: 'leaf' }),
+      },
+    ]);
+  });
+
+  it('is changed with the workspace on 200, null taking the icon off', async () => {
+    expect(await setWorkspaceIcon(null, reply(200, acme))).toEqual({
+      kind: 'changed',
+      workspace: acme,
+    });
+  });
+
+  it('is not allowed for a member, and signed out on 401', async () => {
+    expect(await setWorkspaceIcon('leaf', reply(403, { error: 'not_allowed' }))).toEqual({
+      kind: 'not-allowed',
+    });
+    expect(await setWorkspaceIcon('leaf', reply(401, { error: 'signed_out' }))).toEqual({
+      kind: 'signed-out',
+    });
+  });
+
+  it('is unavailable on any other answer', async () => {
+    for (const api of [
+      reply(400, { error: 'icon_unknown' }),
+      reply(403, { error: 'not_a_member' }),
+      reply(409, { error: 'no_active_workspace' }),
+      reply(500, '<html>boom</html>'),
+    ]) {
+      expect(await setWorkspaceIcon('leaf', api)).toEqual({ kind: 'unavailable' });
     }
   });
 });

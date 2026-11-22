@@ -12,6 +12,7 @@ import {
   WORKSPACE_PROBLEMS,
   WORKSPACE_SLUG_MAX,
 } from '../../domain/workspace.js';
+import { WORKSPACE_ICONS } from '../../domain/workspaceIcon.js';
 
 /**
  * The API's contract: every route Consola serves (Better Auth's `/api/auth/*` aside), what it
@@ -41,6 +42,14 @@ export const MyWorkspace = z
     slug: z.string(),
     region: z.enum(REGIONS),
     role: z.enum(WORKSPACE_ROLES),
+    icon: z.union([z.enum(WORKSPACE_ICONS), z.null()]).openapi({
+      description:
+        'The icon the workspace wears, by the desktop app’s ids; null for none, which shows ' +
+        'its initial.',
+    }),
+    canManage: z.boolean().openapi({
+      description: 'Whether the person may change how the workspace looks (an owner or admin).',
+    }),
   })
   .openapi('MyWorkspace', { description: 'A workspace as one of its members sees it.' });
 
@@ -106,6 +115,46 @@ export const putActiveWorkspace = createRoute({
       failure('workspace_not_found'),
       'No workspace of the person’s has that id, whether or not one exists.',
     ),
+    415: unsupportedMediaType,
+  },
+});
+
+export const WorkspaceIconChange = z
+  .object({ icon: z.union([z.string(), z.null()]) })
+  .openapi('WorkspaceIconChange', {
+    description: 'An icon from the desktop app’s set, or null to take the icon off.',
+  });
+
+export const putActiveWorkspaceIcon = createRoute({
+  method: 'put',
+  path: '/api/me/workspace/icon',
+  summary: "Set or clear my active workspace's icon",
+  description:
+    'Only an owner or an admin of the workspace may. It changes the icon alone, never the ' +
+    'workspace’s name, slug or region.',
+  request: body(WorkspaceIconChange),
+  responses: {
+    200: json(MyWorkspace, 'The workspace, wearing the icon it was given.'),
+    400: {
+      content: {
+        'application/json': {
+          schema: z.union([failure('icon_unknown'), failure('invalid_request')]),
+        },
+      },
+      description: 'The icon is not one of the set, or the body is not what the route takes.',
+    },
+    401: signedOut,
+    403: {
+      content: {
+        'application/json': {
+          schema: z.union([failure('not_a_member'), failure('not_allowed'), failure('bad_origin')]),
+        },
+      },
+      description:
+        'The person is not in the workspace, is a member who may not change it, or the change ' +
+        'did not come from the web app.',
+    },
+    409: json(failure('no_active_workspace'), 'The session has no active workspace.'),
     415: unsupportedMediaType,
   },
 });
@@ -551,6 +600,7 @@ export const getHealth = createRoute({
 export const ROUTES = [
   getMe,
   putActiveWorkspace,
+  putActiveWorkspaceIcon,
   getActiveWorkspaceMembers,
   listWorkspaces,
   postWorkspace,

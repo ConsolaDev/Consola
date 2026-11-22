@@ -9,6 +9,7 @@ import {
   REGIONS,
   type Region,
   regionName,
+  regionPlace,
   roleName,
   suggestSlug,
   WORKSPACE_NAME_MAX,
@@ -56,6 +57,12 @@ describe('the regions', () => {
     expect(regionName('eu')).toBe('EU');
     expect(regionName('us')).toBe('US');
     expect(regionName('ap')).toBe('ap');
+  });
+
+  it('regionPlace says where a listed region is, and nothing for any other', () => {
+    expect(regionPlace('eu')).toBe('Europe');
+    expect(regionPlace('us')).toBe('United States');
+    expect(regionPlace('ap')).toBeNull();
   });
 });
 
