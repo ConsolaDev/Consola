@@ -4,9 +4,11 @@ import type { Automation, AutomationMode } from './schema';
 /**
  * One execution of an automation.
  *
- * The north-star Run record (docs/north-star/consola-factories.md §3), as
- * much of it as a local run has. Same field names and status words, so the
- * cloud runner's rows and these list side by side later. Not recorded yet,
+ * The north-star Run record (§3 of "North star · Factories", a Linear
+ * document:
+ * https://linear.app/consola/document/north-star-factories-the-earlier-direction-11a3fbefdb39),
+ * as much of it as a local run has. Same field names and status words, so
+ * the cloud runner's rows and these list side by side later. Not recorded yet,
  * and why: `cost` (a tool run spends no tokens; an agent run's tokens are its
  * session's), `environment` (the workspace scope is in `attribution` until
  * environments exist locally), `orgId` (personal automations have no org).

@@ -74,21 +74,13 @@ Key principles:
 
 ### Step 5: Generate Research Document
 
-Write to `docs/research/YYYY-MM-DD-description.md`:
+Create it as a Linear document, never as a local file (see "Documents Live
+in Linear" in `AGENTS.md`). Use the Linear MCP `save_document`, titled
+`<Area> · Research: <topic>`, attached to the project it serves or else to the
+Consola team, then add it to the Documents index under its section. Its
+content (the title holds the heading, so the content starts at the date):
 
 ```markdown
----
-date: [ISO format with timezone]
-git_commit: [Current commit hash]
-branch: [Current branch name]
-repository: [Repository name]
-topic: "[User's Question/Topic]"
-tags: [research, codebase, relevant-components]
-status: complete
----
-
-# Research: [User's Question/Topic]
-
 **Date**: [Current date and time with timezone]
 **Git Commit**: [Current commit hash]
 **Branch**: [Current branch name]

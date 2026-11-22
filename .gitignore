@@ -27,7 +27,8 @@ release/
 # Turborepo task cache
 .turbo/
 
-# Private local research and planning
+# Research and plans live in Linear (AGENTS.md, "Documents Live in Linear");
+# kept ignored so a stray local copy is never committed
 /docs/
 /doc/
 
