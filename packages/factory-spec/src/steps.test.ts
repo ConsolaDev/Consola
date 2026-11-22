@@ -4,6 +4,7 @@ import { isStepsEntry } from './schema';
 import { AGENT_SECRETS_REASON, ENTRY_SECRETS_REASON, secretTemplateReason } from './secrets';
 import {
   ENV_PREFIX_EXCEPTIONS,
+  GH_IDENTITY_ENV_REASON,
   isRefusedEnvName,
   parseReadRef,
   REFUSED_ENV_NAMES,
@@ -476,15 +477,13 @@ describe('a command', () => {
       expect(refusedFor(name, 'plain')).toBe(message);
     });
 
-    it("takes GH_TOKEN and GH_HOST, the shipped template's names, and names that only look alike", () => {
+    it('takes names that only look alike', () => {
       const step = firstStep<CommandStep>(
         command(
-          '  env: { GH_TOKEN: a, GH_HOST: b, PR: c, REPO: d, NUMBER: e, VERDICT: f, BODY_FILE: g, BASH_ENVIRONMENT: h, MY_PATH: i, MY_GIT_DIR: j, HOMEPAGE: k, PATHS: l, EDITORS: m, NODEJS: n }',
+          '  env: { PR: c, REPO: d, NUMBER: e, VERDICT: f, BODY_FILE: g, BASH_ENVIRONMENT: h, MY_PATH: i, MY_GIT_DIR: j, HOMEPAGE: k, PATHS: l, EDITORS: m, NODEJS: n }',
         ),
       );
       expect(Object.keys(step.env)).toEqual([
-        'GH_TOKEN',
-        'GH_HOST',
         'PR',
         'REPO',
         'NUMBER',
@@ -515,7 +514,30 @@ describe('a command', () => {
       const message = refusedFor('BASH_ENV');
       for (const name of REFUSED_ENV_NAMES) expect(message, name).toContain(name);
       for (const prefix of REFUSED_ENV_PREFIXES) expect(message, prefix).toContain(`${prefix}*`);
-      for (const name of ENV_PREFIX_EXCEPTIONS) expect(message, name).toContain(name);
+      expect(message).not.toContain('are allowed');
+    });
+
+    it("refuses GH_TOKEN and GH_HOST, templated or not: they are the bound account's (decision 37)", () => {
+      const token = only(command('  env: { GH_TOKEN: "{{item.key}}" }'));
+      expect(token.path).toBe('automations[0].steps[0].env.GH_TOKEN');
+      expect(token.message).toBe(GH_IDENTITY_ENV_REASON('GH_TOKEN'));
+      expect(token.message).toBe(
+        "`GH_TOKEN` is the workspace's bound GitHub account's to set (decision 37): commands act as that account. To act as another, bind it to the workspace.",
+      );
+      const host = only(command('  env: { GH_HOST: github.example }'));
+      expect(host.path).toBe('automations[0].steps[0].env.GH_HOST');
+      expect(host.message).toBe(GH_IDENTITY_ENV_REASON('GH_HOST'));
+      // The name list still lets both through: the refusal is the env: loop's own.
+      for (const name of ENV_PREFIX_EXCEPTIONS) expect(isRefusedEnvName(name), name).toBe(false);
+    });
+
+    it('refuses GH_REPO by the list, which no longer says GH_TOKEN and GH_HOST are allowed', () => {
+      const message = only(command('  env: { GH_REPO: x }')).message;
+      expect(message).toMatch(REFUSED_BECAUSE);
+      expect(message).not.toContain('(GH_TOKEN and GH_HOST are allowed)');
+      expect(firstStep<CommandStep>(command('  env: { PR: "{{item.number}}" }')).env).toEqual({
+        PR: '{{item.number}}',
+      });
     });
   });
 

@@ -158,10 +158,13 @@ describe('what an agent writing an entry is told', () => {
       expect(line, prefix).toContain(`${prefix}*`);
       expect(withEnv(`${prefix}X`), prefix).toBe(false);
     }
+    // GH_TOKEN and GH_HOST are the bound account's (decision 37): named, and refused in env:.
     for (const name of ENV_PREFIX_EXCEPTIONS) {
       expect(line, name).toContain(name);
-      expect(withEnv(name), name).toBe(true);
+      expect(withEnv(name), name).toBe(false);
     }
+    expect(line).toContain("(GH_TOKEN and GH_HOST are the bound account's: Consola sets them)");
+    expect(line).not.toContain('are allowed');
   });
 
   it('the trusted list in the prose is the one the validator enforces', async () => {

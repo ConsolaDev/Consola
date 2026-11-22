@@ -81,7 +81,5 @@ export function isRefusedEnvName(name: string): boolean {
   );
 }
 
-/** What `env:` refuses, as its refusal lists it. */
-export const REFUSED_ENV_LIST =
-  `${REFUSED_ENV_NAMES.join(', ')}, and every name matching ${REFUSED_ENV_PREFIXES.map((prefix) => `${prefix}*`).join(', ')} ` +
-  `(${ENV_PREFIX_EXCEPTIONS.join(' and ')} are allowed)`;
+/** What `env:` refuses, as its refusal lists it (its own refusal of `ENV_PREFIX_EXCEPTIONS` is `GH_IDENTITY_ENV_REASON`'s). */
+export const REFUSED_ENV_LIST = `${REFUSED_ENV_NAMES.join(', ')}, and every name matching ${REFUSED_ENV_PREFIXES.map((prefix) => `${prefix}*`).join(', ')}`;

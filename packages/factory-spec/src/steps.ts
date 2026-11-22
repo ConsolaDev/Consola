@@ -18,7 +18,12 @@ import {
   type ExpressionScope,
 } from './expression';
 import { parseDurationMs } from './duration';
-import { ENV_NAME_PATTERN, isRefusedEnvName, REFUSED_ENV_LIST } from './envNames';
+import {
+  ENV_NAME_PATTERN,
+  ENV_PREFIX_EXCEPTIONS,
+  isRefusedEnvName,
+  REFUSED_ENV_LIST,
+} from './envNames';
 import { AUTOMATION_NAME_PATTERN } from './names';
 import type { OutputType } from './outputs';
 import type { Trigger } from './schema';
@@ -102,6 +107,15 @@ export const LATER_KEYS: Readonly<Record<string, string>> = {
   callable: 'callable automations',
   inputs: 'callable automations',
 };
+
+/**
+ * Why `env:` refuses `GH_TOKEN` and `GH_HOST`: a command acts as the
+ * workspace's bound GitHub account, whose token Consola sets (decision 37),
+ * so a file never replaces it, templated or not.
+ */
+export function GH_IDENTITY_ENV_REASON(name: string): string {
+  return `\`${name}\` is the workspace's bound GitHub account's to set (decision 37): commands act as that account. To act as another, bind it to the workspace.`;
+}
 
 export function laterKeyMessage(key: string): string {
   return `\`${key}\` arrives with ${LATER_KEYS[key]}; it is not supported yet.`;
@@ -456,6 +470,8 @@ function parseStep(raw: unknown, index: number, fail: Fail): Step | null {
             bad("`CONSOLA_` is Consola's own namespace; pick another name.", ['env', name]);
           } else if (!ENV_NAME_PATTERN.test(name)) {
             bad('Use uppercase letters, digits and underscores, e.g. PR_NUMBER.', ['env', name]);
+          } else if ((ENV_PREFIX_EXCEPTIONS as readonly string[]).includes(name)) {
+            bad(GH_IDENTITY_ENV_REASON(name), ['env', name]);
           } else if (isRefusedEnvName(name)) {
             bad(
               `\`${name}\` is refused: these names and prefixes are refused because they make a program run a value: ${REFUSED_ENV_LIST}. ` +
