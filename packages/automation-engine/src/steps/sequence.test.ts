@@ -1551,6 +1551,41 @@ describe('advanceSteps: loops', () => {
     });
   });
 
+  it('stops a loop that ends the entry, when then: stop is on its last step (review B1)', () => {
+    const entries = withLoop({ steps: [reviewRound, { ...address, stop: true }] }, []);
+    const records = round(1, { review: { findings: 1 } }, {}, entries);
+    // Nothing follows the stopping step in record order: the loop's own row comes before it.
+    expect(advanceSteps({ steps: entries, records, dryRun: false })).toEqual({
+      kind: 'complete',
+      summary: 'review → address; stopped after address',
+      updates: [
+        { id: 'polish', status: 'completed', note: 'the run stopped after `address` in round 1' },
+      ],
+    });
+    // Round 2's stop as well: never a round 3.
+    const second = round(2, { review: { findings: 1 } }, {}, entries);
+    expect(advanceSteps({ steps: entries, records: second, dryRun: false })).toMatchObject({
+      kind: 'complete',
+      updates: [
+        { id: 'polish', status: 'completed', note: 'the run stopped after `address` in round 2' },
+      ],
+    });
+  });
+
+  it('a stop on the last step of a loop that already closed stops nothing more', () => {
+    const entries = withLoop({ steps: [reviewRound, { ...address, stop: true }] }, []);
+    const records = round(1, { review: { findings: 1 } }, {}, entries).map((row) =>
+      row.id === 'polish'
+        ? { ...row, status: 'completed' as const, note: 'clean after round 1' }
+        : row,
+    );
+    expect(advanceSteps({ steps: entries, records, dryRun: false })).toEqual({
+      kind: 'complete',
+      summary: 'review → address',
+      updates: [],
+    });
+  });
+
   it('stops the rest of its round too', () => {
     const entries = withLoop({ steps: [{ ...reviewRound, stop: true }, address] });
     const records = withStep(

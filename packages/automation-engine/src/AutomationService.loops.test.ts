@@ -288,6 +288,30 @@ describe('a loop runs round by round', () => {
     });
     expect(rowOf(h, run.id, 'ask').gate).toEqual({ askedAt: expect.any(String) });
   });
+
+  it('then: stop on the last step of a loop that ends the entry stops the run: no second round (review B1)', async () => {
+    const h = await accepted(
+      file(entry('loops', MANUAL(), polish('', LOOK, `${FIX}\nthen: stop`))),
+    );
+    const run = await fire(h);
+    await endLook(h, run.id, 1);
+    await endCommand(h, run.id, 'fix');
+    expect(h.store.get(run.id)).toMatchObject({
+      status: 'completed',
+      summary: 'look → fix; stopped after fix',
+    });
+    expect(rowOf(h, run.id, 'polish')).toMatchObject({
+      status: 'completed',
+      round: 1,
+      note: 'the run stopped after `fix` in round 1',
+    });
+    // Neither `look` nor the command the file meant to stop runs again.
+    expect(h.world.launches).toHaveLength(1);
+    expect(
+      h.world.commands.filter((command) => command.spec.env.CONSOLA_STEP === 'fix'),
+    ).toHaveLength(1);
+    expect(rowOf(h, run.id, 'look')).toMatchObject({ status: 'completed', attempt: 1, round: 1 });
+  });
 });
 
 describe('retries inside and of a loop', () => {

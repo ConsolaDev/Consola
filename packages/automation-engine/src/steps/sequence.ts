@@ -494,9 +494,12 @@ const OPEN: readonly StepRunStatus[] = ['pending', 'queued'];
 
 /**
  * `then: stop`: the first completed step that says it, with a row after it
- * the run has not reached, ends the run completed, those rows `not-run`,
- * each saying why, and the loop it is inside, still in its round,
- * `completed`, saying in which round. A skipped or failed step stops nothing.
+ * the run has not reached or a loop around it still in its round, ends the
+ * run completed, those rows `not-run`, each saying why, and that loop
+ * `completed`, saying in which round: a loop's row comes before its steps, so
+ * a stop on the last step of a loop that ends the entry has no row after it,
+ * and must still keep the loop from another round (review B1). A skipped or
+ * failed step stops nothing.
  */
 function stopAfter(entries: readonly StepEntry[], records: StepRun[]): Advance | null {
   const flat = flatSteps(entries);
@@ -509,10 +512,11 @@ function stopAfter(entries: readonly StepEntry[], records: StepRun[]): Advance |
       .slice(index + 1)
       .filter(({ step: after }) => OPEN.includes(byId.get(after.id)?.status as StepRunStatus))
       .map(({ step: after }): StepUpdate => ({ id: after.id, status: 'not-run', note }));
-    if (later.length === 0) continue;
     const loopRow = block && byId.get(block.id);
+    const inRound = block !== undefined && loopRow?.status === 'running';
+    if (later.length === 0 && !inRound) continue;
     const closesLoop: StepUpdate[] =
-      block && loopRow?.status === 'running'
+      inRound && loopRow
         ? [
             {
               id: block.id,
