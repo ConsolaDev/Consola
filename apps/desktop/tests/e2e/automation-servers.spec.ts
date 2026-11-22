@@ -1268,10 +1268,13 @@ test("a step on someone else's pull request is offered connectors only", async (
     // look runs in #51's own checkout with the connector alone: no strict, no account file.
     await expect.poll(() => launchesOf(steps, 'WORK').length, { timeout: 60_000 }).toBe(1);
     const [launch] = launchesOf(steps, 'WORK');
-    // The wrapper logs, then the stub it execs logs `<cwd> :: <argv>`.
-    const log = steps.claudeLog();
-    const stubLine = log.slice(log.indexOf(launch) + 1).find((line) => line.includes(' :: '));
-    expect(stubLine?.startsWith(`${steps.checkoutDir} :: `)).toBe(true);
+    // The wrapper logs, then the stub it execs logs `<cwd> :: <argv>`, a moment later: wait for it.
+    const stubCwd = () => {
+      const log = steps.claudeLog();
+      const stubLine = log.slice(log.indexOf(launch) + 1).find((line) => line.includes(' :: '));
+      return stubLine?.split(' :: ')[0];
+    };
+    await expect.poll(stubCwd, { timeout: 30_000 }).toBe(steps.checkoutDir);
     expect(settingsOf(launch).allowedMcpServers).toEqual([
       { serverName: 'consola' },
       { serverUrl: CORALOGIX_URL },
