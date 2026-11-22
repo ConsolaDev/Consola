@@ -6,11 +6,20 @@ import {
   CELL_TOKEN_LIFETIME_SECONDS,
   type CellTokenGrant,
   cellTokenClaims,
+  OUTBOX_ANSWER,
+  OUTBOX_DELIVERY_MEDIA_TYPE,
+  OUTBOX_DELIVERY_PATH,
+  OUTBOX_MESSAGE_TYPE,
+  type OutboxMessage,
+  readOutOfOrderAnswer,
   WORKSPACE_ROLES,
+  type WorkspaceChange,
 } from '@consola/cloud-contract';
-import { sql } from 'drizzle-orm';
+import { asc, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import {
+  type CompactJWSHeaderParameters,
+  CompactSign,
   calculateJwkThumbprint,
   createLocalJWKSet,
   exportJWK,
@@ -21,9 +30,19 @@ import {
   type JWTHeaderParameters,
   SignJWT,
 } from 'jose';
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  type MockInstance,
+  vi,
+} from 'vitest';
 import type { CellEnv } from './adapters/http/caller.js';
 import { type Database, migrateDatabase, openDatabase } from './adapters/persistence/database.js';
+import { workspaceMembers, workspaces } from './adapters/persistence/tables.js';
 import { composeCell } from './compose.js';
 import { type CellConfig, loadConfig } from './config.js';
 
@@ -417,20 +436,39 @@ describe('the keys', () => {
   });
 });
 
+/**
+ * The routes that answer without a cell token, and what each answers a bare request: the health
+ * check, and the outbox's deliveries, which carry a signature instead (a bare one has none, and
+ * no body, so it is unreadable). Nothing else is open.
+ */
+const OPEN_ROUTES: Record<string, number> = {
+  'GET /api/health': 200,
+  [`POST ${OUTBOX_DELIVERY_PATH}`]: OUTBOX_ANSWER.unreadable,
+};
+
 describe('every route', () => {
-  it('but GET /api/health refuses a request without a token', async () => {
+  it('but the open ones refuses a request without a token', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
     // Every route Hono holds but the check itself, which it lists as `ALL /*`.
     const routes = app.routes.filter((route) => !(route.method === 'ALL' && route.path === '/*'));
-    expect(routes.length).toBeGreaterThan(1);
+    expect(routes.length).toBeGreaterThan(2);
     for (const { method, path } of routes) {
       const response = await app.request(path.replace(/:[^/]+/g, 'x'), {
         method: method === 'ALL' ? 'GET' : method,
       });
-      const open = method === 'GET' && path === '/api/health';
-      expect([`${method} ${path}`, response.status]).toEqual([
-        `${method} ${path}`,
-        open ? 200 : 401,
-      ]);
+      const route = `${method} ${path}`;
+      expect([route, response.status]).toEqual([route, OPEN_ROUTES[route] ?? 401]);
+    }
+    // Each open route is one the app has.
+    const held = new Set(routes.map(({ method, path }) => `${method} ${path}`));
+    expect(Object.keys(OPEN_ROUTES).filter((route) => !held.has(route))).toEqual([]);
+  });
+
+  it('opens the outbox path to deliveries alone: any other method needs a token', async () => {
+    for (const method of ['GET', 'PUT', 'PATCH', 'DELETE']) {
+      const response = await app.request(OUTBOX_DELIVERY_PATH, { method });
+      expect([method, response.status]).toEqual([method, 401]);
+      expect(await response.json()).toEqual({ error: 'token_required' });
     }
   });
 
@@ -484,5 +522,348 @@ describe("a workspace's rows", () => {
       'Sprocket plan',
     ]);
     expect((await app.request('/api/notes')).status).toBe(401);
+  });
+});
+
+// Outbox deliveries are signed here the way cloud-global signs them: the message's JSON as the
+// payload of a compact JWS, with the cell token's key, its kid and the outbox's typ.
+
+const outboxMessage = (
+  sequence: number,
+  change: WorkspaceChange,
+  overrides: Partial<OutboxMessage> = {},
+): OutboxMessage => ({ workspaceId: 'acme', region: 'eu', sequence, change, ...overrides });
+
+const created = (overrides: Partial<OutboxMessage> = {}) =>
+  outboxMessage(1, { type: 'workspace.created' }, overrides);
+
+const added = (sequence: number, personId: string, role: CellTokenGrant['role']) =>
+  outboxMessage(sequence, { type: 'member.added', personId, role });
+
+function signDelivery(
+  payload: unknown,
+  key: SigningKey = cloudGlobal,
+  header: Partial<CompactJWSHeaderParameters> = {},
+): Promise<string> {
+  return new CompactSign(new TextEncoder().encode(JSON.stringify(payload)))
+    .setProtectedHeader({
+      alg: CELL_TOKEN_ALGORITHM,
+      kid: key.kid,
+      typ: OUTBOX_MESSAGE_TYPE,
+      ...header,
+    })
+    .sign(key.privateKey);
+}
+
+/** POSTs `body` to the outbox route of `cell` (this test's cell unless given), as cloud-global does. */
+function postDelivery(
+  body: string,
+  options: { contentType?: string | null; cell?: Hono; headers?: Record<string, string> } = {},
+) {
+  const { contentType = OUTBOX_DELIVERY_MEDIA_TYPE, cell = app } = options;
+  const headers: Record<string, string> = { ...options.headers };
+  if (contentType !== null) headers['content-type'] = contentType;
+  return cell.request(OUTBOX_DELIVERY_PATH, { method: 'POST', body, headers });
+}
+
+/** Signs `message` as cloud-global does and delivers it. */
+const deliver = async (message: unknown) => postDelivery(await signDelivery(message));
+
+/** Every row of the cell's copy, in a fixed order. */
+async function copy() {
+  return {
+    workspaces: await db.select().from(workspaces).orderBy(asc(workspaces.workspaceId)),
+    members: await db
+      .select()
+      .from(workspaceMembers)
+      .orderBy(asc(workspaceMembers.workspaceId), asc(workspaceMembers.personId)),
+  };
+}
+
+const empty = { workspaces: [], members: [] };
+
+describe('POST /api/outbox', () => {
+  let logged: MockInstance<typeof console.error>;
+  beforeEach(() => {
+    logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  it("applies a workspace's messages in order, leaving its copy: ids and roles", async () => {
+    for (const message of [
+      created(),
+      added(2, 'person-dana', 'owner'),
+      added(3, 'person-eli', 'member'),
+      outboxMessage(4, { type: 'member.role-changed', personId: 'person-eli', role: 'admin' }),
+      added(5, 'person-fay', 'member'),
+      outboxMessage(6, { type: 'member.removed', personId: 'person-fay' }),
+    ]) {
+      const response = await deliver(message);
+      expect([message.sequence, response.status]).toEqual([message.sequence, 200]);
+      expect(await response.json()).toEqual({ applied: true });
+    }
+    expect(await copy()).toEqual({
+      workspaces: [{ workspaceId: 'acme', lastAppliedSequence: 6 }],
+      members: [
+        { workspaceId: 'acme', personId: 'person-dana', role: 'owner' },
+        { workspaceId: 'acme', personId: 'person-eli', role: 'admin' },
+      ],
+    });
+    expect(logged).not.toHaveBeenCalled();
+  });
+
+  it('needs no cell token, and reads none it is sent', async () => {
+    const response = await postDelivery(await signDelivery(created()), {
+      headers: bearer('forged'),
+    });
+    expect(response.status).toBe(200);
+  });
+
+  it('changes nothing the second time it gets a message, answering that it has it', async () => {
+    await deliver(created());
+    await deliver(added(2, 'person-dana', 'owner'));
+    const changed = outboxMessage(3, {
+      type: 'member.role-changed',
+      personId: 'person-dana',
+      role: 'member',
+    });
+    const delivery = await signDelivery(changed);
+    expect((await postDelivery(delivery)).status).toBe(200);
+    const before = await copy();
+
+    // The same delivery again, and earlier ones that would undo it if they were applied.
+    for (const again of [delivery, await signDelivery(added(2, 'person-dana', 'owner'))]) {
+      const response = await postDelivery(again);
+      expect(response.status).toBe(OUTBOX_ANSWER.applied);
+      expect(await response.json()).toEqual({ applied: true });
+    }
+    expect(await copy()).toEqual(before);
+    expect(before.members).toEqual([
+      { workspaceId: 'acme', personId: 'person-dana', role: 'member' },
+    ]);
+  });
+
+  it('applies a message delivered many times at once exactly once', async () => {
+    const first = await signDelivery(created());
+    const firsts = await Promise.all(Array.from({ length: 6 }, () => postDelivery(first)));
+    expect(firsts.map((response) => response.status)).toEqual(Array(6).fill(200));
+    const second = await signDelivery(added(2, 'person-dana', 'owner'));
+    const seconds = await Promise.all(Array.from({ length: 6 }, () => postDelivery(second)));
+    expect(seconds.map((response) => response.status)).toEqual(Array(6).fill(200));
+    expect(await copy()).toEqual({
+      workspaces: [{ workspaceId: 'acme', lastAppliedSequence: 2 }],
+      members: [{ workspaceId: 'acme', personId: 'person-dana', role: 'owner' }],
+    });
+  });
+
+  it('answers 409 across a gap, naming the next sequence the way the contract reads it', async () => {
+    await deliver(created());
+    await deliver(added(2, 'person-dana', 'owner'));
+    const before = await copy();
+    const response = await deliver(outboxMessage(4, { type: 'member.removed', personId: 'x' }));
+    expect(response.status).toBe(OUTBOX_ANSWER.outOfOrder);
+    const body = await response.json();
+    expect(body).toEqual({ nextSequence: 3 });
+    expect(readOutOfOrderAnswer(body)).toEqual({ ok: true, value: { nextSequence: 3 } });
+    expect(await copy()).toEqual(before);
+    expect(logged).toHaveBeenCalledWith(
+      'The cell refused outbox message 4 of workspace acme: it applies 3 next.',
+    );
+  });
+
+  it('answers 409 naming the first sequence for a workspace it holds nothing of', async () => {
+    const response = await deliver(added(2, 'person-dana', 'owner'));
+    expect(response.status).toBe(OUTBOX_ANSWER.outOfOrder);
+    expect(await response.json()).toEqual({ nextSequence: 1 });
+    expect(await copy()).toEqual(empty);
+  });
+
+  it("refuses a message about another region's workspace with 421, applying nothing", async () => {
+    const response = await deliver(created({ workspaceId: 'sprocket', region: 'us' }));
+    expect(response.status).toBe(OUTBOX_ANSWER.otherRegion);
+    expect(await response.json()).toEqual({ error: 'otherRegion', region: 'eu' });
+    expect(await copy()).toEqual(empty);
+    expect(logged).toHaveBeenCalledWith(
+      'The cell refused outbox message 1 of workspace sprocket: the workspace is in us, and this cell serves eu.',
+    );
+  });
+
+  it("is the other cell's to apply", async () => {
+    const us = await openCell({ ...config, region: 'us' });
+    const sprocket = await signDelivery(created({ workspaceId: 'sprocket', region: 'us' }));
+    expect((await postDelivery(sprocket, { cell: us.app })).status).toBe(200);
+    expect((await postDelivery(await signDelivery(created()), { cell: us.app })).status).toBe(421);
+    await us.close();
+  });
+
+  it.each<[string, () => Promise<string>]>([
+    [
+      "one signed by another key that names cloud-global's key",
+      () => signDelivery(created(), stranger, { kid: cloudGlobal.kid }),
+    ],
+    ['one signed by a key cloud-global does not publish', () => signDelivery(created(), stranger)],
+    [
+      'one whose payload was changed after signing',
+      async () => {
+        const [header, , signature] = (await signDelivery(created())).split('.');
+        return [header, base64url(created({ workspaceId: 'sprocket' })), signature].join('.');
+      },
+    ],
+    ['one with another typ', () => signDelivery(created(), cloudGlobal, { typ: 'JWT' })],
+    ['one with no typ', () => signDelivery(created(), cloudGlobal, { typ: undefined })],
+    ['a real cell token', () => mint()],
+    ['one naming no key', () => signDelivery(created(), cloudGlobal, { kid: undefined })],
+    [
+      "an HS256 one whose secret is cloud-global's public key",
+      async () => {
+        const secret = new TextEncoder().encode(await exportSPKI(cloudGlobal.publicKey));
+        return new CompactSign(new TextEncoder().encode(JSON.stringify(created())))
+          .setProtectedHeader({ alg: 'HS256', kid: cloudGlobal.kid, typ: OUTBOX_MESSAGE_TYPE })
+          .sign(secret);
+      },
+    ],
+    [
+      'an unsigned one (alg: none)',
+      async () =>
+        `${base64url({ alg: 'none', kid: cloudGlobal.kid, typ: OUTBOX_MESSAGE_TYPE })}.${base64url(created())}.`,
+    ],
+    ['the message, unsigned', async () => JSON.stringify(created())],
+    ['an empty body', async () => ''],
+  ])('refuses %s with 401, applying nothing', async (_what, delivery) => {
+    const body = await delivery();
+    const response = await postDelivery(body);
+    expect(response.status).toBe(OUTBOX_ANSWER.unsigned);
+    expect(await response.json()).toEqual({ error: 'unsigned' });
+    expect(await copy()).toEqual(empty);
+    expect(logged).toHaveBeenCalledWith(
+      expect.stringMatching(
+        /^The cell refused an outbox delivery: it is not signed by cloud-global/,
+      ),
+    );
+    if (body !== '') expect(logged.mock.calls.flat().join('\n')).not.toContain(body);
+  });
+
+  it('refuses a body not sent as application/jose with 400, before reading it', async () => {
+    const delivery = await signDelivery(created());
+    for (const contentType of ['application/json', 'text/plain', 'application/jose+json', null]) {
+      const response = await postDelivery(delivery, { contentType });
+      expect([contentType, response.status]).toEqual([contentType, OUTBOX_ANSWER.unreadable]);
+      expect(await response.json()).toEqual({ error: 'unreadable' });
+    }
+    expect(await copy()).toEqual(empty);
+    expect(logged).toHaveBeenCalledWith(
+      'The cell refused an outbox delivery: it was not sent as application/jose.',
+    );
+    // The media type's case and its parameters do not matter.
+    const response = await postDelivery(delivery, {
+      contentType: 'Application/JOSE; charset=utf-8',
+    });
+    expect(response.status).toBe(200);
+  });
+
+  it('refuses a signed message the contract does not read with 400, logging why but not the body', async () => {
+    for (const [message, reason] of [
+      [
+        { ...created(), email: 'dana@acme.test' },
+        'the message has `email`, which the contract does not name',
+      ],
+      [
+        outboxMessage(1, { type: 'member.removed', personId: 'person-dana' }),
+        "a workspace's first message is not its `workspace.created`",
+      ],
+      [
+        { ...added(2, 'person-dana', 'owner'), sequence: 0 },
+        '`sequence` is not a whole number from 1',
+      ],
+      ['acme', 'the message is not an object'],
+    ] as const) {
+      const delivery = await signDelivery(message);
+      const response = await postDelivery(delivery);
+      expect(response.status).toBe(OUTBOX_ANSWER.unreadable);
+      expect(await response.json()).toEqual({ error: 'unreadable' });
+      expect(logged).toHaveBeenLastCalledWith(
+        `The cell refused an outbox delivery: its message does not read (${reason}).`,
+      );
+    }
+    expect(logged.mock.calls.flat().join('\n')).not.toContain('dana@acme.test');
+    expect(await copy()).toEqual(empty);
+  });
+
+  it('refuses a body too large for a message with 400, before checking it', async () => {
+    const delivery = await signDelivery({ ...created(), padding: 'x'.repeat(20_000) });
+    const response = await postDelivery(delivery);
+    expect(response.status).toBe(OUTBOX_ANSWER.unreadable);
+    expect(await response.json()).toEqual({ error: 'unreadable' });
+    expect(logged).toHaveBeenCalledWith(
+      'The cell refused an outbox delivery: its body is over 16384 bytes.',
+    );
+    // Nor when it says so in its Content-Length.
+    const declared = await postDelivery(delivery, {
+      headers: { 'content-length': String(delivery.length) },
+    });
+    expect(declared.status).toBe(OUTBOX_ANSWER.unreadable);
+  });
+
+  it('answers 503 when the database does not, applying nothing', async () => {
+    const delivery = await signDelivery(created());
+    await closeDatabase();
+    const response = await postDelivery(delivery);
+    expect(response.status).toBe(OUTBOX_ANSWER.unavailable);
+    expect(await response.json()).toEqual({ error: 'unavailable' });
+    expect(logged).toHaveBeenCalledWith(
+      expect.stringMatching(/^The cell could not apply outbox message 1 of workspace acme: /),
+    );
+  });
+});
+
+describe('the outbox and the keys', () => {
+  it("are checked with cloud-global's key set, fetched once for tokens and deliveries", async () => {
+    const global = await serveKeys(() => ({ status: 200, body: JSON.stringify(published) }));
+    const cell = await cellFetchingKeysFrom(global.url);
+
+    const delivery = await signDelivery(created());
+    expect((await postDelivery(delivery, { cell: cell.app })).status).toBe(200);
+    expect((await cell.app.request('/api/me', { headers: bearer(await mint()) })).status).toBe(200);
+    expect(global.requests).toEqual([`GET ${CELL_TOKEN_KEYS_PATH}`]);
+
+    await cell.close();
+    await global.close();
+  });
+
+  it('that cannot be fetched refuse every delivery with 503, never 401, saying why', async () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const failing = await serveKeys(() => ({ status: 500, body: '{"error":"internal"}' }));
+    const gone = await serveKeys(() => ({ status: 200, body: JSON.stringify(published) }));
+    await gone.close();
+
+    for (const global of [failing, gone]) {
+      const cell = await cellFetchingKeysFrom(global.url);
+      const delivery = await signDelivery(created());
+      const response = await postDelivery(delivery, { cell: cell.app });
+      expect(response.status).toBe(OUTBOX_ANSWER.unavailable);
+      expect(await response.json()).toEqual({ error: 'unavailable' });
+      expect(logged).toHaveBeenCalledWith(
+        expect.stringMatching(/^The cell could not get cloud-global's cell token keys: /),
+      );
+      expect(logged.mock.calls.flat().join('\n')).not.toContain(delivery);
+      await cell.close();
+    }
+    await failing.close();
+  });
+});
+
+describe('a delivery sent as a cell token', () => {
+  it('is no token: /api/me refuses it', async () => {
+    const delivery = await signDelivery(created());
+    const response = await app.request('/api/me', { headers: bearer(delivery) });
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({ error: 'invalid_token' });
+  });
+
+  it('is no token even when its payload holds good cell token claims', async () => {
+    // Signed with cloud-global's key and the outbox's typ: the typ alone refuses it.
+    const delivery = await signDelivery(claims());
+    const response = await app.request('/api/me', { headers: bearer(delivery) });
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({ error: 'invalid_token' });
   });
 });

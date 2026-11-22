@@ -180,7 +180,8 @@ Postgres) is the regional cell: one copy per region, configured with its
 region, holding what a workspace has there that is not global. It holds no
 accounts (people are referenced by their global id), and every table carries
 the workspace id. It trusts only `cloud-global`'s token: every request but its
-health check carries a cell token, checked with `cloud-global`'s public keys,
+health check and the outbox's deliveries (signed with the same key) carries a
+cell token, checked with `cloud-global`'s public keys,
 and the person, workspace and role come from that token alone, never from the
 request. Nothing in `apps/desktop` depends on the cloud apps, and none
 imports from the desktop, the website, another app or `packages/*`, with one

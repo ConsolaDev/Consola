@@ -6,6 +6,7 @@ import {
   CELL_TOKEN_LIFETIME_SECONDS,
   CLOCK_SKEW_SECONDS,
   cellTokenClaims,
+  OUTBOX_MESSAGE_TYPE,
 } from '@consola/cloud-contract';
 import {
   calculateJwkThumbprint,
@@ -119,6 +120,18 @@ describe('createJoseTokenVerifier', () => {
       });
     }
     expect(keys).not.toHaveBeenCalled();
+  });
+
+  it("refuses an outbox delivery's typ without asking the key set, whatever it holds", async () => {
+    const keys = vi.fn(createLocalJWKSet(published));
+    const { verifier } = verifierOver(keys);
+    const delivery = await sign(claims(), cloudGlobal, { typ: OUTBOX_MESSAGE_TYPE });
+    expect(await verifier.verify(delivery, NOW)).toEqual({ kind: 'invalid' });
+    expect(keys).not.toHaveBeenCalled();
+    // Any other typ is no concern of the token check.
+    expect(
+      (await verifier.verify(await sign(claims(), cloudGlobal, { typ: 'JWT' }), NOW)).kind,
+    ).toBe('verified');
   });
 
   it('refuses a token naming a key the set does not hold', async () => {
