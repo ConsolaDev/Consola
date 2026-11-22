@@ -372,6 +372,10 @@ describe('what an agent writing agent files and automation files is told', () =>
     // A step's agent is said where steps are: one of four, or beside a prompt or an action.
     expect(text).toContain('agent: <name>');
     expect(text).not.toContain('Each step has exactly one of prompt:, action: or run:.');
+    // A binary is not scanned for a command at load (review S2).
+    expect(text).toContain(
+      'a command at load (the characters ! and ` together) anywhere in SKILL.md, in a file with a text extension, or in any file that is valid UTF-8 (a binary, such as an image or a font, is not read for it).',
+    );
     // A link out of the folder is never read (review S3).
     expect(text).toContain(
       'a link leading outside the folder: Consola reads only files inside it.',

@@ -245,7 +245,7 @@ A step runs as an agent with agent: <name>, the agent's file name without .md. A
 
 Automation files. automations/<name>.yaml holds one automation, its keys at the top level as a factory.yml entry's are, with no name: (the file's name is the automation's) and no version: (it belongs to factory.yml). A name is unique across the folder: one defined both in factory.yml and as a file is refused in both. New entries saved with consola_save_automation go to factory.yml; one that replaces an entry living in its own file rewrites that file.
 
-Skills. skills/<name>/SKILL.md starts with its frontmatter, holding name: (the folder's name) and description: (1 to 1,024 characters); license: and compatibility: (text) and metadata: (names to text) are allowed too. A skill holds regular files and folders only, no symlinks, at most ${MAX_SKILL_FILES} files and 2 MB. Refused: hooks (they would run even in a read-only session), allowed-tools (name servers and tools in the agent file), any other key, and a command at load (the characters ! and \` together) anywhere in the skill.
+Skills. skills/<name>/SKILL.md starts with its frontmatter, holding name: (the folder's name) and description: (1 to 1,024 characters); license: and compatibility: (text) and metadata: (names to text) are allowed too. A skill holds regular files and folders only, no symlinks, at most ${MAX_SKILL_FILES} files and 2 MB. Refused: hooks (they would run even in a read-only session), allowed-tools (name servers and tools in the agent file), any other key, and a command at load (the characters ! and \` together) anywhere in SKILL.md, in a file with a text extension, or in any file that is valid UTF-8 (a binary, such as an image or a font, is not read for it).
 
 ${AGENT_EDIT_ASKS_AGAIN}
 
