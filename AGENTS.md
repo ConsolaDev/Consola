@@ -44,8 +44,9 @@ All commands above run from the repository root. The pnpm workspace contains
 `apps/cloud-global` (`@consola/cloud-global`), `apps/cloud-region`
 (`@consola/cloud-region`), `apps/cloud-web` (`@consola/cloud-web`),
 `packages/factory-spec` (`@consola/factory-spec`, MIT),
-`packages/automation-engine` (`@consola/automation-engine`) and
-`packages/sandbox` (`@consola/sandbox`). Turborepo
+`packages/automation-engine` (`@consola/automation-engine`),
+`packages/sandbox` (`@consola/sandbox`) and `packages/cloud-contract`
+(`@consola/cloud-contract`). Turborepo
 orchestrates builds, tests, and typechecking. Paths below beginning with `src/`,
 `scripts/`, or `dist/` are relative to `apps/desktop`. Use
 `pnpm --filter consola exec <tool>` for app-specific tools.
@@ -161,7 +162,13 @@ Postgres) is the regional cell: one copy per region, configured with its
 region, holding what a workspace has there that is not global. It holds no
 accounts (people are referenced by their global id), and every table carries
 the workspace id. Nothing in `apps/desktop` depends on the cloud apps, and none
-imports from the desktop, the website, another app or `packages/*`. Setup is in
+imports from the desktop, the website, another app or `packages/*`, with one
+exception: `cloud-global` and `cloud-region` both import
+`packages/cloud-contract` (`@consola/cloud-contract`), what the two agree on:
+the regions, the workspace roles, the claims of the token `cloud-global` mints
+for a cell, and the outbox messages it sends one. It does no I/O, so any layer
+of either app may import it; before changing it, read
+`packages/cloud-contract/AGENTS.md`. Setup is in
 `apps/cloud-global/README.md` and `apps/cloud-region/README.md`. Before
 changing a cloud app, read its own `AGENTS.md` (`apps/cloud-global/AGENTS.md`,
 `apps/cloud-region/AGENTS.md`, `apps/cloud-web/AGENTS.md`): it holds the layer
