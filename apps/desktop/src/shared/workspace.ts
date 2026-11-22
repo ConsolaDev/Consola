@@ -110,6 +110,8 @@ export interface Session {
   // The automation that started this session, when one did. Fixed: it says
   // where the session came from, not what it is doing now.
   automation?: SessionProvenance;
+  /** A step's turn cap, from its file: replayed on every unattended launch, fixed for the session's life. */
+  maxTurns?: number;
   createdAt: number;
   /** Creation-time seed only. Real activity lives in the attention ledger; read it through `activityOf`. */
   lastActiveAt: number;
@@ -423,6 +425,7 @@ export type NewSessionFields = Pick<
       | 'workItemAction'
       | 'toolPolicy'
       | 'automation'
+      | 'maxTurns'
       | 'nameIsUserSet'
     >
   >;

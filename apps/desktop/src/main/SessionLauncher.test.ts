@@ -3,8 +3,13 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { SessionOpenedError } from '@consola/automation-engine';
-import { SessionLauncher, type ExistingTerminal } from './SessionLauncher';
-import type { Session, Workspace } from '../shared/workspace';
+import {
+  SessionLauncher,
+  recordLaunchFields,
+  reportTurnsFor,
+  type ExistingTerminal,
+} from './SessionLauncher';
+import type { NewSessionFields, Session, Workspace } from '../shared/workspace';
 import type { Harness } from '../shared/harness';
 
 // Real folders on disk. The launcher refuses to spawn into a working folder
@@ -77,7 +82,7 @@ const launchFields = {
 function buildLauncher(session: Session) {
   const workspaces = {
     getAll: vi.fn(() => [workspaceFixture()]),
-    createSession: vi.fn(() => session),
+    createSession: vi.fn((_workspaceId: string, _fields: NewSessionFields): Session => session),
     updateSession: vi.fn(),
     deleteSession: vi.fn(),
     replaceConversation: vi.fn(
@@ -681,6 +686,163 @@ describe('SessionLauncher', () => {
     expect(options.driverId).toBeUndefined();
     expect(options.binaryOverride).toBeUndefined();
     expect(options.configDirOverride).toBeUndefined();
+  });
+
+  describe('a step session’s turns', () => {
+    const STEP = { name: 'catalog-notes', runId: 'r1', step: { id: 'look', attempt: 1 } };
+
+    it("a step session's terminal reports its unattended turns and carries its cap", async () => {
+      const { launcher, workspaces, terminals } = buildLauncher(sessionFixture());
+      // The record is what the fields make it: the spawn reads it, not the fields.
+      workspaces.createSession.mockImplementation(
+        (_workspaceId: string, fields: NewSessionFields) =>
+          ({ ...sessionFixture(), ...fields }) as Session,
+      );
+      await launcher.launchSession('ws-1', {
+        ...launchFields,
+        toolPolicy: 'read-only',
+        automation: STEP,
+        maxTurns: 6,
+        initialPrompt: 'look',
+        unattended: true,
+      });
+      expect((workspaces.createSession.mock.calls[0] as unknown[])[1]).toMatchObject({
+        maxTurns: 6,
+        automation: STEP,
+      });
+      expect(terminals.startHeadless).toHaveBeenCalledWith(
+        'instance-1',
+        expect.objectContaining({ reportTurns: true, maxTurns: 6, unattended: true }),
+      );
+    });
+
+    it('a legacy automation session’s terminal does not report, nor does a hand-made one’s', async () => {
+      const legacy = buildLauncher(
+        sessionFixture({ toolPolicy: 'read-only', automation: { name: 'nightly', runId: 'r2' } }),
+      );
+      await legacy.launcher.launchSession('ws-1', {
+        ...launchFields,
+        toolPolicy: 'read-only',
+        automation: { name: 'nightly', runId: 'r2' },
+        initialPrompt: 'look',
+        unattended: true,
+      });
+      expect(legacy.terminals.startHeadless.mock.calls[0][1]).toMatchObject({ reportTurns: false });
+      expect(legacy.terminals.startHeadless.mock.calls[0][1]).not.toHaveProperty('maxTurns');
+
+      const handMade = buildLauncher(sessionFixture());
+      await handMade.launcher.launchSession('ws-1', launchFields);
+      expect(handMade.terminals.startHeadless.mock.calls[0][1]).toMatchObject({
+        reportTurns: false,
+      });
+    });
+
+    it('resumeUnattended replays the record’s cap', async () => {
+      const session = sessionFixture({
+        toolPolicy: 'read-only',
+        hasStarted: true,
+        automation: STEP,
+        maxTurns: 6,
+      });
+      const { launcher, workspaces, terminals } = buildLauncher(session);
+      workspaces.getAll.mockReturnValue([{ ...workspaceFixture(), sessions: [session] }]);
+      await launcher.resumeUnattended('ws-1', 'session-1', 'Go on.');
+      expect(terminals.startHeadless.mock.calls[0][1]).toMatchObject({
+        resume: true,
+        unattended: true,
+        reportTurns: true,
+        maxTurns: 6,
+      });
+      expect(terminals.startHeadless.mock.calls[0][1]).not.toHaveProperty('turnMaxTurns');
+    });
+
+    it('the reminder’s cap reaches an exited terminal', async () => {
+      const session = sessionFixture({
+        toolPolicy: 'read-only',
+        hasStarted: true,
+        automation: STEP,
+        maxTurns: 6,
+      });
+      const { launcher, workspaces, terminals } = buildLauncher(session);
+      workspaces.getAll.mockReturnValue([{ ...workspaceFixture(), sessions: [session] }]);
+      terminals.get.mockReturnValue({ ...existingTerminal(), hasClaudeExited: () => true });
+      await launcher.relaunchUnattended('ws-1', 'session-1', 'remind', { maxTurns: 3 });
+      expect(terminals.relaunch).toHaveBeenCalledWith('instance-1', {
+        cwd: scopeDir,
+        prompt: 'remind',
+        unattended: true,
+        maxTurns: 3,
+      });
+    });
+
+    it('…and a terminal spawned fresh for it', async () => {
+      const session = sessionFixture({
+        toolPolicy: 'read-only',
+        hasStarted: true,
+        automation: STEP,
+        maxTurns: 6,
+      });
+      const { launcher, workspaces, terminals } = buildLauncher(session);
+      workspaces.getAll.mockReturnValue([{ ...workspaceFixture(), sessions: [session] }]);
+      await launcher.relaunchUnattended('ws-1', 'session-1', 'remind', { maxTurns: 3 });
+      expect(terminals.startHeadless.mock.calls[0][1]).toMatchObject({
+        resume: true,
+        unattended: true,
+        initialPrompt: 'remind',
+        reportTurns: true,
+        turnMaxTurns: 3,
+        maxTurns: 6,
+      });
+    });
+
+    it('a full-tools fork carries no cap and does not report', async () => {
+      const source = sessionFixture({
+        name: 'catalog-notes · look',
+        toolPolicy: 'read-only',
+        hasStarted: true,
+        automation: STEP,
+        maxTurns: 6,
+      });
+      const { launcher, workspaces, terminals } = buildLauncher(source);
+      workspaces.getAll.mockReturnValue([{ ...workspaceFixture(), sessions: [source] }]);
+      workspaces.createSession.mockImplementation(
+        (_workspaceId: string, fields: NewSessionFields) =>
+          ({ ...sessionFixture(), ...fields, id: 'session-2' }) as Session,
+      );
+      await launcher.forkWithFullTools('ws-1', 'session-1');
+      const recorded = (workspaces.createSession.mock.calls[0] as unknown[])[1];
+      expect(recorded).not.toHaveProperty('maxTurns');
+      expect(recorded).not.toHaveProperty('automation');
+      expect(terminals.startHeadless.mock.calls[0][1]).toMatchObject({ reportTurns: false });
+      expect(terminals.startHeadless.mock.calls[0][1]).not.toHaveProperty('maxTurns');
+    });
+
+    it.each<[string, Parameters<typeof recordLaunchFields>[0], object]>([
+      [
+        'a step session with a cap',
+        { automation: STEP, maxTurns: 6 },
+        { reportTurns: true, maxTurns: 6 },
+      ],
+      ['a step session without one', { automation: STEP }, { reportTurns: true }],
+      [
+        'a legacy automation session',
+        { automation: { name: 'nightly', runId: 'r2' } },
+        { reportTurns: false },
+      ],
+      ['a hand-made session', {}, { reportTurns: false }],
+      ['no record', undefined, { reportTurns: false }],
+    ])(
+      'recordLaunchFields is the one rule every launch path reads: %s',
+      (_name, record, expected) => {
+        expect(recordLaunchFields(record)).toStrictEqual(expected);
+      },
+    );
+
+    it('reportTurnsFor: only an automation step’s session reports', () => {
+      expect(reportTurnsFor({ automation: STEP })).toBe(true);
+      expect(reportTurnsFor({ automation: { name: 'nightly', runId: 'r2' } })).toBe(false);
+      expect(reportTurnsFor({})).toBe(false);
+    });
   });
 
   describe('relaunchUnattended', () => {

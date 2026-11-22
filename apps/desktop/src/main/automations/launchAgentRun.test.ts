@@ -247,6 +247,41 @@ describe('launchAgentRun', () => {
     expect(scheduled.ensureWorktree).not.toHaveBeenCalled();
   });
 
+  it("a step's cap reaches the session record", async () => {
+    const d = deps();
+    await launchAgentRun(d, {
+      ...itemRun,
+      step: {
+        id: 'review',
+        attempt: 1,
+        cwd: '/worktrees/api-pr-123-automation',
+        scopeId: 'scope-api',
+        name: 'Add retries · review',
+        maxTurns: 6,
+      },
+    });
+    expect(d.launchSession.mock.calls[0][1]).toMatchObject({ maxTurns: 6 });
+  });
+
+  it('none without one', async () => {
+    const d = deps();
+    await launchAgentRun(d, {
+      ...itemRun,
+      step: {
+        id: 'review',
+        attempt: 1,
+        cwd: '/worktrees/api-pr-123-automation',
+        scopeId: 'scope-api',
+        name: 'Add retries · review',
+      },
+    });
+    expect(d.launchSession.mock.calls[0][1]).not.toHaveProperty('maxTurns');
+    // A legacy agent run has no step, and so no cap.
+    const legacy = deps();
+    await launchAgentRun(legacy, itemRun);
+    expect(legacy.launchSession.mock.calls[0][1]).not.toHaveProperty('maxTurns');
+  });
+
   it('a step launch looks for a review started by hand only when the engine asks it to', async () => {
     const ws = workspace();
     ws.sessions = [

@@ -55,7 +55,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { exec } from 'node:child_process';
 import { TerminalManager } from './TerminalManager';
-import { SessionLauncher, launchFieldsFor } from './SessionLauncher';
+import { SessionLauncher, launchFieldsFor, recordLaunchFields } from './SessionLauncher';
 import { fanOut } from './fanOut';
 import { listScopeRepos } from './scopeRepos';
 import { runHeadless } from './drivers/ClaudeDriver';
@@ -685,10 +685,11 @@ export function setupIpcHandlers(): boolean {
   ipcMain.handle(
     IPC_CHANNELS.WORKSPACE_SESSION_CREATE,
     async (_event, workspaceId: string, payload: NewSessionFields, checkout?: SessionCheckout) => {
-      // Where a session came from and what its agent may do are main's
-      // to set, when an automation launches one; a window never does.
+      // Where a session came from, what its agent may do and how many turns
+      // a step's may take are main's to set, when an automation launches
+      // one; a window never does.
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const { toolPolicy, automation, ...fields } = payload ?? ({} as NewSessionFields);
+      const { toolPolicy, automation, maxTurns, ...fields } = payload ?? ({} as NewSessionFields);
       if (!checkout) return workspaces.createSession(workspaceId, fields);
       const scope = checkoutScope(workspaceId, fields.scopeId);
       const cwd = await sessionCheckouts.prepare(scope.path, checkout);
@@ -2121,9 +2122,10 @@ export function setupIpcHandlers(): boolean {
     // A turn Consola quit in the middle of picks up in its own session.
     resumeAgent: (session, prompt) =>
       launcher.resumeUnattended(session.workspaceId, session.id, prompt),
-    // A step that ended without its outputs is resumed once, in place, to set them.
-    remindAgent: (session, prompt) =>
-      launcher.relaunchUnattended(session.workspaceId, session.id, prompt),
+    // A step that ended without its outputs is resumed once, in place, to
+    // set them, under a cap of its own.
+    remindAgent: (session, prompt, maxTurns) =>
+      launcher.relaunchUnattended(session.workspaceId, session.id, prompt, { maxTurns }),
     hasLiveTerminal: (session) => automationTerminal(session.id)?.hasClaudeExited() === false,
     agentHarness: (workspaceId) => {
       const workspace = workspaces.getAll().find((candidate) => candidate.id === workspaceId);
@@ -2535,6 +2537,8 @@ export function setupIpcHandlers(): boolean {
         // From the record, never the window: a relaunch after a restart
         // comes through here, and must stay as restricted as the launch.
         toolPolicy: record?.toolPolicy,
+        // The same for whether its unattended turns report, and its cap.
+        ...recordLaunchFields(record),
         // So a conversation a harness switch began, never yet spoken in,
         // opens the way it began rather than blank.
         opening: record && openingFor(record),

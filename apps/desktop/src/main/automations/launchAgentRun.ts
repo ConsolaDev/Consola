@@ -198,6 +198,9 @@ export async function launchAgentRun(
       runId: request.run.id,
       ...(step ? { step: { id: step.id, attempt: step.attempt } } : {}),
     },
+    // The step's cap, on the record like its tool policy: every unattended
+    // launch of the session replays it.
+    ...(step?.maxTurns !== undefined ? { maxTurns: step.maxTurns } : {}),
     initialPrompt: request.prompt,
     // Nobody is watching: the first turn runs non-interactively, so
     // there is no composer to type into and no trust prompt to stall on.
