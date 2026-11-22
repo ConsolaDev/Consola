@@ -627,10 +627,14 @@ describe('agentStepLaunch with an agent', () => {
     expect(onItem.request.step?.checkout).toBe('item');
   });
 
-  it("with skills, the request names the run's copy and the attempt's plugin dir; without, neither (2-C)", () => {
-    const skilled = definitionOf('        agent: investigator\n', {
-      investigate: { ...INVESTIGATOR, skills: ['incident-triage'] },
-    });
+  it("with skills, the request names the run's copy, their hashes and the attempt's plugin dir; without, none (2-C, review M1)", () => {
+    const skilled: RunDefinition = {
+      ...definitionOf('        agent: investigator\n', {
+        investigate: { ...INVESTIGATOR, skills: ['incident-triage'] },
+      }),
+      // Every skill the run copies; the request names only its own agent's.
+      skills: { 'incident-triage': 'a'.repeat(64), 'release-notes': 'b'.repeat(64) },
+    };
     const launch = agentStepLaunch({
       workspaceId: 'ws-1',
       run: {
@@ -651,10 +655,14 @@ describe('agentStepLaunch with an agent', () => {
     if (!launch.ok) throw new Error(launch.error);
     expect(launch.request.step?.pluginDir).toBe('/state/ws-1/runs/run-1/investigate/1/plugin');
     expect(launch.request.step?.agent?.skillsDir).toBe('/state/ws-1/runs/run-1/skills');
+    expect(launch.request.step?.agent?.skillHashes).toStrictEqual({
+      'incident-triage': 'a'.repeat(64),
+    });
 
     const { step } = requestOf(definitionOf('        agent: investigator\n'));
     expect(Object.prototype.hasOwnProperty.call(step, 'pluginDir')).toBe(false);
     expect(Object.prototype.hasOwnProperty.call(step?.agent, 'skillsDir')).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(step?.agent, 'skillHashes')).toBe(false);
   });
 
   it('a step whose agent the definition lacks does not launch', () => {

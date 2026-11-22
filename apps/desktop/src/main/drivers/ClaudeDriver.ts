@@ -22,6 +22,7 @@ import { CONSOLA_MCP_SERVER, mcpToolName, READ_ONLY_CONSOLA_TOOLS } from '../mcp
 import {
   askSkillDenyRules,
   buildStepPlugin,
+  stepPluginProblem,
   CONSOLA_STEP_PLUGIN,
   compileClaudeAgent,
   probeClaudeMcpServers,
@@ -124,6 +125,10 @@ const GRANTS_NEED_READ_ONLY =
 const GRANTS_NEED_CONSOLA =
   "A step whose agent names MCP servers needs Consola's own server too, so it did not start.";
 const SKILLS_GONE = "This step's skills are no longer kept; it continues without them.";
+const SKILLS_CHANGED =
+  "This step's skills are not the ones its run holds; it continues without them.";
+const SKILLS_UNCHECKED =
+  "This step's skills cannot be checked against its run; it continues without them.";
 
 /** The launch's grants, checked: Claude's own, on a read-only session, with Consola's server when they name servers. */
 function claudeGrants(launch: SessionLaunch): ClaudeAgentGrants | undefined {
@@ -136,18 +141,35 @@ function claudeGrants(launch: SessionLaunch): ClaudeAgentGrants | undefined {
 }
 
 /**
- * The step's plugin dir when its skills can load: granted, and still a
- * folder on disk. It sits in the run folder, which is swept with its run;
- * once it is gone the session launches without its skills (fewer grants,
- * never more).
+ * Whether the step's skills can load, checked at every launch: granted,
+ * their plugin dir still a folder on disk, and still the plugin its run's
+ * definition holds (`stepPluginProblem` against the grants' hashes: review
+ * M1). It sits in the run folder, which is swept with its run; once it is
+ * gone, changed, or cannot be checked, the session launches without its
+ * skills (fewer grants, never more), and `notice` says why. Null for grants
+ * with no skills.
  */
-function livePluginDir(grants: ClaudeAgentGrants | undefined): string | undefined {
-  if (!grants || grants.skills.length === 0 || !grants.pluginDir) return undefined;
+function stepPlugin(
+  grants: ClaudeAgentGrants | undefined,
+): { dir: string } | { notice: string } | null {
+  if (!grants || grants.skills.length === 0 || !grants.pluginDir) return null;
+  let isFolder = false;
   try {
-    return fs.statSync(grants.pluginDir).isDirectory() ? grants.pluginDir : undefined;
+    isFolder = fs.statSync(grants.pluginDir).isDirectory();
   } catch {
-    return undefined;
+    isFolder = false;
   }
+  if (!isFolder) return { notice: SKILLS_GONE };
+  if (!grants.skillHashes) return { notice: SKILLS_UNCHECKED };
+  return stepPluginProblem(grants.pluginDir, grants.skills, grants.skillHashes) === null
+    ? { dir: grants.pluginDir }
+    : { notice: SKILLS_CHANGED };
+}
+
+/** The step's plugin dir when its skills can load (`stepPlugin`). */
+function livePluginDir(grants: ClaudeAgentGrants | undefined): string | undefined {
+  const plugin = stepPlugin(grants);
+  return plugin && 'dir' in plugin ? plugin.dir : undefined;
 }
 
 /**
@@ -566,15 +588,15 @@ export class ClaudeDriver implements HarnessDriver {
     if (!grants.pluginDir) {
       throw new Error('These grants name skills but no plugin dir to build them in.');
     }
-    await buildStepPlugin(skillsDir, grants.pluginDir, grants.skills);
+    await buildStepPlugin(skillsDir, grants.pluginDir, grants.skills, grants.skillHashes ?? {});
   }
 
-  /** The pane's notice when a step's skills were granted but their plugin dir is gone. */
+  /** The pane's notice when a step's skills were granted but cannot load: their plugin dir gone, changed or unchecked. */
   public launchNotice(launch: SessionLaunch): string | null {
     const grants = launch.grants;
     if (!grants || (grants as { driverId: string }).driverId !== 'claude') return null;
-    if (grants.skills.length === 0) return null;
-    return livePluginDir(grants) ? null : SKILLS_GONE;
+    const plugin = stepPlugin(grants);
+    return plugin && 'notice' in plugin ? plugin.notice : null;
   }
 
   public toolPolicyProblem(

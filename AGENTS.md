@@ -861,8 +861,9 @@ URL), strict dropped only for a connector, narrowed `--allowedTools`, a plugin
 dir in the attempt's folder (`--add-dir`, `Skill`, a deny rule per other skill
 the CLI lists, asked each launch where the session runs). `Session.grants` (not
 in `allowedSessionUpdates`) replays them every launch; skills are copied at
-fire, re-hashed at launch; `init` must show each granted server connected,
-and no server but those and Consola's own. A
+fire, re-hashed at launch and in the plugin built from them, and a reopen
+loads that plugin only while it still holds them; `init` must show each
+granted server connected, and no server but those and Consola's own. A
 step's session keeps its harness while its run is open (provenance and run
 record, not `attention.holds()`), then loses its grants. "Reads text other
 people wrote" marks runs that carry an item. A card names a whole server's

@@ -27,6 +27,12 @@ export interface ClaudeAgentGrants {
   allowedTools: string[];
   /** The step's built plugin dir, when skills are granted. */
   pluginDir?: string;
+  /**
+   * Beside `pluginDir`: each granted skill's `skillHash` as its run's
+   * definition held it. The plugin was built to these, and a launch loads it
+   * only while it still holds exactly them (review M1).
+   */
+  skillHashes?: Record<string, string>;
 }
 
 /** A step's grants, tagged by the driver that compiled them. Only Claude's today. */

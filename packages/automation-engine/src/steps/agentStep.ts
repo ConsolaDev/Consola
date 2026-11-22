@@ -171,7 +171,10 @@ export function stepCap(definition: RunDefinition, stepId: string): number | und
  * `previous.*` read lists from `folder`. `checkoutKind` is the run's
  * (`runCheckoutKind`), which the request carries as `step.checkout`;
  * `skillsDir` and `pluginDir`, given when the step's agent names skills,
- * are the run's checked copy of them and where the host builds its plugin.
+ * are the run's checked copy of them and where the host builds its plugin;
+ * the request then also carries each of those skills' hashes as the
+ * definition holds them (`skillHashes`), which the host checks what it
+ * builds, and every later launch, against (review M1).
  */
 export function agentStepLaunch(input: {
   workspaceId: string;
@@ -295,7 +298,17 @@ export function agentStepLaunch(input: {
                   ...(server.tools !== undefined ? { tools: [...server.tools] } : {}),
                 })),
                 skills: [...agent.skills],
-                ...(skillsDir !== undefined ? { skillsDir } : {}),
+                ...(skillsDir !== undefined
+                  ? {
+                      skillsDir,
+                      skillHashes: Object.fromEntries(
+                        agent.skills.flatMap((name) => {
+                          const hash = definition.skills?.[name];
+                          return hash !== undefined ? [[name, hash]] : [];
+                        }),
+                      ),
+                    }
+                  : {}),
               },
             }
           : {}),

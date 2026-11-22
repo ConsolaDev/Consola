@@ -451,6 +451,7 @@ describe('launchAgentRun', () => {
     const TRACKER: McpServerReport = { ...GRAFANA, name: 'tracker', tools: undefined };
     const PLUGIN = '/data/runs/run-3/look/1/plugin';
     const SKILLS = '/data/runs/run-3/skills';
+    const TRIAGE_HASH = 'a'.repeat(64);
     const investigator = (
       fields: Partial<NonNullable<NonNullable<AgentLaunchRequest['step']>['agent']>> = {},
     ) => ({
@@ -535,15 +536,23 @@ describe('launchAgentRun', () => {
       const d = deps({ driverFor: () => driver });
       await launchAgentRun(
         d,
-        step(investigator({ mcpServers: [], skills: ['incident-triage'], skillsDir: SKILLS }), {
-          pluginDir: PLUGIN,
-        }),
+        step(
+          investigator({
+            mcpServers: [],
+            skills: ['incident-triage'],
+            skillsDir: SKILLS,
+            skillHashes: { 'incident-triage': TRIAGE_HASH },
+          }),
+          { pluginDir: PLUGIN },
+        ),
       );
       const { grants } = fieldsOf(d);
       expect(grants).toMatchObject({
         skills: ['incident-triage'],
         pluginDir: PLUGIN,
         allowedTools: ['Skill(consola-step:incident-triage)'],
+        // What the plugin is built, and every later launch checked, against (review M1).
+        skillHashes: { 'incident-triage': TRIAGE_HASH },
       });
       expect(stageSkills).toHaveBeenCalledWith(grants, SKILLS);
       // Skills alone ask no CLI which servers it has.
@@ -556,11 +565,36 @@ describe('launchAgentRun', () => {
       await expect(
         launchAgentRun(
           d,
+          step(
+            investigator({
+              mcpServers: [],
+              skills: ['incident-triage'],
+              skillsDir: SKILLS,
+              skillHashes: { 'incident-triage': TRIAGE_HASH },
+            }),
+            {
+              pluginDir: PLUGIN,
+            },
+          ),
+        ),
+      ).rejects.toThrow(/^It did not start: EACCES\.$/);
+      expect(d.launchSession).not.toHaveBeenCalled();
+    });
+
+    it('skills with no hashes to check their plugin against start nothing (review M1)', async () => {
+      const { driver, stageSkills } = watchedClaude();
+      const d = deps({ driverFor: () => driver });
+      await expect(
+        launchAgentRun(
+          d,
           step(investigator({ mcpServers: [], skills: ['incident-triage'], skillsDir: SKILLS }), {
             pluginDir: PLUGIN,
           }),
         ),
-      ).rejects.toThrow(/^It did not start: EACCES\.$/);
+      ).rejects.toThrow(
+        /^It did not start: its skills have no hashes from its run to check its plugin against\.$/,
+      );
+      expect(stageSkills).not.toHaveBeenCalled();
       expect(d.launchSession).not.toHaveBeenCalled();
     });
 
@@ -586,9 +620,17 @@ describe('launchAgentRun', () => {
       await expect(
         launchAgentRun(
           d,
-          step(investigator({ mcpServers: [], skills: ['incident-triage'], skillsDir: SKILLS }), {
-            pluginDir: PLUGIN,
-          }),
+          step(
+            investigator({
+              mcpServers: [],
+              skills: ['incident-triage'],
+              skillsDir: SKILLS,
+              skillHashes: { 'incident-triage': TRIAGE_HASH },
+            }),
+            {
+              pluginDir: PLUGIN,
+            },
+          ),
         ),
       ).rejects.toThrow(
         /^It did not start: Claude work can't give an agent MCP servers or skills\.$/,

@@ -297,6 +297,11 @@ export interface CompileAgentInput {
   servers: readonly McpServerReport[];
   /** Where the plugin dir will be built; absent at apply. */
   pluginDir?: string;
+  /**
+   * With `pluginDir`: each skill's `skillHash` as the run's definition holds
+   * it, which the plugin is built, and every later launch checked, against.
+   */
+  skillHashes?: Readonly<Record<string, string>>;
 }
 
 /** The grants an agent compiles to, with what the person should know of them; or why not. */

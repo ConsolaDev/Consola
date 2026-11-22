@@ -104,12 +104,16 @@ async function compileForLaunch(
     checkout: step.checkout,
     servers,
     ...(step.pluginDir !== undefined ? { pluginDir: step.pluginDir } : {}),
+    ...(agent.skillHashes !== undefined ? { skillHashes: agent.skillHashes } : {}),
   });
   if (!compiled.ok) throw didNotStart(compiled.problem);
   if (agent.skills.length > 0) {
     if (!driver.stageSkills) throw didNotStart(noAgentGrants(name));
     if (agent.skillsDir === undefined)
       throw didNotStart('its skills have no copy in the run folder to build its plugin from');
+    // The plugin is built, and every later launch checked, against these (review M1).
+    if (agent.skillHashes === undefined)
+      throw didNotStart('its skills have no hashes from its run to check its plugin against');
     try {
       await driver.stageSkills(compiled.grants, agent.skillsDir);
     } catch (error) {

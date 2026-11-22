@@ -208,6 +208,13 @@ export interface AgentLaunchRequest {
       skills: string[];
       /** The run's copy of its skills (`runs/<run>/skills/`), checked against its definition: only when it names skills. */
       skillsDir?: string;
+      /**
+       * Beside `skillsDir`: each of its skills' `skillHash` as the run's
+       * definition holds it. The host builds the step's plugin from the copy
+       * only if what it built hashes to these, and launches the session with
+       * its skills again only while they still do (review M1).
+       */
+      skillHashes?: Record<string, string>;
     };
   };
 }

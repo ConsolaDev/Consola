@@ -2,7 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { skillHash } from '@consola/factory-spec';
 import { buildTextGenerationArgs, ClaudeDriver } from './ClaudeDriver';
+import { buildStepPlugin } from './claudeAgent';
 import { claudeSettings } from './claudeHooks';
 import type { ClaudeAgentGrants } from '../../shared/agentGrants';
 import type { HarnessConfig, SessionLaunch } from './HarnessDriver';
@@ -947,10 +949,19 @@ describe("an agent's grants on a launch", () => {
   describe('skills', () => {
     let dir: string;
     let pluginDir: string;
-    beforeEach(() => {
+    /** The run's copy of the step's one skill, and its hash as the run's definition holds it. */
+    const TRIAGE = '# Triage\n';
+    const TRIAGE_HASH = skillHash([{ path: 'SKILL.md', bytes: new TextEncoder().encode(TRIAGE) }]);
+    beforeEach(async () => {
       dir = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-step-skills-'));
       pluginDir = path.join(dir, 'run', 'look', '1', 'plugin');
-      fs.mkdirSync(pluginDir, { recursive: true });
+      const skillsDir = path.join(dir, 'run', 'skills');
+      fs.mkdirSync(path.join(skillsDir, 'incident-triage'), { recursive: true });
+      fs.writeFileSync(path.join(skillsDir, 'incident-triage', 'SKILL.md'), TRIAGE);
+      // The plugin as the attempt's first launch built it.
+      await buildStepPlugin(skillsDir, pluginDir, ['incident-triage'], {
+        'incident-triage': TRIAGE_HASH,
+      });
     });
     afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
@@ -961,6 +972,7 @@ describe("an agent's grants on a launch", () => {
       strict: true,
       allowedTools: ['Skill(consola-step:incident-triage)'],
       pluginDir: plugin,
+      skillHashes: { 'incident-triage': TRIAGE_HASH },
     });
 
     /**
@@ -1117,6 +1129,53 @@ setTimeout(() => {}, 10000);`,
       );
     });
 
+    const CHANGED = "This step's skills are not the ones its run holds; it continues without them.";
+    it.each<
+      [string, (plugin: string) => void, (grants: ClaudeAgentGrants) => ClaudeAgentGrants, string]
+    >([
+      [
+        'a skill changed in its plugin dir since it was built',
+        (plugin) =>
+          fs.writeFileSync(
+            path.join(plugin, 'skills', 'incident-triage', 'SKILL.md'),
+            '# Not it\n',
+          ),
+        (grants) => grants,
+        CHANGED,
+      ],
+      [
+        'a skill added to its plugin dir',
+        (plugin) => fs.mkdirSync(path.join(plugin, 'skills', 'stowaway')),
+        (grants) => grants,
+        CHANGED,
+      ],
+      [
+        'grants that hold no hashes to check it against',
+        () => {},
+        ({ skillHashes: _hashes, ...grants }) => grants,
+        "This step's skills cannot be checked against its run; it continues without them.",
+      ],
+    ])(
+      'with %s: no skills at all, nothing asked, and a notice (review M1)',
+      (_label, change, grantsOf, notice) => {
+        const config = { binaryPath: initializeCli(ALL), extraArgs: EXTRA };
+        change(pluginDir);
+        const launch = { ...turn, cwd: dir, grants: grantsOf(skillGrants(pluginDir)) };
+        const built = args(config, launch);
+        for (const absent of [
+          '--plugin-dir',
+          '--add-dir',
+          'Read,Grep,Glob,Skill',
+          '--disallowedTools',
+        ])
+          expect(built).not.toContain(absent);
+        expect(built).not.toContain('Skill(consola-step:incident-triage)');
+        expect(built[built.indexOf('--tools') + 1]).toBe('Read,Grep,Glob');
+        expect(asked()).toHaveLength(0);
+        expect(driver.launchNotice(launch)).toBe(notice);
+      },
+    );
+
     it('builds no plugin flags for grants that hold a plugin dir and no skills', () => {
       const config = { binaryPath: initializeCli(ALL), extraArgs: [] };
       const built = args(config, {
@@ -1137,13 +1196,19 @@ setTimeout(() => {}, 10000);`,
 
     it('stages the plugin dir from the run’s skills copy', async () => {
       const skillsDir = path.join(dir, 'run', 'skills');
-      fs.mkdirSync(path.join(skillsDir, 'incident-triage'), { recursive: true });
-      fs.writeFileSync(path.join(skillsDir, 'incident-triage', 'SKILL.md'), '# Triage\n');
       fs.rmSync(pluginDir, { recursive: true });
       await driver.stageSkills(skillGrants(pluginDir), skillsDir);
       expect(
         fs.readFileSync(path.join(pluginDir, 'skills', 'incident-triage', 'SKILL.md'), 'utf8'),
       ).toBe('# Triage\n');
+      // Only the copy the run holds (review M1).
+      fs.rmSync(pluginDir, { recursive: true });
+      fs.writeFileSync(path.join(skillsDir, 'incident-triage', 'SKILL.md'), '# Changed\n');
+      await expect(driver.stageSkills(skillGrants(pluginDir), skillsDir)).rejects.toThrow(
+        /skills\/incident-triage in the run folder is not the one its run holds/,
+      );
+      expect(fs.existsSync(pluginDir)).toBe(false);
+      fs.writeFileSync(path.join(skillsDir, 'incident-triage', 'SKILL.md'), TRIAGE);
       await expect(
         driver.stageSkills({ ...skillGrants(pluginDir), pluginDir: undefined }, skillsDir),
       ).rejects.toThrow(/no plugin dir/);

@@ -2,9 +2,11 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { skillHash } from '@consola/factory-spec';
 import { describe, expect, it, vi } from 'vitest';
 import type { ClaudeAgentGrants } from '../../shared/agentGrants';
 import { ClaudeDriver } from './ClaudeDriver';
+import { buildStepPlugin } from './claudeAgent';
 import type { SessionLaunch } from './HarnessDriver';
 
 // (vi.mock is hoisted above the imports.) The real probe runs the user's interactive login shell.
@@ -149,7 +151,16 @@ describe("the real-CLI canary's agent flags", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-canary-skills-'));
     try {
       const pluginDir = path.join(dir, 'plugin');
-      fs.mkdirSync(pluginDir);
+      // The plugin as a step's first launch builds it, from the run's copy, to the run's hash (review M1).
+      const skillsDir = path.join(dir, 'skills');
+      fs.mkdirSync(path.join(skillsDir, 'incident-triage'), { recursive: true });
+      fs.writeFileSync(path.join(skillsDir, 'incident-triage', 'SKILL.md'), '# Triage\n');
+      const skillHashes = {
+        'incident-triage': skillHash([
+          { path: 'SKILL.md', bytes: new TextEncoder().encode('# Triage\n') },
+        ]),
+      };
+      await buildStepPlugin(skillsDir, pluginDir, ['incident-triage'], skillHashes);
       const script = path.join(dir, 'cli.cjs');
       fs.writeFileSync(
         script,
@@ -170,6 +181,7 @@ setTimeout(() => {}, 10000);`,
         strict: true,
         allowedTools: ['Skill(consola-step:incident-triage)'],
         pluginDir,
+        skillHashes,
       };
       const launched = await new ClaudeDriver().buildSessionArgs(
         { binaryPath: cli, extraArgs: [] },

@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { skillHash } from '@consola/factory-spec';
 import { afterAll, describe, expect, it } from 'vitest';
 import {
   buildStepPlugin,
@@ -11,6 +12,7 @@ import {
   probeClaudeMcpServers,
   STEP_PLUGIN_MANIFEST,
   skillDenyRules,
+  stepPluginProblem,
 } from './claudeAgent';
 import { CLAUDE_SIGN_IN_HINT } from './claudeTurnReader';
 import type { AgentRequirements, CheckoutKind, McpServerReport } from './HarnessDriver';
@@ -35,6 +37,18 @@ function fakeCli(scriptBody: string): string {
   fs.writeFileSync(shim, `#!/bin/sh\nexec "${process.execPath}" "${file}" "$@"\n`, 'utf8');
   fs.chmodSync(shim, 0o755);
   return shim;
+}
+
+/** A folder's regular files, by `/`-separated relative path: what `skillHash` covers. */
+function filesOf(dir: string, relative = ''): Array<{ path: string; bytes: Uint8Array }> {
+  const files: Array<{ path: string; bytes: Uint8Array }> = [];
+  for (const entry of fs.readdirSync(path.join(dir, relative)).sort()) {
+    const inside = relative === '' ? entry : `${relative}/${entry}`;
+    if (fs.lstatSync(path.join(dir, inside)).isDirectory()) files.push(...filesOf(dir, inside));
+    else
+      files.push({ path: inside, bytes: new Uint8Array(fs.readFileSync(path.join(dir, inside))) });
+  }
+  return files;
 }
 
 function hash(value: string): number {
@@ -401,6 +415,7 @@ describe('compileClaudeAgent', () => {
     checkout: CheckoutKind = 'scope',
     servers: readonly McpServerReport[] = REPORT,
     pluginDir?: string,
+    skillHashes?: Record<string, string>,
   ) =>
     compileClaudeAgent({
       config: { extraArgs: [] },
@@ -410,6 +425,7 @@ describe('compileClaudeAgent', () => {
       servers,
       accountFile: ACCOUNT,
       ...(pluginDir !== undefined ? { pluginDir } : {}),
+      ...(skillHashes !== undefined ? { skillHashes } : {}),
     });
   const problemOf = (...args: Parameters<typeof compile>) => {
     const compiled = compile(...args);
@@ -501,8 +517,16 @@ describe('compileClaudeAgent', () => {
       },
       warnings: [],
     });
+    // With the run's hashes, the grants keep each granted skill's, to check every launch against (review M1).
+    const hashes = { 'incident-triage': 'a'.repeat(64), 'release-notes': 'b'.repeat(64) };
+    const launched = compile({ skills }, 'item', REPORT, '/runs/r1/look/1/plugin', {
+      ...hashes,
+      'not-granted': 'c'.repeat(64),
+    });
+    expect(launched.ok && launched.grants.skillHashes).toStrictEqual(hashes);
     const atApply = compile({ skills });
     expect(atApply.ok && atApply.grants).not.toHaveProperty('pluginDir');
+    expect(atApply.ok && atApply.grants).not.toHaveProperty('skillHashes');
     // A plugin dir with no skills to build is not granted.
     const none = compile({ mcpServers: [{ name: 'grafana' }] }, 'scope', REPORT, '/p');
     expect(none.ok && none.grants).not.toHaveProperty('pluginDir');
@@ -842,10 +866,18 @@ describe('buildStepPlugin', () => {
     return { skillsDir, pluginDir: path.join(dir, 'look', '1', 'plugin') };
   };
   const read = (file: string) => fs.readFileSync(file);
+  /** Each skill's hash as the run copy holds it: what the definition records. */
+  const hashesOf = (skillsDir: string, names: readonly string[]) =>
+    Object.fromEntries(names.map((name) => [name, skillHash(filesOf(path.join(skillsDir, name)))]));
 
   it('writes the manifest and copies only the asked-for skills, byte for byte', async () => {
     const { skillsDir, pluginDir } = make();
-    await buildStepPlugin(skillsDir, pluginDir, ['incident-triage']);
+    await buildStepPlugin(
+      skillsDir,
+      pluginDir,
+      ['incident-triage'],
+      hashesOf(skillsDir, ['incident-triage']),
+    );
 
     expect(
       JSON.parse(fs.readFileSync(path.join(pluginDir, '.claude-plugin', 'plugin.json'), 'utf8')),
@@ -865,9 +897,15 @@ describe('buildStepPlugin', () => {
 
   it('builds it fresh: what an earlier build left is gone', async () => {
     const { skillsDir, pluginDir } = make();
-    await buildStepPlugin(skillsDir, pluginDir, ['incident-triage', 'release-notes']);
+    const both = ['incident-triage', 'release-notes'];
+    await buildStepPlugin(skillsDir, pluginDir, both, hashesOf(skillsDir, both));
     fs.writeFileSync(path.join(pluginDir, 'skills', 'incident-triage', 'left.md'), 'old\n');
-    await buildStepPlugin(skillsDir, pluginDir, ['incident-triage']);
+    await buildStepPlugin(
+      skillsDir,
+      pluginDir,
+      ['incident-triage'],
+      hashesOf(skillsDir, ['incident-triage']),
+    );
 
     expect(fs.existsSync(path.join(pluginDir, 'skills', 'incident-triage', 'left.md'))).toBe(false);
     expect(fs.existsSync(path.join(pluginDir, 'skills', 'release-notes'))).toBe(false);
@@ -876,35 +914,138 @@ describe('buildStepPlugin', () => {
   it('rejects a link in the run copy, and leaves no plugin behind', async () => {
     const { skillsDir, pluginDir } = make();
     fs.symlinkSync('/etc/hosts', path.join(skillsDir, 'incident-triage', 'hosts.md'));
-    await expect(buildStepPlugin(skillsDir, pluginDir, ['incident-triage'])).rejects.toThrow(
-      /not a regular file/,
-    );
+    await expect(
+      buildStepPlugin(skillsDir, pluginDir, ['incident-triage'], { 'incident-triage': 'x' }),
+    ).rejects.toThrow(/not a regular file/);
     expect(fs.existsSync(pluginDir)).toBe(false);
   });
 
   it('rejects a skill folder that is itself a link', async () => {
     const { skillsDir, pluginDir } = make();
     fs.symlinkSync(path.join(skillsDir, 'release-notes'), path.join(skillsDir, 'linked'));
-    await expect(buildStepPlugin(skillsDir, pluginDir, ['linked'])).rejects.toThrow(
-      /not a regular file/,
-    );
+    await expect(
+      buildStepPlugin(skillsDir, pluginDir, ['linked'], { linked: 'x' }),
+    ).rejects.toThrow(/not a regular file/);
   });
 
   it('rejects a skill the run copy does not hold, and a name that is no skill name', async () => {
     const { skillsDir, pluginDir } = make();
-    await expect(buildStepPlugin(skillsDir, pluginDir, ['missing'])).rejects.toThrow(/missing/);
-    await expect(buildStepPlugin(skillsDir, pluginDir, ['../release-notes'])).rejects.toThrow(
-      /not a skill name/,
-    );
+    await expect(
+      buildStepPlugin(skillsDir, pluginDir, ['missing'], { missing: 'x' }),
+    ).rejects.toThrow(/missing/);
+    await expect(
+      buildStepPlugin(skillsDir, pluginDir, ['../release-notes'], { '../release-notes': 'x' }),
+    ).rejects.toThrow(/not a skill name/);
   });
 
   it('leaves alone a folder at its path that Consola did not build', async () => {
     const { skillsDir, pluginDir } = make();
     fs.mkdirSync(pluginDir, { recursive: true });
     fs.writeFileSync(path.join(pluginDir, 'notes.md'), 'mine\n');
-    await expect(buildStepPlugin(skillsDir, pluginDir, ['incident-triage'])).rejects.toThrow(
-      /did not build/,
-    );
+    await expect(
+      buildStepPlugin(
+        skillsDir,
+        pluginDir,
+        ['incident-triage'],
+        hashesOf(skillsDir, ['incident-triage']),
+      ),
+    ).rejects.toThrow(/did not build/);
     expect(fs.readFileSync(path.join(pluginDir, 'notes.md'), 'utf8')).toBe('mine\n');
+  });
+
+  it('refuses a copy that does not hash to what the run holds, and leaves no plugin behind (review M1)', async () => {
+    const { skillsDir, pluginDir } = make();
+    const hashes = hashesOf(skillsDir, ['incident-triage']);
+    // Written after the engine hashed the run's copy, before the host copied it.
+    fs.writeFileSync(path.join(skillsDir, 'incident-triage', 'queries.md'), 'level:any\n');
+    await expect(
+      buildStepPlugin(skillsDir, pluginDir, ['incident-triage'], hashes),
+    ).rejects.toThrow(
+      "skills/incident-triage in the run folder is not the one its run holds, so the step's plugin was not built.",
+    );
+    expect(fs.existsSync(pluginDir)).toBe(false);
+    expect(fs.readdirSync(path.dirname(pluginDir))).toEqual([]);
+  });
+
+  it('refuses a skill it has no hash for', async () => {
+    const { skillsDir, pluginDir } = make();
+    await expect(buildStepPlugin(skillsDir, pluginDir, ['incident-triage'], {})).rejects.toThrow(
+      /skills\/incident-triage in the run folder is not the one its run holds/,
+    );
+    expect(fs.existsSync(pluginDir)).toBe(false);
+  });
+});
+
+describe('stepPluginProblem (review M1)', () => {
+  const built = async () => {
+    const dir = fs.mkdtempSync(path.join(scriptDir, 'checked-'));
+    const skillsDir = path.join(dir, 'skills');
+    fs.mkdirSync(path.join(skillsDir, 'incident-triage', 'refs'), { recursive: true });
+    fs.writeFileSync(path.join(skillsDir, 'incident-triage', 'SKILL.md'), '# Incident triage\n');
+    fs.writeFileSync(path.join(skillsDir, 'incident-triage', 'refs', 'a.md'), 'a\n');
+    const hashes = {
+      'incident-triage': skillHash(filesOf(path.join(skillsDir, 'incident-triage'))),
+    };
+    const pluginDir = path.join(dir, 'plugin');
+    await buildStepPlugin(skillsDir, pluginDir, ['incident-triage'], hashes);
+    return { dir, pluginDir, hashes };
+  };
+  const at = (pluginDir: string, ...parts: string[]) => path.join(pluginDir, ...parts);
+
+  it('is null for the plugin as it was built', async () => {
+    const { pluginDir, hashes } = await built();
+    expect(stepPluginProblem(pluginDir, ['incident-triage'], hashes)).toBeNull();
+  });
+
+  it.each<[string, (pluginDir: string, dir: string) => void]>([
+    [
+      'a byte changed in a skill',
+      (p) => fs.writeFileSync(at(p, 'skills', 'incident-triage', 'SKILL.md'), '# Changed\n'),
+    ],
+    [
+      'a file added to a skill',
+      (p) => fs.writeFileSync(at(p, 'skills', 'incident-triage', 'b.md'), 'b\n'),
+    ],
+    ['a skill added', (p) => fs.mkdirSync(at(p, 'skills', 'stowaway'))],
+    [
+      'the manifest changed',
+      (p) =>
+        fs.writeFileSync(
+          at(p, '.claude-plugin', 'plugin.json'),
+          JSON.stringify({ ...STEP_PLUGIN_MANIFEST, hooks: './hooks.json' }),
+        ),
+    ],
+    [
+      'a file beside the manifest',
+      (p) => fs.writeFileSync(at(p, '.claude-plugin', 'hooks.json'), '{}'),
+    ],
+    ['a folder beside skills', (p) => fs.mkdirSync(at(p, 'hooks'))],
+    [
+      'a skill file swapped for a link to an identical copy',
+      (p, dir) => {
+        const file = at(p, 'skills', 'incident-triage', 'refs', 'a.md');
+        fs.copyFileSync(file, path.join(dir, 'copy.md'));
+        fs.rmSync(file);
+        fs.symlinkSync(path.join(dir, 'copy.md'), file);
+      },
+    ],
+    [
+      'the plugin dir swapped for a link to an identical copy',
+      (p, dir) => {
+        fs.cpSync(p, path.join(dir, 'copy'), { recursive: true });
+        fs.rmSync(p, { recursive: true });
+        fs.symlinkSync(path.join(dir, 'copy'), p);
+      },
+    ],
+    ['the plugin dir gone', (p) => fs.rmSync(p, { recursive: true })],
+  ])('names %s', async (_label, change) => {
+    const { dir, pluginDir, hashes } = await built();
+    change(pluginDir, dir);
+    expect(stepPluginProblem(pluginDir, ['incident-triage'], hashes)).toEqual(expect.any(String));
+  });
+
+  it('names a skill it has no hash for', async () => {
+    const { pluginDir } = await built();
+    expect(stepPluginProblem(pluginDir, ['incident-triage'], {})).toEqual(expect.any(String));
   });
 });

@@ -1,7 +1,8 @@
+import * as fs from 'node:fs';
 import { promises as fsp } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { AUTOMATION_NAME_PATTERN } from '@consola/factory-spec';
+import { AUTOMATION_NAME_PATTERN, skillHash } from '@consola/factory-spec';
 import type { ClaudeAgentGrants } from '../../shared/agentGrants';
 import { CONSOLA_MCP_SERVER } from '../mcp/names';
 import { type ControlRequest, INITIALIZE, requestControl } from './claudeCapabilities';
@@ -315,7 +316,19 @@ export function compileClaudeAgent(
     ...(loadsAccountFile ? { accountFile } : {}),
     allowedTools,
     ...(agent.skills.length > 0 && input.pluginDir !== undefined
-      ? { pluginDir: input.pluginDir }
+      ? {
+          pluginDir: input.pluginDir,
+          ...(input.skillHashes !== undefined
+            ? {
+                skillHashes: Object.fromEntries(
+                  agent.skills.flatMap((name) => {
+                    const hash = input.skillHashes?.[name];
+                    return hash !== undefined ? [[name, hash]] : [];
+                  }),
+                ),
+              }
+            : {}),
+        }
       : {}),
   };
   return { ok: true, grants, warnings };
@@ -436,16 +449,100 @@ async function copyFolder(from: string, to: string, shown: string): Promise<void
   }
 }
 
+/** The manifest's bytes exactly as `buildStepPlugin` writes them. */
+const STEP_PLUGIN_MANIFEST_TEXT = `${JSON.stringify(STEP_PLUGIN_MANIFEST, null, 2)}\n`;
+
+/** A folder's entries, sorted; null when it is not a real folder (absent, a file, a link). */
+function folderEntries(dir: string): string[] | null {
+  try {
+    if (!fs.lstatSync(dir).isDirectory()) return null;
+    return fs.readdirSync(dir).sort();
+  } catch {
+    return null;
+  }
+}
+
+/** A skill folder's regular files, by `/`-separated path, as `skillHash` covers them; null on anything else. */
+function skillFiles(dir: string): Array<{ path: string; bytes: Uint8Array }> | null {
+  const files: Array<{ path: string; bytes: Uint8Array }> = [];
+  const walk = (relative: string): boolean => {
+    const at = relative === '' ? dir : path.join(dir, ...relative.split('/'));
+    const stats = fs.lstatSync(at);
+    if (stats.isDirectory()) {
+      for (const entry of fs.readdirSync(at).sort())
+        if (!walk(relative === '' ? entry : `${relative}/${entry}`)) return false;
+      return true;
+    }
+    if (!stats.isFile()) return false;
+    files.push({ path: relative, bytes: new Uint8Array(fs.readFileSync(at)) });
+    return true;
+  };
+  try {
+    return folderEntries(dir) !== null && walk('') ? files : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Why a step's plugin dir is not the one its run holds; null when it is.
+ * It must be a real folder holding exactly Consola's manifest, byte for
+ * byte, and `skills/` with exactly `skills`, each a folder of folders and
+ * regular files (never a link) whose `skillHash` is the one `hashes` gives
+ * it. Anything a plugin could add beside them (hooks, servers, commands, a
+ * skill) makes it another plugin. Checked on what a build staged, before it
+ * moves into place, and before every launch loads it (review M1).
+ */
+export function stepPluginProblem(
+  pluginDir: string,
+  skills: readonly string[],
+  hashes: Readonly<Record<string, string>>,
+): string | null {
+  const top = folderEntries(pluginDir);
+  if (!top) return `${pluginDir} is not a folder`;
+  const expected = skills.length > 0 ? ['.claude-plugin', 'skills'] : ['.claude-plugin'];
+  if (top.join('\0') !== expected.join('\0'))
+    return `the plugin holds ${top.join(', ') || 'nothing'}, not ${expected.join(' and ')}`;
+  const manifestDir = path.join(pluginDir, '.claude-plugin');
+  if (folderEntries(manifestDir)?.join('\0') !== 'plugin.json')
+    return 'its .claude-plugin folder is not the manifest alone';
+  const manifest = path.join(manifestDir, 'plugin.json');
+  try {
+    if (
+      !fs.lstatSync(manifest).isFile() ||
+      fs.readFileSync(manifest, 'utf8') !== STEP_PLUGIN_MANIFEST_TEXT
+    )
+      return 'its manifest is not the one Consola writes';
+  } catch {
+    return 'its manifest could not be read';
+  }
+  if (skills.length === 0) return null;
+  const held = folderEntries(path.join(pluginDir, 'skills'));
+  const names = [...skills].sort();
+  if (held?.join('\0') !== names.join('\0'))
+    return `its skills folder holds ${held?.join(', ') || 'nothing'}, not ${names.join(', ')}`;
+  for (const name of names) {
+    const files = skillFiles(path.join(pluginDir, 'skills', name));
+    const hash = hashes[name];
+    if (files === null || hash === undefined || skillHash(files) !== hash)
+      return `skills/${name} is not the one its run holds`;
+  }
+  return null;
+}
+
 /**
  * `pluginDir` written fresh: the manifest, and `skills/<name>/` copied from
  * the run's skills copy (`skillsDir`) for `skills` only, folders and regular
- * files only, never through a link. Built beside it and moved into place,
- * so a refused build leaves no plugin, and an earlier build's files go.
+ * files only, never through a link. Built beside it and moved into place
+ * only once what it staged hashes to `hashes`, the run's definition's (a
+ * copy changed after the engine checked it is refused: review M1), so a
+ * refused build leaves no plugin, and an earlier build's files go.
  */
 export async function buildStepPlugin(
   skillsDir: string,
   pluginDir: string,
   skills: readonly string[],
+  hashes: Readonly<Record<string, string>>,
 ): Promise<void> {
   for (const name of skills) {
     if (!AUTOMATION_NAME_PATTERN.test(name)) throw notBuilt(`\`${name}\` is not a skill name`);
@@ -457,7 +554,7 @@ export async function buildStepPlugin(
     await fsp.mkdir(path.join(staging, '.claude-plugin'), { recursive: true });
     await fsp.writeFile(
       path.join(staging, '.claude-plugin', 'plugin.json'),
-      `${JSON.stringify(STEP_PLUGIN_MANIFEST, null, 2)}\n`,
+      STEP_PLUGIN_MANIFEST_TEXT,
     );
     for (const name of skills) {
       const source = path.join(skillsDir, name);
@@ -469,6 +566,14 @@ export async function buildStepPlugin(
       }
       await copyFolder(source, path.join(staging, 'skills', name), `skills/${name}`);
     }
+    // What it copied is what the run holds, or nothing is built: then the plugin as a launch will check it.
+    for (const name of skills) {
+      const files = skillFiles(path.join(staging, 'skills', name));
+      if (files === null || hashes[name] === undefined || skillHash(files) !== hashes[name])
+        throw notBuilt(`skills/${name} in the run folder is not the one its run holds`);
+    }
+    const problem = stepPluginProblem(staging, skills, hashes);
+    if (problem !== null) throw notBuilt(problem);
     await fsp.rm(pluginDir, { recursive: true, force: true });
     await fsp.rename(staging, pluginDir);
   } catch (error) {

@@ -98,6 +98,8 @@ describe("a run's own copy of its skills", () => {
     const { step } = h.world.launches[0];
     expect(step?.checkout).toBe('scope');
     expect(step?.agent?.skillsDir).toBe(h.folder.skillsDir(WORKSPACE_ID, run.id));
+    // What the host checks the plugin it builds, and every later launch, against (review M1).
+    expect(step?.agent?.skillHashes).toStrictEqual({ 'incident-triage': hash });
     expect(step?.pluginDir).toBe(
       `${h.folder.attemptDir(WORKSPACE_ID, run.id, 'investigate', 1)}/plugin`,
     );
