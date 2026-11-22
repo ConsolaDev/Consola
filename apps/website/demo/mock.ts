@@ -21,7 +21,6 @@ import type { WorkspaceView, TerminalCreateOptions } from '../../desktop/src/sha
 import type { WorkItemRef } from '../../desktop/src/shared/workItems';
 import type { WorkItemDetails, WorkItemMutation } from '../../desktop/src/shared/workItemDetails';
 import type { GitStatusResult } from '../../desktop/src/renderer/types/electron';
-import { NO_BRANCH_FACTS } from '../../desktop/src/shared/branchFacts';
 import type { BrowserSnapshotMessage } from '../../desktop/src/shared/browser';
 import { browserMock } from './mockBrowser';
 
@@ -633,10 +632,13 @@ export function installMock() {
       mainCheckout: path.split('/.worktrees/')[0],
       branch: branchOf(path),
     }),
-    // A worktree's branch has one commit to push and two files changed since main.
+    // A main checkout on main is level with origin/main, its own upstream,
+    // so it has no base line. A worktree's branch has one commit to push and
+    // two files changed since main.
     getBranchFacts: async (path) => {
       const branch = branchOf(path);
-      if (branch === 'main') return NO_BRANCH_FACTS;
+      if (branch === 'main')
+        return { upstream: { ref: 'origin/main', ahead: 0, behind: 0 }, base: null };
       return {
         upstream: { ref: `origin/${branch}`, ahead: 1, behind: 0 },
         base: { ref: 'origin/main', files: 2, additions: 9, deletions: 1 },
