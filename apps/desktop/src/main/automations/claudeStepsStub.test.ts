@@ -46,8 +46,8 @@ const jsonLines = (stdout: string) =>
 
 const readLog = (file: string) => fs.readFileSync(file, 'utf8').trimEnd().split('\n');
 
-/** A stdio MCP server that answers every tool call, but fails `failTool`'s. */
-function fakeConsola(dir: string, failTool = ''): string {
+/** A stdio MCP server that answers every tool call, but fails `failTool`'s; `echo` puts each call's arguments in its answer. */
+function fakeConsola(dir: string, failTool = '', echo = false): string {
   const server = path.join(dir, 'fake-consola.cjs');
   fs.writeFileSync(
     server,
@@ -60,7 +60,7 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
       ? { protocolVersion: '2025-06-18', capabilities: {}, serverInfo: { name: 'fake', version: '1' } }
       : message.params.name === ${JSON.stringify(failTool)}
         ? { content: [{ type: 'text', text: 'No such output: x\\nmore' }], isError: true }
-        : { content: [{ type: 'text', text: 'ok ' + message.params.name }] };
+        : { content: [{ type: 'text', text: 'ok ' + message.params.name + (${JSON.stringify(echo)} ? ' ' + JSON.stringify(message.params.arguments) : '') }] };
   process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: message.id, result }) + '\\n');
 });
 `,
@@ -383,6 +383,58 @@ describe('the stub claude in stream-json', { timeout: 30_000 }, () => {
     expect(stderr).toBe('');
     expect(status).toBe(0);
     expect(readLog(log)).toEqual([`${process.cwd()} :: -p --session-id s1 -- hi`, 'END s1 exit 0']);
+  });
+
+  it('STUB_CLAUDE_OUTPUTS_SEQ sets the next outputs at each launch, the last once it runs out, and beats STUB_CLAUDE_OUTPUTS', () => {
+    const dir = scratch();
+    const sequence = path.join(dir, 'outputs-seq.json');
+    fs.writeFileSync(sequence, JSON.stringify([{ findings: 1 }, { findings: 0 }]));
+    const outputs = path.join(dir, 'outputs.json');
+    fs.writeFileSync(outputs, JSON.stringify({ findings: 7 }));
+    const log = path.join(dir, 'claude.log');
+    const config = fakeConsola(dir, '', true);
+    const launch = (id: string, env: Record<string, string>) => {
+      const before = fs.existsSync(log) ? readLog(log).length : 0;
+      const { status } = spawnSync(
+        process.execPath,
+        [STUB, '-p', '--session-id', id, ...REPORT, '--mcp-config', config, '--', 'hi'],
+        {
+          env: {
+            PATH: process.env.PATH,
+            CLAUDE_CONFIG_DIR: scratch(),
+            STUB_CLAUDE_LOG: log,
+            ...env,
+          },
+          encoding: 'utf8',
+        },
+      );
+      expect(status).toBe(0);
+      return readLog(log)
+        .slice(before)
+        .filter((line) => line.startsWith('TOOL '));
+    };
+    const set = (findings: number) => [
+      `TOOL consola_set_outputs ok consola_set_outputs {"outputs":{"findings":${findings}}}`,
+    ];
+    // Each launch, a new conversation as each loop round is, takes the next entry.
+    expect(launch('r1', { STUB_CLAUDE_OUTPUTS_SEQ: sequence })).toEqual(set(1));
+    expect(launch('r2', { STUB_CLAUDE_OUTPUTS_SEQ: sequence })).toEqual(set(0));
+    expect(fs.readFileSync(`${sequence}.n`, 'utf8')).toBe('2');
+    // Past the end, the last again.
+    expect(launch('r3', { STUB_CLAUDE_OUTPUTS_SEQ: sequence })).toEqual(set(0));
+    // With both set, the sequence wins; without it, STUB_CLAUDE_OUTPUTS is as before.
+    fs.rmSync(`${sequence}.n`);
+    expect(
+      launch('r4', { STUB_CLAUDE_OUTPUTS_SEQ: sequence, STUB_CLAUDE_OUTPUTS: outputs }),
+    ).toEqual(set(1));
+    expect(launch('r5', { STUB_CLAUDE_OUTPUTS: outputs })).toEqual(set(7));
+    // A sequence file that is not there sets what STUB_CLAUDE_OUTPUTS says.
+    expect(
+      launch('r6', {
+        STUB_CLAUDE_OUTPUTS_SEQ: path.join(dir, 'absent.json'),
+        STUB_CLAUDE_OUTPUTS: outputs,
+      }),
+    ).toEqual(set(7));
   });
 
   it('logs nothing new without the new knobs', () => {

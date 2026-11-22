@@ -69,6 +69,11 @@
 //   STUB_CLAUDE_LOG=path        the launch and tool log above
 //   STUB_CLAUDE_HANDOVER=path   the handover to write (Markdown); absent file: none
 //   STUB_CLAUDE_OUTPUTS=path    the outputs to set, as JSON; absent or not JSON: none
+//   STUB_CLAUDE_OUTPUTS_SEQ=path  a JSON array of outputs objects: each launch sets entry n
+//                               (n from `<path>.n`, absent 0; past the end, the last) as
+//                               STUB_CLAUDE_OUTPUTS would, and writes n + 1 to `<path>.n`, so
+//                               each loop round (a new session) gets its own. It beats
+//                               STUB_CLAUDE_OUTPUTS while its file exists.
 //   STUB_CLAUDE_RESUME_GATE=path  a resumed print turn (`--resume`, the reminder) waits
 //                               until this file exists before it reads the two files
 //                               above, so a test can change them between turns without
@@ -357,7 +362,8 @@ function plannedCalls() {
   const handover = readKnob('STUB_CLAUDE_HANDOVER');
   if (handover !== null)
     calls.push(['consola_write_artifact', { name: 'handover', content: handover }]);
-  const outputs = readKnob('STUB_CLAUDE_OUTPUTS');
+  const sequence = readKnob('STUB_CLAUDE_OUTPUTS_SEQ');
+  const outputs = sequence !== null ? nextInSequence(sequence) : readKnob('STUB_CLAUDE_OUTPUTS');
   if (outputs !== null) {
     try {
       calls.push(['consola_set_outputs', { outputs: JSON.parse(outputs) }]);
@@ -366,6 +372,25 @@ function plannedCalls() {
     }
   }
   return calls;
+}
+
+/**
+ * STUB_CLAUDE_OUTPUTS_SEQ's entry for this launch, as JSON text: entry n
+ * (from `<file>.n`, absent 0; past the end, the last), and `<file>.n` moves
+ * on to n + 1. Null when the file holds no list of entries.
+ */
+function nextInSequence(text) {
+  let entries;
+  try {
+    entries = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(entries) || entries.length === 0) return null;
+  const counter = `${process.env.STUB_CLAUDE_OUTPUTS_SEQ}.n`;
+  const n = fs.existsSync(counter) ? Number(fs.readFileSync(counter, 'utf8')) || 0 : 0;
+  fs.writeFileSync(counter, String(n + 1));
+  return JSON.stringify(entries[Math.min(n, entries.length - 1)]);
 }
 
 /**
