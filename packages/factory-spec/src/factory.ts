@@ -86,7 +86,12 @@ export interface FactoryParseResult {
   /** Each with `file`. */
   issues: FactorySpecIssue[];
   notices: FactoryNotice[];
-  /** `factory.yml`, `automations/<n>.yaml`, `agents/<n>.md`, `skills/<n>` and every unread or outside path, as read. */
+  /**
+   * `factory.yml`, `automations/<n>.yaml`, `agents/<n>.md`, `skills/<n>` and
+   * every unread or outside path, as read: what is there, valid or not. A
+   * runner tells a file with problems from one that is not there by it (the
+   * desktop's save does, for a step's agent).
+   */
   present: string[];
   /** Of those, the ones not read whole: a `factory.yml` or automation file that does not parse, and every unread or outside path. */
   unreadable: string[];
