@@ -133,6 +133,25 @@ export function statsFor(
 }
 
 /**
+ * What the info panel's Uncommitted row draws for `dir`: git's counts for it
+ * (`statsFor`); `'reading'`, the row with no value, while a read of `dir` is
+ * under way and git has not yet answered for it (a switch from another
+ * checkout), so the rows below it do not jump; or null, no row, when no read
+ * of `dir` is under way and none has landed, or git said it is no
+ * repository's top. A re-read of a folder git already answered for keeps that
+ * answer, so a focus re-read never flashes an empty row. Never a `None` git
+ * did not say.
+ */
+export function uncommittedFor(
+  state: Pick<GitStatusState, 'stats' | 'statsRoot' | 'isGitRepo' | 'rootPath' | 'isLoading'>,
+  dir: string,
+): GitStats | 'reading' | null {
+  const stats = statsFor(state, dir);
+  if (stats) return stats;
+  return state.rootPath === dir && state.isLoading && state.statsRoot !== dir ? 'reading' : null;
+}
+
+/**
  * Keep git status on `rootPath`: read it whenever the root changes — the
  * header is often the only thing showing it, with no explorer or review panel
  * open to load it — and again when the window regains focus.

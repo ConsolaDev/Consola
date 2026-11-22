@@ -6,7 +6,7 @@ vi.mock('../services/gitBridge', () => ({
 }));
 
 import { gitBridge } from '../services/gitBridge';
-import { statsFor, useGitStatusStore } from './gitStatusStore';
+import { statsFor, uncommittedFor, useGitStatusStore } from './gitStatusStore';
 
 const getStatus = vi.mocked(gitBridge.getStatus);
 
@@ -90,6 +90,56 @@ describe('gitStatusStore', () => {
     getStatus.mockResolvedValueOnce(statusOf(0));
     await useGitStatusStore.getState().refresh('/repo');
     expect(statsFor(useGitStatusStore.getState(), '/repo')).toEqual(statusOf(0).stats);
+  });
+
+  it('Uncommitted: a row with no value while git reads this checkout for the first time', async () => {
+    getStatus.mockResolvedValueOnce(statusOf(12));
+    await useGitStatusStore.getState().refresh('/a');
+
+    // A switch to /b: its read is under way and git has not answered for it,
+    // so the row stays, with no value, and the rows below it stay put.
+    const answerB = heldStatus();
+    const moving = useGitStatusStore.getState().refresh('/b');
+    expect(uncommittedFor(useGitStatusStore.getState(), '/b')).toBe('reading');
+
+    answerB(statusOf(1));
+    await moving;
+    expect(uncommittedFor(useGitStatusStore.getState(), '/b')).toEqual(statusOf(1).stats);
+
+    // A re-read of /b keeps git's last answer, not an empty row.
+    const answerAgain = heldStatus();
+    const again = useGitStatusStore.getState().refresh('/b');
+    expect(uncommittedFor(useGitStatusStore.getState(), '/b')).toEqual(statusOf(1).stats);
+    answerAgain(statusOf(0));
+    await again;
+    // A clean tree is git's answer too: counts of nothing, which read None.
+    expect(uncommittedFor(useGitStatusStore.getState(), '/b')).toEqual(statusOf(0).stats);
+  });
+
+  it('Uncommitted: no row where git said no repository, or nothing is read', async () => {
+    const notARepo: GitStatusResult = {
+      files: [],
+      stats: { modifiedCount: 0, addedLines: 0, removedLines: 0 },
+      isGitRepo: false,
+      branch: null,
+    };
+    // Nothing read, nothing under way: a scope below its repository's top,
+    // whose status is never refreshed.
+    expect(uncommittedFor(useGitStatusStore.getState(), '/repo/packages/web')).toBeNull();
+
+    getStatus.mockResolvedValueOnce(notARepo);
+    await useGitStatusStore.getState().refresh('/repo/packages/web');
+    expect(uncommittedFor(useGitStatusStore.getState(), '/repo/packages/web')).toBeNull();
+
+    // The focus re-read of that folder: git already said, so no empty row
+    // flashes while it reads again.
+    const answer = heldStatus();
+    const rereading = useGitStatusStore.getState().refresh('/repo/packages/web');
+    expect(useGitStatusStore.getState().isLoading).toBe(true);
+    expect(uncommittedFor(useGitStatusStore.getState(), '/repo/packages/web')).toBeNull();
+    answer(notARepo);
+    await rereading;
+    expect(uncommittedFor(useGitStatusStore.getState(), '/repo/packages/web')).toBeNull();
   });
 
   it('marks when a read of the tracked root lands, and not when a stale one does', async () => {
