@@ -17,6 +17,8 @@ import {
   artifactNote,
   attemptsLine,
   conditionValues,
+  deniedLine,
+  earlierCosts,
   failureIsExit,
   formatBytes,
   logWasCapped,
@@ -24,6 +26,7 @@ import {
   runIsOver,
   skippedCondition,
   stepTone,
+  turnLine,
   variableRows,
   visibleTail,
   type StepTone,
@@ -283,7 +286,26 @@ function OutputsFact({ step }: { step: StepRun }) {
   );
 }
 
-/** The session, its transcript while it works and after. */
+/**
+ * What the CLI reported of the step's turns: the latest attempt's turns,
+ * cost and model, what earlier attempts cost, the tools it was refused.
+ * Each line only when it was reported; nothing at all when none was.
+ */
+function TurnFact({ step }: { step: StepRun }) {
+  const turns = turnLine(step);
+  const earlier = earlierCosts(step);
+  const denied = deniedLine(step);
+  if (turns === null && earlier === null && denied === null) return null;
+  return (
+    <Fact label="Turn">
+      {turns !== null && <p className="automations-fact-text">{turns}</p>}
+      {earlier !== null && <p className="automations-fact-text">{earlier}</p>}
+      {denied !== null && <p className="automations-fact-text">{denied}</p>}
+    </Fact>
+  );
+}
+
+/** The session, what its turns reported, its transcript while it works and after. */
 function AgentFacts({
   workspace,
   run,
@@ -313,11 +335,14 @@ function AgentFacts({
 
   if (!hasConversation) {
     return (
-      <Fact label="Session">
-        <p className="automations-fact-text">
-          {following ? 'Starting its session…' : 'It never started a session.'}
-        </p>
-      </Fact>
+      <>
+        <Fact label="Session">
+          <p className="automations-fact-text">
+            {following ? 'Starting its session…' : 'It never started a session.'}
+          </p>
+        </Fact>
+        <TurnFact step={step} />
+      </>
     );
   }
 
@@ -340,6 +365,7 @@ function AgentFacts({
           <span className="automations-fact-note">A read-only session</span>
         </div>
       </Fact>
+      <TurnFact step={step} />
       <Fact label="Transcript">
         {error && !conversation ? (
           <p className="automations-error" role="alert">

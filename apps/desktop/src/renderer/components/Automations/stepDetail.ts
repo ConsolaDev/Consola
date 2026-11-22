@@ -5,6 +5,7 @@ import type {
   StepRun,
   StepRunStatus,
 } from '../../../shared/automations';
+import { formatCostUsd } from '../../../shared/cost';
 import { formatElapsed } from './presentation';
 
 /**
@@ -61,6 +62,64 @@ export function attemptsLine(record: StepRun): string | null {
   if (parts.length === 0) return null;
   const line = parts.join(' · ');
   return line.charAt(0).toUpperCase() + line.slice(1);
+}
+
+function turnsWords(turns: number): string {
+  return `${turns} ${turns === 1 ? 'turn' : 'turns'}`;
+}
+
+/**
+ * The step row's facts after its duration, as the CLI reported the latest
+ * attempt's turns: `7 turns · $0.0412 est.`. Null for a command, and for a
+ * turn that reported neither: a cost the CLI never gave is never shown as $0.
+ */
+export function turnFacts(step: StepRun): string | null {
+  if (step.kind !== 'agent' || !step.turn) return null;
+  const { turns, costUsd } = step.turn;
+  const parts: string[] = [];
+  if (turns !== undefined) parts.push(turnsWords(turns));
+  if (costUsd !== undefined) parts.push(formatCostUsd(costUsd));
+  return parts.length > 0 ? parts.join(' · ') : null;
+}
+
+/**
+ * The step detail's turn line: the turns against the step's own cap, the
+ * cost and the model the CLI reported, `7 turns of at most 30 · $0.0412
+ * est. · claude-opus-5-5`, each part only when it is known. Null for a
+ * command, and for an agent step that reported none of them.
+ */
+export function turnLine(step: StepRun): string | null {
+  if (step.kind !== 'agent') return null;
+  const { turns, costUsd, maxTurns } = step.turn ?? {};
+  const parts: string[] = [];
+  if (turns !== undefined)
+    parts.push(
+      maxTurns !== undefined ? `${turnsWords(turns)} of at most ${maxTurns}` : turnsWords(turns),
+    );
+  else if (maxTurns !== undefined) parts.push(`At most ${turnsWords(maxTurns)}`);
+  if (costUsd !== undefined) parts.push(formatCostUsd(costUsd));
+  if (step.model !== undefined) parts.push(step.model);
+  return parts.length > 0 ? parts.join(' · ') : null;
+}
+
+/**
+ * What each earlier attempt cost, in attempt order: `Earlier attempts: 1
+ * $0.0100 est., 2 no cost reported`. Null when none reported a cost.
+ */
+export function earlierCosts(step: StepRun): string | null {
+  const previous = [...(step.previous ?? [])].sort((a, b) => a.attempt - b.attempt);
+  if (!previous.some((earlier) => earlier.costUsd !== undefined)) return null;
+  const listed = previous.map(
+    (earlier) =>
+      `${earlier.attempt} ${earlier.costUsd !== undefined ? formatCostUsd(earlier.costUsd) : 'no cost reported'}`,
+  );
+  return `Earlier attempts: ${listed.join(', ')}`;
+}
+
+/** The tools the latest attempt's turns were refused: `Denied: mcp__grafana__delete_dashboard, Read`. Null when none was. */
+export function deniedLine(step: StepRun): string | null {
+  const denied = step.turn?.deniedTools ?? [];
+  return denied.length > 0 ? `Denied: ${denied.join(', ')}` : null;
 }
 
 /** How long the step ran, in ms: to now while it runs. Null before it starts, or with no end. */

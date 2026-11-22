@@ -5,7 +5,9 @@ import {
   artifactNote,
   attemptsLine,
   conditionValues,
+  deniedLine,
   durationOf,
+  earlierCosts,
   failureWords,
   failureIsExit,
   LOG_CAP_BYTES,
@@ -17,6 +19,8 @@ import {
   stepOutcome,
   stepSummary,
   stepTone,
+  turnFacts,
+  turnLine,
   variableRows,
   visibleTail,
 } from './stepDetail';
@@ -421,5 +425,81 @@ describe('artifactNote and stepCounts', () => {
     expect(stepCounts([step({ status: 'running' }), step({ status: 'pending' })], false)).toBe(
       '2 steps · 1 running · 1 to come',
     );
+  });
+});
+
+describe('what a step’s turns report', () => {
+  const agentStep = (fields: Partial<StepRun> = {}): StepRun => ({
+    id: 'look',
+    kind: 'agent',
+    status: 'completed',
+    attempt: 1,
+    ...fields,
+  });
+
+  it.each<[Partial<StepRun>, string | null]>([
+    [{ turn: { turns: 7, costUsd: 0.0412 } }, '7 turns · $0.0412 est.'],
+    [{ turn: { turns: 1, costUsd: 0.0412 } }, '1 turn · $0.0412 est.'],
+    [{ turn: { turns: 7 } }, '7 turns'],
+    [{ turn: { costUsd: 0.0412 } }, '$0.0412 est.'],
+    [{ turn: { costUsd: 0 } }, '$0.0000 est.'],
+    [{ turn: { maxTurns: 30 } }, null],
+    [{ model: 'claude-opus-5-5' }, null],
+    [{}, null],
+  ])('turnFacts(%j)', (fields, expected) => {
+    expect(turnFacts(agentStep(fields))).toBe(expected);
+  });
+
+  it('a command has no turn facts', () => {
+    expect(turnFacts({ ...agentStep({ turn: { turns: 3 } }), kind: 'run' })).toBeNull();
+  });
+
+  it.each<[Partial<StepRun>, string | null]>([
+    [
+      { turn: { turns: 7, costUsd: 0.0412, maxTurns: 30 }, model: 'claude-opus-5-5' },
+      '7 turns of at most 30 · $0.0412 est. · claude-opus-5-5',
+    ],
+    [
+      { turn: { turns: 7, costUsd: 0.0412 }, model: 'claude-opus-5-5' },
+      '7 turns · $0.0412 est. · claude-opus-5-5',
+    ],
+    [{ turn: { turns: 1, maxTurns: 6 } }, '1 turn of at most 6'],
+    [{ turn: { costUsd: 1.5, maxTurns: 6 } }, 'At most 6 turns · $1.50 est.'],
+    [{ model: 'claude-opus-5-5' }, 'claude-opus-5-5'],
+    [{}, null],
+  ])('turnLine(%j)', (fields, expected) => {
+    expect(turnLine(agentStep(fields))).toBe(expected);
+  });
+
+  it('a command has no turn line', () => {
+    expect(turnLine({ ...agentStep({ turn: { turns: 3 }, model: 'm' }), kind: 'run' })).toBeNull();
+  });
+
+  it('names each earlier attempt’s cost, in attempt order, and says which reported none', () => {
+    expect(
+      earlierCosts(
+        agentStep({
+          attempt: 3,
+          previous: [
+            { attempt: 2, status: 'not-run' },
+            { attempt: 1, status: 'failed', costUsd: 0.01 },
+          ],
+        }),
+      ),
+    ).toBe('Earlier attempts: 1 $0.0100 est., 2 no cost reported');
+  });
+
+  it('is null when no earlier attempt reported a cost', () => {
+    expect(earlierCosts(agentStep())).toBeNull();
+    expect(earlierCosts(agentStep({ previous: [{ attempt: 1, status: 'failed' }] }))).toBeNull();
+  });
+
+  it('names the tools a turn was refused, once each, as recorded', () => {
+    expect(deniedLine(agentStep({ turn: { deniedTools: ['mcp__a__b', 'Read'] } }))).toBe(
+      'Denied: mcp__a__b, Read',
+    );
+    expect(deniedLine(agentStep({ turn: { deniedTools: [] } }))).toBeNull();
+    expect(deniedLine(agentStep({ turn: { turns: 3 } }))).toBeNull();
+    expect(deniedLine(agentStep())).toBeNull();
   });
 });
