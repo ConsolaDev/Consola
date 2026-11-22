@@ -65,6 +65,7 @@ const CALLBACK_RESULT = {
   'not-allowed': 'not_allowed',
   'code-refused': 'code_refused',
   'not-installer': 'not_installer',
+  'not-account-admin': 'not_account_admin',
   taken: 'taken',
   invalid: 'invalid',
   unavailable: 'unavailable',

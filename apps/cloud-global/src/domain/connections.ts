@@ -56,6 +56,44 @@ export function installationSettingsUrl(installation: {
 /** A repository an installation covers. */
 export type GitHubRepository = { id: number; fullName: string; private: boolean; url: string };
 
+/**
+ * What GitHub says of the person who came back from a Connect, about the one installation the
+ * redirect names. GitHub lists an installation for anyone who can reach one of its
+ * repositories, an organisation's members included, so reaching it is not enough: the person
+ * must administer the account it is on.
+ */
+export type InstallerFacts = {
+  /** The installation, when GitHub lists it among those the person can reach; else null. */
+  installation: GitHubInstallation | null;
+  /** The person's own GitHub account. */
+  gitHubUserId: number;
+  /**
+   * For an organisation's installation, the person's active membership of that organisation
+   * (`admin` being an owner); null when they have none, or it is still pending.
+   */
+  organizationRole: 'admin' | 'member' | null;
+};
+
+/**
+ * Whether the person may connect the installation: GitHub must list it for them
+ * (`not-installer` otherwise), and they must administer its account, owning the organisation or
+ * being the person it is on (`not-account-admin` otherwise). So a member of a company's GitHub
+ * organisation cannot claim its installation for a workspace of their own.
+ */
+export function checkInstaller(
+  facts: InstallerFacts,
+):
+  | { ok: true; installation: GitHubInstallation }
+  | { ok: false; reason: 'not-installer' | 'not-account-admin' } {
+  const { installation } = facts;
+  if (installation === null) return { ok: false, reason: 'not-installer' };
+  const administers =
+    installation.account.type === 'User'
+      ? installation.account.id === facts.gitHubUserId
+      : facts.organizationRole === 'admin';
+  return administers ? { ok: true, installation } : { ok: false, reason: 'not-account-admin' };
+}
+
 /** How long a Connect started in Consola may take to come back from GitHub, in seconds. */
 export const INSTALL_STATE_LIFETIME_SECONDS = 10 * 60;
 

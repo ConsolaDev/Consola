@@ -2,7 +2,11 @@ import { createPrivateKey, type KeyObject, sign } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { z } from 'zod';
 import type { GitHubApp } from '../../application/ports.js';
-import type { GitHubInstallation, GitHubRepository } from '../../domain/connections.js';
+import type {
+  GitHubInstallation,
+  GitHubRepository,
+  InstallerFacts,
+} from '../../domain/connections.js';
 import { ConfigError, type GitHubAppConfig } from '../../config.js';
 
 const WEB = 'https://github.com';
@@ -16,6 +20,11 @@ const PER_PAGE = 100;
 const MAX_PAGES = 10;
 /** An installation token is reused until this long before it expires. */
 const TOKEN_MARGIN_MS = 5 * 60 * 1000;
+/**
+ * How long an installation's repositories, once read, are the answer: so a page reloaded in a
+ * loop spends one list a minute of the installation's rate limit, not one a reload.
+ */
+const REPOSITORIES_FRESH_MS = 60 * 1000;
 
 type Fetch = (input: string, init: RequestInit) => Promise<Response>;
 
@@ -81,14 +90,21 @@ const USER_TOKEN = z.union([
   z.object({ error: z.string() }),
 ]);
 
+const PERSON = z.object({ id: z.number().int() });
+
+const MEMBERSHIP = z.object({ state: z.string(), role: z.string() });
+
 const INSTALLATION_TOKEN = z.object({ token: z.string().min(1), expires_at: z.string() });
 
 /** A call GitHub did not answer as it says it does. */
 class Unanswered extends Error {}
 
-/** A page of a list GitHub refused, with its status. */
+/** A call GitHub refused: what it was, and GitHub's status. */
 class Refused extends Error {
-  constructor(readonly status: number) {
+  constructor(
+    readonly what: string,
+    readonly status: number,
+  ) {
     super(`HTTP ${status}`);
   }
 }
@@ -112,6 +128,7 @@ export function createGitHubApp(deps: {
   const now = deps.now ?? Date.now;
   const log = deps.log ?? ((line: string) => console.error(line));
   const installationTokens = new Map<number, { token: string; expiresAt: number }>();
+  const repositoriesRead = new Map<number, { repositories: GitHubRepository[]; at: number }>();
 
   function appToken(): string {
     const seconds = Math.floor(now() / 1000);
@@ -178,7 +195,7 @@ export function createGitHubApp(deps: {
     const items: T[] = [];
     for (let page = 1; page <= MAX_PAGES; page++) {
       const response = await request(what, pageUrl(page), { token });
-      if (!response.ok) throw new Refused(response.status);
+      if (!response.ok) throw new Refused(what, response.status);
       const { total, items: more } = await read(response);
       items.push(...more);
       if (items.length >= total || more.length < PER_PAGE) return items;
@@ -245,7 +262,7 @@ export function createGitHubApp(deps: {
       return `${WEB}/apps/${config.slug}/installations/new?state=${encodeURIComponent(state)}`;
     },
 
-    async installationsOfInstaller(code) {
+    async installerFacts(code, installationId) {
       let userToken: string;
       try {
         const what = "exchanging the callback's code";
@@ -270,23 +287,51 @@ export function createGitHubApp(deps: {
       }
 
       try {
-        const what = "listing a person's installations";
+        const who = 'reading who the person is';
+        const me = await request(who, `${API}/user`, { token: userToken });
+        if (!me.ok) throw new Refused(who, me.status);
+        const { id: gitHubUserId } = await jsonOf(who, me, PERSON);
+
+        const listing = "listing a person's installations";
         const raw = await allPages(
-          what,
+          listing,
           (page) => `${API}/user/installations?per_page=${PER_PAGE}&page=${page}`,
           userToken,
           async (response) => {
-            const body = await jsonOf(what, response, INSTALLATIONS_PAGE);
+            const body = await jsonOf(listing, response, INSTALLATIONS_PAGE);
             return { total: body.total_count, items: body.installations };
           },
         );
-        const installations = raw
-          .map(asInstallation)
-          .filter((each): each is GitHubInstallation => each !== null);
-        return { kind: 'listed', installations };
+        const installation =
+          raw.map(asInstallation).find((each) => each?.id === installationId) ?? null;
+
+        let organizationRole: InstallerFacts['organizationRole'] = null;
+        if (installation?.account.type === 'Organization') {
+          const { login } = installation.account;
+          const what = `reading the person's membership of ${login}`;
+          const response = await request(
+            what,
+            `${API}/user/memberships/orgs/${encodeURIComponent(login)}`,
+            { token: userToken },
+          );
+          // Not a member (or not yet one) is 404; anything else unanswered says nothing.
+          if (response.status !== 404) {
+            if (!response.ok) {
+              log(
+                `GitHub refused ${what} (HTTP ${response.status}). The app needs the Members organization permission (read) to tell an organisation's owners from its members.`,
+              );
+              return { kind: 'unavailable' };
+            }
+            const membership = await jsonOf(what, response, MEMBERSHIP);
+            if (membership.state === 'active') {
+              organizationRole = membership.role === 'admin' ? 'admin' : 'member';
+            }
+          }
+        }
+        return { kind: 'read', facts: { installation, gitHubUserId, organizationRole } };
       } catch (error) {
         if (error instanceof Refused) {
-          log(`GitHub refused listing a person's installations (HTTP ${error.status}).`);
+          log(`GitHub refused ${error.what} (HTTP ${error.status}).`);
           return { kind: 'unavailable' };
         }
         if (error instanceof Unanswered) return { kind: 'unavailable' };
@@ -298,6 +343,11 @@ export function createGitHubApp(deps: {
 
     async repositoriesOf(installationId) {
       const what = `listing installation ${installationId}'s repositories`;
+      const read = repositoriesRead.get(installationId);
+      if (read && now() - read.at < REPOSITORIES_FRESH_MS) {
+        return { kind: 'listed', repositories: read.repositories };
+      }
+      repositoriesRead.delete(installationId);
       try {
         const token = await installationToken(installationId);
         if (token === 'gone') return { kind: 'gone' };
@@ -320,6 +370,7 @@ export function createGitHubApp(deps: {
             };
           },
         );
+        repositoriesRead.set(installationId, { repositories, at: now() });
         return { kind: 'listed', repositories };
       } catch (error) {
         if (error instanceof Refused) {

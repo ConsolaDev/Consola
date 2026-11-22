@@ -44,19 +44,35 @@ const catalogOrg: GitHubInstallation = {
 };
 
 /**
- * GitHub, as the use cases ask it: `reachable` is what the person with code `good-code` can
- * reach; every code is refused once used.
+ * GitHub, as the use cases ask it: the person with code `good-code` is GitHub user
+ * `gitHubUserId`, can reach `reachable`, and has `organizationRole` in each organisation; every
+ * code is refused once used.
  */
-function fakeGitHub(reachable: GitHubInstallation[] = [sprocketOrg]) {
+function fakeGitHub(
+  reachable: GitHubInstallation[] = [sprocketOrg],
+  person: { gitHubUserId: number; organizationRole: 'admin' | 'member' | null } = {
+    gitHubUserId: 7,
+    organizationRole: 'admin',
+  },
+) {
   const asked: string[] = [];
   const used = new Set<string>();
   const github: GitHubApp = {
     installUrl: (state) => `https://github.test/install?state=${state}`,
-    async installationsOfInstaller(code) {
+    async installerFacts(code, installationId) {
       asked.push(code);
       if (code !== 'good-code' || used.has(code)) return { kind: 'code-refused' };
       used.add(code);
-      return { kind: 'listed', installations: reachable };
+      const installation = reachable.find((each) => each.id === installationId) ?? null;
+      return {
+        kind: 'read',
+        facts: {
+          installation,
+          gitHubUserId: person.gitHubUserId,
+          organizationRole:
+            installation?.account.type === 'Organization' ? person.organizationRole : null,
+        },
+      };
     },
     async repositoriesOf(installationId) {
       if (installationId === catalogOrg.id) return { kind: 'gone' };
@@ -226,6 +242,41 @@ describe('connecting GitHub', () => {
     expect(await stores.installations.ofWorkspace('sprocket')).toEqual([]);
   });
 
+  it("refuses an organisation's installation to a member who does not own the organisation", async () => {
+    // GitHub lists it for every member who can read one of its repositories.
+    const state = await started();
+    const member = fakeGitHub([sprocketOrg], { gitHubUserId: 7, organizationRole: 'member' });
+    expect(await finish(dana, returned(state), member.github)).toEqual({
+      kind: 'not-account-admin',
+    });
+    const outsider = fakeGitHub([sprocketOrg], { gitHubUserId: 7, organizationRole: null });
+    expect(await finish(dana, returned(await started()), outsider.github)).toEqual({
+      kind: 'not-account-admin',
+    });
+    expect(await stores.installations.ofWorkspace('sprocket')).toEqual([]);
+  });
+
+  it("connects a person's own installation, and refuses someone else's", async () => {
+    const danaOwn: GitHubInstallation = {
+      id: 63,
+      account: { id: 7, login: 'dana', type: 'User' },
+      repositorySelection: 'all',
+    };
+    const leeOwn: GitHubInstallation = {
+      ...danaOwn,
+      id: 64,
+      account: { ...danaOwn.account, id: 8 },
+    };
+    const github = () => fakeGitHub([danaOwn, leeOwn], { gitHubUserId: 7, organizationRole: null });
+
+    const own = returned(await started(), { installationId: '63' });
+    expect((await finish(dana, own, github().github)).kind).toBe('connected');
+    const someoneElses = returned(await started(), { installationId: '64' });
+    expect(await finish(dana, someoneElses, github().github)).toEqual({
+      kind: 'not-account-admin',
+    });
+  });
+
   it('refuses an installation another workspace holds', async () => {
     const reach = [sprocketOrg];
     await stores.installations.connect({
@@ -331,7 +382,7 @@ describe('connecting GitHub', () => {
     const state = await started();
     const down: GitHubApp = {
       ...fakeGitHub().github,
-      installationsOfInstaller: async () => ({ kind: 'unavailable' }),
+      installerFacts: async () => ({ kind: 'unavailable' }),
     };
     expect(await finish(dana, returned(state), down)).toEqual({ kind: 'unavailable' });
   });

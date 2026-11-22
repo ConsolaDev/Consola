@@ -9,6 +9,7 @@ import type {
   ConnectedInstallation,
   GitHubInstallation,
   GitHubRepository,
+  InstallerFacts,
   InstallState,
 } from '../domain/connections.js';
 import type { MyWorkspace, NewWorkspace, Workspace } from '../domain/workspace.js';
@@ -179,17 +180,18 @@ export type GitHubApp = {
   /** The address that installs the app, carrying `state` back to Consola's callback. */
   installUrl(state: string): string;
   /**
-   * The installations that the person GitHub sent back with `code` can reach: GitHub's own
-   * answer to who installed what, since the callback's `installation_id` can be forged. The code
-   * is used once, and the token it is exchanged for is revoked once read, never kept. A code
-   * GitHub refuses (used, expired, made up) is `code-refused`.
+   * What GitHub says of the person it sent back with `code`, about installation
+   * `installationId` (`InstallerFacts`): whether it is among the installations they can reach,
+   * their own account, and their membership of the installation's organisation. GitHub's
+   * answer, since the callback's `installation_id` can be forged. The code is used once, and the
+   * token it is exchanged for is revoked once read, never kept. A code GitHub refuses (used,
+   * expired, made up) is `code-refused`.
    */
-  installationsOfInstaller(
+  installerFacts(
     code: string,
+    installationId: number,
   ): Promise<
-    | { kind: 'listed'; installations: GitHubInstallation[] }
-    | { kind: 'code-refused' }
-    | { kind: 'unavailable' }
+    { kind: 'read'; facts: InstallerFacts } | { kind: 'code-refused' } | { kind: 'unavailable' }
   >;
   /**
    * The repositories an installation covers, as GitHub says now. An installation GitHub no

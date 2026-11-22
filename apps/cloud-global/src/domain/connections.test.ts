@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  checkInstaller,
   checkInstallState,
+  type GitHubInstallation,
   INSTALL_STATE_LIFETIME_SECONDS,
   installationSettingsUrl,
   mayManageConnections,
@@ -52,6 +54,51 @@ describe("an installation's settings on GitHub", () => {
     expect(
       installationSettingsUrl({ id: 42, account: { id: 2, login: 'dana', type: 'User' } }),
     ).toBe('https://github.com/settings/installations/42');
+  });
+});
+
+describe('who may connect an installation', () => {
+  const org: GitHubInstallation = {
+    id: 41,
+    account: { id: 9001, login: 'sprocket', type: 'Organization' },
+    repositorySelection: 'selected',
+  };
+  const own: GitHubInstallation = {
+    id: 42,
+    account: { id: 7, login: 'dana', type: 'User' },
+    repositorySelection: 'all',
+  };
+
+  it("an organisation's owner may connect its installation", () => {
+    expect(
+      checkInstaller({ installation: org, gitHubUserId: 7, organizationRole: 'admin' }),
+    ).toEqual({ ok: true, installation: org });
+  });
+
+  it('a member of the organisation, or someone outside it, may not, though GitHub lists it', () => {
+    for (const organizationRole of ['member', null] as const) {
+      expect(checkInstaller({ installation: org, gitHubUserId: 7, organizationRole })).toEqual({
+        ok: false,
+        reason: 'not-account-admin',
+      });
+    }
+  });
+
+  it("a person may connect their own installation, and no one else's", () => {
+    expect(checkInstaller({ installation: own, gitHubUserId: 7, organizationRole: null })).toEqual({
+      ok: true,
+      installation: own,
+    });
+    // Owning some organisation says nothing about another person's account.
+    expect(
+      checkInstaller({ installation: own, gitHubUserId: 8, organizationRole: 'admin' }),
+    ).toEqual({ ok: false, reason: 'not-account-admin' });
+  });
+
+  it('no one may connect an installation GitHub does not list for them', () => {
+    expect(
+      checkInstaller({ installation: null, gitHubUserId: 7, organizationRole: 'admin' }),
+    ).toEqual({ ok: false, reason: 'not-installer' });
   });
 });
 

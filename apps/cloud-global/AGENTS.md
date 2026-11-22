@@ -446,9 +446,10 @@ lists them (`GITHUB_CALLBACK_RESULTS`).
   account, when it was connected, its settings page on GitHub (`settingsUrl`)
   and its repositories as GitHub says now (`listed`, `gone` or
   `unavailable`), plus `canManage` and whether the app is `configured`. The
-  repositories are company information, so they are asked of GitHub each
-  time (an installation token for metadata read, kept in memory until five
-  minutes before it expires) and never stored here.
+  repositories are company information, so they are asked of GitHub (an
+  installation token for metadata read, kept in memory until five minutes
+  before it expires) and never stored here. An answer is reused for a minute,
+  so a member reloading the page cannot spend the installation's rate limit.
 - `POST /api/connections/github/install`: the address that installs the app,
   `{ url }`, carrying a signed state (below). Members get 403 `not_allowed`;
   an unconfigured app is 503 `github_not_configured`.
@@ -475,10 +476,17 @@ each before anything trusts the redirect:
 2. **The person is still an owner or admin** of the workspace the Connect was
    for, read from the database. That workspace is the one recorded, whatever
    the session has active by then.
-3. **GitHub lists the installation for this person.** The `installation_id`
-   in the redirect can be forged, so the one-time `code` is exchanged for the
-   person's GitHub token, `GET /user/installations` must list that id, and
-   the token is revoked once read. It is never stored or logged.
+3. **GitHub says this person administers the installation's account.** The
+   `installation_id` in the redirect can be forged, so the one-time `code` is
+   exchanged for the person's GitHub token, which is revoked once read and
+   never stored or logged. `GET /user/installations` must list that id, and
+   that alone is not enough: it lists an installation for anyone who can read
+   one of its repositories, every member of an organisation included. So
+   `checkInstaller` also needs the person to own the account: an active
+   `admin` of the organisation (`GET /user/memberships/orgs/{org}`, which
+   needs the app's Members organisation permission, read), or, for a
+   personal installation, the person it is on (`GET /user`). Otherwise it is
+   `not-account-admin`.
 4. **No other workspace holds it.** `github_installation` is keyed by the
    installation id, so a second workspace's claim is `taken`, even at the
    same moment.

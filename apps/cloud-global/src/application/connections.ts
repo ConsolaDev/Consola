@@ -1,5 +1,6 @@
 import {
   type ConnectedInstallation,
+  checkInstaller,
   checkInstallState,
   type GitHubRepository,
   mayManageConnections,
@@ -140,6 +141,11 @@ export type InstallOutcome =
   | { kind: 'code-refused' }
   /** The installation is not one GitHub says this person can reach. */
   | { kind: 'not-installer' }
+  /**
+   * The person can reach the installation but does not administer its account: a member, not an
+   * owner, of its organisation, or someone else's personal installation.
+   */
+  | { kind: 'not-account-admin' }
   /** Another workspace holds the installation. */
   | { kind: 'taken' }
   | { kind: 'invalid' }
@@ -154,7 +160,9 @@ export type InstallOutcome =
  * 1. the state is this session's own, signed by Consola and in time;
  * 2. the person is still an owner or admin of that workspace;
  * 3. GitHub, asked with the redirect's one-time code, lists the installation among those this
- *    person can reach, since the `installation_id` in the address can be forged;
+ *    person can reach, since the `installation_id` in the address can be forged, and says they
+ *    administer its account (`checkInstaller`): reaching it is not enough, since every member
+ *    of an organisation reaches its installation;
  * 4. no other workspace holds it.
  */
 export async function finishGitHubInstall(
@@ -188,11 +196,11 @@ export async function finishGitHubInstall(
   const installationId = readGitHubId(returned.installationId);
   if (installationId === null || !returned.code) return { kind: 'invalid' };
 
-  const reachable = await github.installationsOfInstaller(returned.code);
-  if (reachable.kind === 'code-refused') return reachable;
-  if (reachable.kind === 'unavailable') return reachable;
-  const installation = reachable.installations.find((each) => each.id === installationId);
-  if (!installation) return { kind: 'not-installer' };
+  const asked = await github.installerFacts(returned.code, installationId);
+  if (asked.kind !== 'read') return asked;
+  const installer = checkInstaller(asked.facts);
+  if (!installer.ok) return { kind: installer.reason };
+  const { installation } = installer;
 
   const recorded = await ports.installations.connect({
     installation,

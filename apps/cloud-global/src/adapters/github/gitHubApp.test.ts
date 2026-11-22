@@ -100,45 +100,57 @@ describe('the install address', () => {
   });
 });
 
-describe("a person's installations", () => {
-  it('exchanges the code, lists what the person can reach, then revokes the token', async () => {
-    const github = fakeGitHub({
+describe('what GitHub says of the person who came back', () => {
+  const REVOKE = 'DELETE https://api.github.com/applications/Iv23liSprocketTest/token';
+  const MEMBERSHIP = 'GET https://api.github.com/user/memberships/orgs/sprocket';
+
+  /** A person, GitHub user 7, who can reach `installations`, with `membership` of sprocket. */
+  function personGitHub(
+    overrides: Record<string, Route> = {},
+    installations: unknown[] = [installation(41, 'sprocket'), installation(6, 'dana', 'User')],
+    membership: Route = () => Response.json({ state: 'active', role: 'admin' }),
+  ) {
+    return fakeGitHub({
       'POST https://github.com/login/oauth/access_token': tokenExchange,
+      'GET https://api.github.com/user': () => Response.json({ id: 7, login: 'dana' }),
       'GET https://api.github.com/user/installations': () =>
-        Response.json({
-          total_count: 2,
-          installations: [installation(41, 'sprocket'), installation(42, 'dana', 'User')],
-        }),
-      'DELETE https://api.github.com/applications/Iv23liSprocketTest/token': revoked,
+        Response.json({ total_count: installations.length, installations }),
+      [MEMBERSHIP]: membership,
+      [REVOKE]: revoked,
+      ...overrides,
     });
+  }
+
+  it('exchanges the code, reads the person, the installation and their membership, then revokes the token', async () => {
+    const github = personGitHub();
     const { app, logged } = appFor(github);
 
-    expect(await app.installationsOfInstaller('good-code')).toEqual({
-      kind: 'listed',
-      installations: [
-        {
+    expect(await app.installerFacts('good-code', 41)).toEqual({
+      kind: 'read',
+      facts: {
+        installation: {
           id: 41,
           account: { id: 42, login: 'sprocket', type: 'Organization' },
           repositorySelection: 'selected',
         },
-        {
-          id: 42,
-          account: { id: 43, login: 'dana', type: 'User' },
-          repositorySelection: 'selected',
-        },
-      ],
+        gitHubUserId: 7,
+        organizationRole: 'admin',
+      },
     });
 
-    const [exchange, list, revoke] = github.calls;
+    const [exchange, me, list, membership, revoke] = github.calls;
     expect(exchange?.body).toEqual({
       client_id: config.clientId,
       client_secret: config.clientSecret,
       code: 'good-code',
     });
     expect(exchange?.headers.get('accept')).toBe('application/json');
-    expect(list?.headers.get('authorization')).toBe('Bearer ghu_person');
-    expect(list?.headers.get('x-github-api-version')).toBe('2022-11-28');
+    for (const call of [me, list, membership]) {
+      expect(call?.headers.get('authorization')).toBe('Bearer ghu_person');
+      expect(call?.headers.get('x-github-api-version')).toBe('2022-11-28');
+    }
     expect(list?.url.searchParams.get('per_page')).toBe('100');
+    expect(`${membership?.method} ${membership?.url}`).toBe(MEMBERSHIP);
     expect(revoke?.headers.get('authorization')).toBe(
       `Basic ${Buffer.from(`${config.clientId}:${config.clientSecret}`).toString('base64')}`,
     );
@@ -146,10 +158,67 @@ describe("a person's installations", () => {
     expect(logged).toEqual([]);
   });
 
+  it('says a member is a member, and a pending or missing membership is none', async () => {
+    const roleFor = async (membership: Route) => {
+      const answer = await appFor(personGitHub({}, undefined, membership)).app.installerFacts(
+        'good-code',
+        41,
+      );
+      return answer.kind === 'read' ? answer.facts.organizationRole : answer.kind;
+    };
+    expect(await roleFor(() => Response.json({ state: 'active', role: 'member' }))).toBe('member');
+    expect(await roleFor(() => Response.json({ state: 'active', role: 'billing_manager' }))).toBe(
+      'member',
+    );
+    expect(await roleFor(() => Response.json({ state: 'pending', role: 'admin' }))).toBeNull();
+    expect(
+      await roleFor(() => Response.json({ message: 'Not Found' }, { status: 404 })),
+    ).toBeNull();
+  });
+
+  it('is unavailable, naming the missing permission, when GitHub will not say who owns the organisation', async () => {
+    const { app, logged } = appFor(
+      personGitHub({}, undefined, () => Response.json({ message: 'no' }, { status: 403 })),
+    );
+    expect(await app.installerFacts('good-code', 41)).toEqual({ kind: 'unavailable' });
+    expect(logged).toEqual([
+      "GitHub refused reading the person's membership of sprocket (HTTP 403). The app needs the Members organization permission (read) to tell an organisation's owners from its members.",
+    ]);
+  });
+
+  it("asks no membership for a person's own installation", async () => {
+    const github = personGitHub({
+      [MEMBERSHIP]: () => {
+        throw new Error('asked');
+      },
+    });
+    const answer = await appFor(github).app.installerFacts('good-code', 6);
+    expect(answer).toEqual({
+      kind: 'read',
+      facts: {
+        installation: {
+          id: 6,
+          account: { id: 7, login: 'dana', type: 'User' },
+          repositorySelection: 'selected',
+        },
+        gitHubUserId: 7,
+        organizationRole: null,
+      },
+    });
+  });
+
+  it('says so when the installation is not among those the person can reach', async () => {
+    const github = personGitHub();
+    expect(await appFor(github).app.installerFacts('good-code', 99)).toEqual({
+      kind: 'read',
+      facts: { installation: null, gitHubUserId: 7, organizationRole: null },
+    });
+    expect(github.calls.some((call) => call.url.pathname.includes('memberships'))).toBe(false);
+  });
+
   it('reads every page', async () => {
     const all = Array.from({ length: 150 }, (_, n) => installation(1000 + n, `org-${n}`));
-    const github = fakeGitHub({
-      'POST https://github.com/login/oauth/access_token': tokenExchange,
+    const github = personGitHub({
       'GET https://api.github.com/user/installations': ({ url }) => {
         const page = Number(url.searchParams.get('page'));
         return Response.json({
@@ -157,75 +226,74 @@ describe("a person's installations", () => {
           installations: all.slice((page - 1) * 100, page * 100),
         });
       },
-      'DELETE https://api.github.com/applications/Iv23liSprocketTest/token': revoked,
+      'GET https://api.github.com/user/memberships/orgs/org-149': () =>
+        Response.json({ state: 'active', role: 'admin' }),
     });
-    const answer = await appFor(github).app.installationsOfInstaller('good-code');
-    expect(answer.kind === 'listed' && answer.installations.map((each) => each.id)).toEqual(
-      all.map((each) => each.id),
+    const answer = await appFor(github).app.installerFacts('good-code', 1149);
+    expect(answer.kind === 'read' && answer.facts.installation?.account.login).toBe('org-149');
+    expect(github.calls.filter((call) => call.url.pathname === '/user/installations')).toHaveLength(
+      2,
     );
   });
 
-  it('leaves out an installation on an account that is neither an organisation nor a person', async () => {
-    const github = fakeGitHub({
-      'POST https://github.com/login/oauth/access_token': tokenExchange,
-      'GET https://api.github.com/user/installations': () =>
-        Response.json({
-          total_count: 3,
-          installations: [
-            installation(41, 'sprocket'),
-            { ...installation(43, 'big-co'), account: { id: 7, slug: 'big-co', name: 'Big Co' } },
-            { ...installation(44, 'bot'), account: null },
-          ],
-        }),
-      'DELETE https://api.github.com/applications/Iv23liSprocketTest/token': revoked,
-    });
-    const answer = await appFor(github).app.installationsOfInstaller('good-code');
-    expect(answer.kind === 'listed' && answer.installations.map((each) => each.id)).toEqual([41]);
+  it('never takes an installation on an account that is neither an organisation nor a person', async () => {
+    const github = personGitHub({}, [
+      { ...installation(43, 'big-co'), account: { id: 7, slug: 'big-co', name: 'Big Co' } },
+      { ...installation(44, 'bot'), account: null },
+    ]);
+    const { app } = appFor(github);
+    for (const id of [43, 44]) {
+      const answer = await app.installerFacts('good-code', id);
+      expect(answer.kind === 'read' && answer.facts.installation).toBeNull();
+    }
   });
 
   it('is code-refused for a code GitHub does not take, and asks nothing else', async () => {
-    const github = fakeGitHub({
-      'POST https://github.com/login/oauth/access_token': tokenExchange,
-    });
-    expect(await appFor(github).app.installationsOfInstaller('used-code')).toEqual({
+    const github = personGitHub();
+    expect(await appFor(github).app.installerFacts('used-code', 41)).toEqual({
       kind: 'code-refused',
     });
     expect(github.calls).toHaveLength(1);
   });
 
   it('is unavailable, and logs no secret, when the client secret is wrong', async () => {
-    const github = fakeGitHub({
+    const github = personGitHub({
       'POST https://github.com/login/oauth/access_token': () =>
         Response.json({ error: 'incorrect_client_credentials' }),
     });
     const { app, logged } = appFor(github);
-    expect(await app.installationsOfInstaller('good-code')).toEqual({ kind: 'unavailable' });
+    expect(await app.installerFacts('good-code', 41)).toEqual({ kind: 'unavailable' });
     expect(logged).toEqual([
       "GitHub refused exchanging the callback's code: incorrect_client_credentials.",
     ]);
   });
 
   it('is unavailable when GitHub does not answer, and still revokes the token', async () => {
-    const github = fakeGitHub({
-      'POST https://github.com/login/oauth/access_token': tokenExchange,
+    const github = personGitHub({
       'GET https://api.github.com/user/installations': () => {
         throw new TypeError('fetch failed');
       },
-      'DELETE https://api.github.com/applications/Iv23liSprocketTest/token': revoked,
     });
     const { app, logged } = appFor(github);
-    expect(await app.installationsOfInstaller('good-code')).toEqual({ kind: 'unavailable' });
-    expect(github.calls.map((call) => call.method)).toEqual(['POST', 'GET', 'DELETE']);
+    expect(await app.installerFacts('good-code', 41)).toEqual({ kind: 'unavailable' });
+    expect(github.calls.map((call) => call.method)).toEqual(['POST', 'GET', 'GET', 'DELETE']);
     expect(logged).toEqual(["GitHub did not answer listing a person's installations (TypeError)."]);
   });
 
-  it('is unavailable for an answer of a shape GitHub never gives', async () => {
-    const github = fakeGitHub({
-      'POST https://github.com/login/oauth/access_token': tokenExchange,
-      'GET https://api.github.com/user/installations': () => Response.json({ installations: 'x' }),
-      'DELETE https://api.github.com/applications/Iv23liSprocketTest/token': revoked,
+  it('is unavailable when GitHub will not say who the person is', async () => {
+    const github = personGitHub({
+      'GET https://api.github.com/user': () => Response.json({ message: 'no' }, { status: 401 }),
     });
-    expect(await appFor(github).app.installationsOfInstaller('good-code')).toEqual({
+    const { app, logged } = appFor(github);
+    expect(await app.installerFacts('good-code', 41)).toEqual({ kind: 'unavailable' });
+    expect(logged).toEqual(['GitHub refused reading who the person is (HTTP 401).']);
+  });
+
+  it('is unavailable for an answer of a shape GitHub never gives', async () => {
+    const github = personGitHub({
+      'GET https://api.github.com/user/installations': () => Response.json({ installations: 'x' }),
+    });
+    expect(await appFor(github).app.installerFacts('good-code', 41)).toEqual({
       kind: 'unavailable',
     });
   });
@@ -291,13 +359,32 @@ describe("an installation's repositories", () => {
     const { app } = appFor(github, () => now);
 
     await app.repositoriesOf(41);
-    now = Date.parse('2026-11-22T12:54:59Z');
+    now = Date.parse('2026-11-22T12:54:00Z');
     await app.repositoriesOf(41);
     expect(minted()).toBe(1);
 
     now = Date.parse('2026-11-22T12:55:00Z');
     await app.repositoriesOf(41);
     expect(minted()).toBe(2);
+  });
+
+  it('answers again from what it read for a minute, so a busy page spends little of the rate limit', async () => {
+    let listed = 0;
+    const { github } = gitHubWith(() => {
+      listed += 1;
+      return Response.json({ total_count: 0, repositories: [] });
+    });
+    let now = NOW;
+    const { app } = appFor(github, () => now);
+
+    await app.repositoriesOf(41);
+    now += 59_999;
+    await app.repositoriesOf(41);
+    expect(listed).toBe(1);
+
+    now += 1;
+    await app.repositoriesOf(41);
+    expect(listed).toBe(2);
   });
 
   it('drops a token GitHub stops taking', async () => {
@@ -333,6 +420,7 @@ describe("an installation's repositories", () => {
   it('never logs a token, the code or the client secret', async () => {
     const github = fakeGitHub({
       'POST https://github.com/login/oauth/access_token': tokenExchange,
+      'GET https://api.github.com/user': () => Response.json({ id: 7 }),
       'GET https://api.github.com/user/installations': () =>
         Response.json({ message: 'no' }, { status: 500 }),
       'DELETE https://api.github.com/applications/Iv23liSprocketTest/token': () =>
@@ -343,7 +431,7 @@ describe("an installation's repositories", () => {
         Response.json({ message: 'no' }, { status: 500 }),
     });
     const { app, logged } = appFor(github);
-    await app.installationsOfInstaller('good-code');
+    await app.installerFacts('good-code', 41);
     await app.repositoriesOf(41);
     expect(logged.length).toBeGreaterThan(0);
     for (const secret of ['ghu_person', 'ghs_secret_token', 'good-code', config.clientSecret]) {

@@ -580,7 +580,7 @@ export interface paths {
         };
         /**
          * Where GitHub sends a person back after installing the app
-         * @description The GitHub App’s callback URL, reached by a browser redirect from GitHub with `state`, `code`, `installation_id`, `setup_action` or `error`. It never answers JSON: it always redirects to the web app’s Connections page, with how the Connect ended in `?github=`: one of `connected`, `already_connected`, `requested`, `cancelled`, `bad_state`, `expired`, `not_allowed`, `code_refused`, `not_installer`, `taken`, `invalid`, `unavailable`, `not_configured`, `signed_out`.
+         * @description The GitHub App’s callback URL, reached by a browser redirect from GitHub with `state`, `code`, `installation_id`, `setup_action` or `error`. It never answers JSON: it always redirects to the web app’s Connections page, with how the Connect ended in `?github=`: one of `connected`, `already_connected`, `requested`, `cancelled`, `bad_state`, `expired`, `not_allowed`, `code_refused`, `not_installer`, `not_account_admin`, `taken`, `invalid`, `unavailable`, `not_configured`, `signed_out`.
          */
         get: {
             parameters: {

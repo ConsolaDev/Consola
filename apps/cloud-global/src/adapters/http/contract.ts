@@ -233,22 +233,18 @@ export const GitHubConnection = z
     id: z.number().int(),
     account: GitHubAccount,
     connectedAt: z.string().openapi({ format: 'date-time' }),
-    settingsUrl: z
-      .string()
-      .openapi({
-        description: 'Where on GitHub its repositories are chosen, and it is uninstalled.',
-      }),
+    settingsUrl: z.string().openapi({
+      description: 'Where on GitHub its repositories are chosen, and it is uninstalled.',
+    }),
     repositories: GitHubRepositories,
   })
   .openapi('GitHubConnection', { description: 'A GitHub App installation the workspace holds.' });
 
 export const Connections = z
   .strictObject({
-    canManage: z
-      .boolean()
-      .openapi({
-        description: 'Whether the person may connect and disconnect: an owner or admin.',
-      }),
+    canManage: z.boolean().openapi({
+      description: 'Whether the person may connect and disconnect: an owner or admin.',
+    }),
     github: z.strictObject({
       configured: z
         .boolean()
@@ -315,6 +311,7 @@ export const GITHUB_CALLBACK_RESULTS = [
   'not_allowed',
   'code_refused',
   'not_installer',
+  'not_account_admin',
   'taken',
   'invalid',
   'unavailable',

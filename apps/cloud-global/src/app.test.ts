@@ -819,6 +819,8 @@ describe('GitHub as a connection', () => {
 
   /** Who GitHub says can reach which installations, by the code their redirect carries. */
   let reachable: Record<string, { id: number; login: string; type: string }[]>;
+  /** The codes of people who are only members of the organisations they reach; others own them. */
+  let membersOnly: Set<string>;
   let seen: { method: string; url: string; body: string }[];
 
   beforeAll(async () => {
@@ -857,14 +859,24 @@ describe('GitHub as a connection', () => {
           ? Response.json({ access_token: `ghu_${code}`, token_type: 'bearer' })
           : Response.json({ error: 'bad_verification_code' });
       }
+      // The person a token is for: whoever's code it was exchanged for.
+      const code = headers.get('authorization')?.replace('Bearer ghu_', '') ?? '';
       if (route === 'GET https://api.github.com/user/installations') {
-        const code = headers.get('authorization')?.replace('Bearer ghu_', '') ?? '';
         const installations = (reachable[code] ?? []).map(({ id, login, type }) => ({
           id,
           account: { id: id + 1000, login, type },
           repository_selection: 'selected',
         }));
         return Response.json({ total_count: installations.length, installations });
+      }
+      if (route === 'GET https://api.github.com/user') {
+        return Response.json({ id: code.length, login: code });
+      }
+      if (url.pathname.startsWith('/user/memberships/orgs/')) {
+        return Response.json({
+          state: 'active',
+          role: membersOnly.has(code) ? 'member' : 'admin',
+        });
       }
       if (route === 'DELETE https://api.github.com/applications/Iv23liSprocketTest/token') {
         return new Response(null, { status: 204 });
@@ -897,6 +909,7 @@ describe('GitHub as a connection', () => {
 
   beforeEach(async () => {
     reachable = {};
+    membersOnly = new Set();
     ({ app, auth } = await composeApi({ db, config: withGitHub }, [testUtils()]));
     test = ((await auth.$context) as unknown as { test: TestHelpers }).test;
     fakeGitHub();
@@ -1058,6 +1071,23 @@ describe('GitHub as a connection', () => {
 
     expect((await connect(login.headers, 41, 'dana-code')).result).toBe('not_installer');
     expect(await db.select().from(schema.githubInstallation)).toEqual([]);
+  });
+
+  it("refuses an organisation's installation to a member of it who does not own it", async () => {
+    // Mallory can read one of sprocket's repositories, so GitHub lists its installation for her.
+    const mallory = await signIn('mallory@catalog.test', 'Mallory');
+    await makeWorkspace(mallory.headers, { name: 'Catalog', slug: 'catalog', region: 'eu' });
+    reachable = { 'mallory-code': [{ id: 41, login: 'sprocket', type: 'Organization' }] };
+    membersOnly = new Set(['mallory-code']);
+
+    expect((await connect(mallory.headers, 41, 'mallory-code')).result).toBe('not_account_admin');
+    expect(await db.select().from(schema.githubInstallation)).toEqual([]);
+
+    // So the company's own owner can still connect it.
+    const dana = await signIn('dana@sprocket.test', 'Dana Ortiz');
+    await makeWorkspace(dana.headers);
+    reachable['dana-code'] = [{ id: 41, login: 'sprocket', type: 'Organization' }];
+    expect((await connect(dana.headers, 41, 'dana-code')).result).toBe('connected');
   });
 
   it('refuses a Connect another person started, and never spends their code', async () => {

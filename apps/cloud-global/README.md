@@ -85,12 +85,16 @@ has one webhook address, so each environment needs its own.
 - **Request user authorization (OAuth) during installation:** on. The
   `installation_id` in GitHub's redirect can be forged, so Consola exchanges
   the redirect's one-time code for your GitHub token, checks with GitHub that
-  you can reach that installation, then revokes the token. GitHub greys out
-  the Setup URL once this is on; the callback replaces it.
+  you own the account the installation is on, then revokes the token. GitHub
+  greys out the Setup URL once this is on; the callback replaces it.
 - **Webhook URL:** your Cloudflare tunnel's address plus
   `/api/github/webhooks` (14.2), with a secret from `openssl rand -hex 32`.
 - **Repository permissions:** Metadata read, Contents read and write, Pull
   requests read and write. Each token Consola mints is narrowed below these.
+- **Organization permissions:** Members read. It is how Consola tells an
+  organisation's owners, who may connect its installation, from its members,
+  who can reach it but may not. Without it, connecting an organisation fails
+  with "GitHub isn't answering", and the API logs which permission is missing.
 - **Where it can be installed:** only on this account, for development.
 
 Then, on the app's General page, note the client ID and the slug (the name in
