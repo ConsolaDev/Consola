@@ -51,8 +51,16 @@ export function createApp(deps: {
   cellTokens: CellTokenSigner;
   health: HealthProbe;
 }): Hono {
-  const { handleAuth, currentSession, webOrigin, workspaces, memberships, sessions, health } = deps;
-  const { cellTokens } = deps;
+  const {
+    handleAuth,
+    currentSession,
+    webOrigin,
+    workspaces,
+    memberships,
+    sessions,
+    cellTokens,
+    health,
+  } = deps;
   const app = new Hono();
 
   app.all('/api/auth/*', (c) => handleAuth(c.req.raw));
