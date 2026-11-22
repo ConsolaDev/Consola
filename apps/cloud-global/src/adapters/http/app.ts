@@ -2,12 +2,22 @@ import { OpenAPIHono } from '@hono/zod-openapi';
 import { createMiddleware } from 'hono/factory';
 import { HTTPException } from 'hono/http-exception';
 import { cellTokenKeys, mintCellToken } from '../../application/cellToken.js';
+import {
+  disconnectGitHub,
+  finishGitHubInstall,
+  type InstallOutcome,
+  listConnections,
+  startGitHubInstall,
+} from '../../application/connections.js';
 import { checkHealth } from '../../application/health.js';
 import { describeMe } from '../../application/me.js';
 import { listActiveWorkspaceMembers } from '../../application/members.js';
 import type {
   CellTokenSigner,
+  GitHubApp,
   HealthProbe,
+  InstallationStore,
+  InstallStateSigner,
   MembershipStore,
   SessionStore,
   WorkspaceStore,
@@ -17,20 +27,53 @@ import {
   listMyWorkspaces,
   setActiveWorkspace,
 } from '../../application/workspaces.js';
+import { installationSettingsUrl, readGitHubId } from '../../domain/connections.js';
 import type { SignedIn } from '../../domain/person.js';
 import { checkNewWorkspace } from '../../domain/workspace.js';
 import {
+  deleteGitHubInstallation,
+  type GITHUB_CALLBACK_RESULTS,
+  GitHubCallbackResult,
   getActiveWorkspaceMembers,
   getCellTokenKeys,
+  getConnections,
+  getGitHubCallback,
   getHealth,
   getMe,
   listWorkspaces,
   postCellToken,
+  postGitHubInstall,
   postWorkspace,
   putActiveWorkspace,
 } from './contract.js';
 
 const CHANGES = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+
+/**
+ * Where in the web app a Connect ends: its Settings, on the Connections page. The web app keeps
+ * the same address (`#/settings/connections`), so the two change together.
+ */
+const CONNECTIONS_PAGE = '#/settings/connections';
+
+type CallbackResult = (typeof GITHUB_CALLBACK_RESULTS)[number];
+
+/** How each way a Connect can end is named in `?github=`: every outcome, as the contract lists. */
+const CALLBACK_RESULT = {
+  connected: 'connected',
+  'already-connected': 'already_connected',
+  requested: 'requested',
+  cancelled: 'cancelled',
+  'bad-state': 'bad_state',
+  expired: 'expired',
+  'not-allowed': 'not_allowed',
+  'code-refused': 'code_refused',
+  'not-installer': 'not_installer',
+  'not-account-admin': 'not_account_admin',
+  taken: 'taken',
+  invalid: 'invalid',
+  unavailable: 'unavailable',
+  'not-configured': 'not_configured',
+} as const satisfies Record<InstallOutcome['kind'], CallbackResult>;
 
 /** Now, in whole seconds since the epoch: what a cell token's times are in. */
 const nowSeconds = () => Math.floor(Date.now() / 1000);
@@ -45,8 +88,8 @@ const DOCUMENT = {
     title: 'Consola Cloud global API',
     version: '0',
     description:
-      'The API every region shares: who is signed in and their workspaces. Sign-in itself is ' +
-      "Better Auth's, under /api/auth, and is not described here.",
+      'The API every region shares: who is signed in, their workspaces and what each is ' +
+      "connected to. Sign-in itself is Better Auth's, under /api/auth, and is not described here.",
   },
 };
 
@@ -71,6 +114,10 @@ export function createApp(deps: {
   memberships: MembershipStore;
   sessions: SessionStore;
   cellTokens: CellTokenSigner;
+  installations: InstallationStore;
+  /** Null when the GitHub App is not configured on this server. */
+  github: GitHubApp | null;
+  installStates: InstallStateSigner;
   health: HealthProbe;
 }): OpenAPIHono {
   const {
@@ -81,6 +128,9 @@ export function createApp(deps: {
     memberships,
     sessions,
     cellTokens,
+    installations,
+    github,
+    installStates,
     health,
   } = deps;
   // A body of the wrong shape is 400 `invalid_request` unless its route says otherwise, never
@@ -197,6 +247,106 @@ export function createApp(deps: {
 
   // The public keys a cell checks the token with, for anyone to read.
   app.openapi(getCellTokenKeys, (c) => c.json(cellTokenKeys(cellTokens), 200));
+
+  // What the session's active workspace is connected to, for any of its members.
+  app.openapi({ ...getConnections, middleware: [requireSession] as const }, async (c) => {
+    const answer = await listConnections({ memberships, installations, github }, c.var.session);
+    if (answer.kind === 'no-workspace') {
+      return c.json({ error: 'no_active_workspace' } as const, 409);
+    }
+    if (answer.kind === 'not-a-member') return c.json({ error: 'not_a_member' } as const, 403);
+    return c.json(
+      {
+        canManage: answer.canManage,
+        github: {
+          configured: answer.github.configured,
+          installations: answer.github.installations.map(({ installation, repositories }) => ({
+            id: installation.id,
+            account: installation.account,
+            connectedAt: installation.connectedAt.toISOString(),
+            settingsUrl: installationSettingsUrl(installation),
+            repositories,
+          })),
+        },
+      },
+      200,
+    );
+  });
+
+  // Starts a Connect: the address that installs the GitHub App, which the web app sends the
+  // person to. Only an owner or admin may.
+  app.openapi({ ...postGitHubInstall, middleware: [requireSession] as const }, async (c) => {
+    const answer = await startGitHubInstall(
+      { memberships, github, states: installStates },
+      c.var.session,
+      nowSeconds(),
+    );
+    if (answer.kind === 'no-workspace') {
+      return c.json({ error: 'no_active_workspace' } as const, 409);
+    }
+    if (answer.kind === 'not-a-member') return c.json({ error: 'not_a_member' } as const, 403);
+    if (answer.kind === 'not-allowed') return c.json({ error: 'not_allowed' } as const, 403);
+    if (answer.kind === 'not-configured') {
+      return c.json({ error: 'github_not_configured' } as const, 503);
+    }
+    c.header('cache-control', 'no-store');
+    return c.json({ url: answer.url }, 200);
+  });
+
+  // Where GitHub sends the person back after installing the app (its "callback URL", with user
+  // authorisation during installation on). It is a browser redirect, so it carries the session
+  // cookie, and it ends on the web app's Settings, on its Connections page, which reads
+  // `?github=` once. Its query is read as it comes, never validated: whatever GitHub sends, it
+  // redirects.
+  app.openapi(getGitHubCallback, async (c) => {
+    const back = (result: CallbackResult) => {
+      c.header('cache-control', 'no-store');
+      // The address carried a code and a state; neither goes on in a Referer.
+      c.header('referrer-policy', 'no-referrer');
+      return c.redirect(`${webOrigin}/?github=${result}${CONNECTIONS_PAGE}`, 302);
+    };
+    const session = await currentSession(c.req.raw.headers);
+    if (!session) return back('signed_out');
+
+    const query = (name: string) => c.req.query(name);
+    const outcome = await finishGitHubInstall(
+      { memberships, installations, github, states: installStates },
+      session,
+      {
+        state: query('state'),
+        code: query('code'),
+        installationId: query('installation_id'),
+        setupAction: query('setup_action'),
+        error: query('error'),
+      },
+      nowSeconds(),
+    );
+    return back(CALLBACK_RESULT[outcome.kind]);
+  });
+  // No body carries the results, so the document names them itself, for clients to check theirs.
+  app.openAPIRegistry.register('GitHubCallbackResult', GitHubCallbackResult);
+
+  // Disconnects an installation from the session's active workspace. The app stays installed
+  // on GitHub; the answer to GET /api/connections says where to uninstall it.
+  app.openapi({ ...deleteGitHubInstallation, middleware: [requireSession] as const }, async (c) => {
+    const installationId = readGitHubId(c.req.valid('param').installationId);
+    if (installationId === null) return c.json({ error: 'invalid_request' } as const, 400);
+
+    const answer = await disconnectGitHub(
+      { memberships, installations },
+      c.var.session,
+      installationId,
+    );
+    if (answer.kind === 'no-workspace') {
+      return c.json({ error: 'no_active_workspace' } as const, 409);
+    }
+    if (answer.kind === 'not-a-member') return c.json({ error: 'not_a_member' } as const, 403);
+    if (answer.kind === 'not-allowed') return c.json({ error: 'not_allowed' } as const, 403);
+    if (answer.kind === 'not-found') {
+      return c.json({ error: 'installation_not_found' } as const, 404);
+    }
+    return c.body(null, 204);
+  });
 
   app.openapi(getHealth, async (c) => {
     if (await checkHealth(health)) return c.json({ ok: true } as const, 200);

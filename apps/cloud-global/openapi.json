@@ -3,10 +3,31 @@
   "info": {
     "title": "Consola Cloud global API",
     "version": "0",
-    "description": "The API every region shares: who is signed in and their workspaces. Sign-in itself is Better Auth's, under /api/auth, and is not described here."
+    "description": "The API every region shares: who is signed in, their workspaces and what each is connected to. Sign-in itself is Better Auth's, under /api/auth, and is not described here."
   },
   "components": {
     "schemas": {
+      "GitHubCallbackResult": {
+        "type": "string",
+        "enum": [
+          "connected",
+          "already_connected",
+          "requested",
+          "cancelled",
+          "bad_state",
+          "expired",
+          "not_allowed",
+          "code_refused",
+          "not_installer",
+          "not_account_admin",
+          "taken",
+          "invalid",
+          "unavailable",
+          "not_configured",
+          "signed_out"
+        ],
+        "description": "How a Connect ended, as the callback names it in the web app’s `?github=`."
+      },
       "Me": {
         "type": "object",
         "properties": {
@@ -289,6 +310,190 @@
           "kid",
           "alg",
           "use"
+        ],
+        "additionalProperties": false
+      },
+      "Connections": {
+        "type": "object",
+        "properties": {
+          "canManage": {
+            "type": "boolean",
+            "description": "Whether the person may connect and disconnect: an owner or admin."
+          },
+          "github": {
+            "type": "object",
+            "properties": {
+              "configured": {
+                "type": "boolean",
+                "description": "Whether this server has the GitHub App’s settings."
+              },
+              "installations": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/GitHubConnection"
+                }
+              }
+            },
+            "required": [
+              "configured",
+              "installations"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "canManage",
+          "github"
+        ],
+        "additionalProperties": false,
+        "description": "What the workspace is connected to."
+      },
+      "GitHubConnection": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "account": {
+            "$ref": "#/components/schemas/GitHubAccount"
+          },
+          "connectedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "settingsUrl": {
+            "type": "string",
+            "description": "Where on GitHub its repositories are chosen, and it is uninstalled."
+          },
+          "repositories": {
+            "$ref": "#/components/schemas/GitHubRepositories"
+          }
+        },
+        "required": [
+          "id",
+          "account",
+          "connectedAt",
+          "settingsUrl",
+          "repositories"
+        ],
+        "additionalProperties": false,
+        "description": "A GitHub App installation the workspace holds."
+      },
+      "GitHubAccount": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "login": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "Organization",
+              "User"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "login",
+          "type"
+        ],
+        "additionalProperties": false,
+        "description": "The GitHub account, an organisation or a person, the app is installed on."
+      },
+      "GitHubRepositories": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "listed"
+                ]
+              },
+              "repositories": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/GitHubRepository"
+                }
+              }
+            },
+            "required": [
+              "kind",
+              "repositories"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "gone"
+                ]
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "unavailable"
+                ]
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "additionalProperties": false
+          }
+        ],
+        "description": "What GitHub says the installation covers now: its repositories, `gone` when GitHub no longer has the installation (uninstalled or suspended there), or `unavailable` when GitHub did not say. Asked of GitHub each time, never stored."
+      },
+      "GitHubRepository": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "fullName": {
+            "type": "string"
+          },
+          "private": {
+            "type": "boolean"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "fullName",
+          "private",
+          "url"
+        ],
+        "additionalProperties": false
+      },
+      "GitHubInstallAddress": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
         ],
         "additionalProperties": false
       }
@@ -875,6 +1080,416 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/CellTokenKeySet"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/connections": {
+      "get": {
+        "summary": "What my session's active workspace is connected to",
+        "description": "Any member may read it; `canManage` says whether they may change it.",
+        "responses": {
+          "200": {
+            "description": "The workspace’s connections.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Connections"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Nobody is signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "signed_out"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The person is not in the workspace their session names.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "not_a_member"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The session has no active workspace.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "no_active_workspace"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/connections/github/install": {
+      "post": {
+        "summary": "Start connecting GitHub to my active workspace",
+        "description": "The address on GitHub that installs the app, carrying a state signed for this session. Only an owner or admin may. No cache keeps the answer (`Cache-Control: no-store`).",
+        "responses": {
+          "200": {
+            "description": "Where to send the person.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubInstallAddress"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Nobody is signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "signed_out"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The person is not in the workspace, is not an owner or admin of it, or the request did not come from the web app.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "not_a_member"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "not_allowed"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "bad_origin"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The session has no active workspace.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "no_active_workspace"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "This server has no GitHub App settings.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "github_not_configured"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/github/callback": {
+      "get": {
+        "summary": "Where GitHub sends a person back after installing the app",
+        "description": "The GitHub App’s callback URL, reached by a browser redirect from GitHub with `state`, `code`, `installation_id`, `setup_action` or `error`. It never answers JSON: it always redirects to the web app’s Settings, on its Connections page, with how the Connect ended in `?github=`: one of `connected`, `already_connected`, `requested`, `cancelled`, `bad_state`, `expired`, `not_allowed`, `code_refused`, `not_installer`, `not_account_admin`, `taken`, `invalid`, `unavailable`, `not_configured`, `signed_out`.",
+        "responses": {
+          "302": {
+            "description": "To `<PUBLIC_URL>/?github=<result>#/settings/connections`.",
+            "headers": {
+              "location": {
+                "schema": {
+                  "type": "string"
+                },
+                "required": true
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/connections/github/installations/{installationId}": {
+      "delete": {
+        "summary": "Disconnect a GitHub installation from my active workspace",
+        "description": "Removes the workspace’s record. The app stays installed on GitHub until someone uninstalls it there (`settingsUrl`). Only an owner or admin may.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The installation’s id on GitHub, a positive whole number."
+            },
+            "required": true,
+            "description": "The installation’s id on GitHub, a positive whole number.",
+            "name": "installationId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Disconnected."
+          },
+          "400": {
+            "description": "The id is not a GitHub id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "invalid_request"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Nobody is signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "signed_out"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The person is not in the workspace, is not an owner or admin of it, or the request did not come from the web app.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "not_a_member"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "not_allowed"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "bad_origin"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The workspace holds no installation with that id, whether or not another does.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "installation_not_found"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The session has no active workspace.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "no_active_workspace"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
                 }
               }
             }

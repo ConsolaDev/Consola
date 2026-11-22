@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { createApi, createWorkspace, loadMe, loadWorkspaces, switchWorkspace } from './api';
+import {
+  createApi,
+  createWorkspace,
+  disconnectGitHub,
+  loadConnections,
+  loadMe,
+  loadWorkspaces,
+  startGitHubConnect,
+  switchWorkspace,
+} from './api';
 
 const acme = { id: 'w1', name: 'Acme', slug: 'acme', region: 'eu', role: 'owner' };
 const sprocket = { id: 'w2', name: 'Sprocket', slug: 'sprocket', region: 'us', role: 'member' };
@@ -34,7 +43,9 @@ function reply(status: number, body: unknown) {
         contentType: request.headers.get('content-type'),
         body: await request.text(),
       });
-      return new Response(typeof body === 'string' ? body : JSON.stringify(body), { status });
+      // A 204 carries no body: a Response refuses one.
+      const sent = status === 204 ? null : typeof body === 'string' ? body : JSON.stringify(body);
+      return new Response(sent, { status });
     },
   });
   return Object.assign(client, { calls });
@@ -230,6 +241,140 @@ describe('switchWorkspace', () => {
       rejects,
     ]) {
       expect(await switchWorkspace('w2', api)).toEqual({ kind: 'unavailable' });
+    }
+  });
+});
+
+const connections = {
+  canManage: true,
+  github: {
+    configured: true,
+    installations: [
+      {
+        id: 41,
+        account: { id: 9001, login: 'sprocket', type: 'Organization' },
+        connectedAt: '2026-11-22T09:00:00.000Z',
+        settingsUrl: 'https://github.com/organizations/sprocket/settings/installations/41',
+        repositories: { kind: 'listed', repositories: [] },
+      },
+    ],
+  },
+};
+
+describe('loadConnections', () => {
+  it('is loaded with the body on 200', async () => {
+    const api = reply(200, connections);
+    expect(await loadConnections(api)).toEqual({ kind: 'loaded', connections });
+    expect(api.calls[0]).toMatchObject({
+      method: 'GET',
+      url: `${ORIGIN}/api/connections`,
+      credentials: 'same-origin',
+    });
+  });
+
+  it('is signed out on 401, and no workspace on 409', async () => {
+    expect(await loadConnections(reply(401, { error: 'signed_out' }))).toEqual({
+      kind: 'signed-out',
+    });
+    expect(await loadConnections(reply(409, { error: 'no_active_workspace' }))).toEqual({
+      kind: 'no-workspace',
+    });
+  });
+
+  it('is unavailable on any other answer, or a body of another shape', async () => {
+    for (const api of [
+      reply(403, { error: 'not_a_member' }),
+      reply(500, { error: 'boom' }),
+      reply(200, { canManage: 'yes', github: connections.github }),
+      reply(200, { canManage: true, github: { configured: true } }),
+      reply(200, '<html>ok</html>'),
+      rejects,
+    ]) {
+      expect(await loadConnections(api)).toEqual({ kind: 'unavailable' });
+    }
+  });
+});
+
+describe('startGitHubConnect', () => {
+  const url = 'https://github.com/apps/consola-dev/installations/new?state=s';
+
+  it('is started with the address on GitHub, asked as a change from the page', async () => {
+    const api = reply(200, { url });
+    expect(await startGitHubConnect(api)).toEqual({ kind: 'started', url });
+    expect(api.calls[0]).toMatchObject({
+      method: 'POST',
+      url: `${ORIGIN}/api/connections/github/install`,
+      credentials: 'same-origin',
+    });
+  });
+
+  it('names the refusals the page words', async () => {
+    expect(await startGitHubConnect(reply(403, { error: 'not_allowed' }))).toEqual({
+      kind: 'not-allowed',
+    });
+    expect(await startGitHubConnect(reply(503, { error: 'github_not_configured' }))).toEqual({
+      kind: 'not-configured',
+    });
+    expect(await startGitHubConnect(reply(401, { error: 'signed_out' }))).toEqual({
+      kind: 'signed-out',
+    });
+  });
+
+  it('never sends the person anywhere but github.com', async () => {
+    for (const elsewhere of [
+      'https://github.com.evil.test/apps/x',
+      'http://github.com/apps/x',
+      'javascript:alert(1)',
+      '/api/elsewhere',
+    ]) {
+      expect(await startGitHubConnect(reply(200, { url: elsewhere }))).toEqual({
+        kind: 'unavailable',
+      });
+    }
+  });
+
+  it('is unavailable on any other answer', async () => {
+    for (const api of [
+      reply(403, { error: 'bad_origin' }),
+      reply(409, { error: 'no_active_workspace' }),
+      reply(200, {}),
+      rejects,
+    ]) {
+      expect(await startGitHubConnect(api)).toEqual({ kind: 'unavailable' });
+    }
+  });
+});
+
+describe('disconnectGitHub', () => {
+  it('is disconnected on 204, asked of that installation', async () => {
+    const api = reply(204, null);
+    expect(await disconnectGitHub(41, api)).toEqual({ kind: 'disconnected' });
+    expect(api.calls[0]).toMatchObject({
+      method: 'DELETE',
+      url: `${ORIGIN}/api/connections/github/installations/41`,
+      credentials: 'same-origin',
+    });
+  });
+
+  it('names the refusals the page words', async () => {
+    expect(await disconnectGitHub(41, reply(404, { error: 'installation_not_found' }))).toEqual({
+      kind: 'not-found',
+    });
+    expect(await disconnectGitHub(41, reply(403, { error: 'not_allowed' }))).toEqual({
+      kind: 'not-allowed',
+    });
+    expect(await disconnectGitHub(41, reply(401, { error: 'signed_out' }))).toEqual({
+      kind: 'signed-out',
+    });
+  });
+
+  it('is unavailable on any other answer', async () => {
+    for (const api of [
+      reply(403, { error: 'bad_origin' }),
+      reply(500, { error: 'boom' }),
+      rejects,
+    ]) {
+      expect(await disconnectGitHub(41, api)).toEqual({ kind: 'unavailable' });
     }
   });
 });

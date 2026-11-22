@@ -16,25 +16,32 @@ The app is built in layers, and imports point inward only.
   answers `WorkspacesState`, `CreateWorkspaceAnswer` and
   `SwitchWorkspaceAnswer`); the sentences (`messages.ts`) for a failed
   sign-in or sign-out, for each problem with a new workspace, a taken slug, a
-  failed switch and the create form's hints; where the running source is
-  (`source.ts`); and how the address names a dashboard section
-  (`sections.ts`: `sectionIdOfHash`, `hashOfSection`, `chooseSection`); and
-  teams (`teams.ts`: `Team`, `WorkspaceMember`, `checkTeamName`, `memberOf`,
-  `addableTo`, `TeamsState`, `TeamChange`; their sentences in
-  `teamMessages.ts`). It is plain TypeScript, with no package and no browser
-  I/O. `apiContract.ts` and `cellApiContract.ts` hold the APIs' types,
-  generated from `apps/cloud-global/openapi.json` and
-  `apps/cloud-region/openapi.json` (see "The API's contract").
+  failed switch and the create form's hints; connections (`connections.ts`:
+  the answers of `/api/connections`, a Connect's results, the services that
+  come later) and their sentences (`connectionMessages.ts`); teams
+  (`teams.ts`: `Team`, `WorkspaceMember`, `checkTeamName`, `memberOf`,
+  `addableTo`, `TeamsState`, `TeamChange`) and their sentences
+  (`teamMessages.ts`); where the running source is (`source.ts`); and how
+  the address names a dashboard section (`sections.ts`: `sectionIdOfHash`,
+  `hashOfSection`, `chooseSection`) and a settings page (`settings.ts`:
+  `settingsPageIdOfHash`, `hashOfSettingsPage`). It is plain TypeScript,
+  with no package and no browser I/O. `apiContract.ts` and
+  `cellApiContract.ts` hold the APIs' types, generated from
+  `apps/cloud-global/openapi.json` and `apps/cloud-region/openapi.json` (see
+  "The API's contract").
 - `src/services/` is everything that talks to something outside the page: the
   API (`api.ts`: `loadMe`, `loadWorkspaces`, `createWorkspace`,
-  `switchWorkspace`, through `createApi`, an `openapi-fetch` client typed by
+  `switchWorkspace`, `loadConnections`, `startGitHubConnect`,
+  `disconnectGitHub`, through `createApi`, an `openapi-fetch` client typed by
   the contract), the workspace's cell (`teams.ts`: `teamsService`, built by
   `createTeamsService` on `createCellApi`), Better Auth's client
   (`authClient.ts`: `signInWithGoogle`,
   `signOut`) and the address bar (`signInRedirect.ts`:
   `takeSignInErrorCode`; `address.ts`: `currentSectionId`, `openSection`,
-  `onSectionChange`). A service answers in domain types and sentences, never
-  in a library's own.
+  `onSectionChange`; `settingsAddress.ts`: `currentSettingsPageId`,
+  `onSettingsPageChange`; `gitHubRedirect.ts`: `takeGitHubResult`,
+  `goToGitHub`). A service answers in domain types and sentences, never in a
+  library's own.
 - `src/ui/` holds the React screens (`App.tsx` and the cards beside it:
   `SignInCard`, `ProfileCard`, `CreateWorkspaceCard`, and the topbar's
   `WorkspaceSwitcher` and `SignOutButton`), the dashboard (`Dashboard.tsx`,
@@ -190,7 +197,7 @@ column (`.main`; the dashboard widens it with `.main.wide`).
   so a reload, a shared link and the browser's back and forward land where
   they point. The nav is plain links, and `Dashboard` follows the hash
   (`onSectionChange`). An id never changes once a link may hold it: cloud-global
-  sends a person back to `#/connections`. Whatever follows an id in the hash
+  sends a person back to `#/settings/connections`. Whatever follows an id in the hash
   (`/…` or `?…`) is the section's own, and an id this build does not list
   opens the first section (`chooseSection`).
 - **The query string is not the dashboard's.** `address.ts` reads and writes
@@ -210,6 +217,79 @@ column (`.main`; the dashboard widens it with `.main.wide`).
   ones (`.card`, `.heading`, `.muted`, `.error`, `.button`). A page's own
   styles go in a stylesheet beside it (`ui/TeamsPage.css`), imported by the
   page.
+
+## Settings
+
+Settings looks and works as the desktop app's (its `Dialogs/SettingsModal.tsx`
+and its styles): a dialog over the dashboard, with a list of its pages on the
+left under a group that names the workspace ("Workspace · Acme"), each with
+an icon from the same set (`lucide-react`), and the page beside it: a title,
+then options, each a label and a description over its control
+(`ui/SettingsDialog.tsx` and `SettingsDialog.css`, whose `.settings-section`,
+`.settings-option`, `.settings-button` and `.settings-chip` every page uses).
+Sizes and spacing are the desktop's; colours are this app's Radix tokens.
+
+- **It is no section.** The dashboard nav's last link opens it
+  (`#/settings`), and `Dashboard` shows it over the section that was open, or
+  the first section when the address opened Settings directly (cloud-global's
+  GitHub callback). Escape and its close button go back to that section. It is
+  a native modal `<dialog>`, so the dashboard behind it is inert, and the
+  keyboard starts on the open page's entry in the list.
+- **The address picks the page.** A page is `#/settings/<id>`
+  (`hashOfSettingsPage`, `settingsPageIdOfHash` in `domain/settings.ts`), and
+  `#/settings` alone, or an id this build does not list, opens the first
+  (`chooseSection`). `services/settingsAddress.ts` reads the hash only, as
+  `address.ts` does. A page's id never changes once a link may hold it.
+- **Its pages are one list,** `SETTINGS_PAGES` (`ui/settingsPages.tsx`):
+  `{ id, label, icon, View }`, each shown with `SectionProps`. A new settings
+  page (the workspace's details, its members, billing) is one entry there and
+  files of its own. They are all the workspace's for now; a group of the
+  person's own settings would sit above, as the desktop's App group does.
+- On a narrow screen it fills the window and its list becomes a row above
+  the page.
+
+### Connections
+
+Settings' first page (`ui/ConnectionsPage.tsx`, with its own
+`ConnectionsPage.css`, at `#/settings/connections`) shows what the active
+workspace is connected to: GitHub, and the services that come later
+(`LATER_SERVICES`), listed as not connected. The API is `cloud-global`'s (its
+`AGENTS.md`, "Connections"), and it decides everything: the page shows Connect
+and Disconnect only when the server says `canManage`, and the server refuses
+anyone else whatever the page shows.
+
+- **Connect** asks the server for the install address and sends the person
+  there (`goToGitHub`), only if it is on `https://github.com`. GitHub sends
+  them back through `cloud-global`'s callback to
+  `/?github=<result>#/settings/connections`, an address the two keep in step
+  (`CONNECTIONS_PAGE` in `cloud-global`). The page reads the result once as it
+  mounts (`takeGitHubResult`), clears it from the address and says it
+  (`messageForGitHubResult`). A result it does not know is `unknown`, never
+  shown raw.
+- **Disconnect** asks first, in place, never with a browser dialog, and says
+  that the app stays installed on GitHub. Each installation links to its
+  settings there (`settingsUrl`).
+- The repositories are GitHub's answer of the moment: an installation GitHub
+  no longer has is `gone`, and one whose list GitHub did not give is
+  `unavailable`. Both still show, so they can be disconnected. The page
+  counts an installation's repositories and never lists them: their names
+  are GitHub's to show, behind "Choose repositories".
+- **Its look is Notion's and the like.** A connected service sits in the
+  Connected group, a rounded list with each account indented under it; GitHub
+  before anything is connected sits in Available with Connect; the services
+  that come later are a grid of tiles. A service is known by its mark
+  (`ui/serviceMarks.tsx`: each owner's trademark, shown only to name the
+  service; GitHub's in the text colour), and an account by GitHub's picture of
+  it (`avatarUrl`), round for a person and square-cornered for an
+  organisation, with an icon under it if it never loads.
+- A Connect that GitHub sends back as `connected` marks the account it added
+  ("Just connected", `justConnectedId`): the newest installation, only if it
+  is minutes old. An installation says when it was connected in words for the
+  last few days (`connectedSentence`).
+- Motion plays once, as a row arrives or an answer lands (a staggered rise,
+  the success check drawing itself, the connected dot's ping), and none plays
+  under `prefers-reduced-motion`. Escape inside Disconnect's question answers
+  Keep instead of closing Settings.
 
 ## Adding a feature
 

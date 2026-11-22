@@ -5,6 +5,7 @@ export default defineConfig({
   schema: [
     './src/adapters/persistence/auth-schema.ts',
     './src/adapters/persistence/outboxSchema.ts',
+    './src/adapters/persistence/githubSchema.ts',
   ],
   out: './drizzle',
 });
