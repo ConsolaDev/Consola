@@ -1,20 +1,45 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, expectTypeOf, it } from 'vitest';
+import type { components } from './apiContract';
 import {
   checkNewWorkspace,
   isRegion,
   isWorkspaceProblem,
   NEW_DRAFT,
+  type NewWorkspace,
   REGIONS,
+  type Region,
   regionName,
   roleName,
   suggestSlug,
   WORKSPACE_NAME_MAX,
   WORKSPACE_SLUG_MAX,
+  type WorkspaceProblem,
   withName,
   withSlug,
 } from './workspace';
 
 const acme = { name: 'Acme', slug: 'acme', region: 'eu' };
+
+type Schemas = components['schemas'];
+
+// Checked as the app typechecks: the page's own copies hold exactly what the API's contract
+// does, so a region or a problem the API gains fails here until the page names it.
+describe("the API's contract", () => {
+  it('has the regions the page lists', () => {
+    expectTypeOf<Region>().toEqualTypeOf<Schemas['MyWorkspace']['region']>();
+    expectTypeOf<Region>().toEqualTypeOf<Schemas['NewWorkspace']['region']>();
+  });
+
+  it('has the problems the page knows', () => {
+    expectTypeOf<WorkspaceProblem>().toEqualTypeOf<
+      Schemas['InvalidWorkspace']['problems'][number]
+    >();
+  });
+
+  it('takes the new workspace the page sends', () => {
+    expectTypeOf<NewWorkspace>().toEqualTypeOf<Schemas['NewWorkspace']>();
+  });
+});
 
 describe('the regions', () => {
   it('are the EU and the US, in that order', () => {
