@@ -747,7 +747,7 @@ test('max_turns stops a turn with error_max_turns, with no reminder, and keeps i
     const again = stepsOf(retried).look;
     expect(again.error).toBe('It hit its limit of 6 turns before finishing.');
     expect(again.previous).toEqual([
-      expect.objectContaining({ attempt: 1, status: 'failed', costUsd: STUB_COST }),
+      expect.objectContaining({ attempt: 1, status: 'failed', costUsd: STUB_COST, turns: 6 }),
     ]);
     expect(retried.costUsd).toBeCloseTo(0.0246, 10);
 
@@ -757,7 +757,7 @@ test('max_turns stops a turn with error_max_turns, with no reminder, and keeps i
       .locator('.automations-fact')
       .filter({ hasText: /^Turn/ });
     await expect(turnFact).toContainText('6 turns of at most 6 · $0.0123 est. · claude-stub-1');
-    await expect(turnFact).toContainText('Earlier attempts: 1 $0.0123 est.');
+    await expect(turnFact).toContainText('Earlier attempts: 1 $0.0123 est. in 6 turns');
   } finally {
     await steps.close();
   }

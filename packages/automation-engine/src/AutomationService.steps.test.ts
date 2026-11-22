@@ -3244,7 +3244,7 @@ describe('a reporting turn', () => {
     ).toEqual([undefined, 3]);
   });
 
-  it("a retry keeps the earlier attempt's cost", async () => {
+  it("a retry keeps the earlier attempt's cost and turns", async () => {
     const h = await accepted(file(NIGHTLY));
     const run = (await h.service.trigger(WORKSPACE_ID, 'nightly'))!;
     await h.flush();
@@ -3254,6 +3254,7 @@ describe('a reporting turn', () => {
         isError: true,
         text: 'Overloaded',
         cost: 0.01,
+        turns: 4,
         model: 'claude-opus-5-5',
       }),
     });
@@ -3261,7 +3262,7 @@ describe('a reporting turn', () => {
     await h.service.retry(run.id);
     await h.flush();
     const retried = h.store.get(run.id)!;
-    expect(retried.steps?.[0].previous?.[0].costUsd).toBe(0.01);
+    expect(retried.steps?.[0].previous?.[0]).toMatchObject({ costUsd: 0.01, turns: 4 });
     expect(retried.steps?.[0].turn).toBeUndefined();
     expect(retried.steps?.[0].model).toBeUndefined();
     expect(retried.costUsd).toBe(0.01);
@@ -3272,6 +3273,21 @@ describe('a reporting turn', () => {
     const after = h.store.get(run.id)!;
     expect(after.steps?.[0].turn?.costUsd).toBe(0.02);
     expect(after.costUsd).toBeCloseTo(0.03, 10);
+  });
+
+  it('a retry of an attempt that reported no turns remembers none', async () => {
+    const h = await accepted(file(NIGHTLY));
+    const run = (await h.service.trigger(WORKSPACE_ID, 'nightly'))!;
+    await h.flush();
+    await h.world.endTurn('session-1', {
+      exitCode: 1,
+      report: turnReport({ isError: true, text: 'Overloaded', cost: 0.01 }),
+    });
+    await h.service.retry(run.id);
+    await h.flush();
+    const [earlier] = h.store.get(run.id)!.steps![0].previous!;
+    expect(earlier).toMatchObject({ attempt: 1, costUsd: 0.01 });
+    expect(earlier).not.toHaveProperty('turns');
   });
 
   it('a legacy agent run records nothing new', async () => {

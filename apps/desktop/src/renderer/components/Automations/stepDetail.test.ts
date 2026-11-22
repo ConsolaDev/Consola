@@ -485,21 +485,27 @@ describe('what a step’s turns report', () => {
     expect(turnLine({ ...agentStep({ turn: { turns: 3 }, model: 'm' }), kind: 'run' })).toBeNull();
   });
 
-  it('names each earlier attempt’s cost, in attempt order, and says which reported none', () => {
+  it('names each earlier attempt’s cost and turns, in attempt order, and says which reported none', () => {
     expect(
       earlierCosts(
         agentStep({
-          attempt: 3,
+          attempt: 4,
           previous: [
             { attempt: 2, status: 'not-run' },
-            { attempt: 1, status: 'failed', costUsd: 0.01 },
+            { attempt: 1, status: 'failed', costUsd: 0.01, turns: 6 },
+            { attempt: 3, status: 'failed', costUsd: 0.02, turns: 1 },
           ],
         }),
       ),
-    ).toBe('Earlier attempts: 1 $0.0100 est., 2 no cost reported');
+    ).toBe(
+      'Earlier attempts: 1 $0.0100 est. in 6 turns, 2 no cost reported, 3 $0.0200 est. in 1 turn',
+    );
+    expect(
+      earlierCosts(agentStep({ previous: [{ attempt: 1, status: 'failed', turns: 3 }] })),
+    ).toBe('Earlier attempts: 1 no cost reported in 3 turns');
   });
 
-  it('is null when no earlier attempt reported a cost', () => {
+  it('is null when no earlier attempt reported a cost or turns', () => {
     expect(earlierCosts(agentStep())).toBeNull();
     expect(earlierCosts(agentStep({ previous: [{ attempt: 1, status: 'failed' }] }))).toBeNull();
   });

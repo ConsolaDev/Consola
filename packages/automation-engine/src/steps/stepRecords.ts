@@ -47,7 +47,8 @@ export type EndedAttempt = NonNullable<StepRun['previous']>[number];
  * folder: its attempt as it ended kept in `previous` (as its record has it,
  * unless `ended` says otherwise), and everything that attempt produced or
  * named cleared, so nothing of it can settle or feed the next. Its cost
- * stays, as the remembered attempt's `costUsd`: the run spent it. A step that
+ * stays, as the remembered attempt's `costUsd` (the run spent it), and its
+ * turns as its `turns`. A step that
  * never ran moves on too, `not-run` in its `previous`: its next launch is
  * then never a first attempt, which only a trigger's fire makes. A retry and
  * a restart that runs a step again both go through this.
@@ -58,7 +59,7 @@ export function withNextAttempt(
   next: {
     status: 'pending' | 'queued';
     nowIso: string;
-    ended?: Omit<EndedAttempt, 'attempt' | 'costUsd'>;
+    ended?: Omit<EndedAttempt, 'attempt' | 'costUsd' | 'turns'>;
   },
 ): StepRun[] {
   return records.map((record) => {
@@ -87,6 +88,7 @@ export function withNextAttempt(
       ...(ended.error !== undefined ? { error: ended.error } : {}),
       ...(ended.finishedAt !== undefined ? { finishedAt: ended.finishedAt } : {}),
       ...(turn?.costUsd !== undefined ? { costUsd: turn.costUsd } : {}),
+      ...(turn?.turns !== undefined ? { turns: turn.turns } : {}),
     };
     return {
       ...kept,

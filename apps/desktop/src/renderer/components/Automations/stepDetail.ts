@@ -106,16 +106,20 @@ export function turnLine(step: StepRun): string | null {
 }
 
 /**
- * What each earlier attempt cost, in attempt order: `Earlier attempts: 1
- * $0.0100 est., 2 no cost reported`. Null when none reported a cost.
+ * What each earlier attempt cost and took, in attempt order: `Earlier
+ * attempts: 1 $0.0100 est. in 6 turns, 2 no cost reported`. Null when none
+ * reported a cost or turns.
  */
 export function earlierCosts(step: StepRun): string | null {
   const previous = [...(step.previous ?? [])].sort((a, b) => a.attempt - b.attempt);
-  if (!previous.some((earlier) => earlier.costUsd !== undefined)) return null;
-  const listed = previous.map(
-    (earlier) =>
-      `${earlier.attempt} ${earlier.costUsd !== undefined ? formatCostUsd(earlier.costUsd) : 'no cost reported'}`,
-  );
+  if (!previous.some((earlier) => earlier.costUsd !== undefined || earlier.turns !== undefined))
+    return null;
+  const listed = previous.map((earlier) => {
+    const cost =
+      earlier.costUsd !== undefined ? formatCostUsd(earlier.costUsd) : 'no cost reported';
+    const turns = earlier.turns !== undefined ? ` in ${turnsWords(earlier.turns)}` : '';
+    return `${earlier.attempt} ${cost}${turns}`;
+  });
   return `Earlier attempts: ${listed.join(', ')}`;
 }
 

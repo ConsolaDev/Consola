@@ -80,13 +80,17 @@ export interface StepRun {
     stderrBytes?: number;
     truncated?: boolean;
   };
-  /** Earlier executions of this step, oldest first; `costUsd` is that attempt's `turn.costUsd`. */
+  /**
+   * Earlier executions of this step, oldest first; `costUsd` and `turns` are
+   * that attempt's `turn.costUsd` and `turn.turns`, when it reported them.
+   */
   previous?: Array<{
     attempt: number;
     status: StepRunStatus;
     error?: string;
     finishedAt?: string;
     costUsd?: number;
+    turns?: number;
   }>;
 }
 
