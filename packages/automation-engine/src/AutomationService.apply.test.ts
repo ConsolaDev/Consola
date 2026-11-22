@@ -70,8 +70,8 @@ automations:
     mode: auto
     run: { prompt: Look at what changed in api overnight. }
 `;
-/** The two problems a broken reviewer brings: its own, and the step that names it. */
-const REVIEWER_PROBLEMS = 'agents/reviewer.md and automations/catalog-review.yaml';
+/** Where a broken reviewer's problem is counted: its own file, not the step that names it (review M1). */
+const REVIEWER_PROBLEMS = 'agents/reviewer.md';
 
 /** The folder these tests start from: an empty factory.yml, the entry in its own file, its agent. */
 async function folder(options: StepsHarnessOptions = {}): Promise<StepsHarness> {
@@ -234,7 +234,7 @@ describe('a read with a problem keeps the last applied version running', () => {
 
     await h.writeFile(REVIEWER_FILE, BROKEN_REVIEWER);
     expect(standing(h)?.message).toBe(
-      `Your changes didn't apply: 2 problems in ${REVIEWER_PROBLEMS}. The version from 08:00 keeps running.`,
+      `Your changes didn't apply: 1 problem in ${REVIEWER_PROBLEMS}. The version from 08:00 keeps running.`,
     );
     expect(h.service.snapshot(WORKSPACE_ID).issues).toContainEqual(
       expect.objectContaining({ file: REVIEWER_FILE, path: 'tools', line: 4 }),
@@ -332,11 +332,11 @@ describe('a read with a problem keeps the last applied version running', () => {
     const h = await folder({ now: new Date(2026, 10, 22, 10, 42) });
     await h.writeFile(REVIEWER_FILE, BROKEN_REVIEWER);
     expect(standing(h)?.message).toBe(
-      `Your changes didn't apply: 2 problems in ${REVIEWER_PROBLEMS}. The version from 10:42 keeps running.`,
+      `Your changes didn't apply: 1 problem in ${REVIEWER_PROBLEMS}. The version from 10:42 keeps running.`,
     );
     h.advance(24 * 60 * 60 * 1000);
     expect(standing(h)?.message).toBe(
-      `Your changes didn't apply: 2 problems in ${REVIEWER_PROBLEMS}. The version from 22 Nov 10:42 keeps running.`,
+      `Your changes didn't apply: 1 problem in ${REVIEWER_PROBLEMS}. The version from 22 Nov 10:42 keeps running.`,
     );
     expect(standing(h)?.appliedAt).toBe(new Date(2026, 10, 22, 10, 42).toISOString());
   });

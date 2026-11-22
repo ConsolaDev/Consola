@@ -119,9 +119,9 @@ steps:
 /** The banner's time: `HH:MM` today. */
 const AT = '\\d\\d:\\d\\d';
 
-/** A broken agent file counts twice: its own problem, and the reference in the entry that names it (Task 7). */
+/** A broken agent file is one problem, counted in its own file, not in the entry that names it (review M1). */
 const BROKEN_REVIEWER_BANNER = new RegExp(
-  `^Your changes didn't apply: 2 problems in agents/reviewer\\.md and automations/catalog-agents\\.yaml\\. The version from ${AT} keeps running\\.$`,
+  `^Your changes didn't apply: 1 problem in agents/reviewer\\.md\\. The version from ${AT} keeps running\\.$`,
 );
 
 const WRITE_TOOLS = 'Write tools arrive with write steps; an agent is read-only until then.';
@@ -943,7 +943,7 @@ test('removing an automation always applies, even beside a broken file', async (
     await expect(rowOf(steps.page, 'old-digest')).toHaveCount(0, { timeout: 15_000 });
     await expect(bannerOf(steps.page).locator('.automations-standing-text')).toHaveText(
       new RegExp(
-        `^\`old-digest\` was removed\\. The rest of your changes didn't apply: 2 problems in agents/reviewer\\.md and automations/catalog-agents\\.yaml\\. The version from ${AT} keeps running\\.$`,
+        `^\`old-digest\` was removed\\. The rest of your changes didn't apply: 1 problem in agents/reviewer\\.md\\. The version from ${AT} keeps running\\.$`,
       ),
     );
     await expect(rowOf(steps.page, 'catalog-agents')).toHaveCount(1);

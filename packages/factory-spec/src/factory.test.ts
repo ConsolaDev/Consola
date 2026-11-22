@@ -384,6 +384,28 @@ automations:
     ]);
   });
 
+  it('marks a reference to a file with problems of its own by that file, and one to a missing file by none (review M1)', () => {
+    const folder = ACCEPTANCE();
+    folder.agents.summariser = '---\ntools: write\n---\nYou summarise.\n';
+    folder.skills['incident-triage'] = [text('SKILL.md', 'no frontmatter\n')];
+    const result = parseFactory(folder);
+    const causes = result.issues.map((issue) => [issue.file, issue.cause]);
+    expect(causes).toEqual(
+      expect.arrayContaining([
+        ['agents/investigator.md', 'skills/incident-triage/'],
+        ['automations/investigate-alerts.yaml', 'agents/investigator.md'],
+        ['automations/investigate-alerts.yaml', 'agents/summariser.md'],
+        ['agents/summariser.md', undefined],
+        ['skills/incident-triage/SKILL.md', undefined],
+      ]),
+    );
+    const missing = ACCEPTANCE();
+    delete missing.agents.summariser;
+    const step = parseFactory(missing).issues.find((issue) => issue.path.endsWith('agent'));
+    expect(step).toMatchObject({ message: expect.stringContaining('is not an agent here') });
+    expect(step).not.toHaveProperty('cause');
+  });
+
   describe('a file that links outside the folder (review S3)', () => {
     const OUTSIDE = (path: string) =>
       `\`${path}\` links outside the factory folder; Consola reads only files inside it.`;

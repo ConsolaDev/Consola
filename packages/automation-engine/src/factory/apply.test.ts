@@ -544,6 +544,44 @@ describe('standingMessage', () => {
     expect(standingMessage(keeps(blocking, removed), AT, NOW)).toBe(message);
   });
 
+  it('counts and names only the files that have the problems, never one a problem shows through (review M1)', () => {
+    const derived = (file: string, cause: string): FactorySpecIssue => ({ ...issue(file), cause });
+    expect(
+      standingMessage(
+        keeps([
+          issue('agents/reviewer.md'),
+          derived('automations/catalog-review.yaml', 'agents/reviewer.md'),
+          derived('factory.yml', 'agents/reviewer.md'),
+        ]),
+        AT,
+        NOW,
+      ),
+    ).toBe(
+      "Your changes didn't apply: 1 problem in agents/reviewer.md. The version from 10:42 keeps running.",
+    );
+    // One broken skill is one problem in its folder, not three in three files.
+    expect(
+      standingMessage(
+        keeps([
+          issue('skills/triage/SKILL.md'),
+          derived('agents/investigator.md', 'skills/triage/'),
+          derived('automations/x.yaml', 'agents/investigator.md'),
+        ]),
+        AT,
+        NOW,
+      ),
+    ).toBe(
+      "Your changes didn't apply: 1 problem in skills/triage/SKILL.md. The version from 10:42 keeps running.",
+    );
+  });
+
+  it('never says "0 problems": with only problems that show another through, it counts them', () => {
+    const derived = { ...issue('automations/x.yaml'), cause: 'agents/gone.md' };
+    expect(standingMessage(keeps([derived]), AT, NOW)).toBe(
+      "Your changes didn't apply: 1 problem in automations/x.yaml. The version from 10:42 keeps running.",
+    );
+  });
+
   it('words the time against `now`', () => {
     expect(standingMessage(keeps([issue('a')]), AT, new Date(2026, 10, 23, 9, 0))).toBe(
       "Your changes didn't apply: 1 problem in a. The version from 22 Nov 10:42 keeps running.",

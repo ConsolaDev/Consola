@@ -241,16 +241,24 @@ function describeFiles(files: readonly string[]): string {
   return `${files.slice(0, 3).join(', ')} and ${more} more ${more === 1 ? 'file' : 'files'}`;
 }
 
-/** The banner's sentence while the folder does not apply. */
+/**
+ * The banner's sentence while the folder does not apply. It counts and names
+ * only the problems in the files that have them: one that only shows a
+ * file's problems through (`cause`, a step naming a broken agent) is in the
+ * list, never in the count, so one mistake is one problem in one file.
+ */
 export function standingMessage(
   decision: Extract<ApplyDecision, { kind: 'keeps' }>,
   appliedAt: string,
   now: Date,
 ): string {
+  const own = decision.blocking.filter((issue) => issue.cause === undefined);
+  // Every problem shows another through only if their files were left out: count them all then.
+  const counted = own.length > 0 ? own : decision.blocking;
   const files: string[] = [];
-  for (const issue of decision.blocking)
+  for (const issue of counted)
     if (issue.file !== undefined && !files.includes(issue.file)) files.push(issue.file);
-  const count = decision.blocking.length;
+  const count = counted.length;
   const problems = `${count} ${count === 1 ? 'problem' : 'problems'} in ${describeFiles(files)}`;
   const keeps = `The version from ${describeAppliedAt(appliedAt, now)} keeps running.`;
   const { removed } = decision;

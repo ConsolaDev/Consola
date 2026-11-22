@@ -189,13 +189,15 @@ export function parseFactory(files: FactoryFiles): FactoryParseResult {
     if (!agent) continue;
     const missing = agent.skills.filter((skill) => !own(skills, skill));
     for (const skill of missing) {
+      const there = skillIsThere(skill);
       issues.push({
-        message: skillIsThere(skill)
+        message: there
           ? `\`${skill}\` has problems of its own in skills/${skill}/; this agent applies once they are fixed.`
           : `\`${skill}\` is not a skill here: there is no skills/${skill}/SKILL.md.`,
         file,
         path: 'skills',
         ...(agent.lines.skills !== undefined ? { line: agent.lines.skills } : {}),
+        ...(there ? { cause: `skills/${skill}/` } : {}),
       });
     }
     if (missing.length > 0) continue;
@@ -283,14 +285,16 @@ export function parseFactory(files: FactoryFiles): FactoryParseResult {
       kept = false;
       const path = candidate.pathTo(['steps', index, 'agent']);
       const line = candidate.lineAt(path);
+      const there = agentIsThere(step.agent);
       issues.push({
-        message: agentIsThere(step.agent)
+        message: there
           ? `\`${step.agent}\` has problems of its own in agents/${step.agent}.md; this step runs once they are fixed.`
           : `\`${step.agent}\` is not an agent here: there is no agents/${step.agent}.md.`,
         file: candidate.file,
         path: formatPath(path),
         ...(line !== undefined ? { line } : {}),
         automation: automation.name,
+        ...(there ? { cause: `agents/${step.agent}.md` } : {}),
       });
     });
     return kept;
