@@ -133,7 +133,7 @@ const triggerSchema = z.unknown().transform((on, ctx): Trigger => {
 
   if (kind === 'poll' || kind === 'manual') {
     let reported = false;
-    const report = (message: string, path: string[] = []) => {
+    const report = (message: string, path: Array<string | number> = []) => {
       reported = true;
       ctx.addIssue({ code: 'custom', message, path });
     };

@@ -6,9 +6,13 @@ import {
   MAX_SECRETS_PER_PLACE,
   parseSecretNames,
   secretNameProblem,
+  secretNamesOf,
   secretTemplateReason,
+  secretUsesOf,
 } from './secrets';
 import { describe, expect, it } from 'vitest';
+import { parseAutomationEntry } from './entry';
+import type { Automation } from './schema';
 
 const PATTERN = 'Use uppercase letters, digits and underscores, e.g. PAGERDUTY_TOKEN.';
 const IDENTITY =
@@ -156,5 +160,71 @@ describe('the reasons', () => {
       'A secret given to an agent can reach its model, its transcript and its pane. Give it to the command or server that needs it.',
     );
     expect(ENTRY_SECRETS_REASON).toBe('`secrets:` goes on the step that needs it.');
+  });
+});
+
+describe('the names an entry uses', () => {
+  const entry = (yaml: string): Automation => {
+    const parsed = parseAutomationEntry(yaml);
+    if (!parsed.ok) throw new Error(JSON.stringify(parsed.issues));
+    return parsed.automation;
+  };
+  const WATCH = entry(
+    [
+      '- name: watch',
+      '  on: { poll: { every: 30m, run: tracker list, key: .id, secrets: [TRACKER_TOKEN] } }',
+      '  scope: api',
+      '  mode: auto',
+      '  steps:',
+      '    - id: look',
+      '      prompt: Look at it.',
+      '    - id: page',
+      '      run: page "$PAGER_TOKEN"',
+      '      secrets: [PAGER_TOKEN]',
+      '    - id: post',
+      '      run: post "$TRACKER_TOKEN"',
+      '      secrets: [TRACKER_TOKEN]',
+      '      dry_run: run',
+    ].join('\n'),
+  );
+
+  it('lists every place, steps in file order, then the check', () => {
+    expect(secretUsesOf(WATCH)).toEqual([
+      { name: 'PAGER_TOKEN', automation: 'watch', step: 'page' },
+      { name: 'TRACKER_TOKEN', automation: 'watch', step: 'post' },
+      { name: 'TRACKER_TOKEN', automation: 'watch', check: true },
+    ]);
+  });
+
+  it('names each once, sorted', () => {
+    expect(secretNamesOf(WATCH)).toEqual(['PAGER_TOKEN', 'TRACKER_TOKEN']);
+  });
+
+  it("leaves the check's out of what a run reads, and keeps only dry_run: run commands' in a dry run", () => {
+    const checkOnly = entry(
+      [
+        '- name: check-only',
+        '  on: { poll: { every: 30m, run: tracker list, key: .id, secrets: [CHECK_ONLY_TOKEN] } }',
+        '  scope: api',
+        '  mode: auto',
+        '  steps:',
+        '    - id: page',
+        '      run: page "$PAGER_TOKEN"',
+        '      secrets: [PAGER_TOKEN]',
+      ].join('\n'),
+    );
+    expect(secretNamesOf(checkOnly)).toEqual(['CHECK_ONLY_TOKEN', 'PAGER_TOKEN']);
+    expect(secretNamesOf(checkOnly, { runOnly: true })).toEqual(['PAGER_TOKEN']);
+    expect(secretNamesOf(WATCH, { runOnly: true })).toEqual(['PAGER_TOKEN', 'TRACKER_TOKEN']);
+    expect(secretNamesOf(WATCH, { runOnly: true, dryRun: true })).toEqual(['TRACKER_TOKEN']);
+    expect(secretNamesOf(checkOnly, { runOnly: true, dryRun: true })).toEqual([]);
+  });
+
+  it('is empty for an entry that names none', () => {
+    const prompt = entry(
+      '- name: p\n  on: { cron: "0 9 * * 1-5" }\n  scope: api\n  run: { prompt: "x" }',
+    );
+    expect(secretUsesOf(prompt)).toEqual([]);
+    expect(secretNamesOf(prompt)).toEqual([]);
   });
 });

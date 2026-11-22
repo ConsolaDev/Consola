@@ -112,3 +112,24 @@ describe('versions before agents as files', () => {
     `);
   });
 });
+
+describe('versions with secrets', () => {
+  /** `text` with `insert` after its one `after`. */
+  const withLine = (text: string, after: string, insert: string) => {
+    expect(text.split(after)).toHaveLength(2);
+    return text.replace(after, `${after}${insert}`);
+  };
+
+  it("a check's and a command's secrets move only the entries that write them", () => {
+    const poll = GRAMMAR_EXAMPLES.find((example) => example.title === 'Steps, on a poll')!.entry;
+    const steps = GRAMMAR_EXAMPLES.find((example) => example.title === 'Steps, on an event')!.entry;
+    // The twins are the pins above.
+    expect(versionOf(poll)).toBe('9387227e150d8b94');
+    expect(versionOf(steps)).toBe('6dfd57fa0f97c2ff');
+    const pollWith = withLine(poll, '      changed: .head\n', '      secrets: [TRACKER_TOKEN]\n');
+    const stepsWith = withLine(steps, '      dry_run: run\n', '      secrets: [PAGER_TOKEN]\n');
+    expect(versionOf(pollWith)).not.toBe('9387227e150d8b94');
+    expect(versionOf(stepsWith)).not.toBe('6dfd57fa0f97c2ff');
+    expect(versionOf(pollWith)).not.toBe(versionOf(stepsWith));
+  });
+});

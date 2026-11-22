@@ -15,6 +15,8 @@ import {
   REFUSED_ENV_NAMES,
   REFUSED_ENV_PREFIXES,
 } from './envNames';
+import type { Automation } from './schema';
+import type { CommandStep } from './steps';
 import { secretPathProblem } from './template';
 
 export const MAX_SECRET_NAME_LENGTH = 64;
@@ -92,4 +94,47 @@ export function parseSecretNames(
     }
   });
   return ok ? names : null;
+}
+
+/** One place an entry names a secret: a command step's, or its poll's check command's. */
+export interface SecretUse {
+  name: string;
+  automation: string;
+  step?: string;
+  check?: true;
+}
+
+/** The entry's command steps. On `main` an entry's steps are flat; slice 3's nested steps walk `leafSteps` here. */
+function commandSteps(automation: Automation): CommandStep[] {
+  return (automation.steps ?? []).filter((step): step is CommandStep => step.kind === 'run');
+}
+
+/** Every place an entry names a secret, in file order: each command step's, then its check's. */
+export function secretUsesOf(automation: Automation): SecretUse[] {
+  const uses: SecretUse[] = [];
+  for (const step of commandSteps(automation))
+    for (const name of step.secrets ?? [])
+      uses.push({ name, automation: automation.name, step: step.id });
+  if (automation.trigger.kind === 'poll')
+    for (const name of automation.trigger.secrets ?? [])
+      uses.push({ name, automation: automation.name, check: true });
+  return uses;
+}
+
+/**
+ * The distinct names an entry uses, sorted. `runOnly`: what a run reads, so
+ * not its check's; `dryRun`: what a dry run reads, only the names of its
+ * `dry_run: run` commands (a check is no part of a run either way).
+ */
+export function secretNamesOf(
+  automation: Automation,
+  options: { runOnly?: boolean; dryRun?: boolean } = {},
+): string[] {
+  const names = new Set<string>();
+  for (const step of commandSteps(automation))
+    if (!options.dryRun || step.dryRun === 'run')
+      for (const name of step.secrets ?? []) names.add(name);
+  if (!options.runOnly && !options.dryRun && automation.trigger.kind === 'poll')
+    for (const name of automation.trigger.secrets ?? []) names.add(name);
+  return [...names].sort();
 }

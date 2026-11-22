@@ -1,5 +1,6 @@
 import { parseDurationMs } from './duration';
 import { parseFieldPath } from './fieldPath';
+import { parseSecretNames, secretTemplateReason } from './secrets';
 
 export const MIN_POLL_EVERY_MS = 60_000;
 export const MAX_POLL_EVERY_MS = 86_400_000;
@@ -10,7 +11,7 @@ export const MAX_CHECK_TIMEOUT_MS = 300_000;
 export const RESERVED_TRIGGER_NAMES = ['cron', 'poll', 'manual', 'webhook', 'consola'] as const;
 
 /**
- * `on: { poll: { run, every, key | item, changed?, timeout? } }`: a command
+ * `on: { poll: { run, every, key | item, changed?, timeout?, secrets? } }`: a command
  * whose stdout is a JSON array of objects, one per item. The grammar knows a
  * command and field paths, nothing about any vendor.
  */
@@ -25,6 +26,8 @@ export interface PollTrigger {
   item?: { connection: string; path: string };
   /** A field path to the item's revision, as written. */
   changed?: string;
+  /** The secrets its check command needs, by name; present only when written and non-empty. */
+  secrets?: string[];
 }
 
 /** `on: manual`: it runs only when a person starts it. */
@@ -32,9 +35,11 @@ export interface ManualTrigger {
   kind: 'manual';
 }
 
-type Fail = (message: string, path?: string[]) => void;
+type Fail = (message: string, path?: Array<string | number>) => void;
 
-const POLL_KEYS = ['run', 'every', 'key', 'item', 'changed', 'timeout'] as const;
+const POLL_KEYS = ['run', 'every', 'key', 'item', 'changed', 'timeout', 'secrets'] as const;
+/** A poll's keys that arrive with polls by MCP tool (5a-3), each refused with that reason. */
+const TOOL_POLL_KEYS = ['uses', 'with', 'items'];
 const TIMEOUT_FORMAT = 'Write the timeout as `<n>s`, `<n>m` or `<n>h`, e.g. `10m`.';
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -65,12 +70,15 @@ export function parsePollTrigger(
     );
     return null;
   }
-  const unknown = Object.keys(value).filter(
+  const unlisted = Object.keys(value).filter(
     (key) => !(POLL_KEYS as readonly string[]).includes(key),
   );
+  for (const key of unlisted.filter((key) => TOOL_POLL_KEYS.includes(key)))
+    bad(`\`${key}\` in a poll arrives with polls by MCP tool; it is not supported yet.`, [key]);
+  const unknown = unlisted.filter((key) => !TOOL_POLL_KEYS.includes(key));
   if (unknown.length > 0) {
     bad(
-      `Unrecognized key in \`poll\`: ${unknown.join(', ')}. Expected run, every, key, item, changed or timeout.`,
+      `Unrecognized key in \`poll\`: ${unknown.join(', ')}. Expected run, every, key, item, changed, timeout or secrets.`,
       [unknown[0]],
     );
   }
@@ -93,8 +101,12 @@ export function parsePollTrigger(
       ['run'],
     );
   } else if (run.includes('{{')) {
+    // `{{ secrets.X }}` says how a secret reaches a command, as a step's `run:` does.
+    const [root, name] = (/\{\{[^}]*\}\}/.exec(run)?.[0] ?? '{{').slice(2, -2).trim().split('.');
     bad(
-      'A check command takes no `{{ }}`: it runs before there is an item, and values reach commands only as environment variables.',
+      root === 'secrets'
+        ? secretTemplateReason(name)
+        : 'A check command takes no `{{ }}`: it runs before there is an item, and values reach commands only as environment variables.',
       ['run'],
     );
   }
@@ -142,6 +154,11 @@ export function parsePollTrigger(
     else bad(parsed.problem, ['changed']);
   }
 
+  // A check has no `env:`, so nothing for a name to repeat.
+  const secrets = has('secrets')
+    ? parseSecretNames(value.secrets, (message, path = []) => bad(message, ['secrets', ...path]))
+    : null;
+
   if (!ok) return null;
   return {
     kind: 'poll',
@@ -151,6 +168,8 @@ export function parsePollTrigger(
     ...(key ? { key } : {}),
     ...(item ? { item } : {}),
     ...(changed ? { changed } : {}),
+    // Only when it names any, so a poll without one parses, and hashes, as before the key existed.
+    ...(secrets && secrets.length > 0 ? { secrets } : {}),
   };
 }
 

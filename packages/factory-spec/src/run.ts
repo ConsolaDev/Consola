@@ -77,6 +77,8 @@ export interface StepRun {
   turn?: { costUsd?: number; turns?: number; maxTurns?: number; deniedTools?: string[] };
   command?: {
     envNames: string[];
+    /** The secrets the command was given, by name (never a value); present only when it named any. */
+    secretNames?: string[];
     intentAt?: string;
     exitCode?: number;
     signal?: string;
@@ -254,6 +256,8 @@ export function automationVersion(
             item: trigger.item,
             changed: trigger.changed,
             timeoutMs: trigger.timeoutMs,
+            // By name: where each is bound is the runner's, not the file's (absent, dropped).
+            secrets: trigger.secrets,
           }
         : undefined,
     // Which items a run on demand takes.

@@ -265,6 +265,18 @@ describe('automationVersion', () => {
       expect(versionOf(edit('echo "$VERDICT"', 'echo "$VERDICt"'))).not.toBe(versionOf(ENTRY));
     });
 
+    it("a command's secrets change it", () => {
+      const named = versionOf(
+        edit('      dry_run: run\n', '      dry_run: run\n      secrets: [PAGER_TOKEN]\n'),
+      );
+      expect(named).not.toBe(versionOf(ENTRY));
+      expect(
+        versionOf(
+          edit('      dry_run: run\n', '      dry_run: run\n      secrets: [TRACKER_TOKEN]\n'),
+        ),
+      ).not.toBe(named);
+    });
+
     it('a cron-only change to a steps entry does not', () => {
       const cron = ENTRY.replace(
         'on: { github: [pull_request.review_requested] }',
@@ -347,6 +359,17 @@ describe('automationVersion', () => {
       ] as const;
       for (const [yaml, base] of changed) expect(versionOf(yaml)).not.toBe(base);
       expect(new Set(changed.map(([yaml]) => versionOf(yaml))).size).toBe(changed.length);
+    });
+
+    it("a check's secrets change the version, by name and in their order", () => {
+      const without = versionOf(KEYED());
+      const one = versionOf(KEYED(', secrets: [TRACKER_TOKEN]'));
+      const two = versionOf(KEYED(', secrets: [TRACKER_TOKEN, PAGER_TOKEN]'));
+      const reordered = versionOf(KEYED(', secrets: [PAGER_TOKEN, TRACKER_TOKEN]'));
+      expect(one).not.toBe(without);
+      expect(two).not.toBe(one);
+      expect(reordered).not.toBe(two);
+      expect(versionOf(KEYED(', secrets: []'))).toBe(without);
     });
 
     it('its interval does not', () => {

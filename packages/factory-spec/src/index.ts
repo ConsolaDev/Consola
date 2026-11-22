@@ -77,7 +77,10 @@ export {
   MAX_SECRETS_PER_PLACE,
   parseSecretNames,
   secretNameProblem,
+  secretNamesOf,
   secretTemplateReason,
+  secretUsesOf,
+  type SecretUse,
 } from './secrets';
 export {
   hasTemplateBraces,
