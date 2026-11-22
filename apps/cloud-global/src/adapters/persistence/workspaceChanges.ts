@@ -27,9 +27,10 @@ export type WorkspaceChangeToWrite =
  * count from `FIRST_SEQUENCE` with no gaps, in the order their transactions commit: a change to a
  * workspace that exists holds that workspace's row (`for no key update`) until its transaction
  * ends, so a second change to the same workspace waits for the first to commit or roll back and
- * then counts from it. The lock is taken before anything is written, so two changes never wait on
- * each other. The primary key on (workspace, sequence) backs this: two messages can never share a
- * place.
+ * then counts from it. The lock comes before the change writes anything, so changes to one
+ * workspace queue rather than deadlock, and it does not block the key-share locks other tables'
+ * foreign keys take on the row. The primary key on (workspace, sequence) backs this: two messages
+ * can never share a place.
  *
  * Its answer is the message written, or null when the change would change nothing, and then
  * nothing is written: a slug any workspace has, a workspace that is not there, a person already
