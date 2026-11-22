@@ -1,0 +1,189 @@
+/* The Teams section: a card per team, its members in rows. */
+
+.team {
+  gap: 10px;
+}
+
+.team-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+}
+
+.team-name {
+  overflow-wrap: anywhere;
+}
+
+.team-count {
+  margin-left: auto;
+  font-size: 13px;
+}
+
+.team-note {
+  font-size: 13px;
+}
+
+.team-rename {
+  flex: 1;
+  min-width: 0;
+}
+
+/* A literal radius: Radix's --radius-full is 0px inside its theme. */
+.badge {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--accent-a3);
+  color: var(--accent-11);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.team-members {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.team-member {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-top: 1px solid var(--gray-4);
+}
+
+.team-member:last-child {
+  padding-bottom: 0;
+}
+
+.avatar.small {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  font-size: 11px;
+}
+
+.member-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.member-name {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.member-email {
+  color: var(--gray-11);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.member-role {
+  color: var(--gray-11);
+  font-size: 12px;
+}
+
+.icon-button {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--gray-11);
+  font: inherit;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.icon-button:hover:not(:disabled),
+.icon-button[data-state="open"] {
+  background: var(--gray-a3);
+  color: var(--gray-12);
+}
+
+.icon-button:focus-visible {
+  outline: 2px solid var(--accent-8);
+  outline-offset: 0;
+}
+
+.icon-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.team-actions .button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.add-member-menu {
+  min-width: 240px;
+}
+
+.add-member-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.add-member-email {
+  margin-left: auto;
+  padding-left: 16px;
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+.team-name-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.team-name-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.team-name-row .input {
+  flex: 1;
+  min-width: 160px;
+}
+
+.confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--red-6);
+  border-radius: 6px;
+  background: var(--red-a2);
+}
+
+.button.danger {
+  border-color: var(--red-9);
+  background: var(--red-9);
+  color: white;
+}
+
+.button.danger:hover:not(:disabled) {
+  background: var(--red-10);
+}

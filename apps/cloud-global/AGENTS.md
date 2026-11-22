@@ -19,7 +19,8 @@ The service is built in rings, and imports point inward only.
   `MyWorkspace`, `Person` and `SignedIn`. It is plain TypeScript, with no I/O,
   and no package but the contract (below).
 - `src/application/` holds the use cases (`createWorkspace`,
-  `listMyWorkspaces`, `setActiveWorkspace`, `workspaceForNewSession`,
+  `listMyWorkspaces`, `setActiveWorkspace`, `listActiveWorkspaceMembers`,
+  `workspaceForNewSession`,
   `mayCreateAccount`, `mayStartSession`, `describeMe`, `mintCellToken`,
   `cellTokenKeys`, `deliverOutbox`, `checkHealth`) and, in `ports.ts`, the
   stores, probes, signers and the cell they need. A use case is a plain
@@ -138,6 +139,12 @@ between them.
 - `PUT /api/me/workspace` `{ workspaceId }`: makes one of the person's
   workspaces active (`setActiveWorkspace`); one they are not in is 404, like
   one that does not exist;
+- `GET /api/me/workspace/members`: the active workspace's members, each with
+  their global id, name, email, image and role, in the order they joined
+  (`listActiveWorkspaceMembers`). Every member may list them: a cell names
+  people by global id only, so this is how the web app puts a name to them
+  (8.2, Teams). No workspace open is 409 `no_active_workspace`; one the person
+  is not in is 403 `not_a_member`;
 - `GET /api/workspaces`: the person's workspaces, in the order they joined;
 - `POST /api/workspaces` `{ name, slug, region }`: makes one
   (`createWorkspace`). The creator is its owner and their session opens it. A
@@ -246,9 +253,13 @@ No other claim is added: a cell's reader refuses one it does not know.
 **Proposed** (5.3, CON-50), not yet confirmed:
 
 - **The mint route.** `POST /api/cell-token`, with no body, answers the token
-  for the session's active workspace as `{ token, expiresAt }`, where
-  `expiresAt` is the token's `exp` (whole seconds since the epoch), with
-  `Cache-Control: no-store`. It is a change, so it sits under the origin check
+  for the session's active workspace as
+  `{ token, expiresAt, workspaceId, region }`, where `expiresAt` is the
+  token's `exp` (whole seconds since the epoch), with
+  `Cache-Control: no-store`. `workspaceId` and `region` say whose token it
+  is and which cell takes it, so the web app never reads the token itself: it
+  checks the workspace is the one it shows (another tab can switch the
+  session's) and sends the token to that region's cell. It is a change, so it sits under the origin check
   (403 `bad_origin`): a token is worth as much as the session that mints it.
   Signed out is 401 `signed_out`; a session with no active workspace is 409
   `no_active_workspace`; one whose active workspace the person is not in (any

@@ -27,6 +27,7 @@ export const CHECKS_EVERYTHING = [
 const DESKTOP = 'consola';
 const WEBSITE = '@consola/website';
 const CLOUD_GLOBAL = '@consola/cloud-global';
+const CLOUD_REGION = '@consola/cloud-region';
 const CLOUD_WEB = '@consola/cloud-web';
 
 /**
@@ -57,9 +58,9 @@ export function scope({ event, changedFiles, affected, all }) {
   // package.json cannot declare that: Vercel uploads the site without
   // `packages/` (`.vercelignore`), so a workspace dependency would not install.
   if (packages.has(DESKTOP)) packages.add(WEBSITE);
-  // The web app's API types are generated from cloud-global's openapi.json, read as a file: no
-  // app imports another, so the graph cannot say the web app depends on it.
-  if (packages.has(CLOUD_GLOBAL)) packages.add(CLOUD_WEB);
+  // The web app's API types are generated from cloud-global's and the cell's openapi.json, read
+  // as files: no app imports another, so the graph cannot say the web app depends on either.
+  if (packages.has(CLOUD_GLOBAL) || packages.has(CLOUD_REGION)) packages.add(CLOUD_WEB);
   if (changedFiles.some((file) => WEBSITE_DEPLOY.includes(file))) packages.add(WEBSITE);
   return plan(
     [...packages],

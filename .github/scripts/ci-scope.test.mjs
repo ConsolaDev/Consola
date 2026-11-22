@@ -33,11 +33,11 @@ test('a push to main checks everything', () => {
   );
 });
 
-test('a change to one cloud app checks that app alone, not the desktop', () => {
+test('a change to the cell checks the web app too, whose cell types are generated from it', () => {
   assert.deepEqual(checks(pr(['apps/cloud-region/src/main.ts'], ['@consola/cloud-region'])), {
     desktop: false,
     website: false,
-    packages: ['@consola/cloud-region'],
+    packages: ['@consola/cloud-region', '@consola/cloud-web'],
   });
 });
 
