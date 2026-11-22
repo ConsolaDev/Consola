@@ -4,24 +4,28 @@
  * imports: that it holds the chat's styles (t3's theme, Tailwind's utilities, Consola's mapping)
  * and that they style nothing but the chat. Every rule must be scoped (`build/scopeCss.ts`); what
  * is page-global anyway is a short list of at-rules that style nothing by themselves (AGENTS.md,
- * "What is page-global"). The browser tests import the stylesheet from source, so this is what
- * notices a build that drops it or loses its scope. Run after `pnpm build`.
+ * "What is page-global"). Every rule is in the chat's cascade layer but the guard's, which roll
+ * back what a page's rules set inside the chat and set nothing themselves (AGENTS.md, "The page's
+ * CSS"). The browser tests import the stylesheet from source, so this is what notices a build
+ * that drops it, loses its scope or its layer, or the guard. Run after `pnpm build`.
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import postcss from 'postcss';
+import postcss, { type AtRule, type Node, type Rule } from 'postcss';
 import {
   AS_DOCUMENT,
+  CHAT_LAYER,
+  compact,
   DARK_CLASS,
+  GUARDED,
+  GUARDED_PSEUDO_ELEMENTS,
   INSIDE,
   insideKeyframes,
+  isGuard,
   OWN_DARK,
   PORTAL_CLASS,
   SCOPE_CLASS,
 } from './scopeCss.ts';
-
-/** Commas without the spaces a minifier drops, so a selector compares as scopeCss wrote it. */
-const compact = (selector: string) => selector.replace(/\s*,\s*/g, ',').trim();
 
 /** Consola's own rules (`src/styles.css`), which name the chat's elements directly. */
 const OWN_PREFIXES = [
@@ -36,7 +40,47 @@ const OWN_PREFIXES = [
 const TOKEN_RULE = compact(`:where([data-theme]):not(.${SCOPE_CLASS})`);
 const OWN_PROPERTY = /^--consola-agent-ui-/;
 
-const SCOPED_PREFIXES = [compact(INSIDE), compact(AS_DOCUMENT), ...OWN_PREFIXES];
+const SCOPED_PREFIXES = [compact(INSIDE), compact(AS_DOCUMENT), compact(GUARDED), ...OWN_PREFIXES];
+
+/** Whether a layer name is the chat's layer or one of its sublayers (`consola-agent-ui.base`). */
+const isChatLayerName = (name: string) => name === CHAT_LAYER || name.startsWith(`${CHAT_LAYER}.`);
+
+/** Whether a node is inside an `@layer` block of the chat's (a minifier may write its sublayers dotted). */
+const inChatLayer = (node: Node): boolean => {
+  for (let parent = node.parent; parent !== undefined; parent = parent.parent) {
+    if (parent.type === 'atrule' && (parent as AtRule).name.toLowerCase() === 'layer') {
+      const names = (parent as AtRule).params.split(',').map((name) => name.trim());
+      if (parent.parent?.type === 'root') return names.every(isChatLayerName);
+    }
+  }
+  return false;
+};
+
+/**
+ * A guard selector compared as written: CSS 2's pseudo-elements in either spelling (a minifier
+ * writes `::before` as `:before`).
+ */
+const guardKey = (selector: string) =>
+  compact(selector).replace(/(?<!:):(before|after|first-line|first-letter)\b/g, '::$1');
+
+/** The guard's selectors for `pseudo` (`GUARDED_PSEUDO_ELEMENTS`), as scopeCss writes them. */
+const guardSelectors = (pseudo: string) =>
+  pseudo.split(',').map((part) => guardKey(`${GUARDED}${part.trim()}`));
+
+/** What is wrong with a guard rule: it may only roll properties back, never set one. */
+const guardProblems = (rule: Rule): string[] => {
+  const problems: string[] = [];
+  rule.each((node) => {
+    if (node.type !== 'decl') return;
+    const rollsBack = node.value.trim() === 'revert-layer' && !node.important;
+    if (!rollsBack || (node.prop !== 'all' && !node.prop.startsWith('--'))) {
+      problems.push(
+        `the guard sets ${node.prop}: ${node.value} (${rule.selector}): it may only roll back`,
+      );
+    }
+  });
+  return problems;
+};
 
 /**
  * The custom properties the stylesheet registers for the whole page: Tailwind's `--tw-*` and one
@@ -119,6 +163,7 @@ export interface BuiltCssReport {
     readonly keyframes: ReadonlyArray<string>;
     readonly properties: ReadonlyArray<string>;
     readonly fontFamilies: ReadonlyArray<string>;
+    /** The layer names a page shares the cascade with: the chat's own, its sublayers inside it. */
     readonly layers: ReadonlyArray<string>;
   };
 }
@@ -133,11 +178,18 @@ export const checkBuiltCss = (css: string): BuiltCssReport => {
   let theme = false;
   let utility = false;
   let mapping = false;
+  const guards = new Map<string, Rule[]>();
 
   root.walkAtRules((atRule) => {
     const name = atRule.name.toLowerCase();
-    if (name === 'layer') {
-      for (const layer of atRule.params.split(',')) if (layer.trim()) layers.add(layer.trim());
+    if (name === 'layer' && atRule.parent?.type === 'root') {
+      for (const layer of atRule.params.split(',').map((part) => part.trim())) {
+        if (layer === '') continue;
+        if (!isChatLayerName(layer)) {
+          problems.push(`@layer ${layer}: a layer outside ${CHAT_LAYER}, which a page shares`);
+        }
+        layers.add(layer.split('.')[0] ?? layer);
+      }
     }
     if (/keyframes$/.test(name)) keyframes.push(atRule.params);
     else if (name === 'property') {
@@ -159,6 +211,19 @@ export const checkBuiltCss = (css: string): BuiltCssReport => {
 
   root.walkRules((rule) => {
     if (insideKeyframes(rule)) return;
+    if (!inChatLayer(rule)) {
+      // Only the guard is outside the chat's layer, at the top: anything else unlayered would
+      // either lose to the guard or fight the page's rules on their weight.
+      if (isGuard(rule) && rule.parent?.type === 'root') {
+        // A minifier merges the guard's rules that roll back the same properties into one.
+        for (const selector of rule.selectors.map(guardKey)) {
+          guards.set(selector, [...(guards.get(selector) ?? []), rule]);
+        }
+        problems.push(...guardProblems(rule));
+      } else {
+        problems.push(`outside the ${CHAT_LAYER} layer: ${rule.selector}`);
+      }
+    }
     for (const selector of rule.selectors) {
       const compacted = compact(selector);
       if (compacted === TOKEN_RULE) {
@@ -191,6 +256,20 @@ export const checkBuiltCss = (css: string): BuiltCssReport => {
     });
   });
 
+  const rollsBack = (rules: ReadonlyArray<Rule> | undefined, prop: string) =>
+    (rules ?? []).some((rule) => rule.some((node) => node.type === 'decl' && node.prop === prop));
+  const guard = guards.get(guardKey(GUARDED));
+  if (!rollsBack(guard, 'all')) {
+    problems.push(`no guard (${GUARDED} { all: revert-layer })`);
+  } else {
+    const unguarded = GUARDED_PSEUDO_ELEMENTS.filter((pseudo) =>
+      guardSelectors(pseudo).some((selector) => !rollsBack(guards.get(selector), 'all')),
+    );
+    if (unguarded.length > 0) problems.push(`no guard for ${unguarded.join(', ')}`);
+    for (const property of properties) {
+      if (!rollsBack(guard, property)) problems.push(`the guard does not roll back ${property}`);
+    }
+  }
   if (!theme) problems.push(`no t3 theme variable (--background on ${AS_DOCUMENT})`);
   if (!utility) problems.push(`no Tailwind utility (${INSIDE} .flex)`);
   if (!mapping) problems.push("no mapping of t3's theme to Consola's tokens (src/styles.css)");
@@ -222,6 +301,6 @@ if (isMain) {
   for (const problem of problems) process.stderr.write(`error: ${problem}\n`);
   if (problems.length > 0) process.exit(1);
   process.stdout.write(
-    `dist/agent-ui.css: every rule scoped to the chat. Page-global: ${pageGlobal.keyframes.length} @keyframes (${pageGlobal.keyframes.join(', ')}), ${pageGlobal.properties.length} @property (--tw-* and --assistant-citation-highlight-opacity), @font-face ${pageGlobal.fontFamilies.join(', ')}, @layer ${pageGlobal.layers.join(', ')}.\n`,
+    `dist/agent-ui.css: every rule scoped to the chat and in its layer, under the guard. Page-global: ${pageGlobal.keyframes.length} @keyframes (${pageGlobal.keyframes.join(', ')}), ${pageGlobal.properties.length} @property (--tw-* and --assistant-citation-highlight-opacity), @font-face ${pageGlobal.fontFamilies.join(', ')}, @layer ${pageGlobal.layers.join(', ')}.\n`,
   );
 }

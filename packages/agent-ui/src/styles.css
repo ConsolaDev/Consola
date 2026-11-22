@@ -3,6 +3,8 @@
  * (build/scopeCss.ts), so it styles only what `AgentChat` renders: `.consola-agent-ui`, and the
  * popups it opens (`.consola-agent-ui-portal`). t3's `:root`, `html` and `body` rules apply to
  * `.consola-agent-ui-theme`, the element inside the root that stands in for t3's document.
+ * scopeCss then puts all of it in one cascade layer, `consola-agent-ui`, under the guard at the
+ * end of this file (AGENTS.md, "The page's CSS").
  */
 @import "./t3/index.css";
 
@@ -114,4 +116,20 @@
   max-width: 28rem;
   font-size: 0.8125rem;
   color: var(--muted-foreground);
+}
+
+/*
+ * The guard: the stylesheet's one unlayered rule, with what scopeCss adds after it (the same for
+ * each pseudo-element, and every custom property the stylesheet registers). A page's unlayered
+ * rules outrank every layer whatever their weight, so without it the desktop's
+ * `* { margin: 0; padding: 0 }` would undo every spacing utility of t3's. It matches every element
+ * of the chat and of its popups, with an ID's weight (build/scopeCss.ts `GUARDED`), and rolls
+ * every property back to the layers: whatever a page rule without an ID says there, each
+ * property takes its value from this stylesheet, or else the browser's default, as on a page of
+ * t3's own. The chat's root is the page's to place, so it is not guarded.
+ */
+:is(.consola-agent-ui *, .consola-agent-ui-portal, .consola-agent-ui-portal *):not(
+  #consola-agent-ui-guard
+) {
+  all: revert-layer;
 }

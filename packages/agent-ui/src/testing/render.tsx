@@ -87,15 +87,23 @@ export const addToPage = (element: HTMLElement) => {
 };
 
 /**
- * Mounts `AgentChat` in a container of a chat's size, until the test ends. The package is imported
- * here, on first use, as a page imports it (its stylesheet with it), so a test can look at the page
- * before anything of the package has run.
+ * Mounts `AgentChat` in a container of a chat's size, until the test ends: at the end of the
+ * page's `<body>`, or of `parent` (an element of the page's around the chat). The package is
+ * imported here, on first use, as a page imports it (its stylesheet with it), so a test can look
+ * at the page before anything of the package has run.
  */
-export const mountChat = async (props: AgentChatProps) => {
+export const mountChat = async (
+  props: AgentChatProps,
+  { parent }: { readonly parent?: HTMLElement } = {},
+) => {
   const { AgentChat } = await import('../index.ts');
   const container = document.createElement('div');
   container.style.height = '720px';
-  addToPage(container);
+  if (parent === undefined) addToPage(container);
+  else {
+    parent.append(container);
+    cleanups.push(() => container.remove());
+  }
   const root = createRoot(container);
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   await act(async () => root.render(<AgentChat {...props} />));
