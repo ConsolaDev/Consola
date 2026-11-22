@@ -142,24 +142,57 @@ export function commitMessage(
 }
 
 /**
+ * Files that tell an agent CLI, git or CI what to do, compared case-folded
+ * (the Mac's file system reads `claude.md` as `CLAUDE.md`): each agent CLI
+ * Consola drives has its own instructions file (Claude's `CLAUDE.md` and
+ * `CLAUDE.local.md`, Codex's `AGENTS.md` and `AGENTS.override.md`, Gemini's
+ * and Antigravity's `GEMINI.md`), Claude its `.mcp.json`, and git reads
+ * `.gitattributes` (filters and drivers), `.gitmodules` and `.lfsconfig`.
+ * Flagged at any depth: the CLIs and git read nested ones too.
+ */
+export const FLAGGED_FILE_NAMES: readonly string[] = [
+  'claude.md',
+  'claude.local.md',
+  'agents.md',
+  'agents.override.md',
+  'gemini.md',
+  '.mcp.json',
+  '.gitattributes',
+  '.gitmodules',
+  '.lfsconfig',
+];
+
+/**
+ * Folders the same: each agent CLI's own (the drivers' `.claude`, `.codex`,
+ * `.gemini`, the shared `.agents`, a plugin's `.claude-plugin`), and the
+ * hooks and CI a merge runs (`.husky`, `.github`). Flagged at any depth.
+ */
+export const FLAGGED_FOLDER_NAMES: readonly string[] = [
+  '.claude',
+  '.claude-plugin',
+  '.codex',
+  '.gemini',
+  '.agents',
+  '.husky',
+  '.github',
+];
+
+/**
  * The changed paths a person should look at before a branch is pushed: what
- * changes how an agent, git or CI behaves once merged. `.claude/` and
- * `CLAUDE.md` (the person's own sessions read them), `.mcp.json`, `.github/`
- * and `.husky/` (CI and hooks run them), `.gitattributes` (filters and
- * drivers); each at any depth, since the CLIs and git read nested ones too.
+ * changes how an agent, git or CI behaves once merged. A path is flagged when
+ * a part of it, case-folded, is one of `FLAGGED_FILE_NAMES` (its last part)
+ * or `FLAGGED_FOLDER_NAMES` (a folder on its way), and, so that a new kind is
+ * never missed silently, whenever it starts with a dotfile or dot-folder at
+ * the repository's root.
  */
 export function flaggedPaths(paths: readonly string[]): string[] {
   return paths.filter((file) => {
-    const parts = file.split('/');
+    const parts = file.split('/').map((part) => part.toLowerCase());
     const name = parts[parts.length - 1];
-    const folders = parts.slice(0, -1);
     return (
-      name === 'CLAUDE.md' ||
-      name === '.mcp.json' ||
-      name === '.gitattributes' ||
-      folders.includes('.claude') ||
-      folders.includes('.husky') ||
-      folders.includes('.github')
+      parts[0].startsWith('.') ||
+      FLAGGED_FILE_NAMES.includes(name) ||
+      parts.slice(0, -1).some((folder) => FLAGGED_FOLDER_NAMES.includes(folder))
     );
   });
 }
