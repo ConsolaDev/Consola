@@ -12,12 +12,7 @@ import type {
   InstallerFacts,
   InstallState,
 } from '../domain/connections.js';
-import type {
-  MyWorkspace,
-  NewWorkspace,
-  Workspace,
-  WorkspaceMember,
-} from '../domain/workspace.js';
+import type { MyWorkspace, NewWorkspace, Workspace, WorkspaceMember } from '../domain/workspace.js';
 
 // What the use cases need from the world outside, each implemented by an adapter.
 
