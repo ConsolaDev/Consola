@@ -1024,23 +1024,20 @@ test('a linked session shows its item pane beside the terminal, and Fix pastes i
     // The agent is up, in raw mode, and listening.
     await expect.poll(() => fs.existsSync(pastedPath), { timeout: 15_000 }).toBe(true);
 
-    // Facts about the session are text; only the toggle is a button.
-    const strip = page.locator('.work-item-strip');
-    await expect(strip.getByText('Fix CI', { exact: true })).toBeVisible();
-    await expect(strip.getByRole('button', { name: 'Fix CI' })).toHaveCount(0);
-    const toggle = strip.getByRole('button', { name: 'Details' });
-    await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    // Facts about the session are text; the item's title is the way in.
+    const prSection = infoSection(page, 'Pull request');
+    await expect(prSection.getByText('Fix CI', { exact: true })).toBeVisible();
+    await expect(prSection.getByRole('button', { name: 'Fix CI' })).toHaveCount(0);
+    const sidePanel = page.getByTestId('side-panel');
+    await expect(sidePanel).toHaveCount(0);
     const panel = page.getByTestId('work-item-panel');
     await expect(panel).toHaveCount(0);
-    await toggle.click();
-    await expect(toggle).toHaveAttribute('aria-pressed', 'true');
-    // Details is the side panel's Pull request tab, named by the item.
-    const sidePanel = page.getByTestId('side-panel');
-    await expect(
-      sidePanel
-        .getByRole('tablist', { name: 'Side panel tabs' })
-        .getByRole('tab', { name: 'Pull request #51', exact: true }),
-    ).toHaveText('#51');
+    await prSection.getByRole('button', { name: /^Extract billing client #51$/ }).click();
+    // The title opens the side panel's Pull request tab, named by the item.
+    const tabs = sidePanel.getByRole('tablist', { name: 'Side panel tabs' });
+    const tabOf51 = tabs.getByRole('tab', { name: 'Pull request #51', exact: true });
+    await expect(tabOf51).toHaveAttribute('aria-selected', 'true');
+    await expect(tabOf51).toHaveText('#51');
 
     // The whole Inbox pane: header, remote details, sessions, ways to start
     // one. Inside the side panel, itself the landmark, it is a region.
@@ -1113,7 +1110,6 @@ test('a linked session shows its item pane beside the terminal, and Fix pastes i
     await expect(pane.getByRole('heading', { name: 'Extract billing client' })).toBeVisible();
 
     // Once seen, the pane stays mounted behind another tab, keeping what it holds.
-    const tabs = sidePanel.getByRole('tablist', { name: 'Side panel tabs' });
     await page.getByRole('button', { name: 'Changes', exact: true }).click();
     await expect(tabs.getByRole('tab', { name: 'Changes', exact: true })).toHaveAttribute(
       'aria-selected',
@@ -1126,14 +1122,11 @@ test('a linked session shows its item pane beside the terminal, and Fix pastes i
     // with its Pull request tab behind Changes, and its item is not read.
     // The info panel's Pull request section would read #52 at once, so it is
     // folded first: folded, it reads nothing, and only the pane is counted.
-    const prHeading = infoSection(page, 'Pull request').getByRole('button', {
-      name: 'Pull request',
-      exact: true,
-    });
+    const prHeading = prSection.getByRole('button', { name: 'Pull request', exact: true });
     await prHeading.click();
     await expect(prHeading).toHaveAttribute('aria-expanded', 'false');
     await page.locator('.session-nav-item', { hasText: 'PR #52 · Review' }).click();
-    await expect(strip).toContainText('#52');
+    await expect(tabs.getByRole('tab', { name: 'Pull request #52', exact: true })).toBeVisible();
     await expect(panel).toHaveCount(0);
     expect(detailReadsOf(52)).toBe(0);
 
@@ -1149,6 +1142,7 @@ test('a linked session shows its item pane beside the terminal, and Fix pastes i
     await expect(pane.locator('.inbox-pane-meta .inbox-detail-state')).toHaveText('Open');
     await prHeading.click();
     await expect(prHeading).toHaveAttribute('aria-expanded', 'true');
+    await expect(prSection).toContainText('#52');
 
     // A session with no item keeps the tab, and says why it has nothing to show.
     await page.locator('.session-nav-item', { hasText: 'Notes on billing' }).click();
@@ -1159,7 +1153,7 @@ test('a linked session shows its item pane beside the terminal, and Fix pastes i
     await page.locator('.session-nav-item', { hasText: 'PR #51 · Fix CI' }).click();
     await expect(pane.getByRole('heading', { name: 'Extract billing client' })).toBeVisible();
     await expect(thisRow).toContainText('This session');
-    await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    await expect(tabOf51).toHaveAttribute('aria-selected', 'true');
 
     // Folded again, and left so: the info panel would read #53 the moment
     // the session is relinked, and this counts the pane's reads alone.
@@ -1192,7 +1186,7 @@ test('a linked session shows its item pane beside the terminal, and Fix pastes i
       type: 'pr',
       number: 53,
     });
-    await expect(strip).toContainText('#53');
+    await expect(tabs.getByRole('tab', { name: 'Pull request #53', exact: true })).toBeVisible();
     await page.waitForTimeout(1500);
     expect(detailReadsOf(53)).toBe(0);
     await tabs.getByRole('tab', { name: 'Pull request #53', exact: true }).click();
@@ -1200,7 +1194,7 @@ test('a linked session shows its item pane beside the terminal, and Fix pastes i
 
     await pane.getByRole('button', { name: 'Close details' }).click();
     await expect(panel).toHaveCount(0);
-    await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    await expect(tabs.getByRole('tab', { name: /^Pull request/ })).toHaveCount(0);
   } finally {
     await app?.close();
     fs.rmSync(userDataDir, { recursive: true, force: true });
@@ -1319,8 +1313,8 @@ test('an action runs again in its own session: Continue types into it, Fresh sta
     await expect.poll(() => read(argsPath), { timeout: 15_000 }).toContain(`--session-id ${first}`);
 
     // Continue: the body alone goes into the running conversation.
-    const strip = page.locator('.work-item-strip');
-    await strip.getByRole('button', { name: /^Run an action in / }).click();
+    const prSection = infoSection(page, 'Pull request');
+    await prSection.getByRole('button', { name: /^Run an action in / }).click();
     const menu = page.getByTestId('run-action-menu');
     await expect(menu.getByText('Run in this session')).toBeVisible();
     await expect(menu.locator('[data-action-id="review"]')).toContainText(
@@ -1344,7 +1338,7 @@ test('an action runs again in its own session: Continue types into it, Fresh sta
 
     // Fresh: the same tab moves onto a new conversation, created rather than
     // resumed, and it opens with the item's header and the action's body.
-    await strip.getByRole('button', { name: /^Run an action in / }).click();
+    await prSection.getByRole('button', { name: /^Run an action in / }).click();
     await menu.locator('.run-action-item', { hasText: 'Re-review' }).click();
     await expect.poll(() => record()[0]?.claudeSessionId, { timeout: 10_000 }).not.toBe(first);
     const [{ id: sameId, claudeSessionId: second }] = record();
@@ -1371,7 +1365,7 @@ test('an action runs again in its own session: Continue types into it, Fresh sta
     await row.getByRole('button', { name: /^Run an action in / }).click();
     await expect(menu.locator('.run-action-item', { hasText: 'Re-review' })).toBeVisible();
     await menu.locator('[data-action-id="fix-ci"]').click();
-    await expect(page.locator('.work-item-strip')).toBeVisible();
+    await expect(prSection).toContainText('#51');
     await expect
       .poll(() => read(inputPath), { timeout: 10_000 })
       .toContain('Find the failing checks with `gh pr checks 51`, reproduce locally, fix, push.');

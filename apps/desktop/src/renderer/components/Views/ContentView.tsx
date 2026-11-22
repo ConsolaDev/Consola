@@ -10,7 +10,6 @@ import { tabFactsFor } from '../../sidePanel/tabKinds';
 import { TerminalPanel } from '../Terminal';
 import { InfoPanel } from '../InfoPanel/InfoPanel';
 import { SidePanel } from '../SidePanel/SidePanel';
-import { WorkItemStrip } from '../WorkItemStrip';
 import { SessionHeader } from './SessionHeader';
 import './styles.css';
 
@@ -106,7 +105,6 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
   return (
     <div className="workspace-view">
       <SessionHeader key={session.id} workspace={workspace} session={session} />
-      {session.workItem && <WorkItemStrip workspaceId={workspaceId} session={session} />}
       <div className="workspace-view-content">
         <Group
           orientation="horizontal"

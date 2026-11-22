@@ -105,8 +105,8 @@ export function workItemKey(ref: WorkItemRef): string {
 /**
  * Canonical web URL for a work item, for when no fetched item carries one.
  *
- * Renderer-reachable on purpose (the strip needs a link with no driver round
- * trip); the GitHub driver's own workItemUrl delegates here. A plain
+ * Renderer-reachable on purpose (the info panel needs a link with no driver
+ * round trip); the GitHub driver's own workItemUrl delegates here. A plain
  * find-and-replace rather than workItemPrompt.ts's substitutePlaceholders:
  * that module imports from this one, so borrowing it back would be a cycle.
  */

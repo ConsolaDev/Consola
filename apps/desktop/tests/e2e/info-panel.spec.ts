@@ -385,6 +385,8 @@ test.describe('info panel', () => {
     await openSession(FIX_CI);
     const section = prSection();
     await expect(prTitle()).toBeVisible();
+    // The info panel holds what the strip above the terminal once did.
+    await expect(page.locator('.work-item-strip')).toHaveCount(0);
     // The state in the pane's own words, the base, and the action as a fact.
     await expect(section.getByText('Open', { exact: true })).toBeVisible();
     await expect(section.getByText('into main', { exact: true })).toBeVisible();
