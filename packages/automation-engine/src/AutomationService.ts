@@ -3048,9 +3048,8 @@ export class AutomationService {
     // At this version the entry's definition is the run's snapshot, and its source the one the run builds. A
     // guess at its lane: an `item.json` that cannot be read reads as none here, and fails the run when it starts.
     const itemOf = this.itemOfSource(run, entry.source);
-    // The sequencer reads leaves until it runs loops (slice 3); every entry it runs has none yet (`flowNotYet`).
     const next = advanceSteps({
-      steps: leafSteps(entry.steps.definition.automation.steps),
+      steps: entry.steps.definition.automation.steps,
       records,
       dryRun: run.dryRun === true,
       ...stepItemOf(run, itemOf),
@@ -3470,14 +3469,15 @@ export class AutomationService {
       this.failRun(runId, `${itemOf.error}; it cannot continue.`, options);
       return;
     }
-    // The sequencer reads leaves until it runs loops (slice 3); every entry it runs has none yet (`flowNotYet`).
     const next = advanceSteps({
-      steps: leafSteps(loaded.definition.automation.steps),
+      steps: loaded.definition.automation.steps,
       records: run.steps,
       dryRun: run.dryRun === true,
       ...stepItemOf(run, itemOf),
     });
     if (next.kind === 'wait') return;
+    // `flowNotYet` keeps every entry with a gate from running until gates run (slice 3, Call 2): never silently.
+    if (next.kind === 'ask') throw new Error('a gate is not run yet');
     const stopping = this.stopRequested.delete(runId);
     // A stopped run never completes by skips: when every step left would skip, the one it would look at next fails,
     // never started. With none left, its steps all ended on their own before the stop could reach them: it

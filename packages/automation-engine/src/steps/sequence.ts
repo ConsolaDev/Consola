@@ -2,11 +2,14 @@ import {
   evaluateExpression,
   type Expr,
   expressionPaths,
+  flatSteps,
+  leafSteps,
   parseExpression,
   parseReadRef,
   templatePaths,
   type ExprValue,
   type Step,
+  type StepEntry,
   type StepRun,
   type StepRunStatus,
 } from '@consola/factory-spec';
@@ -28,16 +31,30 @@ export function laneOf(step: Step): Lane {
 
 export interface StepUpdate {
   id: string;
-  status: 'skipped' | 'failed' | 'not-run';
+  status: 'skipped' | 'failed' | 'not-run' | 'completed' | 'reported';
   skipped?: string;
   error?: string;
+  /** One line the status cannot say (Call 5): why a step did not run after `then: stop`, a dry run's gate. */
+  note?: string;
 }
 
 export type Advance =
   | { kind: 'wait' }
   | { kind: 'start'; stepId: string; lane: Lane; updates: StepUpdate[] }
+  /** Park at a gate: the run waits for a person, holding no slot. */
+  | { kind: 'ask'; stepId: string; updates: StepUpdate[] }
   | { kind: 'complete'; summary: string; updates: StepUpdate[] }
-  | { kind: 'fail'; stepId: string; error: string; updates: StepUpdate[] };
+  | { kind: 'fail'; stepId: string; error: string; updates: StepUpdate[]; overBudget?: true };
+
+/** Dollars as a run's budget words them: two decimals from a dollar up, four below (`$5.03`, `$0.0246`). */
+export function usdWords(usd: number): string {
+  return `$${usd >= 1 ? usd.toFixed(2) : usd.toFixed(4)}`;
+}
+
+/** A run that reached its budget, at the boundary before its next step. */
+export function overBudgetError(spent: number, usd: number): string {
+  return `over its budget: ${usdWords(spent)} spent of ${usdWords(usd)}`;
+}
 
 const DRY_RUN_REASON = 'dry run: ';
 
@@ -187,21 +204,39 @@ function untypedItemSkip(
   }
 }
 
+/** Where a step stands in a run: a leaf's row, a loop's own, or a row waiting for a person or a retry. */
+const ACTIVE: readonly StepRunStatus[] = ['queued', 'running'];
+
 /**
- * The run's next move. `itemValue` reads the run's item; `untypedItem` says
- * its fields have no declared types (a poll's), so an `if:` over one that is
- * absent, or of another type than its literal, skips the step rather than
- * failing the run. A typed item's absent field fails it.
+ * The run's next move, over its entries in record order (`flatSteps`).
+ * `itemValue` reads the run's item; `untypedItem` says its fields have no
+ * declared types (a poll's), so an `if:` over one that is absent, or of
+ * another type than its literal, skips the step rather than failing the run.
+ * A typed item's absent field fails it.
+ *
+ * A gate whose turn comes is `ask` (in a dry run it is `reported`, with what
+ * it would have asked, and the walk goes on). A completed step with
+ * `then: stop` ends the run: every later row it had not reached `not-run`.
+ * With a `budget`, a run that spent it fails at the boundary before its next
+ * start or gate, naming spent and budget (`overBudget`).
  */
 export function advanceSteps(input: {
-  steps: Step[];
+  steps: readonly StepEntry[];
   records: StepRun[];
   dryRun: boolean;
   itemValue?: (field: string) => ExprValue | undefined;
   untypedItem?: boolean;
+  /** The entry's budget and what the run has spent (`costUsd`, 0 when absent); absent: no ceiling. */
+  budget?: { usd: number; spent: number };
 }): Advance {
-  const { steps, dryRun, itemValue, untypedItem } = input;
-  if (input.records.some((record) => record.status === 'queued' || record.status === 'running'))
+  const { steps: entries, dryRun, itemValue, untypedItem, budget } = input;
+  // A loop's own row is never work under way; its steps' rows are, and a row waiting for a person or a retry holds the run.
+  if (
+    input.records.some(
+      (record) =>
+        (ACTIVE.includes(record.status) && record.kind !== 'repeat') || record.status === 'waiting',
+    )
+  )
     return { kind: 'wait' };
 
   const failed = input.records.find((record) => record.status === 'failed');
@@ -210,14 +245,19 @@ export function advanceSteps(input: {
       kind: 'fail',
       stepId: failed.id,
       error: failed.error ?? 'failed',
-      updates: notRunAfter(steps, input.records, failed.id),
+      updates: notRunAfter(entries, input.records, failed.id),
     };
   }
 
+  const stopped = stopAfter(entries, input.records);
+  if (stopped) return stopped;
+
+  const steps = leafSteps(entries);
   // Updates made in this call are visible to the steps after them.
   const now = new Map(input.records.map((record) => [record.id, { ...record }]));
   const updates: StepUpdate[] = [];
-  const settled = () => steps.flatMap((step) => now.get(step.id) ?? []);
+  const settled = () => flatSteps(entries).flatMap(({ step }) => now.get(step.id) ?? []);
+  const spent = budget !== undefined && budget.spent >= budget.usd;
 
   for (const step of steps) {
     const mine = now.get(step.id);
@@ -297,33 +337,78 @@ export function advanceSteps(input: {
       return failStep(step.id, `item.${itemMissing} has no value: this run has no such item field`);
     }
 
+    if (step.kind === 'gate' && dryRun) {
+      // A dry run asks no one: it says what it would have asked, and a step reading the decision skips.
+      const note = `Would have asked: ${step.ask}`;
+      mine.status = 'reported';
+      mine.note = note;
+      updates.push({ id: step.id, status: 'reported', note });
+      continue;
+    }
+    // The boundary: nothing starts, and no one is asked, once the run spent its budget.
+    if (budget && spent) return failStep(step.id, overBudgetError(budget.spent, budget.usd), true);
+    if (step.kind === 'gate') return { kind: 'ask', stepId: step.id, updates };
     return { kind: 'start', stepId: step.id, lane: laneOf(step), updates };
   }
 
-  return { kind: 'complete', summary: runSummary(steps, settled()), updates };
+  return { kind: 'complete', summary: runSummary(entries, settled()), updates };
 
-  function failStep(stepId: string, error: string): Advance {
-    const later = notRunAfter(steps, settled(), stepId);
+  function failStep(stepId: string, error: string, overBudget?: true): Advance {
+    const later = notRunAfter(entries, settled(), stepId);
     return {
       kind: 'fail',
       stepId,
       error,
       updates: [...updates, { id: stepId, status: 'failed', error }, ...later],
+      ...(overBudget ? { overBudget } : {}),
     };
   }
 }
 
-/** `not-run` for every step after `stepId` that has not settled. */
-export function notRunAfter(steps: Step[], records: StepRun[], stepId: string): StepUpdate[] {
-  const from = steps.findIndex((step) => step.id === stepId);
+/** What a run had not reached: not started, or waiting for a slot. */
+const OPEN: readonly StepRunStatus[] = ['pending', 'queued'];
+
+/**
+ * `then: stop`: the first completed step that says it, with a row after it
+ * the run has not reached, ends the run completed, those rows `not-run`,
+ * each saying why. A skipped or failed step stops nothing.
+ */
+function stopAfter(entries: readonly StepEntry[], records: StepRun[]): Advance | null {
+  const flat = flatSteps(entries);
+  const byId = new Map(records.map((record) => [record.id, record]));
+  for (const [index, { step }] of flat.entries()) {
+    if (step.kind === 'repeat' || step.stop !== true) continue;
+    if (byId.get(step.id)?.status !== 'completed') continue;
+    const note = `the run stopped after \`${step.id}\``;
+    const later = flat
+      .slice(index + 1)
+      .filter(({ step: after }) => OPEN.includes(byId.get(after.id)?.status as StepRunStatus))
+      .map(({ step: after }): StepUpdate => ({ id: after.id, status: 'not-run', note }));
+    if (later.length === 0) continue;
+    return {
+      kind: 'complete',
+      summary: `${runSummary(entries, records)}; stopped after ${step.id}`,
+      updates: later,
+    };
+  }
+  return null;
+}
+
+/** `not-run` for every row after `stepId`, in record order, that the run has not reached. */
+export function notRunAfter(
+  steps: readonly StepEntry[],
+  records: StepRun[],
+  stepId: string,
+): StepUpdate[] {
+  const flat = flatSteps(steps);
+  const from = flat.findIndex(({ step }) => step.id === stepId);
   if (from === -1) return [];
-  const open: StepRunStatus[] = ['pending', 'queued'];
-  return steps
+  return flat
     .slice(from + 1)
-    .filter((step) =>
-      open.includes(records.find((record) => record.id === step.id)?.status as StepRunStatus),
+    .filter(({ step }) =>
+      OPEN.includes(records.find((record) => record.id === step.id)?.status as StepRunStatus),
     )
-    .map((step) => ({ id: step.id, status: 'not-run' as const }));
+    .map(({ step }) => ({ id: step.id, status: 'not-run' as const }));
 }
 
 /** "a", "a and b", "a, b and c". */
@@ -332,8 +417,14 @@ export const joinNames = (names: string[]): string =>
     ? names.join('')
     : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
 
-/** "fresh → review → publish (request-changes)", then what a dry run left unrun and what was skipped. */
-export function runSummary(steps: Step[], records: StepRun[]): string {
+/**
+ * "fresh → review → publish (request-changes)", then what a dry run left
+ * unrun and what was skipped, over every leaf (a loop's steps by their
+ * latest round). A gate's decision is among the verdicts, as an enum
+ * output's value is (review M5).
+ */
+export function runSummary(entries: readonly StepEntry[], records: StepRun[]): string {
+  const steps: Step[] = leafSteps(entries);
   const byId = new Map(records.map((record) => [record.id, record]));
   const named = (status: StepRunStatus) =>
     steps.filter((step) => byId.get(step.id)?.status === status);
@@ -341,9 +432,11 @@ export function runSummary(steps: Step[], records: StepRun[]): string {
 
   const verdicts: string[] = [];
   for (const step of completed) {
-    // A gate declares no outputs; its decision joins the verdicts once gates run.
-    if (step.kind === 'gate') continue;
     const outputs = byId.get(step.id)?.outputs ?? {};
+    if (step.kind === 'gate') {
+      if (own(outputs, 'decision')) verdicts.push(String(outputs.decision));
+      continue;
+    }
     for (const [name, type] of Object.entries(step.outputs)) {
       if (type.type === 'enum' && own(outputs, name)) verdicts.push(String(outputs[name]));
     }

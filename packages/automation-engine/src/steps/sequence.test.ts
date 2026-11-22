@@ -8,7 +8,16 @@ import {
   type StepRun,
   type StepRunStatus,
 } from '@consola/factory-spec';
-import { advanceSteps, laneOf, notRunAfter, runSummary, type Advance } from './sequence';
+import {
+  advanceSteps,
+  laneOf,
+  notRunAfter,
+  overBudgetError,
+  runSummary,
+  usdWords,
+  type Advance,
+} from './sequence';
+import { withGateAnswered, withGateAsked } from './stepRecords';
 
 const fresh: CommandStep = {
   kind: 'run',
@@ -86,7 +95,7 @@ describe('laneOf', () => {
   });
 });
 
-describe('a gate in the sequence (before the engine runs gates)', () => {
+describe('a gate in the sequence', () => {
   const decide: GateStep = {
     kind: 'gate',
     id: 'decide',
@@ -124,14 +133,14 @@ describe('a gate in the sequence (before the engine runs gates)', () => {
     });
   });
 
-  it('leaves a gate out of the verdicts it has no declared outputs for', () => {
+  it("puts a gate's decision among the verdicts, as an enum output's value (review M5)", () => {
     const steps: Step[] = [review, decide];
     expect(
       runSummary(steps, [
         done(review, { verdict: 'approve' }),
-        gateRecord('completed', { outputs: { decision: 'approve' } }),
+        gateRecord('completed', { outputs: { decision: 'comment' } }),
       ]),
-    ).toBe('review → decide (approve)');
+    ).toBe('review → decide (approve, comment)');
   });
 });
 
@@ -704,5 +713,395 @@ describe('runSummary', () => {
       record(b, 'completed', { outputs: { verdict: 'approve' } }),
     ];
     expect(runSummary([a, b], rec)).toBe('a → b (y, approve)');
+  });
+});
+
+// --- slice 3: gates, then: stop and the budget (Task 7) ------------------------
+
+/** The spec's gated review: a check, a review, a gate on an approval, then one post or the other. */
+const decideGate: GateStep = {
+  kind: 'gate',
+  id: 'decide',
+  named: true,
+  if: "steps.review.verdict == 'approve'",
+  ask: 'The reviewer would approve this pull request. Post the review as an approval?',
+  show: ['review.handover'],
+};
+const publishDecided: CommandStep = {
+  ...publish,
+  id: 'publish-decided',
+  if: "steps.decide.decision == 'approve'",
+  env: { DECISION: '{{steps.decide.decision}}' },
+};
+const publishOther: CommandStep = { ...publish, if: "steps.review.verdict != 'approve'" };
+const GATED: Step[] = [fresh, review, decideGate, publishDecided, publishOther];
+
+/** The spec's §4.1 head: triage, a step that ends the run for what is not ours, then the fix. */
+const triage: AgentStep = {
+  ...review,
+  id: 'triage',
+  if: undefined,
+  prompt: 'Triage it.',
+  outputs: { kind: { type: 'enum', values: ['bug', 'feature'] } },
+};
+const notOurs: CommandStep = {
+  ...publish,
+  id: 'not-ours',
+  if: "steps.triage.kind == 'feature'",
+  env: {},
+  stop: true,
+};
+const fix: AgentStep = { ...review, id: 'fix', if: undefined, prompt: 'Fix it.', outputs: {} };
+const TRIAGE: Step[] = [triage, notOurs, fix];
+
+/** Records of `steps`, those named in `ids` completed (with `outputs` by id; `fresh` needed), the rest pending. */
+function doneRows(
+  steps: Step[],
+  ids: string[],
+  outputs: Record<string, StepRun['outputs']> = {},
+): StepRun[] {
+  return steps.map((step) => ({
+    id: step.id,
+    kind: step.kind,
+    status: ids.includes(step.id) ? 'completed' : 'pending',
+    attempt: 1,
+    ...(ids.includes(step.id)
+      ? { outputs: outputs[step.id] ?? (step.id === 'fresh' ? { needed: true } : {}) }
+      : {}),
+  }));
+}
+const T0 = '2026-11-22T09:00:00.000Z';
+
+describe('advanceSteps: gates', () => {
+  it('parks at a gate whose if: holds', () => {
+    expect(
+      advanceSteps({
+        steps: GATED,
+        records: doneRows(GATED, ['fresh', 'review'], { review: { verdict: 'approve' } }),
+        dryRun: false,
+      }),
+    ).toEqual({ kind: 'ask', stepId: 'decide', updates: [] });
+  });
+
+  it('skips a gate whose if: is false, and the step reading its decision', () => {
+    const next = advanceSteps({
+      steps: GATED,
+      records: doneRows(GATED, ['fresh', 'review'], { review: { verdict: 'comment' } }),
+      dryRun: false,
+    });
+    expect(next).toMatchObject({ kind: 'start', stepId: 'publish' });
+    expect(next.kind === 'wait' ? [] : next.updates).toEqual([
+      {
+        id: 'decide',
+        status: 'skipped',
+        skipped: "if: steps.review.verdict == 'approve' is false",
+      },
+      {
+        id: 'publish-decided',
+        status: 'skipped',
+        skipped: 'steps.decide.decision has no value: decide was skipped',
+      },
+    ]);
+  });
+
+  it('waits while a gate waits', () => {
+    const records = withGateAsked(
+      doneRows(GATED, ['fresh', 'review'], { review: { verdict: 'approve' } }),
+      'decide',
+      T0,
+    );
+    expect(advanceSteps({ steps: GATED, records, dryRun: false })).toEqual({ kind: 'wait' });
+  });
+
+  it('goes on once the gate is answered, by its decision', () => {
+    const asked = withGateAsked(
+      doneRows(GATED, ['fresh', 'review'], { review: { verdict: 'approve' } }),
+      'decide',
+      T0,
+    );
+    const answered = withGateAnswered(asked, 'decide', { decision: 'approve', nowIso: T0 });
+    expect(advanceSteps({ steps: GATED, records: answered, dryRun: false })).toMatchObject({
+      kind: 'start',
+      stepId: 'publish-decided',
+      updates: [],
+    });
+  });
+
+  it('reports a gate in a dry run and skips what reads its decision', () => {
+    const next = advanceSteps({
+      steps: GATED,
+      records: doneRows(GATED, ['fresh', 'review'], { review: { verdict: 'approve' } }),
+      dryRun: true,
+    });
+    expect(next.kind === 'wait' ? [] : next.updates).toContainEqual({
+      id: 'decide',
+      status: 'reported',
+      note: 'Would have asked: The reviewer would approve this pull request. Post the review as an approval?',
+    });
+    expect(next.kind === 'wait' ? [] : next.updates).toContainEqual(
+      expect.objectContaining({
+        id: 'publish-decided',
+        status: 'skipped',
+        skipped: 'dry run: `decide` was not run',
+      }),
+    );
+    // The walk goes on past it: `publish` is skipped by its own `if:`, and the dry run completes.
+    expect(next).toMatchObject({
+      kind: 'complete',
+      summary:
+        'fresh → review (approve); decide would have run; publish-decided and publish skipped',
+    });
+  });
+
+  it('reports a gate in a dry run with its question as written, templates and all', () => {
+    const templated: GateStep = {
+      ...decideGate,
+      ask: 'Post #{{item.number}} as {{steps.review.verdict}}?',
+    };
+    const next = advanceSteps({
+      steps: [fresh, review, templated],
+      records: doneRows([fresh, review, templated], ['fresh', 'review'], {
+        review: { verdict: 'approve' },
+      }),
+      dryRun: true,
+      itemValue: (field) => (field === 'number' ? 51 : undefined),
+    });
+    expect(next.kind === 'wait' ? [] : next.updates).toEqual([
+      {
+        id: 'decide',
+        status: 'reported',
+        note: 'Would have asked: Post #{{item.number}} as {{steps.review.verdict}}?',
+      },
+    ]);
+  });
+});
+
+describe("advanceSteps: a loop's own row", () => {
+  it('never waits for it: only its steps are work under way', () => {
+    const look: AgentStep = { ...review, id: 'look', if: undefined, prompt: 'Look.', outputs: {} };
+    const steps = [
+      {
+        kind: 'repeat' as const,
+        id: 'polish',
+        named: true as const,
+        max: 2,
+        until: 'steps.look.done',
+        steps: [look],
+      },
+    ];
+    const records: StepRun[] = [
+      { id: 'polish', kind: 'repeat', status: 'running', attempt: 1, round: 1, max: 2 },
+      { id: 'look', kind: 'agent', status: 'pending', attempt: 1, round: 1 },
+    ];
+    expect(advanceSteps({ steps, records, dryRun: false })).toMatchObject({
+      kind: 'start',
+      stepId: 'look',
+    });
+    expect(
+      advanceSteps({
+        steps,
+        records: records.map((row) =>
+          row.id === 'look' ? { ...row, status: 'running' as const } : row,
+        ),
+        dryRun: false,
+      }),
+    ).toEqual({ kind: 'wait' });
+  });
+});
+
+describe('advanceSteps: then: stop', () => {
+  it('then: stop ends the run completed after its step, the rest not-run', () => {
+    const next = advanceSteps({
+      steps: TRIAGE,
+      records: doneRows(TRIAGE, ['triage', 'not-ours'], { triage: { kind: 'feature' } }),
+      dryRun: false,
+    });
+    expect(next).toEqual({
+      kind: 'complete',
+      summary: 'triage → not-ours (feature); stopped after not-ours',
+      updates: [{ id: 'fix', status: 'not-run', note: 'the run stopped after `not-ours`' }],
+    });
+  });
+
+  it('a skipped step with then: stop stops nothing', () => {
+    const records = doneRows(TRIAGE, ['triage'], { triage: { kind: 'bug' } });
+    expect(advanceSteps({ steps: TRIAGE, records, dryRun: false })).toEqual({
+      kind: 'start',
+      stepId: 'fix',
+      lane: 'agent',
+      updates: [
+        {
+          id: 'not-ours',
+          status: 'skipped',
+          skipped: "if: steps.triage.kind == 'feature' is false",
+        },
+      ],
+    });
+  });
+
+  it('a failed step with then: stop stops nothing: the run fails at it', () => {
+    const records = doneRows(TRIAGE, ['triage'], { triage: { kind: 'feature' } }).map((row) =>
+      row.id === 'not-ours' ? { ...row, status: 'failed' as const, error: 'exit 1' } : row,
+    );
+    expect(advanceSteps({ steps: TRIAGE, records, dryRun: false })).toEqual({
+      kind: 'fail',
+      stepId: 'not-ours',
+      error: 'exit 1',
+      updates: [{ id: 'fix', status: 'not-run' }],
+    });
+  });
+
+  it('a stop with nothing left after it completes as usual', () => {
+    const steps: Step[] = [triage, { ...notOurs, if: undefined }];
+    expect(
+      advanceSteps({
+        steps,
+        records: doneRows(steps, ['triage', 'not-ours'], { triage: { kind: 'feature' } }),
+        dryRun: false,
+      }),
+    ).toEqual({ kind: 'complete', summary: 'triage → not-ours (feature)', updates: [] });
+  });
+
+  it('a gate answered with then: stop ends the run after it', () => {
+    const stopping: GateStep = { ...decideGate, stop: true };
+    const steps: Step[] = [fresh, review, stopping, publishDecided];
+    const answered = withGateAnswered(
+      withGateAsked(
+        doneRows(steps, ['fresh', 'review'], { review: { verdict: 'approve' } }),
+        'decide',
+        T0,
+      ),
+      'decide',
+      { decision: 'approve', nowIso: T0 },
+    );
+    expect(advanceSteps({ steps, records: answered, dryRun: false })).toEqual({
+      kind: 'complete',
+      summary: 'fresh → review → decide (approve, approve); stopped after decide',
+      updates: [
+        { id: 'publish-decided', status: 'not-run', note: 'the run stopped after `decide`' },
+      ],
+    });
+  });
+});
+
+describe('advanceSteps: the budget', () => {
+  it('fails at the boundary once the run spent its budget', () => {
+    // `triage`'s kind is given (review S5): without it `not-ours`, whose `if:` reads it, would skip, and the failure land at `fix`.
+    expect(
+      advanceSteps({
+        steps: TRIAGE,
+        records: doneRows(TRIAGE, ['triage'], { triage: { kind: 'feature' } }),
+        dryRun: false,
+        budget: { usd: 5, spent: 5.03 },
+      }),
+    ).toEqual({
+      kind: 'fail',
+      stepId: 'not-ours',
+      error: 'over its budget: $5.03 spent of $5.00',
+      overBudget: true,
+      updates: [
+        { id: 'not-ours', status: 'failed', error: 'over its budget: $5.03 spent of $5.00' },
+        { id: 'fix', status: 'not-run' },
+      ],
+    });
+    expect(
+      advanceSteps({
+        steps: TRIAGE,
+        records: doneRows(TRIAGE, ['triage'], { triage: { kind: 'feature' } }),
+        dryRun: false,
+        budget: { usd: 5, spent: 4.99 },
+      }),
+    ).toMatchObject({ kind: 'start', stepId: 'not-ours' });
+  });
+
+  it('fails exactly at the budget, after the skips that came before it', () => {
+    const next = advanceSteps({
+      steps: TRIAGE,
+      records: doneRows(TRIAGE, ['triage'], { triage: { kind: 'bug' } }),
+      dryRun: false,
+      budget: { usd: 5, spent: 5 },
+    });
+    expect(next).toMatchObject({ kind: 'fail', stepId: 'fix', overBudget: true });
+    expect(next.kind === 'wait' ? [] : next.updates[0]).toEqual({
+      id: 'not-ours',
+      status: 'skipped',
+      skipped: "if: steps.triage.kind == 'feature' is false",
+    });
+  });
+
+  it('fails over budget before a gate too', () => {
+    expect(
+      advanceSteps({
+        steps: GATED,
+        records: doneRows(GATED, ['fresh', 'review'], { review: { verdict: 'approve' } }),
+        dryRun: false,
+        budget: { usd: 1, spent: 2 },
+      }),
+    ).toMatchObject({
+      kind: 'fail',
+      stepId: 'decide',
+      overBudget: true,
+      error: 'over its budget: $2.00 spent of $1.00',
+    });
+  });
+
+  it('still completes a run with nothing left to start, and reports a gate in a dry run over it', () => {
+    const rows = doneRows(TRIAGE, ['triage', 'not-ours', 'fix'], { triage: { kind: 'feature' } });
+    expect(
+      advanceSteps({
+        steps: [triage, { ...notOurs, stop: undefined }, fix],
+        records: rows,
+        dryRun: false,
+        budget: { usd: 1, spent: 9 },
+      }),
+    ).toMatchObject({ kind: 'complete' });
+    const dry = advanceSteps({
+      steps: [fresh, review, decideGate],
+      records: doneRows([fresh, review, decideGate], ['fresh', 'review'], {
+        review: { verdict: 'approve' },
+      }),
+      dryRun: true,
+      budget: { usd: 1, spent: 9 },
+    });
+    expect(dry).toMatchObject({ kind: 'complete' });
+  });
+
+  it('has no ceiling without one', () => {
+    expect(
+      advanceSteps({
+        steps: TRIAGE,
+        records: doneRows(TRIAGE, ['triage'], { triage: { kind: 'feature' } }),
+        dryRun: false,
+      }),
+    ).toMatchObject({ kind: 'start', stepId: 'not-ours' });
+  });
+
+  it('words dollars', () => {
+    expect(usdWords(5)).toBe('$5.00');
+    expect(usdWords(5.03)).toBe('$5.03');
+    expect(usdWords(0.0246)).toBe('$0.0246');
+    expect(usdWords(1000)).toBe('$1000.00');
+    expect(overBudgetError(1.2, 1)).toBe('over its budget: $1.20 spent of $1.00');
+  });
+});
+
+describe('runSummary, with gates', () => {
+  it("sums up a gated run with the gate's decision among the verdicts (review M5)", () => {
+    expect(
+      runSummary(
+        GATED,
+        doneRows(GATED, ['fresh', 'review', 'decide', 'publish-decided'], {
+          review: { verdict: 'approve' },
+          decide: { decision: 'approve' },
+        }),
+      ),
+    ).toBe('fresh → review → decide → publish-decided (approve, approve)');
+  });
+
+  it('names a reported gate among what would have run', () => {
+    const rows = doneRows(GATED, ['fresh', 'review'], { review: { verdict: 'approve' } }).map(
+      (row) => (row.id === 'decide' ? { ...row, status: 'reported' as const } : row),
+    );
+    expect(runSummary(GATED, rows)).toBe('fresh → review (approve); decide would have run');
   });
 });
