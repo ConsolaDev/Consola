@@ -35,6 +35,7 @@ import {
   rejectedAtGate,
   runStatusLabel,
   runStatusWord,
+  runWorked,
   statusCounts,
   stepWords,
   waitingForWords,
@@ -1643,6 +1644,26 @@ describe('a run rejected at a gate', () => {
     expect(runStatusWord(rejectedRun)).toBe('rejected');
     expect(runStatusWord(turnedDownRun)).toBe('dismissed');
     expect(runStatusWord(run({ status: 'failed' }))).toBe('failed');
+  });
+
+  it('gives a duration to a run that worked, a run rejected after it started included (3-A code review M5)', () => {
+    // Rejected at a gate (its records say so), and turned away after it started: both worked.
+    expect(runWorked(rejectedRun)).toBe(true);
+    expect(runWorked(run({ status: 'rejected', startedAt: ago(2 * HOUR) }))).toBe(true);
+    expect(
+      runWorked(
+        run({
+          status: 'rejected',
+          startedAt: ago(2 * HOUR),
+          step: { id: 'decide', status: 'completed', index: 2, count: 3, kind: 'gate', gate: true },
+        }),
+      ),
+    ).toBe(true);
+    expect(runWorked(turnedDownRun)).toBe(false);
+    for (const status of ['completed', 'failed', 'running'] as const)
+      expect(runWorked(run({ status }))).toBe(true);
+    for (const status of ['queued', 'needs-approval', 'waiting'] as const)
+      expect(runWorked(run({ status }))).toBe(false);
   });
 
   it("calls a run turned away after it started 'rejected', never 'dismissed' (3-A code review M6)", () => {

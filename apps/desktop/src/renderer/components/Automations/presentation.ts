@@ -72,6 +72,20 @@ export function rejectedAfterStart(run: RejectedFacts): boolean {
 }
 
 /**
+ * Whether a run worked, so its row gives how long: it completed, failed or
+ * runs, or was rejected after it started (3-A code review M5: a run a
+ * person rejected at a gate ran first).
+ */
+export function runWorked(run: RejectedFacts): boolean {
+  return (
+    run.status === 'completed' ||
+    run.status === 'failed' ||
+    run.status === 'running' ||
+    rejectedAfterStart(run)
+  );
+}
+
+/**
  * A run's status in one word, as `statusWord` says it, but a run rejected
  * after it started is `rejected`: it ran, then a person said no at a gate,
  * or it was turned away, which is not a run turned down before it started

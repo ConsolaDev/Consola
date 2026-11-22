@@ -43,6 +43,7 @@ import {
   runAgainTitle,
   runAgainTarget,
   runRowWords,
+  runWorked,
   runTitle,
   runStatusLabel,
   triggerInWords,
@@ -116,8 +117,7 @@ export function RunItem({
   const status = `${runStatusLabel(run)}${run.status === 'queued' && place !== undefined ? ` · ${place} in line` : ''}`;
   // With nothing to say about itself, a run's "about" is its status: the title says that instead.
   const title = about !== run.status ? about : status;
-  const worked = run.status === 'completed' || run.status === 'failed' || run.status === 'running';
-  const duration = worked ? formatDuration(run, now) : null;
+  const duration = runWorked(run) ? formatDuration(run, now) : null;
   const fired = triggerInWords(run);
   const name = showName ? runTitle(run) : null;
   const full = formatTime(run.createdAt);
