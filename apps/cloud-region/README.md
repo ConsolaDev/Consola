@@ -6,10 +6,8 @@ that is not global: its content, such as factory files and runs, and what the
 cloud sessions need. Accounts are not here: they are global, in
 `apps/cloud-global`, and the cell refers to a person by their global id.
 
-Today the cell is a scaffold: a health route on an empty database. Nothing
-calls it yet, and it answers anyone who reaches it on `127.0.0.1`. The check of
-`cloud-global`'s token comes with issue 5.4, before the cell serves anything a
-workspace owns.
+Today the cell holds no tables yet. It answers a health route to anyone, and
+everything else only with a cell token `cloud-global` minted.
 
 ## Run
 
@@ -23,6 +21,29 @@ The cell listens on `127.0.0.1:3101` and answers
 when its database does not answer. `.env.example` documents every variable.
 The cell refuses to start, naming each bad variable, if one is missing or
 wrong.
+
+## The cell token
+
+Every other request carries `Authorization: Bearer <token>`, a cell token
+`cloud-global` minted (`packages/cloud-contract`, "The cell token"). The cell
+checks it with `cloud-global`'s public keys, which it fetches from
+`CLOUD_GLOBAL_URL` (by default `http://127.0.0.1:3100`, `cloud-global`'s dev
+address) at `/api/cell-token/keys`, and reads the person, the workspace, the
+role and the region from it. `GET /api/me` answers what it read:
+
+```json
+{ "personId": "…", "workspaceId": "…", "role": "member", "region": "eu" }
+```
+
+| Answer | When |
+| --- | --- |
+| 401, `WWW-Authenticate: Bearer` | no token |
+| 401, `WWW-Authenticate: Bearer error="invalid_token"` | a token the cell does not accept: malformed, forged, another key's, expired |
+| 421 | a good token for a workspace in another region |
+| 503 | `cloud-global`'s keys cannot be fetched, so no token can be checked |
+
+`CLOUD_GLOBAL_URL` must be an origin (no path), and https unless it is on this
+machine: whoever answers that address can mint any token the cell takes.
 
 By default the data is PGlite (Postgres in-process) in
 `apps/cloud-region/.data/cell-eu-db`. Deleting that folder resets it.
