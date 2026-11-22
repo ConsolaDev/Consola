@@ -34,6 +34,26 @@ export function openInApplicationsDir(
 }
 
 /**
+ * The login shell's environment as a test run uses it. A Claude harness that
+ * pins no folder reads `CLAUDE_CONFIG_DIR`, and the E2E launch points that at
+ * a folder of the test profile's; were the login shell's to win, a person
+ * whose rc file exports one would have every such harness read their own
+ * config and transcripts. So in a test run the launch environment's value
+ * stands, set or not. Outside one, `login` is returned as it is.
+ */
+export function keepLaunchClaudeConfigDir(
+  login: NodeJS.ProcessEnv,
+  launch: NodeJS.ProcessEnv = process.env,
+  test = isTest,
+): NodeJS.ProcessEnv {
+  if (!test) return login;
+  const env = { ...login };
+  delete env.CLAUDE_CONFIG_DIR;
+  if (launch.CLAUDE_CONFIG_DIR !== undefined) env.CLAUDE_CONFIG_DIR = launch.CLAUDE_CONFIG_DIR;
+  return env;
+}
+
+/**
  * Hands an object to the E2E suite, which reaches it from
  * `electronApp.evaluate` as `globalThis.__consolaTest[name]`. Only in a test
  * launch: anywhere else nothing is exposed, so no other code in main can come

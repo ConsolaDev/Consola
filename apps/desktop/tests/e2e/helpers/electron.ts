@@ -64,6 +64,9 @@ const STUB_CLAUDE = [
  *
  * A Claude harness that pins no folder reads the ambient `CLAUDE_CONFIG_DIR`,
  * so that is a folder of the profile's, returned for the app's environment.
+ * Main otherwise takes its ambient environment from the login shell, whose
+ * rc file may export the person's own; in a test run main keeps the launch's
+ * value over it (`keepLaunchClaudeConfigDir`, `main/test-mode.ts`).
  * The built-in harness pins nothing as seeded, and would also run whatever
  * `claude` the login shell's PATH finds, so its record is pinned to that
  * folder and to a stub, in `harnesses.json` before main loads it. A spec that
