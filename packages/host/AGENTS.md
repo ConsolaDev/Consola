@@ -368,6 +368,14 @@ becomes the provider snapshot's `auth.workspaceId` (`ClaudeDriver.ts:221`), so
 it reaches the browser with the provider list; the account id names the folder
 of the account's synced plugins.
 
+It also reads Claude's settings files for their `env` (`readClaudeSettingsEnv`,
+`provider/Drivers/ClaudeSkills.ts:676-700`: the user's `<configDir>/settings.json`
+and the managed settings, later files winning). Such an `env` may hold a
+secret, `ANTHROPIC_API_KEY` say: t3 reads each file whole, but decodes and keeps
+only `ANTHROPIC_BASE_URL`, `CLAUDE_CODE_ENTRYPOINT`, `CLAUDE_CODE_PLUGIN_DIRS`
+and the two gateway model-discovery flags (`SettingsEnv`, `:663-670`); the rest
+is dropped with the file's text.
+
 ### What `open` does on the person's machine
 
 Each `open` hydrates t3's provider instances from one driver, the session's
@@ -687,7 +695,9 @@ t3's MIT licence (`vendor/t3code/LICENSE`).
   or token, and never sends one ("The host never reads a CLI's login", above);
   it reads Claude's account metadata (`.claude.json` `oauthAccount`
   organization and account ids), and the organization id reaches the browser
-  in the provider snapshot. It passes `pathToClaudeCodeExecutable` for Claude,
+  in the provider snapshot. It reads Claude's `settings.json` files, whose
+  `env` may hold an API key, and keeps only their non-secret `env` keys
+  (`readClaudeSettingsEnv`, above). It passes `pathToClaudeCodeExecutable` for Claude,
   never the SDK's bundled copy.
 - The Cursor SDK (`@cursor/sdk`) is never bundled into anything the host builds.
 - Nothing that bundles `@anthropic-ai/claude-agent-sdk` is published or released
