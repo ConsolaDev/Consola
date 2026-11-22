@@ -50,7 +50,10 @@ The app is built in layers, and imports point inward only.
 - `services` imports `domain` and `services`, and packages, but never `ui`,
   `react`, `react-dom`, `@radix-ui/*` or a `node:` builtin.
   `better-auth/react` is allowed there: it is Better Auth's client for the
-  browser, and `authClient.ts` is the one file that uses it.
+  browser, and `authClient.ts` is the one file that uses it. It refers to no
+  `fetch` or `XMLHttpRequest`: the API is reached only through `createApi`'s
+  client, typed by the contract, so a call with types written by hand fails
+  the boundary test.
 - `ui` imports `domain`, `services`, `ui`, `react` and `@radix-ui/themes`,
   never `better-auth`. It refers to no `fetch`, `history`, `location`,
   `localStorage`, `sessionStorage`, `XMLHttpRequest` or `WebSocket`, directly
@@ -162,7 +165,12 @@ column (`.main`; the dashboard widens it with `.main.wide`).
 
 1. A rule, a sentence or a type goes in `domain`.
 2. A call to the API, to Better Auth or to the page's address goes in
-   `services`, and answers in domain types.
+   `services`, and answers in domain types. A call to the API goes through
+   `createApi`'s client, never `fetch`. A route the API has just gained
+   reaches the client once `pnpm --filter @consola/cloud-web api:generate`
+   rewrites `domain/apiContract.ts`; a type it answers in is taken from
+   there, never written by hand. Another API (a cell's, say) gets its own
+   generated file and its own client the same way.
 3. A new screen is a component in `ui`, mounted from `ui/App.tsx`; a new page
    of the workspace is a section (`ui/sections.tsx`, above). It calls the
    services it needs and passes what they return down as props. A React hook
@@ -176,5 +184,5 @@ A test sits beside its module and is named after it (`api.ts`, `api.test.ts`).
 They run in Node, so no test touches a DOM: a service takes the API's client
 as an argument (`loadMe(createApi({ fetch, baseUrl }))`, with an absolute
 `baseUrl`, since Node has no page to resolve `/api` against), and
-`signInRedirect.test.ts` stands in for `window` just for the test. Screens are checked by running the app
-(`pnpm dev:cloud`).
+`signInRedirect.test.ts` stands in for `window` just for the test. Screens are
+checked by running the app (`pnpm dev:cloud`).

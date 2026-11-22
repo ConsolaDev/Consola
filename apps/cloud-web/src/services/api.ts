@@ -25,12 +25,16 @@ import {
 /** A client of cloud-global's API, typed by its contract: every path, body and answer. */
 export type Api = Client<paths>;
 
+/** What the client sends its requests with: the browser's `fetch`, unless a test passes its own. */
+type Send = (request: Request) => Promise<Response>;
+
 /**
- * The API's client. The page and the API share one origin, through the dev server's /api proxy,
- * so its paths are relative. A test passes its own `fetch` and an absolute `baseUrl`, since Node
- * has no page to resolve a relative address against.
+ * The API's client, and the only way a service reaches the API: no service calls `fetch` itself
+ * (`boundary.test.ts`). The page and the API share one origin, through the dev server's /api
+ * proxy, so its paths are relative. A test passes its own `fetch` and an absolute `baseUrl`,
+ * since Node has no page to resolve a relative address against.
  */
-export function createApi(options: { fetch?: typeof fetch; baseUrl?: string } = {}): Api {
+export function createApi(options: { fetch?: Send; baseUrl?: string } = {}): Api {
   return createClient<paths>({
     baseUrl: options.baseUrl ?? '',
     fetch: options.fetch,
