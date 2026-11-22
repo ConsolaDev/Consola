@@ -13,9 +13,21 @@
     "test": "vp test run"
   },
   "dependencies": {
-    "@t3tools/contracts": "workspace:*"
+    "@effect/platform-node": "catalog:",
+    "@t3tools/contracts": "workspace:*",
+    "@t3tools/provider-acp-registry": "workspace:*",
+    "@t3tools/provider-claude": "workspace:*",
+    "@t3tools/provider-codex": "workspace:*",
+    "@t3tools/provider-core": "workspace:*",
+    "@t3tools/provider-opencode": "workspace:*",
+    "@t3tools/provider-pi": "workspace:*",
+    "@t3tools/server-orchestration": "workspace:*",
+    "@t3tools/shared": "workspace:*",
+    "effect": "catalog:",
+    "t3": "workspace:*"
   },
   "devDependencies": {
+    "@t3tools/provider-testing": "workspace:*",
     "@types/node": "catalog:",
     "typescript": "^5.9.3",
     "vite-plus": "catalog:"

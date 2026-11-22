@@ -497,10 +497,46 @@ importers:
 
   packages/host:
     dependencies:
+      '@effect/platform-node':
+        specifier: 'catalog:'
+        version: 4.1.5(effect@4.1.5)(redis@6.3.1)
       '@t3tools/contracts':
         specifier: workspace:*
         version: link:../../vendor/t3code/packages/contracts
+      '@t3tools/provider-acp-registry':
+        specifier: workspace:*
+        version: link:../../vendor/t3code/packages/provider-acp-registry
+      '@t3tools/provider-claude':
+        specifier: workspace:*
+        version: link:../../vendor/t3code/packages/provider-claude
+      '@t3tools/provider-codex':
+        specifier: workspace:*
+        version: link:../../vendor/t3code/packages/provider-codex
+      '@t3tools/provider-core':
+        specifier: workspace:*
+        version: link:../../vendor/t3code/packages/provider-core
+      '@t3tools/provider-opencode':
+        specifier: workspace:*
+        version: link:../../vendor/t3code/packages/provider-opencode
+      '@t3tools/provider-pi':
+        specifier: workspace:*
+        version: link:../../vendor/t3code/packages/provider-pi
+      '@t3tools/server-orchestration':
+        specifier: workspace:*
+        version: link:../../vendor/t3code/packages/server-orchestration
+      '@t3tools/shared':
+        specifier: workspace:*
+        version: link:../../vendor/t3code/packages/shared
+      effect:
+        specifier: 'catalog:'
+        version: 4.1.5
+      t3:
+        specifier: workspace:*
+        version: link:../../vendor/t3code/apps/server
     devDependencies:
+      '@t3tools/provider-testing':
+        specifier: workspace:*
+        version: link:../../vendor/t3code/packages/provider-testing
       '@types/node':
         specifier: 'catalog:'
         version: 24.12.4

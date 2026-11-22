@@ -19,7 +19,8 @@ Imports point inward only; `src/boundary.test.ts` fails on any that does not.
   touches the machine (`process`, `fetch`, `WebSocket`, timers). It may name the
   vendored `@t3tools/contracts`.
 - `src/runtime/` holds Effect services over the vendored t3 packages. It may
-  import them and `core/`, never `adapters/`.
+  import them (by package name, or `t3/<path>.ts` for a lifted server file) and
+  `core/`, never `adapters/`.
 - `src/adapters/` is everything that touches the outside: the WebSocket server,
   verifying a pass's signature, process I/O. It may import `core/` and
   `runtime/`.
@@ -36,6 +37,65 @@ The agent adapters, contracts and chat RPC come from `vendor/t3code/` and are
 imported by their package names. Never copy t3 code into `packages/host`, and
 never edit a vendored file from here. A change to a vendored file is recorded in
 `vendor/t3code/UPSTREAM.md` with its reason, in the same commit.
+
+## The thread runtime
+
+`src/runtime/` runs one t3 thread per Consola session, the thread id being the
+session id. It is glue over t3's own machinery; it writes no command handling,
+ingestion or projection of its own.
+
+- `threadRuntime.ts`: `ThreadRuntime.open(spec)` builds t3's `OrchestratorV2`
+  in the caller's scope with t3's `layerWithRegistry`
+  (`t3/orchestration-v2/testkit/ProviderReplayHarness.ts`), the narrowest
+  assembly of it t3 has: its real stores over in-memory `node:sqlite`, its
+  ingestion, run execution and effect worker. Then it dispatches
+  `thread.create`. The handle's `dispatch` asks `decideCommand` first;
+  `snapshot()` is t3's `getThreadSnapshot`, refreshed on every stored event by
+  t3's unbounded `streamStoredEvents`, so a pending approval is there with no
+  client connected; `events` is t3's `streamStoredEventsFrom`, the stream t3's
+  `subscribeThread` serves.
+- `drivers.ts`: `HOST_DRIVERS` (t3's `BUILT_IN_DRIVERS` for the five harnesses,
+  never Cursor) and `hostAdapters`, which builds a session's adapter the way
+  t3's Claude replay harness does: `createClaudeAdapterV2` in a registry of
+  one, with the real Agent SDK runner. Only Claude is wired; another harness
+  fails with `HarnessNotWiredError`.
+- `providerHost.ts`: `makeProviderHost`, t3's `ProviderHost` with every path
+  under the state folder, t3's default settings, no credential store, and the
+  CLIs' environment (`HostProcess.Environment`).
+
+`layerWithRegistry` is t3's test wiring, so it fixes what t3's tests fix: the
+orchestrator's `ServerConfig` lives in a temporary folder removed with the
+scope, settings are t3's defaults with `responseStreamingMode: "turn"` (an
+answer arrives whole at the end of a turn), providers get no MCP server
+(`configureMcp: false`), threads use no task folders, and titles are not
+regenerated. t3 logs (migrations, provider warnings) go to the default logger,
+which writes to stdout.
+
+### The Cursor SDK is in the runtime's module graph
+
+`threadRuntime.ts` reaches `@cursor/sdk` through static imports, because
+t3's `Orchestrator.ts` does. Two chains, found by a transitive import walk
+(19 files that import `@cursor/sdk`):
+
+- `threadRuntime.ts` → `t3/orchestration-v2/testkit/ProviderReplayHarness.ts`
+  → `orchestration-v2/ThreadManagementService.ts` →
+  `workspace/restoreMissingWorktree.ts` → `terminal/Manager.ts` →
+  `provider/ProviderInstanceRegistryHydration.ts` →
+  `provider/ProviderOrchestrationAdapterInfrastructure.ts` →
+  `@t3tools/provider-cursor/server/CursorAgentSdk` (and
+  `CursorAgentSdkProcessRunner`); also `ProviderInstanceRegistryHydration.ts`
+  → `provider/builtInDrivers.ts` → `@t3tools/provider-cursor/server`.
+- `t3/orchestration-v2/Orchestrator.ts` → `RunExecutionService.ts` →
+  `RunFinalizationService.ts` → `vcs/VcsStatusBroadcaster.ts` →
+  `git/GitWorkflowService.ts` → `git/GitManager.ts` →
+  `project/ProjectSetupScriptRunner.ts` → `terminal/Manager.ts` → the same
+  chain as above.
+
+`drivers.ts` and `providerHost.ts` reach none of it. Nothing here is bundled:
+the host runs from source, and nothing it runs calls the Cursor SDK. The host
+bundle (Track B, CON-93) must keep `@cursor/sdk` out, by marking it external or
+stubbing `@t3tools/provider-cursor/server*`, and must check the output (no
+`@cursor/sdk` in the bundle) before it ships.
 
 ## Running it
 
