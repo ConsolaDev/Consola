@@ -717,6 +717,24 @@ describe('runSummary', () => {
     ];
     expect(runSummary([a, b], rec)).toBe('a → b (y, approve)');
   });
+
+  it('names a step that ran in an earlier round among those that ran, not as skipped (3-A code review M11)', () => {
+    // Round 2 was clean: `address` skipped there, after it ran in round 1.
+    const records = round(2, { review: { findings: 0 } }, { address: 'skipped' }).map((row) =>
+      row.id === 'polish' ? { ...row, status: 'completed' as const } : row,
+    );
+    expect(runSummary(POLISH_ENTRY, records)).toBe('review → address');
+    // Skipped in every round: still skipped.
+    const never = records.map((row) =>
+      row.id === 'address'
+        ? {
+            ...row,
+            previous: row.previous?.map((line) => ({ ...line, status: 'skipped' as const })),
+          }
+        : row,
+    );
+    expect(runSummary(POLISH_ENTRY, never)).toBe('review; address skipped');
+  });
 });
 
 // --- slice 3: gates, then: stop and the budget (Task 7) ------------------------

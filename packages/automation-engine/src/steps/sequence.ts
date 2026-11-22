@@ -559,16 +559,25 @@ export const joinNames = (names: string[]): string =>
 
 /**
  * "fresh → review → publish (request-changes)", then what a dry run left
- * unrun and what was skipped, over every leaf (a loop's steps by their
- * latest round). A gate's decision is among the verdicts, as an enum
- * output's value is (review M5).
+ * unrun and what was skipped, over every leaf. A step ran when its latest
+ * record or an earlier attempt completed: a loop's step that ran in round 1
+ * and was skipped in a clean round 2 ran, and is never called skipped (3-A
+ * code review M11). Verdicts are its latest record's. A gate's decision is
+ * among the verdicts, as an enum output's value is (review M5).
  */
 export function runSummary(entries: readonly StepEntry[], records: StepRun[]): string {
   const steps: Step[] = leafSteps(entries);
   const byId = new Map(records.map((record) => [record.id, record]));
+  const ran = (step: Step): boolean => {
+    const record = byId.get(step.id);
+    return (
+      record?.status === 'completed' ||
+      (record?.previous ?? []).some((line) => line.status === 'completed')
+    );
+  };
   const named = (status: StepRunStatus) =>
-    steps.filter((step) => byId.get(step.id)?.status === status);
-  const completed = named('completed');
+    steps.filter((step) => byId.get(step.id)?.status === status && !ran(step));
+  const completed = steps.filter(ran);
 
   const verdicts: string[] = [];
   for (const step of completed) {

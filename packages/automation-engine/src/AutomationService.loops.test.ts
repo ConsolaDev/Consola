@@ -152,8 +152,8 @@ describe('a loop runs round by round', () => {
     await done.end();
     expect(h.store.get(run.id)).toMatchObject({
       status: 'completed',
-      // `runSummary` reads each step's latest record: round 2's (fix skipped there).
-      summary: 'look → done; fix skipped',
+      // `fix` ran in round 1 and was skipped in round 2: it ran (3-A code review M11).
+      summary: 'look → fix → done',
     });
     expect(h.world.launches.map((launch) => launch.step?.attempt)).toEqual([1, 2]);
   });
