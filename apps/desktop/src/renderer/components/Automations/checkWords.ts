@@ -90,3 +90,18 @@ export function allowNotes(view: Pick<AutomationView, 'steps' | 'takesItem'>): s
       : []),
   ];
 }
+
+/**
+ * The Allow card's agent files: one `Uses agents/<name>.md` per agent the
+ * entry's steps name, once each, in step order, so the person can open and
+ * read every agent file the entry runs before allowing it.
+ */
+export function allowAgentLines(
+  view: Pick<AutomationView, 'steps'>,
+): Array<{ file: string; text: string }> {
+  const files: string[] = [];
+  for (const step of view.steps ?? []) {
+    if (step.agentFile !== undefined && !files.includes(step.agentFile)) files.push(step.agentFile);
+  }
+  return files.map((file) => ({ file, text: `Uses ${file}` }));
+}

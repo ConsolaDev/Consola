@@ -379,6 +379,40 @@ describe('the entry as written, and as an item', () => {
   });
 });
 
+describe("a factory file's path, for Open", () => {
+  const FOLDER = `/home/me/.consola/workspaces/${WORKSPACE_ID}`;
+
+  it("gives one of the folder's own files by its path", async () => {
+    const h = await folder();
+    expect(await h.service.factoryFilePath(WORKSPACE_ID, REVIEWER_FILE)).toBe(
+      `${FOLDER}/agents/reviewer.md`,
+    );
+    expect(await h.service.factoryFilePath(WORKSPACE_ID, CATALOG_REVIEW_FILE)).toBe(
+      `${FOLDER}/automations/catalog-review.yaml`,
+    );
+  });
+
+  it('refuses any other path', async () => {
+    const h = await folder();
+    await expect(h.service.factoryFilePath(WORKSPACE_ID, '../x')).rejects.toThrow(
+      'Not a file of this factory: `../x`.',
+    );
+    await expect(h.service.factoryFilePath(WORKSPACE_ID, 'runs/r1')).rejects.toThrow(
+      'Not a file of this factory: `runs/r1`.',
+    );
+  });
+
+  it('with no path, creates factory.yml from the template and gives its path', async () => {
+    const h = await folder();
+    expect(h.texts().has('factory.yml')).toBe(false);
+    expect(await h.service.factoryFilePath(WORKSPACE_ID)).toBe(`${FOLDER}/factory.yml`);
+    expect(h.texts().get('factory.yml')).toContain('automations:');
+    expect(await h.service.factoryFilePath(WORKSPACE_ID, 'factory.yml')).toBe(
+      `${FOLDER}/factory.yml`,
+    );
+  });
+});
+
 describe('the assigned-reviews suggestion', () => {
   it('a broken agent file does not stop it: only a factory.yml that does not load does', async () => {
     const h = await folder({

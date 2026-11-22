@@ -10,6 +10,8 @@ export interface AgentRequirements {
   name: string;
   /** `agentHash`: what the entry's version covers of it. */
   hash: string;
+  /** The file's `description:`: what the approval card shows beside the body. */
+  description?: string;
   /** The file's `harness:`; absent, the workspace's default, read at launch. */
   harnessId?: string;
   model?: string;
@@ -26,6 +28,7 @@ export function agentRequirements(agent: AgentDefinition): AgentRequirements {
   return {
     name: agent.name,
     hash: agent.hash,
+    ...(agent.description !== undefined ? { description: agent.description } : {}),
     ...(agent.harness !== undefined ? { harnessId: agent.harness } : {}),
     ...(agent.model !== undefined ? { model: agent.model } : {}),
     ...(agent.maxTurns !== undefined ? { maxTurns: agent.maxTurns } : {}),

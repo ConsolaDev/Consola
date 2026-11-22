@@ -666,6 +666,7 @@ describe('agentRequirements', () => {
     expect(agentRequirements({ ...parsed.agent, hash: 'c'.repeat(64) })).toEqual({
       name: 'investigator',
       hash: 'c'.repeat(64),
+      description: 'Looks into alerts.',
       harnessId: 'claude-work',
       model: 'opus',
       maxTurns: 30,
@@ -679,7 +680,7 @@ describe('agentRequirements', () => {
     const parsed = parseAgentFile('summariser', 'You summarise.\n');
     if (!parsed.agent) throw new Error(parsed.issues.map((issue) => issue.message).join('; '));
     const requirements = agentRequirements({ ...parsed.agent, hash: 'd'.repeat(64) });
-    for (const key of ['harnessId', 'model', 'maxTurns'])
+    for (const key of ['description', 'harnessId', 'model', 'maxTurns'])
       expect(Object.prototype.hasOwnProperty.call(requirements, key)).toBe(false);
   });
 });

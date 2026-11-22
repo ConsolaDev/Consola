@@ -38,3 +38,26 @@ export function dryRunCommands(definition: RunDefinition): string[] {
     )
     .map((step) => step.id);
 }
+
+/**
+ * What a step's agent is, as the approval card shows it from the run's
+ * definition: the node's words (`reviewer · claude-work · opus`), its file,
+ * its description when it has one and its body, exactly as approved. Null
+ * for a step with no agent.
+ */
+export function approvalAgent(
+  definition: RunDefinition,
+  stepId: string,
+): { words: string; file: string; description?: string; body: string } | null {
+  const agent = definition.agents?.[stepId];
+  if (!agent) return null;
+  const words = [agent.name, agent.harnessId, agent.model]
+    .filter((part): part is string => part !== undefined)
+    .join(' · ');
+  return {
+    words,
+    file: `agents/${agent.name}.md`,
+    ...(agent.description !== undefined ? { description: agent.description } : {}),
+    body: agent.body,
+  };
+}

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { CheckView } from '../../../shared/automations';
 import {
+  allowAgentLines,
   allowBannerWords,
   allowNotes,
   checkStatusLine,
@@ -172,5 +173,35 @@ describe('allowNotes', () => {
   it('has none without a command', () => {
     expect(allowNotes({ steps: [agent], takesItem: 'pr' })).toEqual([]);
     expect(allowNotes({ takesItem: 'pr' })).toEqual([]);
+  });
+});
+
+describe('allowAgentLines', () => {
+  const step = (id: string, agentFile?: string) => ({
+    id,
+    kind: 'agent' as const,
+    summary: 'Prompt',
+    ...(agentFile ? { agentFile } : {}),
+  });
+
+  it('lists each agent file the steps name once, in step order', () => {
+    expect(
+      allowAgentLines({
+        steps: [
+          step('look', 'agents/reviewer.md'),
+          step('tell', 'agents/noter.md'),
+          { id: 'fetch', kind: 'run' as const, summary: 'git fetch' },
+          step('again', 'agents/reviewer.md'),
+        ],
+      }),
+    ).toEqual([
+      { file: 'agents/reviewer.md', text: 'Uses agents/reviewer.md' },
+      { file: 'agents/noter.md', text: 'Uses agents/noter.md' },
+    ]);
+  });
+
+  it('lists none for an entry with no agent step', () => {
+    expect(allowAgentLines({ steps: [step('look')] })).toEqual([]);
+    expect(allowAgentLines({})).toEqual([]);
   });
 });

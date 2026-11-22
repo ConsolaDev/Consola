@@ -56,8 +56,13 @@ export const automationsBridge = {
 
   dismiss: async (runId: string): Promise<RunRecord> => (getAPI() ?? unavailable()).dismiss(runId),
 
-  openFile: async (workspaceId: string): Promise<void> =>
-    (getAPI() ?? unavailable()).openFile(workspaceId),
+  /** Open factory.yml, or one of the folder's own files by its path (`agents/reviewer.md`). */
+  openFile: async (workspaceId: string, file?: string): Promise<void> =>
+    (getAPI() ?? unavailable()).openFile(workspaceId, file),
+
+  /** Check again: re-read the factory folder and re-check what applies. */
+  recheck: async (workspaceId: string): Promise<void> =>
+    (getAPI() ?? unavailable()).recheck(workspaceId),
 
   /** Add review-assigned-prs to the workspace's factory.yml — the one edit Consola makes to it, on request. */
   addAssignedReviews: async (workspaceId: string): Promise<void> =>

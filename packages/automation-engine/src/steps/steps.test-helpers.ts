@@ -511,7 +511,17 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
       },
       readText: async () => files().get('factory.yml') ?? null,
       readAutomationFile: async (name) => files().get(automationFile(name)) ?? null,
-      pathOf: (relative) => `${folderPath}/${relative}`,
+      // As the adapter's: only the folder's own files, never another path.
+      pathOf: (relative) => {
+        const named = (name: string | undefined) =>
+          name !== undefined && AUTOMATION_NAME_PATTERN.test(name);
+        const own =
+          relative === 'factory.yml' ||
+          named(/^automations\/([^/]+)\.yaml$/.exec(relative)?.[1]) ||
+          named(/^agents\/([^/]+)\.md$/.exec(relative)?.[1]) ||
+          named(/^skills\/([^/]+)\/SKILL\.md$/.exec(relative)?.[1]);
+        return own ? `${folderPath}/${relative}` : null;
+      },
     };
   };
 

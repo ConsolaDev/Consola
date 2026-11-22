@@ -875,6 +875,7 @@ export function installMock() {
     approve: automationsUnavailable,
     dismiss: automationsUnavailable,
     openFile: automationsUnavailable,
+    recheck: automationsUnavailable,
     addAssignedReviews: automationsUnavailable,
     getRun: async () => null,
     readConversation: async () => ({ readable: false }),

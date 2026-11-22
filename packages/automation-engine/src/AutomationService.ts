@@ -958,6 +958,19 @@ export class AutomationService {
   }
 
   /**
+   * One of the folder's own files, for "Open": `factory.yml` through
+   * `ensureFile` (created from the template when missing, as before), any
+   * other file by its path in the folder. A path that is none of the folder's
+   * own files (`../x`, `runs/r1`) is refused, never resolved.
+   */
+  public async factoryFilePath(workspaceId: string, relative = 'factory.yml'): Promise<string> {
+    if (relative === 'factory.yml') return this.ensureFile(workspaceId);
+    const filePath = this.factoryOf(workspaceId).folder.pathOf(relative);
+    if (filePath === null) throw new Error(`Not a file of this factory: \`${relative}\`.`);
+    return filePath;
+  }
+
+  /**
    * The panel's "Review PRs assigned to me automatically": add
    * review-assigned-prs to the workspace's file — the template, with the
    * entry live, when there is no file; otherwise one more entry at the end,

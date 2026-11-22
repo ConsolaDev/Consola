@@ -1,16 +1,16 @@
-import { ShieldCheck } from 'lucide-react';
+import { ExternalLink, ShieldCheck } from 'lucide-react';
 import type { AutomationView } from '../../../shared/automations';
 import { automationsBridge } from '../../services/automationsBridge';
 import { EntrySource } from './AutomationPipeline';
-import { allowNotes, grantWords } from './checkWords';
+import { allowAgentLines, allowNotes, grantWords } from './checkWords';
 import { useIntent } from './parts';
 
 /**
  * What allowing a poll entry lets Consola do, shown before it does it: the
  * check command in full, how often it runs, what the mode then does, and the
- * entry as written, so every step is seen exactly as the file has it. Allow is
- * for this version of the entry; one that changed since is asked to be
- * reviewed again.
+ * entry as written, so every step is seen exactly as the file has it, and
+ * each agent file its steps run as, to open and read. Allow is for this
+ * version of the entry; one that changed since is asked to be reviewed again.
  */
 export function AllowCard({
   workspaceId,
@@ -27,6 +27,7 @@ export function AllowCard({
   const { check, version } = automation;
   if (!check || !version) return null;
   const notes = allowNotes(automation);
+  const agentFiles = allowAgentLines(automation);
   return (
     <section className="automations-allow-card" aria-label={`Allow ${automation.name}`}>
       <div className="automations-allow-body">
@@ -49,6 +50,27 @@ export function AllowCard({
         opening={opening}
         onOpenFile={onOpenFile}
       />
+      {agentFiles.length > 0 && (
+        <ul className="automations-allow-agents" aria-label="Agent files">
+          {agentFiles.map(({ file, text }) => (
+            <li key={file} className="automations-allow-line">
+              {text}
+              <button
+                type="button"
+                className="dialog-button-secondary automations-small-button"
+                aria-label={`Open ${file}`}
+                disabled={busy !== null}
+                onClick={() =>
+                  void act(`open:${file}`, () => automationsBridge.openFile(workspaceId, file))
+                }
+              >
+                <ExternalLink size={12} aria-hidden="true" />
+                Open
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
       {error && (
         <div className="automations-error" role="alert">
           {error}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { RunDefinition } from '../../../shared/automations';
-import { approvalNotes, dryRunCommands } from './approvalCard';
+import { approvalAgent, approvalNotes, dryRunCommands } from './approvalCard';
 
 type Step = RunDefinition['automation']['steps'][number];
 
@@ -66,5 +66,62 @@ describe('dryRunCommands', () => {
 
   it('is empty when no command opts in', () => {
     expect(dryRunCommands(definitionOf(agent('review'), command('post')))).toEqual([]);
+  });
+});
+
+describe('approvalAgent', () => {
+  const look = { ...agent('look'), action: undefined, agent: 'reviewer' } as Step;
+  const tell = { ...agent('tell'), action: undefined, prompt: 'Turn it into a note.' } as Step;
+  const withAgents = (agents: RunDefinition['agents']): RunDefinition => ({
+    ...definitionOf(look, tell),
+    ...(agents ? { agents } : {}),
+  });
+
+  it("gives a step's agent as its node words, its file, description and body", () => {
+    const definition = withAgents({
+      look: {
+        name: 'reviewer',
+        hash: 'a'.repeat(64),
+        harnessId: 'claude-work',
+        model: 'opus',
+        description: "Reviews catalog-portal's changes.",
+        body: 'Read what changed.\n',
+        mcpServers: [],
+        skills: [],
+      },
+    });
+    expect(approvalAgent(definition, 'look')).toEqual({
+      words: 'reviewer · claude-work · opus',
+      file: 'agents/reviewer.md',
+      description: "Reviews catalog-portal's changes.",
+      body: 'Read what changed.\n',
+    });
+  });
+
+  it('gives a body-only agent its name and body, with no description', () => {
+    const definition = withAgents({
+      look: {
+        name: 'noter',
+        hash: 'b'.repeat(64),
+        body: 'Write a note.\n',
+        mcpServers: [],
+        skills: [],
+      },
+    });
+    const shown = approvalAgent(definition, 'look');
+    expect(shown).toEqual({ words: 'noter', file: 'agents/noter.md', body: 'Write a note.\n' });
+    expect(Object.prototype.hasOwnProperty.call(shown, 'description')).toBe(false);
+  });
+
+  it('is null for a step with no agent', () => {
+    expect(approvalAgent(withAgents(undefined), 'tell')).toBeNull();
+    expect(
+      approvalAgent(
+        withAgents({
+          look: { name: 'noter', hash: 'b'.repeat(64), body: 'x', mcpServers: [], skills: [] },
+        }),
+        'tell',
+      ),
+    ).toBeNull();
   });
 });

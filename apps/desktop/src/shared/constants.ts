@@ -167,7 +167,8 @@ export const IPC_CHANNELS = {
   AUTOMATIONS_RUN_NOW: 'automations:run-now', // Fire one of a workspace's automations now
   AUTOMATIONS_APPROVE: 'automations:approve', // Approve a run waiting in confirm mode
   AUTOMATIONS_DISMISS: 'automations:dismiss', // Dismiss a run waiting in confirm mode
-  AUTOMATIONS_OPEN_FILE: 'automations:open-file', // Open a workspace's factory.yml, creating it from a template
+  AUTOMATIONS_OPEN_FILE: 'automations:open-file', // Open one of a workspace's factory files; factory.yml is created from a template
+  AUTOMATIONS_RECHECK: 'automations:recheck', // Check again: re-read a workspace's factory folder and re-check what applies
   AUTOMATIONS_ADD_ASSIGNED_REVIEWS: 'automations:add-assigned-reviews', // Add review-assigned-prs to a workspace's factory.yml
   AUTOMATIONS_GET_RUN: 'automations:get-run', // One run's full record, for its side panel
   AUTOMATIONS_READ_CONVERSATION: 'automations:read-conversation', // A run's part of its transcript, read from disk

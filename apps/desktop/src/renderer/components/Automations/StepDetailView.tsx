@@ -305,7 +305,25 @@ function TurnFact({ step }: { step: StepRun }) {
   );
 }
 
-/** The session, what its turns reported, its transcript while it works and after. */
+/**
+ * The agent a step ran as, and the harness its conversation is on when it
+ * has one (`reviewer · stub-personal`); nothing for a step with no agent.
+ * The model is the Turn fact's, as the CLI reported it.
+ */
+function AgentFact({ step }: { step: StepRun }) {
+  if (step.agent === undefined) return null;
+  const harness = step.conversation?.harnessId;
+  return (
+    <Fact label="Agent">
+      <p className="automations-fact-text">
+        {step.agent}
+        {harness !== undefined ? ` · ${harness}` : ''}
+      </p>
+    </Fact>
+  );
+}
+
+/** The agent, the session, what its turns reported, its transcript while it works and after. */
 function AgentFacts({
   workspace,
   run,
@@ -336,6 +354,7 @@ function AgentFacts({
   if (!hasConversation) {
     return (
       <>
+        <AgentFact step={step} />
         <Fact label="Session">
           <p className="automations-fact-text">
             {following ? 'Starting its session…' : 'It never started a session.'}
@@ -348,6 +367,7 @@ function AgentFacts({
 
   return (
     <>
+      <AgentFact step={step} />
       <Fact label="Session">
         <div className="automations-fact-inline">
           {session ? (

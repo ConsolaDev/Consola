@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import type { AutomationView, RunListEntry } from '../../../shared/automations';
 import { automationsBridge } from '../../services/automationsBridge';
+import { useAutomationsStore } from '../../stores/automationsStore';
 import { ipcErrorMessage } from '../../utils/ipcErrorMessage';
 import { triggerNodeWords } from './checkWords';
 import {
@@ -210,6 +211,9 @@ export function PipelineGraph({
         icon={entry.kind === 'agent' ? Bot : Wrench}
         kicker={entry.kind === 'agent' ? 'Agent step' : 'Command'}
         title={entry.kind === 'agent' ? entry.summary : <code>{entry.summary}</code>}
+        subtitle={
+          entry.agent !== undefined && entry.agent !== entry.summary ? entry.agent : undefined
+        }
         code={entry.id}
         edgeLabel={entry.if}
       >
@@ -266,6 +270,7 @@ function PipelineNode({
   icon: Icon,
   kicker,
   title,
+  subtitle,
   code,
   wrapCode = false,
   edgeLabel,
@@ -275,6 +280,8 @@ function PipelineNode({
   icon: LucideIcon;
   kicker: string;
   title: ReactNode;
+  /** A second line under the title: an agent step's agent, harness and model. */
+  subtitle?: string;
   code?: string;
   /** The code is a command shown in full: it wraps rather than running past the node. */
   wrapCode?: boolean;
@@ -295,6 +302,7 @@ function PipelineNode({
         {kicker}
       </div>
       <div className="automations-node-title">{title}</div>
+      {subtitle !== undefined && <div className="automations-node-agent">{subtitle}</div>}
       {code && (
         <code className={`automations-node-code ${wrapCode ? 'automations-node-code-wrap' : ''}`}>
           {code}
@@ -306,10 +314,13 @@ function PipelineNode({
 }
 
 /**
- * The entry exactly as factory.yml has it, numbered from where it starts in
- * the file, as GitHub shows a workflow file. Read again whenever the
- * automation changes, so an edit in the person's editor shows here. Shading
- * is presentation only; the text is the file's.
+ * The entry exactly as its file has it (a `factory.yml` item, or the whole
+ * `automations/<name>.yaml`), numbered from where it starts in the file, as
+ * GitHub shows a workflow file. Read again whenever the automation changes,
+ * so an edit in the person's editor shows here. While the folder does not
+ * apply, the text is the version that runs, and the note above it says so:
+ * Allow accepts what the person read. Shading is presentation only; the text
+ * is the file's.
  */
 export function EntrySource({
   workspaceId,
@@ -324,6 +335,10 @@ export function EntrySource({
 }) {
   const [entry, setEntry] = useState<string | null | undefined>(undefined);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const standing = useAutomationsStore(
+    (state) => state.snapshots[workspaceId]?.standing !== undefined,
+  );
+  const file = automation.file ?? 'factory.yml';
 
   useEffect(() => {
     let live = true;
@@ -348,13 +363,15 @@ export function EntrySource({
       : entry === undefined
         ? 'Loading…'
         : entry === null
-          ? 'factory.yml no longer has this entry as written.'
+          ? `${file} no longer has this entry as written.`
           : null;
 
   return (
     <EntryCode
       text={entry ?? null}
       note={note}
+      file={file}
+      running={standing}
       firstLine={automation.line}
       tools={
         <button
@@ -371,15 +388,20 @@ export function EntrySource({
   );
 }
 
+/** Said above the entry while the folder does not apply: the text is the running version's. */
+export const RUNNING_VERSION_NOTE = 'This is the version that runs; your edits have not applied.';
+
 /**
- * One factory.yml entry as code, with a copy button. Numbered from the line
- * it starts on in the file — or, for an entry that is not in the file yet
- * (`addition`), marked line by line as what adding it writes, as a diff
- * marks an addition.
+ * One entry as code, with a copy button, under the name of its file.
+ * Numbered from the line it starts on in the file — or, for an entry that is
+ * not in the file yet (`addition`), marked line by line as what adding it
+ * writes, as a diff marks an addition.
  */
 export function EntryCode({
   text,
   note = null,
+  file = 'factory.yml',
+  running = false,
   firstLine,
   addition = false,
   tools,
@@ -387,6 +409,10 @@ export function EntryCode({
   text: string | null;
   /** Said in place of the code: loading, gone, failed. */
   note?: string | null;
+  /** The file it is in, relative to the factory folder. */
+  file?: string;
+  /** The text is the version that runs, not the file as edited: the folder does not apply. */
+  running?: boolean;
   firstLine?: number;
   addition?: boolean;
   tools?: ReactNode;
@@ -424,7 +450,7 @@ export function EntryCode({
     <div className={`automations-entry ${addition ? 'automations-entry-addition' : ''}`}>
       <div className="automations-entry-head">
         <FileCode size={13} aria-hidden="true" />
-        <span className="automations-entry-file">factory.yml</span>
+        <span className="automations-entry-file">{file}</span>
         {where && <span className="automations-entry-lines">{where}</span>}
         <span className="automations-entry-tools">
           <button
@@ -440,6 +466,11 @@ export function EntryCode({
           {tools}
         </span>
       </div>
+      {running && text && note === null && (
+        <p className="automations-hint automations-entry-note" role="note">
+          {RUNNING_VERSION_NOTE}
+        </p>
+      )}
       {note !== null || !text ? (
         <p className="automations-hint automations-entry-note">{note}</p>
       ) : (

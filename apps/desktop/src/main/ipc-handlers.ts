@@ -2389,9 +2389,22 @@ export function setupIpcHandlers(): boolean {
       return automations.entryText(workspaceId, name);
     },
   );
-  ipcMain.handle(IPC_CHANNELS.AUTOMATIONS_OPEN_FILE, async (_event, workspaceId: string) => {
-    const failure = await shell.openPath(await automations.ensureFile(String(workspaceId)));
-    if (failure) throw new Error(failure);
+  ipcMain.handle(
+    IPC_CHANNELS.AUTOMATIONS_OPEN_FILE,
+    async (_event, workspaceId: unknown, file: unknown) => {
+      if (typeof workspaceId !== 'string') throw new Error('Workspace id required.');
+      if (file !== undefined && typeof file !== 'string') {
+        throw new Error(`Not a file of this factory: \`${String(file)}\`.`);
+      }
+      const filePath = await automations.factoryFilePath(workspaceId, file);
+      if (!fs.existsSync(filePath)) throw new Error('That file is not there any more.');
+      const failure = await shell.openPath(filePath);
+      if (failure) throw new Error(failure);
+    },
+  );
+  ipcMain.handle(IPC_CHANNELS.AUTOMATIONS_RECHECK, (_event, workspaceId: unknown) => {
+    if (typeof workspaceId !== 'string') throw new Error('Workspace id required.');
+    return automations.recheck(workspaceId);
   });
 
   ipcMain.handle(IPC_CHANNELS.CONDUCTOR_CREATE, (_event, request: ConductorCreateRequest) =>
@@ -3083,6 +3096,7 @@ export function cleanupIpcHandlers(): void {
   ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_APPROVE);
   ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_DISMISS);
   ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_OPEN_FILE);
+  ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_RECHECK);
   ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_ADD_ASSIGNED_REVIEWS);
   ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_GET_RUN);
   ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_READ_CONVERSATION);

@@ -3,7 +3,7 @@ import { Bot, Terminal } from 'lucide-react';
 import type { RunDefinition } from '../../../shared/automations';
 import { automationsBridge } from '../../services/automationsBridge';
 import { ipcErrorMessage } from '../../utils/ipcErrorMessage';
-import { approvalNotes, dryRunCommands } from './approvalCard';
+import { approvalAgent, approvalNotes, dryRunCommands } from './approvalCard';
 import { useIntent } from './parts';
 
 type Loaded =
@@ -71,7 +71,12 @@ export function StepsApprovalCard({
         <>
           <ol className="automations-approval-steps">
             {ready.automation.steps.map((step) => (
-              <ApprovalStep key={step.id} step={step} action={ready.actions[step.id]} />
+              <ApprovalStep
+                key={step.id}
+                step={step}
+                action={ready.actions[step.id]}
+                definition={ready}
+              />
             ))}
           </ol>
           {approvalNotes(ready, itemType).map((note) => (
@@ -114,11 +119,15 @@ export function StepsApprovalCard({
 function ApprovalStep({
   step,
   action,
+  definition,
 }: {
   step: RunDefinition['automation']['steps'][number];
   action: RunDefinition['actions'][string] | undefined;
+  definition: RunDefinition;
 }) {
   const Icon = step.kind === 'agent' ? Bot : Terminal;
+  // The agent it runs as, exactly as approved: who it is, then what this step asks.
+  const agent = step.kind === 'agent' ? approvalAgent(definition, step.id) : null;
   return (
     <li className="automations-approval-step">
       <div className="automations-approval-head">
@@ -134,6 +143,18 @@ function ApprovalStep({
           <code className="automations-approval-code">{step.if}</code>
         </div>
       )}
+      {agent && (
+        <>
+          <div className="automations-approval-field">
+            <span className="automations-approval-label">agent</span>
+            <span>{agent.words}</span>
+          </div>
+          {agent.description !== undefined && (
+            <p className="automations-approval-description">{agent.description}</p>
+          )}
+          <Folded label={agent.file} text={agent.body} />
+        </>
+      )}
       {step.kind === 'agent' ? (
         step.action !== undefined ? (
           <>
@@ -147,9 +168,9 @@ function ApprovalStep({
               <p className="automations-hint">Its body was not kept.</p>
             )}
           </>
-        ) : (
+        ) : step.prompt !== undefined || !agent ? (
           <Folded label="The prompt it will send" text={step.prompt ?? ''} />
-        )
+        ) : null
       ) : (
         <>
           <Folded label="The command" text={step.run} mono />
