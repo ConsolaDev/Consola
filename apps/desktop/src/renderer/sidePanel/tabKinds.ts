@@ -35,6 +35,11 @@ export interface TabFacts {
   checkoutPath: string | undefined;
   /** What git says the checkout is; undefined until it has been read. */
   checkout: CheckoutInfo | undefined;
+  /**
+   * The pull request found from the checkout's branch, while the checkout is
+   * still on it: only for an unlinked session, since a link always wins.
+   */
+  foundPullRequest?: WorkItemRef;
 }
 
 export type Availability = { available: true } | { available: false; reason: string };
@@ -65,10 +70,15 @@ const NO_ACCOUNT = 'This workspace has no account to read it with. Add one in Wo
 
 const unavailable = (reason: string): Availability => ({ available: false, reason });
 
-/** The Pull request kind's title: the linked item, or the kind's own name without one. */
+/** The Pull request kind's title: the session's item, or the kind's own name without one. */
 function workItemTitle(item: WorkItemRef | undefined): string {
   if (!item) return 'Pull request';
   return `${item.type === 'pr' ? 'Pull request' : 'Issue'} #${item.number}`;
+}
+
+/** The item the Pull request kind shows: the linked one, else one found from the branch. */
+export function sessionItemOf(facts: TabFacts): WorkItemRef | undefined {
+  return facts.session.workItem ?? facts.foundPullRequest;
 }
 
 /**
@@ -142,21 +152,22 @@ export const TAB_KINDS: readonly TabKind[] = [
     mount: 'front',
   },
   {
-    // The session's linked pull request or issue. It reads the item, never
-    // the checkout, so it needs no folder.
+    // The session's linked pull request or issue, else the pull request
+    // found from its branch. It reads the item, never the checkout, so it
+    // needs no folder.
     id: 'pull-request',
     key: 'P',
     icon: GitPullRequest,
-    title: (facts) => workItemTitle(facts.session.workItem),
+    title: (facts) => workItemTitle(sessionItemOf(facts)),
     tabTitle: (facts) => {
-      const item = facts.session.workItem;
+      const item = sessionItemOf(facts);
       if (!item) return workItemTitle(item);
       return item.type === 'pr' ? `#${item.number}` : 'Issue';
     },
     // The item is read as the workspace's account, as the Inbox reads it, so
-    // a link is not enough without one.
+    // a link or a found pull request is not enough without one.
     availability: (facts) => {
-      if (!facts.session.workItem) return unavailable(NOT_LINKED);
+      if (!sessionItemOf(facts)) return unavailable(NOT_LINKED);
       if (!facts.workspace.provider) return unavailable(NO_ACCOUNT);
       return { available: true };
     },
@@ -175,12 +186,20 @@ export function isTabKindId(id: string): id is TabKindId {
   return tabKind(id) !== undefined;
 }
 
+/** `found`: the pull request found from the checkout's branch, kept only for an unlinked session. */
 export function tabFactsFor(
   workspace: Workspace,
   session: Session,
   checkout: CheckoutInfo | undefined,
+  found?: WorkItemRef,
 ): TabFacts {
-  return { workspace, session, checkoutPath: checkoutPathForSession(workspace, session), checkout };
+  return {
+    workspace,
+    session,
+    checkoutPath: checkoutPathForSession(workspace, session),
+    checkout,
+    foundPullRequest: session.workItem ? undefined : found,
+  };
 }
 
 /**

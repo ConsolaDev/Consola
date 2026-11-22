@@ -7,7 +7,7 @@ import { tildePath } from '../../utils/displayPath';
 interface PathDisplayProps {
   path: string;
   className?: string;
-  /** Print the folder itself. Off where the checkout chip already names it. */
+  /** Print the folder itself. Off where the info panel's Folder row already names it. */
   showPath?: boolean;
 }
 
@@ -36,8 +36,8 @@ export function PathDisplay({ path, className, showPath = true }: PathDisplayPro
   const isGitRepo = useGitStatusStore((state) => state.isGitRepo);
   const refresh = useGitStatusStore((state) => state.refresh);
 
-  // The branch lives in the checkout chip beside the title, so a manual
-  // refresh re-reads that too: one button, one answer.
+  // The info panel names the checkout and its branch from the same store, so
+  // a manual refresh re-reads that too: one button, one answer.
   const handleRefresh = () => {
     if (path && !isLoading) {
       void refresh(path);
@@ -65,8 +65,8 @@ export function PathDisplay({ path, className, showPath = true }: PathDisplayPro
 
       {/* Right side: the checkout's git status */}
       <div className="path-display-actions">
-        {/* Uncommitted changes in this checkout. Its branch is named by the
-            checkout chip beside the title, with what kind of checkout it is. */}
+        {/* Uncommitted changes in this checkout. Its branch, and what kind
+            of checkout it is, are named in the info panel. */}
         {isGitRepo && (
           <div className="git-stats-badge">
             {stats.modifiedCount > 0 && (

@@ -1,6 +1,7 @@
 import { type ComponentType, useState } from 'react';
+import { isRevealTarget } from '../../infoPanel/pullRequestLines';
 import { isInFront } from '../../sidePanel/layout';
-import type { TabFacts, TabKindId } from '../../sidePanel/tabKinds';
+import { sessionItemOf, type TabFacts, type TabKindId } from '../../sidePanel/tabKinds';
 import { useSidePanelStore } from '../../stores/sidePanelStore';
 import { BrowserPanel } from '../Browser';
 import { GitReviewPanel } from '../GitReviewPanel';
@@ -15,30 +16,44 @@ export interface TabViewProps {
 }
 
 /**
- * The session's pull request or issue. The pane reads the item's details
- * from GitHub, as the workspace's account, as soon as it mounts, and a pane
- * nobody can see must not spend that account's request budget. So it mounts
- * only once this tab has been in front on screen, and from then on stays
- * mounted behind other tabs, keeping its drafts, scroll and own tab. The slot
- * is keyed by session, so arriving on another session starts unseen again:
- * with the tab behind, nothing is read until the person brings it forward.
+ * The session's pull request or issue, read from GitHub as the workspace's
+ * account: the linked one, else the pull request found from its branch. The
+ * pane mounts only once this tab has been in front on screen:
+ * an unseen pane draws nothing, since what it draws (avatars, images in the
+ * description) loads even while hidden. From then on it stays mounted behind
+ * other tabs, keeping its drafts, scroll and own tab, but reads only while in
+ * front (`active`): a seen pane behind another tab is neither read again once
+ * stale nor polled for its mergeability, so it spends none of the account's
+ * request budget. The slot is keyed by session, so arriving on another
+ * session starts unseen again. A place asked for from the info panel (the
+ * merge card, Files changed) is handed to the pane, for this session only.
  */
 function PullRequestView({ facts, close }: TabViewProps) {
   const inFront = useSidePanelStore((state) => isInFront(state.layout, 'pull-request'));
+  const request = useSidePanelStore((state) => state.revealRequest);
   const [hasBeenInFront, setHasBeenInFront] = useState(inFront);
   // Derived from the previous render, so set during render rather than in an
   // effect: the pane mounts in the same commit that brings the tab forward.
   if (inFront && !hasBeenInFront) setHasBeenInFront(true);
 
-  // Pull request is unavailable without a linked item, so that null never shows.
-  const workItem = facts.session.workItem;
+  // Pull request is unavailable with neither a linked item nor one found
+  // from the branch, so that null never shows.
+  const workItem = sessionItemOf(facts);
   if (!hasBeenInFront || !workItem) return null;
+  const reveal =
+    request?.kind === 'pull-request' &&
+    request.sessionId === facts.session.id &&
+    isRevealTarget(request.target)
+      ? { at: request.target, seq: request.seq }
+      : undefined;
   return (
     <WorkItemPanel
       workspaceId={facts.workspace.id}
       session={facts.session}
       workItem={workItem}
       onClose={close}
+      active={inFront}
+      reveal={reveal}
     />
   );
 }

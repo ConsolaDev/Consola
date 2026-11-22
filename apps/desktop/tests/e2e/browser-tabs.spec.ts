@@ -422,6 +422,8 @@ test.describe('in-app browser tabs', () => {
 
   test('with twelve tabs, "+" and the active tab stay in view, narrow or wide', async () => {
     await openSession(page, 'Alpha');
+    // On this window the info panel steps aside for the side panel, which
+    // keeps the width the drags below give it.
     await showBrowser(page);
     await page.evaluate(async (sessionId) => {
       for (let i = 0; i < 12; i += 1) await window.browserAPI.open(sessionId, '');

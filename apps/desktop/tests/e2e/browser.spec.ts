@@ -349,6 +349,8 @@ test.describe('in-app browser', () => {
 
   test('a drag across a page lets the pointer through, and only while it lasts', async () => {
     await openSession(page, 'Alpha');
+    // On this window the info panel steps aside for the side panel, which
+    // leaves its edge beside the conversation, with room to drag it wider.
     await showBrowser(page);
     await typeAddress(page, `${fixtures.host}/a.html`);
     await expect.poll(() => guestUrls(app)).toEqual([fixtures.url('/a.html')]);

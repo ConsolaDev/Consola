@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { Group, Panel, Separator, useDefaultLayout } from 'react-resizable-panels';
 import { checkoutPathForSession, scopeForSession } from '../../../shared/workspace';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
@@ -6,10 +6,17 @@ import { useHarnessStore } from '../../stores/harnessStore';
 import { useGitStatusAutoRefresh } from '../../stores/gitStatusStore';
 import { useCheckout } from '../../stores/checkoutStore';
 import { useSidePanelStore } from '../../stores/sidePanelStore';
+import { useContentWidth, useInfoPanelShown } from '../../stores/infoPanelRoomStore';
+import { isInfoSectionOpen, useSettingsStore } from '../../stores/settingsStore';
+import {
+  useBranchPullRequestLookup,
+  useFoundPullRequest,
+} from '../../stores/branchPullRequestStore';
+import { isInFront } from '../../sidePanel/layout';
 import { tabFactsFor } from '../../sidePanel/tabKinds';
 import { TerminalPanel } from '../Terminal';
+import { InfoPanel } from '../InfoPanel/InfoPanel';
 import { SidePanel } from '../SidePanel/SidePanel';
-import { WorkItemStrip } from '../WorkItemStrip';
 import { SessionHeader } from './SessionHeader';
 import './styles.css';
 
@@ -20,6 +27,11 @@ interface ContentViewProps {
 
 export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
   const isSidePanelVisible = useSidePanelStore((state) => state.layout.visible);
+  // Whether the info panel is on screen: the person's setting, unless it has
+  // stepped aside for a narrow pane (`infoPanel/stepAside.ts`), measured on
+  // the Group below. A panel that stepped aside reads nothing.
+  const infoShown = useInfoPanelShown();
+  const groupRef = useRef<HTMLDivElement | null>(null);
 
   const getWorkspace = useWorkspaceStore((state) => state.getWorkspace);
   const getSession = useWorkspaceStore((state) => state.getSession);
@@ -43,10 +55,33 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
   // What the side panel's tabs read: `useTabFacts`, split around the early
   // return below, since hooks cannot wait for the session to be found.
   const checkout = useCheckout(cwd || null);
+  const foundPullRequest = useFoundPullRequest(workspace, session, checkout);
 
-  // Conditional panels must have separate saved layouts: hiding the side
-  // panel must not overwrite the layout that remembers its width.
-  const panelIds = ['agent', ...(isSidePanelVisible ? ['side-panel'] : [])];
+  // The one place the branch's pull request is looked up: while someone looks
+  // at pull request facts, the info panel shown with its Pull request section
+  // open, or the Pull request tab in front. A folded section, or a panel
+  // hidden or stepped aside, asks nothing.
+  const pullRequestSectionOpen = useSettingsStore((state) =>
+    isInfoSectionOpen(state.infoSectionOpen, 'pull-request'),
+  );
+  const pullRequestTabInFront = useSidePanelStore((state) =>
+    isInFront(state.layout, 'pull-request'),
+  );
+  useBranchPullRequestLookup(
+    workspace,
+    session,
+    checkout,
+    (infoShown && pullRequestSectionOpen) || pullRequestTabInFront,
+  );
+
+  // Conditional panels must have separate saved layouts: hiding the info
+  // panel or the side panel must not overwrite the layout that remembers
+  // its width.
+  const panelIds = [
+    'agent',
+    ...(infoShown ? ['info-panel'] : []),
+    ...(isSidePanelVisible ? ['side-panel'] : []),
+  ];
   // Not the id the columns before the side panel saved under, so none of
   // their layouts is read back.
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({
@@ -54,6 +89,8 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
     panelIds,
     storage: localStorage,
   });
+
+  useContentWidth(groupRef, !!workspace && !!session);
 
   const hasStarted = session?.hasStarted;
   const harnessId = session?.harnessId;
@@ -94,24 +131,25 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
     );
   }
 
-  const facts = tabFactsFor(workspace, session, checkout);
+  const facts = tabFactsFor(workspace, session, checkout, foundPullRequest);
 
   return (
     <div className="workspace-view">
       <SessionHeader key={session.id} workspace={workspace} session={session} />
-      {session.workItem && <WorkItemStrip workspaceId={workspaceId} session={session} />}
       <div className="workspace-view-content">
         <Group
+          elementRef={groupRef}
           orientation="horizontal"
           defaultLayout={defaultLayout}
           onLayoutChanged={onLayoutChanged}
         >
-          {/* The conversation. It stays an unconditional child of this Group,
-              with no wrapper that differs between layouts and the same key,
-              so opening, closing or resizing the side panel only resizes it:
-              a remount would reattach the terminal at a captured size and
-              could lose the prompt's frame (CLAUDE.md, "Terminals Outlive
-              Their Views"). */}
+          {/* The conversation. It stays the unconditional first child of this
+              Group, with no wrapper that differs between layouts and the same
+              key, so showing, hiding or resizing the info panel, and opening,
+              closing or resizing the side panel, only resizes it: a remount
+              would reattach the terminal at a captured size and could lose
+              the prompt's frame (AGENTS.md, "Terminals Outlive Their
+              Views"). */}
           <Panel id="agent" minSize="20%">
             <TerminalPanel
               instanceId={instanceId}
@@ -132,7 +170,17 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
               model={session.model}
             />
           </Panel>
-          {/* The info panel (PR 2) goes here, between the conversation and the side panel. */}
+          {/* The info panel, always the first thing after the conversation.
+              Its default width and the side panel's minimum are the ones
+              `INFO_PANEL_ROOM_PX` (`infoPanel/stepAside.ts`) is reckoned from. */}
+          {infoShown && (
+            <>
+              <Separator className="resize-handle info-panel-resize-handle" />
+              <Panel id="info-panel" defaultSize="250px" minSize="220px" maxSize="400px">
+                <InfoPanel facts={facts} />
+              </Panel>
+            </>
+          )}
           {isSidePanelVisible && (
             <>
               <Separator className="resize-handle" />

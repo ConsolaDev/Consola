@@ -46,7 +46,7 @@ test('real Inbox → saved action → native terminal → approve and commit sam
     'A 400 fails the same way on every attempt.',
   );
   await frame.getByRole('button', { name: 'Review PR', exact: true }).click();
-  await expect(frame.locator('.work-item-strip')).toContainText('#248');
+  await expect(frame.getByRole('complementary', { name: 'Session info' })).toContainText('#248');
   const terminal = frame.locator('.terminal-panel .xterm-helper-textarea');
   await terminal.fill('fix the retry guard');
   await terminal.press('Enter');

@@ -34,7 +34,7 @@ import {
   keyboardToConversation,
 } from './keyboardAfterClose';
 import { TabMenu } from './TabMenu';
-import { useTabMark } from './tabMarks';
+import { markDots, useTabMark } from './tabMarks';
 
 /** Each tab list is named by where its group sits, so two groups' lists can be told apart. */
 const TAB_LIST_NAMES: Record<GroupPosition, string> = {
@@ -301,7 +301,7 @@ function TabBarTab({
           className="side-panel-tab-trigger"
           data-tab={tab}
           aria-label={marked ? `${title}, ${mark.onKind}` : title}
-          data-agent-dot={marked ? true : undefined}
+          {...markDots(marked ? [mark] : [])}
           onKeyDown={onKeyDown}
         >
           {Icon && <Icon size={14} aria-hidden="true" />}

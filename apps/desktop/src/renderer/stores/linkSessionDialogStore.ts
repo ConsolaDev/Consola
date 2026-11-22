@@ -19,8 +19,9 @@ interface LinkSessionDialogState {
 
 /**
  * A store rather than props because the openers live in three unrelated
- * trees (the Inbox pane, a sidebar row's menu, a strip) and the dialog must
- * outlive all of them — the sidebar unmounts entirely when hidden.
+ * trees (the item pane in the Inbox, the same pane in the side panel's Pull
+ * request tab, a sidebar row's menu) and the dialog must outlive all of
+ * them — the sidebar unmounts entirely when hidden.
  */
 export const useLinkSessionDialogStore = create<LinkSessionDialogState>((set) => ({
   mode: null,

@@ -278,6 +278,45 @@ describe('Pull request', () => {
     expect(pullRequestKind.availability(linked(ref('issue', 12)))).toEqual({ available: true });
   });
 
+  const found = (item: WorkItemRef | undefined, onWorkspace: Workspace = account) =>
+    tabFactsFor(onWorkspace, session, mainCheckout, item);
+
+  it('a pull request found from the branch makes the kind available, named by its number', () => {
+    const facts = found(ref('pr', 51));
+    expect(facts.foundPullRequest).toEqual(ref('pr', 51));
+    expect(pullRequestKind.availability(facts)).toEqual({ available: true });
+    expect(pullRequestKind.title(facts)).toBe('Pull request #51');
+    expect(pullRequestKind.tabTitle?.(facts)).toBe('#51');
+  });
+
+  it('a linked item wins over a found one', () => {
+    const facts = tabFactsFor(
+      account,
+      { ...session, workItem: ref('pr', 7) },
+      mainCheckout,
+      ref('pr', 51),
+    );
+    expect(facts.foundPullRequest).toBeUndefined();
+    expect(pullRequestKind.title(facts)).toBe('Pull request #7');
+    expect(pullRequestKind.tabTitle?.(facts)).toBe('#7');
+  });
+
+  it('a found pull request without an account says so', () => {
+    expect(pullRequestKind.availability(found(ref('pr', 51), workspace))).toEqual({
+      available: false,
+      reason: 'This workspace has no account to read it with. Add one in Workspace settings.',
+    });
+  });
+
+  it('with nothing found the reason is unchanged', () => {
+    expect(found(undefined).foundPullRequest).toBeUndefined();
+    expect(pullRequestKind.availability(found(undefined))).toEqual({
+      available: false,
+      reason: 'This session is not linked to a pull request or issue.',
+    });
+    expect(pullRequestKind.title(found(undefined))).toBe('Pull request');
+  });
+
   it('Pull request needs no folder: it reads the item, not the checkout', () => {
     const workItem = ref('pr', 51);
     const worktreeGone = tabFactsFor(

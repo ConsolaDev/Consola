@@ -1,4 +1,5 @@
 import { WorkItemDetailService } from './providers/WorkItemDetailService';
+import { BranchPullRequestFinder } from './providers/BranchPullRequestFinder';
 import { createWorkItemAssetCache } from './providers/workItemAssets';
 import { WORK_ITEM_ASSET_SCHEME } from '../shared/workItemAssets';
 import { ShellManager } from './ShellManager';
@@ -70,6 +71,10 @@ import { createRunInSessionCoalescer } from './providers/runActionInSession';
 import { cloneWorkspaceRepo } from './providers/cloneRepo';
 import { WorktreeService } from './WorktreeService';
 import { readCheckout } from './gitCheckout';
+import { isPlainBranchName, readBranchFacts, readBranchIdentity } from './gitBranch';
+import { memoizeRemoteResolver } from './sshRemote';
+import { readComputerName } from './computerName';
+import { NO_BRANCH_FACTS } from '../shared/branchFacts';
 import {
   NotificationPolicy,
   findSessionById,
@@ -1049,6 +1054,30 @@ export function setupIpcHandlers(): boolean {
   });
   ipcMain.handle(IPC_CHANNELS.INBOX_DETAILS, (_event, id: string, ref: unknown) =>
     details.get(id, ref),
+  );
+  // A checkout's branch's pull request, for a session linked to none. Main
+  // reads the branch from the folder, and the finder asks the provider once
+  // per account, repo and branch per Inbox interval. Origin's ssh alias is
+  // resolved once per URL for the run: `ssh -G` runs synchronously, and the
+  // finder reads the identity on every find, before its cache.
+  const resolveRemote = memoizeRemoteResolver();
+  const branchPullRequests = new BranchPullRequestFinder({
+    getWorkspace: (id) => workspaces.getAll().find((workspace) => workspace.id === id),
+    resolveDriver: getProviderDriver,
+    composeEnv: composeProviderEnv,
+    readIdentity: (dir) => readBranchIdentity(dir, resolveRemote),
+    now: Date.now,
+  });
+  ipcMain.handle(
+    IPC_CHANNELS.PROVIDER_FIND_BRANCH_PULL_REQUEST,
+    (_event, workspaceId: unknown, dir: unknown, options: unknown) => {
+      const force = (options as { force?: unknown } | null | undefined)?.force;
+      return branchPullRequests.find(
+        workspaceId,
+        dir,
+        typeof force === 'boolean' ? { force } : undefined,
+      );
+    },
   );
   // Images in a work item load through main, as the workspace's account
   // (shared/workItemAssets.ts), and are remembered for the run: avatars
@@ -2670,6 +2699,22 @@ export function setupIpcHandlers(): boolean {
     typeof dir === 'string' && path.isAbsolute(dir) ? readCheckout(dir) : { kind: 'none' },
   );
 
+  // A branch's push and base counts, from what the clone already has.
+  // Anything but an absolute path gets no facts, and a base that is not a
+  // plain branch name is dropped, leaving origin's default branch.
+  ipcMain.handle(
+    IPC_CHANNELS.GIT_GET_BRANCH_FACTS,
+    async (_event, dir: unknown, baseBranch: unknown) =>
+      typeof dir === 'string' && path.isAbsolute(dir)
+        ? readBranchFacts(
+            dir,
+            typeof baseBranch === 'string' && isPlainBranchName(baseBranch)
+              ? baseBranch
+              : undefined,
+          )
+        : NO_BRANCH_FACTS,
+  );
+
   // Status, diffs, staging and commits live in gitWorkingTree, which never
   // hands a file name or a commit message to a shell.
   ipcMain.handle(IPC_CHANNELS.GIT_GET_STATUS, (_event, rootPath: string) => readStatus(rootPath));
@@ -2862,6 +2907,8 @@ ${truncatedDiff}`;
     }
   });
 
+  ipcMain.handle(IPC_CHANNELS.APP_GET_COMPUTER_NAME, () => readComputerName());
+
   ipcMain.on(
     IPC_CHANNELS.WINDOW_SET_VIEW,
     (event, workspaceId: string | null, view: WorkspaceView) => {
@@ -3030,6 +3077,7 @@ export function cleanupIpcHandlers(): void {
   ipcMain.removeHandler(IPC_CHANNELS.PROVIDER_LAUNCH_WORK_ITEM);
   ipcMain.removeHandler(IPC_CHANNELS.PROVIDER_RUN_ACTION_IN_SESSION);
   ipcMain.removeHandler(IPC_CHANNELS.PROVIDER_CLONE_REPO);
+  ipcMain.removeHandler(IPC_CHANNELS.PROVIDER_FIND_BRANCH_PULL_REQUEST);
 
   automationService?.shutdown();
   automationService = null;
@@ -3107,6 +3155,7 @@ export function cleanupIpcHandlers(): void {
   // Remove git IPC handlers
   ipcMain.removeHandler(IPC_CHANNELS.GIT_GET_STATUS);
   ipcMain.removeHandler(IPC_CHANNELS.GIT_GET_CHECKOUT);
+  ipcMain.removeHandler(IPC_CHANNELS.GIT_GET_BRANCH_FACTS);
   ipcMain.removeHandler(IPC_CHANNELS.GIT_GET_DIFF);
   ipcMain.removeHandler(IPC_CHANNELS.GIT_STAGE_FILE);
   ipcMain.removeHandler(IPC_CHANNELS.GIT_UNSTAGE_FILE);
@@ -3117,5 +3166,6 @@ export function cleanupIpcHandlers(): void {
   // Remove window identity IPC handlers
   ipcMain.removeHandler(IPC_CHANNELS.WINDOW_ACTIVATE_WORKSPACE);
   ipcMain.removeHandler(IPC_CHANNELS.WINDOW_OPEN);
+  ipcMain.removeHandler(IPC_CHANNELS.APP_GET_COMPUTER_NAME);
   ipcMain.removeAllListeners(IPC_CHANNELS.WINDOW_SET_VIEW);
 }

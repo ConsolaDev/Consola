@@ -15,7 +15,9 @@ import {
   type TabFacts,
   type TabKindId,
 } from '../sidePanel/tabKinds';
+import { foundPullRequestNow } from '../stores/branchPullRequestStore';
 import { useCheckoutStore } from '../stores/checkoutStore';
+import { infoPanelShownNow, toggleInfoPanel } from '../stores/infoPanelRoomStore';
 import { useNavigationStore } from '../stores/navigationStore';
 import { usePreviewTabStore } from '../stores/previewTabStore';
 import { useSidePanelStore } from '../stores/sidePanelStore';
@@ -24,7 +26,8 @@ import { useWorkspaceStore } from '../stores/workspaceStore';
 /**
  * What the tab kinds read about the session on screen, or null when there is
  * none: no session, or the Inbox or Automations lying over it. Its checkout
- * is what the store last read, as the header's is.
+ * and its branch's pull request are what the stores last read, as the
+ * header's are.
  */
 export function currentTabFacts(): TabFacts | null {
   const { activeWorkspaceId, activeSessionId, overlay } = useNavigationStore.getState();
@@ -35,7 +38,12 @@ export function currentTabFacts(): TabFacts | null {
   if (!workspace || !session) return null;
   const path = checkoutPathForSession(workspace, session);
   const checkout = path ? useCheckoutStore.getState().byPath[path] : undefined;
-  return tabFactsFor(workspace, session, checkout);
+  return tabFactsFor(
+    workspace,
+    session,
+    checkout,
+    foundPullRequestNow(workspace, session, checkout),
+  );
 }
 
 function appliesTo(kind: TabKindId, facts: TabFacts): boolean {
@@ -73,6 +81,25 @@ export function toggleSidePanelOnScreen(): boolean {
   const handOn = keyboardIfSidePanelHides();
   useSidePanelStore.getState().toggleVisible();
   handOn();
+  return true;
+}
+
+/**
+ * What the header's info panel toggle does, for its chord: shows or hides
+ * the info panel, by what is on screen (`toggleInfoPanel`), so a panel that
+ * stepped aside for a narrow window is shown. Does nothing, and answers
+ * false, with no session on screen, the Inbox or Automations included, since
+ * there is no info panel there. Showing it takes no keyboard; hiding it with
+ * the keyboard on one of its rows hands the keyboard to the conversation,
+ * never to the body.
+ */
+export function toggleInfoPanelOnScreen(): boolean {
+  if (!currentTabFacts()) return false;
+  const wasInInfoPanel = !!document.activeElement?.closest('.info-panel');
+  toggleInfoPanel();
+  if (wasInInfoPanel && !infoPanelShownNow()) {
+    requestAnimationFrame(() => keyboardToConversation());
+  }
   return true;
 }
 

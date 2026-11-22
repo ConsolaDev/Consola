@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import {
@@ -12,6 +12,13 @@ import {
 import type { InboxItem, WorkItemRef } from '../../../shared/workItems';
 import type { WorkItemDetails, WorkItemMutation } from '../../../shared/workItemDetails';
 import { inboxBridge } from '../../services/inboxBridge';
+import {
+  type DetailsTarget,
+  detailsKey,
+  useWorkItemDetails,
+  useWorkItemDetailsStore,
+} from '../../stores/workItemDetailsStore';
+import type { RevealTarget } from '../../infoPanel/pullRequestLines';
 import { ipcErrorMessage } from '../../utils/ipcErrorMessage';
 import { conversationCount, quoteReply } from './workItemDetailPresentation';
 import {
@@ -43,6 +50,16 @@ interface Props {
   onDetails?: (details: WorkItemDetails) => void;
   /** Opens another item in the Inbox's pane; false when the Inbox does not list it. */
   onOpenWorkItem?: (ref: WorkItemRef) => boolean;
+  /**
+   * Whether the pane is on screen. Only then is the item read, and kept
+   * current; one that is not shows what was last read. Defaults to true.
+   */
+  active?: boolean;
+  /**
+   * A place the person asked to see from the info panel: the merge card, or
+   * Files changed. Each `seq` is one ask, acted on once.
+   */
+  reveal?: { at: RevealTarget; seq: number };
 }
 
 type Tab = 'Conversation' | 'Files changed';
@@ -50,9 +67,20 @@ const TABS: Tab[] = ['Conversation', 'Files changed'];
 
 /** A confirmation is read, then gone; an error stays until dismissed or retried. */
 const NOTICE_MS = 5000;
-/** GitHub works mergeability out lazily; UNKNOWN means "ask again shortly". */
-const MERGE_STATE_POLL_MS = 3000;
-const MERGE_STATE_POLLS = 5;
+
+/**
+ * The newest ask a pane has acted on, for every pane in this window: asks
+ * are numbered across the window, so a pane that mounts again (the session
+ * left and come back to, the item relinked) never replays one already
+ * answered, while the pane an ask mounts still acts on it.
+ */
+let revealedSeq = 0;
+
+function claimReveal(seq: number): boolean {
+  if (seq <= revealedSeq) return false;
+  revealedSeq = seq;
+  return true;
+}
 
 /**
  * A pull request or issue as on github.com, in Consola's own look: one
@@ -60,6 +88,10 @@ const MERGE_STATE_POLLS = 5;
  * comment box) and, for a pull request, Files changed, where a review is
  * written. Every write goes through `perform`, one at a time, says its
  * outcome beside what asked for it, and reads the item again after.
+ *
+ * The item's details come from `workItemDetailsStore`, shared with every
+ * other viewer of it, which reads only while some viewer is active, and asks
+ * GitHub again about a mergeability it is still working out.
  */
 export function WorkItemDetailPanel({
   workspaceId,
@@ -70,70 +102,74 @@ export function WorkItemDetailPanel({
   fixTarget = 'a session',
   onDetails,
   onOpenWorkItem,
+  active = true,
+  reveal,
 }: Props) {
-  const [details, setDetails] = useState<WorkItemDetails | null>(null);
+  const ref = item.workItem;
+  const target: DetailsTarget = { workspaceId, accountLogin, ref };
+  const entry = useWorkItemDetails(target, active);
+  // The store drops the details of items nobody watches past its cap. A pane
+  // behind another tab still holds its drafts and scroll in what it shows, so
+  // it keeps the last details it showed until it reads again or unmounts, as
+  // it kept them itself before the store.
+  const key = detailsKey(target);
+  const shown = useRef<{ key: string; details: WorkItemDetails } | null>(null);
+  if (entry?.details) shown.current = { key, details: entry.details };
+  const details = entry?.details ?? (shown.current?.key === key ? shown.current.details : null);
+  const loading = entry?.loading ?? true;
   const [tab, setTab] = useState<Tab>('Conversation');
-  const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [messageAt, setMessageAt] = useState<MessageAt>('head');
   const [reviewOpen, setReviewOpen] = useState(false);
   const [section, setSection] = useState<HTMLElement | null>(null);
+  const [revealingMerge, setRevealingMerge] = useState(false);
   const alive = useRef(true);
   const writing = useRef(false);
-  const request = useRef(0);
   const composer = useRef<MarkdownEditorHandle>(null);
   const tabsRef = useRef<HTMLDivElement>(null);
   const uid = useId();
-  const ref = item.workItem;
   const isPr = ref.type === 'pr';
-
-  /** A quiet read neither shows the spinner nor clears an error the person has yet to read. */
-  async function refresh({ quiet = false } = {}): Promise<WorkItemDetails | null> {
-    const version = ++request.current;
-    if (!quiet) {
-      setLoading(true);
-      setError('');
-    }
-    try {
-      const next = await inboxBridge.getDetails(workspaceId, ref);
-      if (alive.current && version === request.current) {
-        setDetails(next);
-        onDetails?.(next);
-      }
-      return next;
-    } catch (error) {
-      if (alive.current && version === request.current && !quiet) {
-        setMessageAt('head');
-        setError(`Could not refresh details: ${ipcErrorMessage(error)}`);
-      }
-      return null;
-    } finally {
-      if (alive.current && version === request.current && !quiet) setLoading(false);
-    }
-  }
 
   useEffect(() => {
     alive.current = true;
-    void refresh();
     return () => {
       alive.current = false;
-      request.current++;
     };
-  }, [workspaceId, accountLogin, ref.repo, ref.type, ref.number]);
+  }, []);
 
-  // GitHub's own page keeps asking while it works mergeability out; without
-  // this, a merge button disabled for UNKNOWN would stay so until a refresh.
-  const mergeStatePolls = useRef(0);
+  /**
+   * Reads the item again now, for every viewer of it. A quiet read neither
+   * shows the spinner nor clears an error the person has yet to read.
+   */
+  async function refresh({ quiet = false } = {}): Promise<WorkItemDetails | null> {
+    if (!quiet) setError('');
+    const answer = await useWorkItemDetailsStore.getState().load(target, { force: true, quiet });
+    if (!quiet && answer.error && alive.current) {
+      setMessageAt('head');
+      setError(`Could not refresh details: ${answer.error}`);
+    }
+    return answer.details ?? null;
+  }
+
+  // A failed read the pane did not start (the one watching starts, a
+  // re-check, another viewer's Refresh) is said here as `refresh` says its
+  // own. One that failed before the pane mounted is not news.
+  const failedAt = entry?.errorAt;
+  const failure = entry?.error;
+  const shownFailureAt = useRef(failedAt);
   useEffect(() => {
-    if (details?.mergeState !== 'UNKNOWN' || mergeStatePolls.current >= MERGE_STATE_POLLS) return;
-    const timer = window.setTimeout(() => {
-      mergeStatePolls.current++;
-      void refresh({ quiet: true });
-    }, MERGE_STATE_POLL_MS);
-    return () => window.clearTimeout(timer);
-  }, [details]);
+    if (!failedAt || failedAt === shownFailureAt.current) return;
+    shownFailureAt.current = failedAt;
+    setMessageAt('head');
+    setError(`Could not refresh details: ${failure}`);
+  }, [failedAt, failure]);
+
+  // Every fresh read, whoever asked for it.
+  useEffect(() => {
+    if (details) onDetails?.(details);
+  }, [details, onDetails]);
 
   useEffect(() => {
     if (!notice) return;
@@ -200,6 +236,40 @@ export function WorkItemDetailPanel({
     setReviewOpen(true);
     requestAnimationFrame(() => tabsRef.current?.scrollIntoView({ block: 'start' }));
   }
+
+  // A place asked for from the info panel, once there are details to show it
+  // in: the checks and the merge state are in the Conversation's merge card,
+  // the threads in Files changed.
+  const hasDetails = details !== null;
+  const revealAt = reveal?.at;
+  const revealSeq = reveal?.seq;
+  useEffect(() => {
+    if (!hasDetails || revealAt === undefined || revealSeq === undefined) return;
+    if (!claimReveal(revealSeq)) return;
+    if (revealAt === 'files') {
+      setTab('Files changed');
+      requestAnimationFrame(() => tabsRef.current?.scrollIntoView({ block: 'start' }));
+    } else {
+      setTab('Conversation');
+      setRevealingMerge(true);
+    }
+  }, [hasDetails, revealAt, revealSeq]);
+
+  // The merge card, scrolled to once the Conversation is in the DOM. The
+  // stream lays out only the cards near the screen (`content-visibility`),
+  // sizing the rest by estimate, so a scroll among estimates lands short as
+  // they render. While this is set the stream lays out whole, which puts the
+  // card where it really is; each card keeps the size it had then
+  // (`contain-intrinsic-size: auto`), so nothing moves once it is unset.
+  useLayoutEffect(() => {
+    if (!revealingMerge || !section) return;
+    section.querySelector('[aria-label="Merge"]')?.scrollIntoView({ block: 'start' });
+    // Unset only after a frame has laid it out whole, when the sizes are kept.
+    let frame = requestAnimationFrame(() => {
+      frame = requestAnimationFrame(() => setRevealingMerge(false));
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [revealingMerge, section]);
 
   const open = details?.state === 'open';
   const viewerLogin = details?.viewer.login ?? accountLogin;
@@ -333,6 +403,7 @@ export function WorkItemDetailPanel({
         className="inbox-detail"
         aria-label="Remote item details"
         aria-busy={busy || loading}
+        data-revealing={revealingMerge || undefined}
       >
         {!details && loading && (
           <div className="inbox-detail-skeleton" role="status">

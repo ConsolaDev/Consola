@@ -29,7 +29,9 @@ vi.hoisted(() => {
 
 import { createSessionRecord, createWorkspaceRecord } from '../../shared/workspace';
 import type { RemovedWorktree } from '../../shared/worktreeCleanup';
+import { INFO_PANEL_ROOM_PX } from '../infoPanel/stepAside';
 import { isInFront } from '../sidePanel/layout';
+import { infoPanelShownNow, useInfoPanelRoomStore } from '../stores/infoPanelRoomStore';
 import { useNavigationStore } from '../stores/navigationStore';
 import { usePreviewTabStore } from '../stores/previewTabStore';
 import { useSidePanelStore } from '../stores/sidePanelStore';
@@ -39,6 +41,7 @@ import {
   kindOnScreen,
   openDiffInFilesTab,
   pressShortcutOnScreen,
+  toggleInfoPanelOnScreen,
   toggleSidePanelOnScreen,
 } from './sidePanelActions';
 
@@ -74,6 +77,7 @@ function show(onScreen: { overlay?: 'inbox' | null; removed?: boolean } = {}) {
 
 beforeEach(() => {
   useSidePanelStore.setState(useSidePanelStore.getInitialState(), true);
+  useInfoPanelRoomStore.setState(useInfoPanelRoomStore.getInitialState(), true);
   usePreviewTabStore.getState().closeAllTabs();
   useWorkspaceStore.setState({ workspaces: [] });
   useNavigationStore.setState({ activeWorkspaceId: null, activeSessionId: null, overlay: null });
@@ -149,6 +153,42 @@ describe('toggleSidePanelOnScreen', () => {
     show({ overlay: 'inbox' });
     expect(toggleSidePanelOnScreen()).toBe(false);
     expect(layout()).toEqual(useSidePanelStore.getInitialState().layout);
+  });
+});
+
+describe('toggleInfoPanelOnScreen', () => {
+  const infoVisible = () => useSidePanelStore.getState().infoVisible;
+
+  it('shows and hides the info panel beside the session on screen, and leaves the side panel be', () => {
+    show();
+    expect(toggleInfoPanelOnScreen()).toBe(true);
+    expect(infoVisible()).toBe(false);
+    expect(toggleInfoPanelOnScreen()).toBe(true);
+    expect(infoVisible()).toBe(true);
+    expect(layout()).toEqual(useSidePanelStore.getInitialState().layout);
+    expect(useSidePanelStore.getState().focusRequest).toBeNull();
+  });
+
+  it('shows a panel that stepped aside for a narrow pane, without touching the setting', () => {
+    show();
+    useInfoPanelRoomStore.getState().setContentWidth(INFO_PANEL_ROOM_PX - 300);
+    useSidePanelStore.getState().openKind('changes');
+    expect(infoPanelShownNow()).toBe(false);
+
+    expect(toggleInfoPanelOnScreen()).toBe(true);
+    expect(infoPanelShownNow()).toBe(true);
+    expect(infoVisible()).toBe(true);
+    // Pressed again, it hides as ever.
+    expect(toggleInfoPanelOnScreen()).toBe(true);
+    expect(infoPanelShownNow()).toBe(false);
+    expect(infoVisible()).toBe(false);
+  });
+
+  it('does nothing without a session on screen or under an overlay', () => {
+    expect(toggleInfoPanelOnScreen()).toBe(false);
+    show({ overlay: 'inbox' });
+    expect(toggleInfoPanelOnScreen()).toBe(false);
+    expect(infoVisible()).toBe(true);
   });
 });
 

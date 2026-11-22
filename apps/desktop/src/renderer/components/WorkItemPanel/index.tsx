@@ -2,6 +2,7 @@ import { useRef } from 'react';
 import { sameWorkItem, workItemKey, workItemUrl } from '../../../shared/workItems';
 import type { InboxItem, WorkItemRef } from '../../../shared/workItems';
 import type { Session } from '../../../shared/workspace';
+import type { RevealTarget } from '../../infoPanel/pullRequestLines';
 import { terminalBridge } from '../../services/terminalBridge';
 import { useInboxStore } from '../../stores/inboxStore';
 import { useTerminalStore } from '../../stores/terminalStore';
@@ -16,6 +17,10 @@ interface WorkItemPanelProps {
   /** The item to show. Passed in rather than read off the session, so it can come from elsewhere. */
   workItem: WorkItemRef;
   onClose: () => void;
+  /** Whether its tab is in front on screen: only then does the pane read the item. */
+  active: boolean;
+  /** A place in the item the person asked to see from the info panel. */
+  reveal?: { at: RevealTarget; seq: number };
 }
 
 /**
@@ -49,7 +54,14 @@ function standInItem(ref: WorkItemRef): InboxItem {
  * Without the workspace or its account there is nothing to read, and it
  * renders nothing.
  */
-export function WorkItemPanel({ workspaceId, session, workItem, onClose }: WorkItemPanelProps) {
+export function WorkItemPanel({
+  workspaceId,
+  session,
+  workItem,
+  onClose,
+  active,
+  reveal,
+}: WorkItemPanelProps) {
   const workspace = useWorkspaceStore((state) =>
     state.workspaces.find((candidate) => candidate.id === workspaceId),
   );
@@ -85,7 +97,8 @@ export function WorkItemPanel({ workspaceId, session, workItem, onClose }: WorkI
   };
 
   return (
-    // A plain div: the pane's own <aside> is the landmark.
+    // A plain div: the pane's own section is the region, inside the side
+    // panel's landmark.
     <div ref={panelRef} className="work-item-panel" data-testid="work-item-panel">
       <InboxItemPane
         // Keyed like the Inbox's pane, and by account too: no draft, open tab
@@ -96,6 +109,9 @@ export function WorkItemPanel({ workspaceId, session, workItem, onClose }: WorkI
         onClose={onClose}
         currentSessionId={session.id}
         fixInSession={session.toolPolicy === 'read-only' ? undefined : pasteIntoSession}
+        active={active}
+        landmark={false}
+        reveal={reveal}
       />
     </div>
   );

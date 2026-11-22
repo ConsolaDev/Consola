@@ -135,6 +135,42 @@ describe('mergeSidePanelState', () => {
       'terminal',
     ]);
   });
+
+  it('the info panel is shown on a new install and after an upgrade', () => {
+    expect(current().infoVisible).toBe(true);
+    expect(mergeSidePanelState(undefined, current(), NOW).infoVisible).toBe(true);
+    // A profile PR 1 wrote: a layout, no word on the info panel.
+    const upgraded = mergeSidePanelState(
+      { layout: stored, uses: {}, rememberLayout: true },
+      current(),
+      NOW,
+    );
+    expect(upgraded.infoVisible).toBe(true);
+  });
+
+  it('a hidden info panel is remembered only while the layout is', () => {
+    const remembering = mergeSidePanelState(
+      { layout: stored, uses: {}, rememberLayout: true, infoVisible: false },
+      current(),
+      NOW,
+    );
+    expect(remembering.infoVisible).toBe(false);
+
+    const forgetting = mergeSidePanelState(
+      { uses: {}, rememberLayout: false, infoVisible: false },
+      current(),
+      NOW,
+    );
+    expect(forgetting.infoVisible).toBe(true);
+
+    // Anything but a boolean is no answer.
+    const junk = mergeSidePanelState(
+      { layout: stored, uses: {}, rememberLayout: true, infoVisible: 'no' },
+      current(),
+      NOW,
+    );
+    expect(junk.infoVisible).toBe(true);
+  });
 });
 
 describe('partializeSidePanel', () => {
@@ -143,6 +179,7 @@ describe('partializeSidePanel', () => {
     const remembering = partializeSidePanel(state());
     expect(remembering).toEqual({
       layout: state().layout,
+      infoVisible: true,
       uses: state().uses,
       rememberLayout: true,
     });
@@ -151,6 +188,43 @@ describe('partializeSidePanel', () => {
     const forgetting = partializeSidePanel(state());
     expect(forgetting).toEqual({ uses: state().uses, rememberLayout: false });
     expect('layout' in forgetting).toBe(false);
+  });
+
+  it('writes whether the info panel shows exactly when it writes the layout', () => {
+    state().setInfoVisible(false);
+    expect(partializeSidePanel(state())).toMatchObject({
+      layout: state().layout,
+      infoVisible: false,
+    });
+
+    state().setRememberLayout(false);
+    const forgetting = partializeSidePanel(state());
+    expect('layout' in forgetting).toBe(false);
+    expect('infoVisible' in forgetting).toBe(false);
+  });
+});
+
+describe('the info panel', () => {
+  it('shows and hides', () => {
+    expect(state().infoVisible).toBe(true);
+    state().setInfoVisible(false);
+    expect(state().infoVisible).toBe(false);
+    state().setInfoVisible(true);
+    expect(state().infoVisible).toBe(true);
+  });
+
+  it('setInfoVisible counts nothing and asks for no focus', () => {
+    state().openKind('changes');
+    state().takeFocusRequest('changes');
+    const uses = state().uses;
+    const layout = state().layout;
+
+    state().setInfoVisible(false);
+    state().setInfoVisible(true);
+    state().setInfoVisible(false);
+    expect(state().uses).toBe(uses);
+    expect(state().layout).toBe(layout);
+    expect(state().focusRequest).toBeNull();
   });
 });
 
@@ -289,6 +363,72 @@ describe('counts what the person opens, and nothing else', () => {
 
     expect(totalUses()).toBe(counted);
     expect(state().focusRequest).toBeNull();
+  });
+});
+
+describe('reveal', () => {
+  it('reveal opens the kind and leaves one request per click', () => {
+    const openKind = vi.spyOn(state(), 'openKind');
+    try {
+      state().reveal('pull-request', 's1', 'merge');
+      const first = state().revealRequest;
+      expect(first).toMatchObject({ kind: 'pull-request', sessionId: 's1', target: 'merge' });
+      expect(openKind).toHaveBeenCalledTimes(1);
+      expect(openKind).toHaveBeenLastCalledWith('pull-request');
+      expect(isInFront(state().layout, 'pull-request')).toBe(true);
+
+      // The same place twice is two requests: each click is acted on once.
+      state().reveal('pull-request', 's1', 'merge');
+      expect(state().revealRequest).toEqual({ ...first, seq: (first?.seq ?? 0) + 1 });
+      state().reveal('pull-request', 's2', 'files');
+      expect(state().revealRequest).toEqual({
+        kind: 'pull-request',
+        sessionId: 's2',
+        target: 'files',
+        seq: (first?.seq ?? 0) + 2,
+      });
+      expect(openKind).toHaveBeenCalledTimes(3);
+    } finally {
+      openKind.mockRestore();
+    }
+  });
+
+  it('without a target it only opens the kind, and sets no request', () => {
+    state().reveal('pull-request', 's1');
+    expect(isInFront(state().layout, 'pull-request')).toBe(true);
+    expect(state().revealRequest).toBeNull();
+
+    state().reveal('pull-request', 's1', 'files');
+    const request = state().revealRequest;
+    state().reveal('pull-request', 's1');
+    expect(state().revealRequest).toBe(request);
+  });
+
+  it('counts a use and asks for focus exactly as openKind would', () => {
+    state().reveal('pull-request', 's1', 'merge');
+    expect(usesOf('pull-request')).toBe(1);
+    expect(state().focusRequest?.kind).toBe('pull-request');
+    state().takeFocusRequest('pull-request');
+
+    // Already in front on screen: nothing mounts, so nothing counts or asks.
+    state().reveal('pull-request', 's1', 'files');
+    expect(usesOf('pull-request')).toBe(1);
+    expect(state().focusRequest).toBeNull();
+
+    // Behind another tab: brought forward, counted once more.
+    state().openKind('changes');
+    state().takeFocusRequest('changes');
+    state().reveal('pull-request', 's1', 'merge');
+    expect(usesOf('pull-request')).toBe(2);
+    expect(state().focusRequest?.kind).toBe('pull-request');
+  });
+
+  it('is never written', () => {
+    state().reveal('pull-request', 's1', 'merge');
+    expect(partializeSidePanel(state())).not.toHaveProperty('revealRequest');
+    expect(
+      mergeSidePanelState(undefined, useSidePanelStore.getInitialState(), NOW).revealRequest,
+    ).toBeNull();
   });
 });
 
@@ -495,7 +635,12 @@ describe('persistence', () => {
   it('writes what partializeSidePanel keeps, under its key, at version 0', () => {
     state().openKind('changes');
     expect(written()).toEqual({
-      state: { layout: state().layout, uses: state().uses, rememberLayout: true },
+      state: {
+        layout: state().layout,
+        infoVisible: true,
+        uses: state().uses,
+        rememberLayout: true,
+      },
       version: 0,
     });
 
@@ -545,6 +690,7 @@ describe('persistence', () => {
   }
   const expectDefaults = (launched: ReturnType<typeof state>) => {
     expect(launched.layout).toEqual(defaultLayout());
+    expect(launched.infoVisible).toBe(true);
     expect(launched.uses).toEqual({});
     expect(launched.rememberLayout).toBe(true);
     expect(launched.shortcutKinds).toEqual(rankShortcutKinds({}, TAB_KIND_IDS, NOW));
@@ -561,11 +707,17 @@ describe('persistence', () => {
   it('launches with what a readable blob holds', async () => {
     const launched = await launchWith(
       JSON.stringify({
-        state: { layout: arranged, uses: { changes: [NOW] }, rememberLayout: true },
+        state: {
+          layout: arranged,
+          infoVisible: false,
+          uses: { changes: [NOW] },
+          rememberLayout: true,
+        },
         version: 0,
       }),
     );
     expect(launched.getState().layout).toEqual(arranged);
+    expect(launched.getState().infoVisible).toBe(false);
     expect(launched.getState().uses).toEqual({ changes: [NOW] });
 
     const forgetting = await launchWith(
@@ -580,7 +732,12 @@ describe('persistence', () => {
       expectDefaults(launched.getState());
       launched.getState().openKind('files');
       expect(written()).toEqual({
-        state: { layout: launched.getState().layout, uses: { files: [NOW] }, rememberLayout: true },
+        state: {
+          layout: launched.getState().layout,
+          infoVisible: true,
+          uses: { files: [NOW] },
+          rememberLayout: true,
+        },
         version: 0,
       });
     }

@@ -2,9 +2,9 @@
  * Session status marks, shared.
  *
  * The sidebar's `.session-status-indicator--*` rules (Sidebar/styles.css)
- * were the only place a session's status had a colour. The Inbox pane, the
- * link dialog and the strip's sibling menu all show the same vocabulary, so
- * the shapes, colours and motion live here once: a turning accent arc for
+ * were the only place a session's status had a colour. The Inbox's rows and
+ * pane and the link dialog all show the same vocabulary, so the shapes,
+ * colours and motion live here once: a turning accent arc for
  * working, a dim ring for ready, a breathing warning ring for needs-attention,
  * filled success for done, an error ring for exited. Shape carries meaning
  * alongside hue, and so does motion — the two states that are going somewhere
