@@ -180,10 +180,12 @@ describe('a step turn’s init, with a server granted', () => {
 
   it('a connected server is no problem', async () => {
     const { h, run } = await started();
-    h.service.turnStarted('session-1', { servers: [{ name: 'grafana', status: 'connected' }] });
+    // The report carries the init the start heard, as the host's does.
+    const init = { servers: [{ name: 'grafana', status: 'connected' }] };
+    h.service.turnStarted('session-1', init);
     expect(h.world.stops).toEqual([]);
     h.world.setOutputs('session-1', { mood: 'calm' });
-    await h.world.endTurn('session-1', { exitCode: 0, report: turnReport({}) });
+    await h.world.endTurn('session-1', { exitCode: 0, report: { ...turnReport({}), init } });
     expect(h.store.get(run.id)?.steps?.[0].status).toBe('completed');
   });
 
@@ -211,6 +213,82 @@ describe('a step turn’s init, with a server granted', () => {
     expect(h.world.stops).toEqual([]);
   });
 
+  describe('checked again when the turn ends', () => {
+    // The start can miss an init: a line a new CLI renamed, a terminal the
+    // host could not match to its session, an init before the step's
+    // session was recorded. The turn's end checks from what it reported.
+    const NEVER_SAID =
+      'Its turn never said which servers it loaded, so it may have run without `grafana`.';
+
+    it('never completes a step whose servers were never checked', async () => {
+      const { h, run } = await started();
+      h.world.setOutputs('session-1', { mood: 'calm' });
+      await h.world.endTurn('session-1', {
+        exitCode: 0,
+        report: turnReport({ cost: 0.01, turns: 2 }),
+      });
+      expect(h.store.get(run.id)?.steps?.[0]).toMatchObject({
+        status: 'failed',
+        error: NEVER_SAID,
+        turn: { costUsd: 0.01, turns: 2 },
+      });
+      expect(h.world.reminders).toEqual([]);
+    });
+
+    it('nor one whose turn did not report itself at all', async () => {
+      const { h, run } = await started();
+      h.world.setOutputs('session-1', { mood: 'calm' });
+      await h.world.endTurn('session-1', { exitCode: 0 });
+      expect(h.store.get(run.id)?.steps?.[0]).toMatchObject({
+        status: 'failed',
+        error: NEVER_SAID,
+      });
+    });
+
+    it('an init only the report carries is checked, and its words win', async () => {
+      const { h, run } = await started();
+      h.world.setOutputs('session-1', { mood: 'calm' });
+      await h.world.endTurn('session-1', {
+        exitCode: 0,
+        report: {
+          ...turnReport({ subtype: 'error_during_execution', isError: true, text: 'no grafana' }),
+          init: { servers: [{ name: 'grafana', status: 'needs-auth' }], signInHint: HINT },
+        },
+      });
+      expect(h.store.get(run.id)?.steps?.[0]).toMatchObject({
+        status: 'failed',
+        error:
+          '`grafana` was not connected (needs-auth). Sign in to it in Claude (run `claude`, then /mcp), then retry this step.',
+      });
+    });
+
+    it('an init only the report carries, with the server connected, completes', async () => {
+      const { h, run } = await started();
+      h.world.setOutputs('session-1', { mood: 'calm' });
+      await h.world.endTurn('session-1', {
+        exitCode: 0,
+        report: {
+          ...turnReport({}),
+          init: { servers: [{ name: 'grafana', status: 'connected' }] },
+        },
+      });
+      expect(h.store.get(run.id)?.steps?.[0].status).toBe('completed');
+    });
+
+    it('a turn that failed on its own before any init keeps its own words', async () => {
+      const { h, run } = await started();
+      await h.world.endTurn('session-1', {
+        exitCode: 130,
+        stopped: 'you stopped it',
+        report: turnReport({ noResult: true }),
+      });
+      expect(h.store.get(run.id)?.steps?.[0]).toMatchObject({
+        status: 'failed',
+        error: 'It stopped before finishing: you stopped it.',
+      });
+    });
+  });
+
   it('the words are used once', async () => {
     const { h, run } = await started();
     h.service.turnStarted('session-1', { servers: [] });
@@ -219,9 +297,10 @@ describe('a step turn’s init, with a server granted', () => {
 
     await h.service.retry(run.id);
     await h.flush();
-    h.service.turnStarted('session-2', { servers: [{ name: 'grafana', status: 'connected' }] });
+    const init = { servers: [{ name: 'grafana', status: 'connected' }] };
+    h.service.turnStarted('session-2', init);
     h.world.setOutputs('session-2', { mood: 'calm' });
-    await h.world.endTurn('session-2', { exitCode: 0, report: turnReport({}) });
+    await h.world.endTurn('session-2', { exitCode: 0, report: { ...turnReport({}), init } });
     expect(h.store.get(run.id)?.steps?.[0]).toMatchObject({ status: 'completed', attempt: 2 });
   });
 });

@@ -135,6 +135,18 @@ export function initProblem(
 }
 
 /**
+ * Why a turn whose `init` never reached the engine fails its step, though it
+ * ended cleanly: it may have run without a server its agent grants, which is
+ * never a step that completes. Null when it grants none.
+ */
+export function uncheckedInitProblem(required: Array<{ name: string }>): string | null {
+  const [first] = required;
+  return first
+    ? `Its turn never said which servers it loaded, so it may have run without \`${first.name}\`.`
+    : null;
+}
+
+/**
  * The attempt's cost with one turn's report added. The CLI reports the
  * conversation's cost so far, and every turn of an attempt is one
  * conversation (a new session per attempt; its reminder and its resume after

@@ -127,6 +127,7 @@ import {
   requiredServers,
   runCostOf,
   turnFailure,
+  uncheckedInitProblem,
   withTurnRecorded,
 } from './steps/turnReport';
 import type { CheckoutPort, CheckoutRequest, PreparedCheckout } from './steps/checkout';
@@ -3454,14 +3455,27 @@ export class AutomationService {
     outcome: TurnOutcome,
     sessionId: string,
   ): void {
-    // A failed init check is the step's error, ahead of the stop it caused.
-    const initFailure = this.initFailures.get(sessionId);
-    this.initFailures.delete(sessionId);
     const { report } = outcome;
-    const loaded = report ? this.definitionOf(run) : undefined;
+    const loaded = this.definitionOf(run);
+    // A failed init check is the step's error, ahead of the stop it caused.
+    // The end checks again, from the report: the start can miss an init (one
+    // the host could not hand over, one printed before the step's session
+    // was recorded), and a turn that may have run without a server its agent
+    // grants never completes its step.
+    const required = 'definition' in loaded ? requiredServers(loaded.definition, record.id) : [];
+    const initFailure =
+      this.initFailures.get(sessionId) ??
+      (required.length > 0 && report?.init
+        ? (initProblem(
+            required,
+            report.init,
+            this.deps.agentHarness(run.attribution.workspaceId ?? '').name,
+          ) ?? undefined)
+        : undefined);
+    this.initFailures.delete(sessionId);
     if (report) {
       const step =
-        loaded && 'definition' in loaded
+        'definition' in loaded
           ? loaded.definition.automation.steps.find((candidate) => candidate.id === record.id)
           : undefined;
       this.recordTurn(
@@ -3479,12 +3493,15 @@ export class AutomationService {
       const error = turnFailure(outcome);
       failed = error ? { error, atTurnLimit: false } : null;
     }
+    // No init at all: a turn that failed on its own keeps its words; a clean one fails here.
+    const unchecked = failed || report?.init ? null : uncheckedInitProblem(required);
+    if (unchecked) failed = { error: unchecked, atTurnLimit: false };
     if (failed) {
       if (failed.atTurnLimit) this.keepOutputs(run, record.id);
       this.settleStep(run.id, record.id, { status: 'failed', error: failed.error });
       return;
     }
-    this.stepTurnFinished(run, record, sessionId, loaded ?? this.definitionOf(run));
+    this.stepTurnFinished(run, record, sessionId, loaded);
   }
 
   /**
