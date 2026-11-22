@@ -40,6 +40,18 @@ describe('checkPassClaims', () => {
   it('allows 60 s of clock skew on iat', () => {
     expect(checkPassClaims(claims({ iat: NOW + 59 }), 's-1', NOW)).toEqual({ ok: true });
   });
+
+  it('accepts an iat exactly 60 s ahead, and refuses one 61 s ahead', () => {
+    expect(checkPassClaims(claims({ iat: NOW + 60 }), 's-1', NOW)).toEqual({ ok: true });
+    expect(checkPassClaims(claims({ iat: NOW + 61 }), 's-1', NOW)).toEqual({
+      ok: false,
+      reason: 'not-yet-valid',
+    });
+  });
+
+  it('accepts a pass with one second left (exp = now + 1)', () => {
+    expect(checkPassClaims(claims({ exp: NOW + 1 }), 's-1', NOW)).toEqual({ ok: true });
+  });
 });
 
 describe('passCloseCode', () => {
