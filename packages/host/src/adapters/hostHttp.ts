@@ -29,6 +29,7 @@ import {
   ExecutionEnvironmentDescriptor,
   type ServerAuthDescriptor,
 } from '@t3tools/contracts';
+import * as Cause from 'effect/Cause';
 import * as DateTime from 'effect/DateTime';
 import * as Effect from 'effect/Effect';
 import * as Redacted from 'effect/Redacted';
@@ -143,4 +144,19 @@ export const serveHostHttp = (http: HostHttp, path: string) =>
       }
       return HttpServerResponse.empty({ status: 404 });
     }),
-  ).pipe(Effect.catchCause(() => Effect.succeed(HttpServerResponse.empty({ status: 500 }))));
+  ).pipe(
+    // A failure here is the host's own (a refused pass is an answer, above). It is logged, with
+    // the request's pass taken out, and answered `500`.
+    Effect.catchCause((cause) =>
+      Effect.gen(function* () {
+        const request = yield* HttpServerRequest.HttpServerRequest;
+        const pass = bearerPass(request);
+        const detail = Cause.pretty(cause);
+        yield* Effect.logError(
+          `Host HTTP ${request.method} ${path} failed; answered 500.`,
+          pass === '' ? detail : detail.replaceAll(pass, '[pass]'),
+        );
+        return HttpServerResponse.empty({ status: 500 });
+      }),
+    ),
+  );

@@ -237,6 +237,9 @@ handlers are host glue that calls the helpers `ws.ts` calls
     `404` (t3's HTTP snapshot loaders, `/api/orchestration/shell` and
     `…/threads/:id/bounded`, then fall back to the socket, as against an older
     t3 server).
+  - A failure of the host's own while answering (not a refused pass, which is
+    an answer) is logged to stderr, the request's pass taken out of it, and
+    answered `500` (`hostHttp.test.ts`).
 - **Methods the chat calls and the host refuses.** Running t3's copied chat
   (`@consola/agent-ui`) against a replay host, the chat calls three methods
   beyond `SERVED_METHODS`: `orchestration.subscribeShell` (the thread list's

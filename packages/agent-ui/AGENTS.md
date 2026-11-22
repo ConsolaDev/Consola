@@ -77,7 +77,20 @@ pieces:
   `onPassExpired`, then registers the pass it answers, which reconnects. A pass the host refuses
   before t3 has tried it does not count (the state reported first can be the old pass's), and a
   pass `onPassExpired` answered that is refused before it ever connects is not asked about again.
-  Without `onPassExpired`, t3's own state stays: with no thread to show, its empty state.
+- **What the chat says when it cannot show the conversation.** t3 shows a host that goes away
+  under a loaded thread (its offline banner) and reconnects by itself. What t3 has no state for,
+  `AgentChat` shows itself, as a notice over t3's view (`ChatProblemNotice`, `role="alert"`,
+  styled in `styles.css` with t3's variables, so in Consola's tokens):
+  - the host refused the pass and no new one is coming: no `onPassExpired`, or the pass it
+    answered was refused too ("The host refused this chat's pass");
+  - `onPassExpired` failed ("A new pass could not be fetched");
+  - the connection could not be set up: a host address that is not a URL, t3's runtime not
+    starting, t3 refusing the registration, or the environment not appearing in t3's registry
+    within ten seconds (`REGISTRATION_WAIT`) ("The chat could not connect to its host").
+
+  The notice goes once the host connects. Every failure of the chat's own is also logged
+  (`console.error`, `@consola/agent-ui: …`), with the passes the page holds taken out of the
+  detail: the page sees nothing else of it.
 - **What else is mounted**: t3's `I18nProvider` (started once per page), its atom registry, and a
   memory router whose root route renders `ChatView` for the session, as t3's own tests render
   without routes. No route, sidebar, terminal drawer, in-app browser or PR view is mounted;
