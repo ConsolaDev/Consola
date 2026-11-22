@@ -16,22 +16,26 @@ The app is built in layers, and imports point inward only.
   answers `WorkspacesState`, `CreateWorkspaceAnswer` and
   `SwitchWorkspaceAnswer`); the sentences (`messages.ts`) for a failed
   sign-in or sign-out, for each problem with a new workspace, a taken slug, a
-  failed switch and the create form's hints; and where the running source is
-  (`source.ts`). It is plain TypeScript, with no package and no browser I/O.
-  `apiContract.ts` holds the API's types, generated from
-  `apps/cloud-global/openapi.json` (see "The API's contract").
+  failed switch and the create form's hints; where the running source is
+  (`source.ts`); and how the address names a dashboard section
+  (`sections.ts`: `sectionIdOfHash`, `hashOfSection`, `chooseSection`). It is
+  plain TypeScript, with no package and no browser I/O. `apiContract.ts`
+  holds the API's types, generated from `apps/cloud-global/openapi.json`
+  (see "The API's contract").
 - `src/services/` is everything that talks to something outside the page: the
   API (`api.ts`: `loadMe`, `loadWorkspaces`, `createWorkspace`,
   `switchWorkspace`, through `createApi`, an `openapi-fetch` client typed by
   the contract), Better Auth's client (`authClient.ts`: `signInWithGoogle`,
   `signOut`) and the address bar (`signInRedirect.ts`:
-  `takeSignInErrorCode`). A service answers in domain types and sentences,
-  never in a library's own.
+  `takeSignInErrorCode`; `address.ts`: `currentSectionId`, `openSection`,
+  `onSectionChange`). A service answers in domain types and sentences, never
+  in a library's own.
 - `src/ui/` holds the React screens (`App.tsx` and the cards beside it:
   `SignInCard`, `ProfileCard`, `CreateWorkspaceCard`, and the topbar's
-  `WorkspaceSwitcher` and `SignOutButton`) and `styles.css`. A screen asks a
-  service and shows what comes back. It does not fetch, touch the address or
-  know Better Auth.
+  `WorkspaceSwitcher` and `SignOutButton`), the dashboard (`Dashboard.tsx`,
+  its list of sections `sections.tsx`, and each section's page, such as
+  `OverviewPage.tsx`) and `styles.css`. A screen asks a service and shows
+  what comes back. It does not fetch, touch the address or know Better Auth.
 - The entry wires the page. `src/main.tsx` mounts `ui/App` inside Radix's
   `Theme` and follows the system's colour scheme, and `src/env.d.ts` declares
   the build constants (`__CONSOLA_COMMIT__`, `__CONSOLA_VERSION__`) that
@@ -119,6 +123,44 @@ problem out of step, but not a rule such as a length.
   so (`REGION_HINT`). The slug follows the name until the person types their
   own.
 
+## The dashboard
+
+A person with a workspace open sees its dashboard: the topbar (the switcher
+and Sign out) across the page, then a nav of the workspace's sections beside
+the one open. Sign-in, the create form and the notices stay in the narrow
+column (`.main`; the dashboard widens it with `.main.wide`).
+
+- **One list of sections.** `ui/sections.tsx` holds `SECTIONS`, in the nav's
+  order. A section is `{ id, label, View }`, and its `View` gets
+  `SectionProps`: the person (`Me`) and the workspace open, never null. A new
+  page is one entry there and files of its own; nothing else in the shell
+  changes. The first entry, Overview, is what an address naming no section
+  opens.
+- **The address picks the section.** A section is `#/<id>` (`hashOfSection`),
+  so a reload, a shared link and the browser's back and forward land where
+  they point. The nav is plain links, and `Dashboard` follows the hash
+  (`onSectionChange`). An id never changes once a link may hold it: cloud-global
+  sends a person back to `#/connections`. Whatever follows an id in the hash
+  (`/…` or `?…`) is the section's own, and an id this build does not list
+  opens the first section (`chooseSection`).
+- **The query string is not the dashboard's.** `address.ts` reads and writes
+  the hash only. A page sent back with a result before the hash (sign-in's
+  `?error=`, GitHub's `?github=`) reads and clears it in its own service, with
+  `history.replaceState` of `pathname + search + hash`, which keeps the
+  section.
+- **Every member sees every section.** What a person may do on a page is the
+  page's to show or hide, and the server says: an answer carries whether the
+  person may manage what it lists (`canManage`), and a page shows its controls
+  by that, never by reading the role itself.
+- **A section starts again for another workspace.** `Dashboard` keys the open
+  section by workspace and section, so a switch never shows what a page
+  loaded for the last workspace.
+- **Styles.** `styles.css` holds the shell's classes (`.dashboard`,
+  `.nav-link`, `.section-header`, `.section-title`, `.facts`) beside the shared
+  ones (`.card`, `.heading`, `.muted`, `.error`, `.button`). A page's own
+  styles go in a stylesheet beside it (`ui/TeamsPage.css`), imported by the
+  page.
+
 ## Adding a feature
 
 1. A rule, a sentence or a type goes in `domain`.
@@ -129,10 +171,11 @@ problem out of step, but not a rule such as a length.
    rewrites `domain/apiContract.ts`; a type it answers in is taken from
    there, never written by hand. Another API (a cell's, say) gets its own
    generated file and its own client the same way.
-3. A new screen is a component in `ui`, mounted from `ui/App.tsx`. It calls
-   the services it needs and passes what they return down as props. A React
-   hook goes in `ui` too, beside the screen that uses it, because `services`
-   refuse `react`.
+3. A new screen is a component in `ui`, mounted from `ui/App.tsx`; a new page
+   of the workspace is a section (`ui/sections.tsx`, above). It calls the
+   services it needs and passes what they return down as props. A React hook
+   goes in `ui` too, beside the screen that uses it, because `services` refuse
+   `react`.
 4. Only `main.tsx` mounts the app. Nothing else does.
 
 ## Tests

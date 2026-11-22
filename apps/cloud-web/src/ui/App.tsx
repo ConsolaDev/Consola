@@ -5,6 +5,7 @@ import type { MyWorkspace, WorkspacesState } from '../domain/workspace';
 import { loadMe, loadWorkspaces } from '../services/api';
 import { takeSignInErrorCode } from '../services/signInRedirect';
 import { CreateWorkspaceCard } from './CreateWorkspaceCard';
+import { Dashboard } from './Dashboard';
 import { Footer } from './Footer';
 import { ProfileCard } from './ProfileCard';
 import { SignInCard } from './SignInCard';
@@ -39,9 +40,12 @@ export function App() {
     setCreating(false);
   }, [load]);
 
+  // The dashboard needs the page's width; sign-in, the create form and the notices stay narrow.
+  const dashboard = page?.me.kind === 'signed-in' && page.me.me.workspace !== null && !creating;
+
   return (
     <div className="page">
-      <main className="main">
+      <main className={dashboard ? 'main wide' : 'main'}>
         {page &&
           (page.me.kind === 'signed-in' ? (
             <SignedIn
@@ -71,8 +75,9 @@ export function App() {
 
 /**
  * The page for someone signed in. A person with a workspace open sees it in the topbar's
- * switcher and their profile below; one with none open sees the create form, which a person
- * with a workspace reaches from the switcher. `workspaces` is null when they could not be listed.
+ * switcher and its dashboard below; one with none open sees their profile and the create form,
+ * which a person with a workspace reaches from the switcher. `workspaces` is null when they
+ * could not be listed.
  */
 function SignedIn({
   me,
@@ -113,7 +118,8 @@ function SignedIn({
         )}
         <SignOutButton className="link-button" />
       </header>
-      {!(creating && me.workspace) && <ProfileCard me={me} hasWorkspaces={hasWorkspaces} />}
+      {me.workspace && !creating && <Dashboard me={me} workspace={me.workspace} />}
+      {!me.workspace && <ProfileCard me={me} hasWorkspaces={hasWorkspaces} />}
       {showForm && (
         <CreateWorkspaceCard
           first={!hasWorkspaces}
