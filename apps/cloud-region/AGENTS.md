@@ -196,7 +196,7 @@ The service is built in rings, and imports point inward only.
 ## The dependency rule
 
 - `domain` imports only `domain`. `application` imports only `domain` and
-  `application`. Neither imports a package (but the contract) or a `node:`
+  `application`. Neither imports a package (but the two contracts) or a `node:`
   builtin, and neither refers to a global that reaches the machine: `process`,
   `fetch`, `require`,
   `XMLHttpRequest`, `WebSocket`, the timers (`setTimeout`, `setInterval`,
