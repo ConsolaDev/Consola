@@ -109,8 +109,8 @@ export function RunDetails({ workspace, runId }: { workspace: Workspace; runId: 
   return <RunView workspace={workspace} run={loaded.run} />;
 }
 
-/** A run still moving: its clock ticks by the second. */
-const LIVE = new Set<RunRecord['status']>(['running', 'queued', 'needs-approval']);
+/** A run still moving, a parked one too: its clock ticks by the second. */
+const LIVE = new Set<RunRecord['status']>(['running', 'queued', 'needs-approval', 'waiting']);
 
 function RunView({ workspace, run }: { workspace: Workspace; run: RunRecord }) {
   const snapshot = useAutomationsStore((state) => state.snapshots[workspace.id]);

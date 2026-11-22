@@ -764,6 +764,26 @@ describe('runStages for a steps run', () => {
     expect(stepShape(run)).toEqual(['trigger:passed', 'approval:stopped', 'step:a:skipped']);
     expect(msOf(run, 'approval')).toBe(2 * MINUTE);
   });
+
+  it('a waiting run stops at its waiting step', () => {
+    const run = stepsRecord(
+      [
+        stepOf({ id: 'fresh', kind: 'run', status: 'completed' }),
+        stepOf({ id: 'review', status: 'completed' }),
+        stepOf({ id: 'decide', kind: 'gate', status: 'waiting', gate: { askedAt: ago(MINUTE) } }),
+        stepOf({ id: 'publish', kind: 'run', status: 'pending' }),
+      ],
+      { status: 'waiting', startedAt: ago(5 * MINUTE) },
+    );
+    expect(runStages(run, NOW).find((stage) => stage.state === 'waiting')?.step?.id).toBe('decide');
+    expect(stepShape(run)).toEqual([
+      'trigger:passed',
+      'step:fresh:passed',
+      'step:review:passed',
+      'step:decide:waiting',
+      'step:publish:pending',
+    ]);
+  });
 });
 
 describe('retryTargetOf', () => {

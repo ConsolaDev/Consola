@@ -3,7 +3,13 @@ import { automationFileText } from './edit';
 import { parseAutomationEntry } from './entry';
 import { parseFactory, type FactoryFiles, type FactoryParseResult } from './factory';
 import { parseFactorySpec } from './parse';
-import { automationVersion, stableStringify, stepsResolvedBody } from './run';
+import {
+  automationVersion,
+  type RunRecord,
+  stableStringify,
+  stepsResolvedBody,
+  TERMINAL_RUN_STATUSES,
+} from './run';
 import { isStepsEntry, type Automation } from './schema';
 import type { SkillFileEntry } from './skills';
 
@@ -485,5 +491,80 @@ describe('the version with agents', () => {
     expect(inYml.automations[0].file).toBe('factory.yml');
     expect(inFile.automations[0].file).toBe('automations/investigate-alerts.yaml');
     expect(versionIn(inFile, 'investigate-alerts')).toBe(versionIn(inYml, 'investigate-alerts'));
+  });
+});
+
+describe('a parked run (slice 3, contract 2)', () => {
+  const SAMPLE_RUN: RunRecord = {
+    id: 'r1',
+    runner: 'local',
+    source: 'personal',
+    automationId: 'review-assigned-prs-gated',
+    actionName: 'steps',
+    actionVersion: 'v1',
+    mode: 'auto',
+    trigger: { kind: 'manual', at: '2026-11-22T09:59:00.000Z', by: 'person' },
+    status: 'running',
+    attribution: {
+      automationId: 'review-assigned-prs-gated',
+      actionName: 'steps',
+      triggerKind: 'manual',
+    },
+    createdAt: '2026-11-22T09:59:00.000Z',
+    updatedAt: '2026-11-22T10:00:00.000Z',
+  };
+
+  it('waiting is open, not terminal (contract 2)', () => {
+    expect(TERMINAL_RUN_STATUSES).toEqual(['completed', 'failed', 'rejected']);
+    const parked: RunRecord = {
+      ...SAMPLE_RUN,
+      status: 'waiting',
+      retryAt: '2026-11-22T10:42:00.000Z',
+      retried: 1,
+      waitingFor: { gate: { automation: 'review-assigned-prs-gated', run: 'r1', step: 'decide' } },
+      steps: [
+        {
+          id: 'decide',
+          kind: 'gate',
+          status: 'waiting',
+          attempt: 1,
+          gate: { askedAt: '2026-11-22T10:00:00.000Z' },
+        },
+        {
+          id: 'polish',
+          kind: 'repeat',
+          status: 'running',
+          attempt: 1,
+          round: 2,
+          max: 3,
+          note: 'x',
+        },
+        {
+          id: 'review',
+          kind: 'agent',
+          status: 'waiting',
+          attempt: 2,
+          round: 2,
+          retryAt: '2026-11-22T10:05:00.000Z',
+          retries: 1,
+          previous: [{ attempt: 1, status: 'completed', round: 1 }],
+        },
+        {
+          id: 'ask',
+          kind: 'gate',
+          status: 'completed',
+          attempt: 2,
+          outputs: { decision: 'approve' },
+          gate: {
+            askedAt: '2026-11-22T10:01:00.000Z',
+            decision: 'approve',
+            by: 'person',
+            at: '2026-11-22T10:02:00.000Z',
+          },
+          previous: [{ attempt: 1, status: 'completed', decision: 'comment' }],
+        },
+      ],
+    };
+    expect(JSON.parse(JSON.stringify(parked))).toEqual(parked);
   });
 });

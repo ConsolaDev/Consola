@@ -186,8 +186,9 @@
   background: var(--color-warning);
 }
 
-/* Waiting for a person: an amber ring, so it does not read as queued. */
-.automations-dot-needs-approval {
+/* Waiting for a person: an amber ring, so it does not read as queued. Parked at a gate or a retry the same. */
+.automations-dot-needs-approval,
+.automations-dot-waiting {
   background: transparent;
   border: 2px solid var(--color-warning);
 }
@@ -758,7 +759,8 @@
   color: var(--color-error);
 }
 
-.automations-run-status-needs-approval {
+.automations-run-status-needs-approval,
+.automations-run-status-waiting {
   color: var(--color-warning);
 }
 
@@ -1429,7 +1431,8 @@
   color: var(--color-error);
 }
 
-.automations-tone-needs-approval {
+.automations-tone-needs-approval,
+.automations-tone-waiting {
   color: var(--color-warning);
 }
 
@@ -1507,8 +1510,9 @@
   background: var(--color-warning);
 }
 
-/* Waiting for a person: hollow, as its dot is a ring. */
-.automations-bar-needs-approval {
+/* Waiting for a person: hollow, as its dot is a ring. Parked at a gate or a retry the same. */
+.automations-bar-needs-approval,
+.automations-bar-waiting {
   background: transparent;
   box-shadow: inset 0 0 0 1.5px var(--color-warning);
 }
@@ -1851,7 +1855,8 @@
 }
 
 .automations-status-icon-queued,
-.automations-status-icon-needs-approval {
+.automations-status-icon-needs-approval,
+.automations-status-icon-waiting {
   color: var(--color-warning);
 }
 

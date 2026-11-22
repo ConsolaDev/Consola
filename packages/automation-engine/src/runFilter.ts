@@ -26,9 +26,13 @@ export function isRunFilterNarrowed(filter: RunListFilter): boolean {
   return filter.query.trim() !== '' || filter.kind !== 'all' || filter.automation !== null;
 }
 
-/** Waiting for a person or a slot, or working: history never drops these, so neither does the list. */
+/**
+ * Waiting for a person or a slot, parked at a gate or a retry, or working:
+ * history never drops these, so neither does the list.
+ */
 const LIVE_STATUSES: ReadonlySet<RunFacts['status']> = new Set([
   'needs-approval',
+  'waiting',
   'queued',
   'running',
 ]);

@@ -340,7 +340,10 @@ function useRunPages(
   const liveKey = snapshot.runs
     .filter(
       (run) =>
-        run.status === 'queued' || run.status === 'running' || run.status === 'needs-approval',
+        run.status === 'queued' ||
+        run.status === 'running' ||
+        run.status === 'needs-approval' ||
+        run.status === 'waiting',
     )
     .map((run) => `${run.id}:${run.status}`)
     .sort()

@@ -42,7 +42,7 @@ export interface RunStage {
   /** For a `step` stage: the step this node is, as the record has it. */
   step?: {
     id: string;
-    kind: 'agent' | 'run';
+    kind: StepRun['kind'];
     status: StepRunStatus;
     skipped?: string;
     error?: string;
@@ -160,6 +160,8 @@ function stepStageState(status: StepRunStatus, open: boolean): RunStageState {
       return 'queued';
     case 'running':
       return 'running';
+    case 'waiting':
+      return 'waiting';
     case 'completed':
       return 'passed';
     case 'failed':
@@ -266,6 +268,10 @@ function stopPoint(
   switch (run.status) {
     case 'needs-approval':
       return { key: 'approval', state: 'waiting' };
+    case 'waiting':
+      // Only a steps run parks (at a gate or a retry), and its stages come from its steps;
+      // a legacy run never waits, so this is the compiler's case.
+      return { key: last, state: 'waiting' };
     case 'queued':
       return { key: has('queue') ? 'queue' : last, state: 'queued' };
     case 'running':

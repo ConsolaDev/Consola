@@ -65,6 +65,8 @@ const STATUS_ICONS: Record<RunFacts['status'], LucideIcon> = {
   queued: Clock,
   // A person's hand is what it waits for; the approval step in a pipeline wears the same one.
   'needs-approval': Hand,
+  // Parked at a gate (a person's answer) or a retry: still the hand, as `RunGraph`'s waiting stage.
+  waiting: Hand,
   rejected: CircleSlash,
 };
 
@@ -599,8 +601,13 @@ function outcomeEffect(outcome: SessionOutcome): string {
   return parts.join(' · ');
 }
 
-/** A run still moving: Run again waits for it to end. */
-const MOVING: ReadonlySet<RunRecord['status']> = new Set(['running', 'queued', 'needs-approval']);
+/** A run still moving, a parked one too: Run again waits for it to end. */
+const MOVING: ReadonlySet<RunRecord['status']> = new Set([
+  'running',
+  'queued',
+  'needs-approval',
+  'waiting',
+]);
 
 /**
  * Run again, as a run's page offers it: a new run of the automation's current

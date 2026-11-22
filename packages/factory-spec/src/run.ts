@@ -18,6 +18,7 @@ export type RunStatus =
   | 'queued'
   | 'running'
   | 'needs-approval'
+  | 'waiting'
   | 'completed'
   | 'failed'
   | 'rejected';
@@ -27,12 +28,14 @@ export type RunnerKind = 'local' | 'cloud' | (string & {});
 
 /**
  * A step's status. Like a run's, the set only grows: nothing may assume these
- * eight are all there will be.
+ * nine are all there will be. `waiting`: a gate asking a person, a loop at its
+ * exhaustion gate, or a step waiting out a declared retry.
  */
 export type StepRunStatus =
   | 'pending'
   | 'queued'
   | 'running'
+  | 'waiting'
   | 'completed'
   | 'failed'
   | 'skipped'
@@ -45,10 +48,33 @@ export type StepRunStatus =
  */
 export interface StepRun {
   id: string;
-  kind: 'agent' | 'run';
+  /** `gate` asks a person; `repeat` is a loop's own row, its steps' rows right after it. */
+  kind: 'agent' | 'run' | 'gate' | 'repeat';
   status: StepRunStatus;
   /** 1-based: the nth time this step ran in this run; names its folder. */
   attempt: number;
+  /**
+   * Inside a loop: the round this execution belongs to. On a loop's own row:
+   * the round it is in.
+   */
+  round?: number;
+  /** A loop's row: its `max`, written when round 1 starts, so a list row can say "round 2 of 3". */
+  max?: number;
+  /**
+   * A gate's (or a loop's exhaustion gate's) question: when it was asked, and
+   * once answered, the decision, by whom and when. A gate's answer is a
+   * person's, given only from Consola's own window.
+   */
+  gate?: { askedAt: string; decision?: string; by?: 'person'; at?: string };
+  /** When a step waiting out a declared retry (`on_failure`) runs again. */
+  retryAt?: string;
+  /** The declared retries this execution has used; spent once it equals the step's `on_failure.retry`. */
+  retries?: number;
+  /**
+   * One line the status cannot say: how a loop ended, why a step did not run
+   * after `then: stop`, a dry run's report of a gate. Shown, never parsed.
+   */
+  note?: string;
   queuedAt?: string;
   startedAt?: string;
   finishedAt?: string;
@@ -93,6 +119,10 @@ export interface StepRun {
     finishedAt?: string;
     costUsd?: number;
     turns?: number;
+    /** Inside a loop: the round that execution belonged to. */
+    round?: number;
+    /** A gate's: the answer it was given. */
+    decision?: string;
   }>;
 }
 
@@ -186,6 +216,15 @@ export interface RunRecord {
   dryRun?: boolean;
   /** Where an item run worked; `head` is the commit it checked out. */
   checkout?: { cwd: string; scopeId?: string; head?: string };
+  /**
+   * What holds this run before it can start: another run's gate holds its
+   * item (`automation`, `run` and `step` name that gate).
+   */
+  waitingFor?: { gate?: { automation: string; run: string; step: string } };
+  /** Times the run started again by itself (the entry's `on_failure`). */
+  retried?: number;
+  /** When the entry's own declared retry runs: a wait on the run, since it can come before any step ran. */
+  retryAt?: string;
   error?: string;
   /** Every attempt of every step, summed; the CLI's estimate. Absent while none reported one. */
   costUsd?: number;

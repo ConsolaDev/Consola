@@ -30,6 +30,7 @@ import {
   sidebarRowState,
   tableShowsUnseenFailures,
   unseenFailures,
+  statusLabel,
   statusWord,
   stepWords,
   mergeRunPages,
@@ -109,6 +110,11 @@ function snapshot(
 }
 
 describe('statusWord', () => {
+  it("calls a parked run's status 'on hold'", () => {
+    expect(statusWord('waiting')).toBe('on hold');
+    expect(statusLabel('waiting')).toBe('On hold');
+  });
+
   it('says where a run stands in a word, using the run statuses the panel shows', () => {
     expect(statusWord('needs-approval')).toBe('waiting');
     expect(statusWord('rejected')).toBe('dismissed');
@@ -821,6 +827,11 @@ describe('recentRunsInWords', () => {
   it('counts each outcome, completed first', () => {
     const runs = [run({ status: 'failed' }), run(), run(), run({ status: 'running' })];
     expect(recentRunsInWords(runs)).toBe('Last 4 runs: 2 completed, 1 failed, 1 running');
+  });
+
+  it('counts a parked run as on hold, right after the ones waiting for approval', () => {
+    const runs = [run(), run({ status: 'waiting' }), run({ status: 'needs-approval' })];
+    expect(recentRunsInWords(runs)).toBe('Last 3 runs: 1 completed, 1 waiting, 1 on hold');
   });
 
   it('says "all" when every run went the same way', () => {

@@ -30,6 +30,7 @@ const STATUS_WORDS: Record<RunFacts['status'], string> = {
   queued: 'queued',
   running: 'running',
   'needs-approval': 'waiting',
+  waiting: 'on hold',
   completed: 'completed',
   failed: 'failed',
   rejected: 'dismissed',
@@ -277,9 +278,13 @@ function dayLabel(at: Date, now: Date): string {
   return date;
 }
 
-/** Waiting for a person or a slot, or working: history never drops these, so neither does the list. */
+/**
+ * Waiting for a person or a slot, parked at a gate or a retry, or working:
+ * history never drops these, so neither does the list.
+ */
 const LIVE_STATUSES: ReadonlySet<RunFacts['status']> = new Set([
   'needs-approval',
+  'waiting',
   'queued',
   'running',
 ]);
@@ -539,6 +544,7 @@ const STRIP_ORDER: ReadonlyArray<RunFacts['status']> = [
   'failed',
   'running',
   'needs-approval',
+  'waiting',
   'queued',
   'rejected',
 ];
@@ -917,6 +923,7 @@ const LATEST_LABELS: Record<RunFacts['status'], string> = {
   queued: 'Queued',
   running: 'Running',
   'needs-approval': 'Waiting for you',
+  waiting: 'On hold',
   completed: 'Completed',
   failed: 'Failed',
   rejected: 'Dismissed',

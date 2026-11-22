@@ -52,6 +52,7 @@ const RUNS: RunListEntry[] = [
   run({ id: 'b', createdAt: ago(HOUR), kind: 'tool', summary: 'Removed 3 sessions' }),
   run({ id: 'tied', createdAt: ago(HOUR), kind: 'request' }),
   run({ id: 'waiting', status: 'needs-approval', createdAt: ago(45 * DAY) }),
+  run({ id: 'parked', status: 'waiting', createdAt: ago(45 * DAY) }),
   run({ id: 'queued', status: 'queued', createdAt: ago(46 * DAY) }),
   run({ id: 'running', status: 'running', createdAt: ago(47 * DAY), automationId: 'digest' }),
   run({
@@ -88,6 +89,11 @@ describe('the engine and the renderer filter runs alike', () => {
       expect(engine).toEqual(renderer);
     });
   }
+
+  it('both keep a run parked at a gate or a retry however old, as history keeps it', () => {
+    expect(engineFilterRuns(RUNS, NO_RUN_FILTER, NOW).map((run) => run.id)).toContain('parked');
+    expect(rendererFilterRuns(RUNS, NO_RUN_FILTER, NOW).map((run) => run.id)).toContain('parked');
+  });
 
   it('agrees on an empty list', () => {
     expect(engineFilterRuns([], NO_RUN_FILTER, NOW)).toEqual(
