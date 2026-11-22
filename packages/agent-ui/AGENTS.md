@@ -57,9 +57,10 @@ pieces:
   registers nothing.
 - **The host is registered as a bearer backend**, as t3 registers a desktop's secondary backend
   (`connection/platform.ts`): `AgentChat` calls t3's `EnvironmentRegistry.reconcilePlatform`
-  with a `BearerConnectionRegistration` whose credential is the pass, and with `[]` when it
-  unmounts. t3 keeps a platform credential in its IndexedDB catalog while it is registered and
-  deletes it on removal.
+  with a `BearerConnectionRegistration` whose credential is the pass. That call replaces every
+  platform registration, so it is always handed the registrations of every mounted chat (one
+  per session), and a chat that unmounts drops its own. t3 keeps a platform credential in its
+  IndexedDB catalog while it is registered and deletes it on removal.
 - **t3's client does the rest**, unchanged: it reads the host's descriptor, asks for a socket
   ticket with the pass as bearer token, opens `ws(s)://<host>/ws?wsTicket=…`, and reads the
   session's scopes. The host answers those calls as t3's server does (`packages/host`'s

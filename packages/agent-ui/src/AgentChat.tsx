@@ -37,7 +37,8 @@ export interface AgentChatProps {
   readonly sessionId: string;
   /**
    * Called when the host refuses the pass (it expired); the chat reconnects with the pass it
-   * answers. Without it, a refused pass leaves t3's connection-lost state in place.
+   * answers. Without it, a refused pass leaves t3's own state for an environment it cannot
+   * reach (with no thread to show, its empty state).
    */
   readonly onPassExpired?: () => Promise<string>;
 }
@@ -94,13 +95,22 @@ const runInConnection = <A, E>(
     Effect.runPromiseExit(Effect.provideContext(effect, services)),
   );
 
-const reconcileHost = (registrations: ReadonlyArray<BearerConnectionRegistration>) =>
-  runInConnection(
+/**
+ * The hosts the mounted chats register, by session. t3's `reconcilePlatform` replaces every
+ * platform registration at once, so each change hands it all of them: two chats on one page keep
+ * both.
+ */
+const registered = new Map<string, BearerConnectionRegistration>();
+
+const reconcileHosts = () => {
+  const registrations = [...registered.values()];
+  return runInConnection(
     Effect.gen(function* () {
       const registry = yield* EnvironmentRegistry.EnvironmentRegistry;
       yield* registry.reconcilePlatform(registrations);
     }),
   );
+};
 
 /** The host refused the pass: t3's resolver maps the host's `401` to this. */
 const passRefused = (state: SupervisorConnectionState): boolean =>
@@ -124,16 +134,18 @@ function useHostConnection(props: AgentChatProps) {
   useEffect(() => setPass(props.pass), [props.pass]);
 
   useEffect(() => {
-    void reconcileHost([hostRegistration(hostUrl, sessionId, pass)]);
+    registered.set(sessionId, hostRegistration(hostUrl, sessionId, pass));
+    void reconcileHosts();
   }, [hostUrl, sessionId, pass]);
 
   // t3's connection runtime stays up until the registration is removed, which removes its pass.
   useEffect(() => {
     const release = appAtomRegistry.mount(connectionAtomRuntime);
     return () => {
-      void reconcileHost([]).finally(release);
+      registered.delete(sessionId);
+      void reconcileHosts().finally(release);
     };
-  }, []);
+  }, [sessionId]);
 
   // A refusal counts only once t3 has tried this pass: the state it reports first can still be
   // the refusal of the pass this one replaced. A pass `onPassExpired` just answered that is
