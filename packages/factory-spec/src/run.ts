@@ -4,9 +4,11 @@ import type { Automation, AutomationMode } from './schema';
 /**
  * One execution of an automation.
  *
- * The north-star Run record (docs/north-star/consola-factories.md §3), as
- * much of it as a local run has. Same field names and status words, so the
- * cloud runner's rows and these list side by side later. An agent step's
+ * The north-star Run record (§3 of "North star · Factories", a Linear
+ * document:
+ * https://linear.app/consola/document/north-star-factories-the-earlier-direction-11a3fbefdb39),
+ * as much of it as a local run has. Same field names and status words, so
+ * the cloud runner's rows and these list side by side later. An agent step's
  * cost is the CLI's own estimate, recorded per turn (`StepRun.turn`) and
  * summed on the run (`costUsd`); a legacy agent run's and a tool run's are
  * not recorded (a tool run spends no tokens; a legacy run's tokens are its

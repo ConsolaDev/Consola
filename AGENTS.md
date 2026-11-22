@@ -1249,21 +1249,36 @@ license, an MIT carve-out — possible, so never bypass it.
 - Preload: `dist/preload/preload/preload.js`
 - Renderer: `dist/renderer/`
 
-## Research Documents
+## Documents Live in Linear
 
-Implementation plans live in `docs/plans/`.
+Every design, spec, plan, spike and piece of research is a Linear document
+in the Consola workspace, never a file in the repository. Start at the
+[Documents index](https://linear.app/consola/document/documents-index-start-here-63df2a55ce30): it lists every document by area and says
+how to add one. There is no `docs/` folder any more. On 2026-11-22
+everything in it, and the documents that were only in worktrees, moved to
+Linear, and each moved document opens with the path it came from. A
+`docs/...` path in older code, commits, issues or notes names one of them;
+find it in the index.
 
-Architecture decisions are documented in `docs/research/`:
-- `2026-02-05-esm-commonjs-interop-claude-agent-sdk.md` - SDK integration
-- `2026-02-05-git-status-file-explorer.md` - Git feature design
-- `2026-02-03-workspace-feature-architecture.md` - Workspace system
+- **Write every new document in Linear, never as a local file.** This
+  overrides any skill that saves to `docs/` by default (superpowers'
+  brainstorming and writing-plans, this repository's research-codebase).
+  Create it with the Linear MCP tools (`save_document`) and read one with
+  `get_document`. A CLI without them asks the person to add the document.
+- **Attach it to the project it serves**, or to the Consola team when no
+  project fits, and link it from the issues it is for.
+- **Title it `Area · Kind: subject`**, for example
+  `Automations · Spec: Waiting and long runs (slice 4)`. Put the date it was
+  written on its first line, and add it to the index under its section.
+- **Upload images to the document.** Zip HTML mocks and link the zip.
+- **Point code comments and `AGENTS.md` files at Linear** by the document's
+  title and URL, never at a local path.
 
-Direction (where the product is heading, not a spec) lives in `docs/north-star/`.
-`docs/` is gitignored, so it exists only in the main checkout; from a worktree,
-read it there.
-- `docs/north-star/consola-automations.md` - **The north star for automations**: CI-shaped pipelines defined in files, run by desktop, headless and cloud runners. Read its invariants and decisions before designing anything that touches automations, triggers, connections, runs, agents, factory files, environments, runners, or sharing across an org
-- `docs/north-star/consola-automations-roadmap.md` - The slice order toward that north star, what each slice delivers, and the contracts each slice must leave true for later ones. Read a slice's entry and its contracts before writing that slice's spec
-- `docs/north-star/consola-factories.md` - The earlier local + cloud direction ("factories"). Its cloud runner, identity and Run record still stand; its "no workflow engine", "confirm every run" and "org ⊕ repo merge" rules are superseded by the automations north star
+Direction (where the product is heading, not a spec):
+- [North star · Automations](https://linear.app/consola/document/north-star-automations-bba97f65f331) - **The north star for automations**: CI-shaped pipelines defined in files, run by desktop, headless and cloud runners. Read its invariants and decisions before designing anything that touches automations, triggers, connections, runs, agents, factory files, environments, runners, or sharing across an org
+- [North star · Automations roadmap](https://linear.app/consola/document/north-star-automations-roadmap-45cd43ac0bf0) - The slice order toward that north star, what each slice delivers, and the contracts each slice must leave true for later ones. Read a slice's entry and its contracts before writing that slice's spec
+- [North star · Factories (the earlier direction)](https://linear.app/consola/document/north-star-factories-the-earlier-direction-11a3fbefdb39) - The earlier local + cloud direction ("factories"). Its cloud runner, identity and Run record still stand; its "no workflow engine", "confirm every run" and "org ⊕ repo merge" rules are superseded by the automations north star
+- [Cloud roadmap](https://linear.app/consola/document/cloud-roadmap-dbb1abc3c24d) - The plan for Consola Cloud: its projects in order, and which are unblocked
 
 The automations direction in brief:
 - An automation is a trigger plus steps, all in YAML/Markdown files (`factory.yml`, `agents/`, `automations/`, `skills/`, `environments/`). Nothing only the UI can express.
