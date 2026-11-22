@@ -14,6 +14,7 @@ import type { AnyProviderDriver } from '@t3tools/provider-core/server/driver';
 import { OpenCodeDriver, type OpenCodeDriverEnv } from '@t3tools/provider-opencode/server';
 import { PiDriver, type PiDriverEnv } from '@t3tools/provider-pi/server';
 import type { SessionSpec } from '../core/sessionSpec.ts';
+import { withoutCliCredentialsDriver } from './credentials.ts';
 
 export type HostDriversEnv =
   | AcpRegistryDriverEnv
@@ -23,21 +24,30 @@ export type HostDriversEnv =
   | PiDriverEnv;
 
 /**
- * The drivers a host runs, as t3's `BUILT_IN_DRIVERS` (`apps/server/src/provider/builtInDrivers.ts`)
- * lists them and in its order, less the CLIs a Consola session does not offer. Cursor is never
- * one of them. The host hydrates t3's provider instances from this list (`orchestration.ts`).
- *
- * Claude's driver runs the person's own `claude`: its adapter resolves `binaryPath` with t3's
- * `resolveClaudeSdkExecutablePath` and passes it as `pathToClaudeCodeExecutable`, never the
- * SDK's bundled copy.
+ * t3's drivers for the CLIs a Consola session offers, as t3's `BUILT_IN_DRIVERS`
+ * (`apps/server/src/provider/builtInDrivers.ts`) lists them and in its order. Cursor is never one
+ * of them.
  */
-export const HOST_DRIVERS: ReadonlyArray<AnyProviderDriver<HostDriversEnv>> = [
+export const T3_HOST_DRIVERS: ReadonlyArray<AnyProviderDriver<HostDriversEnv>> = [
   CodexDriver,
   ClaudeDriver,
   OpenCodeDriver,
   PiDriver,
   AcpRegistryDriver,
 ];
+
+/**
+ * The drivers a host runs: `T3_HOST_DRIVERS`, each creating its instance without a CLI's login
+ * (`withoutCliCredentialsDriver`). The host hydrates t3's provider instances from this list
+ * (`orchestration.ts`).
+ *
+ * Claude's driver runs the person's own `claude`: its adapter resolves `binaryPath` with t3's
+ * `resolveClaudeSdkExecutablePath` and passes it as `pathToClaudeCodeExecutable`, never the
+ * SDK's bundled copy.
+ */
+export const HOST_DRIVERS: ReadonlyArray<AnyProviderDriver<HostDriversEnv>> = T3_HOST_DRIVERS.map(
+  withoutCliCredentialsDriver,
+);
 
 /** Which t3 driver runs each harness a `SessionSpec` names. */
 export const DRIVER_KIND_BY_HARNESS: Readonly<Record<SessionSpec['harness'], ProviderDriverKind>> =

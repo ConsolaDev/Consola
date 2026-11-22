@@ -93,6 +93,31 @@ const NEVER = ['@consola/*'];
 const SOURCE_EXTENSION = /\.(?:[cm]?[jt]s|tsx)$/;
 const isTestFile = (file: string): boolean => /\.test\.(?:[cm]?[jt]s|tsx)$/.test(file);
 
+/**
+ * A name ending in `ForTests` is a seam only tests may use (`layerForTests`). A module may declare
+ * one; a file that is not a test may not refer to one: not import it, not reach it through a
+ * namespace, not call it.
+ */
+const TEST_ONLY_NAME = /ForTests$/;
+
+/** Every reference to a test-only name in `source`, its own declarations aside. */
+function testOnlyReferencesOf(source: string, fileName = 'x.ts'): string[] {
+  const tree = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true);
+  const found: string[] = [];
+  const visit = (node: ts.Node): void => {
+    if (ts.isIdentifier(node) && TEST_ONLY_NAME.test(node.text)) {
+      const parent = node.parent;
+      const declared =
+        (ts.isVariableDeclaration(parent) || ts.isFunctionDeclaration(parent)) &&
+        parent.name === node;
+      if (!declared) found.push(node.text);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(tree);
+  return found;
+}
+
 /** Stand-in for an import whose specifier is not a plain string, which nothing can check. */
 const NON_LITERAL = '<non-literal specifier>';
 
@@ -280,7 +305,12 @@ function violationsOf(file: string, source: string): string[] {
     test || !own
       ? []
       : [...new Set(referencesOf(source, file).filter((name) => own.noGlobals.includes(name)))];
-  return [...imports, ...globals.map((name) => `${file} uses ${name}`)];
+  const seams = test ? [] : [...new Set(testOnlyReferencesOf(source, file))];
+  return [
+    ...imports,
+    ...globals.map((name) => `${file} uses ${name}`),
+    ...seams.map((name) => `${file} uses ${name}`),
+  ];
 }
 
 /** Every source file under `src/`, relative to it. */
@@ -373,6 +403,27 @@ describe('the dependency rule', () => {
     expect(violationsOf(file, `import x from '${specifier}';`)).toEqual(
       allowed ? [] : [`${file} imports ${specifier}`],
     );
+  });
+
+  it.each([
+    ['an import', "import { layerForTests } from './runtime/threadRuntime.ts';"],
+    [
+      'a namespace member',
+      "import * as T from './runtime/threadRuntime.ts';\nT.layerForTests({}, {});",
+    ],
+    ['a renamed import', "import { layerForTests as layer } from './runtime/threadRuntime.ts';"],
+  ])('the checker refuses a test-only seam outside tests: %s', (_spelling, source) => {
+    expect(violationsOf('bin.ts', source)).toContain('bin.ts uses layerForTests');
+  });
+
+  it('a module may declare a test-only seam, and a test may use it', () => {
+    expect(violationsOf('runtime/x.ts', 'export const layerForTests = () => 1;')).toEqual([]);
+    expect(
+      violationsOf(
+        'runtime/x.test.ts',
+        "import { layerForTests } from './x.ts';\nlayerForTests();",
+      ),
+    ).toEqual([]);
   });
 
   it('the checker reports a file in no layer', () => {

@@ -32,7 +32,7 @@ import type * as Scope from 'effect/Scope';
 import * as Stream from 'effect/Stream';
 import * as ProviderAdapterRegistry from 't3/orchestration-v2/ProviderAdapterRegistry.ts';
 import { materializeReplayTranscriptRuntimeInstructions } from 't3/orchestration-v2/testkit/ReplayRuntimeInstructions.ts';
-import { describe, expect, it } from 'vite-plus/test';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vite-plus/test';
 import type { SessionSpec } from '../core/sessionSpec.ts';
 import type { HostDriversEnv } from './drivers.ts';
 import * as ThreadRuntime from './threadRuntime.ts';
@@ -43,41 +43,62 @@ const REPLAY_TIMEOUT_MS = 60_000;
 /** The title the replay's text generation gives every thread. */
 const REPLAY_TITLE = 'Sprocket replay title';
 
+/** t3's settings for a test: no update checks, so nothing asks npm or GitHub. */
+const TEST_SETTINGS = { enableProviderUpdateChecks: false };
+
 /**
- * Temporary folders for one session, removed when `use` ends. `settingsFile`, when given, is
- * t3's settings file (`<stateDir>/userdata/settings.json`), as JSON.
+ * Temporary folders for one session, removed when `use` ends: t3's state folder, an empty
+ * `bin` for the PATH and a home of its own, so no probe reaches the developer's own CLIs or
+ * logins. `settings` joins `TEST_SETTINGS` in t3's settings file
+ * (`<stateDir>/userdata/settings.json`).
  */
 const withFolders = <A, E, R>(
-  use: (folders: { stateDir: string; emptyBin: string }) => Effect.Effect<A, E, R>,
-  settingsFile?: string,
-) =>
-  Effect.acquireUseRelease(
+  use: (folders: { stateDir: string; env: Record<string, string> }) => Effect.Effect<A, E, R>,
+  settings: Record<string, unknown> = {},
+) => {
+  const settingsFile = JSON.stringify({ ...TEST_SETTINGS, ...settings });
+  return Effect.acquireUseRelease(
     Effect.sync(() => {
-      const folders = {
-        stateDir: mkdtempSync(join(tmpdir(), 'consola-host-state-')),
-        emptyBin: mkdtempSync(join(tmpdir(), 'consola-host-bin-')),
-      };
-      if (settingsFile !== undefined) {
-        mkdirSync(join(folders.stateDir, 'userdata'), { recursive: true });
-        writeFileSync(join(folders.stateDir, 'userdata', 'settings.json'), settingsFile);
-      }
-      return folders;
+      const stateDir = mkdtempSync(join(tmpdir(), 'consola-host-state-'));
+      const emptyBin = mkdtempSync(join(tmpdir(), 'consola-host-bin-'));
+      const home = mkdtempSync(join(tmpdir(), 'consola-host-home-'));
+      mkdirSync(join(stateDir, 'userdata'), { recursive: true });
+      writeFileSync(join(stateDir, 'userdata', 'settings.json'), settingsFile);
+      return { stateDir, emptyBin, home };
     }),
-    use,
+    ({ stateDir, emptyBin, home }) => use({ stateDir, env: { PATH: emptyBin, HOME: home } }),
     (folders) =>
       Effect.sync(() => {
-        rmSync(folders.stateDir, { recursive: true, force: true });
-        rmSync(folders.emptyBin, { recursive: true, force: true });
+        for (const dir of [folders.stateDir, folders.emptyBin, folders.home]) {
+          rmSync(dir, { recursive: true, force: true });
+        }
       }),
   );
+};
 
 /** t3 titles threads with Codex by default; a replay session has only Claude to ask. */
-const TITLE_WITH_CLAUDE = JSON.stringify({
+const TITLE_WITH_CLAUDE = {
   textGenerationModelSelection: { instanceId: 'claudeAgent', model: 'claude-haiku-5-5' },
-});
+};
 
-/** No CLI on the PATH: nothing the host probes or starts reaches the person's own tools. */
-const isolatedEnv = (emptyBin: string) => ({ PATH: emptyBin, HOME: process.env.HOME });
+/**
+ * Every request the code under test makes through `fetch` (t3's HTTP client uses it). A test
+ * fails when one was made: these tests run offline.
+ */
+const fetched: string[] = [];
+beforeAll(() => {
+  vi.stubGlobal('fetch', (input: string | URL | Request) => {
+    fetched.push(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url);
+    return Promise.reject(new Error('These tests make no network request.'));
+  });
+});
+afterAll(() => {
+  vi.unstubAllGlobals();
+});
+afterEach(() => {
+  const made = fetched.splice(0);
+  expect(made).toEqual([]);
+});
 
 /** The replay stands in for an installed, signed-in Claude: t3 asks it for thread titles. */
 const asInstalled = (provider: ServerProvider): ServerProvider => ({
@@ -190,7 +211,7 @@ const withReplay = <A, E>(
     );
     const cwd = yield* checkpointWorkspace(name, input?.workspaceFiles);
     return yield* withFolders(
-      ({ stateDir, emptyBin }) =>
+      ({ stateDir, env }) =>
         Effect.gen(function* () {
           const spec = sessionSpec(name, cwd, variant.modelSelection);
           const handle = yield* (yield* ThreadRuntime.ThreadRuntime).open(spec);
@@ -202,12 +223,13 @@ const withReplay = <A, E>(
         }).pipe(
           Effect.scoped,
           Effect.provide(
-            ThreadRuntime.layer({
-              stateDir,
-              env: isolatedEnv(emptyBin),
-              drivers: [replayClaudeDriver(transcript)],
-              ...(runtimeMode === undefined ? {} : { runtimeMode }),
-            }),
+            ThreadRuntime.layerForTests(
+              { stateDir, env },
+              {
+                drivers: [replayClaudeDriver(transcript)],
+                ...(runtimeMode === undefined ? {} : { runtimeMode }),
+              },
+            ),
           ),
         ),
       TITLE_WITH_CLAUDE,
@@ -281,17 +303,14 @@ describe('ThreadRuntime', () => {
   it(
     'opens a thread in approval-required mode, with the session id as its id',
     () =>
-      withFolders(({ stateDir, emptyBin }) =>
+      withFolders(({ stateDir, env }) =>
         Effect.gen(function* () {
           const spec = sessionSpec('defaults', stateDir);
           const handle = yield* (yield* ThreadRuntime.ThreadRuntime).open(spec);
           expect(handle.snapshot().thread.id).toBe(spec.sessionId);
           expect(handle.snapshot().thread.runtimeMode).toBe('approval-required');
           expect(ThreadRuntime.HOST_RUNTIME_MODE).toBe('approval-required');
-        }).pipe(
-          Effect.scoped,
-          Effect.provide(ThreadRuntime.layer({ stateDir, env: isolatedEnv(emptyBin) })),
-        ),
+        }).pipe(Effect.scoped, Effect.provide(ThreadRuntime.layer({ stateDir, env }))),
       ).pipe(Effect.runPromise),
     REPLAY_TIMEOUT_MS,
   );
@@ -439,18 +458,14 @@ describe('ThreadRuntime', () => {
         handle: ThreadRuntime.ThreadHandle;
       }) => Effect.Effect<A, E, Scope.Scope>,
     ) => {
-      const settingsFile = JSON.stringify(settings);
       return withFolders(
-        ({ stateDir, emptyBin }) =>
+        ({ stateDir, env }) =>
           Effect.gen(function* () {
             const spec = sessionSpec('host', stateDir);
             const handle = yield* (yield* ThreadRuntime.ThreadRuntime).open(spec);
             return yield* body({ spec, handle });
-          }).pipe(
-            Effect.scoped,
-            Effect.provide(ThreadRuntime.layer({ stateDir, env: isolatedEnv(emptyBin) })),
-          ),
-        settingsFile,
+          }).pipe(Effect.scoped, Effect.provide(ThreadRuntime.layer({ stateDir, env }))),
+        settings,
       ).pipe(Effect.runPromise);
     };
 
@@ -513,7 +528,11 @@ describe('ThreadRuntime', () => {
             );
 
             expect(statuses(projection)).toEqual(['failed']);
-            expect(projection.turnItems.find((item) => item.type === 'error')).toBeDefined();
+            // The adapter's own error for a CLI that never started, not some other failure.
+            const error = projection.turnItems.find((item) => item.type === 'error');
+            expect(error?.type === 'error' && error.failure.message).toMatch(
+              /^Claude Code process exited with code \d+ before it started\./,
+            );
           }),
         ),
       REPLAY_TIMEOUT_MS,

@@ -1,6 +1,6 @@
 import * as NodeCrypto from '@effect/platform-node/NodeCrypto';
 import * as NodeServices from '@effect/platform-node/NodeServices';
-import type { ProviderInstanceConfigMap } from '@t3tools/contracts';
+import type { ProviderInstanceConfig, ProviderInstanceConfigMap } from '@t3tools/contracts';
 import * as AcpRegistrySupport from '@t3tools/provider-acp-registry/server/AcpRegistrySupport';
 import { ClaudeAdapterV2 } from '@t3tools/provider-claude/server';
 import type { AnyProviderDriver } from '@t3tools/provider-core/server/driver';
@@ -17,6 +17,8 @@ import * as FetchHttpClient from 'effect/http/FetchHttpClient';
 import * as Layer from 'effect/Layer';
 import * as CheckpointStore from 't3/checkpointing/CheckpointStore.ts';
 import * as ServerConfig from 't3/config.ts';
+import * as BackgroundPolicy from 't3/background/BackgroundPolicy.ts';
+import * as HostPowerMonitor from 't3/background/HostPowerMonitor.ts';
 import * as ServerEnvironment from 't3/environment/ServerEnvironment.ts';
 import * as GitManager from 't3/git/GitManager.ts';
 import * as GitWorkflowService from 't3/git/GitWorkflowService.ts';
@@ -37,6 +39,7 @@ import * as WorktreeSetupTracker from 't3/project/WorktreeSetupTracker.ts';
 import * as CodexInstallation from 't3/provider/CodexInstallation.ts';
 import * as CodexManagedTokenBroker from 't3/provider/CodexManagedTokenBroker.ts';
 import * as ModelManifest from 't3/provider/ModelManifest.ts';
+import * as ProviderHostLive from 't3/provider/ProviderHostLive.ts';
 import * as ProviderInstallationGate from 't3/provider/ProviderInstallationGate.ts';
 import * as ProviderInstanceRegistry from 't3/provider/ProviderInstanceRegistry.ts';
 import * as ProviderInstanceRegistryHydration from 't3/provider/ProviderInstanceRegistryHydration.ts';
@@ -67,7 +70,6 @@ import * as VcsProjectConfig from 't3/vcs/VcsProjectConfig.ts';
 import * as TaskFolders from 't3/workspace/TaskFolders.ts';
 import * as TaskFolderStore from 't3/workspace/TaskFolderStore.ts';
 import * as HostStandIns from './standIns.ts';
-import { makeProviderHost } from './providerHost.ts';
 
 export interface OrchestrationOptions<R> {
   /** Where t3's server paths live (`userdata/`, `caches/`, `worktrees/`). */
@@ -122,6 +124,17 @@ const layerServerConfig = (stateDir: string) =>
   );
 
 /**
+ * A Codex instance in t3's managed mode: t3 signs a ChatGPT account in itself, keeps its tokens in
+ * its secret store and calls OpenAI with them (`CodexManagedProvider.ts`, `CodexChatGptAuth.ts`).
+ * The host runs only the person's own `codex` with its own login, so it never hydrates one.
+ */
+const isManagedCodex = (entry: ProviderInstanceConfig): boolean =>
+  entry.driver === 'codex' &&
+  typeof entry.config === 'object' &&
+  entry.config !== null &&
+  (entry.config as { readonly setupMode?: unknown }).setupMode === 'managed';
+
+/**
  * t3's provider instances, hydrated as `ProviderInstanceRegistryHydration.layer` does, but from
  * `drivers` rather than t3's `BUILT_IN_DRIVERS` (which include Cursor): the instances t3 derives
  * from the settings, for those drivers only, over the adapters' own infrastructure.
@@ -135,7 +148,7 @@ const layerProviderInstances = <R>(options: OrchestrationOptions<R>) =>
       const configMap = Object.fromEntries(
         Object.entries(
           ProviderInstanceRegistryHydration.deriveProviderInstanceConfigMap(settings),
-        ).filter(([, entry]) => kinds.has(entry.driver)),
+        ).filter(([, entry]) => kinds.has(entry.driver) && !isManagedCodex(entry)),
       ) as ProviderInstanceConfigMap;
       const hostEnvironment = ManagedProviders.providerHostEnvironment(
         serverSettings.managedPolicy,
@@ -160,7 +173,6 @@ const layerProviderInstances = <R>(options: OrchestrationOptions<R>) =>
         // t3's hydration; this sits closest to the registry, so it wins over `env`.
         Layer.provide(Layer.succeed(HostProcess.Environment, hostEnvironment)),
         Layer.provide(AcpRegistrySupport.layerFromHost),
-        Layer.provide(makeProviderHost({ stateDir: options.stateDir, env: options.env })),
         Layer.provide(SecretResolver.layer),
       );
     }),
@@ -213,9 +225,28 @@ const layerTaskFolders = TaskFolders.layer.pipe(
 
 /**
  * What t3's `server.ts` builds beneath the runtime for its providers and settings: the server's
- * config, in-memory SQLite, settings, and the services the provider drivers read. All t3's own,
- * but the secret store (`standIns.ts`) and the event loggers (t3's no-op).
+ * config, in-memory SQLite, settings, t3's provider host and the services the provider drivers
+ * read. All t3's own, but the secret store (`standIns.ts`), the event loggers (t3's no-op) and
+ * the port scanner (t3's mock).
  */
+/** t3's config, persistence, settings and background policy beneath its provider services. */
+const layerServerBase = (stateDir: string, env: Record<string, string | undefined>) =>
+  BackgroundPolicy.layer.pipe(
+    // t3's power monitor with no desktop app to report the host's power state: unknown.
+    Layer.provideMerge(Layer.effect(HostPowerMonitor.HostPowerMonitor, HostPowerMonitor.make())),
+    Layer.provideMerge(ServerSettings.layer.pipe(Layer.provideMerge(ManagedPolicy.layer))),
+    Layer.provideMerge(HostStandIns.layerSecretStore),
+    Layer.provideMerge(SqlitePersistence.layerMemory),
+    Layer.provideMerge(layerServerConfig(stateDir)),
+    // What every process the composition starts (git, a CLI) inherits, and the home t3 reads.
+    Layer.provideMerge(Layer.succeed(HostProcess.Environment, env)),
+    Layer.provideMerge(
+      env.HOME === undefined ? Layer.empty : Layer.succeed(HostProcess.HomeDirectory, env.HOME),
+    ),
+    Layer.provideMerge(FetchHttpClient.layer),
+    Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+  );
+
 const layerServerInfrastructure = (stateDir: string, env: Record<string, string | undefined>) =>
   OpenCodeRuntime.layer.pipe(
     Layer.provide(
@@ -228,6 +259,8 @@ const layerServerInfrastructure = (stateDir: string, env: Record<string, string 
     ),
     Layer.provideMerge(CodexManagedTokenBroker.layer),
     Layer.provideMerge(CodexInstallation.CodexInstallation.layer),
+    // t3's own provider host, over the same config, settings and (refusing) secret store.
+    Layer.provideMerge(ProviderHostLive.layer),
     Layer.provideMerge(ServerEnvironment.layerIdentity),
     Layer.provideMerge(ModelManifest.layerModelCatalog),
     Layer.provideMerge(ModelManifest.layer),
@@ -242,14 +275,7 @@ const layerServerInfrastructure = (stateDir: string, env: Record<string, string 
         ProviderEventLoggers.NoOpProviderEventLoggers,
       ),
     ),
-    Layer.provideMerge(ServerSettings.layer.pipe(Layer.provideMerge(ManagedPolicy.layer))),
-    Layer.provideMerge(HostStandIns.layerSecretStore),
-    Layer.provideMerge(SqlitePersistence.layerMemory),
-    Layer.provideMerge(layerServerConfig(stateDir)),
-    // What every process the composition starts (git, a CLI) inherits.
-    Layer.provideMerge(Layer.succeed(HostProcess.Environment, env)),
-    Layer.provideMerge(FetchHttpClient.layer),
-    Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+    Layer.provideMerge(layerServerBase(stateDir, env)),
   );
 
 /**

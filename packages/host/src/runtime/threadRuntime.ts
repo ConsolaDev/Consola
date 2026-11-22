@@ -79,15 +79,13 @@ export interface ThreadRuntimeOptions {
   readonly stateDir: string;
   /** The environment the CLIs start with, where each finds its own login. */
   readonly env: Record<string, string | undefined>;
-  /**
-   * For tests only, the seam t3's replay harness uses: drivers in place of `HOST_DRIVERS`, such
-   * as Claude's driver with a replay adapter. The host never sets it.
-   */
+}
+
+/** What only a test may change: see `layerForTests`. */
+export interface ThreadRuntimeTestSeam {
+  /** Drivers in place of `HOST_DRIVERS`, such as Claude's driver on t3's replay adapter. */
   readonly drivers?: ReadonlyArray<AnyProviderDriver<HostDriversEnv>>;
-  /**
-   * For tests only: the mode a replayed fixture was recorded in. The host never sets it, so a
-   * thread always opens in `approval-required` (see `HOST_RUNTIME_MODE`).
-   */
+  /** The mode a replayed fixture was recorded in, in place of `HOST_RUNTIME_MODE`. */
   readonly runtimeMode?: RuntimeMode;
 }
 
@@ -111,7 +109,7 @@ export class ThreadRuntime extends Context.Service<
  * files the session's folder as its project, and creates its thread. Closing the scope stops the
  * provider session and drops the thread. t3's logs go to stderr.
  */
-export const layer = (options: ThreadRuntimeOptions): Layer.Layer<ThreadRuntime> =>
+const make = (options: ThreadRuntimeOptions, seam: ThreadRuntimeTestSeam) =>
   Layer.succeed(
     ThreadRuntime,
     ThreadRuntime.of({
@@ -126,7 +124,7 @@ export const layer = (options: ThreadRuntimeOptions): Layer.Layer<ThreadRuntime>
           layerOrchestration({
             stateDir: options.stateDir,
             env: options.env,
-            drivers: options.drivers ?? HOST_DRIVERS,
+            drivers: seam.drivers ?? HOST_DRIVERS,
           }),
         ).pipe(Effect.mapError(failed('open')), toStderr);
         yield* startOrchestration.pipe(
@@ -156,7 +154,7 @@ export const layer = (options: ThreadRuntimeOptions): Layer.Layer<ThreadRuntime>
             projectId,
             title: 'New thread',
             modelSelection: spec.modelSelection ?? defaultModelSelection(spec.harness),
-            runtimeMode: options.runtimeMode ?? HOST_RUNTIME_MODE,
+            runtimeMode: seam.runtimeMode ?? HOST_RUNTIME_MODE,
             interactionMode: 'default',
             branch: null,
             worktreePath: null,
@@ -217,3 +215,16 @@ export const layer = (options: ThreadRuntimeOptions): Layer.Layer<ThreadRuntime>
       }),
     }),
   );
+
+/** The host's thread runtime: `HOST_DRIVERS`, every thread in `HOST_RUNTIME_MODE`. */
+export const layer = (options: ThreadRuntimeOptions): Layer.Layer<ThreadRuntime> =>
+  make(options, {});
+
+/**
+ * `layer` with the seam t3's replay harness uses, for tests only: `boundary.test.ts` refuses
+ * every name ending in `ForTests` outside a test file, so the host cannot reach it.
+ */
+export const layerForTests = (
+  options: ThreadRuntimeOptions,
+  seam: ThreadRuntimeTestSeam,
+): Layer.Layer<ThreadRuntime> => make(options, seam);
