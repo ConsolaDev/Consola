@@ -48,6 +48,11 @@ import { rankShortcutKinds, recordUse, sanitizeUsage, type UsageLog } from '../s
  * same remember setting. Showing or hiding it counts nothing and asks for no
  * focus: the panel never takes the keyboard.
  *
+ * A row of the info panel with a place in a tab behind it (the checks line,
+ * the pull request's merge card) asks with `reveal`: it opens the kind
+ * exactly as `openKind` does, counting and asking for focus by the same
+ * rule, and leaves a `revealRequest` the kind's view acts on once.
+ *
  * Persisted to localStorage, which every window shares: each window holds its
  * own copy and the last write wins, as for the other renderer preferences.
  */
@@ -58,6 +63,19 @@ export const FOCUS_REQUEST_TTL_MS = 5_000;
 
 /** What a focus request names: a kind, or the placeholder, whose "+" list takes the keyboard. */
 export type FocusTarget = TabKindId | typeof Layout.NEW_TAB;
+
+/**
+ * A place inside a kind's view that the person asked to see (the info
+ * panel's checks line asks for the pull request's merge card), for one
+ * session. Every ask is a new `seq`, which the view acts on once.
+ */
+export interface RevealRequest {
+  kind: TabKindId;
+  sessionId: string;
+  /** What the kind's view knows the place as. */
+  target: string;
+  seq: number;
+}
 
 export interface PersistedSidePanel {
   layout?: SidePanelLayout;
@@ -77,7 +95,11 @@ export interface SidePanelState {
   rememberLayout: boolean;
   /** Not persisted: the kind, or the "+" list, the person just asked for, which its view may focus once. */
   focusRequest: { kind: FocusTarget; at: number } | null;
+  /** Not persisted: the last place asked for inside a kind's view. */
+  revealRequest: RevealRequest | null;
   openKind(kind: TabKindId): void;
+  /** openKind(kind), then, with a target, a new request the kind's view acts on once. */
+  reveal(kind: TabKindId, sessionId: string, target?: string): void;
   pressShortcut(kind: TabKindId): void;
   bringToFront(groupId: GroupId, tab: TabId): void;
   closeTab(groupId: GroupId, tab: TabId): void;
@@ -176,8 +198,21 @@ export const useSidePanelStore = create<SidePanelState>()(
         shortcutKinds: rankShortcutKinds({}, TAB_KIND_IDS, Date.now()),
         rememberLayout: true,
         focusRequest: null,
+        revealRequest: null,
 
         openKind: (kind) => open(Layout.openKind(get().layout, kind), kind),
+        reveal: (kind, sessionId, target) => {
+          get().openKind(kind);
+          if (target === undefined) return;
+          set((state) => ({
+            revealRequest: {
+              kind,
+              sessionId,
+              target,
+              seq: (state.revealRequest?.seq ?? 0) + 1,
+            },
+          }));
+        },
         pressShortcut: (kind) => open(Layout.pressShortcut(get().layout, kind), kind),
         bringToFront: (groupId, tab) => {
           const next = Layout.bringToFront(get().layout, groupId, tab);

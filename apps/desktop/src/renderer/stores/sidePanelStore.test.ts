@@ -368,6 +368,72 @@ describe('counts what the person opens, and nothing else', () => {
   });
 });
 
+describe('reveal', () => {
+  it('reveal opens the kind and leaves one request per click', () => {
+    const openKind = vi.spyOn(state(), 'openKind');
+    try {
+      state().reveal('pull-request', 's1', 'merge');
+      const first = state().revealRequest;
+      expect(first).toMatchObject({ kind: 'pull-request', sessionId: 's1', target: 'merge' });
+      expect(openKind).toHaveBeenCalledTimes(1);
+      expect(openKind).toHaveBeenLastCalledWith('pull-request');
+      expect(isInFront(state().layout, 'pull-request')).toBe(true);
+
+      // The same place twice is two requests: each click is acted on once.
+      state().reveal('pull-request', 's1', 'merge');
+      expect(state().revealRequest).toEqual({ ...first, seq: (first?.seq ?? 0) + 1 });
+      state().reveal('pull-request', 's2', 'files');
+      expect(state().revealRequest).toEqual({
+        kind: 'pull-request',
+        sessionId: 's2',
+        target: 'files',
+        seq: (first?.seq ?? 0) + 2,
+      });
+      expect(openKind).toHaveBeenCalledTimes(3);
+    } finally {
+      openKind.mockRestore();
+    }
+  });
+
+  it('without a target it only opens the kind, and sets no request', () => {
+    state().reveal('pull-request', 's1');
+    expect(isInFront(state().layout, 'pull-request')).toBe(true);
+    expect(state().revealRequest).toBeNull();
+
+    state().reveal('pull-request', 's1', 'files');
+    const request = state().revealRequest;
+    state().reveal('pull-request', 's1');
+    expect(state().revealRequest).toBe(request);
+  });
+
+  it('counts a use and asks for focus exactly as openKind would', () => {
+    state().reveal('pull-request', 's1', 'merge');
+    expect(usesOf('pull-request')).toBe(1);
+    expect(state().focusRequest?.kind).toBe('pull-request');
+    state().takeFocusRequest('pull-request');
+
+    // Already in front on screen: nothing mounts, so nothing counts or asks.
+    state().reveal('pull-request', 's1', 'files');
+    expect(usesOf('pull-request')).toBe(1);
+    expect(state().focusRequest).toBeNull();
+
+    // Behind another tab: brought forward, counted once more.
+    state().openKind('changes');
+    state().takeFocusRequest('changes');
+    state().reveal('pull-request', 's1', 'merge');
+    expect(usesOf('pull-request')).toBe(2);
+    expect(state().focusRequest?.kind).toBe('pull-request');
+  });
+
+  it('is never written', () => {
+    state().reveal('pull-request', 's1', 'merge');
+    expect(partializeSidePanel(state())).not.toHaveProperty('revealRequest');
+    expect(
+      mergeSidePanelState(undefined, useSidePanelStore.getInitialState(), NOW).revealRequest,
+    ).toBeNull();
+  });
+});
+
 describe('the shortcut set does not change while the app runs', () => {
   it('keeps the same set through any number of uses', () => {
     const before = state().shortcutKinds;

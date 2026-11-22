@@ -72,6 +72,52 @@
   gap: 2px;
 }
 
+/* A control beside a heading: open on the provider, refresh, Run. Quiet
+   until pointed at, so the heading still reads first. */
+.info-section-action {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--color-text-tertiary);
+  font: inherit;
+  font-size: 11.5px;
+  text-decoration: none;
+  cursor: pointer;
+}
+.info-section-action:hover,
+.info-section-action[data-state="open"] {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+.info-section-action:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+
+/* The Run menu's trigger, the one with words. */
+.info-section-run {
+  padding: 0 4px 0 6px;
+  color: var(--color-text-secondary);
+}
+
+/* Kept under reduced motion: it is the only sign a read is in flight. */
+.info-section-action-spin {
+  animation: info-section-spin 900ms linear infinite;
+}
+@keyframes info-section-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .info-section-body {
   display: flex;
   flex-direction: column;
@@ -188,4 +234,99 @@ button.info-row:focus-visible {
 /* A linked worktree, in the hue the header and the sidebar give one. */
 .info-icon-worktree {
   color: var(--color-worktree);
+}
+
+/* Under a pull request's title, lined up with it: its state (the pane's own
+   badge, smaller), the branch it merges into, and the session's action. */
+.info-pr-meta {
+  --inbox-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  padding: 0 8px 4px 32px;
+  color: var(--color-text-secondary);
+  font-size: 11.5px;
+}
+.info-pr-meta .inbox-detail-state {
+  height: 20px;
+  gap: 4px;
+  padding: 0 7px 0 5px;
+  font-size: 11px;
+}
+.info-pr-meta .inbox-detail-state svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* A fact about the session, never a control: no edge, no hover. */
+.info-pr-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  color: var(--color-text-tertiary);
+}
+
+/* The reviewers, overlapping, each ringed by where they stand: a gap in the
+   panel's colour, then the ring. */
+.info-reviewers {
+  display: inline-flex;
+  align-items: center;
+  /* The rings are drawn outside each avatar's box. */
+  padding: 0 1.5px;
+}
+.info-reviewer {
+  --ring: color-mix(in srgb, var(--color-text-tertiary) 75%, transparent);
+  display: inline-flex;
+  padding: 1.5px;
+  border-radius: 999px;
+  background: var(--color-bg-primary);
+  box-shadow: 0 0 0 1.5px var(--ring);
+}
+.info-reviewer + .info-reviewer {
+  margin-left: -4px;
+}
+.info-reviewer[data-ring="approved"] {
+  --ring: var(--color-success);
+}
+.info-reviewer[data-ring="changes-requested"] {
+  --ring: var(--color-error);
+}
+
+/* A quiet state: one muted sentence, wrapped, and what can be done about it. */
+.info-quiet {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 4px 8px;
+}
+.info-quiet-text {
+  margin: 0;
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-sm);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.info-quiet-action {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 6px;
+  background: none;
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.info-quiet-action:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+.info-quiet-action:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
 }

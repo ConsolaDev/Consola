@@ -1,9 +1,11 @@
 import { Diff, GitBranch, GitCompare } from 'lucide-react';
 import { baseLine, branchLabel, pushValue, uncommittedValue } from '../../infoPanel/branchLines';
+import { detailsTargetOf, sessionPullRequest } from '../../infoPanel/sessionPullRequest';
 import type { TabFacts } from '../../sidePanel/tabKinds';
 import { useBranchFacts } from '../../stores/branchFactsStore';
 import { statsFor, useGitStatusStore } from '../../stores/gitStatusStore';
 import { useSidePanelStore } from '../../stores/sidePanelStore';
+import { type DetailsTarget, useDetailsEntry } from '../../stores/workItemDetailsStore';
 import { DiffCounts } from '../Inbox/WorkItemDetailParts';
 import { InfoRow } from './InfoRow';
 import { InfoSection } from './InfoSection';
@@ -12,9 +14,10 @@ const ICON_SIZE = 14;
 
 /**
  * The checkout's branch: what waits to be pushed, what is uncommitted, and
- * how far it has come from its base. Every count is what the clone already
- * holds; nothing is fetched. Drawn only for a checkout git knows, or a
- * removed worktree (`branchSectionShown`).
+ * how far it has come from its base, the session's pull request's when its
+ * details are known. Every count is what the clone already holds; nothing is
+ * fetched. Drawn only for a checkout git knows, or a removed worktree
+ * (`branchSectionShown`).
  */
 export function BranchSection({ facts }: { facts: TabFacts }) {
   return (
@@ -38,12 +41,29 @@ function BranchRows({ facts }: { facts: TabFacts }) {
     );
   }
   if (facts.checkoutPath === undefined) return null;
-  return <CheckoutRows dir={facts.checkoutPath} label={label} />;
+  return (
+    <CheckoutRows
+      dir={facts.checkoutPath}
+      label={label}
+      pullRequest={detailsTargetOf(facts.workspace, sessionPullRequest(facts.session)?.ref)}
+    />
+  );
 }
 
-function CheckoutRows({ dir, label }: { dir: string; label: string }) {
-  // Against origin's default branch (`origin/HEAD`).
-  const facts = useBranchFacts(dir, undefined);
+function CheckoutRows({
+  dir,
+  label,
+  pullRequest,
+}: {
+  dir: string;
+  label: string;
+  pullRequest: DetailsTarget | null;
+}) {
+  // Against the pull request's base once its details have been read, else
+  // origin's default branch (`origin/HEAD`). The details are only looked up
+  // here, never read for this: the Pull request section and the tab read them.
+  const baseBranch = useDetailsEntry(pullRequest)?.details?.baseBranch;
+  const facts = useBranchFacts(dir, baseBranch);
   const base = facts && baseLine(facts.base);
   return (
     <>

@@ -6,6 +6,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import type { WorkItemRef } from '../../src/shared/workItems';
 import { createProfileDir, launchElectron } from './helpers/electron';
+import { infoSection } from './helpers/infoPanel';
 
 const STUB_GH_DIR = path.resolve(__dirname, '../fixtures/stub-gh');
 const PR51_KEY = 'github:sprocket/catalog-portal:pr:51';
@@ -1123,6 +1124,14 @@ test('a linked session shows its item pane beside the terminal, and Fix pastes i
 
     // A pane nobody can see reads nothing: the next linked session arrives
     // with its Pull request tab behind Changes, and its item is not read.
+    // The info panel's Pull request section would read #52 at once, so it is
+    // folded first: folded, it reads nothing, and only the pane is counted.
+    const prHeading = infoSection(page, 'Pull request').getByRole('button', {
+      name: 'Pull request',
+      exact: true,
+    });
+    await prHeading.click();
+    await expect(prHeading).toHaveAttribute('aria-expanded', 'false');
     await page.locator('.session-nav-item', { hasText: 'PR #52 · Review' }).click();
     await expect(strip).toContainText('#52');
     await expect(panel).toHaveCount(0);
@@ -1138,6 +1147,8 @@ test('a linked session shows its item pane beside the terminal, and Fix pastes i
       timeout: 15_000,
     });
     await expect(pane.locator('.inbox-pane-meta .inbox-detail-state')).toHaveText('Open');
+    await prHeading.click();
+    await expect(prHeading).toHaveAttribute('aria-expanded', 'true');
 
     // A session with no item keeps the tab, and says why it has nothing to show.
     await page.locator('.session-nav-item', { hasText: 'Notes on billing' }).click();
@@ -1149,6 +1160,11 @@ test('a linked session shows its item pane beside the terminal, and Fix pastes i
     await expect(pane.getByRole('heading', { name: 'Extract billing client' })).toBeVisible();
     await expect(thisRow).toContainText('This session');
     await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+
+    // Folded again, and left so: the info panel would read #53 the moment
+    // the session is relinked, and this counts the pane's reads alone.
+    await prHeading.click();
+    await expect(prHeading).toHaveAttribute('aria-expanded', 'false');
 
     // A pane relinked behind another tab reads nothing until it is in front.
     // Main relinks only a session that was unlinked first, and an unlinked

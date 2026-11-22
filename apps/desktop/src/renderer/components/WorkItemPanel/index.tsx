@@ -2,6 +2,7 @@ import { useRef } from 'react';
 import { sameWorkItem, workItemKey, workItemUrl } from '../../../shared/workItems';
 import type { InboxItem, WorkItemRef } from '../../../shared/workItems';
 import type { Session } from '../../../shared/workspace';
+import type { RevealTarget } from '../../infoPanel/pullRequestLines';
 import { terminalBridge } from '../../services/terminalBridge';
 import { useInboxStore } from '../../stores/inboxStore';
 import { useTerminalStore } from '../../stores/terminalStore';
@@ -18,6 +19,8 @@ interface WorkItemPanelProps {
   onClose: () => void;
   /** Whether its tab is in front on screen: only then does the pane read the item. */
   active: boolean;
+  /** A place in the item the person asked to see from the info panel. */
+  reveal?: { at: RevealTarget; seq: number };
 }
 
 /**
@@ -57,6 +60,7 @@ export function WorkItemPanel({
   workItem,
   onClose,
   active,
+  reveal,
 }: WorkItemPanelProps) {
   const workspace = useWorkspaceStore((state) =>
     state.workspaces.find((candidate) => candidate.id === workspaceId),
@@ -107,6 +111,7 @@ export function WorkItemPanel({
         fixInSession={session.toolPolicy === 'read-only' ? undefined : pasteIntoSession}
         active={active}
         landmark={false}
+        reveal={reveal}
       />
     </div>
   );

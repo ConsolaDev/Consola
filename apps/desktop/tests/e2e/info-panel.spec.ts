@@ -4,6 +4,7 @@ import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import type { NewSessionFields } from '../../src/shared/workspace';
 import { commandPaletteChord, launchElectron } from './helpers/electron';
 import { infoPanel, infoPanelChord, infoSection } from './helpers/infoPanel';
 
@@ -112,7 +113,7 @@ test.describe('info panel', () => {
           accountLogin: 'JaviDev',
           org: 'sprocket',
         });
-        const session = (name: string, instanceId: string, cwd?: string) =>
+        const session = (name: string, instanceId: string, more: Partial<NewSessionFields> = {}) =>
           window.workspaceAPI.createSession(workspace.id, {
             name,
             nameIsUserSet: true,
@@ -120,11 +121,16 @@ test.describe('info panel', () => {
             instanceId,
             harnessId: 'info-panel-stub',
             scopeId: workspace.scopes[0].id,
-            ...(cwd ? { cwd } : {}),
+            ...more,
           });
         await session('Paginate the catalog search', 'info-a');
-        await session('Update the readme', 'info-b', docs);
-        await session('Review notes', 'info-c', notes);
+        await session('Update the readme', 'info-b', { cwd: docs });
+        await session('Review notes', 'info-c', { cwd: notes });
+        // Started from #51 with the Fix CI action, in the clone's own checkout.
+        await session('Fix CI for billing', 'info-d', {
+          workItem: { provider: 'github', repo: 'sprocket/catalog-portal', type: 'pr', number: 51 },
+          workItemAction: 'Fix CI',
+        });
       },
       { repo, docs, notes, stub },
     );
@@ -177,6 +183,29 @@ test.describe('info panel', () => {
     infoSection(page, 'Branch')
       .locator('.info-row')
       .filter({ hasText: `vs ${ref}` });
+  /** Session D, started from #51: its sidebar row reads as the item and the action. */
+  const FIX_CI = 'PR #51 · Fix CI';
+  const prSection = () => infoSection(page, 'Pull request');
+  /** The controls beside the section's heading, drawn while it is open. */
+  const prActions = () => prSection().locator('.info-section-actions');
+  const prTitle = () =>
+    prSection().getByRole('button', { name: 'Extract billing client #51', exact: true });
+  /** The pane in the side panel's Pull request tab, where GitHub's item is drawn. */
+  const remote = () =>
+    page.getByTestId('work-item-panel').getByRole('region', { name: 'Remote item details' });
+  const sidePanelTab = (name: string) =>
+    page.getByRole('tablist', { name: 'Side panel tabs' }).getByRole('tab', { name, exact: true });
+  /**
+   * How many times #51's details were read: each read asks REST for its
+   * changed files, alongside its GraphQL queries, so those requests count
+   * the reads.
+   */
+  const detailReadsOf51 = () => {
+    const log = env.STUB_GH_LOG;
+    return (fs.existsSync(log) ? fs.readFileSync(log, 'utf8') : '')
+      .split('\n')
+      .filter((line) => line.includes('repos/sprocket/catalog-portal/pulls/51/files')).length;
+  };
 
   test('the info panel sits beside the conversation, and its toggle and chord hide and show it', async () => {
     await openSession('Paginate the catalog search');
@@ -350,5 +379,150 @@ test.describe('info panel', () => {
     await expect(header.getByRole('button', { name: 'Wake', exact: true })).toBeVisible();
     await expect(header.getByRole('button', { name: /^(Show|Hide) side panel/ })).toBeVisible();
     expect(await coveredHeaderControls()).toEqual([]);
+  });
+
+  test("a linked session's pull request, at a glance", async () => {
+    await openSession(FIX_CI);
+    const section = prSection();
+    await expect(prTitle()).toBeVisible();
+    // The state in the pane's own words, the base, and the action as a fact.
+    await expect(section.getByText('Open', { exact: true })).toBeVisible();
+    await expect(section.getByText('into main', { exact: true })).toBeVisible();
+    await expect(section.getByText('Fix CI', { exact: true })).toBeVisible();
+    await expect(section.getByText('Fix CI', { exact: true })).toHaveAttribute(
+      'title',
+      'Started with the Fix CI action',
+    );
+    await expect(section.getByRole('button', { name: 'Fix CI', exact: true })).toHaveCount(0);
+
+    const checks = section.locator('.info-row').filter({ hasText: '1 check failing' });
+    await expect(checks).toContainText('1 ✓');
+    await expect(checks).toHaveAttribute('data-tone', 'error');
+    const review = section.locator('.info-row').filter({ hasText: 'Changes requested' });
+    await expect(review.locator('.inbox-detail-avatar')).toHaveCount(3);
+    await expect(section.getByText('2 unresolved threads', { exact: true })).toBeVisible();
+    await expect(
+      section.getByText('Blocked until requirements pass', { exact: true }),
+    ).toBeVisible();
+
+    await expect(
+      prActions().getByRole('link', { name: 'Open on GitHub', exact: true }),
+    ).toHaveAttribute('href', 'https://github.com/sprocket/catalog-portal/pull/51');
+    await expect(
+      prActions().getByRole('button', { name: 'Refresh pull request', exact: true }),
+    ).toBeVisible();
+    await expect(
+      prActions().getByRole('button', { name: 'Run an action in Fix CI for billing', exact: true }),
+    ).toBeVisible();
+    await page.screenshot({
+      path: path.join(test.info().outputDir, 'info-panel-pull-request.png'),
+    });
+
+    // An unlinked session on a branch has nothing to show until it is looked up.
+    await openSession('Paginate the catalog search');
+    await expect(infoSection(page, 'Branch')).toBeVisible();
+    await expect(prSection()).toHaveCount(0);
+  });
+
+  test('a pull request line opens the tab where the pane has it', async () => {
+    await openSession(FIX_CI);
+    const section = prSection();
+    await expect(page.getByTestId('side-panel')).toHaveCount(0);
+
+    // Checks: the merge card, in the Conversation tab, scrolled to.
+    await section.getByRole('button', { name: /^1 check failing/ }).click();
+    await expect(sidePanelTab('Pull request #51')).toHaveAttribute('aria-selected', 'true');
+    const merge = remote().getByRole('region', { name: 'Merge' });
+    await expect(merge).toBeInViewport();
+    await expect
+      .poll(() => page.getByTestId('work-item-panel').evaluate((element) => element.scrollTop))
+      .toBeGreaterThan(0);
+
+    // Threads: Files changed.
+    const files = remote().getByRole('tab', { name: /^Files changed/ });
+    await section.getByRole('button', { name: /^2 unresolved threads/ }).click();
+    await expect(files).toHaveAttribute('aria-selected', 'true');
+
+    // The title only opens the tab, which is already open: nothing moves.
+    await prTitle().click();
+    await expect(sidePanelTab('Pull request #51')).toHaveAttribute('aria-selected', 'true');
+    await expect(files).toHaveAttribute('aria-selected', 'true');
+
+    // The same place asked for again is a new ask, acted on again.
+    await section.getByRole('button', { name: /^1 check failing/ }).click();
+    await expect(remote().getByRole('tab', { name: /^Conversation/ })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    await expect(merge).toBeInViewport();
+  });
+
+  test('one read for the section and the tab together, and none while folded or hidden', async () => {
+    await openSession(FIX_CI);
+    const section = prSection();
+    await expect(section.getByText('2 unresolved threads', { exact: true })).toBeVisible();
+    expect(detailReadsOf51()).toBe(1);
+
+    // The tab shows the section's read.
+    await prTitle().click();
+    await expect(remote().getByRole('region', { name: 'Merge' })).toBeAttached();
+    expect(detailReadsOf51()).toBe(1);
+
+    // Folded, with the tab behind Changes: neither reads, on the way back either.
+    const heading = section.getByRole('button', { name: 'Pull request', exact: true });
+    await heading.click();
+    await expect(heading).toHaveAttribute('aria-expanded', 'false');
+    await page.getByRole('button', { name: 'Changes', exact: true }).click();
+    await expect(sidePanelTab('Changes')).toHaveAttribute('aria-selected', 'true');
+    await openSession('Paginate the catalog search');
+    await openSession(FIX_CI);
+    await expect(heading).toHaveAttribute('aria-expanded', 'false');
+    await page.waitForTimeout(1000);
+    expect(detailReadsOf51()).toBe(1);
+
+    // Hidden: the same.
+    await page.getByRole('button', { name: 'Hide info panel', exact: true }).click();
+    await expect(infoPanel(page)).toHaveCount(0);
+    await openSession('Paginate the catalog search');
+    await openSession(FIX_CI);
+    await expect(sidePanelTab('Changes')).toHaveAttribute('aria-selected', 'true');
+    await page.waitForTimeout(1000);
+    expect(detailReadsOf51()).toBe(1);
+
+    // Shown and unfolded, the read is still fresh: nothing is asked.
+    await page.getByRole('button', { name: 'Show info panel', exact: true }).click();
+    await heading.click();
+    await expect(section.getByText('2 unresolved threads', { exact: true })).toBeVisible();
+    await page.waitForTimeout(1000);
+    expect(detailReadsOf51()).toBe(1);
+
+    // The person's Refresh always reads.
+    await prActions().getByRole('button', { name: 'Refresh pull request', exact: true }).click();
+    await expect.poll(detailReadsOf51).toBe(2);
+  });
+
+  test("the Branch section compares with the pull request's base", async () => {
+    // Against origin's default branch, as for any session.
+    await openSession('Paginate the catalog search');
+    await expect(baseRow('origin/main')).toContainText('3 files');
+    const againstMain = await baseRow('origin/main').textContent();
+
+    // origin's default branch is now the branch's own upstream, which an
+    // unlinked session does not compare with. The pull request's base is
+    // still main, which D compares with.
+    git(
+      repo,
+      'symbolic-ref',
+      'refs/remotes/origin/HEAD',
+      'refs/remotes/origin/feat/search-pagination',
+    );
+    await openSession(FIX_CI);
+    await expect(prSection().getByText('into main', { exact: true })).toBeVisible();
+    await expect(baseRow('origin/main')).toContainText('3 files');
+    expect(await baseRow('origin/main').textContent()).toBe(againstMain);
+
+    await openSession('Paginate the catalog search');
+    await expect(branchRow('feat/search-pagination')).toContainText('↑2');
+    await expect(baseRow('origin/')).toHaveCount(0);
   });
 });

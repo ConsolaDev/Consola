@@ -1,4 +1,5 @@
 import { type ComponentType, useState } from 'react';
+import { isRevealTarget } from '../../infoPanel/pullRequestLines';
 import { isInFront } from '../../sidePanel/layout';
 import type { TabFacts, TabKindId } from '../../sidePanel/tabKinds';
 import { useSidePanelStore } from '../../stores/sidePanelStore';
@@ -23,10 +24,12 @@ export interface TabViewProps {
  * front (`active`): a seen pane behind another tab is neither read again once
  * stale nor polled for its mergeability, so it spends none of the account's
  * request budget. The slot is keyed by session, so arriving on another
- * session starts unseen again.
+ * session starts unseen again. A place asked for from the info panel (the
+ * merge card, Files changed) is handed to the pane, for this session only.
  */
 function PullRequestView({ facts, close }: TabViewProps) {
   const inFront = useSidePanelStore((state) => isInFront(state.layout, 'pull-request'));
+  const request = useSidePanelStore((state) => state.revealRequest);
   const [hasBeenInFront, setHasBeenInFront] = useState(inFront);
   // Derived from the previous render, so set during render rather than in an
   // effect: the pane mounts in the same commit that brings the tab forward.
@@ -35,6 +38,12 @@ function PullRequestView({ facts, close }: TabViewProps) {
   // Pull request is unavailable without a linked item, so that null never shows.
   const workItem = facts.session.workItem;
   if (!hasBeenInFront || !workItem) return null;
+  const reveal =
+    request?.kind === 'pull-request' &&
+    request.sessionId === facts.session.id &&
+    isRevealTarget(request.target)
+      ? { at: request.target, seq: request.seq }
+      : undefined;
   return (
     <WorkItemPanel
       workspaceId={facts.workspace.id}
@@ -42,6 +51,7 @@ function PullRequestView({ facts, close }: TabViewProps) {
       workItem={workItem}
       onClose={close}
       active={inFront}
+      reveal={reveal}
     />
   );
 }

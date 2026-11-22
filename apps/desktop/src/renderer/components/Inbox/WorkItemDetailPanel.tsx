@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import {
@@ -18,6 +18,7 @@ import {
   useWorkItemDetails,
   useWorkItemDetailsStore,
 } from '../../stores/workItemDetailsStore';
+import type { RevealTarget } from '../../infoPanel/pullRequestLines';
 import { ipcErrorMessage } from '../../utils/ipcErrorMessage';
 import { conversationCount, quoteReply } from './workItemDetailPresentation';
 import {
@@ -54,6 +55,11 @@ interface Props {
    * current; one that is not shows what was last read. Defaults to true.
    */
   active?: boolean;
+  /**
+   * A place the person asked to see from the info panel: the merge card, or
+   * Files changed. Each `seq` is one ask, acted on once.
+   */
+  reveal?: { at: RevealTarget; seq: number };
 }
 
 type Tab = 'Conversation' | 'Files changed';
@@ -61,6 +67,20 @@ const TABS: Tab[] = ['Conversation', 'Files changed'];
 
 /** A confirmation is read, then gone; an error stays until dismissed or retried. */
 const NOTICE_MS = 5000;
+
+/**
+ * The newest ask a pane has acted on, for every pane in this window: asks
+ * are numbered across the window, so a pane that mounts again (the session
+ * left and come back to, the item relinked) never replays one already
+ * answered, while the pane an ask mounts still acts on it.
+ */
+let revealedSeq = 0;
+
+function claimReveal(seq: number): boolean {
+  if (seq <= revealedSeq) return false;
+  revealedSeq = seq;
+  return true;
+}
 
 /**
  * A pull request or issue as on github.com, in Consola's own look: one
@@ -83,6 +103,7 @@ export function WorkItemDetailPanel({
   onDetails,
   onOpenWorkItem,
   active = true,
+  reveal,
 }: Props) {
   const ref = item.workItem;
   const target: DetailsTarget = { workspaceId, accountLogin, ref };
@@ -103,6 +124,7 @@ export function WorkItemDetailPanel({
   const [messageAt, setMessageAt] = useState<MessageAt>('head');
   const [reviewOpen, setReviewOpen] = useState(false);
   const [section, setSection] = useState<HTMLElement | null>(null);
+  const [revealingMerge, setRevealingMerge] = useState(false);
   const alive = useRef(true);
   const writing = useRef(false);
   const composer = useRef<MarkdownEditorHandle>(null);
@@ -214,6 +236,40 @@ export function WorkItemDetailPanel({
     setReviewOpen(true);
     requestAnimationFrame(() => tabsRef.current?.scrollIntoView({ block: 'start' }));
   }
+
+  // A place asked for from the info panel, once there are details to show it
+  // in: the checks and the merge state are in the Conversation's merge card,
+  // the threads in Files changed.
+  const hasDetails = details !== null;
+  const revealAt = reveal?.at;
+  const revealSeq = reveal?.seq;
+  useEffect(() => {
+    if (!hasDetails || revealAt === undefined || revealSeq === undefined) return;
+    if (!claimReveal(revealSeq)) return;
+    if (revealAt === 'files') {
+      setTab('Files changed');
+      requestAnimationFrame(() => tabsRef.current?.scrollIntoView({ block: 'start' }));
+    } else {
+      setTab('Conversation');
+      setRevealingMerge(true);
+    }
+  }, [hasDetails, revealAt, revealSeq]);
+
+  // The merge card, scrolled to once the Conversation is in the DOM. The
+  // stream lays out only the cards near the screen (`content-visibility`),
+  // sizing the rest by estimate, so a scroll among estimates lands short as
+  // they render. While this is set the stream lays out whole, which puts the
+  // card where it really is; each card keeps the size it had then
+  // (`contain-intrinsic-size: auto`), so nothing moves once it is unset.
+  useLayoutEffect(() => {
+    if (!revealingMerge || !section) return;
+    section.querySelector('[aria-label="Merge"]')?.scrollIntoView({ block: 'start' });
+    // Unset only after a frame has laid it out whole, when the sizes are kept.
+    let frame = requestAnimationFrame(() => {
+      frame = requestAnimationFrame(() => setRevealingMerge(false));
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [revealingMerge, section]);
 
   const open = details?.state === 'open';
   const viewerLogin = details?.viewer.login ?? accountLogin;
@@ -347,6 +403,7 @@ export function WorkItemDetailPanel({
         className="inbox-detail"
         aria-label="Remote item details"
         aria-busy={busy || loading}
+        data-revealing={revealingMerge || undefined}
       >
         {!details && loading && (
           <div className="inbox-detail-skeleton" role="status">

@@ -309,10 +309,25 @@ function AvatarImage({
  * Someone's picture, through main like every image in an item. Until it has
  * loaded, or if it never does, their initial shows instead: a broken image
  * never does. Round for people, a rounded square for bots.
+ *
+ * Inside the pane it loads as the pane's workspace. Drawn anywhere else (the
+ * info panel), it is given the workspace whose account loads it.
  */
-export function Avatar({ person, size = 20 }: { person: WorkItemPerson; size?: 16 | 20 }) {
-  const { workspaceId } = useWorkItemDetail();
-  const src = workItemAssetUrl(workspaceId, person.avatarUrl);
+export function Avatar({
+  person,
+  size = 20,
+  workspaceId,
+}: {
+  person: WorkItemPerson;
+  size?: 16 | 20;
+  workspaceId?: string;
+}) {
+  const pane = useContext(WorkItemDetailContext);
+  const owner = workspaceId ?? pane?.workspaceId;
+  if (owner === undefined) {
+    throw new Error('Avatar outside WorkItemDetailPanel needs a workspaceId');
+  }
+  const src = workItemAssetUrl(owner, person.avatarUrl);
   return <AvatarImage key={src ?? 'none'} person={person} src={src} size={size} />;
 }
 

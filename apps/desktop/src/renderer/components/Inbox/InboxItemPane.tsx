@@ -22,6 +22,7 @@ import type { InboxItem, WorkItemLaunchAction, WorkItemRef } from '../../../shar
 import { sameWorkItem } from '../../../shared/workItems';
 import type { WorkItemDetails } from '../../../shared/workItemDetails';
 import type { Session, Workspace } from '../../../shared/workspace';
+import type { RevealTarget } from '../../infoPanel/pullRequestLines';
 import { itemKey, launchKey, useInboxStore } from '../../stores/inboxStore';
 import { attentionOf, useAttentionStore } from '../../stores/attentionStore';
 import { useLinkSessionDialogStore } from '../../stores/linkSessionDialogStore';
@@ -65,6 +66,8 @@ export interface InboxItemPaneProps {
    * instead, so two landmarks never nest. Defaults to true.
    */
   landmark?: boolean;
+  /** A place in the item the person asked to see from the info panel; see WorkItemDetailPanel. */
+  reveal?: { at: RevealTarget; seq: number };
 }
 
 /** Verbatim from the spec: the inline confirm that replaces a block. */
@@ -122,6 +125,7 @@ export function InboxItemPane({
   onOpenWorkItem,
   active = true,
   landmark = true,
+  reveal,
 }: InboxItemPaneProps) {
   const attention = useAttentionStore((state) => state.records);
   const derived = useAttentionStore((state) => state.attention);
@@ -582,6 +586,7 @@ export function InboxItemPane({
           onFix={fixInSession ?? receiveFix}
           onOpenWorkItem={onOpenWorkItem}
           active={active}
+          reveal={reveal}
         />
       )}
     </Root>
