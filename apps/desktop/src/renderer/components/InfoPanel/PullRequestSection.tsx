@@ -316,7 +316,7 @@ function PullRequestLines({
   details: WorkItemDetails;
   activate: (line?: InfoLine) => (() => void) | undefined;
 }) {
-  const checks = checksLine(details.checks);
+  const checks = checksLine(details);
   const outcome = rollupOutcome(summarizeChecks(details.checks));
   const review = reviewLine(details);
   const threads = threadsLine(details.threads);
