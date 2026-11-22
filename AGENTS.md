@@ -517,9 +517,10 @@ panel it is view state, kept in the renderer.
   (`readBranchIdentity`), so the renderer never sends one; origin is mapped
   by the driver's `repoOfRemote`, and `lookupPullRequests` is asked once per
   provider, account, repo and the branch's name on the remote per interval
-  (`BRANCH_LOOKUP_TTL_MS`), a failure kept as long as an answer, sooner only
-  for Retry or Refresh. It is asked only while someone looks: the info panel
-  shown with Pull request open, or the Pull request tab in front
+  (`BRANCH_LOOKUP_TTL_MS`, counted from the ask, not the answer), a failure
+  kept as long as an answer, sooner only for Retry or Refresh. It is asked
+  only while someone looks: the info panel shown with Pull request open, or
+  the Pull request tab in front
   (`useBranchPullRequestLookup`, from `ContentView`). It is never written to
   the record; Link writes `workItem`. Every answer names the branch it was
   read for and counts only while the checkout is on it

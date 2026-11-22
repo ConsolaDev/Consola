@@ -36,6 +36,16 @@ type Outcome =
   | { kind: 'none' }
   | { kind: 'failed'; error: string };
 
+/**
+ * Drops every answer asked `BRANCH_LOOKUP_TTL_MS` ago or longer: no find
+ * serves it again, so the map holds only branches asked about lately.
+ */
+function dropStaleAnswers(answers: Map<string, { at: number }>, now: number): void {
+  for (const [key, { at }] of answers) {
+    if (now - at >= BRANCH_LOOKUP_TTL_MS) answers.delete(key);
+  }
+}
+
 /** Newest first in; the open one wins, else the newest; null for none. */
 export function pickPullRequest(states: readonly PullRequestState[]): PullRequestState | null {
   return states.find((state) => state.status === 'open') ?? states[0] ?? null;
@@ -52,7 +62,9 @@ export function pickPullRequest(states: readonly PullRequestState[]): PullReques
  * branch name on the remote, however many sessions, folders or windows ask.
  * Callers that ask at once share one request, and only `force` (the person's
  * Refresh or Retry) asks sooner. A failure is kept as long as an answer, so a
- * broken CLI is not asked again on every session switch.
+ * broken CLI is not asked again on every session switch. An answer is dated
+ * from when it was asked, not when it landed, so a caller that asks again one
+ * interval after its answer arrived finds it old.
  *
  * An answer is never written to the session record. It is only shown, and
  * the session is linked when the person presses Link.
@@ -110,15 +122,16 @@ export class BranchPullRequestFinder {
 
   /** The fresh answer unless forced, else the request already running, else a new one. */
   private outcomeFor(key: string, force: boolean, ask: () => Promise<Outcome>): Promise<Outcome> {
+    const now = this.deps.now();
+    dropStaleAnswers(this.answers, now);
+    // Every answer left is fresh.
     const cached = this.answers.get(key);
-    if (!force && cached && this.deps.now() - cached.at < BRANCH_LOOKUP_TTL_MS) {
-      return Promise.resolve(cached.outcome);
-    }
+    if (!force && cached) return Promise.resolve(cached.outcome);
     const running = this.inFlight.get(key);
     if (running) return running;
     const request = ask()
       .then((outcome) => {
-        this.answers.set(key, { at: this.deps.now(), outcome });
+        this.answers.set(key, { at: now, outcome });
         return outcome;
       })
       .finally(() => this.inFlight.delete(key));

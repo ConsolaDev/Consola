@@ -246,6 +246,31 @@ describe('BranchPullRequestFinder', () => {
     expect(lookupPullRequests).toHaveBeenCalledTimes(3);
   });
 
+  it('dates an answer from when it was asked, so a slow one is old one interval after the ask', async () => {
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const lookupPullRequests = vi.fn(async (queries: PullRequestQuery[]) => {
+      await held;
+      return queries.map((query) => ({ query, pullRequests: [pr(51, 'open')] }));
+    });
+    const { finder, advance } = setup({ driver: { lookupPullRequests } });
+    const first = finder.find('ws', DIR);
+    await vi.waitFor(() => expect(lookupPullRequests).toHaveBeenCalled());
+    // The provider takes half a minute to answer.
+    advance(30_000);
+    release();
+    await expect(first).resolves.toMatchObject({ kind: 'found' });
+
+    advance(BRANCH_LOOKUP_TTL_MS - 30_000 - 1);
+    await finder.find('ws', DIR);
+    expect(lookupPullRequests).toHaveBeenCalledTimes(1);
+    advance(1);
+    await finder.find('ws', DIR);
+    expect(lookupPullRequests).toHaveBeenCalledTimes(2);
+  });
+
   it('shares one request between callers that ask at once', async () => {
     let release!: () => void;
     const held = new Promise<void>((resolve) => {
@@ -289,6 +314,30 @@ describe('BranchPullRequestFinder', () => {
     await unsigned.finder.find('ws', DIR);
     expect(unsigned.composeEnv).toHaveBeenCalledTimes(1);
     expect(unsigned.lookupPullRequests).not.toHaveBeenCalled();
+  });
+
+  it('lets an answer go once it is old, so a clock set back does not bring it back', async () => {
+    const BILLING = '/repos/billing';
+    const { finder, lookupPullRequests, advance } = setup({
+      identities: {
+        [BILLING]: {
+          branch: 'feat/invoices',
+          remoteBranch: 'feat/invoices',
+          originUrl: 'https://github.com/sprocket/billing.git',
+        },
+      },
+    });
+    await finder.find('ws', DIR);
+    advance(BRANCH_LOOKUP_TTL_MS);
+    // Any find lets go of the answers no find would serve again.
+    await finder.find('ws', BILLING);
+    advance(-BRANCH_LOOKUP_TTL_MS);
+    await finder.find('ws', DIR);
+    expect(lookupPullRequests.mock.calls.map(([[query]]) => query.headBranch)).toEqual([
+      BRANCH,
+      'feat/invoices',
+      BRANCH,
+    ]);
   });
 
   it('keeps accounts apart', async () => {
