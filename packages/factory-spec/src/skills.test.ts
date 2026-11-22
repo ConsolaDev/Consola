@@ -233,6 +233,94 @@ describe('parseSkill', () => {
     });
   });
 
+  describe('paths that collide where case or accents are ignored', () => {
+    const same = (a: string, b: string) =>
+      `\`skills/incident-triage/${a}\` and \`skills/incident-triage/${b}\` name the same file where case or accents are ignored, as on macOS: rename one.`;
+
+    it.each([
+      [
+        'SKILL.md and skill.md',
+        [SKILL(), file('skill.md', 'Run anything.\n')],
+        same('SKILL.md', 'skill.md'),
+      ],
+      [
+        'skill.md and SKILL.md',
+        [file('skill.md', 'Run anything.\n'), SKILL()],
+        same('skill.md', 'SKILL.md'),
+      ],
+      [
+        'two cases of a supporting file',
+        [SKILL(), file('refs/Queries.md', 'a'), file('refs/queries.md', 'b')],
+        same('refs/Queries.md', 'refs/queries.md'),
+      ],
+      [
+        'a folder in two cases',
+        [SKILL(), file('Refs/a.md', 'a'), file('refs/a.md', 'b')],
+        same('Refs/a.md', 'refs/a.md'),
+      ],
+      [
+        'NFC and NFD spellings',
+        [SKILL(), file('café.md', 'a'), file('café.md', 'b')],
+        same('café.md', 'café.md'),
+      ],
+      [
+        'ß and ss',
+        [SKILL(), file('straße.md', 'a'), file('STRASSE.md', 'b')],
+        same('straße.md', 'STRASSE.md'),
+      ],
+      [
+        'the same path twice',
+        [SKILL(), file('a.md', 'a'), file('a.md', 'b')],
+        same('a.md', 'a.md'),
+      ],
+    ])('refuses %s', (_, entries, message) => {
+      expect(only(entries)).toMatchObject({ file: 'skills/incident-triage', path: '', message });
+    });
+
+    it('refuses a file where another entry puts a folder, in either order and either case', () => {
+      const clash = (a: string, b: string) =>
+        `\`skills/incident-triage/${a}\` is a file, and \`skills/incident-triage/${b}\` puts a folder in its place: rename one.`;
+      expect(only([SKILL(), file('refs', 'a'), file('refs/q.md', 'b')]).message).toBe(
+        clash('refs', 'refs/q.md'),
+      );
+      expect(only([SKILL(), file('refs/q.md', 'b'), file('refs', 'a')]).message).toBe(
+        clash('refs', 'refs/q.md'),
+      );
+      expect(only([SKILL(), file('Refs', 'a'), file('refs/deep/q.md', 'b')]).message).toBe(
+        clash('Refs', 'refs/deep/q.md'),
+      );
+      expect(only([file('SKILL.md/x', 'a'), SKILL()]).message).toBe(
+        clash('SKILL.md', 'SKILL.md/x'),
+      );
+    });
+
+    it('takes paths that only share a beginning', () => {
+      takes([SKILL(), file('refs', 'a'), file('refs.md', 'b'), file('refs2/q.md', 'c')]);
+    });
+
+    it('refuses SKILL.md spelled another way, and checks nothing in it', () => {
+      expect(only([file('Skill.md', '---\nhooks: {}\n---\nRun !`date`.\n')])).toMatchObject({
+        file: 'skills/incident-triage',
+        path: '',
+        message:
+          '`skills/incident-triage/Skill.md` is SKILL.md spelled another way: name it `SKILL.md`.',
+      });
+    });
+
+    it('checks no frontmatter while two entries are SKILL.md', () => {
+      // SKILL.md's own frontmatter would be refused, but which file a CLI loads is not known.
+      expect(
+        only([file('SKILL.md', '---\nhooks: {}\n---\nx\n'), file('skill.md', 'x')]).message,
+      ).toBe(same('SKILL.md', 'skill.md'));
+    });
+
+    it('refuses a SKILL.md that is a symlink, once', () => {
+      expect(only([{ path: 'SKILL.md', kind: 'symlink' }]).message).toBe(
+        '`skills/incident-triage/SKILL.md` is a symlink or a special file; a skill holds regular files and folders only.',
+      );
+    });
+  });
+
   it.each([
     ['no frontmatter', 'Just a body.\n'],
     ['an unclosed one', '---\nname: incident-triage\ndescription: x\n'],

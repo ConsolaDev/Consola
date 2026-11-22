@@ -51,6 +51,14 @@ const isFile = (entry: SkillFileEntry): entry is { path: string; bytes: Uint8Arr
 const byPath = (a: { path: string }, b: { path: string }) =>
   a.path < b.path ? -1 : a.path > b.path ? 1 : 0;
 
+/**
+ * A path as a filesystem that ignores case and accents (macOS's, by default)
+ * sees it: NFC, then case-folded. Upper- then lower-casing also folds `ß`
+ * into `ss` and a final sigma into `σ`, as full case folding does.
+ */
+const foldPath = (path: string) =>
+  path.normalize('NFC').toUpperCase().toLowerCase().normalize('NFC');
+
 /** A path inside the folder, as tokens: no empty, `.` or `..` segment, no `\`, no NUL, not absolute. */
 function isInsidePath(path: string): boolean {
   if (path.includes('\\') || path.includes('\0')) return false;
@@ -95,18 +103,34 @@ export function parseSkill(
   const issues: FactorySpecIssue[] = [];
   const folderIssue = (message: string) => issues.push({ file: where, path: '', message });
 
+  // Paths are compared as a filesystem that ignores case and accents sees them, so the file a
+  // CLI loads is always the one checked here: two spellings of one file, or a file where another
+  // entry puts a folder, are refused rather than either one taken.
+  const folded = new Map<string, string>();
+  let skillNamed = 0;
   const files: Array<{ path: string; bytes: Uint8Array }> = [];
   for (const entry of entries) {
     if (!isInsidePath(entry.path)) {
       folderIssue(`\`${entry.path}\` is not a path inside the skill's folder.`);
-    } else if (!isFile(entry)) {
+      continue;
+    }
+    const key = foldPath(entry.path);
+    if (key === 'skill.md') skillNamed += 1;
+    const earlier = folded.get(key);
+    if (earlier !== undefined) {
+      folderIssue(
+        `\`${at(earlier)}\` and \`${at(entry.path)}\` name the same file where case or accents are ignored, as on macOS: rename one.`,
+      );
+      continue;
+    }
+    folded.set(key, entry.path);
+    if (isFile(entry)) files.push(entry);
+    else {
       issues.push({
         file: at(entry.path),
         path: '',
         message: `\`${at(entry.path)}\` is a symlink or a special file; a skill holds regular files and folders only.`,
       });
-    } else {
-      files.push(entry);
     }
   }
   if (entries.length > MAX_SKILL_FILES)
@@ -114,11 +138,33 @@ export function parseSkill(
   const total = files.reduce((sum, entry) => sum + entry.bytes.length, 0);
   if (total > MAX_SKILL_BYTES) folderIssue('A skill holds at most 2 MB.');
 
-  const skillFile = files.find((entry) => entry.path === 'SKILL.md');
-  if (!skillFile) {
+  for (const [key, path] of folded) {
+    const segments = key.split('/');
+    for (let length = 1; length < segments.length; length++) {
+      const file = folded.get(segments.slice(0, length).join('/'));
+      if (file !== undefined) {
+        folderIssue(
+          `\`${at(file)}\` is a file, and \`${at(path)}\` puts a folder in its place: rename one.`,
+        );
+      }
+    }
+  }
+
+  // Exactly one entry is SKILL.md however case is read, and it is spelled so. Nothing is read from
+  // SKILL.md otherwise: with two, which one a CLI would load is not known.
+  const spelled = folded.get('skill.md');
+  if (spelled === undefined) {
     folderIssue(`${where} has no SKILL.md.`);
     return { issues };
   }
+  if (skillNamed > 1) return { issues };
+  if (spelled !== 'SKILL.md') {
+    folderIssue(`\`${at(spelled)}\` is SKILL.md spelled another way: name it \`SKILL.md\`.`);
+    return { issues };
+  }
+  const skillFile = files.find((entry) => entry.path === 'SKILL.md');
+  // A SKILL.md that is a symlink or a special file is refused above, once.
+  if (!skillFile) return { issues };
 
   const skillPath = at('SKILL.md');
   const frontIssue = (message: string, path = '', line?: number) =>
