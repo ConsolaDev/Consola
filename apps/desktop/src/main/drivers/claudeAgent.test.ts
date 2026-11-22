@@ -3,11 +3,14 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import {
+  buildStepPlugin,
   compileClaudeAgent,
   flattenedName,
   listedNames,
   mapMcpStatus,
   probeClaudeMcpServers,
+  STEP_PLUGIN_MANIFEST,
+  skillDenyRules,
 } from './claudeAgent';
 import { CLAUDE_SIGN_IN_HINT } from './claudeTurnReader';
 import type { AgentRequirements, CheckoutKind, McpServerReport } from './HarnessDriver';
@@ -774,5 +777,134 @@ describe('compileClaudeAgent', () => {
       grants: { driverId: 'claude', servers: [], skills: [], strict: true, allowedTools: [] },
       warnings: [],
     });
+  });
+});
+
+describe('skillDenyRules', () => {
+  it('denies every skill and command the answer lists but the granted ones', () => {
+    expect(
+      skillDenyRules(
+        {
+          commands: [{ name: 'dataviz' }, { name: 'consola-step:incident-triage' }],
+          skills: ['simplify'],
+        },
+        ['incident-triage'],
+      ),
+    ).toEqual(['Skill(dataviz)', 'Skill(simplify)']);
+  });
+
+  it('reads a top-level skills list of objects too, and names each once', () => {
+    expect(
+      skillDenyRules(
+        {
+          commands: [{ name: 'clear' }, { name: 'dataviz' }, { name: 'consola-step:a' }],
+          skills: [{ name: 'dataviz' }, 'simplify', { name: 'consola-step:a' }],
+        },
+        ['a'],
+      ),
+    ).toEqual(['Skill(clear)', 'Skill(dataviz)', 'Skill(simplify)']);
+  });
+
+  it('throws when the answer does not list a granted skill: its plugin did not load', () => {
+    expect(() => skillDenyRules({ commands: [{ name: 'dataviz' }] }, ['incident-triage'])).toThrow(
+      'its answer does not list consola-step:incident-triage.',
+    );
+  });
+
+  it.each<[string, unknown, string]>([
+    ['no command list', { skills: [] }, 'its answer has no command list.'],
+    ['no object', 'nope', 'its answer is not an object.'],
+    [
+      'a command it cannot name',
+      { commands: [{ name: 'dataviz' }, { id: 'x' }] },
+      'its answer lists a skill or command it does not name.',
+    ],
+    [
+      'a skill it cannot name',
+      { commands: [], skills: [{ id: 'x' }] },
+      'its answer lists a skill or command it does not name.',
+    ],
+  ])('throws on %s, rather than denying nothing', (_case, answer, words) => {
+    expect(() => skillDenyRules(answer, [])).toThrow(words);
+  });
+});
+
+describe('buildStepPlugin', () => {
+  const make = () => {
+    const dir = fs.mkdtempSync(path.join(scriptDir, 'plugin-'));
+    const skillsDir = path.join(dir, 'skills');
+    fs.mkdirSync(path.join(skillsDir, 'incident-triage', 'refs'), { recursive: true });
+    fs.writeFileSync(path.join(skillsDir, 'incident-triage', 'SKILL.md'), '# Incident triage\n');
+    fs.writeFileSync(path.join(skillsDir, 'incident-triage', 'queries.md'), 'level:error\n');
+    fs.writeFileSync(path.join(skillsDir, 'incident-triage', 'refs', 'a.md'), 'a\n');
+    fs.mkdirSync(path.join(skillsDir, 'release-notes'));
+    fs.writeFileSync(path.join(skillsDir, 'release-notes', 'SKILL.md'), '# Release notes\n');
+    return { skillsDir, pluginDir: path.join(dir, 'look', '1', 'plugin') };
+  };
+  const read = (file: string) => fs.readFileSync(file);
+
+  it('writes the manifest and copies only the asked-for skills, byte for byte', async () => {
+    const { skillsDir, pluginDir } = make();
+    await buildStepPlugin(skillsDir, pluginDir, ['incident-triage']);
+
+    expect(
+      JSON.parse(fs.readFileSync(path.join(pluginDir, '.claude-plugin', 'plugin.json'), 'utf8')),
+    ).toEqual(STEP_PLUGIN_MANIFEST);
+    expect(STEP_PLUGIN_MANIFEST).toEqual({
+      name: 'consola-step',
+      description: 'The skills of one automation step, built by Consola.',
+      version: '1.0.0',
+    });
+    for (const file of ['SKILL.md', 'queries.md', path.join('refs', 'a.md')])
+      expect(read(path.join(pluginDir, 'skills', 'incident-triage', file))).toEqual(
+        read(path.join(skillsDir, 'incident-triage', file)),
+      );
+    expect(fs.existsSync(path.join(pluginDir, 'skills', 'release-notes'))).toBe(false);
+    expect(fs.readdirSync(pluginDir).sort()).toEqual(['.claude-plugin', 'skills']);
+  });
+
+  it('builds it fresh: what an earlier build left is gone', async () => {
+    const { skillsDir, pluginDir } = make();
+    await buildStepPlugin(skillsDir, pluginDir, ['incident-triage', 'release-notes']);
+    fs.writeFileSync(path.join(pluginDir, 'skills', 'incident-triage', 'left.md'), 'old\n');
+    await buildStepPlugin(skillsDir, pluginDir, ['incident-triage']);
+
+    expect(fs.existsSync(path.join(pluginDir, 'skills', 'incident-triage', 'left.md'))).toBe(false);
+    expect(fs.existsSync(path.join(pluginDir, 'skills', 'release-notes'))).toBe(false);
+  });
+
+  it('rejects a link in the run copy, and leaves no plugin behind', async () => {
+    const { skillsDir, pluginDir } = make();
+    fs.symlinkSync('/etc/hosts', path.join(skillsDir, 'incident-triage', 'hosts.md'));
+    await expect(buildStepPlugin(skillsDir, pluginDir, ['incident-triage'])).rejects.toThrow(
+      /not a regular file/,
+    );
+    expect(fs.existsSync(pluginDir)).toBe(false);
+  });
+
+  it('rejects a skill folder that is itself a link', async () => {
+    const { skillsDir, pluginDir } = make();
+    fs.symlinkSync(path.join(skillsDir, 'release-notes'), path.join(skillsDir, 'linked'));
+    await expect(buildStepPlugin(skillsDir, pluginDir, ['linked'])).rejects.toThrow(
+      /not a regular file/,
+    );
+  });
+
+  it('rejects a skill the run copy does not hold, and a name that is no skill name', async () => {
+    const { skillsDir, pluginDir } = make();
+    await expect(buildStepPlugin(skillsDir, pluginDir, ['missing'])).rejects.toThrow(/missing/);
+    await expect(buildStepPlugin(skillsDir, pluginDir, ['../release-notes'])).rejects.toThrow(
+      /not a skill name/,
+    );
+  });
+
+  it('leaves alone a folder at its path that Consola did not build', async () => {
+    const { skillsDir, pluginDir } = make();
+    fs.mkdirSync(pluginDir, { recursive: true });
+    fs.writeFileSync(path.join(pluginDir, 'notes.md'), 'mine\n');
+    await expect(buildStepPlugin(skillsDir, pluginDir, ['incident-triage'])).rejects.toThrow(
+      /did not build/,
+    );
+    expect(fs.readFileSync(path.join(pluginDir, 'notes.md'), 'utf8')).toBe('mine\n');
   });
 });

@@ -419,3 +419,39 @@ describe('createClaudeTurnReader', () => {
     expect(once.push(INIT)).toMatchObject([{ kind: 'init' }]);
   });
 });
+
+describe("a denied skill, as a step's record names it", () => {
+  it('records a Skill denial by the skill it was asked for', () => {
+    const denied = readAll(
+      resultLine({
+        permission_denials: [
+          { tool_name: 'Skill', tool_use_id: 'toolu_1', tool_input: { skill: 'dataviz' } },
+          { tool_name: 'mcp__grafana__list_dashboards', tool_use_id: 'toolu_2', tool_input: {} },
+          { tool_name: 'Skill', tool_use_id: 'toolu_3', tool_input: { skill: 'dataviz' } },
+          { tool_name: 'Skill', tool_use_id: 'toolu_4', tool_input: {} },
+          { tool_name: 'mcp__notes__open', tool_use_id: 'toolu_5', tool_input: { skill: 'x' } },
+        ],
+      }),
+    ).report.result;
+    expect(denied?.deniedTools).toEqual([
+      'Skill(dataviz)',
+      'mcp__grafana__list_dashboards',
+      'Skill',
+      'mcp__notes__open',
+    ]);
+  });
+
+  it('shapes the skill name as tool names are shaped', () => {
+    const denied = readAll(
+      resultLine({
+        permission_denials: [
+          { tool_name: 'Skill', tool_input: { skill: `x\x1b[2J${'n'.repeat(300)}` } },
+          { tool_name: 'Skill', tool_input: { skill: ' \x1b[0m ' } },
+        ],
+      }),
+    ).report.result;
+    const [long, blank] = denied?.deniedTools ?? [];
+    expect(long).toBe(`Skill(x${'n'.repeat(199)}…)`);
+    expect(blank).toBe('Skill');
+  });
+});

@@ -15,11 +15,18 @@ import { probeClaudeCapabilities, requestUsage } from './claudeCapabilities';
 import { mapClaudeUsage, showsClaudeLimitNotice } from './claudeUsage';
 import type { ConversationRecord, ConversationWindow } from '../../shared/conversation';
 import type { HarnessAccount, HarnessCapabilities, HarnessProbeResult } from '../../shared/types';
+import type { AgentGrants, ClaudeAgentGrants } from '../../shared/agentGrants';
 import type { HarnessLimits } from '../../shared/usageLimits';
 import type { SessionToolPolicy } from '../../shared/workspace';
 import { CONSOLA_MCP_SERVER, mcpToolName, READ_ONLY_CONSOLA_TOOLS } from '../mcp/names';
-import { compileClaudeAgent, probeClaudeMcpServers } from './claudeAgent';
-import { claudeAttentionHooks, claudeHookSettings } from './claudeHooks';
+import {
+  askSkillDenyRules,
+  buildStepPlugin,
+  CONSOLA_STEP_PLUGIN,
+  compileClaudeAgent,
+  probeClaudeMcpServers,
+} from './claudeAgent';
+import { claudeAttentionHooks, claudeSettings } from './claudeHooks';
 import { createClaudeTurnReader } from './claudeTurnReader';
 import {
   looseningProblem,
@@ -79,19 +86,89 @@ function claudeToolName(tool: string): string {
  *   asking. Pinned because the CLI's default is now `auto`, whose classifier
  *   approves calls on its own; and denying rather than asking means an
  *   unattended review can never stall on a prompt nobody is there to answer.
+ *
+ * `readOnlyArgs({})` is exactly that. A step's grants change only what
+ * they compiled: `strict` (off when a connector is granted), the tools
+ * (`Skill` when its skills are there), allow rules after Consola's, and
+ * deny rules; every one of them before `--restricted`.
  */
-const READ_ONLY_ARGS = [
-  '--strict-mcp-config',
-  '--permission-mode',
-  'dontAsk',
-  '--tools',
-  'Read,Grep,Glob',
-  '--allowedTools',
-  ...READ_ONLY_CONSOLA_TOOLS.map(claudeToolName),
-  // Last, and taking no value: it closes the variadic tool list above, so
-  // nothing after it — the harness's extra args — can join that list.
-  '--restricted',
-];
+function readOnlyArgs(grant: {
+  strict?: boolean;
+  tools?: string;
+  allowed?: readonly string[];
+  deny?: readonly string[];
+}): string[] {
+  return [
+    ...(grant.strict === false ? [] : ['--strict-mcp-config']),
+    '--permission-mode',
+    'dontAsk',
+    '--tools',
+    grant.tools ?? 'Read,Grep,Glob',
+    '--allowedTools',
+    ...READ_ONLY_CONSOLA_TOOLS.map(claudeToolName),
+    ...(grant.allowed ?? []),
+    ...(grant.deny && grant.deny.length > 0 ? ['--disallowedTools', ...grant.deny] : []),
+    // Last, and taking no value: it closes the variadic tool lists above, so
+    // nothing after it — the harness's extra args — can join them.
+    '--restricted',
+  ];
+}
+
+/** The tools a step whose skills are there has: reading files, and the Skill tool. */
+const SKILL_TOOLS = 'Read,Grep,Glob,Skill';
+
+const OTHER_CLI_GRANTS =
+  'These grants were compiled for another CLI, so this session cannot launch on Claude.';
+const GRANTS_NEED_READ_ONLY =
+  "An agent's grants hold only in a read-only session, so this session cannot launch with them.";
+const GRANTS_NEED_CONSOLA =
+  "A step whose agent names MCP servers needs Consola's own server too, so it did not start.";
+const SKILLS_GONE = "This step's skills are no longer kept; it continues without them.";
+
+/** The launch's grants, checked: Claude's own, on a read-only session, with Consola's server when they name servers. */
+function claudeGrants(launch: SessionLaunch): ClaudeAgentGrants | undefined {
+  const grants = launch.grants;
+  if (!grants) return undefined;
+  if ((grants as { driverId: string }).driverId !== 'claude') throw new Error(OTHER_CLI_GRANTS);
+  if (launch.toolPolicy !== 'read-only') throw new Error(GRANTS_NEED_READ_ONLY);
+  if (grants.servers.length > 0 && !launch.mcpConfigPath) throw new Error(GRANTS_NEED_CONSOLA);
+  return grants;
+}
+
+/**
+ * The step's plugin dir when its skills can load: granted, and still a
+ * folder on disk. It sits in the run folder, which is swept with its run;
+ * once it is gone the session launches without its skills (fewer grants,
+ * never more).
+ */
+function livePluginDir(grants: ClaudeAgentGrants | undefined): string | undefined {
+  if (!grants || grants.skills.length === 0 || !grants.pluginDir) return undefined;
+  try {
+    return fs.statSync(grants.pluginDir).isDirectory() ? grants.pluginDir : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The flags the deny list's `initialize` runs with (the plan's Call 10):
+ * the skill flags only, no server, no hook and none of the harness's extra
+ * args, so it starts nothing and lists every skill a launch could see.
+ */
+function denyListFlags(pluginDir: string): string[] {
+  return [
+    '--strict-mcp-config',
+    '--plugin-dir',
+    pluginDir,
+    '--add-dir',
+    pluginDir,
+    '--permission-mode',
+    'dontAsk',
+    '--tools',
+    SKILL_TOOLS,
+    '--restricted',
+  ];
+}
 
 /**
  * Print mode never shows the folder-trust prompt and, unless restricted,
@@ -365,18 +442,40 @@ export class ClaudeDriver implements HarnessDriver {
    * reconnected to the same conversation later. `--session-id` only works
    * once per ID — Claude rejects reuse — so every launch after the first
    * resumes instead.
+   *
+   * A step's grants are replayed on every launch. When they hold skills
+   * whose plugin dir is there, the CLI is first asked which skills it has
+   * (`askSkillDenyRules`, never cached), so the argv comes as a promise;
+   * otherwise it comes at once.
    */
-  public buildSessionArgs(config: HarnessConfig, launch: SessionLaunch): string[] {
+  public buildSessionArgs(
+    config: HarnessConfig,
+    launch: SessionLaunch & { grants?: undefined },
+  ): string[];
+  public buildSessionArgs(
+    config: HarnessConfig,
+    launch: SessionLaunch,
+  ): string[] | Promise<string[]>;
+  public buildSessionArgs(
+    config: HarnessConfig,
+    launch: SessionLaunch,
+  ): string[] | Promise<string[]> {
     const problem = this.toolPolicyProblem(config, launch.toolPolicy);
     if (problem) throw new Error(problem);
     if (launch.unattended && launch.toolPolicy !== 'read-only')
       throw new Error(UNATTENDED_NEEDS_READ_ONLY);
     if (launch.unattended && !launch.initialPrompt)
       throw new Error('An unattended turn needs the prompt it runs.');
+    const grants = claudeGrants(launch);
     if (launch.unattended && launch.reportTurn) {
       // A harness edited after its run was queued: fail the step rather
-      // than launch a turn whose report or cap its extra args replace.
-      const overridden = this.stepTurnProblem(config, { model: Boolean(launch.model) });
+      // than launch a turn whose report, cap or servers its extra args
+      // replace. An interactive reopen checks nothing more: there they
+      // could only take servers away.
+      const overridden = this.stepTurnProblem(config, {
+        model: Boolean(launch.model),
+        servers: (grants?.servers.length ?? 0) > 0,
+      });
       if (overridden) throw new Error(overridden);
     }
     const base = launch.resume
@@ -385,20 +484,26 @@ export class ClaudeDriver implements HarnessDriver {
         ? ['--resume', launch.forkFrom, '--fork-session', '--session-id', launch.sessionId]
         : ['--session-id', launch.sessionId];
     const model = launch.model ? ['--model', launch.model] : [];
-    const mcp = launch.mcpConfigPath ? ['--mcp-config', launch.mcpConfigPath] : [];
+    // Consola's own server first; a step granted a user server loads the
+    // person's account file after it, where the CLI reads user servers.
+    const mcp = launch.mcpConfigPath
+      ? ['--mcp-config', launch.mcpConfigPath, ...(grants?.accountFile ? [grants.accountFile] : [])]
+      : [];
     // The harness's own extra args come after Consola's so a hand-written
     // `--model` there still wins: Claude takes the last occurrence of a
     // flag. A tool policy comes before them, so an extra arg left wanting
     // a value (`--append-system-prompt` with none) cannot take one of its
     // flags as that value; every extra arg that could override the policy
     // is refused above.
-    const policy = launch.toolPolicy === 'read-only' ? READ_ONLY_ARGS : [];
     // Hooks ride in `--settings`, which adds to the user's own and writes
     // nothing to disk. Under `--restricted` it is one of the only two
-    // sources still loaded, so a read-only turn reports too.
-    const hooks = launch.attentionUrl
-      ? ['--settings', claudeHookSettings(launch.attentionUrl)]
-      : [];
+    // sources still loaded, so a read-only turn reports too. A step's
+    // allow-list of servers rides in the same one value.
+    const settingsValue = claudeSettings({
+      attentionUrl: launch.attentionUrl,
+      allowedMcpServers: grants?.allowedMcpServers,
+    });
+    const settings = settingsValue ? ['--settings', settingsValue] : [];
     // A step's unattended turn reports itself as stream-json, and takes its
     // cap; an interactive launch of the same session gets neither, so a
     // person's reopen is exactly what it was before steps reported.
@@ -408,20 +513,68 @@ export class ClaudeDriver implements HarnessDriver {
       launch.unattended && launch.maxTurns !== undefined
         ? ['--max-turns', String(launch.maxTurns)]
         : [];
-    const args = [
-      ...base,
-      ...model,
-      ...mcp,
-      ...hooks,
-      ...report,
-      ...turns,
-      ...policy,
-      ...config.extraArgs,
-    ];
-    // Print mode: one turn, its answer, and exit. The prompt goes after
-    // `--`, because `--allowedTools` takes every value up to the next
-    // flag and would otherwise swallow it.
-    return launch.unattended ? ['-p', ...args, '--', launch.initialPrompt!] : args;
+    const pluginDir = livePluginDir(grants);
+    const plugin = pluginDir ? ['--plugin-dir', pluginDir, '--add-dir', pluginDir] : [];
+    // Without its plugin dir a step has none of its skills: no Skill tool, no allow rule.
+    const allowed = grants?.allowedTools.filter(
+      (rule) =>
+        pluginDir !== undefined ||
+        !grants.skills.some((skill) => rule === `Skill(${CONSOLA_STEP_PLUGIN}:${skill})`),
+    );
+    const assemble = (deny: readonly string[]): string[] => {
+      const policy =
+        launch.toolPolicy === 'read-only'
+          ? readOnlyArgs({
+              strict: grants?.strict,
+              tools: pluginDir ? SKILL_TOOLS : undefined,
+              allowed,
+              deny,
+            })
+          : [];
+      const args = [
+        ...base,
+        ...model,
+        ...mcp,
+        ...settings,
+        ...report,
+        ...turns,
+        ...plugin,
+        ...policy,
+        ...config.extraArgs,
+      ];
+      // Print mode: one turn, its answer, and exit. The prompt goes after
+      // `--`, because `--allowedTools` takes every value up to the next
+      // flag and would otherwise swallow it.
+      return launch.unattended ? ['-p', ...args, '--', launch.initialPrompt!] : args;
+    };
+    if (!pluginDir || !grants) return assemble([]);
+    // Never the Skill tool without a deny list: every other skill and
+    // command the CLI lists here is denied, asked where the session runs.
+    return askSkillDenyRules(
+      this.resolveBinary(config),
+      launch.cwd ?? os.homedir(),
+      this.composeEnv(config, getLoginEnv()),
+      denyListFlags(pluginDir),
+      grants.skills,
+    ).then(assemble);
+  }
+
+  /** Build the step's plugin dir from the run's skills copy, before an attempt's first launch. */
+  public async stageSkills(grants: AgentGrants, skillsDir: string): Promise<void> {
+    if ((grants as { driverId: string }).driverId !== 'claude') throw new Error(OTHER_CLI_GRANTS);
+    if (grants.skills.length === 0) return;
+    if (!grants.pluginDir) {
+      throw new Error('These grants name skills but no plugin dir to build them in.');
+    }
+    await buildStepPlugin(skillsDir, grants.pluginDir, grants.skills);
+  }
+
+  /** The pane's notice when a step's skills were granted but their plugin dir is gone. */
+  public launchNotice(launch: SessionLaunch): string | null {
+    const grants = launch.grants;
+    if (!grants || (grants as { driverId: string }).driverId !== 'claude') return null;
+    if (grants.skills.length === 0) return null;
+    return livePluginDir(grants) ? null : SKILLS_GONE;
   }
 
   public toolPolicyProblem(

@@ -4,6 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { buildTextGenerationArgs, ClaudeDriver } from './ClaudeDriver';
 import { claudeHookSettings } from './claudeHooks';
+import type { ClaudeAgentGrants } from '../../shared/agentGrants';
 import type { HarnessConfig, SessionLaunch } from './HarnessDriver';
 import { stepTurnProblem } from './index';
 import { RESULT_OK } from './streamJson.test-helpers';
@@ -703,5 +704,458 @@ describe('stepTurnProblem, for an agent that names servers', () => {
     expect(stepTurnProblem({ extraArgs: ['--mcp-config', 'x.json'] }, { servers: true })).toBe(
       words('`--mcp-config`'),
     );
+  });
+});
+
+describe("an agent's grants on a launch", () => {
+  const ACCOUNT = '/home/alice/.claude-work/.claude.json';
+  const URL = 'http://127.0.0.1:9/h';
+  const EXTRA = ['--append-system-prompt', 'x'];
+  // Consola's own read-only tools, written out rather than read from the driver.
+  const READ_ONLY_TOOLS = [
+    'mcp__consola__consola_work_item_context',
+    'mcp__consola__consola_list_inbox',
+    'mcp__consola__consola_set_outputs',
+    'mcp__consola__consola_write_artifact',
+    'mcp__consola__consola_read_artifact',
+    'mcp__consola__consola_list_artifacts',
+  ];
+  const HOOKS = JSON.parse(claudeHookSettings(URL)).hooks as unknown;
+  const settings = (allowedMcpServers: unknown[], hooks = true) =>
+    JSON.stringify({ ...(hooks ? { hooks: HOOKS } : {}), allowedMcpServers });
+  const turn: SessionLaunch = {
+    sessionId: 'S',
+    resume: false,
+    unattended: true,
+    reportTurn: true,
+    initialPrompt: 'P',
+    toolPolicy: 'read-only',
+    mcpConfigPath: '/m/consola.json',
+    attentionUrl: URL,
+    maxTurns: 40,
+    model: 'opus',
+  };
+  const USER: ClaudeAgentGrants = {
+    driverId: 'claude',
+    servers: [{ name: 'grafana' }],
+    skills: [],
+    allowedMcpServers: [{ serverName: 'consola' }, { serverName: 'grafana' }],
+    strict: true,
+    accountFile: ACCOUNT,
+    allowedTools: ['mcp__grafana__*'],
+  };
+  const CONNECTOR: ClaudeAgentGrants = {
+    driverId: 'claude',
+    servers: [{ name: 'claude.ai Coralogix' }],
+    skills: [],
+    allowedMcpServers: [
+      { serverName: 'consola' },
+      { serverUrl: 'https://mcp.coralogix.example/mcp' },
+    ],
+    strict: false,
+    allowedTools: ['mcp__claude_ai_Coralogix__*'],
+  };
+  const extra = (extraArgs: string[] = EXTRA): HarnessConfig => ({ extraArgs });
+  const args = (config: HarnessConfig, launch: SessionLaunch): string[] => {
+    const built = driver.buildSessionArgs(config, launch);
+    if (!Array.isArray(built)) throw new Error('expected a plain array');
+    return built;
+  };
+  /** Every flag Consola adds sits before `--restricted`, and every extra arg after it. */
+  const placed = (built: string[], extraArgs: string[] = EXTRA) => {
+    const restricted = built.indexOf('--restricted');
+    expect(restricted).toBeGreaterThan(-1);
+    for (const flag of ['--mcp-config', '--settings', '--plugin-dir', '--add-dir', '--tools'])
+      if (built.includes(flag)) expect(built.indexOf(flag)).toBeLessThan(restricted);
+    for (const arg of extraArgs) expect(built.lastIndexOf(arg)).toBeGreaterThan(restricted);
+  };
+
+  it('no grants: exactly the argv without them', () => {
+    const built = args(extra(), turn);
+    expect(built).toEqual([
+      '-p',
+      '--session-id',
+      'S',
+      '--model',
+      'opus',
+      '--mcp-config',
+      '/m/consola.json',
+      '--settings',
+      claudeHookSettings(URL),
+      '--output-format',
+      'stream-json',
+      '--verbose',
+      '--max-turns',
+      '40',
+      '--strict-mcp-config',
+      '--permission-mode',
+      'dontAsk',
+      '--tools',
+      'Read,Grep,Glob',
+      '--allowedTools',
+      ...READ_ONLY_TOOLS,
+      '--restricted',
+      ...EXTRA,
+      '--',
+      'P',
+    ]);
+    placed(built);
+  });
+
+  it('a user server: its account file, the allow-list in the one --settings, its rule; strict kept', () => {
+    const built = args(extra(), { ...turn, grants: USER });
+    expect(built).toEqual([
+      '-p',
+      '--session-id',
+      'S',
+      '--model',
+      'opus',
+      '--mcp-config',
+      '/m/consola.json',
+      ACCOUNT,
+      '--settings',
+      settings([{ serverName: 'consola' }, { serverName: 'grafana' }]),
+      '--output-format',
+      'stream-json',
+      '--verbose',
+      '--max-turns',
+      '40',
+      '--strict-mcp-config',
+      '--permission-mode',
+      'dontAsk',
+      '--tools',
+      'Read,Grep,Glob',
+      '--allowedTools',
+      ...READ_ONLY_TOOLS,
+      'mcp__grafana__*',
+      '--restricted',
+      ...EXTRA,
+      '--',
+      'P',
+    ]);
+    placed(built);
+    expect(built.filter((arg) => arg === '--settings')).toHaveLength(1);
+  });
+
+  it('a connector: strict dropped, no account file, its URL in the allow-list', () => {
+    const built = args(extra(), { ...turn, grants: CONNECTOR });
+    expect(built).toEqual([
+      '-p',
+      '--session-id',
+      'S',
+      '--model',
+      'opus',
+      '--mcp-config',
+      '/m/consola.json',
+      '--settings',
+      settings([{ serverName: 'consola' }, { serverUrl: 'https://mcp.coralogix.example/mcp' }]),
+      '--output-format',
+      'stream-json',
+      '--verbose',
+      '--max-turns',
+      '40',
+      '--permission-mode',
+      'dontAsk',
+      '--tools',
+      'Read,Grep,Glob',
+      '--allowedTools',
+      ...READ_ONLY_TOOLS,
+      'mcp__claude_ai_Coralogix__*',
+      '--restricted',
+      ...EXTRA,
+      '--',
+      'P',
+    ]);
+    placed(built);
+  });
+
+  it('no attention URL: the allow-list alone in --settings', () => {
+    const built = args(extra(), { ...turn, attentionUrl: undefined, grants: USER });
+    expect(built[built.indexOf('--settings') + 1]).toBe(
+      settings([{ serverName: 'consola' }, { serverName: 'grafana' }], false),
+    );
+  });
+
+  it('the interactive reopen keeps the grants, with no print mode, report or cap', () => {
+    const built = args(extra(), { ...turn, unattended: false, resume: true, grants: CONNECTOR });
+    expect(built).toEqual([
+      '--resume',
+      'S',
+      '--model',
+      'opus',
+      '--mcp-config',
+      '/m/consola.json',
+      '--settings',
+      settings([{ serverName: 'consola' }, { serverUrl: 'https://mcp.coralogix.example/mcp' }]),
+      '--permission-mode',
+      'dontAsk',
+      '--tools',
+      'Read,Grep,Glob',
+      '--allowedTools',
+      ...READ_ONLY_TOOLS,
+      'mcp__claude_ai_Coralogix__*',
+      '--restricted',
+      ...EXTRA,
+    ]);
+    placed(built);
+  });
+
+  it('refuses a server grant without Consola’s own server', () => {
+    expect(() => args(extra(), { ...turn, mcpConfigPath: undefined, grants: USER })).toThrow(
+      "A step whose agent names MCP servers needs Consola's own server too, so it did not start.",
+    );
+  });
+
+  it('refuses grants another driver compiled', () => {
+    const codex = { ...USER, driverId: 'codex' } as unknown as ClaudeAgentGrants;
+    expect(() => args(extra(), { ...turn, grants: codex })).toThrow(
+      'These grants were compiled for another CLI, so this session cannot launch on Claude.',
+    );
+  });
+
+  it('refuses grants on a session that is not read-only', () => {
+    expect(() =>
+      args(extra(), { ...turn, unattended: false, toolPolicy: undefined, grants: USER }),
+    ).toThrow(
+      "An agent's grants hold only in a read-only session, so this session cannot launch with them.",
+    );
+  });
+
+  it("refuses a reporting turn with servers whose harness's extra args would override them, and not its reopen", () => {
+    const pinned = extra(['--strict-mcp-config']);
+    expect(() => args(pinned, { ...turn, grants: CONNECTOR })).toThrow(
+      "This harness's extra arguments set `--strict-mcp-config`, which would override what Consola launches each step's turn with. Remove it in Settings › Harnesses.",
+    );
+    expect(() =>
+      args(pinned, { ...turn, unattended: false, resume: true, grants: CONNECTOR }),
+    ).not.toThrow();
+    // A skills-only grant compiles no server flags, so the harness's own are left alone.
+    expect(() =>
+      args(pinned, {
+        ...turn,
+        grants: {
+          ...USER,
+          servers: [],
+          allowedMcpServers: undefined,
+          accountFile: undefined,
+          allowedTools: [],
+        },
+      }),
+    ).not.toThrow();
+  });
+
+  describe('skills', () => {
+    let dir: string;
+    let pluginDir: string;
+    beforeEach(() => {
+      dir = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-step-skills-'));
+      pluginDir = path.join(dir, 'run', 'look', '1', 'plugin');
+      fs.mkdirSync(pluginDir, { recursive: true });
+    });
+    afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+    const skillGrants = (plugin: string): ClaudeAgentGrants => ({
+      driverId: 'claude',
+      servers: [],
+      skills: ['incident-triage'],
+      strict: true,
+      allowedTools: ['Skill(consola-step:incident-triage)'],
+      pluginDir: plugin,
+    });
+
+    /**
+     * A CLI that answers `initialize` with `commands`, appending its cwd
+     * and argv to `asked.jsonl` each time it is started.
+     */
+    function initializeCli(commands: string[], { exit }: { exit?: number } = {}): string {
+      const file = path.join(dir, `cli-${commands.length}-${exit ?? 0}.cjs`);
+      const log = path.join(dir, 'asked.jsonl');
+      fs.writeFileSync(
+        file,
+        `const fs = require('fs');
+fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify({ cwd: process.cwd(), argv: process.argv.slice(2) }) + '\\n');
+${exit !== undefined ? `process.stderr.write('boom'); process.exit(${exit});` : ''}
+const lines = require('readline').createInterface({ input: process.stdin });
+lines.on('line', (line) => {
+  const message = JSON.parse(line);
+  process.stdout.write(JSON.stringify({ type: 'control_response', response: { subtype: 'success',
+    request_id: message.request_id, response: { commands: ${JSON.stringify(commands)}.map((name) => ({ name })) } } }) + '\\n');
+});
+setTimeout(() => {}, 10000);`,
+      );
+      const shim = path.join(dir, `claude-${commands.length}-${exit ?? 0}`);
+      fs.writeFileSync(shim, `#!/bin/sh\nexec "${process.execPath}" "${file}" "$@"\n`);
+      fs.chmodSync(shim, 0o755);
+      return shim;
+    }
+    const asked = (): Array<{ cwd: string; argv: string[] }> => {
+      const log = path.join(dir, 'asked.jsonl');
+      if (!fs.existsSync(log)) return [];
+      return fs
+        .readFileSync(log, 'utf8')
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line) as { cwd: string; argv: string[] });
+    };
+    const ALL = ['dataviz', 'simplify', 'clear', 'consola-step:incident-triage'];
+    const denyFlags = (plugin: string) => [
+      '--strict-mcp-config',
+      '--plugin-dir',
+      plugin,
+      '--add-dir',
+      plugin,
+      '--permission-mode',
+      'dontAsk',
+      '--tools',
+      'Read,Grep,Glob,Skill',
+      '--restricted',
+    ];
+
+    it('the plugin dir, Skill, its allow rule and a deny list asked of the CLI where the session runs', async () => {
+      const config = { binaryPath: initializeCli(ALL), extraArgs: EXTRA };
+      const cwd = fs.mkdtempSync(path.join(dir, 'checkout-'));
+      const built = driver.buildSessionArgs(config, {
+        ...turn,
+        cwd,
+        grants: skillGrants(pluginDir),
+      });
+      expect(Array.isArray(built)).toBe(false);
+      const resolved = await built;
+      expect(resolved).toEqual([
+        '-p',
+        '--session-id',
+        'S',
+        '--model',
+        'opus',
+        '--mcp-config',
+        '/m/consola.json',
+        '--settings',
+        claudeHookSettings(URL),
+        '--output-format',
+        'stream-json',
+        '--verbose',
+        '--max-turns',
+        '40',
+        '--plugin-dir',
+        pluginDir,
+        '--add-dir',
+        pluginDir,
+        '--strict-mcp-config',
+        '--permission-mode',
+        'dontAsk',
+        '--tools',
+        'Read,Grep,Glob,Skill',
+        '--allowedTools',
+        ...READ_ONLY_TOOLS,
+        'Skill(consola-step:incident-triage)',
+        '--disallowedTools',
+        'Skill(dataviz)',
+        'Skill(simplify)',
+        'Skill(clear)',
+        '--restricted',
+        ...EXTRA,
+        '--',
+        'P',
+      ]);
+      placed(resolved);
+      const [ask] = asked();
+      expect(fs.realpathSync(ask.cwd)).toBe(fs.realpathSync(cwd));
+      // The handshake's flags, then exactly the skill flags: no server, no hook, no extra arg.
+      expect(ask.argv.slice(-denyFlags(pluginDir).length)).toEqual(denyFlags(pluginDir));
+      for (const absent of ['--mcp-config', '--settings', '--append-system-prompt'])
+        expect(ask.argv).not.toContain(absent);
+    });
+
+    it('asks again on every launch, the reopen included, and never with the harness’s extra args', async () => {
+      const config = { binaryPath: initializeCli(ALL), extraArgs: ['--mcp-config', 'x.json'] };
+      const reopen = {
+        ...turn,
+        unattended: false,
+        resume: true,
+        cwd: dir,
+        grants: skillGrants(pluginDir),
+      };
+      await driver.buildSessionArgs(config, reopen);
+      await driver.buildSessionArgs(config, reopen);
+      expect(asked()).toHaveLength(2);
+      for (const ask of asked()) expect(ask.argv).not.toContain('--mcp-config');
+    });
+
+    it('fails the launch when the answer does not list the granted skill', async () => {
+      const config = { binaryPath: initializeCli(['dataviz']), extraArgs: [] };
+      await expect(
+        driver.buildSessionArgs(config, { ...turn, cwd: dir, grants: skillGrants(pluginDir) }),
+      ).rejects.toThrow(
+        "Couldn't ask claude which skills it has: its answer does not list consola-step:incident-triage.",
+      );
+    });
+
+    it('fails the launch when the CLI cannot be asked, with its reason', async () => {
+      const config = { binaryPath: initializeCli(ALL, { exit: 2 }), extraArgs: [] };
+      await expect(
+        driver.buildSessionArgs(config, { ...turn, cwd: dir, grants: skillGrants(pluginDir) }),
+      ).rejects.toThrow(/^Couldn't ask claude which skills it has: boom$/);
+    });
+
+    it('with the plugin dir gone: no skills at all, nothing asked, and a notice', () => {
+      const config = { binaryPath: initializeCli(ALL), extraArgs: EXTRA };
+      fs.rmSync(pluginDir, { recursive: true });
+      const launch = { ...turn, cwd: dir, grants: skillGrants(pluginDir) };
+      const built = args(config, launch);
+      for (const absent of [
+        '--plugin-dir',
+        '--add-dir',
+        'Read,Grep,Glob,Skill',
+        'Skill(consola-step:incident-triage)',
+        '--disallowedTools',
+      ])
+        expect(built).not.toContain(absent);
+      expect(built[built.indexOf('--tools') + 1]).toBe('Read,Grep,Glob');
+      expect(asked()).toHaveLength(0);
+      expect(driver.launchNotice(launch)).toBe(
+        "This step's skills are no longer kept; it continues without them.",
+      );
+    });
+
+    it('builds no plugin flags for grants that hold a plugin dir and no skills', () => {
+      const config = { binaryPath: initializeCli(ALL), extraArgs: [] };
+      const built = args(config, {
+        ...turn,
+        cwd: dir,
+        grants: { ...skillGrants(pluginDir), skills: [], allowedTools: [] },
+      });
+      expect(built).not.toContain('--plugin-dir');
+      expect(built[built.indexOf('--tools') + 1]).toBe('Read,Grep,Glob');
+      expect(asked()).toHaveLength(0);
+    });
+
+    it('says nothing before a launch whose skills are there, or that has none', () => {
+      expect(driver.launchNotice({ ...turn, grants: skillGrants(pluginDir) })).toBeNull();
+      expect(driver.launchNotice(turn)).toBeNull();
+      expect(driver.launchNotice({ ...turn, grants: USER })).toBeNull();
+    });
+
+    it('stages the plugin dir from the run’s skills copy', async () => {
+      const skillsDir = path.join(dir, 'run', 'skills');
+      fs.mkdirSync(path.join(skillsDir, 'incident-triage'), { recursive: true });
+      fs.writeFileSync(path.join(skillsDir, 'incident-triage', 'SKILL.md'), '# Triage\n');
+      fs.rmSync(pluginDir, { recursive: true });
+      await driver.stageSkills(skillGrants(pluginDir), skillsDir);
+      expect(
+        fs.readFileSync(path.join(pluginDir, 'skills', 'incident-triage', 'SKILL.md'), 'utf8'),
+      ).toBe('# Triage\n');
+      await expect(
+        driver.stageSkills({ ...skillGrants(pluginDir), pluginDir: undefined }, skillsDir),
+      ).rejects.toThrow(/no plugin dir/);
+      // Grants with no skills have nothing to stage.
+      await expect(driver.stageSkills(USER, skillsDir)).resolves.toBeUndefined();
+      const codex = {
+        ...skillGrants(pluginDir),
+        driverId: 'codex',
+      } as unknown as ClaudeAgentGrants;
+      await expect(driver.stageSkills(codex, skillsDir)).rejects.toThrow(
+        'These grants were compiled for another CLI, so this session cannot launch on Claude.',
+      );
+    });
   });
 });

@@ -1,4 +1,7 @@
+import { promises as fsp } from 'node:fs';
 import * as os from 'node:os';
+import * as path from 'node:path';
+import { AUTOMATION_NAME_PATTERN } from '@consola/factory-spec';
 import type { ClaudeAgentGrants } from '../../shared/agentGrants';
 import { CONSOLA_MCP_SERVER } from '../mcp/names';
 import { type ControlRequest, INITIALIZE, requestControl } from './claudeCapabilities';
@@ -140,7 +143,7 @@ export async function probeClaudeMcpServers(
 // Compiling an agent into grants
 
 /** The one plugin Consola builds for a step; its skills are `consola-step:<name>`. */
-const CONSOLA_STEP_PLUGIN = 'consola-step';
+export const CONSOLA_STEP_PLUGIN = 'consola-step';
 
 /**
  * Characters Claude keeps in a server's or tool's name in permission rules
@@ -320,4 +323,156 @@ export function compileClaudeAgent(
 
 function refused(problem: string): CompiledAgent {
   return { ok: false, problem };
+}
+
+// ---------------------------------------------------------------------------
+// A step's skills: the plugin Consola builds, and the deny list asked of the CLI
+
+/** `.claude-plugin/plugin.json` of a step's plugin: no hooks, no servers, only its skills. */
+export const STEP_PLUGIN_MANIFEST = {
+  name: CONSOLA_STEP_PLUGIN,
+  description: 'The skills of one automation step, built by Consola.',
+  version: '1.0.0',
+} as const;
+
+/** One name an `initialize` answer lists as a command or a skill; an entry it cannot name throws. */
+function listedName(entry: unknown): string {
+  if (typeof entry === 'string') return entry;
+  if (isObject(entry) && typeof entry.name === 'string') return entry.name;
+  throw new Error('its answer lists a skill or command it does not name.');
+}
+
+/**
+ * `Skill(<name>)` for every name the `initialize` answer lists (its
+ * `commands`, and a top-level `skills` if any) but the granted
+ * `consola-step:<name>`; throws when a granted one is missing, which means
+ * the step's plugin did not load. Read strictly: an entry with no name
+ * throws, since a skill left out of the list would be left allowed.
+ */
+export function skillDenyRules(initialize: unknown, granted: readonly string[]): string[] {
+  if (!isObject(initialize)) throw new Error('its answer is not an object.');
+  if (!Array.isArray(initialize.commands)) throw new Error('its answer has no command list.');
+  const names: string[] = [];
+  const entries = [
+    ...initialize.commands,
+    ...(Array.isArray(initialize.skills) ? initialize.skills : []),
+  ];
+  for (const entry of entries) {
+    const name = listedName(entry);
+    if (!names.includes(name)) names.push(name);
+  }
+  const wanted = granted.map((skill) => `${CONSOLA_STEP_PLUGIN}:${skill}`);
+  const missing = wanted.find((name) => !names.includes(name));
+  if (missing !== undefined) throw new Error(`its answer does not list ${missing}.`);
+  return names.filter((name) => !wanted.includes(name)).map((name) => `Skill(${name})`);
+}
+
+/**
+ * One `initialize`, in `cwd`, with `args` after the handshake's; the deny
+ * rules. Throws with `Couldn't ask claude which skills it has: <why>`.
+ */
+export async function askSkillDenyRules(
+  binary: string,
+  cwd: string,
+  env: NodeJS.ProcessEnv,
+  args: readonly string[],
+  granted: readonly string[],
+): Promise<string[]> {
+  try {
+    const [answer] = await requestControl(binary, cwd, env, [INITIALIZE], { extraArgs: args });
+    return skillDenyRules(answer, granted);
+  } catch (error) {
+    const why = error instanceof Error ? error.message : String(error);
+    throw new Error(`Couldn't ask claude which skills it has: ${why}`);
+  }
+}
+
+function notBuilt(why: string): Error {
+  return new Error(`${why}, so the step's plugin was not built.`);
+}
+
+async function lstatOrNull(file: string) {
+  try {
+    return await fsp.lstat(file);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw error;
+  }
+}
+
+/**
+ * Whether what is at `pluginDir` may be replaced: nothing, an empty folder,
+ * or a plugin Consola built (its manifest names `consola-step`). Anything
+ * else is left alone.
+ */
+async function assertReplaceable(pluginDir: string): Promise<void> {
+  const stat = await lstatOrNull(pluginDir);
+  if (!stat) return;
+  if (stat.isDirectory() && (await fsp.readdir(pluginDir)).length === 0) return;
+  let manifest: unknown = null;
+  if (stat.isDirectory()) {
+    try {
+      manifest = JSON.parse(
+        await fsp.readFile(path.join(pluginDir, '.claude-plugin', 'plugin.json'), 'utf8'),
+      );
+    } catch {
+      manifest = null;
+    }
+  }
+  if (!isObject(manifest) || manifest.name !== CONSOLA_STEP_PLUGIN) {
+    throw notBuilt(`${pluginDir} holds files Consola did not build; it was left alone`);
+  }
+}
+
+/** Copy the folder `from` to `to`, folders and regular files only: anything else refuses the build. */
+async function copyFolder(from: string, to: string, shown: string): Promise<void> {
+  await fsp.mkdir(to, { recursive: true });
+  for (const entry of (await fsp.readdir(from)).sort()) {
+    const source = path.join(from, entry);
+    const stat = await fsp.lstat(source);
+    if (stat.isDirectory()) await copyFolder(source, path.join(to, entry), `${shown}/${entry}`);
+    else if (stat.isFile()) await fsp.copyFile(source, path.join(to, entry));
+    else throw notBuilt(`${shown}/${entry} in the run folder is not a regular file or folder`);
+  }
+}
+
+/**
+ * `pluginDir` written fresh: the manifest, and `skills/<name>/` copied from
+ * the run's skills copy (`skillsDir`) for `skills` only, folders and regular
+ * files only, never through a link. Built beside it and moved into place,
+ * so a refused build leaves no plugin, and an earlier build's files go.
+ */
+export async function buildStepPlugin(
+  skillsDir: string,
+  pluginDir: string,
+  skills: readonly string[],
+): Promise<void> {
+  for (const name of skills) {
+    if (!AUTOMATION_NAME_PATTERN.test(name)) throw notBuilt(`\`${name}\` is not a skill name`);
+  }
+  await assertReplaceable(pluginDir);
+  const staging = `${pluginDir}.tmp-${process.pid}`;
+  await fsp.rm(staging, { recursive: true, force: true });
+  try {
+    await fsp.mkdir(path.join(staging, '.claude-plugin'), { recursive: true });
+    await fsp.writeFile(
+      path.join(staging, '.claude-plugin', 'plugin.json'),
+      `${JSON.stringify(STEP_PLUGIN_MANIFEST, null, 2)}\n`,
+    );
+    for (const name of skills) {
+      const source = path.join(skillsDir, name);
+      const stat = await lstatOrNull(source);
+      if (!stat) throw notBuilt(`skills/${name} is missing from the run folder`);
+      if (stat.isFile()) throw notBuilt(`skills/${name} in the run folder is a file, not a folder`);
+      if (!stat.isDirectory()) {
+        throw notBuilt(`skills/${name} in the run folder is not a regular file or folder`);
+      }
+      await copyFolder(source, path.join(staging, 'skills', name), `skills/${name}`);
+    }
+    await fsp.rm(pluginDir, { recursive: true, force: true });
+    await fsp.rename(staging, pluginDir);
+  } catch (error) {
+    await fsp.rm(staging, { recursive: true, force: true });
+    throw error;
+  }
 }

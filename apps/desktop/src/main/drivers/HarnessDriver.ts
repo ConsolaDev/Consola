@@ -220,6 +220,17 @@ export interface HarnessDriver {
   readonly agentRefusal?: string;
 
   /**
+   * Make what `grants` name exist, from the run's skills copy
+   * (`skillsDir`): for Claude, the step's plugin dir. Before the first
+   * launch of an attempt; a later launch finds it there, or launches
+   * without its skills.
+   */
+  stageSkills?(grants: AgentGrants, skillsDir: string): Promise<void>;
+
+  /** A line for the pane before this launch, or null. */
+  launchNotice?(launch: SessionLaunch): string | null;
+
+  /**
    * How this CLI reports, on its own initiative, that it needs the person.
    *
    * Optional: a CLI with nothing like hooks omits it and its sessions stay
@@ -425,6 +436,12 @@ export interface SessionLaunch {
   reportTurn?: boolean;
   /** The most turns this launch may take. Ignored on an interactive launch. */
   maxTurns?: number;
+  /**
+   * What a step's agent was granted, compiled by this driver when the
+   * attempt launched; replayed on every launch, interactive ones included.
+   * A driver refuses grants it did not compile.
+   */
+  grants?: AgentGrants;
 }
 
 /**

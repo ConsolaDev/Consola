@@ -104,12 +104,24 @@ function isAmount(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0;
 }
 
+/**
+ * A denial as the record names it: the tool, or for the Skill tool the
+ * skill it was asked for, `Skill(<name>)` (`tool_input.skill`, canary row
+ * 24), which is the rule a step's deny list writes.
+ */
+function deniedName(toolName: string, input: unknown): string {
+  const tool = oneLine(toolName, MAX_TOOL_NAME_CHARS);
+  if (tool !== 'Skill' || !isObject(input) || typeof input.skill !== 'string') return tool;
+  const skill = oneLine(input.skill, MAX_TOOL_NAME_CHARS);
+  return skill ? `Skill(${skill})` : tool;
+}
+
 function readResult(event: JsonObject): TurnResult {
   const denied: string[] = [];
   if (Array.isArray(event.permission_denials)) {
     for (const denial of event.permission_denials) {
       if (!isObject(denial) || typeof denial.tool_name !== 'string') continue;
-      const name = oneLine(denial.tool_name, MAX_TOOL_NAME_CHARS);
+      const name = deniedName(denial.tool_name, denial.tool_input);
       if (name && !denied.includes(name)) denied.push(name);
     }
   }

@@ -1,3 +1,4 @@
+import type { ClaudeAgentGrants } from '../../shared/agentGrants';
 import type { AttentionSignal } from '../attention/hookSignals';
 import type { AttentionHooks } from './HarnessDriver';
 
@@ -36,20 +37,41 @@ const NOTIFICATION_MATCHER =
 /** A hook that must never hold the CLI up if Consola is not answering. */
 const HOOK_TIMEOUT_SECONDS = 5;
 
+/** The hooks posting to `url`, as `--settings` holds them. */
+function hooksPostingTo(url: string): Record<string, unknown> {
+  const handler = [{ type: 'http', url, timeout: HOOK_TIMEOUT_SECONDS }];
+  return {
+    PermissionRequest: [{ matcher: '', hooks: handler }],
+    Notification: [{ matcher: NOTIFICATION_MATCHER, hooks: handler }],
+    // An answered prompt: the tool ran, or the person sent something.
+    PostToolUse: [{ matcher: '', hooks: handler }],
+    UserPromptSubmit: [{ matcher: '', hooks: handler }],
+    Stop: [{ matcher: '', hooks: handler }],
+    StopFailure: [{ matcher: '', hooks: handler }],
+  };
+}
+
+/**
+ * The one `--settings` value a session launches with: hooks posting to
+ * `attentionUrl`, a step's allow-list of MCP servers, or both, in that
+ * order; null for neither. One value, never two flags: on `main` every
+ * session already carries one for its hooks (decision 1).
+ */
+export function claudeSettings(input: {
+  attentionUrl?: string;
+  allowedMcpServers?: ClaudeAgentGrants['allowedMcpServers'];
+}): string | null {
+  const { attentionUrl, allowedMcpServers } = input;
+  if (!attentionUrl && !allowedMcpServers) return null;
+  return JSON.stringify({
+    ...(attentionUrl ? { hooks: hooksPostingTo(attentionUrl) } : {}),
+    ...(allowedMcpServers ? { allowedMcpServers } : {}),
+  });
+}
+
 /** The `--settings` JSON that registers the hooks, posting to `url`. */
 export function claudeHookSettings(url: string): string {
-  const handler = [{ type: 'http', url, timeout: HOOK_TIMEOUT_SECONDS }];
-  return JSON.stringify({
-    hooks: {
-      PermissionRequest: [{ matcher: '', hooks: handler }],
-      Notification: [{ matcher: NOTIFICATION_MATCHER, hooks: handler }],
-      // An answered prompt: the tool ran, or the person sent something.
-      PostToolUse: [{ matcher: '', hooks: handler }],
-      UserPromptSubmit: [{ matcher: '', hooks: handler }],
-      Stop: [{ matcher: '', hooks: handler }],
-      StopFailure: [{ matcher: '', hooks: handler }],
-    },
-  });
+  return claudeSettings({ attentionUrl: url })!;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
