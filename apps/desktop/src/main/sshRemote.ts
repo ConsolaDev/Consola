@@ -31,21 +31,23 @@ export function resolveSshRemote(
 }
 
 /**
- * `resolve`, asked once per remote for the life of the run. `resolveSshRemote`
- * runs `ssh -G` synchronously, so a caller that resolves on every request
- * would block main's event loop each time. The cost: an ssh config edited
- * during a run is seen only after a restart.
+ * `resolveSshRemote`, with each host `resolveHost` named kept for the life of
+ * the run. `ssh -G` runs synchronously, so a caller that resolves on every
+ * request would block main's event loop each time. Only a host is kept: a
+ * lookup that failed or timed out is asked again next time, so Retry can
+ * recover an alias that failed once. The cost: an ssh config edited during a
+ * run is seen only after a restart.
  */
 export function memoizeRemoteResolver(
-  resolve: (remote: string) => string = resolveSshRemote,
+  resolveHost: (host: string) => string | null = sshHostname,
 ): (remote: string) => string {
-  const resolved = new Map<string, string>();
-  return (remote) => {
-    let answer = resolved.get(remote);
-    if (answer === undefined) {
-      answer = resolve(remote);
-      resolved.set(remote, answer);
-    }
-    return answer;
+  const hostnames = new Map<string, string>();
+  const knownHost = (host: string): string | null => {
+    const known = hostnames.get(host);
+    if (known !== undefined) return known;
+    const hostname = resolveHost(host);
+    if (hostname !== null) hostnames.set(host, hostname);
+    return hostname;
   };
+  return (remote) => resolveSshRemote(remote, knownHost);
 }

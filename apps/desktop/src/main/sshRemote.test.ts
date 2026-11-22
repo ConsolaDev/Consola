@@ -30,21 +30,38 @@ describe('resolveSshRemote', () => {
 });
 
 describe('memoizeRemoteResolver', () => {
-  it('resolves each remote once for the run', () => {
-    const resolve = vi.fn((remote: string) => remote.replace('@personal:', '@github.com:'));
-    const resolveRemote = memoizeRemoteResolver(resolve);
-    for (let i = 0; i < 3; i++) {
-      expect(resolveRemote('git@personal:sprocket/catalog-portal.git')).toBe(
-        'git@github.com:sprocket/catalog-portal.git',
-      );
-    }
+  const REMOTE = 'git@personal:sprocket/catalog-portal.git';
+  const RESOLVED = 'git@github.com:sprocket/catalog-portal.git';
+
+  it('asks about each host once for the run, whichever remote names it', () => {
+    // An alias resolves to its host; a host that is no alias resolves to itself.
+    const resolveHost = vi.fn((host: string) => (host === 'personal' ? 'github.com' : host));
+    const resolveRemote = memoizeRemoteResolver(resolveHost);
+    for (let i = 0; i < 3; i++) expect(resolveRemote(REMOTE)).toBe(RESOLVED);
     expect(resolveRemote('git@personal:sprocket/billing.git')).toBe(
       'git@github.com:sprocket/billing.git',
     );
-    expect(resolve).toHaveBeenCalledTimes(2);
-    expect(resolve.mock.calls.map(([remote]) => remote)).toEqual([
-      'git@personal:sprocket/catalog-portal.git',
-      'git@personal:sprocket/billing.git',
-    ]);
+    expect(resolveRemote(RESOLVED)).toBe(RESOLVED);
+    expect(resolveRemote(RESOLVED)).toBe(RESOLVED);
+    expect(resolveHost.mock.calls).toEqual([['personal'], ['github.com']]);
+  });
+
+  it('asks again after a lookup that gave no host, so Retry can recover the alias', () => {
+    // ssh -G failed or timed out once, then answered.
+    const resolveHost = vi.fn<(host: string) => string | null>(() => 'github.com');
+    resolveHost.mockReturnValueOnce(null);
+    const resolveRemote = memoizeRemoteResolver(resolveHost);
+    expect(resolveRemote(REMOTE)).toBe(REMOTE);
+    expect(resolveRemote(REMOTE)).toBe(RESOLVED);
+    expect(resolveRemote(REMOTE)).toBe(RESOLVED);
+    expect(resolveHost).toHaveBeenCalledTimes(2);
+  });
+
+  it('never asks about a remote that is not ssh', () => {
+    const resolveHost = vi.fn(() => 'github.com');
+    const resolveRemote = memoizeRemoteResolver(resolveHost);
+    const https = 'https://github.com/sprocket/catalog-portal.git';
+    expect(resolveRemote(https)).toBe(https);
+    expect(resolveHost).not.toHaveBeenCalled();
   });
 });
