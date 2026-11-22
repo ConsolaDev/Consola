@@ -58,6 +58,7 @@ export {
 } from './RunStore';
 export type { RunHistory } from './ports';
 export { recoverAfterRestart, isEngineRun, INTERRUPTED_COMMAND } from './steps/recover';
+export { retryTargetOf } from './steps/stepRecords';
 export type {
   StateFile,
   FactoryFolderRead,

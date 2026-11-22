@@ -210,6 +210,7 @@ import {
   laneOfRecord,
   retrySteps,
   retryTargetOf,
+  stepRecordsOf,
   withAttemptStarted,
   withNextAttempt,
   withStep,
@@ -2760,7 +2761,7 @@ export class AutomationService {
       finishedAt: undefined,
       startedAt: current.startedAt ?? now,
       updatedAt: now,
-      steps: retrySteps(current.steps ?? [], target.id, now),
+      steps: retrySteps(current.steps ?? [], target.id, now, loaded.definition.automation.steps),
       ...(prepared
         ? { checkout: { cwd: prepared.cwd, scopeId: prepared.scopeId, head: prepared.head } }
         : {}),
@@ -5137,7 +5138,7 @@ export class AutomationService {
         ...run,
         status: 'failed',
         error: `Could not write its ${writing}: ${reason}.`,
-        steps: closeSteps(run.steps!, now),
+        steps: closeSteps(run.steps!, now, [], 'failed'),
         finishedAt: now,
       });
       this.broadcast(entry.workspaceId);
@@ -5190,7 +5191,7 @@ export class AutomationService {
         ...run,
         status: 'rejected',
         summary,
-        ...(run.steps ? { steps: closeSteps(run.steps, now) } : {}),
+        ...(run.steps ? { steps: closeSteps(run.steps, now, [], 'rejected') } : {}),
         finishedAt: now,
       });
       this.broadcast(entry.workspaceId);
@@ -5428,9 +5429,7 @@ export class AutomationService {
     return {
       ...this.newRun(entry, trigger, mode),
       result: preview,
-      steps: steps.map(
-        ({ step }): StepRun => ({ id: step.id, kind: step.kind, status: 'pending', attempt: 1 }),
-      ),
+      steps: stepRecordsOf(definition.automation.steps),
       ...(entry.automation.mode === 'notify' ? { dryRun: true } : {}),
     };
   }
@@ -5476,7 +5475,7 @@ export class AutomationService {
         : {}),
       ...(outcome.summary ? { summary: outcome.summary } : {}),
       ...(outcome.error ? { error: outcome.error } : {}),
-      ...(run?.steps ? { steps: closeSteps(run.steps, now, stepUpdates) } : {}),
+      ...(run?.steps ? { steps: closeSteps(run.steps, now, stepUpdates, status) } : {}),
       updatedAt: now,
       finishedAt: now,
     });

@@ -814,6 +814,46 @@ describe('retryTargetOf', () => {
     ).toBe('a');
     expect(retryTargetOf([stepOf({ id: 'a', status: 'completed' })])).toBeUndefined();
   });
+
+  // Slice 3 (review B1): a failed leaf before its failed loop row, then a failed loop row, then the first not-run.
+  it("is the failed step inside a loop, not the loop's row", () => {
+    const steps = [
+      stepOf({ id: 'fix', status: 'completed' }),
+      stepOf({ id: 'polish', kind: 'repeat', status: 'failed', round: 2, max: 3 }),
+      stepOf({ id: 'review', status: 'completed', round: 2, attempt: 2 }),
+      stepOf({ id: 'address', status: 'failed', round: 2, attempt: 2, error: 'x' }),
+      stepOf({ id: 'pr', kind: 'run', status: 'not-run' }),
+    ];
+    expect(retryTargetOf(steps)?.id).toBe('address');
+  });
+
+  it('is an exhausted loop, whose steps all completed', () => {
+    const steps = [
+      stepOf({ id: 'fix', status: 'completed' }),
+      stepOf({
+        id: 'polish',
+        kind: 'repeat',
+        status: 'failed',
+        round: 3,
+        max: 3,
+        error: 'polish: not clean after 3 rounds',
+      }),
+      stepOf({ id: 'review', status: 'completed', round: 3, attempt: 3 }),
+      stepOf({ id: 'address', status: 'completed', round: 3, attempt: 3 }),
+      stepOf({ id: 'pr', kind: 'run', status: 'not-run' }),
+    ];
+    expect(retryTargetOf(steps)?.id).toBe('polish');
+  });
+
+  it('is the first step not run when a run with a loop ended between steps', () => {
+    const steps = [
+      stepOf({ id: 'fix', status: 'completed' }),
+      stepOf({ id: 'polish', kind: 'repeat', status: 'completed', round: 1, max: 3 }),
+      stepOf({ id: 'review', status: 'completed', round: 1 }),
+      stepOf({ id: 'pr', kind: 'run', status: 'not-run' }),
+    ];
+    expect(retryTargetOf(steps)?.id).toBe('pr');
+  });
 });
 
 describe('runRetryTarget', () => {

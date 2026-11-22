@@ -180,11 +180,15 @@ function stepStageState(status: StepRunStatus, open: boolean): RunStageState {
 
 /**
  * The step a failed run retries from, as the engine's `retryTargetOf` reads
- * it: the one it failed at, else (it ended between steps, or before the
- * first) the first it did not run.
+ * it: the step it failed at (a failed step before the failed row of the loop
+ * it is in), else a failed loop's row (out of rounds, or stopped between
+ * them), else (it ended between steps, or before the first) the first it did
+ * not run. The engine refuses any other id; `retryTarget.parity.test.ts`
+ * keeps this copy the engine's (the renderer loads none of its runtime).
  */
 export function retryTargetOf(steps: StepRun[]): StepRun | undefined {
   return (
+    steps.find((step) => step.status === 'failed' && step.kind !== 'repeat') ??
     steps.find((step) => step.status === 'failed') ??
     steps.find((step) => step.status === 'not-run')
   );
