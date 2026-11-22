@@ -835,8 +835,28 @@ a per-entry problem, never a rollback; a folder never applied cleanly applies
 entry by entry. A step's agent travels in `RunDefinition.agents`: the host
 launches on its harness with `--model`, refuses one gone since apply, and a
 reopen takes both from the record. New entries go to `factory.yml`, a replace
-where the entry lives; servers or skills in an agent wait for `compileAgent`;
-Open shows only the folder's own files, as text. Canary rows 16–19: `--model`.
+where the entry lives; an agent's servers and skills are its driver's to
+compile (below); Open shows only the folder's own files, as text. Canary rows
+16–19: `--model`.
+
+### An Agent's Servers and Skills Are Compiled by Its Driver
+
+An agent's `mcpServers:` and `skills:` reach a step only as its driver compiles
+them (`compileAgent`, pure) or refuses them in words. A harness's servers are
+asked of its CLI (Claude: `mcp_status`, from home), never read from its files,
+and cached per launch identity (`McpServersCache`, main); a failure stays until
+**Check again**, on every entry it stopped. On someone else's pull request or
+issue (an `item` checkout) only claude.ai connectors: the person's own server
+could start, or run its sign-in helper, in the author's checkout. Claude's
+grants: one `--settings` (hooks, `allowedMcpServers`: stdio by name, remote by
+URL), strict dropped only for a connector, narrowed `--allowedTools`, a plugin
+dir in the attempt's folder (`--add-dir`, `Skill`, a deny rule per other skill
+the CLI lists, asked each launch where the session runs). `Session.grants` (not
+in `allowedSessionUpdates`) replays them every launch; skills are copied at
+fire, re-hashed at launch; `init` must show each granted server connected. A
+step's session keeps its harness while its run is open (provenance and run
+record, not `attention.holds()`), then loses its grants. "Reads text other
+people wrote" marks runs that carry an item. Canary rows 20–28.
 
 ### Harnesses Are Launch Descriptions
 
