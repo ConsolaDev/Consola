@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { isBuiltin } from 'node:module';
 import { dirname, join, posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -12,7 +12,8 @@ import { describe, expect, it } from 'vitest';
  * them together. `config.ts` is shared configuration that any adapter may read. `domain` and
  * `application` also reach no global that touches the machine (`process`, `fetch`, timers).
  * Test files are exempt from the layer rules, since they wire real pieces together the way the
- * ring does. The cell holds no accounts, so no file, tests included, imports Better Auth.
+ * ring does. The cell holds no accounts, so no file, tests included, imports Better Auth. Of the
+ * workspace's packages, only the contract the cell shares with `cloud-global` may be imported.
  */
 
 const SRC = dirname(fileURLToPath(import.meta.url));
@@ -89,10 +90,19 @@ const LAYERS: Layer[] = [
 ];
 
 /**
- * What every file, tests included, may never import: another app or a workspace package, and
- * Better Auth, since accounts live in `cloud-global` and a cell holds none.
+ * The one workspace package any file may import, from any layer: the contract the cell shares
+ * with `cloud-global` (`packages/cloud-contract`). It does no I/O, which its own boundary test
+ * proves, so `domain` and `application` may import it, and it is the only package they may. Only
+ * its entry point counts: a path inside it is refused like any other workspace package.
  */
-const NEVER = ['@consola/*', 'better-auth', '@better-auth/*'];
+const CLOUD_CONTRACT = '@consola/cloud-contract';
+
+/**
+ * What every file, tests included, may never import: another app or a workspace package but the
+ * contract (`consola` is the desktop app's name), and Better Auth, since accounts live in
+ * `cloud-global` and a cell holds none.
+ */
+const NEVER = ['@consola/*', 'consola', 'better-auth', '@better-auth/*'];
 
 const SOURCE_EXTENSION = /\.(?:[cm]?[jt]s|tsx)$/;
 const isTestFile = (file: string): boolean => /\.test\.(?:[cm]?[jt]s|tsx)$/.test(file);
@@ -263,6 +273,7 @@ function violationsOf(file: string, source: string): string[] {
       const reached = layerOf(target);
       return !reached || !own?.reaches.includes(reached.at);
     }
+    if (specifier === CLOUD_CONTRACT) return false;
     if (NEVER.some((pattern) => matches(pattern, specifier))) return true;
     if (test) return false;
     return own?.refuses.some((pattern) => matches(pattern, specifier)) ?? false;
@@ -276,6 +287,17 @@ function violationsOf(file: string, source: string): string[] {
       ? []
       : [...new Set(referencesOf(source, file).filter((name) => own.noGlobals.includes(name)))];
   return [...imports, ...globals.map((name) => `${file} uses ${name}`)];
+}
+
+/** The name of every package in the workspace: each folder in `apps/` and `packages/`. */
+function workspacePackages(): string[] {
+  const root = join(SRC, '..', '..', '..');
+  return ['apps', 'packages'].flatMap((group) =>
+    readdirSync(join(root, group), { withFileTypes: true })
+      .map((entry) => join(root, group, entry.name, 'package.json'))
+      .filter((manifest) => existsSync(manifest))
+      .map((manifest) => (JSON.parse(readFileSync(manifest, 'utf8')) as { name: string }).name),
+  );
 }
 
 /** Every source file under `src/`, relative to it. */
@@ -360,10 +382,35 @@ describe('the dependency rule', () => {
     ['domain/x.test.ts', '../adapters/http/app.js', true],
     ['x.test.ts', '../../cloud-global/src/compose.js', false],
     ['x.test.ts', 'better-auth/plugins', false],
+    ['domain/x.ts', '@consola/cloud-contract', true],
+    ['application/x.ts', '@consola/cloud-contract', true],
+    ['adapters/persistence/x.ts', '@consola/cloud-contract', true],
+    ['adapters/http/x.ts', '@consola/cloud-contract', true],
+    ['config.ts', '@consola/cloud-contract', true],
+    ['compose.ts', '@consola/cloud-contract', true],
+    ['x.test.ts', '@consola/cloud-contract', true],
+    ['domain/x.ts', '@consola/cloud-contract/dist/region.js', false],
+    ['compose.ts', '@consola/cloud-contracts', false],
+    ['domain/x.ts', '../../../../packages/cloud-contract/src/region.js', false],
+    ['compose.ts', 'consola', false],
   ])('%s importing %s is allowed: %s', (file, specifier, allowed) => {
     expect(violationsOf(file, `import x from '${specifier}';`)).toEqual(
       allowed ? [] : [`${file} imports ${specifier}`],
     );
+  });
+
+  it('the checker refuses every workspace package but the contract, wherever it is imported', () => {
+    const packages = workspacePackages();
+    expect(packages).toContain(CLOUD_CONTRACT);
+    expect(packages).toContain('@consola/cloud-region');
+    expect(packages.length).toBeGreaterThan(5);
+    // The ring refuses no package of its own and tests are exempt from the layer rules, so only
+    // NEVER stands between them and a workspace package.
+    for (const file of ['compose.ts', 'adapters/http/x.ts', 'domain/x.ts', 'x.test.ts']) {
+      for (const name of packages.filter((p) => p !== CLOUD_CONTRACT)) {
+        expect(violationsOf(file, `import x from '${name}';`)).toEqual([`${file} imports ${name}`]);
+      }
+    }
   });
 
   it('the checker reports a global that reaches the machine', () => {

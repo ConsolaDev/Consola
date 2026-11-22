@@ -29,7 +29,7 @@ jobs:
         with:
           ref: refs/tags/${{ inputs.tag || github.ref_name }}
           persist-credentials: false
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
       - uses: actions/setup-node@v4
         with:
           node-version: 26.13.1
@@ -47,10 +47,11 @@ jobs:
         run: |
           node -e 'for (const key of ["CSC_LINK", "CSC_KEY_PASSWORD", "APPLE_ID", "APPLE_APP_SPECIFIC_PASSWORD", "APPLE_TEAM_ID"]) { if (!process.env[key]) throw new Error(`Missing release secret: ${key}`) }'
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter consola typecheck
-      - run: pnpm --filter @consola/automation-engine typecheck
-      - run: pnpm --filter @consola/factory-spec typecheck
-      - run: pnpm --filter @consola/factory-spec --filter @consola/automation-engine --filter consola test
+      # The desktop and every workspace package it depends on (`consola...`),
+      # read from the package graph, so a new dependency is tested without
+      # being named here. One task at a time: the desktop's typecheck builds
+      # those packages again, which must not overlap their own tasks.
+      - run: pnpm exec turbo run typecheck test --filter=consola... --concurrency=1 --env-mode=loose
       - name: Build signed and notarized installers
         env:
           CSC_LINK: ${{ secrets.CSC_LINK }}

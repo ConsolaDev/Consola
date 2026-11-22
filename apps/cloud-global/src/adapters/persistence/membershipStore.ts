@@ -1,60 +1,45 @@
-import { randomUUID } from 'node:crypto';
-import { and, count, eq, sql } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 import type { MembershipStore } from '../../application/ports.js';
+import type { MyWorkspace } from '../../domain/workspace.js';
 import type { Database } from './database.js';
+import { regionOf } from './regionOf.js';
+import { roleOf } from './roleOf.js';
 import { schema } from './schema.js';
 
-/**
- * Memberships in the `member` table. A per-organisation advisory lock makes `join`'s
- * count-then-insert safe when several sign-ins reach a real Postgres pool at once.
- */
+/** Memberships in the `member` table, read with the workspace each one is in. */
 export function createMembershipStore(db: Database): MembershipStore {
+  const myWorkspaces = () =>
+    db
+      .select({
+        id: schema.organization.id,
+        name: schema.organization.name,
+        slug: schema.organization.slug,
+        region: schema.organization.region,
+        role: schema.member.role,
+      })
+      .from(schema.member)
+      .innerJoin(schema.organization, eq(schema.organization.id, schema.member.organizationId));
+
+  const asMine = (
+    row: Omit<MyWorkspace, 'region' | 'role'> & { region: string; role: string },
+  ): MyWorkspace => ({ ...row, region: regionOf(row), role: roleOf(row) });
+
   return {
-    async find(ids) {
-      const [row] = await db
-        .select({ role: schema.member.role })
-        .from(schema.member)
-        .where(
-          and(
-            eq(schema.member.organizationId, ids.organizationId),
-            eq(schema.member.userId, ids.userId),
-          ),
-        );
-      return row ?? null;
+    async workspaceFor(ids) {
+      const [row] = await myWorkspaces().where(
+        and(
+          eq(schema.member.organizationId, ids.workspaceId),
+          eq(schema.member.userId, ids.userId),
+        ),
+      );
+      return row ? asMine(row) : null;
     },
 
-    join(ids, roleFor) {
-      return db.transaction(async (tx) => {
-        await tx.execute(
-          sql`select pg_advisory_xact_lock(hashtextextended(${ids.organizationId}, 0))`,
-        );
-
-        const [existing] = await tx
-          .select({ role: schema.member.role })
-          .from(schema.member)
-          .where(
-            and(
-              eq(schema.member.organizationId, ids.organizationId),
-              eq(schema.member.userId, ids.userId),
-            ),
-          );
-        if (existing) return existing;
-
-        const [members] = await tx
-          .select({ total: count() })
-          .from(schema.member)
-          .where(eq(schema.member.organizationId, ids.organizationId));
-        const role = roleFor(members?.total ?? 0);
-
-        await tx.insert(schema.member).values({
-          id: randomUUID(),
-          organizationId: ids.organizationId,
-          userId: ids.userId,
-          role,
-          createdAt: new Date(),
-        });
-        return { role };
-      });
+    async workspacesOf(userId) {
+      const rows = await myWorkspaces()
+        .where(eq(schema.member.userId, userId))
+        .orderBy(asc(schema.member.createdAt), asc(schema.member.id));
+      return rows.map(asMine);
     },
   };
 }

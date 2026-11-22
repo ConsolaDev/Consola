@@ -1,25 +1,29 @@
 import type {
   HealthProbe,
   MembershipStore,
-  OrganizationStore,
   PeopleStore,
+  SessionStore,
+  WorkspaceStore,
 } from '../../application/ports.js';
 import type { Database } from './database.js';
 import { createHealthProbe } from './healthProbe.js';
 import { createMembershipStore } from './membershipStore.js';
-import { createOrganizationStore } from './organizationStore.js';
 import { createPeopleStore } from './peopleStore.js';
+import { createSessionStore } from './sessionStore.js';
+import { createWorkspaceStore } from './workspaceStore.js';
 
 /** Every port the use cases need, on one Drizzle database. */
 export function createDrizzleStores(db: Database): {
-  organizations: OrganizationStore;
+  workspaces: WorkspaceStore;
   memberships: MembershipStore;
+  sessions: SessionStore;
   people: PeopleStore;
   health: HealthProbe;
 } {
   return {
-    organizations: createOrganizationStore(db),
+    workspaces: createWorkspaceStore(db),
     memberships: createMembershipStore(db),
+    sessions: createSessionStore(db),
     people: createPeopleStore(db),
     health: createHealthProbe(db),
   };

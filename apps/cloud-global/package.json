@@ -2,7 +2,7 @@
   "name": "@consola/cloud-global",
   "version": "0.0.0",
   "private": true,
-  "description": "Consola Cloud's global API: Google sign-in, sessions and the deployment's one organisation.",
+  "description": "Consola Cloud's global API: Google sign-in, sessions and workspaces.",
   "license": "AGPL-3.0-only",
   "type": "module",
   "scripts": {
@@ -15,6 +15,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@consola/cloud-contract": "workspace:*",
     "@better-auth/drizzle-adapter": "1.7.27",
     "@electric-sql/pglite": "^0.5.17",
     "@hono/node-server": "^2.1.11",

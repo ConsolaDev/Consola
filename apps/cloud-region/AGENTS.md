@@ -33,8 +33,8 @@ The cell listens on `127.0.0.1:3101` by default, beside `cloud-global`'s 3100.
 The service is built in rings, and imports point inward only.
 
 - `src/domain/` holds the rules and the types they speak of, such as the
-  regions (`region.ts`). It is plain TypeScript, with no package, no `node:`
-  builtin and no I/O.
+  regions (`region.ts`, which takes them from the contract). It is plain
+  TypeScript, with no I/O, and no package but the contract (below).
 - `src/application/` holds the use cases (`checkHealth`) and, in `ports.ts`,
   the stores and probes they need. A use case is a plain function that takes
   its ports first.
@@ -58,8 +58,9 @@ The service is built in rings, and imports point inward only.
 ## The dependency rule
 
 - `domain` imports only `domain`. `application` imports only `domain` and
-  `application`. Neither imports a package or a `node:` builtin, and neither
-  refers to a global that reaches the machine: `process`, `fetch`, `require`,
+  `application`. Neither imports a package (but the contract) or a `node:`
+  builtin, and neither refers to a global that reaches the machine: `process`,
+  `fetch`, `require`,
   `XMLHttpRequest`, `WebSocket`, the timers (`setTimeout`, `setInterval`,
   `setImmediate`), `globalThis` or `global`.
 - An adapter imports `domain`, `application`, its own folder and
@@ -68,10 +69,16 @@ The service is built in rings, and imports point inward only.
   - `adapters/http` never imports a database library (`drizzle-orm`,
     `@electric-sql/pglite`, `pg`);
   - `adapters/persistence` never imports `hono`.
-- No file, tests included, imports another app, a workspace package
-  (`@consola/*`) or Better Auth (`better-auth`, `@better-auth/*`). Issue 5.2
-  will allow exactly one workspace package, the shared contract for the cell's
-  token and the outbox messages.
+- No file, tests included, imports another app, Better Auth
+  (`better-auth`, `@better-auth/*`) or a workspace package (`@consola/*`, or
+  `consola`, the desktop), with one exception: `@consola/cloud-contract`
+  (`packages/cloud-contract`), the contract the cell shares with
+  `cloud-global`. It holds the regions, the workspace roles, the claims of the
+  token `cloud-global` mints for a cell, and the outbox messages it sends one.
+  It does no I/O, which its own boundary test proves, so any layer may import
+  it, `domain` and `application` included. Only its entry point counts: a path
+  inside it is refused. Before changing it, read
+  `packages/cloud-contract/AGENTS.md`.
 - Test files (`*.test.ts`) are exempt from the layer rules, because they wire
   real pieces together the way `compose.ts` does.
 
@@ -81,7 +88,9 @@ the TypeScript syntax tree (`import`, `import type`, `export … from`, dynamic
 reference counts, directly or through `globalThis`, never a property or a
 member that shares the name (`request.process`, `{ fetch: 1 }`). A file that
 sits in no layer fails it too. The rules are data at its top (`LAYERS`,
-`NEVER`), so a new layer or folder is added there first.
+`NEVER`, `CLOUD_CONTRACT`), so a new layer or folder is added there first. It
+also reads every package in the workspace and checks that each one but the
+contract is refused, so a new package is covered without being named.
 
 `src/adapters/persistence/schema.test.ts` enforces the table rules: every table
 in `schema` has a not-null `workspace_id`, and none is an account table.

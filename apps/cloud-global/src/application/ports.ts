@@ -1,26 +1,31 @@
-import type { Membership, Organization } from '../domain/organization.js';
-import type { Region } from '../domain/region.js';
+import type { WorkspaceRole } from '@consola/cloud-contract';
+import type { MyWorkspace, NewWorkspace, Workspace } from '../domain/workspace.js';
 
 // What the use cases need from the world outside, each implemented by an adapter.
 
-export type OrganizationStore = {
+export type WorkspaceStore = {
   /**
-   * The organisation with this slug, created in `region` if missing and renamed if its name
-   * changed. An organisation that exists keeps the region it has.
+   * Makes the workspace and its first member, together or not at all. A slug that any workspace
+   * has, in any region, is `slug-taken`, and then nothing is written.
    */
-  ensure(wanted: { name: string; slug: string; region: Region }): Promise<Organization>;
+  create(
+    workspace: NewWorkspace,
+    firstMember: { userId: string; role: WorkspaceRole },
+  ): Promise<{ kind: 'created'; workspace: Workspace } | { kind: 'slug-taken' }>;
 };
 
 export type MembershipStore = {
-  find(ids: { organizationId: string; userId: string }): Promise<Membership | null>;
-  /**
-   * The person's membership: an existing one unchanged, or a new one with the role `roleFor`
-   * gives for the members already there. Safe when several joins arrive at once.
-   */
-  join(
-    ids: { organizationId: string; userId: string },
-    roleFor: (existingMembers: number) => string,
-  ): Promise<Membership>;
+  /** The workspace as this person sees it, or null when they are not in it or it is not there. */
+  workspaceFor(ids: { workspaceId: string; userId: string }): Promise<MyWorkspace | null>;
+  /** Every workspace the person is in, in the order they joined. */
+  workspacesOf(userId: string): Promise<MyWorkspace[]>;
+};
+
+export type SessionStore = {
+  /** Makes the workspace the session's active one. */
+  setActiveWorkspace(ids: { sessionId: string; workspaceId: string }): Promise<void>;
+  /** The active workspace of the person's most recently used session that has one, if any. */
+  lastActiveWorkspace(userId: string): Promise<string | null>;
 };
 
 export type PeopleStore = {

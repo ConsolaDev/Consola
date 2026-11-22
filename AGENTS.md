@@ -52,20 +52,45 @@ All commands above run from the repository root. The pnpm workspace contains
 `apps/cloud-global` (`@consola/cloud-global`), `apps/cloud-region`
 (`@consola/cloud-region`), `apps/cloud-web` (`@consola/cloud-web`),
 `packages/factory-spec` (`@consola/factory-spec`, MIT),
-`packages/automation-engine` (`@consola/automation-engine`) and
-`packages/sandbox` (`@consola/sandbox`). Turborepo
+`packages/automation-engine` (`@consola/automation-engine`),
+`packages/sandbox` (`@consola/sandbox`) and `packages/cloud-contract`
+(`@consola/cloud-contract`). Turborepo
 orchestrates builds, tests, and typechecking. Paths below beginning with `src/`,
 `scripts/`, or `dist/` are relative to `apps/desktop`. Use
 `pnpm --filter consola exec <tool>` for app-specific tools.
 
 Tooling runs on one exact Node version, named in three places that move
-together: `engines.node` (which Vercel reads), CI and the release build. Pin
+together: `engines.node` (which Vercel reads), CI's setup
+(`.github/actions/setup/action.yml`) and the release build. Pin
 an exact version, never a range: Vercel resolves a range to the newest major
 it offers, so a range can move the website onto a new Node unannounced.
 Node 26 ships without corepack, so `vercel.json`
 runs pnpm through `npx pnpm@<version>`: keep that version equal to
 `packageManager`. Electron bundles its own Node, so none of this changes the
 app's runtime.
+
+### CI
+
+CI (`.github/workflows/ci.yml`) runs a pull request's checks only where its
+change can fail them. `.github/scripts/ci-scope.mjs` asks Turborepo which
+packages the change affects (`turbo ls --affected`: the changed packages and
+every package that depends on them), and each job runs for those alone, so
+a change to one cloud app never starts the desktop's macOS jobs. A new
+workspace package gets its own job without the workflow naming it. The
+script also holds three rules the package graph cannot see:
+
+- A change to the desktop checks the website too, because the site's demo
+  imports the desktop's renderer by path, not as a dependency.
+- A change to CI itself, the root `package.json`, `pnpm-workspace.yaml`,
+  `turbo.json` or `patches/` checks everything.
+- A push to main checks everything.
+
+`CI`, the workflow's last job, is the one status check the main branch's
+ruleset requires. It passes when every job it waits on passed or was
+skipped. Desktop E2E runs but does not block a merge yet, because main has
+known failures. CodeQL (`codeql.yml`) and a dependency review run on every
+pull request, and the lint job checks every installed dependency's licence
+(`.github/scripts/check-licenses.mjs`).
 
 ## Architecture Overview
 
@@ -135,17 +160,23 @@ packages' tests use. Before changing it, or adding a provider, read
 
 `apps/cloud-global` (`@consola/cloud-global`, Hono, Better Auth, Drizzle on
 PGlite or Postgres) and `apps/cloud-web` (`@consola/cloud-web`, Vite and React)
-are the company layer's first piece: Google sign-in and the deployment's one
-organisation. `cloud-global` is the control plane's global part, which every
-region shares. Every workspace has a region (`eu` or `us`), picked when it is
-made and never changed. What `cloud-global` may store is the always-global
-list in its `AGENTS.md`, pinned by a test; anything else belongs in a regional
-cell. `apps/cloud-region` (`@consola/cloud-region`, Hono, Drizzle on PGlite or
+are the company layer's first piece: Google sign-in and workspaces people make,
+belong to several of and switch between. `cloud-global` is the control plane's
+global part, which every region shares. Every workspace has a region (`eu` or
+`us`), picked when it is made and never changed. What `cloud-global` may store
+is the always-global list in its `AGENTS.md`, pinned by a test; anything else
+belongs in a regional cell. `apps/cloud-region` (`@consola/cloud-region`, Hono, Drizzle on PGlite or
 Postgres) is the regional cell: one copy per region, configured with its
 region, holding what a workspace has there that is not global. It holds no
 accounts (people are referenced by their global id), and every table carries
 the workspace id. Nothing in `apps/desktop` depends on the cloud apps, and none
-imports from the desktop, the website, another app or `packages/*`. Setup is in
+imports from the desktop, the website, another app or `packages/*`, with one
+exception: `cloud-global` and `cloud-region` both import
+`packages/cloud-contract` (`@consola/cloud-contract`), what the two agree on:
+the regions, the workspace roles, the claims of the token `cloud-global` mints
+for a cell, and the outbox messages it sends one. It does no I/O, so any layer
+of either app may import it; before changing it, read
+`packages/cloud-contract/AGENTS.md`. Setup is in
 `apps/cloud-global/README.md` and `apps/cloud-region/README.md`. Before
 changing a cloud app, read its own `AGENTS.md` (`apps/cloud-global/AGENTS.md`,
 `apps/cloud-region/AGENTS.md`, `apps/cloud-web/AGENTS.md`): it holds the layer
@@ -154,9 +185,10 @@ rules and the dependency rule that keeps them apart.
 The browser talks only to the web app's origin. Vite proxies `/api` to the API,
 so the session cookie is first-party and the API needs no CORS. Better Auth
 owns sign-in and sessions, and its tables are generated
-(`pnpm --filter @consola/cloud-global auth:generate`), never hand-edited. Every
-table that holds company data carries `organization_id`, and a person reaches
-it through `member`.
+(`pnpm --filter @consola/cloud-global auth:generate`), never hand-edited.
+Workspaces are Consola's own routes (`/api/workspaces`), with every route of
+Better Auth's organisation plugin closed. Every table that holds company data
+carries `organization_id`, and a person reaches it through `member`.
 
 `mayJoin` (`apps/cloud-global/src/domain/joinRule.ts`) is checked before an account
 is created and before every new session. It is open for now (any Google
@@ -1120,7 +1152,9 @@ rules follow:
 - **A server people use over the network offers its source** (AGPL §13). The
   cloud web app links to the source of the version it is running.
 - **Dependencies must be AGPL-compatible**: MIT, ISC, BSD, Apache-2.0,
-  MPL-2.0, LGPL and GPL-3.0 are; GPL-2.0-only is not.
+  MPL-2.0, LGPL and GPL-3.0 are; GPL-2.0-only is not. CI checks every
+  installed dependency's declared licence against the list in
+  `.github/scripts/check-licenses.mjs`.
 
 Outside contributions need a signed CLA (`CLA.md`, checked by
 `.github/workflows/cla.yml`). It is what keeps relicensing — a commercial

@@ -8,7 +8,6 @@ const config: CloudConfig = {
   publicUrl: 'http://localhost:5175',
   port: 3100,
   google: { clientId: 'sprocket-test-client-id', clientSecret: 'sprocket-test-client-secret' },
-  organization: { name: 'Sprocket', slug: 'sprocket' },
 };
 
 describe('describeStartupFailure', () => {

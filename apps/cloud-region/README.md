@@ -27,6 +27,18 @@ wrong.
 By default the data is PGlite (Postgres in-process) in
 `apps/cloud-region/.data/cell-eu-db`. Deleting that folder resets it.
 
+## The shared contract
+
+The cell imports `@consola/cloud-contract` (`packages/cloud-contract`), what
+`cloud-global` and the cells agree on, from its build. `pnpm dev:cloud-region`
+and `pnpm test` build it first. A `pnpm --filter @consola/cloud-region …`
+command does not, so build it before the first such command, and again after
+changing it:
+
+```bash
+pnpm --filter @consola/cloud-contract build
+```
+
 ## Two cells on one machine
 
 Each copy needs its own region, port and database. With the variables set in
