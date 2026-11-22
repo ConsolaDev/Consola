@@ -78,6 +78,12 @@
   background: var(--color-bg-hover);
 }
 
+/* The chip clips what lies outside it, so the ring is drawn inside Wake,
+   where it shows whole. */
+.snooze-chip-wake:focus-visible {
+  outline-offset: -2px;
+}
+
 /* --- Custom… ------------------------------------------------------------- */
 .snooze-dialog-modes {
   display: flex;
