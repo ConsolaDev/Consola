@@ -124,7 +124,7 @@ describe('the host lines', () => {
 
 describe('reportSession', () => {
   it(
-    'tool_call_denied_write: working, waiting on the approval, working again, idle; and the title',
+    'tool_call_denied_write: working, then waiting on the approval, then idle once answered; and the titles',
     () =>
       withReportedReplay(
         'tool_call_denied_write',
