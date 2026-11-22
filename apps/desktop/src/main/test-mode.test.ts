@@ -1,5 +1,23 @@
 import { describe, expect, it } from 'vitest';
-import { automationsTickMs } from './test-mode';
+import { automationsTickMs, openInApplicationsDir } from './test-mode';
+
+describe('openInApplicationsDir', () => {
+  it('is the folder an end-to-end test gives, as an absolute path, in a test run', () => {
+    expect(openInApplicationsDir('/tmp/consola-e2e/Applications', true)).toBe(
+      '/tmp/consola-e2e/Applications',
+    );
+  });
+
+  it('is undefined for anything else', () => {
+    expect(openInApplicationsDir(undefined, true)).toBeUndefined();
+    expect(openInApplicationsDir('', true)).toBeUndefined();
+    expect(openInApplicationsDir('Applications', true)).toBeUndefined();
+  });
+
+  it('is never read outside a test run', () => {
+    expect(openInApplicationsDir('/tmp/consola-e2e/Applications', false)).toBeUndefined();
+  });
+});
 
 describe('automationsTickMs', () => {
   it('takes a whole number of at least 500 ms, in a test run', () => {

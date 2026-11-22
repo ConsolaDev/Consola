@@ -7,12 +7,14 @@ import {
   INFO_PANEL_SHORTCUT_LABELS,
   isCommandPaletteShortcut,
   isInfoPanelShortcut,
+  isOpenInShortcut,
   isShellShortcut,
   isSidebarShortcut,
   isSidePanelShortcut,
   matchBrowserFocusedShortcut,
   matchScopeShortcut,
   matchWorkspaceShortcut,
+  OPEN_IN_SHORTCUT_LABELS,
   SIDE_PANEL_SHORTCUT_LABELS,
   type KeyChord,
 } from './shortcuts';
@@ -186,6 +188,36 @@ describe('info panel chord', () => {
   });
 });
 
+describe('open-in chord', () => {
+  it('is Cmd+O on macOS and Ctrl+O elsewhere', () => {
+    expect(isOpenInShortcut(cmd('o'), 'mac')).toBe(true);
+    expect(isOpenInShortcut(ctrl('o'), 'other')).toBe(true);
+  });
+
+  it('leaves Shift+Cmd+O to the Files scope of the palette', () => {
+    expect(isOpenInShortcut(cmd('O', { shift: true }), 'mac')).toBe(false);
+    expect(isOpenInShortcut(ctrl('O', { shift: true }), 'other')).toBe(false);
+    expect(matchScopeShortcut(cmd('O', { shift: true }), 'mac')).toBe('files');
+  });
+
+  it('is not with Alt, the other platform’s modifier, or both at once', () => {
+    expect(isOpenInShortcut(cmd('o', { alt: true }), 'mac')).toBe(false);
+    expect(isOpenInShortcut(ctrl('o'), 'mac')).toBe(false);
+    expect(isOpenInShortcut(cmd('o'), 'other')).toBe(false);
+    expect(isOpenInShortcut(cmd('o', { ctrl: true }), 'mac')).toBe(false);
+  });
+
+  it('is not while composing, nor another key', () => {
+    expect(isOpenInShortcut(cmd('o', { isComposing: true }), 'mac')).toBe(false);
+    expect(isOpenInShortcut(cmd('p'), 'mac')).toBe(false);
+  });
+
+  it('is labelled for each platform', () => {
+    expect(OPEN_IN_SHORTCUT_LABELS.mac).toBe('⌘O');
+    expect(OPEN_IN_SHORTCUT_LABELS.other).toBe('Ctrl+O');
+  });
+});
+
 describe('close chord', () => {
   it('is Cmd+W on macOS', () => {
     expect(isCloseShortcut(cmd('w'), 'mac')).toBe(true);
@@ -255,6 +287,15 @@ describe('forwardedShortcutFor', () => {
     });
     expect(forwardedShortcutFor(ctrl('j', { alt: true, code: 'KeyJ' }), 'other')).toEqual({
       kind: 'info-panel',
+    });
+    expect(forwardedShortcutFor(cmd('o'), 'mac')).toEqual({ kind: 'open-in' });
+    expect(forwardedShortcutFor(ctrl('o'), 'other')).toEqual({ kind: 'open-in' });
+  });
+
+  it('forwards Shift+Cmd+O as the Files scope, not as the open-in chord', () => {
+    expect(forwardedShortcutFor(cmd('O', { shift: true }), 'mac')).toEqual({
+      kind: 'scoped-palette',
+      scope: 'files',
     });
   });
 

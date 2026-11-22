@@ -483,7 +483,13 @@ panel it is view state, kept in the renderer.
   pane's merge card, which the view acts on once per `revealRequest.seq`);
   the Folder row copies its path, and its card, on hover or focus, explains
   the checkout (its branch, the session's folder (the path the row copies)
-  and a worktree's main checkout). Nothing in
+  and a worktree's main checkout). Under it, "Open in" opens that folder in
+  the app last picked (`settingsStore.openInFavourite`, else Finder), as ⌘O
+  does from anywhere in a session pane; its chevron lists the apps main
+  found (`main/openIn/`, one table), and a pick there or in the palette
+  becomes the favourite. Main opens only an app it found, on an absolute
+  path that is a folder, with argument lists; a test run records instead
+  of opening. No folder (a removed worktree), no button. Nothing in
   the panel navigates or takes the keyboard, on mount or otherwise.
   Visibility rides with the layout (`sidePanelStore.infoVisible`,
   written only under the remember setting, shown when absent); folds sit in
@@ -1018,6 +1024,7 @@ All channel names are defined in `src/shared/constants.ts`. Key patterns:
 - `git:*` - Git status and commit message generation
 - `dialog:*` - Native dialogs
 - `app:*` - The machine Consola runs on: its name (`app:get-computer-name`), read once per run
+- `open-in:*` - "Open in" a session's folder: the apps main found (`open-in:list`), and opening one (`open-in:open`), which main checks first
 - `worktree-cleanup:*` - Cleanup preview, "Clean up now", history, and a deleted session's outcome
 - `browser:*` - In-app browser tabs, page actions and snapshots; every id is checked against the sender's workspace
 

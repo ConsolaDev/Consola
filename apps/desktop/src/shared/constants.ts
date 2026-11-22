@@ -160,6 +160,10 @@ export const IPC_CHANNELS = {
   // The machine Consola runs on (renderer -> main)
   APP_GET_COMPUTER_NAME: 'app:get-computer-name', // The name this computer goes by, read once per run
 
+  // "Open in" a session's folder (renderer -> main; main finds the apps and opens)
+  OPEN_IN_LIST: 'open-in:list', // The apps on this computer a folder can be opened in, the file manager last
+  OPEN_IN_OPEN: 'open-in:open', // Open a folder in one of them; main checks the app and the folder first
+
   // Window identity (main -> one renderer)
   WINDOW_WORKSPACE_CHANGED: 'window:workspace-changed',
   WINDOW_OPEN_SETTINGS: 'window:open-settings',

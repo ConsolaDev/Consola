@@ -1,3 +1,5 @@
+import * as path from 'node:path';
+
 /** A test run: `NODE_ENV=test`, which also moves `userData` to the test profile (`index.ts`). */
 export const isTest = process.env.NODE_ENV === 'test';
 
@@ -16,6 +18,19 @@ export function automationsTickMs(
   if (!test || raw === undefined || !/^\d+$/.test(raw)) return undefined;
   const ms = Number.parseInt(raw, 10);
   return ms >= 500 ? ms : undefined;
+}
+
+/**
+ * The folder "Open in" looks for apps in during a test run, for an
+ * end-to-end test that says which apps are installed
+ * (`CONSOLA_OPEN_IN_APPLICATIONS`, a folder of empty bundles): honoured only
+ * in a test run, and only as an absolute path. Anything else is undefined.
+ */
+export function openInApplicationsDir(
+  raw = process.env.CONSOLA_OPEN_IN_APPLICATIONS,
+  test = isTest,
+): string | undefined {
+  return test && raw && path.isAbsolute(raw) ? raw : undefined;
 }
 
 /**

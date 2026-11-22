@@ -24,6 +24,7 @@ import { basename } from '../../utils/fileUtils';
 import { HarnessIcon } from '../HarnessIcon';
 import { InfoRow } from './InfoRow';
 import { InfoSection } from './InfoSection';
+import { OpenInButton } from './OpenInButton';
 
 /** How long "Copied the folder path" stays before the card or title explains again. */
 const COPIED_MS = 1500;
@@ -34,7 +35,10 @@ const PATH_TAIL = 14;
 
 const ICON_SIZE = 14;
 
-/** Where the session runs: the computer, the harness and its account and model, the folder. */
+/**
+ * Where the session runs: the computer, the harness and its account and
+ * model, the folder and what opens it ("Open in").
+ */
 export function EnvironmentSection({ facts }: { facts: TabFacts }) {
   return (
     <InfoSection id="environment" title="Environment">
@@ -58,7 +62,12 @@ function EnvironmentRows({ facts }: { facts: TabFacts }) {
           tone="muted"
         />
       )}
-      {folder?.kind === 'folder' && <FolderRow line={folder} checkout={facts.checkout} />}
+      {folder?.kind === 'folder' && (
+        <>
+          <FolderRow line={folder} checkout={facts.checkout} />
+          <OpenInButton folder={folder.path} />
+        </>
+      )}
       {readOnly && <InfoRow icon={<Lock size={ICON_SIZE} />} label={readOnly} />}
     </>
   );
