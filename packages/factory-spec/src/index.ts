@@ -64,6 +64,14 @@ export {
 } from './run';
 export { isAgentRun, parseToolRef, type AgentRunTarget, type RunTarget } from './runTarget';
 export {
+  MAX_SKILL_BYTES,
+  MAX_SKILL_FILES,
+  parseSkill,
+  skillHash,
+  type SkillDefinition,
+  type SkillFileEntry,
+} from './skills';
+export {
   AUTOMATION_MODES,
   AUTOMATION_NAME_PATTERN,
   CONNECTION_ID_PATTERN,

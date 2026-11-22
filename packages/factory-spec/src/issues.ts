@@ -14,6 +14,12 @@ export interface FactorySpecIssue {
   line?: number;
   /** Name of the automation the problem belongs to, when it has a readable one. */
   automation?: string;
+  /**
+   * The file the problem is in, relative to the factory folder
+   * (`factory.yml`, `agents/investigator.md`, `skills/incident-triage/SKILL.md`).
+   * Set by the folder's parsers; `parseFactorySpec`, which reads one file, leaves it out.
+   */
+  file?: string;
 }
 
 export function toIssue(
