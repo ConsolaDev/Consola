@@ -44,9 +44,11 @@ const REPLAY_TIMEOUT_MS = 60_000;
 const REPLAY_TITLE = 'Sprocket replay title';
 
 /**
- * Each test runs on a machine of its own: a temporary home, no CLI config variables, and fake
- * `claude`, `codex`, `opencode` and `pi` first on the PATH, which record each call and fail; every
- * recorded call must have seen the test's home (`../testing/machine.ts`).
+ * Each test runs on a machine of its own, set on this process's environment: a temporary home, no
+ * CLI config or login variables, and fake `claude`, `codex`, `opencode` and `pi` first on the
+ * PATH, which record each call and fail; every recorded call must have seen the test's home
+ * (`../testing/machine.ts`). Outside a test, the process has a home and fake CLIs of its own,
+ * and any CLI run on those fails the file (`../testing/setup.ts`).
  */
 const machine = isolateMachine();
 
@@ -481,25 +483,33 @@ describe('ThreadRuntime', () => {
     it(
       'probes only the machine’s fake CLIs, with the test’s home',
       () =>
-        withHostSession({}, () =>
-          Effect.gen(function* () {
-            // Hydration probes every installed CLI; on this machine each is a fake that records it.
-            yield* Effect.gen(function* () {
-              while (!machine.calls().some((call) => call.cli === 'claude')) {
-                yield* Effect.sleep(Duration.millis(20));
+        withHostSession(
+          // t3 leaves OpenCode and Pi off until enabled; on here, so all four drivers probe.
+          {
+            providerInstances: {
+              opencode: { driver: 'opencode', enabled: true },
+              pi: { driver: 'pi', enabled: true },
+            },
+          },
+          () =>
+            Effect.gen(function* () {
+              // Hydration probes every enabled CLI; on this machine each is a fake that records it.
+              const probed = () => new Set(machine.calls().map((call) => call.cli));
+              yield* Effect.gen(function* () {
+                while (!FAKE_CLIS.every((cli) => probed().has(cli))) {
+                  yield* Effect.sleep(Duration.millis(20));
+                }
+              }).pipe(Effect.timeout(Duration.seconds(20)), Effect.orDie);
+              const calls = machine.calls();
+              expect([...probed()].sort()).toEqual([...FAKE_CLIS].sort());
+              for (const call of calls) {
+                expect(call).toMatchObject({
+                  home: machine.home(),
+                  claudeConfigDir: '',
+                  codexHome: '',
+                });
               }
-            }).pipe(Effect.timeout(Duration.seconds(20)), Effect.orDie);
-            const calls = machine.calls();
-            expect(calls.map((call) => call.cli)).toContain('claude');
-            for (const call of calls) {
-              expect(FAKE_CLIS).toContain(call.cli);
-              expect(call).toMatchObject({
-                home: machine.home(),
-                claudeConfigDir: '',
-                codexHome: '',
-              });
-            }
-          }),
+            }),
         ),
       REPLAY_TIMEOUT_MS,
     );
