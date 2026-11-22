@@ -86,11 +86,14 @@ export function turnFacts(step: StepRun): string | null {
  * The step detail's turn line: the turns against the step's own cap, the
  * cost and the model the CLI reported, `7 turns of at most 30 · $0.0412
  * est. · claude-opus-5-5`, each part only when it is known. Null for a
- * command, and for an agent step that reported none of them.
+ * command, and for an agent step that reported none of them. After a
+ * reminder the turns are both turns' and the cap held only the first, so
+ * the cap is left out (the attempts line says it was reminded).
  */
 export function turnLine(step: StepRun): string | null {
   if (step.kind !== 'agent') return null;
-  const { turns, costUsd, maxTurns } = step.turn ?? {};
+  const { turns, costUsd } = step.turn ?? {};
+  const maxTurns = step.reminded ? undefined : step.turn?.maxTurns;
   const parts: string[] = [];
   if (turns !== undefined)
     parts.push(

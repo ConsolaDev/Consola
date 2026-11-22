@@ -465,6 +465,16 @@ describe('what a step’s turns report', () => {
     ],
     [{ turn: { turns: 1, maxTurns: 6 } }, '1 turn of at most 6'],
     [{ turn: { costUsd: 1.5, maxTurns: 6 } }, 'At most 6 turns · $1.50 est.'],
+    // After a reminder the turns are both turns', and the step's cap held only the first.
+    [
+      {
+        turn: { turns: 8, costUsd: 0.0412, maxTurns: 6 },
+        reminded: true,
+        model: 'claude-opus-5-5',
+      },
+      '8 turns · $0.0412 est. · claude-opus-5-5',
+    ],
+    [{ turn: { costUsd: 1.5, maxTurns: 6 }, reminded: true }, '$1.50 est.'],
     [{ model: 'claude-opus-5-5' }, 'claude-opus-5-5'],
     [{}, null],
   ])('turnLine(%j)', (fields, expected) => {
