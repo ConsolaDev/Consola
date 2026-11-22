@@ -11,6 +11,7 @@ catalog:
   '@effect/graphql-generator': 4.1.5
   '@effect/openapi-generator': 4.1.5
   '@effect/platform-node': 4.1.5
+  '@effect/platform-node-shared': 4.1.5
   '@effect/vitest': 4.1.5
   '@noble/curves': 1.9.1
   '@noble/hashes': 1.8.0
@@ -67,6 +68,19 @@ overrides:
   '@opencode/schema>effect': 4.1.5
   # t3's markdown pipeline parses math with its fork of the tokenizer.
   remark-math>micromark-extension-math: npm:micromark-extension-llm-math@3.1.0
+  # The Claude Agent SDK is always given the person's own Claude executable, so
+  # its bundled binaries are never used (as in t3).
+  '@anthropic-ai/claude-agent-sdk>@anthropic-ai/claude-agent-sdk-darwin-arm64': '-'
+  '@anthropic-ai/claude-agent-sdk>@anthropic-ai/claude-agent-sdk-darwin-x64': '-'
+  '@anthropic-ai/claude-agent-sdk>@anthropic-ai/claude-agent-sdk-linux-arm64': '-'
+  '@anthropic-ai/claude-agent-sdk>@anthropic-ai/claude-agent-sdk-linux-arm64-musl': '-'
+  '@anthropic-ai/claude-agent-sdk>@anthropic-ai/claude-agent-sdk-linux-x64': '-'
+  '@anthropic-ai/claude-agent-sdk>@anthropic-ai/claude-agent-sdk-linux-x64-musl': '-'
+  '@anthropic-ai/claude-agent-sdk>@anthropic-ai/claude-agent-sdk-win32-arm64': '-'
+  '@anthropic-ai/claude-agent-sdk>@anthropic-ai/claude-agent-sdk-win32-x64': '-'
+  # The SDK's peer at the version t3 resolves. The newest one depends on
+  # @opentelemetry/api, which would move the peers of Consola's own packages.
+  '@anthropic-ai/claude-agent-sdk>@anthropic-ai/sdk': 0.93.0
 
 # Vite+ runs Vitest 5 on its own build of Vite, which carries Vite+'s version
 # number, so Vitest's peer range never matches it (vendor/t3code/UPSTREAM.md).
@@ -88,6 +102,7 @@ patchedDependencies:
   '@cursor/sdk@1.4.2': patches/@cursor__sdk@1.4.2.patch
   '@effect/platform-node-shared@4.1.5': patches/@effect__platform-node-shared@4.1.5.patch
   '@effect/vitest@4.1.5': patches/@effect__vitest@4.1.5.patch
+  '@ff-labs/fff-node@0.11.0': patches/@ff-labs__fff-node@0.11.0.patch
   '@muse-code/sdk@1.4.6': patches/@muse-code__sdk@1.4.6.patch
   '@pierre/diffs@1.7.0-beta.4': patches/@pierre__diffs@1.7.0-beta.4.patch
   mdast-util-math@3.0.0: patches/mdast-util-math@3.0.0.patch
