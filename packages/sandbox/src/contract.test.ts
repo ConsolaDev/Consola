@@ -1,3 +1,5 @@
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type {
   ProviderPausing,
@@ -9,6 +11,7 @@ import { ContractFailure } from './contract/expect';
 import { type ContractSubject, sandboxContract } from './contract/sandboxContract';
 import { SANDBOX_CAPABILITIES } from './domain/capabilities';
 import { SandboxError } from './domain/errors';
+import { E2BProvider } from './providers/e2b/E2BProvider';
 import { FakeProvider, type FakeProviderOptions } from './providers/fake/FakeProvider';
 import { POSIX_PROGRAMS } from './providers/fake/posixPrograms';
 
@@ -38,6 +41,11 @@ const over = (clock: FakeProvider, provider: SandboxProvider = clock): ContractS
   elapse: async (seconds) => clock.elapse(seconds),
 });
 
+// The key lives in packages/sandbox/.env (see .env.example), which CI does not have.
+const ENV_FILE = join(__dirname, '..', '.env');
+if (existsSync(ENV_FILE)) process.loadEnvFile(ENV_FILE);
+const E2B_API_KEY = process.env.E2B_API_KEY?.trim() ?? '';
+
 const PROVIDERS: readonly ProviderUnderTest[] = [
   {
     name: 'the fake provider, with the basics only',
@@ -48,6 +56,21 @@ const PROVIDERS: readonly ProviderUnderTest[] = [
     name: 'the fake provider, with every capability',
     subject: () => over(fake({ capabilities: SANDBOX_CAPABILITIES })),
     skipped: null,
+  },
+  {
+    name: 'the E2B provider, on real sandboxes',
+    // E2B's own public template, which has every program the contract runs.
+    subject: () => ({
+      provider: new E2BProvider({ apiKey: E2B_API_KEY }),
+      template: 'base',
+      elapse: (seconds) => new Promise((resolve) => setTimeout(resolve, seconds * 1_000)),
+    }),
+    skipped:
+      E2B_API_KEY === ''
+        ? 'E2B_API_KEY is not set, in packages/sandbox/.env or the environment, so no real E2B sandbox was started'
+        : null,
+    // A check starts up to two sandboxes, and the lifetime checks wait out a lifetime.
+    timeoutMs: 120_000,
   },
 ];
 
