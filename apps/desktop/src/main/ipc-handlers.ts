@@ -53,7 +53,7 @@ import { isolated } from './browser/isolated';
 import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { exec } from 'node:child_process';
+import { exec, execFile } from 'node:child_process';
 import { TerminalManager } from './TerminalManager';
 import {
   SessionLauncher,
@@ -124,6 +124,7 @@ import {
   worktreeHeld,
   type ItemWorktreeDeps,
 } from './automations/launchAgentRun';
+import { openFactoryFile } from './automations/openFactoryFile';
 import { automationCheckoutPort } from './automations/automationCheckout';
 import { readRunConversation } from './automations/runConversation';
 import { startAuthoring } from './automations/authoring';
@@ -2397,9 +2398,15 @@ export function setupIpcHandlers(): boolean {
         throw new Error(`Not a file of this factory: \`${String(file)}\`.`);
       }
       const filePath = await automations.factoryFilePath(workspaceId, file);
-      if (!fs.existsSync(filePath)) throw new Error('That file is not there any more.');
-      const failure = await shell.openPath(filePath);
-      if (failure) throw new Error(failure);
+      // Only a regular file inside the folder, and as text: never what a link points at.
+      await openFactoryFile(workspaceDataDir(workspaceId), filePath, file ?? 'factory.yml', {
+        platform: process.platform,
+        execFile: (program, args) =>
+          new Promise<void>((resolve, reject) =>
+            execFile(program, args, (error) => (error ? reject(error) : resolve())),
+          ),
+        openPath: (target) => shell.openPath(target),
+      });
     },
   );
   ipcMain.handle(IPC_CHANNELS.AUTOMATIONS_RECHECK, (_event, workspaceId: unknown) => {
