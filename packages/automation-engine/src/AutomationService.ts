@@ -31,12 +31,14 @@ import {
   type FactoryParseResult,
   type FactorySpecIssue,
   type PollTrigger,
+  type RepeatStep,
   type RunItem,
   type RunRecord,
   type RunStatus,
   type RunTrigger,
   type SkillDefinition,
   type Step,
+  type StepEntry,
   type StepRun,
   type StepsAutomation,
   type Trigger,
@@ -206,7 +208,7 @@ import {
 } from './steps/definition';
 import { isEngineRun, isStepsRun } from './steps/recover';
 import { flowNotYet } from './steps/flowLater';
-import { advanceSteps, type Lane, type StepUpdate } from './steps/sequence';
+import { advanceSteps, type Advance, type Lane, type StepUpdate } from './steps/sequence';
 import {
   closeSteps,
   holdsWhileWaiting,
@@ -220,6 +222,7 @@ import {
   withGateAnswered,
   withGateAsked,
   withNextAttempt,
+  withRound,
   withStep,
   withUpdate,
 } from './steps/stepRecords';
@@ -230,7 +233,7 @@ import {
   notWaitingForYou,
   renderGateAsk,
 } from './steps/gate';
-import { NO_TURN_TO_STOP, stopAction, stoppedBefore } from './steps/stop';
+import { NO_TURN_TO_STOP, stopAction, stoppedAfterRound, stoppedBefore } from './steps/stop';
 import { StepIO } from './steps/stepTools';
 
 /**
@@ -2781,7 +2784,11 @@ export class AutomationService {
       const dir = run.checkout?.cwd ?? this.deps.checkout.pathFor(workspaceId, workItem);
       if (this.checkoutHeld(dir, itemKey) || this.deps.checkoutBusy(dir))
         throw new Error(RETRY_HELD);
-      if (target.kind === 'agent' || !run.checkout?.head) {
+      // A loop's next round re-prepares when it begins with an agent step, as a retried agent step does (review S11).
+      const reprepare =
+        target.kind === 'agent' ||
+        (target.kind === 'repeat' && this.retriedRoundStartsAgent(run, loaded.definition, target));
+      if (reprepare || !run.checkout?.head) {
         this.retrying.set(runId, { dir, itemKey });
         try {
           prepared = await this.deps.checkout.prepare({ workspaceId, workItem });
@@ -2816,6 +2823,30 @@ export class AutomationService {
     this.broadcastRun(runId);
     this.advance(runId);
     return { ...this.deps.store.get(runId)! };
+  }
+
+  /**
+   * Whether retrying the loop `target` begins its next round with an agent
+   * step's start, asked of the sequencer over a copy of the records as the
+   * retry leaves them, as `firstLaneOf` asks.
+   */
+  private retriedRoundStartsAgent(
+    run: RunRecord,
+    definition: RunDefinition,
+    target: StepRun,
+  ): boolean {
+    const entries = definition.automation.steps;
+    // An `item.json` that cannot be read reads as none here, as in `firstLaneOf`; the retry's advance fails on it.
+    const itemOf = this.runItemOf(run, definition);
+    const records = retrySteps(run.steps ?? [], target.id, this.iso(), entries);
+    const next = firstMove(
+      entries,
+      records,
+      run.dryRun === true,
+      stepItemOf(run, itemOf),
+      this.iso(),
+    );
+    return next.kind === 'start' && next.lane === 'agent';
   }
 
   /**
@@ -3044,15 +3075,16 @@ export class AutomationService {
    * while it prepared its checkout.
    */
   private stalledRuns(): RunRecord[] {
-    return this.deps.store
-      .runs()
-      .filter(
-        (run) =>
-          run.status === 'running' &&
-          isStepsRun(run) &&
-          !this.starting.has(run.id) &&
-          !(run.steps ?? []).some((step) => step.status === 'queued' || step.status === 'running'),
-      );
+    return this.deps.store.runs().filter(
+      (run) =>
+        run.status === 'running' &&
+        isStepsRun(run) &&
+        !this.starting.has(run.id) &&
+        // A loop's own row in its round is no work under way.
+        !(run.steps ?? []).some(
+          (step) => !isLoopRow(step) && (step.status === 'queued' || step.status === 'running'),
+        ),
+    );
   }
 
   /**
@@ -3099,12 +3131,13 @@ export class AutomationService {
     // At this version the entry's definition is the run's snapshot, and its source the one the run builds. A
     // guess at its lane: an `item.json` that cannot be read reads as none here, and fails the run when it starts.
     const itemOf = this.itemOfSource(run, entry.source);
-    const next = advanceSteps({
-      steps: entry.steps.definition.automation.steps,
+    const next = firstMove(
+      entry.steps.definition.automation.steps,
       records,
-      dryRun: run.dryRun === true,
-      ...stepItemOf(run, itemOf),
-    });
+      run.dryRun === true,
+      stepItemOf(run, itemOf),
+      this.iso(),
+    );
     if (next.kind === 'start') return next.lane;
     return next.kind === 'ask' ? 'command' : null;
   }
@@ -3322,8 +3355,9 @@ export class AutomationService {
       if (run.status !== 'running') continue;
       if (isAgentRun(run)) used += lane === 'agent' ? 1 : 0;
       else if (run.steps)
+        // A loop's own row runs nothing: only its steps hold slots.
         used += run.steps.filter(
-          (step) => step.status === 'running' && laneOfRecord(step) === lane,
+          (step) => step.status === 'running' && !isLoopRow(step) && laneOfRecord(step) === lane,
         ).length;
     }
     return used;
@@ -3551,8 +3585,6 @@ export class AutomationService {
       ...stepItemOf(run, itemOf),
     });
     if (next.kind === 'wait') return;
-    // `flowNotYet` keeps every entry with a loop from running until loops run (slice 3, Call 2): never silently.
-    if (next.kind === 'round') throw new Error('a loop is not run yet');
     const stopping = this.stopRequested.delete(runId);
     // A stopped run never completes by skips: when every step left would skip, the one it would look at next fails,
     // never started. With none left, its steps all ended on their own before the stop could reach them: it
@@ -3572,14 +3604,26 @@ export class AutomationService {
     }
     for (const update of next.updates)
       this.writeSteps(runId, withUpdate(this.stepsOf(runId), update, this.iso()));
-    // A stop that landed between steps fails the step it would start, or the gate it would park at (review S8).
-    if ((next.kind === 'start' || next.kind === 'ask') && stopping) {
+    // A stop that landed between steps fails what it would start next: a step, the gate it would park at, or a
+    // loop's next round or exhaustion gate (review S8). Quietly: the person made it.
+    if (next.kind !== 'complete' && next.kind !== 'fail' && stopping) {
+      const stepId = next.kind === 'round' ? next.blockId : next.stepId;
       this.settleStep(
         runId,
-        next.stepId,
-        { status: 'failed', error: stoppedBefore(next.stepId) },
+        stepId,
+        { status: 'failed', error: this.stoppedWords(runId, next) },
         { quiet: true },
       );
+      return;
+    }
+    if (next.kind === 'round') {
+      // One line begins the round; then its steps take their turns, in the same call.
+      const block = flatSteps(loaded.definition.automation.steps).find(
+        (row) => row.step.id === next.blockId,
+      )?.step as RepeatStep;
+      this.writeSteps(runId, withRound(this.stepsOf(runId), block, next.round, this.iso()));
+      this.broadcastRun(runId);
+      this.advance(runId, options);
       return;
     }
     if (next.kind === 'ask') {
@@ -3602,6 +3646,26 @@ export class AutomationService {
       if (!options.quiet) this.notify(`${run.automationId} did not finish`, next.error, runId);
     }
     void this.pump();
+  }
+
+  /**
+   * What a stop that landed between steps says at what the run would do
+   * next: a loop's later round, or its exhaustion gate, `Stopped after round
+   * <k> of <block>.`; anything else (a step, a gate's row, a loop's round 1)
+   * slice 1's `stoppedBefore`.
+   */
+  private stoppedWords(
+    runId: string,
+    next: Extract<Advance, { kind: 'start' | 'ask' | 'round' }>,
+  ): string {
+    if (next.kind === 'round')
+      return next.round > 1
+        ? stoppedAfterRound(next.round - 1, next.blockId)
+        : stoppedBefore(next.blockId);
+    const row = this.stepsOf(runId).find((record) => record.id === next.stepId);
+    return next.kind === 'ask' && row && isLoopRow(row)
+      ? stoppedAfterRound(row.round ?? 1, next.stepId)
+      : stoppedBefore(next.stepId);
   }
 
   /**
@@ -3656,7 +3720,17 @@ export class AutomationService {
     const refusal = gateRefusal(run, loaded.definition.automation.steps, stepId, decision);
     if (refusal) throw new Error(refusal);
     const now = this.iso();
-    const steps = withGateAnswered(run.steps ?? [], stepId, { decision, nowIso: now });
+    const row = (run.steps ?? []).find((record) => record.id === stepId);
+    // A loop's exhaustion gate, approved: the loop is done, and says after how many rounds.
+    const note =
+      row && isLoopRow(row) && decision !== 'reject'
+        ? `you approved after ${row.round ?? 1} rounds`
+        : undefined;
+    const steps = withGateAnswered(run.steps ?? [], stepId, {
+      decision,
+      nowIso: now,
+      ...(note !== undefined ? { note } : {}),
+    });
     if (decision === 'reject') {
       this.finish(runId, 'rejected', { summary: `rejected at ${stepId}` }, [], steps);
       void this.pump();
@@ -4396,7 +4470,12 @@ export class AutomationService {
    * into its launch): that step's launch holds them.
    */
   private doneStarting(runId: string, stepId?: string): void {
-    if (this.stepsOf(runId).some((step) => step.id !== stepId && step.status === 'running')) return;
+    if (
+      this.stepsOf(runId).some(
+        (step) => step.id !== stepId && step.status === 'running' && !isLoopRow(step),
+      )
+    )
+      return;
     this.starting.delete(runId);
     this.stopRequested.delete(runId);
   }
@@ -4426,7 +4505,10 @@ export class AutomationService {
    * it did; the rest did not run.
    */
   private failRun(runId: string, error: string, options: { quiet?: boolean } = {}): void {
-    const running = this.stepsOf(runId).filter((step) => step.status === 'running');
+    // A loop's own row runs nothing: `finish` closes it by the run's end.
+    const running = this.stepsOf(runId).filter(
+      (step) => step.status === 'running' && !isLoopRow(step),
+    );
     this.finish(
       runId,
       'failed',
@@ -5864,6 +5946,34 @@ function sessionRunningIn(run: RunRecord | undefined): string | null {
 /** A run that starts a session: its result is the preview of what it starts. */
 function isAgentRun(run: RunRecord): boolean {
   return (run.result as { kind?: unknown } | undefined)?.kind === 'agent-run';
+}
+
+/**
+ * What a run would do first from `records`, as the sequencer says, a loop's
+ * round followed into its steps (over a copy, `withRound` applied as
+ * `advance` would) until it starts a step, asks, completes or fails.
+ */
+function firstMove(
+  entries: readonly StepEntry[],
+  records: StepRun[],
+  dryRun: boolean,
+  item: Pick<Parameters<typeof advanceSteps>[0], 'itemValue' | 'untypedItem'>,
+  nowIso: string,
+): Advance {
+  let current = records;
+  for (;;) {
+    const next = advanceSteps({ steps: entries, records: current, dryRun, ...item });
+    if (next.kind !== 'round') return next;
+    // The sequencer begins a round only of a loop of these entries.
+    const block = flatSteps(entries).find((row) => row.step.id === next.blockId)
+      ?.step as RepeatStep;
+    current = withRound(
+      next.updates.reduce((rows, update) => withUpdate(rows, update, nowIso), current),
+      block,
+      next.round,
+      nowIso,
+    );
+  }
 }
 
 /**

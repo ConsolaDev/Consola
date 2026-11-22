@@ -305,10 +305,8 @@ describe('a steps entry, resolved against its workspace', () => {
     expect((await listed({ yaml: looped, platform: 'win32' })).problem).toBe(
       'run: steps need a POSIX shell, which Windows does not have',
     );
-    // On a POSIX shell the loop is the only thing in its way, until the engine runs loops.
-    expect((await listed({ yaml: looped })).problem).toBe(
-      '`repeat` runs from the next update; this automation does not run yet.',
-    );
+    // On a POSIX shell nothing is in its way.
+    expect((await listed({ yaml: looped })).problem).toBeUndefined();
   });
 
   it('needs no POSIX shell for an entry of agent steps only', async () => {

@@ -52,16 +52,14 @@ describe('flowNotYet', () => {
     expect(flowNotYet(entryWith(commandStep('a')))).toBeNull();
   });
 
-  it('names repeat for a loop, whatever it holds', () => {
-    expect(flowNotYet(entryWith(loop('polish', commandStep('a'))))).toBe(
-      '`repeat` runs from the next update; this automation does not run yet.',
-    );
-    expect(flowNotYet(entryWith(loop('polish', gateStep('decide'))))).toBe(
-      '`repeat` runs from the next update; this automation does not run yet.',
-    );
-    expect(flowNotYet(entryWith(loop('polish', commandStep('a', { stop: true }))))).toBe(
-      '`repeat` runs from the next update; this automation does not run yet.',
-    );
+  it('runs loops: an entry with one, whatever it holds, is not refused for it', () => {
+    expect(flowNotYet(entryWith(loop('polish', commandStep('a'))))).toBeNull();
+    expect(flowNotYet(entryWith(loop('polish', gateStep('decide'))))).toBeNull();
+    expect(flowNotYet(entryWith(loop('polish', commandStep('a', { stop: true }))))).toBeNull();
+    // What a loop's steps say is still read: a retry inside one.
+    expect(
+      flowNotYet(entryWith(loop('polish', commandStep('a', { onFailure: { retry: 1 } })))),
+    ).toBe('`on_failure` runs from the next update; this automation does not run yet.');
   });
 
   it('names on_failure on a step or on the entry, and budget', () => {
@@ -82,13 +80,13 @@ describe('flowNotYet', () => {
     expect(flowNotYet({ ...entryWith(commandStep('a')), checkout: { pr: 'item' } })).toBeNull();
   });
 
-  it('names repeat before on_failure and budget when an entry writes them all', () => {
+  it('names on_failure before budget when an entry writes them all', () => {
     expect(
       flowNotYet({
         ...entryWith(gateStep('decide'), loop('polish', commandStep('a'))),
         onFailure: { retry: 1 },
         budget: { usd: 5 },
       }),
-    ).toBe('`repeat` runs from the next update; this automation does not run yet.');
+    ).toBe('`on_failure` runs from the next update; this automation does not run yet.');
   });
 });

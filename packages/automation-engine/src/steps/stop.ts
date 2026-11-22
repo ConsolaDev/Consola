@@ -13,6 +13,15 @@ export function stoppedBefore(stepId: string): string {
   return `Stopped before ${stepId} started.`;
 }
 
+/**
+ * A loop the run ended between its rounds: its round `round` was over and
+ * the next (or its exhaustion gate) not begun (review S8). Before round 1 a
+ * loop takes `stoppedBefore`, as any step.
+ */
+export function stoppedAfterRound(round: number, loopId: string): string {
+  return `Stopped after round ${round} of ${loopId}.`;
+}
+
 /** What a stop says when the step's session had no turn running to end. */
 export const NO_TURN_TO_STOP = 'Stopped: its session was no longer running.';
 
