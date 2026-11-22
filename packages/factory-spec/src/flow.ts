@@ -29,7 +29,6 @@ const GATE_CHOICES = `\`choices\` lists ${MIN_CHOICES} to ${MAX_CHOICES} words o
 const GATE_REJECT = '`reject` is always offered; name your choices otherwise.';
 const GATE_TIMEOUT =
   'A gate waits for you for as long as it takes; timeouts arrive with waiting runs (slice 4).';
-const CHECKOUT_CHANGES = '`checkout.changes` arrives with write steps; it is not supported yet.';
 const GATE_SHAPE =
   'Write a gate as `gate: { ask: "<question>" }`, with `show` and `choices` if it needs them.';
 const SHOW_ENTRY = 'Name what to show as `<step>.<artifact>`, e.g. `review.handover`.';
@@ -91,10 +90,6 @@ export function parseGateBody(
     else if (given.length > MAX_GATE_SHOW) bad(GATE_SHOW, ['show']);
     else {
       for (const entry of given) {
-        if (entry === 'checkout.changes') {
-          bad(CHECKOUT_CHANGES, ['show']);
-          continue;
-        }
         const ref = typeof entry === 'string' ? parseReadRef(entry) : null;
         if (
           !ref ||

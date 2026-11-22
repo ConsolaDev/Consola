@@ -1014,3 +1014,47 @@ describe('write agents across the folder (slice 3-B)', () => {
     expect(names(parsed)).toEqual(['fix']);
   });
 });
+
+describe('path artifacts across the folder (slice 3-B)', () => {
+  const OWNED = (step: string) =>
+    `version: 1\nrepos: [sprocket/catalog-portal]\nautomations:\n  - name: fix\n    on: manual\n    checkout: { repo: sprocket/catalog-portal, branch: "consola/run-{{run.id}}" }\n    steps:\n${step}`;
+  const PATH_STEP = (agent: string) =>
+    `      - id: fix\n${agent}        prompt: Fix.\n        artifacts: [notes, { name: spec, path: docs/a.md }]\n`;
+  const NEEDS =
+    'A read-only agent writes no files; `spec` with a `path:` needs an `edit` or `write` agent.';
+  const folder = (yml: string) =>
+    files({
+      factoryYml: yml,
+      agents: {
+        reader: '---\nharness: claude-work\n---\nRead it.\n',
+        fixer: '---\nharness: claude-work\ntools: edit\nenvironment: sandboxed\n---\nFix it.\n',
+      },
+      environments: { sandboxed: 'isolation: sandbox\n' },
+    });
+
+  it('a path artifact needs an agent that writes, at its artifacts', () => {
+    const result = parseFactory(folder(OWNED(PATH_STEP('        agent: reader\n'))));
+    expect(names(result)).toEqual([]);
+    expect(result.issues).toEqual([
+      {
+        message: NEEDS,
+        file: 'factory.yml',
+        path: 'automations[0].steps[0].artifacts',
+        line: 11,
+        automation: 'fix',
+      },
+    ]);
+  });
+
+  it('a step on the default harness is read-only too', () => {
+    expect(parseFactory(folder(OWNED(PATH_STEP('')))).issues.map((i) => i.message)).toEqual([
+      NEEDS,
+    ]);
+  });
+
+  it('an edit or write agent may write one', () => {
+    const result = parseFactory(folder(OWNED(PATH_STEP('        agent: fixer\n'))));
+    expect(result.issues).toEqual([]);
+    expect(names(result)).toEqual(['fix']);
+  });
+});

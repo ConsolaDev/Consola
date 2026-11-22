@@ -17,6 +17,7 @@ import {
   type ExprType,
   type ExpressionScope,
 } from './expression';
+import { branchPlaceholderNames } from './branchName';
 import { parseDurationMs } from './duration';
 import {
   gateHasNo,
@@ -144,6 +145,12 @@ export interface AgentStep extends StepCommon {
   agent?: string;
   outputs: Record<string, OutputType>;
   artifacts: string[];
+  /**
+   * The artifacts that are files the step leaves in its run's checkout
+   * (slice 3-B), each name also in `artifacts`; present only when one is
+   * written. Their paths take `{{item.key}}` and `{{item.number}}`.
+   */
+  pathArtifacts?: Array<{ name: string; path: string }>;
   reads: string[];
   handover: 'required' | 'optional';
   /** Its turn's cap (`max_turns`), present only when the file writes one. */
@@ -254,7 +261,6 @@ export function gateChoices(gate: { choices?: readonly string[] }): string[] {
  * the step it guards.
  */
 export const LATER_KEYS: Readonly<Record<string, string>> = {
-  environment: 'write steps',
   wait: 'waiting runs',
   concurrency: 'waiting runs',
   uses: 'connections as data',
@@ -263,6 +269,45 @@ export const LATER_KEYS: Readonly<Record<string, string>> = {
   callable: 'callable automations',
   inputs: 'callable automations',
 };
+
+/** `environment:` on an agent step, or on the automation (slice 3-B): an agent's environment is its file's. */
+export const ENVIRONMENT_IN_AGENT_FILE = "An agent's environment is in its agent file.";
+/** `environment:` on a command: 3-C's sandboxed commands. */
+const ENVIRONMENT_ON_A_COMMAND =
+  '`environment:` on a command arrives with sandboxed commands; it is not supported yet.';
+
+/** What a step reads, or a gate shows, of a run's own checkout: its diff from where the run cut its branch (slice 3-B). */
+export const CHECKOUT_CHANGES_REF = 'checkout.changes';
+const CHECKOUT_CHANGES_NEEDS_A_RUN_CHECKOUT =
+  "`checkout.changes` is a run's own checkout's diff; it needs `checkout: { repo, branch }`.";
+
+/** The longest path a path artifact may name. */
+export const MAX_ARTIFACT_PATH = 200;
+/** What a path artifact's path may name of the item; `cleanBranchPart` cleans each, as a branch's. */
+const PATH_PLACEHOLDERS = ['item.key', 'item.number'];
+const PATH_PLACEHOLDER = /\{\{\s*([^{}]*?)\s*\}\}/g;
+/** Folders and files a path artifact never names, at any depth, compared case aside. */
+const PATH_REFUSED_PARTS = ['.git', '.claude', '.mcp.json'];
+
+/**
+ * Why `path` is not a file a path artifact may name in a run's checkout, in
+ * the format's words, or null: a relative path of at most 200 characters,
+ * no empty, `.` or `..` part, no `.git`, `.claude` or `.mcp.json` part (any
+ * case), no backslash or control character, and placeholders only
+ * `{{item.key}}` and `{{item.number}}` with no stray braces.
+ */
+export function artifactPathProblem(path: string): string | null {
+  const words = `\`${path}\` is not a path in the checkout: no leading \`/\`, no \`..\`, nothing under \`.git/\` or \`.claude/\`, not \`.mcp.json\`, at most ${MAX_ARTIFACT_PATH} characters.`;
+  if (path.length > MAX_ARTIFACT_PATH || /[\\\u0000-\u001f\u007f]/.test(path)) return words;
+  if (branchPlaceholderNames(path).some((name) => !PATH_PLACEHOLDERS.includes(name))) return words;
+  if (/[{}]/.test(path.replace(PATH_PLACEHOLDER, 'x'))) return words;
+  // An empty part is an empty path, a leading or trailing `/`, or `//`.
+  for (const part of path.split('/')) {
+    if (part === '' || part === '.' || part === '..') return words;
+    if (PATH_REFUSED_PARTS.includes(part.toLowerCase())) return words;
+  }
+  return null;
+}
 
 export function laterKeyMessage(key: string): string {
   return `\`${key}\` arrives with ${LATER_KEYS[key]}; it is not supported yet.`;
@@ -515,6 +560,9 @@ function parseIdAndIf(
       );
     } else if (given === 'previous') {
       bad('`previous` is reserved for the last run on the same item.', ['id']);
+    } else if (given === 'checkout') {
+      // `checkout.changes` names the run's own checkout (slice 3-B).
+      bad('`checkout` is reserved; name this step something else.', ['id']);
     } else {
       id = given;
       named = true;
@@ -587,6 +635,8 @@ function parseStep(raw: unknown, index: number, fail: Fail, position = index): S
       bad('`inputs` is not a step key: use `reads` to name what an earlier step wrote.', [key]);
     else if (key === 'skills' || key === 'mcpServers') bad(STEP_SKILLS_AND_SERVERS, [key]);
     else if (key === 'on_exhausted') bad(ON_EXHAUSTED_OUTSIDE, [key]);
+    else if (key === 'environment')
+      bad('run' in raw ? ENVIRONMENT_ON_A_COMMAND : ENVIRONMENT_IN_AGENT_FILE, [key]);
     else if (Object.prototype.hasOwnProperty.call(RUN_KEYS_ON_A_STEP, key))
       bad(RUN_KEYS_ON_A_STEP[key], [key]);
     else if (Object.prototype.hasOwnProperty.call(LATER_KEYS, key))
@@ -738,11 +788,32 @@ function parseStep(raw: unknown, index: number, fail: Fail, position = index): S
 
   let handover: 'required' | 'optional' = 'optional';
   const artifacts: string[] = [];
+  const pathArtifacts: Array<{ name: string; path: string }> = [];
   if ('artifacts' in raw) {
     if (!Array.isArray(raw.artifacts))
       bad('Expected `artifacts` to be a list of names.', ['artifacts']);
     else {
-      for (const name of raw.artifacts) {
+      for (const entry of raw.artifacts) {
+        // A name, or `{ name, path }`: a file the step leaves in its run's checkout (slice 3-B).
+        let name: unknown = entry;
+        let filePath: string | undefined;
+        if (isRecord(entry)) {
+          const keys = Object.keys(entry);
+          if (
+            keys.length !== 2 ||
+            !keys.includes('name') ||
+            !keys.includes('path') ||
+            typeof entry.path !== 'string'
+          ) {
+            bad(
+              'Expected an artifact as a name, or `{ name, path }` for a file in the checkout, e.g. `{ name: spec, path: docs/spec.md }`.',
+              ['artifacts'],
+            );
+            continue;
+          }
+          name = entry.name;
+          filePath = entry.path;
+        }
         if (typeof name !== 'string' || !ARTIFACT_NAME_PATTERN.test(name)) {
           bad('Use lowercase letters, digits and dashes, starting with a letter, e.g. notes.', [
             'artifacts',
@@ -751,6 +822,11 @@ function parseStep(raw: unknown, index: number, fail: Fail, position = index): S
           bad("`output` is reserved for a command's stdout; name this document something else.", [
             'artifacts',
           ]);
+        } else if (name === 'handover' && filePath !== undefined) {
+          bad(
+            "A handover is Consola's own document; a file in the checkout needs a name of its own.",
+            ['artifacts'],
+          );
         } else if (name === 'handover') {
           handover = 'required';
         } else if (artifacts.includes(name)) {
@@ -760,8 +836,11 @@ function parseStep(raw: unknown, index: number, fail: Fail, position = index): S
             `\`${name}\` is both an output and an artifact: they share one namespace, read as \`steps.<id>.${name}\`.`,
             ['artifacts'],
           );
+        } else if (filePath !== undefined && artifactPathProblem(filePath) !== null) {
+          bad(artifactPathProblem(filePath)!, ['artifacts']);
         } else {
           artifacts.push(name);
+          if (filePath !== undefined) pathArtifacts.push({ name, path: filePath });
         }
       }
     }
@@ -825,6 +904,8 @@ function parseStep(raw: unknown, index: number, fail: Fail, position = index): S
     ...(agent !== undefined ? { agent } : {}),
     outputs,
     artifacts,
+    // Only when written, so a step without one parses, and hashes, as before (contract 14).
+    ...(pathArtifacts.length > 0 ? { pathArtifacts } : {}),
     reads,
     handover,
     ...(maxTurns !== undefined ? { maxTurns } : {}),
@@ -1119,7 +1200,8 @@ function previousProblem(
  */
 export function checkSteps(
   entries: StepEntry[],
-  entry: { trigger: Trigger; appliesTo?: readonly string[] },
+  /** `runOwned`: the entry's `checkout` is `{ repo, branch }` (slice 3-B); absent, it is not. */
+  entry: { trigger: Trigger; appliesTo?: readonly string[]; runOwned?: boolean },
   path: Array<string | number>,
   fail: Fail,
 ): void {
@@ -1166,6 +1248,11 @@ export function checkSteps(
 
     // A document an earlier step wrote, named by `reads:` or by a gate's `show:`; a handover named is required.
     const document = (read: string, location: Array<string | number>) => {
+      // The run's own checkout's diff, which only a run that owns its checkout has (slice 3-B).
+      if (read === CHECKOUT_CHANGES_REF) {
+        if (!entry.runOwned) fail(CHECKOUT_CHANGES_NEEDS_A_RUN_CHECKOUT, location);
+        return;
+      }
       // `parseStep` kept only entries of one of the two shapes (a gate's `show`, never `previous`).
       const ref = parseReadRef(read);
       if (!ref) return;
@@ -1266,6 +1353,16 @@ export function checkSteps(
 
     if (step.kind === 'agent')
       step.reads.forEach((read, readIndex) => here.document(read, at('reads', readIndex)));
+    // A path artifact's placeholders name what the items have, as a run-owned branch's do (slice 3-B).
+    if (step.kind === 'agent') {
+      for (const { path: file } of step.pathArtifacts ?? []) {
+        const names = branchPlaceholderNames(file);
+        if (itemKind === 'none' && names.length > 0)
+          fail(`\`{{${names[0]}}}\`: ${noItem}`, at('artifacts'));
+        else if (itemKind === 'untrusted' && names.includes('item.number'))
+          fail("A poll's items have no number; use `{{item.key}}`.", at('artifacts'));
+      }
+    }
     if (step.kind === 'gate')
       step.show.forEach((shown, showIndex) => here.document(shown, at('gate', 'show', showIndex)));
 

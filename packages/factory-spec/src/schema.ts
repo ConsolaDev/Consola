@@ -11,6 +11,7 @@ import {
   laterKeyMessage,
   stepsSchema,
   type StepEntry,
+  ENVIRONMENT_IN_AGENT_FILE,
 } from './steps';
 import { branchPlaceholderNames } from './branchName';
 import {
@@ -415,6 +416,7 @@ function automationEntrySchema() {
       on_exhausted: explained(ON_EXHAUSTED_OUTSIDE),
       // biome-ignore lint/suspicious/noThenProperty: `then:` is a factory.yml key; this schema is never awaited.
       then: explained('`then:` goes on a step.'),
+      environment: explained(ENVIRONMENT_IN_AGENT_FILE),
       ...laterEntryKeys(),
       // A file belongs to one workspace, so there is nothing to select.
       workspace: explained(
@@ -497,8 +499,15 @@ function automationEntrySchema() {
         if ((noItem || keyed) && !entry.checkout) needsScope();
         // A step that failed its own checks leaves no list to resolve against.
         if (Array.isArray(steps)) {
-          checkSteps(steps, { trigger, appliesTo: entry.applies_to }, ['steps'], (message, path) =>
-            ctx.addIssue({ code: 'custom', path, message }),
+          checkSteps(
+            steps,
+            {
+              trigger,
+              appliesTo: entry.applies_to,
+              runOwned: isRunOwnedCheckout(entry.checkout),
+            },
+            ['steps'],
+            (message, path) => ctx.addIssue({ code: 'custom', path, message }),
           );
         }
         return;

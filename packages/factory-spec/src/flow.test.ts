@@ -89,9 +89,10 @@ describe('gate:', () => {
       'ask: ok\n    show: [a.handover, b.handover, c.handover, d.handover, e.handover, f.handover]',
       'A gate shows at most 5 documents.',
     ],
+    // Slice 3-B: a gate may show the run's own checkout's diff, on an entry that has one.
     [
       'ask: ok\n    show: [checkout.changes]',
-      '`checkout.changes` arrives with write steps; it is not supported yet.',
+      "`checkout.changes` is a run's own checkout's diff; it needs `checkout: { repo, branch }`.",
     ],
     ['ask: ok\n    color: red', 'A gate has no `color`: it asks a person and runs nothing.'],
   ])('refuses a gate whose %s', (body, message) => {

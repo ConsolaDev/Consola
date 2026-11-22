@@ -385,6 +385,29 @@ export function parseFactory(files: FactoryFiles): FactoryParseResult {
     return kept;
   });
 
+  // A path artifact is a file the step leaves in the checkout: only an agent that writes leaves one (slice 3-B).
+  candidates = candidates.filter((candidate) => {
+    const { automation } = candidate;
+    if (!isStepsEntry(automation)) return true;
+    let kept = true;
+    flatSteps(automation.steps).forEach(({ step, path: at }) => {
+      if (step.kind !== 'agent' || step.pathArtifacts === undefined) return;
+      // A step that names no agent runs on the workspace's default harness, read-only.
+      if (step.agent !== undefined && agents[step.agent].tools !== 'read-only') return;
+      kept = false;
+      const path = candidate.pathTo(['steps', ...at, 'artifacts']);
+      const line = candidate.lineAt(path);
+      issues.push({
+        message: `A read-only agent writes no files; \`${step.pathArtifacts[0].name}\` with a \`path:\` needs an \`edit\` or \`write\` agent.`,
+        file: candidate.file,
+        path: formatPath(path),
+        ...(line !== undefined ? { line } : {}),
+        automation: automation.name,
+      });
+    });
+    return kept;
+  });
+
   // Only what cannot have acted retries by itself (slice 3, Call 8): an agent naming a server may have posted,
   // and a write agent on `host` may have done anything the person can (slice 3-B).
   candidates = candidates.filter((candidate) => {
