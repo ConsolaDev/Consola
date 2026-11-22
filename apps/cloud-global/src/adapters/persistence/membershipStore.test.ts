@@ -77,6 +77,12 @@ describe('the membership store', () => {
     expect(await memberships.workspacesOf('nobody')).toEqual([]);
   });
 
+  it('refuses a membership stored with an unknown role', async () => {
+    await workspace('acme');
+    await member('acme', 'dana', 'superuser', '2026-11-01');
+    await expect(memberships.workspacesOf('dana')).rejects.toThrow(/unknown role, "superuser"/);
+  });
+
   it('refuses a workspace stored in an unknown region', async () => {
     await workspace('acme');
     await member('acme', 'dana', 'owner', '2026-11-01');

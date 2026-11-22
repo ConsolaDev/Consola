@@ -1,3 +1,4 @@
+import type { WorkspaceRole } from '@consola/cloud-contract';
 import { isRegion, type Region } from './region.js';
 
 /**
@@ -8,13 +9,13 @@ import { isRegion, type Region } from './region.js';
 export type Workspace = { id: string; name: string; slug: string; region: Region };
 
 /** A workspace as one of its members sees it: with their role in it. */
-export type MyWorkspace = Workspace & { role: string };
+export type MyWorkspace = Workspace & { role: WorkspaceRole };
 
 /** What a person asks for when they make a workspace, once `checkNewWorkspace` accepts it. */
 export type NewWorkspace = { name: string; slug: string; region: Region };
 
 /** The role of the person who makes a workspace. */
-export const CREATOR_ROLE = 'owner';
+export const CREATOR_ROLE: WorkspaceRole = 'owner';
 
 export const WORKSPACE_NAME_MAX = 64;
 export const WORKSPACE_SLUG_MAX = 48;

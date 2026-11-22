@@ -24,7 +24,7 @@ afterEach(async () => {
 });
 
 const acme = { name: 'Acme', slug: 'acme', region: 'eu' as const };
-const dana = { userId: 'dana', role: 'owner' };
+const dana = { userId: 'dana', role: 'owner' as const };
 
 describe('the workspace store', () => {
   it('makes the workspace in the region asked for, with its first member', async () => {

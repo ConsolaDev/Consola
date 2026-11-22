@@ -3,6 +3,7 @@ import type { MembershipStore } from '../../application/ports.js';
 import type { MyWorkspace } from '../../domain/workspace.js';
 import type { Database } from './database.js';
 import { regionOf } from './regionOf.js';
+import { roleOf } from './roleOf.js';
 import { schema } from './schema.js';
 
 /** Memberships in the `member` table, read with the workspace each one is in. */
@@ -19,10 +20,9 @@ export function createMembershipStore(db: Database): MembershipStore {
       .from(schema.member)
       .innerJoin(schema.organization, eq(schema.organization.id, schema.member.organizationId));
 
-  const asMine = (row: Omit<MyWorkspace, 'region'> & { region: string }): MyWorkspace => ({
-    ...row,
-    region: regionOf(row),
-  });
+  const asMine = (
+    row: Omit<MyWorkspace, 'region' | 'role'> & { region: string; role: string },
+  ): MyWorkspace => ({ ...row, region: regionOf(row), role: roleOf(row) });
 
   return {
     async workspaceFor(ids) {

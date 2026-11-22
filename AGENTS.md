@@ -154,10 +154,10 @@ packages' tests use. Before changing it, or adding a provider, read
 PGlite or Postgres) and `apps/cloud-web` (`@consola/cloud-web`, Vite and React)
 are the company layer's first piece: Google sign-in and workspaces people make,
 belong to several of and switch between. `cloud-global` is the control plane's
-global part, which every region shares. Every workspace has a region (`eu` or `us`), picked when it is
-made and never changed. What `cloud-global` may store is the always-global
-list in its `AGENTS.md`, pinned by a test; anything else belongs in a regional
-cell. `apps/cloud-region` (`@consola/cloud-region`, Hono, Drizzle on PGlite or
+global part, which every region shares. Every workspace has a region (`eu` or
+`us`), picked when it is made and never changed. What `cloud-global` may store
+is the always-global list in its `AGENTS.md`, pinned by a test; anything else
+belongs in a regional cell. `apps/cloud-region` (`@consola/cloud-region`, Hono, Drizzle on PGlite or
 Postgres) is the regional cell: one copy per region, configured with its
 region, holding what a workspace has there that is not global. It holds no
 accounts (people are referenced by their global id), and every table carries

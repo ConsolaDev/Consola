@@ -1,3 +1,4 @@
+import type { WorkspaceRole } from '@consola/cloud-contract';
 import type { MyWorkspace, NewWorkspace, Workspace } from '../domain/workspace.js';
 
 // What the use cases need from the world outside, each implemented by an adapter.
@@ -9,7 +10,7 @@ export type WorkspaceStore = {
    */
   create(
     workspace: NewWorkspace,
-    firstMember: { userId: string; role: string },
+    firstMember: { userId: string; role: WorkspaceRole },
   ): Promise<{ kind: 'created'; workspace: Workspace } | { kind: 'slug-taken' }>;
 };
 

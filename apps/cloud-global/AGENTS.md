@@ -134,8 +134,10 @@ session's `active_organization_id`), and every route it brings is closed:
 - one way to make, list or switch workspaces, so the web app and later
   clients never have two to choose from.
 
-Membership comes only from making a workspace for now: signing in joins
-nothing. Invites, roles and removal (3.2) are routes of Consola's own too, on
+A member's role is one of the contract's `WORKSPACE_ROLES` (`owner`, `admin`,
+`member`), and the stores read back only a listed one (`roleOf`). Membership
+comes only from making a workspace for now, as its `owner` (`CREATOR_ROLE`):
+signing in joins nothing. Invites, roles and removal (3.2) are routes of Consola's own too, on
 Better Auth's `member` and `invitation` tables. A new session starts in the
 workspace `defaultActiveWorkspace` picks (the one last active, else the first
 joined, else none). `SessionStore` writes the active workspace on the
