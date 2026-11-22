@@ -7,13 +7,12 @@ import { resolveSshRemoteAsync } from './sshRemote';
  * pull, how far it has come from the branch it merges into, and the names its
  * pull request is found by.
  *
- * These reads never fetch on git 2.44 and later (an older git ignores
- * `GIT_NO_LAZY_FETCH`). Every count compares with the remote-tracking refs
- * the clone kept from its last fetch, so nothing here reaches the remote or
- * waits on it. In a partial clone git would otherwise fetch, unasked, a blob
- * the diff needs from the remote it was cloned from; `GIT_NO_LAZY_FETCH=1`
- * (`readGit`'s) makes the diff fail instead, and its line is not drawn. An
- * older git ignores it and fetches.
+ * Every count compares with the remote-tracking refs the clone kept from its
+ * last fetch. On git 2.44 and later nothing here reaches the remote or waits
+ * on it: in a partial clone git would otherwise fetch, unasked, a blob the
+ * diff needs from the remote it was cloned from, and `GIT_NO_LAZY_FETCH=1`
+ * (`readGit`'s) makes the diff fail instead, so its line is not drawn. An
+ * older git ignores that variable and fetches.
  *
  * A read git cannot answer (it failed, timed out, is missing, or wrote more
  * than its buffer) is null, and the fact it was for is not drawn.
