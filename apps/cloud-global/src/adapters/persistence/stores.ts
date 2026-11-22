@@ -1,5 +1,6 @@
 import type {
   HealthProbe,
+  InstallationStore,
   MembershipStore,
   OutboxStore,
   PeopleStore,
@@ -8,6 +9,7 @@ import type {
 } from '../../application/ports.js';
 import type { Database } from './database.js';
 import { createHealthProbe } from './healthProbe.js';
+import { createInstallationStore } from './installationStore.js';
 import { createMembershipStore } from './membershipStore.js';
 import { createOutboxStore } from './outboxStore.js';
 import { createPeopleStore } from './peopleStore.js';
@@ -27,6 +29,7 @@ export function createDrizzleStores(
   sessions: SessionStore;
   people: PeopleStore;
   outbox: OutboxStore;
+  installations: InstallationStore;
   health: HealthProbe;
 } {
   return {
@@ -35,6 +38,7 @@ export function createDrizzleStores(
     sessions: createSessionStore(db),
     people: createPeopleStore(db),
     outbox: createOutboxStore(db),
+    installations: createInstallationStore(db),
     health: createHealthProbe(db),
   };
 }

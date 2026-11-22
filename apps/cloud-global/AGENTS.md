@@ -15,16 +15,21 @@ The service is built in rings, and imports point inward only.
   (`CREATOR_ROLE`), which workspace a new session opens
   (`defaultActiveWorkspace`), the regions a workspace can be in (`REGIONS` and
   `isRegion`, which `region.ts` takes from the contract), how long the outbox
-  waits before it delivers a message again (`retryDelayMs`), and `Workspace`,
-  `MyWorkspace`, `Person` and `SignedIn`. It is plain TypeScript, with no I/O,
-  and no package but the contract (below).
+  waits before it delivers a message again (`retryDelayMs`), who may connect
+  another service (`mayManageConnections`) and whether a Connect's state
+  finishes in this session (`checkInstallState`), and `Workspace`,
+  `MyWorkspace`, `Person`, `SignedIn` and the GitHub types
+  (`connections.ts`). It is plain TypeScript, with no I/O, and no package but
+  the contract (below).
 - `src/application/` holds the use cases (`createWorkspace`,
   `listMyWorkspaces`, `setActiveWorkspace`, `workspaceForNewSession`,
   `mayCreateAccount`, `mayStartSession`, `describeMe`, `mintCellToken`,
-  `cellTokenKeys`, `deliverOutbox`, `checkHealth`) and, in `ports.ts`, the
-  stores, probes, signers and the cell they need. A use case is a plain
-  function that takes its ports first, and is handed the time when it needs it
-  (`mintCellToken`'s `issuedAt`, `deliverOutbox`'s `now`).
+  `cellTokenKeys`, `deliverOutbox`, `listConnections`, `startGitHubInstall`,
+  `finishGitHubInstall`, `disconnectGitHub`, `checkHealth`) and, in
+  `ports.ts`, the stores, probes, signers, the cell and the GitHub App they
+  need. A use case is a plain function that takes its ports first, and is
+  handed the time when it needs it (`mintCellToken`'s `issuedAt`,
+  `deliverOutbox`'s `now`).
 - `src/adapters/` implements the ports with a library, one folder each:
   - `persistence/` is Drizzle on PGlite or Postgres: the database, the schema,
     and one store per port, which `stores.ts` builds together. Its one writer
@@ -41,15 +46,20 @@ The service is built in rings, and imports point inward only.
     key (below). It is the only code that holds the private key;
   - `outbox/` delivers the outbox: the request to a cell (`cellDelivery.ts`,
     with `fetch`) and the worker's loop and timers (`outboxWorker.ts`), which
-    runs `deliverOutbox` (below).
+    runs `deliverOutbox` (below);
+  - `github/` is GitHub's REST API over `fetch`, and `node:crypto`: the app
+    (`gitHubApp.ts`, which reads the app's `.pem` with `loadGitHubAppKey`) and
+    the signed state of a Connect (`installStateSigner.ts`). It is the only
+    code that holds the GitHub App's private key and client secret.
 - The composition ring wires them together. `src/compose.ts` is the one place
   adapters are built and handed the ports they need (`composeApi`), and the one
   place a startup step would live (there is none today). `composeApi` is
-  async, because building the cell token's signer is, and a configured key
-  that is not a key pair fails there as a `ConfigError`, which `main.ts`
-  reports like any other configuration problem. It builds the outbox's worker
-  and wakes it from the stores, but never starts it. Adapters call use
-  cases themselves; what they never do is build another adapter. The one
+  async, because building the cell token's signer and reading the GitHub App's
+  key are. A configured key that is not a key pair, or a GitHub key file that
+  cannot be read or holds no RSA private key, fails there as a `ConfigError`,
+  which `main.ts` reports like any other configuration problem. It builds the
+  outbox's worker and wakes it from the stores, but never starts it. Adapters
+  call use cases themselves; what they never do is build another adapter. The one
   exception is `src/adapters/auth/cli-config.ts`, which builds the stores and
   `createAuth` for the schema CLI: it is tooling, and never runs in the
   service.
@@ -87,7 +97,11 @@ The service is built in rings, and imports point inward only.
     library or another adapter. It is the only one that imports `jose`;
   - `adapters/outbox` never imports `hono`, `better-auth`, a database library,
     `jose` or another adapter: the store and the signer reach it as ports,
-    which `compose.ts` passes in.
+    which `compose.ts` passes in;
+  - `adapters/github` never imports `hono`, `better-auth`, a database
+    library, `jose` or another adapter. It signs its app token with
+    `node:crypto`, and reaches the routes only as the `GitHubApp` and
+    `InstallStateSigner` ports.
 - No file, tests included, imports another app or a workspace package
   (`@consola/*`, or `consola`, the desktop), with one exception:
   `@consola/cloud-contract` (`packages/cloud-contract`), the contract
@@ -119,7 +133,11 @@ contract is refused, so a new package is covered without being named.
    changes a workspace or its members does it through `writeWorkspaceChange`,
    in its own transaction ("The outbox").
 4. A route in `adapters/http`, or a hook in `adapters/auth`, calls the use
-   case.
+   case. A route is declared in `contract.ts` first, with every answer it
+   gives, and added to `ROUTES`; `app.ts` registers it with `app.openapi`,
+   never `app.get` or `app.post`, which `openapi.test.ts` refuses. Then
+   `openapi:generate` rewrites `openapi.json`, and `cloud-web`'s
+   `api:generate` its types, in the same change ("The contract").
 5. `compose.ts` builds the adapter and hands it its ports, and nothing else
    does. A startup step, if one is ever needed, goes there too.
 
@@ -194,8 +212,12 @@ list belongs in a regional cell, never here.
     Auth's own `logo`, `created_at` and `metadata`);
   - membership: who is in which workspace, their workspace-level role, and
     pending invites (`member`, `invitation`);
-  - app installs: which installation belongs to which workspace, the GitHub
-    App's key and the tokens minted from it (no table yet);
+  - app installs: which installation belongs to which workspace
+    (`github_installation`: the installation, its workspace, the GitHub
+    account it is on, who connected it and when), the GitHub App's key and the
+    tokens minted from it (no table yet). The repositories an installation
+    covers are not kept: they are company information, and GitHub is asked
+    for them each time;
   - webhook intake, with the bodies dropped (no table yet);
   - the outbox (6.1, CON-52): each change a workspace's cell must hear
     about, and how its delivery went (`outbox_message`). It may live here
@@ -386,6 +408,13 @@ through that file, and CI checks the web app with every change to this app
   suite catches: `app.test.ts` checks every answer it reads against the
   route's schema, and answers are strict objects (a private key's `d` in the
   key set fails it, for one).
+- **The app serves nothing the contract does not declare.** `openapi.test.ts`
+  compares what `app.routes` serves with `ROUTES`, so a route registered with
+  `app.get` and the like, or with `app.openapi` but left out of `ROUTES`,
+  fails it. `OUTSIDE_THE_CONTRACT` names the only exceptions, each with its
+  reason: Better Auth's `/api/auth/*` and the origin check's `app.use`.
+  Adding to it needs a reason as good: no client calls the route through the
+  contract.
 - **A request schema checks shape, never rules.** It is never stricter than
   the domain rule behind it, and a route whose rules name problems hands a
   body of the wrong shape to them in its hook (`POST /api/workspaces` calls
@@ -399,6 +428,73 @@ through that file, and CI checks the web app with every change to this app
 - **A schema used both alone and nullable is a union at the nullable use**
   (`z.union([MyWorkspace, z.null()])`): `.nullable()` on a named schema makes
   every use of the name nullable. `openapi.test.ts` checks no named schema is.
+
+## Connections
+
+A workspace connects GitHub by installing Consola's one GitHub App (decided
+2026-11-21) on a GitHub account or organisation (14.1, CON-67). Every member
+sees what is connected; owners and admins connect and disconnect
+(`mayManageConnections`). The app's four settings are optional together
+(`config.ts`, `readGitHubApp`): with none set, `github` is null, the routes
+say so, and the service still starts. Every route below is in the contract
+(`getConnections`, `postGitHubInstall`, `getGitHubCallback`,
+`deleteGitHubInstallation`), the callback too: it answers only a redirect, and
+`CALLBACK_RESULT` (`app.ts`) names each way a Connect ends as the contract
+lists them (`GITHUB_CALLBACK_RESULTS`).
+
+- `GET /api/connections`: the active workspace's installations, each with its
+  account, when it was connected, its settings page on GitHub (`settingsUrl`)
+  and its repositories as GitHub says now (`listed`, `gone` or
+  `unavailable`), plus `canManage` and whether the app is `configured`. The
+  repositories are company information, so they are asked of GitHub (an
+  installation token for metadata read, kept in memory until five minutes
+  before it expires) and never stored here. An answer is reused for a minute,
+  so a member reloading the page cannot spend the installation's rate limit.
+- `POST /api/connections/github/install`: the address that installs the app,
+  `{ url }`, carrying a signed state (below). Members get 403 `not_allowed`;
+  an unconfigured app is 503 `github_not_configured`.
+- `GET /api/github/callback`: the app's callback URL, where GitHub sends the
+  person back (with "Request user authorization (OAuth) during installation"
+  on). It always redirects to
+  `<PUBLIC_URL>/?github=<result>#/settings/connections`, where `<result>` is
+  `finishGitHubInstall`'s outcome in snake case (`connected`, `taken`,
+  `not_installer`, …) or `signed_out`. The web app's Settings, on its
+  Connections page, reads it once and clears it. That address is the web
+  app's (`CONNECTIONS_PAGE` in `app.ts`), so the two change together.
+- `DELETE /api/connections/github/installations/{installationId}`: removes the
+  workspace's record. The app stays installed on GitHub until someone
+  uninstalls it there. One the workspace does not hold, another's included,
+  is 404 `installation_not_found`.
+
+What makes a callback connect, in the order `finishGitHubInstall` checks it,
+each before anything trusts the redirect:
+
+1. **The state is this session's own.** `startGitHubInstall` signs the
+   workspace, the person and the session with HMAC-SHA256 under a key derived
+   from `BETTER_AUTH_SECRET` (HKDF, for this purpose only), for
+   `INSTALL_STATE_LIFETIME_SECONDS`. A state from another session, another
+   person's above all, is `bad-state`, and the code is never spent: a link
+   someone else made cannot connect a workspace through you.
+2. **The person is still an owner or admin** of the workspace the Connect was
+   for, read from the database. That workspace is the one recorded, whatever
+   the session has active by then.
+3. **GitHub says this person administers the installation's account.** The
+   `installation_id` in the redirect can be forged, so the one-time `code` is
+   exchanged for the person's GitHub token, which is revoked once read and
+   never stored or logged. `GET /user/installations` must list that id, and
+   that alone is not enough: it lists an installation for anyone who can read
+   one of its repositories, every member of an organisation included. So
+   `checkInstaller` also needs the person to own the account: an active
+   `admin` of the organisation (`GET /user/memberships/orgs/{org}`, which
+   needs the app's Members organisation permission, read), or, for a
+   personal installation, the person it is on (`GET /user`). Otherwise it is
+   `not-account-admin`.
+4. **No other workspace holds it.** `github_installation` is keyed by the
+   installation id, so a second workspace's claim is `taken`, even at the
+   same moment.
+
+No token, code, client secret or key is ever logged: a failed call logs what
+it was and GitHub's status. `describeStartupFailure` hides the client secret.
 
 ## Tests
 

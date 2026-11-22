@@ -16,22 +16,32 @@ The app is built in layers, and imports point inward only.
   answers `WorkspacesState`, `CreateWorkspaceAnswer` and
   `SwitchWorkspaceAnswer`); the sentences (`messages.ts`) for a failed
   sign-in or sign-out, for each problem with a new workspace, a taken slug, a
-  failed switch and the create form's hints; and where the running source is
-  (`source.ts`). It is plain TypeScript, with no package and no browser I/O.
-  `apiContract.ts` holds the API's types, generated from
-  `apps/cloud-global/openapi.json` (see "The API's contract").
+  failed switch and the create form's hints; connections (`connections.ts`:
+  the answers of `/api/connections`, a Connect's results, the services that
+  come later) and their sentences (`connectionMessages.ts`); where the running
+  source is (`source.ts`); and how the address names a dashboard section
+  (`sections.ts`: `sectionIdOfHash`, `hashOfSection`, `chooseSection`) and a
+  settings page (`settings.ts`: `settingsPageIdOfHash`, `hashOfSettingsPage`).
+  It is plain TypeScript, with no package and no browser I/O. `apiContract.ts`
+  holds the API's types, generated from `apps/cloud-global/openapi.json`
+  (see "The API's contract").
 - `src/services/` is everything that talks to something outside the page: the
   API (`api.ts`: `loadMe`, `loadWorkspaces`, `createWorkspace`,
-  `switchWorkspace`, through `createApi`, an `openapi-fetch` client typed by
+  `switchWorkspace`, `loadConnections`, `startGitHubConnect`,
+  `disconnectGitHub`, through `createApi`, an `openapi-fetch` client typed by
   the contract), Better Auth's client (`authClient.ts`: `signInWithGoogle`,
   `signOut`) and the address bar (`signInRedirect.ts`:
-  `takeSignInErrorCode`). A service answers in domain types and sentences,
-  never in a library's own.
+  `takeSignInErrorCode`; `address.ts`: `currentSectionId`, `openSection`,
+  `onSectionChange`; `settingsAddress.ts`: `currentSettingsPageId`,
+  `onSettingsPageChange`; `gitHubRedirect.ts`: `takeGitHubResult`,
+  `goToGitHub`). A service answers in domain types and sentences, never in a
+  library's own.
 - `src/ui/` holds the React screens (`App.tsx` and the cards beside it:
   `SignInCard`, `ProfileCard`, `CreateWorkspaceCard`, and the topbar's
-  `WorkspaceSwitcher` and `SignOutButton`) and `styles.css`. A screen asks a
-  service and shows what comes back. It does not fetch, touch the address or
-  know Better Auth.
+  `WorkspaceSwitcher` and `SignOutButton`), the dashboard (`Dashboard.tsx`,
+  its list of sections `sections.tsx`, and each section's page, such as
+  `OverviewPage.tsx`) and `styles.css`. A screen asks a service and shows
+  what comes back. It does not fetch, touch the address or know Better Auth.
 - The entry wires the page. `src/main.tsx` mounts `ui/App` inside Radix's
   `Theme` and follows the system's colour scheme, and `src/env.d.ts` declares
   the build constants (`__CONSOLA_COMMIT__`, `__CONSOLA_VERSION__`) that
@@ -46,7 +56,10 @@ The app is built in layers, and imports point inward only.
 - `services` imports `domain` and `services`, and packages, but never `ui`,
   `react`, `react-dom`, `@radix-ui/*` or a `node:` builtin.
   `better-auth/react` is allowed there: it is Better Auth's client for the
-  browser, and `authClient.ts` is the one file that uses it.
+  browser, and `authClient.ts` is the one file that uses it. It refers to no
+  `fetch` or `XMLHttpRequest`: the API is reached only through `createApi`'s
+  client, typed by the contract, so a call with types written by hand fails
+  the boundary test.
 - `ui` imports `domain`, `services`, `ui`, `react` and `@radix-ui/themes`,
   never `better-auth`. It refers to no `fetch`, `history`, `location`,
   `localStorage`, `sessionStorage`, `XMLHttpRequest` or `WebSocket`, directly
@@ -116,15 +129,132 @@ problem out of step, but not a rule such as a length.
   so (`REGION_HINT`). The slug follows the name until the person types their
   own.
 
+## The dashboard
+
+A person with a workspace open sees its dashboard: the topbar (the switcher
+and Sign out) across the page, then a nav of the workspace's sections beside
+the one open. Sign-in, the create form and the notices stay in the narrow
+column (`.main`; the dashboard widens it with `.main.wide`).
+
+- **One list of sections.** `ui/sections.tsx` holds `SECTIONS`, in the nav's
+  order. A section is `{ id, label, View }`, and its `View` gets
+  `SectionProps`: the person (`Me`) and the workspace open, never null. A new
+  page is one entry there and files of its own; nothing else in the shell
+  changes. The first entry, Overview, is what an address naming no section
+  opens.
+- **The address picks the section.** A section is `#/<id>` (`hashOfSection`),
+  so a reload, a shared link and the browser's back and forward land where
+  they point. The nav is plain links, and `Dashboard` follows the hash
+  (`onSectionChange`). An id never changes once a link may hold it: cloud-global
+  sends a person back to `#/settings/connections`. Whatever follows an id in the hash
+  (`/…` or `?…`) is the section's own, and an id this build does not list
+  opens the first section (`chooseSection`).
+- **The query string is not the dashboard's.** `address.ts` reads and writes
+  the hash only. A page sent back with a result before the hash (sign-in's
+  `?error=`, GitHub's `?github=`) reads and clears it in its own service, with
+  `history.replaceState` of `pathname + search + hash`, which keeps the
+  section.
+- **Every member sees every section.** What a person may do on a page is the
+  page's to show or hide, and the server says: an answer carries whether the
+  person may manage what it lists (`canManage`), and a page shows its controls
+  by that, never by reading the role itself.
+- **A section starts again for another workspace.** `Dashboard` keys the open
+  section by workspace and section, so a switch never shows what a page
+  loaded for the last workspace.
+- **Styles.** `styles.css` holds the shell's classes (`.dashboard`,
+  `.nav-link`, `.section-header`, `.section-title`, `.facts`) beside the shared
+  ones (`.card`, `.heading`, `.muted`, `.error`, `.button`). A page's own
+  styles go in a stylesheet beside it (`ui/TeamsPage.css`), imported by the
+  page.
+
+## Settings
+
+Settings looks and works as the desktop app's (its `Dialogs/SettingsModal.tsx`
+and its styles): a dialog over the dashboard, with a list of its pages on the
+left under a group that names the workspace ("Workspace · Acme"), each with
+an icon from the same set (`lucide-react`), and the page beside it: a title,
+then options, each a label and a description over its control
+(`ui/SettingsDialog.tsx` and `SettingsDialog.css`, whose `.settings-section`,
+`.settings-option`, `.settings-button` and `.settings-chip` every page uses).
+Sizes and spacing are the desktop's; colours are this app's Radix tokens.
+
+- **It is no section.** The dashboard nav's last link opens it
+  (`#/settings`), and `Dashboard` shows it over the section that was open, or
+  the first section when the address opened Settings directly (cloud-global's
+  GitHub callback). Escape and its close button go back to that section. It is
+  a native modal `<dialog>`, so the dashboard behind it is inert, and the
+  keyboard starts on the open page's entry in the list.
+- **The address picks the page.** A page is `#/settings/<id>`
+  (`hashOfSettingsPage`, `settingsPageIdOfHash` in `domain/settings.ts`), and
+  `#/settings` alone, or an id this build does not list, opens the first
+  (`chooseSection`). `services/settingsAddress.ts` reads the hash only, as
+  `address.ts` does. A page's id never changes once a link may hold it.
+- **Its pages are one list,** `SETTINGS_PAGES` (`ui/settingsPages.tsx`):
+  `{ id, label, icon, View }`, each shown with `SectionProps`. A new settings
+  page (the workspace's details, its members, billing) is one entry there and
+  files of its own. They are all the workspace's for now; a group of the
+  person's own settings would sit above, as the desktop's App group does.
+- On a narrow screen it fills the window and its list becomes a row above
+  the page.
+
+### Connections
+
+Settings' first page (`ui/ConnectionsPage.tsx`, with its own
+`ConnectionsPage.css`, at `#/settings/connections`) shows what the active
+workspace is connected to: GitHub, and the services that come later
+(`LATER_SERVICES`), listed as not connected. The API is `cloud-global`'s (its
+`AGENTS.md`, "Connections"), and it decides everything: the page shows Connect
+and Disconnect only when the server says `canManage`, and the server refuses
+anyone else whatever the page shows.
+
+- **Connect** asks the server for the install address and sends the person
+  there (`goToGitHub`), only if it is on `https://github.com`. GitHub sends
+  them back through `cloud-global`'s callback to
+  `/?github=<result>#/settings/connections`, an address the two keep in step
+  (`CONNECTIONS_PAGE` in `cloud-global`). The page reads the result once as it
+  mounts (`takeGitHubResult`), clears it from the address and says it
+  (`messageForGitHubResult`). A result it does not know is `unknown`, never
+  shown raw.
+- **Disconnect** asks first, in place, never with a browser dialog, and says
+  that the app stays installed on GitHub. Each installation links to its
+  settings there (`settingsUrl`).
+- The repositories are GitHub's answer of the moment: an installation GitHub
+  no longer has is `gone`, and one whose list GitHub did not give is
+  `unavailable`. Both still show, so they can be disconnected. The page
+  counts an installation's repositories and never lists them: their names
+  are GitHub's to show, behind "Choose repositories".
+- **Its look is Notion's and the like.** A connected service sits in the
+  Connected group, a rounded list with each account indented under it; GitHub
+  before anything is connected sits in Available with Connect; the services
+  that come later are a grid of tiles. A service is known by its mark
+  (`ui/serviceMarks.tsx`: each owner's trademark, shown only to name the
+  service; GitHub's in the text colour), and an account by GitHub's picture of
+  it (`avatarUrl`), round for a person and square-cornered for an
+  organisation, with an icon under it if it never loads.
+- A Connect that GitHub sends back as `connected` marks the account it added
+  ("Just connected", `justConnectedId`): the newest installation, only if it
+  is minutes old. An installation says when it was connected in words for the
+  last few days (`connectedSentence`).
+- Motion plays once, as a row arrives or an answer lands (a staggered rise,
+  the success check drawing itself, the connected dot's ping), and none plays
+  under `prefers-reduced-motion`. Escape inside Disconnect's question answers
+  Keep instead of closing Settings.
+
 ## Adding a feature
 
 1. A rule, a sentence or a type goes in `domain`.
 2. A call to the API, to Better Auth or to the page's address goes in
-   `services`, and answers in domain types.
-3. A new screen is a component in `ui`, mounted from `ui/App.tsx`. It calls
-   the services it needs and passes what they return down as props. A React
-   hook goes in `ui` too, beside the screen that uses it, because `services`
-   refuse `react`.
+   `services`, and answers in domain types. A call to the API goes through
+   `createApi`'s client, never `fetch`. A route the API has just gained
+   reaches the client once `pnpm --filter @consola/cloud-web api:generate`
+   rewrites `domain/apiContract.ts`; a type it answers in is taken from
+   there, never written by hand. Another API (a cell's, say) gets its own
+   generated file and its own client the same way.
+3. A new screen is a component in `ui`, mounted from `ui/App.tsx`; a new page
+   of the workspace is a section (`ui/sections.tsx`, above). It calls the
+   services it needs and passes what they return down as props. A React hook
+   goes in `ui` too, beside the screen that uses it, because `services` refuse
+   `react`.
 4. Only `main.tsx` mounts the app. Nothing else does.
 
 ## Tests
@@ -133,5 +263,5 @@ A test sits beside its module and is named after it (`api.ts`, `api.test.ts`).
 They run in Node, so no test touches a DOM: a service takes the API's client
 as an argument (`loadMe(createApi({ fetch, baseUrl }))`, with an absolute
 `baseUrl`, since Node has no page to resolve `/api` against), and
-`signInRedirect.test.ts` stands in for `window` just for the test. Screens are checked by running the app
-(`pnpm dev:cloud`).
+`signInRedirect.test.ts` stands in for `window` just for the test. Screens are
+checked by running the app (`pnpm dev:cloud`).

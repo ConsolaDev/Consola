@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Consola agent chat (dev)</title>
+    <!--
+      Full-window only. It sits in a layer named for the page, which t3's layers do not use, and
+      names only html, body and #root, which the chat's scoped CSS never styles: the chat's rules
+      apply inside `.consola-agent-ui`, so nothing here can beat or be beaten by them.
+    -->
+    <style>
+      @layer consola-dev-page {
+        html,
+        body,
+        #root {
+          height: 100%;
+        }
+        body {
+          margin: 0;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="./main.tsx"></script>
+  </body>
+</html>

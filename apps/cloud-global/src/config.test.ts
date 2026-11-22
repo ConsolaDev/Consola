@@ -40,6 +40,63 @@ describe('loadConfig', () => {
       google: { clientId: 'id.apps.googleusercontent.com', clientSecret: 's' },
       cellTokenPrivateKey: { kty: 'OKP', crv: 'Ed25519', x: cellKey.x, d: cellKey.d },
       cellUrls: {},
+      github: null,
+    });
+  });
+
+  describe("the GitHub App's settings", () => {
+    const app = {
+      GITHUB_APP_CLIENT_ID: 'Iv23liSprocketTest',
+      GITHUB_APP_CLIENT_SECRET: 'sprocket-client-secret',
+      GITHUB_APP_SLUG: 'consola-dev',
+      GITHUB_APP_PRIVATE_KEY_PATH: '/keys/github-app.pem',
+    };
+
+    it('reads all four', () => {
+      expect(loadConfig({ ...valid, ...app }).github).toEqual({
+        clientId: 'Iv23liSprocketTest',
+        clientSecret: 'sprocket-client-secret',
+        slug: 'consola-dev',
+        privateKeyPath: '/keys/github-app.pem',
+      });
+    });
+
+    it('are optional together, and an empty one counts as unset', () => {
+      const empty = Object.fromEntries(Object.keys(app).map((name) => [name, '']));
+      expect(loadConfig({ ...valid, ...empty, GITHUB_APP_ID: '' }).github).toBeNull();
+    });
+
+    it('do not need the app ID or the webhook secret', () => {
+      expect(
+        loadConfig({ ...valid, ...app, GITHUB_APP_ID: '', GITHUB_WEBHOOK_SECRET: '' }).github,
+      ).not.toBeNull();
+    });
+
+    it('refuse a half-set app, naming each one missing', () => {
+      const failure = failureOf({ ...valid, GITHUB_APP_SLUG: 'consola-dev' });
+      expect(failure.problems).toEqual([
+        expect.stringMatching(/^GITHUB_APP_CLIENT_ID: is required once any/),
+        expect.stringMatching(/^GITHUB_APP_CLIENT_SECRET: is required once any/),
+        expect.stringMatching(/^GITHUB_APP_PRIVATE_KEY_PATH: is required once any/),
+      ]);
+    });
+
+    it('refuse a slug that is not one, alongside the other problems', () => {
+      const failure = failureOf({
+        ...valid,
+        ...app,
+        GITHUB_APP_SLUG: 'https://github.com/apps/consola-dev',
+        BETTER_AUTH_SECRET: 'short',
+      });
+      expect(failure.problems).toEqual([
+        expect.stringContaining('BETTER_AUTH_SECRET'),
+        expect.stringMatching(/^GITHUB_APP_SLUG: must be the name in the app's address/),
+      ]);
+    });
+
+    it('never quote the client secret', () => {
+      const failure = failureOf({ ...valid, GITHUB_APP_CLIENT_SECRET: 'sprocket-secret-value' });
+      expect(failure.message).not.toContain('sprocket-secret-value');
     });
   });
 

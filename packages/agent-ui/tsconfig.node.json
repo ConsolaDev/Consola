@@ -1,0 +1,16 @@
+{
+  // What runs in Node: the build config and the browser tests' host, which imports the host's
+  // own test entries (and through them t3's server), checked as `@consola/host` checks them.
+  "extends": "../../vendor/t3code/tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["node"],
+    "lib": ["ESNext", "esnext.disposable"]
+  },
+  "include": [
+    "vite.config.ts",
+    "build",
+    "src/testing/hostSession.ts",
+    "src/testing/sendFixtureMessage.ts",
+    "src/boundary.test.ts"
+  ]
+}

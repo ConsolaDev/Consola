@@ -1,5 +1,11 @@
 import createClient, { type Client } from 'openapi-fetch';
 import type { paths } from '../domain/apiContract';
+import type {
+  ConnectAnswer,
+  Connections,
+  ConnectionsState,
+  DisconnectAnswer,
+} from '../domain/connections';
 import type { MeState } from '../domain/me';
 import {
   type CreateWorkspaceAnswer,
@@ -25,12 +31,16 @@ import {
 /** A client of cloud-global's API, typed by its contract: every path, body and answer. */
 export type Api = Client<paths>;
 
+/** What the client sends its requests with: the browser's `fetch`, unless a test passes its own. */
+type Send = (request: Request) => Promise<Response>;
+
 /**
- * The API's client. The page and the API share one origin, through the dev server's /api proxy,
- * so its paths are relative. A test passes its own `fetch` and an absolute `baseUrl`, since Node
- * has no page to resolve a relative address against.
+ * The API's client, and the only way a service reaches the API: no service calls `fetch` itself
+ * (`boundary.test.ts`). The page and the API share one origin, through the dev server's /api
+ * proxy, so its paths are relative. A test passes its own `fetch` and an absolute `baseUrl`,
+ * since Node has no page to resolve a relative address against.
  */
-export function createApi(options: { fetch?: typeof fetch; baseUrl?: string } = {}): Api {
+export function createApi(options: { fetch?: Send; baseUrl?: string } = {}): Api {
   return createClient<paths>({
     baseUrl: options.baseUrl ?? '',
     fetch: options.fetch,
@@ -110,6 +120,86 @@ export async function switchWorkspace(
     if (response.status === 404 && error?.error === 'workspace_not_found') {
       return { kind: 'not-found' };
     }
+    return UNAVAILABLE;
+  } catch {
+    return UNAVAILABLE;
+  }
+}
+
+/*
+ * Connections (14.1): what the workspace is connected to, and connecting or disconnecting
+ * GitHub. Kept together at the end of the file.
+ */
+
+/** What the session's active workspace is connected to. */
+export async function loadConnections(client: Api = api): Promise<ConnectionsState> {
+  try {
+    const { data, error, response } = await client.GET('/api/connections');
+    if (response.status === 401) return { kind: 'signed-out' };
+    if (response.status === 409 && error?.error === 'no_active_workspace') {
+      return { kind: 'no-workspace' };
+    }
+    if (response.status !== 200 || !isConnections(data)) return UNAVAILABLE;
+    return { kind: 'loaded', connections: data };
+  } catch {
+    return UNAVAILABLE;
+  }
+}
+
+/** Whether a body has the shape `GET /api/connections` answers, as far as the page reads it. */
+function isConnections(body: unknown): body is Connections {
+  if (typeof body !== 'object' || body === null) return false;
+  const { canManage, github } = body as { canManage?: unknown; github?: unknown };
+  if (typeof canManage !== 'boolean' || typeof github !== 'object' || github === null) return false;
+  const { configured, installations } = github as { configured?: unknown; installations?: unknown };
+  return typeof configured === 'boolean' && Array.isArray(installations);
+}
+
+/** Starts connecting GitHub: the address on GitHub to send the person to. */
+export async function startGitHubConnect(client: Api = api): Promise<ConnectAnswer> {
+  try {
+    const { data, error, response } = await client.POST('/api/connections/github/install');
+    if (response.status === 401) return { kind: 'signed-out' };
+    if (response.status === 403 && error?.error === 'not_allowed') return { kind: 'not-allowed' };
+    if (response.status === 503 && error?.error === 'github_not_configured') {
+      return { kind: 'not-configured' };
+    }
+    const url = data?.url;
+    if (response.status !== 200 || typeof url !== 'string' || !isGitHubAddress(url)) {
+      return UNAVAILABLE;
+    }
+    return { kind: 'started', url };
+  } catch {
+    return UNAVAILABLE;
+  }
+}
+
+/** Only an address on github.com is somewhere the page sends the person. */
+function isGitHubAddress(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && url.hostname === 'github.com';
+  } catch {
+    return false;
+  }
+}
+
+/** Disconnects a GitHub installation from the session's active workspace. */
+export async function disconnectGitHub(
+  installationId: number,
+  client: Api = api,
+): Promise<DisconnectAnswer> {
+  try {
+    const { error, response } = await client.DELETE(
+      '/api/connections/github/installations/{installationId}',
+      { params: { path: { installationId: String(installationId) } } },
+    );
+    if (response.status === 401) return { kind: 'signed-out' };
+    if (response.status === 204) return { kind: 'disconnected' };
+    if (response.status === 404 && error?.error === 'installation_not_found') {
+      return { kind: 'not-found' };
+    }
+    if (response.status === 403 && error?.error === 'not_allowed') return { kind: 'not-allowed' };
     return UNAVAILABLE;
   } catch {
     return UNAVAILABLE;

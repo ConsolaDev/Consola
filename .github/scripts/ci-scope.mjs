@@ -26,8 +26,15 @@ export const CHECKS_EVERYTHING = [
 
 const DESKTOP = 'consola';
 const WEBSITE = '@consola/website';
+const AGENT_UI = '@consola/agent-ui';
 const CLOUD_GLOBAL = '@consola/cloud-global';
 const CLOUD_WEB = '@consola/cloud-web';
+
+/**
+ * The folder of the copied t3code packages (vendor/t3code/UPSTREAM.md). They
+ * are checked with their own scripts in one job, `vendor`, never one job each.
+ */
+const VENDORED = 'vendor/';
 
 /**
  * Files only the website's deploy reads, which belong to no package.
@@ -38,19 +45,21 @@ const matches = (file, pattern) =>
   pattern.endsWith('/') ? file.startsWith(pattern) : file === pattern;
 
 /**
- * @param {{ event: string, changedFiles: string[], affected: string[], all: string[] }} change
- *   `affected` is what `turbo ls --affected` reported, `all` every package.
- * @returns {{ reason: string, desktop: boolean, website: boolean, packages: string[] }}
- *   `packages` holds every package to check other than the desktop and the
- *   website, which have jobs of their own.
+ * @param {{ event: string, changedFiles: string[], affected: string[], all: string[], vendored?: string[] }} change
+ *   `affected` is what `turbo ls --affected` reported, `all` every package,
+ *   `vendored` the packages under `vendor/`.
+ * @returns {{ reason: string, desktop: boolean, website: boolean, agentUi: boolean, vendor: boolean, packages: string[] }}
+ *   `packages` holds every package to check other than the desktop, the
+ *   website, the chat view and the vendored packages, which have jobs of their
+ *   own.
  */
-export function scope({ event, changedFiles, affected, all }) {
+export function scope({ event, changedFiles, affected, all, vendored = [] }) {
   if (event !== 'pull_request') {
-    return plan(all, `A ${event} event checks everything.`);
+    return plan(all, vendored, `A ${event} event checks everything.`);
   }
   const trigger = changedFiles.find((file) => CHECKS_EVERYTHING.some((p) => matches(file, p)));
   if (trigger) {
-    return plan(all, `\`${trigger}\` changed, and every package's checks depend on it.`);
+    return plan(all, vendored, `\`${trigger}\` changed, and every package's checks depend on it.`);
   }
   const packages = new Set(affected);
   // The website's demo is the desktop's renderer, imported by path. Its
@@ -63,19 +72,24 @@ export function scope({ event, changedFiles, affected, all }) {
   if (changedFiles.some((file) => WEBSITE_DEPLOY.includes(file))) packages.add(WEBSITE);
   return plan(
     [...packages],
+    vendored,
     packages.size > 0
       ? 'These are the packages this change affects, and the packages that depend on them.'
       : 'This change affects no package.',
   );
 }
 
-function plan(packages, reason) {
+function plan(packages, vendored, reason) {
   const set = new Set(packages);
+  const isVendored = new Set(vendored);
+  const ownJob = new Set([DESKTOP, WEBSITE, AGENT_UI]);
   return {
     reason,
     desktop: set.has(DESKTOP),
     website: set.has(WEBSITE),
-    packages: [...set].filter((name) => name !== DESKTOP && name !== WEBSITE).sort(),
+    agentUi: set.has(AGENT_UI),
+    vendor: [...set].some((name) => isVendored.has(name)),
+    packages: [...set].filter((name) => !ownJob.has(name) && !isVendored.has(name)).sort(),
   };
 }
 
@@ -86,11 +100,14 @@ const run = (command, args, env = {}) =>
     stdio: ['ignore', 'pipe', 'inherit'],
   });
 
-const packageNames = (turboJson) => JSON.parse(turboJson).packages.items.map((item) => item.name);
+const packageItems = (turboJson) => JSON.parse(turboJson).packages.items;
+const packageNames = (turboJson) => packageItems(turboJson).map((item) => item.name);
 
 function main() {
   const event = process.env.GITHUB_EVENT_NAME ?? 'local';
-  const all = packageNames(run('pnpm', ['exec', 'turbo', 'ls', '--output=json']));
+  const items = packageItems(run('pnpm', ['exec', 'turbo', 'ls', '--output=json']));
+  const all = items.map((item) => item.name);
+  const vendored = items.filter((item) => item.path.startsWith(VENDORED)).map((item) => item.name);
   let changedFiles = [];
   let affected = [];
   if (event === 'pull_request') {
@@ -106,10 +123,12 @@ function main() {
     );
   }
 
-  const result = scope({ event, changedFiles, affected, all });
+  const result = scope({ event, changedFiles, affected, all, vendored });
   const lines = [
     `desktop=${result.desktop}`,
     `website=${result.website}`,
+    `agent-ui=${result.agentUi}`,
+    `vendor=${result.vendor}`,
     `packages=${JSON.stringify(result.packages)}`,
   ];
   console.log(result.reason);
@@ -129,6 +148,8 @@ function main() {
         '| --- | --- |',
         `| Desktop and Desktop E2E | ${yesNo(result.desktop)} |`,
         `| Website | ${yesNo(result.website)} |`,
+        `| Agent UI | ${yesNo(result.agentUi)} |`,
+        `| Vendored t3code | ${yesNo(result.vendor)} |`,
         `| Packages | ${list} |`,
         '',
       ].join('\n'),

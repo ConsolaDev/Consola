@@ -37,6 +37,8 @@ jobs:
     outputs:
       desktop: ${{ steps.scope.outputs.desktop }}
       website: ${{ steps.scope.outputs.website }}
+      agent-ui: ${{ steps.scope.outputs.agent-ui }}
+      vendor: ${{ steps.scope.outputs.vendor }}
       packages: ${{ steps.scope.outputs.packages }}
     steps:
       - uses: actions/checkout@v4
@@ -172,6 +174,77 @@ jobs:
             apps/website/playwright-report
             apps/website/test-results
 
+  # The chat view (packages/agent-ui/AGENTS.md). Its browser tests run on
+  # Playwright's Chromium, and the library it builds is checked as a page
+  # loads it.
+  agent-ui:
+    name: Agent UI
+    needs: changes
+    if: needs.changes.outputs.agent-ui == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - name: Typecheck
+        run: pnpm --filter @consola/agent-ui typecheck
+      - name: Install Chromium
+        run: pnpm --filter @consola/agent-ui exec playwright install --with-deps chromium
+      - name: Test
+        run: pnpm --filter @consola/agent-ui test
+      - name: Build
+        run: pnpm --filter @consola/agent-ui build
+      # The built stylesheet a page imports holds the chat's styles, every
+      # rule scoped to the chat (packages/agent-ui/build/checkBuiltCss.ts).
+      - name: Built stylesheet
+        run: pnpm --filter @consola/agent-ui check:css
+      # The built library in a page: the chat styled, the page's document left
+      # as it was.
+      - name: Built library in a page
+        run: pnpm --filter @consola/agent-ui test:dist
+      # The chat's browser bundle must hold no server SDK
+      # (packages/agent-ui/AGENTS.md, "Build"). grep exits 2 on a missing
+      # folder, which the `if` would read as "no hit": check there is a bundle
+      # to search first.
+      - name: No server SDK in the bundle
+        run: |
+          if ! test -d packages/agent-ui/dist || test -z "$(ls -A packages/agent-ui/dist)"; then
+            echo "No @consola/agent-ui bundle to check in packages/agent-ui/dist." >&2
+            exit 1
+          fi
+          if grep -rlE "@cursor/sdk|@anthropic-ai/claude-agent-sdk" packages/agent-ui/dist; then
+            echo "A server SDK reached @consola/agent-ui's bundle." >&2
+            exit 1
+          fi
+
+  # t3code's packages, copied into vendor/t3code (vendor/t3code/UPSTREAM.md),
+  # checked with their own scripts, effect-tsgo and Vite+, in one job rather
+  # than one each. On Linux, where t3 runs them: a few of their tests assume
+  # it (a /tmp that is not a symlink, a copy of /usr/bin/printenv that still
+  # runs), and fail on macOS. The root scripts (package.json) hold the
+  # filters, so a local run checks what CI checks.
+  vendor:
+    name: Vendored t3code
+    needs: changes
+    if: needs.changes.outputs.vendor == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - name: Typecheck
+        run: pnpm run typecheck:vendor
+      # The lifted t3 server files (vendor/t3code/apps/server, named t3 as
+      # upstream names it) hold their own tests. The packages that re-export
+      # them run a slice of those same tests, so `test:vendor` leaves them out
+      # and every copied test runs once.
+      - name: Test
+        run: pnpm run test:vendor
+
   # Every other workspace package, one job each, so a new package is checked
   # without being named here. Turborepo builds the packages a task depends on
   # first (`dependsOn: ["^build"]` in turbo.json).
@@ -202,7 +275,7 @@ jobs:
   ci:
     name: CI
     if: always()
-    needs: [changes, lint, dependency-review, desktop, website, package]
+    needs: [changes, lint, dependency-review, desktop, website, agent-ui, vendor, package]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

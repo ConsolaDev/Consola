@@ -54,6 +54,7 @@ const ADAPTERS = [
   'adapters/http',
   'adapters/cellToken',
   'adapters/outbox',
+  'adapters/github',
 ];
 const RING = ['compose', 'main', 'startupError'];
 
@@ -112,6 +113,23 @@ const LAYERS: Layer[] = [
     // store queries, nor `jose`, since only `adapters/cellToken` holds the key.
     at: 'adapters/outbox',
     reaches: ['domain', 'application', 'adapters/outbox', 'config'],
+    refuses: [
+      'hono',
+      '@hono/*',
+      'better-auth',
+      '@better-auth/*',
+      'drizzle-orm',
+      '@electric-sql/pglite',
+      'pg',
+      'jose',
+    ],
+    noGlobals: [],
+  },
+  {
+    // GitHub's REST API, with `fetch` and `node:crypto`: the only place that holds the GitHub
+    // App's private key and client secret. No HTTP framework, no database, and not `jose`.
+    at: 'adapters/github',
+    reaches: ['domain', 'application', 'adapters/github', 'config'],
     refuses: [
       'hono',
       '@hono/*',

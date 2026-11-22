@@ -1,4 +1,7 @@
 import { generateKeyPairSync } from 'node:crypto';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { inspect } from 'node:util';
 import {
   CELL_TOKEN_ALGORITHM,
@@ -22,7 +25,7 @@ import {
   jwtVerify,
 } from 'jose';
 import type { OpenAPIHono } from '@hono/zod-openapi';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type CloudAuth, closedPaths } from './adapters/auth/betterAuth.js';
 import { ROUTES } from './adapters/http/contract.js';
 import type { OutboxWorker } from './adapters/outbox/outboxWorker.js';
@@ -49,6 +52,7 @@ const config: CloudConfig = {
   cellTokenPrivateKey: cellKey,
   // A cell in each region, which no test reaches unless it starts the outbox's worker.
   cellUrls: { eu: ACME_CELL, us: SPROCKET_CELL },
+  github: null,
 };
 
 let db: Database;
@@ -807,6 +811,439 @@ describe('the outbox', () => {
   });
 });
 
+describe('GitHub as a connection', () => {
+  // A key made for this run only, never one written down, in a folder of its own.
+  const appKey = generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey;
+  let keyFolder: string;
+  let withGitHub: CloudConfig;
+
+  /** Who GitHub says can reach which installations, by the code their redirect carries. */
+  let reachable: Record<string, { id: number; login: string; type: string }[]>;
+  /** The codes of people who are only members of the organisations they reach; others own them. */
+  let membersOnly: Set<string>;
+  let seen: { method: string; url: string; body: string }[];
+
+  beforeAll(async () => {
+    keyFolder = await mkdtemp(join(tmpdir(), 'consola-github-app-'));
+    const privateKeyPath = join(keyFolder, 'app.pem');
+    await writeFile(privateKeyPath, appKey.export({ type: 'pkcs1', format: 'pem' }));
+    withGitHub = {
+      ...config,
+      github: {
+        clientId: 'Iv23liSprocketTest',
+        clientSecret: 'sprocket-test-github-client-secret',
+        slug: 'consola-dev',
+        privateKeyPath,
+      },
+    };
+  });
+
+  afterAll(async () => {
+    await rm(keyFolder, { recursive: true, force: true });
+  });
+
+  /** GitHub, as Consola's app talks to it, behind `fetch`. */
+  function fakeGitHub() {
+    seen = [];
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(input instanceof Request ? input.url : String(input));
+      const body = typeof init?.body === 'string' ? init.body : '';
+      const method = init?.method ?? 'GET';
+      seen.push({ method, url: url.toString(), body });
+      const headers = new Headers(init?.headers);
+      const route = `${method} ${url.origin}${url.pathname}`;
+
+      if (route === 'POST https://github.com/login/oauth/access_token') {
+        const { code } = JSON.parse(body) as { code: string };
+        return reachable[code]
+          ? Response.json({ access_token: `ghu_${code}`, token_type: 'bearer' })
+          : Response.json({ error: 'bad_verification_code' });
+      }
+      // The person a token is for: whoever's code it was exchanged for.
+      const code = headers.get('authorization')?.replace('Bearer ghu_', '') ?? '';
+      if (route === 'GET https://api.github.com/user/installations') {
+        const installations = (reachable[code] ?? []).map(({ id, login, type }) => ({
+          id,
+          account: { id: id + 1000, login, type },
+          repository_selection: 'selected',
+        }));
+        return Response.json({ total_count: installations.length, installations });
+      }
+      if (route === 'GET https://api.github.com/user') {
+        return Response.json({ id: code.length, login: code });
+      }
+      if (url.pathname.startsWith('/user/memberships/orgs/')) {
+        return Response.json({
+          state: 'active',
+          role: membersOnly.has(code) ? 'member' : 'admin',
+        });
+      }
+      if (route === 'DELETE https://api.github.com/applications/Iv23liSprocketTest/token') {
+        return new Response(null, { status: 204 });
+      }
+      const mint =
+        /^POST https:\/\/api\.github\.com\/app\/installations\/(\d+)\/access_tokens$/.exec(route);
+      if (mint) {
+        return Response.json(
+          { token: `ghs_installation_${mint[1]}`, expires_at: '2099-01-01T00:00:00Z' },
+          { status: 201 },
+        );
+      }
+      if (route === 'GET https://api.github.com/installation/repositories') {
+        const installation = headers.get('authorization')?.replace('Bearer ghs_installation_', '');
+        return Response.json({
+          total_count: 1,
+          repositories: [
+            {
+              id: Number(installation) * 10,
+              full_name: `sprocket/catalog-portal-${installation}`,
+              private: true,
+              html_url: `https://github.com/sprocket/catalog-portal-${installation}`,
+            },
+          ],
+        });
+      }
+      throw new Error(`The test made an unexpected request to ${method} ${url}`);
+    });
+  }
+
+  beforeEach(async () => {
+    reachable = {};
+    membersOnly = new Set();
+    ({ app, auth } = await composeApi({ db, config: withGitHub }, [testUtils()]));
+    test = ((await auth.$context) as unknown as { test: TestHelpers }).test;
+    fakeGitHub();
+  });
+
+  async function startConnect(headers: Headers) {
+    const response = await app.request('/api/connections/github/install', {
+      method: 'POST',
+      headers: fromBrowser(headers),
+    });
+    const answer = await answerOf('POST', '/api/connections/github/install', response);
+    return { ...answer, headers: response.headers };
+  }
+
+  /** Disconnects installation `id` as the web app does; an answer with a body is checked. */
+  async function disconnect(id: string, headers: Headers, from = fromBrowser(headers)) {
+    const response = await app.request(`/api/connections/github/installations/${id}`, {
+      method: 'DELETE',
+      headers: from,
+    });
+    if (response.status === 204) return { status: 204, body: null };
+    return answerOf('DELETE', '/api/connections/github/installations/{installationId}', response);
+  }
+
+  /** GitHub sending the browser back: where the browser goes next, and with what result. */
+  async function returnFromGitHub(headers: Headers, query: Record<string, string>) {
+    const response = await app.request(
+      `/api/github/callback?${new URLSearchParams(query).toString()}`,
+      { headers },
+    );
+    const location = response.headers.get('location') ?? '';
+    return {
+      status: response.status,
+      location,
+      result: new URL(location).searchParams.get('github'),
+      headers: response.headers,
+    };
+  }
+
+  /** A whole Connect: Consola's install link, then GitHub's redirect back with `code`. */
+  async function connect(headers: Headers, installationId: number, code: string) {
+    const started = await startConnect(headers);
+    expect(started.status).toBe(200);
+    const state = new URL(started.body.url).searchParams.get('state') ?? '';
+    return returnFromGitHub(headers, {
+      code,
+      installation_id: String(installationId),
+      setup_action: 'install',
+      state,
+    });
+  }
+
+  async function addMember(workspaceId: string, userId: string, role: string) {
+    await db.insert(schema.member).values({
+      id: `m-${workspaceId}-${userId}`,
+      organizationId: workspaceId,
+      userId,
+      role,
+      createdAt: new Date(),
+    });
+  }
+
+  it('every route is 401 signed out, and the callback sends the browser back signed out', async () => {
+    expect(await get('/api/connections')).toEqual({ status: 401, body: { error: 'signed_out' } });
+    expect((await startConnect(new Headers())).status).toBe(401);
+    expect(await disconnect('41', new Headers())).toEqual({
+      status: 401,
+      body: { error: 'signed_out' },
+    });
+    expect((await returnFromGitHub(new Headers(), { code: 'x' })).result).toBe('signed_out');
+  });
+
+  it('an owner connects GitHub, and the page shows the installation and its repositories', async () => {
+    const login = await signIn('dana@sprocket.test', 'Dana Ortiz');
+    const workspace = await makeWorkspace(login.headers);
+    reachable = { 'dana-code': [{ id: 41, login: 'sprocket', type: 'Organization' }] };
+
+    const started = await startConnect(login.headers);
+    expect(started.status).toBe(200);
+    expect(started.headers.get('cache-control')).toBe('no-store');
+    const url = new URL(started.body.url);
+    expect(`${url.origin}${url.pathname}`).toBe(
+      'https://github.com/apps/consola-dev/installations/new',
+    );
+
+    const back = await returnFromGitHub(login.headers, {
+      code: 'dana-code',
+      installation_id: '41',
+      setup_action: 'install',
+      state: url.searchParams.get('state') ?? '',
+    });
+    expect(back.status).toBe(302);
+    expect(back.location).toBe(`${WEB_ORIGIN}/?github=connected#/settings/connections`);
+    expect(back.headers.get('referrer-policy')).toBe('no-referrer');
+
+    expect(await get('/api/connections', login.headers)).toEqual({
+      status: 200,
+      body: {
+        canManage: true,
+        github: {
+          configured: true,
+          installations: [
+            {
+              id: 41,
+              account: { id: 1041, login: 'sprocket', type: 'Organization' },
+              connectedAt: expect.any(String),
+              settingsUrl: 'https://github.com/organizations/sprocket/settings/installations/41',
+              repositories: {
+                kind: 'listed',
+                repositories: [
+                  {
+                    id: 410,
+                    fullName: 'sprocket/catalog-portal-41',
+                    private: true,
+                    url: 'https://github.com/sprocket/catalog-portal-41',
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      },
+    });
+    const [row] = await db.select().from(schema.githubInstallation);
+    expect(row).toMatchObject({
+      installationId: 41,
+      organizationId: workspace.id,
+      connectedBy: login.user.id,
+    });
+    // The person's token was revoked once read.
+    expect(
+      seen.some((call) => call.method === 'DELETE' && call.body.includes('ghu_dana-code')),
+    ).toBe(true);
+  });
+
+  it('a second workspace cannot claim an installation another workspace holds', async () => {
+    const dana = await signIn('dana@sprocket.test', 'Dana Ortiz');
+    await makeWorkspace(dana.headers);
+    const lee = await signIn('lee@catalog.test', 'Lee Park');
+    await makeWorkspace(lee.headers, { name: 'Catalog', slug: 'catalog', region: 'us' });
+    reachable = {
+      'dana-code': [{ id: 41, login: 'sprocket', type: 'Organization' }],
+      'lee-code': [{ id: 41, login: 'sprocket', type: 'Organization' }],
+    };
+
+    expect((await connect(dana.headers, 41, 'dana-code')).result).toBe('connected');
+    expect((await connect(lee.headers, 41, 'lee-code')).result).toBe('taken');
+
+    const forLee = await get('/api/connections', lee.headers);
+    expect(forLee.body.github.installations).toEqual([]);
+    const forDana = await get('/api/connections', dana.headers);
+    expect(forDana.body.github.installations).toHaveLength(1);
+  });
+
+  it('refuses an installation GitHub does not list for the person, whatever the address says', async () => {
+    const login = await signIn('dana@sprocket.test', 'Dana Ortiz');
+    await makeWorkspace(login.headers);
+    reachable = { 'dana-code': [{ id: 52, login: 'dana', type: 'User' }] };
+
+    expect((await connect(login.headers, 41, 'dana-code')).result).toBe('not_installer');
+    expect(await db.select().from(schema.githubInstallation)).toEqual([]);
+  });
+
+  it("refuses an organisation's installation to a member of it who does not own it", async () => {
+    // Mallory can read one of sprocket's repositories, so GitHub lists its installation for her.
+    const mallory = await signIn('mallory@catalog.test', 'Mallory');
+    await makeWorkspace(mallory.headers, { name: 'Catalog', slug: 'catalog', region: 'eu' });
+    reachable = { 'mallory-code': [{ id: 41, login: 'sprocket', type: 'Organization' }] };
+    membersOnly = new Set(['mallory-code']);
+
+    expect((await connect(mallory.headers, 41, 'mallory-code')).result).toBe('not_account_admin');
+    expect(await db.select().from(schema.githubInstallation)).toEqual([]);
+
+    // So the company's own owner can still connect it.
+    const dana = await signIn('dana@sprocket.test', 'Dana Ortiz');
+    await makeWorkspace(dana.headers);
+    reachable['dana-code'] = [{ id: 41, login: 'sprocket', type: 'Organization' }];
+    expect((await connect(dana.headers, 41, 'dana-code')).result).toBe('connected');
+  });
+
+  it('refuses a Connect another person started, and never spends their code', async () => {
+    const dana = await signIn('dana@sprocket.test', 'Dana Ortiz');
+    await makeWorkspace(dana.headers);
+    const mallory = await signIn('mallory@catalog.test', 'Mallory');
+    await makeWorkspace(mallory.headers, { name: 'Catalog', slug: 'catalog', region: 'eu' });
+    reachable = { 'mallory-code': [{ id: 41, login: 'sprocket', type: 'Organization' }] };
+
+    // Mallory's own link, opened in Dana's browser, connects nothing to Dana's workspace.
+    const started = await startConnect(mallory.headers);
+    const state = new URL(started.body.url).searchParams.get('state') ?? '';
+    const back = await returnFromGitHub(dana.headers, {
+      code: 'mallory-code',
+      installation_id: '41',
+      state,
+    });
+    expect(back.result).toBe('bad_state');
+    expect(seen.filter((call) => call.url.includes('oauth/access_token'))).toEqual([]);
+    expect(await db.select().from(schema.githubInstallation)).toEqual([]);
+  });
+
+  it('a member sees what is connected, and can neither connect nor disconnect', async () => {
+    const dana = await signIn('dana@sprocket.test', 'Dana Ortiz');
+    const workspace = await makeWorkspace(dana.headers);
+    reachable = { 'dana-code': [{ id: 41, login: 'sprocket', type: 'Organization' }] };
+    await connect(dana.headers, 41, 'dana-code');
+
+    const lee = await signIn('lee@sprocket.test', 'Lee Park');
+    await addMember(workspace.id, lee.user.id, 'member');
+    await send('PUT', '/api/me/workspace', { workspaceId: workspace.id }, lee.headers);
+
+    const listed = await get('/api/connections', lee.headers);
+    expect(listed.status).toBe(200);
+    expect(listed.body.canManage).toBe(false);
+    expect(listed.body.github.installations).toHaveLength(1);
+
+    expect(await startConnect(lee.headers)).toMatchObject({
+      status: 403,
+      body: { error: 'not_allowed' },
+    });
+    expect(await disconnect('41', lee.headers)).toEqual({
+      status: 403,
+      body: { error: 'not_allowed' },
+    });
+    expect(await db.select().from(schema.githubInstallation)).toHaveLength(1);
+  });
+
+  it('disconnecting removes the record, and leaves the app installed on GitHub', async () => {
+    const login = await signIn('dana@sprocket.test', 'Dana Ortiz');
+    await makeWorkspace(login.headers);
+    reachable = { 'dana-code': [{ id: 41, login: 'sprocket', type: 'Organization' }] };
+    await connect(login.headers, 41, 'dana-code');
+    seen = [];
+
+    expect((await disconnect('41', login.headers)).status).toBe(204);
+    expect(await db.select().from(schema.githubInstallation)).toEqual([]);
+    expect((await get('/api/connections', login.headers)).body.github.installations).toEqual([]);
+    expect(seen).toEqual([]);
+
+    expect(await disconnect('41', login.headers)).toEqual({
+      status: 404,
+      body: { error: 'installation_not_found' },
+    });
+    expect(await disconnect('41x', login.headers)).toEqual({
+      status: 400,
+      body: { error: 'invalid_request' },
+    });
+  });
+
+  it('starting and disconnecting are refused from anywhere but the web app', async () => {
+    const login = await signIn('dana@sprocket.test', 'Dana Ortiz');
+    await makeWorkspace(login.headers);
+    const elsewhere = new Headers(login.headers);
+    elsewhere.set('origin', 'http://localhost:6006');
+
+    const started = await app.request('/api/connections/github/install', {
+      method: 'POST',
+      headers: elsewhere,
+    });
+    expect(await answerOf('POST', '/api/connections/github/install', started)).toEqual({
+      status: 403,
+      body: { error: 'bad_origin' },
+    });
+    expect(await disconnect('41', login.headers, elsewhere)).toEqual({
+      status: 403,
+      body: { error: 'bad_origin' },
+    });
+  });
+
+  it('needs an active workspace', async () => {
+    const login = await signIn('dana@sprocket.test', 'Dana Ortiz');
+    expect(await get('/api/connections', login.headers)).toEqual({
+      status: 409,
+      body: { error: 'no_active_workspace' },
+    });
+    expect((await startConnect(login.headers)).status).toBe(409);
+  });
+
+  it('without the GitHub App configured, nothing can be connected', async () => {
+    ({ app, auth } = await composeApi({ db, config }, [testUtils()]));
+    test = ((await auth.$context) as unknown as { test: TestHelpers }).test;
+    const login = await signIn('dana@sprocket.test', 'Dana Ortiz');
+    await makeWorkspace(login.headers);
+
+    expect(await get('/api/connections', login.headers)).toEqual({
+      status: 200,
+      body: { canManage: true, github: { configured: false, installations: [] } },
+    });
+    expect(await startConnect(login.headers)).toMatchObject({
+      status: 503,
+      body: { error: 'github_not_configured' },
+    });
+    expect((await returnFromGitHub(login.headers, { code: 'x' })).result).toBe('not_configured');
+  });
+
+  it('a key file that is not there stops the service from being built', async () => {
+    const github = { ...(withGitHub.github as NonNullable<CloudConfig['github']>) };
+    github.privateKeyPath = join(keyFolder, 'missing.pem');
+    const failure = await composeApi({ db, config: { ...withGitHub, github } }).catch(
+      (error: unknown) => error,
+    );
+    expect(failure).toBeInstanceOf(ConfigError);
+    expect((failure as ConfigError).problems).toEqual([
+      expect.stringMatching(/^GITHUB_APP_PRIVATE_KEY_PATH: cannot read .*missing\.pem \(ENOENT\)$/),
+    ]);
+  });
+
+  it("never logs the app's secrets, a person's code or a token", async () => {
+    const logs = (['log', 'info', 'warn', 'error', 'debug', 'trace'] as const).map((method) =>
+      vi.spyOn(console, method).mockImplementation(() => {}),
+    );
+    const login = await signIn('dana@sprocket.test', 'Dana Ortiz');
+    await makeWorkspace(login.headers);
+    reachable = { 'dana-code': [{ id: 41, login: 'sprocket', type: 'Organization' }] };
+    await connect(login.headers, 41, 'dana-code');
+    await connect(login.headers, 41, 'used-code');
+    await get('/api/connections', login.headers);
+
+    const logged = logs
+      .flatMap((spy) => spy.mock.calls)
+      .map((args) => args.map((arg) => inspect(arg, { depth: 10 })).join(' '))
+      .join('\n');
+    for (const secret of [
+      withGitHub.github?.clientSecret ?? '',
+      'dana-code',
+      'ghu_',
+      'ghs_',
+      appKey.export({ type: 'pkcs1', format: 'pem' }).toString().split('\n')[1] ?? '',
+    ]) {
+      expect(secret).not.toBe('');
+      expect(logged).not.toContain(secret);
+    }
+  });
+});
+
 describe('routes', () => {
   it('are these, and no other', () => {
     // A route with middleware or a body schema is one entry per handler in its chain.
@@ -819,6 +1256,10 @@ describe('routes', () => {
       'POST /api/workspaces',
       'POST /api/cell-token',
       'GET /api/cell-token/keys',
+      'GET /api/connections',
+      'POST /api/connections/github/install',
+      'GET /api/github/callback',
+      'DELETE /api/connections/github/installations/:installationId',
       'GET /api/health',
     ]);
   });

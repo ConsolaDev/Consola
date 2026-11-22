@@ -55,11 +55,13 @@ const LAYERS: Layer[] = [
     ],
   },
   {
-    // `better-auth/react` is allowed here: it is the auth client, not React.
+    // `better-auth/react` is allowed here: it is the auth client, not React. The API is reached
+    // only through `createApi`'s client, typed by its contract, so no service sends a request
+    // of its own: one would answer in types written by hand, which nothing checks.
     at: 'services',
     reaches: ['domain', 'services'],
     refuses: ['react', 'react-dom', '@radix-ui/*', NODE_BUILTINS],
-    noGlobals: [],
+    noGlobals: ['fetch', 'XMLHttpRequest'],
   },
   {
     at: 'ui',
@@ -305,6 +307,26 @@ describe('the dependency rule', () => {
         "import { createAuthClient } from 'better-auth/react';\nexport const load = () => fetch('/api/me');",
       ),
     ).toEqual(['ui/x.tsx imports better-auth/react', 'ui/x.tsx uses fetch']);
+  });
+
+  it('the checker reports a service that calls the API around its typed client', () => {
+    for (const source of [
+      "export const load = () => fetch('/api/teams');",
+      "export const load = () => window.fetch('/api/teams');",
+      "export const load = () => globalThis.fetch('/api/teams');",
+      'export const request = new XMLHttpRequest();',
+    ]) {
+      expect(violationsOf('services/x.ts', source)).toHaveLength(1);
+    }
+    // Through the client, or naming `fetch` as a property, is not a call of its own.
+    expect(
+      violationsOf(
+        'services/x.ts',
+        "import createClient from 'openapi-fetch';\n" +
+          'export const api = (send: (r: Request) => Promise<Response>) => createClient({ fetch: send });\n' +
+          "export const load = () => api(async () => new Response()).GET('/api/me' as never);",
+      ),
+    ).toEqual([]);
   });
 
   it.each([

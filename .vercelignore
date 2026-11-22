@@ -3,6 +3,9 @@
 !package.json
 !pnpm-lock.yaml
 !pnpm-workspace.yaml
+# pnpm opens every patch pnpm-workspace.yaml names before it installs anything.
+!patches
+!patches/**
 !apps
 !apps/website
 !apps/website/package.json

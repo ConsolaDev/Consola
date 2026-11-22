@@ -7,6 +7,18 @@ import { z } from 'zod';
  */
 export type Ed25519PrivateJwk = { kty: 'OKP'; crv: 'Ed25519'; x: string; d: string };
 
+/**
+ * Consola's GitHub App: its client ID (which also names the app in the tokens it signs, as
+ * GitHub recommends), its client secret, the slug in its public address, and where its private
+ * key's `.pem` file is. The key itself is read when the service is built.
+ */
+export type GitHubAppConfig = {
+  clientId: string;
+  clientSecret: string;
+  slug: string;
+  privateKeyPath: string;
+};
+
 export type CloudConfig = {
   databaseUrl: string;
   authSecret: string;
@@ -23,6 +35,8 @@ export type CloudConfig = {
    * outbox messages until one is set.
    */
   cellUrls: Partial<Record<Region, string>>;
+  /** Null when none of its settings is set: then nothing can be connected to GitHub. */
+  github: GitHubAppConfig | null;
 };
 
 /** The variable that names a region's cell: `CELL_URL_EU` for `eu`. */
@@ -149,6 +163,49 @@ const cellEnv: z.ZodType<Record<string, string | undefined>> = z.object(
 
 /** An optional variable set to nothing is unset, as `.env.example` leaves one. */
 const unsetWhenEmpty = (value: string | undefined) => (value === '' ? undefined : value);
+/** The GitHub App's settings: all of them or none, so a half-made app never starts. */
+const GITHUB_SETTINGS = [
+  'GITHUB_APP_CLIENT_ID',
+  'GITHUB_APP_CLIENT_SECRET',
+  'GITHUB_APP_SLUG',
+  'GITHUB_APP_PRIVATE_KEY_PATH',
+] as const;
+
+/** Lowercase letters and digits, with single dashes between: how GitHub spells an app's slug. */
+const GITHUB_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+/**
+ * The GitHub App's settings, null when none is set, or what is wrong with them. An empty value
+ * counts as unset, since the example `.env` lists each one empty.
+ */
+function readGitHubApp(
+  env: Record<string, string | undefined>,
+): { ok: true; app: GitHubAppConfig | null } | { ok: false; problems: string[] } {
+  const value = (name: (typeof GITHUB_SETTINGS)[number]) => env[name]?.trim() ?? '';
+  const missing = GITHUB_SETTINGS.filter((name) => value(name) === '');
+  if (missing.length === GITHUB_SETTINGS.length) return { ok: true, app: null };
+
+  const problems = missing.map(
+    (name) =>
+      `${name}: is required once any of the GitHub App's settings is set (set all of ${GITHUB_SETTINGS.join(', ')}, or none)`,
+  );
+  const slug = value('GITHUB_APP_SLUG');
+  if (slug !== '' && !GITHUB_SLUG.test(slug)) {
+    problems.push(
+      "GITHUB_APP_SLUG: must be the name in the app's address, github.com/apps/<slug> (lowercase letters, digits and dashes)",
+    );
+  }
+  if (problems.length > 0) return { ok: false, problems };
+  return {
+    ok: true,
+    app: {
+      clientId: value('GITHUB_APP_CLIENT_ID'),
+      clientSecret: value('GITHUB_APP_CLIENT_SECRET'),
+      slug,
+      privateKeyPath: value('GITHUB_APP_PRIVATE_KEY_PATH'),
+    },
+  };
+}
 
 export function loadConfig(env: Record<string, string | undefined>): CloudConfig {
   const optional = ['PORT', ...REGIONS.map(cellUrlVariable)];
@@ -158,12 +215,16 @@ export function loadConfig(env: Record<string, string | undefined>): CloudConfig
   };
   const result = rawEnv.safeParse(input);
   const cellResult = cellEnv.safeParse(input);
-  if (!result.success || !cellResult.success) {
+  const github = readGitHubApp(env);
+  if (!result.success || !cellResult.success || !github.ok) {
     const issues = [
       ...(result.success ? [] : result.error.issues),
       ...(cellResult.success ? [] : cellResult.error.issues),
     ];
-    throw new ConfigError(issues.map((issue) => `${String(issue.path[0])}: ${issue.message}`));
+    throw new ConfigError([
+      ...issues.map((issue) => `${String(issue.path[0])}: ${issue.message}`),
+      ...(github.ok ? [] : github.problems),
+    ]);
   }
   const parsed = result.data;
   const cells: Partial<Record<Region, string>> = {};
@@ -179,5 +240,6 @@ export function loadConfig(env: Record<string, string | undefined>): CloudConfig
     google: { clientId: parsed.GOOGLE_CLIENT_ID, clientSecret: parsed.GOOGLE_CLIENT_SECRET },
     cellTokenPrivateKey: parsed.CELL_TOKEN_PRIVATE_KEY,
     cellUrls: cells,
+    github: github.app,
   };
 }

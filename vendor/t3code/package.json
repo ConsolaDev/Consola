@@ -1,0 +1,11 @@
+{
+  "name": "@consola/t3code-vendor",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "devDependencies": {
+    "@effect/tsgo": "0.67.1",
+    "@types/node": "catalog:",
+    "vite-plus": "catalog:"
+  }
+}
