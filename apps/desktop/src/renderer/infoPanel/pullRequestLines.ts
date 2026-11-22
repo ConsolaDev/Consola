@@ -12,6 +12,7 @@ import type {
   WorkItemThread,
   WorkItemTimelineItem,
 } from '../../shared/workItemDetails';
+import type { WorkItemRef } from '../../shared/workItems';
 import {
   mergeStateMeta,
   reviewMeta,
@@ -33,6 +34,25 @@ export interface InfoLine {
   tone?: 'error' | 'muted';
   /** The place the pane has for this line; without one, the line opens the tab only. */
   reveal?: RevealTarget;
+}
+
+/**
+ * The title row: `<title> #<n>`, named by the details or else the Inbox.
+ * With neither yet, the repository names it (`sprocket/catalog-portal #77`),
+ * which says more than its kind would.
+ */
+export function titleLabel(ref: WorkItemRef, title: string | undefined): string {
+  return `${title || ref.repo} #${ref.number}`;
+}
+
+/**
+ * Why nothing can be read: the workspace has no account for its provider.
+ * Said of issues for a linked issue, else of pull requests, which is what a
+ * branch could have.
+ */
+export function noAccountLine(ref: WorkItemRef | undefined): string {
+  const what = ref?.type === 'issue' ? 'issues' : 'pull requests';
+  return `This workspace has no account to read ${what} with.`;
 }
 
 /** A reviewer's ring: a verdict, or still to give one. */

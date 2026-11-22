@@ -19,9 +19,11 @@ import {
   commentsLine,
   type InfoLine,
   mergeLine,
+  noAccountLine,
   reviewersSaid,
   reviewLine,
   threadsLine,
+  titleLabel,
 } from '../../infoPanel/pullRequestLines';
 import { detailsTargetOf, type PullRequestSectionView } from '../../infoPanel/sessionPullRequest';
 import { type TabFacts, tabKind } from '../../sidePanel/tabKinds';
@@ -96,7 +98,7 @@ export function PullRequestSection({ facts, view }: { facts: TabFacts; view: Sho
           title={titleOf(view.ref)}
           actions={view.ref && <OpenOnProvider item={view.ref} url={workItemUrl(view.ref)} />}
         >
-          <NoAccountRows />
+          <NoAccountRows item={view.ref} />
         </InfoSection>
       );
     case 'item': {
@@ -240,8 +242,7 @@ function ItemRows({
   };
 
   // The Inbox's copy names the item until the details do.
-  const name = details?.title ?? item?.title;
-  const label = `${name ?? (ref.type === 'pr' ? 'Pull request' : 'Issue')} #${ref.number}`;
+  const label = titleLabel(ref, details?.title ?? item?.title);
   const state = details
     ? itemStatus(ref.type, details.state, details.isDraft, details.stateReason)
     : item?.state
@@ -415,11 +416,11 @@ function LookupFailedRows({ facts, error }: { facts: TabFacts; error: string }) 
 }
 
 /** Nothing to read the item with: the way to give the workspace an account. */
-function NoAccountRows() {
+function NoAccountRows({ item }: { item: WorkItemRef | undefined }) {
   const { openSettings } = useSettings();
   return (
     <QuietLine
-      text="This workspace has no account to read pull requests with."
+      text={noAccountLine(item)}
       action={{ label: 'Workspace settings', run: () => openSettings('provider') }}
     />
   );

@@ -7,13 +7,16 @@ import type {
   WorkItemThreadComment,
   WorkItemTimelineItem,
 } from '../../shared/workItemDetails';
+import type { WorkItemRef } from '../../shared/workItems';
 import {
   checksLine,
   commentsLine,
   mergeLine,
+  noAccountLine,
   reviewersSaid,
   reviewLine,
   threadsLine,
+  titleLabel,
 } from './pullRequestLines';
 
 const checks = (...states: string[]): WorkItemDetails['checks'] =>
@@ -208,5 +211,48 @@ describe('commentsLine', () => {
     expect(commentsLine(timeline)).toEqual({ text: '2 comments' });
     expect(commentsLine(timeline.slice(0, 1))).toEqual({ text: '1 comment' });
     expect(commentsLine([])).toEqual({ text: '0 comments' });
+  });
+});
+
+describe('titleLabel', () => {
+  const pr: WorkItemRef = {
+    provider: 'github',
+    repo: 'sprocket/catalog-portal',
+    type: 'pr',
+    number: 77,
+  };
+
+  it('names the item by its title, else by its repository, never by its kind alone', () => {
+    expect(titleLabel(pr, 'Extract billing client')).toBe('Extract billing client #77');
+    // Neither the details nor the Inbox have said its title yet.
+    expect(titleLabel(pr, undefined)).toBe('sprocket/catalog-portal #77');
+    expect(titleLabel({ ...pr, type: 'issue', number: 12 }, undefined)).toBe(
+      'sprocket/catalog-portal #12',
+    );
+  });
+});
+
+describe('noAccountLine', () => {
+  it('says what the workspace has no account to read', () => {
+    expect(
+      noAccountLine({
+        provider: 'github',
+        repo: 'sprocket/catalog-portal',
+        type: 'issue',
+        number: 12,
+      }),
+    ).toBe('This workspace has no account to read issues with.');
+    expect(
+      noAccountLine({
+        provider: 'github',
+        repo: 'sprocket/catalog-portal',
+        type: 'pr',
+        number: 77,
+      }),
+    ).toBe('This workspace has no account to read pull requests with.');
+    // A branch with no link: what it could have is a pull request.
+    expect(noAccountLine(undefined)).toBe(
+      'This workspace has no account to read pull requests with.',
+    );
   });
 });
