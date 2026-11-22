@@ -44,12 +44,38 @@ describe('checksLine', () => {
       reveal: 'merge',
     });
     expect(checksLine(checks('SUCCESS'))).toEqual({ text: '1 check passed', reveal: 'merge' });
-    // A skipped check is no failure and nothing still running.
+    expect(checksLine([])).toBeNull();
+  });
+
+  it('a skipped check is no failure, nothing still running, and never counted as passed', () => {
+    // As the pane says it: 2 passed · 1 skipped.
     expect(checksLine(checks('SUCCESS', 'SUCCESS', 'SKIPPED'))).toEqual({
-      text: '3 checks passed',
+      text: '2 checks passed',
+      value: '1 skipped',
       reveal: 'merge',
     });
-    expect(checksLine([])).toBeNull();
+    // Neutral and stale are skipped too.
+    expect(checksLine(checks('SUCCESS', 'NEUTRAL', 'STALE'))).toEqual({
+      text: '1 check passed',
+      value: '2 skipped',
+      reveal: 'merge',
+    });
+    expect(checksLine(checks('FAILURE', 'SKIPPED', 'SUCCESS'))).toMatchObject({
+      text: '1 check failing',
+      value: '1 ✓',
+    });
+    expect(checksLine(checks('IN_PROGRESS', 'SKIPPED'))).toMatchObject({
+      text: 'Checks running',
+      value: '0 ✓',
+    });
+  });
+
+  it('checks that were all skipped say so, and nothing passed', () => {
+    expect(checksLine(checks('SKIPPED', 'SKIPPED', 'NEUTRAL'))).toEqual({
+      text: '3 checks skipped',
+      reveal: 'merge',
+    });
+    expect(checksLine(checks('SKIPPED'))).toEqual({ text: '1 check skipped', reveal: 'merge' });
   });
 });
 

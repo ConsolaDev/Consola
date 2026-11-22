@@ -40,7 +40,10 @@ export type ReviewerRing = 'approved' | 'changes-requested' | 'waiting';
 
 /**
  * The checks, worst first: any failing, else any still running, else how
- * many passed. The value counts the passed, beside a failure or a run.
+ * many passed, else that every one was skipped. The value counts the passed
+ * beside a failure or a run, and the skipped beside a pass. A skipped,
+ * neutral or stale check never counts as passed, as in the pane's own
+ * `2 passed · 1 skipped`.
  */
 export function checksLine(checks: WorkItemDetails['checks']): InfoLine | null {
   const summary = summarizeChecks(checks);
@@ -55,7 +58,14 @@ export function checksLine(checks: WorkItemDetails['checks']): InfoLine | null {
     };
   }
   if (summary.pending > 0) return { text: 'Checks running', value: passed, reveal: 'merge' };
-  return { text: `${plural(summary.total, 'check', 'checks')} passed`, reveal: 'merge' };
+  if (summary.passing > 0) {
+    return {
+      text: `${plural(summary.passing, 'check', 'checks')} passed`,
+      ...(summary.skipped > 0 ? { value: `${summary.skipped} skipped` } : {}),
+      reveal: 'merge',
+    };
+  }
+  return { text: `${plural(summary.skipped, 'check', 'checks')} skipped`, reveal: 'merge' };
 }
 
 /**
