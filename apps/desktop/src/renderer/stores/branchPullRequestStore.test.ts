@@ -4,7 +4,13 @@ import type { CheckoutInfo } from '../../shared/sessionCheckout';
 import { INBOX_REFRESH_INTERVAL_MS, type WorkItemRef } from '../../shared/workItems';
 import { createSessionRecord, createWorkspaceRecord, type Workspace } from '../../shared/workspace';
 import type { RemovedWorktree } from '../../shared/worktreeCleanup';
-import { defaultLayout, openKind, setVisible } from '../sidePanel/layout';
+import {
+  defaultLayout,
+  openKind,
+  setVisible,
+  splitWithTab,
+  toggleMaximize,
+} from '../sidePanel/layout';
 
 vi.mock('../services/providerBridge', () => ({
   providerBridge: { findBranchPullRequest: vi.fn() },
@@ -355,6 +361,10 @@ describe('useBranchPullRequestLookup', () => {
     // A Pull request tab behind another, or in a hidden side panel, is not looked at.
     expect(looksAtPullRequest(false, opened('pull-request', 'changes'))).toBe(false);
     expect(looksAtPullRequest(false, setVisible(opened('pull-request'), false))).toBe(false);
+    // In a group of its own, in front there, it counts until Maximize hides that group.
+    const split = splitWithTab(opened('changes', 'pull-request'), 'g1', 'pull-request', 'bottom');
+    expect(looksAtPullRequest(false, split)).toBe(true);
+    expect(looksAtPullRequest(false, toggleMaximize(split, 'g1'))).toBe(false);
   });
 
   it('asks at once, then every interval, until it stops', async () => {
