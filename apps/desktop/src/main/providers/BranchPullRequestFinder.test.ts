@@ -4,6 +4,7 @@ import type { BranchIdentity } from '../gitBranch';
 import {
   BRANCH_LOOKUP_TTL_MS,
   BranchPullRequestFinder,
+  type BranchPullRequestFinderDeps,
   pickPullRequest,
 } from './BranchPullRequestFinder';
 import type { GitProviderDriver } from './GitProviderDriver';
@@ -39,6 +40,7 @@ function setup(
     provider?: WorkspaceProvider | undefined;
     identities?: Record<string, BranchIdentity | null>;
     driver?: Partial<GitProviderDriver>;
+    resolveDriver?: BranchPullRequestFinderDeps['resolveDriver'];
   } = {},
 ) {
   let clock = 1_000_000;
@@ -66,7 +68,7 @@ function setup(
   );
   const finder = new BranchPullRequestFinder({
     getWorkspace: (id) => (id === 'ws' ? workspace : undefined),
-    resolveDriver: () => driver,
+    resolveDriver: options.resolveDriver ?? (() => driver),
     composeEnv,
     readIdentity,
     now: () => clock,
@@ -195,6 +197,27 @@ describe('BranchPullRequestFinder', () => {
     });
     expect(lookupPullRequests).not.toHaveBeenCalled();
     expect(composeEnv).not.toHaveBeenCalled();
+  });
+
+  it('answers none without asking for a provider this build does not know', async () => {
+    const { finder, composeEnv, lookupPullRequests } = setup({
+      resolveDriver: (id) => {
+        throw new Error(`Unknown provider: ${id}`);
+      },
+    });
+    await expect(finder.find('ws', DIR)).resolves.toEqual({ kind: 'none', branch: BRANCH });
+    expect(composeEnv).not.toHaveBeenCalled();
+    expect(lookupPullRequests).not.toHaveBeenCalled();
+  });
+
+  it('answers failed, not none, when the provider gives no answer for the branch', async () => {
+    const lookupPullRequests = vi.fn(async (): Promise<PullRequestLookup[]> => []);
+    const { finder } = setup({ driver: { lookupPullRequests } });
+    await expect(finder.find('ws', DIR)).resolves.toEqual({
+      kind: 'failed',
+      branch: BRANCH,
+      error: 'The provider gave no answer for this branch.',
+    });
   });
 
   it('answers none without asking for a workspace it does not know', async () => {
