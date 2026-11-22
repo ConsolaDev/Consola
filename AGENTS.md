@@ -624,6 +624,23 @@ and non-JSON lines, a limit from `StopFailure` and the stream (OR'd into
 Extra args setting `--output-format`, `--input-format` or `--max-turns` refuse
 steps. Rerun `scripts/claude-steps-canary.mjs` after every CLI upgrade.
 
+### The Factory Folder Applies as a Unit
+
+A workspace's factory is its folder (`factory.yml`, `automations/`, `agents/`,
+`skills/`), polled by `FactoryFolder` (engine `node/`) and parsed only by
+`parseFactory`, which resolves references across files (`parseFactorySpec`
+reads a lone `factory.yml` and refuses `agent:`). `decideApply` decides what
+runs: from the first clean read on, any issue, or a changed entry whose agent's
+harness the host refuses, keeps the last applied version running (per folder in
+`<userData>/factory-applied/`, read once per workspace; the entry as written
+shows it). A removal always applies, recomputed at each read; machine state is
+a per-entry problem, never a rollback; a folder never applied cleanly applies
+entry by entry. A step's agent travels in `RunDefinition.agents`: the host
+launches on its harness with `--model`, refuses one gone since apply, and a
+reopen takes both from the record. New entries go to `factory.yml`, a replace
+where the entry lives; servers or skills in an agent wait for `compileAgent`;
+Open shows only the folder's own files, as text. Canary rows 16–19: `--model`.
+
 ### Harnesses Are Launch Descriptions
 
 A harness is one configured agent CLI: a binary path, a config directory, and
