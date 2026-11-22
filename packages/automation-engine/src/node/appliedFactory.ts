@@ -1,12 +1,20 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { skillHash } from '@consola/factory-spec';
 import type { AppliedFactory, AppliedFactoryStore, AppliedSkill } from '../ports';
 
 const FILE = 'applied.json';
-/** Beside `applied.json`: `skills/<name>/<path>`, each applied skill's files. */
-const SKILLS = 'skills';
+/**
+ * Beside `applied.json`: `skills-<16 hex>/<name>/<path>`, each applied
+ * skill's files, in a folder of the version's own that the document names
+ * (`skillsFolder`), so the two are always a pair (review M2).
+ */
+const SKILLS_FOLDER = /^skills-[0-9a-f]{16}$/;
+/** Where a document written before `skillsFolder` keeps its skills. */
+const LEGACY_SKILLS = 'skills';
+/** Every folder a write of skills may leave beside the document: what a later write removes. */
+const ANY_SKILLS_FOLDER = /^skills($|[-.])/;
 const VERSION = 1;
 
 /** A folder's key: the first 16 hex of the sha256 of its path, resolved by the caller. */
@@ -31,13 +39,21 @@ function segmentsOf(name: string, relative: string): string[] {
   return segments;
 }
 
-/** The document as this version writes it, checked field by field; null for anything else. */
+/**
+ * The document as this version writes it, checked field by field; null for
+ * anything else. `skillsFolder` is the folder its skills are in: the one it
+ * names, or, for a document from before it named one, `skills`.
+ */
 function parseApplied(
   raw: unknown,
   folder: string,
-): { applied: AppliedFactory; skillHashes: Record<string, string> } | null {
+): {
+  applied: AppliedFactory;
+  skillHashes: Record<string, string>;
+  skillsFolder: string;
+} | null {
   if (!isRecord(raw)) return null;
-  const { version, appliedAt, clean, texts, skills } = raw;
+  const { version, appliedAt, clean, texts, skills, skillsFolder } = raw;
   if (version !== VERSION) return null;
   if (raw.folder !== folder) return null;
   if (typeof appliedAt !== 'string' || typeof clean !== 'boolean' || !isRecord(texts)) return null;
@@ -58,14 +74,23 @@ function parseApplied(
       skillHashes[name] = hash;
     }
   }
-  return { applied: { folder, appliedAt, clean, texts: kept }, skillHashes };
+  // A folder is named only beside skills, and only as this store names one: never a path.
+  if (skillsFolder !== undefined) {
+    if (typeof skillsFolder !== 'string' || !SKILLS_FOLDER.test(skillsFolder)) return null;
+    if (Object.keys(skillHashes).length === 0) return null;
+  }
+  return {
+    applied: { folder, appliedAt, clean, texts: kept },
+    skillHashes,
+    skillsFolder: skillsFolder ?? LEGACY_SKILLS,
+  };
 }
 
 const byPath = (a: { path: string }, b: { path: string }) =>
   a.path < b.path ? -1 : a.path > b.path ? 1 : 0;
 
 /**
- * The skills a document names, read back from `<dir>/skills/`, or why they
+ * The skills a document names, read back from `<dir>/<folder>/`, or why they
  * cannot be: the folder must hold exactly those skills, as real folders of
  * folders and regular files (never a link), and each skill's files must hash
  * to what the document recorded. Anything else is a damaged version.
@@ -73,18 +98,19 @@ const byPath = (a: { path: string }, b: { path: string }) =>
 function readSkills(
   dir: string,
   hashes: Record<string, string>,
+  folder: string,
 ): { skills: Record<string, AppliedSkill> } | { why: string } {
   const names = Object.keys(hashes).sort();
-  const root = path.join(dir, SKILLS);
+  const root = path.join(dir, folder);
   if (!fs.existsSync(root))
     return names.length === 0
       ? { skills: {} }
       : { why: `its skill files are missing (${names.join(', ')})` };
-  if (!fs.lstatSync(root).isDirectory()) return { why: `its ${SKILLS} folder is not a folder` };
+  if (!fs.lstatSync(root).isDirectory()) return { why: `its ${folder} folder is not a folder` };
   const held = fs.readdirSync(root).sort();
   if (held.join('\0') !== names.join('\0'))
     return {
-      why: `its ${SKILLS} folder holds ${held.join(', ') || 'nothing'}, not the skills it names (${names.join(', ') || 'none'})`,
+      why: `its ${folder} folder holds ${held.join(', ') || 'nothing'}, not the skills it names (${names.join(', ') || 'none'})`,
     };
   const skills: Record<string, AppliedSkill> = {};
   for (const name of names) {
@@ -100,7 +126,7 @@ function readSkills(
         return null;
       }
       if (!stats.isFile() || relative === '')
-        return `${SKILLS}/${name}/${relative} is not a regular file`;
+        return `${folder}/${name}/${relative} is not a regular file`;
       files.push({ path: relative, bytes: new Uint8Array(fs.readFileSync(at)) });
       return null;
     };
@@ -117,9 +143,9 @@ function readSkills(
 /**
  * Each factory folder's last applied version, in Consola's own state folder:
  * `<root>/<key>/applied.json`, `<key>` from the folder's resolved path, with
- * its skills' files beside it in `<root>/<key>/skills/<name>/<path>` and
- * their hashes in the document. Written whole, through a temporary file
- * renamed over it. A file that cannot be read, is not this shape, or whose
+ * its skills' files beside it in `<root>/<key>/skills-<16 hex>/<name>/<path>`,
+ * a folder the document names, and their hashes in the document. Written
+ * whole, through a temporary file renamed over it. A file that cannot be read, is not this shape, or whose
  * skill files are not the ones it recorded, is logged and renamed aside
  * (`applied.json.damaged-<time>`) so nothing is lost silently, and reads as
  * none: the folder then applies as on its first start, which never runs
@@ -148,7 +174,7 @@ export class AppliedFactoryFiles implements AppliedFactoryStore {
     if (!parsed) return this.damaged(file, resolved, 'it is not an applied version');
     let read: ReturnType<typeof readSkills>;
     try {
-      read = readSkills(path.dirname(file), parsed.skillHashes);
+      read = readSkills(path.dirname(file), parsed.skillHashes, parsed.skillsFolder);
     } catch (error) {
       return this.damaged(
         file,
@@ -163,10 +189,12 @@ export class AppliedFactoryFiles implements AppliedFactoryStore {
   }
 
   /**
-   * The skill files first, into a folder of their own swapped in whole, then
-   * `applied.json` renamed over: a crash between leaves a document whose
-   * hashes its skill files do not match, which reads as damaged, never as a
-   * version with another version's skills.
+   * The skill files first, whole, into a fresh folder of the version's own;
+   * then `applied.json`, naming that folder, renamed over the last one; then
+   * every other skill folder goes. The document names its folder, so a crash
+   * or a failure anywhere leaves the last version and its own skill files
+   * there (review M2): a folder no document names is a write cut short,
+   * which reading ignores and the next write removes.
    */
   public write(applied: AppliedFactory): void {
     const folder = path.resolve(applied.folder);
@@ -183,35 +211,41 @@ export class AppliedFactoryFiles implements AppliedFactoryStore {
       })),
     }));
     fs.mkdirSync(dir, { recursive: true });
-    this.writeSkills(dir, placed);
+    const skillsFolder = placed.length > 0 ? this.placeSkills(dir, placed) : undefined;
     const document = {
       version: VERSION,
       folder,
       appliedAt: applied.appliedAt,
       clean: applied.clean,
       texts: applied.texts,
-      ...(names.length > 0
-        ? { skills: Object.fromEntries(names.map((name) => [name, skills[name].hash])) }
+      ...(skillsFolder !== undefined
+        ? {
+            skills: Object.fromEntries(names.map((name) => [name, skills[name].hash])),
+            skillsFolder,
+          }
         : {}),
     };
     const temporary = `${file}.${process.pid}.tmp`;
-    fs.writeFileSync(temporary, `${JSON.stringify(document)}\n`);
-    fs.renameSync(temporary, file);
+    try {
+      fs.writeFileSync(temporary, `${JSON.stringify(document)}\n`);
+      fs.renameSync(temporary, file);
+    } catch (error) {
+      // The last version and its skill folder stay as they were.
+      fs.rmSync(temporary, { force: true });
+      if (skillsFolder !== undefined)
+        fs.rmSync(path.join(dir, skillsFolder), { recursive: true, force: true });
+      throw error;
+    }
+    this.removeSkillFoldersBut(dir, skillsFolder);
   }
 
-  /** `<dir>/skills/` becomes exactly these skills' files; with none, it is removed. */
-  private writeSkills(
+  /** A fresh `skills-<16 hex>/` beside the document holding exactly these skills' files; its name. */
+  private placeSkills(
     dir: string,
     placed: Array<{ name: string; files: Array<{ segments: string[]; bytes: Uint8Array }> }>,
-  ): void {
-    const target = path.join(dir, SKILLS);
-    if (placed.length === 0) {
-      fs.rmSync(target, { recursive: true, force: true });
-      return;
-    }
-    const staging = path.join(dir, `${SKILLS}.tmp-${process.pid}`);
-    const old = path.join(dir, `${SKILLS}.old-${process.pid}`);
-    fs.rmSync(staging, { recursive: true, force: true });
+  ): string {
+    const name = `skills-${randomBytes(8).toString('hex')}`;
+    const staging = path.join(dir, `${name}.tmp`);
     try {
       for (const skill of placed) {
         fs.mkdirSync(path.join(staging, skill.name), { recursive: true });
@@ -221,19 +255,29 @@ export class AppliedFactoryFiles implements AppliedFactoryStore {
           fs.writeFileSync(at, entry.bytes);
         }
       }
-      fs.rmSync(old, { recursive: true, force: true });
-      const had = fs.existsSync(target);
-      if (had) fs.renameSync(target, old);
-      try {
-        fs.renameSync(staging, target);
-      } catch (error) {
-        // The version there keeps its files.
-        if (had) fs.renameSync(old, target);
-        throw error;
-      }
+      fs.renameSync(staging, path.join(dir, name));
     } finally {
       fs.rmSync(staging, { recursive: true, force: true });
-      fs.rmSync(old, { recursive: true, force: true });
+    }
+    return name;
+  }
+
+  /**
+   * Every skill folder beside the document but the one it names: an earlier
+   * version's, the old `skills/`, a write cut short. The document is already
+   * in place, so a folder that cannot be removed waits for the next write.
+   */
+  private removeSkillFoldersBut(dir: string, kept: string | undefined): void {
+    for (const entry of fs.readdirSync(dir)) {
+      if (entry === kept || !ANY_SKILLS_FOLDER.test(entry)) continue;
+      try {
+        fs.rmSync(path.join(dir, entry), { recursive: true, force: true });
+      } catch (error) {
+        console.error(
+          `[automations] Could not remove ${path.join(dir, entry)}, an earlier applied version's skill files; the next write tries again.`,
+          error,
+        );
+      }
     }
   }
 
