@@ -5,6 +5,7 @@ import type { CheckoutInfo } from '../../shared/sessionCheckout';
 import { INBOX_REFRESH_INTERVAL_MS, type WorkItemRef } from '../../shared/workItems';
 import { checkoutPathForSession, type Session, type Workspace } from '../../shared/workspace';
 import { providerBridge } from '../services/providerBridge';
+import { isInFront, type SidePanelLayout } from '../sidePanel/layout';
 import { ipcErrorMessage } from '../utils/ipcErrorMessage';
 import { useCheckoutStore } from './checkoutStore';
 
@@ -140,7 +141,8 @@ export const useBranchPullRequestStore = create<BranchPullRequestState>((set, ge
       const key = branchLookupKey(workspaceId, dir);
       const next = waiting.get(key);
       if (next) {
-        next.lookup.branch = branch;
+        // A find that knows no branch (Retry before the checkout is read) leaves the one known.
+        next.lookup.branch = branch ?? next.lookup.branch;
         next.lookup.force ||= force;
         return next.promise;
       }
@@ -223,34 +225,71 @@ export function useBranchLookupEntry(
 }
 
 /**
- * Asks while `active`, for an unlinked session with an account, a checkout path and a branch:
- * on becoming active, when the branch or path changes, and every INBOX_REFRESH_INTERVAL_MS while active.
- *
- * `active` is someone looking at pull request facts: the info panel shown
- * with its Pull request section open, or the Pull request tab in front. A
- * folded section or a hidden panel asks nothing.
+ * Whether someone looks at pull request facts: the info panel on screen with
+ * its Pull request section open (`infoSectionShown`), or the Pull request tab
+ * in front of a group on screen. A folded section, a hidden or stepped-aside
+ * panel, a tab behind another and a hidden side panel are not looked at.
+ */
+export function looksAtPullRequest(infoSectionShown: boolean, layout: SidePanelLayout): boolean {
+  return infoSectionShown || isInFront(layout, 'pull-request');
+}
+
+/** What a session's lookup asks main about. */
+export interface BranchLookupAsk {
+  workspaceId: string;
+  /** Another account may see another answer: a new login asks again. */
+  accountLogin: string;
+  dir: string;
+  branch: string;
+}
+
+/**
+ * What `useBranchPullRequestLookup` asks while someone looks, or null: it asks
+ * nothing for a session linked to an item, a workspace with no account, a
+ * session with no checkout path (its worktree removed), or a checkout on no
+ * branch (a detached HEAD, a folder outside git, one not read yet).
+ */
+export function branchLookupAsk(
+  workspace: Workspace | undefined,
+  session: Session | undefined,
+  checkout: CheckoutInfo | undefined,
+  looking: boolean,
+): BranchLookupAsk | null {
+  if (!looking || !workspace || !session || session.workItem) return null;
+  const accountLogin = workspace.provider?.accountLogin;
+  const dir = checkoutPathForSession(workspace, session);
+  const branch = branchOf(checkout);
+  if (!accountLogin || !dir || !branch) return null;
+  return { workspaceId: workspace.id, accountLogin, dir, branch };
+}
+
+/** Asks now, then every INBOX_REFRESH_INTERVAL_MS until the stop it returns is called. */
+export function keepAsking({ workspaceId, dir, branch }: BranchLookupAsk): () => void {
+  const ask = () => void useBranchPullRequestStore.getState().find(workspaceId, dir, { branch });
+  ask();
+  const timer = setInterval(ask, INBOX_REFRESH_INTERVAL_MS);
+  return () => clearInterval(timer);
+}
+
+/**
+ * Asks while `looking` (`looksAtPullRequest`) what `branchLookupAsk` says: on
+ * starting to look, when the account, path or branch changes, and every
+ * INBOX_REFRESH_INTERVAL_MS while looking.
  */
 export function useBranchPullRequestLookup(
   workspace: Workspace | undefined,
   session: Session | undefined,
   checkout: CheckoutInfo | undefined,
-  active: boolean,
+  looking: boolean,
 ): void {
-  const workspaceId = workspace?.id;
-  // Another account may see another answer: a new login asks again.
-  const accountLogin = workspace?.provider?.accountLogin;
-  const dir =
-    workspace && session && !session.workItem
-      ? checkoutPathForSession(workspace, session)
-      : undefined;
-  const branch = branchOf(checkout);
-  const asks = active && !!branch;
+  const ask = branchLookupAsk(workspace, session, checkout, looking);
+  const workspaceId = ask?.workspaceId;
+  const accountLogin = ask?.accountLogin;
+  const dir = ask?.dir;
+  const branch = ask?.branch;
 
   useEffect(() => {
-    if (!asks || !workspaceId || !accountLogin || !dir) return;
-    const ask = () => void useBranchPullRequestStore.getState().find(workspaceId, dir, { branch });
-    ask();
-    const timer = setInterval(ask, INBOX_REFRESH_INTERVAL_MS);
-    return () => clearInterval(timer);
-  }, [asks, workspaceId, accountLogin, dir, branch]);
+    if (!workspaceId || !accountLogin || !dir || !branch) return;
+    return keepAsking({ workspaceId, accountLogin, dir, branch });
+  }, [workspaceId, accountLogin, dir, branch]);
 }

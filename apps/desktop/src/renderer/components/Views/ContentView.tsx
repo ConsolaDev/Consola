@@ -9,10 +9,10 @@ import { useSidePanelStore } from '../../stores/sidePanelStore';
 import { useContentWidth, useInfoPanelShown } from '../../stores/infoPanelRoomStore';
 import { isInfoSectionOpen, useSettingsStore } from '../../stores/settingsStore';
 import {
+  looksAtPullRequest,
   useBranchPullRequestLookup,
   useFoundPullRequest,
 } from '../../stores/branchPullRequestStore';
-import { isInFront } from '../../sidePanel/layout';
 import { tabFactsFor } from '../../sidePanel/tabKinds';
 import { TerminalPanel } from '../Terminal';
 import { InfoPanel } from '../InfoPanel/InfoPanel';
@@ -64,15 +64,10 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
   const pullRequestSectionOpen = useSettingsStore((state) =>
     isInfoSectionOpen(state.infoSectionOpen, 'pull-request'),
   );
-  const pullRequestTabInFront = useSidePanelStore((state) =>
-    isInFront(state.layout, 'pull-request'),
+  const lookingAtPullRequest = useSidePanelStore((state) =>
+    looksAtPullRequest(infoShown && pullRequestSectionOpen, state.layout),
   );
-  useBranchPullRequestLookup(
-    workspace,
-    session,
-    checkout,
-    (infoShown && pullRequestSectionOpen) || pullRequestTabInFront,
-  );
+  useBranchPullRequestLookup(workspace, session, checkout, lookingAtPullRequest);
 
   // Conditional panels must have separate saved layouts: hiding the info
   // panel or the side panel must not overwrite the layout that remembers
