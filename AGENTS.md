@@ -999,6 +999,7 @@ All channel names are defined in `src/shared/constants.ts`. Key patterns:
 - `file:*` - File operations
 - `git:*` - Git status and commit message generation
 - `dialog:*` - Native dialogs
+- `app:*` - The machine Consola runs on: its name (`app:get-computer-name`), read once per run
 - `worktree-cleanup:*` - Cleanup preview, "Clean up now", history, and a deleted session's outcome
 - `browser:*` - In-app browser tabs, page actions and snapshots; every id is checked against the sender's workspace
 
