@@ -2780,7 +2780,9 @@ accepts and leaves as it is.
 ## Tests
 
 Every copied package's `typecheck` passes. Its `test` passes on Linux (CI).
-On macOS three of t3's tests fail, as they would in t3 (t3 tests on Linux):
+On macOS three of t3's tests in these packages fail, as they would in t3 (t3 tests on
+Linux): one in `shared` and two in `provider-fx`. A fourth, in `source-control-github`,
+fails on any OS when `GH_TOKEN` is set:
 
 - `shared` `src/shell.test.ts`, "captures values when the profile replaces
   PATH and a DEBUG trap echoes commands": it copies `/usr/bin/printenv` into a
