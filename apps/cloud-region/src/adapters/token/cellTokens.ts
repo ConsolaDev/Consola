@@ -3,6 +3,7 @@ import {
   CELL_TOKEN_AUDIENCE,
   CELL_TOKEN_KEYS_PATH,
   CLOCK_SKEW_SECONDS,
+  OUTBOX_MESSAGE_TYPE,
 } from '@consola/cloud-contract';
 import { createRemoteJWKSet, errors, type JWTVerifyGetKey, jwtVerify } from 'jose';
 import type { SignatureCheck, TokenVerifier } from '../../application/ports.js';
@@ -31,6 +32,9 @@ export class KeysUnavailable extends Error {}
  * in its header.
  */
 export class NoKeyNamed extends Error {}
+
+/** An outbox delivery presented as a token. */
+class NotAToken extends Error {}
 
 /** What the cell logs when `cloud-global`'s keys cannot be had: why, never what it was checking. */
 export const keysUnavailableLine = (error: KeysUnavailable): string =>
@@ -70,7 +74,9 @@ export function keyNamedBy(keys: CellTokenKeys): CellTokenKeys {
  * Checks cell tokens with jose against `keys`, as the contract has it: `CELL_TOKEN_ALGORITHM`
  * alone, `CELL_TOKEN_AUDIENCE`, and `CLOCK_SKEW_SECONDS` between the clocks, at the moment it is
  * given, so jose and the contract's reader judge the times at the same instant. A token that
- * names no `kid` is refused before any key is looked for.
+ * names no `kid` is refused before any key is looked for, and so is an outbox delivery
+ * (`typ` `OUTBOX_MESSAGE_TYPE`): the same key signs both, and whatever its payload holds, a
+ * delivery is never a token.
  *
  * When the keys cannot be had, the token is refused as `keys-unavailable`, never let through,
  * and `report` hears why (never the token). Only a key set that answered but holds no key the
@@ -80,7 +86,11 @@ export function createJoseTokenVerifier(
   keys: CellTokenKeys,
   report: (line: string) => void = console.error,
 ): TokenVerifier {
-  const keyFor: JWTVerifyGetKey = keyNamedBy(keys);
+  const keyNamed = keyNamedBy(keys);
+  const keyFor: JWTVerifyGetKey = (header, token) => {
+    if (header.typ === OUTBOX_MESSAGE_TYPE) throw new NotAToken();
+    return keyNamed(header, token);
+  };
 
   return {
     async verify(token, nowSeconds): Promise<SignatureCheck> {

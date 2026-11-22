@@ -8,6 +8,7 @@ import {
   cloudGlobalKeys,
   createJoseTokenVerifier,
 } from './adapters/token/cellTokens.js';
+import { createJoseDeliveryVerifier } from './adapters/token/outboxDeliveries.js';
 import type { CellConfig } from './config.js';
 
 /**
@@ -15,8 +16,9 @@ import type { CellConfig } from './config.js';
  * `main.ts` serves what this returns, and the HTTP tests build through it too, so they test the
  * wiring that runs.
  *
- * The cell checks tokens with `cloud-global`'s keys, fetched from `config.cloudGlobalUrl`. Only
- * a test passes `cellTokenKeys`, a key set of its own, so it needs no `cloud-global` running.
+ * The cell checks tokens and outbox deliveries with `cloud-global`'s keys, fetched from
+ * `config.cloudGlobalUrl`: one key set for both, so it is fetched and kept once. Only a test
+ * passes `cellTokenKeys`, a key set of its own, so it needs no `cloud-global` running.
  */
 export function composeCell(deps: {
   db: Database;
@@ -25,13 +27,13 @@ export function composeCell(deps: {
 }): { app: Hono } {
   const { db, config } = deps;
   const stores = createDrizzleStores(db);
-  const tokens = createJoseTokenVerifier(
-    deps.cellTokenKeys ?? cloudGlobalKeys(config.cloudGlobalUrl),
-  );
+  const keys = deps.cellTokenKeys ?? cloudGlobalKeys(config.cloudGlobalUrl);
   const app = createApp({
     region: config.region,
     health: stores.health,
-    tokens,
+    tokens: createJoseTokenVerifier(keys),
+    deliveries: createJoseDeliveryVerifier(keys),
+    workspaceCopies: stores.workspaceCopies,
     clock: systemClock,
   });
   return { app };
