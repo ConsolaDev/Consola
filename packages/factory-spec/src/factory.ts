@@ -11,6 +11,7 @@ import { parseAutomationFile } from './automationFile';
 import { formatPath, type FactorySpecIssue } from './issues';
 import { AUTOMATION_NAME_PATTERN } from './names';
 import { parseFactoryYml } from './parse';
+import { isRunOwnedCheckout } from './flow';
 import { isStepsEntry, type Automation } from './schema';
 import { parseSkill, type SkillDefinition, type SkillFileEntry } from './skills';
 import { flatSteps, leafSteps } from './steps';
@@ -96,6 +97,8 @@ export interface FactoryParseResult {
   present: string[];
   /** Of those, the ones not read whole: a `factory.yml` or automation file that does not parse, and every unread or outside path. */
   unreadable: string[];
+  /** `factory.yml`'s `repos:` (slice 3-B): the repositories a run-owned checkout may name. None without a readable factory.yml. */
+  repos: string[];
 }
 
 /** One automation that parsed, and how to point inside its entry. */
@@ -276,6 +279,24 @@ export function parseFactory(files: FactoryFiles): FactoryParseResult {
   }
   candidates = candidates.filter((candidate) => !twice.has(candidate.automation.name));
 
+  // A run-owned checkout names one of factory.yml's `repos:`, or its entry is not kept (slice 3-B).
+  const repos = yml?.repos ?? [];
+  const listed = new Set(repos.map((repo) => repo.toLowerCase()));
+  candidates = candidates.filter((candidate) => {
+    const { checkout } = candidate.automation;
+    if (!isRunOwnedCheckout(checkout) || listed.has(checkout.repo.toLowerCase())) return true;
+    const path = candidate.pathTo(['checkout', 'repo']);
+    const line = candidate.lineAt(path);
+    issues.push({
+      message: `\`${checkout.repo}\` is not in \`repos:\` in factory.yml.`,
+      file: candidate.file,
+      path: formatPath(path),
+      ...(line !== undefined ? { line } : {}),
+      automation: candidate.automation.name,
+    });
+    return false;
+  });
+
   // Each step's agent must be a kept agent, or its entry is not kept.
   candidates = candidates.filter((candidate) => {
     const { automation } = candidate;
@@ -382,6 +403,7 @@ export function parseFactory(files: FactoryFiles): FactoryParseResult {
     notices,
     present,
     unreadable,
+    repos,
   };
 }
 

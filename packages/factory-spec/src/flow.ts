@@ -7,6 +7,7 @@
  * what only the whole entry can answer (does a gate show an earlier step's
  * document) is `checkSteps`'.
  */
+import { branchTemplateProblem, refFormatProblem } from './branchName';
 import { MAX_IF_LENGTH, parseExpression } from './expression';
 import { ARTIFACT_NAME_PATTERN, parseReadRef, STEP_ID_PATTERN } from './steps';
 import { parseTemplate } from './template';
@@ -229,11 +230,50 @@ export const MAX_BUDGET_USD = 1000;
 
 const RETRY_SHAPE = `\`on_failure:\` is \`{ retry: <n> }\`, with n from 0 to ${MAX_RETRIES}.`;
 const BUDGET_SHAPE = `\`budget:\` is \`{ usd: <n> }\`, with n from ${MIN_BUDGET_USD} to ${MAX_BUDGET_USD}.`;
-const CHECKOUT_SHAPE = 'Write the checkout as `checkout: { pr: item }`.';
-const CHECKOUT_WRITES =
-  '`checkout: { repo, branch }` arrives with write steps; it is not supported yet.';
-/** What a checkout of a branch to write names: write steps' (3-B), refused until then. */
-const CHECKOUT_WRITE_KEYS = ['repo', 'branch', 'from'];
+const CHECKOUT_SHAPE =
+  'Write the checkout as `checkout: { pr: item }` or `checkout: { repo: …, branch: … }`.';
+/** The keys of a checkout the run owns (slice 3-B): a branch it cuts from one of `repos:`. */
+const RUN_OWNED_KEYS = ['repo', 'branch', 'from'];
+const NOT_BOTH = 'A checkout is `{ pr: item }` or `{ repo, branch }`, not both.';
+const NAME_THE_BRANCH = 'Name the branch the run cuts: `branch: "fix/{{item.key}}"`.';
+const FROM_ITEM =
+  "Writing on a pull request's own head is not supported: a write step cuts its branch from one of `repos:` (invariant 9).";
+const FROM_SHAPE = '`from:` names a branch of the repository, e.g. `from: main`.';
+
+/** A repository as `owner/name`, as `repos:` and a run-owned checkout name one. */
+export const REPO_PATTERN = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+/** The most repositories `repos:` may list. */
+export const MAX_REPOS = 50;
+/** What an entry of `repos:`, or a checkout's `repo:`, that is not `owner/name` is told. */
+export const REPO_ENTRY_SHAPE =
+  'Each entry of `repos:` is a repository as `owner/name`, e.g. `sprocket/catalog-portal`.';
+
+/**
+ * `checkout: { repo, branch, from? }`: the run works in a checkout of its
+ * own of `repo`, one of `repos:`, on a branch it cuts from `branch` (a
+ * template, `branchName.ts`) off the repository's default branch, or off
+ * `from`, a branch named as written.
+ */
+export interface RunOwnedCheckout {
+  repo: string;
+  branch: string;
+  from?: string;
+}
+
+/** An entry's `checkout:`: 3-A's item checkout, or one the run owns. */
+export type EntryCheckout = { pr: 'item' } | RunOwnedCheckout;
+
+/** Whether an entry's checkout is one the run owns. */
+export function isRunOwnedCheckout(
+  checkout: EntryCheckout | undefined,
+): checkout is RunOwnedCheckout {
+  return checkout !== undefined && 'repo' in checkout;
+}
+
+/** Whether an entry's checkout is its item's (`{ pr: item }`). */
+export function isItemCheckout(checkout: EntryCheckout | undefined): checkout is { pr: 'item' } {
+  return checkout !== undefined && 'pr' in checkout;
+}
 
 /**
  * `on_failure: { retry: <n> }`, on a step or on an entry: how many times it
@@ -265,22 +305,25 @@ export function parseBudget(value: unknown, fail: Fail): { usd: number } | undef
 }
 
 /**
- * An entry's `checkout:`. In this slice only `{ pr: item }`, slice 1's
- * read-only checkout of the item's pull request, which is what an item run
- * works in already; a checkout of a branch to write (`repo`, `branch`,
- * `from`) arrives with write steps. Where items can never be pull requests is
- * the entry's to say.
+ * An entry's `checkout:`: `{ pr: item }`, slice 1's read-only checkout of
+ * the item's pull request, which is what an item run works in already; or
+ * `{ repo, branch, from? }`, a checkout the run owns, on a branch it cuts
+ * (slice 3-B). Where items can never be pull requests, and what a branch's
+ * placeholders need of the items, is the entry's to say; that `repo` is one
+ * of `repos:` is the folder's.
  */
-export function parseEntryCheckout(value: unknown, fail: Fail): { pr: 'item' } | undefined {
+export function parseEntryCheckout(value: unknown, fail: Fail): EntryCheckout | undefined {
   const at = (path: Array<string | number> = []) => ['checkout', ...path];
   if (!isRecord(value)) {
     fail(CHECKOUT_SHAPE, at());
     return undefined;
   }
-  if (CHECKOUT_WRITE_KEYS.some((key) => key in value)) {
-    fail(CHECKOUT_WRITES, at());
+  const owned = RUN_OWNED_KEYS.some((key) => key in value);
+  if (owned && 'pr' in value) {
+    fail(NOT_BOTH, at());
     return undefined;
   }
+  if (owned) return parseRunOwnedCheckout(value, fail);
   const strangers = Object.keys(value).filter((key) => key !== 'pr');
   if (strangers.length > 0) {
     fail(`Unrecognized key in \`checkout\`: ${strangers[0]}.`, at([strangers[0]]));
@@ -295,4 +338,40 @@ export function parseEntryCheckout(value: unknown, fail: Fail): { pr: 'item' } |
     return undefined;
   }
   return { pr: 'item' };
+}
+
+/** `checkout: { repo, branch, from? }`, each key checked at its own path; nothing when any fails. */
+function parseRunOwnedCheckout(
+  value: Record<string, unknown>,
+  fail: Fail,
+): RunOwnedCheckout | undefined {
+  const at = (key: string) => ['checkout', key];
+  const strangers = Object.keys(value).filter((key) => !RUN_OWNED_KEYS.includes(key));
+  if (strangers.length > 0) {
+    fail(`Unrecognized key in \`checkout\`: ${strangers[0]}.`, at(strangers[0]));
+    return undefined;
+  }
+  let ok = true;
+  const refuse = (message: string, key: string) => {
+    fail(message, at(key));
+    ok = false;
+  };
+  const { repo, branch, from } = value;
+  if (typeof repo !== 'string' || !REPO_PATTERN.test(repo)) refuse(REPO_ENTRY_SHAPE, 'repo');
+  if (typeof branch !== 'string' || branch.trim() === '') refuse(NAME_THE_BRANCH, 'branch');
+  else {
+    const problem = branchTemplateProblem(branch);
+    if (problem) refuse(problem, 'branch');
+  }
+  if (from !== undefined) {
+    if (from === 'item') refuse(FROM_ITEM, 'from');
+    else if (typeof from !== 'string' || from.includes('{{') || refFormatProblem(from) !== null)
+      refuse(FROM_SHAPE, 'from');
+  }
+  if (!ok) return undefined;
+  return {
+    repo: repo as string,
+    branch: branch as string,
+    ...(from !== undefined ? { from: from as string } : {}),
+  };
 }

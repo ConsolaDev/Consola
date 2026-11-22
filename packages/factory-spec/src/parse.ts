@@ -24,6 +24,8 @@ export interface FactoryYmlResult extends FactorySpecParseResult {
   entryPath(name: string): Array<string | number> | undefined;
   /** Every name an entry gives itself, loaded or not, once each, in file order. */
   entryNames: string[];
+  /** `repos:`, the repositories the factory may write (slice 3-B), as written; none when absent or the file is unreadable. */
+  repos: string[];
 }
 
 const FILE = 'factory.yml';
@@ -50,6 +52,7 @@ export function parseFactoryYml(text: string): FactoryYmlResult {
     automations: Automation[],
     issues: FactorySpecIssue[],
     unreadable: boolean,
+    repos: string[] = [],
   ): FactoryYmlResult => ({
     automations,
     issues: issues.map((issue) => ({ ...issue, file: FILE })),
@@ -60,6 +63,7 @@ export function parseFactoryYml(text: string): FactoryYmlResult {
       return index === undefined ? undefined : ['automations', index];
     },
     entryNames: [...named.keys()],
+    repos,
   });
 
   if (doc.errors.length > 0) {
@@ -121,7 +125,7 @@ export function parseFactoryYml(text: string): FactoryYmlResult {
     automations.push({ ...parsed.data, ...(line ? { line } : {}), file: FILE });
   });
 
-  return result(automations, issues, false);
+  return result(automations, issues, false, envelope.data.repos ?? []);
 }
 
 /**

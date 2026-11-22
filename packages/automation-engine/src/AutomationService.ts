@@ -208,6 +208,7 @@ import {
   type StepsRunPreview,
 } from './steps/definition';
 import { isEngineRun, isStepsRun } from './steps/recover';
+import { writesNotYet } from './steps/writesLater';
 import { advanceSteps, type Advance, type Lane, type StepUpdate } from './steps/sequence';
 import {
   closeSteps,
@@ -609,6 +610,7 @@ function notRead(): FactoryRead {
       notices: [],
       present: [],
       unreadable: [],
+      repos: [],
     },
   };
 }
@@ -5454,6 +5456,10 @@ export class AutomationService {
     }
     if (stops.length > 0)
       return unable(stops[0].message, warnings, { recheck: true, unasked: true });
+    // A write key the format accepts and the engine does not run yet stops the entry, in words
+    // (slice 3-B, Call 2): last, so every other problem the entry has is said first.
+    const writes = writesNotYet(automation, agents);
+    if (writes) return unable(writes, warnings);
 
     // The bodies live in settings, not the file: editing one asks again. So
     // does editing an agent file a step names: its hash is in the version.

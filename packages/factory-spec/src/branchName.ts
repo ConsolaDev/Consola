@@ -110,6 +110,11 @@ export function refFormatProblem(name: string): string | null {
   return null;
 }
 
+/** The placeholders a template names, in order (`item.key`, …), as written between the braces. */
+export function branchPlaceholderNames(template: string): string[] {
+  return [...template.matchAll(PLACEHOLDER)].map((match) => match[1]);
+}
+
 /** The values a template is checked with: an item `SHOP-42`, number 42, run `3f2a91c0`. */
 const SAMPLE: BranchValues = { itemKey: 'SHOP-42', itemNumber: 42, runId: '3f2a91c0' };
 
@@ -123,7 +128,7 @@ const ONLY_PLACEHOLDERS = 'A branch takes only `{{item.key}}`, `{{item.number}}`
  * and a sample render passes `refFormatProblem`.
  */
 export function branchTemplateProblem(template: string): string | null {
-  const names = [...template.matchAll(PLACEHOLDER)].map((match) => match[1]);
+  const names = branchPlaceholderNames(template);
   const rest = template.replace(PLACEHOLDER, '');
   if (rest.includes('{{') || rest.includes('}}')) return ONLY_PLACEHOLDERS;
   if (names.some((name) => !(BRANCH_PLACEHOLDERS as readonly string[]).includes(name)))

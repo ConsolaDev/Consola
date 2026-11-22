@@ -644,3 +644,44 @@ describe('the version of what slice 3 adds (Task 5)', () => {
     );
   });
 });
+
+describe('a run-owned checkout in the version (slice 3-B, only added)', () => {
+  const ENTRY = (() => {
+    const parsed = parseAutomationEntry(
+      '- name: fix\n  on: manual\n  mode: auto\n  scope: app\n  steps:\n    - run: "true"\n',
+    );
+    if (!parsed.ok || !isStepsEntry(parsed.automation)) throw new Error('no entry');
+    const { scope: _scope, ...rest } = parsed.automation;
+    return rest;
+  })();
+
+  it('the checkout is in the version, repos: is not', () => {
+    const a = automationVersion({
+      ...ENTRY,
+      checkout: { repo: 'sprocket/catalog-portal', branch: 'fix/{{item.key}}' },
+    });
+    expect(a).not.toBe(automationVersion(ENTRY));
+    expect(
+      automationVersion({
+        ...ENTRY,
+        checkout: { repo: 'sprocket/catalog-portal', branch: 'fix/{{item.number}}' },
+      }),
+    ).not.toBe(a);
+    expect(
+      automationVersion({
+        ...ENTRY,
+        checkout: { repo: 'sprocket/catalog-portal', branch: 'fix/{{item.key}}', from: 'release' },
+      }),
+    ).not.toBe(a);
+    // `repos:` lives on the file, not the entry: listing more repositories moves no version.
+    const yml = (repos: string) =>
+      `version: 1\nrepos: [${repos}]\nautomations:\n  - name: fix\n    on: manual\n    mode: auto\n    checkout: { repo: sprocket/catalog-portal, branch: "consola/run-{{run.id}}" }\n    steps:\n      - run: "true"\n`;
+    const versionOf = (text: string) => {
+      const [automation] = parseFactorySpec(text).automations;
+      return automationVersion(automation);
+    };
+    expect(versionOf(yml('sprocket/catalog-portal'))).toBe(
+      versionOf(yml('sprocket/catalog-portal, sprocket/other')),
+    );
+  });
+});

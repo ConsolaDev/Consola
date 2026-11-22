@@ -76,6 +76,18 @@ describe('a steps entry, resolved against its workspace', () => {
     ).toBeUndefined();
   });
 
+  it('an entry with a checkout it owns does not run yet, and says why (slice 3-B, Call 2)', async () => {
+    const yaml = `version: 1\nrepos: [sprocket/catalog-portal]\nautomations:\n${entry(
+      'fix',
+      '    on: manual\n    checkout: { repo: sprocket/catalog-portal, branch: "consola/run-{{run.id}}" }\n',
+      '- run: "true"',
+    )}`;
+    const h = await stepsHarness({ yaml });
+    expect(h.service.list(WORKSPACE_ID).find((view) => view.name === 'fix')?.problem).toBe(
+      '`checkout: { repo, branch }` runs from the next update; this automation does not run yet.',
+    );
+  });
+
   it("resolves, its version covering each action step's body", async () => {
     const h = await stepsHarness({ yaml: TEMPLATE });
     expect(h.service.list(WORKSPACE_ID)[0]).toMatchObject({ name: NAME, asksFirst: true });

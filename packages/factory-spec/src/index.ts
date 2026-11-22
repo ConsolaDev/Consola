@@ -21,12 +21,21 @@ export {
 } from './agents';
 export {
   BRANCH_PLACEHOLDERS,
+  branchPlaceholderNames,
   branchTemplateProblem,
   cleanBranchPart,
   refFormatProblem,
   renderBranch,
   type BranchValues,
 } from './branchName';
+export {
+  MAX_REPOS,
+  REPO_PATTERN,
+  isItemCheckout,
+  isRunOwnedCheckout,
+  type EntryCheckout,
+  type RunOwnedCheckout,
+} from './flow';
 export { cronError, nextCronOccurrence } from './cron';
 export { parseAutomationFile, type AutomationFileResult } from './automationFile';
 export {

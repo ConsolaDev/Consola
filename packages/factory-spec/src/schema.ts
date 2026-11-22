@@ -12,11 +12,18 @@ import {
   stepsSchema,
   type StepEntry,
 } from './steps';
+import { branchPlaceholderNames } from './branchName';
 import {
+  isItemCheckout,
+  isRunOwnedCheckout,
+  MAX_REPOS,
   ON_EXHAUSTED_OUTSIDE,
   parseBudget,
   parseEntryCheckout,
   parseRetry,
+  REPO_ENTRY_SHAPE,
+  REPO_PATTERN,
+  type EntryCheckout,
   type Fail,
 } from './flow';
 
@@ -69,9 +76,11 @@ interface AutomationCommon {
   mode: AutomationMode;
   /**
    * `checkout: { pr: item }`: the run works in its item's read-only checkout,
-   * as an item run does without it. Steps entries only; present only when written.
+   * as an item run does without it; `checkout: { repo, branch, from? }`: in a
+   * checkout of its own, on a branch it cuts (slice 3-B). Steps entries only;
+   * present only when written.
    */
-  checkout?: { pr: 'item' };
+  checkout?: EntryCheckout;
   /** `budget: { usd }`: what a run may spend, checked between steps. Steps entries only; present only when written. */
   budget?: { usd: number };
   /** `on_failure: { retry }`: how many times the whole run starts again by itself. Steps entries only; present only when written. */
@@ -318,6 +327,13 @@ function flowKey<T>(parse: (value: unknown, fail: Fail) => T | undefined) {
 /** `checkout: { pr: item }`'s words where an entry's items are never pull requests. */
 export const PR_ITEM_NEEDS_PRS = '`pr: item` needs items that are pull requests.';
 
+/** A run-owned checkout's branch that names an item, on an entry with none. */
+const BRANCH_NEEDS_AN_ITEM =
+  'This automation has no item; its branch takes `{{run.id}}`, e.g. `consola/run-{{run.id}}`.';
+/** A run-owned checkout's branch that names `{{item.number}}`, on a keyed poll. */
+const BRANCH_NEEDS_A_NUMBER = "A poll's items have no number; use `{{item.key}}`.";
+const CHECKOUT_SAYS_WHERE = 'The checkout says where this runs; remove `scope:`.';
+
 /** Every key a later slice owns, refused with what it arrives with; `with` keeps its own message above. */
 function laterEntryKeys() {
   return Object.fromEntries(
@@ -457,14 +473,24 @@ function automationEntrySchema() {
         for (const key of ['checkout', 'budget', 'on_failure'] as const)
           if (entry[key] !== undefined) issue(key, `\`${key}\` goes with \`steps:\`.`);
       }
-      if (steps && entry.checkout) {
+      if (steps && isItemCheckout(entry.checkout)) {
         // Items that are never pull requests: none, a keyed poll's, or a run on demand's that names no `pr`.
         const neverPrs =
           noItem ||
           keyed ||
           (trigger.kind === 'manual' && !(entry.applies_to ?? []).includes('pr'));
         if (neverPrs) issue('checkout', PR_ITEM_NEEDS_PRS);
-        else if (entry.scope) issue('scope', 'The checkout says where this runs; remove `scope:`.');
+        else if (entry.scope) issue('scope', CHECKOUT_SAYS_WHERE);
+      }
+      // A checkout the run owns says where it works, and its branch names only what the items have.
+      if (steps && isRunOwnedCheckout(entry.checkout)) {
+        if (entry.scope) issue('scope', CHECKOUT_SAYS_WHERE);
+        const names = branchPlaceholderNames(entry.checkout.branch);
+        const atBranch = (message: string) =>
+          ctx.addIssue({ code: 'custom', path: ['checkout', 'branch'], message });
+        if (noItem && names.some((name) => name === 'item.key' || name === 'item.number'))
+          atBranch(BRANCH_NEEDS_AN_ITEM);
+        else if (keyed && names.includes('item.number')) atBranch(BRANCH_NEEDS_A_NUMBER);
       }
 
       if (steps) {
@@ -524,6 +550,41 @@ function automationEntrySchema() {
 }
 
 /**
+ * `repos:`, a list of at most 50 repositories as `owner/name`, each once
+ * (case aside, as GitHub reads them). A problem here is the file's, so it
+ * loads nothing, as any problem with the envelope.
+ */
+function reposSchema() {
+  return z
+    .unknown()
+    .transform((value, ctx): string[] => {
+      const at = (message: string, path: Array<string | number> = []) =>
+        ctx.addIssue({ code: 'custom', message, path });
+      if (!Array.isArray(value)) {
+        at('`repos:` lists repositories as `owner/name`, e.g. `repos: [sprocket/catalog-portal]`.');
+        return z.NEVER;
+      }
+      if (value.length > MAX_REPOS) {
+        at(`\`repos:\` lists at most ${MAX_REPOS} repositories.`);
+        return z.NEVER;
+      }
+      const seen = new Set<string>();
+      let ok = true;
+      value.forEach((entry, index) => {
+        if (typeof entry !== 'string' || !REPO_PATTERN.test(entry)) {
+          at(REPO_ENTRY_SHAPE, [index]);
+          ok = false;
+        } else if (seen.has(entry.toLowerCase())) {
+          at(`\`${entry}\` is listed twice in \`repos:\`.`, [index]);
+          ok = false;
+        } else seen.add(entry.toLowerCase());
+      });
+      return ok ? (value as string[]) : z.NEVER;
+    })
+    .optional();
+}
+
+/**
  * The envelope. Strict on purpose: a typo'd top-level key would otherwise
  * be silently ignored, and an automation that never loads looks exactly like
  * one that has not fired yet.
@@ -541,7 +602,8 @@ export const fileSchema = z
     mcpServers: explained(
       'Inline server definitions arrive with connections as data. Name a server the harness already has in an agent file.',
     ),
-    repos: explained('`repos` arrives with write steps; it is not supported yet.'),
+    // The repositories this factory may write, each `owner/name` (slice 3-B).
+    repos: reposSchema(),
     policy: explained('`policy` arrives with shared factories; it is not supported yet.'),
     library: explained('`library` arrives with shared factories; it is not supported yet.'),
     defaults: explained('`defaults` arrives with shared factories; it is not supported yet.'),

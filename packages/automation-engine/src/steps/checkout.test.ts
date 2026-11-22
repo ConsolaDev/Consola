@@ -135,6 +135,14 @@ describe('prCheckoutProblem (slice 3, Call 15)', () => {
     expect(prCheckoutProblem(entry(REVIEW), undefined)).toBeNull();
   });
 
+  it('says nothing of a checkout the run owns, whatever its source (slice 3-B)', () => {
+    const owned = entry(
+      '  on: manual\n  checkout: { repo: sprocket/catalog-portal, branch: "consola/run-{{run.id}}" }\n',
+    );
+    expect(prCheckoutProblem(owned, undefined)).toBeNull();
+    expect(prCheckoutProblem(owned, { itemTypes: ['issue'] })).toBeNull();
+  });
+
   it('takes pr: item on a source whose items can be pull requests', () => {
     expect(prCheckoutProblem(entry(`${REVIEW}${PR_CHECKOUT}`), { itemTypes: ['pr'] })).toBeNull();
     expect(

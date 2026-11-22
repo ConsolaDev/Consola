@@ -1,0 +1,67 @@
+import { describe, expect, it } from 'vitest';
+import {
+  isStepsEntry,
+  parseAutomationEntry,
+  type AgentDefinition,
+  type StepsAutomation,
+} from '@consola/factory-spec';
+import { writesNotYet } from './writesLater';
+
+/*
+ * A key the format accepts and the engine does not run yet stops the entry,
+ * in words (slice 3-B, Call 2): a checkout the run owns until the engine
+ * makes one (Task 12), a write agent until a host holds it (Task 13).
+ */
+
+function stepsEntry(
+  head: string,
+  steps = '    - id: look\n      prompt: Look.\n',
+): StepsAutomation {
+  const parsed = parseAutomationEntry(`- name: fix\n${head}  steps:\n${steps}`);
+  if (!parsed.ok || !isStepsEntry(parsed.automation)) throw new Error(JSON.stringify(parsed));
+  return parsed.automation;
+}
+
+const RUN_OWNED = '  on: manual\n  checkout: { repo: sprocket/catalog-portal, branch: "fix/a" }\n';
+
+/** An agent as `parseFactory` keeps it, with the `tools:` a later task's format writes. */
+const agent = (tools: string) => ({ name: 'fixer', tools }) as unknown as AgentDefinition;
+
+describe('writesNotYet', () => {
+  it('refuses a run-owned checkout until it runs', () =>
+    expect(writesNotYet(stepsEntry(RUN_OWNED), {})).toBe(
+      '`checkout: { repo, branch }` runs from the next update; this automation does not run yet.',
+    ));
+
+  it.each(['edit', 'write'])('refuses an agent with tools: %s, in a loop too', (tools) => {
+    const steps =
+      '    - id: loop\n      repeat: { max: 2, until: steps.fix.done }\n      steps:\n        - id: fix\n          agent: fixer\n          outputs: { done: boolean }\n';
+    expect(
+      writesNotYet(stepsEntry('  on: manual\n  scope: app\n', steps), { fixer: agent(tools) }),
+    ).toBe(`\`tools: ${tools}\` runs from the next update; this automation does not run yet.`);
+  });
+
+  it('names the checkout first', () =>
+    expect(
+      writesNotYet(stepsEntry(RUN_OWNED, '    - id: fix\n      agent: fixer\n'), {
+        fixer: agent('write'),
+      }),
+    ).toContain('`checkout: { repo, branch }`'));
+
+  it('passes what runs today: an item checkout, a scope, a read-only agent', () => {
+    expect(
+      writesNotYet(
+        stepsEntry('  on: { github: pull_request.review_requested }\n  checkout: { pr: item }\n'),
+        {},
+      ),
+    ).toBeNull();
+    expect(
+      writesNotYet(
+        stepsEntry('  on: manual\n  scope: app\n', '    - id: fix\n      agent: fixer\n'),
+        {
+          fixer: agent('read-only'),
+        },
+      ),
+    ).toBeNull();
+  });
+});

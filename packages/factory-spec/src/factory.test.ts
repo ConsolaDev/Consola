@@ -762,3 +762,65 @@ describe('isIgnoredFileName (review S5)', () => {
     },
   );
 });
+
+describe('repos: across the folder (slice 3-B)', () => {
+  const FIX = (repo: string) =>
+    `  - name: fix\n    on: manual\n    mode: auto\n    checkout: { repo: ${repo}, branch: "consola/run-{{run.id}}" }\n    steps:\n      - run: "true"\n`;
+  /** The same entry as a file of its own, `automations/<name>.yaml` (its name is the file's). */
+  const FIX_FILE = (repo: string) =>
+    `on: manual\nmode: auto\ncheckout: { repo: ${repo}, branch: "consola/run-{{run.id}}" }\nsteps:\n  - run: "true"\n`;
+
+  it('a run-owned checkout names one of repos:', () => {
+    const issues = parseFactory(
+      files({
+        factoryYml: `version: 1\nrepos: [sprocket/catalog-portal]\nautomations:\n${FIX('sprocket/other')}`,
+      }),
+    ).issues;
+    expect(issues.map((i) => i.message)).toContain(
+      '`sprocket/other` is not in `repos:` in factory.yml.',
+    );
+  });
+
+  it('leaves the entry out, at its checkout.repo, and keeps the others', () => {
+    const result = parseFactory(
+      files({
+        factoryYml: `version: 1\nrepos: [sprocket/catalog-portal]\nautomations:\n${FIX('sprocket/other')}  - name: ok\n    on: { cron: "0 9 * * *" }\n    run: { tool: consola#x }\n`,
+      }),
+    );
+    expect(names(result)).toEqual(['ok']);
+    expect(result.issues).toEqual([
+      {
+        message: '`sprocket/other` is not in `repos:` in factory.yml.',
+        file: 'factory.yml',
+        path: 'automations[0].checkout.repo',
+        line: 7,
+        automation: 'fix',
+      },
+    ]);
+    expect(result.repos).toEqual(['sprocket/catalog-portal']);
+  });
+
+  it('keeps one that does, in factory.yml or a file of its own, case aside', () => {
+    const result = parseFactory(
+      files({
+        factoryYml: `version: 1\nrepos: [Sprocket/Catalog-Portal]\nautomations:\n${FIX('sprocket/catalog-portal')}`,
+        automations: { other: FIX_FILE('SPROCKET/catalog-portal') },
+      }),
+    );
+    expect(result.issues).toEqual([]);
+    expect(names(result)).toEqual(['fix', 'other']);
+  });
+
+  it('refuses an automation file whose checkout names a repository with no factory.yml to list it', () => {
+    const result = parseFactory(
+      files({
+        automations: { fix: FIX_FILE('sprocket/catalog-portal') },
+      }),
+    );
+    expect(names(result)).toEqual([]);
+    expect(result.issues.map((i) => i.message)).toEqual([
+      '`sprocket/catalog-portal` is not in `repos:` in factory.yml.',
+    ]);
+    expect(result.repos).toEqual([]);
+  });
+});

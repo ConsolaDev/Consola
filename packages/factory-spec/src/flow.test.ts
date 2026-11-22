@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { parseEntryCheckout } from './flow';
 import { parseFactorySpec } from './parse';
 import { isStepsEntry, type StepsAutomation } from './schema';
 import {
@@ -565,10 +566,6 @@ describe('on_failure, budget and checkout', () => {
     ['    budget: { usd: 0 }\n', '`budget:` is `{ usd: <n> }`, with n from 0.01 to 1000.'],
     ['    budget: { usd: 1001 }\n', '`budget:` is `{ usd: <n> }`, with n from 0.01 to 1000.'],
     ['    on_failure: { retry: 4 }\n', '`on_failure:` is `{ retry: <n> }`, with n from 0 to 3.'],
-    [
-      '    checkout: { repo: sprocket/catalog-portal, branch: "fix/{{item.key}}" }\n',
-      '`checkout: { repo, branch }` arrives with write steps; it is not supported yet.',
-    ],
     ['    checkout: { pr: head }\n', '`pr:` takes `item`.'],
     [
       '    checkout: { pr: item }\n    scope: catalog-portal\n',
@@ -615,22 +612,25 @@ describe('on_failure, budget and checkout', () => {
       'on_failure',
       '`on_failure:` is `{ retry: <n> }`, with n from 0 to 3.',
     ],
-    ['    checkout: item\n', 'checkout', 'Write the checkout as `checkout: { pr: item }`.'],
-    ['    checkout: {}\n', 'checkout', 'Write the checkout as `checkout: { pr: item }`.'],
+    [
+      '    checkout: item\n',
+      'checkout',
+      'Write the checkout as `checkout: { pr: item }` or `checkout: { repo: …, branch: … }`.',
+    ],
+    [
+      '    checkout: {}\n',
+      'checkout',
+      'Write the checkout as `checkout: { pr: item }` or `checkout: { repo: …, branch: … }`.',
+    ],
     [
       '    checkout: { pr: item, depth: 1 }\n',
       'checkout.depth',
       'Unrecognized key in `checkout`: depth.',
     ],
     [
-      '    checkout: { from: main }\n',
-      'checkout',
-      '`checkout: { repo, branch }` arrives with write steps; it is not supported yet.',
-    ],
-    [
       '    checkout: { pr: item, branch: x }\n',
       'checkout',
-      '`checkout: { repo, branch }` arrives with write steps; it is not supported yet.',
+      'A checkout is `{ pr: item }` or `{ repo, branch }`, not both.',
     ],
   ])('refuses the shape %s, at its key', (lines, at, message) => {
     const issue = only(one(`${REVIEW}${lines}    steps:\n      - prompt: hi\n`));
@@ -747,6 +747,99 @@ describe('on_failure, budget and checkout', () => {
       path: 'automations[0].steps[0].steps[1].on_failure',
       message:
         '`post` runs a command that may push or post, so it never retries by itself; a person retries it from the run page.',
+    });
+  });
+});
+
+describe('parseEntryCheckout: a checkout the run owns (slice 3-B)', () => {
+  const parse = (value: unknown) => parseEntryCheckout(value, () => {});
+  const failures = (value: unknown) => {
+    const messages: string[] = [];
+    parseEntryCheckout(value, (message) => messages.push(message));
+    return messages;
+  };
+  const at = (value: unknown) => {
+    const paths: Array<Array<string | number>> = [];
+    parseEntryCheckout(value, (_message, path = []) => paths.push(path));
+    return paths;
+  };
+
+  it('takes a run-owned checkout', () =>
+    expect(
+      parse({ repo: 'sprocket/catalog-portal', branch: 'fix/{{item.key}}', from: 'release' }),
+    ).toEqual({ repo: 'sprocket/catalog-portal', branch: 'fix/{{item.key}}', from: 'release' }));
+
+  it('leaves from out when it is not written', () => {
+    const checkout = parse({ repo: 'sprocket/catalog-portal', branch: 'consola/run-{{run.id}}' });
+    expect(checkout).toEqual({ repo: 'sprocket/catalog-portal', branch: 'consola/run-{{run.id}}' });
+    expect(Object.prototype.hasOwnProperty.call(checkout, 'from')).toBe(false);
+  });
+
+  it("keeps 3-A's { pr: item }", () => expect(parse({ pr: 'item' })).toEqual({ pr: 'item' }));
+
+  it.each([
+    [{ repo: 'sprocket/catalog-portal' }, 'Name the branch the run cuts'],
+    [{ branch: 'fix/x' }, 'Each entry of `repos:`'],
+    [
+      { repo: 'x/y', branch: 'fix/{{item.key}}', from: 'item' },
+      "Writing on a pull request's own head is not supported",
+    ],
+    [{ repo: 'x/y', branch: 'fix/{{item.key}}', from: 'a..b' }, '`from:` names a branch'],
+    [{ repo: 'x/y', branch: '{{item.key}}' }, 'A branch starts with a literal folder'],
+    [{ pr: 'item', repo: 'x/y', branch: 'fix/a' }, 'not both'],
+    // Beyond the plan's rows.
+    [{ repo: 'catalog-portal', branch: 'fix/a' }, 'Each entry of `repos:`'],
+    [{ repo: 'x/y', branch: 7 }, 'Name the branch the run cuts'],
+    [{ repo: 'x/y', branch: 'fix/{{item.title}}' }, 'A branch takes only'],
+    [{ repo: 'x/y', branch: 'fix/a', from: '{{item.key}}' }, '`from:` names a branch'],
+    [{ repo: 'x/y', branch: 'fix/a', from: 3 }, '`from:` names a branch'],
+    [{ repo: 'x/y', branch: 'fix/a', depth: 1 }, 'Unrecognized key in `checkout`: depth.'],
+  ])('refuses %j', (value, words) =>
+    expect(failures(value)).toContainEqual(expect.stringContaining(words)),
+  );
+
+  it('says the fixed words, each at its key', () => {
+    expect(failures({ repo: 'x/y' })).toEqual([
+      'Name the branch the run cuts: `branch: "fix/{{item.key}}"`.',
+    ]);
+    expect(at({ repo: 'x/y' })).toEqual([['checkout', 'branch']]);
+    expect(failures({ repo: 'x/y', branch: 'fix/a', from: 'item' })).toEqual([
+      "Writing on a pull request's own head is not supported: a write step cuts its branch from one of `repos:` (invariant 9).",
+    ]);
+    expect(at({ repo: 'x/y', branch: 'fix/a', from: 'item' })).toEqual([['checkout', 'from']]);
+    expect(failures({ repo: 'x/y', branch: 'fix/a', from: 'a..b' })).toEqual([
+      '`from:` names a branch of the repository, e.g. `from: main`.',
+    ]);
+    expect(failures({ pr: 'item', repo: 'x/y', branch: 'fix/a' })).toEqual([
+      'A checkout is `{ pr: item }` or `{ repo, branch }`, not both.',
+    ]);
+    expect(at({ repo: 'nope', branch: 'fix/a' })).toEqual([['checkout', 'repo']]);
+    expect(at({ repo: 'x/y', branch: '{{item.key}}' })).toEqual([['checkout', 'branch']]);
+  });
+
+  it('says every key a run-owned checkout lacks, each at its key', () => {
+    const result = one(`${REVIEW}    checkout: { from: main }\n    steps:\n      - prompt: hi\n`);
+    expect(result.automations).toEqual([]);
+    expect(result.issues.map(({ path, message }) => ({ path, message }))).toEqual([
+      {
+        path: 'automations[0].checkout.repo',
+        message:
+          'Each entry of `repos:` is a repository as `owner/name`, e.g. `sprocket/catalog-portal`.',
+      },
+      {
+        path: 'automations[0].checkout.branch',
+        message: 'Name the branch the run cuts: `branch: "fix/{{item.key}}"`.',
+      },
+    ]);
+  });
+
+  it('takes a run-owned checkout on a steps entry, with no scope', () => {
+    const result = one(
+      `${REVIEW}    checkout: { repo: sprocket/catalog-portal, branch: "fix/{{item.key}}" }\n    steps:\n      - prompt: hi\n`,
+    );
+    expect(result.issues).toEqual([]);
+    expect(result.automations[0]).toMatchObject({
+      checkout: { repo: 'sprocket/catalog-portal', branch: 'fix/{{item.key}}' },
     });
   });
 });
