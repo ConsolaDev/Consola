@@ -40,6 +40,18 @@ By default the data is PGlite (Postgres in-process) in
 `apps/cloud-global/.data/cloud-db`. Deleting that folder resets the local
 database.
 
+## The shared contract
+
+The API imports `@consola/cloud-contract` (`packages/cloud-contract`), what
+`cloud-global` and the cells agree on, from its build. `pnpm dev:cloud` and
+`pnpm test` build it first. A `pnpm --filter @consola/cloud-global …` command
+does not, so build it before the first such command, and again after changing
+it:
+
+```bash
+pnpm --filter @consola/cloud-contract build
+```
+
 ## A real Postgres
 
 ```bash
