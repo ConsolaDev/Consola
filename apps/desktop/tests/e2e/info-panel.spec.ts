@@ -444,11 +444,18 @@ test.describe('info panel', () => {
     await expect(input).toBeFocused();
 
     // The line typed next, as the terminal echoes it and as `cat -v` prints
-    // it: `end` alone both times, so the shell was sent nothing before it.
+    // it, and no other line after `ready`, so the shell was sent nothing by
+    // the chord. Off macOS the chord is Ctrl+Alt+J, which xterm would send as
+    // an escape and a line feed: `cat -v` would print a `^[` line of its own.
+    // On macOS xterm never sends a ⌘ chord, so there this guards the toggle
+    // and the keyboard staying in the shell.
     await page.keyboard.type('end');
     await page.keyboard.press('Enter');
     await expect
-      .poll(async () => (await shellLines()).filter((line) => line.endsWith('end')))
+      .poll(async () => {
+        const lines = await shellLines();
+        return lines.slice(lines.indexOf('ready') + 1).filter((line) => line !== '');
+      })
       .toEqual(['end', 'end']);
   });
 
@@ -895,9 +902,13 @@ test.describe('info panel', () => {
     await expect(branch).toContainText('↑4');
   });
 
-  test('a removed worktree’s Branch section names the branch it was on, and reads nothing', async () => {
+  test('a removed worktree’s Branch section names the branch it was on, and reads no checkout in its place', async () => {
     // `removedWorktree` is main's to write (`recordWorktreesRemoved`), so the
-    // test seeds it through the profile, read at the next launch.
+    // test seeds it through the profile, read at the next launch. Its main
+    // checkout is the clone, the session's scope folder too, so a read that
+    // fell back to either would be traced. A read of the removed folder
+    // itself never reaches the trace (git stops at `-C` on a missing folder
+    // before it traces anything), so that is not what this pins.
     await app.close();
     const stateFile = path.join(`${userDataDir} Test`, 'workspaces.json');
     const saved = JSON.parse(fs.readFileSync(stateFile, 'utf8')) as {
@@ -915,7 +926,7 @@ test.describe('info panel', () => {
       cwd: worktree,
       removedWorktree: {
         path: worktree,
-        mainRepo: path.join(root, 'gone'),
+        mainRepo: repo,
         commit: 'a'.repeat(40),
         branch: 'consola/old-experiment',
         keepRef: 'refs/consola/worktrees/old-experiment',
@@ -926,11 +937,17 @@ test.describe('info panel', () => {
     fs.writeFileSync(stateFile, JSON.stringify(saved));
     ({ app, page } = await launchElectron({ userDataDir, env }));
 
-    // From a folder outside git, which has no branch to read.
-    await openSession('Review notes');
-    await expect(folderRow('Folder')).toBeVisible();
-    await page.waitForTimeout(500);
+    // From a session with a live checkout, whose reads this launch's trace
+    // counts, once every read it asks for is in (the one against #51's base
+    // included).
+    const atLaunch = branchFactsReads();
+    await openSession('Paginate the catalog search');
+    await expect(branchRow('feat/search-pagination')).toContainText('↑2');
+    await expect(prSection().getByText('into main', { exact: true })).toBeVisible();
+    await expect(baseRow('origin/main')).toContainText('3 files');
+    await page.waitForTimeout(1000);
     const before = branchFactsReads();
+    expect(before).toBeGreaterThan(atLaunch);
 
     await openSession('Old experiment');
     const section = infoSection(page, 'Branch');
