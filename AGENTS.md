@@ -1217,7 +1217,11 @@ rules follow:
 - **Dependencies must be AGPL-compatible**: MIT, ISC, BSD, Apache-2.0,
   MPL-2.0, LGPL and GPL-3.0 are; GPL-2.0-only is not. CI checks every
   installed dependency's declared licence against the list in
-  `.github/scripts/check-licenses.mjs`.
+  `.github/scripts/check-licenses.mjs`. Its `NOT_SHIPPED` names the few
+  that are not (the Claude Agent SDK and the Cursor SDK, which the copied
+  t3code packages install), each with what keeps it out of everything
+  Consola publishes or releases; a package joins it only when nothing that
+  ships may bundle it.
 
 Outside contributions need a signed CLA (`CLA.md`, checked by
 `.github/workflows/cla.yml`). It is what keeps relicensing — a commercial

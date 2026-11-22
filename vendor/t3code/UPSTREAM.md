@@ -2721,6 +2721,13 @@ In the repository root:
   job below. `@consola/agent-ui` has a job of its own (`Agent UI`), for its
   browser tests and the checks of its built library, and `@consola/host` is
   checked by the per-package matrix.
+- `.github/scripts/check-licenses.mjs`: main's licence check reads every
+  installed package's `license`. The copy brings two SDKs whose licences
+  Consola cannot ship under, `@anthropic-ai/claude-agent-sdk` (Anthropic's
+  terms) and `@cursor/sdk` with its platform binaries (Cursor's), so they are
+  listed in `NOT_SHIPPED`, each with what installs it and what keeps it out of
+  anything Consola ships. `@pierre/*` declare `apache-2.0` in lower case,
+  which the check now reads as SPDX does, without regard to case.
 - `.github/workflows/ci.yml`, job `vendor`: installs, then runs the own
   `typecheck` of every package under `vendor/t3code/packages/*` and
   `vendor/t3code/apps/*`, and their own `test`, on Linux like t3's CI, but
