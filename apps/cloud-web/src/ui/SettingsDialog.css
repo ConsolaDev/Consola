@@ -1,0 +1,339 @@
+/* Settings, as the desktop app lays it out (`apps/desktop/.../Dialogs/styles.css`, "Settings
+   Modal"): a dialog over the dashboard, its list of pages on the left and the page beside it,
+   with the same sizes and spacing. Colours are the web app's Radix theme tokens, so it follows
+   light and dark like the rest of the page. Its own file, so the shell's stylesheet is never
+   edited for it. The settings page classes at the end (`.settings-section`, `.settings-option`,
+   …) are for every page it shows. */
+
+/* The dashboard nav's last link, set apart from the sections above it. */
+.dashboard-nav-settings {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--gray-a5);
+}
+
+.dashboard-nav-settings .nav-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+@media (max-width: 640px) {
+  .dashboard-nav-settings {
+    margin: 0 0 0 auto;
+    padding: 0;
+    border: none;
+  }
+}
+
+.settings-dialog {
+  display: flex;
+  box-sizing: border-box;
+  width: max(80vw, 960px);
+  max-width: min(1600px, calc(100vw - 48px));
+  height: 94vh;
+  max-height: calc(100vh - 48px);
+  margin: auto;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--gray-a6);
+  border-radius: 8px;
+  background: var(--color-background);
+  color: var(--gray-12);
+  box-shadow: var(--shadow-6);
+  font-size: 14px;
+}
+
+/* `display: flex` would show a closed dialog too. */
+.settings-dialog:not([open]) {
+  display: none;
+}
+
+.settings-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.65);
+}
+
+.settings-nav {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  width: 240px;
+  padding: 12px;
+  overflow-y: auto;
+  border-right: 1px solid var(--gray-a5);
+  background: var(--gray-2);
+}
+
+.settings-nav-header {
+  margin-bottom: 8px;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--gray-12);
+}
+
+/* A quiet heading over the pages it owns. The Workspace heading carries the workspace's name,
+   cut short rather than widening the list. */
+.settings-nav-group {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  margin-top: 16px;
+}
+
+.settings-nav-header + .settings-nav-group {
+  margin-top: 0;
+}
+
+.settings-nav-group ul {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.settings-nav-group-label {
+  padding: 4px 12px;
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--gray-a10);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.settings-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--gray-a11);
+  text-decoration: none;
+  transition:
+    background 120ms ease,
+    color 120ms ease;
+}
+
+.settings-nav-item:hover {
+  background: var(--gray-a3);
+  color: var(--gray-12);
+}
+
+.settings-nav-item[aria-current="page"] {
+  background: var(--accent-a4);
+  color: var(--gray-12);
+}
+
+.settings-nav-item:focus-visible {
+  outline: 2px solid var(--accent-8);
+  outline-offset: 0;
+}
+
+.settings-body {
+  flex: 1;
+  min-width: 0;
+  /* The scroll viewport starts below the close button. */
+  margin-top: calc(12px + 28px);
+  padding: 20px clamp(24px, 4vw, 64px) 24px;
+  overflow-y: auto;
+}
+
+.settings-body > * {
+  max-width: 800px;
+  margin-inline: auto;
+}
+
+.settings-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--gray-a10);
+  cursor: pointer;
+}
+
+.settings-close:hover {
+  background: var(--gray-a3);
+  color: var(--gray-12);
+}
+
+.settings-close:focus-visible {
+  outline: 2px solid var(--accent-8);
+  outline-offset: 0;
+}
+
+/* Narrow screens fill the window and put the list above the page, as a row that scrolls. */
+@media (max-width: 640px) {
+  .settings-dialog {
+    flex-direction: column;
+    width: 100vw;
+    max-width: 100vw;
+    height: 100dvh;
+    max-height: 100dvh;
+    border: none;
+    border-radius: 0;
+  }
+
+  .settings-nav {
+    flex-direction: row;
+    align-items: center;
+    gap: 4px;
+    width: auto;
+    padding: 8px 52px 8px 8px;
+    overflow-x: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--gray-a5);
+  }
+
+  .settings-nav-header,
+  .settings-nav-group-label {
+    display: none;
+  }
+
+  .settings-nav-group {
+    margin-top: 0;
+  }
+
+  .settings-nav-group ul {
+    flex-direction: row;
+    gap: 4px;
+  }
+
+  .settings-nav-item {
+    white-space: nowrap;
+  }
+
+  .settings-body {
+    margin-top: 0;
+    padding: 20px 16px 24px;
+  }
+}
+
+/* A settings page: a title over its options, each a label and a description over its control. */
+.settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.settings-section-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--gray-12);
+}
+
+.settings-option {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.settings-option-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.settings-option-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--gray-12);
+}
+
+.settings-option-description {
+  margin: 0;
+  font-size: 11px;
+  color: var(--gray-a10);
+}
+
+/* A setting's button, as the desktop's theme buttons: outlined, with an icon. */
+.settings-button {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--gray-a6);
+  border-radius: 6px;
+  background: var(--color-background);
+  font: inherit;
+  font-size: 12px;
+  color: var(--gray-a11);
+  cursor: pointer;
+  transition:
+    background 120ms ease,
+    color 120ms ease,
+    border-color 120ms ease;
+}
+
+.settings-button:hover:not(:disabled) {
+  border-color: var(--gray-a8);
+  background: var(--gray-a3);
+  color: var(--gray-12);
+}
+
+.settings-button.accent {
+  border-color: var(--accent-9);
+  background: var(--accent-a4);
+  color: var(--accent-11);
+}
+
+.settings-button.accent:hover:not(:disabled) {
+  background: var(--accent-a5);
+  color: var(--accent-11);
+}
+
+.settings-button.danger {
+  border-color: var(--red-a7);
+  color: var(--red-11);
+}
+
+.settings-button.danger:hover:not(:disabled) {
+  background: var(--red-a3);
+  color: var(--red-11);
+}
+
+.settings-button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.settings-button:focus-visible {
+  outline: 2px solid var(--accent-8);
+  outline-offset: 2px;
+}
+
+/* A small outlined tag beside a label: "Connected", "Not connected". */
+.settings-chip {
+  flex-shrink: 0;
+  padding: 1px 8px;
+  border: 1px solid var(--gray-a6);
+  /* A literal radius: Radix's --radius-full is 0 inside its theme. */
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--gray-a10);
+  white-space: nowrap;
+}
+
+.settings-chip.on {
+  border-color: var(--green-a7);
+  color: var(--green-11);
+}

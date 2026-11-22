@@ -1,216 +1,196 @@
-/* Settings' Connections page. Its own file, so the dashboard's shell and this page never edit the
-   same stylesheet. It sits in the shell's `.dashboard-content`, under Settings' tabs, and uses
-   the shared `.card`, `.muted`, `.error`, `.button` and `.link-button`. */
-
-.connections-lede {
-  margin: 0;
-  font-size: 14px;
-}
+/* Settings' Connections page. Its rows are the desktop app's workspace rows
+   (`WorkspaceSettings/styles.css`, `.ws-row`): bordered, an icon, a name, then its meta. Only
+   repository names are in monospace. The page's title, options, buttons and chips are Settings'
+   own (`SettingsDialog.css`). */
 
 .connections-notice {
   margin: 0;
-  font-size: 14px;
-  padding: 10px 12px;
-  border: 1px solid var(--gray-6);
+  padding: 8px 12px;
+  border: 1px solid var(--gray-a6);
   border-radius: 6px;
+  font-size: 12px;
 }
 
 .connections-notice.done {
-  border-color: var(--green-7);
+  border-color: var(--green-a7);
   background: var(--green-a2);
   color: var(--green-11);
 }
 
 .connections-notice.problem {
-  border-color: var(--amber-7);
+  border-color: var(--amber-a7);
   background: var(--amber-a2);
   color: var(--amber-11);
 }
 
-/* One service: its tile, its name and what it is for, and whether it is connected. */
-.connection-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  min-width: 0;
-}
-
-.service-tile {
-  flex: none;
-  width: 32px;
-  height: 32px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 8px;
-  background: var(--gray-4);
-  color: var(--gray-12);
-  font-weight: 600;
-}
-
-.connection-text {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.connection-name {
+.connections-error {
   margin: 0;
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.connection-status {
-  flex: none;
-  padding: 2px 8px;
-  /* A literal radius: Radix's --radius-full is 0 inside its theme. */
-  border-radius: 999px;
-  background: var(--gray-a3);
-  color: var(--gray-11);
   font-size: 12px;
-  white-space: nowrap;
+  color: var(--red-11);
 }
 
-.connection-status.on {
-  background: var(--green-a3);
-  color: var(--green-11);
-}
-
-/* An installation the workspace holds, inside GitHub's card. */
-.installation {
+/* One record each: a service that comes later. */
+.connections-rows {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 12px;
-  border: 1px solid var(--gray-5);
-  border-radius: 6px;
-  background: var(--gray-a2);
-}
-
-.installation-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 4px 8px;
-}
-
-.installation-account {
-  font-weight: 600;
-  overflow-wrap: anywhere;
-}
-
-.installation-head .muted {
-  font-size: 12px;
-}
-
-.repositories {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-.repositories li {
+.connections-row,
+.connections-installation-head {
   display: flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
 }
 
-.repositories a {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--gray-12);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 13px;
-  text-decoration: none;
+.connections-row {
+  padding: 8px 12px;
+  border: 1px solid var(--gray-a5);
+  border-radius: 6px;
+  background: var(--color-background);
 }
 
-.repositories a:hover {
+.connections-row-icon {
+  flex-shrink: 0;
+  color: var(--gray-a10);
+}
+
+.connections-row-name {
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--gray-12);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.connections-row-meta {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 11px;
+  color: var(--gray-a10);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* An installation: its account on one line, its repositories under it. */
+.connections-installations {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.connections-installation {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--gray-a5);
+  border-radius: 6px;
+  background: var(--color-background);
+}
+
+.connections-link {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 11px;
+  color: var(--accent-11);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.connections-link:hover {
   text-decoration: underline;
 }
 
-.repository-public {
-  flex: none;
-  padding: 0 6px;
-  border: 1px solid var(--gray-6);
-  border-radius: 999px;
-  font-size: 11px;
-  color: var(--gray-11);
+.connections-link.danger {
+  color: var(--red-11);
 }
 
-.installation-actions {
+.connections-link:focus-visible {
+  outline: 2px solid var(--accent-8);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.connections-repositories {
   display: flex;
   flex-wrap: wrap;
-  gap: 16px;
+  gap: 4px 14px;
+  margin: 0;
+  padding: 0 0 0 24px;
+  list-style: none;
 }
 
-.installation-actions .link-button {
-  font-size: 13px;
+.connections-repositories li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--gray-a10);
+}
+
+.connections-repositories a {
+  overflow: hidden;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: var(--gray-a11);
+  white-space: nowrap;
+  text-overflow: ellipsis;
   text-decoration: none;
 }
 
-.installation-confirm {
+.connections-repositories a:hover {
+  color: var(--gray-12);
+  text-decoration: underline;
+}
+
+.connections-more {
+  font-size: 11px;
+}
+
+.connections-confirm {
   display: flex;
   flex-direction: column;
   gap: 8px;
   padding-top: 8px;
-  border-top: 1px solid var(--gray-5);
+  border-top: 1px solid var(--gray-a5);
 }
 
-.installation-confirm p {
-  margin: 0;
-}
-
-.button.danger {
-  border-color: var(--red-9);
-  background: var(--red-9);
-  color: white;
-}
-
-.button.danger:hover:not(:disabled) {
-  background: var(--red-10);
-}
-
-/* The services that come after GitHub. */
-.connections-later {
+.connections-confirm-actions {
   display: flex;
-  flex-direction: column;
   gap: 8px;
-  font-size: 14px;
 }
 
-.connections-subheading {
-  margin: 0;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--gray-11);
-}
+/* On a narrow screen the account's line wraps, its links under its name. */
+@media (max-width: 640px) {
+  .connections-installation-head {
+    flex-wrap: wrap;
+  }
 
-.connections-later-list {
-  display: flex;
-  flex-direction: column;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  border: 1px solid var(--gray-6);
-  border-radius: 8px;
-}
+  .connections-installation-head .connections-row-meta {
+    flex-basis: 100%;
+    order: 1;
+  }
 
-.connections-later-list .connection-row {
-  padding: 12px 16px;
-}
+  .connections-row {
+    flex-wrap: wrap;
+  }
 
-.connections-later-list .connection-row + .connection-row {
-  border-top: 1px solid var(--gray-5);
-}
-
-.connections-later-list .service-tile {
-  background: var(--gray-3);
-  color: var(--gray-10);
+  .connections-row .connections-row-meta {
+    flex-basis: 100%;
+    order: 1;
+    white-space: normal;
+  }
 }

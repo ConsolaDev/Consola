@@ -2,7 +2,6 @@ import type { ReactNode } from 'react';
 import type { Me } from '../domain/me';
 import type { MyWorkspace } from '../domain/workspace';
 import { OverviewPage } from './OverviewPage';
-import { SettingsPage } from './SettingsPage';
 
 /** What every section is shown with: the person, and the workspace open, never null. */
 export type SectionProps = { me: Me; workspace: MyWorkspace };
@@ -26,7 +25,4 @@ export type Section = {
  */
 export const SECTIONS: readonly [Section, ...Section[]] = [
   { id: 'overview', label: 'Overview', View: OverviewPage },
-  // Last in the nav. Its pages are `SETTINGS_PAGES`; cloud-global's GitHub callback sends people
-  // back to `#/settings/connections`, so never rename it.
-  { id: 'settings', label: 'Settings', View: SettingsPage },
 ];

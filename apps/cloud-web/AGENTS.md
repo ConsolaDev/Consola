@@ -169,19 +169,33 @@ column (`.main`; the dashboard widens it with `.main.wide`).
 
 ## Settings
 
-Settings is the last section in the nav (`ui/SettingsPage.tsx`, with its own
-`SettingsPage.css`): the section's title, a row of tabs, and the page the
-address names under them. Its pages are one list, `SETTINGS_PAGES`
-(`ui/settingsPages.tsx`), each shaped like a section and shown with
-`SectionProps`; a new settings page (the workspace's details, its members,
-billing) is one entry there and files of its own.
+Settings looks and works as the desktop app's (its `Dialogs/SettingsModal.tsx`
+and its styles): a dialog over the dashboard, with a list of its pages on the
+left under a group that names the workspace ("Workspace · Acme"), each with
+an icon from the same set (`lucide-react`), and the page beside it: a title,
+then options, each a label and a description over its control
+(`ui/SettingsDialog.tsx` and `SettingsDialog.css`, whose `.settings-section`,
+`.settings-option`, `.settings-button` and `.settings-chip` every page uses).
+Sizes and spacing are the desktop's; colours are this app's Radix tokens.
 
+- **It is no section.** The dashboard nav's last link opens it
+  (`#/settings`), and `Dashboard` shows it over the section that was open, or
+  the first section when the address opened Settings directly (cloud-global's
+  GitHub callback). Escape and its close button go back to that section. It is
+  a native modal `<dialog>`, so the dashboard behind it is inert, and the
+  keyboard starts on the open page's entry in the list.
 - **The address picks the page.** A page is `#/settings/<id>`
   (`hashOfSettingsPage`, `settingsPageIdOfHash` in `domain/settings.ts`), and
   `#/settings` alone, or an id this build does not list, opens the first
   (`chooseSection`). `services/settingsAddress.ts` reads the hash only, as
   `address.ts` does. A page's id never changes once a link may hold it.
-- A page has no title of its own: its tab names it.
+- **Its pages are one list,** `SETTINGS_PAGES` (`ui/settingsPages.tsx`):
+  `{ id, label, icon, View }`, each shown with `SectionProps`. A new settings
+  page (the workspace's details, its members, billing) is one entry there and
+  files of its own. They are all the workspace's for now; a group of the
+  person's own settings would sit above, as the desktop's App group does.
+- On a narrow screen it fills the window and its list becomes a row above
+  the page.
 
 ### Connections
 
