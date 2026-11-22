@@ -31,9 +31,9 @@ export function resolveSshRemote(
 }
 
 /**
- * `resolveSshRemote`, with each host `resolveHost` named kept for the life of
- * the run. `ssh -G` runs synchronously, so a caller that resolves on every
- * request would block main's event loop each time. Only a host is kept: a
+ * `resolveSshRemote`, keeping for the life of the run the hostname each host
+ * resolved to. `ssh -G` runs synchronously, so a caller that resolves on every
+ * request would block main's event loop each time. Only a hostname is kept: a
  * lookup that failed or timed out is asked again next time, so Retry can
  * recover an alias that failed once. The cost: an ssh config edited during a
  * run is seen only after a restart.
