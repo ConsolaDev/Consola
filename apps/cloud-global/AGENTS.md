@@ -19,19 +19,26 @@ The service is built in rings, and imports point inward only.
   and no package but the contract (below).
 - `src/application/` holds the use cases (`createWorkspace`,
   `listMyWorkspaces`, `setActiveWorkspace`, `workspaceForNewSession`,
-  `mayCreateAccount`, `mayStartSession`, `describeMe`, `checkHealth`) and, in
-  `ports.ts`, the stores and probes they need. A use case is a plain function
-  that takes its ports first.
+  `mayCreateAccount`, `mayStartSession`, `describeMe`, `mintCellToken`,
+  `cellTokenKeys`, `checkHealth`) and, in `ports.ts`, the stores, probes and
+  signer they need. A use case is a plain function that takes its ports first,
+  and is handed the time when it needs it (`mintCellToken`'s `issuedAt`).
 - `src/adapters/` implements the ports with a library, one folder each:
   - `persistence/` is Drizzle on PGlite or Postgres: the database, the schema,
     and one store per port, which `stores.ts` builds together;
   - `auth/` is Better Auth (`betterAuth.ts`). Its hooks call use cases and run
     no query of their own;
   - `http/` is the Hono routes (`app.ts`). Each route asks a use case and maps
-    its answer to a status and a body.
+    its answer to a status and a body;
+  - `cellToken/` is `jose` (`cellTokenSigner.ts`): it signs the cell token with
+    the configured private key and publishes the public key (below). It is the
+    only code that holds the private key.
 - The composition ring wires them together. `src/compose.ts` is the one place
   adapters are built and handed the ports they need (`composeApi`), and the one
-  place a startup step would live (there is none today). Adapters call use
+  place a startup step would live (there is none today). `composeApi` is
+  async, because building the cell token's signer is, and a configured key
+  that is not a key pair fails there as a `ConfigError`, which `main.ts`
+  reports like any other configuration problem. Adapters call use
   cases themselves; what they never do is build another adapter. The one
   exception is `src/adapters/auth/cli-config.ts`, which builds the stores and
   `createAuth` for the schema CLI: it is tooling, and never runs in the
@@ -53,16 +60,19 @@ The service is built in rings, and imports point inward only.
 - An adapter imports `domain`, `application`, its own folder and
   `src/config.ts`, and never the composition ring. Beyond that:
   - `adapters/http` never imports `better-auth`, `drizzle-orm`,
-    `@electric-sql/pglite`, `pg`, `adapters/persistence` or `adapters/auth`.
-    Sign-in reaches it as `handleAuth` and `currentSession`, which
-    `compose.ts` passes in;
-  - `adapters/persistence` never imports `hono`, `better-auth` or another
-    adapter;
-  - `adapters/auth` never imports `hono`, `adapters/http` or a database
-    library (`drizzle-orm`, `pg`, `@electric-sql/pglite`): its hooks call use
-    cases, and the stores run the queries. It may import
+    `@electric-sql/pglite`, `pg`, `jose`, `adapters/persistence`,
+    `adapters/auth` or `adapters/cellToken`. Sign-in reaches it as
+    `handleAuth` and `currentSession`, and signing as the `CellTokenSigner`
+    port, which `compose.ts` passes in;
+  - `adapters/persistence` never imports `hono`, `better-auth`, `jose` or
+    another adapter;
+  - `adapters/auth` never imports `hono`, `jose`, `adapters/http` or a
+    database library (`drizzle-orm`, `pg`, `@electric-sql/pglite`): its hooks
+    call use cases, and the stores run the queries. It may import
     `adapters/persistence`, because Better Auth's Drizzle adapter needs the
-    database and its schema.
+    database and its schema;
+  - `adapters/cellToken` never imports `hono`, `better-auth`, a database
+    library or another adapter. It is the only one that imports `jose`.
 - No file, tests included, imports another app or a workspace package
   (`@consola/*`, or `consola`, the desktop), with one exception:
   `@consola/cloud-contract` (`packages/cloud-contract`), the contract
@@ -196,6 +206,55 @@ afterwards:
 Every organisation made before regions existed is in `eu`: migration `0001`
 fills them. The deployment's one organisation from before workspaces carries
 on as an ordinary workspace, with its members and their roles.
+
+## The cell token
+
+`cloud-global` checks the browser's sign-in and membership, then mints a
+short-lived token a regional cell trusts. It stands in for the signed header a
+future edge router will add, so a cell's check does not change when the router
+arrives. The contract fixes its shape (`packages/cloud-contract/AGENTS.md`,
+"The cell token"): a JWT signed with Ed25519, whose header is `alg`
+(`CELL_TOKEN_ALGORITHM`, `EdDSA`) and the key's `kid`, and whose payload is
+exactly what `cellTokenClaims` returns, living `CELL_TOKEN_LIFETIME_SECONDS`.
+No other claim is added: a cell's reader refuses one it does not know.
+
+**Proposed** (5.3, CON-50), not yet confirmed:
+
+- **The mint route.** `POST /api/cell-token`, with no body, answers the token
+  for the session's active workspace as `{ token, expiresAt }`, where
+  `expiresAt` is the token's `exp` (whole seconds since the epoch), with
+  `Cache-Control: no-store`. It is a change, so it sits under the origin check
+  (403 `bad_origin`): a token is worth as much as the session that mints it.
+  Signed out is 401 `signed_out`; a session with no active workspace is 409
+  `no_active_workspace`; one whose active workspace the person is not in (any
+  more, or ever) is 403 `not_a_member`, and no token is minted.
+- **Membership is read when the token is minted.** `mintCellToken` reads the
+  membership, the role and the region through `MembershipStore.workspaceFor`,
+  from the database, never from the request: whatever its body says is
+  ignored. So someone removed from a workspace gets no new token, and a
+  changed role is in the next one. A stored role that is not exactly one of
+  the contract's (Better Auth's `admin,member`) mints nothing: `roleOf` refuses
+  it, and the request fails rather than guess a role.
+- **The layers.** Signing is the `CellTokenSigner` port, implemented with
+  `jose` in `adapters/cellToken` (`createCellTokenSigner`). `mintCellToken`
+  takes the time it mints at (`issuedAt`, whole seconds) from its route and
+  reads no clock.
+- **The keys.** `GET /api/cell-token/keys` (`CELL_TOKEN_KEYS_PATH`) publishes
+  the public key as a JSON Web Key Set, with no sign-in:
+  `{ keys: [{ kty, crv, x, kid, alg: 'EdDSA', use: 'sig' }] }`. The public key
+  is derived from the private key itself, so it always checks what is signed,
+  and its `kid` is its JWK thumbprint (RFC 7638). It never carries `d`.
+- **The private key** is `CELL_TOKEN_PRIVATE_KEY`, an Ed25519 private JWK on
+  one line, and it is required. `config.ts` refuses one that is not JSON, not
+  Ed25519 or has no `d`, or whose `x` or `d` is not 32 bytes in base64url, and
+  keeps only `kty`, `crv`, `x` and `d`; the signer refuses one whose `x` is
+  not the public key of its `d`, as a `ConfigError`. No problem quotes the
+  value, `describeStartupFailure` hides its `d`, and nothing logs it, which
+  `src/app.test.ts` checks against every console call along the way.
+  `pnpm --filter @consola/cloud-global cell-key:generate` prints a new one.
+- **One key at a time.** Rotating it the contract's way, the new key published
+  beside the old until the old one's tokens expire, needs a second setting
+  that holds only public keys. It waits until a deployment needs it.
 
 ## Tests
 
