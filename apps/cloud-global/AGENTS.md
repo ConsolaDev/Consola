@@ -82,6 +82,34 @@ new layer or folder is added there first.
 5. `compose.ts` builds the adapter and hands it its ports, and nothing else
    does. A new startup step goes there too, beside `prepareOrganization`.
 
+## What is always global
+
+`cloud-global` keeps only what every region has to share. Anything not on this
+list belongs in a regional cell, never here.
+
+- **Accounts** (decided): email, name, sign-ins, sessions and API keys. They
+  are `user`, `account` (the Google account a person signs in with),
+  `session` and `verification` (a sign-in in progress). API keys have no table
+  yet.
+- **Proposed**, after Linear's published list of what it keeps global, and not
+  yet confirmed:
+  - the workspace list: id, name, slug and region (`organization`, with Better
+    Auth's own `logo`, `created_at` and `metadata`);
+  - membership: who is in which workspace, their workspace-level role, and
+    pending invites (`member`, `invitation`);
+  - app installs: which installation belongs to which workspace, the GitHub
+    App's key and the tokens minted from it (no table yet);
+  - webhook intake, with the bodies dropped (no table yet).
+- **Billing** joins the list if decision D6 puts it in the global part.
+
+`src/adapters/persistence/alwaysGlobal.test.ts` pins the list. Its
+`ALWAYS_GLOBAL` names each table on the list and its columns, and the test
+fails on any other table or column, whether the Drizzle schema declares it or
+only a migration makes it. So a new table or column is checked against this
+list first: put it in a cell, or, if it is global, add it here and then to
+`ALWAYS_GLOBAL`. A Better Auth upgrade that adds a column fails the test too,
+on purpose.
+
 ## Regions
 
 Every workspace (the `organization` row) has a `region`, one of `REGIONS`
