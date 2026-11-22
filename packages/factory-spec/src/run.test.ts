@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
+import { automationFileText } from './edit';
 import { parseAutomationEntry } from './entry';
-import { automationVersion, stableStringify } from './run';
-import type { Automation } from './schema';
+import { parseFactory, type FactoryFiles, type FactoryParseResult } from './factory';
+import { parseFactorySpec } from './parse';
+import { automationVersion, stableStringify, stepsResolvedBody } from './run';
+import { isStepsEntry, type Automation } from './schema';
+import type { SkillFileEntry } from './skills';
 
 const tool: Automation = {
   name: 'clean-up',
@@ -190,6 +194,37 @@ describe('automationVersion', () => {
     ).toBe('9c2fbd9ab4277088');
   });
 
+  it('max_turns changes the version of the entry that writes it, and no other', () => {
+    const look = (cap: string) =>
+      `- name: overnight-notes\n  on: { cron: "0 7 * * 1-5" }\n  scope: api\n  mode: auto\n  steps:\n    - id: look\n      prompt: Read what changed overnight.${cap}`;
+    const versionOf = (yaml: string) => {
+      const parsed = parseAutomationEntry(yaml);
+      if (!parsed.ok) throw new Error(JSON.stringify(parsed.issues));
+      return automationVersion(parsed.automation);
+    };
+    const six = versionOf(look('\n      max_turns: 6'));
+    expect(six).not.toBe(versionOf(look('')));
+    expect(versionOf(look('\n      max_turns: 7'))).not.toBe(six);
+
+    // A neighbour in the same file keeps its pinned version whatever the other entry caps.
+    const neighbour =
+      '- name: digest\n  on: { cron: "30 8 * * 1-5" }\n  run: { prompt: "Summarise my Inbox." }\n  scope: api\n  mode: auto';
+    const indent = (text: string) =>
+      text
+        .split('\n')
+        .map((line) => `  ${line}`)
+        .join('\n');
+    const versionsIn = (cap: string) => {
+      const file = parseFactorySpec(
+        `version: 1\nautomations:\n${indent(neighbour)}\n${indent(look(cap))}\n`,
+      );
+      expect(file.issues).toEqual([]);
+      return file.automations.map((automation) => automationVersion(automation));
+    };
+    expect(versionsIn('')[0]).toBe('d86952669c9b0419');
+    expect(versionsIn('\n      max_turns: 6')).toEqual(['d86952669c9b0419', six]);
+  });
+
   describe('with steps', () => {
     const ENTRY = [
       '- name: review-assigned-prs',
@@ -337,5 +372,118 @@ describe('automationVersion', () => {
       const event = versionOf(`- name: w\n  on: { github: [pull_request.opened] }\n${steps}`);
       expect(poll).not.toBe(event);
     });
+  });
+});
+
+describe('stepsResolvedBody', () => {
+  it("keeps today's shape without agents", () => {
+    expect(stepsResolvedBody({}, {})).toBeUndefined();
+    expect(stepsResolvedBody({ review: 'R' }, {})).toBe(stableStringify({ review: 'R' }));
+  });
+
+  it('and takes the new one with them', () => {
+    expect(stepsResolvedBody({}, { investigator: 'h1' })).toBe(
+      stableStringify({ agents: { investigator: 'h1' } }),
+    );
+    expect(stepsResolvedBody({ review: 'R' }, { reviewer: 'h2' })).toBe(
+      stableStringify({ actions: { review: 'R' }, agents: { reviewer: 'h2' } }),
+    );
+  });
+});
+
+describe('the version with agents', () => {
+  const text = (path: string, content: string): SkillFileEntry => ({
+    path,
+    bytes: new TextEncoder().encode(content),
+  });
+  const A = [
+    '---',
+    'description: Agent a.',
+    'harness: claude-work',
+    'model: opus',
+    'mcpServers:',
+    '  - notion',
+    '  - grafana: [query_logs]',
+    'skills: [s]',
+    'max_turns: 30',
+    '---',
+    'You are a.',
+    '',
+  ].join('\n');
+  const B = '---\nmodel: haiku\n---\nYou are b.\n';
+  const SKILL = '---\nname: s\ndescription: The checklist.\n---\nCheck first.\n';
+  const QUERIES = 'Use rate().\n';
+  const entry = (name: string, step: string) =>
+    `  - name: ${name}\n    on: { cron: "0 9 * * *" }\n    scope: ops\n    steps:\n      - ${step}\n`;
+  const YML = `version: 1\nautomations:\n${entry('uses-a', 'agent: a')}${entry('uses-b', 'agent: b')}${entry('uses-none', 'prompt: Read the logs.')}`;
+  const folder = (over: { a?: string; skill?: string; queries?: string } = {}): FactoryFiles => ({
+    factoryYml: YML,
+    automations: {},
+    agents: { a: over.a ?? A, b: B },
+    skills: {
+      s: [text('SKILL.md', over.skill ?? SKILL), text('queries.md', over.queries ?? QUERIES)],
+    },
+    stray: [],
+    laterFolders: [],
+    unread: [],
+    outside: [],
+  });
+  /** An entry's version as the files decide it: its agents' hashes, no action bodies. */
+  const versionIn = (result: FactoryParseResult, name: string) => {
+    expect(result.issues).toEqual([]);
+    const automation = result.automations.find((candidate) => candidate.name === name);
+    if (!automation || !isStepsEntry(automation)) throw new Error(`no ${name}`);
+    const hashes: Record<string, string> = {};
+    for (const step of automation.steps) {
+      if (step.kind === 'agent' && step.agent) hashes[step.agent] = result.agents[step.agent].hash;
+    }
+    return automationVersion(automation, stepsResolvedBody({}, hashes));
+  };
+  const versions = (files: FactoryFiles) => {
+    const result = parseFactory(files);
+    return ['uses-a', 'uses-b', 'uses-none'].map((name) => versionIn(result, name));
+  };
+
+  it.each([
+    ["one byte of a's body", { a: A.replace('You are a.', 'You are A.') }],
+    ["a's harness", { a: A.replace('harness: claude-work', 'harness: claude-personal') }],
+    ["a's model", { a: A.replace('model: opus', 'model: sonnet') }],
+    ["a's max_turns", { a: A.replace('max_turns: 30', 'max_turns: 31') }],
+    ["a's description", { a: A.replace('Agent a.', 'Agent A.') }],
+    ["a's server list", { a: A.replace('  - notion\n', '  - linear\n') }],
+    ["a's server's narrowing", { a: A.replace('[query_logs]', '[query_logs, list_dashboards]') }],
+    ['one byte of skills/s/SKILL.md', { skill: SKILL.replace('Check first.', 'Check first!') }],
+    ['one byte of skills/s/queries.md', { queries: QUERIES.replace('rate()', 'irate()') }],
+  ])('%s changes exactly the entries that use it', (_, over) => {
+    const [a, b, none] = versions(folder());
+    const [a2, b2, none2] = versions(folder(over));
+    expect(a2).not.toBe(a);
+    expect(b2).toBe(b);
+    expect(none2).toBe(none);
+  });
+
+  it('an entry with no agent hashes as it did before agents existed', () => {
+    const result = parseFactory(folder());
+    const plain = result.automations.find((automation) => automation.name === 'uses-none')!;
+    expect(versionIn(result, 'uses-none')).toBe(automationVersion(plain));
+  });
+
+  it('moving an entry into its own file keeps its version', () => {
+    const item = parseAutomationEntry(
+      '- name: investigate-alerts\n  on: { cron: "0 9 * * *" }\n  scope: ops\n  mode: auto\n  steps:\n    - agent: b\n      prompt: Summarise the alerts.\n      max_turns: 6',
+    );
+    if (!item.ok) throw new Error(JSON.stringify(item.issues));
+    const inYml = parseFactory({
+      ...folder(),
+      factoryYml: `version: 1\nautomations:\n${item.item.replace(/^/gm, '  ')}\n`,
+    });
+    const inFile = parseFactory({
+      ...folder(),
+      factoryYml: null,
+      automations: { 'investigate-alerts': automationFileText(item.item) },
+    });
+    expect(inYml.automations[0].file).toBe('factory.yml');
+    expect(inFile.automations[0].file).toBe('automations/investigate-alerts.yaml');
+    expect(versionIn(inFile, 'investigate-alerts')).toBe(versionIn(inYml, 'investigate-alerts'));
   });
 });

@@ -17,8 +17,23 @@ export interface StepPromptInput {
   /** The step's place in the run, 1-based, and the run's step count. */
   index: number;
   count: number;
-  /** The step's body: its prompt with {{ }} filled, or its action's body with the action's own placeholders filled. */
-  body: string;
+  /**
+   * The step's body: its prompt with {{ }} filled, or its action's body with
+   * the action's own placeholders filled. Absent only with `agent`, for a
+   * step that names its agent and nothing else.
+   */
+  body?: string;
+  /**
+   * The agent the step runs as, its instructions exactly as its definition
+   * holds them, and the servers (each narrowed or whole) and skills it
+   * names, which the header lists beside Consola's tools.
+   */
+  agent?: {
+    name: string;
+    body: string;
+    mcpServers: Array<{ name: string; tools?: string[] }>;
+    skills: string[];
+  };
   /** The item source's header fragment and fenced text for the run's item; absent for a schedule. */
   item?: { header: string; fence: string };
   /** Where a run with no repository to work in happens (a schedule, a poll with `key:`): the scope's name. */
@@ -46,6 +61,34 @@ export function describeSize(bytes: number): string {
   return bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`;
 }
 
+/** `a`, `a and b`, `a, b and c`. */
+function joinList(items: readonly string[]): string {
+  if (items.length <= 1) return items.join('');
+  return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
+}
+
+/**
+ * What an agent's grants add to the header's tool list, after a comma: its
+ * servers (`grafana (query_logs)` when narrowed), then `and` its skills, by
+ * the names the CLI loads them under. Empty for an agent that names neither.
+ */
+function agentGrants(agent: StepPromptInput['agent']): string {
+  if (!agent) return '';
+  const servers = agent.mcpServers.map((server) =>
+    server.tools ? `${server.name} (${server.tools.join(', ')})` : server.name,
+  );
+  const skills = agent.skills.map((name) => `consola-step:${name}`);
+  const serversPart =
+    servers.length > 0
+      ? `the MCP ${servers.length === 1 ? 'server' : 'servers'} ${joinList(servers)}`
+      : '';
+  const skillsPart =
+    skills.length > 0 ? `the ${skills.length === 1 ? 'skill' : 'skills'} ${joinList(skills)}` : '';
+  if (serversPart && skillsPart) return `, ${serversPart}, and ${skillsPart}`;
+  const only = serversPart || skillsPart;
+  return only ? `, ${only}` : '';
+}
+
 export function renderStepPrompt(input: StepPromptInput): string {
   const {
     automation,
@@ -54,6 +97,7 @@ export function renderStepPrompt(input: StepPromptInput): string {
     index,
     count,
     body,
+    agent,
     item,
     scope,
     reads,
@@ -68,10 +112,17 @@ export function renderStepPrompt(input: StepPromptInput): string {
   const header =
     `[Consola] Step "${step.id}" (${index} of ${count}) of the automation "${automation}" (run ${runId.slice(0, RUN_ID_LENGTH)})${where}. ` +
     'This session is read-only: it can read the files in this folder and use Consola’s tools ' +
-    '(work_item_context, list_inbox, and this step’s output and artifact tools), and nothing else: no shell, no network. ' +
+    `(work_item_context, list_inbox, and this step’s output and artifact tools)${agentGrants(agent)}, and nothing else: no shell, no network. ` +
     'Nobody is watching while you work.';
 
-  const sections = [header, body.trim()];
+  // Without an agent, the body follows the header as it always has; with one, the agent says who and the body what.
+  const sections = [header];
+  if (agent) {
+    sections.push(`Your standing instructions (agents/${agent.name}.md):\n${agent.body.trim()}`);
+    if (body !== undefined) sections.push(`This step:\n${body.trim()}`);
+  } else {
+    sections.push((body ?? '').trim());
+  }
 
   if (reads.length > 0) {
     sections.push(

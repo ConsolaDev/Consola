@@ -54,5 +54,29 @@ export function toolPolicyProblem(
   return getDriver(fields.driverId).toolPolicyProblem(toHarnessConfig(fields), policy);
 }
 
-export type { HarnessDriver, HarnessConfig, UsageLimitReporting } from './HarnessDriver';
+/**
+ * Why this harness's extra args would override what a step's reporting turn
+ * is launched with, or null — asked when an automation's steps are resolved,
+ * so an entry that could only fail at launch is refused before it runs. Null
+ * for a driver that compiles nothing into a step's turn. `compiled.model`:
+ * the step sets a model (its agent's), so `--model` is compiled too;
+ * `compiled.servers`: its agent names servers, so the flags loading them are.
+ */
+export function stepTurnProblem(
+  fields: HarnessLaunchFields,
+  compiled?: { model?: boolean; servers?: boolean },
+): string | null {
+  return getDriver(fields.driverId).stepTurnProblem?.(toHarnessConfig(fields), compiled) ?? null;
+}
+
+export type {
+  HarnessDriver,
+  HarnessConfig,
+  TurnEvent,
+  TurnInit,
+  TurnReader,
+  TurnReport,
+  TurnResult,
+  UsageLimitReporting,
+} from './HarnessDriver';
 export { toHarnessConfig } from './HarnessDriver';

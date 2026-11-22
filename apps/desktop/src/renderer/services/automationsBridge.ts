@@ -2,6 +2,7 @@ import type {
   AuthoringRequest,
   AutomationsChange,
   AutomationsSnapshot,
+  EntryAgentsView,
   ItemTarget,
   ItemTargets,
   ListRunsQuery,
@@ -56,8 +57,13 @@ export const automationsBridge = {
 
   dismiss: async (runId: string): Promise<RunRecord> => (getAPI() ?? unavailable()).dismiss(runId),
 
-  openFile: async (workspaceId: string): Promise<void> =>
-    (getAPI() ?? unavailable()).openFile(workspaceId),
+  /** Open factory.yml, or one of the folder's own files by its path (`agents/reviewer.md`). */
+  openFile: async (workspaceId: string, file?: string): Promise<void> =>
+    (getAPI() ?? unavailable()).openFile(workspaceId, file),
+
+  /** Check again: re-read the factory folder and re-check what applies. */
+  recheck: async (workspaceId: string): Promise<void> =>
+    (getAPI() ?? unavailable()).recheck(workspaceId),
 
   /** Add review-assigned-prs to the workspace's factory.yml — the one edit Consola makes to it, on request. */
   addAssignedReviews: async (workspaceId: string): Promise<void> =>
@@ -120,6 +126,10 @@ export const automationsBridge = {
   /** One entry exactly as factory.yml has it; null when the file or the entry is gone. */
   getEntry: async (workspaceId: string, name: string): Promise<string | null> =>
     (getAPI() ?? unavailable()).getEntry(workspaceId, name),
+
+  /** An entry's agents as the version it lists has them: what Allow accepts. Null when the entry is gone. */
+  getEntryAgents: async (workspaceId: string, name: string): Promise<EntryAgentsView | null> =>
+    (getAPI() ?? unavailable()).getEntryAgents(workspaceId, name),
 
   onChanged: (callback: (change: AutomationsChange) => void): (() => void) =>
     getAPI()?.onChanged(callback) ?? (() => {}),

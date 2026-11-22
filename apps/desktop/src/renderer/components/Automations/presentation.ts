@@ -3,6 +3,8 @@ import {
   type AutomationMode,
   type AutomationView,
   type AutomationsSnapshot,
+  type FactoryNotice,
+  type FactorySpecIssue,
   type ItemTarget,
   type ItemTargetRow,
   type ItemTargets,
@@ -1147,4 +1149,70 @@ export function runAgainTarget(run: RunRecord): ItemTarget | null {
   // A work item recorded without its identity: the connection parses its URL.
   if (run.trigger.connection && item.url) return { url: item.url };
   return null;
+}
+
+/** A name as the factory's files take it (factory-spec's `AUTOMATION_NAME_PATTERN`). */
+const FILE_NAME = '[a-z0-9][a-z0-9-]{0,63}';
+const OPENABLE = new RegExp(
+  `^(?:factory\\.yml|automations/${FILE_NAME}\\.yaml|agents/${FILE_NAME}\\.md|skills/${FILE_NAME}/SKILL\\.md)$`,
+);
+
+/**
+ * Whether Open accepts this path of the folder: one of the factory's own
+ * files (`FactoryFolder.pathOf`'s rule, copied, with a parity test in main).
+ * A stray, a skill's folder or its other files, and a name that is no name
+ * are listed with their issues but offer no Open, which would only refuse.
+ */
+export function isOpenableFile(relative: string): boolean {
+  return OPENABLE.test(relative);
+}
+
+/**
+ * The folder's issues by the file each is in, files in the order they first
+ * appear and issues in theirs; one with no file is `factory.yml`'s, the file
+ * a lone `factory.yml` read reports on.
+ */
+export function issuesByFile(
+  issues: readonly FactorySpecIssue[],
+): Array<{ file: string; issues: FactorySpecIssue[] }> {
+  const groups = new Map<string, FactorySpecIssue[]>();
+  for (const issue of issues) {
+    const file = issue.file ?? 'factory.yml';
+    const group = groups.get(file);
+    if (group) group.push(issue);
+    else groups.set(file, [issue]);
+  }
+  return [...groups].map(([file, grouped]) => ({ file, issues: grouped }));
+}
+
+/**
+ * The issue list's title: while the folder does not apply, what keeps the
+ * changes from applying (the last applied version runs meanwhile); else
+ * whether nothing loaded or only some entries did not.
+ */
+export function issuesTitle(
+  snapshot: Pick<AutomationsSnapshot, 'automations' | 'standing'>,
+): string {
+  if (snapshot.standing) return 'What keeps your changes from applying';
+  return snapshot.automations.length === 0
+    ? 'The factory did not load'
+    : 'Some entries did not load';
+}
+
+/**
+ * Every notice in one quiet line, each after its place (`file:line`, or the
+ * file alone): later slices' folders and model warnings, none of which stops
+ * anything. Null when there are none.
+ */
+export function noticesLine(notices: readonly FactoryNotice[]): string | null {
+  if (notices.length === 0) return null;
+  return notices
+    .map((notice) => {
+      const place =
+        notice.file === undefined
+          ? ''
+          : `${notice.file}${notice.line !== undefined ? `:${notice.line}` : ''}: `;
+      return `${place}${notice.message}`;
+    })
+    .join(' ');
 }

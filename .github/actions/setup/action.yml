@@ -1,0 +1,32 @@
+# Every CI job's setup: the pinned pnpm and Node, then the workspace's
+# dependencies. The Node version is one of the three places AGENTS.md says
+# move together (with `engines.node` and the release workflow).
+name: Set up the workspace
+description: Installs pnpm, Node and the workspace's dependencies.
+
+inputs:
+  install-scripts:
+    description: >-
+      Run the dependencies' install scripts, which fetch Electron and rebuild
+      node-pty for it. Only the desktop's jobs need them.
+    default: 'false'
+
+runs:
+  using: composite
+  steps:
+    # Reads the version from `packageManager`.
+    - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 26.13.1
+        cache: pnpm
+    - name: Install dependencies
+      shell: bash
+      env:
+        INSTALL_SCRIPTS: ${{ inputs.install-scripts }}
+      run: |
+        if [[ "$INSTALL_SCRIPTS" == true ]]; then
+          pnpm install --frozen-lockfile
+        else
+          pnpm install --frozen-lockfile --ignore-scripts
+        fi

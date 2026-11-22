@@ -1,6 +1,7 @@
 import { LineCounter, isMap, isSeq, parseDocument } from 'yaml';
 import { formatPath, issuePath, toIssue, type FactorySpecIssue } from './issues';
 import { automationSchema, type Automation } from './schema';
+import { documentValue } from './yamlValue';
 
 export type AutomationEntryResult =
   | { ok: true; automation: Automation; item: string }
@@ -60,7 +61,9 @@ export function parseAutomationEntry(yaml: string): AutomationEntryResult {
     return refuse(NOT_ONE_ENTRY);
   }
 
-  const parsed = automationSchema().safeParse(doc.toJS()[0]);
+  const value = documentValue(doc);
+  if (!value.ok) return { ok: false, issues: [{ message: value.message, path: '', line: 1 }] };
+  const parsed = automationSchema().safeParse((value.value as unknown[])[0]);
   if (!parsed.success) {
     return {
       ok: false,

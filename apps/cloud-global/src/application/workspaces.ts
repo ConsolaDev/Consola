@@ -1,0 +1,78 @@
+import type { Person, SignedIn } from '../domain/person.js';
+import {
+  CREATOR_ROLE,
+  checkNewWorkspace,
+  defaultActiveWorkspace,
+  type MyWorkspace,
+  type WorkspaceProblem,
+} from '../domain/workspace.js';
+import type { MembershipStore, SessionStore, WorkspaceStore } from './ports.js';
+
+/**
+ * Makes a workspace for the person signed in: `checkNewWorkspace` first, then the store, which
+ * refuses a slug any region has. The creator is its owner, and their session opens it.
+ */
+export async function createWorkspace(
+  stores: { workspaces: WorkspaceStore; sessions: SessionStore },
+  session: SignedIn,
+  request: { name?: unknown; slug?: unknown; region?: unknown },
+): Promise<
+  | { kind: 'created'; workspace: MyWorkspace }
+  | { kind: 'invalid'; problems: WorkspaceProblem[] }
+  | { kind: 'slug-taken' }
+> {
+  const checked = checkNewWorkspace(request);
+  if (!checked.ok) return { kind: 'invalid', problems: checked.problems };
+
+  const made = await stores.workspaces.create(checked.workspace, {
+    userId: session.person.id,
+    role: CREATOR_ROLE,
+  });
+  if (made.kind === 'slug-taken') return made;
+
+  await stores.sessions.setActiveWorkspace({
+    sessionId: session.sessionId,
+    workspaceId: made.workspace.id,
+  });
+  return { kind: 'created', workspace: { ...made.workspace, role: CREATOR_ROLE } };
+}
+
+/** The workspaces the person is in, with their role in each, in the order they joined. */
+export function listMyWorkspaces(
+  memberships: MembershipStore,
+  person: Person,
+): Promise<MyWorkspace[]> {
+  return memberships.workspacesOf(person.id);
+}
+
+/**
+ * Makes a workspace the session's active one, if the person is in it. One they are not in, and
+ * one that does not exist, are both `not-found`, so the answer never says which workspaces
+ * exist.
+ */
+export async function setActiveWorkspace(
+  stores: { memberships: MembershipStore; sessions: SessionStore },
+  session: SignedIn,
+  workspaceId: string,
+): Promise<{ kind: 'active'; workspace: MyWorkspace } | { kind: 'not-found' }> {
+  const workspace = await stores.memberships.workspaceFor({
+    workspaceId,
+    userId: session.person.id,
+  });
+  if (!workspace) return { kind: 'not-found' };
+
+  await stores.sessions.setActiveWorkspace({ sessionId: session.sessionId, workspaceId });
+  return { kind: 'active', workspace };
+}
+
+/** The workspace a person's new session starts in (`defaultActiveWorkspace`), or none. */
+export async function workspaceForNewSession(
+  stores: { memberships: MembershipStore; sessions: SessionStore },
+  userId: string,
+): Promise<string | null> {
+  const [lastActive, mine] = await Promise.all([
+    stores.sessions.lastActiveWorkspace(userId),
+    stores.memberships.workspacesOf(userId),
+  ]);
+  return defaultActiveWorkspace({ lastActive, memberOf: mine.map((workspace) => workspace.id) });
+}

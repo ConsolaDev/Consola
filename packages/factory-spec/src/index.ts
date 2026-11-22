@@ -7,8 +7,27 @@
  * which tools, actions, connections or events exist: that is each runner's
  * registry.
  */
+export {
+  HARNESS_ID_PATTERN,
+  MAX_AGENT_BODY_BYTES,
+  MAX_AGENT_SERVERS,
+  MAX_AGENT_SKILLS,
+  TOOL_NAME_PATTERN,
+  agentHash,
+  parseAgentFile,
+  type AgentDefinition,
+  type AgentServer,
+  type ParsedAgent,
+} from './agents';
 export { cronError, nextCronOccurrence } from './cron';
-export { appendAutomationEntry, automationEntryText, replaceAutomationEntry } from './edit';
+export { parseAutomationFile, type AutomationFileResult } from './automationFile';
+export {
+  appendAutomationEntry,
+  automationEntryText,
+  automationFileText,
+  automationItemText,
+  replaceAutomationEntry,
+} from './edit';
 export {
   MAX_IF_LENGTH,
   checkExpression,
@@ -40,6 +59,16 @@ export {
   type PollTrigger,
 } from './poll';
 export { parseAutomationEntry, type AutomationEntryResult } from './entry';
+export {
+  LATER_FOLDERS,
+  MAX_FACTORY_TEXT_BYTES,
+  factoryFilesOf,
+  isIgnoredFileName,
+  parseFactory,
+  type FactoryFiles,
+  type FactoryNotice,
+  type FactoryParseResult,
+} from './factory';
 export { parseFactorySpec, type FactorySpecIssue, type FactorySpecParseResult } from './parse';
 export {
   hasTemplateBraces,
@@ -53,6 +82,7 @@ export {
   TERMINAL_RUN_STATUSES,
   automationVersion,
   stableStringify,
+  stepsResolvedBody,
   type RunItem,
   type RunnerKind,
   type RunRecord,
@@ -63,6 +93,15 @@ export {
   type StepRunStatus,
 } from './run';
 export { isAgentRun, parseToolRef, type AgentRunTarget, type RunTarget } from './runTarget';
+export {
+  MAX_SKILL_BYTES,
+  MAX_SKILL_FILES,
+  SKILL_TEXT_EXTENSIONS,
+  parseSkill,
+  skillHash,
+  type SkillDefinition,
+  type SkillFileEntry,
+} from './skills';
 export {
   AUTOMATION_MODES,
   AUTOMATION_NAME_PATTERN,
@@ -89,6 +128,7 @@ export {
   MAX_COMMAND_TIMEOUT_MS,
   MAX_OUTPUTS,
   MAX_STEPS,
+  MAX_TURNS_LIMIT,
   OUTPUT_NAME_PATTERN,
   parseReadRef,
   STEP_ID_PATTERN,

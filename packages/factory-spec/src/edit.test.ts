@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { appendAutomationEntry, automationEntryText, replaceAutomationEntry } from './edit';
+import { parseAutomationFile } from './automationFile';
+import {
+  appendAutomationEntry,
+  automationEntryText,
+  automationFileText,
+  automationItemText,
+  replaceAutomationEntry,
+} from './edit';
 import { parseAutomationEntry } from './entry';
 import { parseFactorySpec } from './parse';
 
@@ -175,5 +182,79 @@ describe('an entry with nested steps and block scalars', () => {
         '- name: b\n  on: { cron: "0 10 * * *" }\n  run: { tool: consola#y }',
       ),
     ).toBe(appended);
+  });
+});
+
+const INVESTIGATE = [
+  '- name: investigate-alerts',
+  '  # Checks the alert channel every five minutes.',
+  '  on:',
+  '    poll:',
+  '      every: 5m',
+  '      run: |',
+  '        gh api /alerts --jq "[.[] | { ts, title }]"',
+  '      key: .ts',
+  '  scope: ops-notes',
+  '  mode: auto # runs unasked once allowed',
+  '  steps:',
+  '    - id: investigate',
+  '      agent: investigator',
+  '      outputs:',
+  '        severity: { enum: [noise, low, high] }',
+].join('\n');
+
+const placeless = <T extends { file?: string; line?: number }>({
+  file: _file,
+  line: _line,
+  ...rest
+}: T) => rest;
+
+describe('automationFileText and automationItemText', () => {
+  const entry = parseAutomationEntry(INVESTIGATE);
+  if (!entry.ok) throw new Error(JSON.stringify(entry.issues));
+
+  it('writes an item as the text of its own file: no name:, comments kept, the same automation', () => {
+    const text = automationFileText(entry.item);
+    expect(text).not.toMatch(/^\s*-?\s*name:/m);
+    expect(text).toContain('# Checks the alert channel every five minutes.');
+    expect(text).toContain('# runs unasked once allowed');
+    expect(text.startsWith('-')).toBe(false);
+    const parsed = parseAutomationFile('investigate-alerts', text);
+    expect(parsed.issues).toEqual([]);
+    expect(placeless(parsed.automation!)).toEqual(placeless(entry.automation));
+  });
+
+  it.each([
+    ['above the first key', '\n'],
+    ['set apart by a blank line', '\n\n'],
+  ])(
+    'turns a file back into the item parseAutomationEntry takes, a header comment %s kept',
+    (_, gap) => {
+      const fileText = `# automations/investigate-alerts.yaml${gap}${automationFileText(entry.item)}`;
+      const item = automationItemText('investigate-alerts', fileText);
+      expect(item.startsWith('- name: investigate-alerts\n')).toBe(true);
+      expect(item).toContain('# automations/investigate-alerts.yaml');
+      expect(item).toContain('# Checks the alert channel every five minutes.');
+      expect(item.endsWith('\n')).toBe(false);
+      const back = parseAutomationEntry(item);
+      expect(back.ok && back.automation).toEqual(entry.automation);
+    },
+  );
+
+  it('keeps a header comment set apart from a first key that has none', () => {
+    const fileText =
+      '# automations/daily.yaml\n\non: { cron: "0 9 * * *" }\nscope: ops-notes\nsteps:\n  - prompt: Write the digest.\n';
+    const item = automationItemText('daily', fileText);
+    expect(item.startsWith('- name: daily\n')).toBe(true);
+    expect(item).toContain('# automations/daily.yaml');
+    const back = parseAutomationEntry(item);
+    expect(back.ok && back.automation).toMatchObject({ name: 'daily', scope: 'ops-notes' });
+  });
+
+  it('refuses what is not one automation', () => {
+    expect(() => automationFileText('- name: a\n- name: b')).toThrow();
+    expect(() => automationFileText('nope: [')).toThrow();
+    expect(() => automationItemText('a', '- on: x\n')).toThrow();
+    expect(() => automationItemText('a', 'on: [\n')).toThrow();
   });
 });

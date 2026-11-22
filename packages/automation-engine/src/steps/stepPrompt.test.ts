@@ -202,6 +202,115 @@ describe('renderStepPrompt', () => {
   });
 });
 
+describe('renderStepPrompt with an agent', () => {
+  // A schedule's run: no fence, so the sections end with "Before you finish:".
+  const base = input({ item: undefined, scope: 'catalog-portal' });
+  const headerOf = (rendered: string) => rendered.split('\n\n')[0];
+  const finish =
+    'Before you finish:\n  - write your handover with consola_write_artifact: what you found, for the next step and for the person.';
+
+  it('an agent alone gives its standing instructions and no "This step:"', () => {
+    const rendered = renderStepPrompt({
+      ...base,
+      step: step({ agent: 'investigator' }),
+      body: undefined,
+      agent: {
+        name: 'investigator',
+        body: '\nYou investigate alerts.\n',
+        mcpServers: [],
+        skills: [],
+      },
+    });
+    expect(rendered.split('\n\n')).toEqual([
+      headerOf(renderStepPrompt({ ...base, step: step({ agent: 'investigator' }) })),
+      'Your standing instructions (agents/investigator.md):\nYou investigate alerts.',
+      finish,
+    ]);
+    expect(rendered).not.toContain('This step:');
+  });
+
+  it('an agent and a prompt: the agent says who, the prompt says what', () => {
+    const rendered = renderStepPrompt({
+      ...base,
+      step: step({ agent: 'summariser', prompt: 'Write the reply.' }),
+      body: '  Write the reply.\n',
+      agent: { name: 'summariser', body: 'You summarise threads.', mcpServers: [], skills: [] },
+    });
+    expect(rendered.split('\n\n')).toEqual([
+      headerOf(renderStepPrompt(base)),
+      'Your standing instructions (agents/summariser.md):\nYou summarise threads.',
+      'This step:\nWrite the reply.',
+      finish,
+    ]);
+  });
+
+  /** 2-B's header for a schedule's step in catalog-portal, kept as it rendered: an agent with neither servers nor skills keeps it. */
+  const TWO_B_HEADER =
+    '[Consola] Step "review" (1 of 3) of the automation "review-assigned-prs" (run 3f2a91c0), in catalog-portal. ' +
+    'This session is read-only: it can read the files in this folder and use Consola’s tools ' +
+    '(work_item_context, list_inbox, and this step’s output and artifact tools), and nothing else: no shell, no network. ' +
+    'Nobody is watching while you work.';
+  const withAgent = (agent: NonNullable<StepPromptInput['agent']>) =>
+    headerOf(
+      renderStepPrompt({ ...base, step: step({ agent: agent.name }), body: undefined, agent }),
+    );
+
+  it("the header names the agent's servers, narrowed ones with their tools, and its skills (2-C)", () => {
+    expect(
+      withAgent({
+        name: 'investigator',
+        body: 'You investigate alerts.',
+        mcpServers: [{ name: 'claude.ai Coralogix' }, { name: 'grafana', tools: ['query_logs'] }],
+        skills: ['incident-triage'],
+      }),
+    ).toContain(
+      'and this step’s output and artifact tools), the MCP servers claude.ai Coralogix and grafana (query_logs), and the skill consola-step:incident-triage, and nothing else: no shell, no network.',
+    );
+    expect(
+      withAgent({
+        name: 'investigator',
+        body: 'You investigate alerts.',
+        mcpServers: [{ name: 'claude.ai Coralogix' }],
+        skills: [],
+      }),
+    ).toContain('tools), the MCP server claude.ai Coralogix, and nothing else: no shell');
+    expect(
+      withAgent({
+        name: 'investigator',
+        body: 'You investigate alerts.',
+        mcpServers: [
+          { name: 'claude.ai Coralogix' },
+          { name: 'grafana', tools: ['query_logs', 'list_dashboards'] },
+          { name: 'tracker' },
+        ],
+        skills: ['incident-triage', 'release-notes'],
+      }),
+    ).toContain(
+      'tools), the MCP servers claude.ai Coralogix, grafana (query_logs, list_dashboards) and tracker, and the skills consola-step:incident-triage and consola-step:release-notes, and nothing else',
+    );
+    expect(
+      withAgent({
+        name: 'investigator',
+        body: 'You investigate alerts.',
+        mcpServers: [],
+        skills: ['incident-triage'],
+      }),
+    ).toContain('tools), the skill consola-step:incident-triage, and nothing else');
+  });
+
+  it("an agent with neither servers nor skills keeps 2-B's header, byte for byte (2-C)", () => {
+    expect(
+      withAgent({ name: 'investigator', body: 'You investigate.', mcpServers: [], skills: [] }),
+    ).toBe(TWO_B_HEADER);
+  });
+
+  it('without an agent, nothing moves', () => {
+    expect(renderStepPrompt(input({ agent: undefined }))).toBe(renderStepPrompt(input()));
+    expect(renderStepPrompt(input())).not.toContain('Your standing instructions');
+    expect(renderStepPrompt(input())).not.toContain('This step:');
+  });
+});
+
 describe('reminderPrompt', () => {
   it('names what is missing and the tool that sets it', () => {
     expect(reminderPrompt({ outputs: ['verdict'], artifacts: [] })).toBe(

@@ -1,27 +1,39 @@
 import { createHash } from 'node:crypto';
 import {
   ARTIFACT_NAME_PATTERN,
+  AUTOMATION_NAME_PATTERN,
   automationEntryText,
+  automationFileText,
+  automationItemText,
   automationVersion,
+  factoryFilesOf,
   isStepsEntry,
   nextCronOccurrence,
   parseAutomationEntry,
+  parseFactory,
   parseFactorySpec,
+  skillHash,
   stableStringify,
   STEP_ID_PATTERN,
   stepItemFieldProblems,
+  stepsResolvedBody,
   TERMINAL_RUN_STATUSES,
+  type AgentDefinition,
   type AgentStep,
   type Automation,
   type AutomationMode,
   type CronTrigger,
   type ExprValue,
+  type FactoryFiles,
+  type FactoryNotice,
+  type FactoryParseResult,
   type FactorySpecIssue,
   type PollTrigger,
   type RunItem,
   type RunRecord,
   type RunStatus,
   type RunTrigger,
+  type SkillDefinition,
   type Step,
   type StepRun,
   type StepsAutomation,
@@ -58,17 +70,32 @@ import {
   describeTriggerAsWritten,
 } from './describeEntry';
 import { describeSchedule } from './describeSchedule';
+import {
+  agentIssues,
+  agentQuery,
+  appliedSkills,
+  appliedTexts,
+  decideApply,
+  describeAppliedAt,
+  standingMessage,
+  type ApplyDecision,
+} from './factory/apply';
 import type {
+  AgentHarnessAnswer,
+  AgentHarnessQuery,
   AgentLaunchRequest,
+  AppliedFactory,
+  AppliedFactoryStore,
+  AppliedSkill,
+  CheckoutKind,
   CommandPort,
   CommandResult,
   CommandSpec,
   EngineTool,
   EngineToolContext,
   EngineToolResult,
-  FactoryFileHandle,
+  FactoryFolderHandle,
   LaunchedSession,
-  LoadedFactoryFile,
   RunFolderPort,
   WorkItemPort,
   RunningCommand,
@@ -79,6 +106,8 @@ import { SNAPSHOT_ENDED_RUNS } from './views';
 import type {
   ConversationTarget,
   ActionView,
+  FactoryStanding,
+  EntryAgentsView,
   AgentRunPreview,
   AutomationsSnapshot,
   AutomationView,
@@ -97,11 +126,20 @@ import type {
   ScopeView,
   SessionView,
   TemplateView,
+  TurnInitView,
+  TurnOutcome,
+  TurnReportView,
   WorkspaceView,
 } from './views';
 import type { RunStore } from './RunStore';
 import { AUTOMATION_TEMPLATES, coversAssignedReviews, GITHUB, templateViews } from './templates';
-import { actionTypeRefusal, agentStepLaunch, endedWithout, itemRefOf } from './steps/agentStep';
+import {
+  actionTypeRefusal,
+  agentStepLaunch,
+  endedWithout,
+  itemRefOf,
+  stepCap,
+} from './steps/agentStep';
 import { MAX_CHECK_STDOUT_BYTES, readCheckResult, type PolledItem } from './sources/checkResult';
 import { runItemSource, type ItemSource, type SourceItem } from './sources/itemSource';
 import { polledSourceItem, pollSource } from './sources/pollSource';
@@ -117,7 +155,26 @@ import {
   type CheckState,
 } from './sources/pollRunner';
 import { reminderPrompt } from './steps/stepPrompt';
-import type { CheckoutPort, CheckoutRequest, PreparedCheckout } from './steps/checkout';
+import {
+  initProblem,
+  reminderCap,
+  reportedFailure,
+  requiredServers,
+  strayServerProblem,
+  stepHarnessQuery,
+  runCostOf,
+  turnFailure,
+  uncheckedInitProblem,
+  withTurnRecorded,
+} from './steps/turnReport';
+import {
+  entryCheckoutKind,
+  entryReadsItems,
+  runCheckoutKind,
+  type CheckoutPort,
+  type CheckoutRequest,
+  type PreparedCheckout,
+} from './steps/checkout';
 import { describeFailure, LOG_CAP_BYTES, maskSecrets, utf8Bytes } from './steps/commandIO';
 import {
   commandOutcome,
@@ -130,12 +187,16 @@ import {
   writeCommandFile,
   type PreparedCommand,
 } from './steps/commandStep';
-import type {
-  CommandFile,
-  LogTail,
-  RunDefinition,
-  StepDetail,
-  StepsRunPreview,
+import {
+  agentRequirements,
+  skillMarkdown,
+  withKnownTools,
+  type AgentRequirements,
+  type CommandFile,
+  type LogTail,
+  type RunDefinition,
+  type StepDetail,
+  type StepsRunPreview,
 } from './steps/definition';
 import { isEngineRun, isStepsRun } from './steps/recover';
 import { advanceSteps, type Lane, type StepUpdate } from './steps/sequence';
@@ -206,8 +267,13 @@ export interface SaveEntryOptions {
 }
 
 export interface AutomationServiceDeps {
-  /** A workspace's spec file; asked for once, when the workspace is first seen. */
-  fileFor(workspaceId: string): FactoryFileHandle;
+  /** A workspace's factory folder; asked for once, when the workspace is first seen. */
+  folderFor(workspaceId: string): FactoryFolderHandle;
+  /**
+   * Each folder's last applied version: what keeps running while a file has
+   * a problem, across restarts. Read once per workspace, at its first load.
+   */
+  appliedStore: AppliedFactoryStore;
   store: RunStore;
   /** Each run's folder: its definition snapshot and its steps' documents. */
   runFolder: RunFolderPort;
@@ -235,21 +301,51 @@ export interface AutomationServiceDeps {
    * with `instanceof`.
    */
   launchAgent(request: AgentLaunchRequest): Promise<LaunchedSession>;
-  /** Run `prompt` as an unattended turn in a recorded automation session; throws with the reason it could not. */
-  resumeAgent(session: SessionView, prompt: string): Promise<void>;
+  /**
+   * Run `prompt` as an unattended turn in a recorded automation session; throws with the reason
+   * it could not. `maxTurns` caps this turn alone (a step's reminder, resumed under its own
+   * cap); without it the turn runs under the record's.
+   */
+  resumeAgent(session: SessionView, prompt: string, maxTurns?: number): Promise<void>;
   /**
    * Run a step's one reminder turn: its session's exited terminal relaunched in place, or
    * resumed if it has none, unattended, with `prompt` as its turn; throws with the reason
-   * it could not. It never refreshes the step's checkout.
+   * it could not. It never refreshes the step's checkout. `maxTurns` caps the reminder
+   * turn (`reminderCap`).
    */
-  remindAgent(session: SessionView, prompt: string): Promise<void>;
+  remindAgent(session: SessionView, prompt: string, maxTurns: number): Promise<void>;
   /** Whether a session has a terminal whose process is still running: someone opened it. */
   hasLiveTerminal(session: SessionView): boolean;
   /**
-   * The workspace's default harness: its display name, and why it cannot
-   * run a read-only unattended session (null when it can).
+   * The workspace's default harness, or, given `agent`, the harness that
+   * agent runs on (its `harness:`, else the default): its display name, and
+   * why it cannot run a read-only unattended session (null when it can).
+   * `stepProblem`: why its steps' reporting turns would not launch as Consola
+   * compiles them (its extra arguments override a flag they need, `--model`
+   * when the agent sets one); absent or null, they would. For an agent,
+   * `agentProblem` (why it cannot run there at all) and `warning` (shown,
+   * never blocking) too, and, of the servers it names for its entry's
+   * checkout kind (`agent.checkout`): `serversProblem`, a server refused
+   * against what the harness's CLI said (blocking like `agentProblem`);
+   * `serversPending`, the CLI is being asked (a changed entry waits for the
+   * answer, an unchanged one keeps running); `serversUnknown`, it could not
+   * be asked (the entry's problem, never the folder's); `serverWarnings`,
+   * notices that block nothing.
    */
-  agentHarness(workspaceId: string): { name: string; problem: string | null };
+  agentHarness(workspaceId: string, agent?: AgentHarnessQuery): AgentHarnessAnswer;
+  /**
+   * The host's harnesses, by id: what an agent writing automations is told
+   * an agent file's `harness:` may name (only the enabled, unarchived ones),
+   * each with the MCP servers its CLI last said it has (`servers`, absent
+   * until it has been asked; listing them never asks). Absent, it is told none.
+   */
+  listHarnesses?(): Array<{
+    id: string;
+    name: string;
+    enabled: boolean;
+    archived: boolean;
+    servers?: string[];
+  }>;
   /** End a running unattended turn the way Ctrl+C does. False when none is running. */
   stopAgent(session: SessionView, reason: string): boolean;
   /** Agent sessions automations may have working at once, across every workspace. */
@@ -372,6 +468,8 @@ interface Resolved {
     startsInDryRun: boolean;
     /** The first agent step's action, when it is one: the label a session started by hand on the item carries. */
     byHandLabel?: string;
+    /** Every skill a step's agent names, from the version it resolved against: what a fired run copies into its folder. */
+    skills: Readonly<Record<string, SkillDefinition>>;
   };
   /**
    * Where its runs' items come from (roadmap contract 4): the event source,
@@ -383,16 +481,90 @@ interface Resolved {
   event?: EventSource;
   /** Set when the entry parsed but cannot run: the reason it will not. */
   problem?: string;
+  /** Its problem came from asking a harness's CLI about servers: its row offers Check again. */
+  recheck?: true;
+  /** Its problem is that the CLI could not be asked at all: machine state, which refuses no save. */
+  unasked?: true;
+  /** A `steps:` entry's: the agents it was resolved against, by name (its node names their harness and model). */
+  agents?: Readonly<Record<string, AgentDefinition>>;
+  /** A `steps:` entry's: the skills of the version it was resolved against, by name (the Allow card's `SKILL.md`s). */
+  skills?: Readonly<Record<string, SkillDefinition>>;
+  /** What the host said of its agents that stops nothing: a model the harness does not list. */
+  warnings?: FactoryNotice[];
 }
 
-/** One workspace's file as last read, and what its entries resolved to. */
+/** A workspace's factory folder as last read: whether `factory.yml` exists, the texts, and their parse. */
+interface FactoryRead {
+  exists: boolean;
+  files: FactoryFiles;
+  parse: FactoryParseResult;
+}
+
+/** One workspace's factory folder as last read, and what its entries resolved to. */
 interface WorkspaceFactory {
-  file: FactoryFileHandle;
-  loaded: LoadedFactoryFile;
+  folder: FactoryFolderHandle;
+  read: FactoryRead;
   resolved: Resolved[];
+  /** The resolved entries' warnings, each once: the snapshot's notices after the read's own. */
+  warnings: FactoryNotice[];
+  /** Whether the store was read: once, at the folder's first load. Until then nothing is decided. */
+  storeRead: boolean;
+  /** The last applied version, kept with its parse; only `reapply` replaces it (the store is read once). */
+  applied: { record: AppliedFactory; parse: FactoryParseResult } | null;
+  /** Present while the folder does not apply: why, and when the version that runs applied. */
+  standing?: { decision: Extract<ApplyDecision, { kind: 'keeps' }>; appliedAt: string };
 }
 
-const NOT_LOADED: LoadedFactoryFile = { exists: false, spec: { automations: [], issues: [] } };
+/**
+ * A folder whose read or parse threw: one issue, on factory.yml, and every
+ * file counted as not read whole, so the applied version keeps running with
+ * nothing removed. `exists` is the last read's.
+ */
+function unreadFolder(exists: boolean, error: unknown): FactoryRead {
+  const reason = (error instanceof Error ? error.message : String(error)).split('\n')[0].trim();
+  const read = notRead();
+  return {
+    ...read,
+    exists,
+    parse: {
+      ...read.parse,
+      issues: [
+        {
+          message: `Could not read this factory's folder: ${reason.replace(/\.$/, '')}.`,
+          file: 'factory.yml',
+          path: '',
+        },
+      ],
+      unreadable: ['factory.yml', 'automations/', 'agents/', 'skills/'],
+    },
+  };
+}
+
+/** A folder not read yet: nothing in it. */
+function notRead(): FactoryRead {
+  return {
+    exists: false,
+    files: {
+      factoryYml: null,
+      automations: {},
+      agents: {},
+      skills: {},
+      stray: [],
+      laterFolders: [],
+      unread: [],
+      outside: [],
+    },
+    parse: {
+      automations: [],
+      agents: {},
+      skills: {},
+      issues: [],
+      notices: [],
+      present: [],
+      unreadable: [],
+    },
+  };
+}
 
 /** An automation's identity: its name, within its workspace. */
 function automationKey(entry: {
@@ -523,6 +695,12 @@ export class AutomationService {
    * stays as it was until the preparation succeeds.
    */
   private readonly retrying = new Map<string, { dir: string; itemKey?: string }>();
+  /**
+   * A step turn whose `init` failed its check, by session: the engine's words
+   * for why, which become the step's error when the turn it stopped ends.
+   * Memory only: the turn is stopped at once.
+   */
+  private readonly initFailures = new Map<string, string>();
   private pumpAgain = false;
   /** Each workspace's last save, settled either way: the next one waits for it. */
   private readonly saving = new Map<string, Promise<void>>();
@@ -613,7 +791,7 @@ export class AutomationService {
    * recorded as a stop: its step keeps its intent-only record, which the
    * next start fails as interrupted. Stop every running check too: what it
    * reports afterwards is dropped, as Consola is no longer running. Then
-   * stop ticking and let go of every workspace's file.
+   * stop ticking and let go of every workspace's folder.
    */
   public shutdown(): void {
     for (const running of this.runningCommands.values()) {
@@ -627,12 +805,12 @@ export class AutomationService {
     this.started = false;
     this.stopTicking?.();
     this.stopTicking = null;
-    for (const factory of this.factories.values()) factory.file.unwatch();
+    for (const factory of this.factories.values()) factory.folder.unwatch();
     this.factories.clear();
   }
 
   /**
-   * Follow the workspace list. A new workspace's file is read and watched; a
+   * Follow the workspace list. A new workspace's folder is read and watched; a
    * deleted one's is let go — its schedules stop, and anything waiting in it
    * is dismissed, since there is nowhere left to approve or run it. Every
    * other workspace's entries are resolved again, because what they resolve
@@ -645,7 +823,7 @@ export class AutomationService {
     const removed = [...this.factories.keys()].filter((id) => !current.has(id));
     for (const workspaceId of removed) {
       const factory = this.factories.get(workspaceId)!;
-      factory.file.unwatch();
+      factory.folder.unwatch();
       this.factories.delete(workspaceId);
       // Its checks have nowhere to report either: their results are dropped, as their entries are gone.
       for (const [key, check] of this.checkCommands)
@@ -665,6 +843,12 @@ export class AutomationService {
         this.deps.store.workspacesWithStepsRuns().has(workspaceId) ||
         factory.resolved.some((entry) => pollOf(entry) !== null);
       this.deps.store.forgetWorkspace(workspaceId);
+      // Its applied version goes too, as its run records do.
+      try {
+        this.deps.appliedStore.forget(factory.folder.folderPath);
+      } catch (error) {
+        console.error(`Could not forget ${workspaceId}'s applied factory.`, error);
+      }
       if (hasFolders) {
         try {
           this.deps.runFolder.removeAll(workspaceId);
@@ -678,28 +862,60 @@ export class AutomationService {
     // meanwhile sees the workspace as known rather than adding it twice.
     const added = [...current].filter((id) => !this.factories.has(id));
     for (const workspaceId of added) {
-      const file = this.deps.fileFor(workspaceId);
-      this.factories.set(workspaceId, { file, loaded: NOT_LOADED, resolved: [] });
-      file.watch(() => void this.reload(workspaceId));
+      const folder = this.deps.folderFor(workspaceId);
+      this.factories.set(workspaceId, {
+        folder,
+        read: notRead(),
+        resolved: [],
+        warnings: [],
+        storeRead: false,
+        applied: null,
+      });
+      folder.watch(() => {
+        this.reload(workspaceId).catch((error: unknown) => {
+          console.error(`Could not reload ${workspaceId}'s factory folder.`, error);
+        });
+      });
     }
 
-    // Settings edits re-resolve without touching the file. Broadcast only
-    // what changed: this runs on every workspace write, session clicks
-    // included. A template's `missing` follows the same settings.
+    // Settings and harness edits re-check without touching the files: a
+    // harness turned off can stop a changed entry from applying, and turned
+    // on again, let it. Broadcast only what changed: this runs on every
+    // workspace write, session clicks included, and reads nothing of the
+    // applied version. A template's `missing` follows the same settings, and
+    // a harness's answer can change only the notices (a server that needs a
+    // sign-in), which the windows must hear too.
     const settingsView = (workspaceId: string, factory: WorkspaceFactory) =>
-      stableStringify([this.list(workspaceId), this.templatesOf(workspaceId, factory)]);
+      stableStringify([
+        this.list(workspaceId),
+        this.templatesOf(workspaceId, factory),
+        factory.standing?.decision ?? null,
+        factory.warnings,
+      ]);
+    const runningOf = (factory: WorkspaceFactory) =>
+      stableStringify(factory.resolved.map(scheduleKey));
+    let runningChanged = false;
     for (const [workspaceId, factory] of this.factories) {
       if (added.includes(workspaceId)) continue;
       const before = settingsView(workspaceId, factory);
-      this.resolveAll(workspaceId, factory);
+      const running = runningOf(factory);
+      this.reapply(workspaceId, factory);
+      if (runningOf(factory) !== running) runningChanged = true;
       if (settingsView(workspaceId, factory) !== before) this.broadcast(workspaceId);
     }
 
     // Every file is read before schedules are reconciled: reconciling
     // while one is unread would forget its fire times, and with them the
-    // catch-up for whatever it missed while Consola was closed.
-    await Promise.all(added.map((workspaceId) => this.load(workspaceId)));
-    if (added.length > 0 || removed.length > 0) this.settleSchedules();
+    // catch-up for whatever it missed while Consola was closed. A re-check
+    // that changed what runs reconciles too: an entry that just applied
+    // starts its schedule now.
+    // One workspace's folder never stops another's: a load that throws is logged, and the rest go on.
+    const loads = await Promise.allSettled(added.map((workspaceId) => this.load(workspaceId)));
+    loads.forEach((load, index) => {
+      if (load.status === 'rejected')
+        console.error(`Could not load ${added[index]}'s factory folder.`, load.reason);
+    });
+    if (added.length > 0 || removed.length > 0 || runningChanged) this.settleSchedules();
     // A settings edit can change a poll entry's version too: an action a step names.
     for (const workspaceId of this.factories.keys()) this.announceAllows(workspaceId);
     for (const workspaceId of added) this.broadcast(workspaceId);
@@ -747,12 +963,17 @@ export class AutomationService {
     void this.pump();
   }
 
-  /** Re-read one workspace's file: when it changes, and after "Open file" creates it. */
+  /** Re-read one workspace's folder: when a file in it changes, and after "Open file" creates factory.yml. */
   public async reload(workspaceId: string): Promise<void> {
     if (!(await this.load(workspaceId))) return;
     this.settleSchedules();
     this.announceAllows(workspaceId);
     this.broadcast(workspaceId);
+  }
+
+  /** Check again: re-read the folder and re-check what applies, as a change to one of its files would. */
+  public async recheck(workspaceId: string): Promise<void> {
+    await this.reload(workspaceId);
   }
 
   /**
@@ -805,10 +1026,23 @@ export class AutomationService {
    * ready to uncomment. An existing file is opened as it is.
    */
   public async ensureFile(workspaceId: string): Promise<string> {
-    const filePath = await this.factoryOf(workspaceId).file.ensureExists(
+    const filePath = await this.factoryOf(workspaceId).folder.ensureExists(
       factoryTemplate({ reviewsLive: false }),
     );
     await this.reload(workspaceId);
+    return filePath;
+  }
+
+  /**
+   * One of the folder's own files, for "Open": `factory.yml` through
+   * `ensureFile` (created from the template when missing, as before), any
+   * other file by its path in the folder. A path that is none of the folder's
+   * own files (`../x`, `runs/r1`) is refused, never resolved.
+   */
+  public async factoryFilePath(workspaceId: string, relative = 'factory.yml'): Promise<string> {
+    if (relative === 'factory.yml') return this.ensureFile(workspaceId);
+    const filePath = this.factoryOf(workspaceId).folder.pathOf(relative);
+    if (filePath === null) throw new Error(`Not a file of this factory: \`${relative}\`.`);
     return filePath;
   }
 
@@ -822,13 +1056,16 @@ export class AutomationService {
    */
   public async addAssignedReviews(workspaceId: string): Promise<void> {
     if (!this.hasReviewAccount(workspaceId)) throw new Error(`${GITHUB.missing} first.`);
-    const { file } = this.factoryOf(workspaceId);
-    const loaded = await file.load();
-    if (loaded.spec.automations.some((automation) => automation.name === ASSIGNED_REVIEWS_NAME)) {
-      throw new Error(`factory.yml already has ${ASSIGNED_REVIEWS_NAME}.`);
+    const { folder } = this.factoryOf(workspaceId);
+    // Read now: wherever an entry of that name is written, by name as written.
+    const where = await folder.whereIs(ASSIGNED_REVIEWS_NAME);
+    if (where !== null) {
+      throw new Error(
+        `${homeFile(ASSIGNED_REVIEWS_NAME, where)} already has ${ASSIGNED_REVIEWS_NAME}.`,
+      );
     }
-    if (loaded.exists) await file.appendAutomation(assignedReviewsEntry());
-    else await file.ensureExists(factoryTemplate({ reviewsLive: true }));
+    if ((await folder.readText()) !== null) await folder.appendAutomation(assignedReviewsEntry());
+    else await folder.ensureExists(factoryTemplate({ reviewsLive: true }));
     await this.reload(workspaceId);
   }
 
@@ -840,24 +1077,27 @@ export class AutomationService {
 
   /**
    * Whether to offer automatic reviews: the workspace can run them (a GitHub
-   * account; the entry needs no action), its file loads, and nothing in it
-   * already reviews requests or assignments — or goes by that name.
+   * account; the entry needs no action), its factory.yml loads, and nothing in
+   * its folder already reviews requests or assignments — or goes by that name.
    */
   private assignedReviewsSuggestion(workspaceId: string, factory: WorkspaceFactory): boolean {
     if (!this.hasReviewAccount(workspaceId)) return false;
-    const { spec } = factory.loaded;
-    if (spec.issues.some((issue) => !isEntryIssue(issue))) return false;
-    return !spec.automations.some(coversAssignedReviews);
+    const { parse } = factory.read;
+    if (parse.issues.some((issue) => issue.file === 'factory.yml' && !isEntryIssue(issue)))
+      return false;
+    return !parse.automations.some(coversAssignedReviews);
   }
 
   /**
-   * Add or replace one entry in a workspace's factory.yml: an agent's
+   * Add or replace one entry in a workspace's factory folder: an agent's
    * `save_automation`, and a template's "Add". The entry is checked the way
    * the runner checks it — parsed on its own, then resolved against this
-   * workspace, harness included — and refused, with every reason, if it
-   * would not run; a refusal leaves the file as it was. A name already in
-   * the file is replaced in place only when `replace` says so. Saves in one
-   * workspace run one at a time, each reading what the last one wrote.
+   * workspace and the folder's agents, harnesses included — and refused,
+   * with every reason, if it would not run; a refusal leaves every file as
+   * it was. A new entry goes to factory.yml; a name already in the folder
+   * is replaced where it lives (in factory.yml, or its own automation file)
+   * only when `replace` says so. Saves in one workspace run one at a time,
+   * each reading what the last one wrote.
    *
    * Whatever it writes asks once before its next unattended run, even a
    * schedule-only change the version would not notice; a hand edit keeps
@@ -890,9 +1130,11 @@ export class AutomationService {
     const parsed = parseAutomationEntry(entryYaml);
     if (!parsed.ok) throw notSaved(parsed.issues.map(describeIssue));
     const { automation, item } = parsed;
-    const { file } = this.factoryOf(workspaceId);
+    const { name } = automation;
+    const factory = this.factoryOf(workspaceId);
+    const { folder } = factory;
     // Read now, not as last loaded: the person may have edited it since.
-    const text = await file.readText().catch((error: unknown) => {
+    const text = await folder.readText().catch((error: unknown) => {
       throw notSaved([describeError(error)]);
     });
     const broken =
@@ -902,21 +1144,35 @@ export class AutomationService {
         `factory.yml does not load (${broken.map(describeIssue).join('; ')}); fix it by hand first`,
       ]);
     }
-    const problem = this.resolve(workspaceId, automation).problem;
-    if (problem) throw notSaved([problem]);
+    // Against the folder's agents as last read: an agent its steps name must be there, and valid.
+    const troubled = agentWithProblems(automation, factory.read.parse);
+    if (troubled) throw notSaved([troubled]);
+    const resolved = this.resolve(
+      workspaceId,
+      automation,
+      factory.read.parse.agents,
+      factory.read.parse.skills,
+    );
+    // A CLI that could not be asked is no fault of the entry: it is saved, and shows that problem.
+    if (resolved.problem && !resolved.unasked) throw notSaved([resolved.problem]);
     // By name as written, so an entry that fails to load still holds its name.
-    const replaced = text !== null && automationEntryText(text, automation.name) !== null;
-    if (replaced && !options.replace) {
-      const name = automation.name;
+    const where = await folder.whereIs(name).catch((error: unknown) => {
+      throw notSaved([describeError(error)]);
+    });
+    if (where !== null && !options.replace) {
       throw notSaved([
-        `factory.yml already has an automation named "${name}"; pass replace: true to replace it, or choose another name`,
+        `${homeFile(name, where)} already has an automation named "${name}"; pass replace: true to replace it, or choose another name`,
       ]);
     }
     try {
-      // A file of its own, not "Open file"'s template: nothing is added beside the entry unasked.
-      if (text === null) await file.ensureExists(EMPTY_FACTORY_FILE);
-      if (replaced) await file.replaceAutomation(automation.name, item);
-      else await file.appendAutomation(item);
+      // An entry in a file of its own is replaced there, whole.
+      if (where === 'file') await folder.writeAutomationFile(name, automationFileText(item));
+      else {
+        // A file of its own, not "Open file"'s template: nothing is added beside the entry unasked.
+        if (text === null) await folder.ensureExists(EMPTY_FACTORY_FILE);
+        if (where === 'factory.yml') await folder.replaceAutomation(name, item);
+        else await folder.appendAutomation(item);
+      }
     } catch (error) {
       throw notSaved([describeError(error)]);
     }
@@ -927,18 +1183,33 @@ export class AutomationService {
     await this.reload(workspaceId);
     // Again once it is live: a run fired while the file was being reloaded was of the entry before.
     this.deps.store.markRevoked(key, this.iso());
-    const live = this.factories
-      .get(workspaceId)
-      ?.resolved.find((candidate) => candidate.automation.name === automation.name);
+    const after = this.factories.get(workspaceId);
+    // Saved but not running: the folder does not apply, and the version before keeps running.
+    const standing = after?.standing;
+    const live = standing
+      ? undefined
+      : after?.resolved.find((candidate) => candidate.automation.name === automation.name);
     const line = live?.automation.line;
     // A poll entry it wrote does not check until a person allows it, whoever saved it.
     const waits = live !== undefined && this.needsAllow(live);
     return {
-      name: automation.name,
-      replaced,
+      name,
+      file: homeFile(name, where ?? 'factory.yml'),
+      replaced: where !== null,
       entry: item,
       ...(line ? { line } : {}),
       ...(waits ? { needsAllow: true as const } : {}),
+      ...(standing
+        ? {
+            notApplied: {
+              // What blocks it, then what it waits for: a check under way is said too, never silence.
+              issues: [...standing.decision.blocking, ...(standing.decision.waiting ?? [])].map(
+                describeBlocking,
+              ),
+              since: describeAppliedAt(standing.appliedAt, this.deps.now()),
+            },
+          }
+        : {}),
     };
   }
 
@@ -956,10 +1227,93 @@ export class AutomationService {
     await this.saveEntry(workspaceId, template.entry(workspace), { replace: false });
   }
 
-  /** One entry exactly as the file has it, as a `- name: …` item; null when there is no such entry or no file. */
+  /**
+   * One entry exactly as its file has it: a factory.yml entry as its
+   * `- name: …` item, and an entry in `automations/<name>.yaml` as that whole
+   * file, so its lines are the file's own. Null when there is no such entry.
+   * While the folder does not apply, the entry as the running version has
+   * it, not the live file: Allow accepts that version, so the person reads
+   * exactly what they accept.
+   */
   public async entryText(workspaceId: string, name: string): Promise<string | null> {
-    const text = await this.factoryOf(workspaceId).file.readText();
-    return text === null ? null : automationEntryText(text, name);
+    const factory = this.factoryOf(workspaceId);
+    if (factory.standing && factory.applied) return appliedEntryText(factory.applied, name);
+    const live = await this.liveEntry(workspaceId, name);
+    return live === null ? null : live.text;
+  }
+
+  /**
+   * The agents an entry's steps run as, each once in step order, as the
+   * version it lists has them (`version`, what Allow accepts): while the
+   * folder does not apply, the applied version's agents, never the live
+   * files. Null when there is no such entry.
+   */
+  public entryAgents(workspaceId: string, name: string): EntryAgentsView | null {
+    const entry = this.factoryOf(workspaceId).resolved.find(
+      (candidate) => candidate.automation.name === name,
+    );
+    if (!entry) return null;
+    const agents: EntryAgentsView['agents'] = [];
+    if (isStepsEntry(entry.automation)) {
+      for (const step of entry.automation.steps) {
+        if (step.kind !== 'agent' || step.agent === undefined) continue;
+        if (agents.some((agent) => agent.name === step.agent)) continue;
+        const agent = entry.agents?.[step.agent];
+        if (!agent || !Object.prototype.hasOwnProperty.call(entry.agents, step.agent)) continue;
+        agents.push({
+          name: agent.name,
+          file: `agents/${agent.name}.md`,
+          ...(agent.description !== undefined ? { description: agent.description } : {}),
+          ...(agent.harness !== undefined ? { harnessId: agent.harness } : {}),
+          ...(agent.model !== undefined ? { model: agent.model } : {}),
+          ...(agent.maxTurns !== undefined ? { maxTurns: agent.maxTurns } : {}),
+          body: agent.body,
+          mcpServers: agent.mcpServers.map((server) => ({
+            name: server.name,
+            ...(server.tools !== undefined ? { tools: [...server.tools] } : {}),
+          })),
+          skills: [...agent.skills],
+          // Each skill as the version holds it, so the card shows what Allow accepts (review M4).
+          ...(agent.skills.length > 0
+            ? {
+                skillTexts: agent.skills.flatMap((skill) => {
+                  const held = entry.skills?.[skill];
+                  return held && Object.prototype.hasOwnProperty.call(entry.skills, skill)
+                    ? [{ name: skill, text: skillMarkdown(held.files) }]
+                    : [];
+                }),
+              }
+            : {}),
+        });
+      }
+    }
+    return { version: entry.version, readsItems: entryReadsItems(entry.automation), agents };
+  }
+
+  /**
+   * One entry as a `- name: …` item, read from the live file: what an agent
+   * changing it is shown, to save back with `replace: true`. An automation
+   * file's entry is that file as an item (`automationItemText`).
+   */
+  public async entryItem(workspaceId: string, name: string): Promise<string | null> {
+    const live = await this.liveEntry(workspaceId, name);
+    if (live === null) return null;
+    return live.where === 'factory.yml' ? live.text : automationItemText(name, live.text);
+  }
+
+  /** An entry as its file has it now, wherever it lives: factory.yml first, as `whereIs` decides. */
+  private async liveEntry(
+    workspaceId: string,
+    name: string,
+  ): Promise<{ where: 'factory.yml' | 'file'; text: string } | null> {
+    const { folder } = this.factoryOf(workspaceId);
+    const yml = await folder.readText();
+    const item = yml === null ? null : automationEntryText(yml, name);
+    if (item !== null) return { where: 'factory.yml', text: item };
+    // A name that is no name has no file: never a path.
+    if (!AUTOMATION_NAME_PATTERN.test(name)) return null;
+    const text = await folder.readAutomationFile(name);
+    return text === null ? null : { where: 'file', text };
   }
 
   /** A person opened an agent-added entry's details: it is no longer new. */
@@ -975,15 +1329,33 @@ export class AutomationService {
   public capabilities(workspaceId: string): AutomationCapabilities {
     const factory = this.factoryOf(workspaceId);
     const workspace = this.deps.getWorkspaces().find((candidate) => candidate.id === workspaceId);
-    const { spec } = factory.loaded;
+    const { parse } = factory.read;
     // An entry that fails to load still holds its name.
     const named = [
-      ...spec.automations.map((automation) => automation.name),
-      ...spec.issues.flatMap((issue) => issue.automation ?? []),
+      ...parse.automations.map((automation) => automation.name),
+      ...parse.issues.flatMap((issue) => issue.automation ?? []),
     ];
     return describeCapabilities({
-      filePath: factory.file.filePath,
-      fileExists: factory.loaded.exists,
+      filePath: factory.folder.filePath,
+      fileExists: factory.read.exists,
+      folderPath: factory.folder.folderPath,
+      // The folder's agents as last read: what a step's `agent:` may name.
+      agents: Object.values(parse.agents).map((agent) => ({
+        name: agent.name,
+        ...(agent.description !== undefined ? { description: agent.description } : {}),
+        ...(agent.harness !== undefined ? { harness: agent.harness } : {}),
+        ...(agent.model !== undefined ? { model: agent.model } : {}),
+        ...(agent.maxTurns !== undefined ? { maxTurns: agent.maxTurns } : {}),
+        mcpServers: agent.mcpServers.map((server) => server.name),
+        skills: [...agent.skills],
+      })),
+      harnesses: (this.deps.listHarnesses?.() ?? [])
+        .filter((harness) => harness.enabled && !harness.archived)
+        .map((harness) => ({
+          id: harness.id,
+          name: harness.name,
+          ...(harness.servers !== undefined ? { servers: [...harness.servers] } : {}),
+        })),
       tools: this.deps.registry.list().filter((tool) => tool.automatable),
       actions: workspace?.actions ?? [],
       scopes: workspace?.scopes ?? [],
@@ -992,6 +1364,8 @@ export class AutomationService {
       harness: {
         name: this.deps.agentHarness(workspaceId).name,
         problem: this.harnessProblem(workspaceId),
+        stepProblem:
+          this.harnessProblem(workspaceId) === null ? this.stepHarnessProblem(workspaceId) : null,
       },
     });
   }
@@ -1000,7 +1374,7 @@ export class AutomationService {
   private templatesOf(workspaceId: string, factory: WorkspaceFactory): TemplateView[] {
     const workspace = this.deps.getWorkspaces().find((candidate) => candidate.id === workspaceId);
     return workspace
-      ? templateViews(workspace, factory.loaded.spec.automations, this.deps.now())
+      ? templateViews(workspace, factory.read.parse.automations, this.deps.now())
       : [];
   }
 
@@ -1184,6 +1558,54 @@ export class AutomationService {
   }
 
   /**
+   * A step's turn printed its `system/init`. The model it names goes on the
+   * step at once, so the run page shows it while the turn runs. Every server
+   * the step's agent grants must be there and connected: the CLI would run
+   * the turn without one, so the turn is stopped, and the step fails in the
+   * engine's words when it ends (`initFailures`). So it is when the turn
+   * loaded a server it was not given (review M3). Only a running step's
+   * session is heard; anything else is ignored, and so is a run whose
+   * definition cannot be read, which fails when its turn ends.
+   */
+  public turnStarted(sessionId: string, init: TurnInitView): void {
+    const step = this.runningStepOf(sessionId);
+    if (!step) return;
+    const { run, record } = step;
+    if (init.model !== undefined) {
+      this.writeSteps(run.id, withStep(this.stepsOf(run.id), record.id, { model: init.model }));
+      this.broadcastRun(run.id);
+    }
+    const loaded = this.definitionOf(run);
+    if (!('definition' in loaded)) return;
+    const required = requiredServers(loaded.definition, record.id);
+    if (required.length === 0) return;
+    // A server it was not given comes first: the CLI started it beside the step (review M3).
+    const stray = strayServerProblem(required, init);
+    const problem =
+      stray ?? initProblem(required, init, this.stepHarnessName(run, loaded.definition, record.id));
+    if (!problem) return;
+    this.initFailures.set(sessionId, problem);
+    const session = this.sessionNamed(run, sessionId);
+    if (session)
+      this.deps.stopAgent(
+        session,
+        stray ? 'it loaded a server it was not given' : 'a server it needs was not connected',
+      );
+  }
+
+  /**
+   * The display name of the harness a step ran on: its agent's (from its
+   * definition snapshot, asked with nothing to compile, so it starts no
+   * probe), else the workspace's default. What the `init` check's words name.
+   */
+  private stepHarnessName(run: RunRecord, definition: RunDefinition, stepId: string): string {
+    return this.deps.agentHarness(
+      run.attribution.workspaceId ?? '',
+      stepHarnessQuery(definition, stepId),
+    ).name;
+  }
+
+  /**
    * Run one of a workspace's automations now: its panel's Run now or Run
    * on…, Run again, or an agent's `run_automation`. With a target, it runs
    * on that item (`runOn`), whatever fires it otherwise. An entry whose
@@ -1201,7 +1623,7 @@ export class AutomationService {
   ): Promise<RunRecord | null> {
     const factory = this.factoryOf(workspaceId);
     const entry = factory.resolved.find((candidate) => candidate.automation.name === name);
-    if (!entry) throw new Error(`No automation named "${name}" in ${factory.file.filePath}.`);
+    if (!entry) throw new Error(`No automation named "${name}" in ${factory.folder.filePath}.`);
     if (entry.problem) throw new Error(`${name} cannot run: ${entry.problem}`);
     if (target !== undefined) return this.runOn(entry, target, actor);
     const { source } = entry;
@@ -1368,7 +1790,7 @@ export class AutomationService {
   public listRunTargets(workspaceId: string, name: string): ItemTargets {
     const factory = this.factoryOf(workspaceId);
     const entry = factory.resolved.find((candidate) => candidate.automation.name === name);
-    if (!entry) throw new Error(`No automation named "${name}" in ${factory.file.filePath}.`);
+    if (!entry) throw new Error(`No automation named "${name}" in ${factory.folder.filePath}.`);
     if (entry.problem) throw new Error(`${name} cannot run: ${entry.problem}`);
     const { source } = entry;
     const takesItem = takesItemOf(entry);
@@ -1531,10 +1953,10 @@ export class AutomationService {
     if (isAgentRequest(run)) return this.approveRequest(run);
     const entry = this.entryOf(run);
     const problem = !entry
-      ? 'it is no longer in its workspace’s factory.yml'
+      ? 'it is no longer in its workspace’s factory'
       : (entry.problem ??
         (entry.version !== run.actionVersion
-          ? 'factory.yml changed since this preview; run it again'
+          ? `${entry.automation.file ?? 'factory.yml'} changed since this preview; run it again`
           : undefined));
     if (!entry || problem) {
       this.finish(run.id, 'failed', { error: `Not run: ${problem}.` });
@@ -1613,7 +2035,7 @@ export class AutomationService {
   public allow(workspaceId: string, name: string, version: string): void {
     const factory = this.factoryOf(workspaceId);
     const entry = factory.resolved.find((candidate) => candidate.automation.name === name);
-    if (!entry) throw new Error(`No automation named "${name}" in ${factory.file.filePath}.`);
+    if (!entry) throw new Error(`No automation named "${name}" in ${factory.folder.filePath}.`);
     if (!pollOf(entry)) throw new Error(`${name} has no check command to allow.`);
     if (entry.version !== version) throw new Error('It changed since you looked; review it again.');
     if (entry.problem)
@@ -1942,7 +2364,10 @@ export class AutomationService {
         kind: describeKind(automation),
         runs: describeRun(automation),
         target: automation.run?.ref ?? 'steps',
-        ...(isStepsEntry(automation) ? { steps: describeSteps(automation.steps) } : {}),
+        ...(isStepsEntry(automation)
+          ? { steps: describeSteps(automation.steps, entry.agents) }
+          : {}),
+        file: automation.file,
         ...(automation.line ? { line: automation.line } : {}),
         // A due-but-unfired occurrence reads as "now", not as a time in the past.
         nextRunAt: next ? new Date(Math.max(next.getTime(), now.getTime())).toISOString() : null,
@@ -1952,6 +2377,7 @@ export class AutomationService {
           ? { asksFirst: true }
           : {}),
         ...(entry.problem ? { problem: entry.problem } : {}),
+        ...(entry.recheck ? { recheck: true as const } : {}),
         ...(added
           ? {
               addedBy: {
@@ -1988,16 +2414,22 @@ export class AutomationService {
   }
 
   /**
-   * One step's latest attempt: its record, definition, `command.json` and the
-   * last 64 KB of each log. Read from the record and the run folder only —
+   * One step's latest attempt: its record, definition, an agent step's agent,
+   * a command's `command.json` and the last 64 KB of each log. Read from the
+   * record and the run folder only —
    * nothing starts, and nothing is broadcast. Log text is passed on as stored.
    */
   public getStepDetail(runId: string, stepId: string): StepDetail | null {
     const found = this.stepOf(runId, stepId);
     if (!found) return null;
-    const { run, workspaceId, step, record } = found;
+    const { run, workspaceId, definition, step, record } = found;
     const detail: StepDetail = { runId, step, record };
-    if (step.kind !== 'run') return detail;
+    if (step.kind !== 'run') {
+      const agent = definition.agents?.[step.id];
+      return agent
+        ? { ...detail, agent, ...this.runSkillTexts(workspaceId, run.id, definition, agent.skills) }
+        : detail;
+    }
     const dir = this.deps.runFolder.attemptDir(workspaceId, run.id, step.id, record.attempt);
     const command = this.readCommandFile(`${dir}/command.json`);
     const stdout = this.readTail(`${dir}/stdout.log`, STEP_TAIL_BYTES);
@@ -2008,6 +2440,36 @@ export class AutomationService {
       ...(stdout ? { stdout } : {}),
       ...(stderr ? { stderr } : {}),
     };
+  }
+
+  /**
+   * Each of `names` by its `SKILL.md` as the run's own copy holds it, when
+   * that copy hashes to its definition's (`stepSkillsOf`'s check, without
+   * starting anything); else why not. Nothing for no skills.
+   */
+  private runSkillTexts(
+    workspaceId: string,
+    runId: string,
+    definition: RunDefinition,
+    names: readonly string[],
+  ): Pick<StepDetail, 'skillTexts' | 'skillsProblem'> {
+    if (names.length === 0) return {};
+    let held: ReturnType<RunFolderPort['readSkills']>;
+    try {
+      held = this.deps.runFolder.readSkills(workspaceId, runId, names);
+    } catch (error) {
+      const reason = describeError(error).trim().replace(/\.$/, '');
+      return { skillsProblem: `Its skills could not be read from the run folder (${reason}).` };
+    }
+    const changed = names.find((name) => {
+      const files = held[name];
+      return !files || skillHash(files) !== definition.skills?.[name];
+    });
+    if (changed !== undefined)
+      return {
+        skillsProblem: `Its skills in the run folder are not the ones its version holds (skills/${changed}).`,
+      };
+    return { skillTexts: names.map((name) => ({ name, text: skillMarkdown(held[name]!) })) };
   }
 
   /** "Show all": up to the 1 MB a log holds. Null when the step, the attempt's folder or the log is not there. */
@@ -2093,13 +2555,19 @@ export class AutomationService {
   private stepOf(
     runId: string,
     stepId: string,
-  ): { run: RunRecord; workspaceId: string; step: Step; record: StepRun } | null {
+  ): {
+    run: RunRecord;
+    workspaceId: string;
+    definition: RunDefinition;
+    step: Step;
+    record: StepRun;
+  } | null {
     if (typeof stepId !== 'string' || !STEP_ID_PATTERN.test(stepId)) return null;
     const read = this.readSteps(runId);
     const step = read?.definition.automation.steps.find((candidate) => candidate.id === stepId);
     const record = read?.run.steps?.find((candidate) => candidate.id === stepId);
     return read && step && record
-      ? { run: read.run, workspaceId: read.workspaceId, step, record }
+      ? { run: read.run, workspaceId: read.workspaceId, definition: read.definition, step, record }
       : null;
   }
 
@@ -2338,10 +2806,12 @@ export class AutomationService {
       });
     }
     return {
-      filePath: factory.file.filePath,
-      fileExists: factory.loaded.exists,
+      filePath: factory.folder.filePath,
+      fileExists: factory.read.exists,
       automations: this.list(workspaceId),
-      issues: factory.loaded.spec.issues,
+      // While the folder does not apply, every reason it does not: a changed entry's harness too.
+      issues: factory.standing ? factory.standing.decision.blocking : factory.read.parse.issues,
+      notices: [...factory.read.parse.notices, ...factory.warnings],
       runs,
       // True only when `listRuns` would hand over an ended run after the oldest one shown.
       hasOlder:
@@ -2352,6 +2822,17 @@ export class AutomationService {
       queue,
       suggestAssignedReviews: this.assignedReviewsSuggestion(workspaceId, factory),
       templates: this.templatesOf(workspaceId, factory),
+      ...(factory.standing ? { standing: this.standingView(factory.standing) } : {}),
+    };
+  }
+
+  /** The banner, worded now: a banner left overnight names the day its version applied. */
+  private standingView(standing: NonNullable<WorkspaceFactory['standing']>): FactoryStanding {
+    const { decision, appliedAt } = standing;
+    return {
+      message: standingMessage(decision, appliedAt, this.deps.now()),
+      appliedAt,
+      removed: [...decision.removed],
     };
   }
 
@@ -2594,7 +3075,7 @@ export class AutomationService {
       return {
         go: false,
         status: 'rejected',
-        message: 'It is no longer in its workspace’s factory.yml.',
+        message: 'It is no longer in its workspace’s factory.',
       };
     if (entry.problem)
       return { go: false, status: 'failed', message: `Not run: ${entry.problem}.` };
@@ -3061,12 +3542,20 @@ export class AutomationService {
       this.settleStep(runId, stepId, { status: 'failed', error: `${itemOf.error}.` });
       return;
     }
+    // Its skills, as this run copied them when it fired: checked before anything is built from them.
+    const skills = this.stepSkillsOf(workspaceId, run, loaded.definition, stepId);
+    if ('error' in skills) {
+      this.settleStep(runId, stepId, { status: 'failed', error: skills.error });
+      return;
+    }
     const launch = agentStepLaunch({
       workspaceId,
       run,
       definition: loaded.definition,
       stepId,
       checkout: { cwd, scopeId },
+      checkoutKind: runCheckoutKind(run, loaded.definition),
+      ...skills,
       ...itemOf,
       previous: run.previous,
       folder: this.deps.runFolder,
@@ -3078,7 +3567,15 @@ export class AutomationService {
     const { attempt } = launch.request.step!;
     // The running step now holds the slot its run was let in with.
     this.admitted.delete(runId);
-    this.writeSteps(runId, withAttemptStarted(this.stepsOf(runId), stepId, this.iso()));
+    this.writeSteps(
+      runId,
+      withAttemptStarted(
+        this.stepsOf(runId),
+        stepId,
+        this.iso(),
+        loaded.definition.agents?.[stepId]?.name,
+      ),
+    );
     this.broadcastRun(runId);
     // No turn to stop until it has launched: a stop meanwhile waits for it.
     this.starting.add(runId);
@@ -3120,11 +3617,54 @@ export class AutomationService {
   }
 
   /**
+   * Where an agent step's skills are, once the run's copy of each skill its
+   * agent names hashes to what the definition recorded: the copy, and the
+   * attempt's plugin dir the host builds from it. Nothing for an agent that
+   * names none. Any difference, a skill gone, or one the definition does not
+   * list is the step's error: a retry delivers what was approved or nothing.
+   */
+  private stepSkillsOf(
+    workspaceId: string,
+    run: RunRecord,
+    definition: RunDefinition,
+    stepId: string,
+  ): { skillsDir?: string; pluginDir?: string } | { error: string } {
+    const names = definition.agents?.[stepId]?.skills ?? [];
+    const record = run.steps?.find((candidate) => candidate.id === stepId);
+    // A step the run has no record of is refused by `agentStepLaunch`, in its own words.
+    if (names.length === 0 || !record) return {};
+    let held: ReturnType<RunFolderPort['readSkills']>;
+    try {
+      held = this.deps.runFolder.readSkills(workspaceId, run.id, names);
+    } catch (error) {
+      const reason = describeError(error).trim().replace(/\.$/, '');
+      return {
+        error: `Its skills could not be read from the run folder (${reason}), so it did not start: run the automation again.`,
+      };
+    }
+    // A skill the definition records no hash for differs too: `skillHash` is never undefined.
+    const changed = names.find((name) => {
+      const files = held[name];
+      return !files || skillHash(files) !== definition.skills?.[name];
+    });
+    if (changed !== undefined)
+      return {
+        error: `Its skills in the run folder are not the ones its version holds (skills/${changed}), so it did not start: run the automation again.`,
+      };
+    return {
+      skillsDir: this.deps.runFolder.skillsDir(workspaceId, run.id),
+      pluginDir: `${this.deps.runFolder.attemptDir(workspaceId, run.id, stepId, record.attempt)}/plugin`,
+    };
+  }
+
+  /**
    * A step a restart put back in line with its session (`recoverAfterRestart`).
    * It resumes there, with `INTERRUPTED_PROMPT` and the same attempt, keeping
-   * what it set and wrote. When that session is gone, or the person opened
-   * it first, it runs as its next attempt in a new session instead, as a
-   * retry would: it is read-only, so running it again is safe.
+   * what it set and wrote. A reminder cut off resumes under the reminder's
+   * own cap, for what is still missing (`reminderCap`); a first turn, under
+   * the record's. When that session is gone, or the person opened it first,
+   * it runs as its next attempt in a new session instead, as a retry would:
+   * it is read-only, so running it again is safe.
    */
   private async resumeStep(runId: string, stepId: string): Promise<void> {
     const run = this.deps.store.get(runId)!;
@@ -3141,7 +3681,9 @@ export class AutomationService {
     this.starting.add(runId);
     try {
       try {
-        await this.deps.resumeAgent(session, INTERRUPTED_PROMPT);
+        // What is missing cannot be read: the step fails with why, as its end would.
+        const cap = record.reminded ? reminderCap(this.stepIO().missing(runId, stepId)) : undefined;
+        await this.deps.resumeAgent(session, INTERRUPTED_PROMPT, cap);
       } catch (error) {
         if (!this.stepRunning(runId, stepId, attempt)) return;
         // Its pane mounted after the look, before the resume spawned: opened, as if it had been at the look.
@@ -3383,10 +3925,14 @@ export class AutomationService {
   }
 
   /**
-   * A step's turn ended. A stop or a non-zero exit fails it, in the words a
-   * one-step run uses. A clean exit completes it only when every output it
-   * declares is set and every document it must write is written; its
-   * outputs are then kept beside its documents. A clean exit that left
+   * A step's turn ended. A turn that reported itself is recorded first: its
+   * figures on the step and the run's sum, its report in `turn.json`; then
+   * the CLI's own report decides whether it failed (`reportedFailure`). A
+   * turn without one fails on a stop or a non-zero exit, in the words a
+   * one-step run uses. A turn that hit its cap fails with no reminder,
+   * keeping what it set. A clean turn completes the step only when every
+   * output it declares is set and every document it must write is written;
+   * its outputs are then kept beside its documents. A clean turn that left
    * something out is given one reminder turn, the step still running and
    * holding its slot; a second one fails it.
    */
@@ -3396,12 +3942,132 @@ export class AutomationService {
     outcome: TurnOutcome,
     sessionId: string,
   ): void {
-    const failure = turnFailure(outcome);
-    if (failure) {
-      this.settleStep(run.id, record.id, { status: 'failed', error: failure });
+    const { report } = outcome;
+    const loaded = this.definitionOf(run);
+    // A failed init check is the step's error, ahead of the stop it caused.
+    // The end checks again, from the report: the start can miss an init (one
+    // the host could not hand over, one printed before the step's session
+    // was recorded), and a turn that may have run without a server its agent
+    // grants never completes its step.
+    const required = 'definition' in loaded ? requiredServers(loaded.definition, record.id) : [];
+    const initFailure =
+      this.initFailures.get(sessionId) ??
+      ('definition' in loaded && required.length > 0 && report?.init
+        ? (strayServerProblem(required, report.init) ??
+          initProblem(
+            required,
+            report.init,
+            this.stepHarnessName(run, loaded.definition, record.id),
+          ) ??
+          undefined)
+        : undefined);
+    this.initFailures.delete(sessionId);
+    if (report) {
+      // The cap the turn ran under: the step's `max_turns`, else its agent's.
+      this.recordTurn(
+        run,
+        record,
+        outcome,
+        report,
+        'definition' in loaded ? stepCap(loaded.definition, record.id) : undefined,
+      );
+    }
+    let failed: { error: string; atTurnLimit: boolean } | null;
+    if (initFailure !== undefined) failed = { error: initFailure, atTurnLimit: false };
+    else if (report)
+      failed = reportedFailure({ ...outcome, report }, { reminder: record.reminded === true });
+    else {
+      const error = turnFailure(outcome);
+      failed = error ? { error, atTurnLimit: false } : null;
+    }
+    // No init at all: a turn that failed on its own keeps its words; a clean one fails here.
+    const unchecked = failed || report?.init ? null : uncheckedInitProblem(required);
+    if (unchecked) failed = { error: unchecked, atTurnLimit: false };
+    if (failed) {
+      if (failed.atTurnLimit) this.keepOutputs(run, record.id);
+      this.settleStep(run.id, record.id, { status: 'failed', error: failed.error });
       return;
     }
-    const loaded = this.definitionOf(run);
+    this.stepTurnFinished(run, record, sessionId, loaded);
+  }
+
+  /**
+   * One reporting turn, recorded: its figures added to the step
+   * (`withTurnRecorded`, with the step's own cap) and the run's cost summed
+   * again, in one write; then the CLI's own objects appended to the
+   * attempt's `turn.json`. That file is for reading later; a failure to
+   * write it is logged, and the record still holds the figures.
+   */
+  private recordTurn(
+    run: RunRecord,
+    record: StepRun,
+    outcome: TurnOutcome,
+    report: TurnReportView,
+    stepMaxTurns: number | undefined,
+  ): void {
+    const steps = this.stepsOf(run.id).map((candidate) =>
+      candidate.id === record.id ? withTurnRecorded(candidate, report, stepMaxTurns) : candidate,
+    );
+    const costUsd = runCostOf(steps);
+    this.deps.store.update(run.id, {
+      steps,
+      ...(costUsd !== undefined ? { costUsd } : {}),
+      updatedAt: this.iso(),
+    });
+    try {
+      this.deps.runFolder.appendTurn(
+        run.attribution.workspaceId ?? '',
+        run.id,
+        record.id,
+        record.attempt,
+        {
+          endedAt: this.iso(),
+          exitCode: outcome.exitCode,
+          ...(outcome.stopped !== undefined ? { stopped: outcome.stopped } : {}),
+          ...(report.maxTurns !== undefined ? { maxTurns: report.maxTurns } : {}),
+          ...(report.raw.init !== undefined ? { init: report.raw.init } : {}),
+          ...(report.raw.result !== undefined ? { result: report.raw.result } : {}),
+          otherLines: report.otherLines,
+        },
+      );
+    } catch (error) {
+      console.error(`Could not write turn.json for run ${run.id}, step ${record.id}.`, error);
+    }
+  }
+
+  /**
+   * A step that hit its turn cap keeps what it set: its outputs go beside
+   * its documents, as a completed step's do, though it failed. Nothing is
+   * written when it set none (the step tools never record an empty set). A
+   * failure to write them is logged; the step fails in its own words either
+   * way, and its record keeps the outputs.
+   */
+  private keepOutputs(run: RunRecord, stepId: string): void {
+    const record = this.stepsOf(run.id).find((candidate) => candidate.id === stepId);
+    if (!record?.outputs) return;
+    try {
+      const dir = this.deps.runFolder.attemptDir(
+        run.attribution.workspaceId ?? '',
+        run.id,
+        stepId,
+        record.attempt,
+      );
+      this.deps.runFolder.writeJson(dir, 'outputs.json', record.outputs);
+    } catch (error) {
+      console.error(`Could not write outputs.json for run ${run.id}, step ${stepId}.`, error);
+    }
+  }
+
+  /**
+   * A step's turn ended cleanly: it completes when nothing it declares is
+   * missing, is reminded once when something is, and fails after that.
+   */
+  private stepTurnFinished(
+    run: RunRecord,
+    record: StepRun,
+    sessionId: string,
+    loaded: LoadedDefinition,
+  ): void {
     if ('problem' in loaded) {
       this.failRun(run.id, loaded.problem);
       return;
@@ -3466,7 +4132,7 @@ export class AutomationService {
     // Called before this returns, as before; a synchronous throw lands in the same catch.
     void (async () => {
       try {
-        await this.deps.remindAgent(session, reminderPrompt(missing));
+        await this.deps.remindAgent(session, reminderPrompt(missing), reminderCap(missing));
         if (!this.stepRunning(run.id, record.id, attempt)) {
           this.endOrphanTurn(session.id);
           return;
@@ -3568,12 +4234,7 @@ export class AutomationService {
    * cannot go on without it: the file is gone, or reading it failed
    * (`error`), which a later read may not.
    */
-  private definitionOf(
-    run: RunRecord,
-  ):
-    | { definition: RunDefinition }
-    | { problem: string; gone: true }
-    | { problem: string; gone: false; error: unknown } {
+  private definitionOf(run: RunRecord): LoadedDefinition {
     const workspaceId = run.attribution.workspaceId ?? '';
     try {
       const definition = this.deps.runFolder.readDefinition(workspaceId, run.id);
@@ -3703,25 +4364,151 @@ export class AutomationService {
     }
   }
 
-  /** Read and resolve one workspace's file. False when the workspace went away meanwhile. */
+  /** Read and resolve one workspace's folder, whole. False when the workspace went away meanwhile. */
   private async load(workspaceId: string): Promise<boolean> {
     const factory = this.factories.get(workspaceId);
     if (!factory) return false;
-    const loaded = await factory.file.load();
+    let read: FactoryRead;
+    try {
+      const { exists, files } = await factory.folder.read();
+      read = { exists, files, parse: parseFactory(files) };
+    } catch (error) {
+      // Nothing in it can be told apart from the failure: it is one issue, and nothing it ran is removed.
+      console.error(`Could not read ${workspaceId}'s factory folder.`, error);
+      read = unreadFolder(factory.read.exists, error);
+    }
     if (this.factories.get(workspaceId) !== factory) return false;
     const checkedBefore = factory.resolved.some((entry) => pollOf(entry) !== null);
-    factory.loaded = loaded;
-    this.resolveAll(workspaceId, factory);
+    factory.read = read;
+    // Read once, at the folder's first load: afterwards only `reapply` replaces it.
+    if (!factory.storeRead) {
+      factory.applied = this.readApplied(factory.folder.folderPath);
+      factory.storeRead = true;
+    }
+    this.reapply(workspaceId, factory);
     this.sweepCheckLogs(workspaceId, factory, checkedBefore);
     return true;
   }
 
+  /** A folder's applied version, parsed from its texts; none when the store has none, or cannot say. */
+  private readApplied(folder: string): WorkspaceFactory['applied'] {
+    let record: AppliedFactory | null;
+    try {
+      record = this.deps.appliedStore.read(folder);
+    } catch (error) {
+      // The folder then applies as on its first start, which runs nothing a file does not say.
+      console.error(
+        `Could not read ${folder}'s applied factory; it applies as on a first start.`,
+        error,
+      );
+      record = null;
+    }
+    if (!record) return null;
+    try {
+      return { record, parse: parseFactory(factoryFilesOf(record.texts, skillFilesOf(record))) };
+    } catch (error) {
+      console.error(
+        `Could not parse ${folder}'s applied factory; it applies as on a first start.`,
+        error,
+      );
+      return null;
+    }
+  }
+
   /**
-   * Remove the logs of checks a file that loaded cleanly no longer has (an
-   * automation renamed or removed), at start-up as after a reload. A file
+   * Decide what of a folder runs, from its latest read and its applied
+   * version, and resolve that: the read, when it applies (as a unit, or,
+   * before the folder's first clean apply, entry by entry); otherwise the
+   * applied version, less the entries this read removes, each with that
+   * version's agents. What applied is persisted, and only when it changed.
+   * No I/O but that write, and no parse: `syncWorkspaces` calls it on every
+   * workspace write.
+   */
+  private reapply(workspaceId: string, factory: WorkspaceFactory): void {
+    // Not read yet: there is nothing to decide, and nothing may overwrite the store.
+    if (!factory.storeRead) return;
+    const { read, applied } = factory;
+    const ask = (agent: AgentDefinition, checkout: CheckoutKind) =>
+      this.deps.agentHarness(workspaceId, agentQuery(agent, checkout));
+    // Each changed entry's agents asked once, for both what blocks it and what it waits for.
+    const asked = new Map<Automation, ReturnType<typeof agentIssues>>();
+    const issuesOf = (automation: Automation) => {
+      let issues = asked.get(automation);
+      if (!issues) {
+        issues = agentIssues(automation, read.parse.agents, ask);
+        asked.set(automation, issues);
+      }
+      return issues;
+    };
+    const decision = decideApply({
+      read: read.parse,
+      applied: applied && { parse: applied.parse, clean: applied.record.clean },
+      problemsOf: (automation) => issuesOf(automation).problems,
+      waitsOf: (automation) => issuesOf(automation).waits,
+    });
+    if (decision.kind === 'keeps' && applied) {
+      factory.standing = { decision, appliedAt: applied.record.appliedAt };
+      const removed = new Set(decision.removed);
+      const running = applied.parse.automations.filter((entry) => !removed.has(entry.name));
+      this.resolveAll(workspaceId, factory, running, applied.parse.agents, applied.parse.skills);
+      return;
+    }
+    factory.standing = undefined;
+    // A first start keeps what its entries use; a clean apply, every text and skill it read.
+    const clean = decision.kind === 'applies';
+    const texts = clean
+      ? appliedTexts(read.files, read.parse)
+      : appliedTexts(read.files, read.parse, read.parse.automations);
+    const skills = clean
+      ? appliedSkills(read.parse)
+      : appliedSkills(read.parse, read.parse.automations);
+    this.keepApplied(factory, texts, skills, clean);
+    this.resolveAll(
+      workspaceId,
+      factory,
+      read.parse.automations,
+      read.parse.agents,
+      read.parse.skills,
+    );
+  }
+
+  /** Persist what applied when it differs from what is kept; `appliedAt` moves only when a text or a skill does. */
+  private keepApplied(
+    factory: WorkspaceFactory,
+    texts: Record<string, string>,
+    skills: Record<string, AppliedSkill>,
+    clean: boolean,
+  ): void {
+    const kept = factory.applied?.record;
+    // A skill compares by its hash, which covers its bytes; a version kept with none holds none.
+    const filesOf = (version: {
+      texts: Record<string, string>;
+      skills?: Record<string, AppliedSkill>;
+    }) => stableStringify({ texts: version.texts, skills: skillHashesOf(version.skills) });
+    const sameFiles = kept !== undefined && filesOf(kept) === filesOf({ texts, skills });
+    if (sameFiles && kept.clean === clean) return;
+    const record: AppliedFactory = {
+      folder: factory.folder.folderPath,
+      appliedAt: sameFiles ? kept.appliedAt : this.iso(),
+      clean,
+      texts,
+      ...(Object.keys(skills).length > 0 ? { skills } : {}),
+    };
+    factory.applied = { record, parse: factory.read.parse };
+    try {
+      this.deps.appliedStore.write(record);
+    } catch (error) {
+      // It runs regardless; a restart decides again, from the files and what the store last kept.
+      console.error(`Could not keep ${record.folder}'s applied factory.`, error);
+    }
+  }
+
+  /**
+   * Remove the logs of checks a folder that read cleanly no longer has (an
+   * automation renamed or removed), at start-up as after a reload. A read
    * with issues keeps them all, as it keeps its lists: it may be hiding an
-   * entry behind a typo. Only a file that has a poll entry, or had one at
-   * its last load, is swept, so a workspace that never checks is never
+   * entry behind a typo. So does a folder that does not apply. Only a folder that has a poll entry, or had one at
+   * its last read, is swept, so a workspace that never checks is never
    * looked at. A failure costs disk, not the load.
    */
   private sweepCheckLogs(
@@ -3729,7 +4516,7 @@ export class AutomationService {
     factory: WorkspaceFactory,
     checkedBefore: boolean,
   ): void {
-    if (factory.loaded.spec.issues.length > 0) return;
+    if (holdsLists(factory)) return;
     const names = factory.resolved
       .filter((entry) => pollOf(entry) !== null)
       .map((entry) => entry.automation.name);
@@ -3741,10 +4528,21 @@ export class AutomationService {
     }
   }
 
-  private resolveAll(workspaceId: string, factory: WorkspaceFactory): void {
-    factory.resolved = factory.loaded.spec.automations.map((automation) =>
-      this.resolve(workspaceId, automation),
+  /** Resolve what runs, each entry against the agents and skills of the version it comes from; their warnings once each. */
+  private resolveAll(
+    workspaceId: string,
+    factory: WorkspaceFactory,
+    automations: readonly Automation[],
+    agents: Readonly<Record<string, AgentDefinition>>,
+    skills: Readonly<Record<string, SkillDefinition>>,
+  ): void {
+    factory.resolved = automations.map((automation) =>
+      this.resolve(workspaceId, automation, agents, skills),
     );
+    const warnings = new Map<string, FactoryNotice>();
+    for (const entry of factory.resolved)
+      for (const warning of entry.warnings ?? []) warnings.set(stableStringify(warning), warning);
+    factory.warnings = [...warnings.values()];
   }
 
   /**
@@ -3759,10 +4557,12 @@ export class AutomationService {
     for (const key of keys) {
       if (!this.deps.store.lastFired(key)) this.deps.store.setLastFired(key, this.iso());
     }
-    // A file that did not load cleanly may be hiding an entry behind a
-    // typo: its workspace's lists are kept until the file says otherwise,
+    // A folder that did not read cleanly may be hiding an entry behind a
+    // typo: its workspace's lists are kept until the files say otherwise,
     // so fixing the typo catches up instead of starting from scratch.
     // An agent's addition is kept the same way, so its mark survives too.
+    // So is a folder that does not apply: an entry saved meanwhile is not
+    // running yet, and would lose its marks.
     const kept = new Set(
       resolved
         .filter((entry) => entry.automation.trigger.kind === 'event' || pollOf(entry))
@@ -3770,7 +4570,7 @@ export class AutomationService {
     );
     const named = new Set(resolved.map(automationKey));
     for (const [workspaceId, factory] of this.factories) {
-      if (factory.loaded.spec.issues.length === 0) continue;
+      if (!holdsLists(factory)) continue;
       for (const key of this.deps.store.seenKeys())
         if (key.startsWith(`${workspaceId} `)) kept.add(key);
       for (const key of this.deps.store.addedKeys())
@@ -3779,7 +4579,7 @@ export class AutomationService {
     // A revocation is kept through a broken file too: the entry it guards is still in there.
     const revoked = new Set(named);
     for (const [workspaceId, factory] of this.factories) {
-      if (factory.loaded.spec.issues.length === 0) continue;
+      if (!holdsLists(factory)) continue;
       for (const key of this.deps.store.revokedKeys())
         if (key.startsWith(`${workspaceId} `)) revoked.add(key);
     }
@@ -3807,9 +4607,16 @@ export class AutomationService {
   /**
    * What an entry resolves to in its workspace, or why it cannot run. Which
    * tools, actions, scopes, connections and events exist is the runner's to
-   * say; each problem names the one that was asked for.
+   * say; each problem names the one that was asked for. `agents` and
+   * `skills` are the folder's, by name: what a step's `agent:` names, and
+   * what that agent's `skills:` name.
    */
-  private resolve(workspaceId: string, automation: Automation): Resolved {
+  private resolve(
+    workspaceId: string,
+    automation: Automation,
+    agents: Readonly<Record<string, AgentDefinition>>,
+    skills: Readonly<Record<string, SkillDefinition>>,
+  ): Resolved {
     const workspace = this.deps.getWorkspaces().find((candidate) => candidate.id === workspaceId);
     const base = automationVersion(automation);
     const unable = (problem: string): Resolved => ({
@@ -3817,6 +4624,7 @@ export class AutomationService {
       automation,
       version: base,
       problem,
+      ...(isStepsEntry(automation) ? { agents } : {}),
     });
     const { trigger } = automation;
 
@@ -3903,7 +4711,8 @@ export class AutomationService {
     }
 
     // The checks above are a steps entry's too; the rest are its own.
-    if (isStepsEntry(automation)) return this.resolveSteps(workspaceId, automation, source, event);
+    if (isStepsEntry(automation))
+      return this.resolveSteps(workspaceId, automation, agents, skills, source, event);
     const { run } = automation;
 
     if (run.kind === 'tool') {
@@ -3965,23 +4774,37 @@ export class AutomationService {
   /**
    * A `steps:` entry in its workspace, after the trigger and event checks it
    * shares with a `run:` entry. When more than one thing is wrong, the
-   * problem is the first of: its scope; each step in file order (an action
-   * the workspace lacks, then one that does not apply to the items); item
-   * fields the connection lacks; `run:` steps on Windows; the harness, which
-   * only an entry with an agent step needs.
+   * problem is the first of: its scope; each step in file order (an agent
+   * the folder lacks, an action the workspace lacks, then one that does not
+   * apply to the items); item fields the connection lacks; `run:` steps on
+   * Windows; the default harness, which only an agent step naming no agent
+   * runs on; then each agent's harness, as the host answers for it.
+   *
+   * A step without `agent:` resolves exactly as in slice 1: its version and
+   * definition are unchanged by the agents a sibling step names.
    */
   private resolveSteps(
     workspaceId: string,
     automation: StepsAutomation,
+    agents: Readonly<Record<string, AgentDefinition>>,
+    skills: Readonly<Record<string, SkillDefinition>>,
     source: ItemSource | undefined,
     event: EventSource | undefined,
   ): Resolved {
     const workspace = this.deps.getWorkspaces().find((candidate) => candidate.id === workspaceId);
-    const unable = (problem: string): Resolved => ({
+    const unable = (
+      problem: string,
+      warnings: FactoryNotice[] = [],
+      servers: { recheck?: true; unasked?: true } = {},
+    ): Resolved => ({
       workspaceId,
       automation,
       version: automationVersion(automation),
       problem,
+      agents,
+      skills,
+      ...(warnings.length > 0 ? { warnings } : {}),
+      ...servers,
     });
     const { steps } = automation;
 
@@ -3989,8 +4812,32 @@ export class AutomationService {
     if ('problem' in scoped) return unable(scoped.problem);
 
     const actions: RunDefinition['actions'] = {};
+    // By step id, each step's agent as the run's definition keeps it; by agent, its hash for the version.
+    const stepAgents: Record<string, AgentRequirements> = {};
+    const agentHashes: Record<string, string> = {};
+    // By name, every skill a step's agent names: the run copies these, and its definition holds their hashes.
+    const stepSkills: Record<string, SkillDefinition> = {};
     for (const step of steps) {
-      if (step.kind !== 'agent' || step.action === undefined) continue;
+      if (step.kind !== 'agent') continue;
+      if (step.agent !== undefined) {
+        // `parseFactory` keeps no entry whose agent is not valid; this guards an entry saved on its own.
+        if (!Object.prototype.hasOwnProperty.call(agents, step.agent))
+          return unable(
+            `its step \`${step.id}\` names the agent \`${step.agent}\`, and agents/${step.agent}.md is not in this factory`,
+          );
+        const agent = agents[step.agent];
+        // Nor any agent whose skill is not valid: the same guard, for what its run would copy.
+        for (const skill of agent.skills) {
+          if (!Object.prototype.hasOwnProperty.call(skills, skill))
+            return unable(
+              `agents/${agent.name}.md names the skill \`${skill}\`, and skills/${skill}/ is not in this factory`,
+            );
+          stepSkills[skill] = skills[skill];
+        }
+        stepAgents[step.id] = agentRequirements(agent);
+        agentHashes[agent.name] = agent.hash;
+      }
+      if (step.action === undefined) continue;
       const named = actionNamed(workspace, step.action, automation, source);
       if ('problem' in named) return unable(named.problem);
       const { action } = named;
@@ -4015,17 +4862,32 @@ export class AutomationService {
     if (this.deps.platform === 'win32' && steps.some((step) => step.kind === 'run'))
       return unable(NO_POSIX_SHELL);
     const hasAgentStep = steps.some((step) => step.kind === 'agent');
-    const refused = hasAgentStep ? this.harnessProblem(workspaceId) : null;
+    // A step that names no agent runs on the workspace's default harness.
+    const onDefault = steps.some((step) => step.kind === 'agent' && step.agent === undefined);
+    const refused = onDefault ? this.stepHarnessProblem(workspaceId) : null;
     if (refused) return unable(refused);
+    // Each agent's harness, as the host answers for it, for this entry's checkout kind: a problem stops the
+    // entry, and so does a CLI that could not be asked (`stops`); a wait or a warning stops nothing. Each
+    // answer's `knownTools` go into the definition, for the approval card (review S1).
+    const answers = new Map<string, AgentHarnessAnswer>();
+    const { problems, stops, warnings } = agentIssues(automation, agents, (agent, checkout) => {
+      const answer = this.deps.agentHarness(workspaceId, agentQuery(agent, checkout));
+      answers.set(agent.name, answer);
+      return answer;
+    });
+    if (problems.length > 0) {
+      const [first] = problems;
+      return unable(first.message, warnings, first.path === 'mcpServers' ? { recheck: true } : {});
+    }
+    if (stops.length > 0)
+      return unable(stops[0].message, warnings, { recheck: true, unasked: true });
 
-    // The bodies live in settings, not the file: editing one asks again.
+    // The bodies live in settings, not the file: editing one asks again. So
+    // does editing an agent file a step names: its hash is in the version.
     const bodies = Object.fromEntries(
       Object.entries(actions).map(([id, action]) => [id, action.body]),
     );
-    const version = automationVersion(
-      automation,
-      Object.keys(bodies).length > 0 ? stableStringify(bodies) : undefined,
-    );
+    const version = automationVersion(automation, stepsResolvedBody(bodies, agentHashes));
     const firstAgent = steps.find((step): step is AgentStep => step.kind === 'agent');
     return {
       workspaceId,
@@ -4033,13 +4895,43 @@ export class AutomationService {
       version,
       source,
       event,
+      agents,
+      skills,
+      ...(warnings.length > 0 ? { warnings } : {}),
       steps: {
-        definition: { automation, version, actions },
+        definition: {
+          automation,
+          version,
+          actions,
+          ...(Object.keys(stepAgents).length > 0
+            ? {
+                agents: Object.fromEntries(
+                  Object.entries(stepAgents).map(([id, agent]) => [
+                    id,
+                    withKnownTools(agent, answers.get(agent.name)?.knownTools),
+                  ]),
+                ),
+              }
+            : {}),
+          // Every run of an item entry has a work item, and no other entry's run works in one.
+          checkout: entryCheckoutKind(automation),
+          ...(entryReadsItems(automation) ? { readsItems: true as const } : {}),
+          ...(Object.keys(stepSkills).length > 0
+            ? {
+                skills: Object.fromEntries(
+                  Object.keys(stepSkills)
+                    .sort()
+                    .map((name) => [name, stepSkills[name].hash]),
+                ),
+              }
+            : {}),
+        },
         ...(scoped.scope ? { scope: scoped.scope } : {}),
         hasAgentStep,
         startsInDryRun:
           hasAgentStep || steps.some((step) => step.kind === 'run' && step.dryRun === 'run'),
         ...(firstAgent?.action !== undefined ? { byHandLabel: actions[firstAgent.id].name } : {}),
+        skills: stepSkills,
       },
     };
   }
@@ -4050,6 +4942,19 @@ export class AutomationService {
     return problem
       ? `${name} can’t run read-only automation sessions: ${problem.replace(/\.$/, '')}`
       : null;
+  }
+
+  /**
+   * Why the harness cannot run a steps entry's agent steps, as the entry's
+   * problem: it cannot run read-only (`harnessProblem`), or its extra
+   * arguments override a flag a step's reporting turn is launched with. A
+   * legacy agent entry's turn does not report, so only steps entries ask this.
+   */
+  private stepHarnessProblem(workspaceId: string): string | null {
+    const readOnly = this.harnessProblem(workspaceId);
+    if (readOnly) return readOnly;
+    const { name, stepProblem } = this.deps.agentHarness(workspaceId);
+    return stepProblem ? `${name} can’t run automation steps: ${stepProblem}` : null;
   }
 
   /** An automation acts on its own workspace, as itself. */
@@ -4166,8 +5071,11 @@ export class AutomationService {
    * to one open run per item. Its definition — the entry and every action a
    * step names, as of now — is written to its folder before it is recorded:
    * it is what the approval shows and what the run executes, whatever is
-   * edited later. A poll's item is written beside it (`item.json`), the
-   * object as its check printed it.
+   * edited later. So is its own copy of every skill a step's agent names
+   * (`skills/`), from the version it resolved against, which each attempt
+   * checks against the definition's hashes before it launches. A poll's
+   * item is written beside them (`item.json`), the object as its check
+   * printed it.
    */
   private fireSteps(
     entry: Resolved,
@@ -4179,7 +5087,7 @@ export class AutomationService {
       const lined = this.inLine(entry);
       if (lined) return lined;
     }
-    const { definition, scope } = entry.steps!;
+    const { definition, scope, skills } = entry.steps!;
     const { mode, asks } = this.effectiveMode(entry, trigger);
     const base = this.newStepsRun(entry, trigger, mode, item);
     const run: RunRecord =
@@ -4189,6 +5097,15 @@ export class AutomationService {
     let writing = 'definition';
     try {
       this.deps.runFolder.writeDefinition(entry.workspaceId, run.id, definition);
+      writing = 'skills';
+      if (definition.skills)
+        this.deps.runFolder.writeSkills(
+          entry.workspaceId,
+          run.id,
+          Object.fromEntries(
+            Object.keys(definition.skills).map((name) => [name, skills[name].files]),
+          ),
+        );
       writing = 'item';
       if (item?.object !== undefined)
         this.deps.runFolder.writeItem(entry.workspaceId, run.id, item.object);
@@ -4662,20 +5579,11 @@ function checkViewOf(trigger: PollTrigger, outcome: CheckState['outcome']): Chec
   };
 }
 
-/** How an unattended turn's process ended, as the host reports it. */
-type TurnOutcome = { exitCode: number; lastLine?: string; stopped?: string };
-
-/** Why an unattended turn did not finish, in the words every automation run uses; null when it exited cleanly. */
-function turnFailure(outcome: TurnOutcome): string | null {
-  if (outcome.stopped) {
-    // Stopped before it answered — by the person, the limit, or a
-    // signal — whatever code the process exited with.
-    return `It stopped before finishing: ${outcome.stopped.trim().replace(/[.\s]+$/, '')}.`;
-  }
-  if (outcome.exitCode === 0) return null;
-  const said = outcome.lastLine?.trim().replace(/[.\s]+$/, '');
-  return `It stopped before finishing (exit ${outcome.exitCode})${said ? `: ${said}` : ''}.`;
-}
+/** A started run's definition, read from its folder, or why it cannot be (`definitionOf`). */
+type LoadedDefinition =
+  | { definition: RunDefinition }
+  | { problem: string; gone: true }
+  | { problem: string; gone: false; error: unknown };
 
 /** What an agent run says while its turn runs. */
 function runningIn(sessionName: string): string {
@@ -4866,9 +5774,57 @@ function recordedItem(run: RunRecord, item: RunItem): SourceItem {
   };
 }
 
-/** A problem with one entry, rather than with the file as a whole. */
+/** A problem with one entry of factory.yml, rather than with the file as a whole. */
 function isEntryIssue(issue: FactorySpecIssue): boolean {
   return issue.path.startsWith('automations[');
+}
+
+/** The file an entry of that name lives in, as `whereIs` found it. */
+function homeFile(name: string, where: 'factory.yml' | 'file'): string {
+  return where === 'factory.yml' ? 'factory.yml' : `automations/${name}.yaml`;
+}
+
+/** An applied version's skill files, by skill name, as `factoryFilesOf` takes them; none for a version kept with none. */
+function skillFilesOf(record: AppliedFactory): Record<string, AppliedSkill['files']> | undefined {
+  if (!record.skills) return undefined;
+  const files: Record<string, AppliedSkill['files']> = {};
+  for (const name of Object.keys(record.skills)) files[name] = record.skills[name].files;
+  return files;
+}
+
+/** Each skill's hash by its name, sorted: what "the same skills" compares. */
+function skillHashesOf(skills: Record<string, AppliedSkill> | undefined): Record<string, string> {
+  const hashes: Record<string, string> = {};
+  for (const name of Object.keys(skills ?? {}).sort()) hashes[name] = skills![name].hash;
+  return hashes;
+}
+
+/**
+ * Whether a folder keeps its workspace's lists (seen items, additions,
+ * revocations) and check logs whatever its entries say: it read with
+ * issues, or it does not apply, so what runs is not what the files say.
+ */
+function holdsLists(factory: Pick<WorkspaceFactory, 'read' | 'standing'>): boolean {
+  return factory.read.parse.issues.length > 0 || factory.standing !== undefined;
+}
+
+/** An entry as an applied version has it: its factory.yml item, or its whole file; null when it has none. */
+function appliedEntryText(
+  applied: { record: AppliedFactory; parse: FactoryParseResult },
+  name: string,
+): string | null {
+  const entry = applied.parse.automations.find((candidate) => candidate.name === name);
+  if (!entry?.file) return null;
+  const text = applied.record.texts[entry.file];
+  if (text === undefined) return null;
+  return entry.file === 'factory.yml' ? automationEntryText(text, name) : text;
+}
+
+/** What keeps a folder from applying, as a save's result says it: `<file>:<line>: <message>`. */
+function describeBlocking(issue: FactorySpecIssue): string {
+  const where = [issue.file, issue.line].filter((part) => part !== undefined).join(':');
+  const message = issue.message.trim().replace(/\.$/, '');
+  return where ? `${where}: ${message}` : message;
 }
 
 /** An issue as a reason: where it is, then what is wrong. */
@@ -4878,6 +5834,25 @@ function describeIssue(issue: FactorySpecIssue): string {
 }
 
 /** A save refused, with every reason: what the agent reads and acts on. */
+/**
+ * Why an entry cannot be saved because a step names an agent whose file is
+ * in the folder but has problems of its own (or could not be read): said as
+ * the folder's issues say it, never as a file that is not there. Null when
+ * every agent it names is valid, or not there at all (which `resolveSteps`
+ * says).
+ */
+function agentWithProblems(automation: Automation, read: FactoryParseResult): string | null {
+  if (!isStepsEntry(automation)) return null;
+  for (const step of automation.steps) {
+    if (step.kind !== 'agent' || step.agent === undefined) continue;
+    if (Object.prototype.hasOwnProperty.call(read.agents, step.agent)) continue;
+    const file = `agents/${step.agent}.md`;
+    if (read.present.includes(file) || read.present.includes('agents/'))
+      return `its step \`${step.id}\` names the agent \`${step.agent}\`, which has problems of its own in ${file}; save it once they are fixed`;
+  }
+  return null;
+}
+
 function notSaved(reasons: string[]): Error {
   return new Error(
     `Not saved: ${reasons.map((reason) => reason.trim().replace(/\.$/, '')).join('; ')}.`,

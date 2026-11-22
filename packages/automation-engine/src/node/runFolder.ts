@@ -7,7 +7,8 @@ import {
 } from '@consola/factory-spec';
 import type { RunFolderPort } from '../ports';
 import { MAX_ARTIFACT_BYTES, type RunDefinition } from '../steps/definition';
-import { workspaceDataDir } from './factoryFile';
+import type { StepTurnFile } from '../views';
+import { workspaceDataDir } from './factoryFolder';
 
 const TOKEN = /^[A-Za-z0-9_-]+$/;
 const LEGACY_STEP = /^step-\d+$/;
@@ -23,6 +24,59 @@ function token(what: string, value: string, pattern: RegExp): string {
 
 function isMissing(error: unknown): boolean {
   return (error as NodeJS.ErrnoException)?.code === 'ENOENT';
+}
+
+/** `runs/<run>/skills/`: the run's copy of its skills. */
+const SKILLS = 'skills';
+
+/** A skill's name as its folder is named (`skills/<name>/`), or a throw. */
+function skillName(name: string): string {
+  if (typeof name !== 'string' || !AUTOMATION_NAME_PATTERN.test(name))
+    throw new Error(`Not a skill name: ${JSON.stringify(name)}.`);
+  return name;
+}
+
+/** A path segment that stays where it is put: not empty, `.` or `..`, no separator or NUL. */
+const isSegment = (segment: string) =>
+  segment !== '' && segment !== '.' && segment !== '..' && !/[\\/\0]/.test(segment);
+
+/** A skill file's path as its segments; it never leaves the skill's folder. */
+function segmentsOf(name: string, relative: string): string[] {
+  const segments = typeof relative === 'string' ? relative.split('/') : [];
+  if (segments.length === 0 || !segments.every(isSegment))
+    throw new Error(`${JSON.stringify(`${name}/${relative}`)} is not a path inside a skill.`);
+  return segments;
+}
+
+function lstatOrNull(at: string): fs.Stats | null {
+  try {
+    return fs.lstatSync(at);
+  } catch (error) {
+    if (isMissing(error)) return null;
+    throw error;
+  }
+}
+
+const byPath = (a: { path: string }, b: { path: string }) =>
+  a.path < b.path ? -1 : a.path > b.path ? 1 : 0;
+
+/** One skill folder's files, sorted by path; null when it is missing or holds anything but folders and regular files. */
+function readSkillFolder(dir: string): Array<{ path: string; bytes: Uint8Array }> | null {
+  if (lstatOrNull(dir)?.isDirectory() !== true) return null;
+  const files: Array<{ path: string; bytes: Uint8Array }> = [];
+  const walk = (relative: string): boolean => {
+    const at = relative === '' ? dir : path.join(dir, ...relative.split('/'));
+    const stats = fs.lstatSync(at);
+    if (stats.isDirectory()) {
+      for (const entry of fs.readdirSync(at))
+        if (!walk(relative === '' ? entry : `${relative}/${entry}`)) return false;
+      return true;
+    }
+    if (!stats.isFile()) return false;
+    files.push({ path: relative, bytes: new Uint8Array(fs.readFileSync(at)) });
+    return true;
+  };
+  return walk('') ? files.sort(byPath) : null;
 }
 
 /** The file holds the old content or the new, and a write that fails leaves no temporary beside it. */
@@ -135,6 +189,77 @@ export class RunFolder implements RunFolderPort {
     return path.join(this.runDir(workspaceId, runId), stepId, String(attempt));
   }
 
+  public skillsDir(workspaceId: string, runId: string): string {
+    return path.join(this.runDir(workspaceId, runId), SKILLS);
+  }
+
+  /**
+   * The run's copy of its skills, swapped in whole: every name and path is
+   * checked before anything is written, the files go into a staging folder
+   * beside it, and that folder is renamed over any copy there was.
+   */
+  public writeSkills(
+    workspaceId: string,
+    runId: string,
+    skills: Readonly<Record<string, ReadonlyArray<{ path: string; bytes: Uint8Array }>>>,
+  ): void {
+    const placed = Object.keys(skills).map((name) => ({
+      name: skillName(name),
+      files: skills[name].map((entry) => ({
+        segments: segmentsOf(name, entry.path),
+        bytes: entry.bytes,
+      })),
+    }));
+    const target = this.skillsDir(workspaceId, runId);
+    const staging = `${target}.tmp-${process.pid}`;
+    const old = `${target}.old-${process.pid}`;
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.rmSync(staging, { recursive: true, force: true });
+    try {
+      fs.mkdirSync(staging);
+      for (const skill of placed) {
+        fs.mkdirSync(path.join(staging, skill.name));
+        for (const entry of skill.files) {
+          const at = path.join(staging, skill.name, ...entry.segments);
+          fs.mkdirSync(path.dirname(at), { recursive: true });
+          fs.writeFileSync(at, entry.bytes);
+        }
+      }
+      fs.rmSync(old, { recursive: true, force: true });
+      const had = fs.existsSync(target);
+      if (had) fs.renameSync(target, old);
+      try {
+        fs.renameSync(staging, target);
+      } catch (error) {
+        if (had) fs.renameSync(old, target);
+        throw error;
+      }
+    } finally {
+      fs.rmSync(staging, { recursive: true, force: true });
+      fs.rmSync(old, { recursive: true, force: true });
+    }
+  }
+
+  /**
+   * Each named skill's files, read without following a link: a skill whose
+   * folder, or anything in it, is not a real folder or a regular file reads
+   * as null, as does one that is not there.
+   */
+  public readSkills(
+    workspaceId: string,
+    runId: string,
+    names: readonly string[],
+  ): Record<string, Array<{ path: string; bytes: Uint8Array }> | null> {
+    const root = this.skillsDir(workspaceId, runId);
+    const read: Record<string, Array<{ path: string; bytes: Uint8Array }> | null> = {};
+    const rootIsFolder = lstatOrNull(root)?.isDirectory() === true;
+    for (const name of names) {
+      skillName(name);
+      read[name] = rootIsFolder ? readSkillFolder(path.join(root, name)) : null;
+    }
+    return read;
+  }
+
   public writeDefinition(workspaceId: string, runId: string, definition: RunDefinition): void {
     const text = JSON.stringify(definition);
     const bytes = Buffer.byteLength(text, 'utf8');
@@ -218,6 +343,32 @@ export class RunFolder implements RunFolderPort {
     if (file !== 'command.json' && file !== 'outputs.json')
       throw new Error(`Not a run file: ${JSON.stringify(file)}.`);
     writeAtomically(path.join(this.confine(dir), file), JSON.stringify(value));
+  }
+
+  /**
+   * `turn.json` in the attempt's folder gains `turn` at the end of its
+   * `turns`, written atomically. A missing file, or one that is not a
+   * `{ turns: [...] }`, counts as empty: the record holds the figures, so a
+   * damaged file only loses the CLI's own objects of earlier turns.
+   */
+  public appendTurn(
+    workspaceId: string,
+    runId: string,
+    stepId: string,
+    attempt: number,
+    turn: StepTurnFile,
+  ): void {
+    const file = path.join(this.attemptDir(workspaceId, runId, stepId, attempt), 'turn.json');
+    let turns: unknown[] = [];
+    try {
+      const existing = JSON.parse(this.readText(file, MAX_DEFINITION_BYTES) ?? '{}') as {
+        turns?: unknown;
+      };
+      if (Array.isArray(existing?.turns)) turns = existing.turns;
+    } catch (error) {
+      if (!(error instanceof SyntaxError)) throw error;
+    }
+    writeAtomically(this.confine(file), JSON.stringify({ turns: [...turns, turn] }));
   }
 
   public tail(

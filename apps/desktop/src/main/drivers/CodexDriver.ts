@@ -115,6 +115,9 @@ export class CodexDriver implements HarnessDriver {
   public readonly configDirEnvVar = 'CODEX_HOME';
   public readonly initialPromptViaArgs = true;
   public readonly retryResumeAsFresh = false;
+  /** Said after its read-only refusal of an agent step (the spec's *Codex and Gemini*). */
+  public readonly agentRefusal =
+    'Steps on Codex arrive later; they need a Codex harness with a home of its own.';
   /** Asked of `codex app-server` from the home directory, like the model list. */
   public readonly usageLimits: UsageLimitReporting = {
     read: async (config) =>

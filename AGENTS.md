@@ -13,6 +13,7 @@ Consola is an Electron desktop application that provides a structured AI-assiste
 ```bash
 pnpm run dev              # Full dev environment (Vite HMR + tsc --watch + Electron auto-restart)
 pnpm run dev:cloud        # Consola Cloud: the API (3100) and the web app (5175)
+pnpm run dev:cloud-region # Consola Cloud's regional cell (3101), set up by its .env
 pnpm run build            # Production build (all processes)
 pnpm start                # Run production build
 pnpm run test:e2e         # Run Playwright E2E tests
@@ -38,23 +39,58 @@ leave the running app alone, because every restart pulls its window to the
 front. E2E runs themselves are already hidden and unfocusable
 (`src/main/test-mode.ts`); set `CONSOLA_E2E_HEADED=1` to watch them.
 
+No desktop unit test can find or start your own agent CLI: vitest's
+`setupFiles` (`src/main/drivers/realCliIsolation.setup.ts`, which needs
+`pool: 'forks'`) gives each test process an empty home and config dirs, a
+plain login shell and a PATH without `claude`, `codex` or `agy`. Where one is
+installed in `/opt/homebrew/bin` or `/usr/local/bin`, or sits on the login
+shell's PATH (`/etc/paths`, `/etc/paths.d`, `/etc/profile`), no home or PATH
+hides it, so the suite refuses to run and names the file to move.
+
 All commands above run from the repository root. The pnpm workspace contains
 `apps/desktop` (`consola`), `apps/website` (`@consola/website`),
-`apps/cloud-api` (`@consola/cloud-api`), `apps/cloud-web` (`@consola/cloud-web`),
-`packages/factory-spec` (`@consola/factory-spec`, MIT) and
-`packages/automation-engine` (`@consola/automation-engine`). Turborepo
+`apps/cloud-global` (`@consola/cloud-global`), `apps/cloud-region`
+(`@consola/cloud-region`), `apps/cloud-web` (`@consola/cloud-web`),
+`packages/factory-spec` (`@consola/factory-spec`, MIT),
+`packages/automation-engine` (`@consola/automation-engine`),
+`packages/sandbox` (`@consola/sandbox`) and `packages/cloud-contract`
+(`@consola/cloud-contract`). Turborepo
 orchestrates builds, tests, and typechecking. Paths below beginning with `src/`,
 `scripts/`, or `dist/` are relative to `apps/desktop`. Use
 `pnpm --filter consola exec <tool>` for app-specific tools.
 
 Tooling runs on one exact Node version, named in three places that move
-together: `engines.node` (which Vercel reads), CI and the release build. Pin
+together: `engines.node` (which Vercel reads), CI's setup
+(`.github/actions/setup/action.yml`) and the release build. Pin
 an exact version, never a range: Vercel resolves a range to the newest major
 it offers, so a range can move the website onto a new Node unannounced.
 Node 26 ships without corepack, so `vercel.json`
 runs pnpm through `npx pnpm@<version>`: keep that version equal to
 `packageManager`. Electron bundles its own Node, so none of this changes the
 app's runtime.
+
+### CI
+
+CI (`.github/workflows/ci.yml`) runs a pull request's checks only where its
+change can fail them. `.github/scripts/ci-scope.mjs` asks Turborepo which
+packages the change affects (`turbo ls --affected`: the changed packages and
+every package that depends on them), and each job runs for those alone, so
+a change to one cloud app never starts the desktop's macOS jobs. A new
+workspace package gets its own job without the workflow naming it. The
+script also holds three rules the package graph cannot see:
+
+- A change to the desktop checks the website too, because the site's demo
+  imports the desktop's renderer by path, not as a dependency.
+- A change to CI itself, the root `package.json`, `pnpm-workspace.yaml`,
+  `turbo.json` or `patches/` checks everything.
+- A push to main checks everything.
+
+`CI`, the workflow's last job, is the one status check the main branch's
+ruleset requires. It passes when every job it waits on passed or was
+skipped. Desktop E2E runs but does not block a merge yet, because main has
+known failures. CodeQL (`codeql.yml`) and a dependency review run on every
+pull request, and the lint job checks every installed dependency's licence
+(`.github/scripts/check-licenses.mjs`).
 
 ## Architecture Overview
 
@@ -85,6 +121,20 @@ runner's types, type-only, so the renderer never loads the engine's runtime.
 Beside it, `packages/factory-spec` (MIT) holds the `factory.yml` schema,
 parser and Run record that every runner shares.
 
+### Sandboxes
+
+`packages/sandbox` (`@consola/sandbox`, AGPL-3.0-only) is the one interface
+every runner uses to start and drive sandboxes: create one from a template,
+run a command and stream its output, read and write files, expose a port,
+stop it. E2B is the first provider behind it, invisible to users. Code holds
+`Sandboxes` from `sandboxesFrom(provider)`, which checks every request before a
+provider sees it, and checks a capability (`pausing`, `snapshots`) by its
+member, never by which provider it has. Its core does no I/O, which its
+`boundary.test.ts` proves; every provider passes its contract
+(`src/contract.test.ts`), and its in-memory `FakeProvider` is what other
+packages' tests use. Before changing it, or adding a provider, read
+`packages/sandbox/AGENTS.md`.
+
 ### Main Process Key Files
 - `index.ts` - App lifecycle, window management
 - `ipc-handlers.ts` - All IPC message routing
@@ -108,23 +158,39 @@ parser and Run record that every runner shares.
 
 ### Consola Cloud
 
-`apps/cloud-api` (`@consola/cloud-api`, Hono, Better Auth, Drizzle on PGlite or
-Postgres) and `apps/cloud-web` (`@consola/cloud-web`, Vite and React) are the
-company layer's first piece: Google sign-in and the deployment's one
-organisation. Nothing in `apps/desktop` depends on them, and neither imports
-from the desktop, the website or `packages/*`. Setup is in
-`apps/cloud-api/README.md`. Before changing either cloud app, read its own
-`AGENTS.md` (`apps/cloud-api/AGENTS.md`, `apps/cloud-web/AGENTS.md`): it holds
-the layer rules and the dependency rule that keeps them apart.
+`apps/cloud-global` (`@consola/cloud-global`, Hono, Better Auth, Drizzle on
+PGlite or Postgres) and `apps/cloud-web` (`@consola/cloud-web`, Vite and React)
+are the company layer's first piece: Google sign-in and workspaces people make,
+belong to several of and switch between. `cloud-global` is the control plane's
+global part, which every region shares. Every workspace has a region (`eu` or
+`us`), picked when it is made and never changed. What `cloud-global` may store
+is the always-global list in its `AGENTS.md`, pinned by a test; anything else
+belongs in a regional cell. `apps/cloud-region` (`@consola/cloud-region`, Hono, Drizzle on PGlite or
+Postgres) is the regional cell: one copy per region, configured with its
+region, holding what a workspace has there that is not global. It holds no
+accounts (people are referenced by their global id), and every table carries
+the workspace id. Nothing in `apps/desktop` depends on the cloud apps, and none
+imports from the desktop, the website, another app or `packages/*`, with one
+exception: `cloud-global` and `cloud-region` both import
+`packages/cloud-contract` (`@consola/cloud-contract`), what the two agree on:
+the regions, the workspace roles, the claims of the token `cloud-global` mints
+for a cell, and the outbox messages it sends one. It does no I/O, so any layer
+of either app may import it; before changing it, read
+`packages/cloud-contract/AGENTS.md`. Setup is in
+`apps/cloud-global/README.md` and `apps/cloud-region/README.md`. Before
+changing a cloud app, read its own `AGENTS.md` (`apps/cloud-global/AGENTS.md`,
+`apps/cloud-region/AGENTS.md`, `apps/cloud-web/AGENTS.md`): it holds the layer
+rules and the dependency rule that keeps them apart.
 
 The browser talks only to the web app's origin. Vite proxies `/api` to the API,
 so the session cookie is first-party and the API needs no CORS. Better Auth
 owns sign-in and sessions, and its tables are generated
-(`pnpm --filter @consola/cloud-api auth:generate`), never hand-edited. Every
-table that holds company data carries `organization_id`, and a person reaches
-it through `member`.
+(`pnpm --filter @consola/cloud-global auth:generate`), never hand-edited.
+Workspaces are Consola's own routes (`/api/workspaces`), with every route of
+Better Auth's organisation plugin closed. Every table that holds company data
+carries `organization_id`, and a person reaches it through `member`.
 
-`mayJoin` (`apps/cloud-api/src/domain/joinRule.ts`) is checked before an account
+`mayJoin` (`apps/cloud-global/src/domain/joinRule.ts`) is checked before an account
 is created and before every new session. It is open for now (any Google
 account with a verified email), so this deployment is for local use only. The
 later rule that limits it to the company lands in `mayJoin` and so gates every
@@ -801,6 +867,71 @@ a quit mid-command is known after a restart. Such a command is never re-run
 automatically: the restart fails it as interrupted, and Retry warns before it
 runs again.
 
+### A Step's Turn Reports Itself
+
+A step's unattended turns run with `--output-format stream-json`: the driver's
+reader parses it (`createTurnReader`) and `TerminalService` shows Consola's
+lines instead (notice, tool calls, non-JSON lines, summary), so never read such
+a turn from its pane. A non-JSON line loses every escape and control character
+and is marked as the CLI's (`formatCliLine`), so it can neither repaint the
+pane nor pass for Consola's dim lines. Only Ctrl+C reaches the CLI (the PTY
+echoes other keys into the stream), what Consola quotes of the report goes
+through `oneLine`, and the report stays in main. The engine decides failure,
+cost and the reminder's cap from `TurnReportView` (`steps/turnReport.ts`). It
+checks the servers an agent grants against the turn's `init` as it is printed
+and again at the turn's end, so a turn whose `init` never arrived never
+completes a step that grants one. A cap counts one launch's turns: a resume
+after a quit runs under the step's `max_turns` again, a reminder cut off by a
+quit under the reminder's own cap. Attention never reads the
+pane's prose: `working` is the turn's own status, a question comes from hooks
+and non-JSON lines, a limit from `StopFailure` and the stream (OR'd into
+`limit-notice`). The reopen is a plain resume: no stream-json, no `--max-turns`.
+Extra args setting `--output-format`, `--input-format` or `--max-turns` refuse
+steps. Rerun `scripts/claude-steps-canary.mjs` after every CLI upgrade.
+
+### The Factory Folder Applies as a Unit
+
+A workspace's factory is its folder (`factory.yml`, `automations/`, `agents/`,
+`skills/`), polled by `FactoryFolder` (engine `node/`) and parsed only by
+`parseFactory`, which resolves references across files (`parseFactorySpec`
+reads a lone `factory.yml` and refuses `agent:`). `decideApply` decides what
+runs: from the first clean read on, any issue, or a changed entry whose agent's
+harness the host refuses, keeps the last applied version running (per folder in
+`<userData>/factory-applied/`, read once per workspace; the entry as written
+shows it). A removal always applies, recomputed at each read; machine state is
+a per-entry problem, never a rollback; a folder never applied cleanly applies
+entry by entry. A step's agent travels in `RunDefinition.agents`: the host
+launches on its harness with `--model`, refuses one gone since apply, and a
+reopen takes both from the record. New entries go to `factory.yml`, a replace
+where the entry lives; an agent's servers and skills are its driver's to
+compile (below); Open shows only the folder's own files, as text. Canary rows
+16–19: `--model`.
+
+### An Agent's Servers and Skills Are Compiled by Its Driver
+
+An agent's `mcpServers:` and `skills:` reach a step only as its driver compiles
+them (`compileAgent`, pure) or refuses them in words. A harness's servers are
+asked of its CLI (Claude: `mcp_status`, from home), never read from its files,
+and cached per launch identity (`McpServersCache`, main); a failure stays until
+**Check again**, on every entry it stopped. On someone else's pull request or
+issue (an `item` checkout) only claude.ai connectors: the person's own server
+could start, or run its sign-in helper, in the author's checkout. Claude's
+grants: one `--settings` (hooks, `allowedMcpServers`: stdio by name, remote by
+URL), strict dropped only for a connector, narrowed `--allowedTools`, a plugin
+dir in the attempt's folder (`--add-dir`, `Skill`, a deny rule per other skill
+the CLI lists, asked each launch where the session runs). `Session.grants` (not
+in `allowedSessionUpdates`) replays them every launch; skills are copied at
+fire, re-hashed at launch and in the plugin built from them, and a reopen
+loads that plugin only while it still holds them; `init` must show each
+granted server connected, and no server but those and Consola's own. A
+step's session keeps its harness while its run is open (provenance and run
+record, not `attention.holds()`), then loses its grants. "Reads text other
+people wrote" marks runs that carry an item. A card names a whole server's
+tools: Allow from the last answer, a run's approval from its definition,
+which keeps the answer the run was made with (`knownTools`, never a grant).
+Both show each skill's `SKILL.md` as what they accept holds it: Allow the
+version's, a run's approval its own copy's. Canary rows 20–28.
+
 ### Harnesses Are Launch Descriptions
 
 A harness is one configured agent CLI: a binary path, a config directory, and
@@ -1050,7 +1181,9 @@ rules follow:
 - **A server people use over the network offers its source** (AGPL §13). The
   cloud web app links to the source of the version it is running.
 - **Dependencies must be AGPL-compatible**: MIT, ISC, BSD, Apache-2.0,
-  MPL-2.0, LGPL and GPL-3.0 are; GPL-2.0-only is not.
+  MPL-2.0, LGPL and GPL-3.0 are; GPL-2.0-only is not. CI checks every
+  installed dependency's declared licence against the list in
+  `.github/scripts/check-licenses.mjs`.
 
 Outside contributions need a signed CLA (`CLA.md`, checked by
 `.github/workflows/cla.yml`). It is what keeps relicensing — a commercial

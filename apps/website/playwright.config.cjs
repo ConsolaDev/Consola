@@ -3,6 +3,10 @@ const { defineConfig } = require('@playwright/test');
 module.exports = defineConfig({
   testDir: './tests',
   fullyParallel: true,
+  // In CI a stray `test.only` would pass the run on one test.
+  forbidOnly: !!process.env.CI,
+  // CI annotates each failure on the pull request and keeps the HTML report.
+  reporter: process.env.CI ? [['list'], ['github'], ['html', { open: 'never' }]] : 'list',
   use: {
     baseURL: 'http://localhost:5174',
     // Set PLAYWRIGHT_CHANNEL=chrome to use a locally installed Chrome.
@@ -19,4 +23,6 @@ module.exports = defineConfig({
     url: 'http://localhost:5174',
     reuseExistingServer: !process.env.CI,
   },
+  // Runs after the server answers: compiles the demo once, before any test waits on it.
+  globalSetup: require.resolve('./tests/warm-demo.cjs'),
 });

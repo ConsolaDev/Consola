@@ -49,6 +49,12 @@ export interface HarnessSwitcherDeps {
   driverFor?: (id?: HarnessDriverId) => HarnessDriver;
   /** When a harness can be used again by any model, if its CLI said it is at its limit. */
   limitedUntil?: (harnessId: string) => number | undefined;
+  /**
+   * Whether this run is still open (`queued`, `running`, `needs-approval`):
+   * a step's session stays on its agent's harness until its run ends
+   * (decision 2, review S9). Absent, nothing is refused for it.
+   */
+  runIsOpen?(runId: string): boolean;
   newConversationId?: () => string;
   now?: () => Date;
 }
@@ -268,6 +274,13 @@ export class HarnessSwitcher {
     };
 
     if (this.deps.terminals.get(session.instanceId)) {
+      const summary = carried.handoffPath
+        ? `${switchSummary(sides.sourceName, target.name, carried.mode)} Transcript: ${carried.handoffPath}`
+        : switchSummary(sides.sourceName, target.name, carried.mode);
+      // Fewer grants, never more: what its agent was given stays behind.
+      const grantsLeft = current.grants
+        ? ` Its agent's servers and skills stayed with ${sides.sourceName}: on ${target.name} it has neither.`
+        : '';
       const switched = this.deps.workspaces.switchHarness(workspace.id, session.id, {
         ...change,
         hasStarted: true,
@@ -277,9 +290,7 @@ export class HarnessSwitcher {
         claudeSessionId,
         ...(carried.opening ? { opening: carried.opening } : {}),
         // Shown by a CLI that keeps the main screen; one with its own (Claude) hides it until it exits.
-        notice: carried.handoffPath
-          ? `${switchSummary(sides.sourceName, target.name, carried.mode)} Transcript: ${carried.handoffPath}`
-          : switchSummary(sides.sourceName, target.name, carried.mode),
+        notice: `${summary}${grantsLeft}`,
       });
       this.deps.forgetAttention(session.instanceId);
       return switched;
@@ -338,6 +349,12 @@ export class HarnessSwitcher {
   /** Why this session cannot switch to any harness right now, or null. */
   private sessionRefusal(session: Session): string | null {
     if (session.kind !== 'interactive') return 'Conductor sessions stay on their harness.';
+    // Its run's next turn (a reminder, a retry) must run on the harness the
+    // accepted version names, grants or not; the session's own record says
+    // which run, the engine's whether it is still open (review N1).
+    const automation = session.automation;
+    if (automation?.step && this.deps.runIsOpen?.(automation.runId))
+      return "This step's session stays on its agent's harness while its run is open. Switch it once the run has ended.";
     return this.deps.terminals.get(session.instanceId)?.switchRefusal() ?? null;
   }
 

@@ -5,7 +5,9 @@ import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import {
   appendAutomationEntry,
+  automationEntryText,
   automationVersion,
+  factoryFilesOf,
   isStepsEntry,
   parseFactorySpec,
   replaceAutomationEntry,
@@ -23,6 +25,7 @@ import { RunFolder } from './node/runFolder';
 import type { AgentLaunchRequest, EngineToolContext, RunFolderPort } from './ports';
 import { RunStore, type AutomationStateFile } from './RunStore';
 import { memoryHistory } from './runHistory.test-helpers';
+import { memoryAppliedStore } from './steps/steps.test-helpers';
 import { StartedByHandError } from './support';
 import type { InboxItemView, ItemSnapshot, SessionView, WorkspaceView } from './views';
 
@@ -221,16 +224,22 @@ function setup({
   const texts = new Map<string, string>(Object.entries({ 'ws-1': yaml, ...files }));
   const watched = new Set<string>();
   let id = 0;
+  const appliedStore = memoryAppliedStore();
   const service = new AutomationService({
-    fileFor: (workspaceId) => {
-      const filePath = `/home/me/.consola/workspaces/${workspaceId}/factory.yml`;
+    appliedStore,
+    // A folder holding factory.yml alone: these tests write no other factory file.
+    folderFor: (workspaceId) => {
+      const folderPath = `/home/me/.consola/workspaces/${workspaceId}`;
+      const filePath = `${folderPath}/factory.yml`;
       return {
+        folderPath,
         filePath,
-        load: async () => {
+        read: async () => {
           const text = texts.get(workspaceId);
-          return text === undefined
-            ? { exists: false, spec: { automations: [], issues: [] } }
-            : { exists: true, spec: parseFactorySpec(text) };
+          return {
+            exists: text !== undefined,
+            files: factoryFilesOf(text === undefined ? {} : { 'factory.yml': text }),
+          };
         },
         watch: () => watched.add(workspaceId),
         unwatch: () => watched.delete(workspaceId),
@@ -244,7 +253,18 @@ function setup({
         replaceAutomation: async (name, entryYaml) => {
           texts.set(workspaceId, replaceAutomationEntry(texts.get(workspaceId)!, name, entryYaml));
         },
+        writeAutomationFile: async () => {
+          throw new Error('These tests write no automation file.');
+        },
+        whereIs: async (name) => {
+          const text = texts.get(workspaceId);
+          return text !== undefined && automationEntryText(text, name) !== null
+            ? 'factory.yml'
+            : null;
+        },
         readText: async () => texts.get(workspaceId) ?? null,
+        readAutomationFile: async () => null,
+        pathOf: (relative) => `${folderPath}/${relative}`,
       };
     },
     store,
@@ -327,6 +347,7 @@ function setup({
   });
   const t = {
     service,
+    appliedStore,
     intervals,
     file,
     history,
@@ -801,6 +822,26 @@ describe('one file per workspace', () => {
     expect(t.store.get(theirs.id)).toMatchObject({ status: 'needs-approval' });
     expect(t.service.snapshot('ws-1').runs.map((run) => run.id)).toEqual([ours.id]);
     expect(t.service.snapshot('ws-2').runs.map((run) => run.id)).toEqual([theirs.id]);
+  });
+
+  it('the applied version is kept per factory folder', async () => {
+    const t = setup({
+      workspaces: pair(),
+      yaml: entry(''),
+      files: { 'ws-2': entry('    with: { level: 7 }\n') },
+    });
+    await t.start();
+    expect([...t.appliedStore.records.keys()].sort()).toEqual([
+      '/home/me/.consola/workspaces/ws-1',
+      '/home/me/.consola/workspaces/ws-2',
+    ]);
+    for (const [folder, record] of t.appliedStore.records) {
+      expect(record.folder).toBe(folder);
+      expect(record.clean).toBe(true);
+    }
+    expect(t.appliedStore.records.get('/home/me/.consola/workspaces/ws-2')?.texts).toEqual({
+      'factory.yml': entry('    with: { level: 7 }\n'),
+    });
   });
 
   it('follows the workspace list: reads a new workspace’s file, and lets a deleted one’s go', async () => {
@@ -1767,14 +1808,36 @@ describe('the seen record', () => {
   });
 
   it('keeps what an entry saw while a typo keeps it from loading', async () => {
+    // A folder that never applied cleanly (another entry was broken from the
+    // start) applies entry by entry, so a typo drops this one meanwhile.
+    const broken = '  - name: broken\n    mode: sometimes\n';
+    const t = reviewing({ yaml: review() + broken });
+    await t.start();
+    await t.poll([pr(1)]);
+    await t.edit(review('    mode: atuo\n') + broken);
+    expect(t.service.snapshot('ws-1').standing).toBeUndefined();
+    expect(t.service.list('ws-1')).toEqual([]);
+    await t.poll([pr(1), pr(2)]);
+    expect(t.world.launches).toEqual([]);
+    // Fixed: what arrived meanwhile still fires, and the backlog still does not.
+    await t.edit(review() + broken);
+    await t.poll([pr(1), pr(2)]);
+    expect(t.world.launches.map((launch) => launch.item?.title)).toEqual(['PR 2']);
+  });
+
+  it('a typo after a clean apply keeps the entry running at the version that applied', async () => {
     const t = reviewing();
     await t.start();
     await t.poll([pr(1)]);
     await t.edit(review('    mode: atuo\n'));
     expect(t.service.snapshot('ws-1').issues).not.toEqual([]);
+    expect(t.service.snapshot('ws-1').standing).toBeDefined();
+    // The version that applied still reviews what arrives, as approved.
     await t.poll([pr(1), pr(2)]);
-    // Fixed: what arrived meanwhile still fires, and the backlog still does not.
+    expect(t.world.launches.map((launch) => launch.item?.title)).toEqual(['PR 2']);
+    // Fixed: nothing fires twice, and the backlog still does not.
     await t.edit(review());
+    expect(t.service.snapshot('ws-1').standing).toBeUndefined();
     await t.poll([pr(1), pr(2)]);
     expect(t.world.launches.map((launch) => launch.item?.title)).toEqual(['PR 2']);
   });
@@ -2238,6 +2301,7 @@ describe('saving an entry', () => {
     const saved = await t.service.saveEntry('ws-1', digest(), { replace: false });
     expect(saved).toEqual({
       name: 'morning-digest',
+      file: 'factory.yml',
       replaced: false,
       entry: digest().trimEnd(),
       line: 7,
@@ -2346,7 +2410,13 @@ automations:
     expect(t.text()).toBe(yaml);
 
     const saved = await t.service.saveEntry('ws-1', next, { replace: true });
-    expect(saved).toEqual({ name: 'a', replaced: true, entry: next.trimEnd(), line: 5 });
+    expect(saved).toEqual({
+      name: 'a',
+      file: 'factory.yml',
+      replaced: true,
+      entry: next.trimEnd(),
+      line: 5,
+    });
     expect(t.text()).toBe(
       yaml.replace(
         '    on: { cron: "0 9 * * *" }\n    run: { tool: consola#sweep }\n    mode: confirm\n',

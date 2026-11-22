@@ -3,18 +3,18 @@
 This file guides coding agents working in `apps/cloud-web`, Consola Cloud's web
 app. `CLAUDE.md` imports it with `@AGENTS.md`, so Claude Code reads it too. The
 repository's guide is the root `AGENTS.md`, and setup is in
-`apps/cloud-api/README.md`. Paths below are relative to `apps/cloud-web`.
+`apps/cloud-global/README.md`. Paths below are relative to `apps/cloud-web`.
 
 ## The layers
 
 The app is built in layers, and imports point inward only.
 
 - `src/domain/` holds the rules and the types they speak of: `Me`, `MeState`
-  and `Org` (`me.ts`), the sentences for a failed sign-in or sign-out
+  and `MyWorkspace` (`me.ts`), the sentences for a failed sign-in or sign-out
   (`messages.ts`) and where the running source is (`source.ts`). It is plain
   TypeScript, with no package and no browser I/O.
 - `src/services/` is everything that talks to something outside the page: the
-  API (`api.ts`: `loadMe`, `loadOrg`), Better Auth's client (`authClient.ts`:
+  API (`api.ts`: `loadMe`), Better Auth's client (`authClient.ts`:
   `signInWithGoogle`, `signOut`) and the address bar (`signInRedirect.ts`:
   `takeSignInErrorCode`). A service answers in domain types and sentences,
   never in a library's own.

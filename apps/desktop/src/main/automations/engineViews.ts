@@ -3,8 +3,12 @@ import type {
   ItemRef,
   ItemSnapshot,
   SessionView,
+  TurnInitView,
+  TurnReportView,
+  TurnResultView,
   WorkspaceView,
 } from '@consola/automation-engine';
+import type { TurnInit, TurnReport, TurnResult } from '../drivers';
 import { isGitProviderId } from '../../shared/providers';
 import type { Session, SessionProvenance, Workspace } from '../../shared/workspace';
 import {
@@ -99,4 +103,42 @@ export function sessionRecord(workspaces: Workspace[], sessionId: string): Sessi
 export function toWorkItemRef(ref: ItemRef): WorkItemRef {
   if (!isGitProviderId(ref.provider)) throw new Error(`Unknown provider "${ref.provider}".`);
   return { provider: ref.provider, repo: ref.repo, type: ref.type, number: ref.number };
+}
+
+/** A reporting turn's `init` as the engine reads it: the CLI's own object stays behind. */
+export function toTurnInitView(init: TurnInit): TurnInitView {
+  return {
+    ...(init.model !== undefined ? { model: init.model } : {}),
+    servers: init.servers.map(({ name, status }) => ({ name, status })),
+    ...(init.signInHint !== undefined ? { signInHint: init.signInHint } : {}),
+  };
+}
+
+function toTurnResultView(result: TurnResult): TurnResultView {
+  return {
+    subtype: result.subtype,
+    isError: result.isError,
+    ...(result.costUsd !== undefined ? { costUsd: result.costUsd } : {}),
+    ...(result.turns !== undefined ? { turns: result.turns } : {}),
+    ...(result.text !== undefined ? { text: result.text } : {}),
+    ...(result.apiErrorStatus !== undefined ? { apiErrorStatus: result.apiErrorStatus } : {}),
+    deniedTools: [...result.deniedTools],
+  };
+}
+
+/**
+ * A reporting turn's report as the engine reads it: parsed fields, and the
+ * CLI's own `init` and `result` objects moved to `raw`, for `turn.json`.
+ */
+export function toTurnReportView(report: TurnReport): TurnReportView {
+  const raw: TurnReportView['raw'] = {};
+  if (report.init) raw.init = report.init.raw;
+  if (report.result) raw.result = report.result.raw;
+  return {
+    ...(report.init ? { init: toTurnInitView(report.init) } : {}),
+    ...(report.result ? { result: toTurnResultView(report.result) } : {}),
+    otherLines: [...report.otherLines],
+    ...(report.maxTurns !== undefined ? { maxTurns: report.maxTurns } : {}),
+    raw,
+  };
 }

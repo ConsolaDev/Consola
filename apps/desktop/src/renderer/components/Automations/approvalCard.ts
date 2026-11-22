@@ -1,4 +1,5 @@
-import type { RunDefinition } from '../../../shared/automations';
+import type { RunDefinition, StepDetail } from '../../../shared/automations';
+import { agentStepHead, serverGrantLine, skillsLine } from './agentGrantWords';
 
 type DefinitionStep = RunDefinition['automation']['steps'][number];
 
@@ -37,4 +38,59 @@ export function dryRunCommands(definition: RunDefinition): string[] {
         step.kind === 'run' && step.dryRun === 'run',
     )
     .map((step) => step.id);
+}
+
+/**
+ * What a step's agent is, as the approval card shows it from the run's
+ * definition: the node's words (`reviewer · claude-work · opus`), its file,
+ * its description when it has one and its body, exactly as approved; the
+ * step's head, a line per server it names (a whole server's tools named as
+ * the definition keeps them, from its harness's CLI when the run was made:
+ * review S1), its skills, and whether its run reads text other people wrote
+ * (`readsItems`, absent from a cron entry's definition and one from before
+ * 2-C). Null for a step with no agent.
+ */
+export function approvalAgent(
+  definition: RunDefinition,
+  stepId: string,
+): {
+  words: string;
+  file: string;
+  description?: string;
+  body: string;
+  head: string;
+  servers: string[];
+  skills: string | null;
+  readsOthers: boolean;
+} | null {
+  const agent = definition.agents?.[stepId];
+  if (!agent) return null;
+  const words = [agent.name, agent.harnessId, agent.model]
+    .filter((part): part is string => part !== undefined)
+    .join(' · ');
+  return {
+    words,
+    file: `agents/${agent.name}.md`,
+    ...(agent.description !== undefined ? { description: agent.description } : {}),
+    body: agent.body,
+    head: agentStepHead(agent.mcpServers),
+    servers: agent.mcpServers.map((server) => serverGrantLine(server)),
+    skills: skillsLine(agent.skills),
+    readsOthers: definition.readsItems === true,
+  };
+}
+
+/**
+ * What the approval card shows of a step's skills, from its step detail:
+ * each `SKILL.md` as the run's own copy holds it, by its file, or why it
+ * cannot (review M4). The card asks only for a step whose agent names skills.
+ */
+export function approvalSkills(
+  detail: StepDetail | null,
+): { texts: Array<{ file: string; text: string }> } | { problem: string } {
+  if (detail?.skillsProblem !== undefined) return { problem: detail.skillsProblem };
+  if (!detail?.skillTexts) return { problem: "Its skills can't be shown from this run's folder." };
+  return {
+    texts: detail.skillTexts.map(({ name, text }) => ({ file: `skills/${name}/SKILL.md`, text })),
+  };
 }

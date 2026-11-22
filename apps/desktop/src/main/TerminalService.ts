@@ -4,12 +4,24 @@ import * as fs from 'node:fs';
 import type { TerminalDimensions, HarnessLaunchFields, ScreenReplay } from '../shared/types';
 import { DEFAULT_DIMENSIONS } from '../shared/constants';
 import { getLoginEnv, loginEnvProblem, loginEnvRetry } from './LoginEnvironment';
-import { getDriver, toHarnessConfig, type HarnessConfig, type HarnessDriver } from './drivers';
+import {
+  getDriver,
+  toHarnessConfig,
+  type HarnessConfig,
+  type HarnessDriver,
+  type TurnEvent,
+  type TurnReader,
+  type TurnReport,
+} from './drivers';
+import type { SessionLaunch } from './drivers/HarnessDriver';
+import type { AgentGrants } from '../shared/agentGrants';
 import { ScreenModel } from './ScreenModel';
 import { PROVIDER_META, isGitProviderId, type GitProviderId } from '../shared/providers';
 import { getProviderDriver, layerProviderToken } from './providers';
 import { deriveTerminalStatus, type TerminalStatus } from '../shared/terminalStatus';
 import type { SessionToolPolicy } from '../shared/workspace';
+import { oneLine, withoutControls } from '../shared/oneLine';
+import { formatCostUsd } from '../shared/cost';
 
 /**
  * One session tab's terminal.
@@ -59,6 +71,9 @@ export const UNATTENDED_TURN_LIMIT_MS = 60 * 60_000;
 
 const UNATTENDED_NOTICE =
   'Consola is running this unattended and read-only. What it finds appears here when it finishes. Press Ctrl+C to stop it.';
+/** A reporting turn's: the CLI prints JSON, so the pane shows Consola's lines while it works. */
+const REPORTING_NOTICE =
+  'Consola is running this unattended and read-only. Its progress shows here; its findings are on the run page when it finishes. Press Ctrl+C to stop it.';
 const UNATTENDED_LIMIT_REASON = 'it ran for an hour without finishing';
 const UNATTENDED_LIMIT_NOTICE = 'Stopped: it ran for an hour without finishing.';
 
@@ -102,6 +117,66 @@ function formatNotice(message: string): string {
 /** Consola's own words that are news, not a problem: dim instead of red. */
 function formatInfo(message: string): string {
   return `\x1b[2m${message}\x1b[0m\r\n\r\n`;
+}
+
+/** The most of a tool's name a reporting turn's pane shows. */
+const MAX_TOOL_NAME_CHARS = 200;
+
+/** A reporting turn's tool call, as its pane shows it: dim, one line. */
+function formatTool(name: string): string {
+  const shown = oneLine(name, MAX_TOOL_NAME_CHARS);
+  return shown ? `\x1b[2m→ ${shown}\x1b[0m\r\n` : '';
+}
+
+/** What a reporting turn's pane puts in front of each line its CLI printed outside its JSON. */
+const CLI_LINE_MARK = '\x1b[2mCLI │\x1b[0m ';
+
+/**
+ * A line the CLI printed outside its JSON (a warning, a crash's stack), as
+ * its pane shows it: every escape sequence and control character removed, so
+ * it cannot move the cursor, clear the screen or write over its own mark, and
+ * marked as the CLI's, its text plain, so it cannot pass for Consola's dim
+ * lines. Nothing for a line with nothing left.
+ */
+function formatCliLine(text: string): string {
+  const shown = withoutControls(text).trimEnd();
+  return shown.trim() ? `${CLI_LINE_MARK}${shown}\r\n` : '';
+}
+
+/**
+ * A reporting turn's last line in its pane (Call 7): how it ended, and what
+ * it cost and took when the CLI said. The CLI's words in it (`text`, an API
+ * status, a subtype) are already one line: the reader shaped them.
+ */
+export function turnSummary(report: TurnReport, exitCode: number): string {
+  const result = report.result;
+  if (!result) return `Ended without a result line (exit ${exitCode}).`;
+  const figures: string[] = [];
+  if (result.turns !== undefined)
+    figures.push(`${result.turns} ${result.turns === 1 ? 'turn' : 'turns'}`);
+  if (result.costUsd !== undefined) figures.push(formatCostUsd(result.costUsd));
+  const counted = figures.join(', ');
+
+  let why: string;
+  if (result.subtype === 'error_max_turns') {
+    const cap = report.maxTurns ?? result.turns;
+    why = cap === undefined ? 'it reached its turn limit' : `it reached its limit of ${cap} turns`;
+  } else if (result.isError) {
+    why =
+      result.text ??
+      (result.apiErrorStatus !== undefined
+        ? `API error ${result.apiErrorStatus}`
+        : `the CLI reported ${result.subtype}`);
+  } else if (result.subtype !== 'success') {
+    why = `the CLI reported ${result.subtype}`;
+  } else {
+    // A cost ends in "est.", which ends the sentence too.
+    if (!counted) return 'Finished.';
+    return `Finished: ${counted}${counted.endsWith('.') ? '' : '.'}`;
+  }
+  return counted
+    ? `Ended without finishing: ${why} (${counted})`
+    : `Ended without finishing: ${why}`;
 }
 
 function normalizeScreen(visibleText: string): string {
@@ -168,6 +243,18 @@ export interface TerminalServiceOptions extends HarnessLaunchFields {
    * nothing to post to, and the session runs on the screen heuristic alone.
    */
   attentionUrl?: () => Promise<string | undefined>;
+  /**
+   * This session is an automation step's, so its unattended turns report
+   * (Call 2): the CLI prints its stream, the driver's reader parses it, and
+   * the pane shows Consola's lines. From the record, never a window.
+   */
+  reportTurns?: boolean;
+  /** The record's turn cap, passed on every launch; the driver uses it on unattended ones. */
+  maxTurns?: number;
+  /** A cap for the first unattended launch only (a reminder spawned fresh); consumed by it. */
+  turnMaxTurns?: number;
+  /** The record's grants, handed to the driver on every launch. From the record, never a window. */
+  grants?: AgentGrants;
 }
 
 export interface TerminalExitInfo {
@@ -183,6 +270,11 @@ export interface TerminalExitInfo {
    * reports a death by signal as exit 0, so the code alone cannot say.
    */
   stopped?: string;
+  /**
+   * A reporting turn's report, its `maxTurns` the cap it launched with.
+   * Then `lastLine` is absent: the screen holds Consola's lines, not the CLI's.
+   */
+  report?: TurnReport;
 }
 
 /**
@@ -230,6 +322,8 @@ export interface RelaunchFields {
   prompt: string;
   /** Run it as one non-interactive turn, prompt as argument; otherwise queue it for the composer. */
   unattended: boolean;
+  /** This relaunch's cap, when unattended: the reminder's. Consumed by it. */
+  maxTurns?: number;
 }
 
 export class TerminalService extends EventEmitter {
@@ -271,6 +365,15 @@ export class TerminalService extends EventEmitter {
   private forkPending: string | undefined;
   /** The live process is an unattended turn: busy until it exits. */
   private unattendedTurn = false;
+  /**
+   * The live process is a reporting turn, and this reads its stream. While
+   * it is set, the pane passes nothing but Ctrl+C to the CLI.
+   */
+  private turnReader: TurnReader | null = null;
+  /** The stream of the latest spawn said it stopped on a usage limit. Reset at each spawn. */
+  private streamLimitNotice = false;
+  /** A cap for the next unattended spawn only: `turnMaxTurns`, or a relaunch's. */
+  private oneShotMaxTurns: number | undefined;
   private unattendedLimit: NodeJS.Timeout | null = null;
   private unattendedKill: NodeJS.Timeout | null = null;
   /** Why Consola stopped the unattended turn, when it did. */
@@ -298,6 +401,7 @@ export class TerminalService extends EventEmitter {
     this.driver = getDriver(options.driverId);
     this.harness = toHarnessConfig(options);
     this.unattendedPending = options.unattended === true;
+    this.oneShotMaxTurns = options.turnMaxTurns;
     this.forkPending = options.forkFrom;
     this.launchNotice = options.launchNotice;
     // An unattended turn takes its prompt as its argument: there is no
@@ -354,7 +458,13 @@ export class TerminalService extends EventEmitter {
     if (this.unattendedTurn && data.includes('\x03'))
       this.unattendedStopReason ??= 'you pressed Ctrl+C';
     this.lastInputAt = Date.now();
-    this.claudePty?.write(data);
+    if (this.turnReader) {
+      // Print mode reads no keys, and the PTY would echo any other key into
+      // the stream the reader parses. Ctrl+C still stops the turn.
+      if (data.includes('\x03')) this.claudePty?.write('\x03');
+    } else {
+      this.claudePty?.write(data);
+    }
     if (this.isAwaitingConfirmation) this.recheckAfterAnswer();
   }
 
@@ -392,6 +502,8 @@ export class TerminalService extends EventEmitter {
   public paste(text: string): void {
     if (!this.claudePty) return;
     this.lastInputAt = Date.now();
+    // Print mode reads none of it, and the PTY would echo it into the stream.
+    if (this.turnReader) return;
     this.claudePty.write(bracketedPaste(text));
   }
 
@@ -476,6 +588,8 @@ export class TerminalService extends EventEmitter {
     this.options.configDirOverride = change.launch.configDirOverride;
     this.options.extraArgs = change.launch.extraArgs;
     this.options.model = undefined;
+    // The grants were the old driver's compile, for the old harness's servers.
+    this.options.grants = undefined;
     this.options.attentionUrl = change.attentionUrl;
     this.driver = getDriver(change.launch.driverId);
     this.harness = toHarnessConfig(change.launch);
@@ -581,6 +695,7 @@ export class TerminalService extends EventEmitter {
     if (launch.unattended) {
       this.unattendedPending = true;
       this.initialPromptArgument = launch.prompt;
+      if (launch.maxTurns !== undefined) this.oneShotMaxTurns = launch.maxTurns;
     } else {
       this.promptQueue.push(launch.prompt);
     }
@@ -648,9 +763,19 @@ export class TerminalService extends EventEmitter {
       // pinned model survives a resume, a restart, and the retry-as-fresh
       // path below without any of them having to remember it.
       const unattended = this.unattendedPending;
+      // Only a step's unattended turn reports (Call 2), and only on a
+      // driver that can read what it reports.
+      const reporting =
+        unattended &&
+        this.options.reportTurns === true &&
+        this.driver.createTurnReader !== undefined;
+      // Passed on every launch; the driver uses it on unattended ones only.
+      const maxTurns = unattended
+        ? (this.oneShotMaxTurns ?? this.options.maxTurns)
+        : this.options.maxTurns;
       const attentionUrl = await this.options.attentionUrl?.();
       if (this.isDestroyed || this.claudePty) return;
-      const launchArgs = this.driver.buildSessionArgs(this.harness, {
+      const launch: SessionLaunch = {
         sessionId: this.options.claudeSessionId,
         cwd: this.options.cwd,
         resume,
@@ -661,7 +786,15 @@ export class TerminalService extends EventEmitter {
         unattended,
         forkFrom: resume ? undefined : this.forkPending,
         attentionUrl,
-      });
+        ...(reporting ? { reportTurn: true } : {}),
+        ...(maxTurns !== undefined ? { maxTurns } : {}),
+        ...(this.options.grants !== undefined ? { grants: this.options.grants } : {}),
+      };
+      // The driver's own line about this launch (a step's skills no longer
+      // kept), above whatever the CLI prints.
+      const driverNotice = this.driver.launchNotice?.(launch);
+      if (driverNotice) this.writeNotice(driverNotice, formatInfo);
+      const launchArgs = this.driver.buildSessionArgs(this.harness, launch);
       const args = Array.isArray(launchArgs) ? launchArgs : await launchArgs;
       if (this.isDestroyed || this.claudePty) return;
 
@@ -679,8 +812,11 @@ export class TerminalService extends EventEmitter {
       }
 
       // Written before the spawn so it sits above whatever the turn prints.
-      if (unattended) this.writeNotice(UNATTENDED_NOTICE, formatInfo);
+      if (unattended)
+        this.writeNotice(reporting ? REPORTING_NOTICE : UNATTENDED_NOTICE, formatInfo);
       this.claudeProducedOutput = false;
+      this.streamLimitNotice = false;
+      const reader = reporting ? (this.driver.createTurnReader?.() ?? null) : null;
       this.claudePty = pty.spawn(binary, args, {
         name: 'xterm-256color',
         cols: this.dimensions.cols,
@@ -693,9 +829,11 @@ export class TerminalService extends EventEmitter {
         ) as { [key: string]: string },
       });
       // A prompt on the command line is delivered by the spawn itself,
-      // and the turn and fork it asked for are done with once spawned.
+      // and the turn, cap and fork it asked for are done with once spawned.
       this.initialPromptArgument = undefined;
       this.unattendedPending = false;
+      if (unattended) this.oneShotMaxTurns = undefined;
+      this.turnReader = reader;
       this.forkPending = undefined;
       this.claudeExited = false;
       // A new process says where it is for itself, even where the last
@@ -722,13 +860,22 @@ export class TerminalService extends EventEmitter {
             'Could not save the active conversation. Check available disk space before restarting.',
           );
         }
-        this.handleData(data);
+        if (!reader) {
+          this.handleData(data);
+          return;
+        }
+        // A reporting turn: the reader takes the raw stream, and the pane
+        // gets only Consola's lines and what the CLI printed outside JSON.
+        const shown = this.shownFor(reader.push(data));
+        if (reader.limitNotice) this.streamLimitNotice = true;
+        this.handleData(data, shown);
       });
 
       spawned.onExit(({ exitCode, signal }) => {
         if (this.claudePty !== spawned) return;
         this.claudePty = null;
         this.claudeExited = true;
+        this.turnReader = null;
         const turn = this.endUnattendedTurn();
         const stopped = turn
           ? (this.unattendedStopReason ?? (signal ? `it was killed (signal ${signal})` : undefined))
@@ -771,6 +918,10 @@ export class TerminalService extends EventEmitter {
         this.emitStatus();
         if (!turn) {
           this.emit('exit', { exitCode } as TerminalExitInfo);
+          return;
+        }
+        if (reader) {
+          this.endReportingTurn(reader, exitCode, maxTurns, stopped);
           return;
         }
         // The screen parses output a tick behind the PTY: wait for it,
@@ -884,10 +1035,79 @@ export class TerminalService extends EventEmitter {
     });
   }
 
-  private handleData(data: string): void {
+  /**
+   * A reporting turn's events as its pane shows them: a tool call as a dim
+   * line, a line outside JSON inert and marked as the CLI's (`formatCliLine`).
+   * `init` shows nothing; it goes to whoever checks it, at once.
+   */
+  private shownFor(events: TurnEvent[]): string {
+    let shown = '';
+    for (const event of events) {
+      if (event.kind === 'init') this.emit('turn-init', event.init);
+      else if (event.kind === 'tool') shown += formatTool(event.name);
+      else shown += formatCliLine(event.text);
+    }
+    return shown;
+  }
+
+  /**
+   * A reporting turn's exit: the last of its stream shown, how it ended
+   * said in one line (unless the person or Consola stopped it, whose
+   * `Stopped:` line is there already), and its report handed over.
+   */
+  private endReportingTurn(
+    reader: TurnReader,
+    exitCode: number,
+    maxTurns: number | undefined,
+    stopped: string | undefined,
+  ): void {
+    const { events, report } = reader.end();
+    const shown = this.shownFor(events);
+    if (shown) {
+      this.getScreen().write(shown);
+      this.emit('data', shown);
+    }
+    if (report.limitNotice) this.streamLimitNotice = true;
+    // Nothing more can come from this process, so its screen is read once,
+    // now, before Consola's summary lands on it: the summary quotes the
+    // CLI's words, which are no menu. The pending settle would read it with
+    // the summary, so it goes.
+    if (this.idleTimer) {
+      clearTimeout(this.idleTimer);
+      this.idleTimer = null;
+    }
+    this.followWorkingDirectory();
+    this.classifyScreen();
+    // Then the summary, on this turn's own screen before its exit is heard:
+    // a reminder relaunched off the exit starts on a fresh one.
+    if (!this.unattendedStopReason) {
+      const summary = formatInfo(turnSummary({ ...report, maxTurns }, exitCode));
+      this.getScreen().write(summary);
+      this.emit('data', summary);
+    }
+    this.afterScreenSettles(() => {
+      this.emit('exit', {
+        exitCode,
+        unattended: true,
+        report: { ...report, ...(maxTurns !== undefined ? { maxTurns } : {}) },
+        ...(stopped ? { stopped } : {}),
+      } as TerminalExitInfo);
+    });
+  }
+
+  /**
+   * One chunk from the CLI. `shown` is what of it reaches the screen and
+   * the views: all of it, except in a reporting turn, where the reader
+   * decides. Either way the chunk counts as the CLI's output.
+   */
+  private handleData(data: string, shown: string = data): void {
+    // From the raw chunk: a turn that printed only JSON still printed.
     this.claudeProducedOutput = true;
-    this.getScreen().write(data);
-    this.emit('data', data);
+    const screen = this.getScreen();
+    if (shown) {
+      screen.write(shown);
+      this.emit('data', shown);
+    }
 
     const now = Date.now();
     const starting = this.idleTimer === null;
@@ -955,6 +1175,7 @@ export class TerminalService extends EventEmitter {
     this.unattendedPending = false;
     this.unattendedPendingStop = null;
     this.initialPromptArgument = undefined;
+    this.oneShotMaxTurns = undefined;
     return { unattended: true, stopped: reason };
   }
 
@@ -1020,7 +1241,11 @@ export class TerminalService extends EventEmitter {
     // A hint only, asked of the driver so nothing here knows its words: a
     // notice that appears prompts a read of the harness's limits, which
     // decides. The raw text, since a notice is matched at a line's start.
-    const notice = this.driver.usageLimits?.showsLimitNotice?.(this.screen.visibleText()) ?? false;
+    // A reporting turn's notice is in its stream, which the screen never
+    // shows, so what the reader heard counts the same (Call 8).
+    const notice =
+      (this.driver.usageLimits?.showsLimitNotice?.(this.screen.visibleText()) ?? false) ||
+      this.streamLimitNotice;
     if (notice !== this.isShowingLimitNotice) {
       this.isShowingLimitNotice = notice;
       this.emit('limit-notice', notice);
@@ -1064,6 +1289,8 @@ export class TerminalService extends EventEmitter {
   private deliverPendingPrompt(): void {
     if (this.promptQueue.length === 0) return;
     if (!this.claudePty) return;
+    // Print mode reads no prompt; it waits for the composer after the turn.
+    if (this.turnReader) return;
     if (this.isAwaitingConfirmation) return;
     if (!this.isComposerReady()) return;
 

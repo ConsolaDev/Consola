@@ -44,7 +44,7 @@ const HANDSHAKE_ARGS = [
  */
 const HANDSHAKE_TIMEOUT_MS = 15000;
 
-const INITIALIZE: ControlRequest = {
+export const INITIALIZE: ControlRequest = {
   requestId: 'consola-initialize',
   request: { subtype: 'initialize' },
 };
@@ -76,16 +76,32 @@ export interface ControlRequest {
 }
 
 /**
+ * Asking `requestControl`'s last request again until its answer settles: a
+ * question whose answer is still on its way (a server still connecting).
+ */
+export interface RepeatLast {
+  /** Whether this answer is the one to keep; asking stops once it is. */
+  until(answer: unknown): boolean;
+  /** How long to wait after an answer before asking again. */
+  everyMs: number;
+  /** How long to keep asking, from its first answer; then the last answer is kept. */
+  forMs: number;
+}
+
+/**
  * Ask the CLI a sequence of control requests and return each raw `response`
  * payload, in order.
  *
  * Each request is written only once the one before it is answered — the second
  * question is about a CLI the first has finished setting up — and stdin stays
  * open until the last is written. `extraArgs` follow the protocol flags.
+ * With `repeat`, the last request is asked again (`RepeatLast`), stdin stays
+ * open while it is, and its last answer is the one returned.
  *
  * Resolves exactly once, and always kills the child on the way out: this
  * process is asked its questions and is of no further use, so it must never be
- * left running because a later line never arrived.
+ * left running because a later line never arrived. `timeoutMs` bounds the
+ * whole exchange, repeats included.
  */
 export function requestControl(
   binary: string,
@@ -95,18 +111,25 @@ export function requestControl(
   {
     timeoutMs = HANDSHAKE_TIMEOUT_MS,
     extraArgs = [],
-  }: { timeoutMs?: number; extraArgs?: readonly string[] } = {},
+    repeat,
+  }: { timeoutMs?: number; extraArgs?: readonly string[]; repeat?: RepeatLast } = {},
 ): Promise<unknown[]> {
   return new Promise((resolve, reject) => {
     let child: ChildProcessWithoutNullStreams;
     let settled = false;
     let timer: NodeJS.Timeout | undefined;
+    // While the last request is repeated: the next ask, and the end of asking.
+    let again: NodeJS.Timeout | undefined;
+    let enough: NodeJS.Timeout | undefined;
     const answers: unknown[] = [];
+    const last = requests.length - 1;
 
     const finish = (error: Error | null) => {
       if (settled) return;
       settled = true;
       if (timer) clearTimeout(timer);
+      if (again) clearTimeout(again);
+      if (enough) clearTimeout(enough);
       // SIGKILL rather than SIGTERM: this child has no cleanup worth
       // waiting for, and a wedged one is exactly the case being escaped.
       if (child && !child.killed) child.kill('SIGKILL');
@@ -178,20 +201,37 @@ export function requestControl(
         if (!isRecord(parsed) || parsed.type !== 'control_response') continue;
 
         const response = parsed.response;
-        const awaited = requests[answers.length];
+        // Once the last request has an answer, a repeat of it is what is awaited.
+        const awaited = requests[Math.min(answers.length, last)];
         if (!isRecord(response) || response.request_id !== awaited.requestId) continue;
         if (response.subtype === 'error') {
           finish(new Error(asString(response.error) ?? 'The CLI rejected the request.'));
           return;
         }
-        answers.push(response.response);
-        if (answers.length === requests.length) {
+        if (answers.length < last) {
+          answers.push(response.response);
+          send(answers.length);
+          continue;
+        }
+        answers[last] = response.response;
+        if (!repeat || settles(response.response)) {
           finish(null);
           return;
         }
-        send(answers.length);
+        if (!enough) enough = setTimeout(() => finish(null), repeat.forMs);
+        again = setTimeout(() => send(last), repeat.everyMs);
       }
     });
+
+    /** Whether the last answer is the one to keep; a caller's check that throws ends the exchange. */
+    function settles(answer: unknown): boolean {
+      try {
+        return repeat!.until(answer);
+      } catch (error) {
+        finish(error instanceof Error ? error : new Error(String(error)));
+        return true;
+      }
+    }
 
     // Exiting before answering means this CLI never understood the request
     // — an older build, or one that does not speak the protocol. Reporting
@@ -210,8 +250,9 @@ export function requestControl(
         );
         // After the last request nothing further is coming. Leaving stdin
         // open would have the CLI wait for a conversation that never starts;
-        // a request already written is still answered.
-        if (index === requests.length - 1) child.stdin.end();
+        // a request already written is still answered. A request that is
+        // repeated keeps it open: the child is killed when asking ends.
+        if (index === last && !repeat) child.stdin.end();
       } catch (error) {
         finish(error instanceof Error ? error : new Error(String(error)));
       }

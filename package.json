@@ -2,14 +2,15 @@
   "name": "consola-workspace",
   "private": true,
   "license": "AGPL-3.0-only",
-  "packageManager": "pnpm@10.28.2",
+  "packageManager": "pnpm@12.21.0",
   "engines": {
     "node": "26.13.1"
   },
   "scripts": {
     "dev": "turbo run dev --filter=consola",
     "dev:website": "turbo run dev --filter=@consola/website",
-    "dev:cloud": "turbo run dev --filter=@consola/cloud-api --filter=@consola/cloud-web",
+    "dev:cloud": "turbo run dev --filter=@consola/cloud-global --filter=@consola/cloud-web",
+    "dev:cloud-region": "turbo run dev --filter=@consola/cloud-region",
     "build": "turbo run build",
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",

@@ -133,6 +133,78 @@ describe('TerminalManager listeners', () => {
   });
 });
 
+describe('TerminalManager turn reports', () => {
+  const report = {
+    init: { model: 'claude-stub-1', servers: [], raw: { type: 'system' } },
+    result: { subtype: 'success', isError: false, deniedTools: [], raw: { type: 'result' } },
+    otherLines: ['Warning: x'],
+    limitNotice: false,
+    maxTurns: 6,
+  };
+
+  it("forwards a terminal's turn-init to its listeners", () => {
+    created.length = 0;
+    const manager = new TerminalManager(() => []);
+    manager.ensure('inst-1', options, owner);
+    const heard: unknown[] = [];
+    manager.addTurnInitListener((id, init) => heard.push([id, init]));
+    created[0].emit('turn-init', report.init);
+    expect(heard).toEqual([['inst-1', report.init]]);
+  });
+
+  it('a turn-init listener that throws does not silence the others', () => {
+    created.length = 0;
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const manager = new TerminalManager(() => []);
+    manager.ensure('inst-1', options, owner);
+    const heard: string[] = [];
+    manager.addTurnInitListener(() => {
+      throw new Error('boom');
+    });
+    manager.addTurnInitListener((id) => heard.push(id));
+    expect(() => created[0].emit('turn-init', report.init)).not.toThrow();
+    expect(heard).toEqual(['inst-1']);
+    expect(log).toHaveBeenCalledTimes(1);
+    log.mockRestore();
+  });
+
+  it('an unsubscribed turn-init listener hears nothing', () => {
+    created.length = 0;
+    const manager = new TerminalManager(() => []);
+    manager.ensure('inst-1', options, owner);
+    const listener = vi.fn();
+    const off = manager.addTurnInitListener(listener);
+    off();
+    created[0].emit('turn-init', report.init);
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  it("an exit's report reaches main's listeners, not the windows", () => {
+    created.length = 0;
+    const sent: Array<{ channel: string; payload: unknown }> = [];
+    const contents = {
+      send: (channel: string, payload: unknown) => sent.push({ channel, payload }),
+      isDestroyed: () => false,
+    } as never;
+    const manager = new TerminalManager(() => [
+      { isDestroyed: () => false, webContents: contents } as never,
+    ]);
+    manager.ensure('inst-1', options, contents);
+    const exits: unknown[] = [];
+    manager.addExitListener((_id, info) => exits.push(info));
+    created[0].emit('exit', { exitCode: 0, unattended: true, report });
+    expect(exits).toEqual([{ exitCode: 0, unattended: true, report }]);
+    const broadcast = sent.filter((m) => m.channel === IPC_CHANNELS.TERMINAL_EXIT);
+    expect(broadcast).toEqual([
+      {
+        channel: IPC_CHANNELS.TERMINAL_EXIT,
+        payload: { instanceId: 'inst-1', exitCode: 0, unattended: true },
+      },
+    ]);
+    expect(Object.prototype.hasOwnProperty.call(broadcast[0].payload, 'report')).toBe(false);
+  });
+});
+
 describe('TerminalManager output', () => {
   /** A window that records what crosses to it. */
   function window() {

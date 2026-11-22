@@ -1,6 +1,7 @@
 import { stringify } from 'yaml';
 import { z } from 'zod';
 import { cronError } from './cron';
+import { AUTOMATION_NAME_PATTERN } from './names';
 import { parseManualTrigger, parsePollTrigger, type ManualTrigger, type PollTrigger } from './poll';
 import { parseToolRef, type RunTarget } from './runTarget';
 import {
@@ -20,8 +21,7 @@ import {
 export const AUTOMATION_MODES = ['auto', 'confirm', 'notify'] as const;
 export type AutomationMode = (typeof AUTOMATION_MODES)[number];
 
-/** Names are identifiers people type into `run_automation` and see in history. */
-export const AUTOMATION_NAME_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
+export { AUTOMATION_NAME_PATTERN };
 
 /** A connection's id in `on:` — `github`, later `jira`, `slack`, or a manifest's own. */
 export const CONNECTION_ID_PATTERN = /^[a-z][a-z0-9-]{0,63}$/;
@@ -62,6 +62,12 @@ interface AutomationCommon {
   mode: AutomationMode;
   /** 1-based line of the entry in the file, for error and UI pointers. */
   line?: number;
+  /**
+   * The file it lives in, relative to the factory folder: `factory.yml` or
+   * `automations/<name>.yaml`. Set by the folder's parsers; never hashed,
+   * since where an automation lives is not what it does.
+   */
+  file?: string;
 }
 
 /**
@@ -268,6 +274,10 @@ const runSchema = z.unknown().transform((run, ctx): RunTarget => {
     : { kind: 'prompt', ref: 'prompt', prompt: value };
 });
 
+/** Skills and servers are an agent's, named in its file; on an entry they say where they go. */
+const ENTRY_SKILLS_AND_SERVERS =
+  'Name skills and servers in an agent file (`agents/<name>.md`), then set `agent:` on a step.';
+
 /** Named rather than left to `strict()`, whose "unrecognized key" would not say why. */
 function explained(message: string) {
   return z.never({ error: message }).optional();
@@ -341,6 +351,10 @@ function automationEntrySchema() {
       with: explained(
         'Move `with:` under `run:` — only a tool takes arguments: `run: { tool: …, with: { … } }`.',
       ),
+      max_turns: explained('`max_turns` goes on a step, not on the automation.'),
+      agent: explained('`agent:` goes on a step, not on the automation.'),
+      skills: explained(ENTRY_SKILLS_AND_SERVERS),
+      mcpServers: explained(ENTRY_SKILLS_AND_SERVERS),
       ...laterEntryKeys(),
       // A file belongs to one workspace, so there is nothing to select.
       workspace: explained(
@@ -455,5 +469,17 @@ export const fileSchema = z
       .array(z.unknown())
       .nullish()
       .transform((automations) => automations ?? []),
+    // Top-level keys a later slice owns, refused with what each arrives with.
+    mcpServers: explained(
+      'Inline server definitions arrive with connections as data. Name a server the harness already has in an agent file.',
+    ),
+    repos: explained('`repos` arrives with write steps; it is not supported yet.'),
+    policy: explained('`policy` arrives with shared factories; it is not supported yet.'),
+    library: explained('`library` arrives with shared factories; it is not supported yet.'),
+    defaults: explained('`defaults` arrives with shared factories; it is not supported yet.'),
+    name: explained('`name` arrives with shared factories; it is not supported yet.'),
+    connections: explained(
+      '`connections` arrives with connections as data; it is not supported yet.',
+    ),
   })
   .strict();
