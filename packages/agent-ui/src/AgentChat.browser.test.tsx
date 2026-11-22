@@ -42,3 +42,9 @@ it("renders the session's thread from its host, leaving the page as it was", asy
   await expect.element(answerOf(assistantText)).toBeVisible();
   expect({ document: pageDocument(), outside: styleOf(outside) }).toEqual(before);
 });
+
+it("takes the host's socket address (ws://) as the same host over http://", async () => {
+  const { hostUrl, pass, sessionId, assistantText } = host();
+  await mountChat({ hostUrl: hostUrl.replace(/^http:/, 'ws:'), pass, sessionId });
+  await expect.element(answerOf(assistantText)).toBeVisible();
+});

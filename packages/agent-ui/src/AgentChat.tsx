@@ -31,6 +31,7 @@ import {
   forgetStoredSession,
   runInConnection,
 } from './connection.ts';
+import { hostHttpOrigin } from './hostAddress.ts';
 import { forgetUnheldSessions, holdSession } from './storedSessions.ts';
 import { I18nProvider } from '~/i18n/I18nProvider';
 import { startI18n } from '~/i18n/runtime';
@@ -41,7 +42,10 @@ import { AppAtomRegistryProvider, appAtomRegistry } from '~/rpc/atomRegistry';
 releaseImportHold();
 
 export interface AgentChatProps {
-  /** The host's address, `http(s)://host:port`. Its socket is `ws(s)://host:port/ws`. */
+  /**
+   * The host's address, `http(s)://host:port` (or its socket's, `ws(s)://host:port`, read as
+   * the same host over `http(s)://`). Its socket is `ws(s)://host:port/ws`.
+   */
   readonly hostUrl: string;
   /** The session pass: the only credential the host takes. */
   readonly pass: string;
@@ -62,7 +66,7 @@ export interface AgentChatProps {
 const hostRegistration = (hostUrl: string, sessionId: string, pass: string) => {
   const environmentId = EnvironmentId.make(sessionId);
   const connectionId = connectionIdFor(sessionId);
-  const httpBaseUrl = new URL(hostUrl).origin;
+  const httpBaseUrl = hostHttpOrigin(hostUrl);
   const ws = new URL(httpBaseUrl);
   ws.protocol = ws.protocol === 'https:' ? 'wss:' : 'ws:';
   const label = 'Consola';

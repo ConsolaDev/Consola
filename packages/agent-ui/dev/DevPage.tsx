@@ -11,9 +11,6 @@ const appearanceOf = (search: URLSearchParams): Appearance => {
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 };
 
-/** The host is named `ws://host:port` in the brief; `AgentChat` takes `http(s)://`. */
-const httpAddressOf = (host: string) => host.replace(/^ws(s?):\/\//i, 'http$1://');
-
 /** Where a page's address is read and replaced: the window's, or a test's stand-in. */
 type AddressBar = {
   readonly location: { readonly href: string };
@@ -48,7 +45,7 @@ export function DevPage({ search }: { readonly search: string }) {
   return (
     <div data-theme={appearanceOf(query)} style={{ height: '100%' }}>
       {host && pass && session ? (
-        <AgentChat hostUrl={httpAddressOf(host)} pass={pass} sessionId={session} />
+        <AgentChat hostUrl={host} pass={pass} sessionId={session} />
       ) : (
         <p role="alert" style={{ margin: 0, padding: 24, fontFamily: 'system-ui, sans-serif' }}>
           Missing parameter{missing.length > 1 ? 's' : ''}: {missing.join(', ')}. Open{' '}

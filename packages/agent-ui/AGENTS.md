@@ -14,7 +14,8 @@ import '@consola/agent-ui/styles.css';
   onPassExpired={async () => fetchNewPass()} />;
 ```
 
-It connects to one `@consola/host` session (`packages/host`) and renders t3's chat for it.
+It connects to one `@consola/host` session (`packages/host`) and renders t3's chat for it. `hostUrl` is the host's
+`http(s)://` address; its socket's `ws(s)://` address is read as the same host (`src/hostAddress.ts`).
 
 ## Copied code and Consola's code
 
