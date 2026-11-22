@@ -1,0 +1,5 @@
+/*
+ * @consola/agent-ui's stylesheet: t3's Tailwind entry and theme, compiled and then scoped
+ * (build/scopeCss.ts), so it styles only what `AgentChat` renders.
+ */
+@import "./t3/index.css";

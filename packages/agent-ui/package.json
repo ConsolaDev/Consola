@@ -12,7 +12,10 @@
     },
     "./styles.css": "./dist/agent-ui.css"
   },
-  "files": ["dist", "LICENSE"],
+  "files": [
+    "dist",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "vp build",
     "typecheck": "effect-tsgo tsrs --noEmit",
