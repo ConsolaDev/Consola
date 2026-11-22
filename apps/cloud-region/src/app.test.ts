@@ -419,10 +419,13 @@ describe('the keys', () => {
 
 describe('every route', () => {
   it('but GET /api/health refuses a request without a token', async () => {
-    const routes = app.routes.filter((route) => route.method !== 'ALL');
+    // Every route Hono holds but the check itself, which it lists as `ALL /*`.
+    const routes = app.routes.filter((route) => !(route.method === 'ALL' && route.path === '/*'));
     expect(routes.length).toBeGreaterThan(1);
     for (const { method, path } of routes) {
-      const response = await app.request(path.replace(/:[^/]+/g, 'x'), { method });
+      const response = await app.request(path.replace(/:[^/]+/g, 'x'), {
+        method: method === 'ALL' ? 'GET' : method,
+      });
       const open = method === 'GET' && path === '/api/health';
       expect([`${method} ${path}`, response.status]).toEqual([
         `${method} ${path}`,
