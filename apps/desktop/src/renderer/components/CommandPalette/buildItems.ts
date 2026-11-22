@@ -25,6 +25,7 @@ import { checkoutPathForSession, primaryScope, scopeForSession } from '../../../
 import { useGitReviewStore } from '../../stores/gitReviewStore';
 import { useGitStatusStore } from '../../stores/gitStatusStore';
 import { useHarnessStore } from '../../stores/harnessStore';
+import { toggleInfoPanel } from '../../stores/infoPanelRoomStore';
 import { useNavigationStore } from '../../stores/navigationStore';
 import { useSidePanelStore } from '../../stores/sidePanelStore';
 import { TAB_KINDS, type TabKindId } from '../../sidePanel/tabKinds';
@@ -82,7 +83,10 @@ export interface PaletteContext {
   tabKinds: Array<{ id: TabKindId; title: string; available: boolean }>;
   /** Whether the side panel is showing, so its row says what choosing it will do. */
   isSidePanelVisible: boolean;
-  /** Whether the info panel is showing, so its row says what choosing it will do. */
+  /**
+   * Whether the info panel is on screen, so its row says what choosing it
+   * will do: Show while it has stepped aside for a narrow window.
+   */
   isInfoPanelVisible: boolean;
   /**
    * The Inbox or Automations lies over the active session. The session stays
@@ -246,7 +250,7 @@ export function buildActionItems(ctx: PaletteContext): ActionPaletteItem[] {
       label: ctx.isInfoPanelVisible ? 'Hide info panel' : 'Show info panel',
       icon: List,
       shortcutHint: INFO_PANEL_SHORTCUT_LABEL,
-      run: () => useSidePanelStore.getState().toggleInfoVisible(),
+      run: toggleInfoPanel,
     });
     items.push({
       kind: 'action',

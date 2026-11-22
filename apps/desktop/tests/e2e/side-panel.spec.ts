@@ -798,9 +798,11 @@ test.describe('side panel', () => {
       await expect(sidePanelTab('Terminal')).toHaveAttribute('aria-selected', 'true');
     }
     await expect.poll(async () => (await storedUses()).terminal?.length).toBe(10);
+    // On this window the info panel has stepped aside for the side panel,
+    // and its toggle says so.
     await expect
       .poll(headerControls)
-      .toEqual(['Changes', 'Files', 'Pull request', 'Hide info panel', 'Hide side panel']);
+      .toEqual(['Changes', 'Files', 'Pull request', 'Show info panel', 'Hide side panel']);
   });
 
   test('a shortcut that does not apply is dimmed in place, with its reason', async () => {

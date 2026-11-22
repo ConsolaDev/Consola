@@ -9,6 +9,7 @@ import { useFoundPullRequest } from '../../stores/branchPullRequestStore';
 import { useCheckout } from '../../stores/checkoutStore';
 import { useGitReviewStore } from '../../stores/gitReviewStore';
 import { useGitStatusStore } from '../../stores/gitStatusStore';
+import { useInfoPanelShown } from '../../stores/infoPanelRoomStore';
 import { isSelectableHarness, useHarnessStore } from '../../stores/harnessStore';
 import { useNavigationStore } from '../../stores/navigationStore';
 import { useSettingsStore } from '../../stores/settingsStore';
@@ -93,7 +94,7 @@ export function usePaletteContext(open: boolean): PaletteContext {
   const commitMessage = useGitReviewStore((state) => state.commitMessage);
   const terminalFontSize = useSettingsStore((state) => state.terminalFontSize);
   const isSidePanelVisible = useSidePanelStore((state) => state.layout.visible);
-  const isInfoPanelVisible = useSidePanelStore((state) => state.infoVisible);
+  const isInfoPanelVisible = useInfoPanelShown();
   const { openSettings } = useSettings();
   const localServers = useLocalServers(open, activeSessionId ?? undefined);
 

@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { Group, Panel, Separator, useDefaultLayout } from 'react-resizable-panels';
 import { checkoutPathForSession, scopeForSession } from '../../../shared/workspace';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
@@ -6,6 +6,7 @@ import { useHarnessStore } from '../../stores/harnessStore';
 import { useGitStatusAutoRefresh } from '../../stores/gitStatusStore';
 import { useCheckout } from '../../stores/checkoutStore';
 import { useSidePanelStore } from '../../stores/sidePanelStore';
+import { useContentWidth, useInfoPanelShown } from '../../stores/infoPanelRoomStore';
 import { isInfoSectionOpen, useSettingsStore } from '../../stores/settingsStore';
 import {
   useBranchPullRequestLookup,
@@ -26,7 +27,11 @@ interface ContentViewProps {
 
 export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
   const isSidePanelVisible = useSidePanelStore((state) => state.layout.visible);
-  const infoVisible = useSidePanelStore((state) => state.infoVisible);
+  // Whether the info panel is on screen: the person's setting, unless it has
+  // stepped aside for a narrow pane (`infoPanel/stepAside.ts`), measured on
+  // the Group below. A panel that stepped aside reads nothing.
+  const infoShown = useInfoPanelShown();
+  const groupRef = useRef<HTMLDivElement | null>(null);
 
   const getWorkspace = useWorkspaceStore((state) => state.getWorkspace);
   const getSession = useWorkspaceStore((state) => state.getSession);
@@ -54,8 +59,8 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
 
   // The one place the branch's pull request is looked up: while someone looks
   // at pull request facts, the info panel shown with its Pull request section
-  // open, or the Pull request tab in front. A folded section or a hidden
-  // panel asks nothing.
+  // open, or the Pull request tab in front. A folded section, or a panel
+  // hidden or stepped aside, asks nothing.
   const pullRequestSectionOpen = useSettingsStore((state) =>
     isInfoSectionOpen(state.infoSectionOpen, 'pull-request'),
   );
@@ -66,7 +71,7 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
     workspace,
     session,
     checkout,
-    (infoVisible && pullRequestSectionOpen) || pullRequestTabInFront,
+    (infoShown && pullRequestSectionOpen) || pullRequestTabInFront,
   );
 
   // Conditional panels must have separate saved layouts: hiding the info
@@ -74,7 +79,7 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
   // its width.
   const panelIds = [
     'agent',
-    ...(infoVisible ? ['info-panel'] : []),
+    ...(infoShown ? ['info-panel'] : []),
     ...(isSidePanelVisible ? ['side-panel'] : []),
   ];
   // Not the id the columns before the side panel saved under, so none of
@@ -84,6 +89,8 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
     panelIds,
     storage: localStorage,
   });
+
+  useContentWidth(groupRef, !!workspace && !!session);
 
   const hasStarted = session?.hasStarted;
   const harnessId = session?.harnessId;
@@ -131,6 +138,7 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
       <SessionHeader key={session.id} workspace={workspace} session={session} />
       <div className="workspace-view-content">
         <Group
+          elementRef={groupRef}
           orientation="horizontal"
           defaultLayout={defaultLayout}
           onLayoutChanged={onLayoutChanged}
@@ -162,8 +170,10 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
               model={session.model}
             />
           </Panel>
-          {/* The info panel, always the first thing after the conversation. */}
-          {infoVisible && (
+          {/* The info panel, always the first thing after the conversation.
+              Its default width and the side panel's minimum are the ones
+              `INFO_PANEL_ROOM_PX` (`infoPanel/stepAside.ts`) is reckoned from. */}
+          {infoShown && (
             <>
               <Separator className="resize-handle info-panel-resize-handle" />
               <Panel id="info-panel" defaultSize="250px" minSize="220px" maxSize="400px">

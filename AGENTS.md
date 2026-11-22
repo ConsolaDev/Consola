@@ -484,7 +484,12 @@ panel it is view state, kept in the renderer.
   nothing in the panel navigates or takes the keyboard, on mount or
   otherwise. Visibility rides with the layout (`sidePanelStore.infoVisible`,
   written only under the remember setting, shown when absent); folds sit in
-  `settingsStore.infoSectionOpen` and are always kept. A folded section
+  `settingsStore.infoSectionOpen` and are always kept. While the side panel
+  is open on a session pane narrower than `INFO_PANEL_ROOM_PX` (1010px: 60
+  columns of conversation beside both panels), the panel steps aside
+  (`infoPanelShown`, `infoPanel/stepAside.ts`) without writing `infoVisible`,
+  everything that asks whether it shows reads that answer, and its toggle
+  shows it anyway until the side panel hides or the pane has room. A folded section
   renders neither its rows nor its heading's actions (`InfoSection`), so
   whatever they read never starts. Showing, hiding or resizing the panel
   only resizes the conversation, which stays `ContentView`'s first child.

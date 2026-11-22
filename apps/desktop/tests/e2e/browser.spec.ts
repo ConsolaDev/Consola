@@ -6,7 +6,6 @@ import path from 'node:path';
 import { commandPaletteChord, launchElectron, removeProfile } from './helpers/electron';
 import { browserChord, showBrowser, sidePanelChord } from './helpers/browserTab';
 import { type FixtureServer, PROBE_SCRIPT, startFixtureServer } from './helpers/fixtureServer';
-import { hideInfoPanel } from './helpers/infoPanel';
 
 /**
  * The in-app browser. A page is a `<webview>` guest, so Playwright's `page`
@@ -350,9 +349,8 @@ test.describe('in-app browser', () => {
 
   test('a drag across a page lets the pointer through, and only while it lasts', async () => {
     await openSession(page, 'Alpha');
-    // Not about the info panel: hidden, it leaves the side panel's edge
-    // beside the conversation, with room to drag it wider.
-    await hideInfoPanel(page);
+    // On this window the info panel steps aside for the side panel, which
+    // leaves its edge beside the conversation, with room to drag it wider.
     await showBrowser(page);
     await typeAddress(page, `${fixtures.host}/a.html`);
     await expect.poll(() => guestUrls(app)).toEqual([fixtures.url('/a.html')]);

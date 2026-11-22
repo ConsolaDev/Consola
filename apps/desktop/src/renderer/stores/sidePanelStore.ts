@@ -43,10 +43,12 @@ import { rankShortcutKinds, recordUse, sanitizeUsage, type UsageLog } from '../s
  *   ranked once, when the stored uses are read, and no action touches it, so
  *   nothing moves under the pointer however the counts change.
  *
- * Whether the info panel shows sits here too, beside the layout rather than
- * in it (`layout.ts` is the side panel's arrangement only), and follows the
- * same remember setting. Showing or hiding it counts nothing and asks for no
- * focus: the panel never takes the keyboard.
+ * Whether the person wants the info panel sits here too, beside the layout
+ * rather than in it (`layout.ts` is the side panel's arrangement only), and
+ * follows the same remember setting. Whether it is on screen also depends on
+ * the room (`infoPanelRoomStore`), which is never written here. Showing or
+ * hiding it counts nothing and asks for no focus: the panel never takes the
+ * keyboard.
  *
  * A row of the info panel with a place in a tab behind it (the checks line,
  * the pull request's merge card) asks with `reveal`: it opens the kind
@@ -111,8 +113,8 @@ export interface SidePanelState {
   choosePlaceholder(groupId: GroupId, kind: TabKindId): void;
   setVisible(visible: boolean): void;
   toggleVisible(): void;
+  /** The person's own show or hide. The toggles go through `toggleInfoPanel`, which knows what is on screen. */
   setInfoVisible(visible: boolean): void;
-  toggleInfoVisible(): void;
   setRememberLayout(remember: boolean): void;
   /** True once, and clears it, when `kind` was requested within the TTL. */
   takeFocusRequest(kind: FocusTarget): boolean;
@@ -233,7 +235,6 @@ export const useSidePanelStore = create<SidePanelState>()(
         setVisible: show,
         toggleVisible: () => show(!get().layout.visible),
         setInfoVisible: (infoVisible) => set({ infoVisible }),
-        toggleInfoVisible: () => set((state) => ({ infoVisible: !state.infoVisible })),
         // Off keeps the arrangement on screen; it only stops being written.
         setRememberLayout: (rememberLayout) => set({ rememberLayout }),
         takeFocusRequest: (kind) => {

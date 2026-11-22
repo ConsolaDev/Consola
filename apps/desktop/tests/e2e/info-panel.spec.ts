@@ -6,7 +6,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import type { NewSessionFields } from '../../src/shared/workspace';
 import { commandPaletteChord, launchElectron } from './helpers/electron';
-import { infoPanel, infoPanelChord, infoSection } from './helpers/infoPanel';
+import { infoPanel, infoPanelChord, infoSection, roomForBothPanels } from './helpers/infoPanel';
 
 const STUB_GH_DIR = path.resolve(__dirname, '../fixtures/stub-gh');
 
@@ -241,7 +241,8 @@ test.describe('info panel', () => {
     expect(
       await hide.evaluate((button) => {
         const controls = button.closest('.side-panel-controls');
-        const sidePanel = controls?.querySelector('[aria-label="Show side panel"]');
+        // Its label may go on to say a mark, once the Inbox has been read.
+        const sidePanel = controls?.querySelector('[aria-label^="Show side panel"]');
         return (
           !!sidePanel &&
           !!(button.compareDocumentPosition(sidePanel) & Node.DOCUMENT_POSITION_FOLLOWING)
@@ -265,6 +266,106 @@ test.describe('info panel', () => {
     await page.keyboard.type('Hide info panel');
     await page.keyboard.press('Enter');
     await expect(infoPanel(page)).toHaveCount(0);
+  });
+
+  test('on the default window the info panel steps aside for the side panel, and is back when there is room', async () => {
+    await openSession('Paginate the catalog search');
+    await expect(infoPanel(page)).toBeVisible();
+    const show = () => page.getByRole('button', { name: 'Show info panel', exact: true });
+    const hide = () => page.getByRole('button', { name: 'Hide info panel', exact: true });
+    const changes = () =>
+      page.locator('.side-panel-controls').getByRole('button', { name: 'Changes', exact: true });
+    const sidePanel = () => page.getByTestId('side-panel');
+    // The conversation's xterm, which a remount would replace.
+    await page.evaluate(() => {
+      (window as unknown as Record<string, Element | null>).__conversation = document.querySelector(
+        '[data-conversation-terminal] .xterm',
+      );
+    });
+    const same = () =>
+      page.evaluate(() => {
+        const kept = (window as unknown as Record<string, Element | null>).__conversation;
+        return (
+          !!kept?.isConnected &&
+          document.querySelector('[data-conversation-terminal] .xterm') === kept
+        );
+      });
+    const widthOf = async (testId: string) =>
+      (await page.getByTestId(testId).boundingBox())?.width ?? 0;
+
+    // The side panel opens: the info panel steps aside, the toggle says so,
+    // and the conversation has its width back.
+    await changes().click();
+    await expect(sidePanel()).toBeVisible();
+    await expect(infoPanel(page)).toHaveCount(0);
+    await expect(show()).toHaveAttribute('aria-pressed', 'false');
+    // Beside the side panel at its default 40%, the conversation is the rest
+    // of the pane, about 420px on this window, where beside both panels it
+    // kept about 160px.
+    const pane = (await page.locator('.workspace-view-content').boundingBox())?.width ?? 0;
+    const edge =
+      (await page.locator('.resize-handle:has(+ [data-testid="side-panel"])').boundingBox())
+        ?.width ?? 0;
+    await expect
+      .poll(async () =>
+        Math.abs(pane - (await widthOf('side-panel')) - edge - (await widthOf('agent'))),
+      )
+      .toBeLessThan(1.5);
+    expect(await widthOf('agent')).toBeGreaterThanOrEqual(400);
+    expect(await same(), 'the info panel stepped aside').toBe(true);
+
+    // The side panel hides: the info panel is back.
+    await changes().click();
+    await expect(sidePanel()).toHaveCount(0);
+    await expect(infoPanel(page)).toBeVisible();
+    await expect(hide()).toHaveAttribute('aria-pressed', 'true');
+    expect(await same(), 'the info panel back').toBe(true);
+
+    // A row that opens a tab takes the panel, and the row just pressed, with
+    // it: the keyboard goes to the conversation, never the body.
+    await uncommitted().click();
+    await expect(sidePanelTab('Changes')).toHaveAttribute('aria-selected', 'true');
+    await expect(infoPanel(page)).toHaveCount(0);
+    await expect(conversation()).toBeFocused();
+
+    // The person shows it anyway, beside the side panel, until the side
+    // panel next hides.
+    await show().click();
+    await expect(infoPanel(page)).toBeVisible();
+    await expect(sidePanel()).toBeVisible();
+    await expect(hide()).toHaveAttribute('aria-pressed', 'true');
+    expect(await same(), 'the info panel kept').toBe(true);
+    await changes().click();
+    await expect(sidePanel()).toHaveCount(0);
+    await expect(infoPanel(page)).toBeVisible();
+    await changes().click();
+    await expect(sidePanel()).toBeVisible();
+    await expect(infoPanel(page)).toHaveCount(0);
+    expect(await same(), 'the info panel stepped aside again').toBe(true);
+
+    // Nothing was written: the next launch shows the panel once the side
+    // panel hides.
+    await app.close();
+    ({ app, page } = await launchElectron({ userDataDir, env }));
+    await openSession('Paginate the catalog search');
+    await expect(sidePanel()).toBeVisible();
+    await expect(infoPanel(page)).toHaveCount(0);
+    await expect(show()).toHaveAttribute('aria-pressed', 'false');
+    await changes().click();
+    await expect(sidePanel()).toHaveCount(0);
+    await expect(infoPanel(page)).toBeVisible();
+    await expect(hide()).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  test('on a wide window the info panel stays beside the side panel', async () => {
+    await roomForBothPanels(app, page);
+    await openSession('Paginate the catalog search');
+    await page.getByRole('button', { name: 'Changes', exact: true }).click();
+    await expect(page.getByTestId('side-panel')).toBeVisible();
+    await expect(infoPanel(page)).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: 'Hide info panel', exact: true }),
+    ).toHaveAttribute('aria-pressed', 'true');
   });
 
   test('Environment says where each session runs', async () => {
@@ -531,6 +632,8 @@ test.describe('info panel', () => {
   });
 
   test('a found pull request stops counting when the branch changes', async () => {
+    // Both panels at once, which needs a wide window.
+    await roomForBothPanels(app, page);
     await openSession('Paginate the catalog search');
     await expect(prTitle()).toBeVisible();
 
@@ -583,6 +686,8 @@ test.describe('info panel', () => {
   });
 
   test('a pull request line opens the tab where the pane has it', async () => {
+    // Both panels at once, which needs a wide window.
+    await roomForBothPanels(app, page);
     await openSession(FIX_CI);
     const section = prSection();
     await expect(page.getByTestId('side-panel')).toHaveCount(0);
@@ -616,6 +721,8 @@ test.describe('info panel', () => {
   });
 
   test('one read for the section and the tab together, and none while folded or hidden', async () => {
+    // Both panels at once, which needs a wide window.
+    await roomForBothPanels(app, page);
     await openSession(FIX_CI);
     const section = prSection();
     await expect(section.getByText('2 unresolved threads', { exact: true })).toBeVisible();
@@ -705,6 +812,8 @@ test.describe('info panel', () => {
   test("the pull request's red mark goes on its shortcut, else its tab, else the side panel toggle", async () => {
     // Three launches.
     test.setTimeout(60_000);
+    // Both panels at once, which needs a wide window.
+    await roomForBothPanels(app, page);
     const checksFailing = () => prSection().getByRole('button', { name: /^1 check failing/ });
     const onKind = 'Pull request #51, a check is failing and changes are requested';
 
@@ -752,6 +861,7 @@ test.describe('info panel', () => {
     }, 'consola-side-panel');
     await app.close();
     ({ app, page } = await launchElectron({ userDataDir, env }));
+    await roomForBothPanels(app, page);
     await expect.poll(inboxReadAt).toBeGreaterThan(0);
     await openSession(FIX_CI);
     await expect(checksFailing()).toBeVisible();

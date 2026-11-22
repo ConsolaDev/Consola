@@ -17,6 +17,7 @@ import {
 } from '../sidePanel/tabKinds';
 import { foundPullRequestNow } from '../stores/branchPullRequestStore';
 import { useCheckoutStore } from '../stores/checkoutStore';
+import { infoPanelShownNow, toggleInfoPanel } from '../stores/infoPanelRoomStore';
 import { useNavigationStore } from '../stores/navigationStore';
 import { usePreviewTabStore } from '../stores/previewTabStore';
 import { useSidePanelStore } from '../stores/sidePanelStore';
@@ -84,18 +85,19 @@ export function toggleSidePanelOnScreen(): boolean {
 }
 
 /**
- * What the header's info panel toggle does, for its chord and the palette:
- * shows or hides the info panel. Does nothing, and answers false, with no
- * session on screen, the Inbox or Automations included, since there is no
- * info panel there. Showing it takes no keyboard; hiding it with the
- * keyboard on one of its rows hands the keyboard to the conversation, never
- * to the body.
+ * What the header's info panel toggle does, for its chord: shows or hides
+ * the info panel, by what is on screen (`toggleInfoPanel`), so a panel that
+ * stepped aside for a narrow window is shown. Does nothing, and answers
+ * false, with no session on screen, the Inbox or Automations included, since
+ * there is no info panel there. Showing it takes no keyboard; hiding it with
+ * the keyboard on one of its rows hands the keyboard to the conversation,
+ * never to the body.
  */
 export function toggleInfoPanelOnScreen(): boolean {
   if (!currentTabFacts()) return false;
   const wasInInfoPanel = !!document.activeElement?.closest('.info-panel');
-  useSidePanelStore.getState().toggleInfoVisible();
-  if (wasInInfoPanel && !useSidePanelStore.getState().infoVisible) {
+  toggleInfoPanel();
+  if (wasInInfoPanel && !infoPanelShownNow()) {
     requestAnimationFrame(() => keyboardToConversation());
   }
   return true;

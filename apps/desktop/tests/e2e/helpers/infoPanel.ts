@@ -1,4 +1,4 @@
-import { expect, type Locator, type Page } from '@playwright/test';
+import { expect, type ElectronApplication, type Locator, type Page } from '@playwright/test';
 
 /** ⌥⌘J: shows or hides the info panel. */
 export function infoPanelChord(): string {
@@ -15,16 +15,12 @@ export function infoSection(page: Page, title: string): Locator {
 }
 
 /**
- * For a test that is not about the info panel: hides it, so the conversation
- * and the side panel have its width back. Call it once a session is on
- * screen. Hidden by its chord, which leaves the keyboard where it is, and for
- * every session: whether it shows is not a session's.
+ * For a test about the info panel beside the side panel: a window wide enough
+ * that the info panel stays when the side panel opens. On the default
+ * 1000×700 window it steps aside for the side panel (`INFO_PANEL_ROOM_PX`).
  */
-export async function hideInfoPanel(page: Page): Promise<void> {
-  const toggle = page.getByRole('button', { name: /^(Show|Hide) info panel$/ });
-  await expect(toggle).toBeVisible();
-  if ((await toggle.getAttribute('aria-pressed')) === 'true') {
-    await page.keyboard.press(infoPanelChord());
-  }
-  await expect(infoPanel(page)).toHaveCount(0);
+export async function roomForBothPanels(app: ElectronApplication, page: Page): Promise<void> {
+  const appWindow = await app.browserWindow(page);
+  await appWindow.evaluate((browserWindow) => browserWindow.setContentSize(1400, 800));
+  await expect.poll(() => page.evaluate(() => window.innerWidth)).toBe(1400);
 }

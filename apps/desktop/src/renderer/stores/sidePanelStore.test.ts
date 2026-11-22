@@ -207,22 +207,20 @@ describe('partializeSidePanel', () => {
 describe('the info panel', () => {
   it('shows and hides', () => {
     expect(state().infoVisible).toBe(true);
-    state().toggleInfoVisible();
-    expect(state().infoVisible).toBe(false);
-    state().toggleInfoVisible();
-    expect(state().infoVisible).toBe(true);
     state().setInfoVisible(false);
     expect(state().infoVisible).toBe(false);
+    state().setInfoVisible(true);
+    expect(state().infoVisible).toBe(true);
   });
 
-  it('toggleInfoVisible counts nothing and asks for no focus', () => {
+  it('setInfoVisible counts nothing and asks for no focus', () => {
     state().openKind('changes');
     state().takeFocusRequest('changes');
     const uses = state().uses;
     const layout = state().layout;
 
-    state().toggleInfoVisible();
-    state().toggleInfoVisible();
+    state().setInfoVisible(false);
+    state().setInfoVisible(true);
     state().setInfoVisible(false);
     expect(state().uses).toBe(uses);
     expect(state().layout).toBe(layout);

@@ -6,7 +6,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import type { WorkItemRef } from '../../src/shared/workItems';
 import { createProfileDir, launchElectron } from './helpers/electron';
-import { infoSection } from './helpers/infoPanel';
+import { infoSection, roomForBothPanels } from './helpers/infoPanel';
 
 const STUB_GH_DIR = path.resolve(__dirname, '../fixtures/stub-gh');
 const PR51_KEY = 'github:sprocket/catalog-portal:pr:51';
@@ -975,6 +975,9 @@ test('a linked session shows its item pane beside the terminal, and Fix pastes i
     });
     app = launched.app;
     const { page } = launched;
+    // The info panel's Pull request section is counted beside the side
+    // panel's tab, so both stay on screen: a wide window.
+    await roomForBothPanels(app, page);
     // Every read of an item's details asks REST for its changed files,
     // alongside its GraphQL queries, so those requests count the reads.
     const detailReadsOf = (number: number) =>
