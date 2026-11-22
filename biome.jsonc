@@ -17,7 +17,9 @@
       // Captured GitHub API responses, kept byte for byte.
       "!apps/desktop/tests/fixtures/stub-gh",
       // Hand-minified, and parts of it do not parse.
-      "!apps/website/src/styles.css"
+      "!apps/website/src/styles.css",
+      // Copied from t3code; kept byte for byte (vendor/t3code/UPSTREAM.md).
+      "!vendor"
     ]
   },
   "formatter": {
