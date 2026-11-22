@@ -79,7 +79,7 @@ describe('createClaudeTurnReader', () => {
   });
 
   it('joins a \\r\\n split between chunks', () => {
-    const line = RESULT_OK.replace('\n', '\r\n');
+    const line = RESULT_OK.replace(/\n/g, '\r\n');
     const { events, report } = readAll(line.slice(0, -1), line.slice(-1));
     expect(lines(events)).toEqual([]);
     expect(report.result?.turns).toBe(7);
@@ -101,9 +101,9 @@ describe('createClaudeTurnReader', () => {
 
   it('strips escapes around a line before parsing', () => {
     const reader = createClaudeTurnReader();
-    expect(reader.push(`\x1b[2K${INIT.replace('\n', '\r\n')}`)).toMatchObject([{ kind: 'init' }]);
+    expect(reader.push(`\x1b[2K${INIT.replace(/\n/g, '\r\n')}`)).toMatchObject([{ kind: 'init' }]);
     expect(reader.push('\x1b[?25h\r\n')).toEqual([{ kind: 'line', text: '\x1b[?25h' }]);
-    expect(reader.push(`\x1b[1m${RESULT_OK.replace('\n', '\x1b[0m\r\n')}`)).toEqual([]);
+    expect(reader.push(`\x1b[1m${RESULT_OK.replace(/\n/g, '\x1b[0m\r\n')}`)).toEqual([]);
     const { report } = reader.end();
     expect(report.otherLines).toEqual([]);
     expect(report.result?.turns).toBe(7);
@@ -346,7 +346,7 @@ describe('createClaudeTurnReader', () => {
     expect(echoed.report.init?.model).toBe('claude-opus-5-5');
 
     for (const key of ['^[[A', '^C', '^[[5~', '^[OA', '^[', '^?', '^C^C']) {
-      const { events, report } = readAll(`${key}${RESULT_OK.replace('\n', '\r\n')}`);
+      const { events, report } = readAll(`${key}${RESULT_OK.replace(/\n/g, '\r\n')}`);
       expect(lines(events), key).toEqual([]);
       expect(report.otherLines, key).toEqual([]);
       expect(report.result?.turns, key).toBe(7);
