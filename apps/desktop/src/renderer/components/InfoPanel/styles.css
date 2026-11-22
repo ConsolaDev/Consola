@@ -123,8 +123,10 @@
   flex-direction: column;
 }
 
-/* One row: an icon, what it is about, and a short value at its end. */
+/* One row: an icon, what it is about, and a short value at its end. Its
+   tint over the panel's colour: none, or the hover's (see `.info-reviewer`). */
 .info-row {
+  --info-row-tint: transparent;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -154,7 +156,8 @@ button.info-row {
   cursor: pointer;
 }
 button.info-row:hover {
-  background: var(--color-bg-hover);
+  --info-row-tint: var(--color-bg-hover);
+  background: var(--info-row-tint);
 }
 button.info-row:focus-visible {
   outline: 2px solid var(--color-accent);
@@ -378,7 +381,10 @@ button.info-row:focus-visible {
 }
 
 /* The reviewers, overlapping, each ringed by where they stand: a gap in the
-   panel's colour, then the ring. */
+   row's colour, then the ring. The row is the panel's colour, and on a
+   button row's hover the hover tint over it (`--info-row-tint`), so the gap
+   takes the same tint: in the panel's colour alone it drew a solid disc
+   round each avatar on the hovered row. */
 .info-reviewers {
   display: inline-flex;
   align-items: center;
@@ -390,7 +396,7 @@ button.info-row:focus-visible {
   display: inline-flex;
   padding: 1.5px;
   border-radius: 999px;
-  background: var(--color-bg-primary);
+  background: linear-gradient(var(--info-row-tint), var(--info-row-tint)), var(--color-bg-primary);
   box-shadow: 0 0 0 1.5px var(--ring);
 }
 .info-reviewer + .info-reviewer {
