@@ -187,15 +187,17 @@ Postgres) is the regional cell: one copy per region, configured with its
 region, holding what a workspace has there that is not global. It holds no
 accounts (people are referenced by their global id), and every table carries
 the workspace id. It trusts only `cloud-global`'s token: every request but its
-health check and the outbox's deliveries (signed with the same key) carries a
-cell token, checked with `cloud-global`'s public keys,
+health check, the outbox's deliveries and the GitHub webhook events
+`cloud-global` passes on (both signed with the same key) carries a cell token,
+checked with `cloud-global`'s public keys,
 and the person, workspace and role come from that token alone, never from the
 request. Nothing in `apps/desktop` depends on the cloud apps, and none
 imports from the desktop, the website, another app or `packages/*`, with one
 exception: `cloud-global` and `cloud-region` both import
 `packages/cloud-contract` (`@consola/cloud-contract`), what the two agree on:
 the regions, the workspace roles, the claims of the token `cloud-global` mints
-for a cell, the outbox messages it sends one and how it delivers them. It does
+for a cell, the outbox messages it sends one, the GitHub events it passes on,
+and how it delivers both. It does
 no I/O, so any layer of either app may import it; before changing it, read
 `packages/cloud-contract/AGENTS.md`. Setup is in
 `apps/cloud-global/README.md` and `apps/cloud-region/README.md`. Before
