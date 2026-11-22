@@ -34,6 +34,7 @@ import {
 import * as Clock from 'effect/Clock';
 import * as Context from 'effect/Context';
 import * as DateTime from 'effect/DateTime';
+import * as Deferred from 'effect/Deferred';
 import * as Duration from 'effect/Duration';
 import * as Effect from 'effect/Effect';
 import * as Exit from 'effect/Exit';
@@ -176,6 +177,8 @@ const CLOSE_REASONS = {
   4401: 'A valid session pass is required.',
   4403: 'This pass opens another session.',
 } as const;
+/** Why a connection the pass let in is closed (`4401`) at the pass's `exp`. */
+const PASS_EXPIRED_REASON = 'The session pass has expired.';
 
 /** The version of the t3 server whose code this host runs (`vendor/t3code/apps/server`). */
 const T3_SERVER_VERSION = '0.1.11';
@@ -634,8 +637,16 @@ const refuseConnection = Effect.fn('host.refuseConnection')(
   Effect.scoped,
 );
 
-/** One connection's RPC server, as t3's `ws.ts` runs one per socket. */
-const serveRpc = Effect.fn('host.serveRpc')(function* (options: HostServerOptions, url: URL) {
+/**
+ * One connection's RPC server, as t3's `ws.ts` runs one per socket. The pass that let it in
+ * bounds it: at the pass's `exp` (`expiresAtSeconds`) the socket is closed with `4401`, as a
+ * connection with that pass would be refused then; a socket that closes first cancels it.
+ */
+const serveRpc = Effect.fn('host.serveRpc')(function* (
+  options: HostServerOptions,
+  url: URL,
+  expiresAtSeconds: number,
+) {
   const { protocol, httpEffect } = yield* RpcServer.makeProtocolWithHttpEffectWebsocket;
   yield* RpcServer.make(WsRpcGroup, WS_RPC_SERVER_OPTIONS).pipe(
     Effect.provideService(RpcServer.Protocol, withOutputWindow(protocol)),
@@ -644,15 +655,29 @@ const serveRpc = Effect.fn('host.serveRpc')(function* (options: HostServerOption
     ),
     Effect.forkScoped,
   );
-  if (!url.searchParams.has(SOCKET_FRAME_PARTS_QUERY_PARAM)) return yield* httpEffect;
   // A client that asks for frame parts gets large frames split, as t3's server sends them
   // (`ws.ts:3814-3827`).
+  const frameParts = url.searchParams.has(SOCKET_FRAME_PARTS_QUERY_PARAM);
   const request = yield* HttpServerRequest.HttpServerRequest;
+  const upgraded = yield* Deferred.make<Socket.Socket>();
+  // Forked in the connection's scope, which closes when its socket does.
+  yield* Effect.gen(function* () {
+    const socket = yield* Deferred.await(upgraded);
+    const nowMs = yield* Clock.currentTimeMillis;
+    yield* Effect.sleep(Duration.millis(Math.max(0, expiresAtSeconds * 1000 - nowMs)));
+    const writer = yield* socket.writer;
+    yield* writer.write(new Socket.CloseEvent(4401, PASS_EXPIRED_REASON));
+  }).pipe(Effect.scoped, Effect.ignore, Effect.forkScoped);
   return yield* httpEffect.pipe(
     Effect.provideService(
       HttpServerRequest.HttpServerRequest,
       Object.create(request, {
-        upgrade: { value: Effect.map(request.upgrade, splitLargeSocketFrames) },
+        upgrade: {
+          value: request.upgrade.pipe(
+            Effect.map((socket) => (frameParts ? splitLargeSocketFrames(socket) : socket)),
+            Effect.tap((socket) => Deferred.succeed(upgraded, socket)),
+          ),
+        },
       }),
     ),
   );
@@ -694,14 +719,14 @@ const app = Effect.fn('host.app')(function* (
   return yield* verifyPassWith(pass, key, options.sessionId, nowSeconds).pipe(
     Effect.matchEffect({
       onFailure: (rejected) => refuseConnection(passCloseCode(rejected.reason)),
-      onSuccess: () =>
+      onSuccess: (claims) =>
         hasCompatibleOrchestrationProtocol(url)
           ? // A connection counts from the moment it is let in until its socket closes.
             Effect.acquireUseRelease(
               Effect.sync(() => {
                 connections.open += 1;
               }),
-              () => serveRpc(options, url),
+              () => serveRpc(options, url, claims.exp),
               () =>
                 Effect.sync(() => {
                   connections.open -= 1;

@@ -47,6 +47,7 @@ import {
   withState,
 } from '../testing/replay.ts';
 import { connectT3Client, hostSocketUrl, type T3Client } from '../testing/t3Client.ts';
+import { SOCKET_FRAME_PARTS_QUERY_PARAM } from '@t3tools/shared/socketFrameParts';
 import { HOST_SCOPES } from './hostHttp.ts';
 import { PassKeyInvalid } from './passVerifier.ts';
 import {
@@ -97,16 +98,42 @@ const makeKeys = (): Keys => {
   return { publicKeyPem: publicKey.export({ type: 'spki', format: 'pem' }).toString(), privateKey };
 };
 
-/** A pass for `sessionId`, valid for ten minutes, as the cell signs one. */
-const signPass = Effect.fn('signPass')(function* (keys: Keys, sessionId: string) {
+/** A pass for `sessionId`, valid for ten minutes (or `lifetimeSeconds`), as the cell signs one. */
+const signPass = Effect.fn('signPass')(function* (
+  keys: Keys,
+  sessionId: string,
+  lifetimeSeconds = 600,
+) {
   const now = Math.floor((yield* Clock.currentTimeMillis) / 1000);
   return yield* Effect.promise(() =>
     new SignJWT({ sub: 'person-acme-1', ws: 'workspace-sprocket', sid: sessionId })
       .setProtectedHeader({ alg: 'EdDSA', typ: 'JWT' })
       .setIssuedAt(now)
-      .setExpirationTime(now + 600)
+      .setExpirationTime(now + lifetimeSeconds)
       .sign(keys.privateKey),
   );
+});
+
+/**
+ * A plain WebSocket at `url` that opens: when it opened and how it closed, in epoch milliseconds
+ * (read from the clock as each event is seen). Fails if it closes without opening.
+ */
+const openedSocketAt = Effect.fn('openedSocketAt')(function* (url: string) {
+  const socket = new WebSocket(url);
+  const closed = new Promise<CloseEvent>((resolve) => socket.addEventListener('close', resolve));
+  const opened = new Promise<boolean>((resolve) => {
+    socket.addEventListener('open', () => resolve(true));
+    void closed.then(() => resolve(false));
+  });
+  if (!(yield* Effect.promise(() => opened))) {
+    return yield* Effect.die(
+      new Error(`closed unopened: ${(yield* Effect.promise(() => closed)).code}`),
+    );
+  }
+  const openedAt = yield* Clock.currentTimeMillis;
+  const event = yield* Effect.promise(() => closed);
+  const closedAt = yield* Clock.currentTimeMillis;
+  return { openedAt, closedAt, code: event.code, reason: event.reason };
 });
 
 /** The close code a plain WebSocket at `url` ends with. */
@@ -361,9 +388,10 @@ describe('serveHost', () => {
           // A valid pass is served, and its config names the session and t3's providers.
           const { initialConfig } = yield* connect();
           expect(initialConfig.environment.environmentId).toBe(spec.sessionId);
-          expect(initialConfig.providers.map((provider) => provider.instanceId)).toContain(
+          // The session's provider, and no other (the composition hydrates its driver alone).
+          expect(initialConfig.providers.map((provider) => provider.instanceId)).toEqual([
             'claudeAgent',
-          );
+          ]);
           yield* runTheTurn(handle, prompt);
         }),
       ),
@@ -390,6 +418,43 @@ describe('serveHost', () => {
           // The second client's socket closes with its scope; the server sees it go.
           yield* Effect.gen(function* () {
             while (connectedClients() !== 1) yield* Effect.sleep(Duration.millis(10));
+          }).pipe(Effect.timeout(Duration.seconds(10)), Effect.orDie);
+          yield* runTheTurn(handle, prompt);
+        }),
+      ),
+    REPLAY_TIMEOUT_MS,
+  );
+
+  it(
+    'closes a connection it let in with 4401 when its pass expires, framed or not',
+    () =>
+      withServedReplay('simple', ({ spec, handle, prompt, keys, port, connectedClients }) =>
+        Effect.gen(function* () {
+          const unframed = (pass: string) => {
+            const url = new URL(hostSocketUrl(port, pass));
+            url.searchParams.delete(SOCKET_FRAME_PARTS_QUERY_PARAM);
+            return url.toString();
+          };
+          // Two to three seconds left: the socket opens, is served, and is closed at the pass's exp.
+          const [framed, plain] = yield* Effect.all(
+            [
+              signPass(keys, spec.sessionId, 3).pipe(
+                Effect.flatMap((pass) => openedSocketAt(hostSocketUrl(port, pass))),
+              ),
+              signPass(keys, spec.sessionId, 3).pipe(
+                Effect.flatMap((pass) => openedSocketAt(unframed(pass))),
+              ),
+            ],
+            { concurrency: 'unbounded' },
+          );
+          for (const closed of [framed, plain]) {
+            expect(closed).toMatchObject({ code: 4401, reason: 'The session pass has expired.' });
+            // Not refused at the door: open for a while, closed no later than the pass's exp.
+            expect(closed.closedAt - closed.openedAt).toBeGreaterThan(500);
+            expect(closed.closedAt - closed.openedAt).toBeLessThan(6_000);
+          }
+          yield* Effect.gen(function* () {
+            while (connectedClients() !== 0) yield* Effect.sleep(Duration.millis(10));
           }).pipe(Effect.timeout(Duration.seconds(10)), Effect.orDie);
           yield* runTheTurn(handle, prompt);
         }),

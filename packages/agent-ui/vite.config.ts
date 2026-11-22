@@ -7,6 +7,7 @@ import { esmExternalRequirePlugin } from 'vite/rolldown/plugins';
 import { defineConfig, type Plugin } from 'vite-plus';
 import { playwright } from 'vite-plus/test/browser-playwright';
 import { scopeCss } from './build/scopeCss.ts';
+import { signPass } from './src/testing/passKeys.ts';
 
 const here = (path: string) => fileURLToPath(new URL(path, import.meta.url));
 
@@ -56,6 +57,10 @@ const withheldDeviceModels = (): Plugin => ({
   },
 });
 
+/** The address of every WebSocket the tests' page opened since `watchSockets` was first called. */
+const openedSockets: string[] = [];
+let watchingSockets = false;
+
 /**
  * Vitest's browser mode, as t3 runs its `*.browser.test.tsx` files: Playwright's Chromium. One
  * object per project, as Vitest names a project's instances in place.
@@ -74,6 +79,25 @@ const browser = () => ({
       }: { page: { emulateMedia(media: { colorScheme: 'light' | 'dark' | null }): Promise<void> } },
       colorScheme: 'light' | 'dark' | null,
     ) => page.emulateMedia({ colorScheme }),
+    /** A pass for the tests' host, signed with the key it trusts (`src/testing/passKeys.ts`). */
+    signHostPass: (
+      _context: unknown,
+      privateKeyFile: string,
+      sessionId: string,
+      lifetimeSeconds: number,
+    ) => signPass(privateKeyFile, sessionId, lifetimeSeconds),
+    /** Starts recording the address of each WebSocket the page opens (Playwright's event). */
+    watchSockets: ({
+      page,
+    }: {
+      page: { on(event: 'websocket', listener: (socket: { url(): string }) => void): void };
+    }) => {
+      if (watchingSockets) return;
+      watchingSockets = true;
+      page.on('websocket', (socket) => openedSockets.push(socket.url()));
+    },
+    /** Every address `watchSockets` recorded. */
+    openedSockets: () => [...openedSockets],
   },
 });
 

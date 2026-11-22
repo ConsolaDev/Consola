@@ -72,9 +72,11 @@ pieces:
   `AGENTS.md`, "Before the socket"); the pass is the only credential. No t3 sign-in, pairing or
   environment picker is mounted.
 - **The environment and the thread are the session**: both ids are `sessionId`.
-- **Pass expiry.** A refused pass is t3's `401`, on which t3's connection stops (blocked,
-  `authentication`). `AgentChat` watches the registry's state for that and calls
-  `onPassExpired`, then registers the pass it answers, which reconnects. A pass the host refuses
+- **Pass expiry.** The host closes a connection with `4401` at its pass's `exp`, and refuses
+  the expired pass at the next ticket call. A refused pass is t3's `401`, on which t3's
+  connection stops (blocked, `authentication`). `AgentChat` watches the registry's state for
+  that and calls `onPassExpired`, then registers the pass it answers, which reconnects
+  (`AgentChat.passExpiry.browser.test.tsx`). A pass the host refuses
   before t3 has tried it does not count (the state reported first can be the old pass's), and a
   pass `onPassExpired` answered that is refused before it ever connects is not asked about again.
 - **What the chat says when it cannot show the conversation.** t3 shows a host that goes away
@@ -250,8 +252,10 @@ pnpm --filter @consola/agent-ui test:dist   # the built library in a page (build
 The browser tests run in Vitest's browser mode (Playwright, Chromium; `pnpm --filter
 @consola/agent-ui exec playwright install chromium` once). A global setup
 (`src/testing/hostSession.ts`) starts `@consola/host`'s replay entry
-(`src/testing/replaySession.ts`, t3's recorded Claude `simple` fixture) and sends the fixture's
-message through t3's RPC client, on a machine of its own: a temporary home, no CLI or API-key
-variable, fake CLIs on the `PATH`; teardown fails the run if any CLI call saw another home or a
-config folder. Each browser test file deletes t3's IndexedDB first, so what it shows comes from
+(`src/testing/replaySession.ts`, t3's recorded Claude `simple` fixture) trusting a key pair made
+for the run (`src/testing/passKeys.ts`, so a test can ask for a pass of any lifetime with the
+`signHostPass` command; `watchSockets` and `openedSockets` record the sockets the page opens),
+and sends the fixture's message through t3's RPC client, on a machine of its own: a temporary
+home, no CLI or API-key variable, fake CLIs on the `PATH`; teardown fails the run if any CLI
+call saw another home or a config folder. Each browser test file deletes t3's IndexedDB first, so what it shows comes from
 the host. Files run one at a time.

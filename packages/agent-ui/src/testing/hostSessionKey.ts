@@ -2,6 +2,8 @@
 export type HostSession = {
   readonly hostUrl: string;
   readonly pass: string;
+  /** The private key the host trusts (`passKeys.ts`), for the `signHostPass` command. */
+  readonly passKeyFile: string;
   readonly sessionId: string;
   /** What the fixture's assistant answered. */
   readonly assistantText: string;

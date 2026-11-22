@@ -184,6 +184,15 @@ handlers are host glue that calls the helpers `ws.ts` calls
   plus `pass` and `wsTicket`), so whatever shows a URL the server handles
   redacts it. Then,
   as t3, a client must speak orchestration protocol 2 (`426` otherwise).
+- **The pass bounds the connection.** A socket a pass let in is closed with
+  `4401` (`The session pass has expired.`) at that pass's `exp`, as a new
+  connection with it would be refused then (`serveRpc`: a timer forked in the
+  connection's scope, so a socket that closes first cancels it). t3's client
+  then asks for a ticket with the expired pass, is refused (`401`), and stops
+  (blocked, `authentication`), which is where `@consola/agent-ui` calls
+  `onPassExpired` and reconnects with the pass it answers
+  (`AgentChat.passExpiry.browser.test.tsx`; `rpcServer.test.ts` "closes a
+  connection it let in with 4401 when its pass expires").
 - **What is served** is `SERVED_METHODS`, the one list, with why each is
   there: `orchestration.subscribeThread`, `orchestration.dispatchCommand` and
   `orchestration.subscribeCommandOutput` (the thread), `subscribeServerConfig`

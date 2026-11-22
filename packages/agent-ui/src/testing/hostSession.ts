@@ -4,7 +4,8 @@
  * The browser tests' host (Vitest `globalSetup`, run in Node before any browser starts): the
  * host's own test entry, `consola-host session` replaying t3's recorded Claude `simple` fixture
  * (`@consola/host`'s `src/testing/replaySession.ts`), with its first message already sent, so the
- * fixture's answer is in the thread before `AgentChat` connects.
+ * fixture's answer is in the thread before `AgentChat` connects. It trusts a key pair made for the
+ * run (`passKeys.ts`), so a test can ask for a pass of any lifetime (`signHostPass`).
  *
  * Both processes run on a machine of their own, as the host's tests do (`@consola/host`'s
  * `AGENTS.md`, "Tests"): a temporary home, no CLI or API-key variable, and a `PATH` of fake
@@ -27,6 +28,7 @@ import {
   writeFakeClis,
 } from '@consola/host/src/testing/machine.ts';
 import type { HostSession } from './hostSessionKey.ts';
+import { signPass, writePassKeys } from './passKeys.ts';
 import { HOST_SESSION_KEY } from './hostSessionKey.ts';
 
 const HOST_SRC = join(
@@ -39,6 +41,8 @@ const SESSION_ID = 'session-sprocket-agent-ui';
 /** What the `simple` fixture's Claude answers (`claude_transcript.ndjson`). */
 const ASSISTANT_TEXT = 'fixture simple ok';
 const START_TIMEOUT_MS = 60_000;
+/** The pass the tests share: long enough for the whole run. */
+const PASS_LIFETIME_SECONDS = 2 * 60 * 60;
 
 type Machine = {
   readonly root: string;
@@ -116,8 +120,8 @@ const stop = async (child: ChildProcess, exited: Promise<unknown>) => {
 
 export default async function setup(project: TestProject) {
   const machine = makeMachine();
+  const keys = writePassKeys(machine.root);
   let port: number | undefined;
-  let pass: string | undefined;
   let announced = () => {};
   const started = new Promise<void>((resolve) => {
     announced = resolve;
@@ -129,7 +133,8 @@ export default async function setup(project: TestProject) {
       'simple',
       'full-access',
       'session',
-      '--dev',
+      '--pass-public-key',
+      keys.publicKeyFile,
       '--session-id',
       SESSION_ID,
       '--harness',
@@ -138,10 +143,9 @@ export default async function setup(project: TestProject) {
       '0',
     ],
     (line) => {
-      const printed = JSON.parse(line) as { type?: string; port?: number; pass?: string };
+      const printed = JSON.parse(line) as { type?: string; port?: number };
       if (printed.type === 'ready') port = printed.port;
-      if (printed.type === 'dev-pass') pass = printed.pass;
-      if (port !== undefined && pass !== undefined) announced();
+      if (port !== undefined) announced();
     },
   );
   const teardown = async () => {
@@ -155,6 +159,7 @@ export default async function setup(project: TestProject) {
       throw new Error(`A CLI ran outside the tests' machine: ${JSON.stringify(escaped)}`);
     }
   };
+  const pass = signPass(keys.privateKeyFile, SESSION_ID, PASS_LIFETIME_SECONDS);
   try {
     await withTimeout(
       Promise.race([
@@ -166,7 +171,7 @@ export default async function setup(project: TestProject) {
       'Starting the replay host',
       host.stderr,
     );
-    const sender = startNode(machine, SEND_ENTRY, [String(port), pass ?? '', SESSION_ID], () => {});
+    const sender = startNode(machine, SEND_ENTRY, [String(port), pass, SESSION_ID], () => {});
     const code = await withTimeout(sender.exited, 'Sending the fixture message', sender.stderr);
     if (code !== 0) throw new Error(`Sending the fixture message failed.\n${sender.stderr()}`);
   } catch (error) {
@@ -175,7 +180,8 @@ export default async function setup(project: TestProject) {
   }
   const session: HostSession = {
     hostUrl: `http://127.0.0.1:${port}`,
-    pass: pass ?? '',
+    pass,
+    passKeyFile: keys.privateKeyFile,
     sessionId: SESSION_ID,
     assistantText: ASSISTANT_TEXT,
   };
