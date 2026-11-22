@@ -515,6 +515,7 @@ function notRead(): FactoryRead {
       stray: [],
       laterFolders: [],
       unread: [],
+      outside: [],
     },
     parse: {
       automations: [],

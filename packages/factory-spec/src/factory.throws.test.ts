@@ -55,6 +55,7 @@ const files = (over: Partial<FactoryFiles> = {}): FactoryFiles => ({
   stray: [],
   laterFolders: [],
   unread: [],
+  outside: [],
   ...over,
 });
 

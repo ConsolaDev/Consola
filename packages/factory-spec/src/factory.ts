@@ -40,6 +40,13 @@ export interface FactoryFiles {
   laterFolders: string[];
   /** Files the adapter did not read: over `MAX_FACTORY_TEXT_BYTES`, or a read that failed. */
   unread: Array<{ path: string; reason: string }>;
+  /**
+   * Files, or one of the three folders (`agents/`, with its `/`), whose real
+   * path leaves the folder's real path: never read, as a factory folder can
+   * hold other people's files and a link could pull any of the person's into
+   * an agent's prompt. A link that stays inside the folder is read through.
+   */
+  outside: string[];
 }
 
 /** Something the person should know that does not stop the factory applying. */
@@ -59,9 +66,9 @@ export interface FactoryParseResult {
   /** Each with `file`. */
   issues: FactorySpecIssue[];
   notices: FactoryNotice[];
-  /** `factory.yml`, `automations/<n>.yaml`, `agents/<n>.md`, `skills/<n>` and every unread path, as read. */
+  /** `factory.yml`, `automations/<n>.yaml`, `agents/<n>.md`, `skills/<n>` and every unread or outside path, as read. */
   present: string[];
-  /** Of those, the ones not read whole: a `factory.yml` or automation file that does not parse, and every unread path. */
+  /** Of those, the ones not read whole: a `factory.yml` or automation file that does not parse, and every unread or outside path. */
   unreadable: string[];
 }
 
@@ -118,8 +125,13 @@ export function parseFactory(files: FactoryFiles): FactoryParseResult {
   const notices: FactoryNotice[] = [];
   const present: string[] = [];
   const unreadable: string[] = [];
-  const unreadPaths = files.unread.map((entry) => entry.path);
+  // A file or folder that links outside is not read either: as unread, nothing in it is told apart from the failure.
+  const unreadPaths = [...files.unread.map((entry) => entry.path), ...files.outside];
   const unreadUnder = (prefix: string) => unreadPaths.some((path) => path.startsWith(prefix));
+  const coveredBy = (path: string) =>
+    unreadPaths.some(
+      (unread) => unread === path || (unread.endsWith('/') && path.startsWith(unread)),
+    );
 
   // Skills: the valid ones are kept. One with a file the adapter could not read is not valid.
   const skills: Record<string, SkillDefinition> = {};
@@ -166,8 +178,7 @@ export function parseFactory(files: FactoryFiles): FactoryParseResult {
     for (const skill of agent.skills) skillHashes[skill] = skills[skill].hash;
     agents[name] = { ...agent, hash: agentHash(agent, skillHashes) };
   }
-  const agentIsThere = (name: string) =>
-    own(files.agents, name) || unreadPaths.includes(`agents/${name}.md`);
+  const agentIsThere = (name: string) => own(files.agents, name) || coveredBy(`agents/${name}.md`);
 
   // Automations: factory.yml's entries, then each automation file's.
   let candidates: Candidate[] = [];
@@ -292,6 +303,15 @@ export function parseFactory(files: FactoryFiles): FactoryParseResult {
     present.push(path);
     unreadable.push(path);
   }
+  for (const path of files.outside) {
+    issues.push({
+      message: `\`${path}\` links outside the factory folder; Consola reads only files inside it.`,
+      file: path,
+      path: '',
+    });
+    present.push(path);
+    unreadable.push(path);
+  }
   for (const folder of files.laterFolders) {
     if (own(LATER_FOLDERS, folder)) {
       notices.push({
@@ -326,6 +346,7 @@ export function factoryFilesOf(texts: Readonly<Record<string, string>>): Factory
     stray: [],
     laterFolders: [],
     unread: [],
+    outside: [],
   };
   for (const path of Object.keys(texts)) {
     const automation = /^automations\/([^/]+)\.yaml$/.exec(path);

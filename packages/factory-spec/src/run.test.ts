@@ -426,6 +426,7 @@ describe('the version with agents', () => {
     stray: [],
     laterFolders: [],
     unread: [],
+    outside: [],
   });
   /** An entry's version as the files decide it: its agents' hashes, no action bodies. */
   const versionIn = (result: FactoryParseResult, name: string) => {

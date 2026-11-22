@@ -34,7 +34,8 @@ export interface FactoryFolderRead {
 /**
  * One workspace's factory folder: `factory.yml`, `automations/`, `agents/`
  * and `skills/`, read, watched and written. Every write is whole and atomic,
- * through a symlink kept with dotfiles.
+ * through a symlink that stays inside the folder; one whose real path
+ * leaves it is never read nor written through.
  */
 export interface FactoryFolderHandle {
   readonly folderPath: string;

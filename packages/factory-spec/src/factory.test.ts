@@ -11,6 +11,7 @@ const files = (over: Partial<FactoryFiles> = {}): FactoryFiles => ({
   stray: [],
   laterFolders: [],
   unread: [],
+  outside: [],
   ...over,
 });
 const text = (path: string, content: string): SkillFileEntry => ({
@@ -381,6 +382,51 @@ automations:
       '`summariser` has problems of its own in agents/summariser.md; this step runs once they are fixed.',
       'Could not read `agents/summariser.md`: EACCES: permission denied.',
     ]);
+  });
+
+  describe('a file that links outside the folder (review S3)', () => {
+    const OUTSIDE = (path: string) =>
+      `\`${path}\` links outside the factory folder; Consola reads only files inside it.`;
+
+    it('is an issue of its own, present and unreadable, and a step naming it waits for it', () => {
+      const folder = ACCEPTANCE();
+      delete folder.agents.summariser;
+      folder.outside = ['agents/summariser.md'];
+      const result = parseFactory(folder);
+      expect(result.issues).toEqual([
+        expect.objectContaining({
+          message:
+            '`summariser` has problems of its own in agents/summariser.md; this step runs once they are fixed.',
+        }),
+        { message: OUTSIDE('agents/summariser.md'), file: 'agents/summariser.md', path: '' },
+      ]);
+      expect(result.present).toContain('agents/summariser.md');
+      expect(result.unreadable).toEqual(['agents/summariser.md']);
+    });
+
+    it('a folder that links outside covers every file in it', () => {
+      const folder = ACCEPTANCE();
+      folder.agents = {};
+      folder.outside = ['agents/'];
+      const result = parseFactory(folder);
+      expect(result.issues.map((issue) => issue.message)).toEqual([
+        '`investigator` has problems of its own in agents/investigator.md; this step runs once they are fixed.',
+        '`summariser` has problems of its own in agents/summariser.md; this step runs once they are fixed.',
+        OUTSIDE('agents/'),
+      ]);
+      expect(result.unreadable).toEqual(['agents/']);
+    });
+
+    it('factory.yml or an automation file outside is unreadable, so nothing in it is removed', () => {
+      const result = parseFactory(
+        files({ outside: ['factory.yml', 'automations/old-digest.yaml'] }),
+      );
+      expect(result.issues.map((issue) => issue.message)).toEqual([
+        OUTSIDE('factory.yml'),
+        OUTSIDE('automations/old-digest.yaml'),
+      ]);
+      expect(result.unreadable).toEqual(['factory.yml', 'automations/old-digest.yaml']);
+    });
   });
 
   it('says a skill with a file it could not read has problems', () => {

@@ -372,5 +372,9 @@ describe('what an agent writing agent files and automation files is told', () =>
     // A step's agent is said where steps are: one of four, or beside a prompt or an action.
     expect(text).toContain('agent: <name>');
     expect(text).not.toContain('Each step has exactly one of prompt:, action: or run:.');
+    // A link out of the folder is never read (review S3).
+    expect(text).toContain(
+      'a link leading outside the folder: Consola reads only files inside it.',
+    );
   });
 });

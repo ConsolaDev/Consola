@@ -127,6 +127,7 @@ describe('FactoryFolder.read', () => {
         stray: [],
         laterFolders: [],
         unread: [],
+        outside: [],
       },
     });
   });
@@ -242,11 +243,13 @@ describe('FactoryFolder.read', () => {
     expect(files.factoryYml).toBe(FACTORY);
   });
 
-  it('dotfiles: a linked folder, factory.yml and agent file are read through', async () => {
+  // The conductor's ruling on review S3: a file whose real path leaves the folder's is never read.
+  it('a linked workspace folder is read whole; a file linking out of it is not read (review S3)', async () => {
     const dotfiles = tmp('factory-dotfiles-');
     layout(dotfiles, {
       'consola/factory.yml': FACTORY,
       'consola/automations/investigate-alerts.yaml': ENTRY,
+      'consola/shared/summariser.md': `${AGENT}Summarise.\n`,
       'investigator.md': AGENT,
       'factory.yml': `${FACTORY}# from dotfiles\n`,
     });
@@ -255,18 +258,42 @@ describe('FactoryFolder.read', () => {
       path.join(dotfiles, 'investigator.md'),
       path.join(dotfiles, 'consola/agents/investigator.md'),
     );
+    // A link that stays inside the folder is read through.
+    fs.symlinkSync('../shared/summariser.md', path.join(dotfiles, 'consola/agents/summariser.md'));
     const link = path.join(tmp(), 'workspace');
     fs.symlinkSync(path.join(dotfiles, 'consola'), link);
     const { files } = await new FactoryFolder(link).read();
     expect(files.factoryYml).toBe(FACTORY);
     expect(files.automations).toEqual({ 'investigate-alerts': ENTRY });
-    expect(files.agents).toEqual({ investigator: AGENT });
+    expect(files.agents).toEqual({ summariser: `${AGENT}Summarise.\n` });
+    expect(files.outside).toEqual(['agents/investigator.md']);
 
     const plain = tmp();
     fs.symlinkSync(path.join(dotfiles, 'factory.yml'), path.join(plain, 'factory.yml'));
-    expect((await new FactoryFolder(plain).read()).files.factoryYml).toBe(
-      `${FACTORY}# from dotfiles\n`,
-    );
+    const read = await new FactoryFolder(plain).read();
+    expect(read.exists).toBe(true);
+    expect(read.files.factoryYml).toBeNull();
+    expect(read.files.outside).toEqual(['factory.yml']);
+    expect(read.files.unread).toEqual([]);
+  });
+
+  it('a folder of the three that links outside is not listed (review S3)', async () => {
+    const elsewhere = tmp('factory-elsewhere-');
+    layout(elsewhere, {
+      'agents/investigator.md': AGENT,
+      'automations/investigate-alerts.yaml': ENTRY,
+      'skills/incident-triage/SKILL.md': SKILL,
+    });
+    const dir = tmp();
+    layout(dir, { 'factory.yml': FACTORY });
+    for (const folder of ['agents', 'automations', 'skills'])
+      fs.symlinkSync(path.join(elsewhere, folder), path.join(dir, folder));
+    const { files } = await new FactoryFolder(dir).read();
+    expect(files.outside).toEqual(['automations/', 'agents/', 'skills/']);
+    expect(files.agents).toEqual({});
+    expect(files.automations).toEqual({});
+    expect(files.skills).toEqual({});
+    expect(files.stray).toEqual([]);
   });
 
   it('a link whose target is gone is no file, and nothing throws', async () => {
@@ -377,14 +404,14 @@ describe('FactoryFolder.watch', () => {
     expect(changes()).toBe(0);
   });
 
-  it('watching through links: an edit of a link target, a re-pointed link and a gone target', async () => {
-    const dotfiles = tmp('factory-dotfiles-');
+  it('watching through links inside the folder: an edit of a link target, a re-pointed link and a gone target', async () => {
+    const dir = tmp();
+    const dotfiles = path.join(dir, 'shared');
     layout(dotfiles, {
       'factory.yml': FACTORY,
       'investigator.md': AGENT,
       'other.md': `${AGENT}Other.\n`,
     });
-    const dir = tmp();
     fs.mkdirSync(path.join(dir, 'agents'));
     fs.symlinkSync(path.join(dotfiles, 'factory.yml'), path.join(dir, 'factory.yml'));
     const agentLink = path.join(dir, 'agents/investigator.md');
@@ -413,6 +440,36 @@ describe('FactoryFolder.watch', () => {
     expect(files.factoryYml).toBe(`${FACTORY}# pulled\n`);
     await pause(100);
     expect(count).toBe(4);
+  });
+
+  it('agrees with the read on a link outside: an edit of its target is not seen, re-pointing it is (review S3)', async () => {
+    const elsewhere = tmp('factory-elsewhere-');
+    layout(elsewhere, { 'investigator.md': AGENT, 'other.md': `${AGENT}Other.\n` });
+    const dir = tmp();
+    layout(dir, { 'factory.yml': FACTORY, 'shared/inside.md': AGENT });
+    fs.mkdirSync(path.join(dir, 'agents'));
+    const agentLink = path.join(dir, 'agents/investigator.md');
+    fs.symlinkSync(path.join(elsewhere, 'investigator.md'), agentLink);
+    const folder = new FactoryFolder(dir, 20);
+    let count = 0;
+    folder.watch(() => {
+      count += 1;
+    });
+    onTestFinished(() => folder.unwatch());
+
+    // What the read never reads cannot change what it reads.
+    fs.writeFileSync(path.join(elsewhere, 'investigator.md'), `${AGENT}Pulled.\n`);
+    await pause(150);
+    expect(count).toBe(0);
+    // Re-pointed to another file outside: still nothing read, but the link changed.
+    fs.rmSync(agentLink);
+    fs.symlinkSync(path.join(elsewhere, 'other.md'), agentLink);
+    await eventually(() => count === 1);
+    // Re-pointed inside: now it is read.
+    fs.rmSync(agentLink);
+    fs.symlinkSync(path.join(dir, 'shared/inside.md'), agentLink);
+    await eventually(() => count === 2);
+    expect((await folder.read()).files.agents).toEqual({ investigator: AGENT });
   });
 });
 
@@ -493,16 +550,52 @@ automations:
     expect(namesIn(written)).toEqual(['sweep', 'summary', ASSIGNED_REVIEWS_NAME]);
   });
 
-  it('appendAutomation writes through a symlinked factory.yml, keeping the link', async () => {
-    const dir = tmp();
-    const target = path.join(dir, 'dotfiles-factory.yml');
-    fs.writeFileSync(target, 'version: 1\nautomations: []\n');
-    const workspace = path.join(dir, 'ws');
-    fs.mkdirSync(workspace);
+  it('appendAutomation writes through a symlinked factory.yml inside the folder, keeping the link', async () => {
+    const workspace = tmp();
+    const target = path.join(workspace, 'shared', 'factory.yml');
+    layout(workspace, { 'shared/factory.yml': 'version: 1\nautomations: []\n' });
     fs.symlinkSync(target, path.join(workspace, 'factory.yml'));
     await new FactoryFolder(workspace).appendAutomation(assignedReviewsEntry());
     expect(fs.lstatSync(path.join(workspace, 'factory.yml')).isSymbolicLink()).toBe(true);
     expect(fs.readFileSync(target, 'utf8')).toContain(`name: ${ASSIGNED_REVIEWS_NAME}`);
+  });
+
+  it('refuses to read or write through a link that leaves the folder, writing nothing (review S3)', async () => {
+    const dir = tmp();
+    const target = path.join(dir, 'dotfiles-factory.yml');
+    const automation = path.join(dir, 'dotfiles-entry.yaml');
+    fs.writeFileSync(target, TIDY);
+    fs.writeFileSync(automation, ENTRY);
+    const workspace = path.join(dir, 'ws');
+    fs.mkdirSync(path.join(workspace, 'automations'), { recursive: true });
+    fs.symlinkSync(target, path.join(workspace, 'factory.yml'));
+    fs.symlinkSync(automation, path.join(workspace, 'automations/investigate-alerts.yaml'));
+    const folder = new FactoryFolder(workspace);
+    const outside = (file: string) =>
+      `\`${file}\` links outside the factory folder; Consola reads only files inside it.`;
+    await expect(folder.readText()).rejects.toThrow(outside('factory.yml'));
+    await expect(folder.appendAutomation(assignedReviewsEntry())).rejects.toThrow(
+      outside('factory.yml'),
+    );
+    await expect(
+      folder.replaceAutomation(
+        'tidy',
+        '- name: tidy\n  on: { cron: "0 7 * * *" }\n  run: { tool: consola#cleanup_stale_sessions }',
+      ),
+    ).rejects.toThrow(outside('factory.yml'));
+    await expect(folder.readAutomationFile('investigate-alerts')).rejects.toThrow(
+      outside('automations/investigate-alerts.yaml'),
+    );
+    await expect(folder.writeAutomationFile('investigate-alerts', 'on: manual\n')).rejects.toThrow(
+      outside('automations/investigate-alerts.yaml'),
+    );
+    expect(fs.readFileSync(target, 'utf8')).toBe(TIDY);
+    expect(fs.readFileSync(automation, 'utf8')).toBe(ENTRY);
+    expect(fs.readdirSync(dir).sort()).toEqual([
+      'dotfiles-entry.yaml',
+      'dotfiles-factory.yml',
+      'ws',
+    ]);
   });
 
   it('appendAutomation refuses a file that does not parse, leaving it as it was', async () => {
@@ -525,11 +618,10 @@ automations:
 `;
 
   it('replaceAutomation keeps a symlinked factory.yml a link, and every byte outside the entry', async () => {
-    const dir = tmp();
+    const workspace = tmp();
+    const dir = path.join(workspace, 'shared');
     const target = path.join(dir, 'dotfiles-factory.yml');
-    fs.writeFileSync(target, TIDY);
-    const workspace = path.join(dir, 'ws');
-    fs.mkdirSync(workspace);
+    layout(dir, { 'dotfiles-factory.yml': TIDY });
     const link = path.join(workspace, 'factory.yml');
     fs.symlinkSync(target, link);
     const folder = new FactoryFolder(workspace);
@@ -546,8 +638,8 @@ automations:
         '    on: { cron: "0 7 * * 1-5" }\n    run: { tool: consola#cleanup_stale_sessions }\n    mode: confirm\n',
       ),
     );
-    expect(fs.readdirSync(dir).sort()).toEqual(['dotfiles-factory.yml', 'ws']);
-    expect(fs.readdirSync(workspace)).toEqual(['factory.yml']);
+    expect(fs.readdirSync(dir).sort()).toEqual(['dotfiles-factory.yml']);
+    expect(fs.readdirSync(workspace).sort()).toEqual(['factory.yml', 'shared']);
   });
 
   it('replaceAutomation refuses a name that is not in the file, leaving it as it was', async () => {
@@ -603,10 +695,10 @@ automations:
     for (const [from] of rename.mock.calls) expect(path.basename(String(from))).toMatch(/^\./);
   });
 
-  it('writeAutomationFile writes through a symlink, keeping the link', async () => {
-    const dotfiles = tmp('factory-dotfiles-');
-    layout(dotfiles, { 'investigate-alerts.yaml': ENTRY });
+  it('writeAutomationFile writes through a symlink inside the folder, keeping the link', async () => {
     const dir = tmp();
+    const dotfiles = path.join(dir, 'shared');
+    layout(dotfiles, { 'investigate-alerts.yaml': ENTRY });
     fs.mkdirSync(path.join(dir, 'automations'));
     const link = path.join(dir, 'automations/investigate-alerts.yaml');
     fs.symlinkSync(path.join(dotfiles, 'investigate-alerts.yaml'), link);

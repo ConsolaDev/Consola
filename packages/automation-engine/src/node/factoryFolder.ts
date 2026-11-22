@@ -46,10 +46,61 @@ const OVER = 'it is over 1 MB';
 const READ_CHUNK = 64 * 1024;
 const NOT_A_FILE = 'it is not a regular file';
 
+/** Why a file or folder whose real path leaves the folder's is not read, nor written through. */
+const outsideWords = (relative: string) =>
+  `\`${relative}\` links outside the factory folder; Consola reads only files inside it.`;
+
 const isDotfile = (name: string) => name.startsWith('.');
 const byName = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 const errorCode = (error: unknown) => (error as NodeJS.ErrnoException | undefined)?.code;
 const describe = (error: unknown) => (error instanceof Error ? error.message : String(error));
+
+/** `realpath`, or null where there is nothing to resolve: no such path, or a link whose target is gone. */
+function realOrNull(file: string): string | null {
+  try {
+    return fs.realpathSync(file);
+  } catch (error) {
+    const code = errorCode(error);
+    if (code === 'ENOENT' || code === 'ENOTDIR') return null;
+    throw error;
+  }
+}
+
+/** `real` lies inside `realFolder` (and is not the folder itself). */
+function isInside(realFolder: string, real: string): boolean {
+  const relative = path.relative(realFolder, real);
+  return (
+    relative !== '' &&
+    relative !== '..' &&
+    !relative.startsWith(`..${path.sep}`) &&
+    !path.isAbsolute(relative)
+  );
+}
+
+/** Where `file` really is, and whether that is inside `realFolder`; null when it has no real path. */
+function placeIn(realFolder: string, file: string): { real: string; inside: boolean } | null {
+  const real = realOrNull(file);
+  return real === null ? null : { real, inside: isInside(realFolder, real) };
+}
+
+/**
+ * Where a path of a factory folder really is, every link resolved, and
+ * whether that lies inside the folder's own real path: the one rule the
+ * reader, its watch, its writes and Open share. A link that stays inside
+ * the folder is fine; one that leaves it is never read (a folder can hold
+ * other people's files, and a link could pull any of the person's into an
+ * agent's prompt). Null when the path, or the folder, has no real path.
+ * Throws as `realpath` does otherwise.
+ */
+export function locateInFolder(
+  folderPath: string,
+  file: string,
+): { real: string; realFolder: string; inside: boolean } | null {
+  const realFolder = realOrNull(folderPath);
+  if (realFolder === null) return null;
+  const place = placeIn(realFolder, file);
+  return place && { ...place, realFolder };
+}
 
 /** A file's text, decoded as UTF-8 with a leading byte-order mark removed. */
 function decode(bytes: Uint8Array): string {
@@ -138,15 +189,19 @@ function namesOrNone(dir: string): string[] {
  * It reads `factory.yml`, `automations/*`, `agents/*` and `skills/**` only:
  * dotfiles, `runs/`, `checks/` and every other root entry are not the
  * factory's. `factory.yml` and the agent and automation files are read
- * through a symlink (a person keeps them with dotfiles); nothing inside
- * `skills/` is, so a skill can deliver nothing from outside its folder.
+ * through a symlink only while its real path stays inside the folder's
+ * (`locateInFolder`); one that leaves it, or a folder of the three that
+ * does, is `outside`, never read nor written through. Nothing inside
+ * `skills/` is read through a link at all, so a skill can deliver nothing
+ * from outside its folder.
  *
  * Watched by polling a signature rather than `fs.watch`: the folders and
  * files may not exist yet, and editors replace files atomically, both cases
  * event-based watching misses silently, which is the one failure a scheduler
  * cannot afford. The signature stats through links where the read follows
- * them, so an edit of a link's target, or a `git pull` in the dotfiles
- * repository, is seen.
+ * them, so an edit of a link's target inside the folder is seen; a link
+ * that leaves it is one line of where it leads, so re-pointing it is seen
+ * and an edit of what it leads to, which the read never reads, is not.
  */
 export class FactoryFolder implements FactoryFolderHandle {
   public readonly filePath: string;
@@ -168,12 +223,16 @@ export class FactoryFolder implements FactoryFolderHandle {
       stray: [],
       laterFolders: [],
       unread: [],
+      outside: [],
     };
-    const factoryYml = await this.readOne(FACTORY_YML, this.filePath, files);
+    // Every file is placed against the folder's own real path: a linked workspace folder is read whole.
+    const realFolder = realOrNull(this.folderPath);
+    if (realFolder === null) return { exists: false, files };
+    const factoryYml = await this.readOne(FACTORY_YML, this.filePath, files, realFolder);
     files.factoryYml = factoryYml.text;
-    await this.readTexts('automations', AUTOMATION_FILE, files.automations, files);
-    await this.readTexts('agents', AGENT_FILE, files.agents, files);
-    await this.readSkills(files);
+    await this.readTexts('automations', AUTOMATION_FILE, files.automations, files, realFolder);
+    await this.readTexts('agents', AGENT_FILE, files.agents, files, realFolder);
+    await this.readSkills(files, realFolder);
     for (const folder of Object.keys(LATER_FOLDERS)) {
       if (statOrNull(path.join(this.folderPath, folder), true)?.isDirectory())
         files.laterFolders.push(folder);
@@ -183,18 +242,28 @@ export class FactoryFolder implements FactoryFolderHandle {
   }
 
   /**
-   * A text file through any link: its text, or nothing when it is not there
-   * (a link whose target is gone included). Over `MAX_FACTORY_TEXT_BYTES`, not
-   * a regular file, or a read that fails, it is unread, with the reason.
+   * A text file through a link that stays inside the folder: its text, or
+   * nothing when it is not there (a link whose target is gone included). One
+   * whose real path leaves the folder is `outside`, never read. Over
+   * `MAX_FACTORY_TEXT_BYTES`, not a regular file, or a read that fails, it is
+   * unread, with the reason.
    */
   private async readOne(
     relative: string,
     file: string,
     files: FactoryFiles,
+    realFolder: string,
   ): Promise<{ exists: boolean; text: string | null }> {
     let read: Bounded;
     try {
-      read = await readBounded(file, MAX_FACTORY_TEXT_BYTES);
+      const place = placeIn(realFolder, file);
+      if (place === null) return { exists: false, text: null };
+      if (!place.inside) {
+        files.outside.push(relative);
+        return { exists: true, text: null };
+      }
+      // The real path, never the link: a link re-pointed after the check is not followed.
+      read = await readBounded(place.real, MAX_FACTORY_TEXT_BYTES, true);
     } catch (error) {
       if (errorCode(error) === 'ENOENT') return { exists: false, text: null };
       files.unread.push({ path: relative, reason: describe(error) });
@@ -217,9 +286,11 @@ export class FactoryFolder implements FactoryFolderHandle {
     pattern: RegExp,
     into: Record<string, string>,
     files: FactoryFiles,
+    realFolder: string,
   ): Promise<void> {
     let entries: fs.Dirent[];
     try {
+      if (this.folderLeaves(folder, files, realFolder)) return;
       entries = await listNames(path.join(this.folderPath, folder));
     } catch (error) {
       files.unread.push({ path: `${folder}/`, reason: describe(error) });
@@ -232,16 +303,30 @@ export class FactoryFolder implements FactoryFolderHandle {
         files.stray.push(relative);
         continue;
       }
-      const read = await this.readOne(relative, path.join(this.folderPath, relative), files);
+      const read = await this.readOne(
+        relative,
+        path.join(this.folderPath, relative),
+        files,
+        realFolder,
+      );
       if (read.text !== null) into[name] = read.text;
     }
   }
 
+  /** One of the three folders links outside: it is `outside`, and not listed. Throws as `realpath` does. */
+  private folderLeaves(folder: string, files: FactoryFiles, realFolder: string): boolean {
+    const place = placeIn(realFolder, path.join(this.folderPath, folder));
+    if (place === null || place.inside) return false;
+    files.outside.push(`${folder}/`);
+    return true;
+  }
+
   /** Each folder in `skills/` is a skill, walked without following a link; anything else there is a stray. */
-  private async readSkills(files: FactoryFiles): Promise<void> {
+  private async readSkills(files: FactoryFiles, realFolder: string): Promise<void> {
     const root = path.join(this.folderPath, 'skills');
     let entries: fs.Dirent[];
     try {
+      if (this.folderLeaves('skills', files, realFolder)) return;
       entries = await listNames(root);
     } catch (error) {
       files.unread.push({ path: 'skills/', reason: describe(error) });
@@ -337,16 +422,38 @@ export class FactoryFolder implements FactoryFolderHandle {
    * missing. Never throws.
    */
   private signature(): string {
-    const lines: string[] = [statLine(FACTORY_YML, statOrNull(this.filePath, true))];
+    let realFolder: string | null = null;
+    try {
+      realFolder = realOrNull(this.folderPath);
+    } catch {
+      // Unresolvable now: every line below reads as the stats give it.
+    }
+    // A path that links outside is one line: where it leads. Its target is never read, so an
+    // edit of it changes nothing; re-pointing the link does.
+    const outsideLine = (relative: string, file: string): string | null => {
+      if (realFolder === null) return null;
+      try {
+        const place = placeIn(realFolder, file);
+        return place && !place.inside ? `${relative}\toutside\t${place.real}` : null;
+      } catch {
+        return null;
+      }
+    };
+    const line = (relative: string, file: string) =>
+      outsideLine(relative, file) ?? statLine(relative, statOrNull(file, true));
+    const lines: string[] = [line(FACTORY_YML, this.filePath)];
     for (const folder of ['automations', 'agents']) {
       const dir = path.join(this.folderPath, folder);
-      lines.push(statLine(`${folder}/`, statOrNull(dir, true)));
+      const leaves = outsideLine(`${folder}/`, dir);
+      lines.push(leaves ?? statLine(`${folder}/`, statOrNull(dir, true)));
+      if (leaves !== null) continue;
       for (const name of namesOrNone(dir))
-        lines.push(statLine(`${folder}/${name}`, statOrNull(path.join(dir, name), true)));
+        lines.push(line(`${folder}/${name}`, path.join(dir, name)));
     }
     const skills = path.join(this.folderPath, 'skills');
-    lines.push(statLine('skills/', statOrNull(skills, true)));
-    for (const name of namesOrNone(skills)) {
+    const skillsLeave = outsideLine('skills/', skills);
+    lines.push(skillsLeave ?? statLine('skills/', statOrNull(skills, true)));
+    for (const name of skillsLeave === null ? namesOrNone(skills) : []) {
       const stat = statOrNull(path.join(skills, name), false);
       lines.push(statLine(`skills/${name}`, stat));
       if (stat?.isDirectory()) this.skillLines(path.join(skills, name), `skills/${name}`, lines);
@@ -398,24 +505,43 @@ export class FactoryFolder implements FactoryFolderHandle {
     return this.filePath;
   }
 
-  /** `factory.yml` as written, or null when there is none yet. */
+  /** `factory.yml` as written, or null when there is none yet. Refused when it links outside the folder. */
   public async readText(): Promise<string | null> {
+    const real = this.realInside(FACTORY_YML, this.filePath);
+    if (real === null) return null;
     try {
-      return await fs.promises.readFile(this.filePath, 'utf8');
+      return await fs.promises.readFile(real, 'utf8');
     } catch (error) {
       if (errorCode(error) === 'ENOENT') return null;
       throw error;
     }
   }
 
-  /** `automations/<name>.yaml` as written (a leading byte-order mark removed), or null when there is none. */
+  /**
+   * `automations/<name>.yaml` as written (a leading byte-order mark removed),
+   * or null when there is none. Refused when it links outside the folder.
+   */
   public async readAutomationFile(name: string): Promise<string | null> {
+    const file = this.automationFile(name);
+    const real = this.realInside(`automations/${name}.yaml`, file);
+    if (real === null) return null;
     try {
-      return decode(await fs.promises.readFile(this.automationFile(name)));
+      return decode(await fs.promises.readFile(real));
     } catch (error) {
       if (errorCode(error) === 'ENOENT') return null;
       throw error;
     }
+  }
+
+  /**
+   * `file`'s real path when it lies inside the folder; null when it has none
+   * (not there yet). Throws, in the reader's words, when it links outside.
+   */
+  private realInside(relative: string, file: string): string | null {
+    const place = locateInFolder(this.folderPath, file);
+    if (place === null) return null;
+    if (!place.inside) throw new Error(outsideWords(relative));
+    return place.real;
   }
 
   /** Where an entry of that name is written now, read now: `factory.yml` first, then its own file. */
@@ -439,16 +565,15 @@ export class FactoryFolder implements FactoryFolderHandle {
     await this.rewrite(this.filePath, (text) => replaceAutomationEntry(text, name, entryYaml));
   }
 
-  /** `automations/<name>.yaml`, written whole: created with its folder, or replaced through any link. */
+  /**
+   * `automations/<name>.yaml`, written whole: created with its folder, or
+   * replaced through a link that stays inside the folder. One that links
+   * outside is refused, and nothing is written.
+   */
   public async writeAutomationFile(name: string, text: string): Promise<void> {
     const file = this.automationFile(name);
     await fs.promises.mkdir(path.dirname(file), { recursive: true });
-    let target = file;
-    try {
-      target = await fs.promises.realpath(file);
-    } catch (error) {
-      if (errorCode(error) !== 'ENOENT') throw error;
-    }
+    const target = this.realInside(`automations/${name}.yaml`, file) ?? file;
     await this.replaceWhole(target, text);
   }
 
@@ -471,11 +596,12 @@ export class FactoryFolder implements FactoryFolderHandle {
   }
 
   /**
-   * `file` edited whole, through any symlink to it: one kept with dotfiles
-   * stays a link. An edit that throws leaves the file as it was.
+   * `factory.yml` edited whole, through a symlink that stays inside the
+   * folder (it stays a link); one that links outside is refused. An edit
+   * that throws leaves the file as it was.
    */
   private async rewrite(file: string, edit: (text: string) => string): Promise<void> {
-    const target = await fs.promises.realpath(file);
+    const target = this.realInside(FACTORY_YML, file) ?? (await fs.promises.realpath(file));
     await this.replaceWhole(target, edit(await fs.promises.readFile(target, 'utf8')));
   }
 
