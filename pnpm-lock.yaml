@@ -898,7 +898,7 @@ importers:
       '@t3tools/contracts':
         specifier: workspace:*
         version: link:../contracts
-      '@t3tools/server':
+      t3:
         specifier: workspace:*
         version: link:../../apps/server
     devDependencies:

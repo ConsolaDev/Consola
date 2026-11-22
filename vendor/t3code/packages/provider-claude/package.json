@@ -23,7 +23,7 @@
   },
   "dependencies": {
     "@t3tools/contracts": "workspace:*",
-    "@t3tools/server": "workspace:*"
+    "t3": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "catalog:"

@@ -114,14 +114,16 @@ they need, and gives them entry packages shaped like `provider-pi`. The rules:
   the copied packages (`@t3tools/*`, `effect-acp`, …) stay package imports. A
   later lift (Codex, the orchestration) adds what its closure lacks to the
   same tree; files already there are not copied again.
-- `apps/server/` is one private workspace package, `@t3tools/server`, with a
-  manifest of Consola's (below). It exposes its source as
-  `@t3tools/server/<path under src/>`.
+- `apps/server/` is one private workspace package named `t3`, the name t3
+  gives it (copied packages keep their names), with a manifest of Consola's
+  (below). It exposes its source as `t3/<path under src/>`. It stays
+  `private`, so it is never published, and no Consola package depends on
+  npm's `t3`.
 - An entry package (`packages/provider-claude`, later `provider-codex` and
   `server-orchestration`) holds only Consola's `package.json`, `tsconfig.json`
-  and entry files, which re-export from `@t3tools/server/…` under t3's names.
+  and entry files, which re-export from `t3/…` under t3's names.
 
-### `@t3tools/server` (`apps/server`)
+### `t3` (`apps/server`)
 
 - `package.json` is Consola's: `version` `0.1.11` (t3's server version at
   `d51d8c47`; thirteen lifted files read `.version`, and nothing else, from
@@ -140,8 +142,11 @@ they need, and gives them entry packages shaped like `provider-pi`. The rules:
   snapshots, compared entry by entry). t3's own server manifest lists far more
   (`node-pty`, `playwright-core`, `@cursor/sdk`, …); the lifted files import
   none of them.
-- `tsconfig.json` is t3's, with one change (see "Local changes"): it extends
-  `../../tsconfig.lifted.json`.
+- `tsconfig.json` is t3's, byte for byte. Because the package keeps t3's
+  name, the lifted files' service keys (`"t3/provider/…"`) are the ones
+  effect-tsgo's `deterministicKeys` rule expects (`<package name>/<path under
+  src>`), as in t3. Under another name the same tsconfig fails with 135
+  `deterministicKeys` errors.
 - t3's `apps/server/vite.config.ts` is not copied: it does not load here. It
   imports `../../scripts/lib/public-config.ts`, `tagged-source-version.ts`,
   `cli-external-packages.ts` and `./src/testUtils/weightedShardSequencer.ts`,
@@ -159,9 +164,9 @@ Claude's adapter, driver and replay testkit, re-exported.
 
 | Export | Re-exports | From |
 |---|---|---|
-| `./server` | `ClaudeDriver`, `type ClaudeDriverEnv`; the module as `ClaudeAdapterV2` (as t3's server imports it); `CLAUDE_PROVIDER`, `createClaudeAdapterV2`, `type ClaudeAdapterV2DriverEnv` | `@t3tools/server/provider/Drivers/ClaudeDriver.ts`, `@t3tools/server/orchestration-v2/Adapters/ClaudeAdapterV2.ts` |
+| `./server` | `ClaudeDriver`, `type ClaudeDriverEnv`; the module as `ClaudeAdapterV2` (as t3's server imports it); `CLAUDE_PROVIDER`, `createClaudeAdapterV2`, `type ClaudeAdapterV2DriverEnv` | `t3/provider/Drivers/ClaudeDriver.ts`, `t3/orchestration-v2/Adapters/ClaudeAdapterV2.ts` |
 | `./settings` | `ClaudeSettings` | `@t3tools/contracts`, where t3 defines it |
-| `./testing` | everything `ClaudeAdapterV2.testkit.ts` exports (`ClaudeOrchestratorReplayHarness`, `makeClaudeRestartReplayHarness`, `recordClaudeAgentSdkReplayTranscript`, the replay errors) | `@t3tools/server/orchestration-v2/Adapters/ClaudeAdapterV2.testkit.ts` |
+| `./testing` | everything `ClaudeAdapterV2.testkit.ts` exports (`ClaudeOrchestratorReplayHarness`, `makeClaudeRestartReplayHarness`, `recordClaudeAgentSdkReplayTranscript`, the replay errors) | `t3/orchestration-v2/Adapters/ClaudeAdapterV2.testkit.ts` |
 
 No `./client`: t3 has no Claude client module. Claude's client entry is an
 unnamed object inside `@t3tools/client-runtime`'s `providerClients` registry
@@ -174,9 +179,9 @@ Vitest:
 `pnpm --dir ../../apps/server exec vp test run --config ../../vite.config.ts --dir . claude`
 (Vitest matches the filter, without case, against each test file's path under
 `apps/server/`; every Claude test file has `claude` in its name, and no other
-file does). CI does not run it (see "Consola's side"). `tsconfig.json` is `provider-pi`'s with t3's server `lib`, and
-extends `tsconfig.lifted.json`, since its typecheck also checks the server
-files its entries reach.
+file does). CI does not run it (see "Consola's side"). `tsconfig.json` is `provider-pi`'s with t3's server `lib`,
+since its typecheck also checks the server files its entries reach; under
+the name `t3` those files pass the Effect checks unchanged here too.
 
 What each entry reaches matters to anything that bundles it. `./server` reaches
 67 lifted files and, among native or vendor code, the Claude Agent SDK,
@@ -1068,10 +1073,10 @@ mode (`devUrl`).
 | File | Change | Why |
 |---|---|---|
 | `packages/*/package.json` (all 33) | Adds the line `"license": "MIT",` after `"private": true,` | t3 leaves `license` unset. Consola's rule is that every `package.json` names its licence, and a copied package keeps t3's MIT. Nothing else in the files changes. |
-| `apps/server/tsconfig.json` | `"extends"` names `../../tsconfig.lifted.json` in place of `../../tsconfig.base.json` | The lifted files keep t3's service keys (`"t3/…"`, 135 of them). effect-tsgo's `deterministicKeys` rule expects each key to start with the name of the package the file sits in, here `@t3tools/server`; t3's own server package is named `t3`, which is why the rule passes there. With the package named `t3` this file would need no change (checked: 0 errors). |
 
 No other copied file differs from `d51d8c47`, the lifted files in
-`apps/server/` included. `apps/server/package.json` is Consola's, not t3's.
+`apps/server/` included (its `tsconfig.json` too). `apps/server/package.json`
+is Consola's, not t3's, though it keeps t3's name, `t3`.
 
 ## Consola's side
 
@@ -1082,17 +1087,7 @@ Files Consola writes for this folder (not copied):
   expect at the root: `@effect/tsgo` 0.67.1, `vite-plus` and `@types/node`
   (catalog).
 - This file.
-- `tsconfig.lifted.json`, which `apps/server/tsconfig.json` and the entry
-  packages extend in place of `tsconfig.base.json`. It is
-  `tsconfig.effect.json`'s plugin block with one rule off, `deterministicKeys`:
-  that rule wants every service key to start with the name of the package its
-  file sits in, and the lifted files keep t3's server keys
-  (`"t3/provider/AntigravityInstallation"` and 134 more), which a package
-  named `@t3tools/server` fails. An entry package's typecheck checks the server
-  files its entries reach, so it needs the same. A package's own `plugins`
-  replaces the inherited block whole, so the rest is repeated; keep it equal
-  to `tsconfig.effect.json` when re-syncing.
-- `apps/server/package.json` (`@t3tools/server`), and
+- `apps/server/package.json` (`t3`), and
   `packages/provider-claude/`'s `package.json`, `tsconfig.json` and entry
   files: see "Lifted by Consola".
 
@@ -1121,9 +1116,9 @@ In the repository root:
 - `pnpm-workspace.yaml`, translating what the copied packages need from t3's
   pnpm 12 settings into pnpm 10's:
   - `packages`: `vendor/t3code`, `vendor/t3code/packages/*` and
-    `vendor/t3code/apps/*` (`@t3tools/server`).
+    `vendor/t3code/apps/*` (`t3`, the lifted server).
   - `catalog`: every entry of t3's catalog a copied `package.json` names with
-    `catalog:`, at t3's version. (`@t3tools/server` names exact versions.)
+    `catalog:`, at t3's version. (The lifted server, `t3`, names exact versions.)
   - `patchedDependencies`: the eleven patches above.
   - `overrides`, each scoped to the edge t3 needs:
     `'@effect/vitest>vitest': '-'` (t3's patch makes `@effect/vitest` import
@@ -1156,9 +1151,9 @@ In the repository root:
 - `.github/workflows/ci.yml`, job `vendor`: installs, then runs the own
   `typecheck` of every package under `vendor/t3code/packages/*` and
   `vendor/t3code/apps/*`, and their own `test`, on Linux like t3's CI, but
-  for the entry packages (`--filter "!...^@t3tools/server"`, every package
+  for the entry packages (`--filter "!...^t3"`, every package
   that depends on the lifted server): their `test` runs a slice of the
-  server's own tests, which `@t3tools/server`'s `test` already runs, so every
+  server's own tests, which `t3`'s `test` already runs, so every
   copied test runs once. A later entry package is left out by the same filter,
   with no change to the job.
 
@@ -1190,7 +1185,7 @@ that landed on another version than t3's lockfile has:
 - `unbash` 5.1.0 (t3: 5.0.0), `client-runtime`, range `^5.0.0`
 - `yaml` 2.9.1 (t3: 2.9.0), catalog range `^2.9.0`
 
-`@t3tools/server` names every dependency at the version t3's lockfile resolves
+The lifted server (`t3`) names every dependency at the version t3's lockfile resolves
 for its `apps/server` importer, `yaml` 2.9.0 included, and the Claude Agent
 SDK's peers resolve as in t3: `@anthropic-ai/sdk` 0.93.0 (by the override
 above), `@modelcontextprotocol/sdk` 1.32.2, `zod` 4.6.7. What Consola's own
@@ -1231,7 +1226,7 @@ The two packages the lifted server files brought in fail on macOS in the same wa
 
 ### The lifted server's tests
 
-They live in `apps/server/`, and `pnpm --filter @t3tools/server test` runs
+They live in `apps/server/`, and `pnpm --filter t3 test` runs
 them all; `pnpm --filter @t3tools/provider-claude test` runs the Claude ones,
 which today are the same 16 files (its script runs the server's own Vitest,
 because the server's `vite-plus` is a different install from an entry
@@ -1272,8 +1267,5 @@ overrides above with `pnpm-workspace.yaml`.
 For the lifted server files, start again from every seed (under "Lifted by
 Consola", and each later lift's): follow the imports, `new URL(…,
 import.meta.url)` and `vi.mock` paths in the newer `apps/server`, copy the
-closure over `apps/server/`, delete the files that left it, re-apply its
-`tsconfig.json` change, and compare `@t3tools/server`'s dependencies with
-t3's lockfile.
-Keep `tsconfig.lifted.json` equal to `tsconfig.effect.json` but for its one
-rule.
+closure over `apps/server/` (with t3's `tsconfig.json`), delete the files that
+left it, and compare the `t3` manifest's dependencies with t3's lockfile.

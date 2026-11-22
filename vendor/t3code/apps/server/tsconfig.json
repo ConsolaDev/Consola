@@ -1,5 +1,5 @@
 {
-  "extends": "../../tsconfig.lifted.json",
+  "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "types": ["node"],
     "lib": ["ESNext", "esnext.disposable"]
