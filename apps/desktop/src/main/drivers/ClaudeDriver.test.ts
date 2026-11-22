@@ -604,3 +604,104 @@ setTimeout(() => {}, 10000);`,
     expect(argvSeen()).not.toContain('--mcp-config');
   });
 });
+
+describe('compileAgent', () => {
+  const grafana = [
+    {
+      name: 'grafana',
+      source: 'user' as const,
+      transport: 'stdio' as const,
+      tools: ['query_logs'],
+      status: 'connected',
+    },
+  ];
+  const accountFileOf = (config: HarnessConfig): string | undefined => {
+    const compiled = new ClaudeDriver().compileAgent({
+      config,
+      harnessName: 'Claude work',
+      agent: { tools: 'read-only', mcpServers: [{ name: 'grafana' }], skills: [] },
+      checkout: 'scope',
+      servers: grafana,
+    });
+    if (!compiled.ok) throw new Error(compiled.problem);
+    return compiled.grants.accountFile;
+  };
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("grants the harness's own account file: its config dir's, else the ambient one's, else the home folder's", () => {
+    expect(accountFileOf({ configDir: '/home/alice/.claude-work', extraArgs: [] })).toBe(
+      '/home/alice/.claude-work/.claude.json',
+    );
+    vi.stubEnv('CLAUDE_CONFIG_DIR', '/home/alice/.claude-ambient');
+    expect(accountFileOf({ extraArgs: [] })).toBe('/home/alice/.claude-ambient/.claude.json');
+    vi.stubEnv('CLAUDE_CONFIG_DIR', '');
+    expect(accountFileOf({ extraArgs: [] })).toBe(path.join(os.homedir(), '.claude.json'));
+  });
+
+  it('refuses in the words compileClaudeAgent gives', () => {
+    expect(
+      new ClaudeDriver().compileAgent({
+        config: { extraArgs: [] },
+        harnessName: 'Claude work',
+        agent: { tools: 'read-only', mcpServers: [{ name: 'plugin:miro:miro' }], skills: [] },
+        checkout: 'scope',
+        servers: grafana,
+      }),
+    ).toEqual({
+      ok: false,
+      problem: expect.stringMatching(/^`plugin:miro:miro` comes from a plugin/),
+    });
+  });
+});
+
+describe('stepTurnProblem, for an agent that names servers', () => {
+  const words = (flags: string) =>
+    `This harness's extra arguments set ${flags}, which would override what Consola launches each step's turn with. Remove ${flags.includes(' and ') ? 'them' : 'it'} in Settings › Harnesses.`;
+
+  it('names --mcp-config and --strict-mcp-config when the step compiles servers', () => {
+    expect(
+      driver.stepTurnProblem({ extraArgs: ['--mcp-config', 'extra.json'] }, { servers: true }),
+    ).toBe(words('`--mcp-config`'));
+    expect(driver.stepTurnProblem({ extraArgs: ['--strict-mcp-config'] }, { servers: true })).toBe(
+      words('`--strict-mcp-config`'),
+    );
+    expect(
+      driver.stepTurnProblem({ extraArgs: ['--mcp-config=extra.json'] }, { servers: true }),
+    ).toBe(words('`--mcp-config`'));
+  });
+
+  it('leaves them alone when it compiles none', () => {
+    const both = { extraArgs: ['--mcp-config', 'extra.json', '--strict-mcp-config'] };
+    expect(driver.stepTurnProblem(both, { servers: false })).toBeNull();
+    expect(driver.stepTurnProblem(both)).toBeNull();
+    expect(stepTurnProblem(both)).toBeNull();
+  });
+
+  it('lists them after --model and before the reporting flags', () => {
+    expect(
+      driver.stepTurnProblem(
+        {
+          extraArgs: [
+            '--max-turns',
+            '3',
+            '--strict-mcp-config',
+            '--mcp-config',
+            'x.json',
+            '--model',
+            'sonnet',
+          ],
+        },
+        { model: true, servers: true },
+      ),
+    ).toBe(words('`--model`, `--mcp-config`, `--strict-mcp-config` and `--max-turns`'));
+    expect(
+      driver.stepTurnProblem(
+        { extraArgs: ['--model', 'sonnet', '--mcp-config', 'x.json', '--strict-mcp-config'] },
+        { model: true, servers: true },
+      ),
+    ).toBe(words('`--model`, `--mcp-config` and `--strict-mcp-config`'));
+    expect(stepTurnProblem({ extraArgs: ['--mcp-config', 'x.json'] }, { servers: true })).toBe(
+      words('`--mcp-config`'),
+    );
+  });
+});

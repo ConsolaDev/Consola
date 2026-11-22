@@ -18,13 +18,15 @@ import type { HarnessAccount, HarnessCapabilities, HarnessProbeResult } from '..
 import type { HarnessLimits } from '../../shared/usageLimits';
 import type { SessionToolPolicy } from '../../shared/workspace';
 import { CONSOLA_MCP_SERVER, mcpToolName, READ_ONLY_CONSOLA_TOOLS } from '../mcp/names';
-import { probeClaudeMcpServers } from './claudeAgent';
+import { compileClaudeAgent, probeClaudeMcpServers } from './claudeAgent';
 import { claudeAttentionHooks, claudeHookSettings } from './claudeHooks';
 import { createClaudeTurnReader } from './claudeTurnReader';
 import {
   looseningProblem,
   namedFlags,
   type CliNameRead,
+  type CompileAgentInput,
+  type CompiledAgent,
   type HarnessConfig,
   type HarnessDriver,
   type McpServerReport,
@@ -128,6 +130,13 @@ const LOOSENING_FLAGS = [
  * add, for a later session that takes several turns over stream-json.
  */
 const STEP_TURN_FLAGS = ['--output-format', '--input-format', '--max-turns'];
+
+/**
+ * Extra args that would override the servers an agent's grants load: a
+ * second `--mcp-config` replaces the step's list, `--strict-mcp-config` drops
+ * the connectors it grants.
+ */
+const SERVER_FLAGS = ['--mcp-config', '--strict-mcp-config'];
 
 /** `a`, `a` and `b`, `a`, `b` and `c`, each in backticks. */
 function namedList(flags: readonly string[]): string {
@@ -423,18 +432,29 @@ export class ClaudeDriver implements HarnessDriver {
     return looseningProblem(namedFlags(config.extraArgs, LOOSENING_FLAGS));
   }
 
-  public stepTurnProblem(config: HarnessConfig, compiled?: { model?: boolean }): string | null {
-    // A step that sets no model compiles none, so the harness's own `--model` is left to win.
-    const flags = namedFlags(
-      config.extraArgs,
-      compiled?.model ? ['--model', ...STEP_TURN_FLAGS] : STEP_TURN_FLAGS,
-    );
+  public stepTurnProblem(
+    config: HarnessConfig,
+    compiled?: { model?: boolean; servers?: boolean },
+  ): string | null {
+    // A step that sets no model compiles none, so the harness's own `--model`
+    // is left to win; one whose agent names no server compiles no server
+    // flags, so the harness's own `--mcp-config` is left alone too.
+    const flags = namedFlags(config.extraArgs, [
+      ...(compiled?.model ? ['--model'] : []),
+      ...(compiled?.servers ? SERVER_FLAGS : []),
+      ...STEP_TURN_FLAGS,
+    ]);
     if (flags.length === 0) return null;
     return (
       `This harness's extra arguments set ${namedList(flags)}, which would override what ` +
       `Consola launches each step's turn with. Remove ${flags.length === 1 ? 'it' : 'them'} ` +
       'in Settings › Harnesses.'
     );
+  }
+
+  /** Whether a step may run `input.agent` on this harness, against its account file. Pure. */
+  public compileAgent(input: CompileAgentInput): CompiledAgent {
+    return compileClaudeAgent({ ...input, accountFile: resolveAccountFile(input.config) });
   }
 
   public createTurnReader(): TurnReader {

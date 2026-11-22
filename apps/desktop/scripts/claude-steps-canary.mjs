@@ -1680,13 +1680,24 @@ async function row21() {
     : { status: 'PASS', why: saw };
 }
 
+/**
+ * A plain-named stdio server, which the driver grants by `serverName`, and
+ * a dotted one, which it refuses at compile because the allow-list cannot
+ * keep it by name (the conductor's ruling of 2026-11-22). The row's
+ * allow-list holds the dotted one too, as a driver without that refusal
+ * would write it, to show the CLI blocks it all the same.
+ */
+const ROW22_PLAIN = 'canary_srv-a';
+const ROW22_DOTTED = 'canary.srv a';
+
 async function row22() {
   const hooks = await listener();
   try {
     const plugin = stepPlugin();
     const remoteUrl = `${hooks.url}/mcp-remote`;
     const { env, accountFile } = serverProfile('profile-22', {
-      'canary.srv a': stubMcpServer(root, ['ping', 'query.logs']),
+      [ROW22_PLAIN]: stubMcpServer(root, ['ping', 'query.logs']),
+      [ROW22_DOTTED]: stubMcpServer(root, ['ping']),
       remote: { type: 'http', url: remoteUrl },
       blocked: stubMcpServer(root, ['ping']),
     });
@@ -1715,14 +1726,16 @@ async function row22() {
             hooks: hookSettings(`${hooks.url}/hook`, ['UserPromptSubmit']),
             allowedMcpServers: [
               { serverName: 'consola' },
-              { serverName: 'canary.srv a' },
+              { serverName: ROW22_PLAIN },
               { serverUrl: remoteUrl },
+              // What the driver refuses to write (claudeAgent.ts, KEPT_BY_NAME).
+              { serverName: ROW22_DOTTED },
             ],
           },
           pluginDir: plugin,
           strict: false,
           tools: 'Read,Grep,Glob,Skill',
-          allowed: ['mcp__canary_srv_a__*', 'Skill(consola-step:triage-notes)'],
+          allowed: [`mcp__${ROW22_PLAIN}__*`, 'Skill(consola-step:triage-notes)'],
           deny,
         }),
         '--',
@@ -1740,11 +1753,22 @@ async function row22() {
     const tools = Array.isArray(init.tools) ? init.tools : [];
     const skills = Array.isArray(init.skills) ? init.skills : [];
     const problems = [];
-    for (const name of ['consola', 'canary.srv a', 'remote'])
+    for (const name of ['consola', ROW22_PLAIN, 'remote'])
       if (!names.includes(name)) problems.push(`init does not name ${name}`);
     if (names.includes('blocked')) problems.push('init names blocked');
-    for (const tool of ['mcp__canary_srv_a__ping', 'mcp__canary_srv_a__query_logs', 'Skill'])
+    for (const tool of [`mcp__${ROW22_PLAIN}__ping`, `mcp__${ROW22_PLAIN}__query_logs`, 'Skill'])
       if (!tools.includes(tool)) problems.push(`init.tools lack ${tool}`);
+    // The dotted name: blocked by name, so the driver's refusal of it stands.
+    const blockedLines = others.filter((o) => /blocked/i.test(o.text)).map((o) => o.text);
+    const dottedTools = `mcp__${ROW22_DOTTED.replace(/[^A-Za-z0-9_-]/g, '_')}__`;
+    if (names.includes(ROW22_DOTTED) || tools.some((t) => t.startsWith(dottedTools)))
+      problems.push(
+        `the CLI loaded ${ROW22_DOTTED} by name, so the driver's refusal of a stdio server named outside [A-Za-z0-9_-] (claudeAgent.ts, KEPT_BY_NAME) is to be re-decided`,
+      );
+    else if (!blockedLines.some((text) => text.includes(ROW22_DOTTED)))
+      problems.push(
+        `${ROW22_DOTTED} did not load, but no line says the CLI blocked it, so why is not shown`,
+      );
     if (!skills.includes('consola-step:triage-notes'))
       problems.push('init.skills lack consola-step:triage-notes');
     const undenied = skills.filter(
@@ -1759,8 +1783,7 @@ async function row22() {
         `the CLI said: ${refused.map((o) => JSON.stringify(short(o.text, 100))).join('; ')}`,
       );
     const statuses = (init.mcp_servers ?? []).map((s) => `${s?.name} ${s?.status}`).join(', ');
-    const blockedLine = others.find((o) => /blocked/i.test(o.text));
-    const saw = `init: ${statuses}; tools ${tools.filter((t) => t.startsWith('mcp__canary') || t === 'Skill').join(', ')}; ${skills.length} skills, ${deny.length} deny rules; hooks heard: ${hooks.hookEvents().join(', ') || 'none'}${blockedLine ? `; stderr: ${JSON.stringify(short(blockedLine.text, 120))}` : ''}`;
+    const saw = `init: ${statuses}; tools ${tools.filter((t) => t.startsWith('mcp__canary') || t === 'Skill').join(', ')}; ${skills.length} skills, ${deny.length} deny rules; hooks heard: ${hooks.hookEvents().join(', ') || 'none'}${blockedLines.length ? `; stderr: ${blockedLines.map((text) => JSON.stringify(short(text, 120))).join(', ')}` : ''}`;
     return problems.length
       ? { status: 'FAIL', why: `${problems.join('; ')}; ${saw}` }
       : { status: 'PASS', why: saw };
@@ -2144,7 +2167,7 @@ const ROWS = [
   { id: '21', name: "where the deny list's names are", needs: 'zero', run: row21 },
   {
     id: '22',
-    name: "an agent's compiled flags launch as the driver builds them",
+    name: "an agent's compiled flags launch as the driver builds them, and a dotted stdio name is blocked",
     needs: 'prompt',
     run: row22,
   },

@@ -1,5 +1,6 @@
 import * as os from 'node:os';
 import * as path from 'node:path';
+import type { AgentGrants } from '../../shared/agentGrants';
 import type { ConversationRecord, ConversationWindow } from '../../shared/conversation';
 import type {
   HarnessCapabilities,
@@ -76,8 +77,13 @@ export interface HarnessDriver {
    * and `buildSessionArgs` refuses such a turn in the same words.
    * `compiled.model`: the turn sets a model (its agent's), so the driver's
    * model flag is one of those flags; a turn without one compiles none.
+   * `compiled.servers`: its agent names servers, so the driver's flags that
+   * load them are compiled too.
    */
-  stepTurnProblem?(config: HarnessConfig, compiled?: { model?: boolean }): string | null;
+  stepTurnProblem?(
+    config: HarnessConfig,
+    compiled?: { model?: boolean; servers?: boolean },
+  ): string | null;
 
   /** Deliver the opening prompt through argv instead of waiting on the TUI. */
   readonly initialPromptViaArgs?: boolean;
@@ -204,6 +210,16 @@ export interface HarnessDriver {
   probeMcpServers?(config: HarnessConfig): Promise<McpServerReport[]>;
 
   /**
+   * Pure: whether a step may run this agent here, and its grants; a
+   * refusal says why, in words. Absent: every agent naming servers or
+   * skills is refused.
+   */
+  compileAgent?(input: CompileAgentInput): CompiledAgent;
+
+  /** Why this driver's harnesses run no agent steps yet, said after its read-only refusal. */
+  readonly agentRefusal?: string;
+
+  /**
    * How this CLI reports, on its own initiative, that it needs the person.
    *
    * Optional: a CLI with nothing like hooks omits it and its sessions stay
@@ -245,6 +261,37 @@ export interface McpServerReport {
   /** Where this CLI signs in to it, in the driver's words. */
   signInHint?: string;
 }
+
+/**
+ * What a step's agent asks of a driver: the driver's own view, not the
+ * engine's snapshot (`steps/definition.ts`), which a desktop file that needs
+ * both imports under another name.
+ */
+export interface AgentRequirements {
+  tools: 'read-only';
+  /** As the agent names them, each optionally narrowed to its tools. */
+  mcpServers: Array<{ name: string; tools?: string[] }>;
+  /** Folder names in the factory's skills/. */
+  skills: string[];
+}
+
+/** What `compileAgent` compiles from. */
+export interface CompileAgentInput {
+  config: HarnessConfig;
+  /** The harness's display name, which every refusal names. */
+  harnessName: string;
+  agent: AgentRequirements;
+  checkout: CheckoutKind;
+  /** The harness's servers, as its CLI last reported them. */
+  servers: readonly McpServerReport[];
+  /** Where the plugin dir will be built; absent at apply. */
+  pluginDir?: string;
+}
+
+/** The grants an agent compiles to, with what the person should know of them; or why not. */
+export type CompiledAgent =
+  | { ok: true; grants: AgentGrants; warnings: string[] }
+  | { ok: false; problem: string };
 
 /** A driver's attention-reporting capability: where its CLI is told to post, and what the posts mean. */
 export interface AttentionHooks {

@@ -1,7 +1,9 @@
 import * as os from 'node:os';
+import type { ClaudeAgentGrants } from '../../shared/agentGrants';
+import { CONSOLA_MCP_SERVER } from '../mcp/names';
 import { type ControlRequest, INITIALIZE, requestControl } from './claudeCapabilities';
 import { CLAUDE_SIGN_IN_HINT } from './claudeTurnReader';
-import type { McpServerReport } from './HarnessDriver';
+import type { CompileAgentInput, CompiledAgent, McpServerReport } from './HarnessDriver';
 
 /**
  * A step's agent on Claude: which MCP servers a harness has, asked of its
@@ -132,4 +134,190 @@ export async function probeClaudeMcpServers(
     repeat: { until: (answer) => !stillPending(answer), everyMs, forMs },
   });
   return mapMcpStatus(status);
+}
+
+// ---------------------------------------------------------------------------
+// Compiling an agent into grants
+
+/** The one plugin Consola builds for a step; its skills are `consola-step:<name>`. */
+const CONSOLA_STEP_PLUGIN = 'consola-step';
+
+/**
+ * Characters Claude keeps in a server's or tool's name in permission rules
+ * (`mcp__<server>__<tool>`): every other one becomes `_` (canary rows 22 and
+ * 23 saw it on 2.1.330).
+ */
+const KEPT_IN_RULES = /[^A-Za-z0-9_-]/g;
+
+/**
+ * The only names `allowedMcpServers` can keep a server by (`serverName`): on
+ * 2.1.330 a stdio server named with anything else is blocked whatever the
+ * allow-list says (canary row 22, the conductor's ruling of 2026-11-22), so
+ * one is refused at compile rather than granted and never loaded.
+ */
+const KEPT_BY_NAME = /^[A-Za-z0-9_-]+$/;
+
+/** How many names a refusal lists before it says how many more. */
+const MAX_LISTED = 10;
+
+/** Claude's name for a server or tool in permission rules: every character outside [A-Za-z0-9_-] as `_`. */
+export function flattenedName(name: string): string {
+  return name.replace(KEPT_IN_RULES, '_');
+}
+
+/** `a, b, c` (at most ten, then `and <n> more`), or `none`. */
+export function listedNames(names: readonly string[]): string {
+  if (names.length === 0) return 'none';
+  const shown = names.slice(0, MAX_LISTED).join(', ');
+  return names.length > MAX_LISTED ? `${shown} and ${names.length - MAX_LISTED} more` : shown;
+}
+
+/** `(it has: a, b)`, or `(it has none)`. */
+function itHas(names: readonly string[]): string {
+  return names.length === 0 ? '(it has none)' : `(it has: ${listedNames(names)})`;
+}
+
+/** Whether Claude keeps this server by `serverName` (stdio) rather than by `serverUrl`. */
+function keptByName(server: McpServerReport): boolean {
+  return server.transport === 'stdio';
+}
+
+/** Whether Consola cannot write an allow-list entry for this server, so cannot limit it. */
+function unrecognised(server: McpServerReport): boolean {
+  if (server.source === 'other' || server.transport === 'other') return true;
+  // A remote server or a connector is kept by its URL, so it needs one.
+  return (server.source === 'connector' || !keptByName(server)) && server.url === undefined;
+}
+
+/**
+ * Whether a step may run this agent on Claude, and its grants: for each
+ * server in the agent's order, Consola's own name, a plugin's, a name the
+ * report lacks, a source or transport it does not know, the person's own
+ * server on an item step, a stdio name the allow-list cannot keep, then an
+ * unknown narrowed tool; then, across the granted servers, two names that
+ * read as one and the profile's own `consola`. The first refusal is the
+ * answer. Warnings, in the agent's order: a server that was not connected,
+ * then a narrowing that could not be checked. Pure.
+ */
+export function compileClaudeAgent(
+  input: CompileAgentInput & { accountFile: string },
+): CompiledAgent {
+  const { harnessName, agent, checkout, servers, accountFile } = input;
+  const reported = new Map<string, McpServerReport>();
+  for (const server of servers) if (!reported.has(server.name)) reported.set(server.name, server);
+  const granted: McpServerReport[] = [];
+  const warnings: string[] = [];
+
+  for (const wanted of agent.mcpServers) {
+    const { name } = wanted;
+    if (flattenedName(name) === CONSOLA_MCP_SERVER) {
+      return refused(`\`${name}\` is Consola's own server's name; rename it in ${harnessName}.`);
+    }
+    if (name.startsWith('plugin:')) {
+      return refused(
+        `\`${name}\` comes from a plugin, which would bring its hooks and skills too. Add the server itself as a user server in ${harnessName}; it will need its own sign-in, since a sign-in belongs to a server's name.`,
+      );
+    }
+    const server = reported.get(name);
+    if (!server) {
+      return refused(
+        `\`${name}\` isn't one of ${harnessName}'s MCP servers ${itHas([...reported.keys()])}. Add it with \`claude mcp add --scope user\`, or fix the name.`,
+      );
+    }
+    if (unrecognised(server)) {
+      return refused(
+        `Consola doesn't know how ${harnessName} loads \`${name}\` (source: ${server.source}, transport: ${server.transport}), so it can't limit it.`,
+      );
+    }
+    if (server.source === 'user' && checkout === 'item') {
+      return refused(
+        `\`${name}\` comes from ${harnessName}'s own settings, and a step on someone else's pull request or issue starts it, or a helper command it runs for its sign-in, inside the author's checkout, where \`npx\`, \`uvx\` or a relative path can run the author's code. On item steps, use a claude.ai connector; this server works in scheduled steps.`,
+      );
+    }
+    if (keptByName(server) && !KEPT_BY_NAME.test(name)) {
+      return refused(
+        `\`${name}\` can't be kept by name in Claude's allow-list, which takes only ASCII letters, digits, \`_\` and \`-\`, so a step could never load it; rename it in ${harnessName}.`,
+      );
+    }
+    if (wanted.tools && server.tools) {
+      const missing = wanted.tools.find((tool) => !server.tools!.includes(tool));
+      if (missing !== undefined) {
+        return refused(`\`${name}\` has no tool \`${missing}\` ${itHas(server.tools)}.`);
+      }
+    }
+    if (server.status === 'needs-auth') {
+      warnings.push(
+        `\`${name}\` needs you to sign in again in ${harnessName}: ${CLAUDE_SIGN_IN_HINT}.`,
+      );
+    } else if (server.status !== 'connected') {
+      warnings.push(
+        `\`${name}\` was ${server.status} when Consola asked ${harnessName} (${CLAUDE_SIGN_IN_HINT}); a step that uses it fails until it connects.`,
+      );
+    }
+    if (wanted.tools && !server.tools) {
+      warnings.push(
+        `\`${name}\` was not connected when Consola asked ${harnessName}, so its tool names could not be checked; a name it does not have grants nothing.`,
+      );
+    }
+    granted.push(server);
+  }
+
+  for (let i = 0; i < granted.length; i++) {
+    for (let j = i + 1; j < granted.length; j++) {
+      const flattened = flattenedName(granted[i].name);
+      if (flattened === flattenedName(granted[j].name)) {
+        return refused(
+          `\`${granted[i].name}\` and \`${granted[j].name}\` read as one name to Claude (\`mcp__${flattened}__\`); rename one in ${harnessName}.`,
+        );
+      }
+    }
+  }
+  const loadsAccountFile = granted.some((server) => server.source === 'user');
+  const ownConsola = servers.some(
+    (server) => server.source === 'user' && flattenedName(server.name) === CONSOLA_MCP_SERVER,
+  );
+  if (loadsAccountFile && ownConsola) {
+    return refused(
+      `${harnessName} has a server of its own named \`${CONSOLA_MCP_SERVER}\`, which is Consola's own server's name, so a step can't load ${harnessName}'s own servers beside it; rename it in ${harnessName}.`,
+    );
+  }
+
+  const allowedTools: string[] = [];
+  for (const wanted of agent.mcpServers) {
+    const server = flattenedName(wanted.name);
+    if (wanted.tools) {
+      for (const tool of wanted.tools) allowedTools.push(`mcp__${server}__${flattenedName(tool)}`);
+    } else allowedTools.push(`mcp__${server}__*`);
+  }
+  for (const skill of agent.skills) allowedTools.push(`Skill(${CONSOLA_STEP_PLUGIN}:${skill})`);
+
+  const grants: ClaudeAgentGrants = {
+    driverId: 'claude',
+    servers: agent.mcpServers.map((wanted) => ({
+      name: wanted.name,
+      ...(wanted.tools ? { tools: [...wanted.tools] } : {}),
+    })),
+    skills: [...agent.skills],
+    ...(granted.length > 0
+      ? {
+          allowedMcpServers: [
+            { serverName: CONSOLA_MCP_SERVER },
+            ...granted.map((server) =>
+              keptByName(server) ? { serverName: server.name } : { serverUrl: server.url! },
+            ),
+          ],
+        }
+      : {}),
+    strict: !granted.some((server) => server.source === 'connector'),
+    ...(loadsAccountFile ? { accountFile } : {}),
+    allowedTools,
+    ...(agent.skills.length > 0 && input.pluginDir !== undefined
+      ? { pluginDir: input.pluginDir }
+      : {}),
+  };
+  return { ok: true, grants, warnings };
+}
+
+function refused(problem: string): CompiledAgent {
+  return { ok: false, problem };
 }
