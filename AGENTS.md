@@ -537,7 +537,7 @@ panel it is view state, kept in the renderer.
   provider, account, repo and the branch's name on the remote per interval
   (`BRANCH_LOOKUP_TTL_MS`, counted from the ask, not the answer, less a
   few seconds' slack, `ASK_SLACK_MS`, so the renderer's re-ask one interval
-  on is never served the old answer), a failure kept as long as an answer,
+  on is not served the old answer), a failure kept as long as an answer,
   sooner only for Retry or Refresh. It is asked
   only while someone looks: the info panel shown with Pull request open, or
   the Pull request tab in front

@@ -9,17 +9,18 @@ import type { GitProviderDriver } from './GitProviderDriver';
 import type { PullRequestQuery, PullRequestState } from './pullRequests';
 import { repoInOrg } from './repoInOrg';
 
-/** A branch's pull request is asked about at most once per Inbox interval. */
+/** A branch's pull request is asked about once per Inbox interval (less `ASK_SLACK_MS`). */
 export const BRANCH_LOOKUP_TTL_MS = INBOX_REFRESH_INTERVAL_MS;
 
 /**
  * How much earlier than one interval an answer counts as old. The renderer
  * asks on a fixed interval from its first ask, but an answer is dated after
  * the branch is read (`readIdentity`), and the first read of a branch pays
- * for `ssh -G` while later ones come from memory. So the next ask can reach
- * the check a little short of one interval after the answer's date, and
- * without this slack it would be served the old answer and the real request
- * would wait for the interval after.
+ * for `ssh -G` (up to its two-second timeout) while later ones come from
+ * memory. So the next ask can reach the check a little short of one interval
+ * after the answer's date, and without this slack it would be served the old
+ * answer and the real request would wait for the interval after. Ten seconds
+ * covers that and the git reads beside it, with room for a loaded machine.
  */
 export const ASK_SLACK_MS = 10_000;
 
