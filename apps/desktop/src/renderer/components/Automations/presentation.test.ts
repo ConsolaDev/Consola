@@ -1194,6 +1194,13 @@ describe('approvalStep', () => {
         steps: [fetch, agent, fetchMore, second, publish],
       })?.detail,
     ).toBe('Runs review and summarise read-only and fresh and fetch as you; publish only reports.');
+    // A loop's own row runs nothing and reports nothing: only its steps are named (3-A code review M4).
+    const loop = { id: 'polish', kind: 'repeat' as const, summary: 'Up to 3 rounds' };
+    const look = { ...agent, id: 'look', loop: 'polish' };
+    const fix = { ...publish, id: 'fix', loop: 'polish' };
+    expect(
+      approvalStep({ mode: 'notify', kind: 'agent', steps: [loop, look, fix, publish] })?.detail,
+    ).toBe('Runs look read-only; fix, publish only report.');
     // Nothing starts: every step is a command that only reports.
     expect(approvalStep({ mode: 'notify', kind: 'tool', steps: [publish] })).toMatchObject({
       detail: 'Starts nothing',

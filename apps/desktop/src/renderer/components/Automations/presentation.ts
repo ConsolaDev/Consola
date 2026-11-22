@@ -847,7 +847,10 @@ export function approvalStep(
     // A steps entry's dry run starts its agent steps (read-only) and the commands marked `dry_run: run`.
     const runs = steps?.filter((step) => step.kind === 'agent' || step.dryRun) ?? [];
     if (steps && runs.length > 0) {
-      const reports = steps.filter((step) => !runs.includes(step)).map((step) => step.id);
+      // A loop's own row runs nothing and reports nothing: its steps are named (3-A code review M4).
+      const reports = steps
+        .filter((step) => !runs.includes(step) && step.kind !== 'repeat')
+        .map((step) => step.id);
       const agents = runs.filter((step) => step.kind === 'agent').map((step) => step.id);
       const commands = runs.filter((step) => step.kind === 'run').map((step) => step.id);
       // Two groups, said apart: an agent step is read-only, a command runs as the person.
