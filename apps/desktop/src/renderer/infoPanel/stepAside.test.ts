@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  conversationKeepsRoom,
   crowded,
   INFO_PANEL_ROOM_PX,
   infoPanelShown,
@@ -88,6 +89,37 @@ describe('toggledInfoPanel', () => {
       infoVisible: true,
       keptByPerson: false,
     });
+  });
+});
+
+describe('conversationKeepsRoom', () => {
+  it('keeps 60 columns beside both panels on a pane that holds all three', () => {
+    expect(conversationKeepsRoom(room({ contentWidth: INFO_PANEL_ROOM_PX }))).toBe(true);
+    expect(conversationKeepsRoom(room({ contentWidth: WIDE }))).toBe(true);
+  });
+
+  it('keeps no 60 columns while the person keeps the panel on a narrow pane, which has no room for them', () => {
+    expect(conversationKeepsRoom(room({ keptByPerson: true }))).toBe(false);
+    expect(
+      conversationKeepsRoom(room({ keptByPerson: true, contentWidth: INFO_PANEL_ROOM_PX - 1 })),
+    ).toBe(false);
+  });
+
+  it('keeps none beside one panel or none', () => {
+    expect(conversationKeepsRoom(room({ contentWidth: WIDE, infoVisible: false }))).toBe(false);
+    expect(conversationKeepsRoom(room({ contentWidth: WIDE, sidePanelVisible: false }))).toBe(
+      false,
+    );
+    expect(
+      conversationKeepsRoom(
+        room({ contentWidth: WIDE, infoVisible: false, sidePanelVisible: false }),
+      ),
+    ).toBe(false);
+  });
+
+  it('keeps none before the pane is measured', () => {
+    expect(conversationKeepsRoom(room({ contentWidth: null }))).toBe(false);
+    expect(conversationKeepsRoom(room({ contentWidth: null, keptByPerson: true }))).toBe(false);
   });
 });
 

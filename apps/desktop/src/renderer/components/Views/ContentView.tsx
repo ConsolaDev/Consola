@@ -6,7 +6,16 @@ import { useHarnessStore } from '../../stores/harnessStore';
 import { useGitStatusAutoRefresh } from '../../stores/gitStatusStore';
 import { useCheckout } from '../../stores/checkoutStore';
 import { useSidePanelStore } from '../../stores/sidePanelStore';
-import { useContentWidth, useInfoPanelShown } from '../../stores/infoPanelRoomStore';
+import {
+  useContentWidth,
+  useConversationKeepsRoom,
+  useInfoPanelShown,
+} from '../../stores/infoPanelRoomStore';
+import {
+  CONVERSATION_ROOM_PX,
+  INFO_PANEL_DEFAULT_PX,
+  SIDE_PANEL_MIN_PX,
+} from '../../infoPanel/stepAside';
 import { isInfoSectionOpen, useSettingsStore } from '../../stores/settingsStore';
 import {
   looksAtPullRequest,
@@ -31,6 +40,12 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
   // stepped aside for a narrow pane (`infoPanel/stepAside.ts`), measured on
   // the Group below. A panel that stepped aside reads nothing.
   const infoShown = useInfoPanelShown();
+  // The conversation's floor: 60 columns while all three are on screen on a
+  // pane that holds them, so the panels give way first; else 20%. The
+  // library checks the layout on screen against a changed `minSize`, and a
+  // saved layout as it restores, so a split saved while the person kept the
+  // info panel on a narrow pane comes back with those columns.
+  const conversationMinSize = useConversationKeepsRoom() ? `${CONVERSATION_ROOM_PX}px` : '20%';
   const groupRef = useRef<HTMLDivElement | null>(null);
 
   const getWorkspace = useWorkspaceStore((state) => state.getWorkspace);
@@ -145,7 +160,7 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
               would reattach the terminal at a captured size and could lose
               the prompt's frame (AGENTS.md, "Terminals Outlive Their
               Views"). */}
-          <Panel id="agent" minSize="20%">
+          <Panel id="agent" minSize={conversationMinSize}>
             <TerminalPanel
               instanceId={instanceId}
               workspaceId={workspaceId}
@@ -166,12 +181,18 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
             />
           </Panel>
           {/* The info panel, always the first thing after the conversation.
-              Its default width and the side panel's minimum are the ones
-              `INFO_PANEL_ROOM_PX` (`infoPanel/stepAside.ts`) is reckoned from. */}
+              Its default width, the side panel's minimum and the
+              conversation's floor are `infoPanel/stepAside.ts`'s, which
+              reckons `INFO_PANEL_ROOM_PX` from them. */}
           {infoShown && (
             <>
               <Separator className="resize-handle info-panel-resize-handle" />
-              <Panel id="info-panel" defaultSize="250px" minSize="220px" maxSize="400px">
+              <Panel
+                id="info-panel"
+                defaultSize={`${INFO_PANEL_DEFAULT_PX}px`}
+                minSize="220px"
+                maxSize="400px"
+              >
                 <InfoPanel facts={facts} />
               </Panel>
             </>
@@ -179,7 +200,12 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
           {isSidePanelVisible && (
             <>
               <Separator className="resize-handle" />
-              <Panel id="side-panel" defaultSize="40%" minSize="280px" maxSize="75%">
+              <Panel
+                id="side-panel"
+                defaultSize="40%"
+                minSize={`${SIDE_PANEL_MIN_PX}px`}
+                maxSize="75%"
+              >
                 <SidePanel facts={facts} />
               </Panel>
             </>

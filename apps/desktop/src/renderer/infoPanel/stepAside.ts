@@ -9,12 +9,21 @@
  * (`sidePanelStore.infoVisible`) is never written by this, so nothing is
  * saved: a relaunch at a wide window shows the panel as before.
  *
+ * While all three are on screen on a pane with that room, the conversation's
+ * 60 columns are its floor (`conversationKeepsRoom`): the panels give way
+ * before it does, and a split saved while the person kept the panel on a
+ * narrow pane, with the conversation down to 20%, never restores that narrow
+ * on a pane that holds the 60 columns.
+ *
  * The rule reads the pane's width only, never the conversation's. The panels
  * inside the pane do not change its width, so showing or hiding the info
  * panel cannot flip the rule back.
  */
 
-/** About 60 columns of the conversation's terminal at its default font size. */
+/**
+ * About 60 columns of the conversation's terminal at its default font size:
+ * its `minSize` in `ContentView` while it keeps room beside both panels.
+ */
 export const CONVERSATION_ROOM_PX = 480;
 /** The info panel's `defaultSize` in `ContentView`. */
 export const INFO_PANEL_DEFAULT_PX = 250;
@@ -57,6 +66,17 @@ export function crowded({
  */
 export function infoPanelShown(room: InfoPanelRoom): boolean {
   return room.infoVisible && (room.keptByPerson || !crowded(room));
+}
+
+/**
+ * Whether the conversation keeps 60 columns (`CONVERSATION_ROOM_PX` as its
+ * `minSize`): while the info panel and the side panel are both on screen on
+ * a pane that holds all three. Otherwise its floor is 20% of the pane, as
+ * while the person keeps the info panel on a narrow pane, where 60 columns
+ * would leave the two panels too little.
+ */
+export function conversationKeepsRoom(room: InfoPanelRoom): boolean {
+  return infoPanelShown(room) && room.sidePanelVisible && !crowded(room);
 }
 
 /**

@@ -5,6 +5,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type { NewSessionFields } from '../../src/shared/workspace';
+import { CONVERSATION_ROOM_PX, INFO_PANEL_ROOM_PX } from '../../src/renderer/infoPanel/stepAside';
 import { commandPaletteChord, launchElectron } from './helpers/electron';
 import { infoPanel, infoPanelChord, infoSection, roomForBothPanels } from './helpers/infoPanel';
 
@@ -224,6 +225,39 @@ test.describe('info panel', () => {
     );
     await expect.poll(() => page.evaluate(() => window.innerWidth)).toBe(width);
   };
+  /** The session pane's width, which the conversation and both panels share. */
+  const paneWidth = async () =>
+    (await page.locator('.workspace-view-content').boundingBox())?.width ?? 0;
+  /** Gives the window the width that leaves the session pane `width` wide. */
+  const windowForPane = async (width: number) => {
+    const besidePane = (await page.evaluate(() => window.innerWidth)) - (await paneWidth());
+    await windowWidth(Math.round(width + besidePane));
+  };
+  /**
+   * The conversation's 60 columns, as drawn. react-resizable-panels turns
+   * `CONVERSATION_ROOM_PX` into a share of the panels' widths, which it
+   * measures in whole pixels, so the floor lands within a pixel of it.
+   */
+  const SIXTY_COLUMNS = CONVERSATION_ROOM_PX - 1;
+  /** A panel's width in the session pane, by its id: `agent` is the conversation. */
+  const panelWidth = async (id: 'agent' | 'info-panel' | 'side-panel') =>
+    (await page.getByTestId(id).boundingBox())?.width ?? 0;
+  /** Holds on to the conversation's xterm, which a remount would replace. */
+  const holdConversation = () =>
+    page.evaluate(() => {
+      (window as unknown as Record<string, Element | null>).__conversation = document.querySelector(
+        '[data-conversation-terminal] .xterm',
+      );
+    });
+  /** Whether the conversation still has the xterm `holdConversation` held. */
+  const sameConversation = () =>
+    page.evaluate(() => {
+      const kept = (window as unknown as Record<string, Element | null>).__conversation;
+      return (
+        !!kept?.isConnected &&
+        document.querySelector('[data-conversation-terminal] .xterm') === kept
+      );
+    });
   /** Adds a session to Sprocket, in `cwd`, once the app is up. */
   const addSession = (name: string, instanceId: string, cwd: string) =>
     page.evaluate(
@@ -434,6 +468,96 @@ test.describe('info panel', () => {
     await expect(
       page.getByRole('button', { name: 'Hide info panel', exact: true }),
     ).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  test('beside both panels the conversation keeps 60 columns while the pane holds them', async () => {
+    await openSession('Paginate the catalog search');
+    await expect(infoPanel(page)).toBeVisible();
+    await holdConversation();
+    const sidePanel = () => page.getByTestId('side-panel');
+
+    // A pane just over the room for all three, and the side panel opened at
+    // its default 40%, which would leave the conversation about 360px: the
+    // panels give way instead.
+    await windowForPane(INFO_PANEL_ROOM_PX + 10);
+    await page
+      .locator('.side-panel-controls')
+      .getByRole('button', { name: 'Changes', exact: true })
+      .click();
+    await expect(sidePanel()).toBeVisible();
+    await expect(infoPanel(page)).toBeVisible();
+    await expect.poll(() => panelWidth('agent')).toBeGreaterThanOrEqual(SIXTY_COLUMNS);
+    expect(await panelWidth('side-panel')).toBeLessThan(0.4 * (await paneWidth()));
+    expect(await sameConversation(), 'the side panel opened beside both').toBe(true);
+
+    // The default window: the info panel steps aside, and the 60 columns go
+    // with it.
+    await windowWidth(1000);
+    await expect(infoPanel(page)).toHaveCount(0);
+    expect(await sameConversation(), 'the info panel stepped aside').toBe(true);
+
+    // The person keeps the panel, on a pane with no room for 60 columns
+    // beside both: the conversation can still go down to a fifth of it.
+    await page.getByRole('button', { name: 'Show info panel', exact: true }).click();
+    await expect(infoPanel(page)).toBeVisible();
+    await expect(sidePanel()).toBeVisible();
+    const edge = (await page.locator('.info-panel-resize-handle').boundingBox())!;
+    const paneLeft = (await page.locator('.workspace-view-content').boundingBox())!.x;
+    await page.mouse.move(edge.x + edge.width / 2, edge.y + edge.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(paneLeft + 4, edge.y + edge.height / 2, { steps: 8 });
+    await page.mouse.up();
+    const conversationShare = async () => {
+      const [agent, info, side] = await Promise.all(
+        (['agent', 'info-panel', 'side-panel'] as const).map(panelWidth),
+      );
+      return agent / (agent + info + side);
+    };
+    await expect.poll(conversationShare).toBeLessThan(0.21);
+    expect(await conversationShare()).toBeGreaterThan(0.19);
+    expect(await sameConversation(), 'kept on a narrow pane').toBe(true);
+
+    // Room again: the keep ends, all three stay, and the conversation has its
+    // 60 columns back from the split the narrow pane left.
+    await windowWidth(1400);
+    await expect(infoPanel(page)).toBeVisible();
+    await expect(sidePanel()).toBeVisible();
+    await expect.poll(() => panelWidth('agent')).toBeGreaterThanOrEqual(SIXTY_COLUMNS);
+    expect(await sameConversation(), 'room again').toBe(true);
+  });
+
+  test('a split saved with the conversation at its narrow floor restores with 60 columns on a wide window', async () => {
+    // react-resizable-panels' key for the session pane's three-panel layout.
+    const allThree = 'react-resizable-panels:session-pane:agent:info-panel:side-panel';
+    await roomForBothPanels(app, page);
+    await openSession('Paginate the catalog search');
+    await page
+      .locator('.side-panel-controls')
+      .getByRole('button', { name: 'Changes', exact: true })
+      .click();
+    await expect(page.getByTestId('side-panel')).toBeVisible();
+    await expect(infoPanel(page)).toBeVisible();
+    // What a keep on a narrow window leaves saved: the conversation dragged
+    // to a fifth of the pane. Written after the last layout change, just
+    // before the app quits.
+    await page.evaluate(
+      (key) =>
+        localStorage.setItem(
+          key,
+          JSON.stringify({ agent: 20, 'info-panel': 35, 'side-panel': 45 }),
+        ),
+      allThree,
+    );
+    await app.close();
+
+    ({ app, page } = await launchElectron({ userDataDir, env }));
+    // The window comes back as wide as it was, the side panel open beside
+    // the info panel.
+    await expect.poll(() => page.evaluate(() => window.innerWidth)).toBe(1400);
+    await openSession('Paginate the catalog search');
+    await expect(page.getByTestId('side-panel')).toBeVisible();
+    await expect(infoPanel(page)).toBeVisible();
+    await expect.poll(() => panelWidth('agent')).toBeGreaterThanOrEqual(SIXTY_COLUMNS);
   });
 
   test('Environment says where each session runs', async () => {

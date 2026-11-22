@@ -492,7 +492,13 @@ panel it is view state, kept in the renderer.
   columns of conversation beside both panels), the panel steps aside
   (`infoPanelShown`, `infoPanel/stepAside.ts`) without writing `infoVisible`,
   everything that asks whether it shows reads that answer, and its toggle
-  shows it anyway until the side panel hides or the pane has room. A folded section
+  shows it anyway until the side panel hides or the pane has room. While all
+  three show on a pane with that room, the conversation's `minSize` is those
+  60 columns (`CONVERSATION_ROOM_PX`, `conversationKeepsRoom`), else 20%: the
+  panels give way before it, and a split saved while the person kept the
+  panel on a narrow pane never restores it narrower on a pane that holds
+  them. That leans on react-resizable-panels checking the layout on screen
+  against a changed `minSize`, and a saved one as it restores. A folded section
   renders neither its rows nor its heading's actions (`InfoSection`), so
   whatever they read never starts. Showing, hiding or resizing the panel
   only resizes the conversation, which stays `ContentView`'s first child.
