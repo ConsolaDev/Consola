@@ -43,6 +43,13 @@ jobs:
           languages: ${{ matrix.language }}
           # Neither language needs the code built to be analysed.
           build-mode: none
+          # The copied t3code is third-party code kept byte for byte
+          # (vendor/t3code/UPSTREAM.md), as Biome already treats it. Its
+          # alerts are triaged in Linear CON-97, not by this gate.
+          config: |
+            paths-ignore:
+              - vendor/**
+              - packages/agent-ui/src/t3/**
       - uses: github/codeql-action/analyze@v4
         with:
           category: /language:${{ matrix.language }}

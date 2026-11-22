@@ -1,6 +1,38 @@
 packages:
   - apps/*
   - packages/*
+  # Copied from t3code (vendor/t3code/UPSTREAM.md).
+  - vendor/t3code
+  - vendor/t3code/packages/*
+  # t3 server files lifted by Consola, at their upstream path.
+  - vendor/t3code/apps/*
+
+# Versions the copied t3code packages ask for with `catalog:`, at t3's values
+# (vendor/t3code/UPSTREAM.md). Consola's own packages pin their versions.
+catalog:
+  '@effect/graphql-generator': 4.1.5
+  '@effect/openapi-generator': 4.1.5
+  '@effect/platform-node': 4.1.5
+  '@effect/vitest': 4.1.5
+  '@noble/curves': 1.9.1
+  '@noble/hashes': 1.8.0
+  '@pierre/diffs': 1.7.0-beta.4
+  '@types/node': 24.12.4
+  effect: 4.1.5
+  mdast-util-directive: 3.1.0
+  micromark-extension-directive: 4.0.0
+  micromark-util-character: 2.1.1
+  micromark-util-decode-string: 2.0.1
+  micromark-util-types: 2.0.2
+  rehype-raw: 7.0.0
+  rehype-sanitize: 6.0.0
+  remark-breaks: 4.0.0
+  remark-gfm: 4.0.1
+  remark-parse: 11.0.0
+  remark-rehype: 11.1.2
+  unified: 11.0.5
+  vite-plus: 1.4.0
+  yaml: ^2.9.0
 
 # Which dependencies may run their install scripts. pnpm fails an install on
 # any package with a build script that is not listed here (strictDepBuilds),
@@ -32,9 +64,71 @@ overrides:
   source-map-js@>=1.0.0 <1.2.2: 1.2.2
   undici@<6.29.1: 6.29.1
   undici@>=7.0.0 <7.30.1: 7.30.2
+  # The copied t3code packages (vendor/t3code/UPSTREAM.md), as t3 resolves them.
+  # t3's @effect/vitest patch imports vite-plus/test in place of vitest.
+  '@effect/vitest>vitest': '-'
+  # OpenCode 2's client, protocol and schema pin an exact Effect, and their
+  # schemas fail to decode under a second copy of it.
+  '@opencode/client>effect': 4.1.5
+  '@opencode/protocol>effect': 4.1.5
+  '@opencode/schema>effect': 4.1.5
+  # t3's markdown pipeline parses math with its fork of the tokenizer.
+  remark-math>micromark-extension-math: npm:micromark-extension-llm-math@3.1.0
+  # @consola/agent-ui's copied chat, as t3 resolves it: @pierre/trees pins @pierre/theming
+  # 1.0.0, whose peer range predates @pierre/theme 2 (t3's own override), and Tiptap's menus
+  # stay on the core and pm version the chat names (t3's lockfile has them at 3.31.3).
+  '@pierre/trees>@pierre/theming': 1.0.2
+  '@tiptap/react>@tiptap/extension-bubble-menu': 3.31.3
+  '@tiptap/react>@tiptap/extension-floating-menu': 3.31.3
+  # The Claude Agent SDK is always given the person's own Claude executable, so
+  # its bundled binaries are never used (as in t3).
+  '@anthropic-ai/claude-agent-sdk>@anthropic-ai/claude-agent-sdk-darwin-arm64': '-'
+  '@anthropic-ai/claude-agent-sdk>@anthropic-ai/claude-agent-sdk-darwin-x64': '-'
+  '@anthropic-ai/claude-agent-sdk>@anthropic-ai/claude-agent-sdk-linux-arm64': '-'
+  '@anthropic-ai/claude-agent-sdk>@anthropic-ai/claude-agent-sdk-linux-arm64-musl': '-'
+  '@anthropic-ai/claude-agent-sdk>@anthropic-ai/claude-agent-sdk-linux-x64': '-'
+  '@anthropic-ai/claude-agent-sdk>@anthropic-ai/claude-agent-sdk-linux-x64-musl': '-'
+  '@anthropic-ai/claude-agent-sdk>@anthropic-ai/claude-agent-sdk-win32-arm64': '-'
+  '@anthropic-ai/claude-agent-sdk>@anthropic-ai/claude-agent-sdk-win32-x64': '-'
+  # The SDK's peer at the version t3 resolves. The newest one depends on
+  # @opentelemetry/api, which would move the peers of Consola's own packages.
+  '@anthropic-ai/claude-agent-sdk>@anthropic-ai/sdk': 0.93.0
+
+# Vite+ runs Vitest 5 on its own build of Vite, which carries Vite+'s version
+# number, so Vitest's peer range never matches it (vendor/t3code/UPSTREAM.md).
+peerDependencyRules:
+  allowedVersions:
+    vitest@5>vite: '*'
+    '@vitest/mocker@5>vite': '*'
+    # @consola/agent-ui builds with React's Vite plugin on the same Vite+ build.
+    '@vitejs/plugin-react@6>vite': '*'
+
+# t3's @effect/vitest patch imports vite-plus/test (vendor/t3code/UPSTREAM.md).
+packageExtensions:
+  '@effect/vitest@*':
+    dependencies:
+      vite-plus: 1.4.0
 
 patchedDependencies:
   '@xterm/addon-webgl@0.19.0': patches/@xterm__addon-webgl@0.19.0.patch
   '@xterm/xterm@6.0.0': patches/@xterm__xterm@6.0.0.patch
+  # Copied from t3code with the packages that install them (vendor/t3code/UPSTREAM.md).
+  '@cursor/sdk@1.4.2': patches/@cursor__sdk@1.4.2.patch
+  '@effect/platform-node-shared@4.1.5': patches/@effect__platform-node-shared@4.1.5.patch
+  '@effect/vitest@4.1.5': patches/@effect__vitest@4.1.5.patch
+  '@ff-labs/fff-node@0.11.0': patches/@ff-labs__fff-node@0.11.0.patch
+  '@muse-code/sdk@1.4.6': patches/@muse-code__sdk@1.4.6.patch
+  '@pierre/diffs@1.7.0-beta.4': patches/@pierre__diffs@1.7.0-beta.4.patch
+  mdast-util-math@3.0.0: patches/mdast-util-math@3.0.0.patch
+  mdast-util-to-hast@13.2.1: patches/mdast-util-to-hast@13.2.1.patch
+  micromark-extension-gfm-table@2.1.1: patches/micromark-extension-gfm-table@2.1.1.patch
+  micromark-extension-llm-math@3.1.0: patches/micromark-extension-llm-math@3.1.0.patch
+  micromark@4.0.2: patches/micromark@4.0.2.patch
 
 sideEffectsCache: false
+
+# The copied t3code packages typecheck with `effect-tsgo`, which t3 installs at
+# its repository root. Here vendor/t3code holds it; hoisting it puts its bin
+# where every package's scripts look (vendor/t3code/UPSTREAM.md).
+publicHoistPattern:
+  - '@effect/tsgo'
