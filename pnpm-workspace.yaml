@@ -2,10 +2,15 @@ packages:
   - apps/*
   - packages/*
 
-onlyBuiltDependencies:
-  - electron
-  - esbuild
-  - node-pty
+# Which dependencies may run their install scripts. pnpm fails an install on
+# any package with a build script that is not listed here (strictDepBuilds),
+# so a new one has to be decided: true runs it, false skips it.
+allowBuilds:
+  core-js: false
+  electron: true
+  electron-winstaller: false
+  esbuild: true
+  node-pty: true
 
 overrides:
   '@hono/node-server@>=2.0.0 <2.1.6': 2.1.8
