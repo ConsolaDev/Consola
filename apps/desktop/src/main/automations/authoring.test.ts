@@ -4,17 +4,20 @@ import type { LaunchSessionFields } from '../SessionLauncher';
 import { authoringPrompt, authoringSessionName, startAuthoring } from './authoring';
 
 const FILE = '/home/alice/.consola/workspaces/ws-1/factory.yml';
+/** Where the prompt says automations live: the factory folder, not one file (Call 28). */
+const LIVE_IN =
+  'Automations live in /home/alice/.consola/workspaces/ws-1: factory.yml and automations/.';
 const ENTRY =
   '- name: tidy\n  on: { cron: "0 9 * * 1-5" }\n  run: { tool: consola#cleanup_stale_sessions }\n  mode: confirm';
 
 describe('authoringPrompt', () => {
-  it('says what the person asked for, where the file is, and how to add to it', () => {
+  it('says what the person asked for, where the folder is, and how to add to it', () => {
     const prompt = authoringPrompt({
       description: 'Every weekday, summarise what asks for my review',
       filePath: FILE,
     });
     expect(prompt).toContain('Every weekday, summarise what asks for my review');
-    expect(prompt).toContain(FILE);
+    expect(prompt).toContain(LIVE_IN);
     expect(prompt).toContain('consola_automation_capabilities');
     expect(prompt).toContain('consola_save_automation');
     // The person decides what is saved.
@@ -144,7 +147,7 @@ describe('startAuthoring', () => {
     expect(fields).not.toHaveProperty('toolPolicy');
     expect(fields).not.toHaveProperty('unattended');
     expect(fields.initialPrompt).toContain('Every weekday, summarise what asks for my review');
-    expect(fields.initialPrompt).toContain(FILE);
+    expect(fields.initialPrompt).toContain(LIVE_IN);
     expect(d.basisEntry).not.toHaveBeenCalled();
   });
 

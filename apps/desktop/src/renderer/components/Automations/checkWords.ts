@@ -1,4 +1,10 @@
-import type { AutomationMode, AutomationView, CheckView } from '../../../shared/automations';
+import type {
+  AutomationMode,
+  AutomationView,
+  CheckView,
+  EntryAgentsView,
+} from '../../../shared/automations';
+import { serverGrantLine } from './agentGrantWords';
 import { formatAgo } from './presentation';
 
 const items = (count: number) => `${count} ${count === 1 ? 'item' : 'items'}`;
@@ -89,4 +95,93 @@ export function allowNotes(view: Pick<AutomationView, 'steps' | 'takesItem'>): s
         ]
       : []),
   ];
+}
+
+/**
+ * The Allow card's agent files: one `Uses agents/<name>.md` per agent the
+ * entry's steps name, once each, in step order, so the person can open and
+ * read every agent file the entry runs before allowing it.
+ */
+export function allowAgentLines(
+  view: Pick<AutomationView, 'steps'>,
+): Array<{ file: string; text: string }> {
+  const files: string[] = [];
+  for (const step of view.steps ?? []) {
+    if (step.agentFile !== undefined && !files.includes(step.agentFile)) files.push(step.agentFile);
+  }
+  return files.map((file) => ({ file, text: `Uses ${file}` }));
+}
+
+/** Said above what a card shows while the folder does not apply: the text is the running version's. */
+export const RUNNING_VERSION_NOTE = 'This is the version that runs; your edits have not applied.';
+
+/**
+ * A factory file's Open, beside a version the card shows: while the folder
+ * does not apply, Open shows the file as it is now, which is not the version
+ * shown (and not what Allow accepts), so it says so.
+ */
+export function openFileWords(standing: boolean): string {
+  return standing ? 'Open as it is now' : 'Open in editor';
+}
+
+/** One agent on the Allow card: its file, and, once read at the listed version, its description and body. */
+export interface AllowAgentSection {
+  file: string;
+  text: string;
+  openLabel: string;
+  description?: string;
+  body?: string;
+  /** While the folder does not apply: the body is the running version's. */
+  note?: string;
+  /** A line per server it names, with the tools its harness's last probe listed (2-C); absent for none. */
+  servers?: string[];
+  /** The skills it names, each opened by its `skills/<name>/SKILL.md`; absent for none. */
+  skills?: string[];
+  /** Each skill's `SKILL.md` as the version holds it, by its file (review M4); absent for none. */
+  skillTexts?: Array<{ file: string; text: string }>;
+}
+
+/**
+ * The Allow card's agents: each file the steps name, once, in step order,
+ * with the description, body, servers and skills main read for the version
+ * the view lists (`loaded`), never the live file, and whether its runs read
+ * text other people wrote (`readsItems`, the item line). Allow accepts that
+ * version, so it is `ready` only once every agent's body at that version is
+ * there: the person reads exactly what they accept (review S1). An entry
+ * without agents is ready at once.
+ */
+export function allowAgentSections(
+  view: Pick<AutomationView, 'steps' | 'version'>,
+  loaded: EntryAgentsView | null | undefined,
+  standing: boolean,
+): { ready: boolean; readsItems: boolean; agents: AllowAgentSection[] } {
+  const atVersion = loaded && loaded.version === view.version ? loaded : undefined;
+  const agents = allowAgentLines(view).map(({ file, text }): AllowAgentSection => {
+    const agent = atVersion?.agents.find((candidate) => candidate.file === file);
+    return {
+      file,
+      text,
+      openLabel: standing ? openFileWords(true) : 'Open',
+      ...(agent?.description !== undefined ? { description: agent.description } : {}),
+      ...(agent ? { body: agent.body } : {}),
+      ...(agent && standing ? { note: RUNNING_VERSION_NOTE } : {}),
+      ...(agent && agent.mcpServers.length > 0
+        ? { servers: agent.mcpServers.map((server) => serverGrantLine(server)) }
+        : {}),
+      ...(agent && agent.skills.length > 0 ? { skills: [...agent.skills] } : {}),
+      ...(agent?.skillTexts && agent.skillTexts.length > 0
+        ? {
+            skillTexts: agent.skillTexts.map(({ name, text }) => ({
+              file: `skills/${name}/SKILL.md`,
+              text,
+            })),
+          }
+        : {}),
+    };
+  });
+  return {
+    ready: agents.every((agent) => agent.body !== undefined),
+    readsItems: atVersion?.readsItems === true,
+    agents,
+  };
 }

@@ -30,6 +30,7 @@ import {
   stepOutcome,
   stepSummary,
   stepTone,
+  turnFacts,
   type StepTone,
 } from './stepDetail';
 import { formatElapsed } from './presentation';
@@ -295,6 +296,10 @@ function StepRow({
   const Icon = TONE_ICONS[tone];
   const bodyId = `${id}-body`;
   const ran = tone === 'passed' || tone === 'failed' || tone === 'running';
+  // How long it took, then what the CLI reported of its turns: `1m 12s · 7 turns · $0.0412 est.`.
+  const ranFacts = [ms !== null ? formatElapsed(ms) : null, turnFacts(step)]
+    .filter((part): part is string => part !== null)
+    .join(' · ');
 
   return (
     <li
@@ -325,9 +330,7 @@ function StepRow({
             </span>
             {summary && !open && <span className="automations-trace-summary">{summary}</span>}
           </span>
-          <span className="automations-trace-outcome">
-            {ran ? (ms !== null ? formatElapsed(ms) : '') : outcome}
-          </span>
+          <span className="automations-trace-outcome">{ran ? ranFacts : outcome}</span>
           <ChevronRight size={14} className="automations-trace-chevron" aria-hidden="true" />
         </button>
         {open && (

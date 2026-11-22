@@ -14,6 +14,18 @@ export interface FactorySpecIssue {
   line?: number;
   /** Name of the automation the problem belongs to, when it has a readable one. */
   automation?: string;
+  /**
+   * The file the problem is in, relative to the factory folder
+   * (`factory.yml`, `agents/investigator.md`, `skills/incident-triage/SKILL.md`).
+   * Set by the folder's parsers; `parseFactorySpec`, which reads one file, leaves it out.
+   */
+  file?: string;
+  /**
+   * The file (or `skills/<name>/` folder) whose own problems this one only
+   * shows through: a step naming an agent with problems of its own, an agent
+   * naming such a skill. The problem is counted there, never here.
+   */
+  cause?: string;
 }
 
 export function toIssue(

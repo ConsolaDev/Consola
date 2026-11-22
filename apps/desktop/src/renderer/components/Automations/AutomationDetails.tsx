@@ -85,7 +85,9 @@ export function AutomationDetails({ workspace, name }: { workspace: Workspace; n
   const waiting = runs.find((run) => run.status === 'needs-approval');
   const running = runs.some((run) => run.status === 'running');
   const openRun = (runId: string) => openPanel({ kind: 'run', runId });
-  const openFile = () => void act('open', () => automationsBridge.openFile(workspace.id));
+  // The file the entry lives in: factory.yml, or its own automations/<name>.yaml.
+  const openFile = () =>
+    void act('open', () => automationsBridge.openFile(workspace.id, automation.file));
 
   return (
     <div className="automations-detail">
@@ -316,7 +318,8 @@ function LeadState({
             title="Show the entry as written"
             onClick={onShowEntry}
           >
-            factory.yml{automation.line !== undefined ? `:${automation.line}` : ''}
+            {automation.file ?? 'factory.yml'}
+            {automation.line !== undefined ? `:${automation.line}` : ''}
           </button>
           {automation.addedBy && <span> · added by {automation.addedBy.sessionName}</span>}
         </p>

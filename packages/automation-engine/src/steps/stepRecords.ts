@@ -19,13 +19,24 @@ export function withStep(records: StepRun[], stepId: string, changes: Partial<St
 /**
  * `records` with one step's attempt starting at `nowIso`: running, and naming
  * no session or conversation until its own launch records them, so an
- * earlier execution's session can never settle it.
+ * earlier execution's session can never settle it. `agent` is the agent the
+ * step runs as, when it names one.
  */
-export function withAttemptStarted(records: StepRun[], stepId: string, nowIso: string): StepRun[] {
+export function withAttemptStarted(
+  records: StepRun[],
+  stepId: string,
+  nowIso: string,
+  agent?: string,
+): StepRun[] {
   return records.map((record) => {
     if (record.id !== stepId) return record;
     const { sessionId: _sessionId, conversation: _conversation, ...rest } = record;
-    return { ...rest, status: 'running', startedAt: nowIso };
+    return {
+      ...rest,
+      status: 'running',
+      startedAt: nowIso,
+      ...(agent !== undefined ? { agent } : {}),
+    };
   });
 }
 
@@ -46,7 +57,9 @@ export type EndedAttempt = NonNullable<StepRun['previous']>[number];
  * `records` with one step given its next attempt, in a new session and a new
  * folder: its attempt as it ended kept in `previous` (as its record has it,
  * unless `ended` says otherwise), and everything that attempt produced or
- * named cleared, so nothing of it can settle or feed the next. A step that
+ * named cleared, so nothing of it can settle or feed the next. Its cost
+ * stays, as the remembered attempt's `costUsd` (the run spent it), and its
+ * turns as its `turns`. A step that
  * never ran moves on too, `not-run` in its `previous`: its next launch is
  * then never a first attempt, which only a trigger's fire makes. A retry and
  * a restart that runs a step again both go through this.
@@ -54,7 +67,11 @@ export type EndedAttempt = NonNullable<StepRun['previous']>[number];
 export function withNextAttempt(
   records: StepRun[],
   stepId: string,
-  next: { status: 'pending' | 'queued'; nowIso: string; ended?: Omit<EndedAttempt, 'attempt'> },
+  next: {
+    status: 'pending' | 'queued';
+    nowIso: string;
+    ended?: Omit<EndedAttempt, 'attempt' | 'costUsd' | 'turns'>;
+  },
 ): StepRun[] {
   return records.map((record) => {
     if (record.id !== stepId) return record;
@@ -65,6 +82,8 @@ export function withNextAttempt(
       conversation: _conversation,
       reminded: _reminded,
       command: _command,
+      turn,
+      model: _model,
       error,
       finishedAt,
       startedAt: _startedAt,
@@ -79,6 +98,8 @@ export function withNextAttempt(
       status: ended.status,
       ...(ended.error !== undefined ? { error: ended.error } : {}),
       ...(ended.finishedAt !== undefined ? { finishedAt: ended.finishedAt } : {}),
+      ...(turn?.costUsd !== undefined ? { costUsd: turn.costUsd } : {}),
+      ...(turn?.turns !== undefined ? { turns: turn.turns } : {}),
     };
     return {
       ...kept,

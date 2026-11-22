@@ -1,8 +1,12 @@
 import { CONSOLA_NAMESPACE } from './support';
 import type { EngineTool } from './ports';
 import {
+  AUTOMATION_NAME_PATTERN,
   ENV_PREFIX_EXCEPTIONS,
   LATER_KEYS,
+  MAX_AGENT_SERVERS,
+  MAX_AGENT_SKILLS,
+  MAX_SKILL_FILES,
   REFUSED_ENV_NAMES,
   REFUSED_ENV_PREFIXES,
   type AutomationMode,
@@ -17,8 +21,23 @@ import { connectionCatalog, type ConnectionCatalogEntry } from './connections';
  * this workspace has — so it drafts something that runs rather than learning
  * from refusals. The answer to `automation_capabilities`.
  */
+/** One of the workspace's agents, as an agent writing an entry is told it: what `agent:` may name. */
+export interface AgentCapability {
+  name: string;
+  description?: string;
+  /** Its harness's id; absent, the workspace's default harness. */
+  harness?: string;
+  model?: string;
+  maxTurns?: number;
+  /** The servers it names, by name. */
+  mcpServers: string[];
+  skills: string[];
+}
+
 export interface AutomationCapabilities {
   file: { path: string; exists: boolean };
+  /** The factory folder `file` is in: where automation files, agent files and skills live. */
+  folder: { path: string };
   /** The entry grammar, its rules, and one example per kind of run. */
   grammar: string;
   modes: Array<{ mode: AutomationMode; means: string }>;
@@ -46,8 +65,20 @@ export interface AutomationCapabilities {
   scopes: Array<{ name: string; path: string }>;
   /** Names already in the file: a new entry needs another, or `replace: true` to change that one. */
   taken: string[];
-  /** The workspace's default harness, which every agent run starts on. */
-  harness: { name: string; canRunAgents: boolean; problem?: string };
+  /**
+   * The workspace's default harness, which every agent run starts on.
+   * `stepsProblem`: why its steps entries with an agent step would not run
+   * there although it can run agents.
+   */
+  harness: { name: string; canRunAgents: boolean; problem?: string; stepsProblem?: string };
+  /** The folder's agents, as last read: what a step's `agent:` may name. */
+  agents: AgentCapability[];
+  /**
+   * The harnesses an agent file's `harness:` may name: enabled and not
+   * archived, by id, each with the MCP servers its CLI last said it has
+   * (absent until Consola has asked it).
+   */
+  harnesses: Array<{ id: string; name: string; servers?: string[] }>;
   readOnlyLimits: string;
 }
 
@@ -61,8 +92,18 @@ export interface CapabilitiesInput {
   taken: string[];
   /** The connection the workspace is bound to, if any. */
   boundConnection: string | null;
-  /** The harness's name, and the entry `problem` it gives agent entries (null when it can run them). */
-  harness: { name: string; problem: string | null };
+  /**
+   * The harness's name, the entry `problem` it gives agent entries (null when
+   * it can run them), and the one it gives steps entries with an agent step
+   * when only those cannot run (`stepProblem`; null or absent when they can).
+   */
+  harness: { name: string; problem: string | null; stepProblem?: string | null };
+  /** The folder's valid agents; absent, none. */
+  agents?: AgentCapability[];
+  /** The harnesses an agent may name, enabled and not archived, with their servers' names when known; absent, none. */
+  harnesses?: Array<{ id: string; name: string; servers?: string[] }>;
+  /** The factory folder; absent, `filePath`'s folder. */
+  folderPath?: string;
 }
 
 /** The item fields a prompt may template: the ones every connection gives and nobody else wrote. */
@@ -114,6 +155,90 @@ export const GRAMMAR_EXAMPLES: ReadonlyArray<{ title: string; entry: string }> =
   },
   { title: 'Steps, on an event', entry: assignedReviewsEntry() },
   { title: 'Steps, on a poll', entry: reReviewEntry() },
+  {
+    title: 'Steps with a turn cap, on a schedule',
+    entry: `- name: overnight-api-notes
+  on: { cron: "0 7 * * 1-5" }
+  scope: api
+  mode: auto
+  steps:
+    - id: look
+      prompt: Read what changed in api overnight, and write it up as your handover.
+      max_turns: 20
+    - id: tell
+      prompt: Turn the overnight handover into a short note for the team.
+      reads: [look.handover]`,
+  },
+];
+
+/**
+ * One example of agent files and automation files, each file as written. A
+ * test parses every one with its folder (`parseFactory`) and resolves it,
+ * and each file appears in the grammar under its path.
+ */
+export const AGENT_EXAMPLES: ReadonlyArray<{
+  title: string;
+  files: Readonly<Record<string, string>>;
+}> = [
+  {
+    title: 'An agent on a schedule',
+    files: {
+      'agents/notes-writer.md': `---
+description: Writes the overnight notes for api.
+model: haiku
+max_turns: 10
+---
+You write the overnight notes for the api team: what changed, what broke, and what needs a person.
+Keep them short and plain; name each pull request by its number.
+`,
+      'automations/overnight-notes.yaml': `on: { cron: "0 7 * * 1-5" }
+scope: api
+mode: auto
+steps:
+  - id: look
+    agent: notes-writer
+  - id: tell
+    agent: notes-writer
+    prompt: Turn the overnight handover into the note the team reads first.
+    reads: [look.handover]
+`,
+    },
+  },
+  {
+    title: 'An investigator with a connector and a skill',
+    files: {
+      'agents/investigator.md': `---
+description: Looks into a new alert and says where to start.
+harness: claude-work
+model: haiku
+max_turns: 30
+mcpServers:
+  - claude.ai Coralogix
+  - grafana: [query_logs]
+skills: [incident-triage]
+---
+You look into alerts for the api team: what fired, what it shares with earlier alerts, and where to look first.
+Follow the incident-triage checklist, read logs with the tools you were given, and change nothing.
+`,
+      'skills/incident-triage/SKILL.md': `---
+name: incident-triage
+description: The api team's checklist for a new alert.
+---
+1. Read the alert and the service it names.
+2. Look for the same alert in the last week.
+3. Say what changed just before it fired.
+`,
+      'automations/investigate-alerts.yaml': `on:
+  poll: { every: 30m, run: ./list-alerts, key: .id }
+scope: api
+mode: confirm
+steps:
+  - id: investigate
+    agent: investigator
+    prompt: Look into the alert described below, and say where to start.
+`,
+    },
+  },
 ];
 
 /** What a `run:` step runs as, and what that means for a pull request's code. */
@@ -125,9 +250,51 @@ const EXAMPLES = GRAMMAR_EXAMPLES.map((example) => `${example.title}:\n\n${examp
   '\n\n',
 );
 
-const GRAMMAR_PROSE = `Each automation is one item in the \`automations:\` list of factory.yml:
+const AGENT_FILE_EXAMPLES = AGENT_EXAMPLES.map(
+  (example) =>
+    `${example.title}:\n\n${Object.entries(example.files)
+      .map(([file, text]) => `${file}:\n\n${text}`)
+      .join('\n')}`,
+).join('\n\n');
 
-- name: <lowercase letters, digits and dashes; unique in the file>
+/** The rule a person meets when an agent file or a skill changes: what it uses asks again. */
+const AGENT_EDIT_ASKS_AGAIN =
+  'An edit to an agent file or a skill makes every automation that uses it ask again before its next unattended run; a poll entry stops checking until the person allows it.';
+
+/** The review's verdict (c) on Call 4: a body that opens with a rule needs frontmatter first. */
+const FRONTMATTER_FIRST =
+  'A file whose first line is --- begins with its frontmatter, so a body that should open with a Markdown rule (---) needs frontmatter first, even an empty one: a line ---, then a line ---.';
+
+/** What naming a server grants, and where its name comes from. */
+const SERVER_RULES =
+  "On a step that works in someone else's checkout (a pull request or issue), only claude.ai connectors are offered. " +
+  'Naming a server grants every tool it has, writing ones included; narrow it to named tools with - <server>: [<tool>, …]. ' +
+  "harnesses lists each harness's servers by name, once Consola has asked its CLI.";
+
+const FOLDER_PROSE = `The factory folder. A workspace's automations live in its factory folder (folder.path): factory.yml, automations/<name>.yaml (one automation per file), agents/<name>.md (an agent a step runs as) and skills/<name>/SKILL.md (a skill an agent names). A file's name is its name: ${AUTOMATION_NAME_PATTERN.source}, so agents/investigator.md is the agent investigator. Any other file in automations/, agents/ or skills/ is an issue (dotfiles, and what an editor or the OS leaves beside a file, such as x.md~, #x.md#, x.orig or Thumbs.db, are passed over), and so is a file (or one of those folders) that is a link leading outside the folder: Consola reads only files inside it. environments/, connections/ and evals/ are read from later slices: their files have no effect yet. The folder applies as a unit: while any file has a problem, the version that last applied keeps running, and an automation removed from the files stops at once.
+
+Agent files. agents/<name>.md is optional YAML frontmatter between two --- lines, then the agent's standing instructions: its body, at least one line that is not blank, at most 64 KB, with no {{ }} (an agent is the same for every step that uses it: put item values in the step's prompt:). ${FRONTMATTER_FIRST} Keys, each optional:
+- description: one line of at most 200 characters, for the person. It, a server's name and the model are visible text: letters, numbers, punctuation, symbols and plain spaces (no line or paragraph separators, combining marks, invisible fillers or format characters).
+- harness: a harness's id from harnesses (letters, digits, _ and -); absent, the workspace's default harness. Its steps' sessions run there.
+- model: a model the harness's CLI takes (opus, haiku, or a full model id), passed as --model; absent, the harness's own. A model the harness does not list is shown as a notice; a step on a model the CLI does not have fails.
+- max_turns: 1 to 500, the default turn cap of every step that uses the agent; a step's own max_turns overrides it.
+- tools: read-only, the only value until write steps.
+- mcpServers: names of servers the harness's CLI already has, each optionally narrowed to its tools (- notion, or - grafana: [query_logs]), at most ${MAX_AGENT_SERVERS}. skills: folder names in skills/, at most ${MAX_AGENT_SKILLS}. An agent that names either names its harness too.
+${SERVER_RULES}
+Refused, with a reason: name: (the file's name is the agent's), hooks, permissionMode, allowed-tools and allowedTools (Consola compiles an agent's permissions from tools, mcpServers and skills), environment and secrets (later slices), and any other key.
+A step runs as an agent with agent: <name>, the agent's file name without .md. Alone, the agent's body is the step's instructions; beside prompt: or action:, the body comes first and the step's own instruction after it. The step's session runs on the agent's harness, with its model. An entry whose step names no agent file, or one with problems of its own, does not run. agent:, skills: and mcpServers: never go on an entry, and a step names skills and servers only through its agent.
+
+Automation files. automations/<name>.yaml holds one automation, its keys at the top level as a factory.yml entry's are, with no name: (the file's name is the automation's) and no version: (it belongs to factory.yml). A name is unique across the folder: one defined both in factory.yml and as a file is refused in both. New entries saved with consola_save_automation go to factory.yml; one that replaces an entry living in its own file rewrites that file.
+
+Skills. skills/<name>/SKILL.md starts with its frontmatter, holding name: (the folder's name) and description: (1 to 1,024 characters); license: and compatibility: (text) and metadata: (names to text) are allowed too. A skill holds regular files and folders only, no symlinks, at most ${MAX_SKILL_FILES} files and 2 MB. Refused: hooks (they would run even in a read-only session), allowed-tools (name servers and tools in the agent file), any other key, and a command at load (the characters ! and \` together) anywhere in SKILL.md, in a file with a text extension, or in any file that is valid UTF-8 (a binary, such as an image or a font, is not read for it).
+
+${AGENT_EDIT_ASKS_AGAIN}
+
+${AGENT_FILE_EXAMPLES}`;
+
+const GRAMMAR_PROSE = `Each automation is one item in the \`automations:\` list of factory.yml, or a file of its own (see The factory folder):
+
+- name: <lowercase letters, digits and dashes; unique in the folder>
   on: <a trigger: { cron: "<five fields>" } or { <connection>: <event> } or { <connection>: [<event>, …] } or { poll: { … } } or manual>
   run: <one target: { tool: consola#<tool>, with: { <arguments> } } or { action: <action name> } or { prompt: "<instructions>" }>
   steps: <instead of run: 1 to 20 steps, in file order; see Steps>
@@ -156,7 +323,7 @@ on: manual runs only when a person, or an agent, starts it. Add applies_to: [pr]
 
 Previous. In an entry that runs on an item, previous.<step>.<artifact> is what the last run of this automation on the same item wrote: previous.review.handover is that run's review. It works in reads: and env: only, never in a prompt or if:: it is material, not a value to branch on. It is empty on the first run, so write the prompt to cope: it should say what to do when there is no earlier document.
 
-Steps. Each step has exactly one of prompt:, action: or run:. A prompt: or action: step is a new read-only, unattended agent session on the default harness; a run: step is a shell command. Keys:
+Steps. Each step has one of prompt:, action:, agent: <name> or run:; an agent: may also stand beside a prompt: or an action: (see Agent files). A prompt:, action: or agent: step is a new read-only, unattended agent session, on its agent's harness or else the default one; a run: step is a shell command. Keys:
 - id: ^[a-z][a-z0-9-]{0,31}$, unique, optional (an unnamed step is step-<n> and cannot be referenced; step-<n> and previous are refused as ids).
 - if: an expression; the step runs when it is true.
 - prompt: instructions. action: one of the workspace's actions, which must apply to the item; its body is filled as an action's is, and {{ }} does not apply to it.
@@ -165,6 +332,7 @@ Steps. Each step has exactly one of prompt:, action: or run:. A prompt: or actio
 - dry_run: report (default) or run: what a notify run does with the command; run is for a command that only reads.
 - outputs: typed values the step must end with, at most 10, named ^[a-z][a-z0-9_]{0,31}$, never handover or output (reserved, like artifact names): { verdict: { enum: [a, b] } (1 to 20 values, each 1 to 64 characters, no line breaks), n: integer, x: { type: number, minimum: 0, maximum: 1 }, ok: boolean, s: { type: string, maxLength: 500 } }. A string defaults to 1000 characters, at most 4000. A run: step may instead say outputs: { from: stdout, format: json | text }: stdout becomes its artifact \`output\`.
 - artifacts: [names] an agent step must write before it ends; it may always write a handover. reads: [<step>.<artifact>] are the only earlier documents an agent step sees (<step>.handover, <step>.output).
+- max_turns: 1 to 500, an agent step's turn cap: the step fails when its turn reaches it ("It hit its limit of <n> turns before finishing."), with no reminder. Without it a turn runs until it ends, at most an hour. Each agent step's cost and turns are recorded on its run.
 Not supported yet, refused with a reason: ${REFUSED_KEYS}. A step has no inputs: use reads:.
 
 A run: step reads outputs from the file named by $CONSOLA_OUTPUT, one key=value line each: echo "needed=true" >> "$CONSOLA_OUTPUT". Set every declared output or the step fails; at most ${OUTPUT_FILE_CAP_BYTES / 1024} KB; no key<<EOF form. It runs as ${RUN_AS}
@@ -175,7 +343,7 @@ if: expr := or; or := and ("||" and)*; and := unary ("&&" unary)*; unary := "!" 
 
 ${EXAMPLES}`;
 
-const GRAMMAR = GRAMMAR_PROSE;
+const GRAMMAR = `${GRAMMAR_PROSE}\n\n${FOLDER_PROSE}`;
 
 const MODES: AutomationCapabilities['modes'] = [
   {
@@ -231,6 +399,7 @@ const READ_ONLY_LIMITS =
 export function describeCapabilities(input: CapabilitiesInput): AutomationCapabilities {
   return {
     file: { path: input.filePath, exists: input.fileExists },
+    folder: { path: input.folderPath ?? input.filePath.replace(/[\\/][^\\/]*$/, '') },
     grammar: GRAMMAR,
     modes: MODES,
     triggers: {
@@ -263,7 +432,20 @@ export function describeCapabilities(input: CapabilitiesInput): AutomationCapabi
       name: input.harness.name,
       canRunAgents: input.harness.problem === null,
       ...(input.harness.problem !== null ? { problem: input.harness.problem } : {}),
+      ...(typeof input.harness.stepProblem === 'string'
+        ? { stepsProblem: input.harness.stepProblem }
+        : {}),
     },
+    agents: (input.agents ?? []).map((agent) => ({
+      ...agent,
+      mcpServers: [...agent.mcpServers],
+      skills: [...agent.skills],
+    })),
+    harnesses: (input.harnesses ?? []).map((harness) => ({
+      id: harness.id,
+      name: harness.name,
+      ...(harness.servers !== undefined ? { servers: [...harness.servers] } : {}),
+    })),
     readOnlyLimits: READ_ONLY_LIMITS,
   };
 }

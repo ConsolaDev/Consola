@@ -14,9 +14,12 @@ import { MarkdownRenderer } from '../Markdown';
 import { RunSteps, useRunConversation } from './ConversationView';
 import { useNow } from './parts';
 import {
+  agentFacts,
   artifactNote,
   attemptsLine,
   conditionValues,
+  deniedLine,
+  earlierCosts,
   failureIsExit,
   formatBytes,
   logWasCapped,
@@ -24,6 +27,7 @@ import {
   runIsOver,
   skippedCondition,
   stepTone,
+  turnLine,
   variableRows,
   visibleTail,
   type StepTone,
@@ -128,7 +132,7 @@ export function StepDetail({
         )}
         {(ran || tone === 'reported') &&
           (record.kind === 'agent' ? (
-            <AgentFacts workspace={workspace} run={run} step={record} />
+            <AgentFacts workspace={workspace} run={run} step={record} detail={ready} />
           ) : (
             <CommandFacts
               run={run}
@@ -283,15 +287,69 @@ function OutputsFact({ step }: { step: StepRun }) {
   );
 }
 
-/** The session, its transcript while it works and after. */
+/**
+ * What the CLI reported of the step's turns: the latest attempt's turns,
+ * cost and model, what earlier attempts cost, the tools it was refused.
+ * Each line only when it was reported; nothing at all when none was.
+ */
+function TurnFact({ step }: { step: StepRun }) {
+  const turns = turnLine(step);
+  const earlier = earlierCosts(step);
+  const denied = deniedLine(step);
+  if (turns === null && earlier === null && denied === null) return null;
+  return (
+    <Fact label="Turn">
+      {turns !== null && <p className="automations-fact-text">{turns}</p>}
+      {earlier !== null && <p className="automations-fact-text">{earlier}</p>}
+      {denied !== null && <p className="automations-fact-text">{denied}</p>}
+    </Fact>
+  );
+}
+
+/**
+ * The agent a step ran as, and the harness its conversation is on when it
+ * has one (`reviewer · stub-personal`); nothing for a step with no agent.
+ * The model is the Turn fact's, as the CLI reported it.
+ */
+function AgentFact({ step }: { step: StepRun }) {
+  if (step.agent === undefined) return null;
+  const harness = step.conversation?.harnessId;
+  return (
+    <Fact label="Agent">
+      <p className="automations-fact-text">
+        {step.agent}
+        {harness !== undefined ? ` · ${harness}` : ''}
+      </p>
+    </Fact>
+  );
+}
+
+/** An agent step's servers and skills, as its run's definition holds its agent; nothing when it names neither. */
+function GrantFacts({ detail }: { detail: StepDetailData | null }) {
+  if (!detail) return null;
+  return (
+    <>
+      {agentFacts(detail).map((fact) => (
+        <Fact key={fact.label} label={fact.label}>
+          <p className="automations-fact-text">{fact.value}</p>
+        </Fact>
+      ))}
+    </>
+  );
+}
+
+/** The agent, the session, what its turns reported, its transcript while it works and after. */
 function AgentFacts({
   workspace,
   run,
   step,
+  detail,
 }: {
   workspace: Workspace;
   run: RunRecord;
   step: StepRun;
+  /** The step's detail once read: its agent's servers and skills. */
+  detail: StepDetailData | null;
 }) {
   const ids = useId();
   const [expanded, setExpanded] = useState(false);
@@ -313,16 +371,23 @@ function AgentFacts({
 
   if (!hasConversation) {
     return (
-      <Fact label="Session">
-        <p className="automations-fact-text">
-          {following ? 'Starting its session…' : 'It never started a session.'}
-        </p>
-      </Fact>
+      <>
+        <AgentFact step={step} />
+        <GrantFacts detail={detail} />
+        <Fact label="Session">
+          <p className="automations-fact-text">
+            {following ? 'Starting its session…' : 'It never started a session.'}
+          </p>
+        </Fact>
+        <TurnFact step={step} />
+      </>
     );
   }
 
   return (
     <>
+      <AgentFact step={step} />
+      <GrantFacts detail={detail} />
       <Fact label="Session">
         <div className="automations-fact-inline">
           {session ? (
@@ -340,6 +405,7 @@ function AgentFacts({
           <span className="automations-fact-note">A read-only session</span>
         </div>
       </Fact>
+      <TurnFact step={step} />
       <Fact label="Transcript">
         {error && !conversation ? (
           <p className="automations-error" role="alert">

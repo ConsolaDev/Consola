@@ -435,6 +435,9 @@ describe('launchWorkItem — an automation already reviewing the item', () => {
       worktreeInUse: () => false,
       composeEnv: async () => ({}),
       restoreGroup: () => {},
+      // A review names no agent, so no harness is looked up, and no CLI asked for its servers.
+      harnesses: () => [],
+      serversForLaunch: async () => [],
       launchSession: async (_workspaceId, fields) => {
         const session = { ...automationReview, id: 'auto-2', ...fields } as unknown as Session;
         workspace.sessions.push(session);

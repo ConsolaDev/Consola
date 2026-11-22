@@ -809,6 +809,7 @@ export function installMock() {
       fileExists: false,
       automations: [],
       issues: [],
+      notices: [],
       runs: [],
       hasOlder: false,
       queue: {},
@@ -890,6 +891,7 @@ export function installMock() {
     approve: automationsUnavailable,
     dismiss: automationsUnavailable,
     openFile: automationsUnavailable,
+    recheck: automationsUnavailable,
     addAssignedReviews: automationsUnavailable,
     getRun: async () => null,
     readConversation: async () => ({ readable: false }),
@@ -905,6 +907,7 @@ export function installMock() {
     startAuthoring: automationsUnavailable,
     acknowledge: async () => {},
     getEntry: async () => null,
+    getEntryAgents: async () => null,
     onChanged: () => () => {},
   };
   const browserAPI = browserMock({

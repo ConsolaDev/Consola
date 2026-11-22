@@ -18,6 +18,12 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: ['src/**/*.test.ts'],
+    // No unit test can find or start the person's own agent CLI: each test
+    // process gets a home, config dirs and a PATH of its own first. It sets
+    // the process's environment, which only a forked worker owns (a thread's
+    // `process.env` is a copy `os.homedir()` never reads): hence `forks`.
+    setupFiles: ['./src/main/drivers/realCliIsolation.setup.ts'],
+    pool: 'forks',
     // Node 25+ defines a global `localStorage` that reads as undefined unless
     // `--localstorage-file` is given. zustand's persist storage then wraps
     // undefined and throws on the first write, where a missing global made it

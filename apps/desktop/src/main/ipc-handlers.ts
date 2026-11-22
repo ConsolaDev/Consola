@@ -54,13 +54,18 @@ import { isolated } from './browser/isolated';
 import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { exec } from 'node:child_process';
+import { exec, execFile } from 'node:child_process';
 import { TerminalManager } from './TerminalManager';
-import { SessionLauncher, launchFieldsFor } from './SessionLauncher';
+import {
+  SessionLauncher,
+  automationRecordLaunch,
+  launchFieldsFor,
+  recordLaunchFields,
+} from './SessionLauncher';
 import { fanOut } from './fanOut';
 import { listScopeRepos } from './scopeRepos';
 import { runHeadless } from './drivers/ClaudeDriver';
-import { getDriver, toHarnessConfig, toolPolicyProblem } from './drivers';
+import { getDriver, toHarnessConfig } from './drivers';
 import { harnessCapabilitiesCache } from './HarnessCapabilitiesCache';
 import { SessionNamer } from './sessionTitles/SessionNamer';
 import { borrowProviderEnv, composeProviderEnv, getProviderDriver } from './providers';
@@ -110,13 +115,29 @@ import { ProcessCwdIndex } from './worktreeCleanup/ProcessCwdIndex';
 import { ToolRegistry } from './tools/Tool';
 import { consolaTools } from './tools/consolaTools';
 import { desktopWorkItemPort } from './automations/workItemPort';
-import { sessionRecord, toItemSnapshot, toWorkspaceView } from './automations/engineViews';
+import {
+  sessionRecord,
+  toItemSnapshot,
+  toTurnInitView,
+  toTurnReportView,
+  toWorkspaceView,
+} from './automations/engineViews';
+import {
+  agentHarnessView,
+  cachedModels,
+  harnessesWithServers,
+  settledServerTools,
+  withKnownTools,
+} from './automations/agentHarness';
+import { McpServersCache } from './automations/mcpServersCache';
 import {
   launchAgentRun,
   runningIn,
   worktreeHeld,
   type ItemWorktreeDeps,
 } from './automations/launchAgentRun';
+import { entryArgs, openFileArgs, workspaceArg } from './automations/factoryFileArgs';
+import { openFactoryFile } from './automations/openFactoryFile';
 import { automationCheckoutPort } from './automations/automationCheckout';
 import { readRunConversation } from './automations/runConversation';
 import { startAuthoring } from './automations/authoring';
@@ -124,14 +145,17 @@ import { parseAuthoringRequest } from './automations/authoringRequest';
 import type { AutomationsChange } from '../shared/automations';
 import { asRunTarget } from './automations/runTarget';
 import {
+  AppliedFactoryFiles,
   AUTOMATION_TEMPLATES,
   AutomationService,
-  FactoryFile,
+  FactoryFolder,
+  OPEN_STATUSES,
   RunFolder,
   RunHistoryFiles,
   RunStore,
   startCommand,
   stepToolSpecs,
+  workspaceDataDir,
   workspaceFactoryPath,
   type AutomationStateFile,
   type ListRunsQuery,
@@ -683,10 +707,12 @@ export function setupIpcHandlers(): boolean {
   ipcMain.handle(
     IPC_CHANNELS.WORKSPACE_SESSION_CREATE,
     async (_event, workspaceId: string, payload: NewSessionFields, checkout?: SessionCheckout) => {
-      // Where a session came from and what its agent may do are main's
-      // to set, when an automation launches one; a window never does.
+      // Where a session came from, what its agent may do, how many turns
+      // a step's may take and what its agent was granted are main's to set,
+      // when an automation launches one; a window never does.
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const { toolPolicy, automation, ...fields } = payload ?? ({} as NewSessionFields);
+      const { toolPolicy, automation, maxTurns, grants, ...fields } =
+        payload ?? ({} as NewSessionFields);
       if (!checkout) return workspaces.createSession(workspaceId, fields);
       const scope = checkoutScope(workspaceId, fields.scopeId);
       const cwd = await sessionCheckouts.prepare(scope.path, checkout);
@@ -1707,11 +1733,20 @@ export function setupIpcHandlers(): boolean {
       exitCode: info.exitCode,
       lastLine: info.lastLine,
       stopped: info.stopped,
+      ...(info.report ? { report: toTurnReportView(info.report) } : {}),
     });
     // Work that completed is a result nobody has looked at: the session is done, not merely exited.
     if (ended?.completed) attentionSessions.runCompleted(instanceId);
     // "Its automation run ended" may now apply; a little later, once it has settled.
     worktreeSweeper?.kick(RUN_ENDED_DEBOUNCE_MS);
+  });
+  // A step's reporting turn says which model it runs and which servers it
+  // loaded as it starts: the engine records the model and checks the servers
+  // its agent needs, stopping the turn at once when one is missing.
+  manager.addTurnInitListener((instanceId, init) => {
+    const located = findSessionByInstanceId(workspaces.getAll(), instanceId);
+    if (!located) return;
+    automationService?.turnStarted(located.session.id, toTurnInitView(init));
   });
   // A CLI that quits on an error needs the person: it ends a snooze. Exit 0
   // never does (it covers /exit, Ctrl+C and a death by signal), nor a turn
@@ -2065,8 +2100,20 @@ export function setupIpcHandlers(): boolean {
     const record = sessionRecord(workspaces.getAll(), sessionId);
     return record ? manager.get(record.instanceId) : undefined;
   };
+  // Which MCP servers each harness has, as its CLI said: asked when a factory
+  // first needs it, kept for the app's life (a failure until Check again);
+  // every answer re-checks the folders that waited on it.
+  const mcpServers = new McpServersCache({
+    onSettled: () => void automationService?.syncWorkspaces(),
+  });
+  const serversOf = (harness: Harness | undefined) => {
+    const fields = launchFieldsFor(harness);
+    return { driver: getDriver(fields.driverId), config: toHarnessConfig(fields) };
+  };
   const automations = new AutomationService({
-    fileFor: (workspaceId) => new FactoryFile(workspaceFactoryPath(workspaceId)),
+    folderFor: (workspaceId) => new FactoryFolder(workspaceDataDir(workspaceId)),
+    // Each folder's last applied version, in Consola's own state: what keeps running while a file has a problem.
+    appliedStore: new AppliedFactoryFiles(path.join(app.getPath('userData'), 'factory-applied')),
     store: runStore,
     runFolder: new RunFolder(),
     workItems: desktopWorkItemPort({
@@ -2128,26 +2175,46 @@ export function setupIpcHandlers(): boolean {
           ...itemWorktreeDeps,
           restoreGroup: (id, groupId) => workspaces.restoreGroup(id, groupId),
           launchSession: (workspaceId, fields) => launcher.launchSession(workspaceId, fields),
+          harnesses: () => harnesses.getAll(),
+          // What a step's agent compiles against: the CLI's answer, waited for.
+          serversForLaunch: (harness) => {
+            const { driver, config } = serversOf(harness);
+            return mcpServers.get(driver, config);
+          },
         },
         request,
       ),
-    // A turn Consola quit in the middle of picks up in its own session.
-    resumeAgent: (session, prompt) =>
-      launcher.resumeUnattended(session.workspaceId, session.id, prompt),
-    // A step that ended without its outputs is resumed once, in place, to set them.
-    remindAgent: (session, prompt) =>
-      launcher.relaunchUnattended(session.workspaceId, session.id, prompt),
+    // A turn Consola quit in the middle of picks up in its own session, a
+    // reminder under its own cap.
+    resumeAgent: (session, prompt, maxTurns) =>
+      launcher.resumeUnattended(session.workspaceId, session.id, prompt, { maxTurns }),
+    // A step that ended without its outputs is resumed once, in place, to
+    // set them, under a cap of its own.
+    remindAgent: (session, prompt, maxTurns) =>
+      launcher.relaunchUnattended(session.workspaceId, session.id, prompt, { maxTurns }),
     hasLiveTerminal: (session) => automationTerminal(session.id)?.hasClaudeExited() === false,
-    agentHarness: (workspaceId) => {
+    agentHarness: (workspaceId, agent) => {
       const workspace = workspaces.getAll().find((candidate) => candidate.id === workspaceId);
-      const harness = harnesses
-        .getAll()
-        .find((candidate) => candidate.id === workspace?.defaultHarnessId);
-      return {
-        name: harness?.name ?? 'Claude',
-        problem: toolPolicyProblem(launchFieldsFor(harness), 'read-only'),
-      };
+      return agentHarnessView({
+        harnesses: harnesses.getAll(),
+        defaultHarnessId: workspace?.defaultHarnessId,
+        agent,
+        // Only an answer the cache already holds: applying never starts a probe.
+        modelsOf: (harness) => cachedModels(harnessCapabilitiesCache, harness),
+        // An agent's servers are another matter: the first need asks the CLI.
+        serversNow: (harness) => {
+          const { driver, config } = serversOf(harness);
+          return mcpServers.ask(driver, config);
+        },
+        missingServers: (harness, names) => {
+          const { driver, config } = serversOf(harness);
+          mcpServers.missing(driver, config, names);
+        },
+      });
     },
+    // What an agent writing automations may name in an agent file's `harness:`,
+    // and each one's servers once its CLI has said (never asking it).
+    listHarnesses: () => harnessesWithServers(harnesses.getAll(), mcpServers),
     stopAgent: (session, reason) =>
       automationTerminal(session.id)?.stopUnattendedTurn(reason) ?? false,
     platform: process.platform,
@@ -2355,7 +2422,7 @@ export function setupIpcHandlers(): boolean {
         launchSession: (workspaceId, fields) => launcher.launchSession(workspaceId, fields),
         filePath: (workspaceId) => workspaceFactoryPath(workspaceId),
         basisEntry: async (workspaceId, basis) => {
-          if ('automation' in basis) return automations.entryText(workspaceId, basis.automation);
+          if ('automation' in basis) return automations.entryItem(workspaceId, basis.automation);
           const workspace = workspaces.getAll().find((candidate) => candidate.id === workspaceId);
           const template = AUTOMATION_TEMPLATES.find(
             (candidate) => candidate.id === basis.template,
@@ -2384,9 +2451,41 @@ export function setupIpcHandlers(): boolean {
       return automations.entryText(workspaceId, name);
     },
   );
-  ipcMain.handle(IPC_CHANNELS.AUTOMATIONS_OPEN_FILE, async (_event, workspaceId: string) => {
-    const failure = await shell.openPath(await automations.ensureFile(String(workspaceId)));
-    if (failure) throw new Error(failure);
+  ipcMain.handle(
+    IPC_CHANNELS.AUTOMATIONS_GET_ENTRY_AGENTS,
+    (_event, rawWorkspaceId: unknown, rawName: unknown) => {
+      const { workspaceId, name } = entryArgs(rawWorkspaceId, rawName);
+      const view = automations.entryAgents(workspaceId, name);
+      if (!view) return null;
+      // A whole server's tools, as its harness's CLI last listed them: read, never asked (review S2).
+      const workspace = workspaces.getAll().find((candidate) => candidate.id === workspaceId);
+      return withKnownTools(
+        view,
+        settledServerTools(mcpServers, harnesses.getAll(), workspace?.defaultHarnessId),
+      );
+    },
+  );
+  ipcMain.handle(
+    IPC_CHANNELS.AUTOMATIONS_OPEN_FILE,
+    async (_event, rawWorkspaceId: unknown, rawFile: unknown) => {
+      const { workspaceId, file } = openFileArgs(rawWorkspaceId, rawFile);
+      const filePath = await automations.factoryFilePath(workspaceId, file);
+      // Only the factory's own files, links resolved, and only as text: never the default handler.
+      await openFactoryFile(workspaceDataDir(workspaceId), filePath, file ?? 'factory.yml', {
+        platform: process.platform,
+        execFile: (program, args) =>
+          new Promise<void>((resolve, reject) =>
+            execFile(program, args, (error) => (error ? reject(error) : resolve())),
+          ),
+        reveal: (file) => shell.showItemInFolder(file),
+      });
+    },
+  );
+  // Check again asks every harness's CLI afresh which servers it has, then re-reads the folder.
+  ipcMain.handle(IPC_CHANNELS.AUTOMATIONS_RECHECK, (_event, workspaceId: unknown) => {
+    const id = workspaceArg(workspaceId);
+    mcpServers.refresh();
+    return automations.recheck(id);
   });
 
   ipcMain.handle(IPC_CHANNELS.CONDUCTOR_CREATE, (_event, request: ConductorCreateRequest) =>
@@ -2427,6 +2526,12 @@ export function setupIpcHandlers(): boolean {
     handoffs,
     forgetAttention: forgetTerminalAttention,
     limitedUntil: (harnessId) => usageLimitService?.limitedUntil(harnessId),
+    // The engine's own record of the run, never attention's holds, which
+    // never hold a steps run's sessions (review N1).
+    runIsOpen: (runId) => {
+      const run = automationService?.getRun(runId);
+      return run != null && OPEN_STATUSES.includes(run.status);
+    },
   });
   ipcMain.handle(
     IPC_CHANNELS.WORKSPACE_SESSION_SWITCH_PREVIEW,
@@ -2552,6 +2657,11 @@ export function setupIpcHandlers(): boolean {
         // From the record, never the window: a relaunch after a restart
         // comes through here, and must stay as restricted as the launch.
         toolPolicy: record?.toolPolicy,
+        // The same for whether its unattended turns report, and its cap.
+        ...recordLaunchFields(record),
+        // And an automation's session reopens on its record's harness and
+        // model (a step's agent's), whatever the window sends.
+        ...automationRecordLaunch(record, harnesses.getAll()),
         // So a conversation a harness switch began, never yet spoken in,
         // opens the way it began rather than blank.
         opening: record && openingFor(record),
@@ -2831,7 +2941,8 @@ ${truncatedDiff}`;
 
       // A one-shot headless CLI call: this only transforms the diff into text
       // and runs with tools disabled, so it never touches the repository.
-      const result = await runHeadless(prompt, { cwd: rootPath });
+      // The registry's Claude driver, so a test run's launch guard covers it too.
+      const result = await runHeadless(prompt, { cwd: rootPath }, getDriver('claude'));
 
       if (result.isError || !result.text) {
         return { message: '', error: 'Could not generate a commit message' };
@@ -3092,6 +3203,7 @@ export function cleanupIpcHandlers(): void {
   ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_APPROVE);
   ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_DISMISS);
   ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_OPEN_FILE);
+  ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_RECHECK);
   ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_ADD_ASSIGNED_REVIEWS);
   ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_GET_RUN);
   ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_READ_CONVERSATION);
@@ -3107,6 +3219,7 @@ export function cleanupIpcHandlers(): void {
   ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_START_AUTHORING);
   ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_ACKNOWLEDGE);
   ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_GET_ENTRY);
+  ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_GET_ENTRY_AGENTS);
 
   // Clean up all terminal services
   ipcMain.removeHandler(IPC_CHANNELS.SHELL_ATTACH);

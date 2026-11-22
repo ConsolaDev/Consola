@@ -1,5 +1,6 @@
 import type {
   AutomationMode,
+  FactoryNotice,
   FactorySpecIssue,
   RunRecord,
   RunStatus,
@@ -7,7 +8,7 @@ import type {
 } from '@consola/factory-spec';
 import type { RunFilter } from './runFilter';
 
-/** One automation from a workspace's factory.yml, as the app shows it. */
+/** One automation from a workspace's factory folder, as the app shows it. */
 export interface AutomationView {
   name: string;
   mode: AutomationMode;
@@ -39,7 +40,7 @@ export interface AutomationView {
   target: string;
   /**
    * A `steps:` entry's steps in file order, as its pipeline draws them, problem or not.
-   * `summary` is "Prompt", "Review action", or a command's first line.
+   * `summary` is "Prompt", "Review action", an agent-only step's agent, or a command's first line.
    */
   steps?: Array<{
     id: string;
@@ -47,8 +48,18 @@ export interface AutomationView {
     if?: string;
     summary: string /** A command marked `dry_run: run`: it runs when the run only reports. */;
     dryRun?: true;
+    /** The agent it runs as, as its node names it: "investigator · claude-work · opus". */
+    agent?: string;
+    /** The agent's file, "agents/investigator.md": what the Allow card lists. */
+    agentFile?: string;
+    /** The servers its agent names, each narrowed to `tools` when it is; absent when it names none. */
+    servers?: Array<{ name: string; tools?: string[] }>;
+    /** The skills its agent names, by folder name; absent when it names none. */
+    skills?: string[];
   }>;
-  /** 1-based line in factory.yml. */
+  /** The file it lives in, relative to the factory folder: `factory.yml` or `automations/<name>.yaml`. */
+  file?: string;
+  /** 1-based line in its file: an automation file's entry is its line 1. */
   line?: number;
   /** Next scheduled occurrence (ISO), or null when it is not on a schedule or will not run. */
   nextRunAt: string | null;
@@ -62,6 +73,12 @@ export interface AutomationView {
    * action, scope or event, or arguments the tool rejects.
    */
   problem?: string;
+  /**
+   * Its problem came from asking a harness's CLI about servers (a probe
+   * that failed, or a server refused against its answer): Check again asks
+   * again. Absent otherwise.
+   */
+  recheck?: true;
   /** The session whose agent wrote it into the file; new until a person opens its details. */
   addedBy?: { sessionName: string; sessionId: string; isNew: boolean };
 }
@@ -177,17 +194,75 @@ export interface TemplatePreview {
   entry: string;
 }
 
-/** What saving one entry into factory.yml wrote. */
+/** What saving one entry into the factory folder wrote. */
 export interface SavedAutomation {
   name: string;
+  /** Where it was written: `factory.yml`, or the automation file it replaced (`automations/<name>.yaml`). */
+  file: string;
   /** It replaced an entry of that name rather than adding one. */
   replaced: boolean;
-  /** The entry as written: one `- name: …` list item. */
+  /** The entry as given: one `- name: …` list item. */
   entry: string;
-  /** 1-based line of the entry in factory.yml. */
+  /** 1-based line of the entry in its file. */
   line?: number;
   /** A poll entry it wrote: it does not check until a person allows it on its page. */
   needsAllow?: true;
+  /**
+   * The folder does not apply after the save, so what it wrote is not running
+   * yet: what keeps it (each `<file>:<line>: <message>`, its last full stop
+   * removed), and when the version that keeps running applied, in words.
+   */
+  notApplied?: { issues: string[]; since: string };
+}
+
+/**
+ * One agent an entry's steps run as, as the version that runs has it: what
+ * the Allow card shows before Allow accepts that version. While the folder
+ * does not apply, that is the applied version's agent, never the live file.
+ */
+export interface EntryAgentView {
+  name: string;
+  /** `agents/<name>.md`. */
+  file: string;
+  description?: string;
+  harnessId?: string;
+  model?: string;
+  maxTurns?: number;
+  /** Its standing instructions, exactly as written. */
+  body: string;
+  /**
+   * The servers it names, each narrowed to `tools` when it is. `knownTools`:
+   * a whole server's tools as its harness's last settled probe listed them,
+   * filled in by the host; absent when unknown (review S2).
+   */
+  mcpServers: Array<{ name: string; tools?: string[]; knownTools?: string[] }>;
+  /** The skills it names, by folder name. */
+  skills: string[];
+  /**
+   * Each skill it names, in `skills` order, by its `SKILL.md` as the version
+   * holds it (while the folder does not apply, the running version's, never
+   * the live file): the Allow card shows what it accepts (review M4). Absent
+   * when it names none.
+   */
+  skillTexts?: Array<{ name: string; text: string }>;
+}
+
+/** An entry's agents, each once in step order, at `version`: the one Allow sends back. */
+export interface EntryAgentsView {
+  version: string;
+  /** Its runs carry an item, text other people wrote (`entryReadsItems`): the Allow card's item line (review B3). */
+  readsItems: boolean;
+  agents: EntryAgentView[];
+}
+
+/** A factory folder that does not apply: the last applied version keeps running. */
+export interface FactoryStanding {
+  /** The banner's sentence, worded when the snapshot is built. */
+  message: string;
+  /** When the running version applied (ISO). */
+  appliedAt: string;
+  /** Entries a removal stopped at this read although the rest did not apply (recomputed at each read). */
+  removed: string[];
 }
 
 /** What a run is, as the activity list groups it: an agent session, an in-process tool, or an agent's call waiting for a person. */
@@ -272,8 +347,17 @@ export interface AutomationsSnapshot {
   filePath: string;
   fileExists: boolean;
   automations: AutomationView[];
-  /** Problems with the file itself or with individual entries. */
+  /**
+   * Problems with the folder's files or with individual entries, each with its
+   * `file`; while the folder does not apply, everything that keeps it from
+   * applying, a changed entry's harness problem included.
+   */
   issues: FactorySpecIssue[];
+  /**
+   * What the person should know that stops nothing: a folder a later slice
+   * reads, a model the harness does not list.
+   */
+  notices: FactoryNotice[];
   /** This workspace's runs, newest first: every live run (waiting for approval or a slot, or working) and the newest ended ones. */
   runs: RunListEntry[];
   /** Whether ended runs were left out; `listRuns` pages them. */
@@ -288,6 +372,8 @@ export interface AutomationsSnapshot {
   suggestAssignedReviews: boolean;
   /** The ready-made automations, with what this workspace lacks for each and which are already in the file. */
   templates: TemplateView[];
+  /** Present only while the folder does not apply: the last applied version keeps running. */
+  standing?: FactoryStanding;
 }
 
 /** A PR or issue, named the way the engine needs it: the provider is an opaque id here. */
@@ -360,4 +446,69 @@ export interface WorkspaceView {
   actions: ActionView[];
   scopes: ScopeView[];
   sessions: SessionView[];
+}
+
+/**
+ * A step turn's `system/init`, as the host read it from the CLI: the model it
+ * runs and every MCP server it loaded, with how each connected. `signInHint`
+ * is the harness's words for where a server is signed in to.
+ */
+export interface TurnInitView {
+  model?: string;
+  servers: Array<{ name: string; status: string }>;
+  signInHint?: string;
+}
+
+/**
+ * A step turn's `result`, as the host read it from the CLI. Its text, status
+ * and tool names are the CLI's own, already one line and cut short by the
+ * host; the engine still cuts what it quotes.
+ */
+export interface TurnResultView {
+  subtype: string;
+  isError: boolean;
+  /**
+   * The CLI's cost estimate for the conversation so far, as it reported it at
+   * the turn's end: a resumed turn's includes every earlier turn of its
+   * conversation (Claude's does, canary row 14), so the engine records the
+   * difference (`withTurnRecorded`). Absent when it reported none.
+   */
+  costUsd?: number;
+  /** The turns this turn took: its own, a resumed one's included (canary row 14). */
+  turns?: number;
+  text?: string;
+  apiErrorStatus?: string | number;
+  /** The tools it was refused, distinct. */
+  deniedTools: string[];
+}
+
+/** What a reporting turn said about itself: the host's parse of the CLI's stream. */
+export interface TurnReportView {
+  init?: TurnInitView;
+  result?: TurnResultView;
+  /** The lines that were not JSON, the last 200. */
+  otherLines: string[];
+  /** The cap this launch ran with, as the host launched it. */
+  maxTurns?: number;
+  /** The CLI's own `system/init` and `result` objects, for turn.json. */
+  raw: { init?: unknown; result?: unknown };
+}
+
+/** How an unattended turn's process ended, as the host reports it; `report` when the turn reported itself. */
+export interface TurnOutcome {
+  exitCode: number;
+  lastLine?: string;
+  stopped?: string;
+  report?: TurnReportView;
+}
+
+/** One reporting turn, as `turn.json` keeps it. */
+export interface StepTurnFile {
+  endedAt: string;
+  exitCode: number;
+  stopped?: string;
+  maxTurns?: number;
+  init?: unknown;
+  result?: unknown;
+  otherLines: string[];
 }

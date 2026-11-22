@@ -39,6 +39,14 @@ leave the running app alone, because every restart pulls its window to the
 front. E2E runs themselves are already hidden and unfocusable
 (`src/main/test-mode.ts`); set `CONSOLA_E2E_HEADED=1` to watch them.
 
+No desktop unit test can find or start your own agent CLI: vitest's
+`setupFiles` (`src/main/drivers/realCliIsolation.setup.ts`, which needs
+`pool: 'forks'`) gives each test process an empty home and config dirs, a
+plain login shell and a PATH without `claude`, `codex` or `agy`. Where one is
+installed in `/opt/homebrew/bin` or `/usr/local/bin`, or sits on the login
+shell's PATH (`/etc/paths`, `/etc/paths.d`, `/etc/profile`), no home or PATH
+hides it, so the suite refuses to run and names the file to move.
+
 All commands above run from the repository root. The pnpm workspace contains
 `apps/desktop` (`consola`), `apps/website` (`@consola/website`),
 `apps/cloud-global` (`@consola/cloud-global`), `apps/cloud-region`
@@ -830,6 +838,71 @@ program run a value (`REFUSED_ENV_NAMES`, `REFUSED_ENV_PREFIXES`). Its intent
 a quit mid-command is known after a restart. Such a command is never re-run
 automatically: the restart fails it as interrupted, and Retry warns before it
 runs again.
+
+### A Step's Turn Reports Itself
+
+A step's unattended turns run with `--output-format stream-json`: the driver's
+reader parses it (`createTurnReader`) and `TerminalService` shows Consola's
+lines instead (notice, tool calls, non-JSON lines, summary), so never read such
+a turn from its pane. A non-JSON line loses every escape and control character
+and is marked as the CLI's (`formatCliLine`), so it can neither repaint the
+pane nor pass for Consola's dim lines. Only Ctrl+C reaches the CLI (the PTY
+echoes other keys into the stream), what Consola quotes of the report goes
+through `oneLine`, and the report stays in main. The engine decides failure,
+cost and the reminder's cap from `TurnReportView` (`steps/turnReport.ts`). It
+checks the servers an agent grants against the turn's `init` as it is printed
+and again at the turn's end, so a turn whose `init` never arrived never
+completes a step that grants one. A cap counts one launch's turns: a resume
+after a quit runs under the step's `max_turns` again, a reminder cut off by a
+quit under the reminder's own cap. Attention never reads the
+pane's prose: `working` is the turn's own status, a question comes from hooks
+and non-JSON lines, a limit from `StopFailure` and the stream (OR'd into
+`limit-notice`). The reopen is a plain resume: no stream-json, no `--max-turns`.
+Extra args setting `--output-format`, `--input-format` or `--max-turns` refuse
+steps. Rerun `scripts/claude-steps-canary.mjs` after every CLI upgrade.
+
+### The Factory Folder Applies as a Unit
+
+A workspace's factory is its folder (`factory.yml`, `automations/`, `agents/`,
+`skills/`), polled by `FactoryFolder` (engine `node/`) and parsed only by
+`parseFactory`, which resolves references across files (`parseFactorySpec`
+reads a lone `factory.yml` and refuses `agent:`). `decideApply` decides what
+runs: from the first clean read on, any issue, or a changed entry whose agent's
+harness the host refuses, keeps the last applied version running (per folder in
+`<userData>/factory-applied/`, read once per workspace; the entry as written
+shows it). A removal always applies, recomputed at each read; machine state is
+a per-entry problem, never a rollback; a folder never applied cleanly applies
+entry by entry. A step's agent travels in `RunDefinition.agents`: the host
+launches on its harness with `--model`, refuses one gone since apply, and a
+reopen takes both from the record. New entries go to `factory.yml`, a replace
+where the entry lives; an agent's servers and skills are its driver's to
+compile (below); Open shows only the folder's own files, as text. Canary rows
+16–19: `--model`.
+
+### An Agent's Servers and Skills Are Compiled by Its Driver
+
+An agent's `mcpServers:` and `skills:` reach a step only as its driver compiles
+them (`compileAgent`, pure) or refuses them in words. A harness's servers are
+asked of its CLI (Claude: `mcp_status`, from home), never read from its files,
+and cached per launch identity (`McpServersCache`, main); a failure stays until
+**Check again**, on every entry it stopped. On someone else's pull request or
+issue (an `item` checkout) only claude.ai connectors: the person's own server
+could start, or run its sign-in helper, in the author's checkout. Claude's
+grants: one `--settings` (hooks, `allowedMcpServers`: stdio by name, remote by
+URL), strict dropped only for a connector, narrowed `--allowedTools`, a plugin
+dir in the attempt's folder (`--add-dir`, `Skill`, a deny rule per other skill
+the CLI lists, asked each launch where the session runs). `Session.grants` (not
+in `allowedSessionUpdates`) replays them every launch; skills are copied at
+fire, re-hashed at launch and in the plugin built from them, and a reopen
+loads that plugin only while it still holds them; `init` must show each
+granted server connected, and no server but those and Consola's own. A
+step's session keeps its harness while its run is open (provenance and run
+record, not `attention.holds()`), then loses its grants. "Reads text other
+people wrote" marks runs that carry an item. A card names a whole server's
+tools: Allow from the last answer, a run's approval from its definition,
+which keeps the answer the run was made with (`knownTools`, never a grant).
+Both show each skill's `SKILL.md` as what they accept holds it: Allow the
+version's, a run's approval its own copy's. Canary rows 20–28.
 
 ### Harnesses Are Launch Descriptions
 

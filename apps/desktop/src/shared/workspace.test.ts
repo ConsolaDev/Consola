@@ -8,6 +8,8 @@ import {
   checkoutPathForSession,
   primaryScope,
   scopeForSession,
+  switchedSession,
+  type Session,
   type Workspace,
 } from './workspace';
 
@@ -984,6 +986,44 @@ describe('createWorkspaceRecord', () => {
     expect(workspace.provider).toBeUndefined();
     expect(workspace.actions).toEqual([]);
     expect(workspace.sectionDefaults).toEqual({});
+  });
+});
+
+describe('switchedSession', () => {
+  it("drops a step's grants with its model, and keeps its tool policy and cap", () => {
+    const session = {
+      ...createSessionRecord({
+        name: 'catalog-review · look',
+        workspaceId: 'w1',
+        instanceId: 'i1',
+        harnessId: 'claude-work',
+        model: 'haiku',
+        scopeId: 's1',
+        toolPolicy: 'read-only',
+        maxTurns: 6,
+        grants: {
+          driverId: 'claude',
+          servers: [{ name: 'grafana' }],
+          skills: [],
+          strict: true,
+          allowedTools: ['mcp__grafana__*'],
+        },
+      }),
+      agentCwd: '/elsewhere',
+    } as Session;
+    const switched = switchedSession(session, {
+      harnessId: 'claude-personal',
+      claudeSessionId: 'new-id',
+      hasStarted: true,
+    });
+    expect(switched).not.toHaveProperty('grants');
+    expect(switched).not.toHaveProperty('model');
+    expect(switched).not.toHaveProperty('agentCwd');
+    expect(switched).toMatchObject({
+      toolPolicy: 'read-only',
+      maxTurns: 6,
+      harnessId: 'claude-personal',
+    });
   });
 });
 

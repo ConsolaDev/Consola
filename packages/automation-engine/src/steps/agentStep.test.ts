@@ -3,18 +3,22 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
+  factoryFilesOf,
+  parseAgentFile,
+  parseFactory,
   parseFactorySpec,
   type AgentStep,
   type RunItem,
   type RunRecord,
   type RunTrigger,
+  type Step,
   type StepRun,
   type StepsAutomation,
 } from '@consola/factory-spec';
 import { RunFolder } from '../node/runFolder';
 import { POLL_FENCE_HEADING, runItemSource } from '../sources/itemSource';
-import { agentStepLaunch, endedWithout } from './agentStep';
-import type { RunDefinition } from './definition';
+import { agentStepLaunch, endedWithout, stepCap } from './agentStep';
+import { agentRequirements, type AgentRequirements, type RunDefinition } from './definition';
 
 const automation = parseFactorySpec(`version: 1
 automations:
@@ -70,6 +74,7 @@ describe('agentStepLaunch', () => {
       definition: { automation, version: 'v', actions: {} },
       stepId: 'write',
       checkout: { cwd: '/code/api', scopeId: 'scope-api' },
+      checkoutKind: 'scope',
       source: undefined,
       polled: undefined,
       previous: undefined,
@@ -122,6 +127,38 @@ const POLL_ON =
   '    on: { poll: { every: 30m, run: gh api graphql, item: { github: .url }, changed: .head } }\n';
 const parsesGitHub = { canParseUrls: (connection: string) => connection === 'github' };
 
+describe("agentStepLaunch and a step's max_turns", () => {
+  const launchOf = (stepLines: string) => {
+    const definition = stepsDefinition(
+      `  - name: nightly\n    on: { cron: "0 9 * * 1-5" }\n    scope: api\n    steps:\n      - id: research\n        prompt: Read what changed in api overnight.\n${stepLines}`,
+    );
+    const launch = agentStepLaunch({
+      workspaceId: 'ws-1',
+      run: run({ status: 'queued' }),
+      definition,
+      stepId: 'research',
+      checkout: { cwd: '/code/api', scopeId: 'scope-api' },
+      checkoutKind: 'scope',
+      source: undefined,
+      polled: undefined,
+      previous: undefined,
+      folder: UNREAD_FOLDER,
+    });
+    if (!launch.ok) throw new Error(launch.error);
+    return launch.request;
+  };
+
+  it("the launch request carries the step's max_turns", () => {
+    expect(launchOf('        max_turns: 6\n').step?.maxTurns).toBe(6);
+  });
+
+  it('and none without it', () => {
+    const { step } = launchOf('');
+    expect(step).toBeDefined();
+    expect(Object.prototype.hasOwnProperty.call(step, 'maxTurns')).toBe(false);
+  });
+});
+
 describe('agentStepLaunch on a poll', () => {
   const review = stepsDefinition(
     `  - name: rereview\n${POLL_ON}    steps:\n      - id: review\n        action: Review\n`,
@@ -139,6 +176,7 @@ describe('agentStepLaunch on a poll', () => {
         cwd: '/worktrees/catalog-portal-pr-51-automation',
         scopeId: 'scope-catalog-portal',
       },
+      checkoutKind: 'item',
       source: runItemSource(review, parsesGitHub),
       polled: { url: 'https://github.com/sprocket/catalog-portal/pull/51', head: 'abc' },
       previous: undefined,
@@ -183,6 +221,7 @@ describe('agentStepLaunch on a poll', () => {
         cwd: '/worktrees/catalog-portal-issue-52-automation',
         scopeId: 'scope-catalog-portal',
       },
+      checkoutKind: 'item' as const,
       source: runItemSource(prOnly, parsesGitHub),
       polled: undefined,
       previous: undefined,
@@ -211,6 +250,7 @@ describe('agentStepLaunch on a poll', () => {
         cwd: '/worktrees/catalog-portal-pr-51-automation',
         scopeId: 'scope-catalog-portal',
       },
+      checkoutKind: 'item',
       source: runItemSource(look, parsesGitHub),
       polled: {
         url: 'https://github.com/sprocket/catalog-portal/pull/51',
@@ -257,6 +297,7 @@ describe('agentStepLaunch on a poll', () => {
       definition: keyed,
       stepId: 'look',
       checkout: { cwd: '/code/api', scopeId: 'scope-api' },
+      checkoutKind: 'scope',
       source: runItemSource(keyed, parsesGitHub),
       polled: { id: 'T-7', state: 'open', title: 'Ticket 7' },
       previous: undefined,
@@ -314,6 +355,7 @@ describe('agentStepLaunch reading previous', () => {
       definition: rereview,
       stepId: 'review',
       checkout: { cwd: '/code/catalog-portal', scopeId: 'scope-portal' },
+      checkoutKind: 'scope',
       source: undefined,
       polled: undefined,
       previous,
@@ -372,6 +414,7 @@ describe('agentStepLaunch reading previous', () => {
       definition: rereview,
       stepId: 'review',
       checkout: { cwd: '/code/catalog-portal', scopeId: 'scope-portal' },
+      checkoutKind: 'scope',
       source: undefined,
       polled: undefined,
       previous: { runId: 'run-0' },
@@ -418,12 +461,311 @@ describe('agentStepLaunch reading previous', () => {
       definition: hand,
       stepId: 'review',
       checkout: { cwd: '/code/catalog-portal', scopeId: 'scope-portal' },
+      checkoutKind: 'scope',
       source: undefined,
       polled: undefined,
       previous: { runId: 'run-0' },
       folder,
     });
     expect(started).toEqual({ ok: false, error: 'previous.research.verdict has no value' });
+  });
+});
+
+describe('agentStepLaunch with an agent', () => {
+  /**
+   * `nightly` on a schedule, its first step `investigate` as `stepLines` write it, beside
+   * `agents/investigator.md`; its definition's `agents` as given (`null`: none).
+   */
+  const definitionOf = (
+    stepLines: string,
+    agents: RunDefinition['agents'] | null = { investigate: INVESTIGATOR },
+  ): RunDefinition => {
+    const parsed = parseFactory(
+      factoryFilesOf({
+        'factory.yml': `version: 1\nautomations:\n  - name: nightly\n    on: { cron: "0 9 * * 1-5" }\n    scope: api\n    steps:\n      - id: investigate\n${stepLines}`,
+        'agents/investigator.md': 'You investigate.\n',
+      }),
+    );
+    if (parsed.issues.length > 0)
+      throw new Error(parsed.issues.map((issue) => issue.message).join('; '));
+    return {
+      automation: parsed.automations[0] as StepsAutomation,
+      version: 'v',
+      actions: {},
+      ...(agents ? { agents } : {}),
+    };
+  };
+  const INVESTIGATOR: AgentRequirements = {
+    name: 'investigator',
+    hash: 'a'.repeat(64),
+    harnessId: 'claude-work',
+    model: 'opus',
+    maxTurns: 30,
+    body: 'You investigate.\n',
+    mcpServers: [],
+    skills: [],
+  };
+  const launchOf = (definition: RunDefinition) =>
+    agentStepLaunch({
+      workspaceId: 'ws-1',
+      run: {
+        ...run({}),
+        steps: [{ id: 'investigate', kind: 'agent', status: 'queued', attempt: 1 }],
+      },
+      definition,
+      stepId: 'investigate',
+      checkout: { cwd: '/code/api', scopeId: 'scope-api' },
+      checkoutKind: 'scope',
+      source: undefined,
+      polled: undefined,
+      previous: undefined,
+      folder: UNREAD_FOLDER,
+    });
+  const requestOf = (definition: RunDefinition) => {
+    const launch = launchOf(definition);
+    if (!launch.ok) throw new Error(launch.error);
+    return launch.request;
+  };
+
+  it('an agent-only step launches on its agent', () => {
+    const request = requestOf(definitionOf('        agent: investigator\n'));
+    expect(request.step?.agent).toEqual({
+      name: 'investigator',
+      harnessId: 'claude-work',
+      model: 'opus',
+      mcpServers: [],
+      skills: [],
+    });
+    expect(request.step?.maxTurns).toBe(30);
+    expect(request.prompt).toContain(
+      '\n\nYour standing instructions (agents/investigator.md):\nYou investigate.\n\n',
+    );
+    expect(request.prompt).not.toContain('This step:');
+  });
+
+  it('an agent with neither harness nor model asks for neither', () => {
+    const { harnessId: _harnessId, model: _model, ...bare } = INVESTIGATOR;
+    const agent = requestOf(definitionOf('        agent: investigator\n', { investigate: bare }))
+      .step?.agent;
+    expect(agent).toEqual({ name: 'investigator', mcpServers: [], skills: [] });
+    expect(Object.prototype.hasOwnProperty.call(agent, 'harnessId')).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(agent, 'model')).toBe(false);
+  });
+
+  it("carries the agent's servers and skills to the host, which refuses what it cannot compile", () => {
+    const named = {
+      ...INVESTIGATOR,
+      mcpServers: [{ name: 'notion' }, { name: 'grafana', tools: ['query_logs'] }],
+      skills: ['incident-triage'],
+    };
+    expect(
+      requestOf(definitionOf('        agent: investigator\n', { investigate: named })).step?.agent,
+    ).toEqual({
+      name: 'investigator',
+      harnessId: 'claude-work',
+      model: 'opus',
+      mcpServers: [{ name: 'notion' }, { name: 'grafana', tools: ['query_logs'] }],
+      skills: ['incident-triage'],
+    });
+  });
+
+  it("the prompt's header names the agent's servers and skills (2-C)", () => {
+    const named = {
+      ...INVESTIGATOR,
+      mcpServers: [{ name: 'notion' }, { name: 'grafana', tools: ['query_logs'] }],
+      skills: ['incident-triage'],
+    };
+    const { prompt } = requestOf(
+      definitionOf('        agent: investigator\n', { investigate: named }),
+    );
+    expect(prompt).toContain(
+      'output and artifact tools), the MCP servers notion and grafana (query_logs), and the skill consola-step:incident-triage, and nothing else: no shell, no network.',
+    );
+  });
+
+  it("an agent and a prompt: the prompt is this step's", () => {
+    const { prompt } = requestOf(
+      definitionOf('        agent: investigator\n        prompt: Look at the night.\n'),
+    );
+    expect(prompt).toContain(
+      'Your standing instructions (agents/investigator.md):\nYou investigate.\n\nThis step:\nLook at the night.\n\n',
+    );
+  });
+
+  it("the step's max_turns beats the agent's", () => {
+    expect(
+      requestOf(definitionOf('        agent: investigator\n        max_turns: 6\n')).step?.maxTurns,
+    ).toBe(6);
+  });
+
+  it('a step without an agent asks for none', () => {
+    const { step } = requestOf(definitionOf('        prompt: Look at the night.\n', null));
+    expect(step).toBeDefined();
+    expect(Object.prototype.hasOwnProperty.call(step, 'agent')).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(step, 'maxTurns')).toBe(false);
+  });
+
+  it("carries the run's checkout kind as the request's `checkout` (2-C)", () => {
+    const definition = definitionOf('        agent: investigator\n');
+    expect(requestOf(definition).step?.checkout).toBe('scope');
+    const onItem = agentStepLaunch({
+      workspaceId: 'ws-1',
+      run: {
+        ...run({}),
+        steps: [{ id: 'investigate', kind: 'agent', status: 'queued', attempt: 1 }],
+      },
+      definition,
+      stepId: 'investigate',
+      checkout: { cwd: '/code/api', scopeId: 'scope-api' },
+      checkoutKind: 'item',
+      source: undefined,
+      polled: undefined,
+      previous: undefined,
+      folder: UNREAD_FOLDER,
+    });
+    if (!onItem.ok) throw new Error(onItem.error);
+    expect(onItem.request.step?.checkout).toBe('item');
+  });
+
+  it("with skills, the request names the run's copy, their hashes and the attempt's plugin dir; without, none (2-C, review M1)", () => {
+    const skilled: RunDefinition = {
+      ...definitionOf('        agent: investigator\n', {
+        investigate: { ...INVESTIGATOR, skills: ['incident-triage'] },
+      }),
+      // Every skill the run copies; the request names only its own agent's.
+      skills: { 'incident-triage': 'a'.repeat(64), 'release-notes': 'b'.repeat(64) },
+    };
+    const launch = agentStepLaunch({
+      workspaceId: 'ws-1',
+      run: {
+        ...run({}),
+        steps: [{ id: 'investigate', kind: 'agent', status: 'queued', attempt: 1 }],
+      },
+      definition: skilled,
+      stepId: 'investigate',
+      checkout: { cwd: '/code/api', scopeId: 'scope-api' },
+      checkoutKind: 'scope',
+      skillsDir: '/state/ws-1/runs/run-1/skills',
+      pluginDir: '/state/ws-1/runs/run-1/investigate/1/plugin',
+      source: undefined,
+      polled: undefined,
+      previous: undefined,
+      folder: UNREAD_FOLDER,
+    });
+    if (!launch.ok) throw new Error(launch.error);
+    expect(launch.request.step?.pluginDir).toBe('/state/ws-1/runs/run-1/investigate/1/plugin');
+    expect(launch.request.step?.agent?.skillsDir).toBe('/state/ws-1/runs/run-1/skills');
+    expect(launch.request.step?.agent?.skillHashes).toStrictEqual({
+      'incident-triage': 'a'.repeat(64),
+    });
+
+    const { step } = requestOf(definitionOf('        agent: investigator\n'));
+    expect(Object.prototype.hasOwnProperty.call(step, 'pluginDir')).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(step?.agent, 'skillsDir')).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(step?.agent, 'skillHashes')).toBe(false);
+  });
+
+  it('a step whose agent the definition lacks does not launch', () => {
+    expect(launchOf(definitionOf('        agent: investigator\n', null))).toEqual({
+      ok: false,
+      error: 'Its definition has no agent for step investigate.',
+    });
+    expect(launchOf(definitionOf('        agent: investigator\n', {}))).toEqual({
+      ok: false,
+      error: 'Its definition has no agent for step investigate.',
+    });
+  });
+});
+
+describe('stepCap', () => {
+  const definition = (
+    step: Partial<AgentStep> | { kind: 'run' },
+    agent?: { maxTurns?: number },
+  ) => {
+    const automation = parseFactorySpec(`version: 1
+automations:
+  - name: nightly
+    on: { cron: "0 9 * * 1-5" }
+    scope: api
+    steps:
+      - id: s
+        prompt: Read.
+`).automations[0] as StepsAutomation;
+    const base = automation.steps[0];
+    const own: Step =
+      'kind' in step && step.kind === 'run'
+        ? {
+            id: 's',
+            named: true,
+            kind: 'run',
+            run: 'true',
+            env: {},
+            outputs: {},
+            timeoutMs: 1000,
+            dryRun: 'report',
+          }
+        : { ...(base as AgentStep), ...(step as Partial<AgentStep>) };
+    return {
+      automation: { ...automation, steps: [own] },
+      version: 'v',
+      actions: {},
+      ...(agent ? { agents: { s: { ...INVESTIGATOR_CAP, ...agent } } } : {}),
+    } as RunDefinition;
+  };
+  const INVESTIGATOR_CAP: AgentRequirements = {
+    name: 'investigator',
+    hash: 'b'.repeat(64),
+    body: 'You investigate.',
+    mcpServers: [],
+    skills: [],
+  };
+
+  it.each([
+    ['no cap anywhere', definition({ agent: 'investigator' }, {}), undefined],
+    ['no agent and no cap', definition({}), undefined],
+    ["the agent's", definition({ agent: 'investigator' }, { maxTurns: 30 }), 30],
+    [
+      "the step's over the agent's",
+      definition({ agent: 'investigator', maxTurns: 6 }, { maxTurns: 30 }),
+      6,
+    ],
+    ["the step's alone", definition({ maxTurns: 6 }), 6],
+    ['a command step', definition({ kind: 'run' }, { maxTurns: 30 }), undefined],
+  ])('%s', (_label, of, cap) => {
+    expect(stepCap(of, 's')).toBe(cap);
+  });
+
+  it('a step the definition does not have', () => {
+    expect(stepCap(definition({}, { maxTurns: 30 }), 'nope')).toBeUndefined();
+  });
+});
+
+describe('agentRequirements', () => {
+  it("maps the file's harness to harnessId and copies the rest", () => {
+    const parsed = parseAgentFile(
+      'investigator',
+      '---\nharness: claude-work\nmodel: opus\nmax_turns: 30\ndescription: Looks into alerts.\n---\nYou investigate.\n',
+    );
+    if (!parsed.agent) throw new Error(parsed.issues.map((issue) => issue.message).join('; '));
+    expect(agentRequirements({ ...parsed.agent, hash: 'c'.repeat(64) })).toEqual({
+      name: 'investigator',
+      hash: 'c'.repeat(64),
+      description: 'Looks into alerts.',
+      harnessId: 'claude-work',
+      model: 'opus',
+      maxTurns: 30,
+      body: 'You investigate.\n',
+      mcpServers: [],
+      skills: [],
+    });
+  });
+
+  it('leaves out what the file does not write', () => {
+    const parsed = parseAgentFile('summariser', 'You summarise.\n');
+    if (!parsed.agent) throw new Error(parsed.issues.map((issue) => issue.message).join('; '));
+    const requirements = agentRequirements({ ...parsed.agent, hash: 'd'.repeat(64) });
+    for (const key of ['description', 'harnessId', 'model', 'maxTurns'])
+      expect(Object.prototype.hasOwnProperty.call(requirements, key)).toBe(false);
   });
 });
 
