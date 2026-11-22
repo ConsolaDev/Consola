@@ -36,11 +36,31 @@ export function envProblem(env: unknown): string | null {
   return null;
 }
 
+/** A sandbox's lifetime: a whole number of seconds, at least one. */
+export function lifetimeProblem(lifetimeSeconds: unknown): string | null {
+  if (
+    typeof lifetimeSeconds !== 'number' ||
+    !Number.isSafeInteger(lifetimeSeconds) ||
+    lifetimeSeconds < 1
+  ) {
+    return `${quoted(lifetimeSeconds)} is not a lifetime: a lifetime is a whole number of seconds, at least 1.`;
+  }
+  return null;
+}
+
 export function createOptionsProblem(options: CreateSandboxOptions): string | null {
   if (options === null || typeof options !== 'object') {
     return 'A sandbox needs the name of the template it starts from.';
   }
-  return templateProblem(options.template) ?? envProblem(options.env);
+  const lifetime =
+    options.lifetimeSeconds === undefined ? null : lifetimeProblem(options.lifetimeSeconds);
+  return templateProblem(options.template) ?? envProblem(options.env) ?? lifetime;
+}
+
+/** The id of a sandbox a request names. `doing` is what needs it: "Attaching", say. */
+export function sandboxIdProblem(doing: string, sandboxId: unknown): string | null {
+  if (typeof sandboxId === 'string' && sandboxId.trim() !== '') return null;
+  return `${doing} needs the id of a sandbox.`;
 }
 
 /** A path in a sandbox: absolute, so it means the same in every provider. */

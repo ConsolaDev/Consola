@@ -99,9 +99,22 @@ const LAYERS: Layer[] = [
   core('contract', ['domain', 'application', 'contract']),
   core('providers/fake', ['domain', 'application', 'providers/fake']),
   core('index', ['domain', 'application', 'contract', 'providers/fake'], true),
-  // A real provider adds two layers here: its folder, which reaches `domain`, `application`
-  // and itself, refuses nothing and may reach the machine; and its entry point, `src/<name>.ts`,
+  // A real provider adds two layers: its folder, which reaches `domain`, `application` and
+  // itself, refuses nothing and may reach the machine; and its entry point, `src/<name>.ts`,
   // which reaches only that folder.
+  {
+    at: 'providers/e2b',
+    reaches: ['domain', 'application', 'providers/e2b'],
+    refuses: [],
+    noGlobals: [],
+  },
+  {
+    at: 'e2b',
+    reaches: ['providers/e2b'],
+    refuses: [ANY_PACKAGE],
+    noGlobals: MACHINE_GLOBALS,
+    entry: true,
+  },
 ];
 
 /** What every file, tests included, may never import: another workspace package. */
@@ -381,6 +394,14 @@ describe('the dependency rule', () => {
     ['providers/fake/x.ts', 'node:fs', false],
     ['providers/fake/x.ts', 'node:timers', false],
     ['providers/fake/x.ts', '../e2b/provider.js', false],
+    ['providers/e2b/x.ts', 'e2b', true],
+    ['providers/e2b/x.ts', 'node:crypto', true],
+    ['providers/e2b/x.ts', './errors.js', true],
+    ['providers/e2b/x.ts', '../../application/ports.js', true],
+    ['providers/e2b/x.ts', '../../domain/errors.js', true],
+    ['providers/e2b/x.ts', '../fake/FakeProvider.js', false],
+    ['providers/e2b/x.ts', '../../contract/expect.js', false],
+    ['providers/e2b/x.ts', 'left-pad', false],
     ['domain/x.ts', '@consola/factory-spec', false],
     ['domain/x.ts', '../../../apps/desktop/src/x.js', false],
     ['domain/x.ts', './y.test.js', false],
@@ -407,6 +428,23 @@ describe('the dependency rule', () => {
   ])('index.ts re-exporting %s is allowed: %s', (specifier, allowed) => {
     expect(violationsOf('index.ts', `export * from '${specifier}';`)).toEqual(
       allowed ? [] : [`index.ts imports ${specifier}`],
+    );
+  });
+
+  it.each([
+    ['./providers/e2b/E2BProvider.js', true],
+    ['./providers/fake/FakeProvider.js', false],
+    ['./domain/errors.js', false],
+    ['e2b', false],
+  ])('e2b.ts re-exporting %s is allowed: %s', (specifier, allowed) => {
+    expect(violationsOf('e2b.ts', `export * from '${specifier}';`)).toEqual(
+      allowed ? [] : [`e2b.ts imports ${specifier}`],
+    );
+  });
+
+  it('the checker lets the E2B provider reach the machine', () => {
+    expect(violationsOf('providers/e2b/x.ts', 'const k = process.env.X; void fetch(k);')).toEqual(
+      [],
     );
   });
 
@@ -480,7 +518,9 @@ describe('the dependency rule', () => {
   });
 
   it('the checker refuses a file in no layer, and an import it cannot read', () => {
-    expect(violationsOf('providers/e2b/x.ts', '')).toEqual(['providers/e2b/x.ts is in no layer']);
+    expect(violationsOf('providers/modal/x.ts', '')).toEqual([
+      'providers/modal/x.ts is in no layer',
+    ]);
     expect(violationsOf('domain/x.ts', 'const loaded = await import(name);')).toEqual([
       `domain/x.ts imports ${NON_LITERAL}`,
     ]);
