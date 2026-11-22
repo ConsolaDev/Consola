@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import type { BranchPullRequestAnswer } from '../../shared/branchPullRequest';
 import type { WorkItemRef } from '../../shared/workItems';
 import { createSessionRecord, createWorkspaceRecord, type Session } from '../../shared/workspace';
+import type { BranchPullRequestEntry } from '../stores/branchPullRequestStore';
 import {
   type PullRequestSectionView,
   pullRequestSectionView,
@@ -73,10 +75,59 @@ describe('pullRequestSectionView', () => {
       // Unlinked on a branch, with no account to look it up with.
       { session: unlinked, hasAccount: false, hasBranch: true, view: { kind: 'no-account' } },
       // Unlinked on a branch with an account: no lookup yet.
-      { session: unlinked, hasAccount: true, hasBranch: true, view: { kind: 'hidden' } },
+      { session: unlinked, hasAccount: true, hasBranch: true, view: { kind: 'looking' } },
     ];
     for (const { view, ...input } of cases) {
       expect(pullRequestSectionView(input)).toEqual(view);
+    }
+  });
+
+  it("an unlinked session's section follows its lookup", () => {
+    const branch = 'feat/search-pagination';
+    const answered = (answer: BranchPullRequestAnswer): BranchPullRequestEntry => ({
+      answer,
+      loading: false,
+      askedAt: 1,
+    });
+    const cases: Array<{
+      lookup: BranchPullRequestEntry | undefined;
+      view: PullRequestSectionView;
+    }> = [
+      { lookup: undefined, view: { kind: 'looking' } },
+      { lookup: { loading: true, askedAt: 1 }, view: { kind: 'looking' } },
+      // Found while the checkout was on another branch: it says nothing of this one.
+      {
+        lookup: answered({
+          kind: 'found',
+          branch: 'docs/readme',
+          pullRequest: { ref: pr51, status: 'open', url: '' },
+        }),
+        view: { kind: 'looking' },
+      },
+      { lookup: answered({ kind: 'none', branch }), view: { kind: 'none' } },
+      {
+        lookup: answered({ kind: 'failed', branch, error: 'gh: Not Found (HTTP 404)' }),
+        view: { kind: 'lookup-failed', error: 'gh: Not Found (HTTP 404)' },
+      },
+      {
+        lookup: answered({
+          kind: 'found',
+          branch,
+          pullRequest: { ref: pr51, status: 'open', url: '' },
+        }),
+        view: { kind: 'item', ref: pr51, found: true },
+      },
+    ];
+    for (const { lookup, view } of cases) {
+      expect(
+        pullRequestSectionView({
+          session: unlinked,
+          hasAccount: true,
+          hasBranch: true,
+          lookup,
+          branch,
+        }),
+      ).toEqual(view);
     }
   });
 });

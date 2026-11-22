@@ -15,6 +15,7 @@ import {
   type TabFacts,
   type TabKindId,
 } from '../sidePanel/tabKinds';
+import { foundPullRequestNow } from '../stores/branchPullRequestStore';
 import { useCheckoutStore } from '../stores/checkoutStore';
 import { useNavigationStore } from '../stores/navigationStore';
 import { usePreviewTabStore } from '../stores/previewTabStore';
@@ -24,7 +25,8 @@ import { useWorkspaceStore } from '../stores/workspaceStore';
 /**
  * What the tab kinds read about the session on screen, or null when there is
  * none: no session, or the Inbox or Automations lying over it. Its checkout
- * is what the store last read, as the header's is.
+ * and its branch's pull request are what the stores last read, as the
+ * header's are.
  */
 export function currentTabFacts(): TabFacts | null {
   const { activeWorkspaceId, activeSessionId, overlay } = useNavigationStore.getState();
@@ -35,7 +37,12 @@ export function currentTabFacts(): TabFacts | null {
   if (!workspace || !session) return null;
   const path = checkoutPathForSession(workspace, session);
   const checkout = path ? useCheckoutStore.getState().byPath[path] : undefined;
-  return tabFactsFor(workspace, session, checkout);
+  return tabFactsFor(
+    workspace,
+    session,
+    checkout,
+    foundPullRequestNow(workspace, session, checkout),
+  );
 }
 
 function appliesTo(kind: TabKindId, facts: TabFacts): boolean {

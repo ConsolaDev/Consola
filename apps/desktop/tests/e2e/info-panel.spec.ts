@@ -84,12 +84,23 @@ test.describe('info panel', () => {
       mode: 0o755,
     });
 
+    // GitHub's answers for each branch's pull requests: A's branch has #51,
+    // B's none. Any other branch is a 404.
     const pulls = path.join(root, 'pulls.txt');
-    fs.writeFileSync(pulls, '');
+    const pullsOf = 'repos/sprocket/catalog-portal/pulls?state=all&per_page=20&head=sprocket%3A';
+    fs.writeFileSync(
+      pulls,
+      [
+        `${pullsOf}feat%2Fsearch-pagination [{"number":51,"state":"open","merged_at":null,"html_url":"https://github.com/sprocket/catalog-portal/pull/51","created_at":"2026-11-18T09:00:00Z","head":{"sha":"${'a'.repeat(40)}","ref":"feat/search-pagination"}}]`,
+        `${pullsOf}docs%2Freadme []`,
+        '',
+      ].join('\n'),
+    );
     env = {
       CONSOLA_GH_PATH: path.join(STUB_GH_DIR, 'gh'),
       STUB_GH_LOG: path.join(root, 'gh.log'),
       STUB_GH_PULLS: pulls,
+      STUB_GH_PULLS_HOLD: path.join(root, 'pulls.hold'),
     };
 
     ({ app, page, userDataDir } = await launchElectron({ env }));
@@ -206,6 +217,20 @@ test.describe('info panel', () => {
       .split('\n')
       .filter((line) => line.includes('repos/sprocket/catalog-portal/pulls/51/files')).length;
   };
+  /** How many times GitHub was asked for the pull requests whose head is `branch`. */
+  const lookupsOf = (branch: string) => {
+    const log = env.STUB_GH_LOG;
+    return (fs.existsSync(log) ? fs.readFileSync(log, 'utf8') : '')
+      .split('\n')
+      .filter((line) => line.includes(`head=sprocket%3A${encodeURIComponent(branch)}`)).length;
+  };
+  const sidePanelToggle = () => page.getByRole('button', { name: /^(Show|Hide) side panel/ });
+  /** The side panel's list of kinds, which an empty side panel shows when it is shown. */
+  const newTabOption = (name: string) =>
+    page
+      .getByRole('listbox', { name: 'Open in this tab' })
+      .getByRole('option', { name, exact: true });
+  const FOUND = 'Found from the branch';
 
   test('the info panel sits beside the conversation, and its toggle and chord hide and show it', async () => {
     await openSession('Paginate the catalog search');
@@ -420,10 +445,141 @@ test.describe('info panel', () => {
       path: path.join(test.info().outputDir, 'info-panel-pull-request.png'),
     });
 
-    // An unlinked session on a branch has nothing to show until it is looked up.
+    // The same pull request found from another session's branch: the action
+    // belongs to D's link, so A shows none.
     await openSession('Paginate the catalog search');
-    await expect(infoSection(page, 'Branch')).toBeVisible();
-    await expect(prSection()).toHaveCount(0);
+    await expect(prSection().getByText(FOUND, { exact: true })).toBeVisible();
+    await expect(prTitle()).toBeVisible();
+    await expect(prSection().getByText('Fix CI', { exact: true })).toHaveCount(0);
+  });
+
+  test('a pull request found from the branch shows, and opens its tab', async () => {
+    await openSession('Paginate the catalog search');
+    const section = prSection();
+    await expect(prTitle()).toBeVisible();
+    await expect(section.getByText(FOUND, { exact: true })).toBeVisible();
+    await expect(section.getByRole('button', { name: 'Link', exact: true })).toBeVisible();
+    // Run sends an action into a linked session only.
+    await expect(
+      prActions().getByRole('button', { name: 'Refresh pull request', exact: true }),
+    ).toBeVisible();
+    await expect(prActions().getByRole('button', { name: /^Run an action in/ })).toHaveCount(0);
+
+    // "+" then P: the kind applies, named by the found pull request.
+    await sidePanelToggle().click();
+    await expect(newTabOption('Pull request #51')).not.toHaveAttribute('aria-disabled', 'true');
+    await page.keyboard.press('p');
+    await expect(sidePanelTab('Pull request #51')).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByTestId('work-item-panel')).toContainText('Extract billing client');
+  });
+
+  test('a branch with no pull request says so, and the kind stays unavailable', async () => {
+    await openSession('Update the readme');
+    await expect(
+      prSection().getByText('No pull request for this branch.', { exact: true }),
+    ).toBeVisible();
+
+    await sidePanelToggle().click();
+    await expect(newTabOption('Pull request')).toHaveAttribute('aria-disabled', 'true');
+  });
+
+  test('the lookup is asked once per branch, and not while folded or hidden', async () => {
+    const noPullRequest = () =>
+      prSection().getByText('No pull request for this branch.', { exact: true });
+    const heading = () => prSection().getByRole('button', { name: 'Pull request', exact: true });
+
+    // Folded on D, which is linked and looks nothing up: B is not looked up.
+    await openSession(FIX_CI);
+    await heading().click();
+    await expect(heading()).toHaveAttribute('aria-expanded', 'false');
+    await openSession('Update the readme');
+    await expect(heading()).toHaveAttribute('aria-expanded', 'false');
+    await page.waitForTimeout(1000);
+    expect(lookupsOf('docs/readme')).toBe(0);
+    await heading().click();
+    await expect(noPullRequest()).toBeVisible();
+    expect(lookupsOf('docs/readme')).toBe(1);
+
+    // Hidden: A is not looked up either.
+    await page.getByRole('button', { name: 'Hide info panel', exact: true }).click();
+    await expect(infoPanel(page)).toHaveCount(0);
+    await openSession('Paginate the catalog search');
+    await expect(page.locator('.workspace-view-header')).toContainText(
+      'Paginate the catalog search',
+    );
+    await page.waitForTimeout(1000);
+    expect(lookupsOf('feat/search-pagination')).toBe(0);
+    await page.getByRole('button', { name: 'Show info panel', exact: true }).click();
+    await expect(prSection().getByText(FOUND, { exact: true })).toBeVisible();
+
+    // A, B, then A again: each branch asked about once.
+    await openSession('Update the readme');
+    await expect(noPullRequest()).toBeVisible();
+    await openSession('Paginate the catalog search');
+    await expect(prSection().getByText(FOUND, { exact: true })).toBeVisible();
+    expect(lookupsOf('feat/search-pagination')).toBe(1);
+    expect(lookupsOf('docs/readme')).toBe(1);
+
+    // Folded, then B and A: nothing more.
+    await heading().click();
+    await expect(heading()).toHaveAttribute('aria-expanded', 'false');
+    await openSession('Update the readme');
+    await openSession('Paginate the catalog search');
+    await page.waitForTimeout(1000);
+    expect(lookupsOf('feat/search-pagination')).toBe(1);
+    expect(lookupsOf('docs/readme')).toBe(1);
+  });
+
+  test('a found pull request stops counting when the branch changes', async () => {
+    await openSession('Paginate the catalog search');
+    await expect(prTitle()).toBeVisible();
+
+    // The agent moves to a branch of its own. Main's lookup for it is held,
+    // so what the section says meanwhile can be seen.
+    const hold = env.STUB_GH_PULLS_HOLD;
+    fs.writeFileSync(hold, '');
+    git(repo, 'switch', '-q', '-c', 'spike/other');
+    await page.getByRole('button', { name: 'Refresh git status', exact: true }).click();
+    await expect(
+      prSection().getByText('Looking for this branch’s pull request…', { exact: true }),
+    ).toBeVisible();
+    await expect(prSection()).not.toContainText('#51');
+    await sidePanelToggle().click();
+    await expect(newTabOption('Pull request')).toHaveAttribute('aria-disabled', 'true');
+
+    // GitHub has no answer for the new branch: a 404.
+    fs.rmSync(hold);
+    await expect(
+      prSection().getByText(/^Couldn’t look for this branch’s pull request: /),
+    ).toBeVisible();
+    await expect(prSection().getByRole('button', { name: 'Retry', exact: true })).toBeVisible();
+    await expect(prSection()).not.toContainText('#51');
+    await expect(newTabOption('Pull request')).toHaveAttribute('aria-disabled', 'true');
+  });
+
+  test("Link makes the found pull request the session's own", async () => {
+    await openSession('Paginate the catalog search');
+    await expect(prSection().getByText(FOUND, { exact: true })).toBeVisible();
+    await prSection().getByRole('button', { name: 'Link', exact: true }).click();
+
+    const userData = await app.evaluate(({ app }) => app.getPath('userData'));
+    const linkedNumber = () => {
+      const state = JSON.parse(fs.readFileSync(path.join(userData, 'workspaces.json'), 'utf8')) as {
+        workspaces: Array<{ sessions: Array<{ name: string; workItem?: { number: number } }> }>;
+      };
+      return state.workspaces[0].sessions.find(
+        (session) => session.name === 'Paginate the catalog search',
+      )?.workItem?.number;
+    };
+    await expect.poll(linkedNumber).toBe(51);
+    await expect(prSection().getByText(FOUND, { exact: true })).toHaveCount(0);
+    await expect(
+      prActions().getByRole('button', {
+        name: 'Run an action in Paginate the catalog search',
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(prTitle()).toBeVisible();
   });
 
   test('a pull request line opens the tab where the pane has it', async () => {

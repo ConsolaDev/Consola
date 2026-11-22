@@ -5,6 +5,7 @@ import { activityOf } from '../../../shared/attention';
 import { checkoutPathForSession } from '../../../shared/workspace';
 import { TAB_KINDS, tabFactsFor } from '../../sidePanel/tabKinds';
 import { useAttentionStore } from '../../stores/attentionStore';
+import { useFoundPullRequest } from '../../stores/branchPullRequestStore';
 import { useCheckout } from '../../stores/checkoutStore';
 import { useGitReviewStore } from '../../stores/gitReviewStore';
 import { useGitStatusStore } from '../../stores/gitStatusStore';
@@ -113,15 +114,21 @@ export function usePaletteContext(open: boolean): PaletteContext {
       ? checkoutPathForSession(activeWorkspace, activeSession)
       : null,
   );
+  // Subscribed, so a lookup that lands while the palette is open refreshes its rows.
+  const activeFound = useFoundPullRequest(
+    activeWorkspace ?? undefined,
+    activeSession ?? undefined,
+    activeCheckout,
+  );
   const tabKinds = useMemo(() => {
     if (!activeWorkspace || !activeSession || isOverlayOpen) return [];
-    const facts = tabFactsFor(activeWorkspace, activeSession, activeCheckout);
+    const facts = tabFactsFor(activeWorkspace, activeSession, activeCheckout, activeFound);
     return TAB_KINDS.map((kind) => ({
       id: kind.id,
       title: kind.title(facts),
       available: kind.availability(facts).available,
     }));
-  }, [activeWorkspace, activeSession, activeCheckout, isOverlayOpen]);
+  }, [activeWorkspace, activeSession, activeCheckout, activeFound, isOverlayOpen]);
 
   // A session with no name yet is still being created; the sidebar hides those
   // too, and a blank row would be unselectable anyway.

@@ -6,6 +6,12 @@ import { useHarnessStore } from '../../stores/harnessStore';
 import { useGitStatusAutoRefresh } from '../../stores/gitStatusStore';
 import { useCheckout } from '../../stores/checkoutStore';
 import { useSidePanelStore } from '../../stores/sidePanelStore';
+import { isInfoSectionOpen, useSettingsStore } from '../../stores/settingsStore';
+import {
+  useBranchPullRequestLookup,
+  useFoundPullRequest,
+} from '../../stores/branchPullRequestStore';
+import { isInFront } from '../../sidePanel/layout';
 import { tabFactsFor } from '../../sidePanel/tabKinds';
 import { TerminalPanel } from '../Terminal';
 import { InfoPanel } from '../InfoPanel/InfoPanel';
@@ -44,6 +50,24 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
   // What the side panel's tabs read: `useTabFacts`, split around the early
   // return below, since hooks cannot wait for the session to be found.
   const checkout = useCheckout(cwd || null);
+  const foundPullRequest = useFoundPullRequest(workspace, session, checkout);
+
+  // The one place the branch's pull request is looked up: while someone looks
+  // at pull request facts, the info panel shown with its Pull request section
+  // open, or the Pull request tab in front. A folded section or a hidden
+  // panel asks nothing.
+  const pullRequestSectionOpen = useSettingsStore((state) =>
+    isInfoSectionOpen(state.infoSectionOpen, 'pull-request'),
+  );
+  const pullRequestTabInFront = useSidePanelStore((state) =>
+    isInFront(state.layout, 'pull-request'),
+  );
+  useBranchPullRequestLookup(
+    workspace,
+    session,
+    checkout,
+    (infoVisible && pullRequestSectionOpen) || pullRequestTabInFront,
+  );
 
   // Conditional panels must have separate saved layouts: hiding the info
   // panel or the side panel must not overwrite the layout that remembers
@@ -100,7 +124,7 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
     );
   }
 
-  const facts = tabFactsFor(workspace, session, checkout);
+  const facts = tabFactsFor(workspace, session, checkout, foundPullRequest);
 
   return (
     <div className="workspace-view">

@@ -1,6 +1,7 @@
 import { branchSectionShown } from '../../infoPanel/branchLines';
 import { pullRequestSectionView } from '../../infoPanel/sessionPullRequest';
 import type { TabFacts } from '../../sidePanel/tabKinds';
+import { useBranchLookupEntry } from '../../stores/branchPullRequestStore';
 import { BranchSection } from './BranchSection';
 import { EnvironmentSection } from './EnvironmentSection';
 import { PullRequestSection } from './PullRequestSection';
@@ -14,12 +15,17 @@ import './styles.css';
  */
 export function InfoPanel({ facts }: { facts: TabFacts }) {
   const { checkout, session, workspace } = facts;
+  // A branch a pull request could be found from: checked out, and not removed.
+  const branch =
+    checkout && checkout.kind !== 'none' && !session.removedWorktree ? checkout.branch : undefined;
+  // What the lookup last answered; `ContentView` asks, while the section is open.
+  const lookup = useBranchLookupEntry(workspace, session);
   const pullRequest = pullRequestSectionView({
     session,
     hasAccount: Boolean(workspace.provider),
-    // A branch a pull request could be found from: checked out, and not removed.
-    hasBranch:
-      !!checkout && checkout.kind !== 'none' && !!checkout.branch && !session.removedWorktree,
+    hasBranch: !!branch,
+    lookup,
+    branch,
   });
   return (
     <aside aria-label="Session info" className="info-panel">

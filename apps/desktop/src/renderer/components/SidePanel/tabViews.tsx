@@ -1,7 +1,7 @@
 import { type ComponentType, useState } from 'react';
 import { isRevealTarget } from '../../infoPanel/pullRequestLines';
 import { isInFront } from '../../sidePanel/layout';
-import type { TabFacts, TabKindId } from '../../sidePanel/tabKinds';
+import { sessionItemOf, type TabFacts, type TabKindId } from '../../sidePanel/tabKinds';
 import { useSidePanelStore } from '../../stores/sidePanelStore';
 import { BrowserPanel } from '../Browser';
 import { GitReviewPanel } from '../GitReviewPanel';
@@ -17,7 +17,8 @@ export interface TabViewProps {
 
 /**
  * The session's pull request or issue, read from GitHub as the workspace's
- * account. The pane mounts only once this tab has been in front on screen:
+ * account: the linked one, else the pull request found from its branch. The
+ * pane mounts only once this tab has been in front on screen:
  * an unseen pane draws nothing, since what it draws (avatars, images in the
  * description) loads even while hidden. From then on it stays mounted behind
  * other tabs, keeping its drafts, scroll and own tab, but reads only while in
@@ -35,8 +36,9 @@ function PullRequestView({ facts, close }: TabViewProps) {
   // effect: the pane mounts in the same commit that brings the tab forward.
   if (inFront && !hasBeenInFront) setHasBeenInFront(true);
 
-  // Pull request is unavailable without a linked item, so that null never shows.
-  const workItem = facts.session.workItem;
+  // Pull request is unavailable with neither a linked item nor one found
+  // from the branch, so that null never shows.
+  const workItem = sessionItemOf(facts);
   if (!hasBeenInFront || !workItem) return null;
   const reveal =
     request?.kind === 'pull-request' &&

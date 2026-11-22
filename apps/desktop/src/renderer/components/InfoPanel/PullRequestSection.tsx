@@ -9,7 +9,7 @@ import {
   RefreshCw,
   Tag,
 } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { type ReactNode, useState } from 'react';
 import { PROVIDER_META } from '../../../shared/providers';
 import type { WorkItemDetails } from '../../../shared/workItemDetails';
 import { sameWorkItem, type WorkItemRef, workItemUrl } from '../../../shared/workItems';
@@ -25,8 +25,14 @@ import {
 } from '../../infoPanel/pullRequestLines';
 import { detailsTargetOf, type PullRequestSectionView } from '../../infoPanel/sessionPullRequest';
 import { type TabFacts, tabKind } from '../../sidePanel/tabKinds';
+import {
+  useBranchLookupEntry,
+  useBranchPullRequestStore,
+} from '../../stores/branchPullRequestStore';
 import { useInboxStore } from '../../stores/inboxStore';
 import { useSidePanelStore } from '../../stores/sidePanelStore';
+import { useWorkspaceStore } from '../../stores/workspaceStore';
+import { ipcErrorMessage } from '../../utils/ipcErrorMessage';
 import {
   type DetailsTarget,
   useDetailsEntry,
@@ -57,31 +63,62 @@ const nounOf = (ref: WorkItemRef) => (ref.type === 'pr' ? 'pull request' : 'issu
  * this section and the tab together read an item once. They are read only
  * while the section is open, which is when its rows are mounted, and the
  * info panel is shown.
+ *
+ * An unlinked session on a branch shows the pull request found from it,
+ * with Link to make it the session's own, or what the lookup said: still
+ * looking, none, or why it failed. `ContentView` asks for the lookup; this
+ * only draws its answer.
  */
 export function PullRequestSection({ facts, view }: { facts: TabFacts; view: ShownView }) {
-  const title = view.ref?.type === 'issue' ? 'Issue' : 'Pull request';
-  const target = view.kind === 'item' ? detailsTargetOf(facts.workspace, view.ref) : null;
-  if (!target) {
-    return (
-      <InfoSection
-        id="pull-request"
-        title={title}
-        actions={view.ref && <OpenOnProvider item={view.ref} url={workItemUrl(view.ref)} />}
-      >
-        <NoAccountRows />
-      </InfoSection>
-    );
+  switch (view.kind) {
+    case 'looking':
+      return (
+        <InfoSection id="pull-request" title="Pull request">
+          <QuietLine text="Looking for this branch’s pull request…" />
+        </InfoSection>
+      );
+    case 'none':
+      return (
+        <InfoSection id="pull-request" title="Pull request">
+          <QuietLine text="No pull request for this branch." />
+        </InfoSection>
+      );
+    case 'lookup-failed':
+      return (
+        <InfoSection id="pull-request" title="Pull request">
+          <LookupFailedRows facts={facts} error={view.error} />
+        </InfoSection>
+      );
+    case 'no-account':
+      return (
+        <InfoSection
+          id="pull-request"
+          title={titleOf(view.ref)}
+          actions={view.ref && <OpenOnProvider item={view.ref} url={workItemUrl(view.ref)} />}
+        >
+          <NoAccountRows />
+        </InfoSection>
+      );
+    case 'item': {
+      const target = detailsTargetOf(facts.workspace, view.ref);
+      // `item` is drawn only with an account, so the target is always there.
+      if (!target) return null;
+      return (
+        <InfoSection
+          id="pull-request"
+          title={titleOf(view.ref)}
+          actions={<ItemActions facts={facts} target={target} found={view.found} />}
+        >
+          <ItemRows facts={facts} target={target} found={view.found} />
+        </InfoSection>
+      );
+    }
   }
-  return (
-    <InfoSection
-      id="pull-request"
-      title={title}
-      actions={<ItemActions facts={facts} target={target} />}
-    >
-      <ItemRows facts={facts} target={target} />
-    </InfoSection>
-  );
 }
+
+/** The section's heading: `Issue` for a linked issue, else `Pull request`. */
+const titleOf = (ref: WorkItemRef | undefined) =>
+  ref?.type === 'issue' ? 'Issue' : 'Pull request';
 
 /** The Inbox's copy of the item, while it lists it: a title and state before the details arrive. */
 function useInboxItem(workspaceId: string, ref: WorkItemRef) {
@@ -95,8 +132,27 @@ function readAgain(target: DetailsTarget): void {
   void useWorkItemDetailsStore.getState().load(target, { force: true });
 }
 
+/**
+ * Looks the checkout's branch up again now, past main's cache: the person's
+ * Retry, and Refresh on a pull request found from the branch.
+ */
+function lookAgain(facts: TabFacts): void {
+  const dir = facts.checkoutPath;
+  if (!dir) return;
+  const branch = facts.checkout?.kind === 'none' ? undefined : facts.checkout?.branch;
+  void useBranchPullRequestStore.getState().find(facts.workspace.id, dir, { force: true, branch });
+}
+
 /** Open on the provider, refresh, and the Run menu for a linked session. */
-function ItemActions({ facts, target }: { facts: TabFacts; target: DetailsTarget }) {
+function ItemActions({
+  facts,
+  target,
+  found,
+}: {
+  facts: TabFacts;
+  target: DetailsTarget;
+  found: boolean;
+}) {
   // The rows watch the item; the heading only reads what they keep current.
   const entry = useDetailsEntry(target);
   const item = useInboxItem(target.workspaceId, target.ref);
@@ -114,7 +170,11 @@ function ItemActions({ facts, target }: { facts: TabFacts; target: DetailsTarget
         aria-label={refresh}
         title={refresh}
         aria-busy={loading}
-        onClick={() => readAgain(target)}
+        onClick={() => {
+          readAgain(target);
+          // Found from the branch: whether it is still the branch's is asked again too.
+          if (found) lookAgain(facts);
+        }}
       >
         <RefreshCw
           size={13}
@@ -150,7 +210,15 @@ function OpenOnProvider({ item, url }: { item: WorkItemRef; url: string }) {
   );
 }
 
-function ItemRows({ facts, target }: { facts: TabFacts; target: DetailsTarget }) {
+function ItemRows({
+  facts,
+  target,
+  found,
+}: {
+  facts: TabFacts;
+  target: DetailsTarget;
+  found: boolean;
+}) {
   // Mounted only while the section is open, so this is the active viewer the
   // read waits for: a folded section or a hidden panel reads nothing.
   const entry = useWorkItemDetails(target, true);
@@ -212,6 +280,7 @@ function ItemRows({ facts, target }: { facts: TabFacts; target: DetailsTarget })
           )}
         </div>
       )}
+      {found && <FoundRow facts={facts} item={ref} />}
       {details && ref.type === 'pr' && (
         <PullRequestLines workspaceId={target.workspaceId} details={details} activate={activate} />
       )}
@@ -300,6 +369,49 @@ function LineRow({
   );
 }
 
+/**
+ * Where a pull request found from the branch came from, and the way to make
+ * it the session's own. Linking writes the session's item, as the Link
+ * dialog does; until then nothing is written. A refusal (main's, such as a
+ * conductor's) is said under the button.
+ */
+function FoundRow({ facts, item }: { facts: TabFacts; item: WorkItemRef }) {
+  const [refusal, setRefusal] = useState<string | null>(null);
+  const [linking, setLinking] = useState(false);
+  const link = async () => {
+    if (linking) return;
+    setRefusal(null);
+    setLinking(true);
+    try {
+      await useWorkspaceStore
+        .getState()
+        .updateSession(facts.workspace.id, facts.session.id, { workItem: item });
+    } catch (error) {
+      setRefusal(ipcErrorMessage(error));
+    } finally {
+      setLinking(false);
+    }
+  };
+  return (
+    <QuietLine
+      text="Found from the branch"
+      action={{ label: 'Link', run: () => void link(), busy: linking }}
+      error={refusal ?? undefined}
+    />
+  );
+}
+
+/** The lookup failed: why, and the way to ask again. */
+function LookupFailedRows({ facts, error }: { facts: TabFacts; error: string }) {
+  const loading = useBranchLookupEntry(facts.workspace, facts.session)?.loading ?? false;
+  return (
+    <QuietLine
+      text={`Couldn’t look for this branch’s pull request: ${error}`}
+      action={{ label: 'Retry', run: () => lookAgain(facts), busy: loading }}
+    />
+  );
+}
+
 /** Nothing to read the item with: the way to give the workspace an account. */
 function NoAccountRows() {
   const { openSettings } = useSettings();
@@ -311,21 +423,37 @@ function NoAccountRows() {
   );
 }
 
-/** One muted sentence, wrapped rather than cut, and at most one thing to do about it. */
+/**
+ * One muted sentence, wrapped rather than cut, and at most one thing to do
+ * about it, with why that was refused under it. A busy action stays
+ * focusable: disabling it would drop the keyboard to the body.
+ */
 function QuietLine({
   text,
   action,
+  error,
 }: {
   text: string;
-  action?: { label: string; run: () => void };
+  action?: { label: string; run: () => void; busy?: boolean };
+  error?: string;
 }) {
   return (
     <div className="info-quiet">
       <p className="info-quiet-text">{text}</p>
       {action && (
-        <button type="button" className="info-quiet-action" onClick={action.run}>
+        <button
+          type="button"
+          className="info-quiet-action"
+          aria-busy={action.busy}
+          onClick={action.run}
+        >
           {action.label}
         </button>
+      )}
+      {error && (
+        <p className="info-quiet-error" role="alert">
+          {error}
+        </p>
       )}
     </div>
   );
