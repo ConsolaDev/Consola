@@ -59,6 +59,10 @@ import { cloudSessions, workspaceMembers, workspaces } from './adapters/persiste
 import { composeCell } from './compose.js';
 import { type CellConfig, loadConfig } from './config.js';
 
+/** `vi.waitFor` with a timeout in line with the suite's own, so a loaded machine does not flake. */
+const waitFor = <T>(callback: () => T | Promise<T>) =>
+  vi.waitFor(callback, { timeout: 10_000, interval: 25 });
+
 const config: CellConfig = {
   databaseUrl: 'pglite:memory',
   region: 'eu',
@@ -898,7 +902,7 @@ describe('a delivery sent as a cell token', () => {
   });
 });
 
-describe('cloud sessions, with no runner connected (until the runner socket exists)', () => {
+describe('cloud sessions, with no runner connected (the channel when no runner socket is set up)', () => {
   const json = async (token: string, path: string, init: RequestInit = {}) =>
     app.request(path, {
       ...init,
@@ -1102,7 +1106,7 @@ describe('a runner and its passes', () => {
       }),
     );
     const token = await mint();
-    await vi.waitFor(async () => {
+    await waitFor(async () => {
       const options = await cell.app.request('/api/cloud-sessions/options', {
         headers: bearer(token),
       });
@@ -1117,7 +1121,7 @@ describe('a runner and its passes', () => {
     expect(started.status).toBe(201);
     const session = (await started.json()) as { id: string; status: string };
     expect(session.status).toBe('starting');
-    await vi.waitFor(() => expect(received).toHaveLength(1));
+    await waitFor(() => expect(received).toHaveLength(1));
     expect(received[0]).toMatchObject({
       type: 'session.start',
       sessionId: session.id,
@@ -1134,7 +1138,7 @@ describe('a runner and its passes', () => {
         hostUrl: 'https://3000-sandbox.e2b.example',
       }),
     );
-    await vi.waitFor(async () => {
+    await waitFor(async () => {
       const pass = await cell.app.request(`/api/cloud-sessions/${session.id}/pass`, {
         method: 'POST',
         headers: bearer(token),

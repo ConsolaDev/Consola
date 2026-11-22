@@ -10,6 +10,7 @@ import {
 import { createNodeWebSocket, type NodeWebSocket } from '@hono/node-ws';
 import { type Context, Hono } from 'hono';
 import type { WSContext, WSEvents } from 'hono/ws';
+import { belongsToRunner, isEnded } from '../../domain/cloudSession.js';
 import { applyRunnerUpdate } from '../../application/cloudSessions.js';
 import type {
   Offer,
@@ -193,7 +194,27 @@ export function createRunnerSocket(deps: {
       // Closed meanwhile: its next hello lists the same sessions, and is answered again.
       return;
     }
+    // From here a person's stop reaches this socket (`connected` is not null). One that committed
+    // while the hello was judged did not, and the judgement had read the session as live: look
+    // again, so the runner never keeps a sandbox for a session the cell considers ended. A stop
+    // is always safe, so a session already answered above is simply answered again.
     connection.ready = true;
+    const answered = new Set(stop);
+    try {
+      for (const sessionId of new Set(message.runningSessionIds)) {
+        if (answered.has(sessionId) || connection.closed) continue;
+        const session = await ports.sessions.find(sessionId);
+        if (
+          !session ||
+          !belongsToRunner(session, { workspaceId, runnerId: message.runnerId }) ||
+          isEnded(session.status)
+        ) {
+          send(connection, { type: 'session.stop', sessionId });
+        }
+      }
+    } catch {
+      // Closed meanwhile, or unreadable: the runner's next hello is judged again.
+    }
   }
 
   async function update(
@@ -237,11 +258,21 @@ export function createRunnerSocket(deps: {
           return;
         }
         const message = read.value;
-        connection.queue = connection.queue.then(() =>
-          message.type === 'hello'
-            ? hello(connection, message, settings)
-            : update(connection, message, settings),
-        );
+        // A handler that throws must neither stop the socket's later messages nor leave an
+        // unhandled rejection (which ends the process): log the reason alone, never a body.
+        connection.queue = connection.queue
+          .then(() =>
+            message.type === 'hello'
+              ? hello(connection, message, settings)
+              : update(connection, message, settings),
+          )
+          .catch((error) => {
+            try {
+              report(`The cell could not handle a runner's message: ${describe(error)}`);
+            } catch {
+              // Logging failed too: the socket still serves its next message.
+            }
+          });
       },
       onClose: () => {
         connection.closed = true;

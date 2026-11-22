@@ -27,6 +27,10 @@ import {
   type RunnerSocket,
 } from './runnerSocket.js';
 
+/** `vi.waitFor` with a timeout in line with the suite's own, so a loaded machine does not flake. */
+const waitFor = <T>(callback: () => T | Promise<T>) =>
+  vi.waitFor(callback, { timeout: 10_000, interval: 25 });
+
 /** A stand-in for the runner's shared secret, never a real one. */
 const SECRET = 'sprocket-runner-secret-0123456789abcdef';
 
@@ -39,6 +43,9 @@ let runner: RunnerSocket;
 let server: ServerType;
 let url: string;
 let lines: string[];
+/** Test hooks: what the store's `find` does before answering, and a throw the log may make. */
+let afterFind: ((id: string, found: CloudSession | null) => Promise<void>) | null;
+let reportHook: ((line: string) => void) | null;
 const clients: WebSocket[] = [];
 
 async function listen(socket: RunnerSocket): Promise<void> {
@@ -57,8 +64,21 @@ function build(settings: 'set' | 'unset' = 'set'): RunnerSocket {
       settings === 'set'
         ? { secret: SECRET, workspaceId: 'acme', passPublicKeyPem: passKey.publicKeyPem }
         : null,
-    ports: { sessions, clock: { nowSeconds: () => 2000 } },
-    report: (line) => lines.push(line),
+    ports: {
+      sessions: {
+        ...sessions,
+        find: async (id: string) => {
+          const found = await sessions.find(id);
+          await afterFind?.(id, found);
+          return found;
+        },
+      },
+      clock: { nowSeconds: () => 2000 },
+    },
+    report: (line) => {
+      reportHook?.(line);
+      lines.push(line);
+    },
   });
 }
 
@@ -70,6 +90,8 @@ beforeEach(async () => {
   privateD = String(jwk.d);
   passKey = await createPassSigner(jwk as Record<string, unknown>);
   lines = [];
+  afterFind = null;
+  reportHook = null;
   runner = build();
   await listen(runner);
 });
@@ -142,7 +164,7 @@ const hello = (over: Partial<RunnerHello> = {}): RunnerHello => ({
 async function connect(over: Partial<RunnerHello> = {}, secret = SECRET): Promise<Runner> {
   const opened = await open(secret);
   opened.send(hello(over));
-  await vi.waitFor(() =>
+  await waitFor(() =>
     expect(runner.channel.connected('acme')?.runnerId).toBe(hello(over).runnerId),
   );
   return opened;
@@ -227,7 +249,7 @@ describe('the runner socket', () => {
       const opened = await open();
       expect(runner.channel.connected('acme')).toBeNull();
       opened.send(hello({ repositories: ['sprocket/catalog-portal', 'sprocket/billing'] }));
-      await vi.waitFor(() =>
+      await waitFor(() =>
         expect(runner.channel.connected('acme')).toEqual({
           runnerId: 'runner-1',
           repositories: ['sprocket/catalog-portal', 'sprocket/billing'],
@@ -237,7 +259,7 @@ describe('the runner socket', () => {
       expect(runner.channel.connected('globex')).toBeNull();
 
       opened.socket.close();
-      await vi.waitFor(() => expect(runner.channel.connected('acme')).toBeNull());
+      await waitFor(() => expect(runner.channel.connected('acme')).toBeNull());
       expect(runner.channel.connected('globex')).toBeNull();
     });
 
@@ -251,7 +273,7 @@ describe('the runner socket', () => {
     it("sends one session.start carrying the pass key's public half, which checks a pass", async () => {
       const connected = await connect();
       await runner.channel.startSession('runner-1', start);
-      await vi.waitFor(() => expect(connected.received).toHaveLength(1));
+      await waitFor(() => expect(connected.received).toHaveLength(1));
 
       const [message] = connected.received;
       if (message?.type !== 'session.start') throw new Error('expected a session.start');
@@ -294,7 +316,7 @@ describe('the runner socket', () => {
     it('sends a stop to the runner', async () => {
       const connected = await connect();
       await runner.channel.stopSession('runner-1', 's-1');
-      await vi.waitFor(() =>
+      await waitFor(() =>
         expect(connected.received).toEqual([{ type: 'session.stop', sessionId: 's-1' }]),
       );
     });
@@ -330,11 +352,27 @@ describe('the runner socket', () => {
     it('sends a session.stop for each listed session the cell holds as ended, or does not know', async () => {
       await holds('s-3', 'stopped');
       const connected = await connect({ runningSessionIds: ['s-3', 's-4'] });
-      await vi.waitFor(() =>
+      await waitFor(() =>
         expect(connected.received).toEqual([
           { type: 'session.stop', sessionId: 's-3' },
           { type: 'session.stop', sessionId: 's-4' },
         ]),
+      );
+    });
+
+    it('still stops a session a person ended while the hello was judged', async () => {
+      await holds('s-5', 'running');
+      let first = true;
+      // The person's stop commits after the judgement read s-5 as live and before the socket is
+      // ready, so nothing is sent for it from the stop's own side.
+      afterFind = async (id, found) => {
+        if (id !== 's-5' || !first || found?.status !== 'running') return;
+        first = false;
+        await sessions.update('s-5', 'running', { status: 'stopped', endedAt: 1800 });
+      };
+      const connected = await connect({ runningSessionIds: ['s-5'] });
+      await waitFor(() =>
+        expect(connected.received).toContainEqual({ type: 'session.stop', sessionId: 's-5' }),
       );
     });
 
@@ -343,7 +381,7 @@ describe('the runner socket', () => {
       const opened = await open();
       opened.send(hello());
       // The moment the offer is out, the restart has already been applied.
-      await vi.waitFor(() => expect(runner.channel.connected('acme')).not.toBeNull());
+      await waitFor(() => expect(runner.channel.connected('acme')).not.toBeNull());
       expect(await sessions.find('s-2')).toMatchObject({ status: 'failed' });
     });
 
@@ -354,7 +392,7 @@ describe('the runner socket', () => {
       expect(await first.closed).toBe(RUNNER_SOCKET_CLOSE.replaced);
       expect(runner.channel.connected('acme')).toMatchObject({ harnesses: ['claude', 'codex'] });
       await runner.channel.startSession('runner-1', start);
-      await vi.waitFor(() => expect(second.received).toHaveLength(1));
+      await waitFor(() => expect(second.received).toHaveLength(1));
       expect(first.received).toEqual([]);
       // The first socket's close does not take the second's place away.
       expect(runner.channel.connected('acme')).not.toBeNull();
@@ -363,7 +401,7 @@ describe('the runner socket', () => {
     it('is taken once: a second hello on one socket is dropped, and logged', async () => {
       const connected = await connect();
       connected.send(hello({ harnesses: ['codex'] }));
-      await vi.waitFor(() => expect(lines.join('\n')).toMatch(/second hello/));
+      await waitFor(() => expect(lines.join('\n')).toMatch(/second hello/));
       expect(runner.channel.connected('acme')).toMatchObject({ harnesses: ['claude'] });
     });
   });
@@ -379,7 +417,7 @@ describe('the runner socket', () => {
         hostUrl: 'https://3000-sandbox.e2b.example',
       });
       connected.send({ type: 'session.update', sessionId: 's-1', title: 'Fix the cart total' });
-      await vi.waitFor(async () =>
+      await waitFor(async () =>
         expect(await sessions.find('s-1')).toMatchObject({
           status: 'running',
           hostUrl: 'https://3000-sandbox.e2b.example',
@@ -398,7 +436,7 @@ describe('the runner socket', () => {
         title: 'what-the-frame-held',
       });
       connected.socket.send('not json, but what-the-frame-held');
-      await vi.waitFor(() => expect(lines).toHaveLength(2));
+      await waitFor(() => expect(lines).toHaveLength(2));
       expect(lines[0]).toMatch(/`status` is not a session status/);
       expect(lines[1]).toMatch(/not JSON/);
       expect(lines.join('\n')).not.toContain('what-the-frame-held');
@@ -406,7 +444,7 @@ describe('the runner socket', () => {
 
       // Still open: the next update applies.
       connected.send({ type: 'session.update', sessionId: 's-1', status: 'running' });
-      await vi.waitFor(async () =>
+      await waitFor(async () =>
         expect(await sessions.find('s-1')).toMatchObject({ status: 'running' }),
       );
       expect(connected.socket.readyState).toBe(WebSocket.OPEN);
@@ -416,8 +454,36 @@ describe('the runner socket', () => {
       await holds('s-1', 'starting');
       const opened = await open();
       opened.send({ type: 'session.update', sessionId: 's-1', status: 'running' });
-      await vi.waitFor(() => expect(lines.join('\n')).toMatch(/before its hello/));
+      await waitFor(() => expect(lines.join('\n')).toMatch(/before its hello/));
       expect(await sessions.find('s-1')).toMatchObject({ status: 'starting' });
+    });
+  });
+
+  describe('a handler that fails', () => {
+    it('does not stop the next message, nor leave an unhandled rejection', async () => {
+      const rejections: unknown[] = [];
+      const note = (reason: unknown) => rejections.push(reason);
+      process.on('unhandledRejection', note);
+      try {
+        await holds('s-6', 'running');
+        let throwOnce = true;
+        reportHook = () => {
+          if (!throwOnce) return;
+          throwOnce = false;
+          throw new Error('the log failed once');
+        };
+        const opened = await open();
+        // An update before the hello is logged, and the log throws: the handler rejects.
+        opened.send({ type: 'session.update', sessionId: 's-6', title: 'Early' });
+        opened.send(hello({ runningSessionIds: ['s-6'] }));
+        await waitFor(() => expect(runner.channel.connected('acme')?.runnerId).toBe('runner-1'));
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        expect(rejections).toEqual([]);
+        expect(lines.join('\n')).toMatch(/could not handle a runner's message/);
+        expect(lines.join('\n')).not.toContain('the log failed once"');
+      } finally {
+        process.off('unhandledRejection', note);
+      }
     });
   });
 
@@ -426,7 +492,7 @@ describe('the runner socket', () => {
       const connected = await connect();
       connected.socket.send('x'.repeat(RUNNER_FRAME_LIMIT_BYTES + 1));
       expect(await connected.closed).toBe(1009);
-      await vi.waitFor(() => expect(runner.channel.connected('acme')).toBeNull());
+      await waitFor(() => expect(runner.channel.connected('acme')).toBeNull());
     });
 
     it('up to the limit are read', async () => {
@@ -435,7 +501,7 @@ describe('the runner socket', () => {
       const update = { type: 'session.update', sessionId: 's-1', title: '' };
       const room = RUNNER_FRAME_LIMIT_BYTES - JSON.stringify(update).length;
       connected.send({ ...update, title: 't'.repeat(room) });
-      await vi.waitFor(async () => expect((await sessions.find('s-1'))?.title).toHaveLength(room));
+      await waitFor(async () => expect((await sessions.find('s-1'))?.title).toHaveLength(room));
     });
   });
 
@@ -443,6 +509,6 @@ describe('the runner socket', () => {
     const connected = await connect();
     runner.closeAll();
     expect(await connected.closed).toBe(RUNNER_SOCKET_CLOSE.shuttingDown);
-    await vi.waitFor(() => expect(runner.channel.connected('acme')).toBeNull());
+    await waitFor(() => expect(runner.channel.connected('acme')).toBeNull());
   });
 });
