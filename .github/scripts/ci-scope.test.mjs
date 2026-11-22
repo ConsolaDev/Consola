@@ -4,7 +4,7 @@ import { scope } from './ci-scope.mjs';
 
 const all = [
   '@consola/automation-engine',
-  '@consola/cloud-api',
+  '@consola/cloud-global',
   '@consola/cloud-region',
   '@consola/cloud-web',
   '@consola/factory-spec',
@@ -16,7 +16,7 @@ const everything = {
   website: true,
   packages: [
     '@consola/automation-engine',
-    '@consola/cloud-api',
+    '@consola/cloud-global',
     '@consola/cloud-region',
     '@consola/cloud-web',
     '@consola/factory-spec',

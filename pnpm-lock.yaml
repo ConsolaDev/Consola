@@ -211,7 +211,7 @@ importers:
         specifier: 2.11.3
         version: 2.11.3
 
-  apps/cloud-api:
+  apps/cloud-global:
     dependencies:
       '@better-auth/drizzle-adapter':
         specifier: 1.7.27

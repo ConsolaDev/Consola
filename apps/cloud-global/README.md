@@ -1,5 +1,6 @@
-# Consola Cloud API
+# Consola Cloud: cloud-global
 
+The global part of Consola Cloud's control plane, shared by every region:
 Google sign-in, sessions and the deployment's one organisation. The web app is
 `apps/cloud-web`; the browser only talks to the web app, which proxies `/api`
 to this service.
@@ -17,12 +18,12 @@ use only, until a later round limits it to the company.
 3. Credentials, Create credentials, OAuth client ID, Web application.
    - Authorised JavaScript origin: `http://localhost:5175`
    - Authorised redirect URI: `http://localhost:5175/api/auth/callback/google`
-4. Put the client ID and secret into `apps/cloud-api/.env` (next section).
+4. Put the client ID and secret into `apps/cloud-global/.env` (next section).
 
 ## Run
 
 ```bash
-cp apps/cloud-api/.env.example apps/cloud-api/.env   # then fill in the values
+cp apps/cloud-global/.env.example apps/cloud-global/.env   # then fill in the values
 pnpm dev:cloud
 ```
 
@@ -36,7 +37,7 @@ unset or at 3100 unless you also change `apps/cloud-web/vite.config.ts`.
 bad variable, if one is missing or wrong.
 
 By default the data is PGlite (Postgres in-process) in
-`apps/cloud-api/.data/cloud-db`. Deleting that folder resets the local
+`apps/cloud-global/.data/cloud-db`. Deleting that folder resets the local
 database.
 
 ## A real Postgres
@@ -46,7 +47,7 @@ docker compose up -d
 ```
 
 Then set `DATABASE_URL=postgres://consola:consola@localhost:5432/consola_cloud`
-in `apps/cloud-api/.env` (the compose file is `compose.yaml` at the repository
+in `apps/cloud-global/.env` (the compose file is `compose.yaml` at the repository
 root).
 
 ## The schema
@@ -55,8 +56,8 @@ After changing the auth configuration, regenerate the auth tables and then the
 migration:
 
 ```bash
-pnpm --filter @consola/cloud-api auth:generate
-pnpm --filter @consola/cloud-api db:generate
+pnpm --filter @consola/cloud-global auth:generate
+pnpm --filter @consola/cloud-global db:generate
 ```
 
 Migrations apply when the API starts.
@@ -64,6 +65,6 @@ Migrations apply when the API starts.
 ## Tests and types
 
 ```bash
-pnpm --filter @consola/cloud-api test
-pnpm --filter @consola/cloud-api typecheck
+pnpm --filter @consola/cloud-global test
+pnpm --filter @consola/cloud-global typecheck
 ```

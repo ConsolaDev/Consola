@@ -23,7 +23,12 @@ export async function describeMe(
     kind: 'member',
     me: {
       user: { id: person.id, name: person.name, email: person.email, image: person.image },
-      organization: { id: organization.id, name: organization.name, slug: organization.slug },
+      organization: {
+        id: organization.id,
+        name: organization.name,
+        slug: organization.slug,
+        region: organization.region,
+      },
       role: membership.role,
     },
   };

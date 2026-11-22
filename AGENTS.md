@@ -41,7 +41,7 @@ front. E2E runs themselves are already hidden and unfocusable
 
 All commands above run from the repository root. The pnpm workspace contains
 `apps/desktop` (`consola`), `apps/website` (`@consola/website`),
-`apps/cloud-api` (`@consola/cloud-api`), `apps/cloud-region`
+`apps/cloud-global` (`@consola/cloud-global`), `apps/cloud-region`
 (`@consola/cloud-region`), `apps/cloud-web` (`@consola/cloud-web`),
 `packages/factory-spec` (`@consola/factory-spec`, MIT),
 `packages/automation-engine` (`@consola/automation-engine`) and
@@ -149,28 +149,32 @@ packages' tests use. Before changing it, or adding a provider, read
 
 ### Consola Cloud
 
-`apps/cloud-api` (`@consola/cloud-api`, Hono, Better Auth, Drizzle on PGlite or
-Postgres) and `apps/cloud-web` (`@consola/cloud-web`, Vite and React) are the
-company layer's first piece: Google sign-in and the deployment's one
-organisation. `apps/cloud-region` (`@consola/cloud-region`, Hono, Drizzle on
-PGlite or Postgres) is the regional cell: one copy per region, configured with
-its region, holding what a workspace has there that is not global. It holds no
+`apps/cloud-global` (`@consola/cloud-global`, Hono, Better Auth, Drizzle on
+PGlite or Postgres) and `apps/cloud-web` (`@consola/cloud-web`, Vite and React)
+are the company layer's first piece: Google sign-in and the deployment's one
+organisation. `cloud-global` is the control plane's global part, which every
+region shares. Every workspace has a region (`eu` or `us`), picked when it is
+made and never changed. What `cloud-global` may store is the always-global
+list in its `AGENTS.md`, pinned by a test; anything else belongs in a regional
+cell. `apps/cloud-region` (`@consola/cloud-region`, Hono, Drizzle on PGlite or
+Postgres) is the regional cell: one copy per region, configured with its
+region, holding what a workspace has there that is not global. It holds no
 accounts (people are referenced by their global id), and every table carries
 the workspace id. Nothing in `apps/desktop` depends on the cloud apps, and none
 imports from the desktop, the website, another app or `packages/*`. Setup is in
-`apps/cloud-api/README.md` and `apps/cloud-region/README.md`. Before changing a
-cloud app, read its own `AGENTS.md` (`apps/cloud-api/AGENTS.md`,
+`apps/cloud-global/README.md` and `apps/cloud-region/README.md`. Before
+changing a cloud app, read its own `AGENTS.md` (`apps/cloud-global/AGENTS.md`,
 `apps/cloud-region/AGENTS.md`, `apps/cloud-web/AGENTS.md`): it holds the layer
 rules and the dependency rule that keeps them apart.
 
 The browser talks only to the web app's origin. Vite proxies `/api` to the API,
 so the session cookie is first-party and the API needs no CORS. Better Auth
 owns sign-in and sessions, and its tables are generated
-(`pnpm --filter @consola/cloud-api auth:generate`), never hand-edited. Every
+(`pnpm --filter @consola/cloud-global auth:generate`), never hand-edited. Every
 table that holds company data carries `organization_id`, and a person reaches
 it through `member`.
 
-`mayJoin` (`apps/cloud-api/src/domain/joinRule.ts`) is checked before an account
+`mayJoin` (`apps/cloud-global/src/domain/joinRule.ts`) is checked before an account
 is created and before every new session. It is open for now (any Google
 account with a verified email), so this deployment is for local use only. The
 later rule that limits it to the company lands in `mayJoin` and so gates every

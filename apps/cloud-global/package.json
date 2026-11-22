@@ -1,8 +1,8 @@
 {
-  "name": "@consola/cloud-api",
+  "name": "@consola/cloud-global",
   "version": "0.0.0",
   "private": true,
-  "description": "Consola Cloud's API: Google sign-in, sessions and the deployment's one organisation.",
+  "description": "Consola Cloud's global API: Google sign-in, sessions and the deployment's one organisation.",
   "license": "AGPL-3.0-only",
   "type": "module",
   "scripts": {

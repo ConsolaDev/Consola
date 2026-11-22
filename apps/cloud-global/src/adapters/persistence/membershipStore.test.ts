@@ -20,7 +20,11 @@ beforeEach(async () => {
     { id: 'lee', name: 'Lee', email: 'lee@sprocket.test', emailVerified: true },
   ]);
   memberships = createMembershipStore(db);
-  org = await createOrganizationStore(db).ensure({ name: 'Sprocket', slug: 'sprocket' });
+  org = await createOrganizationStore(db).ensure({
+    name: 'Sprocket',
+    slug: 'sprocket',
+    region: 'eu',
+  });
 });
 
 afterEach(async () => {
