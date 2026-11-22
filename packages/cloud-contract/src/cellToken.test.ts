@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   CELL_TOKEN_AUDIENCE,
+  CELL_TOKEN_KEYS_PATH,
   CELL_TOKEN_LIFETIME_SECONDS,
   CLOCK_SKEW_SECONDS,
   type CellTokenGrant,
@@ -43,6 +44,10 @@ describe('cellTokenClaims', () => {
       iat: MINTED,
       exp: MINTED + CELL_TOKEN_LIFETIME_SECONDS,
     });
+  });
+
+  it('publishes its keys under /api, where cloud-global serves', () => {
+    expect(CELL_TOKEN_KEYS_PATH).toBe('/api/cell-token/keys');
   });
 
   it('expires within minutes', () => {

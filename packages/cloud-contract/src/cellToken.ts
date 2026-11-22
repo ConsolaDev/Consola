@@ -35,6 +35,15 @@ export const CELL_TOKEN_LIFETIME_SECONDS = 5 * 60;
 /** How far apart the clocks of `cloud-global` and a cell may be. */
 export const CLOCK_SKEW_SECONDS = 30;
 
+/**
+ * Where `cloud-global` publishes the public keys a cell checks tokens with, on its own origin and
+ * without sign-in: a JSON Web Key Set (RFC 7517). Each key is Ed25519 (`kty: OKP`, `crv:
+ * Ed25519`, `alg: EdDSA`, `use: sig`), and its `kid` is its JWK thumbprint (RFC 7638), which
+ * every token names in its header. A cell fetches the set and picks the key by `kid`, so a key
+ * is rotated by publishing the new one beside the old until the old one's tokens have expired.
+ */
+export const CELL_TOKEN_KEYS_PATH = '/api/cell-token/keys';
+
 /** The claims of a cell token, by their JWT names. Times are whole seconds since the epoch. */
 export type CellTokenClaims = {
   /** Always `CELL_TOKEN_AUDIENCE`. */
