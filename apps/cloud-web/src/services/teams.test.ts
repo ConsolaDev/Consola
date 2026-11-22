@@ -68,8 +68,7 @@ function harness(options: {
     return json(typeof answer === 'function' ? answer(entry) : answer);
   };
   const service = createTeamsService({
-    // Until createApi takes a request alone, a stand-in that reads a Request passes for fetch.
-    api: createApi({ baseUrl: 'http://web.test', fetch: globalFetch as typeof fetch }),
+    api: createApi({ baseUrl: 'http://web.test', fetch: globalFetch }),
     cellFetch,
     cellOrigin: 'http://web.test',
     nowSeconds: options.now ?? (() => 1000),

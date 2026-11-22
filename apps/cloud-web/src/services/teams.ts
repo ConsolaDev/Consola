@@ -23,8 +23,8 @@ import { type Api, createApi } from './api';
  * the calls do not expect, a cell that does not answer included, is `unavailable`.
  */
 
-/** A request as `openapi-fetch` sends it. */
-type Fetch = (request: Request) => Promise<Response>;
+/** What a client sends its requests with, as `api.ts` names it. */
+type Send = (request: Request) => Promise<Response>;
 
 /** A client of a cell's API, typed by its contract, sending one token. */
 export type CellApi = Client<paths>;
@@ -35,7 +35,7 @@ export function cellBaseUrl(region: string, origin = ''): string {
 }
 
 /** A client of the cell at `baseUrl`, sending `token` with every request. */
-export function createCellApi(options: { token: string; baseUrl: string; fetch?: Fetch }): CellApi {
+export function createCellApi(options: { token: string; baseUrl: string; fetch?: Send }): CellApi {
   const client = createClient<paths>({ baseUrl: options.baseUrl, fetch: options.fetch });
   client.use({
     onRequest({ request }) {
@@ -83,7 +83,7 @@ export type TeamsService = {
  * to resolve the cell's address against.
  */
 export function createTeamsService(
-  deps: { api?: Api; cellFetch?: Fetch; cellOrigin?: string; nowSeconds?: () => number } = {},
+  deps: { api?: Api; cellFetch?: Send; cellOrigin?: string; nowSeconds?: () => number } = {},
 ): TeamsService {
   const api = deps.api ?? createApi();
   const nowSeconds = deps.nowSeconds ?? (() => Math.floor(Date.now() / 1000));
