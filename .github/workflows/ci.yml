@@ -1,11 +1,26 @@
-# Checks every pull request and every push to main. The release workflow runs
-# the same typecheck and tests again on its tag before building installers.
+# Checks every pull request and every push to main.
+#
+# A pull request runs only the checks its change can fail. The `changes` job
+# asks Turborepo which packages the change affects, the changed packages and
+# every package that depends on them, and each job below runs only for
+# those: a change to one cloud app checks that app alone, and never starts
+# the desktop's macOS jobs. `.github/scripts/ci-scope.mjs` holds the rules
+# for what the package graph cannot see. A push to main, or a manual run,
+# checks everything.
+#
+# `CI`, the last job, is the check the main branch's ruleset requires. It
+# passes when every job it waits on passed or was skipped, so jobs can be
+# added or skipped without touching the ruleset.
+#
+# The release workflow runs the desktop's typecheck and tests again on its tag
+# before building installers. CodeQL runs in codeql.yml.
 name: CI
 
 on:
   pull_request:
   push:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -15,26 +30,60 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: Changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      desktop: ${{ steps.scope.outputs.desktop }}
+      website: ${{ steps.scope.outputs.website }}
+      packages: ${{ steps.scope.outputs.packages }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          # Turborepo compares the merge commit with the base it merges into.
+          fetch-depth: 0
+      - uses: ./.github/actions/setup
+      - id: scope
+        run: node .github/scripts/ci-scope.mjs
+
   lint:
+    name: Lint
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 26.13.1
-          cache: pnpm
-      # Biome is a prebuilt binary; skipping install scripts skips fetching
-      # Electron and rebuilding node-pty, which linting never needs.
-      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - uses: ./.github/actions/setup
       # Errors fail the check. Warnings are left for the editor, where they
       # point at the line being changed rather than at the whole backlog.
-      - run: pnpm exec biome ci --diagnostic-level=error .
+      - name: Biome
+        run: pnpm exec biome ci --diagnostic-level=error .
+      - name: Licences
+        run: node .github/scripts/check-licenses.mjs
+      - name: CI scripts' tests
+        run: node --test '.github/scripts/*.test.mjs'
 
-  test:
+  # Fails a pull request that adds or updates a dependency with a known
+  # vulnerability. Licences are checked by `lint`, from the installed tree.
+  dependency-review:
+    name: Dependency review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/dependency-review-action@v5
+        with:
+          fail-on-severity: moderate
+          # The web apps bundle some of their development dependencies.
+          fail-on-scopes: runtime, development
+
+  desktop:
+    name: Desktop
+    needs: changes
+    if: needs.changes.outputs.desktop == 'true'
     # The platform Consola ships on, and the one the release workflow tests.
     runs-on: macos-15
     timeout-minutes: 30
@@ -42,15 +91,124 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v4
+      - uses: ./.github/actions/setup
         with:
-          node-version: 26.13.1
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter consola typecheck
-      # The site's demo runs the desktop renderer against a hand-written bridge,
-      # and its build does not typecheck: this is what notices a bridge it lacks.
-      - run: pnpm --filter @consola/website typecheck
-      - run: pnpm --filter @consola/cloud-api --filter @consola/cloud-region --filter @consola/cloud-web --filter @consola/sandbox typecheck
-      - run: pnpm --filter consola --filter @consola/factory-spec --filter @consola/cloud-api --filter @consola/cloud-region --filter @consola/cloud-web --filter @consola/sandbox test
+          install-scripts: true
+      # One step each: the desktop's typecheck and build both build the
+      # workspace packages it loads, so they must not run side by side.
+      - name: Typecheck
+        run: pnpm --filter consola typecheck
+      - name: Test
+        run: pnpm --filter consola test
+      - name: Build
+        run: pnpm --filter consola build
+
+  # Not yet one of the checks `CI` waits on: main has known failures. Once it
+  # passes on main, add it to `CI`'s needs so it blocks merges.
+  desktop-e2e:
+    name: Desktop E2E (${{ matrix.shard }}/2)
+    needs: changes
+    if: needs.changes.outputs.desktop == 'true'
+    runs-on: macos-15
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+        with:
+          install-scripts: true
+      - name: Build
+        run: pnpm --filter consola build
+      - name: Test
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: pnpm --filter consola exec playwright test --shard="$SHARD/2"
+      - name: Save the report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-e2e-report-${{ matrix.shard }}
+          retention-days: 7
+          path: |
+            apps/desktop/playwright-report
+            apps/desktop/test-results
+
+  website:
+    name: Website
+    needs: changes
+    if: needs.changes.outputs.website == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      # The site's demo runs the desktop renderer against a hand-written
+      # bridge, and Vercel's build does not typecheck: this is what notices a
+      # bridge it lacks.
+      - name: Typecheck
+        run: pnpm --filter @consola/website typecheck
+      # No pull request waits on Vercel's deploy, so this is the build that
+      # catches a broken site before it merges.
+      - name: Build
+        run: pnpm --filter @consola/website build
+      - name: Install Chromium
+        run: pnpm --filter @consola/website exec playwright install --with-deps chromium
+      - name: Test
+        run: pnpm --filter @consola/website test
+      - name: Save the report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: website-report
+          retention-days: 7
+          path: |
+            apps/website/playwright-report
+            apps/website/test-results
+
+  # Every other workspace package, one job each, so a new package is checked
+  # without being named here. Turborepo builds the packages a task depends on
+  # first (`dependsOn: ["^build"]` in turbo.json).
+  package:
+    name: ${{ matrix.package }}
+    needs: changes
+    if: needs.changes.outputs.packages != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        package: ${{ fromJSON(needs.changes.outputs.packages) }}
+    env:
+      PACKAGE: ${{ matrix.package }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - name: Typecheck
+        run: pnpm exec turbo run typecheck --filter="$PACKAGE" --env-mode=loose
+      - name: Test
+        run: pnpm exec turbo run test --filter="$PACKAGE" --env-mode=loose
+      - name: Build
+        run: pnpm exec turbo run build --filter="$PACKAGE" --env-mode=loose
+
+  ci:
+    name: CI
+    if: always()
+    needs: [changes, lint, dependency-review, desktop, website, package]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Every check that ran passed
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          echo "$NEEDS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          echo "$NEEDS" | jq -e 'all(.[]; .result == "success" or .result == "skipped")' > /dev/null

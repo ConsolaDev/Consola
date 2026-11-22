@@ -51,13 +51,37 @@ orchestrates builds, tests, and typechecking. Paths below beginning with `src/`,
 `pnpm --filter consola exec <tool>` for app-specific tools.
 
 Tooling runs on one exact Node version, named in three places that move
-together: `engines.node` (which Vercel reads), CI and the release build. Pin
+together: `engines.node` (which Vercel reads), CI's setup
+(`.github/actions/setup/action.yml`) and the release build. Pin
 an exact version, never a range: Vercel resolves a range to the newest major
 it offers, so a range can move the website onto a new Node unannounced.
 Node 26 ships without corepack, so `vercel.json`
 runs pnpm through `npx pnpm@<version>`: keep that version equal to
 `packageManager`. Electron bundles its own Node, so none of this changes the
 app's runtime.
+
+### CI
+
+CI (`.github/workflows/ci.yml`) runs a pull request's checks only where its
+change can fail them. `.github/scripts/ci-scope.mjs` asks Turborepo which
+packages the change affects (`turbo ls --affected`: the changed packages and
+every package that depends on them), and each job runs for those alone, so
+a change to one cloud app never starts the desktop's macOS jobs. A new
+workspace package gets its own job without the workflow naming it. The
+script also holds three rules the package graph cannot see:
+
+- A change to the desktop checks the website too, because the site's demo
+  imports the desktop's renderer by path, not as a dependency.
+- A change to CI itself, the root `package.json`, `pnpm-workspace.yaml`,
+  `turbo.json` or `patches/` checks everything.
+- A push to main checks everything.
+
+`CI`, the workflow's last job, is the one status check the main branch's
+ruleset requires. It passes when every job it waits on passed or was
+skipped. Desktop E2E runs but does not block a merge yet, because main has
+known failures. CodeQL (`codeql.yml`) and a dependency review run on every
+pull request, and the lint job checks every installed dependency's licence
+(`.github/scripts/check-licenses.mjs`).
 
 ## Architecture Overview
 
@@ -1043,7 +1067,9 @@ rules follow:
 - **A server people use over the network offers its source** (AGPL §13). The
   cloud web app links to the source of the version it is running.
 - **Dependencies must be AGPL-compatible**: MIT, ISC, BSD, Apache-2.0,
-  MPL-2.0, LGPL and GPL-3.0 are; GPL-2.0-only is not.
+  MPL-2.0, LGPL and GPL-3.0 are; GPL-2.0-only is not. CI checks every
+  installed dependency's declared licence against the list in
+  `.github/scripts/check-licenses.mjs`.
 
 Outside contributions need a signed CLA (`CLA.md`, checked by
 `.github/workflows/cla.yml`). It is what keeps relicensing — a commercial
