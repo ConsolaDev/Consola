@@ -16,7 +16,7 @@ import { decodeJwt, SignJWT } from 'jose';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
 import { DEV_PASS_SECONDS } from './adapters/devPass.ts';
 import { HOST_LINE_TYPES } from './adapters/stdoutEvents.ts';
-import { DEV_SESSION_ID, parseSessionArgs, UsageError } from './bin.ts';
+import { DEV_SESSION_ID, folderWarning, parseSessionArgs, UsageError } from './bin.ts';
 import { isolateMachine } from './testing/machine.ts';
 import { loadReplay, REPLAY_TITLE, sendMessage } from './testing/replay.ts';
 import { connectT3Client, hostSocketUrl } from './testing/t3Client.ts';
@@ -347,6 +347,14 @@ describe('consola-host session', () => {
         const ready = yield* host.next;
         const readyAt = Math.floor((yield* Clock.currentTimeMillis) / 1000);
         expect(ready).toEqual({ type: 'ready', port: expect.any(Number) });
+        // One human line on stderr, naming the folder, before anything started.
+        const warnings = host
+          .stderr()
+          .split('\n')
+          .filter((line) => line.startsWith('consola-host: warning:'));
+        expect(warnings).toEqual([folderWarning(cwd)]);
+        expect(folderWarning(cwd)).toMatch(/project settings and hooks with no trust prompt/);
+        expect(folderWarning(cwd)).toContain('refs/t3/orchestration-v2/checkpoints');
         const devPass = yield* host.next;
         expect(devPass).toMatchObject({ type: 'dev-pass', expiresInSeconds: 43_200 });
         const pass = devPass.pass as string;

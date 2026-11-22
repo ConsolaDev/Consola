@@ -428,6 +428,36 @@ or the session's instance cannot run it, t3's title generation fails, logs a
 warning, and the thread keeps the title seeded from the first message. t3's
 fallback to another provider's title model finds no other instance to use.
 
+### What a turn does on the person's machine
+
+A turn runs the person's CLI, as the person, in the session's folder. From t3's source:
+
+- **Claude loads the folder's settings and hooks, with no trust prompt.** A turn's Agent SDK
+  options (`apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.ts:2408-2489`) name no
+  `settingSources`, which the SDK reads as all of them (`sdk.d.ts`: "When omitted, all sources
+  are loaded"): user, project and local, so `.claude/settings.json` and
+  `.claude/settings.local.json` in the folder, hooks included, as t3 itself resolves them
+  (`settingSources: ["user", "project", "local"]`, `ClaudeAdapterV2.ts:5806`, `:5839`). Unlike
+  the capabilities probe and title generation, a turn does not set `disableAllHooks`. The SDK
+  shows no folder-trust dialog, so nothing asks whether the folder is trusted.
+- **t3 writes into the folder's git repository.** Before a run t3 captures a baseline
+  checkpoint (`orchestration-v2/RunExecutionService.ts:1055`, `CheckpointService.captureBaseline`),
+  and captures checkpoints as turns end (`orchestration-v2/CheckpointCaptureService.ts:143`); each stages the whole worktree into a temporary index, writes its
+  objects into the repository's object store and points a ref under
+  `refs/t3/orchestration-v2/checkpoints` at it (`CheckpointService.ts:35`,
+  `vcs/GitVcsDriver.ts:1177`). The folder's files and branches are not changed by it.
+- **A pass holder approves commands that run as the person.** In `approval-required` the CLI
+  asks before running a command or writing a file, and whoever holds the session's pass answers
+  from the chat. An approved command runs with the person's user, environment and login; Claude's
+  Bash is not confined to `--cwd` (the folder is the working directory and the file tools'
+  allowed root, not a sandbox).
+
+So `consola-host session` writes one human warning line on stderr as it starts, before any CLI
+runs (`folderWarning`, `bin.ts`): the folder's project settings and hooks will load with no
+trust prompt, and t3 writes checkpoint refs and objects into its git repository. The host does
+not check that the folder is trusted: giving it only trusted folders is Track A's check (spec
+§7.4, folder trust), made before a host is started.
+
 ### Stand-ins
 
 Everything in the composition is t3's own, but these. Each is the smallest
@@ -558,6 +588,10 @@ session's thread (`ThreadRuntime.open`), then listens (`listenHost`), so
   `{"type":"status","status":"working"|"waiting"|"idle"}` as they change, and
   `{"type":"exit","reason":"idle"}`. Every Effect log goes to stderr
   (`Logger.LogToStderr` over the whole program), and so does every error.
+- **The folder warning.** One line on stderr as it starts, once `--cwd` is known to be a folder
+  and before any CLI runs: `consola-host: warning: turns in <cwd> load its project settings and
+  hooks with no trust prompt (…), and t3 writes checkpoint refs (…) into its git repository.`
+  ("What a turn does", above).
 - **Status and title** follow `handle.snapshots()` (`reportSession`): a
   pending runtime request (an approval or a question, t3's
   `runtimeRequests[].status`) is `waiting`, an active run (t3's own
@@ -627,8 +661,10 @@ past that, or after a restart (the key pair is new each time), restart the host 
 with the new pass. The page names any parameter missing and never shows the pass, and takes
 `pass` out of its address as soon as it has read it (`history.replaceState`, keeping `host`,
 `session` and `theme`), so the pass is not left in the address bar or the history; a reload
-then names `pass` as missing, so open the URL with it again. Use a scratch
-`--cwd`: the chat can run tools there once approved. The dev page has no `onPassExpired`, so an
+then names `pass` as missing, so open the URL with it again. Point `--cwd` only at a folder
+you trust: Claude loads its project and local settings and their hooks with no trust prompt,
+t3 writes checkpoint refs and objects into its git repository, and a command you approve in the
+chat runs as you, not confined to that folder ("What a turn does on the person's machine"). The dev page has no `onPassExpired`, so an
 expired pass shows the chat's "host refused this chat's pass" notice.
 
 ## Licensing

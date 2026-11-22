@@ -219,6 +219,16 @@ const innermostMessage = (error: unknown): string => {
   return current instanceof Error ? current.message : String(current);
 };
 
+/**
+ * The one human line the host writes as it starts (on stderr, before any CLI runs): what a turn
+ * does to the session's folder (`AGENTS.md`, "What a turn does"). Only trusted folders should be
+ * given; checking that is the runner's (Track A), not the host's.
+ */
+export const folderWarning = (cwd: string): string =>
+  `consola-host: warning: turns in ${cwd} load its project settings and hooks with no trust ` +
+  `prompt (Claude: .claude/settings.json, .claude/settings.local.json), and t3 writes checkpoint ` +
+  `refs (refs/t3/orchestration-v2/checkpoints) and objects into its git repository.`;
+
 /** A state folder of the session's own, removed when the session stops. */
 const temporaryStateDir = Effect.acquireRelease(
   Effect.sync(() => mkdtempSync(join(tmpdir(), 'consola-host-state-'))),
@@ -275,6 +285,7 @@ export const runSession = (
     const cellKey =
       args.access.type === 'key' ? yield* readPassKey(args.access.publicKeyFile) : null;
     yield* folderMustExist(args.spec.cwd);
+    yield* Effect.sync(() => process.stderr.write(`${folderWarning(args.spec.cwd)}\n`));
     const stateDir = args.stateDir ?? (yield* temporaryStateDir);
     const handle = yield* Effect.gen(function* () {
       const runtime = yield* ThreadRuntime.ThreadRuntime;
