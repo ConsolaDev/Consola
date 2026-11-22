@@ -714,6 +714,34 @@ export function quoteReply(body: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// What the head says of the item's reads.
+
+/** What the pane's head says of a read of the item that failed. */
+export function readFailureMessage(error: string): string {
+  return `Could not refresh details: ${error}`;
+}
+
+/** A read failure the head said: its words, and when the read failed (the entry's `errorAt`). */
+export interface SaidReadFailure {
+  message: string;
+  at: number;
+}
+
+/**
+ * The head's error once the item's last good read is at `fetchedAt`. The read
+ * failure it said no longer holds once a read after it succeeds, so it goes;
+ * whatever the head says instead by then stays: a write's error, a refusal,
+ * or nothing once the person dismissed it.
+ */
+export function errorAfterRead(
+  shown: string,
+  said: SaidReadFailure | null,
+  fetchedAt: number,
+): string {
+  return said && fetchedAt > said.at && shown === said.message ? '' : shown;
+}
+
+// ---------------------------------------------------------------------------
 // The merge card.
 
 export interface MergeRow {

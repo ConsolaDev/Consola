@@ -5,12 +5,14 @@ import {
   checksSentence,
   commentAge,
   diffBlocks,
+  errorAfterRead,
   fileStatus,
   isFailingCheck,
   itemStatus,
   mergeGate,
   mergeStateMeta,
   parsePatch,
+  readFailureMessage,
   reviewMeta,
   reviewVerb,
   sortChecks,
@@ -146,6 +148,28 @@ describe('conversation', () => {
     expect(commentAge('2026-08-01T09:00:00Z', now)).toMatch(/Aug/);
     expect(commentAge('', now)).toBe('');
     expect(commentAge('not a date', now)).toBe('');
+  });
+});
+
+describe('the head on reads', () => {
+  const said = { message: readFailureMessage('rate limited'), at: 100 };
+  const writeError = 'GitHub rejected this action: repository rules are not satisfied.';
+
+  it('says a failed read in its own words', () => {
+    expect(readFailureMessage('rate limited')).toBe('Could not refresh details: rate limited');
+  });
+
+  it('takes back the read failure it said once a later read succeeds, and not before', () => {
+    expect(errorAfterRead(said.message, said, 150)).toBe('');
+    expect(errorAfterRead(said.message, said, 100)).toBe(said.message);
+    expect(errorAfterRead(said.message, said, 50)).toBe(said.message);
+  });
+
+  it('keeps whatever it says instead: a write’s error, or nothing once dismissed', () => {
+    expect(errorAfterRead(writeError, said, 150)).toBe(writeError);
+    expect(errorAfterRead('', said, 150)).toBe('');
+    // No read failure said, none to take back.
+    expect(errorAfterRead(writeError, null, 150)).toBe(writeError);
   });
 });
 

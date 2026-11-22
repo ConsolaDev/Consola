@@ -20,7 +20,13 @@ import {
 } from '../../stores/workItemDetailsStore';
 import type { RevealTarget } from '../../infoPanel/pullRequestLines';
 import { ipcErrorMessage } from '../../utils/ipcErrorMessage';
-import { conversationCount, quoteReply } from './workItemDetailPresentation';
+import {
+  conversationCount,
+  errorAfterRead,
+  quoteReply,
+  readFailureMessage,
+  type SaidReadFailure,
+} from './workItemDetailPresentation';
 import {
   BranchPair,
   DiffCounts,
@@ -148,23 +154,32 @@ export function WorkItemDetailPanel({
     const answer = await useWorkItemDetailsStore.getState().load(target, { force: true, quiet });
     if (!quiet && answer.error && alive.current) {
       setMessageAt('head');
-      setError(`Could not refresh details: ${answer.error}`);
+      setError(readFailureMessage(answer.error));
     }
     return answer.details ?? null;
   }
 
   // A failed read the pane did not start (the one watching starts, a
   // re-check, another viewer's Refresh) is said here as `refresh` says its
-  // own. One that failed before the pane mounted is not news.
+  // own. One that failed before the pane mounted is not news. Each one said
+  // is remembered, so a later good read, whoever asked for it, takes it back.
   const failedAt = entry?.errorAt;
   const failure = entry?.error;
+  const fetchedAt = entry?.fetchedAt ?? 0;
   const shownFailureAt = useRef(failedAt);
+  const saidFailure = useRef<SaidReadFailure | null>(null);
   useEffect(() => {
     if (!failedAt || failedAt === shownFailureAt.current) return;
     shownFailureAt.current = failedAt;
+    const message = readFailureMessage(failure ?? '');
+    saidFailure.current = { message, at: failedAt };
     setMessageAt('head');
-    setError(`Could not refresh details: ${failure}`);
+    setError(message);
   }, [failedAt, failure]);
+  useEffect(() => {
+    const said = saidFailure.current;
+    if (said) setError((shown) => errorAfterRead(shown, said, fetchedAt));
+  }, [fetchedAt]);
 
   // Every fresh read, whoever asked for it.
   useEffect(() => {
