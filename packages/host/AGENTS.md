@@ -553,6 +553,25 @@ pnpm --filter @consola/host typecheck   # effect-tsgo, hoisted by publicHoistPat
 node packages/host/src/bin.ts session --dev --harness claude --cwd <folder>   # from the repo root
 ```
 
+### Running it with the chat
+
+`packages/agent-ui`'s dev page renders `AgentChat` full-window against a host on this Mac, with
+the person's own signed-in `claude`. Two commands, from the repository root, in two terminals:
+
+```bash
+node packages/host/src/bin.ts session --dev --session-id demo-1 --harness claude --cwd <folder>
+pnpm --filter @consola/agent-ui dev      # http://localhost:5176
+```
+
+Open `http://localhost:5176/?host=ws://127.0.0.1:7420&pass=<dev-pass>&session=<session-id>`
+(`&theme=dark|light` optional; it defaults to the system's). `host` is the `--port` (default
+7420), `session` is the `--session-id`, and `<dev-pass>` is the `pass` of the `dev-pass` line the
+host prints on stdout after `ready`. It is a dev pass, valid 12 hours (`expiresInSeconds` 43200);
+past that, or after a restart (the key pair is new each time), restart the host and open the URL
+with the new pass. The page names any parameter missing and never shows the pass. Use a scratch
+`--cwd`: the chat can run tools there once approved. The dev page has no `onPassExpired`, so an
+expired pass shows the chat's "host refused this chat's pass" notice.
+
 ## Licensing
 
 `@consola/host` is AGPL-3.0-only, Consola's own code. The vendored packages keep

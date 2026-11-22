@@ -17,6 +17,7 @@
     "LICENSE"
   ],
   "scripts": {
+    "dev": "vp dev dev --config vite.config.ts --port 5176",
     "build": "vp build",
     "typecheck": "node build/typecheck.ts",
     "check:css": "node build/checkBuiltCss.ts",
