@@ -29,8 +29,9 @@ afterEach(() => {
 
 function deps(platform: NodeJS.Platform = 'darwin') {
   const execFile = vi.fn(async (_file: string, _args: string[]) => {});
-  const all: OpenFactoryFileDeps = { platform, execFile };
-  return { all, execFile };
+  const reveal = vi.fn((_file: string) => {});
+  const all: OpenFactoryFileDeps = { platform, execFile, reveal };
+  return { all, execFile, reveal };
 }
 
 const write = (relative: string, text = 'You review.\n', mode = 0o644) => {
@@ -52,20 +53,25 @@ describe('openFactoryFile', () => {
     'skills/triage/SKILL.md',
   ])('opens %s as text on macOS: `open -t`, through execFile', async (relative) => {
     const file = write(relative);
-    const { all, execFile } = deps('darwin');
+    const { all, execFile, reveal } = deps('darwin');
     await openFactoryFile(folder, file, relative, all);
     expect(execFile).toHaveBeenCalledWith('/usr/bin/open', ['-t', file]);
   });
 
   it.each(['linux', 'win32'] as const)(
-    'on %s opens nothing, and gives the path to open in an editor',
+    'on %s launches nothing: it shows the file in its folder (review M2)',
     async (platform) => {
       const file = write('agents/reviewer.md');
-      const { all, execFile } = deps(platform);
-      await expect(openFactoryFile(folder, file, 'agents/reviewer.md', all)).rejects.toThrow(
-        `Open it in your editor: ${file}`,
-      );
+      const { all, execFile, reveal } = deps(platform);
+      await openFactoryFile(folder, file, 'agents/reviewer.md', all);
+      expect(reveal).toHaveBeenCalledWith(file);
       expect(execFile).not.toHaveBeenCalled();
+      // A link is shown as the real file it leads to, never the link.
+      const link = path.join(folder, 'agents', 'second.md');
+      fs.symlinkSync(file, link);
+      const second = deps(platform);
+      await openFactoryFile(folder, link, 'agents/second.md', second.all);
+      expect(second.reveal).toHaveBeenCalledWith(file);
     },
   );
 
@@ -73,7 +79,7 @@ describe('openFactoryFile', () => {
     const target = write('agents/reviewer.md');
     const link = path.join(folder, 'agents', 'second.md');
     fs.symlinkSync(target, link);
-    const { all, execFile } = deps('darwin');
+    const { all, execFile, reveal } = deps('darwin');
     await openFactoryFile(folder, link, 'agents/second.md', all);
     expect(execFile).toHaveBeenCalledWith('/usr/bin/open', ['-t', target]);
   });
@@ -82,7 +88,7 @@ describe('openFactoryFile', () => {
     const file = write('agents/reviewer.md');
     const linkedFolder = path.join(base, 'linked-ws');
     fs.symlinkSync(folder, linkedFolder);
-    const { all, execFile } = deps('darwin');
+    const { all, execFile, reveal } = deps('darwin');
     await openFactoryFile(
       linkedFolder,
       path.join(linkedFolder, 'agents', 'reviewer.md'),
@@ -101,11 +107,12 @@ describe('openFactoryFile', () => {
     const link = path.join(folder, 'agents', 'reviewer.md');
     fs.symlinkSync(outside, link);
     for (const platform of ['darwin', 'linux', 'win32'] as const) {
-      const { all, execFile } = deps(platform);
+      const { all, execFile, reveal } = deps(platform);
       await expect(openFactoryFile(folder, link, 'agents/reviewer.md', all)).rejects.toThrow(
         `Not opened: \`agents/reviewer.md\` ${OUTSIDE}`,
       );
       expect(execFile).not.toHaveBeenCalled();
+      expect(reveal).not.toHaveBeenCalled();
     }
   });
 
@@ -114,11 +121,12 @@ describe('openFactoryFile', () => {
     fs.mkdirSync(path.join(app, 'Contents'), { recursive: true });
     const link = path.join(folder, 'agents', 'reviewer.md');
     fs.symlinkSync(app, link);
-    const { all, execFile } = deps('darwin');
+    const { all, execFile, reveal } = deps('darwin');
     await expect(openFactoryFile(folder, link, 'agents/reviewer.md', all)).rejects.toThrow(
       `Not opened: \`agents/reviewer.md\` ${OUTSIDE}`,
     );
     expect(execFile).not.toHaveBeenCalled();
+    expect(reveal).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -135,35 +143,38 @@ describe('openFactoryFile', () => {
       const target = write(relative, '#!/bin/sh\necho owned\n', 0o755);
       const link = path.join(folder, 'agents', 'reviewer.md');
       fs.symlinkSync(target, link);
-      const { all, execFile } = deps('darwin');
+      const { all, execFile, reveal } = deps('darwin');
       await expect(openFactoryFile(folder, link, 'agents/reviewer.md', all)).rejects.toThrow(
         `Not opened: \`agents/reviewer.md\` leads to \`${relative}\`. ${NOT_OWN}`,
       );
       expect(execFile).not.toHaveBeenCalled();
+      expect(reveal).not.toHaveBeenCalled();
     },
   );
 
   it("refuses a file in the folder named as none of the factory's own, link or not", async () => {
     const file = write('agents/evil.command', '#!/bin/sh\necho owned\n', 0o755);
-    const { all, execFile } = deps('darwin');
+    const { all, execFile, reveal } = deps('darwin');
     await expect(openFactoryFile(folder, file, 'agents/evil.command', all)).rejects.toThrow(
       `Not opened: \`agents/evil.command\` leads to \`agents/evil.command\`. ${NOT_OWN}`,
     );
     expect(execFile).not.toHaveBeenCalled();
+    expect(reveal).not.toHaveBeenCalled();
   });
 
   it('refuses what is not a regular file, at one of the factory paths too', async () => {
     const dir = path.join(folder, 'agents', 'reviewer.md');
     fs.mkdirSync(dir);
-    const { all, execFile } = deps('darwin');
+    const { all, execFile, reveal } = deps('darwin');
     await expect(openFactoryFile(folder, dir, 'agents/reviewer.md', all)).rejects.toThrow(
       "Not opened: `agents/reviewer.md` is not a regular file; Open shows only the folder's own text files.",
     );
     expect(execFile).not.toHaveBeenCalled();
+    expect(reveal).not.toHaveBeenCalled();
   });
 
   it('says a file that is gone, or a link whose target is gone, is not there', async () => {
-    const { all, execFile } = deps('darwin');
+    const { all, execFile, reveal } = deps('darwin');
     await expect(
       openFactoryFile(folder, path.join(folder, 'agents', 'gone.md'), 'agents/gone.md', all),
     ).rejects.toThrow('That file is not there any more.');
@@ -173,15 +184,17 @@ describe('openFactoryFile', () => {
       'That file is not there any more.',
     );
     expect(execFile).not.toHaveBeenCalled();
+    expect(reveal).not.toHaveBeenCalled();
   });
 
   it('refuses a path outside the folder that is not a link at all', async () => {
     const outside = path.join(base, 'elsewhere.md');
     fs.writeFileSync(outside, 'x\n');
-    const { all, execFile } = deps('darwin');
+    const { all, execFile, reveal } = deps('darwin');
     await expect(openFactoryFile(folder, outside, 'agents/elsewhere.md', all)).rejects.toThrow(
       `Not opened: \`agents/elsewhere.md\` ${OUTSIDE}`,
     );
     expect(execFile).not.toHaveBeenCalled();
+    expect(reveal).not.toHaveBeenCalled();
   });
 });

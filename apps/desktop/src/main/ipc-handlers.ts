@@ -23,6 +23,7 @@ import {
   protocol,
   screen as electronScreen,
   session as electronSession,
+  shell,
   webContents as electronWebContents,
 } from 'electron';
 import type { BrowserStateFile } from '../shared/browser';
@@ -2442,6 +2443,7 @@ export function setupIpcHandlers(): boolean {
           new Promise<void>((resolve, reject) =>
             execFile(program, args, (error) => (error ? reject(error) : resolve())),
           ),
+        reveal: (file) => shell.showItemInFolder(file),
       });
     },
   );

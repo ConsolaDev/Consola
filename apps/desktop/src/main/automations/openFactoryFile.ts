@@ -7,6 +7,8 @@ export interface OpenFactoryFileDeps {
   platform: NodeJS.Platform;
   /** Runs a program with its arguments, never through a shell: macOS's `/usr/bin/open -t`. */
   execFile: (file: string, args: string[]) => Promise<void>;
+  /** Shows a file in its folder in the OS's file manager, opening nothing: Electron's `shell.showItemInFolder`. */
+  reveal: (file: string) => void;
 }
 
 const GONE = 'That file is not there any more.';
@@ -29,9 +31,9 @@ function errorCode(error: unknown): string | undefined {
  * (`locateInFolder`), and only a regular file whose real path is one of the
  * factory's own files (what its reader reads, by `FactoryFolder.pathOf`'s
  * rule) inside the folder's real path opens, and only as text: `/usr/bin/open -t` on
- * macOS, through `execFile`, never a shell.
- * Nothing goes to the default handler: elsewhere the person is given the
- * path to open in their editor.
+ * macOS, through `execFile`, never a shell. Nothing goes to the default
+ * handler: elsewhere the file is shown in its folder (`reveal`), which
+ * launches nothing, for the person to open in their editor.
  */
 export async function openFactoryFile(
   folderPath: string,
@@ -65,6 +67,9 @@ export async function openFactoryFile(
       `Not opened: \`${relative}\` is not a regular file; Open shows only the folder's own text files.`,
     );
   }
-  if (deps.platform !== 'darwin') throw new Error(`Open it in your editor: ${real}`);
+  if (deps.platform !== 'darwin') {
+    deps.reveal(real);
+    return;
+  }
   await deps.execFile(MAC_OPEN, ['-t', real]);
 }
