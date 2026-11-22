@@ -55,7 +55,12 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { exec } from 'node:child_process';
 import { TerminalManager } from './TerminalManager';
-import { SessionLauncher, launchFieldsFor, recordLaunchFields } from './SessionLauncher';
+import {
+  SessionLauncher,
+  automationRecordLaunch,
+  launchFieldsFor,
+  recordLaunchFields,
+} from './SessionLauncher';
 import { fanOut } from './fanOut';
 import { listScopeRepos } from './scopeRepos';
 import { runHeadless } from './drivers/ClaudeDriver';
@@ -112,7 +117,7 @@ import {
   toTurnReportView,
   toWorkspaceView,
 } from './automations/engineViews';
-import { agentHarnessView } from './automations/agentHarness';
+import { agentHarnessView, cachedModels } from './automations/agentHarness';
 import {
   launchAgentRun,
   runningIn,
@@ -2116,6 +2121,7 @@ export function setupIpcHandlers(): boolean {
           ...itemWorktreeDeps,
           restoreGroup: (id, groupId) => workspaces.restoreGroup(id, groupId),
           launchSession: (workspaceId, fields) => launcher.launchSession(workspaceId, fields),
+          harnesses: () => harnesses.getAll(),
         },
         request,
       ),
@@ -2128,11 +2134,15 @@ export function setupIpcHandlers(): boolean {
     remindAgent: (session, prompt, maxTurns) =>
       launcher.relaunchUnattended(session.workspaceId, session.id, prompt, { maxTurns }),
     hasLiveTerminal: (session) => automationTerminal(session.id)?.hasClaudeExited() === false,
-    agentHarness: (workspaceId) => {
+    agentHarness: (workspaceId, agent) => {
       const workspace = workspaces.getAll().find((candidate) => candidate.id === workspaceId);
-      return agentHarnessView(
-        harnesses.getAll().find((candidate) => candidate.id === workspace?.defaultHarnessId),
-      );
+      return agentHarnessView({
+        harnesses: harnesses.getAll(),
+        defaultHarnessId: workspace?.defaultHarnessId,
+        agent,
+        // Only an answer the cache already holds: applying never starts a probe.
+        modelsOf: (harness) => cachedModels(harnessCapabilitiesCache, harness),
+      });
     },
     stopAgent: (session, reason) =>
       automationTerminal(session.id)?.stopUnattendedTurn(reason) ?? false,
@@ -2540,6 +2550,9 @@ export function setupIpcHandlers(): boolean {
         toolPolicy: record?.toolPolicy,
         // The same for whether its unattended turns report, and its cap.
         ...recordLaunchFields(record),
+        // And an automation's session reopens on its record's harness and
+        // model (a step's agent's), whatever the window sends.
+        ...automationRecordLaunch(record, harnesses.getAll()),
         // So a conversation a harness switch began, never yet spoken in,
         // opens the way it began rather than blank.
         opening: record && openingFor(record),

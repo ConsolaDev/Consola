@@ -110,6 +110,32 @@ export function recordLaunchFields(
 }
 
 /**
+ * For an automation's session, what its record says it launches on: its
+ * model and its harness's launch fields, every key present so a spread
+ * replaces whatever a window sent; {} for any other session. A step's reopen
+ * then runs on its agent's harness and model, whatever the window holds.
+ */
+export function automationRecordLaunch(
+  record: Pick<Session, 'automation' | 'model' | 'harnessId'> | undefined,
+  harnesses: readonly Harness[],
+): Partial<
+  Pick<
+    TerminalServiceOptions,
+    'model' | 'driverId' | 'binaryOverride' | 'configDirOverride' | 'extraArgs'
+  >
+> {
+  if (!record?.automation) return {};
+  const fields = launchFieldsFor(harnesses.find((candidate) => candidate.id === record.harnessId));
+  return {
+    model: record.model,
+    driverId: fields.driverId,
+    binaryOverride: fields.binaryOverride,
+    configDirOverride: fields.configDirOverride,
+    extraArgs: fields.extraArgs,
+  };
+}
+
+/**
  * Makes a session's checkout exist before it spawns: a worktree a cleanup
  * rule removed is rebuilt (`WorktreeRebuilder.ensureCheckout`). Returns a
  * line for the pane, and throws with one when it cannot.

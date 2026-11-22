@@ -197,6 +197,68 @@ describe('reporting step turns', () => {
     ).not.toThrow();
   });
 
+  it("a model the step sets makes the harness's own --model a step problem too", () => {
+    const pinned: HarnessConfig = { extraArgs: ['--model', 'sonnet'] };
+    // A step without a model compiles none, so the harness's own is left alone.
+    expect(driver.stepTurnProblem(pinned)).toBeNull();
+    expect(driver.stepTurnProblem(pinned, { model: false })).toBeNull();
+    expect(driver.stepTurnProblem(pinned, { model: true })).toBe(
+      "This harness's extra arguments set `--model`, which would override what Consola launches each step's turn with. Remove it in Settings › Harnesses.",
+    );
+    expect(
+      driver.stepTurnProblem(
+        { extraArgs: ['--model=sonnet', '--max-turns', '5'] },
+        { model: true },
+      ),
+    ).toBe(
+      "This harness's extra arguments set `--model` and `--max-turns`, which would override what Consola launches each step's turn with. Remove them in Settings › Harnesses.",
+    );
+    expect(stepTurnProblem({ extraArgs: ['--model', 'sonnet'] }, { model: true })).toContain(
+      '`--model`',
+    );
+    expect(stepTurnProblem({ extraArgs: ['--model', 'sonnet'] })).toBeNull();
+    expect(
+      stepTurnProblem({ driverId: 'codex', extraArgs: ['--model', 'x'] }, { model: true }),
+    ).toBeNull();
+  });
+
+  it('buildSessionArgs refuses a reporting turn with a model on a harness that pins its own', () => {
+    const pinned: HarnessConfig = { extraArgs: ['--model', 'sonnet'] };
+    expect(() =>
+      driver.buildSessionArgs(pinned, { ...turn, reportTurn: true, model: 'opus' }),
+    ).toThrow(
+      "This harness's extra arguments set `--model`, which would override what Consola launches each step's turn with. Remove it in Settings › Harnesses.",
+    );
+    // Without a model, the harness's own still wins, as it always has.
+    expect(driver.buildSessionArgs(pinned, { ...turn, reportTurn: true })).toEqual([
+      '-p',
+      '--session-id',
+      's1',
+      '--settings',
+      HOOKS,
+      '--output-format',
+      'stream-json',
+      '--verbose',
+      ...READ_ONLY,
+      '--model',
+      'sonnet',
+      '--',
+      'p',
+    ]);
+    // An interactive launch with a model is never refused: the person's own reopen.
+    expect(() =>
+      driver.buildSessionArgs(pinned, { ...turn, unattended: undefined, model: 'opus' }),
+    ).not.toThrow();
+    expect(() =>
+      driver.buildSessionArgs(pinned, {
+        ...turn,
+        unattended: undefined,
+        reportTurn: true,
+        model: 'opus',
+      }),
+    ).not.toThrow();
+  });
+
   it('asks the driver of the harness, and a driver without the method has nothing to say', () => {
     expect(stepTurnProblem({ driverId: 'claude', extraArgs: ['--output-format', 'text'] })).toBe(
       "This harness's extra arguments set `--output-format`, which would override what Consola launches each step's turn with. Remove it in Settings › Harnesses.",

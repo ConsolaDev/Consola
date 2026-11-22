@@ -365,7 +365,7 @@ export class ClaudeDriver implements HarnessDriver {
     if (launch.unattended && launch.reportTurn) {
       // A harness edited after its run was queued: fail the step rather
       // than launch a turn whose report or cap its extra args replace.
-      const overridden = this.stepTurnProblem(config);
+      const overridden = this.stepTurnProblem(config, { model: Boolean(launch.model) });
       if (overridden) throw new Error(overridden);
     }
     const base = launch.resume
@@ -421,8 +421,12 @@ export class ClaudeDriver implements HarnessDriver {
     return looseningProblem(namedFlags(config.extraArgs, LOOSENING_FLAGS));
   }
 
-  public stepTurnProblem(config: HarnessConfig): string | null {
-    const flags = namedFlags(config.extraArgs, STEP_TURN_FLAGS);
+  public stepTurnProblem(config: HarnessConfig, compiled?: { model?: boolean }): string | null {
+    // A step that sets no model compiles none, so the harness's own `--model` is left to win.
+    const flags = namedFlags(
+      config.extraArgs,
+      compiled?.model ? ['--model', ...STEP_TURN_FLAGS] : STEP_TURN_FLAGS,
+    );
     if (flags.length === 0) return null;
     return (
       `This harness's extra arguments set ${namedList(flags)}, which would override what ` +

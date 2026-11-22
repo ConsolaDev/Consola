@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { StartedByHandError } from '@consola/automation-engine';
+import { StartedByHandError, type AgentLaunchRequest } from '@consola/automation-engine';
+import type { Harness } from '../../shared/harness';
 import type { Session, Workspace } from '../../shared/workspace';
 import type { GitProviderDriver } from '../providers/GitProviderDriver';
 import {
@@ -45,6 +46,30 @@ function workspace(): Workspace {
   } as Workspace;
 }
 
+function harnessRecord(fields: Partial<Harness>): Harness {
+  return {
+    id: 'work',
+    driverId: 'claude',
+    name: 'Work',
+    accentColor: '#888888',
+    enabled: true,
+    archived: false,
+    isBuiltIn: false,
+    extraArgs: [],
+    createdAt: 0,
+    updatedAt: 0,
+    ...fields,
+  };
+}
+
+/** The harness records every launch here can see: the workspace's default `work`, and three an agent may name. */
+const HARNESSES: Harness[] = [
+  harnessRecord({ id: 'work' }),
+  harnessRecord({ id: 'claude-work', name: 'Claude work' }),
+  harnessRecord({ id: 'old', name: 'Old', archived: true }),
+  harnessRecord({ id: 'off', name: 'Off', enabled: false }),
+];
+
 function deps(overrides: Partial<AgentLaunchDeps> = {}) {
   const launchSession = vi.fn(
     async (_id: string, fields: { name: string }) => ({ id: 's-1', name: fields.name }) as Session,
@@ -63,6 +88,7 @@ function deps(overrides: Partial<AgentLaunchDeps> = {}) {
     worktreeInUse: vi.fn(() => false),
     composeEnv: async () => ({ GH_TOKEN: 'token' }),
     restoreGroup: vi.fn(),
+    harnesses: () => HARNESSES,
     ...overrides,
     // Last, and never overridden: the tests read its calls.
     launchSession,
@@ -311,6 +337,114 @@ describe('launchAgentRun', () => {
     await expect(refused).rejects.toMatchObject({ sessionName: 'My review' });
     expect(d.launchSession).toHaveBeenCalledTimes(1);
     expect(d.ensureWorktree).not.toHaveBeenCalled();
+  });
+
+  describe("a step's agent", () => {
+    /** A scheduled step on sprocket's catalog-portal, its agent as given. */
+    const agentStep = (agent?: NonNullable<AgentLaunchRequest['step']>['agent']) => ({
+      workspaceId: 'ws-1',
+      run: { id: 'run-3', automation: 'catalog-review' },
+      prompt: 'Look.',
+      step: {
+        id: 'look',
+        attempt: 1,
+        cwd: '/code/api',
+        scopeId: 'scope-api',
+        name: 'catalog-review · look',
+        ...(agent ? { agent } : {}),
+      },
+    });
+    const fieldsOf = (d: ReturnType<typeof deps>) => d.launchSession.mock.calls[0][1];
+
+    it('launches on the harness it names, with its model, read-only', async () => {
+      const d = deps();
+      await launchAgentRun(
+        d,
+        agentStep({
+          name: 'reviewer',
+          harnessId: 'claude-work',
+          model: 'opus',
+          mcpServers: [],
+          skills: [],
+        }),
+      );
+      expect(fieldsOf(d)).toMatchObject({
+        harnessId: 'claude-work',
+        model: 'opus',
+        toolPolicy: 'read-only',
+        unattended: true,
+      });
+    });
+
+    it("an agent with no harness runs on the workspace's default, with its model", async () => {
+      const d = deps();
+      await launchAgentRun(
+        d,
+        agentStep({ name: 'summariser', model: 'haiku', mcpServers: [], skills: [] }),
+      );
+      expect(fieldsOf(d)).toMatchObject({ harnessId: 'work', model: 'haiku' });
+    });
+
+    it('an agent with no model sets none', async () => {
+      const d = deps();
+      await launchAgentRun(
+        d,
+        agentStep({ name: 'reviewer', harnessId: 'claude-work', mcpServers: [], skills: [] }),
+      );
+      expect(fieldsOf(d)).toMatchObject({ harnessId: 'claude-work' });
+      expect(fieldsOf(d)).not.toHaveProperty('model');
+    });
+
+    it("a step without an agent is slice 1's: the default harness, and no model", async () => {
+      const d = deps();
+      await launchAgentRun(d, agentStep());
+      expect(fieldsOf(d)).toMatchObject({ harnessId: 'work' });
+      expect(Object.prototype.hasOwnProperty.call(fieldsOf(d), 'model')).toBe(false);
+    });
+
+    it.each([
+      [
+        'nope',
+        "It did not start: `nope` is not one of Consola's harnesses: add it in Settings › Harnesses, or change `harness:`.",
+      ],
+      ['old', 'It did not start: `old` is archived: change `harness:` to a harness in use.'],
+      [
+        'off',
+        'It did not start: `off` is turned off: turn it on in Settings › Harnesses, or change `harness:`.',
+      ],
+    ])('a harness it can no longer run on (%s) starts nothing', async (harnessId, words) => {
+      const d = deps();
+      await expect(
+        launchAgentRun(
+          d,
+          agentStep({ name: 'reviewer', harnessId, model: 'opus', mcpServers: [], skills: [] }),
+        ),
+      ).rejects.toThrow(words);
+      expect(d.launchSession).not.toHaveBeenCalled();
+    });
+
+    it('an agent that names a server or a skill starts nothing: none is ever silently dropped', async () => {
+      for (const agent of [
+        {
+          name: 'investigator',
+          harnessId: 'claude-work',
+          mcpServers: [{ name: 'notion' }],
+          skills: [],
+        },
+        {
+          name: 'investigator',
+          harnessId: 'claude-work',
+          mcpServers: [],
+          skills: ['incident-triage'],
+        },
+      ]) {
+        const d = deps();
+        await expect(launchAgentRun(d, agentStep(agent))).rejects.toThrow(
+          'It did not start: Servers and skills for agents arrive with the next update.',
+        );
+        expect(d.launchSession).not.toHaveBeenCalled();
+      }
+    });
   });
 
   it('starts a scheduled run in its scope, with no item', async () => {

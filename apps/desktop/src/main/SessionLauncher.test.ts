@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import { SessionOpenedError } from '@consola/automation-engine';
 import {
   SessionLauncher,
+  automationRecordLaunch,
   recordLaunchFields,
   reportTurnsFor,
   type ExistingTerminal,
@@ -856,6 +857,58 @@ describe('SessionLauncher', () => {
         expect(recordLaunchFields(record)).toStrictEqual(expected);
       },
     );
+
+    it("automationRecordLaunch: an automation's session reopens on its record's harness and model", () => {
+      const harnesses: Harness[] = [
+        {
+          id: 'claude-work',
+          driverId: 'claude',
+          name: 'Claude work',
+          accentColor: '#888888',
+          enabled: true,
+          archived: false,
+          isBuiltIn: false,
+          binaryPath: '/opt/claude/bin/claude',
+          configDir: '/home/alice/.claude-work',
+          extraArgs: ['--verbose'],
+          createdAt: 0,
+          updatedAt: 0,
+        },
+      ];
+      expect(
+        automationRecordLaunch(
+          { automation: STEP, model: 'opus', harnessId: 'claude-work' },
+          harnesses,
+        ),
+      ).toStrictEqual({
+        model: 'opus',
+        driverId: 'claude',
+        binaryOverride: '/opt/claude/bin/claude',
+        configDirOverride: '/home/alice/.claude-work',
+        extraArgs: ['--verbose'],
+      });
+      // Every key its own, so a spread replaces whatever a window sent.
+      const noModel = automationRecordLaunch(
+        { automation: STEP, model: undefined, harnessId: 'claude-work' },
+        harnesses,
+      );
+      expect(Object.prototype.hasOwnProperty.call(noModel, 'model')).toBe(true);
+      expect(noModel.model).toBeUndefined();
+      // A harness no record names any more: every field empty, so the window's go too.
+      expect(
+        automationRecordLaunch({ automation: STEP, model: 'opus', harnessId: 'gone' }, harnesses),
+      ).toStrictEqual({
+        model: 'opus',
+        driverId: undefined,
+        binaryOverride: undefined,
+        configDirOverride: undefined,
+        extraArgs: undefined,
+      });
+      expect(
+        automationRecordLaunch({ model: 'opus', harnessId: 'claude-work' }, harnesses),
+      ).toStrictEqual({});
+      expect(automationRecordLaunch(undefined, harnesses)).toStrictEqual({});
+    });
 
     it('reportTurnsFor: only an automation step’s session reports', () => {
       expect(reportTurnsFor({ automation: STEP })).toBe(true);

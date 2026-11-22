@@ -74,8 +74,10 @@ export interface HarnessDriver {
    * turn is launched with; null when they would not. A driver that offers
    * `createTurnReader` and compiles flags into a step's turn says so here,
    * and `buildSessionArgs` refuses such a turn in the same words.
+   * `compiled.model`: the turn sets a model (its agent's), so the driver's
+   * model flag is one of those flags; a turn without one compiles none.
    */
-  stepTurnProblem?(config: HarnessConfig): string | null;
+  stepTurnProblem?(config: HarnessConfig, compiled?: { model?: boolean }): string | null;
 
   /** Deliver the opening prompt through argv instead of waiting on the TUI. */
   readonly initialPromptViaArgs?: boolean;

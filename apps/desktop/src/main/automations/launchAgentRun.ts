@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import type { GitProviderId } from '../../shared/providers';
 import type { WorkItemRef } from '../../shared/workItems';
 import { sameWorkItem, workItemKey } from '../../shared/workItems';
+import type { Harness } from '../../shared/harness';
 import { generateSessionInstanceId, type Session, type Workspace } from '../../shared/workspace';
 import type { GitProviderDriver } from '../providers/GitProviderDriver';
 import {
@@ -14,6 +15,7 @@ import {
 } from '../providers/launchWorkItem';
 import { withoutGitHooks } from '../gitHooks';
 import type { LaunchSessionFields } from '../SessionLauncher';
+import { agentHarnessRefusal, SERVERS_AND_SKILLS_LATER } from './agentHarness';
 import { toWorkItemRef } from './engineViews';
 
 export { withoutGitHooks };
@@ -32,6 +34,8 @@ export interface AgentLaunchDeps {
   composeEnv(driver: GitProviderDriver, accountLogin: string): Promise<NodeJS.ProcessEnv>;
   restoreGroup(workspaceId: string, groupId: string): void;
   launchSession(workspaceId: string, fields: LaunchSessionFields): Promise<Session>;
+  /** Every harness record, archived and turned-off ones included: a step's agent names one by id. */
+  harnesses(): readonly Harness[];
 }
 
 /**
@@ -187,10 +191,21 @@ export async function launchAgentRun(
   const workspace = deps.getWorkspace(request.workspaceId);
   if (!workspace) throw new Error(`No workspace ${request.workspaceId}.`);
   const { step } = request;
+  const agent = step?.agent;
+  // Checked again here, not only when the factory applied: a harness edited
+  // since must fail the step, never launch it on the ambient default.
+  const refused =
+    agent?.harnessId !== undefined ? agentHarnessRefusal(deps.harnesses(), agent.harnessId) : null;
+  if (refused) throw new Error(`It did not start: ${refused}.`);
+  // No driver compiles an agent's servers or skills yet: never launch without them.
+  if (agent && (agent.mcpServers.length > 0 || agent.skills.length > 0))
+    throw new Error(`It did not start: ${SERVERS_AND_SKILLS_LATER}.`);
   const common = {
     workspaceId: workspace.id,
     instanceId: generateSessionInstanceId(workspace.id),
-    harnessId: workspace.defaultHarnessId,
+    // A step's agent runs on its own harness, with its model; any other run on the workspace's default.
+    harnessId: agent?.harnessId ?? workspace.defaultHarnessId,
+    ...(agent?.model !== undefined ? { model: agent.model } : {}),
     kind: 'interactive' as const,
     toolPolicy: 'read-only' as const,
     automation: {
