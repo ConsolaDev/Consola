@@ -284,6 +284,15 @@ Every thread opens in `approval-required` (`HOST_RUNTIME_MODE`): the CLI asks
 before running a command or writing a file, and the chat shows the request.
 t3's own default (`DEFAULT_RUNTIME_MODE`) is `full-access`, which asks nothing;
 the host never uses it, and `SessionSpec` has no field to ask for it.
+
+That holds for a state folder with t3's default settings. t3 lets a provider
+instance's settings carry launch arguments, and for Claude a `launchArgs` in
+`<stateDir>/userdata/settings.json` naming `--permission-mode <mode>` or
+`--dangerously-skip-permissions` overrides the thread's mode
+(`ClaudeAdapterV2.ts:2325-2326`, `:2412-2416`: `bypassPermissions` asks
+nothing). The state folder is the runner's (`--state-dir`, or a temporary one
+the host makes), so the runner must not write such settings; the host does not
+check them.
 Tests that replay a fixture recorded in another mode, or substitute t3's replay
 adapter, use `layerForTests(options, { drivers, runtimeMode })`, which builds on
 `layerOrchestrationForTests(options, drivers)`. `boundary.test.ts` refuses
