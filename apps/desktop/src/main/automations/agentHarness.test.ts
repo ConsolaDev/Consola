@@ -89,6 +89,7 @@ describe('agentHarnessView, for an agent', () => {
   const query = (fields: Partial<AgentHarnessQuery> = {}): AgentHarnessQuery => ({
     mcpServers: [],
     skills: [],
+    checkout: 'scope',
     ...fields,
   });
   const view = (

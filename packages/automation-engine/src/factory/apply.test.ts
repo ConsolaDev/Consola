@@ -10,7 +10,7 @@ import {
   type FactoryParseResult,
   type FactorySpecIssue,
 } from '@consola/factory-spec';
-import type { AgentHarnessAnswer } from '../ports';
+import type { AgentHarnessAnswer, CheckoutKind } from '../ports';
 import {
   agentIssues,
   agentQuery,
@@ -105,16 +105,21 @@ describe('fileVersion', () => {
 describe('agentQuery', () => {
   it("asks about the agent's harness, model, servers and skills", () => {
     const parse = read(BASE);
-    expect(agentQuery(parse.agents.reviewer)).toEqual({
+    expect(agentQuery(parse.agents.reviewer, 'scope')).toEqual({
       harnessId: 'claude-work',
       model: 'opus',
       mcpServers: [],
       skills: [],
+      checkout: 'scope',
     });
-    const bare = agentQuery(parse.agents.tidier);
-    expect(bare).toEqual({ mcpServers: [], skills: [] });
+    const bare = agentQuery(parse.agents.tidier, 'scope');
+    expect(bare).toEqual({ mcpServers: [], skills: [], checkout: 'scope' });
     expect(Object.prototype.hasOwnProperty.call(bare, 'harnessId')).toBe(false);
     expect(Object.prototype.hasOwnProperty.call(bare, 'model')).toBe(false);
+  });
+
+  it('asks for the checkout kind it is given (2-C)', () => {
+    expect(agentQuery(read(BASE).agents.reviewer, 'item').checkout).toBe('item');
   });
 });
 
@@ -172,7 +177,12 @@ describe('agentIssues', () => {
     ],
     ['nothing', answer({}), []],
   ])('a problem is %s, in the engine’s words', (_label, given, problems) => {
-    expect(agentIssues(catalog, parse.agents, () => given)).toEqual({ problems, warnings: [] });
+    expect(agentIssues(catalog, parse.agents, () => given)).toEqual({
+      problems,
+      waits: [],
+      stops: [],
+      warnings: [],
+    });
   });
 
   it("a warning is a notice at the agent's model line, and no problem", () => {
@@ -180,6 +190,8 @@ describe('agentIssues', () => {
       '`opus-9` is not among the models Claude work lists; `--model` also takes a model’s full name.';
     expect(agentIssues(catalog, parse.agents, () => answer({ warning }))).toEqual({
       problems: [],
+      waits: [],
+      stops: [],
       warnings: [{ message: warning, file: 'agents/reviewer.md', line: 3 }],
     });
   });
@@ -204,6 +216,8 @@ describe('agentIssues', () => {
           message: 'agents/tidier.md: Not here',
         },
       ],
+      waits: [],
+      stops: [],
       warnings: [{ message: 'Look.', file: 'agents/tidier.md' }],
     });
   });
@@ -214,16 +228,140 @@ describe('agentIssues', () => {
       'automations/twice.yaml':
         'on: { cron: "0 7 * * 1-5" }\nscope: api\nsteps:\n  - id: a\n    agent: reviewer\n  - id: b\n    agent: tidier\n  - id: c\n    agent: reviewer\n  - id: d\n    prompt: Plain.\n',
     });
-    const ask = vi.fn((_agent: AgentDefinition) => answer({}));
+    const ask = vi.fn((_agent: AgentDefinition, _checkout: CheckoutKind) => answer({}));
     agentIssues(entry(twice, 'twice'), twice.agents, ask);
     expect(ask.mock.calls.map(([agent]) => agent.name)).toEqual(['reviewer', 'tidier']);
 
-    const plain = vi.fn((_agent: AgentDefinition) => answer({}));
+    const plain = vi.fn((_agent: AgentDefinition, _checkout: CheckoutKind) => answer({}));
     expect(agentIssues(entry(twice, 'nightly'), twice.agents, plain)).toEqual({
       problems: [],
+      waits: [],
+      stops: [],
       warnings: [],
     });
     expect(plain).not.toHaveBeenCalled();
+  });
+
+  describe('servers (2-C)', () => {
+    const INVESTIGATOR =
+      '---\nharness: stub-work\nmodel: opus\nmcpServers: [grafana]\n---\nYou investigate.\n';
+    const servers = read({
+      ...BASE,
+      'agents/investigator.md': INVESTIGATOR,
+      'automations/investigate.yaml':
+        'on: { cron: "0 7 * * 1-5" }\nscope: api\nsteps:\n  - id: look\n    agent: investigator\n',
+      'automations/on-review.yaml':
+        'on: { github: pull_request.review_requested }\nsteps:\n  - id: look\n    agent: investigator\n',
+    });
+    const investigate = entry(servers, 'investigate');
+    const at = (path: string, line: number) => ({
+      file: 'agents/investigator.md',
+      line,
+      path,
+      automation: 'investigate',
+    });
+    const issuesOf = (given: Partial<AgentHarnessAnswer>) =>
+      agentIssues(investigate, servers.agents, () => answer({ name: 'Work stub', ...given }));
+
+    it("asks with the entry's checkout kind: item for an event entry, scope for a schedule", () => {
+      const ask = vi.fn((_agent: AgentDefinition, _checkout: CheckoutKind) => answer({}));
+      agentIssues(entry(servers, 'on-review'), servers.agents, ask);
+      agentIssues(investigate, servers.agents, ask);
+      expect(ask.mock.calls.map(([, checkout]) => checkout)).toEqual(['item', 'scope']);
+    });
+
+    it('a probe under way is a wait, at the mcpServers: line, and no problem', () => {
+      expect(issuesOf({ serversPending: 'Asking Work stub which MCP servers it has.' })).toEqual({
+        problems: [],
+        waits: [
+          {
+            ...at('mcpServers', 4),
+            message: 'agents/investigator.md: Asking Work stub which MCP servers it has.',
+          },
+        ],
+        stops: [],
+        warnings: [],
+      });
+    });
+
+    it('a probe that failed is a stop, and no problem', () => {
+      expect(
+        issuesOf({ serversUnknown: "Couldn't ask Work stub which MCP servers it has: no." }),
+      ).toEqual({
+        problems: [],
+        waits: [],
+        stops: [
+          {
+            ...at('mcpServers', 4),
+            message: "agents/investigator.md: Couldn't ask Work stub which MCP servers it has: no.",
+          },
+        ],
+        warnings: [],
+      });
+    });
+
+    it("a server refused is a problem at the mcpServers: line; the harness's own stay at harness:", () => {
+      const refused = "`grafana` isn't one of Work stub's MCP servers (it has none).";
+      expect(issuesOf({ serversProblem: refused }).problems).toEqual([
+        { ...at('mcpServers', 4), message: `agents/investigator.md: ${refused}` },
+      ]);
+      expect(issuesOf({ stepProblem: 'It sets `--model`.' }).problems).toEqual([
+        {
+          ...at('harness', 2),
+          message: 'Work stub can’t run automation steps: It sets `--model`.',
+        },
+      ]);
+    });
+
+    it('the first of agentProblem and serversProblem; a problem leaves no wait and no stop', () => {
+      expect(issuesOf({ agentProblem: 'Off.', serversProblem: 'Unknown.' }).problems).toEqual([
+        { ...at('harness', 2), message: 'agents/investigator.md: Off.' },
+      ]);
+      expect(issuesOf({ serversProblem: 'Unknown.', problem: 'No read-only.' }).problems).toEqual([
+        { ...at('mcpServers', 4), message: 'agents/investigator.md: Unknown.' },
+      ]);
+      expect(issuesOf({ agentProblem: 'Off.', serversPending: 'Asking.' })).toMatchObject({
+        problems: [{ message: 'agents/investigator.md: Off.' }],
+        waits: [],
+        stops: [],
+      });
+      expect(issuesOf({ serversProblem: 'Unknown.', serversUnknown: 'Failed.' })).toMatchObject({
+        problems: [{ message: 'agents/investigator.md: Unknown.' }],
+        waits: [],
+        stops: [],
+      });
+    });
+
+    it("server warnings follow the model's, at the mcpServers: line, and stop nothing", () => {
+      expect(
+        issuesOf({ warning: 'A model.', serverWarnings: ['a', 'b'], serversPending: null }),
+      ).toEqual({
+        problems: [],
+        waits: [],
+        stops: [],
+        warnings: [
+          { message: 'A model.', file: 'agents/investigator.md', line: 3 },
+          { message: 'a', file: 'agents/investigator.md', line: 4 },
+          { message: 'b', file: 'agents/investigator.md', line: 4 },
+        ],
+      });
+    });
+
+    it('an agent naming no server is pointed at its first line for a wait', () => {
+      expect(
+        agentIssues(entry(servers, 'catalog-review'), servers.agents, () =>
+          answer({ serversUnknown: 'Failed.' }),
+        ).stops,
+      ).toEqual([
+        {
+          file: 'agents/reviewer.md',
+          line: 1,
+          path: 'mcpServers',
+          automation: 'catalog-review',
+          message: 'agents/reviewer.md: Failed.',
+        },
+      ]);
+    });
   });
 });
 
@@ -353,6 +491,58 @@ describe('decideApply', () => {
     const problemsOf = vi.fn(none);
     decideApply({ read: read({ ...BASE, ...BROKEN }), applied: clean(), problemsOf });
     expect(problemsOf).not.toHaveBeenCalled();
+  });
+
+  describe('waits (2-C)', () => {
+    const WAIT: FactorySpecIssue = {
+      message: 'agents/reviewer.md: Asking Claude work which MCP servers it has.',
+      file: 'agents/reviewer.md',
+      path: 'mcpServers',
+      line: 1,
+      automation: 'catalog-review',
+    };
+    const catalogWaits = (automation: Automation) =>
+      automation.name === 'catalog-review' ? [WAIT] : [];
+    const edited = {
+      ...BASE,
+      'automations/catalog-review.yaml': CATALOG.replace('Tell me', 'Say'),
+    };
+
+    it('a changed entry that only waits keeps the applied version, waiting and not blocking', () => {
+      expect(
+        decideApply({
+          read: read(edited),
+          applied: clean(),
+          problemsOf: none,
+          waitsOf: catalogWaits,
+        }),
+      ).toEqual({ kind: 'keeps', removed: [], blocking: [], waiting: [WAIT] });
+    });
+
+    it('a problem and no wait has no waiting key', () => {
+      const decision = decideApply({
+        read: read(edited),
+        applied: clean(),
+        problemsOf: catalogProblem,
+        waitsOf: none,
+      });
+      expect(decision).toEqual({ kind: 'keeps', removed: [], blocking: [PROBLEM] });
+      expect(Object.prototype.hasOwnProperty.call(decision, 'waiting')).toBe(false);
+    });
+
+    it('nothing changed and a wait applies: an unchanged entry is never asked', () => {
+      const waitsOf = vi.fn(catalogWaits);
+      expect(
+        decideApply({ read: read(BASE), applied: clean(), problemsOf: none, waitsOf }),
+      ).toEqual({ kind: 'applies' });
+      expect(waitsOf).not.toHaveBeenCalled();
+    });
+
+    it('a first start counts a wait as it counts a problem', () => {
+      expect(
+        decideApply({ read: read(BASE), applied: null, problemsOf: none, waitsOf: catalogWaits }),
+      ).toEqual({ kind: 'first-start' });
+    });
   });
 
   describe('removals, each beside an unrelated broken file', () => {
@@ -665,6 +855,56 @@ describe('standingMessage', () => {
     expect(standingMessage(keeps([derived]), AT, NOW)).toBe(
       "Your changes didn't apply: 1 problem in automations/x.yaml. The version from 10:42 keeps running.",
     );
+  });
+
+  describe('while only server checks hold the changes back (2-C)', () => {
+    const waiting = (
+      files: string[],
+      removed: string[] = [],
+      blocking: FactorySpecIssue[] = [],
+    ) => ({
+      kind: 'keeps' as const,
+      removed,
+      blocking,
+      waiting: files.map(issue),
+    });
+
+    it.each([
+      [
+        ['agents/investigator.md'],
+        [],
+        'Checking the MCP servers in agents/investigator.md; your changes apply once its harness answers. The version from 10:42 keeps running.',
+      ],
+      [
+        ['agents/a.md', 'agents/b.md', 'agents/a.md'],
+        [],
+        'Checking the MCP servers in agents/a.md and agents/b.md; your changes apply once their harnesses answer. The version from 10:42 keeps running.',
+      ],
+      [
+        ['agents/investigator.md'],
+        ['old-digest'],
+        '`old-digest` was removed. Checking the MCP servers in agents/investigator.md; the rest of your changes apply once its harness answers. The version from 10:42 keeps running.',
+      ],
+      [
+        ['agents/a.md', 'agents/b.md'],
+        ['a', 'b'],
+        '`a` and `b` were removed. Checking the MCP servers in agents/a.md and agents/b.md; the rest of your changes apply once their harnesses answer. The version from 10:42 keeps running.',
+      ],
+    ])('waiting on %j, removing %j', (files, removed, message) => {
+      expect(standingMessage(waiting(files, removed), AT, NOW)).toBe(message);
+    });
+
+    it('with a problem too, says the changes did not apply, and counts only the problem', () => {
+      expect(
+        standingMessage(
+          waiting(['agents/investigator.md'], [], [issue('agents/reviewer.md')]),
+          AT,
+          NOW,
+        ),
+      ).toBe(
+        "Your changes didn't apply: 1 problem in agents/reviewer.md. The version from 10:42 keeps running.",
+      );
+    });
   });
 
   it('words the time against `now`', () => {

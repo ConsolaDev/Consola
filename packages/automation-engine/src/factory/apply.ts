@@ -9,7 +9,8 @@ import {
   type FactoryParseResult,
   type FactorySpecIssue,
 } from '@consola/factory-spec';
-import type { AgentHarnessAnswer, AgentHarnessQuery, AppliedSkill } from '../ports';
+import type { AgentHarnessAnswer, AgentHarnessQuery, AppliedSkill, CheckoutKind } from '../ports';
+import { entryCheckoutKind } from '../steps/checkout';
 
 /*
  * What of a factory folder applies, decided from its parse alone, and what
@@ -46,8 +47,12 @@ export function fileVersion(
   return automationVersion(automation, stepsResolvedBody({}, hashes));
 }
 
-/** What the engine asks the host of an agent: its harness (absent, the default), its model, its servers and skills. */
-export function agentQuery(agent: AgentDefinition): AgentHarnessQuery {
+/**
+ * What the engine asks the host of an agent: its harness (absent, the
+ * default), its model, its servers and skills, and the kind of checkout its
+ * entry's runs work in, which decides what a server may start.
+ */
+export function agentQuery(agent: AgentDefinition, checkout: CheckoutKind): AgentHarnessQuery {
   return {
     ...(agent.harness !== undefined ? { harnessId: agent.harness } : {}),
     ...(agent.model !== undefined ? { model: agent.model } : {}),
@@ -56,43 +61,67 @@ export function agentQuery(agent: AgentDefinition): AgentHarnessQuery {
       ...(server.tools !== undefined ? { tools: [...server.tools] } : {}),
     })),
     skills: [...agent.skills],
+    checkout,
   };
 }
 
 /**
  * What the host says of each agent an entry's steps name, each agent asked
- * once: the first of its answer's problems, in the engine's words, at the
- * agent file's `harness:` line (its first line when there is none), and its
- * warning as a notice at its `model:` line.
+ * once, with the entry's checkout kind. `problems`: the first of its
+ * answer's (`agentProblem`, then a refused server, then the harness's own),
+ * in the engine's words, a refused server at the agent file's `mcpServers:`
+ * line and the rest at its `harness:` line (each its first line when there
+ * is none); they block a changed entry and stop any. An agent with no
+ * problem may wait (`waits`: its harness's CLI is being asked which servers
+ * it has, which blocks only a changed entry) or stop (`stops`: it could not
+ * be asked, which stops the entry and never the folder), each at its
+ * `mcpServers:` line. `warnings`, never blocking: the model's at `model:`,
+ * then each server's at `mcpServers:`.
  */
 export function agentIssues(
   automation: Automation,
   agents: Readonly<Record<string, AgentDefinition>>,
-  ask: (agent: AgentDefinition) => AgentHarnessAnswer,
-): { problems: FactorySpecIssue[]; warnings: FactoryNotice[] } {
+  ask: (agent: AgentDefinition, checkout: CheckoutKind) => AgentHarnessAnswer,
+): {
+  problems: FactorySpecIssue[];
+  waits: FactorySpecIssue[];
+  stops: FactorySpecIssue[];
+  warnings: FactoryNotice[];
+} {
   const problems: FactorySpecIssue[] = [];
+  const waits: FactorySpecIssue[] = [];
+  const stops: FactorySpecIssue[] = [];
   const warnings: FactoryNotice[] = [];
+  const checkout = entryCheckoutKind(automation);
   for (const name of agentNamesOf(automation)) {
     if (!own(agents, name)) continue;
     const agent = agents[name];
     const file = `agents/${name}.md`;
-    const answer = ask(agent);
-    const message = answer.agentProblem
-      ? `${file}: ${answer.agentProblem}`
-      : answer.problem
-        ? `${answer.name} can’t run read-only automation sessions: ${answer.problem.replace(/\.$/, '')}`
-        : answer.stepProblem
-          ? `${answer.name} can’t run automation steps: ${answer.stepProblem}`
-          : null;
-    if (message !== null) {
-      problems.push({
-        message,
-        file,
-        line: agent.lines.harness ?? 1,
-        path: 'harness',
-        automation: automation.name,
-      });
-    }
+    const answer = ask(agent, checkout);
+    const at = (key: 'harness' | 'mcpServers', message: string): FactorySpecIssue => ({
+      message,
+      file,
+      line: agent.lines[key] ?? 1,
+      path: key,
+      automation: automation.name,
+    });
+    const problem = answer.agentProblem
+      ? at('harness', `${file}: ${answer.agentProblem}`)
+      : answer.serversProblem
+        ? at('mcpServers', `${file}: ${answer.serversProblem}`)
+        : answer.problem
+          ? at(
+              'harness',
+              `${answer.name} can’t run read-only automation sessions: ${answer.problem.replace(/\.$/, '')}`,
+            )
+          : answer.stepProblem
+            ? at('harness', `${answer.name} can’t run automation steps: ${answer.stepProblem}`)
+            : null;
+    if (problem) problems.push(problem);
+    else if (answer.serversPending)
+      waits.push(at('mcpServers', `${file}: ${answer.serversPending}`));
+    else if (answer.serversUnknown)
+      stops.push(at('mcpServers', `${file}: ${answer.serversUnknown}`));
     if (answer.warning) {
       warnings.push({
         message: answer.warning,
@@ -100,8 +129,15 @@ export function agentIssues(
         ...(agent.lines.model !== undefined ? { line: agent.lines.model } : {}),
       });
     }
+    for (const warning of answer.serverWarnings ?? []) {
+      warnings.push({
+        message: warning,
+        file,
+        ...(agent.lines.mcpServers !== undefined ? { line: agent.lines.mcpServers } : {}),
+      });
+    }
   }
-  return { problems, warnings };
+  return { problems, waits, stops, warnings };
 }
 
 export type ApplyDecision =
@@ -111,9 +147,16 @@ export type ApplyDecision =
   | { kind: 'applies' }
   /**
    * The read does not apply: the applied version keeps running, but for the
-   * entries this read removes. `blocking` is why it does not apply.
+   * entries this read removes. `blocking` is why it does not apply;
+   * `waiting`, present only when it holds any, what it waits for (a changed
+   * entry's server check under way), which is no problem.
    */
-  | { kind: 'keeps'; removed: string[]; blocking: FactorySpecIssue[] };
+  | {
+      kind: 'keeps';
+      removed: string[];
+      blocking: FactorySpecIssue[];
+      waiting?: FactorySpecIssue[];
+    };
 
 /** `path` is one the read could not read whole, or lies inside a folder it could not list. */
 function notReadWhole(read: FactoryParseResult, path: string): boolean {
@@ -155,28 +198,44 @@ function removedAt(read: FactoryParseResult, applied: FactoryParseResult): strin
  * read applies when it has no issue and no host problem for an entry whose
  * version changed (an unchanged entry's host problem is its own, not the
  * folder's); otherwise the applied version keeps running, less what this
- * read removes. `problemsOf` is asked only of changed entries.
+ * read removes. `problemsOf` and `waitsOf` are asked only of changed
+ * entries; a wait holds the read back as a problem does, but is kept apart
+ * from `blocking`, since nothing is wrong yet.
  */
 export function decideApply(input: {
   read: FactoryParseResult;
   applied: { parse: FactoryParseResult; clean: boolean } | null;
   problemsOf(automation: Automation): FactorySpecIssue[];
+  /** Changed entries' waits: they keep the folder from applying, but are not problems. */
+  waitsOf?(automation: Automation): FactorySpecIssue[];
 }): ApplyDecision {
-  const { read, applied, problemsOf } = input;
+  const { read, applied, problemsOf, waitsOf } = input;
   const blocking: FactorySpecIssue[] = [...read.issues];
+  const waiting: FactorySpecIssue[] = [];
+  const ask = (automation: Automation) => {
+    blocking.push(...problemsOf(automation));
+    if (waitsOf) waiting.push(...waitsOf(automation));
+  };
   if (!applied?.clean) {
-    for (const automation of read.automations) blocking.push(...problemsOf(automation));
-    return blocking.length === 0 ? { kind: 'applies' } : { kind: 'first-start' };
+    for (const automation of read.automations) ask(automation);
+    return blocking.length === 0 && waiting.length === 0
+      ? { kind: 'applies' }
+      : { kind: 'first-start' };
   }
   const appliedVersions = new Map<string, string>();
   for (const automation of applied.parse.automations)
     appliedVersions.set(automation.name, fileVersion(automation, applied.parse.agents));
   for (const automation of read.automations) {
     if (appliedVersions.get(automation.name) === fileVersion(automation, read.agents)) continue;
-    blocking.push(...problemsOf(automation));
+    ask(automation);
   }
-  if (blocking.length === 0) return { kind: 'applies' };
-  return { kind: 'keeps', removed: removedAt(read, applied.parse), blocking };
+  if (blocking.length === 0 && waiting.length === 0) return { kind: 'applies' };
+  return {
+    kind: 'keeps',
+    removed: removedAt(read, applied.parse),
+    blocking,
+    ...(waiting.length > 0 ? { waiting } : {}),
+  };
 }
 
 /**
@@ -266,28 +325,42 @@ function describeFiles(files: readonly string[]): string {
   return `${files.slice(0, 3).join(', ')} and ${more} more ${more === 1 ? 'file' : 'files'}`;
 }
 
+/** The files issues are in, each once, in order. */
+function filesOf(issues: readonly FactorySpecIssue[]): string[] {
+  const files: string[] = [];
+  for (const issue of issues)
+    if (issue.file !== undefined && !files.includes(issue.file)) files.push(issue.file);
+  return files;
+}
+
 /**
  * The banner's sentence while the folder does not apply. It counts and names
  * only the problems in the files that have them: one that only shows a
  * file's problems through (`cause`, a step naming a broken agent) is in the
- * list, never in the count, so one mistake is one problem in one file.
+ * list, never in the count, so one mistake is one problem in one file. With
+ * no problem, only server checks under way, it says what it is checking.
  */
 export function standingMessage(
   decision: Extract<ApplyDecision, { kind: 'keeps' }>,
   appliedAt: string,
   now: Date,
 ): string {
+  const keeps = `The version from ${describeAppliedAt(appliedAt, now)} keeps running.`;
+  const { removed } = decision;
+  const names = joinList(removed.map((name) => `\`${name}\``));
+  const wasRemoved = `${names} ${removed.length === 1 ? 'was' : 'were'} removed.`;
+  if (decision.blocking.length === 0 && decision.waiting && decision.waiting.length > 0) {
+    const files = filesOf(decision.waiting);
+    const answer = files.length === 1 ? 'once its harness answers' : 'once their harnesses answer';
+    const checking = `Checking the MCP servers in ${describeFiles(files)}`;
+    if (removed.length === 0) return `${checking}; your changes apply ${answer}. ${keeps}`;
+    return `${wasRemoved} ${checking}; the rest of your changes apply ${answer}. ${keeps}`;
+  }
   const own = decision.blocking.filter((issue) => issue.cause === undefined);
   // Every problem shows another through only if their files were left out: count them all then.
   const counted = own.length > 0 ? own : decision.blocking;
-  const files: string[] = [];
-  for (const issue of counted)
-    if (issue.file !== undefined && !files.includes(issue.file)) files.push(issue.file);
   const count = counted.length;
-  const problems = `${count} ${count === 1 ? 'problem' : 'problems'} in ${describeFiles(files)}`;
-  const keeps = `The version from ${describeAppliedAt(appliedAt, now)} keeps running.`;
-  const { removed } = decision;
+  const problems = `${count} ${count === 1 ? 'problem' : 'problems'} in ${describeFiles(filesOf(counted))}`;
   if (removed.length === 0) return `Your changes didn't apply: ${problems}. ${keeps}`;
-  const names = joinList(removed.map((name) => `\`${name}\``));
-  return `${names} ${removed.length === 1 ? 'was' : 'were'} removed. The rest of your changes didn't apply: ${problems}. ${keeps}`;
+  return `${wasRemoved} The rest of your changes didn't apply: ${problems}. ${keeps}`;
 }

@@ -164,7 +164,7 @@ export interface StepsHarnessOptions {
    */
   files?: Record<string, string>;
   /** The harnesses an agent may name, by id, as the agent check answers for each. Default: none. */
-  agentHarnesses?: Record<string, AgentHarnessAnswer>;
+  agentHarnesses?: StepsWorld['agentHarnesses'];
   /** Where each folder's applied version is kept; it outlives `relaunch`. Default: a new, empty one. */
   appliedStore?: MemoryAppliedStore;
   /** What `process.platform` would say on the host. Default `darwin`. */
@@ -194,9 +194,13 @@ export interface StepsWorld {
   /**
    * The answer for an agent naming each harness, by id; an agent naming one
    * not here gets the host's unknown-harness words, and one naming none gets
-   * `harness`. Edit it, then `service.syncWorkspaces()`.
+   * `harness`. An entry may be a function of the query, to answer per agent
+   * and per checkout kind. Edit it, then `service.syncWorkspaces()`.
    */
-  agentHarnesses: Record<string, AgentHarnessAnswer>;
+  agentHarnesses: Record<
+    string,
+    AgentHarnessAnswer | ((query: AgentHarnessQuery) => AgentHarnessAnswer)
+  >;
   /** Every agent check asked, in order: an agent's query, or undefined for the default harness. */
   harnessQueries: Array<AgentHarnessQuery | undefined>;
   /** How many times ws-1's folder was read. */
@@ -692,8 +696,10 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
       world.harnessQueries.push(agent);
       const id = agent?.harnessId;
       if (id === undefined) return world.harness;
-      if (Object.prototype.hasOwnProperty.call(world.agentHarnesses, id))
-        return world.agentHarnesses[id];
+      if (Object.prototype.hasOwnProperty.call(world.agentHarnesses, id)) {
+        const answer = world.agentHarnesses[id];
+        return typeof answer === 'function' ? answer(agent!) : answer;
+      }
       return {
         name: id,
         problem: null,

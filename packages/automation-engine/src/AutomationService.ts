@@ -87,6 +87,7 @@ import type {
   AppliedFactory,
   AppliedFactoryStore,
   AppliedSkill,
+  CheckoutKind,
   CommandPort,
   CommandResult,
   CommandSpec,
@@ -319,7 +320,13 @@ export interface AutomationServiceDeps {
    * compiles them (its extra arguments override a flag they need, `--model`
    * when the agent sets one); absent or null, they would. For an agent,
    * `agentProblem` (why it cannot run there at all) and `warning` (shown,
-   * never blocking) too.
+   * never blocking) too, and, of the servers it names for its entry's
+   * checkout kind (`agent.checkout`): `serversProblem`, a server refused
+   * against what the harness's CLI said (blocking like `agentProblem`);
+   * `serversPending`, the CLI is being asked (a changed entry waits for the
+   * answer, an unchanged one keeps running); `serversUnknown`, it could not
+   * be asked (the entry's problem, never the folder's); `serverWarnings`,
+   * notices that block nothing.
    */
   agentHarness(workspaceId: string, agent?: AgentHarnessQuery): AgentHarnessAnswer;
   /**
@@ -463,6 +470,10 @@ interface Resolved {
   event?: EventSource;
   /** Set when the entry parsed but cannot run: the reason it will not. */
   problem?: string;
+  /** Its problem came from asking a harness's CLI about servers: its row offers Check again. */
+  recheck?: true;
+  /** Its problem is that the CLI could not be asked at all: machine state, which refuses no save. */
+  unasked?: true;
   /** A `steps:` entry's: the agents it was resolved against, by name (its node names their harness and model). */
   agents?: Readonly<Record<string, AgentDefinition>>;
   /** What the host said of its agents that stops nothing: a model the harness does not list. */
@@ -1120,13 +1131,14 @@ export class AutomationService {
     // Against the folder's agents as last read: an agent its steps name must be there, and valid.
     const troubled = agentWithProblems(automation, factory.read.parse);
     if (troubled) throw notSaved([troubled]);
-    const problem = this.resolve(
+    const resolved = this.resolve(
       workspaceId,
       automation,
       factory.read.parse.agents,
       factory.read.parse.skills,
-    ).problem;
-    if (problem) throw notSaved([problem]);
+    );
+    // A CLI that could not be asked is no fault of the entry: it is saved, and shows that problem.
+    if (resolved.problem && !resolved.unasked) throw notSaved([resolved.problem]);
     // By name as written, so an entry that fails to load still holds its name.
     const where = await folder.whereIs(name).catch((error: unknown) => {
       throw notSaved([describeError(error)]);
@@ -1174,7 +1186,10 @@ export class AutomationService {
       ...(standing
         ? {
             notApplied: {
-              issues: standing.decision.blocking.map(describeBlocking),
+              // What blocks it, then what it waits for: a check under way is said too, never silence.
+              issues: [...standing.decision.blocking, ...(standing.decision.waiting ?? [])].map(
+                describeBlocking,
+              ),
               since: describeAppliedAt(standing.appliedAt, this.deps.now()),
             },
           }
@@ -2304,6 +2319,7 @@ export class AutomationService {
           ? { asksFirst: true }
           : {}),
         ...(entry.problem ? { problem: entry.problem } : {}),
+        ...(entry.recheck ? { recheck: true as const } : {}),
         ...(added
           ? {
               addedBy: {
@@ -4310,11 +4326,23 @@ export class AutomationService {
     // Not read yet: there is nothing to decide, and nothing may overwrite the store.
     if (!factory.storeRead) return;
     const { read, applied } = factory;
-    const ask = (agent: AgentDefinition) => this.deps.agentHarness(workspaceId, agentQuery(agent));
+    const ask = (agent: AgentDefinition, checkout: CheckoutKind) =>
+      this.deps.agentHarness(workspaceId, agentQuery(agent, checkout));
+    // Each changed entry's agents asked once, for both what blocks it and what it waits for.
+    const asked = new Map<Automation, ReturnType<typeof agentIssues>>();
+    const issuesOf = (automation: Automation) => {
+      let issues = asked.get(automation);
+      if (!issues) {
+        issues = agentIssues(automation, read.parse.agents, ask);
+        asked.set(automation, issues);
+      }
+      return issues;
+    };
     const decision = decideApply({
       read: read.parse,
       applied: applied && { parse: applied.parse, clean: applied.record.clean },
-      problemsOf: (automation) => agentIssues(automation, read.parse.agents, ask).problems,
+      problemsOf: (automation) => issuesOf(automation).problems,
+      waitsOf: (automation) => issuesOf(automation).waits,
     });
     if (decision.kind === 'keeps' && applied) {
       factory.standing = { decision, appliedAt: applied.record.appliedAt };
@@ -4662,13 +4690,18 @@ export class AutomationService {
     event: EventSource | undefined,
   ): Resolved {
     const workspace = this.deps.getWorkspaces().find((candidate) => candidate.id === workspaceId);
-    const unable = (problem: string, warnings: FactoryNotice[] = []): Resolved => ({
+    const unable = (
+      problem: string,
+      warnings: FactoryNotice[] = [],
+      servers: { recheck?: true; unasked?: true } = {},
+    ): Resolved => ({
       workspaceId,
       automation,
       version: automationVersion(automation),
       problem,
       agents,
       ...(warnings.length > 0 ? { warnings } : {}),
+      ...servers,
     });
     const { steps } = automation;
 
@@ -4730,11 +4763,17 @@ export class AutomationService {
     const onDefault = steps.some((step) => step.kind === 'agent' && step.agent === undefined);
     const refused = onDefault ? this.stepHarnessProblem(workspaceId) : null;
     if (refused) return unable(refused);
-    // Each agent's harness, as the host answers for it: a problem stops the entry, a warning stops nothing.
-    const { problems, warnings } = agentIssues(automation, agents, (agent) =>
-      this.deps.agentHarness(workspaceId, agentQuery(agent)),
+    // Each agent's harness, as the host answers for it, for this entry's checkout kind: a problem stops the
+    // entry, and so does a CLI that could not be asked (`stops`); a wait or a warning stops nothing.
+    const { problems, stops, warnings } = agentIssues(automation, agents, (agent, checkout) =>
+      this.deps.agentHarness(workspaceId, agentQuery(agent, checkout)),
     );
-    if (problems.length > 0) return unable(problems[0].message, warnings);
+    if (problems.length > 0) {
+      const [first] = problems;
+      return unable(first.message, warnings, first.path === 'mcpServers' ? { recheck: true } : {});
+    }
+    if (stops.length > 0)
+      return unable(stops[0].message, warnings, { recheck: true, unasked: true });
 
     // The bodies live in settings, not the file: editing one asks again. So
     // does editing an agent file a step names: its hash is in the version.

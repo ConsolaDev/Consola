@@ -13,6 +13,7 @@ import {
   RE_REVIEW_NAME,
   sourcesHarness,
 } from './sources/sources.test-helpers';
+import type { AgentHarnessAnswer } from './ports';
 import {
   memoryAppliedStore,
   skillFilesOf,
@@ -832,6 +833,156 @@ describe('the applied version keeps its skills (2-C)', () => {
     expect(store.writes).toBe(writes);
     expect(standing(next)).toBeUndefined();
     expect(store.records.get(FOLDER)!.appliedAt).toBe(kept.appliedAt);
+  });
+});
+
+describe('servers, as the host answers for them (2-C)', () => {
+  const INVESTIGATOR_FILE = 'agents/investigator.md';
+  const INVESTIGATOR =
+    "---\nharness: stub-work\nmcpServers: [grafana]\n---\nYou look into the night's alerts.\n";
+  const INVESTIGATE_FILE = 'automations/investigate.yaml';
+  const INVESTIGATE =
+    'on: { cron: "0 9 * * 1-5" }\nscope: api\nmode: auto\nsteps:\n  - id: look\n    agent: investigator\n    prompt: Look at the night.\n';
+  const WORK_STUB = { name: 'Work stub', problem: null };
+  const CHECKING =
+    'Checking the MCP servers in agents/investigator.md; your changes apply once its harness answers. The version from 08:00 keeps running.';
+  const FAILED = "Couldn't ask Work stub which MCP servers it has: spawn claude ENOENT";
+  /** What the host answers of stub-work's agents now: edit it, then resync. */
+  let answer: Partial<AgentHarnessAnswer>;
+  const investigating = (options: StepsHarnessOptions = {}) => {
+    answer = {};
+    return folder({
+      files: {
+        [CATALOG_REVIEW_FILE]: CATALOG_REVIEW,
+        [REVIEWER_FILE]: REVIEWER,
+        [INVESTIGATE_FILE]: INVESTIGATE,
+        [INVESTIGATOR_FILE]: INVESTIGATOR,
+      },
+      agentHarnesses: {
+        'claude-work': CLAUDE_WORK,
+        'stub-work': () => ({ ...WORK_STUB, ...answer }),
+      },
+      ...options,
+    });
+  };
+  const investigate = (h: StepsHarness) => viewOf(h, 'investigate');
+  /** The prompt a new run of investigate launches with; its turn then ends, so the next run is a new one. */
+  const launchedPrompt = async (h: StepsHarness) => {
+    const asked = (await h.service.trigger(WORKSPACE_ID, 'investigate'))!;
+    if (asked.status === 'needs-approval') await h.service.approve(asked.id);
+    await h.flush();
+    const launches = h.world.launches.length;
+    await h.world.endTurn(`session-${launches}`);
+    return h.world.launches[launches - 1].prompt;
+  };
+
+  it('a changed entry waits for the check: the banner says it is checking, and lists no problem', async () => {
+    const h = await investigating();
+    expect(standing(h)).toBeUndefined();
+    answer = {
+      serversPending: 'Asking Work stub which MCP servers it has; this applies once it answers.',
+    };
+    await h.writeFile(INVESTIGATE_FILE, INVESTIGATE.replace('the night', 'the weekend'));
+    expect(standing(h)?.message).toBe(CHECKING);
+    expect(h.service.snapshot(WORKSPACE_ID).issues).toEqual([]);
+    expect(investigate(h)?.problem).toBeUndefined();
+    // The version that applied keeps running.
+    expect(await launchedPrompt(h)).toContain('Look at the night.');
+
+    answer = {};
+    await h.service.syncWorkspaces();
+    expect(standing(h)).toBeUndefined();
+    expect(await launchedPrompt(h)).toContain('Look at the weekend.');
+  });
+
+  it('an unchanged entry with a wait keeps running, with no problem', async () => {
+    const h = await investigating();
+    answer = {
+      serversPending: 'Asking Work stub which MCP servers it has; this applies once it answers.',
+    };
+    await h.service.syncWorkspaces();
+    expect(standing(h)).toBeUndefined();
+    expect(investigate(h)?.problem).toBeUndefined();
+    expect(investigate(h)).not.toHaveProperty('recheck');
+  });
+
+  it("a probe that failed is the entry's problem, with Check again, and the folder still applies", async () => {
+    const h = await investigating();
+    answer = { serversUnknown: FAILED };
+    await h.writeFile(INVESTIGATE_FILE, INVESTIGATE.replace('the night', 'the weekend'));
+    expect(standing(h)).toBeUndefined();
+    expect(h.appliedStore.records.get(FOLDER)?.texts[INVESTIGATE_FILE]).toContain('the weekend');
+    expect(investigate(h)).toMatchObject({
+      problem: `agents/investigator.md: ${FAILED}`,
+      recheck: true,
+    });
+    // Nothing runs meanwhile.
+    await expect(h.service.trigger(WORKSPACE_ID, 'investigate')).rejects.toThrow(/cannot run/);
+    // The entry beside it is not its problem's.
+    expect(viewOf(h)?.problem).toBeUndefined();
+  });
+
+  it('a server refused against the answer is the problem of even an unchanged entry, with Check again', async () => {
+    const h = await investigating();
+    const refused = "`grafana` isn't one of Work stub's MCP servers (it has none).";
+    answer = { serversProblem: refused };
+    await h.service.syncWorkspaces();
+    expect(investigate(h)).toMatchObject({
+      problem: `agents/investigator.md: ${refused}`,
+      recheck: true,
+    });
+  });
+
+  it('a harness turned off is a problem without Check again', async () => {
+    const h = await investigating();
+    answer = { agentProblem: TURNED_OFF.replace('claude-work', 'stub-work') };
+    await h.service.syncWorkspaces();
+    expect(investigate(h)?.problem).toBe(
+      `agents/investigator.md: ${TURNED_OFF.replace('claude-work', 'stub-work')}`,
+    );
+    expect(investigate(h)).not.toHaveProperty('recheck');
+  });
+
+  it("a server warning is one notice at the agent's mcpServers: line, however many entries use it", async () => {
+    const h = await investigating();
+    await h.writeFile(
+      'automations/investigate-again.yaml',
+      INVESTIGATE.replace('0 9 * * 1-5', '0 12 * * 1-5'),
+    );
+    const warning =
+      '`grafana` was failed when Consola asked Work stub (run `claude`, then /mcp); a step that uses it fails until it connects.';
+    answer = { serverWarnings: [warning] };
+    await h.service.syncWorkspaces();
+    expect(
+      h.service.snapshot(WORKSPACE_ID).notices.filter((notice) => notice.message === warning),
+    ).toEqual([{ message: warning, file: INVESTIGATOR_FILE, line: 3 }]);
+    expect(investigate(h)?.problem).toBeUndefined();
+  });
+
+  it('a probe that failed does not refuse a save; the saved entry shows the problem', async () => {
+    const h = await investigating();
+    answer = { serversUnknown: FAILED };
+    await h.service.syncWorkspaces();
+    const item = `- name: investigate-later\n  ${INVESTIGATE.replace('0 9', '0 18').trimEnd().replace(/\n/g, '\n  ')}`;
+    const saved = await h.service.saveEntry(WORKSPACE_ID, item, { replace: false });
+    expect(saved).not.toHaveProperty('notApplied');
+    expect(viewOf(h, 'investigate-later')).toMatchObject({
+      problem: `agents/investigator.md: ${FAILED}`,
+      recheck: true,
+    });
+  });
+
+  it('a save that only waits says what it waits for', async () => {
+    const h = await investigating();
+    const wait = 'Asking Work stub which MCP servers it has; this applies once it answers.';
+    answer = { serversPending: wait };
+    await h.service.syncWorkspaces();
+    const item = `- name: investigate-later\n  ${INVESTIGATE.replace('0 9', '0 18').trimEnd().replace(/\n/g, '\n  ')}`;
+    const saved = await h.service.saveEntry(WORKSPACE_ID, item, { replace: false });
+    expect(saved.notApplied).toEqual({
+      issues: [`agents/investigator.md:3: agents/investigator.md: ${wait.replace(/\.$/, '')}`],
+      since: '08:00',
+    });
   });
 });
 

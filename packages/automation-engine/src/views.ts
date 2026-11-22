@@ -69,6 +69,12 @@ export interface AutomationView {
    * action, scope or event, or arguments the tool rejects.
    */
   problem?: string;
+  /**
+   * Its problem came from asking a harness's CLI about servers (a probe
+   * that failed, or a server refused against its answer): Check again asks
+   * again. Absent otherwise.
+   */
+  recheck?: true;
   /** The session whose agent wrote it into the file; new until a person opens its details. */
   addedBy?: { sessionName: string; sessionId: string; isNew: boolean };
 }

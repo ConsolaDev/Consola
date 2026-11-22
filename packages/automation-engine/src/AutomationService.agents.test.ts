@@ -154,6 +154,27 @@ describe('a step that names an agent', () => {
       model: 'opus',
       mcpServers: [],
       skills: [],
+      checkout: 'scope',
+    });
+  });
+
+  it("the host is asked about an agent with its entry's checkout kind (2-C)", async () => {
+    const h = await folder({
+      files: {
+        [CATALOG_REVIEW_FILE]: CATALOG_REVIEW,
+        [REVIEWER_FILE]: REVIEWER,
+        'automations/on-review.yaml':
+          'on: { github: pull_request.review_requested }\nmode: confirm\nsteps:\n  - id: look\n    agent: reviewer\n',
+      },
+    });
+    const kinds = new Set(h.world.harnessQueries.map((query) => query?.checkout));
+    expect(kinds).toEqual(new Set(['scope', 'item', undefined]));
+    expect(h.world.harnessQueries).toContainEqual({
+      harnessId: 'claude-work',
+      model: 'opus',
+      mcpServers: [],
+      skills: [],
+      checkout: 'item',
     });
   });
 

@@ -219,6 +219,8 @@ export interface AgentHarnessQuery {
   model?: string;
   mcpServers: ReadonlyArray<{ name: string; tools?: readonly string[] }>;
   skills: readonly string[];
+  /** Whose checkout its entry's runs work in: what its servers are checked for (an item's runs start them in the author's). */
+  checkout: CheckoutKind;
 }
 
 /** The host's answer of a harness: the workspace's default, or the one an agent names. */
@@ -236,6 +238,14 @@ export interface AgentHarnessAnswer {
   agentProblem?: string | null;
   /** Shown, never blocking: a model the harness does not list. */
   warning?: string | null;
+  /** A server the agent names, refused against what the harness's CLI said: blocks like `agentProblem`, shown at the agent file's `mcpServers:` line. */
+  serversProblem?: string | null;
+  /** The harness's CLI is being asked which MCP servers it has: blocks a changed entry, nothing for an unchanged one. */
+  serversPending?: string | null;
+  /** It could not be asked: the entry's problem, never a reason the folder does not apply. */
+  serversUnknown?: string | null;
+  /** Notices at the agent file's `mcpServers:` line: a server not connected when asked, a narrowing that could not be checked. */
+  serverWarnings?: readonly string[];
 }
 
 /**
