@@ -44,6 +44,7 @@ import * as Stream from 'effect/Stream';
 import * as HttpMiddleware from 'effect/http/HttpMiddleware';
 import * as HttpServerRequest from 'effect/http/HttpServerRequest';
 import * as HttpServerResponse from 'effect/http/HttpServerResponse';
+import * as UrlParams from 'effect/http/UrlParams';
 import { RpcGroup, RpcSchema, RpcSerialization, RpcServer } from 'effect/rpc';
 import type * as Rpc from 'effect/rpc/Rpc';
 import * as Socket from 'effect/socket/Socket';
@@ -122,6 +123,13 @@ export class HostListenError extends Schema.TaggedError<HostListenError>()('Host
   }
 }
 
+/** A listening host: its port, and how many clients it serves now. */
+export interface HostListening {
+  readonly port: number;
+  /** The RPC connections open now: each socket whose pass was let in, until it closes. */
+  readonly connectedClients: () => number;
+}
+
 export interface HostServerOptions {
   /** `0` asks for an ephemeral port; `listenHost` answers the one it got. */
   readonly port: number;
@@ -138,6 +146,15 @@ export interface HostServerOptions {
 const WS_PATH = '/ws';
 /** The query parameter a pass travels in. */
 const PASS_QUERY_PARAM = 'pass';
+/**
+ * The query parameters Effect redacts wherever it shows a URL the server is handling (a request's
+ * inspection, a logger's or a tracer's URL): Effect's own list, which a custom list replaces, and
+ * the pass.
+ */
+export const HOST_REDACTED_URL_PARAMS: ReadonlyArray<string | RegExp> = [
+  ...UrlParams.CurrentRedactedNames.defaultValue(),
+  PASS_QUERY_PARAM,
+];
 /**
  * t3's `ws.ts` `WS_RPC_SERVER_OPTIONS` (`ws.ts:3676-3680`, reproduced: ws.ts is not lifted): a
  * defect ends its request only, not every request on the socket.
@@ -638,7 +655,11 @@ const serveRpc = Effect.fn('host.serveRpc')(function* (options: HostServerOption
  * Every request: `GET /ws` with a pass for this session becomes an RPC connection; the pass is
  * verified before anything else is answered, and is never logged.
  */
-const app = Effect.fn('host.app')(function* (options: HostServerOptions, key: PassKey) {
+const app = Effect.fn('host.app')(function* (
+  options: HostServerOptions,
+  key: PassKey,
+  connections: { open: number },
+) {
   const request = yield* HttpServerRequest.HttpServerRequest;
   const url = new URL(request.url, 'http://consola-host.invalid');
   if (request.method !== 'GET' || url.pathname !== WS_PATH) {
@@ -651,7 +672,17 @@ const app = Effect.fn('host.app')(function* (options: HostServerOptions, key: Pa
       onFailure: (rejected) => refuseConnection(passCloseCode(rejected.reason)),
       onSuccess: () =>
         hasCompatibleOrchestrationProtocol(url)
-          ? serveRpc(options, url)
+          ? // A connection counts from the moment it is let in until its socket closes.
+            Effect.acquireUseRelease(
+              Effect.sync(() => {
+                connections.open += 1;
+              }),
+              () => serveRpc(options, url),
+              () =>
+                Effect.sync(() => {
+                  connections.open -= 1;
+                }),
+            )
           : Effect.succeed(
               HttpServerResponse.jsonUnsafe(
                 {
@@ -668,13 +699,14 @@ const app = Effect.fn('host.app')(function* (options: HostServerOptions, key: Pa
 
 /**
  * Serves one session's thread at `ws://<host>:<port>/ws` in the caller's scope, and answers the
- * port it listens on (the one asked for, or the ephemeral one `0` got). Closing the scope stops
- * the server and its connections. Fails with `PassKeyInvalid` when `publicKeyPem` is not an
- * Ed25519 public key, and with `HostListenError` when it cannot listen.
+ * port it listens on (the one asked for, or the ephemeral one `0` got) and its count of connected
+ * clients. Closing the scope stops the server and its connections. Fails with `PassKeyInvalid`
+ * when `publicKeyPem` is not an Ed25519 public key, and with `HostListenError` when it cannot
+ * listen.
  */
 export const listenHost = (
   options: HostServerOptions,
-): Effect.Effect<{ readonly port: number }, HostListenError | PassKeyInvalid, Scope.Scope> =>
+): Effect.Effect<HostListening, HostListenError | PassKeyInvalid, Scope.Scope> =>
   Effect.gen(function* () {
     // The key is parsed once, before the port is bound: a key that does not parse fails the
     // start, rather than refusing every pass as it arrives.
@@ -688,12 +720,20 @@ export const listenHost = (
       // connected client would hang. The server tracks its sockets itself (`upgradedWebSockets`).
       websocket: { clientTracking: false },
     }).pipe(Effect.mapError((cause) => new HostListenError({ cause })));
-    // No request span: one would record the request's URL, and the pass travels in it.
-    yield* server
-      .serve(app(options, key))
-      .pipe(Effect.provideService(HttpMiddleware.TracerDisabledWhen, () => true));
+    const connections = { open: 0 };
+    // No request span: one would record the request's URL, and the pass travels in it. Every
+    // request runs with the pass among the redacted query parameters, so nothing that shows its
+    // URL shows the pass.
+    yield* server.serve(app(options, key, connections)).pipe(
+      Effect.provideService(HttpMiddleware.TracerDisabledWhen, () => true),
+      Effect.provideService(UrlParams.CurrentRedactedNames, HOST_REDACTED_URL_PARAMS),
+    );
     const address = server.address;
-    return { port: address._tag === 'UnixPathAddress' ? options.port : address.port };
+    const listening: HostListening = {
+      port: address._tag === 'UnixPathAddress' ? options.port : address.port,
+      connectedClients: () => connections.open,
+    };
+    return listening;
   });
 
 /** `listenHost`, serving until the scope closes. */

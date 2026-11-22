@@ -19,6 +19,7 @@ import * as Queue from 'effect/Queue';
 import type * as Scope from 'effect/Scope';
 import * as Tracer from 'effect/Tracer';
 import * as Stream from 'effect/Stream';
+import * as UrlParams from 'effect/http/UrlParams';
 import { SignJWT } from 'jose';
 import { userFacingDispatchErrorMessage } from 't3/orchestration-v2/UserFacingErrors.ts';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vite-plus/test';
@@ -39,7 +40,12 @@ import {
 } from '../testing/replay.ts';
 import { connectT3Client, hostSocketUrl, type T3Client } from '../testing/t3Client.ts';
 import { PassKeyInvalid } from './passVerifier.ts';
-import { listenHost, NOT_OFFERED_BY_HOST, SERVED_METHODS } from './rpcServer.ts';
+import {
+  HOST_REDACTED_URL_PARAMS,
+  listenHost,
+  NOT_OFFERED_BY_HOST,
+  SERVED_METHODS,
+} from './rpcServer.ts';
 
 /** Every test runs on a machine of its own, with fake CLIs (`../testing/machine.ts`). */
 isolateMachine();
@@ -95,6 +101,8 @@ type Served = {
   readonly handle: ThreadHandle;
   readonly keys: Keys;
   readonly port: number;
+  /** The server's count of connected clients. */
+  readonly connectedClients: () => number;
   /** The fixture's first message, as t3's chat sends it. */
   readonly prompt: OrchestrationV2Command;
   readonly modelSelection: ModelSelection;
@@ -129,7 +137,7 @@ const withServedReplay = <A, E>(
             publicKeyPem: keys.publicKeyPem,
             runtime: handle,
           });
-          const { port } = yield* tracer === undefined
+          const { port, connectedClients } = yield* tracer === undefined
             ? listening
             : listening.pipe(Effect.withTracer(tracer));
           const connect = (given?: string) =>
@@ -141,6 +149,7 @@ const withServedReplay = <A, E>(
             handle,
             keys,
             port,
+            connectedClients,
             prompt: sendMessage(spec, text, variant.modelSelection),
             modelSelection: variant.modelSelection,
             connect,
@@ -337,6 +346,43 @@ describe('serveHost', () => {
       ),
     REPLAY_TIMEOUT_MS,
   );
+
+  it(
+    'counts the clients it lets in, each until its socket closes, and no refused one',
+    () =>
+      withServedReplay('simple', ({ handle, port, prompt, connect, connectedClients }) =>
+        Effect.gen(function* () {
+          expect(connectedClients()).toBe(0);
+          expect(yield* closeCodeAt(hostSocketUrl(port))).toBe(4401);
+          expect(connectedClients()).toBe(0);
+
+          yield* connect();
+          expect(connectedClients()).toBe(1);
+          yield* Effect.scoped(
+            Effect.gen(function* () {
+              yield* connect();
+              expect(connectedClients()).toBe(2);
+            }),
+          );
+          // The second client's socket closes with its scope; the server sees it go.
+          yield* Effect.gen(function* () {
+            while (connectedClients() !== 1) yield* Effect.sleep(Duration.millis(10));
+          }).pipe(Effect.timeout(Duration.seconds(10)), Effect.orDie);
+          yield* runTheTurn(handle, prompt);
+        }),
+      ),
+    REPLAY_TIMEOUT_MS,
+  );
+
+  it('redacts the pass wherever Effect shows a URL it serves, as well as its own list', () => {
+    const url = 'ws://127.0.0.1:7420/ws?protocol=2&pass=eyJ.sprocket.sig&Signature=s3';
+    expect(UrlParams.redactUrl(url, HOST_REDACTED_URL_PARAMS)).toBe(
+      'ws://127.0.0.1:7420/ws?protocol=2&pass=REDACTED&Signature=REDACTED',
+    );
+    expect(HOST_REDACTED_URL_PARAMS).toEqual(
+      expect.arrayContaining([...UrlParams.CurrentRedactedNames.defaultValue(), 'pass']),
+    );
+  });
 
   it(
     'hands the pass to no tracer: no span the server makes carries it',
