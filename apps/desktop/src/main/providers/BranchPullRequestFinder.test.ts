@@ -356,10 +356,11 @@ describe('BranchPullRequestFinder', () => {
     await finder.find('ws', BILLING);
     advance(-BRANCH_LOOKUP_TTL_MS);
     await finder.find('ws', DIR);
-    expect(lookupPullRequests.mock.calls.map(([[query]]) => query.headBranch)).toEqual([
-      BRANCH,
-      'feat/invoices',
-      BRANCH,
+    const catalog = { repo: 'sprocket/catalog-portal', headBranch: BRANCH };
+    expect(lookupPullRequests.mock.calls.map(([queries]) => queries)).toEqual([
+      [catalog],
+      [{ repo: 'sprocket/billing', headBranch: 'feat/invoices' }],
+      [catalog],
     ]);
   });
 
