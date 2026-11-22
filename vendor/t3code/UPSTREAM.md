@@ -1441,6 +1441,30 @@ over the helpers above (re-read them on a re-sync too):
 `server.probe` (2391), `server.refreshProviders` (2499-2580),
 `subscribeServerConfig` (3423-3579) and the `/ws` route (3697-3851).
 
+### The host's HTTP calls (Task 9)
+
+For `@consola/agent-ui`, `packages/host/src/adapters/hostHttp.ts` answers the
+three HTTP calls t3's client-runtime makes before it opens a bearer backend's
+socket, and its session read. One more file is lifted for it, byte for byte
+(`cmp` after copying), so the tree is now 844 files by the count above:
+
+- `httpCors.ts`: t3's browser API CORS lists
+  (`browserApiCorsAllowedMethods`, `browserApiCorsAllowedHeaders`). It imports
+  only `@t3tools/contracts`.
+
+The host's answers follow these t3 handlers (lines at `d51d8c47`; re-read them
+on a re-sync): `http.ts` `layerBrowserApiCors` (277-302, the packaged default:
+any origin, no credentials) and `layerServerEnvironmentHttpApi` `"descriptor"`
+(344-357); `auth/http.ts` `"session"` (286-318) and `"webSocketTicketFor"`
+(476-488); `auth/EnvironmentAuth.ts` `getSessionState` (918-937) and
+`issueWebSocketTicket` (1503-1524). The responses and the refusal are t3's
+schemas from `@t3tools/contracts` (`ExecutionEnvironmentDescriptor`,
+`AuthWebSocketTicketResult`, `AuthSessionState` with `authScopeResponse`,
+`EnvironmentAuthInvalidError`). Where the host differs: the ticket is the pass
+itself (the host keeps no sessions), a pass for another session is
+`invalid_credential` (t3's ticket call declares no other refusal), and only the
+`rpc` ticket path is served.
+
 ### Known runtime gaps
 
 Paths the lifted code builds only at run time, which no import names, are not

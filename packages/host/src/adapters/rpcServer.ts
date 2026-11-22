@@ -69,6 +69,7 @@ import { redactServerSettingsForClient } from 't3/serverSettings.ts';
 import { withOutputWindow } from 't3/terminal/OutputProtocol.ts';
 import { passCloseCode } from '../core/pass.ts';
 import type { ThreadHandle } from '../runtime/threadRuntime.ts';
+import { serveHostHttp } from './hostHttp.ts';
 import { type PassKey, type PassKeyInvalid, parsePassKey, verifyPassWith } from './passVerifier.ts';
 
 /**
@@ -147,6 +148,11 @@ const WS_PATH = '/ws';
 /** The query parameter a pass travels in. */
 const PASS_QUERY_PARAM = 'pass';
 /**
+ * Where t3's client puts the ticket it was issued (`authorization/remote.ts`
+ * `resolveRemoteWebSocketConnectionUrl`). The host's ticket is the pass (`hostHttp.ts`).
+ */
+const WS_TICKET_QUERY_PARAM = 'wsTicket';
+/**
  * The query parameters Effect redacts wherever it shows a URL the server is handling (a request's
  * inspection, a logger's or a tracer's URL): Effect's own list, which a custom list replaces, and
  * the pass.
@@ -154,6 +160,7 @@ const PASS_QUERY_PARAM = 'pass';
 export const HOST_REDACTED_URL_PARAMS: ReadonlyArray<string | RegExp> = [
   ...UrlParams.CurrentRedactedNames.defaultValue(),
   PASS_QUERY_PARAM,
+  WS_TICKET_QUERY_PARAM,
 ];
 /**
  * t3's `ws.ts` `WS_RPC_SERVER_OPTIONS` (`ws.ts:3676-3680`, reproduced: ws.ts is not lifted): a
@@ -653,7 +660,8 @@ const serveRpc = Effect.fn('host.serveRpc')(function* (options: HostServerOption
 
 /**
  * Every request: `GET /ws` with a pass for this session becomes an RPC connection; the pass is
- * verified before anything else is answered, and is never logged.
+ * verified before anything else is answered, and is never logged. The calls t3's client makes
+ * before the socket (the descriptor, a ticket, the session) are `hostHttp.ts`'s.
  */
 const app = Effect.fn('host.app')(function* (
   options: HostServerOptions,
@@ -662,11 +670,27 @@ const app = Effect.fn('host.app')(function* (
 ) {
   const request = yield* HttpServerRequest.HttpServerRequest;
   const url = new URL(request.url, 'http://consola-host.invalid');
+  // Everything but the socket: t3's calls before it, and a CORS-readable `404` for the rest.
+  if (url.pathname !== WS_PATH) {
+    return yield* serveHostHttp(
+      {
+        environment: hostEnvironment(options.sessionId),
+        auth: HOST_AUTH,
+        verify: (pass) =>
+          Effect.flatMap(Clock.currentTimeMillis, (nowMs) =>
+            verifyPassWith(pass, key, options.sessionId, Math.floor(nowMs / 1000)),
+          ),
+      },
+      url.pathname,
+    );
+  }
   if (request.method !== 'GET' || url.pathname !== WS_PATH) {
     return HttpServerResponse.empty({ status: 404 });
   }
   const nowSeconds = Math.floor((yield* Clock.currentTimeMillis) / 1000);
-  const pass = url.searchParams.get(PASS_QUERY_PARAM) ?? '';
+  // A pass in `pass`, or the ticket t3's client was issued for it, which is the pass.
+  const pass =
+    url.searchParams.get(PASS_QUERY_PARAM) ?? url.searchParams.get(WS_TICKET_QUERY_PARAM) ?? '';
   return yield* verifyPassWith(pass, key, options.sessionId, nowSeconds).pipe(
     Effect.matchEffect({
       onFailure: (rejected) => refuseConnection(passCloseCode(rejected.reason)),

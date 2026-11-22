@@ -19,8 +19,17 @@ import * as Queue from 'effect/Queue';
 import type * as Scope from 'effect/Scope';
 import * as Tracer from 'effect/Tracer';
 import * as Stream from 'effect/Stream';
+import * as FetchHttpClient from 'effect/http/FetchHttpClient';
+import type * as HttpClient from 'effect/http/HttpClient';
 import * as UrlParams from 'effect/http/UrlParams';
-import { SignJWT } from 'jose';
+import * as Redacted from 'effect/Redacted';
+import {
+  fetchRemoteSessionState,
+  issueRemoteWebSocketTicket,
+  resolveRemoteWebSocketConnectionUrl,
+} from '@t3tools/client-runtime/authorization';
+import { fetchRemoteEnvironmentDescriptor } from '@t3tools/client-runtime/environment';
+import { decodeJwt, SignJWT } from 'jose';
 import { userFacingDispatchErrorMessage } from 't3/orchestration-v2/UserFacingErrors.ts';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vite-plus/test';
 import type { SessionSpec } from '../core/sessionSpec.ts';
@@ -39,6 +48,7 @@ import {
   withState,
 } from '../testing/replay.ts';
 import { connectT3Client, hostSocketUrl, type T3Client } from '../testing/t3Client.ts';
+import { HOST_SCOPES } from './hostHttp.ts';
 import { PassKeyInvalid } from './passVerifier.ts';
 import {
   HOST_REDACTED_URL_PARAMS,
@@ -51,6 +61,22 @@ import {
 isolateMachine();
 
 /** These tests run offline: any request through `fetch` fails the test. */
+/**
+ * The real `fetch`, read as the module loads (before the stub below), for the tests that call
+ * the host as t3's client does: it reaches the host on loopback and nothing else.
+ */
+const loopbackFetch = (
+  (realFetch: typeof globalThis.fetch) => (input: string | URL | Request, init?: RequestInit) => {
+    const url = new URL(
+      typeof input === 'string' ? input : input instanceof URL ? input.href : input.url,
+    );
+    if (url.hostname !== '127.0.0.1') {
+      return Promise.reject(new Error(`Only the host on loopback: ${url.href}`));
+    }
+    return realFetch(input, init);
+  }
+)(globalThis.fetch);
+
 const fetched: string[] = [];
 beforeAll(() => {
   vi.stubGlobal('fetch', (input: string | URL | Request) => {
@@ -549,6 +575,143 @@ describe('serveHost', () => {
           expect(yield* client[WS_METHODS.serverProbe]({})).toEqual({});
           yield* runTheTurn(handle, prompt);
         }),
+      ),
+    REPLAY_TIMEOUT_MS,
+  );
+});
+
+describe("before the socket: what t3's client-runtime asks over HTTP", () => {
+  /** t3's own calls (`@t3tools/client-runtime`), over an HTTP client that reaches loopback only. */
+  const asT3Client = <A, E>(effect: Effect.Effect<A, E, HttpClient.HttpClient>) =>
+    effect.pipe(
+      Effect.provide(FetchHttpClient.layer),
+      Effect.provideService(FetchHttpClient.Fetch, loopbackFetch as typeof globalThis.fetch),
+    );
+
+  it(
+    'answers the descriptor, a ticket that is the pass, and the session it opens; the ticket opens the socket',
+    () =>
+      withServedReplay('simple', ({ spec, handle, prompt, port, signPass: passForSession }) =>
+        Effect.gen(function* () {
+          const httpBaseUrl = `http://127.0.0.1:${port}`;
+          const pass = yield* passForSession();
+          const expiresAtMs = (decodeJwt(pass).exp ?? 0) * 1000;
+
+          const descriptor = yield* asT3Client(fetchRemoteEnvironmentDescriptor({ httpBaseUrl }));
+          expect(descriptor).toMatchObject({
+            environmentId: spec.sessionId,
+            label: 'Consola host',
+            orchestrationProtocolVersion: 2,
+          });
+
+          const ticket = yield* asT3Client(
+            issueRemoteWebSocketTicket({ httpBaseUrl, bearerToken: pass, use: 'rpc' }),
+          );
+          expect(Redacted.value(ticket.ticket)).toBe(pass);
+          expect(ticket.expiresAt.epochMilliseconds).toBe(expiresAtMs);
+
+          const session = yield* asT3Client(
+            fetchRemoteSessionState({ httpBaseUrl, bearerToken: pass }),
+          );
+          expect(session).toMatchObject({
+            authenticated: true,
+            permissions: [...HOST_SCOPES],
+            sessionMethod: 'bearer-access-token',
+            auth: { sessionMethods: ['bearer-access-token'] },
+          });
+          expect(session.expiresAt?.epochMilliseconds).toBe(expiresAtMs);
+
+          // The socket URL t3's client builds from the ticket (`wsTicket`), with the protocol and
+          // frame-parts flags its resolver and session add.
+          const socketUrl = new URL(
+            yield* asT3Client(
+              resolveRemoteWebSocketConnectionUrl({
+                httpBaseUrl,
+                wsBaseUrl: `ws://127.0.0.1:${port}`,
+                bearerToken: pass,
+              }),
+            ),
+          );
+          expect(socketUrl.searchParams.get('wsTicket')).toBe(pass);
+          const withFlags = new URL(hostSocketUrl(port));
+          for (const [name, value] of socketUrl.searchParams)
+            withFlags.searchParams.set(name, value);
+          const { initialConfig } = yield* connectT3Client(withFlags.toString());
+          expect(initialConfig.environment.environmentId).toBe(spec.sessionId);
+          yield* runTheTurn(handle, prompt);
+        }),
+      ),
+    REPLAY_TIMEOUT_MS,
+  );
+
+  it(
+    'refuses a pass as t3 refuses a bearer token (401, invalid) and reads no session from it',
+    () =>
+      withServedReplay('simple', ({ handle, prompt, keys, port }) =>
+        Effect.gen(function* () {
+          const httpBaseUrl = `http://127.0.0.1:${port}`;
+          const ticketFor = (bearerToken: string) =>
+            asT3Client(issueRemoteWebSocketTicket({ httpBaseUrl, bearerToken, use: 'rpc' })).pipe(
+              Effect.flip,
+            );
+          expect(yield* ticketFor('')).toMatchObject({
+            _tag: 'EnvironmentAuthInvalidError',
+            reason: 'missing_credential',
+          });
+          expect(yield* ticketFor('not-a-pass')).toMatchObject({
+            _tag: 'EnvironmentAuthInvalidError',
+            reason: 'invalid_credential',
+          });
+          // Signed by the cell's key, for another session: t3 has no other answer for a token.
+          const anotherSessions = yield* signPass(keys, 'session-sprocket-another');
+          expect(yield* ticketFor(anotherSessions)).toMatchObject({
+            _tag: 'EnvironmentAuthInvalidError',
+            reason: 'invalid_credential',
+          });
+          for (const refused of ['not-a-pass', anotherSessions]) {
+            const session = yield* asT3Client(
+              fetchRemoteSessionState({ httpBaseUrl, bearerToken: refused }),
+            );
+            expect(session).toEqual({
+              authenticated: false,
+              auth: expect.objectContaining({ sessionMethods: ['bearer-access-token'] }),
+            });
+          }
+          yield* runTheTurn(handle, prompt);
+        }),
+      ),
+    REPLAY_TIMEOUT_MS,
+  );
+
+  it(
+    "answers a browser on another origin with t3's CORS headers, a 404 included, before any pass",
+    () =>
+      withServedReplay('simple', ({ handle, prompt, port }) =>
+        Effect.promise(async () => {
+          const origin = 'http://localhost:5733';
+          const preflight = await loopbackFetch(
+            `http://127.0.0.1:${port}/api/auth/websocket-ticket/rpc`,
+            {
+              method: 'OPTIONS',
+              headers: {
+                origin,
+                'access-control-request-method': 'POST',
+                'access-control-request-headers': 'authorization',
+              },
+            },
+          );
+          expect(preflight.status).toBeLessThan(300);
+          expect(preflight.headers.get('access-control-allow-origin')).toBe('*');
+          expect(preflight.headers.get('access-control-allow-headers')).toContain('authorization');
+          const elsewhere = await loopbackFetch(
+            `http://127.0.0.1:${port}/api/orchestration/shell`,
+            {
+              headers: { origin },
+            },
+          );
+          expect(elsewhere.status).toBe(404);
+          expect(elsewhere.headers.get('access-control-allow-origin')).toBe('*');
+        }).pipe(Effect.andThen(runTheTurn(handle, prompt))),
       ),
     REPLAY_TIMEOUT_MS,
   );

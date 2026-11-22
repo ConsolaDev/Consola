@@ -157,9 +157,12 @@ handlers are host glue that calls the helpers `ws.ts` calls
   problem, never the key). Every connection's pass is verified against that
   parsed key, so a misconfigured key stops the host instead of refusing
   everyone in silence.
-- **The pass first.** Only `GET /ws` is served (any other method or path gets
-  a `404` before the pass is looked at). A connection's `pass` query
-  parameter is verified (`verifyPassWith`) before anything else is answered:
+- **The pass first.** `GET /ws` is the socket, and the three calls t3's
+  client makes before it are answered over HTTP (`hostHttp.ts`, below); any
+  other method or path gets a `404` before the pass is looked at. A
+  connection's `pass` query parameter, or `wsTicket` (the ticket t3's client
+  was issued, which is the pass), is verified (`verifyPassWith`) before
+  anything else is answered:
   a compact JWS signed with EdDSA by the cell's key (jose, `algorithms:
   ['EdDSA']`, so `none`, HMAC and every other algorithm are refused), whose
   payload decodes as a pass's claims; then `checkPassClaims` judges them. A
@@ -173,7 +176,8 @@ handlers are host glue that calls the helpers `ws.ts` calls
   travels in, and the RPC server traces nothing (`disableTracing`). Every
   request also runs with `pass` among effect's redacted query parameters
   (`HOST_REDACTED_URL_PARAMS`, effect's own `UrlParams.CurrentRedactedNames`
-  plus `pass`), so whatever shows a URL the server handles redacts it. Then,
+  plus `pass` and `wsTicket`), so whatever shows a URL the server handles
+  redacts it. Then,
   as t3, a client must speak orchestration protocol 2 (`426` otherwise).
 - **What is served** is `SERVED_METHODS`, the one list, with why each is
   there: `orchestration.subscribeThread`, `orchestration.dispatchCommand` and
@@ -203,6 +207,45 @@ handlers are host glue that calls the helpers `ws.ts` calls
   session id, it advertises no optional capability (what the host does not
   serve, t3's UI does not offer), and its auth descriptor says a bearer pass
   lets a client in.
+- **Before the socket** (`src/adapters/hostHttp.ts`). t3's client-runtime
+  connects to a backend on another origin as t3's web app connects to a
+  desktop's secondary backend (`connection/resolver.ts` → `authorizeBearer`):
+  it reads the environment's descriptor, asks for a socket ticket with its
+  bearer token, opens the socket with that ticket, and once connected reads
+  its session's scopes. The host answers each as t3's handler does, with t3's
+  schemas, and the pass is the bearer token, so it stays the only credential:
+  - `GET /.well-known/t3/environment`: the descriptor (the config's
+    environment, above), unauthenticated as in t3. It names the session id,
+    `Consola host`, the platform and t3's server version.
+  - `POST /api/auth/websocket-ticket/rpc` with `Authorization: Bearer <pass>`:
+    `{ ticket, expiresAt }`, the ticket being the pass itself (the host keeps
+    no sessions to mint one from), expiring with it. The socket verifies it
+    again.
+  - `GET /api/auth/session` with the same header: `authenticated: true`, the
+    host's auth descriptor, `HOST_SCOPES` (`orchestration:read` and
+    `orchestration:operate`, all it serves, so t3's UI offers nothing more),
+    `sessionMethod: 'bearer-access-token'` and the pass's expiry; a refused
+    pass reads `authenticated: false`, as t3's does.
+  - A refused pass at the ticket is t3's `401` `EnvironmentAuthInvalidError`
+    (`missing_credential`, or `invalid_credential` for every other refusal,
+    another session's pass included: the ticket call declares no other
+    answer). t3's client stops on it (blocked, `authentication`), which is
+    where `@consola/agent-ui` asks for a new pass.
+  - Every answer, a `404` included, carries t3's browser API CORS headers
+    (`HttpMiddleware.cors` with the lifted `t3/httpCors.ts` lists: any origin,
+    no cookies), so a page on another origin can make these calls and read a
+    `404` (t3's HTTP snapshot loaders, `/api/orchestration/shell` and
+    `…/threads/:id/bounded`, then fall back to the socket, as against an older
+    t3 server).
+- **Methods the chat calls and the host refuses.** Running t3's copied chat
+  (`@consola/agent-ui`) against a replay host, the chat calls three methods
+  beyond `SERVED_METHODS`: `orchestration.subscribeShell` (the thread list's
+  shell; the chat has a shell-less path and renders the thread from its
+  projection), `subscribeDeviceState` (the phone preview) and
+  `subscribeProjectClones` (project clones). Each stays refused: the chat
+  shows the thread, its composer and its model without them, and the latter
+  two are parts of t3 the plan leaves out. Sending from the composer is not
+  yet exercised against the host by a test.
 - **No client tracking in `ws`.** The HTTP server makes its `ws`
   WebSocketServer at the first upgrade and closes it with the scope, before
   its own finalizer closes the sockets; with `ws`'s client tracking that close
