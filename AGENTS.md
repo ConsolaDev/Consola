@@ -481,8 +481,10 @@ panel it is view state, kept in the renderer.
   where a later section joins. A row with more behind it opens a tab
   (`openKind`, or `reveal` for a place inside the tab's view, such as the
   pane's merge card, which the view acts on once per `revealRequest.seq`);
-  nothing in the panel navigates or takes the keyboard, on mount or
-  otherwise. Visibility rides with the layout (`sidePanelStore.infoVisible`,
+  the Folder row copies its path, and its card, on hover or focus, explains
+  the checkout (a worktree's branch, folder and main checkout). Nothing in
+  the panel navigates or takes the keyboard, on mount or otherwise.
+  Visibility rides with the layout (`sidePanelStore.infoVisible`,
   written only under the remember setting, shown when absent); folds sit in
   `settingsStore.infoSectionOpen` and are always kept. While the side panel
   is open on a session pane narrower than `INFO_PANEL_ROOM_PX` (1010px: 60
@@ -645,7 +647,7 @@ from there.
 
 Whether a folder *is* a worktree is asked of git (`readCheckout`, cached per
 folder in `checkoutStore`), not inferred from the record: a scope can itself
-be a worktree. The header's checkout chip and the sidebar's worktree line read
+be a worktree. The info panel's Folder row and the sidebar's worktree line read
 that one answer, so they cannot name different branches for one session.
 
 ### Worktrees Are Removed, Sessions Stay

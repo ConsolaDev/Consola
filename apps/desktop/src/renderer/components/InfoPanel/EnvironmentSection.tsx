@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Folder, FolderGit2, Laptop, Lock } from 'lucide-react';
+import * as Tooltip from '@radix-ui/react-tooltip';
+import { Folder, FolderGit2, GitBranch, Laptop, Lock } from 'lucide-react';
 import { getDriverDescriptor } from '../../../shared/constants';
+import type { CheckoutInfo } from '../../../shared/sessionCheckout';
 import type { Session } from '../../../shared/workspace';
 import {
   folderLine,
@@ -17,11 +19,12 @@ import {
 } from '../../stores/harnessCapabilitiesStore';
 import { useHarnessStore } from '../../stores/harnessStore';
 import { tildePath } from '../../utils/displayPath';
+import { basename } from '../../utils/fileUtils';
 import { HarnessIcon } from '../HarnessIcon';
 import { InfoRow } from './InfoRow';
 import { InfoSection } from './InfoSection';
 
-/** How long "Copied the folder path" stays before the title explains again. */
+/** How long "Copied the folder path" stays before the card or title explains again. */
 const COPIED_MS = 1500;
 /** How much of a folder's path is always drawn: its end, which tells worktrees apart. */
 const PATH_TAIL = 14;
@@ -52,7 +55,7 @@ function EnvironmentRows({ facts }: { facts: TabFacts }) {
           tone="muted"
         />
       )}
-      {folder?.kind === 'folder' && <FolderRow line={folder} />}
+      {folder?.kind === 'folder' && <FolderRow line={folder} checkout={facts.checkout} />}
       {readOnly && <InfoRow icon={<Lock size={ICON_SIZE} />} label={readOnly} />}
     </>
   );
@@ -111,10 +114,24 @@ function HarnessRow({ session }: { session: Session }) {
 /**
  * The folder the session works in: what git says it is, then its path with
  * home as `~`, cut in the middle so its end stays whole. Clicking copies the
- * path, as the header's checkout chip does.
+ * path: the next thing anyone does with a worktree is usually `cd` into it
+ * from somewhere else.
+ *
+ * A checkout's row explains itself in a card, on hover or keyboard focus
+ * (`CheckoutCard`), and then has no native title, so two never show at once.
+ * A folder outside git, or one git has not answered for yet, keeps the title.
+ * The card opens to the row's left, over the conversation, so it never covers
+ * the row or the panel's other rows.
  */
-function FolderRow({ line }: { line: Extract<FolderLine, { kind: 'folder' }> }) {
+function FolderRow({
+  line,
+  checkout,
+}: {
+  line: Extract<FolderLine, { kind: 'folder' }>;
+  checkout: CheckoutInfo | undefined;
+}) {
   const [copied, setCopied] = useState(false);
+  const [cardOpen, setCardOpen] = useState(false);
 
   useEffect(() => {
     if (!copied) return;
@@ -124,6 +141,7 @@ function FolderRow({ line }: { line: Extract<FolderLine, { kind: 'folder' }> }) 
 
   const shown = tildePath(line.path);
   const [head, tail] = splitForMiddle(shown, PATH_TAIL);
+  const card = checkout && checkout.kind !== 'none' ? checkout : undefined;
   const isWorktree = line.label === 'Worktree';
   const icon = isWorktree ? (
     <FolderGit2 size={ICON_SIZE} className="info-icon-worktree" />
@@ -132,28 +150,136 @@ function FolderRow({ line }: { line: Extract<FolderLine, { kind: 'folder' }> }) 
   );
   const copy = () => {
     navigator.clipboard.writeText(line.path).then(
-      () => setCopied(true),
       () => {
-        // Clipboard refused (no focus); the title keeps offering the copy.
+        setCopied(true);
+        // The row's own pointer-down closes the card; reopen it so the
+        // confirmation is seen where the click happened.
+        setCardOpen(true);
+      },
+      () => {
+        // Clipboard refused (no focus); the card or title keeps offering the copy.
       },
     );
   };
 
+  // One trigger whatever the folder is, so the row is never remounted (and
+  // its keyboard focus lost) when git answers or the agent moves.
   return (
-    <InfoRow
-      icon={icon}
-      label={
-        <span className="info-folder">
-          {line.label && <span className="info-folder-kind">{line.label}</span>}
-          <span className="info-folder-path">
-            <span className="info-folder-path-head">{head}</span>
-            <span className="info-folder-path-tail">{tail}</span>
+    <Tooltip.Provider delayDuration={300}>
+      <Tooltip.Root open={card !== undefined && cardOpen} onOpenChange={setCardOpen}>
+        <Tooltip.Trigger asChild>
+          <InfoRow
+            icon={icon}
+            label={
+              <span className="info-folder">
+                {line.label && <span className="info-folder-kind">{line.label}</span>}
+                <span className="info-folder-path">
+                  <span className="info-folder-path-head">{head}</span>
+                  <span className="info-folder-path-tail">{tail}</span>
+                </span>
+              </span>
+            }
+            title={
+              card
+                ? undefined
+                : `${shown}\n${copied ? 'Copied the folder path' : 'Click to copy the folder path'}`
+            }
+            ariaLabel={`${line.label ? `${line.label} ` : ''}${shown}. Copy folder path`}
+            onActivate={copy}
+          />
+        </Tooltip.Trigger>
+        {card && (
+          <Tooltip.Portal>
+            <Tooltip.Content
+              className="tooltip-content checkout-tooltip"
+              side="left"
+              align="start"
+              sideOffset={6}
+              collisionPadding={8}
+            >
+              <CheckoutCard checkout={card} copied={copied} />
+              <Tooltip.Arrow className="tooltip-arrow" />
+            </Tooltip.Content>
+          </Tooltip.Portal>
+        )}
+      </Tooltip.Root>
+    </Tooltip.Provider>
+  );
+}
+
+/**
+ * What the Folder row's card says about a checkout. A repository's own
+ * checkout is the folder you opened. A linked worktree spells out the three
+ * things people mix up, the branch, the worktree's folder and the main
+ * checkout it belongs to, as labelled rows, because the folder name is
+ * generated and never matches the branch.
+ */
+function CheckoutCard({
+  checkout,
+  copied,
+}: {
+  checkout: Exclude<CheckoutInfo, { kind: 'none' }>;
+  copied: boolean;
+}) {
+  const isWorktree = checkout.kind === 'worktree';
+  return (
+    <>
+      <span className="checkout-tooltip-title" data-kind={checkout.kind}>
+        {isWorktree ? 'Worktree' : 'Main checkout'}
+      </span>
+      <p className="checkout-tooltip-lead">
+        {isWorktree ? (
+          <>
+            A second working folder for <strong>{basename(checkout.mainCheckout)}</strong>, on its
+            own branch. Edits here don't change the files in your main checkout.
+          </>
+        ) : (
+          <>This session works directly in the folder you opened, not in a worktree.</>
+        )}
+      </p>
+      <dl className="checkout-tooltip-facts">
+        <dt>Branch</dt>
+        <dd>
+          <span className="checkout-tooltip-value">
+            <GitBranch size={12} aria-hidden="true" />
+            {checkout.branch ?? `none, detached at ${checkout.head ?? 'HEAD'}`}
           </span>
-        </span>
-      }
-      title={`${shown}\n${copied ? 'Copied the folder path' : 'Click to copy the folder path'}`}
-      ariaLabel={`${line.label ? `${line.label} ` : ''}${shown}. Copy folder path`}
-      onActivate={copy}
-    />
+        </dd>
+        <dt>Folder</dt>
+        <dd>
+          <span className="checkout-tooltip-value" data-kind={checkout.kind}>
+            {isWorktree ? (
+              <FolderGit2 size={12} aria-hidden="true" />
+            ) : (
+              <Folder size={12} aria-hidden="true" />
+            )}
+            {tildePath(checkout.root)}
+          </span>
+          {isWorktree && (
+            <span className="checkout-tooltip-note">
+              Named by Consola, not after the branch, which can change inside it.
+            </span>
+          )}
+        </dd>
+        {isWorktree && (
+          <>
+            <dt>Main checkout</dt>
+            <dd>
+              <span className="checkout-tooltip-value">
+                <Folder size={12} aria-hidden="true" />
+                {tildePath(checkout.mainCheckout)}
+              </span>
+              <span className="checkout-tooltip-note">
+                The folder you opened. Same repository: it shares commits and branches with this
+                worktree.
+              </span>
+            </dd>
+          </>
+        )}
+      </dl>
+      <span className="checkout-tooltip-hint" data-copied={copied || undefined}>
+        {copied ? 'Copied the folder path' : 'Click to copy the folder path'}
+      </span>
+    </>
   );
 }

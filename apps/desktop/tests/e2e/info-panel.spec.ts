@@ -185,6 +185,14 @@ test.describe('info panel', () => {
     infoSection(page, 'Environment').getByRole('button', {
       name: new RegExp(`^${kind} .+\\. Copy folder path$`),
     });
+  /**
+   * The Folder row's card, which explains the checkout, and its parts. Child
+   * combinators: Radix also renders a visually hidden copy of the content for
+   * screen readers, which a descendant query would count twice.
+   */
+  const checkoutCard = () => page.locator('.checkout-tooltip');
+  const checkoutCardTitle = () => page.locator('.checkout-tooltip > .checkout-tooltip-title');
+  const checkoutCardHint = () => page.locator('.checkout-tooltip > .checkout-tooltip-hint');
   /** The Branch section's first row: the checkout's branch, and what waits to be pushed. */
   const branchRow = (branch: string) =>
     infoSection(page, 'Branch').locator('.info-row').filter({ hasText: branch });
@@ -400,9 +408,21 @@ test.describe('info panel', () => {
     await expect(folderRow('Main checkout')).toBeVisible();
     // The computer's name, or "This Mac": never an empty row.
     await expect(environment.locator('.info-row').first()).toHaveText(/\S/);
+    // Pointed at, the row's card says what a main checkout is, and no native
+    // title shows beside it.
+    await folderRow('Main checkout').hover();
+    await expect(checkoutCardTitle()).toHaveText('Main checkout');
+    await expect(checkoutCard()).toContainText(
+      'This session works directly in the folder you opened, not in a worktree.',
+    );
+    await expect(folderRow('Main checkout')).not.toHaveAttribute('title');
 
     await openSession('Update the readme');
     await expect(folderRow('Worktree')).toBeVisible();
+    await folderRow('Worktree').hover();
+    await expect(checkoutCardTitle()).toHaveText('Worktree');
+    await expect(checkoutCard()).toContainText('docs/readme');
+    await expect(checkoutCardHint()).toHaveText('Click to copy the folder path');
     // The copy lands in a stand-in for the clipboard, never the person's own.
     await page.evaluate(() => {
       const copied: string[] = [];
@@ -415,16 +435,17 @@ test.describe('info panel', () => {
       });
     });
     await folderRow('Worktree').click();
-    // Said for 1.5 s, then the title explains again.
-    await expect(folderRow('Worktree')).toHaveAttribute('title', /Copied the folder path/, {
-      timeout: 1_000,
-    });
+    // The click closes the card; it opens again to say so, for 1.5 s.
+    await expect(checkoutCardHint()).toHaveText('Copied the folder path', { timeout: 1_000 });
     expect(
       await page.evaluate(() => (window as unknown as { __copied: string[] }).__copied),
     ).toEqual([docs]);
+    await expect(checkoutCardHint()).toHaveText('Click to copy the folder path');
 
+    // A folder outside git has no card: its native title explains the copy.
     await openSession('Review notes');
     await expect(folderRow('Folder')).toBeVisible();
+    await expect(folderRow('Folder')).toHaveAttribute('title', /Click to copy the folder path$/);
   });
 
   test('a folded section stays folded after a relaunch, as does a hidden panel', async () => {
@@ -544,9 +565,9 @@ test.describe('info panel', () => {
     await page.getByRole('menuitem', { name: 'Snooze', exact: true }).hover();
     await page.getByRole('menuitem', { name: /^In 3 hours/ }).click();
 
-    // The fullest header: name, checkout chip, snooze chip and Wake, counts,
-    // refresh, three shortcuts and both toggles. The name and then the chips'
-    // words give way; no control is drawn over another.
+    // The fullest header: name, snooze chip and Wake, counts, refresh, three
+    // shortcuts and both toggles. The name and then the snooze chip's words
+    // give way; no control is drawn over another.
     const header = page.locator('.workspace-view-header');
     await expect(header.getByRole('button', { name: 'Wake', exact: true })).toBeVisible();
     await expect(header.getByRole('button', { name: /^(Show|Hide) side panel/ })).toBeVisible();

@@ -37,9 +37,9 @@
 }
 
 /* --- The chip on a snoozed session's pane --------------------------------- */
-/* In a header short of room it gives way last of the header's chips (see
-   `.workspace-view-header`): its words are cut, never Wake, and it is
-   clipped rather than drawn over its neighbours. */
+/* In a header short of room it gives way once the session's name is down to
+   its minimum (see `.workspace-view-header`): its words are cut, never Wake,
+   and it is clipped rather than drawn over its neighbours. */
 .snooze-chip {
   display: inline-flex;
   flex-shrink: 1;

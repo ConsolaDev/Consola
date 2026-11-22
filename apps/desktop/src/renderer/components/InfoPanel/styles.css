@@ -220,6 +220,115 @@ button.info-row:focus-visible {
   white-space: pre;
 }
 
+/* The Folder row's card explains the checkout as labelled facts — branch,
+   folder, main checkout — because the worktree's folder is named by Consola
+   and never matches its branch. Portaled to <body>, so not scoped under
+   .info-panel. Doubled class: .tooltip-content is declared in other sheets
+   that may load later. */
+.tooltip-content.checkout-tooltip {
+  display: flex;
+  flex-direction: column;
+  /* The shared tooltip centres its items; this one reads as a left-aligned
+     note. */
+  align-items: stretch;
+  gap: 8px;
+  width: max-content;
+  max-width: 440px;
+  padding: 10px 12px;
+  font-size: var(--font-size-xs);
+  text-align: left;
+  word-break: normal;
+}
+
+/* A small-caps label naming the kind of checkout, so the card reads as the
+   row's explanation. */
+.checkout-tooltip-title {
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-secondary);
+}
+
+.checkout-tooltip-title[data-kind="worktree"] {
+  color: var(--color-worktree);
+}
+
+.checkout-tooltip-lead {
+  margin: 0;
+  max-width: 46ch;
+  font-family: var(--font-sans);
+  font-size: var(--font-size-sm);
+  line-height: 1.45;
+  color: var(--color-text-secondary);
+}
+
+.checkout-tooltip-lead strong {
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+}
+
+.checkout-tooltip-facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  column-gap: 12px;
+  row-gap: 8px;
+  margin: 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--color-border);
+}
+
+.checkout-tooltip-facts dt {
+  font-family: var(--font-sans);
+  line-height: 18px;
+  color: var(--color-text-secondary);
+}
+
+.checkout-tooltip-facts dd {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  margin: 0;
+}
+
+.checkout-tooltip-value {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-family: var(--font-mono);
+  line-height: 18px;
+  color: var(--color-text-primary);
+  overflow-wrap: anywhere;
+}
+
+.checkout-tooltip-value > svg {
+  flex-shrink: 0;
+  margin-top: 3px;
+  color: var(--color-text-tertiary);
+}
+
+.checkout-tooltip-value[data-kind="worktree"] > svg {
+  color: var(--color-worktree);
+}
+
+.checkout-tooltip-note {
+  padding-left: 18px;
+  font-family: var(--font-sans);
+  line-height: 1.4;
+  color: var(--color-text-secondary);
+}
+
+.checkout-tooltip-hint {
+  font-family: var(--font-sans);
+  color: var(--color-text-tertiary);
+}
+
+.checkout-tooltip-hint[data-copied] {
+  color: var(--color-success);
+}
+
 /* A branch's name, as git spells it. */
 .info-branch {
   font-family: var(--font-mono);
@@ -231,7 +340,7 @@ button.info-row:focus-visible {
   gap: 4px;
 }
 
-/* A linked worktree, in the hue the header and the sidebar give one. */
+/* A linked worktree, in the hue the sidebar and the Folder row's card give one. */
 .info-icon-worktree {
   color: var(--color-worktree);
 }

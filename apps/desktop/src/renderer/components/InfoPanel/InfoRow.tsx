@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import type { ComponentPropsWithRef, ReactNode } from 'react';
 
 interface InfoRowProps {
   icon?: ReactNode;
@@ -15,10 +15,30 @@ interface InfoRowProps {
 }
 
 /**
+ * What a Radix trigger hands the row it wraps (`asChild`): its ref, its
+ * handlers, its state and its description. Only a row that is a button
+ * takes them.
+ */
+type TriggerProps = Omit<
+  ComponentPropsWithRef<'button'>,
+  keyof InfoRowProps | 'children' | 'value'
+>;
+
+/**
  * One line of an info panel section. A plain fact is a `<div>`; a row with
  * something behind it is a `<button>`, which is what takes the hover.
  */
-export function InfoRow({ icon, label, value, title, ariaLabel, tone, onActivate }: InfoRowProps) {
+export function InfoRow({
+  icon,
+  label,
+  value,
+  title,
+  ariaLabel,
+  tone,
+  onActivate,
+  onClick,
+  ...trigger
+}: InfoRowProps & TriggerProps) {
   const content = (
     <>
       {icon && (
@@ -33,12 +53,16 @@ export function InfoRow({ icon, label, value, title, ariaLabel, tone, onActivate
   if (onActivate) {
     return (
       <button
+        {...trigger}
         type="button"
         className="info-row"
         data-tone={tone}
         title={title}
         aria-label={ariaLabel}
-        onClick={onActivate}
+        onClick={(event) => {
+          onActivate();
+          onClick?.(event);
+        }}
       >
         {content}
       </button>
