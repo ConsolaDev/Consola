@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import type { Me } from '../domain/me';
 import type { MyWorkspace } from '../domain/workspace';
+import { ConnectionsPage } from './ConnectionsPage';
 import { OverviewPage } from './OverviewPage';
 
 /** What every section is shown with: the person, and the workspace open, never null. */
@@ -25,4 +26,6 @@ export type Section = {
  */
 export const SECTIONS: readonly [Section, ...Section[]] = [
   { id: 'overview', label: 'Overview', View: OverviewPage },
+  // cloud-global's GitHub callback sends people back to `#/connections`: never rename it.
+  { id: 'connections', label: 'Connections', View: ConnectionsPage },
 ];

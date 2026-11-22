@@ -32,6 +32,7 @@ import { checkNewWorkspace } from '../../domain/workspace.js';
 import {
   deleteGitHubInstallation,
   type GITHUB_CALLBACK_RESULTS,
+  GitHubCallbackResult,
   getCellTokenKeys,
   getConnections,
   getGitHubCallback,
@@ -52,7 +53,7 @@ const CHANGES = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
  */
 const CONNECTIONS_PAGE = '#/settings/connections';
 
-type GitHubCallbackResult = (typeof GITHUB_CALLBACK_RESULTS)[number];
+type CallbackResult = (typeof GITHUB_CALLBACK_RESULTS)[number];
 
 /** How each way a Connect can end is named in `?github=`: every outcome, as the contract lists. */
 const CALLBACK_RESULT = {
@@ -70,7 +71,7 @@ const CALLBACK_RESULT = {
   invalid: 'invalid',
   unavailable: 'unavailable',
   'not-configured': 'not_configured',
-} as const satisfies Record<InstallOutcome['kind'], GitHubCallbackResult>;
+} as const satisfies Record<InstallOutcome['kind'], CallbackResult>;
 
 /** Now, in whole seconds since the epoch: what a cell token's times are in. */
 const nowSeconds = () => Math.floor(Date.now() / 1000);
@@ -283,7 +284,7 @@ export function createApp(deps: {
   // `?github=` once. Its query is read as it comes, never validated: whatever GitHub sends, it
   // redirects.
   app.openapi(getGitHubCallback, async (c) => {
-    const back = (result: GitHubCallbackResult) => {
+    const back = (result: CallbackResult) => {
       c.header('cache-control', 'no-store');
       // The address carried a code and a state; neither goes on in a Referer.
       c.header('referrer-policy', 'no-referrer');
@@ -307,6 +308,8 @@ export function createApp(deps: {
     );
     return back(CALLBACK_RESULT[outcome.kind]);
   });
+  // No body carries the results, so the document names them itself, for clients to check theirs.
+  app.openAPIRegistry.register('GitHubCallbackResult', GitHubCallbackResult);
 
   // Disconnects an installation from the session's active workspace. The app stays installed
   // on GitHub; the answer to GET /api/connections says where to uninstall it.

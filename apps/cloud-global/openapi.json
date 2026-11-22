@@ -7,6 +7,27 @@
   },
   "components": {
     "schemas": {
+      "GitHubCallbackResult": {
+        "type": "string",
+        "enum": [
+          "connected",
+          "already_connected",
+          "requested",
+          "cancelled",
+          "bad_state",
+          "expired",
+          "not_allowed",
+          "code_refused",
+          "not_installer",
+          "not_account_admin",
+          "taken",
+          "invalid",
+          "unavailable",
+          "not_configured",
+          "signed_out"
+        ],
+        "description": "How a Connect ended, as the callback names it in the web app’s `?github=`."
+      },
       "Me": {
         "type": "object",
         "properties": {

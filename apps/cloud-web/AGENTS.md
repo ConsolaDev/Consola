@@ -16,20 +16,23 @@ The app is built in layers, and imports point inward only.
   answers `WorkspacesState`, `CreateWorkspaceAnswer` and
   `SwitchWorkspaceAnswer`); the sentences (`messages.ts`) for a failed
   sign-in or sign-out, for each problem with a new workspace, a taken slug, a
-  failed switch and the create form's hints; where the running source is
-  (`source.ts`); and how the address names a dashboard section
+  failed switch and the create form's hints; connections (`connections.ts`:
+  the answers of `/api/connections`, a Connect's results, the services that
+  come later) and their sentences (`connectionMessages.ts`); where the running
+  source is (`source.ts`); and how the address names a dashboard section
   (`sections.ts`: `sectionIdOfHash`, `hashOfSection`, `chooseSection`). It is
   plain TypeScript, with no package and no browser I/O. `apiContract.ts`
   holds the API's types, generated from `apps/cloud-global/openapi.json`
   (see "The API's contract").
 - `src/services/` is everything that talks to something outside the page: the
   API (`api.ts`: `loadMe`, `loadWorkspaces`, `createWorkspace`,
-  `switchWorkspace`, through `createApi`, an `openapi-fetch` client typed by
+  `switchWorkspace`, `loadConnections`, `startGitHubConnect`,
+  `disconnectGitHub`, through `createApi`, an `openapi-fetch` client typed by
   the contract), Better Auth's client (`authClient.ts`: `signInWithGoogle`,
   `signOut`) and the address bar (`signInRedirect.ts`:
   `takeSignInErrorCode`; `address.ts`: `currentSectionId`, `openSection`,
-  `onSectionChange`). A service answers in domain types and sentences, never
-  in a library's own.
+  `onSectionChange`; `gitHubRedirect.ts`: `takeGitHubResult`, `goToGitHub`).
+  A service answers in domain types and sentences, never in a library's own.
 - `src/ui/` holds the React screens (`App.tsx` and the cards beside it:
   `SignInCard`, `ProfileCard`, `CreateWorkspaceCard`, and the topbar's
   `WorkspaceSwitcher` and `SignOutButton`), the dashboard (`Dashboard.tsx`,
@@ -160,6 +163,30 @@ column (`.main`; the dashboard widens it with `.main.wide`).
   ones (`.card`, `.heading`, `.muted`, `.error`, `.button`). A page's own
   styles go in a stylesheet beside it (`ui/TeamsPage.css`), imported by the
   page.
+
+## Connections
+
+The Connections section (`ui/ConnectionsPage.tsx`, with its own
+`ConnectionsPage.css`) shows what the active workspace is connected to:
+GitHub, and the services that come later (`LATER_SERVICES`), listed as not
+connected. The API is `cloud-global`'s (its `AGENTS.md`, "Connections"), and
+it decides everything: the page shows Connect and Disconnect only when the
+server says `canManage`, and the server refuses anyone else whatever the page
+shows.
+
+- **Connect** asks the server for the install address and sends the person
+  there (`goToGitHub`), only if it is on `https://github.com`. GitHub sends
+  them back through `cloud-global`'s callback to
+  `/?github=<result>#/connections`. The page reads the result once as it
+  mounts (`takeGitHubResult`), clears it from the address and says it
+  (`messageForGitHubResult`). A result it does not know is `unknown`, never
+  shown raw.
+- **Disconnect** asks first, in place, never with a browser dialog, and says
+  that the app stays installed on GitHub. Each installation links to its
+  settings there (`settingsUrl`).
+- The repositories are GitHub's answer of the moment: an installation GitHub
+  no longer has is `gone`, and one whose list GitHub did not give is
+  `unavailable`. Both still show, so they can be disconnected.
 
 ## Adding a feature
 

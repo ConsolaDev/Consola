@@ -770,6 +770,11 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * @description How a Connect ended, as the callback names it in the web app’s `?github=`.
+         * @enum {string}
+         */
+        GitHubCallbackResult: "connected" | "already_connected" | "requested" | "cancelled" | "bad_state" | "expired" | "not_allowed" | "code_refused" | "not_installer" | "not_account_admin" | "taken" | "invalid" | "unavailable" | "not_configured" | "signed_out";
         /** @description Who is signed in, and their session’s active workspace. */
         Me: {
             user: components["schemas"]["Person"];

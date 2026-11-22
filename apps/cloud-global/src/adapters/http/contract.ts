@@ -319,6 +319,16 @@ export const GITHUB_CALLBACK_RESULTS = [
   'signed_out',
 ] as const;
 
+/**
+ * The results, as a named schema of the document (`app.ts` registers it), so a client's own list
+ * of them is checked against the contract's, though no route answers one in a body.
+ */
+export const GitHubCallbackResult = z
+  .enum(GITHUB_CALLBACK_RESULTS)
+  .openapi('GitHubCallbackResult', {
+    description: 'How a Connect ended, as the callback names it in the web app’s `?github=`.',
+  });
+
 export const getGitHubCallback = createRoute({
   method: 'get',
   path: '/api/github/callback',
