@@ -69,6 +69,12 @@ export function withKnownTools(
   };
 }
 
+/** A skill's `SKILL.md` as text, from its files; empty when it has none. */
+export function skillMarkdown(files: ReadonlyArray<{ path: string; bytes: Uint8Array }>): string {
+  const file = files.find((entry) => entry.path === 'SKILL.md');
+  return file ? new TextDecoder().decode(file.bytes) : '';
+}
+
 /** What a steps run executes: the entry as it was approved, with every action a step names. */
 export interface RunDefinition {
   automation: StepsAutomation;
@@ -143,6 +149,15 @@ export interface StepDetail {
   record: StepRun;
   /** An agent step's agent, as its run's definition holds it: its servers and skills among them. */
   agent?: AgentRequirements;
+  /**
+   * Each skill its agent names, in its order, by its `SKILL.md` as the run's
+   * own copy holds it, when that copy is the one its definition records: what
+   * the approval card shows the person accepting it (review M4). Absent for
+   * an agent with no skills, and when `skillsProblem` says why not.
+   */
+  skillTexts?: Array<{ name: string; text: string }>;
+  /** Why the run's copy of its skills cannot be shown: unreadable, or not the one its definition records. */
+  skillsProblem?: string;
   command?: CommandFile;
   stdout?: LogTail;
   stderr?: LogTail;

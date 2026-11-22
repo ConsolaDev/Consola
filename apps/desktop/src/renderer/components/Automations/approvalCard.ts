@@ -1,4 +1,4 @@
-import type { RunDefinition } from '../../../shared/automations';
+import type { RunDefinition, StepDetail } from '../../../shared/automations';
 import { agentStepHead, serverGrantLine, skillsLine } from './agentGrantWords';
 
 type DefinitionStep = RunDefinition['automation']['steps'][number];
@@ -77,5 +77,20 @@ export function approvalAgent(
     servers: agent.mcpServers.map((server) => serverGrantLine(server)),
     skills: skillsLine(agent.skills),
     readsOthers: definition.readsItems === true,
+  };
+}
+
+/**
+ * What the approval card shows of a step's skills, from its step detail:
+ * each `SKILL.md` as the run's own copy holds it, by its file, or why it
+ * cannot (review M4). The card asks only for a step whose agent names skills.
+ */
+export function approvalSkills(
+  detail: StepDetail | null,
+): { texts: Array<{ file: string; text: string }> } | { problem: string } {
+  if (detail?.skillsProblem !== undefined) return { problem: detail.skillsProblem };
+  if (!detail?.skillTexts) return { problem: "Its skills can't be shown from this run's folder." };
+  return {
+    texts: detail.skillTexts.map(({ name, text }) => ({ file: `skills/${name}/SKILL.md`, text })),
   };
 }

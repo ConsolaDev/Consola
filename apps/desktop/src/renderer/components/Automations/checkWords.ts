@@ -137,6 +137,8 @@ export interface AllowAgentSection {
   servers?: string[];
   /** The skills it names, each opened by its `skills/<name>/SKILL.md`; absent for none. */
   skills?: string[];
+  /** Each skill's `SKILL.md` as the version holds it, by its file (review M4); absent for none. */
+  skillTexts?: Array<{ file: string; text: string }>;
 }
 
 /**
@@ -167,6 +169,14 @@ export function allowAgentSections(
         ? { servers: agent.mcpServers.map((server) => serverGrantLine(server)) }
         : {}),
       ...(agent && agent.skills.length > 0 ? { skills: [...agent.skills] } : {}),
+      ...(agent?.skillTexts && agent.skillTexts.length > 0
+        ? {
+            skillTexts: agent.skillTexts.map(({ name, text }) => ({
+              file: `skills/${name}/SKILL.md`,
+              text,
+            })),
+          }
+        : {}),
     };
   });
   return {

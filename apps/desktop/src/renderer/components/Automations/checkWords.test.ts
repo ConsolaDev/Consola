@@ -325,6 +325,28 @@ describe('allowAgentSections (review B1)', () => {
     expect(stale.readsItems).toBe(false);
     expect(Object.prototype.hasOwnProperty.call(stale.agents[0], 'servers')).toBe(false);
   });
+
+  it("gives each skill's SKILL.md as the version holds it, by its file, and none read for another version (review M4)", () => {
+    const TRIAGE = '---\nname: incident-triage\n---\nCheck the last deploy first.\n';
+    const skilled = {
+      ...loaded,
+      agents: [
+        {
+          ...loaded.agents[0],
+          skills: ['incident-triage'],
+          skillTexts: [{ name: 'incident-triage', text: TRIAGE }],
+        },
+        loaded.agents[1],
+      ],
+    };
+    const sections = allowAgentSections(view, skilled, true);
+    expect(sections.agents[0].skillTexts).toEqual([
+      { file: 'skills/incident-triage/SKILL.md', text: TRIAGE },
+    ]);
+    expect(Object.prototype.hasOwnProperty.call(sections.agents[1], 'skillTexts')).toBe(false);
+    const stale = allowAgentSections(view, { ...skilled, version: 'v0' }, true);
+    expect(Object.prototype.hasOwnProperty.call(stale.agents[0], 'skillTexts')).toBe(false);
+  });
 });
 
 describe('openFileWords', () => {

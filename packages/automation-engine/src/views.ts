@@ -238,6 +238,13 @@ export interface EntryAgentView {
   mcpServers: Array<{ name: string; tools?: string[]; knownTools?: string[] }>;
   /** The skills it names, by folder name. */
   skills: string[];
+  /**
+   * Each skill it names, in `skills` order, by its `SKILL.md` as the version
+   * holds it (while the folder does not apply, the running version's, never
+   * the live file): the Allow card shows what it accepts (review M4). Absent
+   * when it names none.
+   */
+  skillTexts?: Array<{ name: string; text: string }>;
 }
 
 /** An entry's agents, each once in step order, at `version`: the one Allow sends back. */

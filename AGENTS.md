@@ -869,7 +869,8 @@ record, not `attention.holds()`), then loses its grants. "Reads text other
 people wrote" marks runs that carry an item. A card names a whole server's
 tools: Allow from the last answer, a run's approval from its definition,
 which keeps the answer the run was made with (`knownTools`, never a grant).
-Canary rows 20–28.
+Both show each skill's `SKILL.md` as what they accept holds it: Allow the
+version's, a run's approval its own copy's. Canary rows 20–28.
 
 ### Harnesses Are Launch Descriptions
 

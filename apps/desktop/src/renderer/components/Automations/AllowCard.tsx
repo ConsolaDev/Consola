@@ -12,9 +12,9 @@ import { useIntent } from './parts';
 /**
  * What allowing a poll entry lets Consola do, shown before it does it: the
  * check command in full, how often it runs, what the mode then does, the
- * entry as written, and the description, body, servers and skills of each
- * agent its steps run as, so every step is seen exactly as the version Allow
- * accepts has it. A whole server's line names the tools its harness's CLI
+ * entry as written, and the description, body, servers and skills (each
+ * `SKILL.md` too) of each agent its steps run as, so every step is seen
+ * exactly as the version Allow accepts has it. A whole server's line names the tools its harness's CLI
  * last listed (main fills them in; nothing is asked to open the card), and
  * an entry whose runs carry an item says, once, that the agent reads text
  * other people wrote with these tools at hand.
@@ -151,6 +151,13 @@ export function AllowCard({
                       })}
                     </div>
                   )}
+                  {/* Each skill as the version Allow accepts holds it (review M4). */}
+                  {agent.skillTexts?.map(({ file, text }) => (
+                    <details key={file} className="automations-details automations-allow-skill">
+                      <summary>{file}</summary>
+                      <pre className="automations-prompt">{text}</pre>
+                    </details>
+                  ))}
                 </>
               )}
             </li>

@@ -1,3 +1,5 @@
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   automationVersion,
@@ -555,6 +557,8 @@ describe("an entry's agents, with their servers and skills (2-C, Task 13)", () =
         body: 'INVESTIGATOR-BODY-1\n',
         mcpServers: [{ name: 'claude.ai Coralogix' }, { name: 'grafana', tools: ['query_logs'] }],
         skills: ['incident-triage'],
+        // Each skill's SKILL.md as the version holds it (review M4).
+        skillTexts: [{ name: 'incident-triage', text: TRIAGE }],
       },
       {
         name: 'summariser',
@@ -566,6 +570,59 @@ describe("an entry's agents, with their servers and skills (2-C, Task 13)", () =
         skills: [],
       },
     ]);
+  });
+
+  it("while the folder does not apply, a skill's SKILL.md is the running version's, not the live file's (review M4)", async () => {
+    const h = await investigating();
+    const listed = h.service.list(WORKSPACE_ID)[0].version;
+    // A key a skill may not have: the skill, and so its agent, no longer parse, and the last version keeps running.
+    await h.writeFile(
+      'skills/incident-triage/SKILL.md',
+      TRIAGE.replace('---\nname:', '---\nhooks: ./hooks.json\nname:'),
+    );
+    expect(h.service.snapshot(WORKSPACE_ID).standing).toBeDefined();
+    const view = h.service.entryAgents(WORKSPACE_ID, 'investigate-alerts')!;
+    expect(view.version).toBe(listed);
+    expect(view.agents[0].skillTexts).toEqual([{ name: 'incident-triage', text: TRIAGE }]);
+  });
+
+  it('an entry that cannot run still gives its agents with their skills (review M4)', async () => {
+    const h = await stepsHarness({
+      files: files(POLL),
+      agentHarnesses: {
+        'claude-work': { ...CLAUDE_WORK, agentProblem: '`claude-work` is turned off' },
+      },
+    });
+    expect(h.service.list(WORKSPACE_ID)[0].problem).toBeDefined();
+    expect(h.service.entryAgents(WORKSPACE_ID, 'investigate-alerts')?.agents[0].skillTexts).toEqual(
+      [{ name: 'incident-triage', text: TRIAGE }],
+    );
+  });
+
+  it("a step's detail gives each of its agent's skills as the run's own copy holds it, and says when that copy is not the run's (review M4)", async () => {
+    const h = await investigating(
+      `on: { cron: "0 7 * * 1-5" }\nscope: catalog-portal\nmode: auto\nsteps:\n  - id: investigate\n    agent: investigator\n  - id: summarise\n    agent: summariser\n`,
+    );
+    const asked = (await h.service.trigger(WORKSPACE_ID, 'investigate-alerts'))!;
+    expect(asked.status).toBe('needs-approval');
+    // Edited after the run was made: the run shows its own copy.
+    await h.writeFile('skills/incident-triage/SKILL.md', TRIAGE.replace('first', 'second'));
+    expect(h.service.getStepDetail(asked.id, 'investigate')).toMatchObject({
+      skillTexts: [{ name: 'incident-triage', text: TRIAGE }],
+    });
+    // An agent with no skills has none.
+    expect(h.service.getStepDetail(asked.id, 'summarise')).not.toHaveProperty('skillTexts');
+
+    // A copy changed in the run folder is not shown as the run's.
+    fs.writeFileSync(
+      path.join(h.folder.skillsDir(WORKSPACE_ID, asked.id), 'incident-triage', 'SKILL.md'),
+      'Not what the run holds.\n',
+    );
+    const changed = h.service.getStepDetail(asked.id, 'investigate')!;
+    expect(changed).not.toHaveProperty('skillTexts');
+    expect(changed.skillsProblem).toBe(
+      'Its skills in the run folder are not the ones its version holds (skills/incident-triage).',
+    );
   });
 
   it("its version moves when an agent's body is edited and applies (review S1)", async () => {

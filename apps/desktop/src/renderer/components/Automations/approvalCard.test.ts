@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { RunDefinition } from '../../../shared/automations';
-import { approvalAgent, approvalNotes, dryRunCommands } from './approvalCard';
+import { approvalAgent, approvalNotes, approvalSkills, dryRunCommands } from './approvalCard';
 
 type Step = RunDefinition['automation']['steps'][number];
 
@@ -182,5 +182,43 @@ describe('approvalAgent', () => {
         'tell',
       ),
     ).toBeNull();
+  });
+});
+
+describe('approvalSkills (review M4)', () => {
+  const detail = (fields: Record<string, unknown>) =>
+    ({
+      runId: 'run-1',
+      step: { id: 'look', kind: 'agent' },
+      record: { id: 'look', kind: 'agent', status: 'queued', attempt: 1 },
+      ...fields,
+    }) as unknown as Parameters<typeof approvalSkills>[0];
+
+  it("gives each skill's SKILL.md as the run's copy holds it, by its file", () => {
+    expect(
+      approvalSkills(
+        detail({
+          skillTexts: [
+            { name: 'incident-triage', text: 'TRIAGE\n' },
+            { name: 'release-notes', text: 'NOTES\n' },
+          ],
+        }),
+      ),
+    ).toEqual({
+      texts: [
+        { file: 'skills/incident-triage/SKILL.md', text: 'TRIAGE\n' },
+        { file: 'skills/release-notes/SKILL.md', text: 'NOTES\n' },
+      ],
+    });
+  });
+
+  it('says why when the copy cannot be shown, and when the step is gone', () => {
+    expect(approvalSkills(detail({ skillsProblem: 'Its skills could not be read.' }))).toEqual({
+      problem: 'Its skills could not be read.',
+    });
+    for (const gone of [null, detail({})])
+      expect(approvalSkills(gone)).toEqual({
+        problem: "Its skills can't be shown from this run's folder.",
+      });
   });
 });

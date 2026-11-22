@@ -891,16 +891,19 @@ test('the investigator: a connector and a user server, a skill and its deny list
       hasText: INVESTIGATOR_FILE,
     });
     const summariserCard = card.locator('.automations-allow-agent', { hasText: SUMMARISER_FILE });
-    await expect(investigatorCard.locator('.automations-prompt')).toContainText(
-      'INVESTIGATOR-BODY-1',
-      { timeout: 15_000 },
-    );
+    await expect(
+      investigatorCard.locator('.automations-allow-agent-body .automations-prompt'),
+    ).toContainText('INVESTIGATOR-BODY-1', { timeout: 15_000 });
     await expect(summariserCard.locator('.automations-prompt')).toContainText('SUMMARISER-BODY-1');
     await expect(investigatorCard).toContainText(
       'claude.ai Coralogix: all its tools (query_logs, list_alerts), including any that post or change things',
     );
     await expect(investigatorCard).toContainText('grafana: query_logs only');
     await expect(investigatorCard).toContainText('Skills: incident-triage');
+    // Its SKILL.md as the version Allow accepts holds it, folded like the body (review M4).
+    await expect(
+      investigatorCard.locator('.automations-allow-skill', { hasText: TRIAGE_FILE }),
+    ).toContainText('TRIAGE-SKILL-1: check the last deploy first');
     await expect(
       investigatorCard.getByRole('button', {
         name: 'Open skills/incident-triage/SKILL.md',
@@ -916,13 +919,12 @@ test('the investigator: a connector and a user server, a skill and its deny list
     await expect
       .poll(async () => (await viewOf(steps, INVESTIGATE))?.version, { timeout: 30_000 })
       .not.toBe(listed);
-    await expect(investigatorCard.locator('.automations-prompt')).toContainText(
-      'INVESTIGATOR-BODY-2',
-      { timeout: 15_000 },
-    );
-    await expect(investigatorCard.locator('.automations-prompt')).not.toContainText(
-      'INVESTIGATOR-BODY-1',
-    );
+    await expect(
+      investigatorCard.locator('.automations-allow-agent-body .automations-prompt'),
+    ).toContainText('INVESTIGATOR-BODY-2', { timeout: 15_000 });
+    await expect(
+      investigatorCard.locator('.automations-allow-agent-body .automations-prompt'),
+    ).not.toContainText('INVESTIGATOR-BODY-1');
     await allow(steps, INVESTIGATE);
     expect(await viewOf(steps, INVESTIGATE)).not.toHaveProperty('needsAllow');
     expect(await checkOf(steps, INVESTIGATE)).toMatchObject({ baseline: true, items: 1 });

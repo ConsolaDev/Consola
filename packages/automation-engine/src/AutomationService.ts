@@ -189,6 +189,7 @@ import {
 } from './steps/commandStep';
 import {
   agentRequirements,
+  skillMarkdown,
   withKnownTools,
   type AgentRequirements,
   type CommandFile,
@@ -486,6 +487,8 @@ interface Resolved {
   unasked?: true;
   /** A `steps:` entry's: the agents it was resolved against, by name (its node names their harness and model). */
   agents?: Readonly<Record<string, AgentDefinition>>;
+  /** A `steps:` entry's: the skills of the version it was resolved against, by name (the Allow card's `SKILL.md`s). */
+  skills?: Readonly<Record<string, SkillDefinition>>;
   /** What the host said of its agents that stops nothing: a model the harness does not list. */
   warnings?: FactoryNotice[];
 }
@@ -1270,6 +1273,17 @@ export class AutomationService {
             ...(server.tools !== undefined ? { tools: [...server.tools] } : {}),
           })),
           skills: [...agent.skills],
+          // Each skill as the version holds it, so the card shows what Allow accepts (review M4).
+          ...(agent.skills.length > 0
+            ? {
+                skillTexts: agent.skills.flatMap((skill) => {
+                  const held = entry.skills?.[skill];
+                  return held && Object.prototype.hasOwnProperty.call(entry.skills, skill)
+                    ? [{ name: skill, text: skillMarkdown(held.files) }]
+                    : [];
+                }),
+              }
+            : {}),
         });
       }
     }
@@ -2412,7 +2426,9 @@ export class AutomationService {
     const detail: StepDetail = { runId, step, record };
     if (step.kind !== 'run') {
       const agent = definition.agents?.[step.id];
-      return agent ? { ...detail, agent } : detail;
+      return agent
+        ? { ...detail, agent, ...this.runSkillTexts(workspaceId, run.id, definition, agent.skills) }
+        : detail;
     }
     const dir = this.deps.runFolder.attemptDir(workspaceId, run.id, step.id, record.attempt);
     const command = this.readCommandFile(`${dir}/command.json`);
@@ -2424,6 +2440,36 @@ export class AutomationService {
       ...(stdout ? { stdout } : {}),
       ...(stderr ? { stderr } : {}),
     };
+  }
+
+  /**
+   * Each of `names` by its `SKILL.md` as the run's own copy holds it, when
+   * that copy hashes to its definition's (`stepSkillsOf`'s check, without
+   * starting anything); else why not. Nothing for no skills.
+   */
+  private runSkillTexts(
+    workspaceId: string,
+    runId: string,
+    definition: RunDefinition,
+    names: readonly string[],
+  ): Pick<StepDetail, 'skillTexts' | 'skillsProblem'> {
+    if (names.length === 0) return {};
+    let held: ReturnType<RunFolderPort['readSkills']>;
+    try {
+      held = this.deps.runFolder.readSkills(workspaceId, runId, names);
+    } catch (error) {
+      const reason = describeError(error).trim().replace(/\.$/, '');
+      return { skillsProblem: `Its skills could not be read from the run folder (${reason}).` };
+    }
+    const changed = names.find((name) => {
+      const files = held[name];
+      return !files || skillHash(files) !== definition.skills?.[name];
+    });
+    if (changed !== undefined)
+      return {
+        skillsProblem: `Its skills in the run folder are not the ones its version holds (skills/${changed}).`,
+      };
+    return { skillTexts: names.map((name) => ({ name, text: skillMarkdown(held[name]!) })) };
   }
 
   /** "Show all": up to the 1 MB a log holds. Null when the step, the attempt's folder or the log is not there. */
@@ -4756,6 +4802,7 @@ export class AutomationService {
       version: automationVersion(automation),
       problem,
       agents,
+      skills,
       ...(warnings.length > 0 ? { warnings } : {}),
       ...servers,
     });
@@ -4849,6 +4896,7 @@ export class AutomationService {
       source,
       event,
       agents,
+      skills,
       ...(warnings.length > 0 ? { warnings } : {}),
       steps: {
         definition: {
