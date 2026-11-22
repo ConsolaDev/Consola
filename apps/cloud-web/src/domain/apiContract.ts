@@ -4,6 +4,142 @@
  */
 
 export interface paths {
+    "/api/github/tokens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mint a GitHub token for a cell, narrowed to repositories and a purpose
+         * @description Called by a regional cell, never a browser: the request is signed with the key configured for the cell’s region, so it sits outside the origin check and carries no session. The workspace must hold the installation and be in that cell’s region, and the installation must cover every repository. The purpose fixes the permissions. Every token minted is recorded; the token itself is not, and no cache keeps the answer (`Cache-Control: no-store`).
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["GitHubTokenRequestBody"];
+                };
+            };
+            responses: {
+                /** @description The token, narrowed as asked. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["GitHubToken"];
+                    };
+                };
+                /** @description The body is not `{ request }`, the signed request is none the contract reads (expired, say), or its repositories break the purpose’s rules. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "invalid_request";
+                        } | {
+                            /** @enum {string} */
+                            error: "unreadable";
+                        } | components["schemas"]["InvalidTokenRequest"];
+                    };
+                };
+                /** @description No cell’s key checks the request. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "unsigned";
+                        };
+                    };
+                };
+                /** @description The workspace is in another region than the cell, the installation does not cover a repository, or GitHub refused the scope (a permission the app was not granted). */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "other_region";
+                        } | components["schemas"]["RepositoryNotCovered"] | {
+                            /** @enum {string} */
+                            error: "scope_refused";
+                        };
+                    };
+                };
+                /** @description The workspace holds no installation with that id, whether or not another does. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "installation_not_found";
+                        };
+                    };
+                };
+                /** @description GitHub no longer has the installation. */
+                410: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "installation_gone";
+                        };
+                    };
+                };
+                /** @description The body is not JSON (`Content-Type: application/json`). */
+                415: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "unsupported_media_type";
+                        };
+                    };
+                };
+                /** @description This server has no GitHub App, or GitHub did not answer as it should. */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "github_not_configured";
+                        } | {
+                            /** @enum {string} */
+                            error: "github_unavailable";
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/me": {
         parameters: {
             query?: never;
@@ -852,6 +988,43 @@ export interface components {
          * @enum {string}
          */
         GitHubCallbackResult: "connected" | "already_connected" | "requested" | "cancelled" | "bad_state" | "expired" | "not_allowed" | "code_refused" | "not_installer" | "not_account_admin" | "taken" | "invalid" | "unavailable" | "not_configured" | "signed_out";
+        /** @description A GitHub token narrowed to a workspace’s repositories, for an hour at most. */
+        GitHubToken: {
+            /** @description An installation token. Never log or store it. */
+            token: string;
+            /** @description In whole seconds since the epoch. */
+            expiresAt: number;
+            /** @description Exactly the repositories asked for, as GitHub names them now. */
+            repositories: {
+                id: number;
+                fullName: string;
+            }[];
+            /** @description Exactly the purpose's permissions, and the metadata read GitHub gives every token. */
+            permissions: {
+                /** @enum {string} */
+                contents?: "read" | "write";
+                /** @enum {string} */
+                pull_requests?: "read" | "write";
+                /** @enum {string} */
+                metadata?: "read";
+            };
+        };
+        /** @description Every problem with the repositories asked for, in rule order. */
+        InvalidTokenRequest: {
+            /** @enum {string} */
+            error: "invalid_token_request";
+            problems: ("no-repositories" | "too-many-repositories" | "repeated-repository")[];
+        };
+        /** @description The repositories, by their GitHub ids, the installation does not cover. */
+        RepositoryNotCovered: {
+            /** @enum {string} */
+            error: "repository_not_covered";
+            repositoryIds: number[];
+        };
+        GitHubTokenRequestBody: {
+            /** @description The request, signed by the cell: a JWS in compact serialization whose payload is the contract's `GitHubTokenRequest` as JSON, with `alg` `EdDSA`, the cell's key's `kid` and `typ` `consola-github-token-request` in its protected header. */
+            request: string;
+        };
         /** @description Who is signed in, and their session’s active workspace. */
         Me: {
             user: components["schemas"]["Person"];
