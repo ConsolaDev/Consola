@@ -19,7 +19,7 @@
   },
   "scripts": {
     "typecheck": "effect-tsgo tsrs --noEmit",
-    "test": "pnpm --dir ../../apps/server exec vp test run --config ../../vite.config.ts --dir . claude"
+    "test": "pnpm --dir ../../apps/server exec vp test run --config ../../packages/provider-claude/vitest.config.ts --dir ."
   },
   "dependencies": {
     "@t3tools/contracts": "workspace:*",

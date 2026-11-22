@@ -120,8 +120,8 @@ they need, and gives them entry packages shaped like `provider-pi`. The rules:
   `private`, so it is never published, and no Consola package depends on
   npm's `t3`.
 - An entry package (`packages/provider-claude`, later `provider-codex` and
-  `server-orchestration`) holds only Consola's `package.json`, `tsconfig.json`
-  and entry files, which re-export from `t3/…` under t3's names.
+  `server-orchestration`) holds only Consola's `package.json`, `tsconfig.json`,
+  test selection (`vitest.config.ts`) and entry files, which re-export from `t3/…` under t3's names.
 
 ### `t3` (`apps/server`)
 
@@ -176,10 +176,15 @@ code t3 does not have.
 
 Its `test` runs the Claude tests of the lifted tree with the server's own
 Vitest:
-`pnpm --dir ../../apps/server exec vp test run --config ../../vite.config.ts --dir . claude`
-(Vitest matches the filter, without case, against each test file's path under
-`apps/server/`; every Claude test file has `claude` in its name, and no other
-file does). CI does not run it (see "Consola's side"). `tsconfig.json` is `provider-pi`'s with t3's server `lib`,
+`pnpm --dir ../../apps/server exec vp test run --config ../../packages/provider-claude/vitest.config.ts --dir .`.
+That config is the shared `../../vite.config.ts` with one `include`,
+`src/**/{Claude,claude}*.test.ts`, a glob on the path under `apps/server/`:
+every Claude test file's name starts with `Claude` or `claude`, and no other
+file is matched (Codex's or the orchestration's tests, once lifted, are not),
+wherever the checkout lives. (It replaced a positional filter, `claude`,
+which Vitest matches as a lower-cased substring of each path under `--dir`: it
+selected the same 16 files, but would also take any later test with `claude`
+anywhere in its path.) CI does not run it (see "Consola's side"). `tsconfig.json` is `provider-pi`'s with t3's server `lib`,
 since its typecheck also checks the server files its entries reach; under
 the name `t3` those files pass the Effect checks unchanged here too.
 
@@ -1088,8 +1093,8 @@ Files Consola writes for this folder (not copied):
   (catalog).
 - This file.
 - `apps/server/package.json` (`t3`), and
-  `packages/provider-claude/`'s `package.json`, `tsconfig.json` and entry
-  files: see "Lifted by Consola".
+  `packages/provider-claude/`'s `package.json`, `tsconfig.json`,
+  `vitest.config.ts` and entry files: see "Lifted by Consola".
 
 In the repository root:
 
