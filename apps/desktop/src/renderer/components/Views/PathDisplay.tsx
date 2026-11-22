@@ -1,6 +1,6 @@
 import * as Tooltip from '@radix-ui/react-tooltip';
 import { RotateCw } from 'lucide-react';
-import { useGitStatusStore } from '../../stores/gitStatusStore';
+import { statsFor, useGitStatusStore } from '../../stores/gitStatusStore';
 import { useCheckoutStore } from '../../stores/checkoutStore';
 import { tildePath } from '../../utils/displayPath';
 
@@ -30,8 +30,10 @@ function truncatePath(fullPath: string): string {
 }
 
 export function PathDisplay({ path, className, showPath = true }: PathDisplayProps) {
-  // Use granular selectors to prevent unnecessary re-renders
-  const stats = useGitStatusStore((state) => state.stats);
+  // This checkout's counts only: during a session switch the store still
+  // holds the last checkout's until its own read lands, and until then the
+  // header shows none.
+  const stats = useGitStatusStore((state) => statsFor(state, path));
   const isLoading = useGitStatusStore((state) => state.isLoading);
   const isGitRepo = useGitStatusStore((state) => state.isGitRepo);
   const refresh = useGitStatusStore((state) => state.refresh);
@@ -69,7 +71,7 @@ export function PathDisplay({ path, className, showPath = true }: PathDisplayPro
             of checkout it is, are named in the info panel. */}
         {isGitRepo && (
           <div className="git-stats-badge">
-            {stats.modifiedCount > 0 && (
+            {stats && stats.modifiedCount > 0 && (
               <>
                 <span className="git-stats-count">
                   {stats.modifiedCount} file{stats.modifiedCount !== 1 ? 's' : ''}

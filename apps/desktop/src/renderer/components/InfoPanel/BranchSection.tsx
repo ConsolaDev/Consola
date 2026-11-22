@@ -119,20 +119,19 @@ function BranchRow({
 /**
  * What the working tree holds that is not committed, from the git status the
  * header keeps on this checkout. Opens Changes, where it can be reviewed.
+ * Drawn only once git gave this checkout's counts, so it never says `None`
+ * on git's behalf.
  */
 function UncommittedRow({ dir }: { dir: string }) {
-  // Undefined until a read of this checkout lands: during a session switch
+  // Undefined until a read of this checkout lands (during a session switch
   // the store already tracks `dir` but still holds the other checkout's
-  // counts. The row then shows no value, neither theirs nor `None`.
+  // counts), and for a folder below its repository's top, whose status is
+  // never read: no row, neither theirs nor a `None` nobody said.
   const stats = useGitStatusStore((state) => statsFor(state, dir));
   const openKind = useSidePanelStore((state) => state.openKind);
-  const value = stats && uncommittedValue(stats);
-  const spoken =
-    stats === undefined
-      ? undefined
-      : value
-        ? `${value.files} +${value.additions} −${value.deletions}`
-        : 'None';
+  if (stats === undefined) return null;
+  const value = uncommittedValue(stats);
+  const spoken = value ? `${value.files} +${value.additions} −${value.deletions}` : 'None';
 
   return (
     <InfoRow
@@ -148,7 +147,7 @@ function UncommittedRow({ dir }: { dir: string }) {
           spoken
         )
       }
-      ariaLabel={spoken ? `Uncommitted, ${spoken}. Open Changes` : 'Uncommitted. Open Changes'}
+      ariaLabel={`Uncommitted, ${spoken}. Open Changes`}
       onActivate={() => openKind('changes')}
     />
   );

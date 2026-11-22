@@ -117,17 +117,19 @@ export const useGitStatusStore = create<GitStatusState>((set, get) => ({
 }));
 
 /**
- * The uncommitted counts read from `dir`, or undefined while the store
+ * The uncommitted counts git gave for `dir`, or undefined while the store
  * holds none of its own: before its first read lands, while a refresh moves
  * the store over from another checkout (`rootPath` is already `dir`, but
- * `stats` are still the other's), and after a failed read. Git state belongs
- * to the checkout, so it is never another's numbers.
+ * `stats` are still the other's), after a failed read, and for a folder that
+ * is no repository's top (main reads status only where `.git` is, so the
+ * zeros it answers there count nothing). Git state belongs to the checkout,
+ * so it is never another's numbers, and never a `None` git did not say.
  */
 export function statsFor(
-  state: Pick<GitStatusState, 'stats' | 'statsRoot'>,
+  state: Pick<GitStatusState, 'stats' | 'statsRoot' | 'isGitRepo'>,
   dir: string,
 ): GitStats | undefined {
-  return state.statsRoot === dir ? state.stats : undefined;
+  return state.statsRoot === dir && state.isGitRepo ? state.stats : undefined;
 }
 
 /**

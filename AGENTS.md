@@ -538,9 +538,11 @@ panel it is view state, kept in the renderer.
   Branch section is open and again after each git status refresh of that
   checkout (`gitStatusStore.refreshedAt`);
   a load during a read gets one more read after it (`branchFactsStore`), so
-  a commit made mid-read is counted. Uncommitted reads the stats of its own
-  checkout (`statsFor`, `statsRoot`), never the last checkout's during a
-  session switch.
+  a commit made mid-read is counted. Uncommitted, like the header's counts,
+  reads the stats git gave for its own checkout (`statsFor`, `statsRoot`),
+  never the last checkout's during a session switch; with none (not read
+  yet, or a folder below its repository's top, whose status is never read)
+  the row is not drawn, so it says `None` only when git did.
 - **A kind's mark has a tone** (`agent` or `alert`), and every mark takes
   the same three places (`markPlaces`): its header shortcut; its tab in a
   group on screen, drawn there only while behind another tab, since in

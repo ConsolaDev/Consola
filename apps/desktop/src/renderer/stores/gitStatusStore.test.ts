@@ -70,6 +70,28 @@ describe('gitStatusStore', () => {
     expect(statsFor(useGitStatusStore.getState(), '/a')).toBeUndefined();
   });
 
+  it('a folder that is no repository’s top has no counts: git was never asked about its changes', async () => {
+    // Main reads status only where `.git` is: a scope below its repository's
+    // top answers no repository, with zeros that are no count of anything.
+    getStatus.mockResolvedValueOnce({
+      files: [],
+      stats: { modifiedCount: 0, addedLines: 0, removedLines: 0 },
+      isGitRepo: false,
+      branch: null,
+    });
+    await useGitStatusStore.getState().refresh('/repo/packages/web');
+    expect(useGitStatusStore.getState().statsRoot).toBe('/repo/packages/web');
+    expect(statsFor(useGitStatusStore.getState(), '/repo/packages/web')).toBeUndefined();
+
+    // A folder the store has never read has none either.
+    expect(statsFor(useGitStatusStore.getState(), '/repo')).toBeUndefined();
+
+    // A repository whose working tree is clean: zeros git gave, which are counts.
+    getStatus.mockResolvedValueOnce(statusOf(0));
+    await useGitStatusStore.getState().refresh('/repo');
+    expect(statsFor(useGitStatusStore.getState(), '/repo')).toEqual(statusOf(0).stats);
+  });
+
   it('marks when a read of the tracked root lands, and not when a stale one does', async () => {
     const answerA = heldStatus();
     const stale = useGitStatusStore.getState().refresh('/a');
