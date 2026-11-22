@@ -16,10 +16,8 @@ import {
   RouterProvider,
 } from '@tanstack/react-router';
 import * as Cause from 'effect/Cause';
-import type * as Context from 'effect/Context';
 import * as Effect from 'effect/Effect';
 import * as Duration from 'effect/Duration';
-import type * as Exit from 'effect/Exit';
 import * as Fiber from 'effect/Fiber';
 import * as Schedule from 'effect/Schedule';
 import * as Stream from 'effect/Stream';
@@ -27,6 +25,13 @@ import { type JSX, type RefObject, useEffect, useLayoutEffect, useRef, useState 
 import ChatView from '~/components/ChatView';
 import { getThemeSnapshot, setAppearanceMode } from '~/hooks/useTheme';
 import { connectionAtomRuntime } from '~/connection/runtime';
+import {
+  connectionIdFor,
+  connectionServices,
+  forgetStoredSession,
+  runInConnection,
+} from './connection.ts';
+import { forgetUnheldSessions, holdSession } from './storedSessions.ts';
 import { I18nProvider } from '~/i18n/I18nProvider';
 import { startI18n } from '~/i18n/runtime';
 import { AppAtomRegistryProvider, appAtomRegistry } from '~/rpc/atomRegistry';
@@ -49,9 +54,6 @@ export interface AgentChatProps {
    */
   readonly onPassExpired?: () => Promise<string>;
 }
-
-/** The connection id of the host's registration, under which t3 keeps its credential. */
-const connectionIdFor = (sessionId: string) => `consola-host:${sessionId}`;
 
 /**
  * The host, as t3 registers a backend on an origin of its own that a bearer token lets in (a
@@ -77,31 +79,6 @@ const hostRegistration = (hostUrl: string, sessionId: string, pass: string) => {
   });
 };
 
-/** The connection runtime's services, once t3's runtime has built them. */
-const connectionServices = (): Promise<Context.Context<EnvironmentRegistry.EnvironmentRegistry>> =>
-  new Promise((resolve, reject) => {
-    const unsubscribe = appAtomRegistry.subscribe(
-      connectionAtomRuntime,
-      (result) => {
-        if (result._tag === 'Success') {
-          queueMicrotask(() => unsubscribe());
-          resolve(result.value as Context.Context<EnvironmentRegistry.EnvironmentRegistry>);
-        } else if (result._tag === 'Failure') {
-          queueMicrotask(() => unsubscribe());
-          reject(Cause.squash(result.cause));
-        }
-      },
-      { immediate: true },
-    );
-  });
-
-const runInConnection = <A, E>(
-  effect: Effect.Effect<A, E, EnvironmentRegistry.EnvironmentRegistry>,
-): Promise<Exit.Exit<A, E>> =>
-  connectionServices().then((services) =>
-    Effect.runPromiseExit(Effect.provideContext(effect, services)),
-  );
-
 /**
  * The hosts the mounted chats register, by session. t3's `reconcilePlatform` replaces every
  * platform registration at once, so each change hands it all of them: two chats on one page keep
@@ -117,6 +94,27 @@ const reconcileHosts = () => {
       yield* registry.reconcilePlatform(registrations);
     }),
   );
+};
+
+/**
+ * Once per page, at its first registration: what t3 still keeps for sessions no page shows (a
+ * window that closed without unmounting its chat), `storedSessions.ts`.
+ */
+let unheldSessionsForgotten = false;
+const forgetUnheldSessionsOnce = () => {
+  if (unheldSessionsForgotten) return;
+  unheldSessionsForgotten = true;
+  void forgetUnheldSessions(async (sessionId) => {
+    const exit = await runInConnection(forgetStoredSession(sessionId));
+    if (exit._tag === 'Failure') throw Cause.squash(exit.cause);
+  }).then((failures) => {
+    for (const { sessionId, error } of failures) {
+      console.error(
+        `@consola/agent-ui: could not remove what t3 keeps for session ${sessionId}.`,
+        error,
+      );
+    }
+  });
 };
 
 /** The host refused the pass: t3's resolver maps the host's `401` to this. */
@@ -138,19 +136,38 @@ function useHostConnection(props: AgentChatProps) {
   // The last pass `onPassExpired` answered.
   const answeredPass = useRef<string | null>(null);
 
+  // Whether this page holds the session (`storedSessions.ts`): it registers it only then.
+  const [held, setHeld] = useState(false);
+
   useEffect(() => setPass(props.pass), [props.pass]);
 
   useEffect(() => {
+    if (!held) return;
     registered.set(sessionId, hostRegistration(hostUrl, sessionId, pass));
+    forgetUnheldSessionsOnce();
     void reconcileHosts();
-  }, [hostUrl, sessionId, pass]);
+  }, [held, hostUrl, sessionId, pass]);
 
-  // t3's connection runtime stays up until the registration is removed, which removes its pass.
+  // t3's connection runtime, and the page's hold on the session, stay until the registration is
+  // removed, which removes its pass.
   useEffect(() => {
-    const release = appAtomRegistry.mount(connectionAtomRuntime);
+    const releaseRuntime = appAtomRegistry.mount(connectionAtomRuntime);
+    let unmounted = false;
+    let releaseSession: () => void = () => {};
+    void holdSession(sessionId).then((release) => {
+      if (unmounted) release();
+      else {
+        releaseSession = release;
+        setHeld(true);
+      }
+    });
     return () => {
+      unmounted = true;
       registered.delete(sessionId);
-      void reconcileHosts().finally(release);
+      void reconcileHosts().finally(() => {
+        releaseSession();
+        releaseRuntime();
+      });
     };
   }, [sessionId]);
 

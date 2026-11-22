@@ -62,8 +62,10 @@ pieces:
   (`connection/platform.ts`): `AgentChat` calls t3's `EnvironmentRegistry.reconcilePlatform`
   with a `BearerConnectionRegistration` whose credential is the pass. That call replaces every
   platform registration, so it is always handed the registrations of every mounted chat (one
-  per session), and a chat that unmounts drops its own. t3 keeps a platform credential in its
-  IndexedDB catalog while it is registered and deletes it on removal.
+  per session), and a chat that unmounts drops its own. t3 stores the pass in its IndexedDB
+  catalog while the host is registered and deletes it when the registration is removed, which
+  is what unmounting does (asynchronously). A window that closes or reloads without unmounting
+  removes nothing; see "What t3 keeps in the browser" for how such passes are found.
 - **t3's client does the rest**, unchanged: it reads the host's descriptor, asks for a socket
   ticket with the pass as bearer token, opens `ws(s)://<host>/ws?wsTicket=…`, and reads the
   session's scopes. The host answers those calls as t3's server does (`packages/host`'s
@@ -80,9 +82,32 @@ pieces:
   memory router whose root route renders `ChatView` for the session, as t3's own tests render
   without routes. No route, sidebar, terminal drawer, in-app browser or PR view is mounted;
   their code is copied but idle.
-- **What t3 keeps in the browser**: its IndexedDB catalog (saved connections, a cache of thread
-  snapshots shown before a connection is back) and its client settings in `localStorage`, under
-  the page's origin.
+- **What t3 keeps in the browser**, under the page's origin (Consola's windows share one):
+  - IndexedDB `t3code:connection-runtime`: its catalog (each registered host's pass, under
+    `consola-host:<session>`, and its profile) and its cache per environment (the thread and
+    shell snapshots it shows before a connection is back, server config, queries).
+  - `localStorage`: the person's unsent composer drafts (`t3code:composer-drafts:v1`, per
+    thread), its client settings (`t3code:client-settings:v1`) and UI state (`t3code:ui-state:v1`,
+    panel widths, …), the theme keys (`t3code:theme`, `t3code:theme-appearance-mode`, which
+    `AgentChat` sets to the chat's light or dark, `t3code:theme-halves:v1`, `t3code:themes:v1`),
+    and the analytics device id (`t3code:analytics-device-id`, a random id t3's platform
+    creates when asked for one; this build names no relay or telemetry address,
+    `vite.config.ts`).
+  - Consola's own record of the sessions a page registered (`consola-agent-ui:session:<id>`, the
+    id only; `src/storedSessions.ts`).
+
+  What is removed, and when:
+  - **On unmount**: t3 deletes the host's pass, its cached environment data and the data other
+    modules keep for it (`removePlatformEnvironment`).
+  - **At the first registration in a page**: the same, for every recorded session no page holds.
+    A page holds each session it shows with a Web Lock, from before it registers it until t3 has
+    removed it, and a lock goes with its page however the page ends; so this finds what a window
+    that closed without unmounting left, and never touches what another open window shows
+    (`AgentChat.storedSessions.browser.test.tsx`). Without Web Locks (an insecure context)
+    nothing is removed this way.
+  - **Never**: composer drafts, client settings and UI state, the theme keys, the analytics id
+    and t3's favicon cache (`t3code:project-favicons`). They hold no credential. The pass never
+    reaches `localStorage`, a URL or the history.
 
 ## How the styles are scoped
 

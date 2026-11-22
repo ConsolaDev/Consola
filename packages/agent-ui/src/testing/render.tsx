@@ -88,5 +88,11 @@ export const mountChat = async (props: AgentChatProps) => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   await act(async () => root.render(<AgentChat {...props} />));
   globalThis.IS_REACT_ACT_ENVIRONMENT = false;
-  cleanups.push(() => root.unmount());
+  let mounted = true;
+  const unmount = () => {
+    if (mounted) root.unmount();
+    mounted = false;
+  };
+  cleanups.push(unmount);
+  return { unmount };
 };

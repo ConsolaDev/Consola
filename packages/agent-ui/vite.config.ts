@@ -56,8 +56,11 @@ const withheldDeviceModels = (): Plugin => ({
   },
 });
 
-/** Vitest's browser mode, as t3 runs its `*.browser.test.tsx` files: Playwright's Chromium. */
-const browser = {
+/**
+ * Vitest's browser mode, as t3 runs its `*.browser.test.tsx` files: Playwright's Chromium. One
+ * object per project, as Vitest names a project's instances in place.
+ */
+const browser = () => ({
   enabled: true,
   headless: true,
   provider: playwright(),
@@ -72,7 +75,7 @@ const browser = {
       colorScheme: 'light' | 'dark' | null,
     ) => page.emulateMedia({ colorScheme }),
   },
-};
+});
 
 export default defineConfig({
   plugins: [withheldDeviceModels(), react({ compiler: true })],
@@ -140,7 +143,7 @@ export default defineConfig({
           globalSetup: ['./src/testing/hostSession.ts'],
           hookTimeout: 60_000,
           testTimeout: 60_000,
-          browser,
+          browser: browser(),
         },
       },
       {
@@ -162,7 +165,7 @@ export default defineConfig({
           include: ['src/**/*.dist.test.tsx'],
           hookTimeout: 60_000,
           testTimeout: 60_000,
-          browser,
+          browser: browser(),
         },
       },
     ],
