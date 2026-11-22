@@ -1,0 +1,32 @@
+{
+  "name": "@t3tools/server-orchestration",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    "./server": {
+      "types": "./src/server.ts",
+      "import": "./src/server.ts"
+    },
+    "./projection": {
+      "types": "./src/projection.ts",
+      "import": "./src/projection.ts"
+    },
+    "./testing": {
+      "types": "./src/testing.ts",
+      "import": "./src/testing.ts"
+    }
+  },
+  "scripts": {
+    "typecheck": "effect-tsgo tsrs --noEmit",
+    "test": "pnpm --dir ../../apps/server exec vp test run --config ../../packages/server-orchestration/vitest.config.ts --dir ."
+  },
+  "dependencies": {
+    "@t3tools/client-runtime": "workspace:*",
+    "@t3tools/contracts": "workspace:*",
+    "t3": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:"
+  }
+}

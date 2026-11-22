@@ -1293,6 +1293,22 @@ importers:
         specifier: 'catalog:'
         version: 1.4.0(@types/node@24.12.4)(@vitest/ui@5.0.5(vitest@5.0.5))(esbuild@0.28.2)(jiti@2.7.0)(playwright@1.62.1)(tsx@4.23.15)(typescript@5.9.3)(yaml@2.9.1)
 
+  vendor/t3code/packages/server-orchestration:
+    dependencies:
+      '@t3tools/client-runtime':
+        specifier: workspace:*
+        version: link:../client-runtime
+      '@t3tools/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      t3:
+        specifier: workspace:*
+        version: link:../../apps/server
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 24.12.4
+
   vendor/t3code/packages/shared:
     dependencies:
       '@noble/curves':

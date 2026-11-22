@@ -119,7 +119,7 @@ they need, and gives them entry packages shaped like `provider-pi`. The rules:
   (below). It exposes its source as `t3/<path under src/>`. It stays
   `private`, so it is never published, and no Consola package depends on
   npm's `t3`.
-- An entry package (`packages/provider-claude`, `provider-codex`, later
+- An entry package (`packages/provider-claude`, `provider-codex`,
   `server-orchestration`) holds only Consola's `package.json`, `tsconfig.json`,
   test selection (`vitest.config.ts`) and entry files, which re-export from `t3/…` under t3's names.
 
@@ -234,6 +234,90 @@ Claude Agent SDK nor the Cursor SDK. `./testing` reaches the whole lifted
 tree's testkit (the same one `provider-claude`'s does, Cursor SDK included) and
 is for tests only.
 
+### `@t3tools/server-orchestration` (`packages/server-orchestration`)
+
+t3's event ingestion, run-lifecycle services, projection reducers and shared
+replay testkit, re-exported. A thin entry package like `provider-codex`:
+`package.json`, `tsconfig.json`, `vitest.config.ts` and three entry files that
+only re-export from `t3/…` (and, for one reducer, from the copied
+`@t3tools/client-runtime`). Every module is exported as a namespace, as t3's
+server imports it (`import * as X from "./X.ts"`), so the `layer`, `make` and
+errors of one do not collide with another's.
+
+| Export | Re-exports | From |
+|---|---|---|
+| `./server` | `ProviderEventIngestor` (turns `ProviderAdapterV2Event`s into `OrchestrationV2DomainEvent`s: `ProviderEventIngestorV2`, `layer`, `ProviderEventIngestInput`), `ProviderCommitBatch` (`make`, `enabled`, `CommitBatchError`), `RunExecutionService` (`RunExecutionServiceV2`, `layer`, `routeProviderEvent`, `makeInterruptResultTurnItem`, …), `ProviderSessionManager` (`ProviderSessionManagerV2`, `layer`, `layerWithOptions`, …), `EventSink`, `EventStore`, `ProjectionStore` (the services the ingestion needs); `makeAssistantStreamingFilter`, `splitBufferedAssistantText` | `t3/orchestration-v2/{ProviderEventIngestor,ProviderCommitBatch,RunExecutionService,ProviderSessionManager,EventSink,EventStore,ProjectionStore,assistantStreaming}.ts` |
+| `./projection` | `applyToProjection`, `emptyProjection`, `ORCHESTRATION_V2_PROJECTION_SCHEMA_VERSION` (the server's reducer); `applyOrchestrationV2ProjectionEvent`, `getProjectionArrayReplacementIndex`, `type ApplyOrchestrationV2ProjectionEventOptions` (the reducer clients apply to what the wire sends) | `t3/orchestration-v2/ProjectionStore.ts`; `@t3tools/client-runtime/state/orchestration-v2-projection` |
+| `./testing` | everything `OrchestratorScenario.ts` exports (`runOrchestratorV2Scenario`, the step types and error); namespaces `ProviderReplayHarness`, `ProviderReplayFixtures`, `ProjectionReplay`, `ReplayFixtureShared` (`fixtures/shared.ts`: the prompts, model selections, policies and `assert*` helpers the scenarios use); `ORCHESTRATOR_REPLAY_FIXTURES` | `t3/orchestration-v2/testkit/…` |
+
+**Where the reducers live.** t3 has two. The server applies a domain event to a
+whole `OrchestrationV2ThreadProjection` with `applyToProjection`
+(`ProjectionStore.ts`, with `emptyProjection`), which the SQL-backed
+`ProjectionStoreV2` calls while `EventSinkV2` writes. It is a plain function,
+but the file also holds the SQLite layer, so importing it loads `effect/sql`.
+Clients apply the wire form with `applyOrchestrationV2ProjectionEvent` in
+`@t3tools/client-runtime` (already copied). `./projection` exports both.
+
+**What the ingestion needs from persistence** (the host's thread runtime must
+provide in-memory versions; nothing here builds them).
+`ProviderEventIngestor.layer` requires `EventSinkV2`, `GitVcsDriver`,
+`IdAllocatorV2`, `ProjectionStoreV2`, `ThreadCommandExecutor` and
+`ProviderInstanceRegistry`, and reads `ProviderTurnAnalytics`, `AgentScope` and
+`UsageLimitResetFallback` (references with defaults). Its output goes through
+`EventSinkV2` (`write`, `writeWithEffects`, `writeIfRunCurrent`,
+`withProviderBatch`, and `consumeProviderEvents`, which `ProviderCommitBatch`
+batches); it reads current state back through `ProjectionStoreV2` (the control
+reads its `ProjectionStoreV2Shape` lists). `EventSinkV2.layer` needs
+`EventStoreV2` (append and read stored events, a per-thread sequence, publish
+after commit), `ProjectionStoreV2` and `SqlClient`, and builds on
+`CommandReceiptStore`, `EffectOutbox`, `ProjectStore`, `TurnItemPositionStore`
+and `ThreadViewers`, all SQLite-backed (`persistence/…`). `RunExecutionService`
+and `ProviderSessionManager` sit above those, plus the adapter registry. An
+in-memory host therefore replaces `EventStoreV2` and `ProjectionStoreV2` (the
+two that own the data), and either fakes the stores beneath `EventSinkV2` or
+runs t3's own layers over an in-memory `SqlClient` (`node:sqlite` `:memory:`
+works here: the tests do exactly that).
+
+**Replay scenarios** are under `testkit/fixtures/<scenario>/` (`input.ts`, and
+per driver `<driver>_output.ts` and `<driver>_transcript.ndjson`). All 94
+scenario folders are lifted. These have a Claude transcript (35):
+`claude_background_monitor_wake`, `claude_background_subagent_after_root`,
+`claude_background_subagent_lifecycle`, `claude_background_task_after_root`,
+`claude_background_task_interrupt`, `claude_background_task_wake`,
+`claude_background_wake_before_queued_prompt`,
+`claude_background_wake_before_queued_prompt_no_echo`,
+`claude_compact_after_peer_turn`, `claude_compact_after_peer_turn_no_echo`,
+`claude_compact_after_resume_wake`, `claude_idle_resume`,
+`claude_local_bash_task`, `claude_mcp_tool_presentation`,
+`claude_nested_background_subagent_wake`, `claude_nested_subagent_model`,
+`claude_result_is_error`, `command_output_streaming`, `message_steering`,
+`multi_turn`, `multi_turn_restart`, `queued_turn`, `simple`, `subagent`,
+`thread_rollback`, `tool_call_denied_write`, `tool_call_read_only`,
+`tool_call_read_only_on_request`, `tool_call_restricted_granular`,
+`tool_call_workspace_never`, `turn_interrupt`, `turn_interrupt_mid_tool`,
+`turn_interrupt_restart`, `usage_limit`, `web_search`. These have a Codex
+transcript (24): `codex_model_reroute`, `command_output_streaming`,
+`message_steering`, `multi_turn`, `plan_questions`, `proposed_plan`,
+`queued_turn`, `simple`, `subagent`, `subagent_continue`, `subagent_v2`,
+`subagent_v2_approval`, `subagent_v2_nested`, `subagent_v2_nested_approval`,
+`thread_rollback`, `thread_rollback_after_restart`,
+`thread_rollback_to_stopped_turn`, `todo_list`,
+`tool_call_read_only_on_request`, `tool_call_restricted_granular`,
+`tool_call_workspace_never`, `turn_interrupt`, `turn_interrupt_mid_tool`,
+`web_search`. `fixtures/index.ts` (`ORCHESTRATOR_REPLAY_FIXTURES`) lists them
+all, for every driver; only Claude's and Codex's transcripts are lifted.
+
+Its `test` runs the ingestion and projection tests of the lifted tree with the
+server's own Vitest, as the other entry packages' do. Its `include` names the
+15 files one by one, since their names share no prefix:
+`orchestration-v2/{EventSink,ProjectionControlReads,ProjectionMaintenance,ProjectionRecovery,ProjectionSettlement,ProjectionStore,ProviderCommitBatch,ProviderEventIngestor,ProviderSessionManager,RunExecutionService,SubagentProjection,ThreadLiveEventCoalescer,WireProjection}.test.ts`,
+`orchestration-v2/assistantStreaming.test.ts` and
+`orchestration-v2/testkit/ProviderReplayHarness.test.ts`. The three entry
+packages' selections are disjoint (checked with `vp test list --filesOnly`: no
+file is in two) and together they are all 51 test files of the lifted tree, so
+none is in no selection. CI needs no edit: it runs every lifted test once, in
+`t3`, and leaves out the packages that depend on `t3`.
+
 ### What is lifted, and why
 
 Seeds, as the Claude lift asked for them (paths under `src/`):
@@ -324,7 +408,7 @@ Every lifted file is byte-identical to `d51d8c47` (checked by comparing each
 one with the clone). The paths, relative to `apps/server/`:
 
 <details>
-<summary>All 806 lifted paths</summary>
+<summary>All 827 lifted paths</summary>
 
 ```
 schema/expo.graphql.ts
@@ -441,6 +525,7 @@ src/orchestration-v2/ContextHandoffService.ts
 src/orchestration-v2/DispatchModeLimit.ts
 src/orchestration-v2/EffectOutbox.ts
 src/orchestration-v2/EffectWorker.ts
+src/orchestration-v2/EventSink.test.ts
 src/orchestration-v2/EventSink.ts
 src/orchestration-v2/EventStore.ts
 src/orchestration-v2/GuestShareDecider.ts
@@ -449,12 +534,21 @@ src/orchestration-v2/NotificationMailbox.ts
 src/orchestration-v2/Orchestrator.ts
 src/orchestration-v2/ProjectCommands.ts
 src/orchestration-v2/ProjectStore.ts
+src/orchestration-v2/ProjectionControlReads.test.ts
+src/orchestration-v2/ProjectionMaintenance.test.ts
+src/orchestration-v2/ProjectionMaintenance.ts
+src/orchestration-v2/ProjectionRecovery.test.ts
+src/orchestration-v2/ProjectionSettlement.test.ts
+src/orchestration-v2/ProjectionStore.test.ts
 src/orchestration-v2/ProjectionStore.ts
 src/orchestration-v2/ProviderAdapterRegistry.ts
+src/orchestration-v2/ProviderCommitBatch.test.ts
 src/orchestration-v2/ProviderCommitBatch.ts
 src/orchestration-v2/ProviderContinuationService.ts
+src/orchestration-v2/ProviderEventIngestor.test.ts
 src/orchestration-v2/ProviderEventIngestor.ts
 src/orchestration-v2/ProviderRuntimeRecoveryService.ts
+src/orchestration-v2/ProviderSessionManager.test.ts
 src/orchestration-v2/ProviderSessionManager.ts
 src/orchestration-v2/ProviderSessionTransitionPolicy.ts
 src/orchestration-v2/ProviderSwitchService.ts
@@ -466,25 +560,33 @@ src/orchestration-v2/QueuedRunOrder.ts
 src/orchestration-v2/ResourceCleanupService.ts
 src/orchestration-v2/RestartBackgroundNote.ts
 src/orchestration-v2/RestartContinuation.ts
+src/orchestration-v2/RunExecutionService.test.ts
 src/orchestration-v2/RunExecutionService.ts
 src/orchestration-v2/RunFinalizationService.ts
 src/orchestration-v2/RunMetrics.ts
 src/orchestration-v2/RuntimePolicy.ts
 src/orchestration-v2/RuntimeRequestService.ts
 src/orchestration-v2/ShellStream.ts
+src/orchestration-v2/SubagentProjection.test.ts
 src/orchestration-v2/ThreadCommandExecutor.ts
 src/orchestration-v2/ThreadDeletion.ts
 src/orchestration-v2/ThreadFind.ts
 src/orchestration-v2/ThreadForkService.ts
 src/orchestration-v2/ThreadLaunchService.ts
+src/orchestration-v2/ThreadLiveEventCoalescer.test.ts
+src/orchestration-v2/ThreadLiveEventCoalescer.ts
 src/orchestration-v2/ThreadManagementService.ts
 src/orchestration-v2/ThreadSearch.ts
 src/orchestration-v2/ThreadSettlementService.ts
+src/orchestration-v2/ThreadStream.ts
 src/orchestration-v2/ThreadTitleRegenerationService.ts
 src/orchestration-v2/ThreadViewers.ts
 src/orchestration-v2/TurnItemPositionStore.ts
+src/orchestration-v2/UsageLimitRecoveryWorker.ts
 src/orchestration-v2/UserFacingErrors.ts
+src/orchestration-v2/WireProjection.test.ts
 src/orchestration-v2/WireProjection.ts
+src/orchestration-v2/assistantStreaming.test.ts
 src/orchestration-v2/assistantStreaming.ts
 src/orchestration-v2/contextBoundary.ts
 src/orchestration-v2/deferredCommandMessage.ts
@@ -501,7 +603,9 @@ src/orchestration-v2/testkit/CodexReplayFixtures.integration.test.ts
 src/orchestration-v2/testkit/CommandOutputRecorder.ts
 src/orchestration-v2/testkit/DeterministicRuntime.ts
 src/orchestration-v2/testkit/OrchestratorScenario.ts
+src/orchestration-v2/testkit/ProjectionReplay.ts
 src/orchestration-v2/testkit/ProviderReplayFixtures.ts
+src/orchestration-v2/testkit/ProviderReplayHarness.test.ts
 src/orchestration-v2/testkit/ProviderReplayHarness.ts
 src/orchestration-v2/testkit/ReplayRuntimeInstructions.ts
 src/orchestration-v2/testkit/fixtures/acp_titled_multiselect/input.ts
@@ -916,6 +1020,7 @@ src/persistence/Sqlite.ts
 src/persistence/databaseMigrationHead.ts
 src/persistence/initializeV2Database.ts
 src/persistence/reconcileV2PreviewMigration.ts
+src/persistence/testkit/SqliteRouting.ts
 src/policy/ManagedPolicy.ts
 src/policy/managedLimits.ts
 src/policy/managedProviders.ts
@@ -1180,7 +1285,36 @@ which no test imports. The copied source files:
 The closure added no dependency: every package the 26 files import
 (`effect`, `@effect/vitest`, `yaml`, `diff`, `proper-lockfile`, `ffi-rs`,
 the copied packages, `effect-codex-app-server` among them) was already in
-`apps/server/package.json`. The lifted tree is now 806 files.
+`apps/server/package.json`. The lifted tree is now 806 files (827 after the orchestration lift, below).
+
+### The orchestration lift
+
+Same method and tree. `ProviderEventIngestor.ts`, `ProviderCommitBatch.ts`,
+`RunExecutionService.ts`, `ProviderSessionManager.ts`, `assistantStreaming.ts`,
+`EventSink.ts`, `EventStore.ts`, `ProjectionStore.ts` (the server's reducer)
+and the testkit (`ProviderReplayHarness.ts`, `OrchestratorScenario.ts`,
+`ProviderReplayFixtures.ts`, `fixtures/`) were already there, in the Claude
+closure. The seeds were their tests and the other ingestion and projection
+tests; the 21 files the tree lacked (all source, no transcript or other data
+file) were copied, each byte for byte from `d51d8c47`:
+
+- Tests (15), in `orchestration-v2/`: `EventSink`, `ProjectionControlReads`,
+  `ProjectionMaintenance`, `ProjectionRecovery`, `ProjectionSettlement`,
+  `ProjectionStore`, `ProviderCommitBatch`, `ProviderEventIngestor`,
+  `ProviderSessionManager`, `RunExecutionService`, `SubagentProjection`,
+  `ThreadLiveEventCoalescer`, `WireProjection` and `assistantStreaming`
+  (`.test.ts`), and `testkit/ProviderReplayHarness.test.ts`.
+- Imported by them (6): `orchestration-v2/ProjectionMaintenance.ts`,
+  `ThreadLiveEventCoalescer.ts`, `ThreadStream.ts`,
+  `UsageLimitRecoveryWorker.ts`, `testkit/ProjectionReplay.ts` (the testkit's
+  projection verifier, exported by `./testing`) and
+  `persistence/testkit/SqliteRouting.ts`.
+
+The closure added no dependency (every package imported was already in
+`apps/server/package.json`), and Consola's own packages' lockfile entries are
+unchanged: the only `pnpm-lock.yaml` change is the new
+`vendor/t3code/packages/server-orchestration` importer. The lifted tree is now
+827 files.
 
 ### Known runtime gaps
 
@@ -1378,10 +1512,11 @@ The two packages the lifted server files brought in fail on macOS in the same wa
 ### The lifted server's tests
 
 They live in `apps/server/`, and `pnpm --filter t3 test` runs
-them all (36 files, 1,168 tests); `pnpm --filter @t3tools/provider-claude test`
+them all (51 files, 1,541 tests); `pnpm --filter @t3tools/provider-claude test`
 runs the Claude ones (16 files, 657 tests) and
 `pnpm --filter @t3tools/provider-codex test` the Codex ones (20 files, 511
-tests, below). The entry packages' scripts run the server's own Vitest,
+tests, below) and `pnpm --filter @t3tools/server-orchestration test` the
+ingestion and projection ones (15 files, 373 tests, below). The entry packages' scripts run the server's own Vitest,
 because the server's `vite-plus` is a different install from an entry
 package's (`yaml` 2.9.0 against 2.9.1), and test files register with the
 runner of the install they import. CI runs them once, in the server.
@@ -1431,6 +1566,18 @@ The test file is not edited; `apps/server/vitest.config.ts`
 (`NOT_RUN_HERE`) skips that one test by name, in `t3`'s test and in
 `provider-codex`'s, and the file's other three run. The skip shows as one
 skipped test. Without it, the test fails with `Cannot find module …/bin.ts`.
+
+**Ingestion and projection.** 15 test files, 373 tests, all passing on macOS
+and on Linux, upstream's own counts (the files are byte-identical):
+`RunExecutionService` 83, `ProviderSessionManager` 74, `ProjectionStore` 62,
+`ProviderEventIngestor` 32, `ProviderCommitBatch` 26, `ProjectionRecovery` 21,
+`WireProjection` 18, `ThreadLiveEventCoalescer` 16, `assistantStreaming` 16,
+`SubagentProjection` 12, `ProjectionSettlement` 6, `ProjectionMaintenance` 3,
+`ProjectionControlReads` 2, `EventSink` 1, `ProviderReplayHarness` 1. They need
+t3's SQLite, which works here: it is `node:sqlite`, lifted with the
+orchestrator. Nothing in them is skipped or listed as "not run here". Output is
+clean. The full `t3` run is now 51 files and 1,541 tests (Linux: 1,540 pass,
+one skipped; macOS: also the two `ClaudeSkills` failures above).
 
 ## Re-syncing
 
