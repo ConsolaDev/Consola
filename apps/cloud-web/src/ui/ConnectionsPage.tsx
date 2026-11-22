@@ -31,11 +31,12 @@ import type { SectionProps } from './sections';
 const connectedOn = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' });
 
 /**
- * The Connections section: the services the active workspace is connected to. GitHub connects
- * by installing Consola's GitHub App, and the others are listed as coming later. Every member
- * sees what is connected; only owners and admins see Connect and Disconnect, as the server says
- * (`canManage`), and the server refuses anyone else whatever the page shows. How the last
- * Connect ended (`?github=`) is read once, as the page mounts.
+ * Settings' Connections page (`#/settings/connections`): the services the active workspace is
+ * connected to. GitHub connects by installing Consola's GitHub App, and the others are listed as
+ * coming later. Every member sees what is connected; only owners and admins see Connect and
+ * Disconnect, as the server says (`canManage`), and the server refuses anyone else whatever the
+ * page shows. How the last Connect ended (`?github=`) is read once, as the page mounts. Its tab
+ * under Settings' title names it, so the page has no title of its own.
  */
 export function ConnectionsPage({ workspace }: SectionProps) {
   const [result] = useState(() => takeGitHubResult());
@@ -48,8 +49,8 @@ export function ConnectionsPage({ workspace }: SectionProps) {
     if (asked === latest.current) setState(answer);
   }, []);
 
-  // The server answers for the session's active workspace. The dashboard mounts the section
-  // afresh for each workspace, so one load per mount follows a switch.
+  // The server answers for the session's active workspace. The dashboard mounts its section
+  // afresh for each workspace, and Settings its page, so one load per mount follows a switch.
   useEffect(() => {
     void load();
     return () => {
@@ -59,9 +60,6 @@ export function ConnectionsPage({ workspace }: SectionProps) {
 
   return (
     <>
-      <header className="section-header">
-        <h1 className="section-title">Connections</h1>
-      </header>
       <p className="muted connections-lede">
         The services {workspace.name} works with. Automations and factories reach them through these
         connections.

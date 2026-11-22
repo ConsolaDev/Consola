@@ -1,9 +1,9 @@
-/* The Connections section. Its own file, so the dashboard's shell and this page never edit the
-   same stylesheet. It sits in the shell's `.dashboard-content`, under its `.section-header`, and
-   uses the shared `.card`, `.muted`, `.error`, `.button` and `.link-button`. */
+/* Settings' Connections page. Its own file, so the dashboard's shell and this page never edit the
+   same stylesheet. It sits in the shell's `.dashboard-content`, under Settings' tabs, and uses
+   the shared `.card`, `.muted`, `.error`, `.button` and `.link-button`. */
 
 .connections-lede {
-  margin: -8px 0 0;
+  margin: 0;
   font-size: 14px;
 }
 

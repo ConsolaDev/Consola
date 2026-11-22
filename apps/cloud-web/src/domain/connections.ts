@@ -49,7 +49,7 @@ export type DisconnectAnswer =
 
 /**
  * How a Connect ended, as `cloud-global`'s callback names it in `?github=` when it sends the
- * person back to the Connections section.
+ * person back to Settings' Connections page.
  */
 export const GITHUB_RESULTS = [
   'connected',

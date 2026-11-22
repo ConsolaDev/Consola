@@ -1,0 +1,39 @@
+/* The Settings section: its row of tabs, one per settings page, under the section's title. Its
+   own file, like every page's, so the shell's stylesheet is never edited for it. */
+
+.settings-tabs ul {
+  display: flex;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-bottom: 1px solid var(--gray-6);
+  overflow-x: auto;
+}
+
+.settings-tab {
+  display: block;
+  margin-bottom: -1px;
+  padding: 8px 10px;
+  border-bottom: 2px solid transparent;
+  color: var(--gray-11);
+  font-size: 14px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.settings-tab:hover {
+  color: var(--gray-12);
+}
+
+.settings-tab[aria-current="page"] {
+  border-bottom-color: var(--accent-9);
+  color: var(--gray-12);
+  font-weight: 500;
+}
+
+.settings-tab:focus-visible {
+  outline: 2px solid var(--accent-8);
+  outline-offset: -2px;
+  border-radius: 4px;
+}

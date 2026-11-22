@@ -20,8 +20,9 @@ The app is built in layers, and imports point inward only.
   the answers of `/api/connections`, a Connect's results, the services that
   come later) and their sentences (`connectionMessages.ts`); where the running
   source is (`source.ts`); and how the address names a dashboard section
-  (`sections.ts`: `sectionIdOfHash`, `hashOfSection`, `chooseSection`). It is
-  plain TypeScript, with no package and no browser I/O. `apiContract.ts`
+  (`sections.ts`: `sectionIdOfHash`, `hashOfSection`, `chooseSection`) and a
+  settings page (`settings.ts`: `settingsPageIdOfHash`, `hashOfSettingsPage`).
+  It is plain TypeScript, with no package and no browser I/O. `apiContract.ts`
   holds the API's types, generated from `apps/cloud-global/openapi.json`
   (see "The API's contract").
 - `src/services/` is everything that talks to something outside the page: the
@@ -31,8 +32,10 @@ The app is built in layers, and imports point inward only.
   the contract), Better Auth's client (`authClient.ts`: `signInWithGoogle`,
   `signOut`) and the address bar (`signInRedirect.ts`:
   `takeSignInErrorCode`; `address.ts`: `currentSectionId`, `openSection`,
-  `onSectionChange`; `gitHubRedirect.ts`: `takeGitHubResult`, `goToGitHub`).
-  A service answers in domain types and sentences, never in a library's own.
+  `onSectionChange`; `settingsAddress.ts`: `currentSettingsPageId`,
+  `onSettingsPageChange`; `gitHubRedirect.ts`: `takeGitHubResult`,
+  `goToGitHub`). A service answers in domain types and sentences, never in a
+  library's own.
 - `src/ui/` holds the React screens (`App.tsx` and the cards beside it:
   `SignInCard`, `ProfileCard`, `CreateWorkspaceCard`, and the topbar's
   `WorkspaceSwitcher` and `SignOutButton`), the dashboard (`Dashboard.tsx`,
@@ -143,7 +146,7 @@ column (`.main`; the dashboard widens it with `.main.wide`).
   so a reload, a shared link and the browser's back and forward land where
   they point. The nav is plain links, and `Dashboard` follows the hash
   (`onSectionChange`). An id never changes once a link may hold it: cloud-global
-  sends a person back to `#/connections`. Whatever follows an id in the hash
+  sends a person back to `#/settings/connections`. Whatever follows an id in the hash
   (`/…` or `?…`) is the section's own, and an id this build does not list
   opens the first section (`chooseSection`).
 - **The query string is not the dashboard's.** `address.ts` reads and writes
@@ -164,20 +167,37 @@ column (`.main`; the dashboard widens it with `.main.wide`).
   styles go in a stylesheet beside it (`ui/TeamsPage.css`), imported by the
   page.
 
-## Connections
+## Settings
 
-The Connections section (`ui/ConnectionsPage.tsx`, with its own
-`ConnectionsPage.css`) shows what the active workspace is connected to:
-GitHub, and the services that come later (`LATER_SERVICES`), listed as not
-connected. The API is `cloud-global`'s (its `AGENTS.md`, "Connections"), and
-it decides everything: the page shows Connect and Disconnect only when the
-server says `canManage`, and the server refuses anyone else whatever the page
-shows.
+Settings is the last section in the nav (`ui/SettingsPage.tsx`, with its own
+`SettingsPage.css`): the section's title, a row of tabs, and the page the
+address names under them. Its pages are one list, `SETTINGS_PAGES`
+(`ui/settingsPages.tsx`), each shaped like a section and shown with
+`SectionProps`; a new settings page (the workspace's details, its members,
+billing) is one entry there and files of its own.
+
+- **The address picks the page.** A page is `#/settings/<id>`
+  (`hashOfSettingsPage`, `settingsPageIdOfHash` in `domain/settings.ts`), and
+  `#/settings` alone, or an id this build does not list, opens the first
+  (`chooseSection`). `services/settingsAddress.ts` reads the hash only, as
+  `address.ts` does. A page's id never changes once a link may hold it.
+- A page has no title of its own: its tab names it.
+
+### Connections
+
+Settings' first page (`ui/ConnectionsPage.tsx`, with its own
+`ConnectionsPage.css`, at `#/settings/connections`) shows what the active
+workspace is connected to: GitHub, and the services that come later
+(`LATER_SERVICES`), listed as not connected. The API is `cloud-global`'s (its
+`AGENTS.md`, "Connections"), and it decides everything: the page shows Connect
+and Disconnect only when the server says `canManage`, and the server refuses
+anyone else whatever the page shows.
 
 - **Connect** asks the server for the install address and sends the person
   there (`goToGitHub`), only if it is on `https://github.com`. GitHub sends
   them back through `cloud-global`'s callback to
-  `/?github=<result>#/connections`. The page reads the result once as it
+  `/?github=<result>#/settings/connections`, an address the two keep in step
+  (`CONNECTIONS_PAGE` in `cloud-global`). The page reads the result once as it
   mounts (`takeGitHubResult`), clears it from the address and says it
   (`messageForGitHubResult`). A result it does not know is `unknown`, never
   shown raw.
