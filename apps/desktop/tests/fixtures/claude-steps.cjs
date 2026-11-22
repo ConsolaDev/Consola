@@ -6,8 +6,10 @@
 // runner's own Node on this file with every argument.
 //
 //   --version            prints `2.0.0 (Claude Code)` (the health probe); logs nothing
-//   --input-format …     exits 1: the capabilities probe is refused, so it
-//                        neither counts as a launch nor waits out its timeout
+//   --input-format …     the control protocol (below) when STUB_CLAUDE_MCP or
+//                        STUB_CLAUDE_COMMANDS is set; else exits 1: the capabilities
+//                        probe is refused, so it neither counts as a launch nor waits
+//                        out its timeout
 //   anything else        appends `<cwd> :: <argv>` to STUB_CLAUDE_LOG (newlines
 //                        flattened), then:
 //   -p (print mode)      reads `--mcp-config <path>`, spawns its `mcpServers.consola`
@@ -45,8 +47,12 @@
 //
 // Stream-json (print mode with `--output-format stream-json`), one JSON line each:
 //   first, before any hold or gate, `system`/`init`: `session_id`, `model`
-//   (STUB_CLAUDE_MODEL, else `claude-stub-1`), `mcp_servers` (`consola`, connected),
-//   `tools`; then the hooks STUB_CLAUDE_HOOKS_FILE names, but StopFailure; then
+//   (STUB_CLAUDE_MODEL, else `claude-stub-1`), `mcp_servers` (`consola`, connected,
+//   then the STUB_CLAUDE_MCP servers that load, below, each with its knob status),
+//   `tools` (`Read`, `Grep`, `Glob`, `Skill` when `--tools` lists it, then
+//   `mcp__<server>__<tool>` for each loaded server's tools, both names with every
+//   character outside [A-Za-z0-9_-] as `_`) and, with `--plugin-dir`, `skills` (its
+//   `consola-step:<n>`); then the hooks STUB_CLAUDE_HOOKS_FILE names, but StopFailure; then
 //   STUB_CLAUDE_HOLD; then the turn as above, with an `assistant` event holding one
 //   `tool_use` named `mcp__consola__<tool>` before each tool it calls; then
 //   STUB_CLAUDE_LIMIT's event, STUB_CLAUDE_STDERR's line and the StopFailure hook; last,
@@ -109,6 +115,38 @@
 //                               result, and that text as the result's
 //   STUB_CLAUDE_DENIED=a,b      each name as a `permission_denials` entry, `{ tool_name,
 //                               tool_use_id: 'toolu_denied_<n>', tool_input: {} }`, in order
+//
+// The servers a profile has, and which of them a launch loads (stream-json and the
+// control protocol alike, read again by every process):
+//   STUB_CLAUDE_MCP=path        a JSON array of `{ name, scope: 'dynamic' | 'claudeai',
+//                               type: 'stdio' | 'http' | 'claudeai-proxy', url?, status,
+//                               tools?: string[] }`: a `dynamic` one is a user server, in the
+//                               account file, so it loads only when a `--mcp-config` value (the
+//                               flag takes every value up to the next flag; the first is
+//                               Consola's) ends `/.claude.json`; a `claudeai` one is a
+//                               connector, which loads unless `--strict-mcp-config`. Then, when
+//                               `--settings` holds `allowedMcpServers`, a `stdio` server stays
+//                               only by its `serverName`, and only when that name is all
+//                               [A-Za-z0-9_-] (the real CLI blocks any other, canary row 22);
+//                               an `http` or `claudeai-proxy` one only by its `serverUrl`, or
+//                               by `serverName` while the list has no `serverUrl` entry (spike
+//                               Q1f7). The ones it drops are named on stderr as the real CLI
+//                               names them: `Warning: MCP server blocked by enterprise policy:
+//                               <name>` (`servers`, comma-joined, for several).
+//
+// The control protocol (`--input-format stream-json`, only with STUB_CLAUDE_MCP or
+// STUB_CLAUDE_COMMANDS set): it reads `control_request` lines and answers each with a
+// `control_response`, logging `CONTROL <subtype> in <cwd> with <argv>` (newlines
+// flattened; no ` :: `, so a launch filter skips it), and exits once stdin ends:
+//   initialize                  `{ commands, agents: [], models: opus and haiku }`, `commands`
+//                               being STUB_CLAUDE_COMMANDS' names (`a,b`), then `consola-step:<n>`
+//                               for each `<--plugin-dir>/skills/<n>/SKILL.md`
+//   mcp_status                  `{ mcpServers: [{ name, status, scope, config: { type, url? },
+//                               tools?: [{ name }] }] }` for the STUB_CLAUDE_MCP servers that
+//                               load, none when it is unset, and an error, `STUB_CLAUDE_MCP names
+//                               no file`, while its file does not exist (a probe that fails until
+//                               a test writes it)
+//   anything else               an error at once, `the stub does not answer <subtype>`
 'use strict';
 const fs = require('node:fs');
 const path = require('node:path');
@@ -139,6 +177,73 @@ function log(line) {
 function flagValue(name) {
   const at = flags.indexOf(name);
   return at === -1 ? undefined : flags[at + 1];
+}
+
+/** Every value after `name`, up to the next flag: `--mcp-config` takes several. */
+function flagValues(name) {
+  const at = flags.indexOf(name);
+  if (at === -1) return [];
+  const values = [];
+  for (const value of flags.slice(at + 1)) {
+    if (value.startsWith('--')) break;
+    values.push(value);
+  }
+  return values;
+}
+
+/** A server's or tool's name as Claude writes it in a tool's name. */
+function flattened(name) {
+  return name.replace(/[^A-Za-z0-9_-]/g, '_');
+}
+
+/** The only names `allowedMcpServers` keeps a stdio server by (canary row 22). */
+const KEPT_BY_NAME = /^[A-Za-z0-9_-]+$/;
+
+/**
+ * STUB_CLAUDE_MCP's servers as this launch loads them: `{ kept, blocked }`, or
+ * `{ missing: true }` while the knob names a file that is not there.
+ */
+function loadedServers() {
+  const file = process.env.STUB_CLAUDE_MCP;
+  if (!file) return { kept: [], blocked: [] };
+  if (!fs.existsSync(file)) return { missing: true, kept: [], blocked: [] };
+  const servers = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const strict = flags.includes('--strict-mcp-config');
+  const accountFile = flagValues('--mcp-config').some((value) => value.endsWith('/.claude.json'));
+  const loads = servers.filter((server) =>
+    server.scope === 'claudeai' ? !strict : server.scope === 'dynamic' && accountFile,
+  );
+  const settings = flagValue('--settings');
+  const allowed = settings ? JSON.parse(settings).allowedMcpServers : undefined;
+  if (!Array.isArray(allowed)) return { kept: loads, blocked: [] };
+  const anyUrl = allowed.some((entry) => typeof entry.serverUrl === 'string');
+  const byName = (name) => allowed.some((entry) => entry.serverName === name);
+  const keeps = (server) =>
+    server.type === 'stdio'
+      ? KEPT_BY_NAME.test(server.name) && byName(server.name)
+      : allowed.some((entry) => entry.serverUrl === server.url) || (!anyUrl && byName(server.name));
+  return { kept: loads.filter(keeps), blocked: loads.filter((server) => !keeps(server)) };
+}
+
+/** How the real CLI names the servers its allow-list dropped, on stderr. */
+function warnBlocked(blocked) {
+  if (blocked.length === 0) return;
+  const names = blocked.map((server) => server.name).join(', ');
+  const noun = blocked.length === 1 ? 'server' : 'servers';
+  process.stderr.write(`Warning: MCP ${noun} blocked by enterprise policy: ${names}\n`);
+}
+
+/** `consola-step:<n>` for each `<--plugin-dir>/skills/<n>/SKILL.md`; none without the flag. */
+function pluginSkills() {
+  const dir = flagValue('--plugin-dir');
+  if (!dir) return [];
+  const skills = path.join(dir, 'skills');
+  if (!fs.existsSync(skills)) return [];
+  return fs
+    .readdirSync(skills)
+    .sort()
+    .filter((name) => fs.existsSync(path.join(skills, name, 'SKILL.md')))
+    .map((name) => `consola-step:${name}`);
 }
 
 /** Print mode reporting its turn as the real CLI's stream-json. */
@@ -494,13 +599,23 @@ async function printTurn() {
   fs.appendFileSync(transcript, record('user', prompt) + '\n');
   const hooks = STREAM_JSON ? plannedHooks() : [];
   if (STREAM_JSON) {
+    const { kept, blocked } = loadedServers();
+    warnBlocked(blocked);
+    const skillTool = (flagValue('--tools') ?? '').split(',').includes('Skill') ? ['Skill'] : [];
+    const serverTools = kept.flatMap((server) =>
+      (server.tools ?? []).map((tool) => `mcp__${flattened(server.name)}__${flattened(tool)}`),
+    );
     emit({
       type: 'system',
       subtype: 'init',
       session_id: id,
       model: process.env.STUB_CLAUDE_MODEL || 'claude-stub-1',
-      mcp_servers: [{ name: 'consola', status: 'connected' }],
-      tools: ['Read', 'Grep', 'Glob'],
+      mcp_servers: [
+        { name: 'consola', status: 'connected' },
+        ...kept.map((server) => ({ name: server.name, status: server.status })),
+      ],
+      tools: ['Read', 'Grep', 'Glob', ...skillTool, ...serverTools],
+      ...(flagValue('--plugin-dir') === undefined ? {} : { skills: pluginSkills() }),
     });
     for (const hook of hooks) if (hook[0] !== 'StopFailure') await postHook(hook);
     if (!(await hold())) {
@@ -579,7 +694,8 @@ async function printTurn() {
 if (flags.includes('--version')) {
   process.stdout.write('2.0.0 (Claude Code)\n');
 } else if (flags.includes('--input-format')) {
-  process.exitCode = 1;
+  if (process.env.STUB_CLAUDE_MCP || process.env.STUB_CLAUDE_COMMANDS) control();
+  else process.exitCode = 1;
 } else {
   log(`${process.cwd()} :: ${args.join(' ')}`);
   if (flags.includes('-p')) {
@@ -605,4 +721,69 @@ async function interactive() {
     await withConsola((client) => callTools(client, calls));
   }
   process.stdout.write('❯ ');
+}
+
+/** One control request's answer: `{ response }`, or `{ error }`. */
+function answer(subtype) {
+  if (subtype === 'initialize') {
+    const commands = (process.env.STUB_CLAUDE_COMMANDS ?? '')
+      .split(',')
+      .map((name) => name.trim())
+      .filter(Boolean);
+    return {
+      response: {
+        commands: [...commands, ...pluginSkills()].map((name) => ({ name })),
+        agents: [],
+        models: [
+          { value: 'opus', displayName: 'Opus' },
+          { value: 'haiku', displayName: 'Haiku' },
+        ],
+      },
+    };
+  }
+  if (subtype === 'mcp_status') {
+    const { missing, kept } = loadedServers();
+    if (missing) return { error: 'STUB_CLAUDE_MCP names no file' };
+    return {
+      response: {
+        mcpServers: kept.map((server) => ({
+          name: server.name,
+          status: server.status,
+          scope: server.scope,
+          config: { type: server.type, ...(server.url === undefined ? {} : { url: server.url }) },
+          ...(server.tools === undefined ? {} : { tools: server.tools.map((name) => ({ name })) }),
+        })),
+      },
+    };
+  }
+  return { error: `the stub does not answer ${subtype}` };
+}
+
+/** The control protocol: each `control_request` answered in turn; done once stdin ends. */
+function control() {
+  warnBlocked(loadedServers().blocked);
+  let writes = Promise.resolve();
+  readline
+    .createInterface({ input: process.stdin })
+    .on('line', (line) => {
+      let message;
+      try {
+        message = JSON.parse(line);
+      } catch {
+        return;
+      }
+      if (message?.type !== 'control_request') return;
+      const subtype = message.request?.subtype;
+      log(`CONTROL ${subtype} in ${process.cwd()} with ${args.join(' ')}`);
+      const { response, error } = answer(subtype);
+      const reply =
+        error === undefined
+          ? { subtype: 'success', request_id: message.request_id, response }
+          : { subtype: 'error', request_id: message.request_id, error };
+      const text = `${JSON.stringify({ type: 'control_response', response: reply })}\n`;
+      writes = writes.then(() => writeOut(process.stdout, text));
+    })
+    .on('close', () => {
+      writes.then(() => process.exit(0));
+    });
 }
