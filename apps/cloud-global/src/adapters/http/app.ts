@@ -9,17 +9,21 @@ import {
   listConnections,
   startGitHubInstall,
 } from '../../application/connections.js';
+import { mintGitHubToken } from '../../application/gitHubTokens.js';
 import { checkHealth } from '../../application/health.js';
 import { describeMe } from '../../application/me.js';
 import { listActiveWorkspaceMembers } from '../../application/members.js';
 import type {
+  CellRequestVerifier,
   CellTokenSigner,
   GitHubApp,
+  GitHubTokenMinter,
   HealthProbe,
   InstallationStore,
   InstallStateSigner,
   MembershipStore,
   SessionStore,
+  TokenMintStore,
   WorkspaceStore,
 } from '../../application/ports.js';
 import {
@@ -43,6 +47,7 @@ import {
   listWorkspaces,
   postCellToken,
   postGitHubInstall,
+  postGitHubToken,
   postWorkspace,
   putActiveWorkspace,
 } from './contract.js';
@@ -116,9 +121,12 @@ export function createApp(deps: {
   cellTokens: CellTokenSigner;
   installations: InstallationStore;
   /** Null when the GitHub App is not configured on this server. */
-  github: GitHubApp | null;
+  github: (GitHubApp & GitHubTokenMinter) | null;
   installStates: InstallStateSigner;
   health: HealthProbe;
+  /** Checks a cell's signed request for a GitHub token. */
+  cellRequests: CellRequestVerifier;
+  tokenMints: TokenMintStore;
 }): OpenAPIHono {
   const {
     handleAuth,
@@ -132,6 +140,8 @@ export function createApp(deps: {
     github,
     installStates,
     health,
+    cellRequests,
+    tokenMints,
   } = deps;
   // A body of the wrong shape is 400 `invalid_request` unless its route says otherwise, never
   // the validator's own answer, which is not in the contract.
@@ -154,6 +164,52 @@ export function createApp(deps: {
   });
 
   app.all('/api/auth/*', (c) => handleAuth(c.req.raw));
+
+  // A GitHub token for a cell (14.3). A cell calls it, not a browser: its authority is the cell's
+  // signature, not a session cookie, so it is registered before the origin check, which guards
+  // what a cookie can do. Its answer is a credential, so no cache keeps it, and nothing logs it.
+  app.openapi(postGitHubToken, async (c) => {
+    const answer = await mintGitHubToken(
+      { cellRequests, mints: tokenMints, github },
+      c.req.valid('json').request,
+      nowSeconds(),
+    );
+    switch (answer.kind) {
+      case 'minted': {
+        const { token, expiresAt, repositories, permissions } = answer;
+        c.header('cache-control', 'no-store');
+        return c.json({ token, expiresAt, repositories, permissions }, 201);
+      }
+      case 'unsigned':
+        console.error("A request for a GitHub token carried no cell's signature.");
+        return c.json({ error: 'unsigned' } as const, 401);
+      case 'unreadable':
+        console.error(`A cell's request for a GitHub token was refused: ${answer.reason}.`);
+        return c.json({ error: 'unreadable' } as const, 400);
+      case 'invalid':
+        return c.json({ error: 'invalid_token_request', problems: answer.problems } as const, 400);
+      case 'installation-not-found':
+        return c.json({ error: 'installation_not_found' } as const, 404);
+      case 'other-region':
+        return c.json({ error: 'other_region' } as const, 403);
+      case 'not-covered':
+        return c.json(
+          { error: 'repository_not_covered', repositoryIds: answer.repositoryIds } as const,
+          403,
+        );
+      case 'refused':
+        return c.json({ error: 'scope_refused' } as const, 403);
+      case 'installation-gone':
+        return c.json({ error: 'installation_gone' } as const, 410);
+      case 'not-configured':
+        return c.json({ error: 'github_not_configured' } as const, 503);
+      case 'not-as-asked':
+        console.error('GitHub minted a token other than the one asked; it was revoked.');
+        return c.json({ error: 'github_unavailable' } as const, 503);
+      case 'unavailable':
+        return c.json({ error: 'github_unavailable' } as const, 503);
+    }
+  });
 
   app.use('/api/*', async (c, next) => {
     if (!CHANGES.has(c.req.method) || c.req.header('origin') === webOrigin) return next();

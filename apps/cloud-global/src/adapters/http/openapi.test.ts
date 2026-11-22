@@ -28,6 +28,8 @@ const app = createApp({
   github: unreachable as never,
   installStates: unreachable as never,
   health: unreachable as never,
+  cellRequests: unreachable as never,
+  tokenMints: unreachable as never,
 });
 
 describe('openapi.json', () => {

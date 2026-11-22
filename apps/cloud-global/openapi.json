@@ -28,6 +28,137 @@
         ],
         "description": "How a Connect ended, as the callback names it in the web app’s `?github=`."
       },
+      "GitHubToken": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "description": "An installation token. Never log or store it."
+          },
+          "expiresAt": {
+            "type": "integer",
+            "description": "In whole seconds since the epoch."
+          },
+          "repositories": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "integer"
+                },
+                "fullName": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "fullName"
+              ],
+              "additionalProperties": false
+            },
+            "description": "Exactly the repositories asked for, as GitHub names them now."
+          },
+          "permissions": {
+            "type": "object",
+            "properties": {
+              "contents": {
+                "type": "string",
+                "enum": [
+                  "read",
+                  "write"
+                ]
+              },
+              "pull_requests": {
+                "type": "string",
+                "enum": [
+                  "read",
+                  "write"
+                ]
+              },
+              "metadata": {
+                "type": "string",
+                "enum": [
+                  "read"
+                ]
+              }
+            },
+            "additionalProperties": false,
+            "description": "Exactly the purpose's permissions, and the metadata read GitHub gives every token."
+          }
+        },
+        "required": [
+          "token",
+          "expiresAt",
+          "repositories",
+          "permissions"
+        ],
+        "additionalProperties": false,
+        "description": "A GitHub token narrowed to a workspace’s repositories, for an hour at most."
+      },
+      "InvalidTokenRequest": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "enum": [
+              "invalid_token_request"
+            ]
+          },
+          "problems": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "no-repositories",
+                "too-many-repositories",
+                "repeated-repository"
+              ]
+            }
+          }
+        },
+        "required": [
+          "error",
+          "problems"
+        ],
+        "additionalProperties": false,
+        "description": "Every problem with the repositories asked for, in rule order."
+      },
+      "RepositoryNotCovered": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "enum": [
+              "repository_not_covered"
+            ]
+          },
+          "repositoryIds": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          }
+        },
+        "required": [
+          "error",
+          "repositoryIds"
+        ],
+        "additionalProperties": false,
+        "description": "The repositories, by their GitHub ids, the installation does not cover."
+      },
+      "GitHubTokenRequestBody": {
+        "type": "object",
+        "properties": {
+          "request": {
+            "type": "string",
+            "description": "The request, signed by the cell: a JWS in compact serialization whose payload is the contract's `GitHubTokenRequest` as JSON, with `alg` `EdDSA`, the cell's key's `kid` and `typ` `consola-github-token-request` in its protected header."
+          }
+        },
+        "required": [
+          "request"
+        ]
+      },
       "Me": {
         "type": "object",
         "properties": {
@@ -501,6 +632,251 @@
     "parameters": {}
   },
   "paths": {
+    "/api/github/tokens": {
+      "post": {
+        "summary": "Mint a GitHub token for a cell, narrowed to repositories and a purpose",
+        "description": "Called by a regional cell, never a browser: the request is signed with the key configured for the cell’s region, so it sits outside the origin check and carries no session. The workspace must hold the installation and be in that cell’s region, and the installation must cover every repository. The purpose fixes the permissions. Every token minted is recorded; the token itself is not, and no cache keeps the answer (`Cache-Control: no-store`).",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GitHubTokenRequestBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The token, narrowed as asked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubToken"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The body is not `{ request }`, the signed request is none the contract reads (expired, say), or its repositories break the purpose’s rules.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "invalid_request"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "unreadable"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidTokenRequest"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No cell’s key checks the request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "unsigned"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The workspace is in another region than the cell, the installation does not cover a repository, or GitHub refused the scope (a permission the app was not granted).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "other_region"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "$ref": "#/components/schemas/RepositoryNotCovered"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "scope_refused"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The workspace holds no installation with that id, whether or not another does.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "installation_not_found"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "GitHub no longer has the installation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "installation_gone"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "The body is not JSON (`Content-Type: application/json`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "unsupported_media_type"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "This server has no GitHub App, or GitHub did not answer as it should.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "github_not_configured"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "github_unavailable"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/me": {
       "get": {
         "summary": "Who is signed in",
