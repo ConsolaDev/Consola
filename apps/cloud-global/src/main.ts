@@ -47,14 +47,14 @@ try {
   cannotStart(error.problems);
 }
 
-// The database is migrated, so the outbox (and any message the migrations wrote) is there to
-// deliver. One process delivers it: this one.
-outbox.start();
-
 const server = serve({ fetch: app.fetch, hostname: '127.0.0.1', port: config.port }, (info) => {
   console.log(
     `Consola Cloud API on http://127.0.0.1:${info.port} (web origin ${config.publicUrl})`,
   );
+  // The database is migrated, so the outbox (and any message the migrations wrote) is there to
+  // deliver, and the key set a cell checks deliveries with is published. One process delivers
+  // the outbox: this one.
+  if (!stopping) outbox.start();
 });
 
 // Only a failure to start listening (the port in use, say); later server errors are not this.

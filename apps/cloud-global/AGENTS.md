@@ -51,8 +51,9 @@ The service is built in rings, and imports point inward only.
   `createAuth` for the schema CLI: it is tooling, and never runs in the
   service.
   `src/main.ts` loads the environment, opens and migrates the database, calls
-  `compose.ts`, starts the outbox's worker and serves, and stops the worker
-  before it closes the database. `src/startupError.ts` words a failure to start.
+  `compose.ts` and serves; once it listens, it starts the outbox's worker, and
+  it stops the worker before it closes the database. `src/startupError.ts`
+  words a failure to start.
   `src/config.ts` parses the environment. It is shared configuration that any
   adapter may read, so it stays a pure parser that imports no other file and no
   I/O.
@@ -352,7 +353,8 @@ wakes.
   per region in `REGIONS` (`cellUrlVariable`), read like `PUBLIC_URL`. A region
   with none keeps its messages untouched, and the worker says so once.
 - **The worker** (`createOutboxWorker`) runs in this process: a pass when
-  `main.ts` starts it (after the migrations), on a wake from a change that
+  `main.ts` starts it (after the migrations, once the API listens and so
+  publishes the keys a cell checks with), on a wake from a change that
   wrote a message, when the earliest retry is due, and otherwise every
   `OUTBOX_POLL_MS` (10 s); never two at once. `composeApi` builds it and never
   starts it, so building the service sends nothing. Stopping it abandons a
