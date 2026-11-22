@@ -304,21 +304,24 @@ export function leadDetail(run: RunFacts, now: Date, place: number | undefined):
     .join(' · ');
 }
 
+/** What a step that ran ended as: completed, failed or reported. */
+const RAN: ReadonlySet<string> = new Set(['completed', 'failed', 'reported']);
+
 /**
  * How a run a person rejected at a gate reads: `` rejected at `decide` by
- * you, after 2 steps ``, counting the agent and command rows before the gate
- * that ran (completed, failed or reported). Null for any other run.
+ * you, after 2 steps ``, counting the agent and command steps that ran, in
+ * their latest attempt or an earlier one. A rejected run reached nothing
+ * past its gate, but a loop's steps come after the loop's own row and ran
+ * in its earlier rounds, which a loop rejected at its exhaustion gate, or
+ * at a gate inside it, counts (3-A code review S3). Null for any other run.
  */
 export function rejectedWords(run: Pick<RunFacts, 'status' | 'steps'>): string | null {
   const gate = rejectedAtGate(run);
   if (gate === undefined) return null;
-  const steps = run.steps ?? [];
-  const at = steps.findIndex((step) => step.id === gate);
-  const before = at === -1 ? [] : steps.slice(0, at);
-  const ran = before.filter(
+  const ran = (run.steps ?? []).filter(
     (step) =>
       (step.kind === 'agent' || step.kind === 'run') &&
-      (step.status === 'completed' || step.status === 'failed' || step.status === 'reported'),
+      (RAN.has(step.status) || (step.previous ?? []).some((line) => RAN.has(line.status))),
   ).length;
   return `rejected at \`${gate}\` by you, after ${ran} ${ran === 1 ? 'step' : 'steps'}`;
 }

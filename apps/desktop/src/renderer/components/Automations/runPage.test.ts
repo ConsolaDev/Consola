@@ -999,6 +999,68 @@ describe('a run rejected at a gate', () => {
     expect(rejectedWords(run)).toBe('rejected at `decide` by you, after 1 step');
   });
 
+  it('counts the steps a loop ran when it is rejected at its exhaustion gate (3-A code review S3)', () => {
+    const rounds = (round: number) =>
+      Array.from({ length: round - 1 }, (_, at) => ({
+        attempt: at + 1,
+        status: 'completed' as const,
+        round: at + 1,
+      }));
+    const run = stepsRecord(
+      [
+        stepOf({ id: 'fresh', kind: 'run', status: 'completed' }),
+        stepOf({
+          id: 'polish',
+          kind: 'repeat',
+          status: 'completed',
+          round: 3,
+          max: 3,
+          gate: { askedAt: T1, decision: 'reject', by: 'person', at: T2 },
+        }),
+        stepOf({ id: 'look', status: 'completed', attempt: 3, round: 3, previous: rounds(3) }),
+        stepOf({ id: 'fix', kind: 'run', status: 'completed', attempt: 3, round: 3 }),
+        stepOf({ id: 'publish', kind: 'run', status: 'not-run' }),
+      ],
+      { status: 'rejected', startedAt: ago(9 * MINUTE) },
+    );
+    expect(rejectedWords(run)).toBe('rejected at `polish` by you, after 3 steps');
+  });
+
+  it('counts a step of the loop that ran in an earlier round, when a gate inside it is rejected', () => {
+    const run = stepsRecord(
+      [
+        stepOf({ id: 'polish', kind: 'repeat', status: 'completed', round: 2, max: 3 }),
+        stepOf({ id: 'look', status: 'completed', attempt: 2, round: 2 }),
+        {
+          ...gate('reject'),
+          id: 'ask',
+          attempt: 2,
+          round: 2,
+          previous: [{ attempt: 1, status: 'completed', round: 1, decision: 'approve' }],
+        },
+        // Not reached in round 2, but it ran in round 1.
+        stepOf({
+          id: 'fix',
+          kind: 'run',
+          status: 'not-run',
+          attempt: 2,
+          round: 2,
+          previous: [{ attempt: 1, status: 'completed', round: 1 }],
+        }),
+        // Never reached in any round.
+        stepOf({
+          id: 'done',
+          kind: 'run',
+          status: 'not-run',
+          attempt: 2,
+          previous: [{ attempt: 1, status: 'not-run' }],
+        }),
+      ],
+      { status: 'rejected', startedAt: ago(9 * MINUTE) },
+    );
+    expect(rejectedWords(run)).toBe('rejected at `ask` by you, after 2 steps');
+  });
+
   it('a confirm run rejected at a gate passed its approval, even an older record with no approvedAt', () => {
     const run = stepsRecord(rejectedSteps, {
       status: 'rejected',
