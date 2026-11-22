@@ -21,6 +21,14 @@ export {
   type WorkspaceChange,
   type WorkspaceChangeType,
 } from './outbox.js';
+export {
+  OUTBOX_ANSWER,
+  OUTBOX_DELIVERY_MEDIA_TYPE,
+  OUTBOX_DELIVERY_PATH,
+  OUTBOX_MESSAGE_TYPE,
+  type OutOfOrderAnswer,
+  readOutOfOrderAnswer,
+} from './outboxDelivery.js';
 export type { ReadResult } from './read.js';
 export { isRegion, REGIONS, type Region } from './region.js';
 export { isWorkspaceRole, WORKSPACE_ROLES, type WorkspaceRole } from './workspaceRole.js';

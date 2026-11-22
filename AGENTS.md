@@ -177,8 +177,8 @@ imports from the desktop, the website, another app or `packages/*`, with one
 exception: `cloud-global` and `cloud-region` both import
 `packages/cloud-contract` (`@consola/cloud-contract`), what the two agree on:
 the regions, the workspace roles, the claims of the token `cloud-global` mints
-for a cell, and the outbox messages it sends one. It does no I/O, so any layer
-of either app may import it; before changing it, read
+for a cell, the outbox messages it sends one and how it delivers them. It does
+no I/O, so any layer of either app may import it; before changing it, read
 `packages/cloud-contract/AGENTS.md`. Setup is in
 `apps/cloud-global/README.md` and `apps/cloud-region/README.md`. Before
 changing a cloud app, read its own `AGENTS.md` (`apps/cloud-global/AGENTS.md`,
