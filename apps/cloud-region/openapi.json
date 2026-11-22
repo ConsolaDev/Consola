@@ -130,6 +130,335 @@
           "name"
         ],
         "description": "A name (trimmed, 1 to 64 characters, no control characters), unique in the workspace whatever its case."
+      },
+      "FactoryList": {
+        "type": "object",
+        "properties": {
+          "factories": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Factory"
+            }
+          }
+        },
+        "required": [
+          "factories"
+        ],
+        "additionalProperties": false,
+        "description": "The factories the caller sees, by name: every factory for owners and admins, the factories of the teams they are in for a member."
+      },
+      "Factory": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "teamId": {
+            "type": "string",
+            "description": "The team that owns it."
+          },
+          "source": {
+            "$ref": "#/components/schemas/FactorySource"
+          },
+          "latestVersion": {
+            "type": "integer",
+            "description": "Its latest version's number: 1 until its files are first saved, and one more with each save."
+          },
+          "updatedAt": {
+            "type": "string",
+            "description": "When its latest version was saved, as an ISO 8601 time."
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "teamId",
+          "source",
+          "latestVersion",
+          "updatedAt"
+        ],
+        "additionalProperties": false
+      },
+      "FactorySource": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "stored"
+            ]
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "additionalProperties": false,
+        "description": "Where the factory's files come from: `stored`, saved in the cell. A GitHub repository comes later."
+      },
+      "InvalidFactory": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "enum": [
+              "invalid_factory"
+            ]
+          },
+          "problems": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "name_missing",
+                "name_too_long",
+                "name_invalid"
+              ]
+            }
+          }
+        },
+        "required": [
+          "error",
+          "problems"
+        ],
+        "additionalProperties": false,
+        "description": "Every problem with the name, at once."
+      },
+      "NewFactory": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "teamId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "teamId"
+        ],
+        "description": "A name (trimmed, 1 to 64 characters, no control characters), unique in the workspace whatever its case, and the id of the team that owns it."
+      },
+      "FactoryWithFiles": {
+        "type": "object",
+        "properties": {
+          "factory": {
+            "$ref": "#/components/schemas/Factory"
+          },
+          "version": {
+            "$ref": "#/components/schemas/FactoryVersion"
+          }
+        },
+        "required": [
+          "factory",
+          "version"
+        ],
+        "additionalProperties": false,
+        "description": "A factory, and its latest version with its files."
+      },
+      "FactoryVersion": {
+        "type": "object",
+        "properties": {
+          "factoryId": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer"
+          },
+          "savedAt": {
+            "type": "string",
+            "description": "When it was saved, as an ISO 8601 time."
+          },
+          "savedBy": {
+            "type": "string",
+            "description": "The global id of the person who saved it."
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FactoryFile"
+            },
+            "description": "Its files, by path."
+          }
+        },
+        "required": [
+          "factoryId",
+          "version",
+          "savedAt",
+          "savedBy",
+          "files"
+        ],
+        "additionalProperties": false,
+        "description": "One version of a factory's files, as saved."
+      },
+      "FactoryFile": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Its path inside the factory's folder: `factory.yml`, `automations/<name>.yaml`, `agents/<name>.md`, `skills/<name>/…`."
+          },
+          "content": {
+            "type": "string",
+            "description": "Its text."
+          }
+        },
+        "required": [
+          "path",
+          "content"
+        ],
+        "additionalProperties": false
+      },
+      "SavedFactoryVersion": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "$ref": "#/components/schemas/FactoryVersion"
+          },
+          "notices": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FactoryNotice"
+            }
+          }
+        },
+        "required": [
+          "version",
+          "notices"
+        ],
+        "additionalProperties": false,
+        "description": "The version saved, and what to know about it."
+      },
+      "FactoryNotice": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "file": {
+            "type": "string"
+          },
+          "line": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "message"
+        ],
+        "additionalProperties": false,
+        "description": "Something the factory schema says about the files that refuses nothing, such as a folder a later slice reads."
+      },
+      "InvalidFiles": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "enum": [
+              "invalid_files"
+            ]
+          },
+          "issues": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FactoryIssue"
+            }
+          }
+        },
+        "required": [
+          "error",
+          "issues"
+        ],
+        "additionalProperties": false,
+        "description": "Files that fail the factory schema: every problem, each naming its file. Nothing is saved."
+      },
+      "FactoryIssue": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "file": {
+            "type": "string",
+            "description": "The file the problem is in; absent for a problem with the set as a whole."
+          },
+          "path": {
+            "type": "string",
+            "description": "Where in the file, as a dotted path into its document (`automations[0].mode`); empty for the whole file."
+          },
+          "line": {
+            "type": "integer",
+            "description": "The line, from 1, when known."
+          },
+          "automation": {
+            "type": "string",
+            "description": "The automation the problem belongs to, when it has a name."
+          },
+          "cause": {
+            "type": "string",
+            "description": "The file (or skill's folder) whose own problems this one only shows through: a step's agent, an agent's skill."
+          }
+        },
+        "required": [
+          "message",
+          "path"
+        ],
+        "additionalProperties": false,
+        "description": "A problem with the files, as the factory schema words it."
+      },
+      "VersionMoved": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "enum": [
+              "version_moved"
+            ]
+          },
+          "latestVersion": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "error",
+          "latestVersion"
+        ],
+        "additionalProperties": false,
+        "description": "The latest version is no longer `baseVersion`: someone saved since. Nothing is saved."
+      },
+      "NewFactoryVersion": {
+        "type": "object",
+        "properties": {
+          "baseVersion": {
+            "type": "integer",
+            "description": "The version the files were edited from, which must still be the latest: a save never undoes one it did not see."
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "content": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path",
+                "content"
+              ]
+            },
+            "description": "Every file of the new version (at most 500, 8 MB in all): a file left out is not in it."
+          }
+        },
+        "required": [
+          "baseVersion",
+          "files"
+        ]
       }
     },
     "parameters": {}
@@ -1199,7 +1528,7 @@
             }
           },
           "409": {
-            "description": "The workspace's first team, which is never deleted (`first_team`), or the cell does not hold the workspace yet.",
+            "description": "The workspace's first team, which is never deleted (`first_team`), a team that owns a factory, which is not deleted while it does (`owns_factories`), or the cell does not hold the workspace yet.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1211,6 +1540,21 @@
                           "type": "string",
                           "enum": [
                             "first_team"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "owns_factories"
                           ]
                         }
                       },
@@ -1639,6 +1983,1006 @@
                       "type": "string",
                       "enum": [
                         "workspace_pending"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "421": {
+            "description": "A good token for a workspace in another region: the cell that answered names its own. The workspace's own cell is the fix.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "wrong_region"
+                      ]
+                    },
+                    "region": {
+                      "type": "string",
+                      "enum": [
+                        "eu",
+                        "us"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "region"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The cell cannot get cloud-global's keys just now, so it checks no token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "token_check_unavailable"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/factories": {
+      "get": {
+        "summary": "The caller's workspace's factories, as the caller sees them",
+        "responses": {
+          "200": {
+            "description": "The factories.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FactoryList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No bearer token (`token_required`), or one the cell does not accept (`invalid_token`): malformed, forged, expired, or signed by a key cloud-global does not publish. A new token is the fix.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "token_required"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "invalid_token"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The cell does not hold the workspace yet: cloud-global has not delivered its creation. Asking again later helps.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "workspace_pending"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "421": {
+            "description": "A good token for a workspace in another region: the cell that answered names its own. The workspace's own cell is the fix.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "wrong_region"
+                      ]
+                    },
+                    "region": {
+                      "type": "string",
+                      "enum": [
+                        "eu",
+                        "us"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "region"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The cell cannot get cloud-global's keys just now, so it checks no token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "token_check_unavailable"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Make a blank factory, owned by a team",
+        "description": "Its files are stored in the cell, and its first version holds none. Owners and admins may make one for any team, a member for a team they are in.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewFactory"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The factory made.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Factory"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The rules refuse the name, or the body is not what the route takes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/InvalidFactory"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "invalid_request"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No bearer token (`token_required`), or one the cell does not accept (`invalid_token`): malformed, forged, expired, or signed by a key cloud-global does not publish. A new token is the fix.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "token_required"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "invalid_token"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The workspace has no team with that id that the caller sees: none, or one a member is not in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "team_not_found"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Another factory of the workspace has the name, in any case (`name_taken`), or the cell does not hold the workspace yet (`workspace_pending`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "name_taken"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "workspace_pending"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "The body is not JSON (`Content-Type: application/json`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "unsupported_media_type"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "421": {
+            "description": "A good token for a workspace in another region: the cell that answered names its own. The workspace's own cell is the fix.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "wrong_region"
+                      ]
+                    },
+                    "region": {
+                      "type": "string",
+                      "enum": [
+                        "eu",
+                        "us"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "region"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The cell cannot get cloud-global's keys just now, so it checks no token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "token_check_unavailable"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/factories/{factoryId}": {
+      "get": {
+        "summary": "A factory, with its latest version’s files",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "factoryId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The factory and its latest version.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FactoryWithFiles"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No bearer token (`token_required`), or one the cell does not accept (`invalid_token`): malformed, forged, expired, or signed by a key cloud-global does not publish. A new token is the fix.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "token_required"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "invalid_token"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The workspace has no factory with that id that the caller sees: none, or one of a team a member is not in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "factory_not_found"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The cell does not hold the workspace yet: cloud-global has not delivered its creation. Asking again later helps.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "workspace_pending"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "421": {
+            "description": "A good token for a workspace in another region: the cell that answered names its own. The workspace's own cell is the fix.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "wrong_region"
+                      ]
+                    },
+                    "region": {
+                      "type": "string",
+                      "enum": [
+                        "eu",
+                        "us"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "region"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The cell cannot get cloud-global's keys just now, so it checks no token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "token_check_unavailable"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/factories/{factoryId}/versions/{version}": {
+      "get": {
+        "summary": "One version of a factory's files, an earlier one or the latest",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "factoryId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[1-9][0-9]{0,8}$",
+              "description": "A version's number: 1 for the blank version a factory is made with."
+            },
+            "required": true,
+            "description": "A version's number: 1 for the blank version a factory is made with.",
+            "name": "version",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The version.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FactoryVersion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The version is not a number from 1.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "invalid_request"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No bearer token (`token_required`), or one the cell does not accept (`invalid_token`): malformed, forged, expired, or signed by a key cloud-global does not publish. A new token is the fix.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "token_required"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "invalid_token"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The caller sees no such factory (`factory_not_found`), or it has no version with that number (`version_not_found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "factory_not_found"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "version_not_found"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The cell does not hold the workspace yet: cloud-global has not delivered its creation. Asking again later helps.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "workspace_pending"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "421": {
+            "description": "A good token for a workspace in another region: the cell that answered names its own. The workspace's own cell is the fix.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "wrong_region"
+                      ]
+                    },
+                    "region": {
+                      "type": "string",
+                      "enum": [
+                        "eu",
+                        "us"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "region"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The cell cannot get cloud-global's keys just now, so it checks no token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "token_check_unavailable"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/factories/{factoryId}/versions": {
+      "post": {
+        "summary": "Save a factory's files as its next version",
+        "description": "The files must keep the factory schema (`packages/factory-spec`), and `baseVersion` must still be the latest version. Whoever sees the factory may save it.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "factoryId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewFactoryVersion"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The version saved.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavedFactoryVersion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The files fail the factory schema (`invalid_files`), or the body is not what the route takes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/InvalidFiles"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "invalid_request"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No bearer token (`token_required`), or one the cell does not accept (`invalid_token`): malformed, forged, expired, or signed by a key cloud-global does not publish. A new token is the fix.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "token_required"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "invalid_token"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The workspace has no factory with that id that the caller sees: none, or one of a team a member is not in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "factory_not_found"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The factory has a newer version than the one the files were edited from (`version_moved`), or the cell does not hold the workspace yet.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/VersionMoved"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "workspace_pending"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The body is larger than any factory’s files can be.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "too_large"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "The body is not JSON (`Content-Type: application/json`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "unsupported_media_type"
                       ]
                     }
                   },

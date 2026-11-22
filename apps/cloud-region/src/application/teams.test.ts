@@ -171,6 +171,14 @@ describe('changing teams', () => {
     expect(await deleteTeam(teams, dana(), first?.id ?? '')).toEqual({ kind: 'first-team' });
   });
 
+  it('never deletes a team that owns a factory', async () => {
+    await acme();
+    const made = await platform();
+    const { factories } = createDrizzleStores(db);
+    await factories.create('acme', { name: 'Deploys', teamId: made.id, personId: 'person-dana' });
+    expect(await deleteTeam(teams, dana(), made.id)).toEqual({ kind: 'owns-factories' });
+  });
+
   it('judge a token older than the copy by the lesser of the two roles', async () => {
     await acme();
     const made = await platform();
