@@ -41,9 +41,14 @@ export function branchLabel(facts: Pick<TabFacts, 'session' | 'checkout'>): stri
 /**
  * The branch row's value: the commits waiting to be pushed, and those behind
  * only when there are some. A branch that tracks nothing (or whose tracked
- * ref is gone from the clone) is not pushed yet.
+ * ref is gone from the clone) is not pushed yet. A detached HEAD
+ * (`onBranch` false) has no branch to push, so it has no value at all.
  */
-export function pushValue(upstream: BranchFacts['upstream']): { text: string; title: string } {
+export function pushValue(
+  upstream: BranchFacts['upstream'],
+  onBranch: boolean,
+): { text: string; title: string } | null {
+  if (!onBranch) return null;
   if (!upstream) return { text: 'Not pushed yet', title: 'No upstream branch in this clone' };
   const { ref, ahead, behind } = upstream;
   const toPush = `${plural(ahead, 'commit', 'commits')} to push to ${ref}`;

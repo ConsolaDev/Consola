@@ -46,6 +46,7 @@ function BranchRows({ facts }: { facts: TabFacts }) {
     <CheckoutRows
       dir={facts.checkoutPath}
       label={label}
+      onBranch={facts.checkout?.kind !== 'none' && !!facts.checkout?.branch}
       pullRequest={detailsTargetOf(
         facts.workspace,
         sessionPullRequest(facts.session, facts.foundPullRequest)?.ref,
@@ -57,10 +58,13 @@ function BranchRows({ facts }: { facts: TabFacts }) {
 function CheckoutRows({
   dir,
   label,
+  onBranch,
   pullRequest,
 }: {
   dir: string;
   label: string;
+  /** On a branch, not a detached HEAD, which has nothing to push. */
+  onBranch: boolean;
   pullRequest: DetailsTarget | null;
 }) {
   // Against the pull request's base once its details have been read, else
@@ -71,7 +75,7 @@ function CheckoutRows({
   const base = facts && baseLine(facts.base);
   return (
     <>
-      <BranchRow label={label} push={facts && pushValue(facts.upstream)} />
+      <BranchRow label={label} push={facts && pushValue(facts.upstream, onBranch)} />
       <UncommittedRow dir={dir} />
       {base && (
         <InfoRow
@@ -95,7 +99,13 @@ function CheckoutRows({
 }
 
 /** The branch, or where a detached HEAD is, with the commits waiting to be pushed once read. */
-function BranchRow({ label, push }: { label: string; push?: { text: string; title: string } }) {
+function BranchRow({
+  label,
+  push,
+}: {
+  label: string;
+  push?: { text: string; title: string } | null;
+}) {
   return (
     <InfoRow
       icon={<GitBranch size={ICON_SIZE} />}

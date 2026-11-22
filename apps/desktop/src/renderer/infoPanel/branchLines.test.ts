@@ -72,18 +72,22 @@ describe('pushValue', () => {
   const ref = 'origin/feat/search-pagination';
 
   it('counts what waits to be pushed, and what is behind only when there is some', () => {
-    expect(pushValue({ ref, ahead: 2, behind: 0 })).toEqual({
+    expect(pushValue({ ref, ahead: 2, behind: 0 }, true)).toEqual({
       text: '↑2',
       title: '2 commits to push to origin/feat/search-pagination',
     });
-    expect(pushValue({ ref, ahead: 1, behind: 3 })).toEqual({
+    expect(pushValue({ ref, ahead: 1, behind: 3 }, true)).toEqual({
       text: '↑1 ↓3',
       title: '1 commit to push to origin/feat/search-pagination, 3 behind',
     });
   });
 
   it('a branch that tracks nothing is not pushed yet', () => {
-    expect(pushValue(null).text).toBe('Not pushed yet');
+    expect(pushValue(null, true)?.text).toBe('Not pushed yet');
+  });
+
+  it('a detached HEAD has no branch to push, so says nothing of pushing', () => {
+    expect(pushValue(null, false)).toBeNull();
   });
 });
 
