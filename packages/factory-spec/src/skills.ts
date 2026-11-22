@@ -6,8 +6,9 @@
  * here, each with its reason: hooks (which run even in a read-only session),
  * `allowed-tools` (which would widen what the step may call), any key outside
  * the Agent Skills standard's, a command run when the skill loads (`` !` ``, or
- * a fenced block that opens with `!`), two paths that are one file where case
- * or accents are ignored, and anything but regular files and folders.
+ * a fenced block that opens with `!`, in `SKILL.md` or any supporting file
+ * that is text), two paths that are one file where case or accents are
+ * ignored, and anything but regular files and folders.
  */
 import { createHash } from 'node:crypto';
 import { readFrontmatter, splitFrontmatter } from './frontmatter';
@@ -50,6 +51,73 @@ const REFUSED_SKILL_KEYS: Readonly<Record<string, string>> = {
 const INLINE_COMMAND = '!`';
 const FENCED_COMMAND = /^[ \t]*(?:`{3,}|~{3,})[ \t]*!/m;
 
+/**
+ * The extensions that make a supporting file text whatever its bytes, so it
+ * is scanned for a command at load even when it is not valid UTF-8. Compared
+ * lowercased. A file with none of them is scanned when it is valid UTF-8; one
+ * that is neither is a binary (an image, a PDF, a font), which no CLI loads
+ * as instructions, and is not scanned.
+ */
+export const SKILL_TEXT_EXTENSIONS: readonly string[] = [
+  'md',
+  'markdown',
+  'mdx',
+  'txt',
+  'text',
+  'rst',
+  'adoc',
+  'sh',
+  'bash',
+  'zsh',
+  'fish',
+  'ps1',
+  'bat',
+  'cmd',
+  'py',
+  'rb',
+  'pl',
+  'php',
+  'lua',
+  'r',
+  'js',
+  'mjs',
+  'cjs',
+  'jsx',
+  'ts',
+  'mts',
+  'cts',
+  'tsx',
+  'go',
+  'rs',
+  'java',
+  'kt',
+  'swift',
+  'c',
+  'h',
+  'cc',
+  'cpp',
+  'hpp',
+  'cs',
+  'sql',
+  'json',
+  'jsonc',
+  'yaml',
+  'yml',
+  'toml',
+  'ini',
+  'cfg',
+  'conf',
+  'env',
+  'xml',
+  'html',
+  'htm',
+  'css',
+  'svg',
+  'csv',
+  'tsv',
+  'tex',
+];
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 const isFile = (entry: SkillFileEntry): entry is { path: string; bytes: Uint8Array } =>
@@ -71,11 +139,35 @@ function isInsidePath(path: string): boolean {
   return path.split('/').every((segment) => segment !== '' && segment !== '.' && segment !== '..');
 }
 
+const isValidUtf8 = (bytes: Uint8Array): boolean => {
+  try {
+    new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+/** Its extension, lowercased, is one of `SKILL_TEXT_EXTENSIONS`. */
+const hasTextExtension = (path: string): boolean => {
+  const name = path.slice(path.lastIndexOf('/') + 1);
+  const dot = name.lastIndexOf('.');
+  return dot > 0 && SKILL_TEXT_EXTENSIONS.includes(name.slice(dot + 1).toLowerCase());
+};
+
 /**
- * Why a file would run a command when the skill loads, or `undefined`. Every
- * file is read as text, leniently (a byte that is not UTF-8 reads as U+FFFD),
- * so no file escapes the scan by holding one: stricter than the spec, which
- * scans only files that are valid UTF-8.
+ * Whether a file of the skill is scanned for a command at load: one with a
+ * text extension (`SKILL.md` always, by its own), or one that is valid
+ * UTF-8. Only a binary, invalid UTF-8 with no text extension, is not.
+ */
+function scannedAsText(path: string, bytes: Uint8Array): boolean {
+  return hasTextExtension(path) || isValidUtf8(bytes);
+}
+
+/**
+ * Why a file would run a command when the skill loads, or `undefined`. A
+ * file that is scanned is read as text leniently (a byte that is not UTF-8
+ * reads as U+FFFD), so no text file escapes the scan by holding one.
  */
 function commandAtLoad(path: string, bytes: Uint8Array): string | undefined {
   const text = new TextDecoder('utf-8').decode(bytes);
@@ -246,8 +338,9 @@ export function parseSkill(
     }
   }
 
-  // A command at load: anywhere in SKILL.md, its frontmatter included, and in every supporting file.
+  // A command at load: anywhere in SKILL.md, its frontmatter included, and in every supporting text file.
   for (const entry of [...files].sort(byPath)) {
+    if (!scannedAsText(entry.path, entry.bytes)) continue;
     const problem = commandAtLoad(at(entry.path), entry.bytes);
     if (problem) issues.push({ file: at(entry.path), path: '', message: problem });
   }

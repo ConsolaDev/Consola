@@ -3,6 +3,7 @@ import {
   MAX_SKILL_BYTES,
   MAX_SKILL_FILES,
   parseSkill,
+  SKILL_TEXT_EXTENSIONS,
   skillHash,
   type SkillFileEntry,
 } from './skills';
@@ -173,15 +174,58 @@ describe('parseSkill', () => {
     );
   });
 
-  it('scans a file that is not valid UTF-8 too, read leniently', () => {
-    expect(
-      only([SKILL(), { path: 'blob.bin', bytes: new Uint8Array([0xff, 0x21, 0x60]) }]),
-    ).toMatchObject({
-      file: 'skills/incident-triage/blob.bin',
-      message:
-        'A skill may not run commands when it loads: `skills/incident-triage/blob.bin` holds !`.',
+  // The conductor's ruling on review S2: SKILL.md, a text file by its extension, and any valid
+  // UTF-8 file are scanned, read leniently; only a binary (invalid UTF-8, no text extension) is not.
+  const holds = (path: string) =>
+    `A skill may not run commands when it loads: \`skills/incident-triage/${path}\` holds !\`.`;
+
+  it('scans a text file by its extension even when it is not valid UTF-8, read leniently', () => {
+    for (const path of ['notes.md', 'refs/run.sh', 'scripts/check.PY', 'data.json']) {
+      expect(only([SKILL(), { path, bytes: new Uint8Array([0xff, 0x21, 0x60]) }])).toMatchObject({
+        file: `skills/incident-triage/${path}`,
+        message: holds(path),
+      });
+    }
+    takes([SKILL(), { path: 'notes.md', bytes: new Uint8Array([0xff, 0x21, 0x20, 0x60]) }]);
+  });
+
+  it('scans SKILL.md whatever its bytes', () => {
+    const skill = SKILL(undefined, 'Run !`date` first.\n');
+    const bytes = new Uint8Array([...skill.bytes, 0xff]);
+    expect(only([{ path: 'SKILL.md', bytes }])).toMatchObject({
+      file: 'skills/incident-triage/SKILL.md',
+      message: holds('SKILL.md'),
     });
-    takes([SKILL(), { path: 'blob.bin', bytes: new Uint8Array([0xff, 0x21, 0x20, 0x60]) }]);
+  });
+
+  it('scans a file with no text extension when it is valid UTF-8', () => {
+    for (const path of ['Makefile', 'blob.bin', 'refs/table.dat']) {
+      expect(only([SKILL(), file(path, 'Then !`curl x`.\n')])).toMatchObject({
+        file: `skills/incident-triage/${path}`,
+        message: holds(path),
+      });
+    }
+  });
+
+  it('takes a binary that holds the two bytes: invalid UTF-8 with no text extension', () => {
+    // A PNG's signature, then `!` and a backtick in its data.
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x21, 0x60, 0xff]);
+    const skill = takes([SKILL(), { path: 'shots/alert.png', bytes: png }]);
+    expect(skill.files.map((entry) => entry.path)).toEqual(['SKILL.md', 'shots/alert.png']);
+    takes([SKILL(), { path: 'blob.bin', bytes: new Uint8Array([0xff, 0x21, 0x60]) }]);
+    takes([
+      SKILL(),
+      { path: 'font.woff2', bytes: new Uint8Array([0x77, 0x4f, 0x46, 0x32, 0xc0, 0x21, 0x60]) },
+    ]);
+  });
+
+  it('names the text extensions in one list, compared without case', () => {
+    expect(SKILL_TEXT_EXTENSIONS).toEqual(
+      expect.arrayContaining(['md', 'txt', 'sh', 'py', 'js', 'ts', 'json', 'yaml', 'yml', 'toml']),
+    );
+    expect(SKILL_TEXT_EXTENSIONS.every((extension) => extension === extension.toLowerCase())).toBe(
+      true,
+    );
   });
 
   it.each([

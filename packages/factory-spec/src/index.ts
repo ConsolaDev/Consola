@@ -95,6 +95,7 @@ export { isAgentRun, parseToolRef, type AgentRunTarget, type RunTarget } from '.
 export {
   MAX_SKILL_BYTES,
   MAX_SKILL_FILES,
+  SKILL_TEXT_EXTENSIONS,
   parseSkill,
   skillHash,
   type SkillDefinition,
