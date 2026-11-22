@@ -2,12 +2,15 @@
 import { BearerConnectionCredential, CredentialStore } from '@t3tools/client-runtime/connection';
 import * as Effect from 'effect/Effect';
 import * as Option from 'effect/Option';
-import { beforeAll, expect, it } from 'vite-plus/test';
+import { afterEach, beforeAll, expect, it, vi } from 'vite-plus/test';
 import { connectionIdFor, runInConnection } from './connection.ts';
 import { holdSession } from './storedSessions.ts';
 import { answerOf, forgetStoredThreads, host, mountChat } from './testing/render.tsx';
 
 beforeAll(forgetStoredThreads);
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 const RECORD_PREFIX = 'consola-agent-ui:session:';
 
@@ -63,4 +66,37 @@ it("removes the passes t3 kept for sessions no page shows, at the page's first r
   } finally {
     releaseOpenWindow();
   }
+});
+
+it('shows the chat, and holds its session, when localStorage refuses the record', async () => {
+  const { hostUrl, pass, sessionId, assistantText } = host();
+  const setItem = Storage.prototype.setItem;
+  vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (
+    this: Storage,
+    key: string,
+    value: string,
+  ) {
+    if (key.startsWith(RECORD_PREFIX)) {
+      throw new DOMException('The quota has been exceeded.', 'QuotaExceededError');
+    }
+    setItem.call(this, key, value);
+  });
+  const warned = vi.spyOn(console, 'warn');
+
+  // The hold still comes, without the record, and the refusal is logged once however many fail.
+  const release = await holdSession('session-sprocket-unrecorded');
+  release();
+  await mountChat({ hostUrl, pass, sessionId });
+  await expect.element(answerOf(assistantText)).toBeVisible();
+  expect(localStorage.getItem(`${RECORD_PREFIX}session-sprocket-unrecorded`)).toBeNull();
+  const ours = warned.mock.calls.filter(([message]) =>
+    String(message).includes('@consola/agent-ui'),
+  );
+  expect(ours).toEqual([
+    [
+      expect.stringContaining('could not record a session in localStorage'),
+      'The quota has been exceeded.',
+    ],
+  ]);
+  expect(JSON.stringify(warned.mock.calls)).not.toContain(pass);
 });

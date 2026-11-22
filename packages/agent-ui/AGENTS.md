@@ -110,7 +110,9 @@ pieces:
     creates when asked for one; this build names no relay or telemetry address,
     `vite.config.ts`).
   - Consola's own record of the sessions a page registered (`consola-agent-ui:session:<id>`, the
-    id only; `src/storedSessions.ts`).
+    id only; `src/storedSessions.ts`). Storage that refuses it (full, or turned off) costs only
+    the record, logged once (`console.warn`): the chat still shows, and the session is not found
+    by a later page.
 
   What is removed, and when:
   - **On unmount**: t3 deletes the host's pass, its cached environment data and the data other

@@ -30,15 +30,35 @@ const recordedSessions = (): string[] => {
   return sessions;
 };
 
+let recordFailureLogged = false;
+
 /**
- * Holds a session for this page: resolves once no page is removing its pass and it is recorded,
- * with the function that lets it go (call it once t3 has removed the registration).
+ * Records a session the page shows. Storage that refuses (full, or turned off) costs only the
+ * record, never the chat: the session is then not found by a later page, so a pass this page
+ * never removes stays in t3's catalog. Logged once per page.
+ */
+const record = (sessionId: string) => {
+  try {
+    localStorage.setItem(nameFor(sessionId), '');
+  } catch (error) {
+    if (recordFailureLogged) return;
+    recordFailureLogged = true;
+    console.warn(
+      '@consola/agent-ui: could not record a session in localStorage, so a page that closes ' +
+        "without unmounting its chat leaves its pass in t3's catalog.",
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+};
+
+/**
+ * Holds a session for this page: resolves once no page is removing its pass and it is recorded
+ * (`record`), with the function that lets it go (call it once t3 has removed the registration).
  */
 export const holdSession = (sessionId: string): Promise<() => void> => {
   const manager = locks();
-  const record = () => localStorage.setItem(nameFor(sessionId), '');
   if (manager === undefined) {
-    record();
+    record(sessionId);
     return Promise.resolve(() => {});
   }
   return new Promise((held, failed) => {
@@ -48,7 +68,7 @@ export const holdSession = (sessionId: string): Promise<() => void> => {
     });
     manager
       .request(nameFor(sessionId), { mode: 'shared' }, () => {
-        record();
+        record(sessionId);
         held(release);
         return released;
       })
