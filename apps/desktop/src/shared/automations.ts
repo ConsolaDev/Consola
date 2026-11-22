@@ -14,6 +14,7 @@ import type {
   AgentRunPreview,
   AutomationsSnapshot,
   EntryAgentsView,
+  GateView,
   ItemTarget,
   ItemTargets,
   ListRunsQuery,
@@ -51,6 +52,7 @@ export type {
   StepDetail,
   LogTail,
   CommandFile,
+  GateView,
 } from '@consola/automation-engine';
 
 /** What a new automation's session starts from: one of the file's entries, or a template. */
@@ -135,6 +137,13 @@ export interface AutomationsAPI {
   ) => Promise<{ content: string; bytes: number } | null>;
   /** Retry a failed steps run, from its failed step (the only one a retry accepts); the click is the approval. */
   retry: (runId: string, stepId?: string) => Promise<RunRecord>;
+  /** A gate the run asked at (waiting, or answered): its question filled in, its material and its choices; null when there is none. */
+  getGate: (runId: string, stepId: string) => Promise<GateView | null>;
+  /**
+   * A person's answer to the gate a run waits at: one of its choices, or
+   * `reject`. Only the person answers, here; no agent's or MCP tool can.
+   */
+  answerGate: (runId: string, stepId: string, decision: string) => Promise<RunRecord>;
   stop: (runId: string) => Promise<void>;
   /** Add a ready-made automation to the workspace's factory.yml. */
   addTemplate: (workspaceId: string, templateId: string) => Promise<void>;

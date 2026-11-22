@@ -192,6 +192,8 @@ export const IPC_CHANNELS = {
   AUTOMATIONS_ALLOW: 'automations:allow', // A person lets a poll entry's check command run, at one version
   AUTOMATIONS_LIST_RUN_TARGETS: 'automations:list-run-targets', // The items Run on… offers an automation
   AUTOMATIONS_RETRY: 'automations:retry', // Retry a failed steps run from its failed step
+  AUTOMATIONS_GET_GATE: 'automations:get-gate', // A waiting or answered gate's question, material and choices
+  AUTOMATIONS_ANSWER_GATE: 'automations:answer-gate', // A person's answer to a run's gate
 
   // Personal automations (main -> every renderer)
   AUTOMATIONS_CHANGED: 'automations:changed', // A workspace's fresh AutomationsSnapshot

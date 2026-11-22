@@ -2403,6 +2403,23 @@ export function setupIpcHandlers(): boolean {
     }
     return automations.retry(runId, stepId);
   });
+  ipcMain.handle(IPC_CHANNELS.AUTOMATIONS_GET_GATE, (_event, runId: unknown, stepId: unknown) => {
+    if (typeof runId !== 'string' || typeof stepId !== 'string') {
+      throw new Error('Run id and step id required.');
+    }
+    return automations.gateOf(runId, stepId);
+  });
+  // The one way a gate is answered: the person, from the renderer. No MCP tool, conductor tool or step tool
+  // reaches it (`gateAnswerers.test.ts`).
+  ipcMain.handle(
+    IPC_CHANNELS.AUTOMATIONS_ANSWER_GATE,
+    (_event, runId: unknown, stepId: unknown, decision: unknown) => {
+      if (typeof runId !== 'string' || typeof stepId !== 'string' || typeof decision !== 'string') {
+        throw new Error('Run id, step id and decision required.');
+      }
+      return automations.answerGate(runId, stepId, decision);
+    },
+  );
   ipcMain.handle(IPC_CHANNELS.AUTOMATIONS_STOP, (_event, runId: string) => {
     if (typeof runId !== 'string') throw new Error('Run id required.');
     automations.stop(runId);
@@ -3215,6 +3232,8 @@ export function cleanupIpcHandlers(): void {
   ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_READ_STEP_LOG);
   ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_READ_ARTIFACT);
   ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_RETRY);
+  ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_GET_GATE);
+  ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_ANSWER_GATE);
   ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_STOP);
   ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_ADD_TEMPLATE);
   ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_START_AUTHORING);

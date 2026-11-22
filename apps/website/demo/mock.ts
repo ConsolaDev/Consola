@@ -902,6 +902,8 @@ export function installMock() {
     readStepLog: async () => null,
     readArtifact: async () => null,
     retry: automationsUnavailable,
+    getGate: async () => null,
+    answerGate: automationsUnavailable,
     stop: async () => {},
     addTemplate: automationsUnavailable,
     startAuthoring: automationsUnavailable,
