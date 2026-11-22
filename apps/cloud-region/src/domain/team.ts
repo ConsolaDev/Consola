@@ -11,7 +11,8 @@ import type { WorkspaceRole } from '@consola/cloud-contract';
  * deleted, which keeps that true.
  *
  * There are no team roles: owners and admins of the workspace manage its teams, and a member
- * sees the teams they are in.
+ * sees the teams they are in. A person acts with the lesser of their token's role and the role
+ * the cell's copy holds (`actingRole`).
  */
 
 /** What the first team is called, until someone renames it. */
@@ -48,6 +49,24 @@ export function checkTeamName(
 /** Whether a role may make, rename and delete a workspace's teams, and choose their members. */
 export function mayManageTeams(role: WorkspaceRole): boolean {
   return role === 'owner' || role === 'admin';
+}
+
+/** How much each role may do: the lower, the less. */
+const ROLE_RANK: Record<WorkspaceRole, number> = { member: 0, admin: 1, owner: 2 };
+
+/**
+ * The role a person acts with: the lesser of the role their token carries and the role the
+ * cell's copy holds, or null when the copy holds no such member. A token lives minutes and the
+ * copy follows `cloud-global` within moments, so a person demoted or removed since their token was
+ * minted acts as they are now, never as they were; and one promoted acts with the new role only
+ * once both say so.
+ */
+export function actingRole(
+  tokenRole: WorkspaceRole,
+  copyRole: WorkspaceRole | null,
+): WorkspaceRole | null {
+  if (copyRole === null) return null;
+  return ROLE_RANK[copyRole] < ROLE_RANK[tokenRole] ? copyRole : tokenRole;
 }
 
 /** A team as the cell holds it. */

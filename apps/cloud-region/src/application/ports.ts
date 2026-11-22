@@ -1,5 +1,6 @@
 // What the use cases need from the world outside, each implemented by an adapter.
 
+import type { WorkspaceRole } from '@consola/cloud-contract';
 import type { Team } from '../domain/team.js';
 import type { CopyChange } from '../domain/workspaceCopy.js';
 
@@ -84,6 +85,8 @@ export type WorkspaceCopies = {
 export type TeamStore = {
   /** Whether the cell holds the workspace's copy yet: whether its `workspace.created` is applied. */
   holdsWorkspace(workspaceId: string): Promise<boolean>;
+  /** The person's role in the workspace as the cell's copy holds it, or null when not a member. */
+  roleInCopy(workspaceId: string, personId: string): Promise<WorkspaceRole | null>;
   /** The workspace's teams: its first team first, then the others by name, whatever their case. */
   list(workspaceId: string): Promise<Team[]>;
   /** Makes a team with no members. `name-taken` when another team has the name, in any case. */

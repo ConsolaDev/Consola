@@ -1,6 +1,13 @@
 import { WORKSPACE_ROLES } from '@consola/cloud-contract';
 import { describe, expect, it } from 'vitest';
-import { checkTeamName, mayManageTeams, type Team, TEAM_NAME_MAX, teamsSeenBy } from './team.js';
+import {
+  actingRole,
+  checkTeamName,
+  mayManageTeams,
+  type Team,
+  TEAM_NAME_MAX,
+  teamsSeenBy,
+} from './team.js';
 
 describe('checkTeamName', () => {
   it('takes a name, trimmed', () => {
@@ -35,6 +42,19 @@ describe('checkTeamName', () => {
 describe('mayManageTeams', () => {
   it('is for owners and admins only', () => {
     expect(WORKSPACE_ROLES.filter(mayManageTeams)).toEqual(['owner', 'admin']);
+  });
+});
+
+describe('actingRole', () => {
+  it('is the lesser of the token’s role and the copy’s', () => {
+    expect(actingRole('admin', 'member')).toBe('member');
+    expect(actingRole('member', 'admin')).toBe('member');
+    expect(actingRole('owner', 'admin')).toBe('admin');
+    expect(actingRole('owner', 'owner')).toBe('owner');
+  });
+
+  it('is none for someone the copy holds no member of', () => {
+    expect(actingRole('owner', null)).toBeNull();
   });
 });
 
