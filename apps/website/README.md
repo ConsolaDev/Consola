@@ -43,6 +43,13 @@ Production URL: https://www.consola.dev (also available at https://consola-peach
 
 Keep the Vercel project Root Directory at the repository root (`.`). The repository-root `vercel.json` installs workspace dependencies with lifecycle scripts disabled, builds only the website, and serves `apps/website/dist`. Electron is never built or launched. The `.vercelignore` includes the website plus the desktop renderer/shared source and package/configuration files needed to bundle the actual UI. No main-process code or native Electron API is shipped to the browser.
 
+Not every push deploys. `vercel.json`'s `ignoreCommand` runs `tools/vercel-ignore.mjs`, which compares the pushed commit with the one Vercel last deployed on that branch (or, on a branch's first deployment, with where it left `main`), and lets Vercel skip the build (shown as canceled) when nothing that matters changed:
+
+- **Production (`main`)** deploys when any file `.vercelignore` uploads changed, the desktop renderer and the lockfile included, so the demo never shows an older app.
+- **A preview** deploys only when the website's own uploaded files (`apps/website`) or the deployment's configuration changed, so a pull request that touches only the desktop gets no preview.
+
+A deployment from the CLI, or one the script cannot judge, always builds. A new file the site needs goes in `.vercelignore`, and then counts.
+
 ```sh
 vercel link --project consola --scope javier-tarazaga-gomezs-projects
 vercel deploy --prod
