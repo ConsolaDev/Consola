@@ -1,5 +1,7 @@
 // What the use cases need from the world outside, each implemented by an adapter.
 
+import type { WorkspaceRole } from '@consola/cloud-contract';
+import type { Team } from '../domain/team.js';
 import type { CopyChange } from '../domain/workspaceCopy.js';
 
 export type HealthProbe = {
@@ -73,4 +75,38 @@ export type WorkspaceCopies = {
    * `moved`, with nothing changed. Throws when the database does not answer.
    */
   applyAfter(step: CopyStep): Promise<'applied' | 'moved'>;
+};
+
+/**
+ * A workspace's teams. Every call is scoped by the workspace's id, and a team of another
+ * workspace is one the store does not have (`not-found`). Every call throws when the database
+ * does not answer.
+ */
+export type TeamStore = {
+  /** Whether the cell holds the workspace's copy yet: whether its `workspace.created` is applied. */
+  holdsWorkspace(workspaceId: string): Promise<boolean>;
+  /** The person's role in the workspace as the cell's copy holds it, or null when not a member. */
+  roleInCopy(workspaceId: string, personId: string): Promise<WorkspaceRole | null>;
+  /** The workspace's teams: its first team first, then the others by name, whatever their case. */
+  list(workspaceId: string): Promise<Team[]>;
+  /** Makes a team with no members. `name-taken` when another team has the name, in any case. */
+  create(workspaceId: string, name: string): Promise<Team | 'name-taken'>;
+  rename(
+    workspaceId: string,
+    teamId: string,
+    name: string,
+  ): Promise<Team | 'not-found' | 'name-taken'>;
+  /** Deletes a team and every place in it, unless it is the first team, which stays. */
+  remove(workspaceId: string, teamId: string): Promise<'removed' | 'not-found' | 'first-team'>;
+  /**
+   * Makes the person a member of the team, if they are a member of the workspace in the cell's
+   * copy (`not-a-member` when not). A person already in it stays as they are.
+   */
+  addMember(
+    workspaceId: string,
+    teamId: string,
+    personId: string,
+  ): Promise<Team | 'not-found' | 'not-a-member'>;
+  /** Takes the person out of the team. Someone not in it changes nothing. */
+  removeMember(workspaceId: string, teamId: string, personId: string): Promise<Team | 'not-found'>;
 };

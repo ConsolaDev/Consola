@@ -3,8 +3,10 @@ import { asc } from 'drizzle-orm';
 import { getTableConfig } from 'drizzle-orm/pg-core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { CopyStep } from '../../application/ports.js';
+import { FIRST_TEAM_NAME } from '../../domain/team.js';
 import { type Database, migrateDatabase, openDatabase } from './database.js';
 import { workspaceMembers, workspaces } from './tables.js';
+import { createTeamStore } from './teams.js';
 import { createWorkspaceCopies } from './workspaceCopies.js';
 
 let db: Database;
@@ -175,6 +177,82 @@ describe('the workspace copies', () => {
       'applied',
     );
     expect(await copies.lastApplied('acme')).toBe(2 ** 40 + 1);
+  });
+});
+
+describe("the workspace's teams, kept by the copy", () => {
+  const names = async (workspaceId: string) =>
+    (await createTeamStore(db).list(workspaceId)).map(({ name, first, memberIds }) => ({
+      name,
+      first,
+      memberIds,
+    }));
+
+  it('start with the first team, holding nobody, as the workspace opens', async () => {
+    const copies = createWorkspaceCopies(db);
+    await copies.applyAfter(open('acme'));
+    expect(await names('acme')).toEqual([{ name: FIRST_TEAM_NAME, first: true, memberIds: [] }]);
+  });
+
+  it('take each person who becomes a member into the first team, in the order they joined', async () => {
+    const copies = createWorkspaceCopies(db);
+    await copies.applyAfter(open('acme'));
+    await copies.applyAfter(put('acme', 2, 'person-eli', 'owner'));
+    await copies.applyAfter(put('acme', 3, 'person-dana', 'member'));
+    expect(await names('acme')).toEqual([
+      { name: FIRST_TEAM_NAME, first: true, memberIds: ['person-eli', 'person-dana'] },
+    ]);
+  });
+
+  it('leave a member who changes role in the teams they are in, and only those', async () => {
+    const copies = createWorkspaceCopies(db);
+    const teams = createTeamStore(db);
+    await copies.applyAfter(open('acme'));
+    await copies.applyAfter(put('acme', 2, 'person-dana', 'member'));
+    const [general] = await teams.list('acme');
+    await teams.removeMember('acme', general?.id ?? '', 'person-dana');
+
+    await copies.applyAfter(put('acme', 3, 'person-dana', 'admin'));
+    expect(await names('acme')).toEqual([{ name: FIRST_TEAM_NAME, first: true, memberIds: [] }]);
+  });
+
+  it('take a member who leaves the workspace out of every team', async () => {
+    const copies = createWorkspaceCopies(db);
+    const teams = createTeamStore(db);
+    await copies.applyAfter(open('acme'));
+    await copies.applyAfter(put('acme', 2, 'person-dana', 'owner'));
+    await copies.applyAfter(put('acme', 3, 'person-eli', 'member'));
+    const platform = await teams.create('acme', 'Platform');
+    if (platform === 'name-taken') throw new Error('Platform was taken');
+    await teams.addMember('acme', platform.id, 'person-eli');
+
+    await copies.applyAfter(drop('acme', 4, 'person-eli'));
+    expect(await names('acme')).toEqual([
+      { name: FIRST_TEAM_NAME, first: true, memberIds: ['person-dana'] },
+      { name: 'Platform', first: false, memberIds: [] },
+    ]);
+  });
+
+  it('take someone who joins again back into the first team', async () => {
+    const copies = createWorkspaceCopies(db);
+    await copies.applyAfter(open('acme'));
+    await copies.applyAfter(put('acme', 2, 'person-dana', 'member'));
+    await copies.applyAfter(drop('acme', 3, 'person-dana'));
+    await copies.applyAfter(put('acme', 4, 'person-dana', 'member'));
+    expect(await names('acme')).toEqual([
+      { name: FIRST_TEAM_NAME, first: true, memberIds: ['person-dana'] },
+    ]);
+  });
+
+  it("keep each workspace's teams apart", async () => {
+    const copies = createWorkspaceCopies(db);
+    await copies.applyAfter(open('acme'));
+    await copies.applyAfter(open('sprocket'));
+    await copies.applyAfter(put('sprocket', 2, 'person-dana', 'owner'));
+    expect(await names('acme')).toEqual([{ name: FIRST_TEAM_NAME, first: true, memberIds: [] }]);
+    expect(await names('sprocket')).toEqual([
+      { name: FIRST_TEAM_NAME, first: true, memberIds: ['person-dana'] },
+    ]);
   });
 });
 

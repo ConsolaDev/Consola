@@ -6,7 +6,18 @@
 // checks both.
 
 import type { WorkspaceRole } from '@consola/cloud-contract';
-import { bigint, pgTable, primaryKey, text } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
+import {
+  bigint,
+  boolean,
+  foreignKey,
+  pgTable,
+  primaryKey,
+  text,
+  timestamp,
+  unique,
+  uniqueIndex,
+} from 'drizzle-orm/pg-core';
 
 /**
  * The cell's copy of each workspace in its region, kept from cloud-global's outbox messages: a row
@@ -34,4 +45,58 @@ export const workspaceMembers = pgTable(
     role: text('role').$type<WorkspaceRole>().notNull(),
   },
   (table) => [primaryKey({ columns: [table.workspaceId, table.personId] })],
+);
+
+/**
+ * A workspace's teams (`domain/team.ts`). Names are unique in a workspace whatever their case,
+ * and each workspace has exactly one first team (`is_first`), which the cell makes as it applies
+ * the workspace's `workspace.created` and never deletes. The cell gives a team its id.
+ */
+export const teams = pgTable(
+  'team',
+  {
+    teamId: text('team_id').primaryKey().default(sql`gen_random_uuid()::text`),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.workspaceId),
+    name: text('name').notNull(),
+    isFirst: boolean('is_first').notNull().default(false),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // What a team member's row points at, so a member is always in a team of their workspace.
+    unique('team_workspace_id_team_id_unique').on(table.workspaceId, table.teamId),
+    uniqueIndex('team_name_unique').on(table.workspaceId, sql`lower(${table.name})`),
+    uniqueIndex('team_first_unique').on(table.workspaceId).where(sql`${table.isFirst}`),
+  ],
+);
+
+/**
+ * Who is in each team, by global id. A row points at its workspace's copy of the member, so only
+ * a member of the workspace can be in one of its teams, and a member who leaves the workspace
+ * leaves every team in the same transaction (the copy's row goes, and these go with it). Deleting
+ * a team takes its rows too.
+ */
+export const teamMembers = pgTable(
+  'team_member',
+  {
+    workspaceId: text('workspace_id').notNull(),
+    teamId: text('team_id').notNull(),
+    personId: text('person_id').notNull(),
+    addedAt: timestamp('added_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.teamId, table.personId] }),
+    // Named here, since the names drizzle makes up are past Postgres's 63 characters.
+    foreignKey({
+      name: 'team_member_team_fk',
+      columns: [table.workspaceId, table.teamId],
+      foreignColumns: [teams.workspaceId, teams.teamId],
+    }).onDelete('cascade'),
+    foreignKey({
+      name: 'team_member_workspace_member_fk',
+      columns: [table.workspaceId, table.personId],
+      foreignColumns: [workspaceMembers.workspaceId, workspaceMembers.personId],
+    }).onDelete('cascade'),
+  ],
 );

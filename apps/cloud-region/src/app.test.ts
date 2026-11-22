@@ -40,11 +40,22 @@ import {
   type MockInstance,
   vi,
 } from 'vitest';
+import type { ZodType } from 'zod';
 import type { CellEnv } from './adapters/http/caller.js';
+import {
+  deleteTeam,
+  deleteTeamMember,
+  listTeams,
+  patchTeam,
+  postTeam,
+  putTeamMember,
+  type ROUTES,
+} from './adapters/http/contract.js';
 import { type Database, migrateDatabase, openDatabase } from './adapters/persistence/database.js';
 import { workspaceMembers, workspaces } from './adapters/persistence/tables.js';
 import { composeCell } from './compose.js';
 import { type CellConfig, loadConfig } from './config.js';
+import { FIRST_TEAM_NAME } from './domain/team.js';
 
 const config: CellConfig = {
   databaseUrl: 'pglite:memory',
@@ -117,7 +128,8 @@ const base64url = (value: unknown) => Buffer.from(JSON.stringify(value)).toStrin
 
 const bearer = (token: string) => ({ authorization: `Bearer ${token}` });
 
-let app: Hono;
+type CellApp = ReturnType<typeof composeCell>['app'];
+let app: CellApp;
 let db: Database;
 let closeDatabase: () => Promise<void>;
 
@@ -449,8 +461,12 @@ const OPEN_ROUTES: Record<string, number> = {
 describe('every route', () => {
   it('but the open ones refuses a request without a token', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
-    // Every route Hono holds but the check itself, which it lists as `ALL /*`.
-    const routes = app.routes.filter((route) => !(route.method === 'ALL' && route.path === '/*'));
+    // Every route Hono holds but the check itself, which it lists as `ALL /*`: each once, though
+    // Hono lists a route once per handler in its chain (its middleware and validators too).
+    const listed = app.routes.filter((route) => !(route.method === 'ALL' && route.path === '/*'));
+    const routes = [
+      ...new Map(listed.map((route) => [`${route.method} ${route.path}`, route])).values(),
+    ];
     expect(routes.length).toBeGreaterThan(2);
     for (const { method, path } of routes) {
       const response = await app.request(path.replace(/:[^/]+/g, 'x'), {
@@ -558,7 +574,7 @@ function signDelivery(
 /** POSTs `body` to the outbox route of `cell` (this test's cell unless given), as cloud-global does. */
 function postDelivery(
   body: string,
-  options: { contentType?: string | null; cell?: Hono; headers?: Record<string, string> } = {},
+  options: { contentType?: string | null; cell?: CellApp; headers?: Record<string, string> } = {},
 ) {
   const { contentType = OUTBOX_DELIVERY_MEDIA_TYPE, cell = app } = options;
   const headers: Record<string, string> = { ...options.headers };
@@ -848,6 +864,267 @@ describe('the outbox and the keys', () => {
       await cell.close();
     }
     await failing.close();
+  });
+});
+
+type ContractRoute = (typeof ROUTES)[number];
+type DeclaredAnswer = { content?: Record<string, { schema: ZodType }> };
+
+/**
+ * The body of `response`, read with the schema `route` declares for its status: a status the
+ * contract does not name, or a body with a field its strict schema does not, fails the test.
+ */
+async function answerOf(route: ContractRoute, response: Response): Promise<unknown> {
+  const declared = (route.responses as Record<number, DeclaredAnswer>)[response.status];
+  expect(declared, `${route.method} ${route.path} declares ${response.status}`).toBeDefined();
+  const schema = declared?.content?.['application/json']?.schema;
+  if (!schema) {
+    expect(await response.text()).toBe('');
+    return undefined;
+  }
+  return schema.parse(await response.json());
+}
+
+/** Asks `route` at `path` with a token for `who`, and reads its answer by the contract. */
+async function ask(
+  route: ContractRoute,
+  path: string,
+  who: Partial<CellTokenGrant>,
+  init: { body?: unknown; headers?: Record<string, string> } = {},
+) {
+  const headers: Record<string, string> = { ...bearer(await mint(who)), ...init.headers };
+  let body: string | undefined;
+  if (init.body !== undefined) {
+    body = typeof init.body === 'string' ? init.body : JSON.stringify(init.body);
+    headers['content-type'] ??= 'application/json';
+  }
+  const response = await app.request(path, { method: route.method.toUpperCase(), headers, body });
+  return { status: response.status, body: await answerOf(route, response) };
+}
+
+const owner = { personId: 'person-dana', role: 'owner' } as const;
+const admin = { personId: 'person-eli', role: 'admin' } as const;
+const member = { personId: 'person-fay', role: 'member' } as const;
+
+/** Acme, delivered by the outbox as cloud-global would: Dana owns it, Eli admins it, Fay joined. */
+async function acmeWithMembers() {
+  for (const message of [
+    created(),
+    added(2, owner.personId, owner.role),
+    added(3, admin.personId, admin.role),
+    added(4, member.personId, member.role),
+  ]) {
+    expect((await deliver(message)).status).toBe(200);
+  }
+}
+
+type TeamBody = { id: string; name: string; first: boolean; memberIds: string[] };
+
+async function teamsSeenBy(who: Partial<CellTokenGrant>) {
+  const answer = await ask(listTeams, '/api/teams', who);
+  expect(answer.status).toBe(200);
+  return answer.body as { teams: TeamBody[]; canManage: boolean };
+}
+
+async function makeTeam(name: string) {
+  const answer = await ask(postTeam, '/api/teams', owner, { body: { name } });
+  expect(answer.status).toBe(201);
+  return answer.body as TeamBody;
+}
+
+describe('teams', () => {
+  beforeEach(() => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  it('start as one, the first team, which everyone who joins the workspace is in', async () => {
+    await acmeWithMembers();
+    expect(await teamsSeenBy(owner)).toEqual({
+      teams: [
+        {
+          id: expect.any(String),
+          name: FIRST_TEAM_NAME,
+          first: true,
+          memberIds: [owner.personId, admin.personId, member.personId],
+        },
+      ],
+      canManage: true,
+    });
+  });
+
+  it('are pending while the cell does not hold the workspace', async () => {
+    const answer = await ask(listTeams, '/api/teams', owner);
+    expect(answer).toEqual({ status: 409, body: { error: 'workspace_pending' } });
+  });
+
+  it('are made, renamed and deleted by owners and admins', async () => {
+    await acmeWithMembers();
+    const platform = await makeTeam('Platform');
+    expect(platform).toEqual({
+      id: expect.any(String),
+      name: 'Platform',
+      first: false,
+      memberIds: [],
+    });
+
+    const renamed = await ask(patchTeam, `/api/teams/${platform.id}`, admin, {
+      body: { name: 'Apps' },
+    });
+    expect(renamed).toEqual({ status: 200, body: { ...platform, name: 'Apps' } });
+
+    expect(await ask(deleteTeam, `/api/teams/${platform.id}`, admin)).toEqual({
+      status: 204,
+      body: undefined,
+    });
+    expect((await teamsSeenBy(owner)).teams.map((team) => team.name)).toEqual([FIRST_TEAM_NAME]);
+  });
+
+  it('keep their names unique in the workspace, whatever their case', async () => {
+    await acmeWithMembers();
+    const platform = await makeTeam('Platform');
+    await makeTeam('Apps');
+    expect(await ask(postTeam, '/api/teams', owner, { body: { name: 'PLATFORM' } })).toEqual({
+      status: 409,
+      body: { error: 'name_taken' },
+    });
+    expect(
+      await ask(patchTeam, `/api/teams/${platform.id}`, owner, { body: { name: 'apps' } }),
+    ).toEqual({ status: 409, body: { error: 'name_taken' } });
+  });
+
+  it('keep the first team: it can be renamed, never deleted', async () => {
+    await acmeWithMembers();
+    const [first] = (await teamsSeenBy(owner)).teams;
+    const path = `/api/teams/${first?.id}`;
+    expect(await ask(deleteTeam, path, owner)).toEqual({
+      status: 409,
+      body: { error: 'first_team' },
+    });
+    expect((await ask(patchTeam, path, owner, { body: { name: 'Everyone' } })).body).toMatchObject({
+      name: 'Everyone',
+      first: true,
+    });
+  });
+
+  it('name every problem with a name, and refuse a body that is not one', async () => {
+    await acmeWithMembers();
+    expect(await ask(postTeam, '/api/teams', owner, { body: { name: '  ' } })).toEqual({
+      status: 400,
+      body: { error: 'invalid_team', problems: ['name_missing'] },
+    });
+    expect(
+      await ask(postTeam, '/api/teams', owner, { body: { name: `${'a'.repeat(65)}\n` } }),
+    ).toEqual({ status: 400, body: { error: 'invalid_team', problems: ['name_too_long'] } });
+    for (const body of [{}, { name: 7 }, [], 'not json']) {
+      expect(await ask(postTeam, '/api/teams', owner, { body })).toEqual({
+        status: 400,
+        body: { error: 'invalid_request' },
+      });
+    }
+    expect(
+      await ask(postTeam, '/api/teams', owner, {
+        body: JSON.stringify({ name: 'Platform' }),
+        headers: { 'content-type': 'text/plain' },
+      }),
+    ).toEqual({ status: 415, body: { error: 'unsupported_media_type' } });
+  });
+
+  it('show a member only the teams they are in, with no way to change them', async () => {
+    await acmeWithMembers();
+    const platform = await makeTeam('Platform');
+    const seen = await teamsSeenBy(member);
+    expect(seen.canManage).toBe(false);
+    expect(seen.teams.map((team) => team.name)).toEqual([FIRST_TEAM_NAME]);
+
+    const refused = { status: 403, body: { error: 'not_allowed' } };
+    const path = `/api/teams/${platform.id}`;
+    expect(await ask(postTeam, '/api/teams', member, { body: { name: 'Mine' } })).toEqual(refused);
+    expect(await ask(patchTeam, path, member, { body: { name: 'Mine' } })).toEqual(refused);
+    expect(await ask(deleteTeam, path, member)).toEqual(refused);
+    expect(await ask(putTeamMember, `${path}/members/${member.personId}`, member)).toEqual(refused);
+    expect(await ask(deleteTeamMember, `${path}/members/${owner.personId}`, member)).toEqual(
+      refused,
+    );
+  });
+
+  it('refuse an admin demoted since their token was minted, as soon as the outbox says so', async () => {
+    await acmeWithMembers();
+    expect((await ask(postTeam, '/api/teams', admin, { body: { name: 'Apps' } })).status).toBe(201);
+    const demoted = outboxMessage(5, {
+      type: 'member.role-changed',
+      personId: admin.personId,
+      role: 'member',
+    });
+    expect((await deliver(demoted)).status).toBe(200);
+    // The same token, still in date, still saying admin.
+    expect(await ask(postTeam, '/api/teams', admin, { body: { name: 'Design' } })).toEqual({
+      status: 403,
+      body: { error: 'not_allowed' },
+    });
+    expect((await teamsSeenBy(admin)).canManage).toBe(false);
+  });
+
+  it("take only the workspace's members, and let them go", async () => {
+    await acmeWithMembers();
+    const platform = await makeTeam('Platform');
+    const members = `/api/teams/${platform.id}/members`;
+
+    expect(await ask(putTeamMember, `${members}/person-gus`, owner)).toEqual({
+      status: 409,
+      body: { error: 'not_a_workspace_member' },
+    });
+    expect(await ask(putTeamMember, `${members}/${member.personId}`, owner)).toEqual({
+      status: 200,
+      body: { ...platform, memberIds: [member.personId] },
+    });
+    // Twice changes nothing.
+    expect((await ask(putTeamMember, `${members}/${member.personId}`, owner)).body).toEqual({
+      ...platform,
+      memberIds: [member.personId],
+    });
+    expect(await ask(deleteTeamMember, `${members}/${member.personId}`, owner)).toEqual({
+      status: 200,
+      body: platform,
+    });
+  });
+
+  it('lose a member who leaves the workspace, from every team, as the outbox says so', async () => {
+    await acmeWithMembers();
+    const platform = await makeTeam('Platform');
+    await ask(putTeamMember, `/api/teams/${platform.id}/members/${member.personId}`, owner);
+
+    const removed = outboxMessage(5, { type: 'member.removed', personId: member.personId });
+    expect((await deliver(removed)).status).toBe(200);
+    expect((await teamsSeenBy(owner)).teams.map((team) => team.memberIds)).toEqual([
+      [owner.personId, admin.personId],
+      [],
+    ]);
+  });
+
+  it("of another workspace are none of the caller's: not found, never changed", async () => {
+    await acmeWithMembers();
+    const platform = await makeTeam('Platform');
+    // Sprocket, where Dana is an owner too.
+    for (const message of [
+      created({ workspaceId: 'sprocket' }),
+      outboxMessage(2, { type: 'member.added', ...owner }, { workspaceId: 'sprocket' }),
+    ]) {
+      expect((await deliver(message)).status).toBe(200);
+    }
+    const stranger = { ...owner, workspaceId: 'sprocket' };
+    const path = `/api/teams/${platform.id}`;
+    const notFound = { status: 404, body: { error: 'team_not_found' } };
+
+    expect(await ask(patchTeam, path, stranger, { body: { name: 'Mine' } })).toEqual(notFound);
+    expect(await ask(deleteTeam, path, stranger)).toEqual(notFound);
+    expect(await ask(putTeamMember, `${path}/members/${owner.personId}`, stranger)).toEqual(
+      notFound,
+    );
+    expect((await teamsSeenBy(stranger)).teams.map((team) => team.name)).toEqual([FIRST_TEAM_NAME]);
+    expect((await teamsSeenBy(owner)).teams.map((team) => team.name)).toEqual([
+      FIRST_TEAM_NAME,
+      'Platform',
+    ]);
   });
 });
 

@@ -7,9 +7,10 @@ cloud sessions need. Accounts are not here: they are global, in
 `apps/cloud-global`, and the cell refers to a person by their global id.
 
 Today the cell keeps a copy of each workspace in its region and its members
-(ids and roles only), from `cloud-global`'s outbox. It answers a health route
-to anyone, takes the outbox's signed deliveries, and answers everything else
-only with a cell token `cloud-global` minted.
+(ids and roles only), from `cloud-global`'s outbox, and the workspace's teams.
+It answers a health route to anyone, takes the outbox's signed deliveries, and
+answers everything else only with a cell token `cloud-global` minted. Every
+route is in `openapi.json`, generated from the routes themselves.
 
 ## Run
 
@@ -67,6 +68,27 @@ messages once, in order:
 | 503 | the keys or the database cannot be had |
 
 What the cell keeps is in the `workspace` and `workspace_member` tables.
+
+## Teams
+
+Every workspace starts with one team, **General**, made as the cell applies
+the workspace's creation; everyone who joins the workspace joins it, and
+someone who leaves the workspace leaves every team. Owners and admins manage
+teams; a member sees the teams they are in. All of these take a cell token for
+the workspace, and act on that workspace alone:
+
+| Route | Does |
+| --- | --- |
+| `GET /api/teams` | the teams the caller sees, and whether they may manage them (`canManage`) |
+| `POST /api/teams` `{"name"}` | make a team, with nobody in it |
+| `PATCH /api/teams/{teamId}` `{"name"}` | rename one, General included |
+| `DELETE /api/teams/{teamId}` | delete one; General is never deleted (409) |
+| `PUT /api/teams/{teamId}/members/{personId}` | add a member of the workspace, by global id |
+| `DELETE /api/teams/{teamId}/members/{personId}` | take a person out |
+
+Names are unique in a workspace whatever their case. Until `cloud-global`'s
+outbox has delivered the workspace's creation, every one of them is 409
+`workspace_pending`. The tables are `team` and `team_member`.
 
 By default the data is PGlite (Postgres in-process) in
 `apps/cloud-region/.data/cell-eu-db`. Deleting that folder resets it.
