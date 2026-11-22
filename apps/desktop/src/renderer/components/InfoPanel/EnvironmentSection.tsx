@@ -14,10 +14,11 @@ import {
 import { useComputerName } from '../../infoPanel/useComputerName';
 import type { TabFacts } from '../../sidePanel/tabKinds';
 import {
+  launchSignature,
   readCapabilities,
   useHarnessCapabilitiesStore,
 } from '../../stores/harnessCapabilitiesStore';
-import { useHarnessStore } from '../../stores/harnessStore';
+import { toLaunchFields, useHarnessStore } from '../../stores/harnessStore';
 import { tildePath } from '../../utils/displayPath';
 import { basename } from '../../utils/fileUtils';
 import { HarnessIcon } from '../HarnessIcon';
@@ -76,17 +77,22 @@ function HarnessRow({ session }: { session: Session }) {
   const healthAccount = useHarnessStore((state) =>
     harness ? state.statuses[harness.id]?.account : undefined,
   );
-  const capabilities = useHarnessCapabilitiesStore((state) =>
-    harness ? readCapabilities(state.get(harness.id)) : undefined,
+  const entry = useHarnessCapabilitiesStore((state) =>
+    harness ? state.get(harness.id) : undefined,
   );
+  const capabilities = entry && readCapabilities(entry);
   const driver = getDriverDescriptor(harness?.driverId);
   const line = harnessLine({
     driverLabel: driver.label,
     harnessName: harness?.name,
-    capabilityAccount: capabilities?.account,
+    signature: harness && launchSignature(toLaunchFields(harness)),
+    answer: capabilities && {
+      signature: entry?.signature,
+      account: capabilities.account,
+      models: capabilities.models,
+    },
     healthAccount,
     model: session.model,
-    models: capabilities?.models,
   });
   const title = [
     line.label,
