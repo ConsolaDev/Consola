@@ -10,7 +10,7 @@ function initials(name: string): string {
 }
 
 export function ProfileCard({ me }: { me: Me }) {
-  const { user, organization, role } = me;
+  const { user, workspace } = me;
   return (
     <section className="card profile">
       {user.image ? (
@@ -23,7 +23,9 @@ export function ProfileCard({ me }: { me: Me }) {
       <h1 className="heading">{user.name}</h1>
       <p className="muted">{user.email}</p>
       <p>
-        {role === 'owner' ? 'Owner' : 'Member'} of {organization.name}
+        {workspace
+          ? `${workspace.role === 'owner' ? 'Owner' : 'Member'} of ${workspace.name}`
+          : 'You’re not in a workspace yet.'}
       </p>
     </section>
   );
