@@ -19,11 +19,14 @@ The app is built in layers, and imports point inward only.
   failed switch and the create form's hints; where the running source is
   (`source.ts`); and how the address names a dashboard section
   (`sections.ts`: `sectionIdOfHash`, `hashOfSection`, `chooseSection`). It is
-  plain TypeScript, with no package and no browser I/O.
+  plain TypeScript, with no package and no browser I/O. `apiContract.ts`
+  holds the API's types, generated from `apps/cloud-global/openapi.json`
+  (see "The API's contract").
 - `src/services/` is everything that talks to something outside the page: the
   API (`api.ts`: `loadMe`, `loadWorkspaces`, `createWorkspace`,
-  `switchWorkspace`), Better Auth's client (`authClient.ts`:
-  `signInWithGoogle`, `signOut`) and the address bar (`signInRedirect.ts`:
+  `switchWorkspace`, through `createApi`, an `openapi-fetch` client typed by
+  the contract), Better Auth's client (`authClient.ts`: `signInWithGoogle`,
+  `signOut`) and the address bar (`signInRedirect.ts`:
   `takeSignInErrorCode`; `address.ts`: `currentSectionId`, `openSection`,
   `onSectionChange`). A service answers in domain types and sentences, never
   in a library's own.
@@ -71,6 +74,30 @@ the name (`props.location`, `{ location: '/' }`). A file that sits in no layer
 fails it too. The rules are data at its top (`LAYERS`), so a new layer or
 folder is added there first.
 
+## The API's contract
+
+`src/domain/apiContract.ts` is `cloud-global`'s API as types, generated from
+its `openapi.json`, which the app reads as a file and never imports
+(`pnpm --filter @consola/cloud-web api:generate`; `apiContract.test.ts` fails
+while it is stale). It is types only, with no import and no I/O, so it sits in
+`domain`; Biome leaves it alone, since it is compared byte for byte.
+
+- **A type the API answers in comes from the contract**, never written by
+  hand: `Me`, `MyWorkspace`. Services call the API through `createApi`, so a
+  path, a body or a status the API does not have fails the typecheck.
+- **The page's own copies are checked against it.** `REGIONS`, the problems
+  and `ROLE_NAMES` must hold exactly what the contract does
+  (`workspace.test.ts`'s type checks, `satisfies`): a region, a role or a
+  problem the API gains fails the typecheck until the page names it.
+- **The types do not check what arrives.** An answer from something that is
+  not the API (a proxy's error page) or from a newer API is still read
+  defensively, so a service keeps its checks of the status and the body's
+  shape.
+
+CI checks this app with every change to `cloud-global`
+(`.github/scripts/ci-scope.mjs`), since the package graph cannot see a file
+read across apps.
+
 ## Workspaces
 
 The API is `cloud-global`'s (its `AGENTS.md`, "Workspaces"), and it is the
@@ -78,7 +105,8 @@ authority on every rule. The web app imports no package, so `workspace.ts`
 keeps its own copy of the name, slug and region rules: to check a request
 before sending it and to suggest a slug. Whatever the server answers is what
 the page shows, so a copy that drifts costs a round trip, never a wrong
-workspace. Keep both in step.
+workspace. Keep both in step: the contract's types catch a region or a
+problem out of step, but not a rule such as a length.
 
 - Only a 401 means signed out. A failed fetch, a status or error code a call
   does not expect, or a body that is not JSON is `unavailable`, so a service
@@ -145,7 +173,8 @@ column (`.main`; the dashboard widens it with `.main.wide`).
 ## Tests
 
 A test sits beside its module and is named after it (`api.ts`, `api.test.ts`).
-They run in Node, so no test touches a DOM: a service takes `fetch` as an
-argument (`loadMe(fetchFn)`), and `signInRedirect.test.ts` stands in for
-`window` just for the test. Screens are checked by running the app
+They run in Node, so no test touches a DOM: a service takes the API's client
+as an argument (`loadMe(createApi({ fetch, baseUrl }))`, with an absolute
+`baseUrl`, since Node has no page to resolve `/api` against), and
+`signInRedirect.test.ts` stands in for `window` just for the test. Screens are checked by running the app
 (`pnpm dev:cloud`).

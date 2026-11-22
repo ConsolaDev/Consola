@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createWorkspace, loadMe, loadWorkspaces, switchWorkspace } from './api';
+import { createApi, createWorkspace, loadMe, loadWorkspaces, switchWorkspace } from './api';
 
 const acme = { id: 'w1', name: 'Acme', slug: 'acme', region: 'eu', role: 'owner' };
 const sprocket = { id: 'w2', name: 'Sprocket', slug: 'sprocket', region: 'us', role: 'member' };
@@ -9,21 +9,44 @@ const me = {
   workspace: { ...sprocket, role: 'owner' },
 };
 
-type Call = { url: string; init: RequestInit | undefined };
+/** Where the tests' API is: Node has no page to resolve a relative address against. */
+const ORIGIN = 'http://cloud.test';
 
-/** A `fetch` that answers every call with one status and body, and keeps what it was asked. */
-function reply(status: number, body: unknown): typeof fetch & { calls: Call[] } {
+type Call = {
+  method: string;
+  url: string;
+  credentials: RequestCredentials;
+  contentType: string | null;
+  body: string;
+};
+
+/** The API answering every call with one status and body, keeping what it was asked. */
+function reply(status: number, body: unknown) {
   const calls: Call[] = [];
-  const fetchFn = async (input: RequestInfo | URL, init?: RequestInit) => {
-    calls.push({ url: String(input), init });
-    return new Response(typeof body === 'string' ? body : JSON.stringify(body), { status });
-  };
-  return Object.assign(fetchFn, { calls });
+  const client = createApi({
+    baseUrl: ORIGIN,
+    fetch: async (input) => {
+      const request = input as Request;
+      calls.push({
+        method: request.method,
+        url: request.url,
+        credentials: request.credentials,
+        contentType: request.headers.get('content-type'),
+        body: await request.text(),
+      });
+      return new Response(typeof body === 'string' ? body : JSON.stringify(body), { status });
+    },
+  });
+  return Object.assign(client, { calls });
 }
 
-const rejects: typeof fetch = async () => {
-  throw new TypeError('Failed to fetch');
-};
+/** The API out of reach, as when the network is down. */
+const rejects = createApi({
+  baseUrl: ORIGIN,
+  fetch: async () => {
+    throw new TypeError('Failed to fetch');
+  },
+});
 
 describe('loadMe', () => {
   it('is signed in with the body on 200', async () => {
@@ -49,10 +72,16 @@ describe('loadMe', () => {
 
 describe('loadWorkspaces', () => {
   it('asks for the person’s workspaces with their cookie', async () => {
-    const fetchFn = reply(200, { workspaces: [] });
-    await loadWorkspaces(fetchFn);
-    expect(fetchFn.calls).toEqual([
-      { url: '/api/workspaces', init: { credentials: 'same-origin' } },
+    const api = reply(200, { workspaces: [] });
+    await loadWorkspaces(api);
+    expect(api.calls).toEqual([
+      {
+        method: 'GET',
+        url: `${ORIGIN}/api/workspaces`,
+        credentials: 'same-origin',
+        contentType: null,
+        body: '',
+      },
     ]);
   });
 
@@ -74,7 +103,7 @@ describe('loadWorkspaces', () => {
   });
 
   it('is unavailable on another status, a network failure, or a body it cannot read', async () => {
-    for (const fetchFn of [
+    for (const api of [
       reply(500, { error: 'boom' }),
       reply(404, {}),
       rejects,
@@ -82,7 +111,7 @@ describe('loadWorkspaces', () => {
       reply(200, { workspaces: 'none' }),
       reply(200, [acme]),
     ]) {
-      expect(await loadWorkspaces(fetchFn)).toEqual({ kind: 'unavailable' });
+      expect(await loadWorkspaces(api)).toEqual({ kind: 'unavailable' });
     }
   });
 });
@@ -91,17 +120,15 @@ describe('createWorkspace', () => {
   const asked = { name: 'Acme', slug: 'acme', region: 'eu' } as const;
 
   it('posts the workspace as JSON with the person’s cookie', async () => {
-    const fetchFn = reply(201, acme);
-    await createWorkspace(asked, fetchFn);
-    expect(fetchFn.calls).toEqual([
+    const api = reply(201, acme);
+    await createWorkspace(asked, api);
+    expect(api.calls).toEqual([
       {
-        url: '/api/workspaces',
-        init: {
-          method: 'POST',
-          credentials: 'same-origin',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(asked),
-        },
+        method: 'POST',
+        url: `${ORIGIN}/api/workspaces`,
+        credentials: 'same-origin',
+        contentType: 'application/json',
+        body: JSON.stringify(asked),
       },
     ]);
   });
@@ -142,7 +169,7 @@ describe('createWorkspace', () => {
   });
 
   it('is unavailable on any other answer', async () => {
-    for (const fetchFn of [
+    for (const api of [
       reply(403, { error: 'bad_origin' }),
       reply(500, { error: 'boom' }),
       reply(400, { error: 'something_else' }),
@@ -153,24 +180,22 @@ describe('createWorkspace', () => {
       reply(200, acme),
       rejects,
     ]) {
-      expect(await createWorkspace(asked, fetchFn)).toEqual({ kind: 'unavailable' });
+      expect(await createWorkspace(asked, api)).toEqual({ kind: 'unavailable' });
     }
   });
 });
 
 describe('switchWorkspace', () => {
   it('puts the workspace id as JSON with the person’s cookie', async () => {
-    const fetchFn = reply(200, sprocket);
-    await switchWorkspace('w2', fetchFn);
-    expect(fetchFn.calls).toEqual([
+    const api = reply(200, sprocket);
+    await switchWorkspace('w2', api);
+    expect(api.calls).toEqual([
       {
-        url: '/api/me/workspace',
-        init: {
-          method: 'PUT',
-          credentials: 'same-origin',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ workspaceId: 'w2' }),
-        },
+        method: 'PUT',
+        url: `${ORIGIN}/api/me/workspace`,
+        credentials: 'same-origin',
+        contentType: 'application/json',
+        body: JSON.stringify({ workspaceId: 'w2' }),
       },
     ]);
   });
@@ -195,7 +220,7 @@ describe('switchWorkspace', () => {
   });
 
   it('is unavailable on any other answer', async () => {
-    for (const fetchFn of [
+    for (const api of [
       reply(400, { error: 'invalid_request' }),
       reply(403, { error: 'bad_origin' }),
       reply(404, { error: 'not_found' }),
@@ -204,7 +229,7 @@ describe('switchWorkspace', () => {
       reply(200, '<html>ok</html>'),
       rejects,
     ]) {
-      expect(await switchWorkspace('w2', fetchFn)).toEqual({ kind: 'unavailable' });
+      expect(await switchWorkspace('w2', api)).toEqual({ kind: 'unavailable' });
     }
   });
 });
