@@ -1,15 +1,16 @@
 import { type Membership, type Organization, roleForNewMember } from '../domain/organization.js';
+import { DEPLOYMENT_REGION } from '../domain/region.js';
 import type { MembershipStore, OrganizationStore } from './ports.js';
 
 /**
  * The deployment's one organisation, by slug. A new name renames it in place; a new slug is a
- * new organisation.
+ * new organisation. It is made in `DEPLOYMENT_REGION`, and one that exists keeps its region.
  */
 export function ensureOrganization(
   organizations: OrganizationStore,
   wanted: { name: string; slug: string },
 ): Promise<Organization> {
-  return organizations.ensure(wanted);
+  return organizations.ensure({ ...wanted, region: DEPLOYMENT_REGION });
 }
 
 /**

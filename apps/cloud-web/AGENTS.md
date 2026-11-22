@@ -3,7 +3,7 @@
 This file guides coding agents working in `apps/cloud-web`, Consola Cloud's web
 app. `CLAUDE.md` imports it with `@AGENTS.md`, so Claude Code reads it too. The
 repository's guide is the root `AGENTS.md`, and setup is in
-`apps/cloud-api/README.md`. Paths below are relative to `apps/cloud-web`.
+`apps/cloud-global/README.md`. Paths below are relative to `apps/cloud-web`.
 
 ## The layers
 

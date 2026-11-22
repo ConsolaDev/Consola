@@ -57,7 +57,17 @@ export function createAuth(
       },
     },
     plugins: [
-      organization({ allowUserToCreateOrganization: false, disableOrganizationDeletion: true }),
+      organization({
+        allowUserToCreateOrganization: false,
+        disableOrganizationDeletion: true,
+        // A workspace's region is fixed once set: `input: false` keeps it out of what the
+        // plugin's own routes (organization/update among them) accept.
+        schema: {
+          organization: {
+            additionalFields: { region: { type: 'string', required: true, input: false } },
+          },
+        },
+      }),
       ...extraPlugins,
     ],
     databaseHooks: {

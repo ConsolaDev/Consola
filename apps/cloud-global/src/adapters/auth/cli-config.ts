@@ -1,4 +1,4 @@
-// Read only by the Better Auth schema CLI (`pnpm --filter @consola/cloud-api auth:generate`),
+// Read only by the Better Auth schema CLI (`pnpm --filter @consola/cloud-global auth:generate`),
 // which needs an auth configuration to know which tables to describe. It builds the service's
 // own `createAuth`, so the schema follows what runs. Nothing here runs in the service, and none
 // of these values is real.

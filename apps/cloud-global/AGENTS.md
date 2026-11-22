@@ -1,16 +1,18 @@
 # AGENTS.md
 
-This file guides coding agents working in `apps/cloud-api`, Consola Cloud's
-API. `CLAUDE.md` imports it with `@AGENTS.md`, so Claude Code reads it too. The
-repository's guide is the root `AGENTS.md`, and setup is in `README.md`. Paths
-below are relative to `apps/cloud-api`.
+This file guides coding agents working in `apps/cloud-global`, the global part
+of Consola Cloud's control plane: the API every region shares. `CLAUDE.md`
+imports it with `@AGENTS.md`, so Claude Code reads it too. The repository's
+guide is the root `AGENTS.md`, and setup is in `README.md`. Paths below are
+relative to `apps/cloud-global`.
 
 ## The layers
 
 The service is built in rings, and imports point inward only.
 
 - `src/domain/` holds the rules and the types they speak of: who may join
-  (`mayJoin`), which role a new member gets (`roleForNewMember`), and
+  (`mayJoin`), which role a new member gets (`roleForNewMember`), the regions a
+  workspace can be in (`REGIONS`, `isRegion`, `DEPLOYMENT_REGION`), and
   `Organization`, `Membership` and `Person`. It is plain TypeScript, with no
   package, no `node:` builtin and no I/O.
 - `src/application/` holds the use cases (`ensureOrganization`,
@@ -80,6 +82,50 @@ new layer or folder is added there first.
 5. `compose.ts` builds the adapter and hands it its ports, and nothing else
    does. A new startup step goes there too, beside `prepareOrganization`.
 
+## What is always global
+
+`cloud-global` keeps only what every region has to share. Anything not on this
+list belongs in a regional cell, never here.
+
+- **Accounts** (decided): email, name, sign-ins, sessions and API keys. They
+  are `user`, `account` (the Google account a person signs in with),
+  `session` and `verification` (a sign-in in progress). API keys have no table
+  yet.
+- **Proposed**, after Linear's published list of what it keeps global, and not
+  yet confirmed:
+  - the workspace list: id, name, slug and region (`organization`, with Better
+    Auth's own `logo`, `created_at` and `metadata`);
+  - membership: who is in which workspace, their workspace-level role, and
+    pending invites (`member`, `invitation`);
+  - app installs: which installation belongs to which workspace, the GitHub
+    App's key and the tokens minted from it (no table yet);
+  - webhook intake, with the bodies dropped (no table yet).
+- **Billing** joins the list if decision D6 puts it in the global part.
+
+`src/adapters/persistence/alwaysGlobal.test.ts` pins the list. Its
+`ALWAYS_GLOBAL` names each table on the list and its columns, and the test
+fails on any other table or column, whether the Drizzle schema declares it or
+only a migration makes it. So a new table or column is checked against this
+list first: put it in a cell, or, if it is global, add it here and then to
+`ALWAYS_GLOBAL`. A Better Auth upgrade that adds a column fails the test too,
+on purpose.
+
+## Regions
+
+Every workspace (the `organization` row) has a `region`, one of `REGIONS`
+(`eu`, `us`). It is picked when the workspace is made and nothing changes it
+afterwards:
+
+- `OrganizationStore.ensure` writes it only when it makes the row, and reads
+  back only a listed region;
+- Better Auth's organisation plugin declares it with `input: false`, so none of
+  the plugin's own routes (`organization/update` among them) accepts it;
+- a new route or hook that writes `organization` must leave `region` alone, and
+  `src/app.test.ts` checks that the owner cannot move it.
+
+The deployment's one organisation is in `DEPLOYMENT_REGION` (`eu`), as is every
+organisation made before regions existed: migration `0001` fills them.
+
 ## Tests
 
 A test sits beside its module and is named after it (`membershipStore.ts`,
@@ -93,10 +139,15 @@ wiring that runs.
 ## Generated files
 
 - `src/adapters/persistence/auth-schema.ts` holds Better Auth's tables,
-  written by `pnpm --filter @consola/cloud-api auth:generate` from
+  written by `pnpm --filter @consola/cloud-global auth:generate` from
   `src/adapters/auth/cli-config.ts`. Never edit it by hand. The CLI drops the
   header comment and writes double quotes, so after it, restore the header,
   run Biome, and check that `git diff` shows only the change you meant.
 - `drizzle/` holds the migrations, written by
-  `pnpm --filter @consola/cloud-api db:generate` after the schema changes.
-  They apply when the API starts.
+  `pnpm --filter @consola/cloud-global db:generate` after the schema changes.
+  They apply when the API starts. For a required column on a table that has
+  rows, drizzle-kit writes `ADD COLUMN … NOT NULL`, which fails on those rows:
+  edit the generated SQL to add the column, fill it and then require it, as
+  `0001_organization_region.sql` does, and test it from a database migrated
+  only that far (`database.test.ts`, `migrateUpTo`). `db:generate` should then
+  report no schema changes.

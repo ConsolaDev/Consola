@@ -4,7 +4,7 @@ The control plane's regional part. Each region runs a copy of its own (`eu`,
 `us`), with a database of its own, holding what a workspace in that region has
 that is not global: its content, such as factory files and runs, and what the
 cloud sessions need. Accounts are not here: they are global, in
-`apps/cloud-api`, and the cell refers to a person by their global id.
+`apps/cloud-global`, and the cell refers to a person by their global id.
 
 Today the cell is a scaffold: a health route on an empty database. Nothing
 calls it yet, and it answers anyone who reaches it on `127.0.0.1`. The check of

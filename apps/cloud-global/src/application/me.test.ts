@@ -42,7 +42,7 @@ describe('describeMe', () => {
       kind: 'member',
       me: {
         user: { id: 'dana', name: 'Dana', email: 'dana@sprocket.test', image: null },
-        organization: { id: org.id, name: 'Sprocket', slug: 'sprocket' },
+        organization: { id: org.id, name: 'Sprocket', slug: 'sprocket', region: 'eu' },
         role: 'owner',
       },
     });

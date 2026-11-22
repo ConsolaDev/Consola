@@ -24,6 +24,17 @@ afterEach(async () => {
 
 const sprocket = { name: 'Sprocket', slug: 'sprocket' };
 
+describe('ensureOrganization', () => {
+  it('makes the deployment organisation in eu', async () => {
+    expect(await ensureOrganization(stores.organizations, sprocket)).toEqual({
+      id: expect.any(String),
+      name: 'Sprocket',
+      slug: 'sprocket',
+      region: 'eu',
+    });
+  });
+});
+
 describe('joinOrganization', () => {
   it('the first member is the owner and the next is a member', async () => {
     const org = await ensureOrganization(stores.organizations, sprocket);
