@@ -18,9 +18,11 @@
       "!apps/desktop/tests/fixtures/stub-gh",
       // Hand-minified, and parts of it do not parse.
       "!apps/website/src/styles.css",
-      // The API's contract and the web app's types, generated and compared byte for byte.
+      // The APIs' contracts and the web app's types, generated and compared byte for byte.
       "!apps/cloud-global/openapi.json",
-      "!apps/cloud-web/src/domain/apiContract.ts"
+      "!apps/cloud-region/openapi.json",
+      "!apps/cloud-web/src/domain/apiContract.ts",
+      "!apps/cloud-web/src/domain/cellApiContract.ts"
     ]
   },
   "formatter": {

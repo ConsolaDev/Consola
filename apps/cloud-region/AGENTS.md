@@ -152,27 +152,116 @@ from those messages and nothing else.
   with the message's role (an added member already there takes it, a role
   change for someone not there adds them); `member.removed` deletes the member,
   and for someone not there changes nothing. Each still moves the sequence.
+- **Each change keeps the workspace's teams true to it**, in the same
+  transaction (below, "Teams"): opening a workspace makes its first team, a
+  person who becomes a member joins it, and one who stops being a member leaves
+  every team.
+
+## Teams
+
+A workspace's teams live in its cell, because their names are the company's
+information (decided 2026-11-21: teams own factories; a new workspace starts
+with one team; no team-level roles). Better Auth's teams are not used: they
+would put teams in `cloud-global`'s database. The rules are in
+`domain/team.ts`, the use cases in `application/teams.ts`, the store in
+`adapters/persistence/teams.ts` and the routes in `adapters/http/teams.ts`.
+
+- **Two tables**, each with its `workspace_id`: `team` (`team_id`, which the
+  cell gives it, `name`, `is_first`) and `team_member` (`team_id`,
+  `person_id`, `added_at`). A team member's row points at the workspace's copy
+  of the member (`workspace_member`), so only a member of the workspace can
+  be in one of its teams, and a member who leaves the workspace leaves every
+  team as their copy's row goes. It also points at its team through both ids,
+  so a place is always in a team of its own workspace.
+- **The first team.** Every workspace has exactly one (`team_first_unique`),
+  called `FIRST_TEAM_NAME` until someone renames it. The cell makes it as it
+  applies `workspace.created`, and every person who becomes a member of the
+  workspace joins it: an added member, or a role change for someone the copy
+  did not have. A member whose role changes keeps the teams they are in, so a
+  person taken out of the first team is not put back by a role change. It can
+  be renamed, and its members taken out, but it is never deleted (409
+  `first_team`), so every factory always has a team to belong to. The
+  migration that added teams (`0001_teams`) made a first team, holding every
+  member, for each workspace the cell held already.
+- **Names** are trimmed, 1 to `TEAM_NAME_MAX` characters with no control
+  character (`checkTeamName`, every problem at once as 400 `invalid_team`),
+  and unique in the workspace whatever their case (`team_name_unique`, on
+  `lower(name)`; 409 `name_taken`).
+- **Who may do what**, by the role in the caller's token
+  (`mayManageTeams`): owners and admins make, rename and delete teams and
+  choose their members, and see every team; a member sees only the teams they
+  are in, and is refused any change (403 `not_allowed`). The list says which
+  (`canManage`), so the web app shows controls by the answer, never by the
+  role.
+- **The order of the checks** is the same in every use case: the role, then
+  the name, then whether the cell holds the workspace yet (409
+  `workspace_pending` until `cloud-global` has delivered its
+  `workspace.created`; asking again later helps), then what the store finds.
+  A team id is looked up in the caller's workspace alone, so another
+  workspace's team is 404 `team_not_found`, never changed.
+- **Members** are added by their global id, `PUT
+  /api/teams/{teamId}/members/{personId}`, and only if the cell's copy has
+  them (409 `not_a_workspace_member`); adding someone already in the team, or
+  taking out someone not in it (`DELETE`), changes nothing. The store holds
+  the member's copy row while it writes (`for key share`), so they cannot
+  leave the workspace in between.
+- **A team that owns something** is a later rule: when factories arrive
+  (9.2), deleting a team that owns one needs a rule of its own.
+
+## The API's contract
+
+Every route is declared in `adapters/http/contract.ts` with
+`@hono/zod-openapi`'s `createRoute`, and `ROUTES` lists them. `createApp`
+returns an `OpenAPIHono`, registers each with `app.openapi`, and TypeScript
+checks every answer a handler gives against its route's responses. It is
+built the way `cloud-global`'s contract is
+(`apps/cloud-global/src/adapters/http/contract.ts`), so the two read alike.
+
+- **Answers are strict objects** (`z.strictObject`); request bodies are
+  checked for their shape only (`z.object`), never for the domain's rules.
+  The HTTP suite reads every teams answer with the schema its route declares
+  for its status (`answerOf`), so an undeclared status or a field the
+  contract does not name fails a test.
+- **The token check's answers** (401 `token_required`/`invalid_token`, 421
+  `wrong_region`, 503 `token_check_unavailable`) are declared once
+  (`tokenFailures`) and spread into every route behind the check.
+- **A body** of the wrong shape is 400 `invalid_request` (`defaultHook`); one
+  that is not JSON is 400 too, and one without a JSON content type 415
+  `unsupported_media_type` (`onError`, since the validator throws before any
+  hook). A body is checked after the token.
+- **The outbox's body** is declared as `OUTBOX_DELIVERY_MEDIA_TYPE`, which the
+  library neither validates nor gates, so the route keeps its own checks of
+  the media type and size.
+- **`openapi.json`**, at the app's root, is generated from the routes by
+  `adapters/http/openapi.test.ts` (`pnpm --filter @consola/cloud-region
+  openapi:generate`), which fails while it is stale. The same test checks
+  that the contract describes every route the app serves, and only those, and
+  that no named schema may be null (a use that may be null is
+  `z.union([Named, z.null()])`, never `.nullable()`). The web app generates
+  its client for the cell from this file, and Biome leaves it alone.
 
 ## The layers
 
 The service is built in rings, and imports point inward only.
 
 - `src/domain/` holds the rules and the types they speak of, such as the
-  regions (`region.ts`, which takes them from the contract) and the order a
-  workspace's copy applies its messages in (`workspaceCopy.ts`). It is plain
-  TypeScript, with no I/O, and no package but the contract (below).
+  regions (`region.ts`, which takes them from the contract), the order a
+  workspace's copy applies its messages in (`workspaceCopy.ts`) and teams
+  (`team.ts`). It is plain TypeScript, with no I/O, and no package but the
+  contract (below).
 - `src/application/` holds the use cases (`checkHealth`, `authenticate`,
-  `describeMe`, `receiveDelivery`) and, in `ports.ts`, the stores, probes,
-  the `TokenVerifier`, the `DeliveryVerifier`, the `WorkspaceCopies` and the
-  `Clock` they need. A use case is a plain function that takes its ports
-  first.
+  `describeMe`, `receiveDelivery`, and the teams' in `teams.ts`) and, in
+  `ports.ts`, the stores, probes, the `TokenVerifier`, the
+  `DeliveryVerifier`, the `WorkspaceCopies`, the `TeamStore` and the `Clock`
+  they need. A use case is a plain function that takes its ports first.
 - `src/adapters/` implements the ports with a library, one folder each:
   - `persistence/` is Drizzle on PGlite or Postgres: the database
     (`database.ts`), the tables (`tables.ts`, re-exported as `schema` by
     `schema.ts`), and one store per port, which `stores.ts` builds together;
-  - `http/` is the Hono routes (`app.ts`), the token check in front of them
-    (`caller.ts`) and the outbox's route (`outbox.ts`). Each route asks a use
-    case and maps its answer to a status and a body;
+  - `http/` is the contract (`contract.ts`), the Hono routes (`app.ts`), the
+    token check in front of them (`caller.ts`), the outbox's route
+    (`outbox.ts`) and the teams' (`teams.ts`). Each route asks a use case and
+    maps its answer to a status and a body;
   - `token/` is jose: the `TokenVerifier` and where its keys come from
     (`cellTokens.ts`), and the `DeliveryVerifier`, on the same keys
     (`outboxDeliveries.ts`);
@@ -240,9 +329,12 @@ copy of a workspace's members is `workspace_member`, ids and a role, never
 3. An adapter implements the port. For the database, that is a table in
    `tables.ts` (with its `workspace_id`) and a store in `adapters/persistence`,
    added to `createDrizzleStores`.
-4. A route in `adapters/http` calls the use case. It is registered after
-   `requireCaller` in `createApp` (or on a `Hono<CellEnv>` mounted there), and
-   hands the use case `c.var.caller`, never a workspace id from the request.
+4. A route is declared in `adapters/http/contract.ts` (and listed in
+   `ROUTES`), and a handler in `adapters/http` calls the use case. It is
+   registered with `app.openapi` after `requireCaller` in `createApp` (or by a
+   function handed the app there, as `teamRoutes` is), and hands the use case
+   `c.var.caller`, never a workspace id from the request. Then
+   `openapi:generate` rewrites `openapi.json`.
 5. `compose.ts` builds the adapter and hands it its ports, and nothing else
    does. A startup step goes there too.
 
@@ -273,4 +365,10 @@ transaction at a time, so the compare-and-set is also tested directly
 `drizzle/` holds the migrations, written by
 `pnpm --filter @consola/cloud-region db:generate --name <what>` after
 `tables.ts` changes. They apply when the cell starts. The first is
-`0000_workspace_copy`.
+`0000_workspace_copy`; `0001_teams` ends with two statements written by hand,
+which give the workspaces already held their first team
+(`migrations.test.ts` runs it over a database migrated to `0000` only).
+Postgres cuts a name at 63 characters, and drizzle's names for a composite
+foreign key run past that, so such a key is named in `tables.ts`.
+
+`openapi.json` is generated too (above, "The API's contract").

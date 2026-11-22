@@ -1,16 +1,17 @@
 import {
   OUTBOX_ANSWER,
   OUTBOX_DELIVERY_MEDIA_TYPE,
-  OUTBOX_DELIVERY_PATH,
   type OutboxMessage,
   type OutOfOrderAnswer,
 } from '@consola/cloud-contract';
-import { type Context, Hono } from 'hono';
+import { OpenAPIHono } from '@hono/zod-openapi';
+import type { Context } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { createMiddleware } from 'hono/factory';
 import type { DeliveryVerifier, WorkspaceCopies } from '../../application/ports.js';
 import { type DeliveryAnswer, receiveDelivery } from '../../application/receiveDelivery.js';
 import type { Region } from '../../domain/region.js';
+import { postOutboxDelivery } from './contract.js';
 
 /**
  * The most a delivery's body may hold. A message is ids, a role and a sequence, so its JWS is well
@@ -46,47 +47,25 @@ function lineFor(answer: DeliveryAnswer, region: Region): string | null {
   }
 }
 
-/** The status and body that answer a delivery, as `OUTBOX_ANSWER` has them. */
-function respond(c: Context, answer: DeliveryAnswer, region: Region): Response {
-  switch (answer.kind) {
-    case 'applied':
-      return c.json({ applied: true }, OUTBOX_ANSWER.applied);
-    case 'unsigned':
-      return c.json({ error: 'unsigned' }, OUTBOX_ANSWER.unsigned);
-    case 'unreadable':
-      return c.json({ error: 'unreadable' }, OUTBOX_ANSWER.unreadable);
-    case 'other-region':
-      // The region is this cell's, which its health route says anyway.
-      return c.json({ error: 'otherRegion', region }, OUTBOX_ANSWER.otherRegion);
-    case 'out-of-order': {
-      // Exactly what the contract's reader takes: no other field.
-      const body: OutOfOrderAnswer = { nextSequence: answer.nextSequence };
-      return c.json(body, OUTBOX_ANSWER.outOfOrder);
-    }
-    case 'keys-unavailable':
-    case 'database-unavailable':
-      return c.json({ error: 'unavailable' }, OUTBOX_ANSWER.unavailable);
-  }
-}
-
 /**
- * `POST OUTBOX_DELIVERY_PATH`, where `cloud-global`'s outbox delivers one message a request. It
- * takes no cell token: a delivery is no person's request, and its signature, checked with the
- * cell token's key, is what says it is `cloud-global`'s. So `createApp` mounts it before
- * `requireCaller`, and only this method and path: any other request to the path still needs a
- * token.
+ * `POST OUTBOX_DELIVERY_PATH` (`postOutboxDelivery` in the contract), where `cloud-global`'s
+ * outbox delivers one message a request. It takes no cell token: a delivery is no person's
+ * request, and its signature, checked with the cell token's key, is what says it is
+ * `cloud-global`'s. So `createApp` mounts it before `requireCaller`, and only this method and
+ * path: any other request to the path still needs a token.
  *
  * Before the use case checks the signature, the message, its region and its sequence, the route
  * refuses a body not sent as `OUTBOX_DELIVERY_MEDIA_TYPE` and one over `MAX_DELIVERY_BYTES`, each
- * as unreadable, without reading it. Every refusal is logged through `report`, one line, never
- * the body.
+ * as unreadable, without reading it. The contract declares the body as that media type, which the
+ * contract's library neither checks nor gates, so these checks are the route's own. Every refusal
+ * is logged through `report`, one line, never the body.
  */
 export function outboxRoutes(deps: {
   region: Region;
   deliveries: DeliveryVerifier;
   workspaceCopies: WorkspaceCopies;
   report: (line: string) => void;
-}): Hono {
+}): OpenAPIHono {
   const { region, deliveries, workspaceCopies, report } = deps;
   const refuseUnreadable = (c: Context, why: string) => {
     report(`The cell refused an outbox delivery: ${why}.`);
@@ -105,8 +84,8 @@ export function outboxRoutes(deps: {
     onError: (c) => refuseUnreadable(c, `its body is over ${MAX_DELIVERY_BYTES} bytes`),
   });
 
-  const routes = new Hono();
-  routes.post(OUTBOX_DELIVERY_PATH, mediaType, size, async (c) => {
+  const routes = new OpenAPIHono();
+  routes.openapi({ ...postOutboxDelivery, middleware: [mediaType, size] as const }, async (c) => {
     const answer = await receiveDelivery(
       { deliveries, workspaceCopies },
       region,
@@ -114,7 +93,27 @@ export function outboxRoutes(deps: {
     );
     const line = lineFor(answer, region);
     if (line !== null) report(line);
-    return respond(c, answer, region);
+
+    // The status and body of each answer, as `OUTBOX_ANSWER` has them.
+    switch (answer.kind) {
+      case 'applied':
+        return c.json({ applied: true } as const, OUTBOX_ANSWER.applied);
+      case 'unsigned':
+        return c.json({ error: 'unsigned' } as const, OUTBOX_ANSWER.unsigned);
+      case 'unreadable':
+        return c.json({ error: 'unreadable' } as const, OUTBOX_ANSWER.unreadable);
+      case 'other-region':
+        // The region is this cell's, which its health route says anyway.
+        return c.json({ error: 'otherRegion', region } as const, OUTBOX_ANSWER.otherRegion);
+      case 'out-of-order': {
+        // Exactly what the contract's reader takes: no other field.
+        const body: OutOfOrderAnswer = { nextSequence: answer.nextSequence };
+        return c.json(body, OUTBOX_ANSWER.outOfOrder);
+      }
+      case 'keys-unavailable':
+      case 'database-unavailable':
+        return c.json({ error: 'unavailable' } as const, OUTBOX_ANSWER.unavailable);
+    }
   });
   return routes;
 }

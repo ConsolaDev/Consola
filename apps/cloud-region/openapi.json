@@ -1,0 +1,1710 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Consola Cloud regional cell",
+    "version": "0",
+    "description": "What a workspace holds in its region. Every route but the health check and the outbox's deliveries takes a cell token, minted by cloud-global for one workspace (`Authorization: Bearer`), and reads and writes that workspace alone."
+  },
+  "components": {
+    "schemas": {
+      "Caller": {
+        "type": "object",
+        "properties": {
+          "personId": {
+            "type": "string"
+          },
+          "workspaceId": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "owner",
+              "admin",
+              "member"
+            ]
+          },
+          "region": {
+            "type": "string",
+            "enum": [
+              "eu",
+              "us"
+            ]
+          }
+        },
+        "required": [
+          "personId",
+          "workspaceId",
+          "role",
+          "region"
+        ],
+        "additionalProperties": false,
+        "description": "Who is asking, as their checked cell token says."
+      },
+      "TeamList": {
+        "type": "object",
+        "properties": {
+          "teams": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Team"
+            }
+          },
+          "canManage": {
+            "type": "boolean",
+            "description": "Whether the caller may make, rename and delete teams, and choose their members."
+          }
+        },
+        "required": [
+          "teams",
+          "canManage"
+        ],
+        "additionalProperties": false,
+        "description": "The teams the caller sees: every team for owners and admins, the ones they are in for a member."
+      },
+      "Team": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "first": {
+            "type": "boolean",
+            "description": "Whether it is the workspace's first team, which every new member joins and which is never deleted."
+          },
+          "memberIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Its members’ global ids, in the order they joined it."
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "first",
+          "memberIds"
+        ],
+        "additionalProperties": false
+      },
+      "InvalidTeam": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "enum": [
+              "invalid_team"
+            ]
+          },
+          "problems": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "name_missing",
+                "name_too_long",
+                "name_invalid"
+              ]
+            }
+          }
+        },
+        "required": [
+          "error",
+          "problems"
+        ],
+        "additionalProperties": false,
+        "description": "Every problem with the name, at once."
+      },
+      "TeamName": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "description": "A name (trimmed, 1 to 64 characters, no control characters), unique in the workspace whatever its case."
+      }
+    },
+    "parameters": {}
+  },
+  "paths": {
+    "/api/health": {
+      "get": {
+        "summary": "Whether the cell can reach its database, and which region it serves",
+        "description": "Needs no token: it says nothing a workspace holds.",
+        "responses": {
+          "200": {
+            "description": "It can.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "region": {
+                      "type": "string",
+                      "enum": [
+                        "eu",
+                        "us"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "ok",
+                    "region"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "It cannot.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    },
+                    "region": {
+                      "type": "string",
+                      "enum": [
+                        "eu",
+                        "us"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "ok",
+                    "region"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/outbox": {
+      "post": {
+        "summary": "Deliver one of cloud-global's outbox messages",
+        "description": "Only cloud-global calls it. The body is the message, signed as a compact JWS with the cell token’s key (`packages/cloud-contract`, \"Delivering a message\"), so it takes no token.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/jose": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The cell has the message: applied now, or before.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "applied": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    }
+                  },
+                  "required": [
+                    "applied"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Not sent as a signed message, over the size a message can be, or not a message the contract reads.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "unreadable"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed by cloud-global.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "unsigned"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Messages before this one are missing: the sequence of the workspace's message the cell applies next.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "nextSequence": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "nextSequence"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "421": {
+            "description": "A message about a workspace in another region.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "otherRegion"
+                      ]
+                    },
+                    "region": {
+                      "type": "string",
+                      "enum": [
+                        "eu",
+                        "us"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "region"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The cell cannot get cloud-global's keys or its database.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "unavailable"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/me": {
+      "get": {
+        "summary": "Who is asking, as this cell sees them",
+        "responses": {
+          "200": {
+            "description": "The caller.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Caller"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No bearer token (`token_required`), or one the cell does not accept (`invalid_token`): malformed, forged, expired, or signed by a key cloud-global does not publish. A new token is the fix.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "token_required"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "invalid_token"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "421": {
+            "description": "A good token for a workspace in another region: the cell that answered names its own. The workspace's own cell is the fix.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "wrong_region"
+                      ]
+                    },
+                    "region": {
+                      "type": "string",
+                      "enum": [
+                        "eu",
+                        "us"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "region"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The cell cannot get cloud-global's keys just now, so it checks no token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "token_check_unavailable"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/teams": {
+      "get": {
+        "summary": "The caller's workspace's teams, as the caller sees them",
+        "responses": {
+          "200": {
+            "description": "The teams.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No bearer token (`token_required`), or one the cell does not accept (`invalid_token`): malformed, forged, expired, or signed by a key cloud-global does not publish. A new token is the fix.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "token_required"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "invalid_token"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The cell does not hold the workspace yet: cloud-global has not delivered its creation. Asking again later helps.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "workspace_pending"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "421": {
+            "description": "A good token for a workspace in another region: the cell that answered names its own. The workspace's own cell is the fix.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "wrong_region"
+                      ]
+                    },
+                    "region": {
+                      "type": "string",
+                      "enum": [
+                        "eu",
+                        "us"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "region"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The cell cannot get cloud-global's keys just now, so it checks no token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "token_check_unavailable"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Make a team, with nobody in it",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TeamName"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The team made.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Team"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The rules refuse the name, or the body is not what the route takes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/InvalidTeam"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "invalid_request"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No bearer token (`token_required`), or one the cell does not accept (`invalid_token`): malformed, forged, expired, or signed by a key cloud-global does not publish. A new token is the fix.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "token_required"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "invalid_token"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller’s role does not manage teams.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "not_allowed"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Another team of the workspace has the name, in any case (`name_taken`), or the cell does not hold the workspace yet (`workspace_pending`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "name_taken"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "workspace_pending"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "The body is not JSON (`Content-Type: application/json`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "unsupported_media_type"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "421": {
+            "description": "A good token for a workspace in another region: the cell that answered names its own. The workspace's own cell is the fix.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "wrong_region"
+                      ]
+                    },
+                    "region": {
+                      "type": "string",
+                      "enum": [
+                        "eu",
+                        "us"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "region"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The cell cannot get cloud-global's keys just now, so it checks no token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "token_check_unavailable"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/teams/{teamId}": {
+      "patch": {
+        "summary": "Rename a team, the first one included",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "teamId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TeamName"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The team, renamed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Team"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The rules refuse the name, or the body is not what the route takes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/InvalidTeam"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "invalid_request"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No bearer token (`token_required`), or one the cell does not accept (`invalid_token`): malformed, forged, expired, or signed by a key cloud-global does not publish. A new token is the fix.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "token_required"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "invalid_token"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller’s role does not manage teams.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "not_allowed"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The workspace has no team with that id, whether or not another workspace does.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "team_not_found"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Another team of the workspace has the name, in any case, or the cell does not hold the workspace yet.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "name_taken"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "workspace_pending"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "The body is not JSON (`Content-Type: application/json`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "unsupported_media_type"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "421": {
+            "description": "A good token for a workspace in another region: the cell that answered names its own. The workspace's own cell is the fix.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "wrong_region"
+                      ]
+                    },
+                    "region": {
+                      "type": "string",
+                      "enum": [
+                        "eu",
+                        "us"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "region"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The cell cannot get cloud-global's keys just now, so it checks no token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "token_check_unavailable"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete a team, and every place in it",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "teamId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The team is gone."
+          },
+          "401": {
+            "description": "No bearer token (`token_required`), or one the cell does not accept (`invalid_token`): malformed, forged, expired, or signed by a key cloud-global does not publish. A new token is the fix.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "token_required"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "invalid_token"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller’s role does not manage teams.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "not_allowed"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The workspace has no team with that id, whether or not another workspace does.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "team_not_found"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The workspace's first team, which is never deleted (`first_team`), or the cell does not hold the workspace yet.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "first_team"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "workspace_pending"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "421": {
+            "description": "A good token for a workspace in another region: the cell that answered names its own. The workspace's own cell is the fix.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "wrong_region"
+                      ]
+                    },
+                    "region": {
+                      "type": "string",
+                      "enum": [
+                        "eu",
+                        "us"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "region"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The cell cannot get cloud-global's keys just now, so it checks no token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "token_check_unavailable"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/teams/{teamId}/members/{personId}": {
+      "put": {
+        "summary": "Make a member of the workspace a member of a team",
+        "description": "Someone already in the team stays as they are.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "teamId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The person's global id."
+            },
+            "required": true,
+            "description": "The person's global id.",
+            "name": "personId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The team, with the person in it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Team"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No bearer token (`token_required`), or one the cell does not accept (`invalid_token`): malformed, forged, expired, or signed by a key cloud-global does not publish. A new token is the fix.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "token_required"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "invalid_token"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller’s role does not manage teams.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "not_allowed"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The workspace has no team with that id, whether or not another workspace does.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "team_not_found"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The person is not a member of the workspace (`not_a_workspace_member`), or the cell does not hold the workspace yet.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "not_a_workspace_member"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "workspace_pending"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "421": {
+            "description": "A good token for a workspace in another region: the cell that answered names its own. The workspace's own cell is the fix.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "wrong_region"
+                      ]
+                    },
+                    "region": {
+                      "type": "string",
+                      "enum": [
+                        "eu",
+                        "us"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "region"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The cell cannot get cloud-global's keys just now, so it checks no token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "token_check_unavailable"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Take a person out of a team",
+        "description": "Someone not in the team changes nothing.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "teamId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The person's global id."
+            },
+            "required": true,
+            "description": "The person's global id.",
+            "name": "personId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The team, without the person.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Team"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No bearer token (`token_required`), or one the cell does not accept (`invalid_token`): malformed, forged, expired, or signed by a key cloud-global does not publish. A new token is the fix.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "token_required"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "invalid_token"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller’s role does not manage teams.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "not_allowed"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The workspace has no team with that id, whether or not another workspace does.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "team_not_found"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The cell does not hold the workspace yet: cloud-global has not delivered its creation. Asking again later helps.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "workspace_pending"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "421": {
+            "description": "A good token for a workspace in another region: the cell that answered names its own. The workspace's own cell is the fix.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "wrong_region"
+                      ]
+                    },
+                    "region": {
+                      "type": "string",
+                      "enum": [
+                        "eu",
+                        "us"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "region"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The cell cannot get cloud-global's keys just now, so it checks no token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "token_check_unavailable"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "webhooks": {}
+}
