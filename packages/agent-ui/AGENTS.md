@@ -271,6 +271,17 @@ page-global" below. The output must contain no `@cursor/sdk` and no
 reached the browser bundle. `dist/` is large (t3's lazy office, PDF, HEIC and syntax-highlighting
 workers and its translations), loaded only when used.
 
+## The dev page
+
+`pnpm --filter @consola/agent-ui dev` serves `dev/` (`index.html`, `main.tsx`, `DevPage.tsx`) at
+`http://localhost:5176`: `AgentChat` full-window against a host on this machine (`packages/host`'s
+`AGENTS.md`, "Running it with the chat"). The script is `vp dev dev --config vite.config.ts --port
+5176`. `dev` is the dev server's root, and Vite looks for its config file in the root
+(`loadConfigFromFile(…, config.root)`), where it would find none and serve the page without the
+package's config: no Tailwind or CSS scope, no `~/` alias, none of t3's `import.meta.env`
+values, and the device models not withheld. `--config vite.config.ts` names the package's own,
+resolved from the package's folder.
+
 ## Tests
 
 ```bash
