@@ -7,6 +7,16 @@ export interface CreateSandboxOptions {
   readonly template: string;
   /** Variables every command in the sandbox sees. A command's own `env` goes on top. */
   readonly env?: Readonly<Record<string, string>>;
+  /**
+   * How long the sandbox may live, in whole seconds from its start. Once that runs out the
+   * provider stops it, whoever holds it and whatever it runs, unless `keepAlive` renewed it
+   * first. It is a hard maximum: nothing else lengthens it, attaching included. It is also what
+   * stops a sandbox whose runner died, so work that outlives one call sets it and renews it.
+   *
+   * When absent, the provider's own default applies: minutes for some (E2B's is 5), no limit
+   * for others (the fake's).
+   */
+  readonly lifetimeSeconds?: number;
 }
 
 /** A program to run in a sandbox. */

@@ -9,9 +9,11 @@ import {
   createOptionsProblem,
   exitCodeProblem,
   exposedUrlProblem,
+  lifetimeProblem,
   nameProblem,
   pathProblem,
   portProblem,
+  sandboxIdProblem,
   templateProblem,
 } from '../domain/rules';
 import type { Command, CommandResult, CreateSandboxOptions, ExposedPort } from '../domain/sandbox';
@@ -28,10 +30,25 @@ export interface Sandboxes {
    * the two, so a sandbox left running is never silent.
    */
   withSandbox<T>(options: CreateSandboxOptions, use: (sandbox: Sandbox) => Promise<T>): Promise<T>;
+  /**
+   * A handle on a running sandbox, by its id, from this process or another: how a runner that
+   * restarted reaches the sandboxes it started. Its lifetime stays as it was. Rejects with
+   * `not-found` when there is no such sandbox, or it has stopped, and `not-running` when it is
+   * paused (resume it with `pausing`).
+   */
+  attach(sandboxId: string): Promise<Sandbox>;
+  /**
+   * Stops the sandbox with this id, wherever it was started: how a runner that restarted stops
+   * what one that died left running. Stopping one that has stopped, or never was, does nothing.
+   * A handle on it in this process is not told, so where there is one, stop through it.
+   */
+  stop(sandboxId: string): Promise<void>;
   /** Present when the provider can pause and resume sandboxes. */
   readonly pausing?: Pausing;
   /** Present when the provider can save a sandbox as a template. */
   readonly snapshots?: Snapshots;
+  /** Present when the provider can renew a sandbox's lifetime. */
+  readonly keepAlive?: KeepAlive;
 }
 
 /** One running sandbox. Once it has stopped, or is paused, every call but `stop` is refused. */
@@ -70,6 +87,15 @@ export interface Snapshots {
   snapshot(sandbox: Sandbox): Promise<string>;
   /** Removes a template `snapshot` made, so it costs nothing more. Removing one that is gone does nothing. */
   remove(template: string): Promise<void>;
+}
+
+export interface KeepAlive {
+  /**
+   * Gives `sandbox` `lifetimeSeconds` more from now: it stops on its own that long from now
+   * unless renewed again. A runner renews well before that runs out, for as long as it is
+   * alive, so a runner that dies takes its sandboxes with it soon after.
+   */
+  renew(sandbox: Sandbox, lifetimeSeconds: number): Promise<void>;
 }
 
 /**
@@ -111,9 +137,27 @@ export function sandboxesFrom(provider: SandboxProvider): Sandboxes {
 
   const create = async (options: CreateSandboxOptions): Promise<Sandbox> => {
     refuseIf(createOptionsProblem(options));
+    const { template, lifetimeSeconds } = options;
     const env = options.env === undefined ? undefined : { ...options.env };
-    const inner = await fromProvider(() => provider.create({ template: options.template, env }));
+    const inner = await fromProvider(() =>
+      provider.create({ template, env, ...(lifetimeSeconds !== undefined && { lifetimeSeconds }) }),
+    );
     return guard(inner, idProblem(inner));
+  };
+
+  const attach = async (sandboxId: string): Promise<Sandbox> => {
+    refuseIf(sandboxIdProblem('Attaching', sandboxId));
+    const inner = await fromProvider(() => provider.attach(sandboxId));
+    const problem =
+      inner?.id === sandboxId
+        ? null
+        : `Attaching to ${sandboxId} gave back sandbox ${String(inner?.id)}.`;
+    return guard(inner, problem);
+  };
+
+  const stop = async (sandboxId: string): Promise<void> => {
+    refuseIf(sandboxIdProblem('Stopping a sandbox by its id', sandboxId));
+    await fromProvider(() => provider.stop(sandboxId));
   };
 
   async function withSandbox<T>(
@@ -139,11 +183,13 @@ export function sandboxesFrom(provider: SandboxProvider): Sandboxes {
     return result;
   }
 
-  const { pausing, snapshots } = provider;
+  const { pausing, snapshots, keepAlive } = provider;
   return {
     capabilities: SANDBOX_CAPABILITIES.filter((name) => provider[name] !== undefined),
     create,
     withSandbox,
+    attach,
+    stop,
     ...(pausing && {
       pausing: {
         async pause(sandbox) {
@@ -179,6 +225,16 @@ export function sandboxesFrom(provider: SandboxProvider): Sandboxes {
           await fromProvider(() => snapshots.remove(template));
         },
       } satisfies Snapshots,
+    }),
+    ...(keepAlive && {
+      keepAlive: {
+        async renew(sandbox, lifetimeSeconds) {
+          const handle = own(sandbox);
+          refuseIf(lifetimeProblem(lifetimeSeconds));
+          handle.ensureRunning();
+          await fromProvider(() => keepAlive.renew(handle.id, lifetimeSeconds));
+        },
+      } satisfies KeepAlive,
     }),
   };
 }
