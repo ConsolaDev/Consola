@@ -33,6 +33,7 @@ import {
   formatDueAt,
   formatDuration,
   formatTime,
+  waitingForYouRuns,
   yamlTokens,
 } from './presentation';
 
@@ -44,8 +45,8 @@ type NodeState = 'due' | 'waiting' | 'running' | 'queued' | 'passed' | 'preview'
  * one, and what it runs, joined left to right (top to bottom when narrow).
  *
  * The nodes carry what is happening now, and only that: the countdown to
- * the next run, a run waiting at the approval step, one working in the
- * target. How past runs went is the lead's and the run list's to say.
+ * the next run, a run waiting at the approval step, one parked at a gate
+ * (or a loop's exhaustion gate), one working in the target. How past runs went is the lead's and the run list's to say.
  */
 export function PipelineGraph({
   automation,
@@ -66,6 +67,15 @@ export function PipelineGraph({
 }) {
   const step = approvalStep(automation, draft);
   const waiting = runs.find((run) => run.status === 'needs-approval');
+  // A run parked at one of its gates: that gate's node waits for the person (3-A code review M3).
+  const parked = waitingForYouRuns(runs)[0];
+  const parkedAt = parked?.step?.id;
+  const parkedAction = parked && (
+    <button type="button" className="automations-node-action" onClick={() => onOpenRun(parked.id)}>
+      Waiting for you · Review
+      <ArrowRight size={12} aria-hidden="true" />
+    </button>
+  );
   const running = runs.find((run) => run.status === 'running');
   const queued = runs.find((run) => run.status === 'queued');
   const countdown = automation.nextRunAt ? formatCountdown(automation.nextRunAt, now) : null;
@@ -215,7 +225,9 @@ export function PipelineGraph({
     const stepNode = (entry: Described) => (
       <PipelineNode
         key={`step:${entry.id}`}
-        state={pathLit && entry === first ? targetState : undefined}
+        state={
+          entry.id === parkedAt ? 'waiting' : pathLit && entry === first ? targetState : undefined
+        }
         icon={entry.kind === 'agent' ? Bot : entry.kind === 'gate' ? UserCheck : Wrench}
         kicker={entry.kind === 'agent' ? 'Agent step' : entry.kind === 'gate' ? 'Gate' : 'Command'}
         title={entry.kind === 'run' ? <code>{entry.summary}</code> : entry.summary}
@@ -226,13 +238,15 @@ export function PipelineGraph({
         code={entry.id}
         edgeLabel={entry.if}
       >
-        {entry === first && liveAction
-          ? liveAction
-          : entry.kind === 'agent'
-            ? agentStepFoot(entry.servers)
-            : entry.kind === 'gate'
-              ? gateChoicesWords(entry.choices)
-              : commandFoot(entry, automation.mode)}
+        {entry.id === parkedAt
+          ? parkedAction
+          : entry === first && liveAction
+            ? liveAction
+            : entry.kind === 'agent'
+              ? agentStepFoot(entry.servers)
+              : entry.kind === 'gate'
+                ? gateChoicesWords(entry.choices)
+                : commandFoot(entry, automation.mode)}
       </PipelineNode>
     );
     const top = described.filter((entry) => entry.loop === undefined);
@@ -245,6 +259,7 @@ export function PipelineGraph({
         <PipelineNode
           key={`loop:${entry.id}`}
           className="automations-node-loop"
+          state={entry.id === parkedAt ? 'waiting' : undefined}
           icon={Repeat}
           kicker="Loop"
           title={entry.summary}
@@ -259,7 +274,7 @@ export function PipelineGraph({
             </ol>
           }
         >
-          {loopFoot(entry.exhausted)}
+          {entry.id === parkedAt ? parkedAction : loopFoot(entry.exhausted)}
         </PipelineNode>
       );
     });

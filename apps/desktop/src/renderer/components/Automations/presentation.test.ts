@@ -39,6 +39,7 @@ import {
   stepWords,
   waitingForWords,
   waitingForYouRuns,
+  runWaitingForYou,
   mergeRunPages,
   foldDroppedRuns,
   runRowWords,
@@ -1856,6 +1857,20 @@ describe('a parked run in the lists', () => {
       'd',
       'x',
     ]);
+  });
+
+  it("names the run an automation's page asks you about: one awaiting approval, else one at a gate (3-A code review M3)", () => {
+    const parked = run({ id: 'g', status: 'waiting', step: gateStep, createdAt: ago(HOUR) });
+    const asking = run({ id: 'a', status: 'needs-approval', createdAt: ago(2 * HOUR) });
+    const retrying = run({
+      id: 'w',
+      status: 'waiting',
+      step: { ...gateStep, id: 'fix', kind: 'agent', gate: undefined, retryAt: RETRY_AT },
+    });
+    expect(runWaitingForYou([parked, asking, retrying])?.id).toBe('a');
+    expect(runWaitingForYou([retrying, parked])?.id).toBe('g');
+    // A retry's wait asks no one.
+    expect(runWaitingForYou([retrying, run({ status: 'running' })])).toBeUndefined();
   });
 
   it("speaks for a run waiting at a gate on its automation's row before a running one (review S1)", () => {

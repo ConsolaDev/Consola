@@ -274,6 +274,15 @@ export function waitingForYouRuns(runs: readonly RunListEntry[]): RunListEntry[]
     .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
 }
 
+/**
+ * The run an automation's page asks the person about: one waiting for their
+ * approval, else the oldest waiting for them at a gate. A run waiting out a
+ * retry asks no one (3-A code review M3).
+ */
+export function runWaitingForYou(runs: readonly RunListEntry[]): RunListEntry | undefined {
+  return runs.find((run) => run.status === 'needs-approval') ?? waitingForYouRuns(runs)[0];
+}
+
 export type RunFilter = 'all' | 'agent' | 'tool' | 'failed';
 
 /** What narrows the run list: free text, a kind, and one automation. */

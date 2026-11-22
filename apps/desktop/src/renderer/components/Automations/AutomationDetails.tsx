@@ -26,6 +26,7 @@ import {
   latestRun,
   NO_RUN_FILTER,
   runInsights,
+  runWaitingForYou,
   type LatestRun,
   type RunInsights,
 } from './presentation';
@@ -82,7 +83,8 @@ export function AutomationDetails({ workspace, name }: { workspace: Workspace; n
   const place = (runId: string) => snapshot.queue[runId];
   const latest = latestRun([...runs].reverse(), now, place);
   const insights = runInsights(runs);
-  const waiting = runs.find((run) => run.status === 'needs-approval');
+  // Awaiting approval, else parked at a gate: "Run now" would only hand that run back (`inLine`).
+  const waiting = runWaitingForYou(runs);
   const running = runs.some((run) => run.status === 'running');
   const openRun = (runId: string) => openPanel({ kind: 'run', runId });
   // The file the entry lives in: factory.yml, or its own automations/<name>.yaml.
