@@ -4,9 +4,12 @@ import {
   CELL_TOKEN_AUDIENCE,
   CLOCK_SKEW_SECONDS,
   cellTokenClaims,
+  OUTBOX_MESSAGE_TYPE,
+  type OutboxMessage,
   readCellTokenClaims,
+  readOutboxMessage,
 } from '@consola/cloud-contract';
-import { createLocalJWKSet, decodeProtectedHeader, jwtVerify } from 'jose';
+import { compactVerify, createLocalJWKSet, decodeProtectedHeader, jwtVerify } from 'jose';
 import { describe, expect, it } from 'vitest';
 import { ConfigError, type Ed25519PrivateJwk } from '../../config.js';
 import { createCellTokenSigner } from './cellTokenSigner.js';
@@ -30,6 +33,13 @@ const claims = cellTokenClaims({
   region: 'us',
   issuedAt,
 });
+
+const message: OutboxMessage = {
+  workspaceId: 'acme-workspace',
+  region: 'eu',
+  sequence: 2,
+  change: { type: 'member.added', personId: 'person-dana', role: 'owner' },
+};
 
 /** Checks a token the way a cell does: the published keys, EdDSA alone, the cell's audience. */
 async function verify(token: string, keys: Parameters<typeof createLocalJWKSet>[0]) {
@@ -87,6 +97,53 @@ describe('createCellTokenSigner', () => {
     const ours = await createCellTokenSigner(newKey());
     const theirs = await createCellTokenSigner(newKey());
     await expect(verify(await theirs.sign(claims), ours.publicKeys())).rejects.toThrow();
+  });
+
+  it('signs an outbox message as a compact JWS its published key checks, typed as one', async () => {
+    const signer = await createCellTokenSigner(newKey());
+    const jws = await signer.signOutboxMessage(message);
+    const [published] = signer.publicKeys().keys;
+
+    // Compact serialization: three parts, the payload in the open, nothing detached.
+    expect(jws.split('.')).toHaveLength(3);
+    const { payload, protectedHeader } = await compactVerify(
+      jws,
+      createLocalJWKSet(signer.publicKeys()),
+      { algorithms: [CELL_TOKEN_ALGORITHM] },
+    );
+    expect(protectedHeader).toEqual({
+      alg: 'EdDSA',
+      kid: published?.kid,
+      typ: OUTBOX_MESSAGE_TYPE,
+    });
+    expect(OUTBOX_MESSAGE_TYPE).toBe('consola-outbox-message');
+    // The payload is the message's JSON, exactly: ids and a role, nothing else about Dana.
+    const text = new TextDecoder().decode(payload);
+    expect(text).toBe(
+      '{"workspaceId":"acme-workspace","region":"eu","sequence":2,"change":{"type":"member.added","personId":"person-dana","role":"owner"}}',
+    );
+    expect(readOutboxMessage(JSON.parse(text))).toEqual({ ok: true, value: message });
+  });
+
+  it('a signed message is no cell token, and a cell token is no message', async () => {
+    const signer = await createCellTokenSigner(newKey());
+    const jws = await signer.signOutboxMessage(message);
+    const token = await signer.sign(claims);
+
+    // A cell checking a token wants its audience, which no message names.
+    await expect(verify(jws, signer.publicKeys())).rejects.toThrow();
+    // A cell checking a message wants its `typ`, which no token carries.
+    expect(decodeProtectedHeader(token).typ).toBeUndefined();
+    const { payload } = await compactVerify(token, createLocalJWKSet(signer.publicKeys()));
+    expect(readOutboxMessage(JSON.parse(new TextDecoder().decode(payload))).ok).toBe(false);
+  });
+
+  it("does not check another key's messages", async () => {
+    const ours = await createCellTokenSigner(newKey());
+    const theirs = await createCellTokenSigner(newKey());
+    await expect(
+      compactVerify(await theirs.signOutboxMessage(message), createLocalJWKSet(ours.publicKeys())),
+    ).rejects.toThrow();
   });
 
   it('refuses a key whose `x` is not the public key of its `d`, without quoting it', async () => {
