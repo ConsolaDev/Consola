@@ -25,10 +25,13 @@ describe('readGit', () => {
     expect(await readGit(path.join(root, 'gone'), ['status'])).toBeNull();
   });
 
-  it('answers null when the output is over the buffer, unless the caller makes room', async () => {
-    const lines = throughGit('seq 1 100000');
-    expect(await readGit(root, lines, { maxBuffer: 1024 })).toBeNull();
-    expect((await readGit(root, lines))?.split('\n')).toHaveLength(100_000);
+  it("answers null when the output is over Node's 1 MiB buffer, unless the caller makes room", async () => {
+    // About 1.3 MB.
+    const lines = throughGit('seq 1 200000');
+    expect(await readGit(root, lines)).toBeNull();
+    const roomy = await readGit(root, lines, { maxBuffer: 4 * 1024 * 1024 });
+    expect(roomy?.length).toBeGreaterThan(1024 * 1024);
+    expect(roomy?.split('\n')).toHaveLength(200_000);
   });
 
   it('never lets git ask anything, nor fetch what a partial clone is missing', async () => {
