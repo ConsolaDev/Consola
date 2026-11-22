@@ -1,5 +1,4 @@
-/** A workspace as the person signed in sees it: with their role in it. */
-export type MyWorkspace = { id: string; name: string; slug: string; region: string; role: string };
+import type { MyWorkspace } from './workspace';
 
 /** Who is signed in, and the workspace their session has active, if any. */
 export type Me = {
