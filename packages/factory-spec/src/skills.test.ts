@@ -162,8 +162,53 @@ describe('parseSkill', () => {
     });
   });
 
-  it('does not scan a file that is not valid UTF-8', () => {
-    takes([SKILL(), { path: 'blob.bin', bytes: new Uint8Array([0xff, 0x21, 0x60]) }]);
+  it("refuses a command at load in SKILL.md's frontmatter too", () => {
+    expect(only([SKILL('name: incident-triage\ndescription: Run !`date` first.\n')])).toMatchObject(
+      {
+        file: 'skills/incident-triage/SKILL.md',
+        path: '',
+        message:
+          'A skill may not run commands when it loads: `skills/incident-triage/SKILL.md` holds !`.',
+      },
+    );
+  });
+
+  it('scans a file that is not valid UTF-8 too, read leniently', () => {
+    expect(
+      only([SKILL(), { path: 'blob.bin', bytes: new Uint8Array([0xff, 0x21, 0x60]) }]),
+    ).toMatchObject({
+      file: 'skills/incident-triage/blob.bin',
+      message:
+        'A skill may not run commands when it loads: `skills/incident-triage/blob.bin` holds !`.',
+    });
+    takes([SKILL(), { path: 'blob.bin', bytes: new Uint8Array([0xff, 0x21, 0x20, 0x60]) }]);
+  });
+
+  it.each([
+    ['```!', '```!\ndate\n```\n'],
+    ['~~~!', '~~~!\ndate\n~~~\n'],
+    ['```` !, indented', 'Then:\n   ````  !\n   date\n   ````\n'],
+    ['```! after CRLF', 'Then:\r\n```!\r\ndate\r\n```\r\n'],
+  ])('refuses a fenced block that runs at load: %s', (_, body) => {
+    const fenced = (path: string) =>
+      `A skill may not run commands when it loads: \`skills/incident-triage/${path}\` has a fenced block that opens with !.`;
+    expect(only([SKILL(undefined, body)])).toMatchObject({
+      file: 'skills/incident-triage/SKILL.md',
+      message: fenced('SKILL.md'),
+    });
+    expect(only([SKILL(), file('refs/run.md', body)])).toMatchObject({
+      file: 'skills/incident-triage/refs/run.md',
+      message: fenced('refs/run.md'),
+    });
+  });
+
+  it('takes a ! that runs nothing: a plain fence, a backtick before it, a space between', () => {
+    takes([
+      SKILL(
+        undefined,
+        'Run:\n```bash\necho hi!\n```\nUse `!important` sparingly. Hello! `x`\n~~~\n!x\n~~~\n',
+      ),
+    ]);
   });
 
   it.each([

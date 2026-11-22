@@ -5,8 +5,9 @@
  * step's CLI, so everything that would let it do more than that is refused
  * here, each with its reason: hooks (which run even in a read-only session),
  * `allowed-tools` (which would widen what the step may call), any key outside
- * the Agent Skills standard's, a command run when the skill loads (`` !` ``),
- * and anything but regular files and folders.
+ * the Agent Skills standard's, a command run when the skill loads (`` !` ``, or
+ * a fenced block that opens with `!`), two paths that are one file where case
+ * or accents are ignored, and anything but regular files and folders.
  */
 import { createHash } from 'node:crypto';
 import { readFrontmatter, splitFrontmatter } from './frontmatter';
@@ -41,8 +42,13 @@ const REFUSED_SKILL_KEYS: Readonly<Record<string, string>> = {
   'allowed-tools':
     '`allowed-tools` would widen what the step may call: name servers and tools in the agent file.',
 };
-/** What a skill's loader runs as a command: the two characters `!` and a backtick. */
-const COMMAND_AT_LOAD = '!`';
+/**
+ * What a skill's loader runs as a command, in either form: inline, the two
+ * characters `!` and a backtick; or a fenced block whose opening fence (three
+ * or more backticks or tildes) is followed on its line by `!`.
+ */
+const INLINE_COMMAND = '!`';
+const FENCED_COMMAND = /^[ \t]*(?:`{3,}|~{3,})[ \t]*!/m;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -65,13 +71,19 @@ function isInsidePath(path: string): boolean {
   return path.split('/').every((segment) => segment !== '' && segment !== '.' && segment !== '..');
 }
 
-/** The text of a file that is valid UTF-8; `undefined` for any other file, which is copied as it is and not scanned. */
-function textOf(bytes: Uint8Array): string | undefined {
-  try {
-    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
-  } catch {
-    return undefined;
-  }
+/**
+ * Why a file would run a command when the skill loads, or `undefined`. Every
+ * file is read as text, leniently (a byte that is not UTF-8 reads as U+FFFD),
+ * so no file escapes the scan by holding one: stricter than the spec, which
+ * scans only files that are valid UTF-8.
+ */
+function commandAtLoad(path: string, bytes: Uint8Array): string | undefined {
+  const text = new TextDecoder('utf-8').decode(bytes);
+  if (text.includes(INLINE_COMMAND))
+    return `A skill may not run commands when it loads: \`${path}\` holds !\`.`;
+  if (FENCED_COMMAND.test(text))
+    return `A skill may not run commands when it loads: \`${path}\` has a fenced block that opens with !.`;
+  return undefined;
 }
 
 /**
@@ -234,17 +246,10 @@ export function parseSkill(
     }
   }
 
-  // A command at load: in SKILL.md's body, and in every supporting file that is text.
+  // A command at load: anywhere in SKILL.md, its frontmatter included, and in every supporting file.
   for (const entry of [...files].sort(byPath)) {
-    const text =
-      entry === skillFile ? (split.kind === 'ok' ? split.body : undefined) : textOf(entry.bytes);
-    if (text?.includes(COMMAND_AT_LOAD)) {
-      issues.push({
-        file: at(entry.path),
-        path: '',
-        message: `A skill may not run commands when it loads: \`${at(entry.path)}\` holds !\`.`,
-      });
-    }
+    const problem = commandAtLoad(at(entry.path), entry.bytes);
+    if (problem) issues.push({ file: at(entry.path), path: '', message: problem });
   }
 
   if (issues.length > 0 || name === undefined || description === undefined) return { issues };
