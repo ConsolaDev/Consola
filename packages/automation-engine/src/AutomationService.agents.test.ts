@@ -511,3 +511,114 @@ describe('the words that name a file (M7)', () => {
     expect(h.world.launches).toEqual([]);
   });
 });
+
+describe("an entry's agents, with their servers and skills (2-C, Task 13)", () => {
+  const INVESTIGATOR_FILE = 'agents/investigator.md';
+  const INVESTIGATOR = (body: string) =>
+    `---\ndescription: Investigates production alerts.\nharness: claude-work\nmodel: opus\nmax_turns: 40\nmcpServers:\n  - claude.ai Coralogix\n  - grafana: [query_logs]\nskills: [incident-triage]\n---\n${body}\n`;
+  const SUMMARISER = '---\nharness: claude-work\nmodel: haiku\n---\nSUMMARISER-BODY-1\n';
+  const TRIAGE =
+    "---\nname: incident-triage\ndescription: The team's triage checklist.\n---\nCheck the last deploy first.\n";
+  const steps = `steps:
+  - id: investigate
+    agent: investigator
+  - id: summarise
+    agent: summariser
+  - id: again
+    agent: investigator
+`;
+  const POLL = `on:\n  poll: { every: 5m, run: ./alerts, key: .ts }\nscope: catalog-portal\nmode: auto\n${steps}`;
+  const files = (entry: string) => ({
+    'automations/investigate-alerts.yaml': entry,
+    [INVESTIGATOR_FILE]: INVESTIGATOR('INVESTIGATOR-BODY-1'),
+    'agents/summariser.md': SUMMARISER,
+    'skills/incident-triage/SKILL.md': TRIAGE,
+  });
+  const investigating = (entry = POLL) =>
+    stepsHarness({ files: files(entry), agentHarnesses: { 'claude-work': CLAUDE_WORK } });
+
+  it('gives each agent once, in step order, with its body, servers, skills and cap, at the version list gives', async () => {
+    const h = await investigating();
+    const listed = h.service.list(WORKSPACE_ID)[0];
+    expect(listed.problem).toBeUndefined();
+    expect(listed.version).toBeDefined();
+    const view = h.service.entryAgents(WORKSPACE_ID, 'investigate-alerts')!;
+    expect(view.version).toBe(listed.version);
+    expect(view.agents).toEqual([
+      {
+        name: 'investigator',
+        file: INVESTIGATOR_FILE,
+        description: 'Investigates production alerts.',
+        harnessId: 'claude-work',
+        model: 'opus',
+        maxTurns: 40,
+        body: 'INVESTIGATOR-BODY-1\n',
+        mcpServers: [{ name: 'claude.ai Coralogix' }, { name: 'grafana', tools: ['query_logs'] }],
+        skills: ['incident-triage'],
+      },
+      {
+        name: 'summariser',
+        file: 'agents/summariser.md',
+        harnessId: 'claude-work',
+        model: 'haiku',
+        body: 'SUMMARISER-BODY-1\n',
+        mcpServers: [],
+        skills: [],
+      },
+    ]);
+  });
+
+  it("its version moves when an agent's body is edited and applies (review S1)", async () => {
+    const h = await investigating();
+    const before = h.service.entryAgents(WORKSPACE_ID, 'investigate-alerts')!;
+    await h.writeFile(INVESTIGATOR_FILE, INVESTIGATOR('INVESTIGATOR-BODY-2'));
+    const after = h.service.entryAgents(WORKSPACE_ID, 'investigate-alerts')!;
+    expect(after.version).not.toBe(before.version);
+    expect(after.version).toBe(h.service.list(WORKSPACE_ID)[0].version);
+    expect(after.agents[0].body).toBe('INVESTIGATOR-BODY-2\n');
+  });
+
+  it('says whether its runs carry text other people wrote, whatever checkout it works in (review B3)', async () => {
+    const poll = await investigating();
+    expect(poll.service.entryAgents(WORKSPACE_ID, 'investigate-alerts')?.readsItems).toBe(true);
+    const cron = await investigating(
+      `on: { cron: "0 7 * * 1-5" }\nscope: catalog-portal\nmode: auto\n${steps}`,
+    );
+    expect(cron.service.entryAgents(WORKSPACE_ID, 'investigate-alerts')?.readsItems).toBe(false);
+    const event = await investigating(
+      `on: { github: pull_request.review_requested }\nmode: confirm\n${steps}`,
+    );
+    expect(event.service.list(WORKSPACE_ID)[0].problem).toBeUndefined();
+    expect(event.service.entryAgents(WORKSPACE_ID, 'investigate-alerts')?.readsItems).toBe(true);
+  });
+
+  it("list gives an agent step its agent's servers and skills, and one naming neither none (review S3)", async () => {
+    const h = await investigating();
+    const [investigate, summarise] = h.service.list(WORKSPACE_ID)[0].steps!;
+    expect(investigate).toMatchObject({
+      id: 'investigate',
+      servers: [{ name: 'claude.ai Coralogix' }, { name: 'grafana', tools: ['query_logs'] }],
+      skills: ['incident-triage'],
+    });
+    expect(Object.prototype.hasOwnProperty.call(summarise, 'servers')).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(summarise, 'skills')).toBe(false);
+  });
+
+  it("a step's detail gives its agent as the run's definition holds it, and a command none", async () => {
+    const h = await investigating(
+      `on: { cron: "0 7 * * 1-5" }\nscope: catalog-portal\nmode: auto\nsteps:\n  - id: investigate\n    agent: investigator\n  - id: post\n    run: echo posted\n`,
+    );
+    const asked = (await h.service.trigger(WORKSPACE_ID, 'investigate-alerts'))!;
+    await h.service.approve(asked.id);
+    await h.flush();
+    const definition = h.service.getRunDefinition(asked.id)!;
+    const detail = h.service.getStepDetail(asked.id, 'investigate')!;
+    expect(detail.agent).toEqual(definition.agents?.investigate);
+    expect(detail.agent).toMatchObject({
+      name: 'investigator',
+      mcpServers: [{ name: 'claude.ai Coralogix' }, { name: 'grafana', tools: ['query_logs'] }],
+      skills: ['incident-triage'],
+    });
+    expect(h.service.getStepDetail(asked.id, 'post')).not.toHaveProperty('agent');
+  });
+});

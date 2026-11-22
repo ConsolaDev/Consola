@@ -4,6 +4,7 @@ import type { AutomationView, EntryAgentsView } from '../../../shared/automation
 import { automationsBridge } from '../../services/automationsBridge';
 import { useAutomationsStore } from '../../stores/automationsStore';
 import { ipcErrorMessage } from '../../utils/ipcErrorMessage';
+import { ITEM_TEXT_LINE, skillsLine } from './agentGrantWords';
 import { EntrySource } from './AutomationPipeline';
 import { allowAgentSections, allowNotes, grantWords } from './checkWords';
 import { useIntent } from './parts';
@@ -11,8 +12,12 @@ import { useIntent } from './parts';
 /**
  * What allowing a poll entry lets Consola do, shown before it does it: the
  * check command in full, how often it runs, what the mode then does, the
- * entry as written, and the description and body of each agent its steps
- * run as, so every step is seen exactly as the version Allow accepts has it.
+ * entry as written, and the description, body, servers and skills of each
+ * agent its steps run as, so every step is seen exactly as the version Allow
+ * accepts has it. A whole server's line names the tools its harness's CLI
+ * last listed (main fills them in; nothing is asked to open the card), and
+ * an entry whose runs carry an item says, once, that the agent reads text
+ * other people wrote with these tools at hand.
  * While the folder does not apply that is the running version, never the
  * live files: Open then says it shows the file as it is now. Allow waits for
  * every agent's body at that version. Allow is for this version of the
@@ -56,7 +61,7 @@ export function AllowCard({
   const { check, version } = automation;
   if (!check || !version) return null;
   const notes = allowNotes(automation);
-  const { ready, agents } = allowAgentSections(automation, loaded, standing);
+  const { ready, readsItems, agents } = allowAgentSections(automation, loaded, standing);
   return (
     <section className="automations-allow-card" aria-label={`Allow ${automation.name}`}>
       <div className="automations-allow-body">
@@ -116,11 +121,44 @@ export function AllowCard({
                     <summary>{agent.file}</summary>
                     <pre className="automations-prompt">{agent.body}</pre>
                   </details>
+                  {agent.servers?.map((line) => (
+                    <p key={line} className="automations-allow-line">
+                      {line}
+                    </p>
+                  ))}
+                  {agent.skills && (
+                    <div className="automations-allow-line">
+                      {skillsLine(agent.skills)}
+                      {agent.skills.map((skill) => {
+                        const file = `skills/${skill}/SKILL.md`;
+                        return (
+                          <button
+                            key={skill}
+                            type="button"
+                            className="dialog-button-secondary automations-small-button"
+                            aria-label={`${agent.openLabel} ${file}`}
+                            disabled={busy !== null}
+                            onClick={() =>
+                              void act(`open:${file}`, () =>
+                                automationsBridge.openFile(workspaceId, file),
+                              )
+                            }
+                          >
+                            <ExternalLink size={12} aria-hidden="true" />
+                            {agent.openLabel}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                 </>
               )}
             </li>
           ))}
         </ul>
+      )}
+      {readsItems && agents.length > 0 && (
+        <p className="automations-allow-line automations-allow-note">{ITEM_TEXT_LINE}</p>
       )}
       {error && (
         <div className="automations-error" role="alert">

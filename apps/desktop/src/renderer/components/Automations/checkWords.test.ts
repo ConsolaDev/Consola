@@ -222,20 +222,30 @@ describe('allowAgentSections (review B1)', () => {
   };
   const loaded = {
     version: 'v1',
+    readsItems: false,
     agents: [
       {
         name: 'reviewer',
         file: 'agents/reviewer.md',
         description: 'Reviews the PR.',
         body: 'APPLIED-V1-BODY\n',
+        mcpServers: [],
+        skills: [],
       },
-      { name: 'noter', file: 'agents/noter.md', body: 'Write a note.\n' },
+      {
+        name: 'noter',
+        file: 'agents/noter.md',
+        body: 'Write a note.\n',
+        mcpServers: [],
+        skills: [],
+      },
     ],
   };
 
   it("shows each agent's description and body once main has read this version, and Allow may go", () => {
     expect(allowAgentSections(view, loaded, false)).toEqual({
       ready: true,
+      readsItems: false,
       agents: [
         {
           file: 'agents/reviewer.md',
@@ -277,8 +287,43 @@ describe('allowAgentSections (review B1)', () => {
   it('is ready at once for an entry without agents', () => {
     expect(allowAgentSections({ version: 'v1', steps: [step('look')] }, undefined, true)).toEqual({
       ready: true,
+      readsItems: false,
       agents: [],
     });
+  });
+
+  it("gives each agent's server lines, with the tools the probe listed, its skills, and the item line at this version (2-C)", () => {
+    const investigating = {
+      version: 'v1',
+      readsItems: true,
+      agents: [
+        {
+          ...loaded.agents[0],
+          mcpServers: [
+            { name: 'claude.ai Coralogix', knownTools: ['query_logs', 'list_alerts'] },
+            { name: 'grafana', tools: ['query_logs'] },
+          ],
+          skills: ['incident-triage'],
+        },
+        loaded.agents[1],
+      ],
+    };
+    const sections = allowAgentSections(view, investigating, false);
+    expect(sections.readsItems).toBe(true);
+    expect(sections.agents[0]).toMatchObject({
+      servers: [
+        'claude.ai Coralogix: all its tools (query_logs, list_alerts), including any that post or change things',
+        'grafana: query_logs only',
+      ],
+      skills: ['incident-triage'],
+    });
+    // An agent naming neither has neither key.
+    expect(Object.prototype.hasOwnProperty.call(sections.agents[1], 'servers')).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(sections.agents[1], 'skills')).toBe(false);
+    // Read for another version, nothing of it is shown.
+    const stale = allowAgentSections(view, { ...investigating, version: 'v0' }, false);
+    expect(stale.readsItems).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(stale.agents[0], 'servers')).toBe(false);
   });
 });
 

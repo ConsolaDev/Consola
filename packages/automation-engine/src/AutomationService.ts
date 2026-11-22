@@ -1258,11 +1258,17 @@ export class AutomationService {
           ...(agent.description !== undefined ? { description: agent.description } : {}),
           ...(agent.harness !== undefined ? { harnessId: agent.harness } : {}),
           ...(agent.model !== undefined ? { model: agent.model } : {}),
+          ...(agent.maxTurns !== undefined ? { maxTurns: agent.maxTurns } : {}),
           body: agent.body,
+          mcpServers: agent.mcpServers.map((server) => ({
+            name: server.name,
+            ...(server.tools !== undefined ? { tools: [...server.tools] } : {}),
+          })),
+          skills: [...agent.skills],
         });
       }
     }
-    return { version: entry.version, agents };
+    return { version: entry.version, readsItems: entryReadsItems(entry.automation), agents };
   }
 
   /**
@@ -2382,16 +2388,20 @@ export class AutomationService {
   }
 
   /**
-   * One step's latest attempt: its record, definition, `command.json` and the
-   * last 64 KB of each log. Read from the record and the run folder only —
+   * One step's latest attempt: its record, definition, an agent step's agent,
+   * a command's `command.json` and the last 64 KB of each log. Read from the
+   * record and the run folder only —
    * nothing starts, and nothing is broadcast. Log text is passed on as stored.
    */
   public getStepDetail(runId: string, stepId: string): StepDetail | null {
     const found = this.stepOf(runId, stepId);
     if (!found) return null;
-    const { run, workspaceId, step, record } = found;
+    const { run, workspaceId, definition, step, record } = found;
     const detail: StepDetail = { runId, step, record };
-    if (step.kind !== 'run') return detail;
+    if (step.kind !== 'run') {
+      const agent = definition.agents?.[step.id];
+      return agent ? { ...detail, agent } : detail;
+    }
     const dir = this.deps.runFolder.attemptDir(workspaceId, run.id, step.id, record.attempt);
     const command = this.readCommandFile(`${dir}/command.json`);
     const stdout = this.readTail(`${dir}/stdout.log`, STEP_TAIL_BYTES);
@@ -2487,13 +2497,19 @@ export class AutomationService {
   private stepOf(
     runId: string,
     stepId: string,
-  ): { run: RunRecord; workspaceId: string; step: Step; record: StepRun } | null {
+  ): {
+    run: RunRecord;
+    workspaceId: string;
+    definition: RunDefinition;
+    step: Step;
+    record: StepRun;
+  } | null {
     if (typeof stepId !== 'string' || !STEP_ID_PATTERN.test(stepId)) return null;
     const read = this.readSteps(runId);
     const step = read?.definition.automation.steps.find((candidate) => candidate.id === stepId);
     const record = read?.run.steps?.find((candidate) => candidate.id === stepId);
     return read && step && record
-      ? { run: read.run, workspaceId: read.workspaceId, step, record }
+      ? { run: read.run, workspaceId: read.workspaceId, definition: read.definition, step, record }
       : null;
   }
 

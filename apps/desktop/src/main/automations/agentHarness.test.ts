@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { AgentHarnessQuery } from '@consola/automation-engine';
+import type { AgentHarnessQuery, EntryAgentsView } from '@consola/automation-engine';
 import type { Harness } from '../../shared/harness';
 import type { HarnessCapabilitiesResult } from '../../shared/types';
 import { getDriver, type HarnessDriver, toolPolicyProblem } from '../drivers';
@@ -11,6 +11,8 @@ import {
   cachedModels,
   harnessesWithServers,
   noAgentGrants,
+  settledServerTools,
+  withKnownTools,
 } from './agentHarness';
 import type { McpServersCache, ServersAnswer } from './mcpServersCache';
 
@@ -478,6 +480,140 @@ describe('harnessesWithServers', () => {
       { id: 'failed', name: 'Failed', enabled: false, archived: false },
       { id: 'never', name: 'Never', enabled: true, archived: true },
     ]);
+  });
+});
+
+describe('withKnownTools', () => {
+  const VIEW: EntryAgentsView = {
+    version: 'v1',
+    readsItems: true,
+    agents: [
+      {
+        name: 'investigator',
+        file: 'agents/investigator.md',
+        harnessId: 'work',
+        body: 'B',
+        mcpServers: [
+          { name: 'claude.ai Coralogix' },
+          { name: 'grafana', tools: ['query_logs'] },
+          { name: 'tracker' },
+        ],
+        skills: ['incident-triage'],
+      },
+      { name: 'summariser', file: 'agents/summariser.md', body: 'S', mcpServers: [], skills: [] },
+    ],
+  };
+  const asked: Array<[string | undefined, string]> = [];
+  const toolsOf = (harnessId: string | undefined, server: string) => {
+    asked.push([harnessId, server]);
+    return server === 'claude.ai Coralogix'
+      ? ['query_logs', 'list_alerts']
+      : server === 'grafana'
+        ? ['query_logs', 'list_dashboards']
+        : undefined;
+  };
+
+  it("gives a whole server its harness's known tools, never a narrowed one, and leaves the rest as it was", () => {
+    asked.length = 0;
+    const own = (object: object, key: string) => Object.prototype.hasOwnProperty.call(object, key);
+    const shown = withKnownTools(VIEW, toolsOf);
+    expect(shown.version).toBe('v1');
+    expect(shown.readsItems).toBe(true);
+    const [coralogix, grafana, tracker] = shown.agents[0].mcpServers;
+    expect(coralogix).toEqual({
+      name: 'claude.ai Coralogix',
+      knownTools: ['query_logs', 'list_alerts'],
+    });
+    expect(grafana).toEqual({ name: 'grafana', tools: ['query_logs'] });
+    expect(own(tracker, 'knownTools')).toBe(false);
+    expect(shown.agents[0].skills).toEqual(['incident-triage']);
+    expect(shown.agents[1]).toEqual(VIEW.agents[1]);
+    // A narrowed server is never asked about; each whole one is, with its agent's harness.
+    expect(asked).toEqual([
+      ['work', 'claude.ai Coralogix'],
+      ['work', 'tracker'],
+    ]);
+    // The view it was given is unchanged.
+    expect(own(VIEW.agents[0].mcpServers[0], 'knownTools')).toBe(false);
+  });
+});
+
+describe('settledServerTools', () => {
+  const HARNESSES: Harness[] = [
+    harness({ id: 'work', name: 'Work stub', configDir: '/home/alice/.claude-work' }),
+    harness({ id: 'personal', name: 'Personal stub', configDir: '/home/alice/.claude-personal' }),
+    harness({ id: 'slow', name: 'Slow', configDir: '/home/alice/.slow' }),
+  ];
+  const answers: Record<string, ServersAnswer> = {
+    '/home/alice/.claude-work': {
+      state: 'settled',
+      servers: [
+        {
+          name: 'claude.ai Coralogix',
+          source: 'connector',
+          transport: 'claudeai-proxy',
+          url: 'https://mcp.coralogix.example/mcp',
+          tools: ['query_logs', 'list_alerts'],
+          status: 'connected',
+        },
+        { name: 'grafana', source: 'user', transport: 'stdio', status: 'failed' },
+      ],
+    },
+    '/home/alice/.claude-personal': {
+      state: 'settled',
+      servers: [
+        {
+          name: 'claude.ai Coralogix',
+          source: 'connector',
+          transport: 'claudeai-proxy',
+          url: 'https://mcp.coralogix.example/mcp',
+          tools: ['list_alerts'],
+          status: 'connected',
+        },
+      ],
+    },
+    '/home/alice/.slow': { state: 'pending' },
+    // The built-in harness, which pins no config folder.
+    '': {
+      state: 'settled',
+      servers: [
+        {
+          name: 'claude.ai Coralogix',
+          source: 'connector',
+          transport: 'claudeai-proxy',
+          url: 'https://mcp.coralogix.example/mcp',
+          tools: ['built_in_only'],
+          status: 'connected',
+        },
+      ],
+    },
+  };
+  const throws = () => {
+    throw new Error('opening a card must start nothing');
+  };
+  const cache = {
+    peek: (_driver: HarnessDriver, config: { configDir?: string }) =>
+      answers[config.configDir ?? ''],
+    ask: throws,
+    get: throws,
+    missing: throws,
+  } as unknown as McpServersCache;
+
+  it("reads the agent's harness's settled answer, else the workspace default's, and asks nothing", () => {
+    const toolsOf = settledServerTools(cache, HARNESSES, 'personal');
+    expect(toolsOf('work', 'claude.ai Coralogix')).toEqual(['query_logs', 'list_alerts']);
+    expect(toolsOf(undefined, 'claude.ai Coralogix')).toEqual(['list_alerts']);
+    // A server the answer lists without tools, one it lacks, an answer not settled, a harness not there.
+    expect(toolsOf('work', 'grafana')).toBeUndefined();
+    expect(toolsOf('work', 'tracker')).toBeUndefined();
+    expect(toolsOf('slow', 'claude.ai Coralogix')).toBeUndefined();
+    expect(toolsOf('gone', 'claude.ai Coralogix')).toBeUndefined();
+  });
+
+  it('reads the built-in harness for an agent naming none in a workspace with no default, and never for a harness not there', () => {
+    const toolsOf = settledServerTools(cache, HARNESSES, undefined);
+    expect(toolsOf(undefined, 'claude.ai Coralogix')).toEqual(['built_in_only']);
+    expect(toolsOf('gone', 'claude.ai Coralogix')).toBeUndefined();
   });
 });
 

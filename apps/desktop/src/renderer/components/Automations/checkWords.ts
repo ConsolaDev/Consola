@@ -4,6 +4,7 @@ import type {
   CheckView,
   EntryAgentsView,
 } from '../../../shared/automations';
+import { serverGrantLine } from './agentGrantWords';
 import { formatAgo } from './presentation';
 
 const items = (count: number) => `${count} ${count === 1 ? 'item' : 'items'}`;
@@ -132,20 +133,26 @@ export interface AllowAgentSection {
   body?: string;
   /** While the folder does not apply: the body is the running version's. */
   note?: string;
+  /** A line per server it names, with the tools its harness's last probe listed (2-C); absent for none. */
+  servers?: string[];
+  /** The skills it names, each opened by its `skills/<name>/SKILL.md`; absent for none. */
+  skills?: string[];
 }
 
 /**
  * The Allow card's agents: each file the steps name, once, in step order,
- * with the description and body main read for the version the view lists
- * (`loaded`), never the live file. Allow accepts that version, so it is
- * `ready` only once every agent's body at that version is there: the person
- * reads exactly what they accept. An entry without agents is ready at once.
+ * with the description, body, servers and skills main read for the version
+ * the view lists (`loaded`), never the live file, and whether its runs read
+ * text other people wrote (`readsItems`, the item line). Allow accepts that
+ * version, so it is `ready` only once every agent's body at that version is
+ * there: the person reads exactly what they accept (review S1). An entry
+ * without agents is ready at once.
  */
 export function allowAgentSections(
   view: Pick<AutomationView, 'steps' | 'version'>,
   loaded: EntryAgentsView | null | undefined,
   standing: boolean,
-): { ready: boolean; agents: AllowAgentSection[] } {
+): { ready: boolean; readsItems: boolean; agents: AllowAgentSection[] } {
   const atVersion = loaded && loaded.version === view.version ? loaded : undefined;
   const agents = allowAgentLines(view).map(({ file, text }): AllowAgentSection => {
     const agent = atVersion?.agents.find((candidate) => candidate.file === file);
@@ -156,7 +163,15 @@ export function allowAgentSections(
       ...(agent?.description !== undefined ? { description: agent.description } : {}),
       ...(agent ? { body: agent.body } : {}),
       ...(agent && standing ? { note: RUNNING_VERSION_NOTE } : {}),
+      ...(agent && agent.mcpServers.length > 0
+        ? { servers: agent.mcpServers.map((server) => serverGrantLine(server)) }
+        : {}),
+      ...(agent && agent.skills.length > 0 ? { skills: [...agent.skills] } : {}),
     };
   });
-  return { ready: agents.every((agent) => agent.body !== undefined), agents };
+  return {
+    ready: agents.every((agent) => agent.body !== undefined),
+    readsItems: atVersion?.readsItems === true,
+    agents,
+  };
 }

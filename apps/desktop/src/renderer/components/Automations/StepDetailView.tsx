@@ -14,6 +14,7 @@ import { MarkdownRenderer } from '../Markdown';
 import { RunSteps, useRunConversation } from './ConversationView';
 import { useNow } from './parts';
 import {
+  agentFacts,
   artifactNote,
   attemptsLine,
   conditionValues,
@@ -131,7 +132,7 @@ export function StepDetail({
         )}
         {(ran || tone === 'reported') &&
           (record.kind === 'agent' ? (
-            <AgentFacts workspace={workspace} run={run} step={record} />
+            <AgentFacts workspace={workspace} run={run} step={record} detail={ready} />
           ) : (
             <CommandFacts
               run={run}
@@ -323,15 +324,32 @@ function AgentFact({ step }: { step: StepRun }) {
   );
 }
 
+/** An agent step's servers and skills, as its run's definition holds its agent; nothing when it names neither. */
+function GrantFacts({ detail }: { detail: StepDetailData | null }) {
+  if (!detail) return null;
+  return (
+    <>
+      {agentFacts(detail).map((fact) => (
+        <Fact key={fact.label} label={fact.label}>
+          <p className="automations-fact-text">{fact.value}</p>
+        </Fact>
+      ))}
+    </>
+  );
+}
+
 /** The agent, the session, what its turns reported, its transcript while it works and after. */
 function AgentFacts({
   workspace,
   run,
   step,
+  detail,
 }: {
   workspace: Workspace;
   run: RunRecord;
   step: StepRun;
+  /** The step's detail once read: its agent's servers and skills. */
+  detail: StepDetailData | null;
 }) {
   const ids = useId();
   const [expanded, setExpanded] = useState(false);
@@ -355,6 +373,7 @@ function AgentFacts({
     return (
       <>
         <AgentFact step={step} />
+        <GrantFacts detail={detail} />
         <Fact label="Session">
           <p className="automations-fact-text">
             {following ? 'Starting its session…' : 'It never started a session.'}
@@ -368,6 +387,7 @@ function AgentFacts({
   return (
     <>
       <AgentFact step={step} />
+      <GrantFacts detail={detail} />
       <Fact label="Session">
         <div className="automations-fact-inline">
           {session ? (

@@ -196,6 +196,10 @@ export function AutomationsTab({
                       }
                       onShowRuns={() => showAutomationRuns(workspace.id, name)}
                       onChange={() => openPanel({ kind: 'new', basis: { automation: name } })}
+                      checking={busy === 'recheck'}
+                      onRecheck={() =>
+                        void act('recheck', () => automationsBridge.recheck(workspace.id))
+                      }
                     />
                   );
                 })}
@@ -364,6 +368,8 @@ function AutomationRow({
   onRun,
   onShowRuns,
   onChange,
+  checking,
+  onRecheck,
 }: {
   automation: AutomationView;
   runs: RunListEntry[];
@@ -378,6 +384,10 @@ function AutomationRow({
   onRun: () => void;
   onShowRuns: () => void;
   onChange: () => void;
+  /** Check again, the banner's own, is under way. */
+  checking: boolean;
+  /** Asks every harness's CLI again, as the banner's Check again does. */
+  onRecheck: () => void;
 }) {
   const isAgent = automation.kind === 'agent';
   const TriggerIcon =
@@ -454,6 +464,18 @@ function AutomationRow({
                 Not running: {automation.problem}
                 {automation.line ? ` (line ${automation.line})` : ''}
               </span>
+              {/* A problem from asking a harness's CLI about servers is asked again from here (review B4). */}
+              {automation.recheck && (
+                <button
+                  type="button"
+                  className="dialog-button-secondary automations-small-button"
+                  disabled={checking}
+                  onClick={inside(onRecheck)}
+                >
+                  <RefreshCw size={12} aria-hidden="true" />
+                  Check again
+                </button>
+              )}
             </div>
           )}
         </div>

@@ -95,6 +95,10 @@ describe('approvalAgent', () => {
       file: 'agents/reviewer.md',
       description: "Reviews catalog-portal's changes.",
       body: 'Read what changed.\n',
+      head: 'Agent, read-only',
+      servers: [],
+      skills: null,
+      readsOthers: false,
     });
   });
 
@@ -109,8 +113,41 @@ describe('approvalAgent', () => {
       },
     });
     const shown = approvalAgent(definition, 'look');
-    expect(shown).toEqual({ words: 'noter', file: 'agents/noter.md', body: 'Write a note.\n' });
+    expect(shown).toEqual({
+      words: 'noter',
+      file: 'agents/noter.md',
+      body: 'Write a note.\n',
+      head: 'Agent, read-only',
+      servers: [],
+      skills: null,
+      readsOthers: false,
+    });
     expect(Object.prototype.hasOwnProperty.call(shown, 'description')).toBe(false);
+  });
+
+  it("gives its agent's servers, skills and the item line, with no tool names (2-C)", () => {
+    const investigator = {
+      name: 'investigator',
+      hash: 'c'.repeat(64),
+      harnessId: 'stub-work',
+      model: 'opus',
+      body: 'INVESTIGATOR-BODY-1\n',
+      mcpServers: [{ name: 'claude.ai Coralogix' }, { name: 'grafana', tools: ['query_logs'] }],
+      skills: ['incident-triage'],
+    };
+    const reading = { ...withAgents({ look: investigator }), readsItems: true as const };
+    expect(approvalAgent(reading, 'look')).toMatchObject({
+      words: 'investigator · stub-work · opus',
+      head: 'Agent, read-only but for its servers',
+      servers: [
+        'claude.ai Coralogix: all its tools, including any that post or change things',
+        'grafana: query_logs only',
+      ],
+      skills: 'Skills: incident-triage',
+      readsOthers: true,
+    });
+    // A cron entry's run, or a definition from before 2-C, has no `readsItems`.
+    expect(approvalAgent(withAgents({ look: investigator }), 'look')?.readsOthers).toBe(false);
   });
 
   it('is null for a step with no agent', () => {

@@ -73,6 +73,34 @@ describe('describeSteps', () => {
     expect(own(described[4], 'agentFile')).toBe(false);
   });
 
+  it("gives an agent step its agent's servers and skills as the agent file has them (2-C, review S3)", () => {
+    const own = (object: object, key: string) => Object.prototype.hasOwnProperty.call(object, key);
+    const described = describeSteps(
+      [step({ agent: 'investigator' }), step({ id: 'summarise', agent: 'summariser' })],
+      {
+        investigator: {
+          harness: 'stub-work',
+          mcpServers: [{ name: 'claude.ai Coralogix' }, { name: 'grafana', tools: ['query_logs'] }],
+          skills: ['incident-triage'],
+        },
+        summariser: { mcpServers: [], skills: [] },
+      },
+    );
+    expect(described[0]).toMatchObject({
+      servers: [{ name: 'claude.ai Coralogix' }, { name: 'grafana', tools: ['query_logs'] }],
+      skills: ['incident-triage'],
+    });
+    expect(own(described[0].servers![0], 'tools')).toBe(false);
+    // An agent naming neither, and 2-B's map (no servers or skills key), give neither key.
+    expect(own(described[1], 'servers')).toBe(false);
+    expect(own(described[1], 'skills')).toBe(false);
+    const twoB = describeSteps([step({ agent: 'investigator' })], {
+      investigator: { harness: 'claude-work' },
+    });
+    expect(own(twoB[0], 'servers')).toBe(false);
+    expect(own(twoB[0], 'skills')).toBe(false);
+  });
+
   it('names an agent the map lacks by its name alone', () => {
     expect(describeSteps([step({ agent: 'investigator' })])[0]).toMatchObject({
       summary: 'investigator',

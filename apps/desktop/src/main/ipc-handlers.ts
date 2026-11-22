@@ -122,7 +122,13 @@ import {
   toTurnReportView,
   toWorkspaceView,
 } from './automations/engineViews';
-import { agentHarnessView, cachedModels, harnessesWithServers } from './automations/agentHarness';
+import {
+  agentHarnessView,
+  cachedModels,
+  harnessesWithServers,
+  settledServerTools,
+  withKnownTools,
+} from './automations/agentHarness';
 import { McpServersCache } from './automations/mcpServersCache';
 import {
   launchAgentRun,
@@ -2449,7 +2455,14 @@ export function setupIpcHandlers(): boolean {
     IPC_CHANNELS.AUTOMATIONS_GET_ENTRY_AGENTS,
     (_event, rawWorkspaceId: unknown, rawName: unknown) => {
       const { workspaceId, name } = entryArgs(rawWorkspaceId, rawName);
-      return automations.entryAgents(workspaceId, name);
+      const view = automations.entryAgents(workspaceId, name);
+      if (!view) return null;
+      // A whole server's tools, as its harness's CLI last listed them: read, never asked (review S2).
+      const workspace = workspaces.getAll().find((candidate) => candidate.id === workspaceId);
+      return withKnownTools(
+        view,
+        settledServerTools(mcpServers, harnesses.getAll(), workspace?.defaultHarnessId),
+      );
     },
   );
   ipcMain.handle(

@@ -21,6 +21,7 @@ import type { AutomationView, RunListEntry } from '../../../shared/automations';
 import { automationsBridge } from '../../services/automationsBridge';
 import { useAutomationsStore } from '../../stores/automationsStore';
 import { ipcErrorMessage } from '../../utils/ipcErrorMessage';
+import { agentStepFoot, nodeGrantsLine } from './agentGrantWords';
 import { openFileWords, RUNNING_VERSION_NOTE, triggerNodeWords } from './checkWords';
 import {
   approvalStep,
@@ -214,13 +215,14 @@ export function PipelineGraph({
         subtitle={
           entry.agent !== undefined && entry.agent !== entry.summary ? entry.agent : undefined
         }
+        grants={nodeGrantsLine(entry) ?? undefined}
         code={entry.id}
         edgeLabel={entry.if}
       >
         {index === 0 && liveAction
           ? liveAction
           : entry.kind === 'agent'
-            ? 'Read-only, in a session of its own'
+            ? agentStepFoot(entry.servers)
             : commandFoot(entry, automation.mode)}
       </PipelineNode>
     ));
@@ -271,6 +273,7 @@ function PipelineNode({
   kicker,
   title,
   subtitle,
+  grants,
   code,
   wrapCode = false,
   edgeLabel,
@@ -282,6 +285,8 @@ function PipelineNode({
   title: ReactNode;
   /** A second line under the title: an agent step's agent, harness and model. */
   subtitle?: string;
+  /** A third line: the servers and skills an agent step's agent names. */
+  grants?: string;
   code?: string;
   /** The code is a command shown in full: it wraps rather than running past the node. */
   wrapCode?: boolean;
@@ -303,6 +308,7 @@ function PipelineNode({
       </div>
       <div className="automations-node-title">{title}</div>
       {subtitle !== undefined && <div className="automations-node-agent">{subtitle}</div>}
+      {grants !== undefined && <div className="automations-node-agent">{grants}</div>}
       {code && (
         <code className={`automations-node-code ${wrapCode ? 'automations-node-code-wrap' : ''}`}>
           {code}

@@ -2,10 +2,12 @@ import type {
   CommandFile,
   LogTail,
   RunRecord,
+  StepDetail,
   StepRun,
   StepRunStatus,
 } from '../../../shared/automations';
 import { formatCostUsd } from '../../../shared/cost';
+import { serversFact, skillsFact } from './agentGrantWords';
 import { formatElapsed } from './presentation';
 
 /**
@@ -62,6 +64,23 @@ export function attemptsLine(record: StepRun): string | null {
   if (parts.length === 0) return null;
   const line = parts.join(' · ');
   return line.charAt(0).toUpperCase() + line.slice(1);
+}
+
+/**
+ * An agent step's servers and skills, as its run's definition holds its
+ * agent: `Servers` with each narrowing, then `Skills`; none for an agent
+ * naming neither, or a step with no agent.
+ */
+export function agentFacts(
+  detail: Pick<StepDetail, 'agent'>,
+): Array<{ label: 'Servers' | 'Skills'; value: string }> {
+  const facts: Array<{ label: 'Servers' | 'Skills'; value: string }> = [];
+  if (!detail.agent) return facts;
+  const servers = serversFact(detail.agent.mcpServers);
+  if (servers !== null) facts.push({ label: 'Servers', value: servers });
+  const skills = skillsFact(detail.agent.skills);
+  if (skills !== null) facts.push({ label: 'Skills', value: skills });
+  return facts;
 }
 
 function turnsWords(turns: number): string {

@@ -114,6 +114,8 @@ export interface StepDetail {
   step: Step;
   /** `previous` lists the earlier attempts. */
   record: StepRun;
+  /** An agent step's agent, as its run's definition holds it: its servers and skills among them. */
+  agent?: AgentRequirements;
   command?: CommandFile;
   stdout?: LogTail;
   stderr?: LogTail;

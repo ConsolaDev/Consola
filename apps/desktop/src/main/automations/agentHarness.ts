@@ -1,4 +1,8 @@
-import type { AgentHarnessAnswer, AgentHarnessQuery } from '@consola/automation-engine';
+import type {
+  AgentHarnessAnswer,
+  AgentHarnessQuery,
+  EntryAgentsView,
+} from '@consola/automation-engine';
 import { launchFieldsFor, type Harness } from '../../shared/harness';
 import type { HarnessDriverId } from '../../shared/types';
 import { getDriver, type HarnessDriver, stepTurnProblem, toolPolicyProblem } from '../drivers';
@@ -70,6 +74,52 @@ export function harnessesWithServers(
         : {}),
     };
   });
+}
+
+/**
+ * The Allow card's agents with each whole server's `knownTools`: the tools
+ * its agent's harness's CLI last listed for it (review S2). A narrowed
+ * server is shown by its own tools and never asked about; a server
+ * `toolsOf` knows nothing of gains no key.
+ */
+export function withKnownTools(
+  view: EntryAgentsView,
+  toolsOf: (harnessId: string | undefined, server: string) => readonly string[] | undefined,
+): EntryAgentsView {
+  return {
+    ...view,
+    agents: view.agents.map((agent) => ({
+      ...agent,
+      mcpServers: agent.mcpServers.map((server) => {
+        if (server.tools !== undefined) return server;
+        const known = toolsOf(agent.harnessId, server.name);
+        return known !== undefined ? { ...server, knownTools: [...known] } : server;
+      }),
+    })),
+  };
+}
+
+/**
+ * `withKnownTools`' answer from the servers cache: the tools a settled answer
+ * lists for a server, on the agent's harness (else the workspace's
+ * default); undefined for a harness not there, an answer not settled, or a
+ * server it lacks or lists without tools. Only `peek`: opening a card
+ * starts nothing.
+ */
+export function settledServerTools(
+  cache: Pick<McpServersCache, 'peek'>,
+  harnesses: readonly Harness[],
+  defaultHarnessId: string | undefined,
+): (harnessId: string | undefined, server: string) => readonly string[] | undefined {
+  return (harnessId, server) => {
+    const id = harnessId ?? defaultHarnessId;
+    const harness = harnesses.find((candidate) => candidate.id === id);
+    if (harnessId !== undefined && !harness) return undefined;
+    const fields = launchFieldsFor(harness);
+    const answer = cache.peek(getDriver(fields.driverId), toHarnessConfig(fields));
+    if (answer?.state !== 'settled') return undefined;
+    return answer.servers.find((candidate) => candidate.name === server)?.tools;
+  };
 }
 
 /**

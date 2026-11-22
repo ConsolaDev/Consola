@@ -52,6 +52,10 @@ export interface AutomationView {
     agent?: string;
     /** The agent's file, "agents/investigator.md": what the Allow card lists. */
     agentFile?: string;
+    /** The servers its agent names, each narrowed to `tools` when it is; absent when it names none. */
+    servers?: Array<{ name: string; tools?: string[] }>;
+    /** The skills its agent names, by folder name; absent when it names none. */
+    skills?: string[];
   }>;
   /** The file it lives in, relative to the factory folder: `factory.yml` or `automations/<name>.yaml`. */
   file?: string;
@@ -223,13 +227,24 @@ export interface EntryAgentView {
   description?: string;
   harnessId?: string;
   model?: string;
+  maxTurns?: number;
   /** Its standing instructions, exactly as written. */
   body: string;
+  /**
+   * The servers it names, each narrowed to `tools` when it is. `knownTools`:
+   * a whole server's tools as its harness's last settled probe listed them,
+   * filled in by the host; absent when unknown (review S2).
+   */
+  mcpServers: Array<{ name: string; tools?: string[]; knownTools?: string[] }>;
+  /** The skills it names, by folder name. */
+  skills: string[];
 }
 
 /** An entry's agents, each once in step order, at `version`: the one Allow sends back. */
 export interface EntryAgentsView {
   version: string;
+  /** Its runs carry an item, text other people wrote (`entryReadsItems`): the Allow card's item line (review B3). */
+  readsItems: boolean;
   agents: EntryAgentView[];
 }
 

@@ -3,6 +3,7 @@ import { Bot, Terminal } from 'lucide-react';
 import type { RunDefinition } from '../../../shared/automations';
 import { automationsBridge } from '../../services/automationsBridge';
 import { ipcErrorMessage } from '../../utils/ipcErrorMessage';
+import { ITEM_TEXT_LINE } from './agentGrantWords';
 import { approvalAgent, approvalNotes, dryRunCommands } from './approvalCard';
 import { useIntent } from './parts';
 
@@ -134,7 +135,7 @@ function ApprovalStep({
         <Icon size={13} aria-hidden="true" />
         <span className="automations-approval-id">{step.id}</span>
         <span className="automations-meta">
-          {step.kind === 'agent' ? 'Agent, read-only' : 'Command'}
+          {step.kind === 'agent' ? (agent?.head ?? 'Agent, read-only') : 'Command'}
         </span>
       </div>
       {step.if !== undefined && (
@@ -152,6 +153,16 @@ function ApprovalStep({
           {agent.description !== undefined && (
             <p className="automations-approval-description">{agent.description}</p>
           )}
+          {/* What its servers grant: a whole server brings its write tools with it. */}
+          {agent.servers.map((line) => (
+            <p key={line} className="automations-approval-description">
+              {line}
+            </p>
+          ))}
+          {agent.skills !== null && (
+            <p className="automations-approval-description">{agent.skills}</p>
+          )}
+          {agent.readsOthers && <p className="automations-hint">{ITEM_TEXT_LINE}</p>}
           <Folded label={agent.file} text={agent.body} />
         </>
       )}

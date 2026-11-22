@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { RunRecord, StepRun } from '../../../shared/automations';
 import type { LogTail } from '../../../shared/automations';
 import {
+  agentFacts,
   artifactNote,
   attemptsLine,
   conditionValues,
@@ -517,5 +518,42 @@ describe('what a step’s turns report', () => {
     expect(deniedLine(agentStep({ turn: { deniedTools: [] } }))).toBeNull();
     expect(deniedLine(agentStep({ turn: { turns: 3 } }))).toBeNull();
     expect(deniedLine(agentStep())).toBeNull();
+  });
+});
+
+describe('agentFacts (2-C)', () => {
+  const agent = (fields: {
+    mcpServers?: Array<{ name: string; tools?: string[] }>;
+    skills?: string[];
+  }) => ({
+    agent: {
+      name: 'investigator',
+      hash: 'a'.repeat(64),
+      body: 'B',
+      mcpServers: fields.mcpServers ?? [],
+      skills: fields.skills ?? [],
+    },
+  });
+
+  it("gives an agent's servers, each narrowing, and its skills", () => {
+    expect(
+      agentFacts(
+        agent({
+          mcpServers: [{ name: 'claude.ai Coralogix' }, { name: 'grafana', tools: ['query_logs'] }],
+          skills: ['incident-triage'],
+        }),
+      ),
+    ).toEqual([
+      { label: 'Servers', value: 'claude.ai Coralogix · grafana (query_logs)' },
+      { label: 'Skills', value: 'incident-triage' },
+    ]);
+    expect(agentFacts(agent({ skills: ['incident-triage'] }))).toEqual([
+      { label: 'Skills', value: 'incident-triage' },
+    ]);
+  });
+
+  it('gives nothing for an agent naming neither, or no agent', () => {
+    expect(agentFacts(agent({}))).toEqual([]);
+    expect(agentFacts({})).toEqual([]);
   });
 });

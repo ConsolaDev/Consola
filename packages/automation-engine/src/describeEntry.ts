@@ -40,23 +40,37 @@ function agentWords(
  * Each step as the automation page draws it: "Prompt", "Review action", an
  * agent-only step's agent, or the command's first line. A step that names an
  * agent also gives its agent's words and file; `agents` (by name) gives each
- * one's harness and model, and an agent it lacks is named alone.
+ * one's harness and model, and its servers and skills when it names any
+ * (the node's third line); an agent it lacks is named alone.
  */
 export function describeSteps(
   steps: Step[],
-  agents?: Readonly<Record<string, Pick<AgentDefinition, 'harness' | 'model'>>>,
+  agents?: Readonly<
+    Record<
+      string,
+      Pick<AgentDefinition, 'harness' | 'model'> &
+        Partial<Pick<AgentDefinition, 'mcpServers' | 'skills'>>
+    >
+  >,
 ): NonNullable<AutomationView['steps']> {
   return steps.map((step) => {
+    const known =
+      step.kind === 'agent' &&
+      step.agent !== undefined &&
+      agents &&
+      Object.prototype.hasOwnProperty.call(agents, step.agent)
+        ? agents[step.agent]
+        : undefined;
     const agent =
       step.kind === 'agent' && step.agent !== undefined
         ? {
-            words: agentWords(
-              step.agent,
-              agents && Object.prototype.hasOwnProperty.call(agents, step.agent)
-                ? agents[step.agent]
-                : undefined,
-            ),
+            words: agentWords(step.agent, known),
             file: `agents/${step.agent}.md`,
+            servers: known?.mcpServers?.map((server) => ({
+              name: server.name,
+              ...(server.tools !== undefined ? { tools: [...server.tools] } : {}),
+            })),
+            skills: known?.skills ? [...known.skills] : undefined,
           }
         : undefined;
     return {
@@ -73,6 +87,8 @@ export function describeSteps(
               ? agent.words
               : 'Prompt',
       ...(agent ? { agent: agent.words, agentFile: agent.file } : {}),
+      ...(agent?.servers && agent.servers.length > 0 ? { servers: agent.servers } : {}),
+      ...(agent?.skills && agent.skills.length > 0 ? { skills: agent.skills } : {}),
     };
   });
 }
