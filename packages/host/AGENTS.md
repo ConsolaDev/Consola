@@ -37,6 +37,15 @@ Imports point inward only; `src/boundary.test.ts` fails on any that does not.
   test's `node` use it; it may use the test runner, t3's test kits and test
   seams, and reach `bin.ts` to run its command.
 
+  `@consola/agent-ui`'s browser tests use it too, by path, so a change here can
+  break them: their global setup (`packages/agent-ui/src/testing/hostSession.ts`)
+  imports `machine.ts` (`writeFakeClis`, `readCalls`, `cliVariablesIn`,
+  `homeVariables`, `pathWith`) and spawns `replaySession.ts` with node, passing
+  `simple full-access session --pass-public-key … --session-id … --harness claude
+  --port 0`; its `sendFixtureMessage.ts` imports `t3Client.ts` (`hostSocketUrl`,
+  `connectT3Client`) and `replay.ts` (`loadReplay`, `sendMessage`). Run
+  `pnpm --filter @consola/agent-ui test` after changing any of these.
+
 To add a ring, add a row to `LAYERS` and a case to the table in
 `boundary.test.ts`. Test files are exempt from the layer rules, but never import
 another `@consola/*` package: the host stands alone.
