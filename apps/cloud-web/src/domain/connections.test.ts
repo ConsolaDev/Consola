@@ -1,24 +1,25 @@
 import { describe, expect, expectTypeOf, it } from 'vitest';
 import type { components } from './apiContract';
-import { messageForGitHubResult } from './connectionMessages';
+import {
+  accountCount,
+  connectedAtLong,
+  connectedSentence,
+  messageForGitHubResult,
+  repositoryCount,
+} from './connectionMessages';
 import {
   accountKind,
+  avatarUrl,
+  DAYS_AGO_SHOWN,
   GITHUB_RESULTS,
-  type GitHubRepository,
+  type GitHubConnection,
   type GitHubResult,
   isSuccess,
-  REPOSITORIES_SHOWN,
+  JUST_CONNECTED_MS,
+  justConnectedId,
   readGitHubResult,
-  repositoryLabel,
-  shownRepositories,
+  whenConnected,
 } from './connections';
-
-const repository = (fullName: string, id = fullName.length): GitHubRepository => ({
-  id,
-  fullName,
-  private: true,
-  url: `https://github.com/${fullName}`,
-});
 
 describe("a Connect's result", () => {
   it('is read when the page knows it', () => {
@@ -54,36 +55,106 @@ describe("a Connect's result", () => {
   });
 });
 
-describe("an installation's repositories on its card", () => {
-  it('are named in order, all of them when there are few', () => {
-    const { shown, more } = shownRepositories([
-      repository('sprocket/web'),
-      repository('sprocket/api'),
-    ]);
-    expect(shown.map((each) => each.fullName)).toEqual(['sprocket/api', 'sprocket/web']);
-    expect(more).toBe(0);
-  });
-
-  it('stop at a few, and say how many more', () => {
-    const many = Array.from({ length: REPOSITORIES_SHOWN + 3 }, (_, n) =>
-      repository(`sprocket/repo-${String(n).padStart(2, '0')}`, n),
+describe("an account's picture", () => {
+  it("is GitHub's avatar for the account's id, at the size asked", () => {
+    expect(avatarUrl({ id: 9002, login: 'sprocket', type: 'Organization' }, 64)).toBe(
+      'https://avatars.githubusercontent.com/u/9002?s=64&v=4',
     );
-    const { shown, more } = shownRepositories(many);
-    expect(shown).toHaveLength(REPOSITORIES_SHOWN);
-    expect(shown[0]?.fullName).toBe('sprocket/repo-00');
-    expect(more).toBe(3);
   });
 });
 
-describe("a repository's label on its card", () => {
-  const sprocket = { id: 1, login: 'Sprocket', type: 'Organization' } as const;
-
-  it("leaves out the owner when it is the installation's account, whatever its case", () => {
-    expect(repositoryLabel(repository('sprocket/catalog-portal'), sprocket)).toBe('catalog-portal');
+describe('the installation a Connect just added', () => {
+  const now = Date.parse('2026-11-22T21:00:00Z');
+  const installation = (id: number, connectedAt: string): GitHubConnection => ({
+    id,
+    account: { id, login: `account-${id}`, type: 'Organization' },
+    connectedAt,
+    settingsUrl: `https://github.com/settings/installations/${id}`,
+    repositories: { kind: 'listed', repositories: [] },
   });
 
-  it('keeps the owner of a repository the account does not own', () => {
-    expect(repositoryLabel(repository('sprocket-labs/api'), sprocket)).toBe('sprocket-labs/api');
+  it('is the newest one, when it is recent', () => {
+    const installations = [
+      installation(1, '2026-11-01T10:00:00Z'),
+      installation(2, '2026-11-22T20:58:00Z'),
+      installation(3, '2026-11-20T10:00:00Z'),
+    ];
+    expect(justConnectedId(installations, now)).toBe(2);
+  });
+
+  it('is none when even the newest is older than a few minutes', () => {
+    const installations = [installation(1, '2026-11-22T20:00:00Z')];
+    expect(justConnectedId(installations, now)).toBeNull();
+    expect(
+      justConnectedId(installations, Date.parse('2026-11-22T20:00:00Z') + JUST_CONNECTED_MS),
+    ).toBe(1);
+  });
+
+  it('skips a time it cannot read, and is none for no installations', () => {
+    expect(justConnectedId([installation(1, 'not a time')], now)).toBeNull();
+    expect(justConnectedId([], now)).toBeNull();
+  });
+});
+
+describe('when an installation was connected', () => {
+  const now = new Date(2026, 10, 22, 21, 0);
+
+  it('is today for any time earlier the same day, or later than now', () => {
+    expect(whenConnected(new Date(2026, 10, 22, 0, 5).toISOString(), now)).toEqual({
+      kind: 'today',
+    });
+    expect(whenConnected(new Date(2026, 10, 22, 23, 0).toISOString(), now)).toEqual({
+      kind: 'today',
+    });
+  });
+
+  it('counts calendar days, not hours, for the last few days', () => {
+    expect(whenConnected(new Date(2026, 10, 21, 23, 59).toISOString(), now)).toEqual({
+      kind: 'days-ago',
+      days: 1,
+    });
+    expect(whenConnected(new Date(2026, 10, 22 - DAYS_AGO_SHOWN, 9).toISOString(), now)).toEqual({
+      kind: 'days-ago',
+      days: DAYS_AGO_SHOWN,
+    });
+  });
+
+  it('is a date once it is longer ago, and null for a time it cannot read', () => {
+    const long = new Date(2026, 10, 22 - DAYS_AGO_SHOWN - 1, 9);
+    expect(whenConnected(long.toISOString(), now)).toEqual({ kind: 'on', date: long });
+    expect(whenConnected('not a time', now)).toBeNull();
+  });
+});
+
+describe("an installation's card says when it was connected", () => {
+  const now = new Date(2026, 10, 22, 21, 0);
+
+  it('in words for the last few days', () => {
+    expect(connectedSentence(new Date(2026, 10, 22, 9).toISOString(), now)).toBe('connected today');
+    expect(connectedSentence(new Date(2026, 10, 21, 9).toISOString(), now)).toBe(
+      'connected yesterday',
+    );
+    expect(connectedSentence(new Date(2026, 10, 19, 9).toISOString(), now)).toBe(
+      'connected 3 days ago',
+    );
+  });
+
+  it('as a date after that, and not at all for a time it cannot read', () => {
+    expect(connectedSentence(new Date(2026, 7, 24, 9).toISOString(), now)).toMatch(
+      /^connected .*2026/,
+    );
+    expect(connectedSentence('not a time', now)).toBeNull();
+    expect(connectedAtLong('not a time')).toBeNull();
+    expect(connectedAtLong(new Date(2026, 7, 24, 9).toISOString())).toMatch(/^Connected .*2026/);
+  });
+});
+
+describe('the counts a card shows', () => {
+  it('say one in the singular and any other number in the plural', () => {
+    expect(accountCount(1)).toBe('1 account');
+    expect(accountCount(3)).toBe('3 accounts');
+    expect(repositoryCount(1)).toBe('1 repository');
+    expect(repositoryCount(0)).toBe('0 repositories');
   });
 });
 

@@ -1,26 +1,443 @@
-/* Settings' Connections page. Its rows are the desktop app's workspace rows
-   (`WorkspaceSettings/styles.css`, `.ws-row`): bordered, an icon, a name, then its meta. Only
-   repository names are in monospace. The page's title, options, buttons and chips are Settings'
-   own (`SettingsDialog.css`). */
+/* Settings' Connections page, after Notion's and the like: a service is a tile with its mark, its
+   name and what it is for; what is connected sits in one rounded group with each account under
+   its service, and what comes later is a grid of tiles. The page's title, buttons and chips are
+   Settings' own (`SettingsDialog.css`). Every animation here plays once, as a row arrives or an
+   answer lands, and none plays for someone who asked for reduced motion. */
+
+.connections {
+  gap: 28px;
+}
+
+/* The page's title and a group's heading take the keyboard only when what had it goes away. */
+.connections h2:focus,
+.connections h3:focus {
+  outline: none;
+}
+
+.connections-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ---- How the last Connect ended ---- */
 
 .connections-notice {
-  margin: 0;
-  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 8px 10px 12px;
   border: 1px solid var(--gray-a6);
-  border-radius: 6px;
+  border-radius: 10px;
   font-size: 12px;
 }
 
+.connections-notice p {
+  flex: 1;
+  margin: 0;
+}
+
 .connections-notice.done {
-  border-color: var(--green-a7);
+  border-color: var(--green-a6);
   background: var(--green-a2);
   color: var(--green-11);
 }
 
 .connections-notice.problem {
-  border-color: var(--amber-a7);
+  border-color: var(--amber-a6);
   background: var(--amber-a2);
   color: var(--amber-11);
+}
+
+.connections-notice-icon {
+  flex-shrink: 0;
+}
+
+.connections-check {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.connections-notice-close {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  opacity: 0.7;
+  cursor: pointer;
+}
+
+.connections-notice-close:hover {
+  background: var(--gray-a3);
+  opacity: 1;
+}
+
+/* ---- A group: its heading, then its list ---- */
+
+.connections-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.connections-group-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 16px;
+}
+
+.connections-group-label {
+  margin: 0;
+  padding-inline: 2px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--gray-a10);
+}
+
+.connections-group-hint {
+  margin: 0;
+  font-size: 11px;
+  color: var(--gray-a9);
+}
+
+.connections-list {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  list-style: none;
+  border: 1px solid var(--gray-a5);
+  border-radius: 12px;
+  background: var(--gray-2);
+}
+
+.connections-list > li {
+  position: relative;
+}
+
+.connections-list > li + li {
+  border-top: 1px solid var(--gray-a4);
+}
+
+/* ---- A service: its tile, its name and purpose, then its state ---- */
+
+.connections-service {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 14px;
+  padding: 14px 16px;
+}
+
+.connections-tile {
+  position: relative;
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  box-sizing: border-box;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--gray-a5);
+  border-radius: 10px;
+  background: var(--color-background);
+  box-shadow: 0 1px 2px var(--black-a2);
+  color: var(--gray-12);
+}
+
+.connections-tile.quiet {
+  color: var(--gray-a10);
+}
+
+/* The green dot of a service that is connected, ringed in the group's own colour. */
+.connections-presence {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--green-9);
+  box-shadow: 0 0 0 2px var(--gray-2);
+}
+
+.connections-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.connections-name {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--gray-12);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.connections-description {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--gray-a10);
+}
+
+.connections-description.strong {
+  color: var(--gray-a11);
+}
+
+.connections-hint {
+  margin-top: 4px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--gray-a9);
+}
+
+.connections-aside {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.connections-connect {
+  min-width: 84px;
+  justify-content: center;
+}
+
+.connections-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--green-11);
+  white-space: nowrap;
+}
+
+.connections-status-count {
+  margin-left: -2px;
+  color: var(--gray-a10);
+}
+
+.connections-status-dot {
+  position: relative;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--green-9);
+}
+
+/* ---- An account, under its service ---- */
+
+/* Indented to the service's name, its avatar beside its name and what it covers. */
+.connections-account {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  align-items: start;
+  column-gap: 12px;
+  row-gap: 10px;
+  padding: 12px 16px 12px 70px;
+  transition:
+    opacity 180ms ease,
+    transform 180ms ease,
+    background 180ms ease;
+}
+
+/* Accounts are divided from each other under the service's name, not across the group. */
+.connections-list > .connections-account + .connections-account {
+  border-top: none;
+}
+
+.connections-account + .connections-account::before {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 70px;
+  height: 1px;
+  background: var(--gray-a4);
+  content: "";
+}
+
+.connections-account[data-asking] {
+  background: var(--red-a2);
+}
+
+.connections-account[data-leaving] {
+  opacity: 0;
+  transform: translateX(8px);
+}
+
+.connections-account-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.connections-meta {
+  margin: 0;
+  font-size: 11px;
+  color: var(--gray-a10);
+}
+
+.connections-account-body {
+  display: flex;
+  flex-direction: column;
+  grid-column: 2 / -1;
+  gap: 10px;
+  min-width: 0;
+}
+
+.connections-avatar {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--gray-a3);
+  color: var(--gray-a10);
+}
+
+.connections-avatar.organization {
+  border-radius: 7px;
+}
+
+.connections-avatar::after {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 1px var(--gray-a4);
+  content: "";
+  pointer-events: none;
+}
+
+.connections-avatar img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transition: opacity 240ms ease;
+}
+
+.connections-avatar img[data-loaded] {
+  opacity: 1;
+}
+
+/* An installation GitHub no longer has keeps its picture, faded. */
+.connections-avatar[data-gone] img {
+  filter: grayscale(1);
+  opacity: 0.5;
+}
+
+.connections-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin: -3px -8px 0 0;
+}
+
+.connections-ghost {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  color: var(--gray-a10);
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background 120ms ease,
+    color 120ms ease;
+}
+
+.connections-ghost:hover {
+  background: var(--gray-a3);
+  color: var(--gray-12);
+}
+
+.connections-ghost.danger:hover {
+  background: var(--red-a3);
+  color: var(--red-11);
+}
+
+.connections-ghost:focus-visible,
+.connections-notice-close:focus-visible {
+  outline: 2px solid var(--accent-8);
+  outline-offset: 1px;
+}
+
+.connections-arrow {
+  transition: transform 160ms ease;
+}
+
+.connections-ghost:hover .connections-arrow {
+  transform: translate(1px, -1px);
+}
+
+.connections-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--amber-11);
+}
+
+.connections-warning svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+/* ---- Disconnect, asked in place ---- */
+
+.connections-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  min-width: 0;
+  margin: 0;
+  padding: 10px 0 0;
+  border: none;
+  border-top: 1px dashed var(--red-a5);
+}
+
+.connections-confirm p {
+  flex: 1 1 280px;
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--gray-a11);
+}
+
+.connections-confirm-actions {
+  display: flex;
+  gap: 8px;
 }
 
 .connections-error {
@@ -29,168 +446,264 @@
   color: var(--red-11);
 }
 
-/* One record each: a service that comes later. */
-.connections-rows {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
+/* ---- Connect another account: the group's last row ---- */
 
-.connections-row,
-.connections-installation-head {
+.connections-add {
   display: flex;
   align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.connections-row {
-  padding: 8px 12px;
-  border: 1px solid var(--gray-a5);
-  border-radius: 6px;
-  background: var(--color-background);
-}
-
-.connections-row-icon {
-  flex-shrink: 0;
-  color: var(--gray-a10);
-}
-
-.connections-row-name {
-  overflow: hidden;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--gray-12);
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.connections-row-meta {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  font-size: 11px;
-  color: var(--gray-a10);
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-/* An installation: its account on one line, its repositories under it. */
-.connections-installations {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.connections-installation {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 8px 12px;
-  border: 1px solid var(--gray-a5);
-  border-radius: 6px;
-  background: var(--color-background);
-}
-
-.connections-link {
-  display: inline-flex;
-  flex-shrink: 0;
-  align-items: center;
-  gap: 4px;
-  padding: 0;
+  gap: 12px;
+  box-sizing: border-box;
+  width: 100%;
+  padding: 10px 16px 10px 70px;
   border: none;
   background: none;
   font: inherit;
-  font-size: 11px;
-  color: var(--accent-11);
-  text-decoration: none;
+  font-size: 12px;
+  color: var(--gray-a11);
+  text-align: left;
   cursor: pointer;
+  transition:
+    background 120ms ease,
+    color 120ms ease;
 }
 
-.connections-link:hover {
-  text-decoration: underline;
+.connections-add:hover:not(:disabled) {
+  background: var(--gray-a3);
+  color: var(--gray-12);
 }
 
-.connections-link.danger {
-  color: var(--red-11);
+.connections-add:disabled {
+  cursor: default;
 }
 
-.connections-link:focus-visible {
+.connections-add:focus-visible {
   outline: 2px solid var(--accent-8);
-  outline-offset: 2px;
-  border-radius: 2px;
+  outline-offset: -2px;
 }
 
-.connections-repositories {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 14px;
+.connections-add-icon {
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  width: 28px;
+  height: 28px;
+  border: 1px dashed var(--gray-a7);
+  border-radius: 7px;
+  transition:
+    border-color 160ms ease,
+    color 160ms ease,
+    background 160ms ease;
+}
+
+.connections-add-icon svg {
+  transition: transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.connections-add:hover:not(:disabled) .connections-add-icon {
+  border-style: solid;
+  border-color: var(--accent-8);
+  background: var(--accent-a3);
+  color: var(--accent-11);
+}
+
+.connections-add:hover:not(:disabled) .connections-add-icon svg {
+  transform: rotate(90deg);
+}
+
+/* ---- Coming later: a grid of tiles ---- */
+
+.connections-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 8px;
   margin: 0;
-  padding: 0 0 0 24px;
+  padding: 0;
   list-style: none;
 }
 
-.connections-repositories li {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  color: var(--gray-a10);
+/* Top-aligned, so the names of the tiles in a row line up whatever their purpose's length. */
+.connections-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  column-gap: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--gray-a4);
+  border-radius: 12px;
 }
 
-.connections-repositories a {
-  overflow: hidden;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11px;
-  color: var(--gray-a11);
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  text-decoration: none;
+/* ---- While the connections load ---- */
+
+.connections-bone {
+  display: block;
+  border-radius: 6px;
+  background: var(--gray-a3);
 }
 
-.connections-repositories a:hover {
-  color: var(--gray-12);
-  text-decoration: underline;
+.connections-bone.connections-tile {
+  border: none;
+  box-shadow: none;
 }
 
-.connections-more {
-  font-size: 11px;
-}
-
-.connections-confirm {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding-top: 8px;
-  border-top: 1px solid var(--gray-a5);
-}
-
-.connections-confirm-actions {
-  display: flex;
+.connections-text.bones {
   gap: 8px;
 }
 
-/* On a narrow screen the account's line wraps, its links under its name. */
+/* ---- Small things that move ---- */
+
+.connections-spin {
+  flex-shrink: 0;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* Rows come in one after another, a few pixels up. */
+  .connections-rise {
+    animation: connections-rise 280ms cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
+    animation-delay: calc(var(--rise, 0) * 45ms);
+  }
+
+  .connections-notice {
+    animation: connections-drop 320ms cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
+  }
+
+  /* The check draws its ring, then its tick. */
+  .connections-check circle,
+  .connections-check path {
+    stroke-dasharray: 1;
+    stroke-dashoffset: 1;
+  }
+
+  .connections-check circle {
+    animation: connections-draw 420ms 120ms ease-out forwards;
+  }
+
+  .connections-check path {
+    animation: connections-draw 260ms 460ms ease-out forwards;
+  }
+
+  /* A connected service's dot pings twice as the page opens, then rests. */
+  .connections-status-dot::after {
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: var(--green-9);
+    animation: connections-ping 1.4s 400ms cubic-bezier(0, 0, 0.2, 1) 2 both;
+    content: "";
+  }
+
+  /* The account a Connect just added glows, then settles like the rest. */
+  .connections-account[data-new] {
+    animation:
+      connections-rise 280ms cubic-bezier(0.2, 0.8, 0.2, 1) backwards,
+      connections-arrive 2.6s 300ms ease-out both;
+    animation-delay: calc(var(--rise, 0) * 45ms), 300ms;
+  }
+
+  .connections-spin {
+    animation: connections-spin 900ms linear infinite;
+  }
+
+  .connections-bone {
+    background:
+      linear-gradient(90deg, var(--gray-a3) 0%, var(--gray-a5) 50%, var(--gray-a3) 100%) 0 0 / 200%
+      100%;
+    animation: connections-shimmer 1.4s ease-in-out infinite;
+  }
+}
+
+@keyframes connections-rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+@keyframes connections-drop {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.99);
+  }
+}
+
+@keyframes connections-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes connections-ping {
+  from {
+    opacity: 0.7;
+    transform: scale(1);
+  }
+
+  to {
+    opacity: 0;
+    transform: scale(3);
+  }
+}
+
+@keyframes connections-arrive {
+  from {
+    background: var(--accent-a4);
+  }
+
+  to {
+    background: transparent;
+  }
+}
+
+@keyframes connections-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes connections-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+
+  to {
+    background-position: -100% 0;
+  }
+}
+
+/* "Just connected": the chip of the account a Connect added. */
+.settings-chip.new {
+  border-color: var(--accent-a7);
+  background: var(--accent-a2);
+  color: var(--accent-11);
+}
+
+/* On a narrow screen the accounts lose their indent, and actions go under the text they act on. */
 @media (max-width: 640px) {
-  .connections-installation-head {
-    flex-wrap: wrap;
+  .connections-service {
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: start;
+    row-gap: 10px;
   }
 
-  .connections-installation-head .connections-row-meta {
-    flex-basis: 100%;
-    order: 1;
+  .connections-service .connections-aside {
+    grid-column: 2;
+    justify-content: flex-start;
   }
 
-  .connections-row {
-    flex-wrap: wrap;
+  .connections-account {
+    grid-template-columns: 28px minmax(0, 1fr);
+    padding-left: 16px;
   }
 
-  .connections-row .connections-row-meta {
-    flex-basis: 100%;
-    order: 1;
-    white-space: normal;
+  .connections-account + .connections-account::before {
+    left: 16px;
+  }
+
+  .connections-actions {
+    grid-column: 2;
+    margin: -6px 0 0 -8px;
+  }
+
+  .connections-add {
+    padding-left: 16px;
   }
 }

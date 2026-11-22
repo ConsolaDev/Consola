@@ -102,30 +102,58 @@ export const LATER_SERVICES: readonly LaterService[] = [
   { id: 'jira', name: 'Jira', purpose: 'Start work from a ticket, and move it as the work moves.' },
 ];
 
-/** How many of an installation's repositories its card names before "and N more". */
-export const REPOSITORIES_SHOWN = 8;
+/**
+ * GitHub's picture of an account, by its id, at `size` pixels: the address GitHub serves every
+ * account's avatar from. The page only shows it; an account with none, or a picture that does not
+ * load, falls back to a plain icon.
+ */
+export function avatarUrl(account: GitHubAccount, size: number): string {
+  return `https://avatars.githubusercontent.com/u/${account.id}?s=${size}&v=4`;
+}
 
-/** The repositories a card names, in name order, and how many more there are. */
-export function shownRepositories(repositories: readonly GitHubRepository[]): {
-  shown: GitHubRepository[];
-  more: number;
-} {
-  const sorted = [...repositories].sort((a, b) => a.fullName.localeCompare(b.fullName));
-  return {
-    shown: sorted.slice(0, REPOSITORIES_SHOWN),
-    more: Math.max(0, sorted.length - REPOSITORIES_SHOWN),
-  };
+/** How recent an installation must be to count as the one a Connect just added. */
+export const JUST_CONNECTED_MS = 10 * 60 * 1000;
+
+/**
+ * The installation a Connect that GitHub just sent back as `connected` added: the newest one, as
+ * long as it was connected in the last few minutes. Null when none is that recent, so an older
+ * installation is never marked new.
+ */
+export function justConnectedId(
+  installations: readonly GitHubConnection[],
+  now: number,
+): number | null {
+  let newest: { id: number; at: number } | null = null;
+  for (const installation of installations) {
+    const at = Date.parse(installation.connectedAt);
+    if (Number.isNaN(at)) continue;
+    if (newest === null || at > newest.at) newest = { id: installation.id, at };
+  }
+  if (newest === null) return null;
+  return now - newest.at <= JUST_CONNECTED_MS ? newest.id : null;
 }
 
 /**
- * How a card names a repository: without its owner when that is the installation's own account,
- * which the card already names, and in full otherwise.
+ * When an installation was connected, as the card says it: today, a few days ago, or on a date.
+ * Days are counted in calendar days where the person is. Null for a time that cannot be read.
  */
-export function repositoryLabel(repository: GitHubRepository, account: GitHubAccount): string {
-  const prefix = `${account.login}/`;
-  return repository.fullName.toLowerCase().startsWith(prefix.toLowerCase())
-    ? repository.fullName.slice(prefix.length)
-    : repository.fullName;
+export type ConnectedWhen =
+  | { kind: 'today' }
+  | { kind: 'days-ago'; days: number }
+  | { kind: 'on'; date: Date };
+
+/** How many calendar days back an installation still reads as "N days ago". */
+export const DAYS_AGO_SHOWN = 6;
+
+export function whenConnected(connectedAt: string, now: Date): ConnectedWhen | null {
+  const date = new Date(connectedAt);
+  if (Number.isNaN(date.getTime())) return null;
+  const startOf = (day: Date) => new Date(day.getFullYear(), day.getMonth(), day.getDate());
+  // Rounded, so a day that is 23 or 25 hours long (a clock change) still counts as one.
+  const days = Math.round((startOf(now).getTime() - startOf(date).getTime()) / 86_400_000);
+  if (days <= 0) return { kind: 'today' };
+  if (days <= DAYS_AGO_SHOWN) return { kind: 'days-ago', days };
+  return { kind: 'on', date };
 }
 
 /** How the page names an installation's account: an organisation, or a personal account. */

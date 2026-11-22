@@ -220,7 +220,25 @@ anyone else whatever the page shows.
   settings there (`settingsUrl`).
 - The repositories are GitHub's answer of the moment: an installation GitHub
   no longer has is `gone`, and one whose list GitHub did not give is
-  `unavailable`. Both still show, so they can be disconnected.
+  `unavailable`. Both still show, so they can be disconnected. The page
+  counts an installation's repositories and never lists them: their names
+  are GitHub's to show, behind "Choose repositories".
+- **Its look is Notion's and the like.** A connected service sits in the
+  Connected group, a rounded list with each account indented under it; GitHub
+  before anything is connected sits in Available with Connect; the services
+  that come later are a grid of tiles. A service is known by its mark
+  (`ui/serviceMarks.tsx`: each owner's trademark, shown only to name the
+  service; GitHub's in the text colour), and an account by GitHub's picture of
+  it (`avatarUrl`), round for a person and square-cornered for an
+  organisation, with an icon under it if it never loads.
+- A Connect that GitHub sends back as `connected` marks the account it added
+  ("Just connected", `justConnectedId`): the newest installation, only if it
+  is minutes old. An installation says when it was connected in words for the
+  last few days (`connectedSentence`).
+- Motion plays once, as a row arrives or an answer lands (a staggered rise,
+  the success check drawing itself, the connected dot's ping), and none plays
+  under `prefers-reduced-motion`. Escape inside Disconnect's question answers
+  Keep instead of closing Settings.
 
 ## Adding a feature
 

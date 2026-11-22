@@ -1,4 +1,41 @@
-import type { ConnectAnswer, DisconnectAnswer, GitHubResult } from './connections';
+import {
+  type ConnectAnswer,
+  type DisconnectAnswer,
+  type GitHubResult,
+  whenConnected,
+} from './connections';
+
+const ON_DATE = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' });
+const AT_TIME = new Intl.DateTimeFormat(undefined, { dateStyle: 'full', timeStyle: 'short' });
+// English like every other sentence on the page, so "3 days ago" never reads in another language.
+const DAYS_AGO = new Intl.RelativeTimeFormat('en', { numeric: 'auto' });
+
+/**
+ * When an installation was connected, as its card says it: "connected today", "connected
+ * yesterday", "connected 3 days ago", then "connected Nov 2, 2026". Null for a time that cannot
+ * be read, which the card leaves out.
+ */
+export function connectedSentence(connectedAt: string, now: Date): string | null {
+  const when = whenConnected(connectedAt, now);
+  if (when === null) return null;
+  switch (when.kind) {
+    case 'today':
+      return 'connected today';
+    case 'days-ago':
+      return `connected ${DAYS_AGO.format(-when.days, 'day')}`;
+    case 'on':
+      return `connected ${ON_DATE.format(when.date)}`;
+  }
+}
+
+/** The exact time an installation was connected, for the card's tooltip. Null if unreadable. */
+export function connectedAtLong(connectedAt: string): string | null {
+  const date = new Date(connectedAt);
+  return Number.isNaN(date.getTime()) ? null : `Connected ${AT_TIME.format(date)}`;
+}
+
+/** What an installation that covers no repositories says. */
+export const NO_REPOSITORIES = 'No repositories yet. Choose them on GitHub.';
 
 const NOT_ANSWERING = 'Consola Cloud’s service isn’t answering. Try again in a moment.';
 const ONLY_MANAGERS = 'Only this workspace’s owners and admins can change its connections.';
@@ -7,6 +44,24 @@ const CONNECT_AGAIN = 'Connect again from here.';
 /** What the page says when GitHub cannot be connected on this server at all. */
 export const GITHUB_NOT_CONFIGURED =
   'GitHub isn’t set up on this server yet. Whoever runs it adds the GitHub App’s settings.';
+
+/** What GitHub is for, on its card. */
+export const GITHUB_PURPOSE =
+  'Pull requests, pushes and repository files, for automations and factories kept in a repository.';
+
+/** What the services that come later say, over their cards. */
+export const LATER_SERVICES_HINT =
+  'These can’t be connected yet. Each will connect here, the way GitHub does.';
+
+/** How many accounts a service has connected: "1 account", "3 accounts". */
+export function accountCount(count: number): string {
+  return count === 1 ? '1 account' : `${count} accounts`;
+}
+
+/** How many repositories an installation covers: "1 repository", "12 repositories". */
+export function repositoryCount(count: number): string {
+  return count === 1 ? '1 repository' : `${count} repositories`;
+}
 
 /** What the GitHub card says before anything is connected, to someone who may connect it. */
 export const GITHUB_CONNECT_HINT =
