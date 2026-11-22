@@ -7,7 +7,7 @@ import type { DetectedTarget } from './targets';
 export interface OpenInServiceDeps {
   /** The apps on this computer, the file manager last (`detectTargets`). */
   detect(): Promise<DetectedTarget[]>;
-  /** An app's icon, as a data URL (`app.getFileIcon`); undefined when it has none. */
+  /** An app's icon, as a data URL; undefined when it has none. */
   readIcon(appPath: string): Promise<string | undefined>;
   launch: Launcher;
 }

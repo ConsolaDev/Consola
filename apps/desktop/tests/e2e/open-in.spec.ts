@@ -162,12 +162,10 @@ test.describe('open in', () => {
     await menuItem('IntelliJ IDEA').click();
     await expect(openButton('IntelliJ IDEA')).toBeVisible();
     const intellij = path.join(applications, 'IntelliJ IDEA CE.app');
-    await expect
-      .poll(launches)
-      .toEqual([
-        { targetId: 'finder', appPath: FINDER, folder: catalog },
-        { targetId: 'intellij', appPath: intellij, folder: catalog },
-      ]);
+    await expect.poll(launches).toEqual([
+      { targetId: 'finder', appPath: FINDER, folder: catalog },
+      { targetId: 'intellij', appPath: intellij, folder: catalog },
+    ]);
     await chevron().click();
     await expect(menuItem('IntelliJ IDEA')).toContainText('⌘O');
     await expect(menuItem('Finder')).not.toContainText('⌘O');
@@ -189,11 +187,13 @@ test.describe('open in', () => {
     await expect(openButton('IntelliJ IDEA')).toBeVisible();
     await conversation().focus();
     await openChord();
-    await expect.poll(async () => (await launches()).at(-1)).toEqual({
-      targetId: 'intellij',
-      appPath: intellij,
-      folder: notes,
-    });
+    await expect
+      .poll(async () => (await launches()).at(-1))
+      .toEqual({
+        targetId: 'intellij',
+        appPath: intellij,
+        folder: notes,
+      });
     expect((await launches()).slice(2, 4)).toEqual([
       { targetId: 'intellij', appPath: intellij, folder: catalog },
       { targetId: 'intellij', appPath: intellij, folder: catalog },
@@ -204,11 +204,13 @@ test.describe('open in', () => {
     await page.keyboard.type('Open folder in VS Code');
     await page.keyboard.press('Enter');
     await expect(openButton('VS Code')).toBeVisible();
-    await expect.poll(async () => (await launches()).at(-1)).toEqual({
-      targetId: 'vscode',
-      appPath: path.join(applications, 'Visual Studio Code.app'),
-      folder: notes,
-    });
+    await expect
+      .poll(async () => (await launches()).at(-1))
+      .toEqual({
+        targetId: 'vscode',
+        appPath: path.join(applications, 'Visual Studio Code.app'),
+        folder: notes,
+      });
 
     // Main checks the folder itself: one gone since is refused, and says so.
     const opened = (await launches()).length;

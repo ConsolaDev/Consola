@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import * as os from 'node:os';
 import { promisify } from 'node:util';
-import { app, shell } from 'electron';
+import { nativeImage, shell } from 'electron';
 import { exposeToTests, isTest, openInApplicationsDir } from '../test-mode';
 import { createRecordingLauncher, createSystemLauncher, type Launcher } from './launchers';
 import { OpenInService } from './OpenInService';
@@ -11,6 +11,9 @@ const execFileAsync = promisify(execFile);
 
 /** `open -a` hands the folder to Launch Services and exits; a hung one is given up on. */
 const OPEN_TIMEOUT_MS = 10_000;
+
+/** An app's icon, read at twice the 16px the button and menu draw it at. */
+const ICON_PX = 32;
 
 /**
  * "Open in" as the app runs it: the computer's application folders, each
@@ -40,8 +43,15 @@ export function createOpenInService(): OpenInService {
   }
   return new OpenInService({
     detect: () => detectTargets({ platform: process.platform, dirs }),
+    // Quick Look's thumbnail of the bundle, which is its icon. Not
+    // `app.getFileIcon`: on macOS 27 with Electron 43 it answers a blank
+    // placeholder for every app at 'small' and 'normal', and takes main down
+    // at 'large'.
     readIcon: async (appPath) => {
-      const image = await app.getFileIcon(appPath, { size: 'normal' });
+      const image = await nativeImage.createThumbnailFromPath(appPath, {
+        width: ICON_PX,
+        height: ICON_PX,
+      });
       return image.isEmpty() ? undefined : image.toDataURL();
     },
     launch,
