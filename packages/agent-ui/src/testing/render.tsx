@@ -1,6 +1,6 @@
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
-import { afterEach, inject } from 'vite-plus/test';
+import { afterEach, inject, vi } from 'vite-plus/test';
 import { page, server } from 'vite-plus/test/browser';
 import type { AgentChatProps } from '../index.ts';
 import { HOST_SESSION_KEY, type HostSession } from './hostSessionKey.ts';
@@ -12,6 +12,18 @@ declare global {
 /** The replay host `hostSession.ts` started (Vitest's provided values are untyped here). */
 export const host = (): HostSession =>
   (inject as unknown as (key: string) => HostSession)(HOST_SESSION_KEY);
+
+/**
+ * Watches `console.error`, `warn`, `log` and `info` (calls still go through) until the spies
+ * are restored (`vi.restoreAllMocks`); answers everything they were called with so far, as text,
+ * for a test to check no pass reached the console.
+ */
+export const watchConsole = (): (() => string) => {
+  const spies = (['error', 'warn', 'log', 'info'] as const).map((level) =>
+    vi.spyOn(console, level),
+  );
+  return () => JSON.stringify(spies.map((spy) => spy.mock.calls));
+};
 
 /** The assistant's message, not the user's prompt that quotes it. */
 export const answerOf = (text: string) => page.getByText(text, { exact: true });

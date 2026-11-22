@@ -1,10 +1,13 @@
 // A file of its own: the host closes a connection when its pass expires (`@consola/host`'s
 // `rpcServer.ts`), and this page sees that happen to a chat that was showing its thread.
-import { beforeAll, expect, it, vi } from 'vite-plus/test';
+import { afterEach, beforeAll, expect, it, vi } from 'vite-plus/test';
 import { page, server } from 'vite-plus/test/browser';
-import { answerOf, forgetStoredThreads, host, mountChat } from './testing/render.tsx';
+import { answerOf, forgetStoredThreads, host, mountChat, watchConsole } from './testing/render.tsx';
 
 beforeAll(forgetStoredThreads);
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 /** The commands `vite.config.ts` defines for these tests. */
 type PassCommands = {
@@ -24,6 +27,7 @@ it('asks for a new pass when the host ends the connection at its pass’s expiry
   const expiring = await commands.signHostPass(passKeyFile, sessionId, 8);
   const next = await commands.signHostPass(passKeyFile, sessionId, 600);
   const onPassExpired = vi.fn(async () => next);
+  const consoleText = watchConsole();
   await mountChat({ hostUrl, pass: expiring, sessionId, onPassExpired });
 
   // Connected with the expiring pass, and shown the thread, before anything is refused.
@@ -40,4 +44,6 @@ it('asks for a new pass when the host ends the connection at its pass’s expiry
   await expect.element(answerOf(assistantText)).toBeVisible();
   expect(page.getByRole('alert').query()).toBeNull();
   expect(onPassExpired).toHaveBeenCalledTimes(1);
+  expect(consoleText()).not.toContain(expiring);
+  expect(consoleText()).not.toContain(next);
 });

@@ -5,7 +5,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeAll, expect, it, vi } from 'vite-plus/test';
 import { page } from 'vite-plus/test/browser';
 import { DevPage, forgetPassInAddress } from '../dev/DevPage.tsx';
-import { addToPage, answerOf, forgetStoredThreads, host } from './testing/render.tsx';
+import { addToPage, answerOf, forgetStoredThreads, host, watchConsole } from './testing/render.tsx';
 
 beforeAll(forgetStoredThreads);
 afterEach(() => {
@@ -24,14 +24,14 @@ const mountPage = async (search: string) => {
 };
 
 it('names the parameters that are missing, and never the pass', async () => {
-  const logged = vi.spyOn(console, 'error');
+  const consoleText = watchConsole();
   const { container, unmount } = await mountPage('?pass=secret-pass-value');
 
   await expect
     .element(page.getByRole('alert'))
     .toMatchTextContent(/Missing parameters: host, session\./);
   expect(container.textContent).not.toContain('secret-pass-value');
-  expect(JSON.stringify(logged.mock.calls)).not.toContain('secret-pass-value');
+  expect(consoleText()).not.toContain('secret-pass-value');
   unmount();
 });
 
@@ -47,11 +47,13 @@ it("renders the session's conversation from ws:// host, pass and session paramet
   const { hostUrl, pass, sessionId, assistantText } = host();
   const wsHost = hostUrl.replace(/^http/, 'ws');
   const query = new URLSearchParams({ host: wsHost, pass, session: sessionId, theme: 'dark' });
+  const consoleText = watchConsole();
   const { container, unmount } = await mountPage(`?${query}`);
 
   await expect.element(answerOf(assistantText)).toBeVisible();
   expect(container.querySelector('[data-theme="dark"]')).not.toBeNull();
   expect(container.textContent).not.toContain(pass);
+  expect(consoleText()).not.toContain(pass);
   unmount();
 });
 

@@ -3,7 +3,7 @@
 // connects.
 import { afterEach, beforeAll, expect, it, vi } from 'vite-plus/test';
 import { page } from 'vite-plus/test/browser';
-import { answerOf, forgetStoredThreads, host, mountChat } from './testing/render.tsx';
+import { answerOf, forgetStoredThreads, host, mountChat, watchConsole } from './testing/render.tsx';
 
 beforeAll(forgetStoredThreads);
 afterEach(() => {
@@ -43,6 +43,7 @@ it('asks once when the new pass is refused too, and says so', async () => {
 
 it('says so, and logs why, when onPassExpired fails', async () => {
   const { hostUrl, sessionId, assistantText } = host();
+  const consoleText = watchConsole();
   const logged = vi.spyOn(console, 'error');
   const onPassExpired = vi.fn(async (): Promise<string> => {
     throw new Error('the page could not reach its pass service');
@@ -59,10 +60,12 @@ it('says so, and logs why, when onPassExpired fails', async () => {
       expect.stringContaining('the page could not reach its pass service'),
     ],
   ]);
+  expect(consoleText()).not.toContain(REFUSED_PASS);
 });
 
 it("says so, and logs why, when the chat's connection cannot be set up", async () => {
   const { sessionId } = host();
+  const consoleText = watchConsole();
   const logged = vi.spyOn(console, 'error');
   await mountChat({ hostUrl: 'not an address', pass: REFUSED_PASS, sessionId });
 
@@ -71,7 +74,7 @@ it("says so, and logs why, when the chat's connection cannot be set up", async (
     '@consola/agent-ui: the host address "not an address" is not a URL.',
     expect.any(String),
   );
-  expect(JSON.stringify(logged.mock.calls)).not.toContain(REFUSED_PASS);
+  expect(consoleText()).not.toContain(REFUSED_PASS);
 });
 
 it('asks for a new pass when the host refuses the one it has, and connects with it', async () => {
