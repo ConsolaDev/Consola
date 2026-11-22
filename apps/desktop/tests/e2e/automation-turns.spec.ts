@@ -982,3 +982,44 @@ test('a harness whose extra args pin --max-turns refuses steps, and says why', a
     await steps.close();
   }
 });
+
+test('a window cannot give a session a turn cap, a tool policy or a provenance', async () => {
+  test.setTimeout(120_000);
+  const steps = await setUpSteps({ outputs: null });
+  try {
+    // Made as a window makes one, with the three fields only main may set.
+    const stored = await steps.page.evaluate(async (workspaceId) => {
+      const { workspaces } = await window.workspaceAPI.getSnapshot();
+      const scopeId = workspaces.find((workspace) => workspace.id === workspaceId)!.scopes[0].id;
+      const created = await window.workspaceAPI.createSession(workspaceId, {
+        name: 'Made by a window',
+        workspaceId,
+        instanceId: 'made-by-a-window',
+        harnessId: 'stub',
+        scopeId,
+        maxTurns: 3,
+        toolPolicy: 'read-only',
+        automation: {
+          runId: 'run-x',
+          automationId: 'catalog-notes',
+          step: { id: 'look', attempt: 1 },
+        },
+      } as never);
+      const after = await window.workspaceAPI.getSnapshot();
+      return {
+        created,
+        record:
+          after.workspaces
+            .flatMap((workspace) => workspace.sessions)
+            .find((session) => session.instanceId === 'made-by-a-window') ?? null,
+      };
+    }, steps.workspaceId);
+    expect(stored.record).toMatchObject({ name: 'Made by a window' });
+    for (const field of ['maxTurns', 'toolPolicy', 'automation']) {
+      expect(stored.created).not.toHaveProperty(field);
+      expect(stored.record).not.toHaveProperty(field);
+    }
+  } finally {
+    await steps.close();
+  }
+});

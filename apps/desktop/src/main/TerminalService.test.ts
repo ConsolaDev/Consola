@@ -1441,6 +1441,24 @@ describe('TerminalService a reporting turn', () => {
     service.destroy();
   });
 
+  it('a turn that exits lets its reader go', async () => {
+    // Private state, read here because letting it go is all clearing it does:
+    // every reader of the field checks for a live PTY first, and every spawn
+    // sets it again. A reader holds up to 200 kept lines for the terminal's life.
+    const readerOf = (service: TerminalService) =>
+      (service as unknown as { turnReader: unknown }).turnReader;
+    const fake = installFakePty();
+    const service = reporting();
+    service.start();
+    await vi.advanceTimersByTimeAsync(0);
+    fake.feed(pty(INIT, 'Warning: x\n'));
+    expect(readerOf(service)).not.toBeNull();
+    fake.exit(1);
+    await vi.advanceTimersByTimeAsync(SETTLE_MS);
+    expect(readerOf(service)).toBeNull();
+    service.destroy();
+  });
+
   it('a JSON line split across chunks is read once, and none of it is shown', async () => {
     const fake = installFakePty();
     const service = reporting();
