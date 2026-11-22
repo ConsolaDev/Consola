@@ -19,14 +19,21 @@ once so that neither keeps its own copy:
 - the messages `cloud-global`'s outbox sends a cell (`OutboxMessage`,
   `WorkspaceChange`, `readOutboxMessage`), and how it delivers them: the
   path, the signed body, and what each answer means (`OUTBOX_DELIVERY_PATH`,
-  `OUTBOX_MESSAGE_TYPE`, `OUTBOX_ANSWER`, `readOutOfOrderAnswer`).
+  `OUTBOX_MESSAGE_TYPE`, `OUTBOX_ANSWER`, `readOutOfOrderAnswer`);
+- the GitHub events `cloud-global` passes on to a workspace's cell
+  (`GitHubEventMessage`, `readGitHubEventMessage`), and how: the path, the
+  signed body, its size and what each answer means
+  (`GITHUB_EVENT_DELIVERY_PATH`, `GITHUB_EVENT_TYPE`, `GITHUB_EVENT_ANSWER`,
+  `GITHUB_EVENT_DELIVERY_MAX_BYTES`).
 
 It holds no signing, no verifying and no delivery. Minting and signing the
 token are `cloud-global`'s (issue 5.3), checking its signature and its region
 the cell's (5.4). The outbox table, signing a message and the worker that
 delivers it are `cloud-global`'s (6.1); checking a delivery's signature,
 applying its message, and checking its region and its order are the cell's
-(6.2).
+(6.2). Receiving GitHub's webhooks, checking GitHub's signature and passing
+each event on, signed, are `cloud-global`'s; checking an event's signature
+and its region and recording it once are the cell's (14.2).
 
 Only the two cloud apps import it, from any of their layers, `domain` and
 `application` included. It is AGPL-3.0-only, because only Consola's own apps
@@ -58,8 +65,9 @@ like the apps' own boundary tests.
 
 Everything that crosses between the apps is read with its reader:
 `readCellTokenClaims(payload, nowSeconds)` for a token's claims and
-`readOutboxMessage(value)` for a message, each once its signature is checked,
-and `readOutOfOrderAnswer(value)` for a cell's `outOfOrder` answer. Each
+`readOutboxMessage(value)` for a message and `readGitHubEventMessage(value)`
+for an event, each once its signature is checked, and
+`readOutOfOrderAnswer(value)` for a cell's `outOfOrder` answer. Each
 returns `{ ok: true, value }` or `{ ok: false, reason }`, and never throws on
 what it reads.
 
@@ -147,6 +155,46 @@ what it reads.
   each time. It never skips a message, and a workspace's next message waits
   until this one is confirmed, so the order per workspace is kept. A refusal
   that never clears holds up its workspace alone, where it can be seen.
+
+### Passing on a GitHub event
+
+`cloud-global` receives the GitHub App's webhooks (`apps/cloud-global`,
+"Webhooks"). What an event says (a pull request's title, a commit, a
+comment) is the company's, so `cloud-global` keeps none of it: it passes
+each event on to the cell of the workspace that holds the installation, which
+keeps it in the workspace's region.
+
+- **A message** is `{ workspaceId, region, deliveryId, event,
+  installationId, payload }`: the workspace and its region, GitHub's id of
+  the delivery (`X-GitHub-Delivery`) and the event's name
+  (`X-GitHub-Event`), the installation, and the payload as GitHub sent it,
+  parsed. The payload is GitHub's to shape, so the reader checks only that it
+  is an object whose `installation.id` is the message's `installationId`.
+- **One event a request**: `POST` to `GITHUB_EVENT_DELIVERY_PATH` on the
+  cell's origin, carrying no cell token, like an outbox delivery. The body is
+  the message's JSON as the payload of a compact JWS, sent as
+  `GITHUB_EVENT_DELIVERY_MEDIA_TYPE`, signed with the cell token's key, its
+  protected header holding `alg`, the key's `kid` and `typ`
+  (`GITHUB_EVENT_TYPE`). A cell checks it against the key set it already has
+  and refuses any other `typ`, so an outbox message, a cell token and an
+  event never pass for one another.
+- **Its size.** GitHub sends no payload over `GITHUB_PAYLOAD_MAX_BYTES`, so
+  `cloud-global` refuses a webhook body over it, and a cell takes a delivery
+  of up to `GITHUB_EVENT_DELIVERY_MAX_BYTES`: any such payload, signed.
+- **Recorded once, by its delivery id.** GitHub keeps a delivery's id when it
+  is sent again, so a cell records a workspace's event once: `recorded` (201)
+  the first time, `recordedBefore` (200) after, with nothing changed. That is
+  how a replayed or redelivered webhook is told apart, and `cloud-global`
+  answers GitHub that it is a duplicate.
+- **The answers** are `GITHUB_EVENT_ANSWER`'s, by status, checked in this
+  order: `unsigned` (401), `unreadable` (400), `otherRegion` (421),
+  `workspacePending` (409, the cell has not applied the workspace's
+  `workspace.created` yet), and `unavailable` (503) when the cell cannot get
+  the keys or its database.
+- **No retry of its own.** `cloud-global` passes an event on while GitHub
+  waits for its answer, and keeps nothing to try again with. A 2xx is the
+  cell's confirmation, and anything else makes `cloud-global` answer GitHub
+  with a failure, so GitHub's own Redeliver sends it again.
 
 ## Changing the contract
 
