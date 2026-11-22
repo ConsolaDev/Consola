@@ -203,6 +203,8 @@ export interface StepsWorld {
   folderReads: number;
   /** Every read of a folder waits for this while it is set, after counting the read. */
   folderReadGate?: Promise<void>;
+  /** The host's harness records, as `listHarnesses` lists them. Default: none. */
+  harnessRecords: Array<{ id: string; name: string; enabled: boolean; archived: boolean }>;
   /** Each workspace's latest Inbox snapshot, as `inboxSnapshot` returns it. */
   inbox: Map<string, ItemSnapshot>;
   /** Sessions a pane has a live terminal for: a person opened them. */
@@ -405,6 +407,7 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
     agentHarnesses: { ...options.agentHarnesses },
     harnessQueries: [],
     folderReads: 0,
+    harnessRecords: [],
     inbox: new Map(),
     liveTerminals: new Set(),
     maxConcurrentAgents: options.maxConcurrentAgents,
@@ -654,6 +657,7 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
         warning: null,
       };
     },
+    listHarnesses: () => world.harnessRecords,
     stopAgent: (session, reason) => {
       world.stops.push({ sessionId: session.id, reason });
       return !world.noTurnToStop;

@@ -166,7 +166,9 @@ export {
 export { pollSource } from './sources/pollSource';
 export { resolvePrevious, previousDocument, NO_EARLIER_RUN } from './sources/previous';
 export {
+  AGENT_EXAMPLES,
   describeCapabilities,
+  type AgentCapability,
   type AutomationCapabilities,
   type CapabilitiesInput,
 } from './capabilities';

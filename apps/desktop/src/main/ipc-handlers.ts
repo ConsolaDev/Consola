@@ -2148,6 +2148,11 @@ export function setupIpcHandlers(): boolean {
         modelsOf: (harness) => cachedModels(harnessCapabilitiesCache, harness),
       });
     },
+    // What an agent writing automations may name in an agent file's `harness:`.
+    listHarnesses: () =>
+      harnesses
+        .getAll()
+        .map(({ id, name, enabled, archived }) => ({ id, name, enabled, archived })),
     stopAgent: (session, reason) =>
       automationTerminal(session.id)?.stopUnattendedTurn(reason) ?? false,
     platform: process.platform,

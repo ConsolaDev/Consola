@@ -310,6 +310,12 @@ export interface AutomationServiceDeps {
    * never blocking) too.
    */
   agentHarness(workspaceId: string, agent?: AgentHarnessQuery): AgentHarnessAnswer;
+  /**
+   * The host's harnesses, by id: what an agent writing automations is told
+   * an agent file's `harness:` may name (only the enabled, unarchived ones).
+   * Absent, it is told none.
+   */
+  listHarnesses?(): Array<{ id: string; name: string; enabled: boolean; archived: boolean }>;
   /** End a running unattended turn the way Ctrl+C does. False when none is running. */
   stopAgent(session: SessionView, reason: string): boolean;
   /** Agent sessions automations may have working at once, across every workspace. */
@@ -1184,6 +1190,20 @@ export class AutomationService {
     return describeCapabilities({
       filePath: factory.folder.filePath,
       fileExists: factory.read.exists,
+      folderPath: factory.folder.folderPath,
+      // The folder's agents as last read: what a step's `agent:` may name.
+      agents: Object.values(parse.agents).map((agent) => ({
+        name: agent.name,
+        ...(agent.description !== undefined ? { description: agent.description } : {}),
+        ...(agent.harness !== undefined ? { harness: agent.harness } : {}),
+        ...(agent.model !== undefined ? { model: agent.model } : {}),
+        ...(agent.maxTurns !== undefined ? { maxTurns: agent.maxTurns } : {}),
+        mcpServers: agent.mcpServers.map((server) => server.name),
+        skills: [...agent.skills],
+      })),
+      harnesses: (this.deps.listHarnesses?.() ?? [])
+        .filter((harness) => harness.enabled && !harness.archived)
+        .map((harness) => ({ id: harness.id, name: harness.name })),
       tools: this.deps.registry.list().filter((tool) => tool.automatable),
       actions: workspace?.actions ?? [],
       scopes: workspace?.scopes ?? [],
