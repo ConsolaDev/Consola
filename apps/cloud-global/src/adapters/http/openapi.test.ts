@@ -53,3 +53,35 @@ describe('openapi.json', () => {
     expect(described.sort()).toEqual(ROUTES.map((r) => `${r.method} ${r.path}`).sort());
   });
 });
+
+/**
+ * What the app serves that is not the contract's to describe, and why. Nothing else may be: a
+ * route registered with `app.get`, `app.post` and the like, or with `app.openapi` but left out of
+ * `ROUTES`, fails the test below. Add to this list only what no client calls through the
+ * contract, with the reason.
+ */
+const OUTSIDE_THE_CONTRACT = [
+  // Better Auth's own routes: sign-in, sessions. The web app calls them through Better Auth's
+  // client, and Better Auth decides their shapes.
+  'ALL /api/auth/*',
+  // The origin check every change passes (`app.use`), which answers only 403 `bad_origin`.
+  'ALL /api/*',
+];
+
+describe('the contract', () => {
+  it('declares every route the app serves', () => {
+    // A route with middleware or a body schema is one entry per handler in its chain.
+    const served = [...new Set(app.routes.map((route) => `${route.method} ${route.path}`))];
+    const declared = ROUTES.map(
+      (route) => `${route.method.toUpperCase()} ${route.path.replaceAll(/\{(.+?)\}/g, ':$1')}`,
+    );
+    expect(served.filter((route) => !OUTSIDE_THE_CONTRACT.includes(route)).sort()).toEqual(
+      declared.sort(),
+    );
+  });
+
+  it('serves what it leaves outside the contract', () => {
+    const served = new Set(app.routes.map((route) => `${route.method} ${route.path}`));
+    expect(OUTSIDE_THE_CONTRACT.filter((route) => !served.has(route))).toEqual([]);
+  });
+});

@@ -119,7 +119,11 @@ contract is refused, so a new package is covered without being named.
    changes a workspace or its members does it through `writeWorkspaceChange`,
    in its own transaction ("The outbox").
 4. A route in `adapters/http`, or a hook in `adapters/auth`, calls the use
-   case.
+   case. A route is declared in `contract.ts` first, with every answer it
+   gives, and added to `ROUTES`; `app.ts` registers it with `app.openapi`,
+   never `app.get` or `app.post`, which `openapi.test.ts` refuses. Then
+   `openapi:generate` rewrites `openapi.json`, and `cloud-web`'s
+   `api:generate` its types, in the same change ("The contract").
 5. `compose.ts` builds the adapter and hands it its ports, and nothing else
    does. A startup step, if one is ever needed, goes there too.
 
@@ -386,6 +390,13 @@ through that file, and CI checks the web app with every change to this app
   suite catches: `app.test.ts` checks every answer it reads against the
   route's schema, and answers are strict objects (a private key's `d` in the
   key set fails it, for one).
+- **The app serves nothing the contract does not declare.** `openapi.test.ts`
+  compares what `app.routes` serves with `ROUTES`, so a route registered with
+  `app.get` and the like, or with `app.openapi` but left out of `ROUTES`,
+  fails it. `OUTSIDE_THE_CONTRACT` names the only exceptions, each with its
+  reason: Better Auth's `/api/auth/*` and the origin check's `app.use`.
+  Adding to it needs a reason as good: no client calls the route through the
+  contract.
 - **A request schema checks shape, never rules.** It is never stricter than
   the domain rule behind it, and a route whose rules name problems hands a
   body of the wrong shape to them in its hook (`POST /api/workspaces` calls

@@ -196,10 +196,32 @@ changing a cloud app, read its own `AGENTS.md` (`apps/cloud-global/AGENTS.md`,
 `apps/cloud-region/AGENTS.md`, `apps/cloud-web/AGENTS.md`): it holds the layer
 rules and the dependency rule that keeps them apart.
 
-`cloud-global`'s API is declared in Zod (`adapters/http/contract.ts`), and
-`openapi.json` is generated from it. The web app's types are generated from
-that file, which it reads and never imports, so CI checks `cloud-web` with
-every change to `cloud-global` (`.github/scripts/ci-scope.mjs`).
+**Every HTTP API a cloud app serves has a contract, and every client calls
+it through types generated from that contract.** This holds for every route,
+in every cloud app, a new app included:
+
+- The routes are declared in Zod with `@hono/zod-openapi`, in the app's
+  `src/adapters/http/contract.ts`, with every status a route answers and its
+  body (strict objects). `app.ts` registers each with `app.openapi`, never
+  `app.get`, `app.post` and the like, and lists it in `ROUTES`.
+- The app's `openapi.json` is generated from them (`openapi:generate`) and
+  committed. `openapi.test.ts` fails while it is stale, and while the app
+  serves a route the contract does not declare (`OUTSIDE_THE_CONTRACT` names
+  the exceptions, such as Better Auth's own routes, each with its reason).
+- The app's HTTP suite checks every answer it reads against the route's
+  schema.
+- A client's types are generated from that `openapi.json`, which it reads as
+  a file and never imports (`cloud-web`'s `domain/apiContract.ts`, by
+  `api:generate`), and it calls the API only through an `openapi-fetch`
+  client typed by them (`createApi`): `cloud-web`'s boundary test refuses
+  `fetch` in its services.
+- The package graph cannot see a file read across apps, so
+  `.github/scripts/ci-scope.mjs` checks the client with every change to the
+  API (`cloud-global` → `cloud-web`), and a new pair is added there.
+
+`cloud-global` and `cloud-web` follow it today; `cloud-region`'s routes move
+onto a contract of their own the same way. Each app's `AGENTS.md` ("The
+contract", "The API's contract") holds the details and the library's traps.
 
 The browser talks only to the web app's origin. Vite proxies `/api` to the API,
 so the session cookie is first-party and the API needs no CORS. Better Auth

@@ -243,6 +243,10 @@ copy of a workspace's members is `workspace_member`, ids and a role, never
 4. A route in `adapters/http` calls the use case. It is registered after
    `requireCaller` in `createApp` (or on a `Hono<CellEnv>` mounted there), and
    hands the use case `c.var.caller`, never a workspace id from the request.
+   Every cloud API has a contract (the root `AGENTS.md`, "Consola Cloud"):
+   the cell's routes have none yet, so the first new route brings it, the
+   way `cloud-global` has one (`adapters/http/contract.ts`, `openapi.json`,
+   `openapi.test.ts`), and declares the cell's existing routes too.
 5. `compose.ts` builds the adapter and hands it its ports, and nothing else
    does. A startup step goes there too.
 
