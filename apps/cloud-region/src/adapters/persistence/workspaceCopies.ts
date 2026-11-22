@@ -1,7 +1,8 @@
 import { and, eq } from 'drizzle-orm';
 import type { CopyStep, WorkspaceCopies } from '../../application/ports.js';
+import { FIRST_TEAM_NAME } from '../../domain/team.js';
 import type { Database } from './database.js';
-import { workspaceMembers, workspaces } from './tables.js';
+import { teamMembers, teams, workspaceMembers, workspaces } from './tables.js';
 
 type Transaction = Parameters<Parameters<Database['transaction']>[0]>[0];
 
@@ -31,22 +32,55 @@ async function moveSequence(tx: Transaction, step: CopyStep): Promise<boolean> {
   return moved.length === 1;
 }
 
+/**
+ * Makes a step's change, and what it means for the workspace's teams (`domain/team.ts`), in the
+ * step's transaction: opening a workspace makes its first team, a person who becomes a member
+ * joins it, and one who stops being a member leaves every team.
+ */
 async function makeChange(tx: Transaction, step: CopyStep): Promise<void> {
   const { workspaceId, change } = step;
   switch (change.kind) {
     case 'open-workspace':
-      // Its row, made as the sequence moved, is the whole of it.
-      return;
-    case 'put-member':
+      // Its row was made as the sequence moved; the first team is the rest of it.
       await tx
-        .insert(workspaceMembers)
-        .values({ workspaceId, personId: change.personId, role: change.role })
-        .onConflictDoUpdate({
-          target: [workspaceMembers.workspaceId, workspaceMembers.personId],
-          set: { role: change.role },
-        });
+        .insert(teams)
+        .values({ workspaceId, name: FIRST_TEAM_NAME, isFirst: true })
+        .onConflictDoNothing();
       return;
+    case 'put-member': {
+      const { personId, role } = change;
+      const joined = await tx
+        .insert(workspaceMembers)
+        .values({ workspaceId, personId, role })
+        .onConflictDoNothing()
+        .returning({ personId: workspaceMembers.personId });
+      if (joined.length === 0) {
+        // A member already: only the role moves, and their teams stay as they are.
+        await tx
+          .update(workspaceMembers)
+          .set({ role })
+          .where(
+            and(
+              eq(workspaceMembers.workspaceId, workspaceId),
+              eq(workspaceMembers.personId, personId),
+            ),
+          );
+        return;
+      }
+      const [first] = await tx
+        .select({ teamId: teams.teamId })
+        .from(teams)
+        .where(and(eq(teams.workspaceId, workspaceId), eq(teams.isFirst, true)));
+      if (first) {
+        await tx
+          .insert(teamMembers)
+          .values({ workspaceId, teamId: first.teamId, personId })
+          .onConflictDoNothing();
+      }
+      return;
+    }
     case 'drop-member':
+      // Their places in the workspace's teams go with this row (`team_member`'s foreign key).
       await tx
         .delete(workspaceMembers)
         .where(

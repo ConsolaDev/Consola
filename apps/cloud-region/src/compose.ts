@@ -1,5 +1,6 @@
-import type { Hono } from 'hono';
+import type { OpenAPIHono } from '@hono/zod-openapi';
 import { systemClock } from './adapters/clock/systemClock.js';
+import type { CellEnv } from './adapters/http/caller.js';
 import { createApp } from './adapters/http/app.js';
 import type { Database } from './adapters/persistence/database.js';
 import { createDrizzleStores } from './adapters/persistence/stores.js';
@@ -24,7 +25,7 @@ export function composeCell(deps: {
   db: Database;
   config: CellConfig;
   cellTokenKeys?: CellTokenKeys;
-}): { app: Hono } {
+}): { app: OpenAPIHono<CellEnv> } {
   const { db, config } = deps;
   const stores = createDrizzleStores(db);
   const keys = deps.cellTokenKeys ?? cloudGlobalKeys(config.cloudGlobalUrl);
@@ -34,6 +35,7 @@ export function composeCell(deps: {
     tokens: createJoseTokenVerifier(keys),
     deliveries: createJoseDeliveryVerifier(keys),
     workspaceCopies: stores.workspaceCopies,
+    teams: stores.teams,
     clock: systemClock,
   });
   return { app };
