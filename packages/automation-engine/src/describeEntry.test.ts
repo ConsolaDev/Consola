@@ -13,6 +13,7 @@ import {
   describeKind,
   describeRun,
   describeSteps,
+  dryRunReports,
   dryRunStarts,
 } from './describeEntry';
 
@@ -451,5 +452,42 @@ describe('describeFlow (slice 3, the cards)', () => {
     - id: only
       prompt: Only.`);
     expect(describeFlow(plain)).toEqual(['Nothing retries by itself.', 'No budget.']);
+  });
+});
+
+describe('a dry run and a write step (slice 3-B)', () => {
+  const agentStep = (id: string, agent?: string): AgentStep => ({
+    kind: 'agent',
+    id,
+    named: true,
+    prompt: 'Fix it.',
+    ...(agent !== undefined ? { agent } : {}),
+    outputs: {},
+    artifacts: [],
+    reads: [],
+    handover: 'optional',
+  });
+
+  it('a dry run reports a write step, and runs read-only ones', () => {
+    expect(dryRunStarts([agentStep('fix', 'fixer')], { fixer: { tools: 'write' } })).toBe(false);
+    expect(dryRunStarts([agentStep('fix', 'fixer')], { fixer: { tools: 'edit' } })).toBe(false);
+    expect(
+      dryRunReports(agentStep('fix', 'fixer'), {
+        fixer: { tools: 'write', environment: { name: 'sandboxed' } },
+      }),
+    ).toBe('Would have run fixer in sandboxed');
+  });
+
+  it('a read-only agent, or a step on the default harness, still runs', () => {
+    const agents = { reader: { tools: 'read-only' as const }, fixer: { tools: 'write' as const } };
+    expect(dryRunStarts([agentStep('look', 'reader')], agents)).toBe(true);
+    expect(dryRunStarts([agentStep('look')], agents)).toBe(true);
+    expect(dryRunStarts([agentStep('fix', 'fixer'), agentStep('look', 'reader')], agents)).toBe(
+      true,
+    );
+    expect(dryRunReports(agentStep('look', 'reader'), agents)).toBeNull();
+    expect(dryRunReports(agentStep('look'), agents)).toBeNull();
+    // Without the agents (every caller before write agents), as before.
+    expect(dryRunStarts([agentStep('fix', 'fixer')])).toBe(true);
   });
 });

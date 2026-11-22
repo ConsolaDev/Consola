@@ -321,3 +321,59 @@ describe('retriesSpentError', () => {
     expect(retriesSpentError('exit 1', 1)).toBe('exit 1 (tried 1 time)');
   });
 });
+
+describe('write steps (slice 3-B)', () => {
+  const FAILED_ON_ITS_OWN = {
+    step: agentStep({ retry: 1 }, 'fix'),
+    record: failed({ id: 'fix', tools: 'write' }),
+    stoppedByPerson: false,
+    overBudget: false,
+  };
+
+  it.each([
+    ['write', 'host', false],
+    ['write', 'sandbox', true],
+    ['edit', 'host', true],
+    ['edit', 'sandbox', true],
+  ] as const)('a %s agent on %s may retry by itself: %s', (tools, isolation, may) =>
+    expect(
+      stepMayRetry({
+        ...FAILED_ON_ITS_OWN,
+        agentTools: tools,
+        agentIsolation: isolation,
+        agentNamesServer: false,
+      }),
+    ).toBe(may),
+  );
+
+  it('a write agent naming a server never retries by itself', () =>
+    expect(
+      stepMayRetry({
+        ...FAILED_ON_ITS_OWN,
+        agentTools: 'edit',
+        agentIsolation: 'sandbox',
+        agentNamesServer: true,
+      }),
+    ).toBe(false));
+
+  it('a read-only agent is as before when the new inputs are absent', () =>
+    expect(stepMayRetry({ ...FAILED_ON_ITS_OWN, agentNamesServer: false })).toBe(true));
+
+  it('the entry does not start again once a write step started', () => {
+    const entry = (records: StepRun[]) =>
+      entryMayRetry({
+        declared: 1,
+        retried: 0,
+        entries: [agentStep(undefined, 'fix')],
+        records,
+        agentNamesServer: () => false,
+        stoppedByPerson: false,
+        overBudget: false,
+      });
+    expect(entry([agentRow({ step: 'fix', tools: 'edit', startedAt: T0 })])).toBe(false);
+    expect(entry([agentRow({ step: 'fix', tools: 'write', startedAt: T0 })])).toBe(false);
+    // One that never started acted on nothing; a read-only one that started still may.
+    expect(entry([agentRow({ step: 'fix', tools: 'write', status: 'not-run' })])).toBe(true);
+    expect(entry([agentRow({ step: 'fix', startedAt: T0 })])).toBe(true);
+  });
+});

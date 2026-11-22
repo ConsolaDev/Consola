@@ -74,6 +74,7 @@ import {
   describeRun,
   describeSteps,
   describeTriggerAsWritten,
+  dryRunReports,
   dryRunStarts,
 } from './describeEntry';
 import { describeSchedule } from './describeSchedule';
@@ -3918,6 +3919,17 @@ export class AutomationService {
       this.failRun(runId, loaded.problem);
       return;
     }
+    // A dry run changes nothing: a step whose agent writes is reported, never started (slice 3-B).
+    if (run.dryRun) {
+      const step = leafSteps(loaded.definition.automation.steps).find(
+        (candidate) => candidate.id === stepId,
+      );
+      const report = step ? dryRunReports(step, dryRunAgentsOf(loaded.definition)) : null;
+      if (report !== null) {
+        this.settleStep(runId, stepId, { status: 'reported' }, { also: { note: report } });
+        return;
+      }
+    }
     const { cwd, scopeId } = run.checkout ?? {};
     if (!cwd || !scopeId) {
       this.settleStep(runId, stepId, { status: 'failed', error: 'It has no working folder.' });
@@ -4618,6 +4630,8 @@ export class AutomationService {
       agentNamesServer: agentNamesServer(loaded.definition, stepId),
       stoppedByPerson: person,
       overBudget: isOverBudget(loaded.definition, this.deps.store.get(runId)!),
+      // A write agent's tools and isolation, as the run's definition keeps them (slice 3-B).
+      ...agentWritesOf(loaded.definition, stepId),
     });
     // Spent: its own failure says how many times it was tried; a person's stop says only that.
     if (!may)
@@ -5547,7 +5561,7 @@ export class AutomationService {
         },
         ...(scoped.scope ? { scope: scoped.scope } : {}),
         hasAgentStep,
-        startsInDryRun: dryRunStarts(automation.steps),
+        startsInDryRun: dryRunStarts(automation.steps, agents),
         ...(firstAgent?.action !== undefined ? { byHandLabel: actions[firstAgent.id].name } : {}),
         skills: stepSkills,
       },
@@ -6244,6 +6258,33 @@ function isAgentRun(run: RunRecord): boolean {
 /** Whether a step's agent names an MCP server, which may post or change things (Call 8). */
 function agentNamesServer(definition: RunDefinition, stepId: string): boolean {
   return (definition.agents?.[stepId]?.mcpServers.length ?? 0) > 0;
+}
+
+/** A write step's agent `tools` and its environment's isolation, as the definition keeps them; none for a read-only one. */
+function agentWritesOf(
+  definition: RunDefinition,
+  stepId: string,
+): { agentTools?: 'edit' | 'write'; agentIsolation?: 'host' | 'sandbox' } {
+  const agent = definition.agents?.[stepId];
+  if (agent?.tools === undefined) return {};
+  return {
+    agentTools: agent.tools,
+    ...(agent.environment ? { agentIsolation: agent.environment.isolation } : {}),
+  };
+}
+
+/** By agent name, what a dry run reads of a definition's agents (by step id): their tools and environment. */
+function dryRunAgentsOf(
+  definition: RunDefinition,
+): Record<string, { tools?: 'edit' | 'write'; environment?: { name: string } }> {
+  const agents: Record<string, { tools?: 'edit' | 'write'; environment?: { name: string } }> = {};
+  for (const agent of Object.values(definition.agents ?? {})) {
+    agents[agent.name] = {
+      ...(agent.tools !== undefined ? { tools: agent.tools } : {}),
+      ...(agent.environment ? { environment: { name: agent.environment.name } } : {}),
+    };
+  }
+  return agents;
 }
 
 /**

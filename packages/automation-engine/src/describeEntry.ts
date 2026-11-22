@@ -32,14 +32,47 @@ export function describeRun(automation: Automation): string {
   return run.kind === 'action' ? actionRuns(run.name) : 'Prompt';
 }
 
+/** What a dry run reads of an entry's agents, by name: whether each writes, and where. */
+type DryRunAgents = Readonly<
+  Record<
+    string,
+    { tools?: 'read-only' | 'edit' | 'write'; environment?: string | { name: string } }
+  >
+>;
+
+/** Whether a step's agent writes (`edit` or `write`, slice 3-B): a dry run reports it instead of running it. */
+function writes(step: StepEntry, agents: DryRunAgents | undefined): boolean {
+  if (step.kind !== 'agent' || step.agent === undefined || agents === undefined) return false;
+  const tools = Object.prototype.hasOwnProperty.call(agents, step.agent)
+    ? agents[step.agent].tools
+    : undefined;
+  return tools === 'edit' || tools === 'write';
+}
+
 /**
- * Whether a dry run of these steps starts anything: an agent step (read-only
- * agents run in a dry run) or a `dry_run: run` command, a loop's included.
+ * Whether a dry run of these steps starts anything: an agent step whose
+ * agent is read-only (read-only agents run in a dry run; one that writes is
+ * reported, slice 3-B) or a `dry_run: run` command, a loop's included.
+ * `agents`, by name, says which write; without it none does.
  */
-export function dryRunStarts(entries: readonly StepEntry[]): boolean {
+export function dryRunStarts(entries: readonly StepEntry[], agents?: DryRunAgents): boolean {
   return leafSteps(entries).some(
-    (step) => step.kind === 'agent' || (step.kind === 'run' && step.dryRun === 'run'),
+    (step) =>
+      (step.kind === 'agent' && !writes(step, agents)) ||
+      (step.kind === 'run' && step.dryRun === 'run'),
   );
+}
+
+/**
+ * What a dry run reports for a step it does not run because its agent
+ * writes (slice 3-B): `Would have run <agent> in <environment>`. Null for any
+ * other step, which a dry run runs or reports as before.
+ */
+export function dryRunReports(step: StepEntry, agents: DryRunAgents): string | null {
+  if (step.kind !== 'agent' || !writes(step, agents)) return null;
+  const { environment } = agents[step.agent!];
+  const where = typeof environment === 'string' ? environment : environment?.name;
+  return `Would have run ${step.agent} in ${where ?? 'its environment'}`;
 }
 
 /** `1 time`, `3 times`. */

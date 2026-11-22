@@ -24,18 +24,29 @@ export function retryDelayMs(used: number, override?: number): number {
   return RETRY_BACKOFF_MS[Math.min(Math.max(used, 0), RETRY_BACKOFF_MS.length - 1)];
 }
 
-/** Whether a step that just failed retries by itself (Call 8). */
+/**
+ * Whether a step that just failed retries by itself (Call 8). A `write`
+ * agent on `host` never does: it may have done anything the person can
+ * (slice 3-B). An `edit` agent, or a `write` one in a sandbox, may, since
+ * the host resets the checkout to where the step started first. The agent's
+ * `agentTools` and `agentIsolation` are absent for a read-only agent.
+ */
 export function stepMayRetry(input: {
   step: Step;
   record: StepRun;
   agentNamesServer: boolean;
   stoppedByPerson: boolean;
   overBudget: boolean;
+  agentTools?: 'read-only' | 'edit' | 'write';
+  agentIsolation?: 'host' | 'sandbox';
 }): boolean {
   const { step, record } = input;
   if (step.kind === 'gate' || input.stoppedByPerson || input.overBudget) return false;
   if ((record.retries ?? 0) >= (step.onFailure?.retry ?? 0)) return false;
-  if (step.kind === 'agent') return !input.agentNamesServer;
+  if (step.kind === 'agent') {
+    if (input.agentTools === 'write' && input.agentIsolation === 'host') return false;
+    return !input.agentNamesServer;
+  }
   // A command with a result ran to its end (a timeout ends in a signal); one with only intent may have done its work.
   const ended = record.command?.exitCode !== undefined || record.command?.signal !== undefined;
   return step.dryRun === 'run' && ended;
@@ -65,7 +76,8 @@ function started(record: StepRun): boolean {
  * Whether a run that just failed starts again by itself: the entry's retry
  * is left, no one stopped it, it is within its budget, and nothing in it
  * could have acted: no command without `dry_run: run`, no agent step naming
- * a server, and no gate started in any attempt. A row the definition does not
+ * a server, no write step (its record's `tools`, slice 3-B: its run's
+ * checkout is not where it was), and no gate started in any attempt. A row the definition does not
  * name could have been anything, so it counts as one that acted.
  */
 export function entryMayRetry(input: {
@@ -83,7 +95,8 @@ export function entryMayRetry(input: {
     if (record.kind === 'repeat' || !started(record)) return true;
     const step = steps.get(record.id);
     if (!step || step.kind === 'repeat' || step.kind === 'gate') return false;
-    if (step.kind === 'agent') return !input.agentNamesServer(step.id);
+    if (step.kind === 'agent')
+      return record.tools === undefined && !input.agentNamesServer(step.id);
     return step.dryRun === 'run';
   });
 }
