@@ -107,7 +107,11 @@ describe('the stub claude in stream-json', { timeout: 30_000 }, () => {
     const dir = scratch();
     const config = scratch();
     const log = path.join(dir, 'claude.log');
-    const env = { STUB_CLAUDE_LOG: log, STUB_CLAUDE_COST: '0.0015,0.003', STUB_CLAUDE_TURNS: '3,2' };
+    const env = {
+      STUB_CLAUDE_LOG: log,
+      STUB_CLAUDE_COST: '0.0015,0.003',
+      STUB_CLAUDE_TURNS: '3,2',
+    };
     const cost = (...flags: string[]) =>
       jsonLines(
         spawnSync(process.execPath, [STUB, '-p', ...flags, ...REPORT, '--', 'hi'], {
