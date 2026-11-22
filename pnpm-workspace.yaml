@@ -69,6 +69,12 @@ overrides:
   '@opencode/schema>effect': 4.1.5
   # t3's markdown pipeline parses math with its fork of the tokenizer.
   remark-math>micromark-extension-math: npm:micromark-extension-llm-math@3.1.0
+  # @consola/agent-ui's copied chat, as t3 resolves it: @pierre/trees pins @pierre/theming
+  # 1.0.0, whose peer range predates @pierre/theme 2 (t3's own override), and Tiptap's menus
+  # stay on the core and pm version the chat names (t3's lockfile has them at 3.31.3).
+  '@pierre/trees>@pierre/theming': 1.0.2
+  '@tiptap/react>@tiptap/extension-bubble-menu': 3.31.3
+  '@tiptap/react>@tiptap/extension-floating-menu': 3.31.3
   # The Claude Agent SDK is always given the person's own Claude executable, so
   # its bundled binaries are never used (as in t3).
   '@anthropic-ai/claude-agent-sdk>@anthropic-ai/claude-agent-sdk-darwin-arm64': '-'
@@ -89,6 +95,8 @@ peerDependencyRules:
   allowedVersions:
     vitest@5>vite: '*'
     '@vitest/mocker@5>vite': '*'
+    # @consola/agent-ui builds with React's Vite plugin on the same Vite+ build.
+    '@vitejs/plugin-react@6>vite': '*'
 
 # t3's @effect/vitest patch imports vite-plus/test (vendor/t3code/UPSTREAM.md).
 packageExtensions:

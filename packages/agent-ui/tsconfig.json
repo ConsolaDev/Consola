@@ -1,0 +1,29 @@
+{
+  // t3's web settings (apps/web/tsconfig.json), with `~/*` pointing at the copy.
+  "extends": "../../vendor/t3code/tsconfig.base.json",
+  "compilerOptions": {
+    "module": "Preserve",
+    "moduleResolution": "Bundler",
+    "erasableSyntaxOnly": false,
+    "verbatimModuleSyntax": false,
+    "jsx": "react-jsx",
+    "lib": ["ES2023", "ES2024.Promise", "ESNext.Disposable", "DOM", "DOM.Iterable"],
+    "types": ["node"],
+    "paths": {
+      "~/*": ["./src/t3/*"]
+    },
+    "plugins": [
+      {
+        "name": "@effect/language-service",
+        "diagnosticSeverity": {
+          "globalDate": "off",
+          "globalConsole": "off",
+          "globalRandom": "off",
+          "globalTimers": "off",
+          "globalFetch": "off"
+        }
+      }
+    ]
+  },
+  "include": ["src", "build", "vite.config.ts"]
+}
