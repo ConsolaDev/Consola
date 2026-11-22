@@ -80,6 +80,15 @@ reads.
   that lives longer, even when its signature is good, one minted in the future
   and one that has expired, each allowing `CLOCK_SKEW_SECONDS` between the
   clocks, so a cell takes a token until `exp` plus the skew and no longer.
+- **The keys.** `cloud-global` holds the private key, from its configuration
+  (`CELL_TOKEN_PRIVATE_KEY`, an Ed25519 JWK on one line), and never logs it or
+  sends it anywhere. It publishes the public keys as a JSON Web Key Set at
+  `CELL_TOKEN_KEYS_PATH`, on its own origin and without sign-in. Each key's
+  `kid` is its JWK thumbprint (RFC 7638), and every token names its key's
+  `kid` in its header. A cell fetches the set from `cloud-global` (`jose`'s
+  `createRemoteJWKSet`, which caches it and fetches again for a `kid` it has
+  not seen) and picks the key by `kid`. A key is rotated by publishing the
+  new one beside the old until every token signed with the old has expired.
 - A JWT library that checks the signature checks the times too, with its own
   tolerance (`jose`'s `clockTolerance` is 0 unless set). Give it
   `CLOCK_SKEW_SECONDS` and `CELL_TOKEN_AUDIENCE`, and the algorithm alone, so
