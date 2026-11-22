@@ -6,6 +6,7 @@ import {
   ORCHESTRATION_V2_WS_METHODS,
   type OrchestrationV2Command,
   type OrchestrationV2ThreadStreamItem,
+  RunId,
   ThreadId,
   WS_METHODS,
 } from '@t3tools/contracts';
@@ -19,6 +20,7 @@ import type * as Scope from 'effect/Scope';
 import * as Tracer from 'effect/Tracer';
 import * as Stream from 'effect/Stream';
 import { SignJWT } from 'jose';
+import { userFacingDispatchErrorMessage } from 't3/orchestration-v2/UserFacingErrors.ts';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vite-plus/test';
 import type { SessionSpec } from '../core/sessionSpec.ts';
 import type { ThreadHandle } from '../runtime/threadRuntime.ts';
@@ -36,6 +38,7 @@ import {
   withState,
 } from '../testing/replay.ts';
 import { connectT3Client, hostSocketUrl, type T3Client } from '../testing/t3Client.ts';
+import { PassKeyInvalid } from './passVerifier.ts';
 import { listenHost, NOT_OFFERED_BY_HOST, SERVED_METHODS } from './rpcServer.ts';
 
 /** Every test runs on a machine of its own, with fake CLIs (`../testing/machine.ts`). */
@@ -249,6 +252,69 @@ const userMessages = (handle: ThreadHandle) =>
   handle.snapshot().turnItems.filter((item) => item.type === 'user_message');
 
 describe('serveHost', () => {
+  it('fails to start, naming the problem and never the key, when the pass key is not an Ed25519 key', async () => {
+    const ed448 = generateKeyPairSync('ed448')
+      .publicKey.export({ type: 'spki', format: 'pem' })
+      .toString();
+    for (const publicKeyPem of ['not a pem', ed448]) {
+      const error = await listenHost({
+        port: 0,
+        host: '127.0.0.1',
+        sessionId: 'session-sprocket-key',
+        publicKeyPem,
+        // Never reached: the key is parsed before anything is served.
+        runtime: {} as ThreadHandle,
+      }).pipe(Effect.flip, Effect.scoped, Effect.runPromise);
+      expect(error).toBeInstanceOf(PassKeyInvalid);
+      expect(error.message).toBe(
+        'The pass public key is not an Ed25519 public key in SPKI PEM form.',
+      );
+      // The key's own text (a PEM's base64 line) appears nowhere in the error.
+      expect(JSON.stringify(error)).not.toContain(publicKeyPem.split('\n')[1] ?? publicKeyPem);
+    }
+  });
+
+  it(
+    'answers a command t3 refuses with t3’s own words, in message and detail, as t3’s server does',
+    () =>
+      withServedReplay('simple', ({ spec, handle, prompt, connect }) =>
+        Effect.gen(function* () {
+          const { client } = yield* connect();
+          const interruptNothing: OrchestrationV2Command = {
+            type: 'run.interrupt',
+            commandId: CommandId.make(`command:${spec.sessionId}:interrupt-missing`),
+            threadId: ThreadId.make(spec.sessionId),
+            runId: RunId.make('run:sprocket:missing'),
+          };
+          const refusal = yield* client[ORCHESTRATION_V2_WS_METHODS.dispatchCommand](
+            interruptNothing,
+          ).pipe(Effect.flip);
+          // What t3's `ws.ts` would say: its helper over the orchestrator's own refusal of the same
+          // command (under a command id of its own: t3 remembers a refused id as refused).
+          const refusedBy = yield* handle
+            .dispatch({
+              ...interruptNothing,
+              commandId: CommandId.make(`command:${spec.sessionId}:interrupt-missing-2`),
+            })
+            .pipe(Effect.flip);
+          const expected =
+            refusedBy._tag === 'ThreadRuntimeError'
+              ? userFacingDispatchErrorMessage(refusedBy.cause)
+              : undefined;
+          expect(expected).toBeDefined();
+          expect(expected).toBe('Run run:sprocket:missing is not interruptible.');
+          expect(refusal).toMatchObject({
+            _tag: 'OrchestrationV2DispatchCommandError',
+            commandType: 'run.interrupt',
+            message: expected,
+            detail: expected,
+          });
+          yield* runTheTurn(handle, prompt);
+        }),
+      ),
+    REPLAY_TIMEOUT_MS,
+  );
+
   it(
     'refuses a connection without a valid pass: none or another key closes 4401, another session 4403',
     () =>

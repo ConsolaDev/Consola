@@ -45,6 +45,18 @@ imported by their package names. Never copy t3 code into `packages/host`, and
 never edit a vendored file from here. A change to a vendored file is recorded in
 `vendor/t3code/UPSTREAM.md` with its reason, in the same commit.
 
+One exception, and only this one: `src/adapters/rpcServer.ts` reproduces a few
+small helpers private to t3's `apps/server/src/ws.ts`, which is not lifted (it
+is t3's whole RPC server) and exports none of them: `withoutWorkspaceSnapshots`
+(less its machine-catalog branches), `withProviderStatusDeltas`,
+`hasCompatibleOrchestrationProtocol`, `readSettingsClient`, the values of
+`WS_RPC_SERVER_OPTIONS` and `PROVIDER_STATUS_DEBOUNCE_MS`, the `426` answer to an
+incompatible protocol, and the frame-parts wrapping of the socket. Each is
+marked with its `ws.ts` lines in the code, and `vendor/t3code/UPSTREAM.md`
+("The host RPC server lift") lists them with those lines, so a re-sync diffs
+them. Anything else `ws.ts` reaches for is imported from the lifted tree; a
+helper that lives in its own module is lifted, never reproduced.
+
 ## The thread runtime
 
 `src/runtime/` runs one t3 thread per Consola session, the thread id being the
@@ -130,19 +142,27 @@ server adds no default bind address. `ws.ts` itself is not lifted; the
 handlers are host glue that calls the helpers `ws.ts` calls
 (`vendor/t3code/UPSTREAM.md`, "The host RPC server lift").
 
-- **The pass first.** A connection's `pass` query parameter is verified
-  (`passVerifier.ts`) before anything else is answered: a compact JWS signed
-  with EdDSA by the cell's Ed25519 key (jose, `algorithms: ['EdDSA']`, so
-  `none`, HMAC and every other algorithm are refused, and a non-Ed25519 key
-  refuses every pass), whose payload decodes as a pass's claims; then
-  `checkPassClaims` judges them. A refused WebSocket is upgraded and closed
-  with `passCloseCode`: `4403` for a valid pass for another session, `4401`
-  for every other refusal (missing, invalid, expired, not yet valid). The
-  pass and its claims are never logged, and `PassRejected` carries the reason
-  only. No tracer sees it either: the server makes no HTTP request span
+- **The key at start.** `listenHost` parses `publicKeyPem` once
+  (`parsePassKey`), before it binds the port, and fails with `PassKeyInvalid`
+  when it is not an Ed25519 public key in SPKI PEM form (the error names the
+  problem, never the key). Every connection's pass is verified against that
+  parsed key, so a misconfigured key stops the host instead of refusing
+  everyone in silence.
+- **The pass first.** Only `GET /ws` is served (any other method or path gets
+  a `404` before the pass is looked at). A connection's `pass` query
+  parameter is verified (`verifyPassWith`) before anything else is answered:
+  a compact JWS signed with EdDSA by the cell's key (jose, `algorithms:
+  ['EdDSA']`, so `none`, HMAC and every other algorithm are refused), whose
+  payload decodes as a pass's claims; then `checkPassClaims` judges them. A
+  refused WebSocket is upgraded and closed with `passCloseCode`: `4403` for a
+  pass signed by the cell's key that names another session (`sid` is checked
+  first, so that pass may also have expired), `4401` for every other refusal
+  (missing, invalid, expired, not yet valid). The pass and its claims are
+  never logged, and `PassRejected` carries the reason only. No tracer sees it
+  either: the server makes no HTTP request span
   (`HttpMiddleware.TracerDisabledWhen`), which would record the URL the pass
-  travels in, and the RPC server traces nothing (`disableTracing`). Then, as t3, a client must speak orchestration protocol 2 (`426`
-  otherwise).
+  travels in, and the RPC server traces nothing (`disableTracing`). Then, as
+  t3, a client must speak orchestration protocol 2 (`426` otherwise).
 - **What is served** is `SERVED_METHODS`, the one list, with why each is
   there: `orchestration.subscribeThread`, `orchestration.dispatchCommand` and
   `orchestration.subscribeCommandOutput` (the thread), `subscribeServerConfig`
@@ -152,7 +172,9 @@ handlers are host glue that calls the helpers `ws.ts` calls
   snapshot). Each follows its `ws.ts` handler; what the host leaves out is
   named at the handler (keybindings, themes, usage-limit sources, bounded
   history windows, on-demand machine catalogs). Only the session's own thread
-  and folder are served: another thread id is t3's typed not-found error.
+  and folder are served: another thread id is t3's typed not-found error. A
+  command t3's orchestrator refuses is answered as `ws.ts` answers it: t3's
+  `userFacingDispatchErrorMessage` of the refusal in `message` and `detail`.
 - **Every other method** answers `NotOfferedByHost` (`{ method }`, message
   `This host does not offer <method>.`). Each method declares t3's own
   failures, and t3's unchanged client decodes only those, so the refusal

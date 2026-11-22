@@ -1413,8 +1413,33 @@ The helpers already here that the host's handlers call:
 `orchestration-v2/ThreadLiveEventCoalescer.ts`,
 `orchestration-v2/ThreadStream.ts` (`decideThreadResume`),
 `orchestration-v2/ThreadManagementService.ts` (`withCreationProvenance`),
-`terminal/OutputProtocol.ts` (`withOutputWindow`) and `serverSettings.ts`
-(`redactServerSettingsForClient`). The lifted tree is now 843 files.
+`terminal/OutputProtocol.ts` (`withOutputWindow`), `serverSettings.ts`
+(`redactServerSettingsForClient`) and `orchestration-v2/UserFacingErrors.ts`
+(`userFacingDispatchErrorMessage`). The lifted tree is now 843 files.
+
+`ws.ts` keeps some small helpers to itself (not exported, and `ws.ts` is not
+lifted), so `packages/host/src/adapters/rpcServer.ts` reproduces them, each
+marked with its `ws.ts` lines. A re-sync diffs these ranges of the new `ws.ts`
+against the host's copies (lines at `d51d8c47`):
+
+| `ws.ts` lines | What | In the host |
+| --- | --- | --- |
+| 484-502 | `withoutWorkspaceSnapshots` | less its on-demand machine-catalog branches |
+| 504-525 | `withProviderStatusDeltas` | the same accumulation, as a function of the stream |
+| 719 | `PROVIDER_STATUS_DEBOUNCE_MS` (200) | `PROVIDER_STATUS_DEBOUNCE` |
+| 801-806 | `hasCompatibleOrchestrationProtocol` | verbatim |
+| 808-811 | `readSettingsClient` | verbatim |
+| 3676-3680 | `WS_RPC_SERVER_OPTIONS` | the same values |
+| 3704-3711 | the `426` answer to an incompatible protocol | the same body |
+| 3814-3827 | splitting large frames for a client that asks | the same wrapping |
+
+The handlers themselves follow these `ws.ts` handlers, written as host glue
+over the helpers above (re-read them on a re-sync too):
+`subscribeOrchestrationV2Thread` (914-1140), `loadServerConfig` (1832-1925),
+`orchestration.dispatchCommand` (2005-2059), `orchestration.subscribeThread`
+(2341-2347), `orchestration.subscribeCommandOutput` (2348-2353),
+`server.probe` (2391), `server.refreshProviders` (2499-2580),
+`subscribeServerConfig` (3423-3579) and the `/ws` route (3697-3851).
 
 ### Known runtime gaps
 

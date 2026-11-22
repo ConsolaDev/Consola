@@ -52,6 +52,7 @@ import {
   coalesceThreadLiveStream,
 } from 't3/orchestration-v2/ThreadLiveEventCoalescer.ts';
 import { withCreationProvenance } from 't3/orchestration-v2/ThreadManagementService.ts';
+import { userFacingDispatchErrorMessage } from 't3/orchestration-v2/UserFacingErrors.ts';
 import {
   decideThreadResume,
   THREAD_RESUME_MAX_REPLAY_EVENTS,
@@ -67,7 +68,7 @@ import { redactServerSettingsForClient } from 't3/serverSettings.ts';
 import { withOutputWindow } from 't3/terminal/OutputProtocol.ts';
 import { passCloseCode } from '../core/pass.ts';
 import type { ThreadHandle } from '../runtime/threadRuntime.ts';
-import { verifyPass } from './passVerifier.ts';
+import { type PassKey, type PassKeyInvalid, parsePassKey, verifyPassWith } from './passVerifier.ts';
 
 /**
  * The methods of t3's `WsRpcGroup` this host serves; it answers every other with
@@ -137,9 +138,12 @@ export interface HostServerOptions {
 const WS_PATH = '/ws';
 /** The query parameter a pass travels in. */
 const PASS_QUERY_PARAM = 'pass';
-/** As t3's `ws.ts`: a defect ends its request only, not every request on the socket. */
+/**
+ * t3's `ws.ts` `WS_RPC_SERVER_OPTIONS` (`ws.ts:3676-3680`, reproduced: ws.ts is not lifted): a
+ * defect ends its request only, not every request on the socket.
+ */
 const WS_RPC_SERVER_OPTIONS = { disableTracing: true, disableFatalDefects: true } as const;
-/** As t3's `ws.ts`: provider changes that arrive together are sent once. */
+/** t3's `PROVIDER_STATUS_DEBOUNCE_MS` (`ws.ts:719`): changes that arrive together are sent once. */
 const PROVIDER_STATUS_DEBOUNCE = Duration.millis(200);
 /** How long a refused socket is given to answer its close frame. */
 const CLOSE_HANDSHAKE_TIMEOUT = Duration.seconds(5);
@@ -188,7 +192,7 @@ const notOffered = (rpc: WsRpc) => {
     : () => Effect.die(refusal);
 };
 
-/** What t3's `ws.ts` reads from a client's capabilities query parameter for settings. */
+/** t3's `readSettingsClient` (`ws.ts:808-811`, reproduced): the client's settings capabilities. */
 const readSettingsClient = (url: URL) => {
   const capabilities = url.searchParams.get(CLIENT_CAPABILITIES_QUERY_PARAM)?.split(',') ?? [];
   return { secretReferences: capabilities.includes(SETTINGS_SECRET_REFERENCES_CAPABILITY) };
@@ -224,11 +228,17 @@ const hostEnvironment = (sessionId: string): ExecutionEnvironmentDescriptor => (
   capabilities: { repositoryIdentity: false, inlineMessageContext: true },
 });
 
-/** As t3's `ws.ts`, for a client that fetches each folder's snapshot itself. */
+/**
+ * t3's `withoutWorkspaceSnapshots` (`ws.ts:484-502`), less its on-demand machine-catalog branches:
+ * for a client that fetches each folder's snapshot itself.
+ */
 const withoutWorkspaceSnapshots = (providers: ReadonlyArray<ServerProvider>): ServerProvider[] =>
   providers.map(({ workspaceSnapshots: _workspaceSnapshots, ...provider }) => provider);
 
-/** As t3's `ws.ts`: provider changes as deltas from the list this client last received. */
+/**
+ * t3's `withProviderStatusDeltas` (`ws.ts:504-525`, reproduced): provider changes as deltas from
+ * the list this client last received.
+ */
 const withProviderStatusDeltas =
   (sent: ReadonlyArray<ServerProvider>) =>
   <E, R>(updates: Stream.Stream<ServerConfigStreamEvent, E, R>) =>
@@ -423,11 +433,19 @@ const layerHandlers = (
           )
           .pipe(
             Effect.map(({ sequence }) => ({ sequence })),
-            Effect.mapError((error) =>
-              error._tag === 'NotOfferedError'
-                ? refused(error.message)
-                : refused('Failed to dispatch orchestration V2 command', error),
-            ),
+            Effect.mapError((error) => {
+              if (error._tag === 'NotOfferedError') return refused(error.message);
+              // As t3's `ws.ts`: the orchestrator's refusal in t3's own words, in `message` and
+              // `detail`, or its generic message when it has none.
+              const detail = userFacingDispatchErrorMessage(error.cause);
+              return new OrchestrationV2DispatchCommandError({
+                commandId: command.commandId,
+                commandType: command.type,
+                message: detail ?? 'Failed to dispatch orchestration V2 command',
+                ...(detail === undefined ? {} : { detail }),
+                cause: error.cause,
+              });
+            }),
           );
       };
 
@@ -559,7 +577,10 @@ const layerHandlers = (
 /** The pass already let the connection in: every method's scope check passes. */
 const layerAuthorization = Layer.succeed(RpcScopeAuthorization)((effect) => effect);
 
-/** As t3's `ws.ts`: the client must speak the orchestration protocol this server does. */
+/**
+ * t3's `hasCompatibleOrchestrationProtocol` (`ws.ts:801-806`, reproduced): the client must speak
+ * the orchestration protocol this server does. Its 426 answer is t3's (`ws.ts:3704-3711`).
+ */
 const hasCompatibleOrchestrationProtocol = (url: URL) =>
   url.searchParams.get(ORCHESTRATION_PROTOCOL_QUERY_PARAM) ===
   String(ORCHESTRATION_PROTOCOL_VERSION);
@@ -600,7 +621,8 @@ const serveRpc = Effect.fn('host.serveRpc')(function* (options: HostServerOption
     Effect.forkScoped,
   );
   if (!url.searchParams.has(SOCKET_FRAME_PARTS_QUERY_PARAM)) return yield* httpEffect;
-  // A client that asks for frame parts gets large frames split, as t3's server sends them.
+  // A client that asks for frame parts gets large frames split, as t3's server sends them
+  // (`ws.ts:3814-3827`).
   const request = yield* HttpServerRequest.HttpServerRequest;
   return yield* httpEffect.pipe(
     Effect.provideService(
@@ -616,7 +638,7 @@ const serveRpc = Effect.fn('host.serveRpc')(function* (options: HostServerOption
  * Every request: `GET /ws` with a pass for this session becomes an RPC connection; the pass is
  * verified before anything else is answered, and is never logged.
  */
-const app = Effect.fn('host.app')(function* (options: HostServerOptions) {
+const app = Effect.fn('host.app')(function* (options: HostServerOptions, key: PassKey) {
   const request = yield* HttpServerRequest.HttpServerRequest;
   const url = new URL(request.url, 'http://consola-host.invalid');
   if (request.method !== 'GET' || url.pathname !== WS_PATH) {
@@ -624,7 +646,7 @@ const app = Effect.fn('host.app')(function* (options: HostServerOptions) {
   }
   const nowSeconds = Math.floor((yield* Clock.currentTimeMillis) / 1000);
   const pass = url.searchParams.get(PASS_QUERY_PARAM) ?? '';
-  return yield* verifyPass(pass, options.publicKeyPem, options.sessionId, nowSeconds).pipe(
+  return yield* verifyPassWith(pass, key, options.sessionId, nowSeconds).pipe(
     Effect.matchEffect({
       onFailure: (rejected) => refuseConnection(passCloseCode(rejected.reason)),
       onSuccess: () =>
@@ -647,12 +669,16 @@ const app = Effect.fn('host.app')(function* (options: HostServerOptions) {
 /**
  * Serves one session's thread at `ws://<host>:<port>/ws` in the caller's scope, and answers the
  * port it listens on (the one asked for, or the ephemeral one `0` got). Closing the scope stops
- * the server and its connections.
+ * the server and its connections. Fails with `PassKeyInvalid` when `publicKeyPem` is not an
+ * Ed25519 public key, and with `HostListenError` when it cannot listen.
  */
 export const listenHost = (
   options: HostServerOptions,
-): Effect.Effect<{ readonly port: number }, HostListenError, Scope.Scope> =>
+): Effect.Effect<{ readonly port: number }, HostListenError | PassKeyInvalid, Scope.Scope> =>
   Effect.gen(function* () {
+    // The key is parsed once, before the port is bound: a key that does not parse fails the
+    // start, rather than refusing every pass as it arrives.
+    const key = yield* parsePassKey(options.publicKeyPem);
     const server = yield* NodeHttpServer.make(() => createServer(), {
       port: options.port,
       host: options.host,
@@ -664,7 +690,7 @@ export const listenHost = (
     }).pipe(Effect.mapError((cause) => new HostListenError({ cause })));
     // No request span: one would record the request's URL, and the pass travels in it.
     yield* server
-      .serve(app(options))
+      .serve(app(options, key))
       .pipe(Effect.provideService(HttpMiddleware.TracerDisabledWhen, () => true));
     const address = server.address;
     return { port: address._tag === 'UnixPathAddress' ? options.port : address.port };
@@ -673,5 +699,5 @@ export const listenHost = (
 /** `listenHost`, serving until the scope closes. */
 export const serveHost = (
   options: HostServerOptions,
-): Effect.Effect<never, HostListenError, Scope.Scope> =>
+): Effect.Effect<never, HostListenError | PassKeyInvalid, Scope.Scope> =>
   listenHost(options).pipe(Effect.andThen(Effect.never));
