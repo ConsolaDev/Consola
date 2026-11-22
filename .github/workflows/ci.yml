@@ -61,6 +61,8 @@ jobs:
       # The built stylesheet a page imports holds the chat's styles, every rule scoped to the chat
       # (packages/agent-ui/build/checkBuiltCss.ts).
       - run: pnpm --filter @consola/agent-ui check:css
+      # The built library in a page: the chat styled, the page's document left as it was.
+      - run: pnpm --filter @consola/agent-ui test:dist
       # grep exits 2 on a missing folder, which the `if` would read as "no hit": check there is
       # a bundle to search first.
       - run: |

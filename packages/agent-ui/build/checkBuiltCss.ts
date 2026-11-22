@@ -10,7 +10,15 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import postcss from 'postcss';
-import { AS_DOCUMENT, INSIDE, insideKeyframes, PORTAL_CLASS, SCOPE_CLASS } from './scopeCss.ts';
+import {
+  AS_DOCUMENT,
+  DARK_CLASS,
+  INSIDE,
+  insideKeyframes,
+  OWN_DARK,
+  PORTAL_CLASS,
+  SCOPE_CLASS,
+} from './scopeCss.ts';
 
 /** Commas without the spaces a minifier drops, so a selector compares as scopeCss wrote it. */
 const compact = (selector: string) => selector.replace(/\s*,\s*/g, ',').trim();
@@ -138,6 +146,10 @@ export const checkBuiltCss = (css: string): BuiltCssReport => {
         continue;
       }
       if (!isScoped(selector)) problems.push(`unscoped selector: ${selector}`);
+      // Dark mode is the chat's own `dark`, never a page's or the system's.
+      if (compacted.split(compact(OWN_DARK)).join('').match(DARK_CLASS)) {
+        problems.push(`a .dark that is not the chat's own: ${selector}`);
+      }
     }
     rule.walkDecls((decl) => {
       const selectors = rule.selectors.map(compact);

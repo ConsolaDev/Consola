@@ -20,7 +20,8 @@
     "build": "vp build",
     "typecheck": "node build/typecheck.ts",
     "check:css": "node build/checkBuiltCss.ts",
-    "test": "vp test run"
+    "test": "vp test run --project unit --project browser",
+    "test:dist": "vp test run --project dist"
   },
   "peerDependencies": {
     "react": "^19.2.4",

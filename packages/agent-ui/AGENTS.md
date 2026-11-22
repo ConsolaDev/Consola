@@ -30,8 +30,9 @@ It connects to one `@consola/host` session (`packages/host`) and renders t3's ch
   module, copy that module and what it imports (the closure), record it in `UPSTREAM.md`, never
   stub it or write a Consola version. `~/` is t3's alias for `src/t3/` (`tsconfig.json` paths and
   the alias in `vite.config.ts`).
-- **Consola's code** is the rest: `src/AgentChat.tsx`, `src/index.ts`, `src/styles.css`,
-  `build/` (the CSS scope and the typecheck), the configs and the tests. Biome lints it.
+- **Consola's code** is the rest: `src/AgentChat.tsx`, `src/t3Document.ts`, `src/index.ts`,
+  `src/styles.css`, `build/` (the CSS scope, the built-CSS check and the typecheck), the configs
+  and the tests. Biome lints it.
 - **Types.** `pnpm typecheck` (`build/typecheck.ts`) runs t3's checker (`effect-tsgo`) over the
   browser program (`tsconfig.json`, t3's web settings) and the Node one (`tsconfig.node.json`).
   Four errors in copied files are expected and listed there: callbacks typed by t3's router
@@ -119,16 +120,75 @@ fixed-position controls are placed inside the chat, not on the page's viewport.
 
 **Theme.** Where the page carries Consola's colour tokens (the desktop sets them on
 `html[data-theme]`), `styles.css` reads them there under `--consola-agent-ui-*` names and maps
-t3's variables (`--background`, `--foreground`, `--primary`, `--border`, …) to them. Dark mode is
-the nearest `[data-theme]`'s, else the system's (`prefers-color-scheme`); `AgentChat` puts `dark`
-on the theme element and its popups. Without the tokens, t3's own palette applies.
+t3's variables (`--background`, `--foreground`, `--primary`, `--border`, …) to them. Without the
+tokens, t3's own palette applies. Dark mode is the nearest `[data-theme]`'s, in both
+directions, and the system's only on a page without one:
+
+- **t3's CSS.** `AgentChat` puts `dark` on the theme element and its popups. t3's dark variant
+  matches `dark` on any ancestor (`:is(.dark, .dark *)`), so `scopeCss` rewrites every `.dark`
+  to the chat's own (`OWN_DARK`: `:where(.consola-agent-ui-theme, .consola-agent-ui-portal).dark`,
+  nested rules included). A `dark` on the page's `<html>` or anywhere above the chat changes
+  nothing in it, and the built stylesheet has no `prefers-color-scheme` query
+  (`check:css` fails on either).
+- **t3's code.** What t3 reads in JavaScript (code highlighting, diffs) comes from its theme
+  module, which follows the system by default. `AgentChat` sets t3's appearance (its stored
+  `t3code:theme-appearance-mode`) to the chat's, light or dark, whenever that changes, so t3
+  never follows the system. t3 has one appearance per page: two chats in differently themed
+  parts of one page share the last one's.
+
+### t3 does not write the page's document
+
+t3's web app owns its document, so its theme module (`src/t3/hooks/useTheme.ts`) writes it at
+import and on every theme change: `dark` on `<html>`, its palette's variables and
+`data-theme-id` on `<html>`, an inline background on `<html>` and `<body>` (which would freeze
+the page's background), and a `<meta name="theme-color">`. `src/t3Document.ts` stops all of it,
+without editing t3: t3's `applyTheme` writes nothing while `<html data-theme-id>` names t3's
+theme preview (its own early return, for when a draft theme owns the document), so that mark
+is set only while t3 could write, and the page's value put back:
+
+- **At import.** `t3Document.ts` is the first module `AgentChat.tsx` imports, and
+  `AgentChat.tsx`'s body releases it once every t3 module has run. A bundle keeps that order
+  only with `strictExecutionOrder` (`vite.config.ts`): without it t3's theme module, in a
+  shared chunk, runs before the entry's own modules and writes the page.
+  `AgentChat.dist.test.tsx` checks the built library.
+- **When `AgentChat` sets t3's appearance** (`sparingThePage`). Since t3's appearance is never
+  "system", the system's appearance changing never reaches `applyTheme`.
+- **When another window changes t3's stored theme**, which t3 applies from its `storage`
+  listener: a capturing listener sets the mark for that task (the attribute is there until the
+  next task; it styles nothing).
+
+`AgentChat.browser.test.tsx` reads `<html>`, `<body>` (every attribute, computed background
+and colour scheme) and `<head>`'s `<meta>` elements before the package is imported, on a dark
+system and a page with a background of its own, and finds them unchanged after the import and
+after the chat shows its thread.
+
+**What still touches the page**, and why it is left:
+
+- `<body>` gains children t3 puts there while the chat is used: Base UI's popup portals (marked
+  as the chat's, above), the hidden sprite of file icons (`pierre-icons.ts`, when an icon
+  renders), an `aria-live` region for t3's announcements (`lib/announce.ts`), and a probe span
+  that measures fonts and is removed at once (`appearanceFonts.ts`). Each styles nothing
+  outside itself.
+- `<html lang>` would become t3's language if t3 activated one other than English
+  (`i18n/runtime.ts` `activateLocale`). t3 takes its language from its saved setting, whose
+  default is `"en"` whatever the system's language, and nothing `AgentChat` mounts changes it
+  (t3's settings and language picker are not mounted), so it does not happen. If Consola ever
+  lets the person pick t3's language, keep `<html lang>` as the theme is kept.
+- t3's composer reads `<html>`'s `dark` class to pick its code-block highlighting
+  (`ComposerPromptEditorTiptap.tsx`). It reads only; on a page without that class (Consola's)
+  code typed in the composer is highlighted with the light palette in a dark chat.
+- `localStorage` and IndexedDB, below.
 
 ## Build
 
 `pnpm --filter @consola/agent-ui build` is a library build: `dist/agent-ui.js` (ES module,
 `react` and `react-dom` external, so the page's React renders it) and `dist/agent-ui.css`, which
 `package.json` exports as `@consola/agent-ui` and `@consola/agent-ui/styles.css` (types from
-`src/index.ts`). Build before a page imports it. `src/index.ts` imports `src/styles.css`, because
+`src/index.ts`). React reaches the library only as imports: `esmExternalRequirePlugin` turns the
+`require('react')` of CommonJS dependencies (`use-sync-external-store`'s shim) into imports, as
+left in an ES module it throws at import in a browser. Modules run in source order across the
+chunks (`strictExecutionOrder`; see "t3 does not write the page's document"). Build before a
+page imports it. `src/index.ts` imports `src/styles.css`, because
 a library build writes only the CSS its entry imports: without it `dist/agent-ui.css` holds just
 what t3's modules import (KaTeX, the PDF viewer) and the chat is unstyled. `pnpm --filter
 @consola/agent-ui check:css` (`build/checkBuiltCss.ts`, run by CI after the build) checks the
@@ -142,9 +202,11 @@ workers and its translations), loaded only when used.
 ## Tests
 
 ```bash
-pnpm --filter @consola/agent-ui test        # vp test run: the boundary (Node) and the browser tests
+pnpm --filter @consola/agent-ui test        # the unit tests (Node: boundary, CSS scope) and the browser tests
 pnpm --filter @consola/agent-ui typecheck   # build/typecheck.ts
 pnpm --filter @consola/agent-ui build
+pnpm --filter @consola/agent-ui check:css   # the built stylesheet (build first)
+pnpm --filter @consola/agent-ui test:dist   # the built library in a page (build first)
 ```
 
 The browser tests run in Vitest's browser mode (Playwright, Chromium; `pnpm --filter

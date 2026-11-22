@@ -1,3 +1,5 @@
+// First, so it runs before any of t3's modules: t3's theme module writes the document at import.
+import { releaseImportHold, sparingThePage } from './t3Document.ts';
 import {
   BearerConnectionCredential,
   BearerConnectionProfile,
@@ -21,12 +23,17 @@ import type * as Exit from 'effect/Exit';
 import * as Fiber from 'effect/Fiber';
 import * as Schedule from 'effect/Schedule';
 import * as Stream from 'effect/Stream';
-import { type JSX, type RefObject, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { type JSX, type RefObject, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import ChatView from '~/components/ChatView';
+import { getThemeSnapshot, setAppearanceMode } from '~/hooks/useTheme';
 import { connectionAtomRuntime } from '~/connection/runtime';
 import { I18nProvider } from '~/i18n/I18nProvider';
 import { startI18n } from '~/i18n/runtime';
 import { AppAtomRegistryProvider, appAtomRegistry } from '~/rpc/atomRegistry';
+
+// Every module above has run, t3's included: t3 may write the document again only through
+// `sparingThePage`.
+releaseImportHold();
 
 export interface AgentChatProps {
   /** The host's address, `http(s)://host:port`. Its socket is `ws(s)://host:port/ws`. */
@@ -194,8 +201,12 @@ function useHostConnection(props: AgentChatProps) {
   }, [sessionId, pass]);
 }
 
-/** Whether the page asks for dark: the nearest `[data-theme]` (Consola's), else the system. */
+/** Whether the chat is dark: the nearest `[data-theme]` (Consola's) says, else the system. */
 const darkQuery = () => window.matchMedia('(prefers-color-scheme: dark)');
+const readDark = (element: HTMLElement | null): boolean => {
+  const theme = element?.closest('[data-theme]')?.getAttribute('data-theme');
+  return theme === 'dark' || (theme !== 'light' && darkQuery().matches);
+};
 const subscribeColorScheme = (onChange: () => void) => {
   const query = darkQuery();
   query.addEventListener('change', onChange);
@@ -211,19 +222,32 @@ const subscribeColorScheme = (onChange: () => void) => {
   };
 };
 
-function usePrefersDark(root: RefObject<HTMLElement | null>): boolean {
-  return useSyncExternalStore(
-    subscribeColorScheme,
-    () => {
-      const theme = root.current?.closest('[data-theme]')?.getAttribute('data-theme');
-      return theme === 'dark' || (theme !== 'light' && darkQuery().matches);
-    },
-    () => false,
-  );
+/**
+ * t3's own code reads its appearance from its theme module (code highlighting, diffs), which
+ * follows the system unless told otherwise. It is kept on the chat's theme instead, so it never
+ * follows the system (and never applies the system's change to the document), and the change is
+ * made without letting t3 write the page (`t3Document.ts`). t3 has one appearance per page.
+ */
+const keepT3Appearance = (dark: boolean) => {
+  const mode = dark ? 'dark' : 'light';
+  if (getThemeSnapshot().appearanceMode === mode) return;
+  sparingThePage(() => setAppearanceMode(mode));
+};
+
+/** The chat's theme, read once it is in the page and whenever the page or the system changes. */
+function useChatDark(root: RefObject<HTMLElement | null>): boolean {
+  const [dark, setDark] = useState(() => readDark(null));
+  useLayoutEffect(() => {
+    const update = () => setDark(readDark(root.current));
+    update();
+    return subscribeColorScheme(update);
+  }, [root]);
+  useLayoutEffect(() => keepT3Appearance(dark), [dark]);
+  return dark;
 }
 
 /**
- * t3's popups are Base UI portals at the end of `<body>`, outside the chat. While the chat is
+ * t3's popups/ are Base UI portals at the end of `<body>`, outside the chat. While the chat is
  * mounted, each is marked as the chat's (`styles.css` styles inside it) and given the chat's
  * theme. A page that uses Base UI itself would see its own portals marked too.
  */
@@ -283,7 +307,7 @@ const startI18nOnce = () => {
 export function AgentChat(props: AgentChatProps): JSX.Element {
   startI18nOnce();
   const root = useRef<HTMLDivElement>(null);
-  const dark = usePrefersDark(root);
+  const dark = useChatDark(root);
   useMarkedPortals(dark);
   return (
     <div ref={root} className="consola-agent-ui">

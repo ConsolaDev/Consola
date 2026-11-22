@@ -3,6 +3,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import tailwindcss from '@tailwindcss/postcss';
 import react from '@vitejs/plugin-react';
+import { esmExternalRequirePlugin } from 'vite/rolldown/plugins';
 import { defineConfig, type Plugin } from 'vite-plus';
 import { playwright } from 'vite-plus/test/browser-playwright';
 import { scopeCss } from './build/scopeCss.ts';
@@ -55,6 +56,24 @@ const withheldDeviceModels = (): Plugin => ({
   },
 });
 
+/** Vitest's browser mode, as t3 runs its `*.browser.test.tsx` files: Playwright's Chromium. */
+const browser = {
+  enabled: true,
+  headless: true,
+  provider: playwright(),
+  instances: [{ browser: 'chromium' as const }],
+  screenshotFailures: false,
+  commands: {
+    /** The system's appearance for the page (`src/testing/render.tsx`); `null` resets it. */
+    emulateColorScheme: (
+      {
+        page,
+      }: { page: { emulateMedia(media: { colorScheme: 'light' | 'dark' | null }): Promise<void> } },
+      colorScheme: 'light' | 'dark' | null,
+    ) => page.emulateMedia({ colorScheme }),
+  },
+};
+
 export default defineConfig({
   plugins: [withheldDeviceModels(), react({ compiler: true })],
   define: Object.fromEntries(
@@ -87,7 +106,15 @@ export default defineConfig({
       cssFileName: 'agent-ui',
     },
     rolldownOptions: {
-      external: [/^react($|\/)/, /^react-dom($|\/)/],
+      // React is the page's (`react` and `react-dom` are peers), so the library imports it.
+      // The plugin marks it external and turns the CommonJS dependencies' `require('react')`
+      // (`use-sync-external-store`'s shim, …) into imports too: left as `require`, it throws
+      // in a browser, which has none.
+      plugins: [esmExternalRequirePlugin({ external: [/^react($|\/)/, /^react-dom($|\/)/] })],
+      // Modules run in source order across the library's chunks. Without it a shared chunk runs
+      // before the entry's own modules, t3's theme module among them, ahead of
+      // `src/t3Document.ts`, which must run first (it keeps t3 from writing the page at import).
+      output: { strictExecutionOrder: true },
     },
   },
   test: {
@@ -113,13 +140,29 @@ export default defineConfig({
           globalSetup: ['./src/testing/hostSession.ts'],
           hookTimeout: 60_000,
           testTimeout: 60_000,
-          browser: {
-            enabled: true,
-            headless: true,
-            provider: playwright(),
-            instances: [{ browser: 'chromium' }],
-            screenshotFailures: false,
-          },
+          browser,
+        },
+      },
+      {
+        extends: true,
+        // What the built library imports from the page: React (`build.rolldownOptions.external`).
+        optimizeDeps: {
+          include: [
+            'vite-plus/test/browser',
+            'react',
+            'react/jsx-runtime',
+            'react/compiler-runtime',
+            'react-dom',
+            'react-dom/client',
+          ],
+        },
+        test: {
+          // The built library (`pnpm build` first; `pnpm test:dist`, which CI runs after the build).
+          name: 'dist',
+          include: ['src/**/*.dist.test.tsx'],
+          hookTimeout: 60_000,
+          testTimeout: 60_000,
+          browser,
         },
       },
     ],

@@ -1,7 +1,7 @@
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, inject } from 'vite-plus/test';
-import { page } from 'vite-plus/test/browser';
+import { page, server } from 'vite-plus/test/browser';
 import type { AgentChatProps } from '../index.ts';
 import { HOST_SESSION_KEY, type HostSession } from './hostSessionKey.ts';
 
@@ -16,9 +16,37 @@ export const host = (): HostSession =>
 /** The assistant's message, not the user's prompt that quotes it. */
 export const answerOf = (text: string) => page.getByText(text, { exact: true });
 
-const cleanups: Array<() => void> = [];
-afterEach(() => {
-  for (const cleanup of cleanups.splice(0).reverse()) cleanup();
+const cleanups: Array<() => void | Promise<void>> = [];
+afterEach(async () => {
+  for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
+});
+
+type ColorScheme = 'light' | 'dark';
+/** The command `vite.config.ts` defines: Playwright's `emulateMedia` on the tests' page. */
+type ColorSchemeCommands = { emulateColorScheme(scheme: ColorScheme | null): Promise<void> };
+
+/** Makes the system's appearance (`prefers-color-scheme`) `scheme` until the test ends. */
+export const emulateColorScheme = async (scheme: ColorScheme) => {
+  const { emulateColorScheme: emulate } = server.commands as unknown as ColorSchemeCommands;
+  await emulate(scheme);
+  cleanups.push(() => emulate(null));
+};
+
+const elementState = (element: HTMLElement) => ({
+  attributes: Object.fromEntries([...element.attributes].map(({ name, value }) => [name, value])),
+  background: getComputedStyle(element).backgroundColor,
+  colorScheme: getComputedStyle(element).colorScheme,
+});
+
+/**
+ * What the page's own document says: `<html>` and `<body>` (every attribute, so their classes,
+ * inline styles, `lang` and data attributes, and their computed background and colour scheme)
+ * and the `<meta>` elements of `<head>`. The chat must leave all of it as it was.
+ */
+export const pageDocument = () => ({
+  html: elementState(document.documentElement),
+  body: elementState(document.body),
+  metas: [...document.head.querySelectorAll('meta')].map((meta) => meta.outerHTML),
 });
 
 /**

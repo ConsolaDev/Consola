@@ -50,6 +50,20 @@ describe('checkBuiltCss', () => {
     ]);
   });
 
+  it("takes dark mode only from the chat's own dark class", () => {
+    const own = ':where(.consola-agent-ui-theme,.consola-agent-ui-portal).dark';
+    expect(checkBuiltCss(`${CHAT}${INSIDE} .a:is(${own},${own} *){color:red}`).problems).toEqual(
+      [],
+    );
+    expect(checkBuiltCss(`${CHAT}${INSIDE} .a:is(.dark,.dark *){color:red}`).problems).toEqual([
+      `a .dark that is not the chat's own: ${INSIDE} .a:is(.dark,.dark *)`,
+    ]);
+    // Tailwind's escaped variant names are class names, not the class `dark`.
+    expect(
+      checkBuiltCss(`${CHAT}${INSIDE} .dark\\:flex:is(${own}){display:flex}`).problems,
+    ).toEqual([]);
+  });
+
   it('reads selectors a minifier merged into one :is()', () => {
     expect(
       checkBuiltCss(`${CHAT}:is(${INSIDE} .a:hover,${INSIDE} .b:hover){color:red}`).problems,
