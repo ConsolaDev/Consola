@@ -1,5 +1,6 @@
 import type {
   AutomationMode,
+  FactoryNotice,
   FactorySpecIssue,
   RunRecord,
   RunStatus,
@@ -7,7 +8,7 @@ import type {
 } from '@consola/factory-spec';
 import type { RunFilter } from './runFilter';
 
-/** One automation from a workspace's factory.yml, as the app shows it. */
+/** One automation from a workspace's factory folder, as the app shows it. */
 export interface AutomationView {
   name: string;
   mode: AutomationMode;
@@ -52,7 +53,9 @@ export interface AutomationView {
     /** The agent's file, "agents/investigator.md": what the Allow card lists. */
     agentFile?: string;
   }>;
-  /** 1-based line in factory.yml. */
+  /** The file it lives in, relative to the factory folder: `factory.yml` or `automations/<name>.yaml`. */
+  file?: string;
+  /** 1-based line in its file: an automation file's entry is its line 1. */
   line?: number;
   /** Next scheduled occurrence (ISO), or null when it is not on a schedule or will not run. */
   nextRunAt: string | null;
@@ -181,14 +184,16 @@ export interface TemplatePreview {
   entry: string;
 }
 
-/** What saving one entry into factory.yml wrote. */
+/** What saving one entry into the factory folder wrote. */
 export interface SavedAutomation {
   name: string;
+  /** Where it was written: `factory.yml`, or the automation file it replaced (`automations/<name>.yaml`). */
+  file: string;
   /** It replaced an entry of that name rather than adding one. */
   replaced: boolean;
-  /** The entry as written: one `- name: …` list item. */
+  /** The entry as given: one `- name: …` list item. */
   entry: string;
-  /** 1-based line of the entry in factory.yml. */
+  /** 1-based line of the entry in its file. */
   line?: number;
   /** A poll entry it wrote: it does not check until a person allows it on its page. */
   needsAllow?: true;
@@ -276,8 +281,13 @@ export interface AutomationsSnapshot {
   filePath: string;
   fileExists: boolean;
   automations: AutomationView[];
-  /** Problems with the file itself or with individual entries. */
+  /** Problems with the folder's files or with individual entries, each with its `file`. */
   issues: FactorySpecIssue[];
+  /**
+   * What the person should know that stops nothing: a folder a later slice
+   * reads, a model the harness does not list.
+   */
+  notices: FactoryNotice[];
   /** This workspace's runs, newest first: every live run (waiting for approval or a slot, or working) and the newest ended ones. */
   runs: RunListEntry[];
   /** Whether ended runs were left out; `listRuns` pages them. */

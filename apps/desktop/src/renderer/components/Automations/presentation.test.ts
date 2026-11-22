@@ -96,6 +96,7 @@ function snapshot(
     fileExists: true,
     automations,
     issues: [],
+    notices: [],
     runs,
     hasOlder: false,
     queue: {},

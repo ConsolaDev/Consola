@@ -1,3 +1,4 @@
+import * as path from 'node:path';
 import type { AuthoringBasis, AuthoringRequest } from '../../shared/automations';
 import {
   generateSessionInstanceId,
@@ -36,7 +37,7 @@ function fenceFor(text: string): string {
 
 /**
  * The session's first prompt: short, since the capabilities tool carries the
- * detail. The person's description, the file, where to learn what is
+ * detail. The person's description, the folder, where to learn what is
  * possible, the read-only limits, and to confirm before saving.
  */
 export function authoringPrompt(input: {
@@ -64,7 +65,7 @@ export function authoringPrompt(input: {
     if (asked) paragraphs.push(`What they want from it, in their words:\n\n${asked}`);
   }
   paragraphs.push(
-    `Automations live in ${filePath}.`,
+    `Automations live in ${path.dirname(filePath)}: factory.yml and automations/.`,
     'Before drafting anything, call consola_automation_capabilities to learn what this workspace can use: ' +
       'its triggers, targets, modes and scopes, and the names already taken.',
     'An automation’s session is read-only: no shell, no gh, and no network beyond Consola’s list_inbox and ' +
@@ -102,7 +103,7 @@ export function authoringSessionName(
 export interface AuthoringDeps {
   getWorkspace(id: string): Workspace | undefined;
   launchSession(workspaceId: string, fields: LaunchSessionFields): Promise<Session>;
-  /** The workspace's factory.yml path, for the prompt. */
+  /** The workspace's factory.yml path, for the prompt: its folder is where automations live. */
   filePath(workspaceId: string): string;
   /** The entry a basis names, as written; null when there is no such automation or template. */
   basisEntry(workspaceId: string, basis: AuthoringBasis): Promise<string | null>;

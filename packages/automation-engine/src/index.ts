@@ -57,8 +57,6 @@ export type { RunHistory } from './ports';
 export { recoverAfterRestart, isEngineRun, INTERRUPTED_COMMAND } from './steps/recover';
 export type {
   StateFile,
-  LoadedFactoryFile,
-  FactoryFileHandle,
   FactoryFolderRead,
   FactoryFolderHandle,
   AppliedFactory,

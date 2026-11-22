@@ -4,7 +4,10 @@ import * as path from 'node:path';
 import { onTestFinished } from 'vitest';
 import {
   appendAutomationEntry,
-  parseFactorySpec,
+  AUTOMATION_NAME_PATTERN,
+  automationEntryText,
+  factoryFilesOf,
+  LATER_FOLDERS,
   replaceAutomationEntry,
 } from '@consola/factory-spec';
 import {
@@ -15,10 +18,12 @@ import {
 import { itemKey } from '../inboxItems.test-helpers';
 import { RunFolder } from '../node/runFolder';
 import type {
+  AgentHarnessAnswer,
+  AgentHarnessQuery,
   AgentLaunchRequest,
   CommandResult,
   CommandSpec,
-  FactoryFileHandle,
+  FactoryFolderHandle,
   RunningCommand,
   WorkItemPort,
 } from '../ports';
@@ -48,7 +53,8 @@ import type { StepToolAnswer } from './stepTools';
  * what it records to `StepsWorld`; nothing else changes, so earlier tests keep
  * working as written. `relaunch` quits the service and starts another over the
  * same state, history, run folder, files, clock and world, as reopening
- * Consola would.
+ * Consola would. ws-1's factory folder is held in memory, file by file
+ * (`factory.yml`, `automations/<name>.yaml`, `agents/<name>.md`).
  */
 
 export const WORKSPACE_ID = 'ws-1';
@@ -148,6 +154,14 @@ export interface FakeCommand {
 export interface StepsHarnessOptions {
   /** ws-1's factory.yml; without one, the workspace has no file. */
   yaml?: string;
+  /**
+   * ws-1's other factory files, by path in the folder: `automations/<name>.yaml`,
+   * `agents/<name>.md`; a file under `environments/`, `connections/` or `evals/`
+   * makes that folder exist.
+   */
+  files?: Record<string, string>;
+  /** The harnesses an agent may name, by id, as the agent check answers for each. Default: none. */
+  agentHarnesses?: Record<string, AgentHarnessAnswer>;
   /** What `process.platform` would say on the host. Default `darwin`. */
   platform?: NodeJS.Platform;
   /** The default harness, as the agent check sees it. Default: Claude, able to run read-only and steps. */
@@ -172,6 +186,16 @@ export interface StepsWorld {
   workspaceDeleted: boolean;
   /** `stepProblem`: its extra arguments override what a step's turn is launched with. */
   harness: { name: string; problem: string | null; stepProblem?: string | null };
+  /**
+   * The answer for an agent naming each harness, by id; an agent naming one
+   * not here gets the host's unknown-harness words, and one naming none gets
+   * `harness`. Edit it, then `service.syncWorkspaces()`.
+   */
+  agentHarnesses: Record<string, AgentHarnessAnswer>;
+  /** Every agent check asked, in order: an agent's query, or undefined for the default harness. */
+  harnessQueries: Array<AgentHarnessQuery | undefined>;
+  /** How many times ws-1's folder was read. */
+  folderReads: number;
   /** Each workspace's latest Inbox snapshot, as `inboxSnapshot` returns it. */
   inbox: Map<string, ItemSnapshot>;
   /** Sessions a pane has a live terminal for: a person opened them. */
@@ -259,6 +283,10 @@ export interface StepsHarness {
   notices: AutomationNotice[];
   /** Replace ws-1's factory.yml and reload it, as the file watcher would. */
   setYaml(yaml: string): Promise<void>;
+  /** Write one of ws-1's factory files (null deletes it), then reload, as the watcher would. */
+  writeFile(relative: string, text: string | null): Promise<void>;
+  /** ws-1's factory files as they are now, by path in the folder. */
+  texts(): Map<string, string>;
   /** A successful Inbox fetch of ws-1 holding `items`, as main hands it over, then whatever it set going. */
   poll(items: InboxItemView[]): Promise<void>;
   /** Quit, then start a new service over the same state, history, run folder, files, clock and world. */
@@ -322,6 +350,9 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
     workspace: sprocket(),
     workspaceDeleted: false,
     harness,
+    agentHarnesses: { ...options.agentHarnesses },
+    harnessQueries: [],
+    folderReads: 0,
     inbox: new Map(),
     liveTerminals: new Set(),
     maxConcurrentAgents: options.maxConcurrentAgents,
@@ -349,36 +380,81 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
     broadcasts: [],
   };
   const notices: AutomationNotice[] = [];
-  const texts = new Map<string, string>(yaml === undefined ? [] : [[WORKSPACE_ID, yaml]]);
+  // ws-1's factory folder, file by file; every other workspace's is empty.
+  const folders = new Map<string, Map<string, string>>([
+    [
+      WORKSPACE_ID,
+      new Map([
+        ...(yaml === undefined ? [] : ([['factory.yml', yaml]] as Array<[string, string]>)),
+        ...Object.entries(options.files ?? {}),
+      ]),
+    ],
+  ]);
   // What outlives a quit: the state file, the run logs and the run folder.
   const stateFile = memoryStateFile();
   const history = memoryHistory();
   const folder = new RunFolder((workspaceId) => path.join(root, workspaceId));
   let id = 0;
 
-  const fileFor = (workspaceId: string): FactoryFileHandle => {
-    const filePath = `/home/me/.consola/workspaces/${workspaceId}/factory.yml`;
+  const filesOf = (workspaceId: string): Map<string, string> => {
+    let files = folders.get(workspaceId);
+    if (!files) {
+      files = new Map();
+      folders.set(workspaceId, files);
+    }
+    return files;
+  };
+  // The folder as `FactoryFolder` keeps it, in memory: no skills or strays.
+  const folderFor = (workspaceId: string): FactoryFolderHandle => {
+    const folderPath = `/home/me/.consola/workspaces/${workspaceId}`;
+    const filePath = `${folderPath}/factory.yml`;
+    const files = () => filesOf(workspaceId);
+    // As the adapter's: a name that is no name is never a path.
+    const automationFile = (name: string) => {
+      if (!AUTOMATION_NAME_PATTERN.test(name))
+        throw new Error(`Not an automation name: ${JSON.stringify(name)}.`);
+      return `automations/${name}.yaml`;
+    };
     return {
+      folderPath,
       filePath,
-      load: async () => {
-        const text = texts.get(workspaceId);
-        return text === undefined
-          ? { exists: false, spec: { automations: [], issues: [] } }
-          : { exists: true, spec: parseFactorySpec(text) };
+      read: async () => {
+        if (workspaceId === WORKSPACE_ID) world.folderReads++;
+        const paths = [...files().keys()];
+        return {
+          exists: files().has('factory.yml'),
+          files: {
+            ...factoryFilesOf(Object.fromEntries(files())),
+            laterFolders: Object.keys(LATER_FOLDERS).filter((folder) =>
+              paths.some((relative) => relative.startsWith(`${folder}/`)),
+            ),
+          },
+        };
       },
       watch: () => {},
       unwatch: () => {},
       ensureExists: async (template) => {
-        if (!texts.has(workspaceId)) texts.set(workspaceId, template);
+        if (!files().has('factory.yml')) files().set('factory.yml', template);
         return filePath;
       },
       appendAutomation: async (entryYaml) => {
-        texts.set(workspaceId, appendAutomationEntry(texts.get(workspaceId)!, entryYaml));
+        files().set('factory.yml', appendAutomationEntry(files().get('factory.yml')!, entryYaml));
       },
       replaceAutomation: async (name, entryYaml) => {
-        texts.set(workspaceId, replaceAutomationEntry(texts.get(workspaceId)!, name, entryYaml));
+        const text = files().get('factory.yml')!;
+        files().set('factory.yml', replaceAutomationEntry(text, name, entryYaml));
       },
-      readText: async () => texts.get(workspaceId) ?? null,
+      writeAutomationFile: async (name, text) => {
+        files().set(automationFile(name), text);
+      },
+      whereIs: async (name) => {
+        const text = files().get('factory.yml');
+        if (text !== undefined && automationEntryText(text, name) !== null) return 'factory.yml';
+        return files().has(`automations/${name}.yaml`) ? 'file' : null;
+      },
+      readText: async () => files().get('factory.yml') ?? null,
+      readAutomationFile: async (name) => files().get(automationFile(name)) ?? null,
+      pathOf: (relative) => `${folderPath}/${relative}`,
     };
   };
 
@@ -432,7 +508,7 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
   for (const tool of options.tools ?? []) registry.register(tool);
 
   const deps = (store: RunStore): AutomationServiceDeps => ({
-    fileFor,
+    folderFor,
     store,
     runFolder: folder,
     workItems: options.workItems ?? {
@@ -509,7 +585,20 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
       if (world.remindThrows) throw world.remindThrows;
     },
     hasLiveTerminal: (session) => world.liveTerminals.has(session.id),
-    agentHarness: () => world.harness,
+    agentHarness: (_workspaceId, agent) => {
+      world.harnessQueries.push(agent);
+      const id = agent?.harnessId;
+      if (id === undefined) return world.harness;
+      if (Object.prototype.hasOwnProperty.call(world.agentHarnesses, id))
+        return world.agentHarnesses[id];
+      return {
+        name: id,
+        problem: null,
+        stepProblem: null,
+        agentProblem: `\`${id}\` is not one of Consola's harnesses: add it in Settings › Harnesses, or change \`harness:\``,
+        warning: null,
+      };
+    },
     stopAgent: (session, reason) => {
       world.stops.push({ sessionId: session.id, reason });
       return !world.noTurnToStop;
@@ -559,9 +648,15 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
       world,
       notices,
       async setYaml(next) {
-        texts.set(WORKSPACE_ID, next);
+        filesOf(WORKSPACE_ID).set('factory.yml', next);
         await service.reload(WORKSPACE_ID);
       },
+      async writeFile(relative, text) {
+        if (text === null) filesOf(WORKSPACE_ID).delete(relative);
+        else filesOf(WORKSPACE_ID).set(relative, text);
+        await service.reload(WORKSPACE_ID);
+      },
+      texts: () => filesOf(WORKSPACE_ID),
       async poll(items) {
         const snapshot: ItemSnapshot = {
           workspaceId: WORKSPACE_ID,

@@ -53,7 +53,7 @@ const TEMPLATE = factory(
   `- id: publish\n  if: steps.review.verdict != 'approve'\n  run: ${PUBLISH}\n  env: { REPO: "{{item.repo}}", NUMBER: "{{item.number}}", BODY_FILE: "{{steps.review.handover.file}}" }`,
 );
 
-const only = (yaml: string) => parseFactorySpec(yaml).automations[0];
+const only = (yaml: string) => ({ ...parseFactorySpec(yaml).automations[0], file: 'factory.yml' });
 
 async function listed(options: StepsHarnessOptions) {
   const h = await stepsHarness(options);
@@ -4134,7 +4134,7 @@ describe('retry', () => {
     [
       'its entry left factory.yml',
       (h) => h.setYaml('version: 1\nautomations: []\n'),
-      'Not run: it is no longer in its workspace’s factory.yml.',
+      'Not run: it is no longer in its workspace’s factory.',
     ],
   ])(
     'a run whose approval was refused because %s never started: retry refuses it and launches nothing',

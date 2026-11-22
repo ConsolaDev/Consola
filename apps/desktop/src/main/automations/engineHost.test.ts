@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   appendAutomationEntry,
+  automationEntryText,
+  factoryFilesOf,
   parseAutomationEntry,
-  parseFactorySpec,
   replaceAutomationEntry,
 } from '@consola/factory-spec';
 import {
@@ -89,12 +90,14 @@ async function runner(
   for (const tool of consolaTools({} as ConsolaToolDeps)) registry.register(tool);
   let id = 0;
   const service = new AutomationService({
-    fileFor: (workspaceId) => ({
+    // A folder holding factory.yml alone: nothing here writes another factory file.
+    folderFor: (workspaceId) => ({
+      folderPath: `/home/me/.consola/workspaces/${workspaceId}`,
       filePath: `/home/me/.consola/workspaces/${workspaceId}/factory.yml`,
-      load: async () =>
-        text === null
-          ? { exists: false, spec: { automations: [], issues: [] } }
-          : { exists: true, spec: parseFactorySpec(text) },
+      read: async () => ({
+        exists: text !== null,
+        files: factoryFilesOf(text === null ? {} : { 'factory.yml': text }),
+      }),
       watch: () => {},
       unwatch: () => {},
       ensureExists: async (template) => {
@@ -107,7 +110,14 @@ async function runner(
       replaceAutomation: async (name, entryYaml) => {
         text = replaceAutomationEntry(text!, name, entryYaml);
       },
+      writeAutomationFile: async () => {
+        throw new Error('These tests write no automation file.');
+      },
+      whereIs: async (name) =>
+        text !== null && automationEntryText(text, name) !== null ? 'factory.yml' : null,
       readText: async () => text,
+      readAutomationFile: async () => null,
+      pathOf: (relative) => `/home/me/.consola/workspaces/${workspaceId}/${relative}`,
     }),
     store: new RunStore({ read: () => null, write: () => {} }, noHistory),
     // Nothing here runs steps: any path it is asked for throws.

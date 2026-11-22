@@ -1,21 +1,30 @@
 import { createHash } from 'node:crypto';
 import {
   ARTIFACT_NAME_PATTERN,
+  AUTOMATION_NAME_PATTERN,
   automationEntryText,
+  automationFileText,
+  automationItemText,
   automationVersion,
   isStepsEntry,
   nextCronOccurrence,
   parseAutomationEntry,
+  parseFactory,
   parseFactorySpec,
   stableStringify,
   STEP_ID_PATTERN,
   stepItemFieldProblems,
+  stepsResolvedBody,
   TERMINAL_RUN_STATUSES,
+  type AgentDefinition,
   type AgentStep,
   type Automation,
   type AutomationMode,
   type CronTrigger,
   type ExprValue,
+  type FactoryFiles,
+  type FactoryNotice,
+  type FactoryParseResult,
   type FactorySpecIssue,
   type PollTrigger,
   type RunItem,
@@ -58,6 +67,7 @@ import {
   describeTriggerAsWritten,
 } from './describeEntry';
 import { describeSchedule } from './describeSchedule';
+import { agentIssues, agentQuery } from './factory/apply';
 import type {
   AgentHarnessAnswer,
   AgentHarnessQuery,
@@ -68,9 +78,8 @@ import type {
   EngineTool,
   EngineToolContext,
   EngineToolResult,
-  FactoryFileHandle,
+  FactoryFolderHandle,
   LaunchedSession,
-  LoadedFactoryFile,
   RunFolderPort,
   WorkItemPort,
   RunningCommand,
@@ -151,12 +160,14 @@ import {
   writeCommandFile,
   type PreparedCommand,
 } from './steps/commandStep';
-import type {
-  CommandFile,
-  LogTail,
-  RunDefinition,
-  StepDetail,
-  StepsRunPreview,
+import {
+  agentRequirements,
+  type AgentRequirements,
+  type CommandFile,
+  type LogTail,
+  type RunDefinition,
+  type StepDetail,
+  type StepsRunPreview,
 } from './steps/definition';
 import { isEngineRun, isStepsRun } from './steps/recover';
 import { advanceSteps, type Lane, type StepUpdate } from './steps/sequence';
@@ -227,8 +238,8 @@ export interface SaveEntryOptions {
 }
 
 export interface AutomationServiceDeps {
-  /** A workspace's spec file; asked for once, when the workspace is first seen. */
-  fileFor(workspaceId: string): FactoryFileHandle;
+  /** A workspace's factory folder; asked for once, when the workspace is first seen. */
+  folderFor(workspaceId: string): FactoryFolderHandle;
   store: RunStore;
   /** Each run's folder: its definition snapshot and its steps' documents. */
   runFolder: RunFolderPort;
@@ -415,16 +426,52 @@ interface Resolved {
   event?: EventSource;
   /** Set when the entry parsed but cannot run: the reason it will not. */
   problem?: string;
+  /** A `steps:` entry's: the agents it was resolved against, by name (its node names their harness and model). */
+  agents?: Readonly<Record<string, AgentDefinition>>;
+  /** What the host said of its agents that stops nothing: a model the harness does not list. */
+  warnings?: FactoryNotice[];
 }
 
-/** One workspace's file as last read, and what its entries resolved to. */
+/** A workspace's factory folder as last read: whether `factory.yml` exists, the texts, and their parse. */
+interface FactoryRead {
+  exists: boolean;
+  files: FactoryFiles;
+  parse: FactoryParseResult;
+}
+
+/** One workspace's factory folder as last read, and what its entries resolved to. */
 interface WorkspaceFactory {
-  file: FactoryFileHandle;
-  loaded: LoadedFactoryFile;
+  folder: FactoryFolderHandle;
+  read: FactoryRead;
   resolved: Resolved[];
+  /** The resolved entries' warnings, each once: the snapshot's notices after the read's own. */
+  warnings: FactoryNotice[];
 }
 
-const NOT_LOADED: LoadedFactoryFile = { exists: false, spec: { automations: [], issues: [] } };
+/** A folder not read yet: nothing in it. */
+function notRead(): FactoryRead {
+  return {
+    exists: false,
+    files: {
+      factoryYml: null,
+      automations: {},
+      agents: {},
+      skills: {},
+      stray: [],
+      laterFolders: [],
+      unread: [],
+    },
+    parse: {
+      automations: [],
+      agents: {},
+      skills: {},
+      issues: [],
+      notices: [],
+      present: [],
+      unreadable: [],
+    },
+  };
+}
 
 /** An automation's identity: its name, within its workspace. */
 function automationKey(entry: {
@@ -651,7 +698,7 @@ export class AutomationService {
    * recorded as a stop: its step keeps its intent-only record, which the
    * next start fails as interrupted. Stop every running check too: what it
    * reports afterwards is dropped, as Consola is no longer running. Then
-   * stop ticking and let go of every workspace's file.
+   * stop ticking and let go of every workspace's folder.
    */
   public shutdown(): void {
     for (const running of this.runningCommands.values()) {
@@ -665,12 +712,12 @@ export class AutomationService {
     this.started = false;
     this.stopTicking?.();
     this.stopTicking = null;
-    for (const factory of this.factories.values()) factory.file.unwatch();
+    for (const factory of this.factories.values()) factory.folder.unwatch();
     this.factories.clear();
   }
 
   /**
-   * Follow the workspace list. A new workspace's file is read and watched; a
+   * Follow the workspace list. A new workspace's folder is read and watched; a
    * deleted one's is let go — its schedules stop, and anything waiting in it
    * is dismissed, since there is nowhere left to approve or run it. Every
    * other workspace's entries are resolved again, because what they resolve
@@ -683,7 +730,7 @@ export class AutomationService {
     const removed = [...this.factories.keys()].filter((id) => !current.has(id));
     for (const workspaceId of removed) {
       const factory = this.factories.get(workspaceId)!;
-      factory.file.unwatch();
+      factory.folder.unwatch();
       this.factories.delete(workspaceId);
       // Its checks have nowhere to report either: their results are dropped, as their entries are gone.
       for (const [key, check] of this.checkCommands)
@@ -716,9 +763,9 @@ export class AutomationService {
     // meanwhile sees the workspace as known rather than adding it twice.
     const added = [...current].filter((id) => !this.factories.has(id));
     for (const workspaceId of added) {
-      const file = this.deps.fileFor(workspaceId);
-      this.factories.set(workspaceId, { file, loaded: NOT_LOADED, resolved: [] });
-      file.watch(() => void this.reload(workspaceId));
+      const folder = this.deps.folderFor(workspaceId);
+      this.factories.set(workspaceId, { folder, read: notRead(), resolved: [], warnings: [] });
+      folder.watch(() => void this.reload(workspaceId));
     }
 
     // Settings edits re-resolve without touching the file. Broadcast only
@@ -785,7 +832,7 @@ export class AutomationService {
     void this.pump();
   }
 
-  /** Re-read one workspace's file: when it changes, and after "Open file" creates it. */
+  /** Re-read one workspace's folder: when a file in it changes, and after "Open file" creates factory.yml. */
   public async reload(workspaceId: string): Promise<void> {
     if (!(await this.load(workspaceId))) return;
     this.settleSchedules();
@@ -843,7 +890,7 @@ export class AutomationService {
    * ready to uncomment. An existing file is opened as it is.
    */
   public async ensureFile(workspaceId: string): Promise<string> {
-    const filePath = await this.factoryOf(workspaceId).file.ensureExists(
+    const filePath = await this.factoryOf(workspaceId).folder.ensureExists(
       factoryTemplate({ reviewsLive: false }),
     );
     await this.reload(workspaceId);
@@ -860,13 +907,16 @@ export class AutomationService {
    */
   public async addAssignedReviews(workspaceId: string): Promise<void> {
     if (!this.hasReviewAccount(workspaceId)) throw new Error(`${GITHUB.missing} first.`);
-    const { file } = this.factoryOf(workspaceId);
-    const loaded = await file.load();
-    if (loaded.spec.automations.some((automation) => automation.name === ASSIGNED_REVIEWS_NAME)) {
-      throw new Error(`factory.yml already has ${ASSIGNED_REVIEWS_NAME}.`);
+    const { folder } = this.factoryOf(workspaceId);
+    // Read now: wherever an entry of that name is written, by name as written.
+    const where = await folder.whereIs(ASSIGNED_REVIEWS_NAME);
+    if (where !== null) {
+      throw new Error(
+        `${homeFile(ASSIGNED_REVIEWS_NAME, where)} already has ${ASSIGNED_REVIEWS_NAME}.`,
+      );
     }
-    if (loaded.exists) await file.appendAutomation(assignedReviewsEntry());
-    else await file.ensureExists(factoryTemplate({ reviewsLive: true }));
+    if ((await folder.readText()) !== null) await folder.appendAutomation(assignedReviewsEntry());
+    else await folder.ensureExists(factoryTemplate({ reviewsLive: true }));
     await this.reload(workspaceId);
   }
 
@@ -878,24 +928,27 @@ export class AutomationService {
 
   /**
    * Whether to offer automatic reviews: the workspace can run them (a GitHub
-   * account; the entry needs no action), its file loads, and nothing in it
-   * already reviews requests or assignments — or goes by that name.
+   * account; the entry needs no action), its factory.yml loads, and nothing in
+   * its folder already reviews requests or assignments — or goes by that name.
    */
   private assignedReviewsSuggestion(workspaceId: string, factory: WorkspaceFactory): boolean {
     if (!this.hasReviewAccount(workspaceId)) return false;
-    const { spec } = factory.loaded;
-    if (spec.issues.some((issue) => !isEntryIssue(issue))) return false;
-    return !spec.automations.some(coversAssignedReviews);
+    const { parse } = factory.read;
+    if (parse.issues.some((issue) => issue.file === 'factory.yml' && !isEntryIssue(issue)))
+      return false;
+    return !parse.automations.some(coversAssignedReviews);
   }
 
   /**
-   * Add or replace one entry in a workspace's factory.yml: an agent's
+   * Add or replace one entry in a workspace's factory folder: an agent's
    * `save_automation`, and a template's "Add". The entry is checked the way
    * the runner checks it — parsed on its own, then resolved against this
-   * workspace, harness included — and refused, with every reason, if it
-   * would not run; a refusal leaves the file as it was. A name already in
-   * the file is replaced in place only when `replace` says so. Saves in one
-   * workspace run one at a time, each reading what the last one wrote.
+   * workspace and the folder's agents, harnesses included — and refused,
+   * with every reason, if it would not run; a refusal leaves every file as
+   * it was. A new entry goes to factory.yml; a name already in the folder
+   * is replaced where it lives (in factory.yml, or its own automation file)
+   * only when `replace` says so. Saves in one workspace run one at a time,
+   * each reading what the last one wrote.
    *
    * Whatever it writes asks once before its next unattended run, even a
    * schedule-only change the version would not notice; a hand edit keeps
@@ -928,9 +981,11 @@ export class AutomationService {
     const parsed = parseAutomationEntry(entryYaml);
     if (!parsed.ok) throw notSaved(parsed.issues.map(describeIssue));
     const { automation, item } = parsed;
-    const { file } = this.factoryOf(workspaceId);
+    const { name } = automation;
+    const factory = this.factoryOf(workspaceId);
+    const { folder } = factory;
     // Read now, not as last loaded: the person may have edited it since.
-    const text = await file.readText().catch((error: unknown) => {
+    const text = await folder.readText().catch((error: unknown) => {
       throw notSaved([describeError(error)]);
     });
     const broken =
@@ -940,21 +995,27 @@ export class AutomationService {
         `factory.yml does not load (${broken.map(describeIssue).join('; ')}); fix it by hand first`,
       ]);
     }
-    const problem = this.resolve(workspaceId, automation).problem;
+    // Against the folder's agents as last read: an agent its steps name must be there.
+    const problem = this.resolve(workspaceId, automation, factory.read.parse.agents).problem;
     if (problem) throw notSaved([problem]);
     // By name as written, so an entry that fails to load still holds its name.
-    const replaced = text !== null && automationEntryText(text, automation.name) !== null;
-    if (replaced && !options.replace) {
-      const name = automation.name;
+    const where = await folder.whereIs(name).catch((error: unknown) => {
+      throw notSaved([describeError(error)]);
+    });
+    if (where !== null && !options.replace) {
       throw notSaved([
-        `factory.yml already has an automation named "${name}"; pass replace: true to replace it, or choose another name`,
+        `${homeFile(name, where)} already has an automation named "${name}"; pass replace: true to replace it, or choose another name`,
       ]);
     }
     try {
-      // A file of its own, not "Open file"'s template: nothing is added beside the entry unasked.
-      if (text === null) await file.ensureExists(EMPTY_FACTORY_FILE);
-      if (replaced) await file.replaceAutomation(automation.name, item);
-      else await file.appendAutomation(item);
+      // An entry in a file of its own is replaced there, whole.
+      if (where === 'file') await folder.writeAutomationFile(name, automationFileText(item));
+      else {
+        // A file of its own, not "Open file"'s template: nothing is added beside the entry unasked.
+        if (text === null) await folder.ensureExists(EMPTY_FACTORY_FILE);
+        if (where === 'factory.yml') await folder.replaceAutomation(name, item);
+        else await folder.appendAutomation(item);
+      }
     } catch (error) {
       throw notSaved([describeError(error)]);
     }
@@ -972,8 +1033,9 @@ export class AutomationService {
     // A poll entry it wrote does not check until a person allows it, whoever saved it.
     const waits = live !== undefined && this.needsAllow(live);
     return {
-      name: automation.name,
-      replaced,
+      name,
+      file: homeFile(name, where ?? 'factory.yml'),
+      replaced: where !== null,
       entry: item,
       ...(line ? { line } : {}),
       ...(waits ? { needsAllow: true as const } : {}),
@@ -994,10 +1056,40 @@ export class AutomationService {
     await this.saveEntry(workspaceId, template.entry(workspace), { replace: false });
   }
 
-  /** One entry exactly as the file has it, as a `- name: …` item; null when there is no such entry or no file. */
+  /**
+   * One entry exactly as its file has it: a factory.yml entry as its
+   * `- name: …` item, and an entry in `automations/<name>.yaml` as that whole
+   * file, so its lines are the file's own. Null when there is no such entry.
+   */
   public async entryText(workspaceId: string, name: string): Promise<string | null> {
-    const text = await this.factoryOf(workspaceId).file.readText();
-    return text === null ? null : automationEntryText(text, name);
+    const live = await this.liveEntry(workspaceId, name);
+    return live === null ? null : live.text;
+  }
+
+  /**
+   * One entry as a `- name: …` item, read from the live file: what an agent
+   * changing it is shown, to save back with `replace: true`. An automation
+   * file's entry is that file as an item (`automationItemText`).
+   */
+  public async entryItem(workspaceId: string, name: string): Promise<string | null> {
+    const live = await this.liveEntry(workspaceId, name);
+    if (live === null) return null;
+    return live.where === 'factory.yml' ? live.text : automationItemText(name, live.text);
+  }
+
+  /** An entry as its file has it now, wherever it lives: factory.yml first, as `whereIs` decides. */
+  private async liveEntry(
+    workspaceId: string,
+    name: string,
+  ): Promise<{ where: 'factory.yml' | 'file'; text: string } | null> {
+    const { folder } = this.factoryOf(workspaceId);
+    const yml = await folder.readText();
+    const item = yml === null ? null : automationEntryText(yml, name);
+    if (item !== null) return { where: 'factory.yml', text: item };
+    // A name that is no name has no file: never a path.
+    if (!AUTOMATION_NAME_PATTERN.test(name)) return null;
+    const text = await folder.readAutomationFile(name);
+    return text === null ? null : { where: 'file', text };
   }
 
   /** A person opened an agent-added entry's details: it is no longer new. */
@@ -1013,15 +1105,15 @@ export class AutomationService {
   public capabilities(workspaceId: string): AutomationCapabilities {
     const factory = this.factoryOf(workspaceId);
     const workspace = this.deps.getWorkspaces().find((candidate) => candidate.id === workspaceId);
-    const { spec } = factory.loaded;
+    const { parse } = factory.read;
     // An entry that fails to load still holds its name.
     const named = [
-      ...spec.automations.map((automation) => automation.name),
-      ...spec.issues.flatMap((issue) => issue.automation ?? []),
+      ...parse.automations.map((automation) => automation.name),
+      ...parse.issues.flatMap((issue) => issue.automation ?? []),
     ];
     return describeCapabilities({
-      filePath: factory.file.filePath,
-      fileExists: factory.loaded.exists,
+      filePath: factory.folder.filePath,
+      fileExists: factory.read.exists,
       tools: this.deps.registry.list().filter((tool) => tool.automatable),
       actions: workspace?.actions ?? [],
       scopes: workspace?.scopes ?? [],
@@ -1040,7 +1132,7 @@ export class AutomationService {
   private templatesOf(workspaceId: string, factory: WorkspaceFactory): TemplateView[] {
     const workspace = this.deps.getWorkspaces().find((candidate) => candidate.id === workspaceId);
     return workspace
-      ? templateViews(workspace, factory.loaded.spec.automations, this.deps.now())
+      ? templateViews(workspace, factory.read.parse.automations, this.deps.now())
       : [];
   }
 
@@ -1268,7 +1360,7 @@ export class AutomationService {
   ): Promise<RunRecord | null> {
     const factory = this.factoryOf(workspaceId);
     const entry = factory.resolved.find((candidate) => candidate.automation.name === name);
-    if (!entry) throw new Error(`No automation named "${name}" in ${factory.file.filePath}.`);
+    if (!entry) throw new Error(`No automation named "${name}" in ${factory.folder.filePath}.`);
     if (entry.problem) throw new Error(`${name} cannot run: ${entry.problem}`);
     if (target !== undefined) return this.runOn(entry, target, actor);
     const { source } = entry;
@@ -1435,7 +1527,7 @@ export class AutomationService {
   public listRunTargets(workspaceId: string, name: string): ItemTargets {
     const factory = this.factoryOf(workspaceId);
     const entry = factory.resolved.find((candidate) => candidate.automation.name === name);
-    if (!entry) throw new Error(`No automation named "${name}" in ${factory.file.filePath}.`);
+    if (!entry) throw new Error(`No automation named "${name}" in ${factory.folder.filePath}.`);
     if (entry.problem) throw new Error(`${name} cannot run: ${entry.problem}`);
     const { source } = entry;
     const takesItem = takesItemOf(entry);
@@ -1598,10 +1690,10 @@ export class AutomationService {
     if (isAgentRequest(run)) return this.approveRequest(run);
     const entry = this.entryOf(run);
     const problem = !entry
-      ? 'it is no longer in its workspace’s factory.yml'
+      ? 'it is no longer in its workspace’s factory'
       : (entry.problem ??
         (entry.version !== run.actionVersion
-          ? 'factory.yml changed since this preview; run it again'
+          ? `${entry.automation.file ?? 'factory.yml'} changed since this preview; run it again`
           : undefined));
     if (!entry || problem) {
       this.finish(run.id, 'failed', { error: `Not run: ${problem}.` });
@@ -1680,7 +1772,7 @@ export class AutomationService {
   public allow(workspaceId: string, name: string, version: string): void {
     const factory = this.factoryOf(workspaceId);
     const entry = factory.resolved.find((candidate) => candidate.automation.name === name);
-    if (!entry) throw new Error(`No automation named "${name}" in ${factory.file.filePath}.`);
+    if (!entry) throw new Error(`No automation named "${name}" in ${factory.folder.filePath}.`);
     if (!pollOf(entry)) throw new Error(`${name} has no check command to allow.`);
     if (entry.version !== version) throw new Error('It changed since you looked; review it again.');
     if (entry.problem)
@@ -2009,7 +2101,10 @@ export class AutomationService {
         kind: describeKind(automation),
         runs: describeRun(automation),
         target: automation.run?.ref ?? 'steps',
-        ...(isStepsEntry(automation) ? { steps: describeSteps(automation.steps) } : {}),
+        ...(isStepsEntry(automation)
+          ? { steps: describeSteps(automation.steps, entry.agents) }
+          : {}),
+        file: automation.file,
         ...(automation.line ? { line: automation.line } : {}),
         // A due-but-unfired occurrence reads as "now", not as a time in the past.
         nextRunAt: next ? new Date(Math.max(next.getTime(), now.getTime())).toISOString() : null,
@@ -2405,10 +2500,11 @@ export class AutomationService {
       });
     }
     return {
-      filePath: factory.file.filePath,
-      fileExists: factory.loaded.exists,
+      filePath: factory.folder.filePath,
+      fileExists: factory.read.exists,
       automations: this.list(workspaceId),
-      issues: factory.loaded.spec.issues,
+      issues: factory.read.parse.issues,
+      notices: [...factory.read.parse.notices, ...factory.warnings],
       runs,
       // True only when `listRuns` would hand over an ended run after the oldest one shown.
       hasOlder:
@@ -2661,7 +2757,7 @@ export class AutomationService {
       return {
         go: false,
         status: 'rejected',
-        message: 'It is no longer in its workspace’s factory.yml.',
+        message: 'It is no longer in its workspace’s factory.',
       };
     if (entry.problem)
       return { go: false, status: 'failed', message: `Not run: ${entry.problem}.` };
@@ -3145,7 +3241,15 @@ export class AutomationService {
     const { attempt } = launch.request.step!;
     // The running step now holds the slot its run was let in with.
     this.admitted.delete(runId);
-    this.writeSteps(runId, withAttemptStarted(this.stepsOf(runId), stepId, this.iso()));
+    this.writeSteps(
+      runId,
+      withAttemptStarted(
+        this.stepsOf(runId),
+        stepId,
+        this.iso(),
+        loaded.definition.agents?.[stepId]?.name,
+      ),
+    );
     this.broadcastRun(runId);
     // No turn to stop until it has launched: a stop meanwhile waits for it.
     this.starting.add(runId);
@@ -3891,25 +3995,25 @@ export class AutomationService {
     }
   }
 
-  /** Read and resolve one workspace's file. False when the workspace went away meanwhile. */
+  /** Read and resolve one workspace's folder, whole. False when the workspace went away meanwhile. */
   private async load(workspaceId: string): Promise<boolean> {
     const factory = this.factories.get(workspaceId);
     if (!factory) return false;
-    const loaded = await factory.file.load();
+    const { exists, files } = await factory.folder.read();
     if (this.factories.get(workspaceId) !== factory) return false;
     const checkedBefore = factory.resolved.some((entry) => pollOf(entry) !== null);
-    factory.loaded = loaded;
+    factory.read = { exists, files, parse: parseFactory(files) };
     this.resolveAll(workspaceId, factory);
     this.sweepCheckLogs(workspaceId, factory, checkedBefore);
     return true;
   }
 
   /**
-   * Remove the logs of checks a file that loaded cleanly no longer has (an
-   * automation renamed or removed), at start-up as after a reload. A file
+   * Remove the logs of checks a folder that read cleanly no longer has (an
+   * automation renamed or removed), at start-up as after a reload. A read
    * with issues keeps them all, as it keeps its lists: it may be hiding an
-   * entry behind a typo. Only a file that has a poll entry, or had one at
-   * its last load, is swept, so a workspace that never checks is never
+   * entry behind a typo. Only a folder that has a poll entry, or had one at
+   * its last read, is swept, so a workspace that never checks is never
    * looked at. A failure costs disk, not the load.
    */
   private sweepCheckLogs(
@@ -3917,7 +4021,7 @@ export class AutomationService {
     factory: WorkspaceFactory,
     checkedBefore: boolean,
   ): void {
-    if (factory.loaded.spec.issues.length > 0) return;
+    if (factory.read.parse.issues.length > 0) return;
     const names = factory.resolved
       .filter((entry) => pollOf(entry) !== null)
       .map((entry) => entry.automation.name);
@@ -3929,10 +4033,16 @@ export class AutomationService {
     }
   }
 
+  /** Resolve every entry the folder's read holds, against its agents; their warnings once each. */
   private resolveAll(workspaceId: string, factory: WorkspaceFactory): void {
-    factory.resolved = factory.loaded.spec.automations.map((automation) =>
-      this.resolve(workspaceId, automation),
+    const { automations, agents } = factory.read.parse;
+    factory.resolved = automations.map((automation) =>
+      this.resolve(workspaceId, automation, agents),
     );
+    const warnings = new Map<string, FactoryNotice>();
+    for (const entry of factory.resolved)
+      for (const warning of entry.warnings ?? []) warnings.set(stableStringify(warning), warning);
+    factory.warnings = [...warnings.values()];
   }
 
   /**
@@ -3947,8 +4057,8 @@ export class AutomationService {
     for (const key of keys) {
       if (!this.deps.store.lastFired(key)) this.deps.store.setLastFired(key, this.iso());
     }
-    // A file that did not load cleanly may be hiding an entry behind a
-    // typo: its workspace's lists are kept until the file says otherwise,
+    // A folder that did not read cleanly may be hiding an entry behind a
+    // typo: its workspace's lists are kept until the files say otherwise,
     // so fixing the typo catches up instead of starting from scratch.
     // An agent's addition is kept the same way, so its mark survives too.
     const kept = new Set(
@@ -3958,7 +4068,7 @@ export class AutomationService {
     );
     const named = new Set(resolved.map(automationKey));
     for (const [workspaceId, factory] of this.factories) {
-      if (factory.loaded.spec.issues.length === 0) continue;
+      if (factory.read.parse.issues.length === 0) continue;
       for (const key of this.deps.store.seenKeys())
         if (key.startsWith(`${workspaceId} `)) kept.add(key);
       for (const key of this.deps.store.addedKeys())
@@ -3967,7 +4077,7 @@ export class AutomationService {
     // A revocation is kept through a broken file too: the entry it guards is still in there.
     const revoked = new Set(named);
     for (const [workspaceId, factory] of this.factories) {
-      if (factory.loaded.spec.issues.length === 0) continue;
+      if (factory.read.parse.issues.length === 0) continue;
       for (const key of this.deps.store.revokedKeys())
         if (key.startsWith(`${workspaceId} `)) revoked.add(key);
     }
@@ -3995,9 +4105,14 @@ export class AutomationService {
   /**
    * What an entry resolves to in its workspace, or why it cannot run. Which
    * tools, actions, scopes, connections and events exist is the runner's to
-   * say; each problem names the one that was asked for.
+   * say; each problem names the one that was asked for. `agents` are the
+   * folder's, by name: what a step's `agent:` names.
    */
-  private resolve(workspaceId: string, automation: Automation): Resolved {
+  private resolve(
+    workspaceId: string,
+    automation: Automation,
+    agents: Readonly<Record<string, AgentDefinition>>,
+  ): Resolved {
     const workspace = this.deps.getWorkspaces().find((candidate) => candidate.id === workspaceId);
     const base = automationVersion(automation);
     const unable = (problem: string): Resolved => ({
@@ -4005,6 +4120,7 @@ export class AutomationService {
       automation,
       version: base,
       problem,
+      ...(isStepsEntry(automation) ? { agents } : {}),
     });
     const { trigger } = automation;
 
@@ -4091,7 +4207,8 @@ export class AutomationService {
     }
 
     // The checks above are a steps entry's too; the rest are its own.
-    if (isStepsEntry(automation)) return this.resolveSteps(workspaceId, automation, source, event);
+    if (isStepsEntry(automation))
+      return this.resolveSteps(workspaceId, automation, agents, source, event);
     const { run } = automation;
 
     if (run.kind === 'tool') {
@@ -4153,23 +4270,30 @@ export class AutomationService {
   /**
    * A `steps:` entry in its workspace, after the trigger and event checks it
    * shares with a `run:` entry. When more than one thing is wrong, the
-   * problem is the first of: its scope; each step in file order (an action
-   * the workspace lacks, then one that does not apply to the items); item
-   * fields the connection lacks; `run:` steps on Windows; the harness, which
-   * only an entry with an agent step needs.
+   * problem is the first of: its scope; each step in file order (an agent
+   * the folder lacks, an action the workspace lacks, then one that does not
+   * apply to the items); item fields the connection lacks; `run:` steps on
+   * Windows; the default harness, which only an agent step naming no agent
+   * runs on; then each agent's harness, as the host answers for it.
+   *
+   * A step without `agent:` resolves exactly as in slice 1: its version and
+   * definition are unchanged by the agents a sibling step names.
    */
   private resolveSteps(
     workspaceId: string,
     automation: StepsAutomation,
+    agents: Readonly<Record<string, AgentDefinition>>,
     source: ItemSource | undefined,
     event: EventSource | undefined,
   ): Resolved {
     const workspace = this.deps.getWorkspaces().find((candidate) => candidate.id === workspaceId);
-    const unable = (problem: string): Resolved => ({
+    const unable = (problem: string, warnings: FactoryNotice[] = []): Resolved => ({
       workspaceId,
       automation,
       version: automationVersion(automation),
       problem,
+      agents,
+      ...(warnings.length > 0 ? { warnings } : {}),
     });
     const { steps } = automation;
 
@@ -4177,8 +4301,22 @@ export class AutomationService {
     if ('problem' in scoped) return unable(scoped.problem);
 
     const actions: RunDefinition['actions'] = {};
+    // By step id, each step's agent as the run's definition keeps it; by agent, its hash for the version.
+    const stepAgents: Record<string, AgentRequirements> = {};
+    const agentHashes: Record<string, string> = {};
     for (const step of steps) {
-      if (step.kind !== 'agent' || step.action === undefined) continue;
+      if (step.kind !== 'agent') continue;
+      if (step.agent !== undefined) {
+        // `parseFactory` keeps no entry whose agent is not valid; this guards an entry saved on its own.
+        if (!Object.prototype.hasOwnProperty.call(agents, step.agent))
+          return unable(
+            `its step \`${step.id}\` names the agent \`${step.agent}\`, and agents/${step.agent}.md is not in this factory`,
+          );
+        const agent = agents[step.agent];
+        stepAgents[step.id] = agentRequirements(agent);
+        agentHashes[agent.name] = agent.hash;
+      }
+      if (step.action === undefined) continue;
       const named = actionNamed(workspace, step.action, automation, source);
       if ('problem' in named) return unable(named.problem);
       const { action } = named;
@@ -4203,17 +4341,22 @@ export class AutomationService {
     if (this.deps.platform === 'win32' && steps.some((step) => step.kind === 'run'))
       return unable(NO_POSIX_SHELL);
     const hasAgentStep = steps.some((step) => step.kind === 'agent');
-    const refused = hasAgentStep ? this.stepHarnessProblem(workspaceId) : null;
+    // A step that names no agent runs on the workspace's default harness.
+    const onDefault = steps.some((step) => step.kind === 'agent' && step.agent === undefined);
+    const refused = onDefault ? this.stepHarnessProblem(workspaceId) : null;
     if (refused) return unable(refused);
+    // Each agent's harness, as the host answers for it: a problem stops the entry, a warning stops nothing.
+    const { problems, warnings } = agentIssues(automation, agents, (agent) =>
+      this.deps.agentHarness(workspaceId, agentQuery(agent)),
+    );
+    if (problems.length > 0) return unable(problems[0].message, warnings);
 
-    // The bodies live in settings, not the file: editing one asks again.
+    // The bodies live in settings, not the file: editing one asks again. So
+    // does editing an agent file a step names: its hash is in the version.
     const bodies = Object.fromEntries(
       Object.entries(actions).map(([id, action]) => [id, action.body]),
     );
-    const version = automationVersion(
-      automation,
-      Object.keys(bodies).length > 0 ? stableStringify(bodies) : undefined,
-    );
+    const version = automationVersion(automation, stepsResolvedBody(bodies, agentHashes));
     const firstAgent = steps.find((step): step is AgentStep => step.kind === 'agent');
     return {
       workspaceId,
@@ -4221,8 +4364,15 @@ export class AutomationService {
       version,
       source,
       event,
+      agents,
+      ...(warnings.length > 0 ? { warnings } : {}),
       steps: {
-        definition: { automation, version, actions },
+        definition: {
+          automation,
+          version,
+          actions,
+          ...(Object.keys(stepAgents).length > 0 ? { agents: stepAgents } : {}),
+        },
         ...(scoped.scope ? { scope: scoped.scope } : {}),
         hasAgentStep,
         startsInDryRun:
@@ -5058,9 +5208,14 @@ function recordedItem(run: RunRecord, item: RunItem): SourceItem {
   };
 }
 
-/** A problem with one entry, rather than with the file as a whole. */
+/** A problem with one entry of factory.yml, rather than with the file as a whole. */
 function isEntryIssue(issue: FactorySpecIssue): boolean {
   return issue.path.startsWith('automations[');
+}
+
+/** The file an entry of that name lives in, as `whereIs` found it. */
+function homeFile(name: string, where: 'factory.yml' | 'file'): string {
+  return where === 'factory.yml' ? 'factory.yml' : `automations/${name}.yaml`;
 }
 
 /** An issue as a reason: where it is, then what is wrong. */

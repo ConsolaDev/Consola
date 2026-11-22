@@ -793,6 +793,7 @@ export function installMock() {
       fileExists: false,
       automations: [],
       issues: [],
+      notices: [],
       runs: [],
       hasOlder: false,
       queue: {},

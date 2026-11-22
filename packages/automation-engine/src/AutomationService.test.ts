@@ -5,7 +5,9 @@ import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import {
   appendAutomationEntry,
+  automationEntryText,
   automationVersion,
+  factoryFilesOf,
   isStepsEntry,
   parseFactorySpec,
   replaceAutomationEntry,
@@ -222,15 +224,19 @@ function setup({
   const watched = new Set<string>();
   let id = 0;
   const service = new AutomationService({
-    fileFor: (workspaceId) => {
-      const filePath = `/home/me/.consola/workspaces/${workspaceId}/factory.yml`;
+    // A folder holding factory.yml alone: these tests write no other factory file.
+    folderFor: (workspaceId) => {
+      const folderPath = `/home/me/.consola/workspaces/${workspaceId}`;
+      const filePath = `${folderPath}/factory.yml`;
       return {
+        folderPath,
         filePath,
-        load: async () => {
+        read: async () => {
           const text = texts.get(workspaceId);
-          return text === undefined
-            ? { exists: false, spec: { automations: [], issues: [] } }
-            : { exists: true, spec: parseFactorySpec(text) };
+          return {
+            exists: text !== undefined,
+            files: factoryFilesOf(text === undefined ? {} : { 'factory.yml': text }),
+          };
         },
         watch: () => watched.add(workspaceId),
         unwatch: () => watched.delete(workspaceId),
@@ -244,7 +250,18 @@ function setup({
         replaceAutomation: async (name, entryYaml) => {
           texts.set(workspaceId, replaceAutomationEntry(texts.get(workspaceId)!, name, entryYaml));
         },
+        writeAutomationFile: async () => {
+          throw new Error('These tests write no automation file.');
+        },
+        whereIs: async (name) => {
+          const text = texts.get(workspaceId);
+          return text !== undefined && automationEntryText(text, name) !== null
+            ? 'factory.yml'
+            : null;
+        },
         readText: async () => texts.get(workspaceId) ?? null,
+        readAutomationFile: async () => null,
+        pathOf: (relative) => `${folderPath}/${relative}`,
       };
     },
     store,
@@ -2238,6 +2255,7 @@ describe('saving an entry', () => {
     const saved = await t.service.saveEntry('ws-1', digest(), { replace: false });
     expect(saved).toEqual({
       name: 'morning-digest',
+      file: 'factory.yml',
       replaced: false,
       entry: digest().trimEnd(),
       line: 7,
@@ -2346,7 +2364,13 @@ automations:
     expect(t.text()).toBe(yaml);
 
     const saved = await t.service.saveEntry('ws-1', next, { replace: true });
-    expect(saved).toEqual({ name: 'a', replaced: true, entry: next.trimEnd(), line: 5 });
+    expect(saved).toEqual({
+      name: 'a',
+      file: 'factory.yml',
+      replaced: true,
+      entry: next.trimEnd(),
+      line: 5,
+    });
     expect(t.text()).toBe(
       yaml.replace(
         '    on: { cron: "0 9 * * *" }\n    run: { tool: consola#sweep }\n    mode: confirm\n',

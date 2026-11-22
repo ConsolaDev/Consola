@@ -133,12 +133,13 @@ import { asRunTarget } from './automations/runTarget';
 import {
   AUTOMATION_TEMPLATES,
   AutomationService,
-  FactoryFile,
+  FactoryFolder,
   RunFolder,
   RunHistoryFiles,
   RunStore,
   startCommand,
   stepToolSpecs,
+  workspaceDataDir,
   workspaceFactoryPath,
   type AutomationStateFile,
   type ListRunsQuery,
@@ -2059,7 +2060,7 @@ export function setupIpcHandlers(): boolean {
     return record ? manager.get(record.instanceId) : undefined;
   };
   const automations = new AutomationService({
-    fileFor: (workspaceId) => new FactoryFile(workspaceFactoryPath(workspaceId)),
+    folderFor: (workspaceId) => new FactoryFolder(workspaceDataDir(workspaceId)),
     store: runStore,
     runFolder: new RunFolder(),
     workItems: desktopWorkItemPort({
@@ -2351,7 +2352,7 @@ export function setupIpcHandlers(): boolean {
         launchSession: (workspaceId, fields) => launcher.launchSession(workspaceId, fields),
         filePath: (workspaceId) => workspaceFactoryPath(workspaceId),
         basisEntry: async (workspaceId, basis) => {
-          if ('automation' in basis) return automations.entryText(workspaceId, basis.automation);
+          if ('automation' in basis) return automations.entryItem(workspaceId, basis.automation);
           const workspace = workspaces.getAll().find((candidate) => candidate.id === workspaceId);
           const template = AUTOMATION_TEMPLATES.find(
             (candidate) => candidate.id === basis.template,

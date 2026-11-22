@@ -4,7 +4,6 @@
  */
 export { RunHistoryFiles } from './RunHistoryFiles';
 export { JsonStateFile, StateFileCorruptError } from './JsonStateFile';
-export { FactoryFile } from './factoryFile';
 export { FactoryFolder, workspaceDataDir, workspaceFactoryPath } from './factoryFolder';
 export { AppliedFactoryFiles } from './appliedFactory';
 export { RunFolder } from './runFolder';

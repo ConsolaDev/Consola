@@ -67,6 +67,7 @@ beforeEach(() => {
   capabilities = vi.fn(() => ({ grammar: 'g' }) as unknown as AutomationCapabilities);
   saveEntry = vi.fn(async () => ({
     name: 'sweep',
+    file: 'factory.yml',
     replaced: false,
     entry: '- name: sweep',
     line: 3,
@@ -280,6 +281,7 @@ describe('save_automation and Allow', () => {
   it('says a poll waits for Allow', async () => {
     saveEntry.mockResolvedValueOnce({
       name: 'sweep',
+      file: 'factory.yml',
       replaced: false,
       entry: '- name: sweep',
       needsAllow: true,
@@ -312,6 +314,21 @@ describe('save_automation and Allow', () => {
   it('leaves the summary alone for an entry that is neither', async () => {
     const result = await registry.invoke('save_automation', { entry: '- name: sweep' }, as('me'));
     expect(result.summary).toBe('Added sweep in factory.yml.');
+  });
+
+  it('names the file it wrote: an entry replaced in its own automation file', async () => {
+    saveEntry.mockResolvedValueOnce({
+      name: 'catalog-review',
+      file: 'automations/catalog-review.yaml',
+      replaced: true,
+      entry: '- name: catalog-review',
+    });
+    const result = await registry.invoke(
+      'save_automation',
+      { entry: '- name: catalog-review', replace: true },
+      as('me'),
+    );
+    expect(result.summary).toBe('Replaced catalog-review in automations/catalog-review.yaml.');
   });
 
   it('gives an agent no way to allow: no tool allows, and running a poll does not', async () => {

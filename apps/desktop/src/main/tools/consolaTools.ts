@@ -493,7 +493,7 @@ export function consolaTools(deps: ConsolaToolDeps): ToolDefinition[] {
           replace: args.replace,
           by: { sessionId: self.id, sessionName: self.name },
         });
-        const base = `${saved.replaced ? 'Replaced' : 'Added'} ${saved.name} in factory.yml.`;
+        const base = `${saved.replaced ? 'Replaced' : 'Added'} ${saved.name} in ${saved.file}.`;
         // An entry with a problem is not waiting for Allow (saveEntry
         // returns no needsAllow for it): say the problem instead.
         const problem = saved.needsAllow
