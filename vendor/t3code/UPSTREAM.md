@@ -2750,9 +2750,28 @@ that landed on another version than t3's lockfile has:
 The lifted server (`t3`) names every dependency at the version t3's lockfile resolves
 for its `apps/server` importer, `yaml` 2.9.0 included, and the Claude Agent
 SDK's peers resolve as in t3: `@anthropic-ai/sdk` 0.93.0 (by the override
-above), `@modelcontextprotocol/sdk` 1.32.2, `zod` 4.6.7. What Consola's own
-packages resolve to is unchanged by the lift: their importers and the 900
-snapshots they reach are the same entries as before it. One of them pnpm
+above), `@modelcontextprotocol/sdk` 1.32.2, `zod` 4.6.7. Every dependency Consola's own
+packages name (`apps/*`, `packages/factory-spec`, `packages/automation-engine`) resolves
+to the version it did before the lift. What moved is only which optional peers some
+of them are linked with: the copied packages bring those peers into the workspace,
+and pnpm links an optional peer wherever it is present. From the lockfile's importers,
+c61ec752 against this branch:
+
+- `zustand` 5.0.11 (`apps/desktop`): its peer `use-sync-external-store`, 1.6.0 → 1.7.0
+  (zustand reads it only in `zustand/traditional`).
+- Vite 7.3.8 now with its optional peer `lightningcss` 1.33.0, and so `@vitejs/plugin-react`
+  5.1.3 and Vitest 4.1.12 over it: `apps/desktop`, `apps/website`, `apps/cloud-web`,
+  `apps/cloud-api` (Vitest), `packages/factory-spec` and `packages/automation-engine`
+  (Vitest). Vite loads it only when a config asks for it (`css.transformer` or
+  `build.cssMinify` set to `'lightningcss'`), and none of Consola's does.
+- `drizzle-orm` 0.45.4 now with its optional peers `sql.js` 1.15.0 and `@types/sql.js`
+  1.4.11, and so `@better-auth/drizzle-adapter` and `better-auth` 1.7.27 over it:
+  `apps/cloud-api`, `apps/cloud-web` (`better-auth`). Drizzle loads it only for its
+  `sql.js` driver, which Consola does not use.
+- `posthog-js` 1.450.0 (`apps/website`) now with its optional peer
+  `preact-render-to-string` 6.6.5 (over `preact` 11.0.0-beta.0).
+
+Each is a new snapshot key for the same package version. One of them pnpm
 would otherwise have moved while resolving the new packages:
 `@jridgewell/trace-mapping`'s `@jridgewell/sourcemap-codec`, from 1.5.5 to
 1.6.0, both already in the lockfile; the lockfile keeps 1.5.5, which pnpm
