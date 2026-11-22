@@ -50,6 +50,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter consola typecheck
       - run: pnpm --filter @consola/automation-engine typecheck
+      - run: pnpm --filter @consola/factory-spec typecheck
       # The site's demo runs the desktop renderer against a hand-written bridge,
       # and its build does not typecheck: this is what notices a bridge it lacks.
       - run: pnpm --filter @consola/website typecheck
