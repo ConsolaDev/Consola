@@ -11,15 +11,17 @@ relative to `apps/cloud-global`.
 The service is built in rings, and imports point inward only.
 
 - `src/domain/` holds the rules and the types they speak of: who may join
-  (`mayJoin`), which role a new member gets (`roleForNewMember`), the regions a
-  workspace can be in (`REGIONS` and `isRegion`, which `region.ts` takes from
-  the contract, and `DEPLOYMENT_REGION`), and `Organization`, `Membership` and
-  `Person`. It is plain TypeScript, with no I/O, and no package but the
-  contract (below).
-- `src/application/` holds the use cases (`ensureOrganization`,
-  `joinOrganization`, `mayCreateAccount`, `mayStartSession`, `describeMe`,
-  `checkHealth`) and, in `ports.ts`, the stores and probes they need. A use
-  case is a plain function that takes its ports first.
+  (`mayJoin`), what a new workspace needs (`checkNewWorkspace`) and who owns it
+  (`CREATOR_ROLE`), which workspace a new session opens
+  (`defaultActiveWorkspace`), the regions a workspace can be in (`REGIONS` and
+  `isRegion`, which `region.ts` takes from the contract), and `Workspace`,
+  `MyWorkspace`, `Person` and `SignedIn`. It is plain TypeScript, with no I/O,
+  and no package but the contract (below).
+- `src/application/` holds the use cases (`createWorkspace`,
+  `listMyWorkspaces`, `setActiveWorkspace`, `workspaceForNewSession`,
+  `mayCreateAccount`, `mayStartSession`, `describeMe`, `checkHealth`) and, in
+  `ports.ts`, the stores and probes they need. A use case is a plain function
+  that takes its ports first.
 - `src/adapters/` implements the ports with a library, one folder each:
   - `persistence/` is Drizzle on PGlite or Postgres: the database, the schema,
     and one store per port, which `stores.ts` builds together;
@@ -29,11 +31,11 @@ The service is built in rings, and imports point inward only.
     its answer to a status and a body.
 - The composition ring wires them together. `src/compose.ts` is the one place
   adapters are built and handed the ports they need (`composeApi`), and the one
-  place startup steps live, such as preparing the organisation
-  (`prepareOrganization`). Adapters call use cases themselves; what they never
-  do is build another adapter. The one exception is
-  `src/adapters/auth/cli-config.ts`, which builds the stores and `createAuth`
-  for the schema CLI: it is tooling, and never runs in the service.
+  place a startup step would live (there is none today). Adapters call use
+  cases themselves; what they never do is build another adapter. The one
+  exception is `src/adapters/auth/cli-config.ts`, which builds the stores and
+  `createAuth` for the schema CLI: it is tooling, and never runs in the
+  service.
   `src/main.ts` loads the environment, opens and migrates the database, calls
   `compose.ts` and serves, and `src/startupError.ts` words a failure to start.
   `src/config.ts` parses the environment. It is shared configuration that any
@@ -52,7 +54,7 @@ The service is built in rings, and imports point inward only.
   `src/config.ts`, and never the composition ring. Beyond that:
   - `adapters/http` never imports `better-auth`, `drizzle-orm`,
     `@electric-sql/pglite`, `pg`, `adapters/persistence` or `adapters/auth`.
-    Sign-in reaches it as `handleAuth` and `currentPerson`, which
+    Sign-in reaches it as `handleAuth` and `currentSession`, which
     `compose.ts` passes in;
   - `adapters/persistence` never imports `hono`, `better-auth` or another
     adapter;
@@ -92,7 +94,62 @@ contract is refused, so a new package is covered without being named.
 4. A route in `adapters/http`, or a hook in `adapters/auth`, calls the use
    case.
 5. `compose.ts` builds the adapter and hands it its ports, and nothing else
-   does. A new startup step goes there too, beside `prepareOrganization`.
+   does. A startup step, if one is ever needed, goes there too.
+
+## Workspaces
+
+A workspace is the top level people see, as in Notion: a company, a team, or
+only you. In the database it is Better Auth's `organization` row, and a person
+is in it through a `member` row; everything Consola says, its API included,
+says "workspace". Anyone signed in can make one, belong to several and switch
+between them.
+
+**The routes are Consola's own, not Better Auth's** (decided in 2.1, CON-49):
+
+- `GET /api/me`: the person, and their session's active workspace with their
+  role in it (`workspace`, null when there is none);
+- `PUT /api/me/workspace` `{ workspaceId }`: makes one of the person's
+  workspaces active (`setActiveWorkspace`); one they are not in is 404, like
+  one that does not exist;
+- `GET /api/workspaces`: the person's workspaces, in the order they joined;
+- `POST /api/workspaces` `{ name, slug, region }`: makes one
+  (`createWorkspace`). The creator is its owner and their session opens it. A
+  request `checkNewWorkspace` refuses is 400 with every problem named; a slug
+  any workspace has, in any region, is 409 `slug_taken`.
+
+Better Auth owns sign-in and sessions and nothing else. Its organisation
+plugin stays for its tables (`organization`, `member`, `invitation` and the
+session's `active_organization_id`), and every route it brings is closed:
+`closedPaths` reads them from the plugin itself and hands them to
+`disabledPaths`, so a route a Better Auth upgrade adds is closed too. Why:
+
+- the region stays `input: false`, so nothing Better Auth accepts can ever
+  carry one. Its own create route would need `input: true`, which would open
+  `organization/update` to it as well, guarded only by a hook;
+- the rules are domain functions a use case calls, never a hook threaded
+  through Better Auth's routes, its error shapes or its role checks;
+- a workspace and its first member are written in one transaction
+  (`WorkspaceStore.create`), which is where the cell's "workspace created"
+  message (epic 6) can join them;
+- one way to make, list or switch workspaces, so the web app and later
+  clients never have two to choose from.
+
+A member's role is one of the contract's `WORKSPACE_ROLES` (`owner`, `admin`,
+`member`), and the stores read back only a listed one (`roleOf`). Membership
+comes only from making a workspace for now, as its `owner` (`CREATOR_ROLE`):
+signing in joins nothing. Invites, roles and removal (3.2) are routes of Consola's own too, on
+Better Auth's `member` and `invitation` tables. A new session starts in the
+workspace `defaultActiveWorkspace` picks (the one last active, else the first
+joined, else none). `SessionStore` writes the active workspace on the
+`session` row itself, which is right only while Better Auth's cookie cache
+stays off: with it on, a session would keep the workspace in its cookie.
+
+A request that changes something (`POST`, `PUT`, `PATCH`, `DELETE`) must come
+from the web app's origin (`PUBLIC_URL`), or it is 403 `bad_origin`, as Better
+Auth requires of its own routes: the session cookie is SameSite=Lax, which
+another site on the same host, any other localhost port, would still be sent.
+`src/app.test.ts` pins the route list, so a new route is added there on
+purpose.
 
 ## What is always global
 
@@ -128,15 +185,17 @@ Every workspace (the `organization` row) has a `region`, one of `REGIONS`
 (`eu`, `us`). It is picked when the workspace is made and nothing changes it
 afterwards:
 
-- `OrganizationStore.ensure` writes it only when it makes the row, and reads
-  back only a listed region;
-- Better Auth's organisation plugin declares it with `input: false`, so none of
-  the plugin's own routes (`organization/update` among them) accepts it;
+- `WorkspaceStore.create` writes it only when it makes the row, and every
+  store reads back only a listed region (`regionOf`);
+- no route changes a workspace: Consola's routes make and switch, and Better
+  Auth's are closed. Its organisation plugin also declares the region with
+  `input: false`, so nothing it would accept carries one;
 - a new route or hook that writes `organization` must leave `region` alone, and
-  `src/app.test.ts` checks that the owner cannot move it.
+  `src/app.test.ts` checks that no route moves it.
 
-The deployment's one organisation is in `DEPLOYMENT_REGION` (`eu`), as is every
-organisation made before regions existed: migration `0001` fills them.
+Every organisation made before regions existed is in `eu`: migration `0001`
+fills them. The deployment's one organisation from before workspaces carries
+on as an ordinary workspace, with its members and their roles.
 
 ## Tests
 
@@ -145,8 +204,7 @@ A test sits beside its module and is named after it (`membershipStore.ts`,
 cases are tested on a migrated `pglite:memory` database through the real
 Drizzle stores: the database is never mocked. `src/app.test.ts` is the HTTP
 suite, end to end. It builds the service through `compose.ts`
-(`prepareOrganization`, then `composeApi`), as `main.ts` does, so it tests the
-wiring that runs.
+(`composeApi`), as `main.ts` does, so it tests the wiring that runs.
 
 ## Generated files
 

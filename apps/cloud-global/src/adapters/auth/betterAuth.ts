@@ -1,11 +1,11 @@
 import { drizzleAdapter } from '@better-auth/drizzle-adapter';
 import { APIError, type BetterAuthPlugin, betterAuth } from 'better-auth';
 import { organization } from 'better-auth/plugins';
-import { joinOrganization } from '../../application/organization.js';
-import type { MembershipStore, PeopleStore } from '../../application/ports.js';
+import type { MembershipStore, PeopleStore, SessionStore } from '../../application/ports.js';
 import { mayCreateAccount, mayStartSession } from '../../application/signIn.js';
+import { workspaceForNewSession } from '../../application/workspaces.js';
 import type { CloudConfig } from '../../config.js';
-import type { Person } from '../../domain/organization.js';
+import type { SignedIn } from '../../domain/person.js';
 import type { Database } from '../persistence/database.js';
 import { schema } from '../persistence/schema.js';
 
@@ -18,29 +18,61 @@ const notAllowedToJoin = () =>
   });
 
 /**
- * Better Auth for this deployment: Google is the only way in, `mayJoin` is asked before an
- * account is created (`mayCreateAccount`) and before every new session (`mayStartSession`), and
- * every session belongs to the deployment's one organisation, which `joinOrganization` joins.
- * Nobody creates or deletes organisations through the API; `ensureOrganization` makes the one
- * there is. Every error Better Auth would show on a page of its own goes to the web app instead,
- * as `?error=<code>`. The hooks only call use cases; the queries are the stores'.
+ * Better Auth's organisation plugin, for its tables only: `organization`, `member`,
+ * `invitation` and the session's `active_organization_id`. Workspaces are Consola's own routes
+ * (`adapters/http`), so every route the plugin brings is closed (`closedPaths`).
+ */
+function workspaceTables() {
+  return organization({
+    allowUserToCreateOrganization: false,
+    disableOrganizationDeletion: true,
+    // A workspace's region is fixed once set: `input: false` keeps it out of anything Better
+    // Auth would accept from a request.
+    schema: {
+      organization: {
+        additionalFields: { region: { type: 'string', required: true, input: false } },
+      },
+    },
+  });
+}
+
+/**
+ * Every path a plugin serves, so none of them is: read from the plugin itself, so a route a
+ * Better Auth upgrade adds is closed too. Server-only endpoints have no path.
+ */
+export function closedPaths(plugin: BetterAuthPlugin): string[] {
+  return Object.values(plugin.endpoints ?? {}).flatMap((endpoint) =>
+    typeof endpoint.path === 'string' ? [endpoint.path] : [],
+  );
+}
+
+/**
+ * Better Auth for this deployment, which owns sign-in and sessions and nothing else: Google is
+ * the only way in, and `mayJoin` is asked before an account is created (`mayCreateAccount`) and
+ * before every new session (`mayStartSession`). A new session starts in the workspace
+ * `workspaceForNewSession` picks, or in none. Signing in joins no workspace. Every error Better
+ * Auth would show on a page of its own goes to the web app instead, as `?error=<code>`. The
+ * hooks only call use cases; the queries are the stores'.
  *
  * Cookies keep Better Auth's defaults, httpOnly and SameSite=Lax, which it marks Secure exactly
- * when `baseURL` is https. Its origin check keeps its default. Rate limiting is turned on here,
- * since Better Auth's default is on only when NODE_ENV is production; it counts per client
- * address from `x-forwarded-for`, which the web app's proxy sets.
+ * when `baseURL` is https. Its cookie cache stays off, so every request reads its session from
+ * the database, where `SessionStore` writes the active workspace. Its origin check keeps its
+ * default. Rate limiting is turned on here, since Better Auth's default is on only when
+ * NODE_ENV is production; it counts per client address from `x-forwarded-for`, which the web
+ * app's proxy sets.
  */
 export function createAuth(
   deps: {
     db: Database;
     config: CloudConfig;
-    organizationId: string;
     people: PeopleStore;
     memberships: MembershipStore;
+    sessions: SessionStore;
   },
   extraPlugins: BetterAuthPlugin[] = [],
 ) {
-  const { db, config, organizationId, people, memberships } = deps;
+  const { db, config, people, memberships, sessions } = deps;
+  const tables = workspaceTables();
   return betterAuth({
     baseURL: config.publicUrl,
     secret: config.authSecret,
@@ -48,6 +80,7 @@ export function createAuth(
     rateLimit: { enabled: true },
     onAPIError: { errorURL: config.publicUrl },
     database: drizzleAdapter(db, { provider: 'pg', schema }),
+    disabledPaths: closedPaths(tables),
     socialProviders: {
       google: {
         clientId: config.google.clientId,
@@ -56,20 +89,7 @@ export function createAuth(
         overrideUserInfoOnSignIn: true,
       },
     },
-    plugins: [
-      organization({
-        allowUserToCreateOrganization: false,
-        disableOrganizationDeletion: true,
-        // A workspace's region is fixed once set: `input: false` keeps it out of what the
-        // plugin's own routes (organization/update among them) accept.
-        schema: {
-          organization: {
-            additionalFields: { region: { type: 'string', required: true, input: false } },
-          },
-        },
-      }),
-      ...extraPlugins,
-    ],
+    plugins: [tables, ...extraPlugins],
     databaseHooks: {
       user: {
         create: {
@@ -83,10 +103,11 @@ export function createAuth(
         create: {
           before: async (session) => {
             if (!(await mayStartSession(people, session.userId))) throw notAllowedToJoin();
-            return { data: { ...session, activeOrganizationId: organizationId } };
-          },
-          after: async (session) => {
-            await joinOrganization(memberships, { organizationId, userId: session.userId });
+            const activeOrganizationId = await workspaceForNewSession(
+              { memberships, sessions },
+              session.userId,
+            );
+            return { data: { ...session, activeOrganizationId } };
           },
         },
       },
@@ -96,12 +117,16 @@ export function createAuth(
 
 export type CloudAuth = ReturnType<typeof createAuth>;
 
-/** Who a request's session belongs to, as a `Person`, or null when it has none. */
-export function currentPersonOf(auth: CloudAuth): (headers: Headers) => Promise<Person | null> {
+/** A request's session as `SignedIn`, or null when it has none. */
+export function currentSessionOf(auth: CloudAuth): (headers: Headers) => Promise<SignedIn | null> {
   return async (headers) => {
     const signedIn = await auth.api.getSession({ headers });
     if (!signedIn) return null;
-    const { user } = signedIn;
-    return { id: user.id, name: user.name, email: user.email, image: user.image ?? null };
+    const { user, session } = signedIn;
+    return {
+      sessionId: session.id,
+      person: { id: user.id, name: user.name, email: user.email, image: user.image ?? null },
+      activeWorkspaceId: session.activeOrganizationId ?? null,
+    };
   };
 }

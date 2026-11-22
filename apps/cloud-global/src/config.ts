@@ -6,7 +6,6 @@ export type CloudConfig = {
   publicUrl: string;
   port: number;
   google: { clientId: string; clientSecret: string };
-  organization: { name: string; slug: string };
 };
 
 export class ConfigError extends Error {
@@ -51,11 +50,6 @@ const rawEnv = z.object({
     .transform((value) => originOf(value) as string),
   GOOGLE_CLIENT_ID: required('a Google client ID'),
   GOOGLE_CLIENT_SECRET: required('a Google client secret'),
-  ORG_NAME: required('an organisation name'),
-  ORG_SLUG: required('an organisation slug').regex(
-    /^[a-z0-9-]+$/,
-    'must be lowercase letters, digits and dashes',
-  ),
   PORT: z.coerce
     .number()
     .int('must be a whole number')
@@ -81,6 +75,5 @@ export function loadConfig(env: Record<string, string | undefined>): CloudConfig
     publicUrl: parsed.PUBLIC_URL,
     port: parsed.PORT ?? 3100,
     google: { clientId: parsed.GOOGLE_CLIENT_ID, clientSecret: parsed.GOOGLE_CLIENT_SECRET },
-    organization: { name: parsed.ORG_NAME, slug: parsed.ORG_SLUG },
   };
 }

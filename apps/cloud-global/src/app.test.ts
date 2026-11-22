@@ -1,13 +1,12 @@
-import { type TestHelpers, testUtils } from 'better-auth/plugins';
+import { organization, type TestHelpers, testUtils } from 'better-auth/plugins';
 import { eq } from 'drizzle-orm';
 import type { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { CloudAuth } from './adapters/auth/betterAuth.js';
+import { type CloudAuth, closedPaths } from './adapters/auth/betterAuth.js';
 import { type Database, migrateDatabase, openDatabase } from './adapters/persistence/database.js';
 import { schema } from './adapters/persistence/schema.js';
-import { composeApi, prepareOrganization } from './compose.js';
+import { composeApi } from './compose.js';
 import type { CloudConfig } from './config.js';
-import type { Organization } from './domain/organization.js';
 
 const WEB_ORIGIN = 'http://localhost:5175';
 
@@ -17,12 +16,10 @@ const config: CloudConfig = {
   publicUrl: WEB_ORIGIN,
   port: 3100,
   google: { clientId: 'sprocket-test-client-id', clientSecret: 'sprocket-test-client-secret' },
-  organization: { name: 'Sprocket', slug: 'sprocket' },
 };
 
 let db: Database;
 let closeDatabase: () => Promise<void>;
-let organization: Organization;
 let auth: CloudAuth;
 let test: TestHelpers;
 let app: Hono;
@@ -43,9 +40,8 @@ beforeEach(async () => {
     await opened.close();
   };
   await migrateDatabase(db);
-  organization = await prepareOrganization(db, config);
   // Built the way main.ts builds it, with Better Auth's test helpers added.
-  ({ app, auth } = composeApi({ db, config, organization }, [testUtils()]));
+  ({ app, auth } = composeApi({ db, config }, [testUtils()]));
   // The plugin is passed in at runtime, so the type of `$context` does not know about it.
   test = ((await auth.$context) as unknown as { test: TestHelpers }).test;
 });
@@ -138,51 +134,72 @@ function expectStateLogged() {
     );
 }
 
-async function get(path: string, headers?: Headers, on = app) {
-  const response = await on.request(path, { headers });
+async function get(path: string, headers?: Headers) {
+  const response = await app.request(path, { headers });
   return { status: response.status, body: await response.json() };
 }
 
-describe('the organisation', () => {
-  it('GET /api/org is public', async () => {
-    expect(await get('/api/org')).toEqual({
-      status: 200,
-      body: { name: 'Sprocket', slug: 'sprocket' },
-    });
+/** A change the web app sends: a JSON body, from the web origin, as `headers`' session. */
+async function send(method: 'POST' | 'PUT', path: string, body: unknown, headers?: Headers) {
+  const response = await app.request(path, {
+    method,
+    headers: fromBrowser(headers),
+    body: typeof body === 'string' ? body : JSON.stringify(body),
   });
-});
+  return { status: response.status, body: await response.json() };
+}
+
+const acme = { name: 'Acme', slug: 'acme', region: 'eu' };
+
+/** Makes a workspace as `headers`' session, failing the test unless it is made. */
+async function makeWorkspace(headers: Headers, request: Record<string, unknown> = acme) {
+  const made = await send('POST', '/api/workspaces', request, headers);
+  expect(made.status).toBe(201);
+  return made.body as { id: string; name: string; slug: string; region: string; role: string };
+}
+
+/** The workspace rows as stored, for checks that a route changed nothing. */
+function storedWorkspaces() {
+  return db
+    .select({
+      id: schema.organization.id,
+      name: schema.organization.name,
+      slug: schema.organization.slug,
+      region: schema.organization.region,
+    })
+    .from(schema.organization);
+}
 
 describe('who is signed in', () => {
   it('GET /api/me is 401 signed out', async () => {
     expect(await get('/api/me')).toEqual({ status: 401, body: { error: 'signed_out' } });
   });
 
-  it('the first person to sign in is the owner', async () => {
-    const login = await signIn('dana@sprocket.test', 'Dana Ortiz');
+  it('someone who has made no workspace is signed in, in none', async () => {
+    const login = await signIn('dana@acme.test', 'Dana Ortiz');
     expect(await get('/api/me', login.headers)).toEqual({
       status: 200,
       body: {
-        user: { id: login.user.id, name: 'Dana Ortiz', email: 'dana@sprocket.test', image: null },
-        organization: { id: organization.id, name: 'Sprocket', slug: 'sprocket', region: 'eu' },
-        role: 'owner',
+        user: { id: login.user.id, name: 'Dana Ortiz', email: 'dana@acme.test', image: null },
+        workspace: null,
       },
     });
   });
 
-  it('the next person is a member', async () => {
-    await signIn('dana@sprocket.test', 'Dana Ortiz');
-    const login = await signIn('lee@sprocket.test', 'Lee Park');
-    const me = await get('/api/me', login.headers);
-    expect(me.status).toBe(200);
-    expect(me.body.user.email).toBe('lee@sprocket.test');
-    expect(me.body.organization.slug).toBe('sprocket');
-    expect(me.body.role).toBe('member');
+  it('signing in joins no workspace', async () => {
+    const dana = await signIn('dana@acme.test', 'Dana Ortiz');
+    await makeWorkspace(dana.headers);
+    await signIn('lee@sprocket.test', 'Lee Park');
+    expect(await db.select().from(schema.member)).toEqual([
+      expect.objectContaining({ userId: dana.user.id, role: 'owner' }),
+    ]);
   });
 
-  it('a session gets the organisation as its active one', async () => {
-    const login = await signIn('dana@sprocket.test', 'Dana Ortiz');
-    const session = await auth.api.getSession({ headers: login.headers });
-    expect(session?.session.activeOrganizationId).toBe(organization.id);
+  it('a person no longer in their active workspace is in none', async () => {
+    const login = await signIn('dana@acme.test', 'Dana Ortiz');
+    await makeWorkspace(login.headers);
+    await db.delete(schema.member).where(eq(schema.member.userId, login.user.id));
+    expect((await get('/api/me', login.headers)).body.workspace).toBeNull();
   });
 
   it('an unverified email cannot create an account', async () => {
@@ -201,70 +218,316 @@ describe('who is signed in', () => {
       'A verified email address is required.',
     );
     expect(await db.select().from(schema.session)).toEqual([]);
-    expect(await db.select().from(schema.member)).toEqual([]);
+  });
+});
+
+describe('workspaces', () => {
+  it('every workspace route is 401 signed out', async () => {
+    expect(await get('/api/workspaces')).toEqual({ status: 401, body: { error: 'signed_out' } });
+    expect(await send('POST', '/api/workspaces', acme)).toEqual({
+      status: 401,
+      body: { error: 'signed_out' },
+    });
+    expect(await send('PUT', '/api/me/workspace', { workspaceId: 'any' })).toEqual({
+      status: 401,
+      body: { error: 'signed_out' },
+    });
+    expect(await storedWorkspaces()).toEqual([]);
   });
 
-  it('a signed-in person who is not a member gets 403', async () => {
-    const login = await signIn('dana@sprocket.test', 'Dana Ortiz');
-    const renamed = await prepareOrganization(db, {
-      ...config,
-      organization: { name: 'Sprocket', slug: 'sprocket-2' },
+  it('a person makes a workspace, owns it and is in it', async () => {
+    const login = await signIn('dana@acme.test', 'Dana Ortiz');
+    const made = await send('POST', '/api/workspaces', { ...acme, region: 'us' }, login.headers);
+    expect(made).toEqual({
+      status: 201,
+      body: { id: expect.any(String), name: 'Acme', slug: 'acme', region: 'us', role: 'owner' },
     });
-    // The same database and secret, so the same session, served for another organisation.
-    const onRenamed = composeApi({ db, config, organization: renamed }).app;
-    expect(await get('/api/me', login.headers, onRenamed)).toEqual({
-      status: 403,
-      body: { error: 'not_a_member' },
+    expect((await get('/api/me', login.headers)).body.workspace).toEqual(made.body);
+    expect(await get('/api/workspaces', login.headers)).toEqual({
+      status: 200,
+      body: { workspaces: [made.body] },
     });
   });
 
-  it('people cannot create organisations', async () => {
-    const login = await signIn('dana@sprocket.test', 'Dana Ortiz');
-    const response = await app.request('/api/auth/organization/create', {
-      method: 'POST',
-      headers: fromBrowser(login.headers),
-      body: JSON.stringify({ name: 'Elsewhere', slug: 'elsewhere' }),
+  it('two people each make a workspace and see only their own', async () => {
+    const dana = await signIn('dana@acme.test', 'Dana Ortiz');
+    const lee = await signIn('lee@sprocket.test', 'Lee Park');
+    const danas = await makeWorkspace(dana.headers, acme);
+    const lees = await makeWorkspace(lee.headers, {
+      name: 'Sprocket',
+      slug: 'sprocket',
+      region: 'us',
     });
-    expect(response.status).toBe(403);
-    expect(await db.select().from(schema.organization)).toHaveLength(1);
+
+    expect((await get('/api/workspaces', dana.headers)).body).toEqual({ workspaces: [danas] });
+    expect((await get('/api/workspaces', lee.headers)).body).toEqual({ workspaces: [lees] });
+    expect((await get('/api/me', dana.headers)).body.workspace).toEqual(danas);
+    expect((await get('/api/me', lee.headers)).body.workspace).toEqual(lees);
   });
 
-  it("the owner cannot change the organisation's region", async () => {
-    const login = await signIn('dana@sprocket.test', 'Dana Ortiz');
-    expect((await get('/api/me', login.headers)).body.role).toBe('owner');
-    const update = (data: Record<string, unknown>) =>
-      app.request('/api/auth/organization/update', {
-        method: 'POST',
-        headers: fromBrowser(login.headers),
-        body: JSON.stringify({ organizationId: organization.id, data }),
+  it('a slug that is taken is refused, in any region', async () => {
+    const dana = await signIn('dana@acme.test', 'Dana Ortiz');
+    const lee = await signIn('lee@sprocket.test', 'Lee Park');
+    await makeWorkspace(dana.headers, acme);
+
+    for (const region of ['eu', 'us']) {
+      expect(
+        await send('POST', '/api/workspaces', { name: 'Acme', slug: 'acme', region }, lee.headers),
+      ).toEqual({ status: 409, body: { error: 'slug_taken' } });
+    }
+    expect(await send('POST', '/api/workspaces', acme, dana.headers)).toEqual({
+      status: 409,
+      body: { error: 'slug_taken' },
+    });
+    expect(await storedWorkspaces()).toEqual([expect.objectContaining({ slug: 'acme' })]);
+    expect((await get('/api/workspaces', lee.headers)).body).toEqual({ workspaces: [] });
+    expect((await get('/api/me', lee.headers)).body.workspace).toBeNull();
+  });
+
+  it('a workspace the rules refuse is 400, naming every problem', async () => {
+    const login = await signIn('dana@acme.test', 'Dana Ortiz');
+    expect(
+      await send(
+        'POST',
+        '/api/workspaces',
+        { name: ' ', slug: 'Acme', region: 'ap' },
+        login.headers,
+      ),
+    ).toEqual({
+      status: 400,
+      body: {
+        error: 'invalid_workspace',
+        problems: ['name_missing', 'slug_invalid', 'region_unknown'],
+      },
+    });
+    for (const body of ['not json', '[]', 'null']) {
+      expect(await send('POST', '/api/workspaces', body, login.headers)).toMatchObject({
+        status: 400,
+        body: { error: 'invalid_workspace' },
       });
-
-    // Better Auth drops the region from what it accepts, so this is an empty update, which it
-    // answers with a 500 whatever the field. Only what is stored matters here.
-    await update({ region: 'us' });
-    // With a name beside it, the route runs and takes the name: it is the region alone it drops.
-    const withName = await update({ name: 'Sprocket Labs', region: 'us' });
-    expect(withName.status).toBe(200);
-    expect(await withName.json()).toMatchObject({ name: 'Sprocket Labs', region: 'eu' });
-
-    expect(await db.select().from(schema.organization)).toEqual([
-      expect.objectContaining({ id: organization.id, name: 'Sprocket Labs', region: 'eu' }),
-    ]);
-    expect((await get('/api/me', login.headers)).body.organization.region).toBe('eu');
+    }
+    expect(await storedWorkspaces()).toEqual([]);
   });
 
-  it('the owner cannot delete the organisation', async () => {
-    const login = await signIn('dana@sprocket.test', 'Dana Ortiz');
-    expect((await get('/api/me', login.headers)).body.role).toBe('owner');
-    const response = await app.request('/api/auth/organization/delete', {
+  it('a person switches between their workspaces', async () => {
+    const login = await signIn('dana@acme.test', 'Dana Ortiz');
+    const first = await makeWorkspace(login.headers, acme);
+    const second = await makeWorkspace(login.headers, { ...acme, slug: 'acme-labs' });
+    expect((await get('/api/me', login.headers)).body.workspace).toEqual(second);
+
+    expect(
+      await send('PUT', '/api/me/workspace', { workspaceId: first.id }, login.headers),
+    ).toEqual({ status: 200, body: first });
+    expect((await get('/api/me', login.headers)).body.workspace).toEqual(first);
+  });
+
+  it('a workspace the person is not in is 404, like one that is not there', async () => {
+    const dana = await signIn('dana@acme.test', 'Dana Ortiz');
+    const lee = await signIn('lee@sprocket.test', 'Lee Park');
+    const danas = await makeWorkspace(dana.headers);
+
+    for (const workspaceId of [danas.id, 'not-a-workspace']) {
+      expect(await send('PUT', '/api/me/workspace', { workspaceId }, lee.headers)).toEqual({
+        status: 404,
+        body: { error: 'workspace_not_found' },
+      });
+    }
+    expect((await get('/api/me', lee.headers)).body.workspace).toBeNull();
+  });
+
+  it('switching needs a workspace id', async () => {
+    const login = await signIn('dana@acme.test', 'Dana Ortiz');
+    for (const body of [{}, { workspaceId: 7 }, 'not json']) {
+      expect(await send('PUT', '/api/me/workspace', body, login.headers)).toEqual({
+        status: 400,
+        body: { error: 'invalid_request' },
+      });
+    }
+  });
+
+  it('a new session opens the workspace the person last had active', async () => {
+    const first = await signIn('dana@acme.test', 'Dana Ortiz');
+    const acmeWorkspace = await makeWorkspace(first.headers, acme);
+    await makeWorkspace(first.headers, { ...acme, slug: 'acme-labs' });
+    await send('PUT', '/api/me/workspace', { workspaceId: acmeWorkspace.id }, first.headers);
+
+    const again = await test.login({ userId: first.user.id });
+    expect((await get('/api/me', again.headers)).body.workspace).toEqual(acmeWorkspace);
+  });
+
+  it('a change from anywhere but the web app is refused', async () => {
+    const login = await signIn('dana@acme.test', 'Dana Ortiz');
+    for (const origin of ['http://localhost:3000', 'null', null]) {
+      const headers = fromBrowser(login.headers);
+      if (origin === null) headers.delete('origin');
+      else headers.set('origin', origin);
+      const response = await app.request('/api/workspaces', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(acme),
+      });
+      expect(response.status).toBe(403);
+      expect(await response.json()).toEqual({ error: 'bad_origin' });
+    }
+    expect(await storedWorkspaces()).toEqual([]);
+  });
+});
+
+describe('routes', () => {
+  it('are these, and no other', () => {
+    expect(app.routes.map((route) => `${route.method} ${route.path}`)).toEqual([
+      'ALL /api/auth/*',
+      'ALL /api/*',
+      'GET /api/me',
+      'PUT /api/me/workspace',
+      'GET /api/workspaces',
+      'POST /api/workspaces',
+      'GET /api/health',
+    ]);
+  });
+
+  it("every one of Better Auth's organisation routes is closed", async () => {
+    const login = await signIn('dana@acme.test', 'Dana Ortiz');
+    const workspace = await makeWorkspace(login.headers);
+    const paths = closedPaths(organization());
+    // Among them the routes that would make, change, delete, switch or join a workspace.
+    expect(paths).toEqual(
+      expect.arrayContaining([
+        '/organization/create',
+        '/organization/update',
+        '/organization/delete',
+        '/organization/set-active',
+        '/organization/list',
+        '/organization/invite-member',
+        '/organization/accept-invitation',
+      ]),
+    );
+
+    for (const path of paths) {
+      for (const method of ['GET', 'POST']) {
+        const response = await app.request(`/api/auth${path}`, {
+          method,
+          headers: fromBrowser(login.headers),
+          ...(method === 'POST'
+            ? { body: JSON.stringify({ organizationId: workspace.id, data: { region: 'us' } }) }
+            : {}),
+        });
+        expect(response.status, `${method} ${path}`).toBe(404);
+      }
+    }
+    expect(await storedWorkspaces()).toEqual([
+      { id: workspace.id, name: 'Acme', slug: 'acme', region: 'eu' },
+    ]);
+  });
+});
+
+describe('regions', () => {
+  it('a workspace is in the region it was made in, and no route moves it', async () => {
+    const login = await signIn('dana@acme.test', 'Dana Ortiz');
+    const workspace = await makeWorkspace(login.headers, { ...acme, region: 'us' });
+
+    // Every route that takes a body, given a region: none of them moves the workspace.
+    await send('POST', '/api/workspaces', { ...acme, region: 'eu' }, login.headers);
+    await send(
+      'PUT',
+      '/api/me/workspace',
+      { workspaceId: workspace.id, region: 'eu' },
+      login.headers,
+    );
+    await app.request('/api/auth/update-session', {
       method: 'POST',
       headers: fromBrowser(login.headers),
-      body: JSON.stringify({ organizationId: organization.id }),
+      body: JSON.stringify({ activeOrganizationId: 'elsewhere', region: 'eu' }),
     });
-    expect(response.status).toBe(404);
-    expect(await db.select().from(schema.organization)).toEqual([
-      expect.objectContaining({ id: organization.id }),
+
+    expect(await storedWorkspaces()).toEqual([
+      { id: workspace.id, name: 'Acme', slug: 'acme', region: 'us' },
     ]);
+    expect((await get('/api/me', login.headers)).body.workspace).toEqual(workspace);
+  });
+});
+
+describe('the organisation from before workspaces', () => {
+  /** The deployment's one organisation, as the service before workspaces left it. */
+  async function oldOrganisation() {
+    const dana = await test.saveUser(
+      test.createUser({ email: 'dana@sprocket.test', name: 'Dana Ortiz', emailVerified: true }),
+    );
+    const lee = await test.saveUser(
+      test.createUser({ email: 'lee@sprocket.test', name: 'Lee Park', emailVerified: true }),
+    );
+    await db.insert(schema.organization).values({
+      id: 'sprocket-org',
+      name: 'Sprocket',
+      slug: 'sprocket',
+      region: 'eu',
+      createdAt: new Date('2026-11-21'),
+    });
+    await db.insert(schema.member).values([
+      {
+        id: 'm-dana',
+        organizationId: 'sprocket-org',
+        userId: dana.id,
+        role: 'owner',
+        createdAt: new Date('2026-11-21T10:00:00Z'),
+      },
+      {
+        id: 'm-lee',
+        organizationId: 'sprocket-org',
+        userId: lee.id,
+        role: 'member',
+        createdAt: new Date('2026-11-21T11:00:00Z'),
+      },
+    ]);
+    return { dana, lee };
+  }
+
+  const sprocket = { id: 'sprocket-org', name: 'Sprocket', slug: 'sprocket', region: 'eu' };
+
+  it('carries on as an ordinary workspace, with its members and their roles', async () => {
+    const { dana, lee } = await oldOrganisation();
+    const danaLogin = await test.login({ userId: dana.id });
+    const leeLogin = await test.login({ userId: lee.id });
+
+    expect((await get('/api/me', danaLogin.headers)).body.workspace).toEqual({
+      ...sprocket,
+      role: 'owner',
+    });
+    expect((await get('/api/workspaces', leeLogin.headers)).body).toEqual({
+      workspaces: [{ ...sprocket, role: 'member' }],
+    });
+    expect((await get('/api/me', leeLogin.headers)).body.workspace).toEqual({
+      ...sprocket,
+      role: 'member',
+    });
+    expect(await storedWorkspaces()).toEqual([sprocket]);
+  });
+
+  it('keeps its slug, and nobody new joins it by signing in', async () => {
+    await oldOrganisation();
+    const sam = await signIn('sam@sprocket.test', 'Sam Reyes');
+
+    expect(await get('/api/me', sam.headers)).toMatchObject({ body: { workspace: null } });
+    expect((await get('/api/workspaces', sam.headers)).body).toEqual({ workspaces: [] });
+    expect(
+      await send(
+        'POST',
+        '/api/workspaces',
+        { name: 'Sprocket', slug: 'sprocket', region: 'us' },
+        sam.headers,
+      ),
+    ).toEqual({ status: 409, body: { error: 'slug_taken' } });
+    expect(await db.select().from(schema.member)).toHaveLength(2);
+  });
+
+  it('a member who makes a workspace of their own is in both', async () => {
+    const { lee } = await oldOrganisation();
+    const login = await test.login({ userId: lee.id });
+    const own = await makeWorkspace(login.headers, acme);
+
+    expect((await get('/api/workspaces', login.headers)).body).toEqual({
+      workspaces: [{ ...sprocket, role: 'member' }, own],
+    });
   });
 });
 
@@ -318,7 +581,6 @@ describe('Google sign-in', () => {
     expect(again.location?.origin).toBe(WEB_ORIGIN);
     expect(again.location?.searchParams.get('error')).toBe('email_not_verified');
     expect(await db.select().from(schema.session)).toHaveLength(1);
-    expect(await db.select().from(schema.member)).toHaveLength(1);
   });
 
   it('replaying a finished Google sign-in goes back to the web app with an error', async () => {
@@ -385,7 +647,6 @@ describe('the session cookie', () => {
     const overHttps = composeApi({
       db,
       config: { ...config, publicUrl: 'https://cloud.sprocket.test' },
-      organization,
     }).auth;
     const { attributes } = (await overHttps.$context).authCookies.sessionToken;
     expect(attributes).toMatchObject({ httpOnly: true, sameSite: 'lax', secure: true });
