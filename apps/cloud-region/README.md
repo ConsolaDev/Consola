@@ -6,8 +6,10 @@ that is not global: its content, such as factory files and runs, and what the
 cloud sessions need. Accounts are not here: they are global, in
 `apps/cloud-global`, and the cell refers to a person by their global id.
 
-Today the cell holds no tables yet. It answers a health route to anyone, and
-everything else only with a cell token `cloud-global` minted.
+Today the cell keeps a copy of each workspace in its region and its members
+(ids and roles only), from `cloud-global`'s outbox. It answers a health route
+to anyone, takes the outbox's signed deliveries, and answers everything else
+only with a cell token `cloud-global` minted.
 
 ## Run
 
@@ -44,6 +46,27 @@ role and the region from it. `GET /api/me` answers what it read:
 
 `CLOUD_GLOBAL_URL` must be an origin (no path), and https unless it is on this
 machine: whoever answers that address can mint any token the cell takes.
+
+## The outbox
+
+`cloud-global` delivers its outbox messages (a workspace was created, a member
+was added, changed role or was removed) to `POST /api/outbox`, one a request,
+with no cell token: the body is the message signed with the cell token's key,
+a compact JWS sent as `application/jose` (`packages/cloud-contract`,
+"Delivering a message"). The cell checks it with the same keys it checks
+tokens with, so it needs nothing more set up. It applies each workspace's
+messages once, in order:
+
+| Answer | When |
+| --- | --- |
+| 200 | applied now, or applied before (then nothing changes) |
+| 400 | not `application/jose`, over 16 KiB, or no message the contract reads |
+| 401 | not signed by `cloud-global` |
+| 409, `{"nextSequence": n}` | an earlier message of the workspace is missing |
+| 421 | a workspace in another region |
+| 503 | the keys or the database cannot be had |
+
+What the cell keeps is in the `workspace` and `workspace_member` tables.
 
 By default the data is PGlite (Postgres in-process) in
 `apps/cloud-region/.data/cell-eu-db`. Deleting that folder resets it.

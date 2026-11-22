@@ -17,7 +17,9 @@ region (`REGION`, `eu` or `us`) and given a database of its own, never
   id (the id `cloud-global` gives them), never by an email, and keeps no copy
   of an account. No file imports Better Auth, and no table is named after one
   of its tables (`user`, `session`, `account`, `verification`, `member`,
-  `invitation`).
+  `invitation`). What it does keep is a copy of which workspaces are in its
+  region and who their members are, ids and roles only, from `cloud-global`'s
+  outbox (below, "The outbox").
 - **Every table carries the workspace id**: a not-null `workspace_id`, the
   workspace's id in `cloud-global`.
 - **The cell does hold the workspace's content.** Under the Warp model
@@ -25,7 +27,8 @@ region (`REGION`, `eu` or `us`) and given a database of its own, never
   makes, such as its factory files and runs, so that content lives here, in
   the workspace's region.
 - **The cell trusts only `cloud-global`'s token.** Every request but
-  `GET /api/health` carries a cell token `cloud-global` minted, and the cell
+  `GET /api/health` and the outbox's deliveries (`POST /api/outbox`, signed
+  with the same key) carries a cell token `cloud-global` minted, and the cell
   learns who is asking, in which workspace, from that token and nothing else
   (below, "Who is asking").
 
@@ -46,7 +49,9 @@ header.
   `CELL_TOKEN_AUDIENCE`, `CLOCK_SKEW_SECONDS`), the contract's
   `readCellTokenClaims` reads its claims, both at one moment from the
   `Clock`, and then only if its `region` is the cell's own. A token must name
-  its key's `kid`. `application/authenticate.ts` holds the steps,
+  its key's `kid`, and its `typ` must not be `OUTBOX_MESSAGE_TYPE`: the same
+  key signs the outbox's deliveries, and a delivery is never a token, whatever
+  its payload holds. `application/authenticate.ts` holds the steps,
   `domain/caller.ts` (`admitClaims`) the rule on the claims and the region, and
   `adapters/token` the signature check, behind the `TokenVerifier` port. Every
   constant comes from the contract; never retype one.
@@ -76,38 +81,101 @@ header.
   (`c.var.caller`, typed by `CellEnv`): the person's global id, the
   workspace's id, the role and the region, no more. Only `admitClaims` makes a
   `Caller` (a type-only brand keeps a hand-written one from type-checking).
-- **Open routes.** Only `GET /api/health` answers without a token, for
-  whatever probes cells. `createApp` registers it before `requireCaller`, and
-  every route after, so an unknown path is 401 before it is 404. A new open
-  route needs a reason as good, and the HTTP suite's "every route" test has to
-  name it.
+- **Open routes.** Two routes answer without a token: `GET /api/health`, for
+  whatever probes cells, and `POST /api/outbox`, where `cloud-global`
+  delivers its outbox, each delivery signed instead (below, "The outbox").
+  `createApp` registers both before `requireCaller`, and every route after, so
+  an unknown path is 401 before it is 404, and any other method on
+  `/api/outbox` needs a token. A new open route needs a reason as good, and
+  the HTTP suite's "every route" test has to name it (`OPEN_ROUTES`).
 - **A workspace's rows.** A route never takes a workspace id from the request
   (path, query, body or header). A use case that reads or writes a
   workspace's rows takes the `Caller` and scopes every query by its
   `workspaceId`; the workspace is the token's, so a token for one workspace
   cannot reach another's rows. A role check is the use case's too, from
-  `caller.role`.
+  `caller.role`. The outbox route is the one exception: no person calls it,
+  and the workspace it writes is the one its signed message names, which only
+  `cloud-global` can sign.
+
+## The outbox
+
+`cloud-global` tells the cell about each workspace in the cell's region, and
+its members, through its outbox (`packages/cloud-contract`, "The outbox
+messages" and "Delivering a message": read them first). The cell keeps a copy
+from those messages and nothing else.
+
+- **What it keeps.** Two tables, each with its `workspace_id`: `workspace`,
+  one row per workspace once its `workspace.created` is applied, with
+  `last_applied_sequence`; and `workspace_member`, one row per member, with
+  `person_id` and `role`, keyed by both ids. Ids and roles only: never an
+  email, a name or anything else of an account, which the contract's reader
+  refuses anyway, and a test pins the columns (`workspaceCopies.test.ts`).
+- **How a delivery is authenticated** is the contract's choice: the body is
+  the message as a compact JWS signed with the cell token's key, `typ`
+  `OUTBOX_MESSAGE_TYPE`. The cell checks it (`adapters/token/outboxDeliveries.ts`,
+  jose's `compactVerify`) against the very key set it checks tokens with
+  (`cloudGlobalKeys`, built once in `compose.ts`), with `CELL_TOKEN_ALGORITHM`
+  alone, a `kid` required, and no other `typ`. Another `typ` or no `kid` is
+  refused before the key set is asked. There is no secret of the cell's own,
+  and nothing more to configure: `CLOUD_GLOBAL_URL` already gives the keys.
+- **The order of the checks** is the contract's, and each answer is
+  `OUTBOX_ANSWER`'s, by status. Before anything, the route
+  (`adapters/http/outbox.ts`) refuses a body not sent as
+  `OUTBOX_DELIVERY_MEDIA_TYPE` (any case, parameters ignored) and one over
+  `MAX_DELIVERY_BYTES` (16 KiB), each 400, without reading it. Then
+  `receiveDelivery` (`application/receiveDelivery.ts`):
+  1. the signature: not `cloud-global`'s is 401 `{"error":"unsigned"}`; keys
+     that cannot be had are 503 `{"error":"unavailable"}`, never 401, logged
+     the way tokens log it;
+  2. the message: the payload as UTF-8, `JSON.parse` and `readOutboxMessage`;
+     what does not read is 400 `{"error":"unreadable"}`, and the log gets
+     the contract's reason, never the body;
+  3. the region: another region's message is 421
+     `{"error":"otherRegion","region":"<this cell's>"}`;
+  4. the sequence (`placeMessage`, `domain/workspaceCopy.ts`): at or below the
+     last applied is 200 `{"applied":true}` with nothing changed; the next is
+     applied, then 200; further ahead is 409 with exactly `{ nextSequence }`
+     (`OutOfOrderAnswer`), the last applied plus one, or `FIRST_SEQUENCE` for
+     a workspace the cell holds nothing of. A database that does not answer
+     is 503 `{"error":"unavailable"}`.
+  Every refusal is logged in one line, never the body.
+- **Applied once, in order, in one transaction.** `WorkspaceCopies.applyAfter`
+  makes the change and moves `last_applied_sequence` in one transaction, by a
+  compare-and-set from the sequence the message was placed against (for a new
+  workspace, an insert that does nothing on conflict). A delivery that loses
+  it to another, the same message delivered twice at once, places the message
+  again and finds it applied, so it changes nothing.
+- **What each change does** (`copyChangeOf`) is a state to reach, not a step,
+  so a copy that differs from `cloud-global`'s records converges rather than
+  refusing a message `cloud-global` would send forever: `workspace.created`
+  makes the row; `member.added` and `member.role-changed` both put the member
+  with the message's role (an added member already there takes it, a role
+  change for someone not there adds them); `member.removed` deletes the member,
+  and for someone not there changes nothing. Each still moves the sequence.
 
 ## The layers
 
 The service is built in rings, and imports point inward only.
 
 - `src/domain/` holds the rules and the types they speak of, such as the
-  regions (`region.ts`, which takes them from the contract). It is plain
+  regions (`region.ts`, which takes them from the contract) and the order a
+  workspace's copy applies its messages in (`workspaceCopy.ts`). It is plain
   TypeScript, with no I/O, and no package but the contract (below).
 - `src/application/` holds the use cases (`checkHealth`, `authenticate`,
-  `describeMe`) and, in `ports.ts`, the stores, probes, the `TokenVerifier`
-  and the `Clock` they need. A use case is a plain function that takes its
-  ports first.
+  `describeMe`, `receiveDelivery`) and, in `ports.ts`, the stores, probes,
+  the `TokenVerifier`, the `DeliveryVerifier`, the `WorkspaceCopies` and the
+  `Clock` they need. A use case is a plain function that takes its ports
+  first.
 - `src/adapters/` implements the ports with a library, one folder each:
   - `persistence/` is Drizzle on PGlite or Postgres: the database
     (`database.ts`), the tables (`tables.ts`, re-exported as `schema` by
     `schema.ts`), and one store per port, which `stores.ts` builds together;
-  - `http/` is the Hono routes (`app.ts`) and the token check in front of them
-    (`caller.ts`). Each route asks a use case and maps its answer to a status
-    and a body;
-  - `token/` is jose: the `TokenVerifier`, and where its keys come from
-    (`cellTokens.ts`);
+  - `http/` is the Hono routes (`app.ts`), the token check in front of them
+    (`caller.ts`) and the outbox's route (`outbox.ts`). Each route asks a use
+    case and maps its answer to a status and a body;
+  - `token/` is jose: the `TokenVerifier` and where its keys come from
+    (`cellTokens.ts`), and the `DeliveryVerifier`, on the same keys
+    (`outboxDeliveries.ts`);
   - `clock/` is the machine's clock, the `Clock`.
 - The composition ring wires them together. `src/compose.ts` is the one place
   adapters are built and handed the ports they need (`composeCell`), and the
@@ -161,7 +229,9 @@ also reads every package in the workspace and checks that each one but the
 contract is refused, so a new package is covered without being named.
 
 `src/adapters/persistence/schema.test.ts` enforces the table rules: every table
-in `schema` has a not-null `workspace_id`, and none is an account table.
+in `schema` has a not-null `workspace_id`, and none is an account table (the
+copy of a workspace's members is `workspace_member`, ids and a role, never
+`member`).
 
 ## Adding a feature
 
@@ -186,17 +256,21 @@ suite, end to end. It builds the cell through `compose.ts` (`composeCell`), as
 `main.ts` does, so it tests the wiring that runs.
 
 No test needs `cloud-global` running. A test makes an Ed25519 key pair, signs
-tokens with jose's `SignJWT` over the contract's `cellTokenClaims`, and hands
-the cell the public key as a local key set (`composeCell`'s `cellTokenKeys`,
-which only tests pass). The tests of the remote key set start a small
-`node:http` server on port 0 and point `CLOUD_GLOBAL_URL` at it. The HTTP
-suite's "every route" test asks every route the app has without a token and
-expects 401 from all but `GET /api/health`, so a new route is covered without
-being named.
+tokens with jose's `SignJWT` over the contract's `cellTokenClaims` and outbox
+deliveries with its `CompactSign` over a message's JSON, and hands the cell
+the public key as a local key set (`composeCell`'s `cellTokenKeys`, which only
+tests pass). The tests of the remote key set start a small `node:http` server
+on port 0 and point `CLOUD_GLOBAL_URL` at it. The HTTP suite's "every route"
+test asks every route the app has without a token and expects 401 from all
+but the open ones it names (`OPEN_ROUTES`), so a new route is covered without
+being named. That deliveries apply once is asserted on the tables, and on the
+use case's answer (`now`) for deliveries made at once: PGlite runs one
+transaction at a time, so the compare-and-set is also tested directly
+(`workspaceCopies.test.ts`).
 
 ## Generated files
 
 `drizzle/` holds the migrations, written by
-`pnpm --filter @consola/cloud-region db:generate` after `tables.ts` changes.
-They apply when the cell starts. There are none yet: `drizzle/meta/_journal.json`
-is the empty journal the first migration is added to.
+`pnpm --filter @consola/cloud-region db:generate --name <what>` after
+`tables.ts` changes. They apply when the cell starts. The first is
+`0000_workspace_copy`.
