@@ -1870,6 +1870,10 @@ export class AutomationService {
         status: run.status,
         at: run.finishedAt ?? run.createdAt,
         ...(gate !== undefined ? { gate } : {}),
+        // Rejected after it started (turned away, 3-A code review M6): not dismissed.
+        ...(run.status === 'rejected' && run.startedAt !== undefined
+          ? { started: true as const }
+          : {}),
       });
     }
     const row = (target: ItemTarget, item: SourceItem): ItemTargetRow => {

@@ -311,10 +311,16 @@ export function conditionValues(
  * (the run stopped after a `then: stop` step), then a person's rejection at
  * a gate, then how the run ended.
  */
-export function notRunReason(run: Pick<RunRecord, 'status' | 'steps'>, step?: StepRun): string {
+export function notRunReason(
+  run: Pick<RunRecord, 'status' | 'steps' | 'startedAt'>,
+  step?: StepRun,
+): string {
   if (step?.note) return step.note;
   const gate = rejectedAtGate(run);
   if (gate !== undefined) return `The run was rejected at \`${gate}\` before this step.`;
+  // Turned away after it started (3-A code review M6): it did start.
+  if (run.status === 'rejected' && run.startedAt !== undefined)
+    return 'The run was turned away before reaching it.';
   if (run.status === 'rejected') return 'The run was turned down before it started.';
   // A failed step inside a loop before the loop's own row, which fails with it (review S10).
   const failed =
@@ -369,7 +375,7 @@ export function artifactNote(name: string, kind: StepRun['kind']): string | null
  */
 export function stepSummary(
   step: StepRun,
-  run: Pick<RunRecord, 'status' | 'steps'>,
+  run: Pick<RunRecord, 'status' | 'steps' | 'startedAt'>,
   now: Date = new Date(),
 ): string | null {
   const tone = stepTone(step, runIsOver(run.status));

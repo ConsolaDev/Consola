@@ -1471,6 +1471,10 @@ describe('lastRunWords', () => {
     expect(lastRunWords({ id: 'r', status: 'rejected', at: ago(2 * DAY) }, NOW)).toBe(
       'dismissed 2 days ago',
     );
+    // One turned away after it started was not dismissed (3-A code review M6).
+    expect(
+      lastRunWords({ id: 'r', status: 'rejected', at: ago(2 * DAY), started: true }, NOW),
+    ).toBe('rejected 2 days ago');
   });
 });
 
@@ -1639,6 +1643,20 @@ describe('a run rejected at a gate', () => {
     expect(runStatusWord(rejectedRun)).toBe('rejected');
     expect(runStatusWord(turnedDownRun)).toBe('dismissed');
     expect(runStatusWord(run({ status: 'failed' }))).toBe('failed');
+  });
+
+  it("calls a run turned away after it started 'rejected', never 'dismissed' (3-A code review M6)", () => {
+    // Its entry's retry started it again, and by then a person had started the review by hand.
+    const turnedAway = run({
+      id: 'ta',
+      status: 'rejected',
+      startedAt: ago(2 * HOUR),
+      summary: 'Already started by hand: “Review”.',
+    });
+    expect(runStatusWord(turnedAway)).toBe('rejected');
+    expect(runStatusLabel(turnedAway)).toBe('Rejected');
+    expect(runStatusWord(turnedDownRun)).toBe('dismissed');
+    expect(runStatusLabel(turnedDownRun)).toBe('Dismissed');
   });
 
   it("labels them 'Rejected' and 'Dismissed', from a record or a list entry (review S2)", () => {

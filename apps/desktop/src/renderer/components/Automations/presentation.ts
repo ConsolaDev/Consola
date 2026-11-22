@@ -41,8 +41,10 @@ export function statusWord(status: RunFacts['status']): string {
   return STATUS_WORDS[status];
 }
 
-/** What `rejectedAtGate` reads: a record's steps, or a list entry's `step`, which has no records. */
-export type RejectedFacts = Pick<RunFacts, 'status' | 'steps'> & { step?: RunListEntry['step'] };
+/** What `rejectedAtGate` reads: a record's steps, or a list entry's `step`, which has no records; and whether it started. */
+export type RejectedFacts = Pick<RunFacts, 'status' | 'steps' | 'startedAt'> & {
+  step?: RunListEntry['step'];
+};
 
 /**
  * The gate a person rejected a run at, when they did: from its records (the
@@ -58,17 +60,30 @@ export function rejectedAtGate(run: RejectedFacts): string | undefined {
 }
 
 /**
- * A run's status in one word, as `statusWord` says it, but a run rejected at
- * a gate is `rejected`: it ran, then a person said no, which is not a run
- * turned down before it started (`dismissed`).
+ * Whether a `rejected` run started first: a person rejected it at a gate, or
+ * it was turned away after it started (its entry's retry started it again,
+ * and a review had been started by hand meanwhile, 3-A code review M6). A
+ * run turned down before it started has no `startedAt`.
  */
-export function runStatusWord(run: RejectedFacts): string {
-  return rejectedAtGate(run) !== undefined ? 'rejected' : statusWord(run.status);
+export function rejectedAfterStart(run: RejectedFacts): boolean {
+  return (
+    run.status === 'rejected' && (rejectedAtGate(run) !== undefined || run.startedAt !== undefined)
+  );
 }
 
-/** A run's status as a label, as `statusLabel` says it, but `Rejected` for a run rejected at a gate. */
+/**
+ * A run's status in one word, as `statusWord` says it, but a run rejected
+ * after it started is `rejected`: it ran, then a person said no at a gate,
+ * or it was turned away, which is not a run turned down before it started
+ * (`dismissed`).
+ */
+export function runStatusWord(run: RejectedFacts): string {
+  return rejectedAfterStart(run) ? 'rejected' : statusWord(run.status);
+}
+
+/** A run's status as a label, as `statusLabel` says it, but `Rejected` for a run rejected after it started. */
 export function runStatusLabel(run: RejectedFacts): string {
-  return rejectedAtGate(run) !== undefined ? 'Rejected' : statusLabel(run.status);
+  return rejectedAfterStart(run) ? 'Rejected' : statusLabel(run.status);
 }
 
 /** A time of day, as the run list says one: `10:42`, in the person's own clock. */
@@ -1275,7 +1290,9 @@ export function lastRunWords(lastRun: ItemTargetRow['lastRun'], now: Date): stri
     case 'rejected':
       return lastRun.gate !== undefined
         ? `rejected at \`${lastRun.gate}\` ${whenWords(lastRun.at, now)}`
-        : `dismissed ${whenWords(lastRun.at, now)}`;
+        : lastRun.started
+          ? `rejected ${whenWords(lastRun.at, now)}`
+          : `dismissed ${whenWords(lastRun.at, now)}`;
     default:
       return `ran ${whenWords(lastRun.at, now)}`;
   }

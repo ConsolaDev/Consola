@@ -12,6 +12,7 @@ import {
   formatAgo,
   formatDuration,
   formatElapsed,
+  rejectedAfterStart,
   rejectedAtGate,
   type RunFacts,
 } from './presentation';
@@ -125,8 +126,8 @@ function stepsRunStages(run: RunRecord, now: Date): RunStage[] {
   const stages: RunStage[] = [{ key: 'trigger', state: 'passed', ms: null }];
   if (run.mode === 'confirm') {
     const waiting = run.status === 'needs-approval';
-    // A run a person rejected at a gate ran first: its approval passed, whatever an old record says of it.
-    const turnedDown = run.status === 'rejected' && !run.approvedAt && !rejectedAtGate(run);
+    // A run rejected after it started (at a gate, or turned away) ran first: its approval passed, whatever an old record says of it.
+    const turnedDown = run.status === 'rejected' && !run.approvedAt && !rejectedAfterStart(run);
     const created = Date.parse(run.createdAt);
     const until = waiting
       ? nowMs

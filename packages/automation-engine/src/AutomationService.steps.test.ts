@@ -4824,6 +4824,26 @@ describe("Run on…'s last run at a gate", () => {
     expect(lastRunOn51(h)).toMatchObject({ id: run.id, status: 'rejected', gate: 'decide' });
   });
 
+  it('says a run turned away after it started did start (3-A code review M6)', async () => {
+    const { h, run } = await parked();
+    // As a run its entry's retry started again ends when a review was started by hand meanwhile.
+    h.store.update(run.id, {
+      status: 'rejected',
+      summary: 'Already started by hand: “Review”.',
+      steps: run.steps!.map((step) => ({ ...step, status: 'not-run', gate: undefined })),
+      finishedAt: h.now().toISOString(),
+    });
+    expect(lastRunOn51(h)).toEqual({
+      id: run.id,
+      status: 'rejected',
+      at: h.store.get(run.id)!.finishedAt,
+      started: true,
+    });
+    // One never started (dismissed, or turned away at its fire) says nothing of it.
+    h.store.update(run.id, { startedAt: undefined });
+    expect(lastRunOn51(h)).not.toHaveProperty('started');
+  });
+
   it('names no gate for a run that went past it', async () => {
     const { h, run } = await parked();
     h.service.answerGate(run.id, 'decide', 'approve');

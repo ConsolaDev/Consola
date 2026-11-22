@@ -1071,6 +1071,17 @@ describe('a run rejected at a gate', () => {
     expect(stepShape(run).slice(0, 2)).toEqual(['trigger:passed', 'approval:passed']);
   });
 
+  it('a confirm run turned away after it started passed its approval, even with no approvedAt (3-A code review M6)', () => {
+    const run = stepsRecord(
+      [
+        stepOf({ id: 'review', status: 'not-run' }),
+        stepOf({ id: 'publish', kind: 'run', status: 'not-run' }),
+      ],
+      { status: 'rejected', mode: 'confirm', startedAt: ago(9 * MINUTE), finishedAt: T2 },
+    );
+    expect(stepShape(run).slice(0, 2)).toEqual(['trigger:passed', 'approval:passed']);
+  });
+
   it('a run rejected before it started is still turned down', () => {
     const run = stepsRecord(
       [stepOf({ id: 'review', status: 'not-run' }), stepOf({ id: 'publish', status: 'not-run' })],

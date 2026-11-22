@@ -664,6 +664,13 @@ describe('gates, retries and loops in the trace', () => {
     expect(notRunReason(run({ status: 'rejected' }), step({ status: 'not-run' }))).toBe(
       'The run was turned down before it started.',
     );
+    // Turned away after it started, at no gate (3-A code review M6): it did start.
+    expect(
+      notRunReason(
+        { status: 'rejected', steps: [], startedAt: '2026-11-12T11:00:00.000Z' },
+        step({ status: 'not-run' }),
+      ),
+    ).toBe('The run was turned away before reaching it.');
   });
 
   it('names the step a run failed at inside a loop, not the loop (review S10)', () => {
