@@ -234,6 +234,7 @@ describe("the runner against Consola's real tools", () => {
       'clean-up-stale-sessions',
       'morning-inbox-digest',
       'brief-review-requests',
+      'review-assigned-prs-gated',
     ]);
     for (const template of AUTOMATION_TEMPLATES) {
       expect(template.missing(owner), template.id).toBeNull();

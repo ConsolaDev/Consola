@@ -10,6 +10,7 @@ import {
   type StepRun,
 } from '@consola/factory-spec';
 import { OPEN_STATUSES, runAttention } from './AutomationService';
+import { ASSIGNED_REVIEWS_GATED_NAME, assignedReviewsGatedEntry } from './factoryTemplates';
 import { inboxItem } from './inboxItems.test-helpers';
 import {
   checkoutPathFor,
@@ -1041,5 +1042,85 @@ describe("the cards' flow lines (Call 13)", () => {
     ]);
     const run = await fire(h);
     expect(h.service.getRunDefinition(run.id)).not.toHaveProperty('flow');
+  });
+});
+
+describe('the gated review, as shipped (Task 20, review M10)', () => {
+  const PR51 = inboxItem({ repo: 'sprocket/catalog-portal', number: 51 });
+  const YAML = file(`${assignedReviewsGatedEntry().replace(/^/gm, '  ')}\n`);
+  const NAME = ASSIGNED_REVIEWS_GATED_NAME;
+  const theRun = (h: StepsHarness) => h.store.runs().find((run) => run.automationId === NAME)!;
+
+  /** The template on #51: a review request fires it, `fresh` says a review is needed, `review` gives `verdict`. */
+  async function reviewed(verdict: string): Promise<StepsHarness> {
+    const h = await stepsHarness({ yaml: YAML });
+    await h.poll([]);
+    acceptEvery(h, YAML);
+    await h.poll([PR51]);
+    const run = theRun(h);
+    expect(h.world.commands).toHaveLength(1);
+    await h.world.commands[0].end({ outputs: 'needed=true\n' });
+    await endAgent(h, run.id, 'review', { verdict }, 'Looks fine.');
+    return h;
+  }
+
+  it.each([
+    ['comment', 'COMMENT'],
+    ['request-changes', 'REQUEST_CHANGES'],
+  ])(
+    'never asks on a %s verdict: publish posts it, publish-decided does not run',
+    async (verdict) => {
+      const h = await reviewed(verdict);
+      const run = theRun(h);
+      expect(gateNotices(h, NAME)).toEqual([]);
+      expect(byId(stepsOf(h, run.id), 'decide').status).toBe('skipped');
+      // `publish` is the one command after `fresh`, with the verdict it maps to COMMENT or REQUEST_CHANGES.
+      expect(h.world.commands).toHaveLength(2);
+      const publish = h.world.commands[1];
+      expect(publish.spec.env.VERDICT).toBe(verdict);
+      expect(publish.spec.command).toContain('event=REQUEST_CHANGES');
+      await publish.end();
+      expect(h.store.get(run.id)?.status).toBe('completed');
+      expect(byId(stepsOf(h, run.id), 'publish').status).toBe('completed');
+      expect(byId(stepsOf(h, run.id), 'publish-decided').status).toBe('skipped');
+      expect(h.world.commands).toHaveLength(2);
+    },
+  );
+
+  it('asks on approve, and Reject posts nothing', async () => {
+    const h = await reviewed('approve');
+    const run = theRun(h);
+    expect(h.store.get(run.id)?.status).toBe('waiting');
+    expect(byId(stepsOf(h, run.id), 'decide').status).toBe('waiting');
+    // Steps run in record order: `publish`, after the gate, has not been reached yet.
+    expect(byId(stepsOf(h, run.id), 'publish').status).toBe('pending');
+    expect(gateNotices(h, NAME)).toHaveLength(1);
+    expect(gateNotices(h, NAME)[0].body).toBe(
+      'The reviewer would approve this pull request. Post the review as an approval?',
+    );
+    h.service.answerGate(run.id, 'decide', 'reject');
+    await h.flush();
+    expect(h.store.get(run.id)).toMatchObject({
+      status: 'rejected',
+      summary: 'rejected at decide',
+    });
+    expect(byId(stepsOf(h, run.id), 'publish').status).toBe('not-run');
+    expect(byId(stepsOf(h, run.id), 'publish-decided').status).toBe('not-run');
+    // Only `fresh` ever ran: neither publish was spawned.
+    expect(h.world.commands).toHaveLength(1);
+  });
+
+  it("posts the person's pick through publish-decided, with the decision it was given", async () => {
+    const h = await reviewed('approve');
+    const run = theRun(h);
+    h.service.answerGate(run.id, 'decide', 'approve');
+    await h.flush();
+    expect(h.world.commands).toHaveLength(2);
+    const decided = h.world.commands[1];
+    expect(decided.spec.env.DECISION).toBe('approve');
+    expect(decided.spec.command).toContain('tr a-z A-Z');
+    await decided.end();
+    expect(h.store.get(run.id)?.status).toBe('completed');
+    expect(byId(stepsOf(h, run.id), 'publish-decided').status).toBe('completed');
   });
 });

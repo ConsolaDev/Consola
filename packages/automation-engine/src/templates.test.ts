@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { parseFactorySpec } from '@consola/factory-spec';
-import { assignedReviewsEntry, RE_REVIEW_NAME, reReviewEntry } from './factoryTemplates';
+import {
+  assignedReviewsEntry,
+  assignedReviewsGatedEntry,
+  RE_REVIEW_NAME,
+  reReviewEntry,
+} from './factoryTemplates';
 import { sourcesHarness } from './sources/sources.test-helpers';
 import { WORKSPACE_ID } from './steps/steps.test-helpers';
 import { AUTOMATION_TEMPLATES, previewOf, templateViews } from './templates';
@@ -46,6 +51,7 @@ describe('templates', () => {
       ['clean-up-stale-sessions', undefined],
       ['morning-inbox-digest', 'Connect a GitHub account in Workspace settings'],
       ['brief-review-requests', 'Connect a GitHub account in Workspace settings'],
+      ['review-assigned-prs-gated', 'Connect a GitHub account in Workspace settings'],
     ]);
     for (const template of views) {
       expect(template.title).toBeTruthy();
@@ -150,6 +156,7 @@ describe('templates', () => {
       ['clean-up-stale-sessions', 'cron'],
       ['morning-inbox-digest', 'cron'],
       ['brief-review-requests', 'event'],
+      ['review-assigned-prs-gated', 'event'],
     ]);
     const now = new Date(2026, 10, 13, 10, 0);
     const poll = previewOf(
@@ -235,6 +242,20 @@ automations:
     const steps = `version: 1\nautomations:\n${assignedReviewsEntry().replace('name: review-assigned-prs', 'name: posted').replace(/^/gm, '  ')}\n`;
     expect(parseFactorySpec(steps).issues).toEqual([]);
     expect(view(workspace(), 'review-assigned-prs', steps).addedAs).toBe('posted');
+  });
+
+  it("the gated review counts only under its own name, and covers slice 1's review (slice 3)", () => {
+    const slice1 = `version: 1\nautomations:\n${assignedReviewsEntry().replace(/^/gm, '  ')}\n`;
+    expect(view(workspace(), 'review-assigned-prs-gated', slice1)).not.toHaveProperty('addedAs');
+    // Both review the same requests, so adding the gated one leaves slice 1's nothing to add.
+    const gated = `version: 1\nautomations:\n${assignedReviewsGatedEntry().replace(/^/gm, '  ')}\n`;
+    expect(parseFactorySpec(gated).issues).toEqual([]);
+    expect(view(workspace(), 'review-assigned-prs-gated', gated).addedAs).toBe(
+      'review-assigned-prs-gated',
+    );
+    expect(view(workspace(), 'review-assigned-prs', gated).addedAs).toBe(
+      'review-assigned-prs-gated',
+    );
   });
 
   it('a review request’s prompt and its action are different templates', () => {

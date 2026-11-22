@@ -169,6 +169,34 @@ export const GRAMMAR_EXAMPLES: ReadonlyArray<{ title: string; entry: string }> =
       prompt: Turn the overnight handover into a short note for the team.
       reads: [look.handover]`,
   },
+  {
+    title: 'A review loop with a gate, on an event',
+    entry: `- name: review-loop-gated
+  on: { github: pull_request.review_requested }
+  checkout: { pr: item }
+  budget: { usd: 2 }
+  mode: auto
+  steps:
+    - id: polish
+      repeat: { max: 2, until: steps.review.findings == 0 }
+      steps:
+        - id: review
+          prompt: >-
+            Review this pull request with Consola's work_item_context tool. Write each finding that must
+            be fixed, with its file and line, as your handover, and set findings to how many there are.
+          outputs: { findings: integer }
+    - id: decide
+      gate: { ask: Post the review? }
+    - id: publish
+      if: steps.decide.decision == 'approve'
+      run: |
+        gh api "repos/$REPO/pulls/$NUMBER/reviews" \\
+          -f commit_id="$CONSOLA_CHECKOUT_HEAD" -f event=COMMENT -F body=@"$BODY_FILE"
+      env:
+        REPO: "{{item.repo}}"
+        NUMBER: "{{item.number}}"
+        BODY_FILE: "{{steps.review.handover.file}}"`,
+  },
 ];
 
 /**
@@ -245,6 +273,17 @@ steps:
 const RUN_AS =
   "your login environment and the workspace's bound account, in the item's own checkout or the scope folder, with git hooks off. " +
   "In a pull request's checkout, a command that builds or tests runs the author's code.";
+
+/** What 3-A adds to steps: loops, gates, stopping early, retrying what cannot have acted, a budget, a named checkout. */
+const CONTROL_FLOW = [
+  'Control flow in steps:',
+  '- `gate: { ask, show?, choices? }` is a step of its own: the run waits, with no process, until a person answers in Consola. Its output is `decision` (one of `choices`, or `approve`); Reject ends the run. No tool answers a gate.',
+  '- `repeat: { max, until }` with `steps:` (1 to 10, no loop inside) runs them again until `until` holds, at most `max` (1 to 10) rounds; `on_exhausted:` is `fail` (the default), `continue`, `{ gate: "<question>" }` or `{ gate: { ask, show } }`.',
+  '- `then: stop` on a step ends the run, completed, once that step completes.',
+  '- `on_failure: { retry: <0-3> }` on a step retries it by itself only if it cannot have acted: an agent naming no MCP server, or a `dry_run: run` command. On the automation, the whole run starts again only if nothing in it acted.',
+  "- `budget: { usd: <n> }` on the automation stops the run at its next step once its agents' turns cost that much (0.01 to 1000).",
+  "- `checkout: { pr: item }` names the pull request's read-only checkout, where a run on a pull request works anyway.",
+].join('\n');
 
 const EXAMPLES = GRAMMAR_EXAMPLES.map((example) => `${example.title}:\n\n${example.entry}`).join(
   '\n\n',
@@ -340,6 +379,8 @@ A run: step reads outputs from the file named by $CONSOLA_OUTPUT, one key=value 
 Values: {{ }} works only in prompt: and env:, never in run:. Move {{item.url}} into env: and write "$PR" in the command; shape gh output with --jq. A path is item.<field>, steps.<id>.<output or artifact> (its content), or steps.<id>.<artifact>.file (an absolute path, for big documents). Prompts take trusted values only: item.${TRUSTED_ITEM_FIELDS.join(', ')} and enum, integer, number and boolean outputs; not item.title, item.author, string outputs or artifacts (text someone else wrote: use reads:). env: takes any path. A handover is required only when a later step reads it (reads: or env:).
 
 if: expr := or; or := and ("||" and)*; and := unary ("&&" unary)*; unary := "!" unary | compare; compare := primary (("=="|"!="|"<"|"<="|">"|">=") primary)?; primary := path | 'text' | "text" | number | true | false | "(" expr ")"; path := steps.<id>.<output> | item.<field>. Write it as a YAML string of at most 500 characters (a bare if: true is refused). Types: == and != need matching types and an enum is a string whose literal must be one of its values; < <= > >= take numbers; && || ! take booleans; a boolean output alone works (if: steps.x.blocking). It reads outputs of earlier, named steps only, never an artifact (branch on an output). A step whose if: reads a step that did not complete is skipped.
+
+${CONTROL_FLOW}
 
 ${EXAMPLES}`;
 

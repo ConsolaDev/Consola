@@ -155,10 +155,12 @@ export {
   SessionOpenedError,
 } from './support';
 export {
+  ASSIGNED_REVIEWS_GATED_NAME,
   ASSIGNED_REVIEWS_NAME,
   RE_REVIEW_NAME,
   yamlName,
   assignedReviewsEntry,
+  assignedReviewsGatedEntry,
   reReviewEntry,
   EMPTY_FACTORY_FILE,
   factoryTemplate,

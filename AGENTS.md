@@ -839,6 +839,26 @@ a quit mid-command is known after a restart. Such a command is never re-run
 automatically: the restart fails it as interrupted, and Retry warns before it
 runs again.
 
+### A Run Parks at a Gate
+
+A `steps:` run that reaches a `gate:` step, a loop's exhaustion gate, or a
+declared retry's wait is `waiting`: started, open and live, with no process
+and no slot. It still holds its item, so a new revision is held for after it
+(`openStates` reads it as `working`), and its checkout (`checkoutHeld`, by its
+record: `holdsWhileWaiting`), so another run on the item waits, naming the
+gate (`RunRecord.waitingFor.gate`). Only a person answers a gate: the renderer
+calls `automations:answer-gate`, and no MCP tool, conductor tool or step tool
+reaches `answerGate` (`gateAnswerers.test.ts`). Answering accepts nothing and
+approving a run answers none of its gates. A restart changes no `waiting` run
+and leaves a loop's `repeat` row as it was; the engine raises each gate's
+notification again, and a retry wait whose time passed runs at start. A loop
+is one row of its own plus its steps' rows in record order (`flatSteps`), each
+round a new attempt carrying `round`; read an entry's steps through
+`leafSteps`, never `automation.steps`, or a step inside a loop goes unseen.
+Only what cannot have acted retries by itself (`steps/retry.ts`), and the
+validator refuses `on_failure` anywhere else. The budget is checked at every
+step boundary; nothing passes `--max-budget-usd` yet.
+
 ### A Step's Turn Reports Itself
 
 A step's unattended turns run with `--output-format stream-json`: the driver's

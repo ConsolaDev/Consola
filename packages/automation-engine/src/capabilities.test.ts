@@ -89,6 +89,7 @@ describe('what an agent writing an entry is told', () => {
       'Steps, on an event',
       'Steps, on a poll',
       'Steps with a turn cap, on a schedule',
+      'A review loop with a gate, on an event',
     ]);
     // One name, one meaning: no two examples share an entry name.
     const names = GRAMMAR_EXAMPLES.map((example) => /^- name: (\S+)/.exec(example.entry)?.[1]);
@@ -108,6 +109,21 @@ describe('what an agent writing an entry is told', () => {
       expect(listed.name, example.title).toBe(parsed.automation.name);
       expect(listed.problem, example.title).toBeUndefined();
     }
+  });
+
+  it('tells an agent the control flow of steps, and that no tool answers a gate (slice 3)', () => {
+    const text = grammar().grammar;
+    expect(text).toContain(
+      [
+        'Control flow in steps:',
+        '- `gate: { ask, show?, choices? }` is a step of its own: the run waits, with no process, until a person answers in Consola. Its output is `decision` (one of `choices`, or `approve`); Reject ends the run. No tool answers a gate.',
+        '- `repeat: { max, until }` with `steps:` (1 to 10, no loop inside) runs them again until `until` holds, at most `max` (1 to 10) rounds; `on_exhausted:` is `fail` (the default), `continue`, `{ gate: "<question>" }` or `{ gate: { ask, show } }`.',
+        '- `then: stop` on a step ends the run, completed, once that step completes.',
+        '- `on_failure: { retry: <0-3> }` on a step retries it by itself only if it cannot have acted: an agent naming no MCP server, or a `dry_run: run` command. On the automation, the whole run starts again only if nothing in it acted.',
+        "- `budget: { usd: <n> }` on the automation stops the run at its next step once its agents' turns cost that much (0.01 to 1000).",
+        "- `checkout: { pr: item }` names the pull request's read-only checkout, where a run on a pull request works anyway.",
+      ].join('\n'),
+    );
   });
 
   it('tells an agent about max_turns, and no longer calls it unsupported', () => {

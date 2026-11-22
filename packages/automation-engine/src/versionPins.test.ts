@@ -82,6 +82,10 @@ describe('versions before agents as files', () => {
           "Steps with a turn cap, on a schedule",
           "e5bfa2615d0f2688",
         ],
+        [
+          "A review loop with a gate, on an event",
+          "c1616b18265e1061",
+        ],
       ]
     `);
     expect(
@@ -107,6 +111,10 @@ describe('versions before agents as files', () => {
         [
           "brief-review-requests",
           "fb5d5b162f96759e",
+        ],
+        [
+          "review-assigned-prs-gated",
+          "d6c6eabaac1e1c69",
         ],
       ]
     `);
