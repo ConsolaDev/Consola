@@ -19,13 +19,24 @@ export function withStep(records: StepRun[], stepId: string, changes: Partial<St
 /**
  * `records` with one step's attempt starting at `nowIso`: running, and naming
  * no session or conversation until its own launch records them, so an
- * earlier execution's session can never settle it.
+ * earlier execution's session can never settle it. `agent` is the agent the
+ * step runs as, when it names one.
  */
-export function withAttemptStarted(records: StepRun[], stepId: string, nowIso: string): StepRun[] {
+export function withAttemptStarted(
+  records: StepRun[],
+  stepId: string,
+  nowIso: string,
+  agent?: string,
+): StepRun[] {
   return records.map((record) => {
     if (record.id !== stepId) return record;
     const { sessionId: _sessionId, conversation: _conversation, ...rest } = record;
-    return { ...rest, status: 'running', startedAt: nowIso };
+    return {
+      ...rest,
+      status: 'running',
+      startedAt: nowIso,
+      ...(agent !== undefined ? { agent } : {}),
+    };
   });
 }
 

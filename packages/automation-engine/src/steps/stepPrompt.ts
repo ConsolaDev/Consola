@@ -17,8 +17,14 @@ export interface StepPromptInput {
   /** The step's place in the run, 1-based, and the run's step count. */
   index: number;
   count: number;
-  /** The step's body: its prompt with {{ }} filled, or its action's body with the action's own placeholders filled. */
-  body: string;
+  /**
+   * The step's body: its prompt with {{ }} filled, or its action's body with
+   * the action's own placeholders filled. Absent only with `agent`, for a
+   * step that names its agent and nothing else.
+   */
+  body?: string;
+  /** The agent the step runs as, its instructions exactly as its definition holds them. */
+  agent?: { name: string; body: string };
   /** The item source's header fragment and fenced text for the run's item; absent for a schedule. */
   item?: { header: string; fence: string };
   /** Where a run with no repository to work in happens (a schedule, a poll with `key:`): the scope's name. */
@@ -54,6 +60,7 @@ export function renderStepPrompt(input: StepPromptInput): string {
     index,
     count,
     body,
+    agent,
     item,
     scope,
     reads,
@@ -71,7 +78,14 @@ export function renderStepPrompt(input: StepPromptInput): string {
     '(work_item_context, list_inbox, and this step’s output and artifact tools), and nothing else: no shell, no network. ' +
     'Nobody is watching while you work.';
 
-  const sections = [header, body.trim()];
+  // Without an agent, the body follows the header as it always has; with one, the agent says who and the body what.
+  const sections = [header];
+  if (agent) {
+    sections.push(`Your standing instructions (agents/${agent.name}.md):\n${agent.body.trim()}`);
+    if (body !== undefined) sections.push(`This step:\n${body.trim()}`);
+  } else {
+    sections.push((body ?? '').trim());
+  }
 
   if (reads.length > 0) {
     sections.push(

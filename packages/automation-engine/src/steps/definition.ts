@@ -1,4 +1,42 @@
-import type { Step, StepRun, StepsAutomation } from '@consola/factory-spec';
+import type { AgentDefinition, Step, StepRun, StepsAutomation } from '@consola/factory-spec';
+
+/**
+ * What a step's agent requires, as its run's definition keeps it: the agent
+ * file as it was approved, so a retry or a restart runs that agent and no
+ * later edit of it. Requirements, not grants: what a server lets the step
+ * call is the host's to compile when it launches.
+ */
+export interface AgentRequirements {
+  name: string;
+  /** `agentHash`: what the entry's version covers of it. */
+  hash: string;
+  /** The file's `harness:`; absent, the workspace's default, read at launch. */
+  harnessId?: string;
+  model?: string;
+  /** Its turns' cap; a step's own `max_turns` beats it (`stepCap`). */
+  maxTurns?: number;
+  /** Its instructions, exactly as written. */
+  body: string;
+  mcpServers: Array<{ name: string; tools?: string[] }>;
+  skills: string[];
+}
+
+/** An agent file's requirements: its `harness:` as `harnessId`, the rest as written, each absent key absent. */
+export function agentRequirements(agent: AgentDefinition): AgentRequirements {
+  return {
+    name: agent.name,
+    hash: agent.hash,
+    ...(agent.harness !== undefined ? { harnessId: agent.harness } : {}),
+    ...(agent.model !== undefined ? { model: agent.model } : {}),
+    ...(agent.maxTurns !== undefined ? { maxTurns: agent.maxTurns } : {}),
+    body: agent.body,
+    mcpServers: agent.mcpServers.map((server) => ({
+      name: server.name,
+      ...(server.tools !== undefined ? { tools: [...server.tools] } : {}),
+    })),
+    skills: [...agent.skills],
+  };
+}
 
 /** What a steps run executes: the entry as it was approved, with every action a step names. */
 export interface RunDefinition {
@@ -13,6 +51,8 @@ export interface RunDefinition {
     string,
     { name: string; body: string; groupId?: string; appliesTo?: Array<'pr' | 'issue'> }
   >;
+  /** By step id, each step that names an agent; absent when no step does. */
+  agents?: Record<string, AgentRequirements>;
 }
 
 /**

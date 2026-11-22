@@ -127,7 +127,11 @@ export interface AgentLaunchRequest {
    * A step of a `steps:` run: the session is that step's attempt, named
    * `name`, in the folder the engine prepared (`cwd`, in scope `scopeId`),
    * so the host prepares no worktree of its own. `maxTurns` is the step's
-   * own cap (`max_turns`), present only when its file writes one.
+   * cap (`stepCap`: its own `max_turns`, else its agent's), present only when
+   * a file writes one. `agent` is the step's agent's requirements, present
+   * only when the step names one: the host launches on its harness (absent,
+   * the workspace's default) with its model, and refuses what it cannot
+   * compile rather than launch looser.
    */
   step?: {
     id: string;
@@ -136,7 +140,40 @@ export interface AgentLaunchRequest {
     scopeId: string;
     name: string;
     maxTurns?: number;
+    agent?: {
+      name: string;
+      harnessId?: string;
+      model?: string;
+      mcpServers: Array<{ name: string; tools?: string[] }>;
+      skills: string[];
+    };
   };
+}
+
+/** What the engine asks the host of an agent: whether its harness can run it (`agentHarness`). */
+export interface AgentHarnessQuery {
+  /** The agent file's `harness:`; absent, the workspace's default. */
+  harnessId?: string;
+  model?: string;
+  mcpServers: ReadonlyArray<{ name: string; tools?: readonly string[] }>;
+  skills: readonly string[];
+}
+
+/** The host's answer of a harness: the workspace's default, or the one an agent names. */
+export interface AgentHarnessAnswer {
+  /** Its display name (an unknown harness's id). */
+  name: string;
+  /** Why it cannot run a read-only unattended session; null when it can. */
+  problem: string | null;
+  /**
+   * Why its steps' reporting turns would not launch as Consola compiles them
+   * (its extra arguments override a flag they need); absent or null, they would.
+   */
+  stepProblem?: string | null;
+  /** Why this agent cannot run on that harness at all: unknown, archived, turned off, or what it names. */
+  agentProblem?: string | null;
+  /** Shown, never blocking: a model the harness does not list. */
+  warning?: string | null;
 }
 
 /**

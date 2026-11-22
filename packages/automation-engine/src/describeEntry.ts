@@ -1,4 +1,9 @@
-import { isStepsEntry, type Automation, type Step } from '@consola/factory-spec';
+import {
+  isStepsEntry,
+  type AgentDefinition,
+  type Automation,
+  type Step,
+} from '@consola/factory-spec';
 import { clipText } from './steps/commandIO';
 import type { AutomationView } from './views';
 
@@ -23,22 +28,53 @@ export function describeKind(automation: Automation): AutomationView['kind'] {
   return automation.run.kind === 'tool' ? 'tool' : 'agent';
 }
 
-/** Each step as the automation page draws it: "Prompt", "Review action", an agent-only step's agent, or the command's first line. */
-export function describeSteps(steps: Step[]): NonNullable<AutomationView['steps']> {
-  return steps.map((step) => ({
-    id: step.id,
-    kind: step.kind,
-    ...(step.if !== undefined ? { if: step.if } : {}),
-    ...(step.kind === 'run' && step.dryRun === 'run' ? { dryRun: true as const } : {}),
-    summary:
-      step.kind === 'run'
-        ? commandSummary(step.run)
-        : step.action !== undefined
-          ? actionRuns(step.action)
-          : step.prompt === undefined && step.agent !== undefined
-            ? step.agent
-            : 'Prompt',
-  }));
+/** An agent as a step's node names it: "investigator · claude-work · opus", its harness and model when it sets them. */
+function agentWords(
+  name: string,
+  agent: Pick<AgentDefinition, 'harness' | 'model'> | undefined,
+): string {
+  return [name, agent?.harness, agent?.model].filter((part) => part !== undefined).join(' · ');
+}
+
+/**
+ * Each step as the automation page draws it: "Prompt", "Review action", an
+ * agent-only step's agent, or the command's first line. A step that names an
+ * agent also gives its agent's words and file; `agents` (by name) gives each
+ * one's harness and model, and an agent it lacks is named alone.
+ */
+export function describeSteps(
+  steps: Step[],
+  agents?: Readonly<Record<string, Pick<AgentDefinition, 'harness' | 'model'>>>,
+): NonNullable<AutomationView['steps']> {
+  return steps.map((step) => {
+    const agent =
+      step.kind === 'agent' && step.agent !== undefined
+        ? {
+            words: agentWords(
+              step.agent,
+              agents && Object.prototype.hasOwnProperty.call(agents, step.agent)
+                ? agents[step.agent]
+                : undefined,
+            ),
+            file: `agents/${step.agent}.md`,
+          }
+        : undefined;
+    return {
+      id: step.id,
+      kind: step.kind,
+      ...(step.if !== undefined ? { if: step.if } : {}),
+      ...(step.kind === 'run' && step.dryRun === 'run' ? { dryRun: true as const } : {}),
+      summary:
+        step.kind === 'run'
+          ? commandSummary(step.run)
+          : step.action !== undefined
+            ? actionRuns(step.action)
+            : step.prompt === undefined && agent
+              ? agent.words
+              : 'Prompt',
+      ...(agent ? { agent: agent.words, agentFile: agent.file } : {}),
+    };
+  });
 }
 
 function commandSummary(command: string): string {

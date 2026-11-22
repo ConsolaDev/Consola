@@ -66,6 +66,8 @@ export type {
   EngineTool,
   ToolsPort,
   AgentLaunchRequest,
+  AgentHarnessQuery,
+  AgentHarnessAnswer,
   LaunchedSession,
   RunFolderPort,
   WorkItemPort,
@@ -91,6 +93,8 @@ export {
 } from './steps/stepTools';
 export {
   MAX_ARTIFACT_BYTES,
+  agentRequirements,
+  type AgentRequirements,
   type CommandFile,
   type LogTail,
   type RunDefinition,

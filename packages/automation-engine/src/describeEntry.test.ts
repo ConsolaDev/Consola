@@ -35,4 +35,49 @@ describe('describeSteps', () => {
       ]).map((described) => described.summary),
     ).toEqual(['investigator', 'Prompt', 'Review action', 'Prompt']);
   });
+
+  it("gives an agent step its agent's words and file, and a step without one neither", () => {
+    const own = (object: object, key: string) => Object.prototype.hasOwnProperty.call(object, key);
+    const described = describeSteps(
+      [
+        step({ agent: 'investigator' }),
+        step({ id: 'summarise', agent: 'summariser', prompt: 'Write the reply.' }),
+        step({ id: 'review', agent: 'investigator', action: 'Review' }),
+        step({ id: 'tidy', agent: 'tidier' }),
+        step({ id: 'plain', prompt: 'Read it.' }),
+      ],
+      {
+        investigator: { harness: 'claude-work', model: 'opus' },
+        summariser: {},
+        tidier: { model: 'haiku' },
+      },
+    );
+    expect(
+      described.map(({ summary, agent, agentFile }) => ({ summary, agent, agentFile })),
+    ).toEqual([
+      {
+        summary: 'investigator · claude-work · opus',
+        agent: 'investigator · claude-work · opus',
+        agentFile: 'agents/investigator.md',
+      },
+      { summary: 'Prompt', agent: 'summariser', agentFile: 'agents/summariser.md' },
+      {
+        summary: 'Review action',
+        agent: 'investigator · claude-work · opus',
+        agentFile: 'agents/investigator.md',
+      },
+      { summary: 'tidier · haiku', agent: 'tidier · haiku', agentFile: 'agents/tidier.md' },
+      { summary: 'Prompt', agent: undefined, agentFile: undefined },
+    ]);
+    expect(own(described[4], 'agent')).toBe(false);
+    expect(own(described[4], 'agentFile')).toBe(false);
+  });
+
+  it('names an agent the map lacks by its name alone', () => {
+    expect(describeSteps([step({ agent: 'investigator' })])[0]).toMatchObject({
+      summary: 'investigator',
+      agent: 'investigator',
+      agentFile: 'agents/investigator.md',
+    });
+  });
 });

@@ -39,7 +39,7 @@ export interface AutomationView {
   target: string;
   /**
    * A `steps:` entry's steps in file order, as its pipeline draws them, problem or not.
-   * `summary` is "Prompt", "Review action", or a command's first line.
+   * `summary` is "Prompt", "Review action", an agent-only step's agent, or a command's first line.
    */
   steps?: Array<{
     id: string;
@@ -47,6 +47,10 @@ export interface AutomationView {
     if?: string;
     summary: string /** A command marked `dry_run: run`: it runs when the run only reports. */;
     dryRun?: true;
+    /** The agent it runs as, as its node names it: "investigator · claude-work · opus". */
+    agent?: string;
+    /** The agent's file, "agents/investigator.md": what the Allow card lists. */
+    agentFile?: string;
   }>;
   /** 1-based line in factory.yml. */
   line?: number;

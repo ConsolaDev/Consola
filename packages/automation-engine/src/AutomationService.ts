@@ -59,6 +59,8 @@ import {
 } from './describeEntry';
 import { describeSchedule } from './describeSchedule';
 import type {
+  AgentHarnessAnswer,
+  AgentHarnessQuery,
   AgentLaunchRequest,
   CommandPort,
   CommandResult,
@@ -104,7 +106,13 @@ import type {
 } from './views';
 import type { RunStore } from './RunStore';
 import { AUTOMATION_TEMPLATES, coversAssignedReviews, GITHUB, templateViews } from './templates';
-import { actionTypeRefusal, agentStepLaunch, endedWithout, itemRefOf } from './steps/agentStep';
+import {
+  actionTypeRefusal,
+  agentStepLaunch,
+  endedWithout,
+  itemRefOf,
+  stepCap,
+} from './steps/agentStep';
 import { MAX_CHECK_STDOUT_BYTES, readCheckResult, type PolledItem } from './sources/checkResult';
 import { runItemSource, type ItemSource, type SourceItem } from './sources/itemSource';
 import { polledSourceItem, pollSource } from './sources/pollSource';
@@ -264,16 +272,16 @@ export interface AutomationServiceDeps {
   /** Whether a session has a terminal whose process is still running: someone opened it. */
   hasLiveTerminal(session: SessionView): boolean;
   /**
-   * The workspace's default harness: its display name, and why it cannot
-   * run a read-only unattended session (null when it can). `stepProblem`:
-   * why its steps' reporting turns would not launch as Consola compiles them
-   * (its extra arguments override a flag they need); absent or null, they would.
+   * The workspace's default harness, or, given `agent`, the harness that
+   * agent runs on (its `harness:`, else the default): its display name, and
+   * why it cannot run a read-only unattended session (null when it can).
+   * `stepProblem`: why its steps' reporting turns would not launch as Consola
+   * compiles them (its extra arguments override a flag they need, `--model`
+   * when the agent sets one); absent or null, they would. For an agent,
+   * `agentProblem` (why it cannot run there at all) and `warning` (shown,
+   * never blocking) too.
    */
-  agentHarness(workspaceId: string): {
-    name: string;
-    problem: string | null;
-    stepProblem?: string | null;
-  };
+  agentHarness(workspaceId: string, agent?: AgentHarnessQuery): AgentHarnessAnswer;
   /** End a running unattended turn the way Ctrl+C does. False when none is running. */
   stopAgent(session: SessionView, reason: string): boolean;
   /** Agent sessions automations may have working at once, across every workspace. */
@@ -3482,16 +3490,13 @@ export class AutomationService {
         : undefined);
     this.initFailures.delete(sessionId);
     if (report) {
-      const step =
-        'definition' in loaded
-          ? loaded.definition.automation.steps.find((candidate) => candidate.id === record.id)
-          : undefined;
+      // The cap the turn ran under: the step's `max_turns`, else its agent's.
       this.recordTurn(
         run,
         record,
         outcome,
         report,
-        step?.kind === 'agent' ? step.maxTurns : undefined,
+        'definition' in loaded ? stepCap(loaded.definition, record.id) : undefined,
       );
     }
     let failed: { error: string; atTurnLimit: boolean } | null;

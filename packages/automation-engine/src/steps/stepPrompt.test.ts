@@ -202,6 +202,50 @@ describe('renderStepPrompt', () => {
   });
 });
 
+describe('renderStepPrompt with an agent', () => {
+  // A schedule's run: no fence, so the sections end with "Before you finish:".
+  const base = input({ item: undefined, scope: 'catalog-portal' });
+  const headerOf = (rendered: string) => rendered.split('\n\n')[0];
+  const finish =
+    'Before you finish:\n  - write your handover with consola_write_artifact: what you found, for the next step and for the person.';
+
+  it('an agent alone gives its standing instructions and no "This step:"', () => {
+    const rendered = renderStepPrompt({
+      ...base,
+      step: step({ agent: 'investigator' }),
+      body: undefined,
+      agent: { name: 'investigator', body: '\nYou investigate alerts.\n' },
+    });
+    expect(rendered.split('\n\n')).toEqual([
+      headerOf(renderStepPrompt({ ...base, step: step({ agent: 'investigator' }) })),
+      'Your standing instructions (agents/investigator.md):\nYou investigate alerts.',
+      finish,
+    ]);
+    expect(rendered).not.toContain('This step:');
+  });
+
+  it('an agent and a prompt: the agent says who, the prompt says what', () => {
+    const rendered = renderStepPrompt({
+      ...base,
+      step: step({ agent: 'summariser', prompt: 'Write the reply.' }),
+      body: '  Write the reply.\n',
+      agent: { name: 'summariser', body: 'You summarise threads.' },
+    });
+    expect(rendered.split('\n\n')).toEqual([
+      headerOf(renderStepPrompt(base)),
+      'Your standing instructions (agents/summariser.md):\nYou summarise threads.',
+      'This step:\nWrite the reply.',
+      finish,
+    ]);
+  });
+
+  it('without an agent, nothing moves', () => {
+    expect(renderStepPrompt(input({ agent: undefined }))).toBe(renderStepPrompt(input()));
+    expect(renderStepPrompt(input())).not.toContain('Your standing instructions');
+    expect(renderStepPrompt(input())).not.toContain('This step:');
+  });
+});
+
 describe('reminderPrompt', () => {
   it('names what is missing and the tool that sets it', () => {
     expect(reminderPrompt({ outputs: ['verdict'], artifacts: [] })).toBe(
