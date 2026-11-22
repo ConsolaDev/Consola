@@ -55,6 +55,35 @@ interface Lookup {
 
 const NEVER_ASKED: BranchPullRequestEntry = { loading: false, askedAt: 0 };
 
+/** Why a lookup failed when main could read no branch from the folder. */
+const BRANCH_UNREAD = 'git could not read the branch';
+
+/**
+ * What the entry holds once a lookup asked about `asked` ends with `answer`.
+ * An answer that says nothing new never takes the place of one that does:
+ * - main read no branch (git failed or timed out, or HEAD was detached for
+ *   a moment): the answer for the branch asked about stays, else that
+ *   branch's lookup failed, so the person can retry it;
+ * - a failure keeps the pull request already found for the same branch, so
+ *   its section and tab stay. The item's own read says when that fails.
+ * A real answer that the branch has none replaces a found one.
+ */
+function settledAnswer(
+  previous: BranchPullRequestAnswer | undefined,
+  answer: BranchPullRequestAnswer,
+  asked: string | undefined,
+): BranchPullRequestAnswer {
+  if (answer.branch === null && asked !== undefined) {
+    return previous?.branch === asked
+      ? previous
+      : { kind: 'failed', branch: asked, error: BRANCH_UNREAD };
+  }
+  if (answer.kind === 'failed' && previous?.kind === 'found' && previous.branch === answer.branch) {
+    return previous;
+  }
+  return answer;
+}
+
 /** The lookup running per key, and what it was asked. */
 const running = new Map<string, { promise: Promise<void>; lookup: Lookup }>();
 /** The one lookup waiting for it, for every find asked meanwhile: the latest branch, forced if any was. */
@@ -67,7 +96,7 @@ const waiting = new Map<string, { promise: Promise<void>; lookup: Lookup }>();
  * request. An answer is only ever shown: the session is linked when the
  * person presses Link.
  */
-export const useBranchPullRequestStore = create<BranchPullRequestState>((set) => {
+export const useBranchPullRequestStore = create<BranchPullRequestState>((set, get) => {
   function patch(key: string, change: Partial<BranchPullRequestEntry>): void {
     set((state) => ({
       entries: { ...state.entries, [key]: { ...(state.entries[key] ?? NEVER_ASKED), ...change } },
@@ -80,8 +109,9 @@ export const useBranchPullRequestStore = create<BranchPullRequestState>((set) =>
       .findBranchPullRequest(workspaceId, dir, { force: lookup.force })
       .then(
         (answer): BranchPullRequestAnswer => {
-          // Main read a branch the renderer does not know of yet: asking again
-          // would be answered for the same one, so the checkout is read again.
+          // Main read a branch the renderer does not know of yet, or none (a
+          // detached HEAD, say): asking again would be answered the same way,
+          // so the checkout is read again.
           if (lookup.branch !== undefined && answer.branch !== lookup.branch) {
             void useCheckoutStore.getState().load(dir);
           }
@@ -95,7 +125,9 @@ export const useBranchPullRequestStore = create<BranchPullRequestState>((set) =>
       .then((answer) => {
         running.delete(key);
         // A failure with no branch to name keeps the last answer.
-        patch(key, { loading: waiting.has(key), ...(answer ? { answer } : {}) });
+        const previous = get().entries[key]?.answer;
+        const kept = answer ? settledAnswer(previous, answer, lookup.branch) : previous;
+        patch(key, { loading: waiting.has(key), answer: kept });
       });
     running.set(key, { promise, lookup });
     return promise;

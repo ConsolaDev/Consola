@@ -174,15 +174,55 @@ describe('branchPullRequestStore', () => {
   });
 
   it('a find main cannot answer is a failed lookup of the branch it asked about', async () => {
-    findBranchPullRequest.mockResolvedValueOnce(found('feat/search-pagination'));
-    await find('w1', '/repos/catalog-portal', { branch: 'feat/search-pagination' });
-
     findBranchPullRequest.mockRejectedValueOnce(new Error('ipc closed'));
     await find('w1', '/repos/catalog-portal', { branch: 'feat/search-pagination', force: true });
     expect(entry()).toMatchObject({
       loading: false,
       answer: { kind: 'failed', branch: 'feat/search-pagination', error: 'ipc closed' },
     });
+  });
+
+  it('a failed lookup keeps the pull request already found for the branch', async () => {
+    findBranchPullRequest.mockResolvedValueOnce(found('feat/search-pagination'));
+    await find('w1', '/repos/catalog-portal', { branch: 'feat/search-pagination' });
+
+    // A transient gh failure once main's cache has expired, and one of IPC:
+    // neither says the branch lost its pull request.
+    findBranchPullRequest.mockResolvedValueOnce(failed('feat/search-pagination'));
+    await find('w1', '/repos/catalog-portal', { branch: 'feat/search-pagination' });
+    expect(entry()).toMatchObject({ loading: false, answer: found('feat/search-pagination') });
+    findBranchPullRequest.mockRejectedValueOnce(new Error('ipc closed'));
+    await find('w1', '/repos/catalog-portal', { branch: 'feat/search-pagination', force: true });
+    expect(entry()).toMatchObject({ loading: false, answer: found('feat/search-pagination') });
+    expect(foundPullRequestOf(entry(), 'feat/search-pagination')).toEqual(pr51);
+
+    // A real answer that there is none replaces it.
+    findBranchPullRequest.mockResolvedValueOnce({ kind: 'none', branch: 'feat/search-pagination' });
+    await find('w1', '/repos/catalog-portal', { branch: 'feat/search-pagination', force: true });
+    expect(entry().answer).toEqual({ kind: 'none', branch: 'feat/search-pagination' });
+    expect(foundPullRequestOf(entry(), 'feat/search-pagination')).toBeUndefined();
+  });
+
+  it('main reading no branch keeps the answer for the branch asked about, or fails it', async () => {
+    // Git failed or timed out, or HEAD was detached for a moment: with
+    // nothing known for the branch, the lookup failed, and can be retried.
+    findBranchPullRequest.mockResolvedValueOnce({ kind: 'none', branch: null });
+    await find('w1', '/repos/catalog-portal', { branch: 'feat/search-pagination' });
+    expect(entry()).toMatchObject({
+      loading: false,
+      answer: {
+        kind: 'failed',
+        branch: 'feat/search-pagination',
+        error: 'git could not read the branch',
+      },
+    });
+
+    // With the branch's pull request known, it is kept.
+    findBranchPullRequest.mockResolvedValueOnce(found('feat/search-pagination'));
+    await find('w1', '/repos/catalog-portal', { branch: 'feat/search-pagination', force: true });
+    findBranchPullRequest.mockResolvedValueOnce({ kind: 'none', branch: null });
+    await find('w1', '/repos/catalog-portal', { branch: 'feat/search-pagination' });
+    expect(entry()).toMatchObject({ loading: false, answer: found('feat/search-pagination') });
   });
 
   it('foundPullRequestOf uses an answer only for the branch it was found for', () => {
