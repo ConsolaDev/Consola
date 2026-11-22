@@ -182,6 +182,24 @@ describe('OpenInService.open', () => {
     expect(launch).not.toHaveBeenCalled();
   });
 
+  it('refuses an app bundle, which the file manager would launch rather than show', async () => {
+    const { openIn, launch } = service();
+    const bundle = path.join(root, 'Calculator.app');
+    fs.mkdirSync(path.join(bundle, 'Contents'), { recursive: true });
+    expect(await openIn.open({ targetId: 'finder', path: bundle })).toEqual({
+      ok: false,
+      error: `${bundle} is an app, not a folder.`,
+    });
+    expect(await openIn.open({ targetId: 'vscode', path: `${bundle}/` })).toMatchObject({
+      ok: false,
+    });
+    expect(await openIn.open({ targetId: 'finder', path: path.join(root, 'Tools.APP') })).toEqual({
+      ok: false,
+      error: `${path.join(root, 'Tools.APP')} does not exist.`,
+    });
+    expect(launch).not.toHaveBeenCalled();
+  });
+
   it('refuses a request that is not one', async () => {
     const { openIn, launch } = service();
     for (const request of [null, 'vscode', { targetId: 'vscode' }, { targetId: 7, path: folder }]) {

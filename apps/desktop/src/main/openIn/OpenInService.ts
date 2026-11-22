@@ -21,7 +21,8 @@ export interface OpenInServiceDeps {
  * icon is read once per bundle.
  *
  * `open` acts only on what it can check itself: an app it found, and an
- * absolute path that is a folder now. Everything it refuses, and every
+ * absolute path that is a folder now, and not an app's bundle (Finder would
+ * launch it). Everything it refuses, and every
  * failure to open, comes back as a sentence; nothing throws.
  */
 export class OpenInService {
@@ -57,6 +58,10 @@ export class OpenInService {
     const stat = await fs.promises.stat(folder).catch(() => null);
     if (!stat) return { ok: false, error: `${folder} does not exist.` };
     if (!stat.isDirectory()) return { ok: false, error: `${folder} is not a folder.` };
+    // A bundle is a folder on disk, but the file manager would launch it.
+    if (path.extname(path.basename(folder)).toLowerCase() === '.app') {
+      return { ok: false, error: `${folder} is an app, not a folder.` };
+    }
     const failure = await this.deps.launch(target, folder);
     return failure
       ? { ok: false, error: `Couldn't open the folder in ${target.label}: ${failure}` }
