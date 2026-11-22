@@ -5,27 +5,6 @@
    edited for it. The settings page classes at the end (`.settings-section`, `.settings-option`,
    …) are for every page it shows. */
 
-/* The dashboard nav's last link, set apart from the sections above it. */
-.dashboard-nav-settings {
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid var(--gray-a5);
-}
-
-.dashboard-nav-settings .nav-link {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-@media (max-width: 640px) {
-  .dashboard-nav-settings {
-    margin: 0 0 0 auto;
-    padding: 0;
-    border: none;
-  }
-}
-
 .settings-dialog {
   display: flex;
   box-sizing: border-box;

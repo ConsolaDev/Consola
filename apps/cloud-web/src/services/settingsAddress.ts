@@ -1,4 +1,4 @@
-import { settingsPageIdOfHash } from '../domain/settings';
+import { hashOfSettingsPage, settingsPageIdOfHash } from '../domain/settings';
 
 /*
  * The Settings section's page, as the address bar holds it: only the hash, like the section
@@ -8,6 +8,11 @@ import { settingsPageIdOfHash } from '../domain/settings';
 /** The settings page the address names, or null when it names none. */
 export function currentSettingsPageId(): string | null {
   return settingsPageIdOfHash(window.location.hash);
+}
+
+/** Opens Settings on the page `id`, as a new entry in the browser's history. */
+export function openSettingsPage(id: string): void {
+  window.location.hash = hashOfSettingsPage(id);
 }
 
 /**
