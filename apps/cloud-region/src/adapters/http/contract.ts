@@ -1,4 +1,6 @@
 import {
+  GITHUB_EVENT_DELIVERY_MEDIA_TYPE,
+  GITHUB_EVENT_DELIVERY_PATH,
   OUTBOX_DELIVERY_MEDIA_TYPE,
   OUTBOX_DELIVERY_PATH,
   WORKSPACE_ROLES,
@@ -78,7 +80,7 @@ const PersonId = z
   .string()
   .openapi({ param: { name: 'personId', in: 'path' }, description: "The person's global id." });
 
-// The health check and the outbox: the two routes that take no token.
+// The health check, the outbox and GitHub's events: the three routes that take no token.
 
 export const getHealth = createRoute({
   method: 'get',
@@ -121,6 +123,44 @@ export const postOutboxDelivery = createRoute({
     421: json(
       z.strictObject({ error: z.literal('otherRegion'), region: Region }),
       'A message about a workspace in another region.',
+    ),
+    503: json(failure('unavailable'), "The cell cannot get cloud-global's keys or its database."),
+  },
+});
+
+export const postGitHubEventDelivery = createRoute({
+  method: 'post',
+  path: GITHUB_EVENT_DELIVERY_PATH,
+  summary: 'Deliver one of GitHub’s webhook events, passed on by cloud-global',
+  description:
+    'Only cloud-global calls it, for a workspace whose GitHub installation the event came ' +
+    'through. The body is the event, signed as a compact JWS with the cell token’s key ' +
+    '(`packages/cloud-contract`, "Passing on a GitHub event"), so it takes no token. The cell ' +
+    'records each delivery once, by GitHub’s id of it.',
+  request: {
+    body: {
+      content: { [GITHUB_EVENT_DELIVERY_MEDIA_TYPE]: { schema: z.string() } },
+      required: true,
+    },
+  },
+  responses: {
+    200: json(
+      z.strictObject({ recorded: z.literal(true) }),
+      'The cell had recorded the event before: a delivery sent again, which changed nothing.',
+    ),
+    201: json(z.strictObject({ recorded: z.literal(true) }), 'The cell recorded the event now.'),
+    400: json(
+      failure('unreadable'),
+      'Not sent as a signed event, over the size an event can be, or not an event the contract reads.',
+    ),
+    401: json(failure('unsigned'), 'Not signed by cloud-global as an event.'),
+    409: json(
+      failure('workspacePending'),
+      'The cell does not hold the workspace yet: cloud-global has not delivered its creation.',
+    ),
+    421: json(
+      z.strictObject({ error: z.literal('otherRegion'), region: Region }),
+      'An event for a workspace in another region.',
     ),
     503: json(failure('unavailable'), "The cell cannot get cloud-global's keys or its database."),
   },
@@ -311,6 +351,7 @@ export const deleteTeamMember = createRoute({
 export const ROUTES = [
   getHealth,
   postOutboxDelivery,
+  postGitHubEventDelivery,
   getMe,
   listTeams,
   postTeam,

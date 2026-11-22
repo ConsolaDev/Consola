@@ -27,10 +27,11 @@ region (`REGION`, `eu` or `us`) and given a database of its own, never
   makes, such as its factory files and runs, so that content lives here, in
   the workspace's region.
 - **The cell trusts only `cloud-global`'s token.** Every request but
-  `GET /api/health` and the outbox's deliveries (`POST /api/outbox`, signed
-  with the same key) carries a cell token `cloud-global` minted, and the cell
-  learns who is asking, in which workspace, from that token and nothing else
-  (below, "Who is asking").
+  `GET /api/health`, the outbox's deliveries (`POST /api/outbox`) and the
+  GitHub events `cloud-global` passes on (`POST /api/github/events`), both
+  signed with the same key, carries a cell token `cloud-global` minted, and
+  the cell learns who is asking, in which workspace, from that token and
+  nothing else (below, "Who is asking").
 
 The cell listens on `127.0.0.1:3101` by default, beside `cloud-global`'s 3100.
 `PORT` moves it, so two cells (`eu` and `us`) can run on one machine.
@@ -49,12 +50,13 @@ header.
   `CELL_TOKEN_AUDIENCE`, `CLOCK_SKEW_SECONDS`), the contract's
   `readCellTokenClaims` reads its claims, both at one moment from the
   `Clock`, and then only if its `region` is the cell's own. A token must name
-  its key's `kid`, and its `typ` must not be `OUTBOX_MESSAGE_TYPE`: the same
-  key signs the outbox's deliveries, and a delivery is never a token, whatever
-  its payload holds. `application/authenticate.ts` holds the steps,
-  `domain/caller.ts` (`admitClaims`) the rule on the claims and the region, and
-  `adapters/token` the signature check, behind the `TokenVerifier` port. Every
-  constant comes from the contract; never retype one.
+  its key's `kid`, and its `typ` must not be `OUTBOX_MESSAGE_TYPE` or
+  `GITHUB_EVENT_TYPE`: the same key signs the outbox's deliveries and GitHub's
+  events, and a delivery is never a token, whatever its payload holds.
+  `application/authenticate.ts` holds the steps, `domain/caller.ts`
+  (`admitClaims`) the rule on the claims and the region, and `adapters/token`
+  the signature check, behind the `TokenVerifier` port. Every constant comes
+  from the contract; never retype one.
 - **The answers.** No bearer credentials (no header, or another scheme) is
   401 with `WWW-Authenticate: Bearer` and `{"error":"token_required"}`. A
   token that is not accepted, malformed, forged, signed by another key, expired
@@ -81,21 +83,23 @@ header.
   (`c.var.caller`, typed by `CellEnv`): the person's global id, the
   workspace's id, the role and the region, no more. Only `admitClaims` makes a
   `Caller` (a type-only brand keeps a hand-written one from type-checking).
-- **Open routes.** Two routes answer without a token: `GET /api/health`, for
-  whatever probes cells, and `POST /api/outbox`, where `cloud-global`
-  delivers its outbox, each delivery signed instead (below, "The outbox").
-  `createApp` registers both before `requireCaller`, and every route after, so
-  an unknown path is 401 before it is 404, and any other method on
-  `/api/outbox` needs a token. A new open route needs a reason as good, and
-  the HTTP suite's "every route" test has to name it (`OPEN_ROUTES`).
+- **Open routes.** Three routes answer without a token: `GET /api/health`,
+  for whatever probes cells, `POST /api/outbox`, where `cloud-global`
+  delivers its outbox, and `POST /api/github/events`, where it passes on
+  GitHub's webhook events, each delivery signed instead (below, "The outbox"
+  and "GitHub's events"). `createApp` registers them before `requireCaller`,
+  and every route after, so an unknown path is 401 before it is 404, and any
+  other method on either delivery path needs a token. A new open route needs a
+  reason as good, and the HTTP suite's "every route" test has to name it
+  (`OPEN_ROUTES`).
 - **A workspace's rows.** A route never takes a workspace id from the request
   (path, query, body or header). A use case that reads or writes a
   workspace's rows takes the `Caller` and scopes every query by its
   `workspaceId`; the workspace is the token's, so a token for one workspace
   cannot reach another's rows. A role check is the use case's too, from
-  `caller.role`. The outbox route is the one exception: no person calls it,
-  and the workspace it writes is the one its signed message names, which only
-  `cloud-global` can sign.
+  `caller.role`. The two delivery routes are the exception: no person calls
+  them, and the workspace each writes is the one its signed message names,
+  which only `cloud-global` can sign.
 
 ## The outbox
 
@@ -156,6 +160,46 @@ from those messages and nothing else.
   transaction (below, "Teams"): opening a workspace makes its first team, a
   person who becomes a member joins it, and one who stops being a member leaves
   every team.
+
+## GitHub's events
+
+`cloud-global` receives the GitHub App's webhooks, and keeps none of what they
+say: it passes each event on to the cell of the workspace that holds its
+installation (`packages/cloud-contract`, "Passing on a GitHub event": read it
+first). What happens in a company's repositories is the company's, so it is
+kept here, in the workspace's region, for its runners and triggers (epics 21
+and 39), which read it later.
+
+- **What it keeps.** One table, `github_event`, keyed by `workspace_id` and
+  GitHub's `delivery_id`: the event's name, the installation, the payload as
+  GitHub sent it and when the cell received it. The payload is GitHub's JSON
+  as text, not `json` or `jsonb`: both refuse a `\u0000` escape, which a pull
+  request's body or a comment can hold. Every event is kept for now; how long
+  is for the runners and triggers to decide.
+- **How a delivery is authenticated** is the outbox's way, with its own `typ`:
+  a compact JWS signed with the cell token's key, checked by
+  `createJoseDeliveryVerifier` built for `GITHUB_EVENT_TYPE`
+  (`adapters/token/outboxDeliveries.ts`), on the same key set. The outbox's
+  verifier refuses an event, this one refuses an outbox message, and the
+  token check refuses both.
+- **The order of the checks** is the contract's, and each answer is
+  `GITHUB_EVENT_ANSWER`'s, by status. Before anything, the route
+  (`adapters/http/gitHubEvents.ts`) refuses a body not sent as
+  `GITHUB_EVENT_DELIVERY_MEDIA_TYPE` and one over
+  `GITHUB_EVENT_DELIVERY_MAX_BYTES` (36 MiB: any payload GitHub sends, signed),
+  each 400, without reading it. Then `receiveGitHubEvent`
+  (`application/receiveGitHubEvent.ts`): the signature (401 `unsigned`, or 503
+  when the keys cannot be had), the event (`readGitHubEventMessage`, 400
+  `unreadable`), the region (421 `otherRegion`), then the record: 409
+  `workspacePending` while the cell holds nothing of the workspace (its
+  `workspace.created` is not applied yet), 201 when recorded now, 200 when it
+  was recorded before, and 503 when the database does not answer. Every
+  refusal is logged in one line, with ids and the event's name, never the
+  payload.
+- **Recorded once.** `GitHubEventStore.record` holds the workspace's copy row
+  (`for key share`) and inserts on conflict do nothing, so a delivery sent
+  again, at once or later, or a capture replayed under its delivery id, is
+  recorded once and changes nothing.
 
 ## Teams
 
@@ -259,21 +303,23 @@ The service is built in rings, and imports point inward only.
   (`team.ts`). It is plain TypeScript, with no I/O, and no package but the
   contract (below).
 - `src/application/` holds the use cases (`checkHealth`, `authenticate`,
-  `describeMe`, `receiveDelivery`, and the teams' in `teams.ts`) and, in
-  `ports.ts`, the stores, probes, the `TokenVerifier`, the
-  `DeliveryVerifier`, the `WorkspaceCopies`, the `TeamStore` and the `Clock`
-  they need. A use case is a plain function that takes its ports first.
+  `describeMe`, `receiveDelivery`, `receiveGitHubEvent`, and the teams' in
+  `teams.ts`) and, in `ports.ts`, the stores, probes, the `TokenVerifier`,
+  the `DeliveryVerifier`, the `WorkspaceCopies`, the `GitHubEventStore`, the
+  `TeamStore` and the `Clock` they need. `signedPayload.ts` reads a signed
+  delivery's JSON for both delivery use cases. A use case is a plain function that takes its ports first.
 - `src/adapters/` implements the ports with a library, one folder each:
   - `persistence/` is Drizzle on PGlite or Postgres: the database
     (`database.ts`), the tables (`tables.ts`, re-exported as `schema` by
     `schema.ts`), and one store per port, which `stores.ts` builds together;
   - `http/` is the contract (`contract.ts`), the Hono routes (`app.ts`), the
     token check in front of them (`caller.ts`), the outbox's route
-    (`outbox.ts`) and the teams' (`teams.ts`). Each route asks a use case and
+    (`outbox.ts`), GitHub's events' (`gitHubEvents.ts`) and the teams'
+    (`teams.ts`). Each route asks a use case and
     maps its answer to a status and a body;
   - `token/` is jose: the `TokenVerifier` and where its keys come from
-    (`cellTokens.ts`), and the `DeliveryVerifier`, on the same keys
-    (`outboxDeliveries.ts`);
+    (`cellTokens.ts`), and the `DeliveryVerifier`, on the same keys, for the
+    outbox and for GitHub's events (`outboxDeliveries.ts`);
   - `clock/` is the machine's clock, the `Clock`.
 - The composition ring wires them together. `src/compose.ts` is the one place
   adapters are built and handed the ports they need (`composeCell`), and the
@@ -308,7 +354,8 @@ The service is built in rings, and imports point inward only.
   `consola`, the desktop), with one exception: `@consola/cloud-contract`
   (`packages/cloud-contract`), the contract the cell shares with
   `cloud-global`. It holds the regions, the workspace roles, the claims of the
-  token `cloud-global` mints for a cell, and the outbox messages it sends one.
+  token `cloud-global` mints for a cell, the outbox messages it sends one and
+  the GitHub events it passes on.
   It does no I/O, which its own boundary test proves, so any layer may import
   it, `domain` and `application` included. Only its entry point counts: a path
   inside it is refused. Before changing it, read
@@ -376,7 +423,8 @@ transaction at a time, so the compare-and-set is also tested directly
 `tables.ts` changes. They apply when the cell starts. The first is
 `0000_workspace_copy`; `0001_teams` ends with two statements written by hand,
 which give the workspaces already held their first team
-(`migrations.test.ts` runs it over a database migrated to `0000` only).
+(`migrations.test.ts` runs it over a database migrated to `0000` only);
+`0002_github_event` adds GitHub's events.
 Postgres cuts a name at 63 characters, and drizzle's names for a composite
 foreign key run past that, so such a key is named in `tables.ts`.
 

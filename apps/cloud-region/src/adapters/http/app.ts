@@ -5,6 +5,7 @@ import { describeMe } from '../../application/me.js';
 import type {
   Clock,
   DeliveryVerifier,
+  GitHubEventStore,
   HealthProbe,
   TeamStore,
   TokenVerifier,
@@ -13,6 +14,7 @@ import type {
 import type { Region } from '../../domain/region.js';
 import { type CellEnv, requireCaller } from './caller.js';
 import { getHealth, getMe } from './contract.js';
+import { gitHubEventRoutes } from './gitHubEvents.js';
 import { outboxRoutes } from './outbox.js';
 import { teamRoutes } from './teams.js';
 
@@ -23,9 +25,10 @@ const DOCUMENT = {
     title: 'Consola Cloud regional cell',
     version: '0',
     description:
-      "What a workspace holds in its region. Every route but the health check and the outbox's " +
-      'deliveries takes a cell token, minted by cloud-global for one workspace (`Authorization: ' +
-      'Bearer`), and reads and writes that workspace alone.',
+      "What a workspace holds in its region. Every route but the health check, the outbox's " +
+      'deliveries and the GitHub events cloud-global passes on takes a cell token, minted by ' +
+      'cloud-global for one workspace (`Authorization: Bearer`), and reads and writes that ' +
+      'workspace alone.',
   },
 };
 
@@ -34,9 +37,10 @@ const DOCUMENT = {
  * TypeScript checks each answer against. Each route asks a use case and maps its answer to a
  * status and a body.
  *
- * Two routes answer without a cell token: `GET /api/health`, for whatever probes cells, and
- * `POST OUTBOX_DELIVERY_PATH`, where `cloud-global` delivers its outbox, each delivery signed
- * with the cell token's key. Every other request, an unknown path included, must carry a token
+ * Three routes answer without a cell token: `GET /api/health`, for whatever probes cells,
+ * `POST OUTBOX_DELIVERY_PATH`, where `cloud-global` delivers its outbox, and
+ * `POST GITHUB_EVENT_DELIVERY_PATH`, where it passes on GitHub's webhook events, each delivery
+ * signed with the cell token's key. Every other request, an unknown path included, must carry a token
  * (`requireCaller`), so a route added below the check gets the caller and nothing else, and none
  * takes a workspace id from the request. `report` hears what the cell logs about deliveries.
  *
@@ -49,12 +53,25 @@ export function createApp(deps: {
   health: HealthProbe;
   tokens: TokenVerifier;
   deliveries: DeliveryVerifier;
+  /** Checks the GitHub events `cloud-global` passes on: the `typ` is `GITHUB_EVENT_TYPE`. */
+  events: DeliveryVerifier;
   workspaceCopies: WorkspaceCopies;
+  gitHubEvents: GitHubEventStore;
   teams: TeamStore;
   clock: Clock;
   report?: (line: string) => void;
 }): OpenAPIHono<CellEnv> {
-  const { region, health, tokens, deliveries, workspaceCopies, teams, clock } = deps;
+  const {
+    region,
+    health,
+    tokens,
+    deliveries,
+    events,
+    workspaceCopies,
+    gitHubEvents,
+    teams,
+    clock,
+  } = deps;
   const report = deps.report ?? ((line: string) => console.error(line));
   // A body of the wrong shape is 400 `invalid_request`, never the validator's own answer, which
   // is not in the contract.
@@ -85,6 +102,7 @@ export function createApp(deps: {
 
   // No token, since no person sends it: its signature is checked instead (`outboxRoutes`).
   app.route('/', outboxRoutes({ region, deliveries, workspaceCopies, report }));
+  app.route('/', gitHubEventRoutes({ region, events, gitHubEvents, report }));
 
   // Everything registered from here on is behind the check.
   app.use('*', requireCaller({ region, tokens, clock }));

@@ -19,10 +19,15 @@ import { postOutboxDelivery } from './contract.js';
  */
 export const MAX_DELIVERY_BYTES = 16 * 1024;
 
+/** Whether a `Content-Type` names `mediaType`, in any case, whatever its parameters. */
+export function hasMediaType(header: string | undefined, mediaType: string): boolean {
+  const type = header?.split(';')[0]?.trim().toLowerCase();
+  return type === mediaType;
+}
+
 /** Whether a `Content-Type` names `OUTBOX_DELIVERY_MEDIA_TYPE`, whatever its parameters. */
 export function isDeliveryMediaType(header: string | undefined): boolean {
-  const type = header?.split(';')[0]?.trim().toLowerCase();
-  return type === OUTBOX_DELIVERY_MEDIA_TYPE;
+  return hasMediaType(header, OUTBOX_DELIVERY_MEDIA_TYPE);
 }
 
 const about = (message: OutboxMessage) =>
