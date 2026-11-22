@@ -59,6 +59,13 @@ export {
 export type { RunHistory } from './ports';
 export { recoverAfterRestart, isEngineRun, INTERRUPTED_COMMAND } from './steps/recover';
 export { retryTargetOf } from './steps/stepRecords';
+export {
+  entryMayRetry,
+  RETRY_BACKOFF_MS,
+  retriesSpentError,
+  retryDelayMs,
+  stepMayRetry,
+} from './steps/retry';
 export type {
   StateFile,
   FactoryFolderRead,
