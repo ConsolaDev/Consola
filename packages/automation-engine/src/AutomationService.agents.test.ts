@@ -343,6 +343,25 @@ describe('saving where an entry lives', () => {
     );
     expect(h.texts().get(CATALOG_REVIEW_FILE)).toBe(CATALOG_REVIEW);
   });
+
+  it('refuses an entry naming an agent whose file has problems, saying so, not that it is missing (review M5)', async () => {
+    const h = await folder();
+    await h.writeFile(REVIEWER_FILE, '---\ntools: write\n---\nYou review.\n');
+    await expect(h.service.saveEntry(WORKSPACE_ID, ITEM, { replace: true })).rejects.toThrow(
+      'Not saved: its step `look` names the agent `reviewer`, which has problems of its own in agents/reviewer.md; save it once they are fixed.',
+    );
+    expect(h.texts().get(CATALOG_REVIEW_FILE)).toBe(CATALOG_REVIEW);
+  });
+
+  it('says the same of an agent the folder could not read: its agents/ links outside', async () => {
+    const h = await folder();
+    h.texts().delete(REVIEWER_FILE);
+    h.world.outsidePaths = ['agents/'];
+    await h.service.recheck(WORKSPACE_ID);
+    await expect(h.service.saveEntry(WORKSPACE_ID, ITEM, { replace: true })).rejects.toThrow(
+      'Not saved: its step `look` names the agent `reviewer`, which has problems of its own in agents/reviewer.md; save it once they are fixed.',
+    );
+  });
 });
 
 describe('the entry as written, and as an item', () => {

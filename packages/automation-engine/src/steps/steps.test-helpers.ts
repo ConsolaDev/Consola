@@ -207,6 +207,8 @@ export interface StepsWorld {
   folderReadThrows?: unknown;
   /** What each folder's `watch` was handed, by workspace id: call one to fire it, as a change on disk would. */
   watchers: Map<string, () => void>;
+  /** ws-1's paths the adapter would find linking outside the folder (`FactoryFiles.outside`); none by default. */
+  outsidePaths: string[];
   /** The host's harness records, as `listHarnesses` lists them. Default: none. */
   harnessRecords: Array<{ id: string; name: string; enabled: boolean; archived: boolean }>;
   /** Each workspace's latest Inbox snapshot, as `inboxSnapshot` returns it. */
@@ -412,6 +414,7 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
     harnessQueries: [],
     folderReads: 0,
     watchers: new Map(),
+    outsidePaths: [],
     harnessRecords: [],
     inbox: new Map(),
     liveTerminals: new Set(),
@@ -491,6 +494,7 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
             laterFolders: Object.keys(LATER_FOLDERS).filter((folder) =>
               paths.some((relative) => relative.startsWith(`${folder}/`)),
             ),
+            outside: workspaceId === WORKSPACE_ID ? [...world.outsidePaths] : [],
           },
         };
       },

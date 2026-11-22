@@ -1104,7 +1104,9 @@ export class AutomationService {
         `factory.yml does not load (${broken.map(describeIssue).join('; ')}); fix it by hand first`,
       ]);
     }
-    // Against the folder's agents as last read: an agent its steps name must be there.
+    // Against the folder's agents as last read: an agent its steps name must be there, and valid.
+    const troubled = agentWithProblems(automation, factory.read.parse);
+    if (troubled) throw notSaved([troubled]);
     const problem = this.resolve(workspaceId, automation, factory.read.parse.agents).problem;
     if (problem) throw notSaved([problem]);
     // By name as written, so an entry that fails to load still holds its name.
@@ -5539,6 +5541,25 @@ function describeIssue(issue: FactorySpecIssue): string {
 }
 
 /** A save refused, with every reason: what the agent reads and acts on. */
+/**
+ * Why an entry cannot be saved because a step names an agent whose file is
+ * in the folder but has problems of its own (or could not be read): said as
+ * the folder's issues say it, never as a file that is not there. Null when
+ * every agent it names is valid, or not there at all (which `resolveSteps`
+ * says).
+ */
+function agentWithProblems(automation: Automation, read: FactoryParseResult): string | null {
+  if (!isStepsEntry(automation)) return null;
+  for (const step of automation.steps) {
+    if (step.kind !== 'agent' || step.agent === undefined) continue;
+    if (Object.prototype.hasOwnProperty.call(read.agents, step.agent)) continue;
+    const file = `agents/${step.agent}.md`;
+    if (read.present.includes(file) || read.present.includes('agents/'))
+      return `its step \`${step.id}\` names the agent \`${step.agent}\`, which has problems of its own in ${file}; save it once they are fixed`;
+  }
+  return null;
+}
+
 function notSaved(reasons: string[]): Error {
   return new Error(
     `Not saved: ${reasons.map((reason) => reason.trim().replace(/\.$/, '')).join('; ')}.`,
