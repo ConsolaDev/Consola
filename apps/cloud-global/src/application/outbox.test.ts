@@ -98,8 +98,12 @@ function fetchTo(cells: Record<string, Cell>): typeof fetch {
     }
     if (scripted !== 'hang') return cell.handle(request, scripted);
     await cell.handle(request, null);
+    // As `fetch` does: a request stopped before it waits rejects at once. Checking the message
+    // takes long enough on a busy machine that the stop can land first, and a listener added
+    // after it would never hear it.
     return new Promise<Response>((_resolve, reject) => {
-      request.signal.addEventListener('abort', () => reject(request.signal.reason));
+      if (request.signal.aborted) reject(request.signal.reason);
+      else request.signal.addEventListener('abort', () => reject(request.signal.reason));
     });
   };
 }
