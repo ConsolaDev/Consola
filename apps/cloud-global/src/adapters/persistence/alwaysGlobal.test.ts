@@ -89,6 +89,18 @@ const ALWAYS_GLOBAL: Record<string, { holds: string; columns: string[] }> = {
       'delivered_at',
     ],
   },
+  github_installation: {
+    holds: 'App installs: which GitHub App installation belongs to which workspace',
+    columns: [
+      'installation_id',
+      'organization_id',
+      'account_id',
+      'account_login',
+      'account_type',
+      'connected_by',
+      'connected_at',
+    ],
+  },
 };
 
 const WHERE_THE_LIST_IS =

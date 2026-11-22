@@ -418,6 +418,9 @@ importers:
       better-auth:
         specifier: 1.7.27
         version: 1.7.27(drizzle-kit@0.31.11)(drizzle-orm@0.45.4(@electric-sql/pglite@0.5.17)(@types/pg@8.23.1)(@types/sql.js@1.4.11)(kysely@0.29.9)(pg@8.23.1)(sql.js@1.15.0))(pg@8.23.1)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(vitest@4.1.12)
+      lucide-react:
+        specifier: ^0.563.0
+        version: 0.563.0(react@19.2.4)
       openapi-fetch:
         specifier: ^0.17.0
         version: 0.17.0

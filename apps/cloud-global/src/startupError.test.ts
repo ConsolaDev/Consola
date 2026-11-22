@@ -15,6 +15,12 @@ const config: CloudConfig = {
     d: 'sprocket-test-cell-key-private-part',
   },
   cellUrls: {},
+  github: {
+    clientId: 'Iv23liSprocketTest',
+    clientSecret: 'sprocket-test-github-client-secret',
+    slug: 'consola-dev',
+    privateKeyPath: '/keys/github-app.pem',
+  },
 };
 
 describe('describeStartupFailure', () => {
@@ -58,6 +64,12 @@ describe('describeStartupFailure', () => {
   it("never shows the cell token's private key", () => {
     const failure = new Error(`could not sign with ${config.cellTokenPrivateKey.d}`);
     expect(describeStartupFailure(failure, config)).toBe('could not sign with <hidden>');
+  });
+
+  it("never shows the GitHub App's client secret", () => {
+    const failure = new Error(`GitHub refused ${config.github?.clientSecret}`);
+    expect(describeStartupFailure(failure, config)).toBe('GitHub refused <hidden>');
+    expect(describeStartupFailure(failure, { ...config, github: null })).toContain('refused');
   });
 
   it('says something for a failure with no message', () => {

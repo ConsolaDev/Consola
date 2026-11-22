@@ -24,6 +24,9 @@ const app = createApp({
   memberships: unreachable as never,
   sessions: unreachable as never,
   cellTokens: unreachable as never,
+  installations: unreachable as never,
+  github: unreachable as never,
+  installStates: unreachable as never,
   health: unreachable as never,
 });
 

@@ -27,6 +27,7 @@ function secretsOf(config: CloudConfig): string[] {
     config.authSecret,
     config.google.clientSecret,
     config.cellTokenPrivateKey.d,
+    config.github?.clientSecret ?? '',
   ];
   try {
     const { password } = new URL(config.databaseUrl);
