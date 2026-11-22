@@ -13,7 +13,7 @@ interface RunActionMenuProps {
   session: Session;
   /** The host's own button class, so the trigger sits in its row like a native control. */
   triggerClassName: string;
-  /** After main took the run: the Inbox opens the session, a session's own strip stays put. */
+  /** After main took the run: the Inbox opens the session, a session's own info panel stays put. */
   onRan?: () => void;
 }
 
@@ -35,8 +35,8 @@ const HINTS = {
  * it into a menu.
  *
  * A failure stays in the open menu, under the item that caused it, rather
- * than in the host's layout: the Inbox row and the strip have no room for a
- * line of their own, and the menu is where the person is looking.
+ * than in the host's layout: the Inbox row and the info panel's heading have
+ * no room for a line of their own, and the menu is where the person is looking.
  */
 export function RunActionMenu({ workspace, session, triggerClassName, onRan }: RunActionMenuProps) {
   const status = useSessionAttention(session.id);

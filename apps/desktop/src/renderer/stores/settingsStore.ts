@@ -53,6 +53,11 @@ export function isShelfOpen(shelves: Record<string, boolean>, id: string): boole
   return shelves[id] ?? SHELF_DEFAULTS[id] ?? true;
 }
 
+/** Whether an info panel section is open: every section starts open. */
+export function isInfoSectionOpen(open: Record<string, boolean>, id: string): boolean {
+  return open[id] ?? true;
+}
+
 export function clampTerminalFontSize(size: number): number {
   if (!Number.isFinite(size)) return TERMINAL_FONT_SIZE_DEFAULT;
   return Math.min(TERMINAL_FONT_SIZE_MAX, Math.max(TERMINAL_FONT_SIZE_MIN, Math.round(size)));
@@ -94,6 +99,14 @@ interface SettingsState {
   sidebarShelfOpen: Record<string, boolean>;
   /** Open a closed shelf or close an open one, from its current effective state. */
   toggleSidebarShelf: (id: string, open?: boolean) => void;
+  /**
+   * Whether each info panel section is open, by section id
+   * (`infoPanel/sections.ts`). Absence means open. Written whatever the side
+   * panel's remember setting says, as the sidebar's shelves are.
+   */
+  infoSectionOpen: Record<string, boolean>;
+  /** Fold an open section or open a folded one. */
+  toggleInfoSection: (id: string) => void;
   setTheme: (theme: ThemeMode) => void;
   /** Step to the next theme: light -> dark -> system -> light. */
   cycleTheme: () => void;
@@ -167,6 +180,14 @@ export const useSettingsStore = create<SettingsState>()(
             [id]: open ?? !isShelfOpen(state.sidebarShelfOpen, id),
           },
         })),
+      infoSectionOpen: {},
+      toggleInfoSection: (id) =>
+        set((state) => ({
+          infoSectionOpen: {
+            ...state.infoSectionOpen,
+            [id]: !isInfoSectionOpen(state.infoSectionOpen, id),
+          },
+        })),
       setTheme: (theme) => set({ theme }),
       // Lives in the store so the keyboard shortcut and the command palette
       // can never disagree about what "next theme" means.
@@ -207,6 +228,7 @@ export const useSettingsStore = create<SettingsState>()(
         terminalFontSize: state.terminalFontSize,
         inboxFilters: state.inboxFilters,
         sidebarShelfOpen: state.sidebarShelfOpen,
+        infoSectionOpen: state.infoSectionOpen,
       }),
       // A persisted size from an older build (or a hand-edited value) still has
       // to land inside the bounds the terminal can actually lay out, and a
@@ -232,6 +254,7 @@ export const useSettingsStore = create<SettingsState>()(
           ),
           inboxFilters: sanitizeInboxFilters(saved?.inboxFilters),
           sidebarShelfOpen: sanitizeShelfOpen(saved?.sidebarShelfOpen),
+          infoSectionOpen: sanitizeShelfOpen(saved?.infoSectionOpen),
         };
       },
     },

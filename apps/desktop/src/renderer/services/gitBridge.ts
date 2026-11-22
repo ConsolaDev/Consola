@@ -1,5 +1,6 @@
 import type { GitStatusResult, GitDiffResult } from '../types/electron';
 import type { CheckoutInfo } from '../../shared/sessionCheckout';
+import type { BranchFacts } from '../../shared/branchFacts';
 
 /**
  * Git Bridge - Isolates all window.gitAPI access to this single file.
@@ -37,6 +38,18 @@ export const gitBridge = {
       return null;
     }
     return api.getCheckout(dir);
+  },
+
+  /**
+   * A branch's commits to push or pull, and its distance from `baseBranch`
+   * (else origin's default branch), compared with what the clone last fetched.
+   */
+  getBranchFacts: async (dir: string, baseBranch?: string): Promise<BranchFacts | null> => {
+    const api = getAPI();
+    if (!api) {
+      return null;
+    }
+    return api.getBranchFacts(dir, baseBranch);
   },
 
   /** Get diff for a specific file */

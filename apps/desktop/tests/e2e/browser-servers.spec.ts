@@ -4,6 +4,7 @@ import { type ChildProcess, execFileSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { showBrowser } from './helpers/browserTab';
 import { commandPaletteChord, launchElectron, removeProfile } from './helpers/electron';
 
 /**
@@ -106,14 +107,6 @@ async function openSession(page: Page, name = 'Servers session'): Promise<void> 
   await page.locator('.session-nav-item').filter({ hasText: name }).click();
 }
 
-async function showBrowser(page: Page): Promise<void> {
-  const panel = page.getByTestId('browser-panel');
-  if (!(await panel.isVisible())) {
-    await page.getByRole('button', { name: /^(Show|Hide) browser$/ }).click();
-  }
-  await expect(panel).toBeVisible();
-}
-
 test.describe('local servers in the browser', () => {
   let app: ElectronApplication;
   let page: Page;
@@ -169,7 +162,9 @@ test.describe('local servers in the browser', () => {
 
   test('a blank tab hosts no page until it has an address', async () => {
     await openPanel();
+    // The browser's own "+", not the side panel's around it.
     await page
+      .getByTestId('browser-panel')
       .getByRole('button', { name: /new tab/i })
       .first()
       .click();

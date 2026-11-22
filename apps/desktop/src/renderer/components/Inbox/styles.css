@@ -1230,8 +1230,6 @@
   container: inbox-detail / inline-size;
   --inbox-ease: cubic-bezier(0.16, 1, 0.3, 1);
   --inbox-link: var(--color-accent);
-  --diff-add-text: var(--color-success);
-  --diff-del-text: var(--color-error);
   --inbox-detail-tabs-height: 40px;
   min-width: 0;
   font-size: 13px;
@@ -1257,36 +1255,46 @@
 
 [data-theme="light"] .inbox-detail {
   --inbox-link: color-mix(in srgb, var(--color-accent) 62%, black);
+}
+
+/* Added and removed lines: the pane's, and its counts (`DiffCounts`)
+   wherever they are drawn, the info panel's included. */
+:is(.inbox-detail, .inbox-detail-counts) {
+  --diff-add-text: var(--color-success);
+  --diff-del-text: var(--color-error);
+}
+[data-theme="light"] :is(.inbox-detail, .inbox-detail-counts) {
   --diff-add-text: color-mix(in srgb, var(--color-success) 72%, black);
   --diff-del-text: color-mix(in srgb, var(--color-error) 78%, black);
 }
 
-/* The pane's meta line shares these: the item's state badge sits there. */
-:is(.inbox-pane-meta, .inbox-detail) [data-tone="success"] {
+/* The pane's meta line shares these: the item's state badge sits there. So
+   does the info panel's Pull request section (`.info-pr-meta`). */
+:is(.inbox-pane-meta, .inbox-detail, .info-pr-meta) [data-tone="success"] {
   --tone: var(--color-success);
 }
-:is(.inbox-pane-meta, .inbox-detail) [data-tone="error"] {
+:is(.inbox-pane-meta, .inbox-detail, .info-pr-meta) [data-tone="error"] {
   --tone: var(--color-error);
 }
-:is(.inbox-pane-meta, .inbox-detail) [data-tone="warning"] {
+:is(.inbox-pane-meta, .inbox-detail, .info-pr-meta) [data-tone="warning"] {
   --tone: var(--color-warning);
 }
-:is(.inbox-pane-meta, .inbox-detail) [data-tone="merged"] {
+:is(.inbox-pane-meta, .inbox-detail, .info-pr-meta) [data-tone="merged"] {
   --tone: var(--color-merged);
 }
-:is(.inbox-pane-meta, .inbox-detail) [data-tone="accent"] {
+:is(.inbox-pane-meta, .inbox-detail, .info-pr-meta) [data-tone="accent"] {
   --tone: var(--color-accent);
 }
-:is(.inbox-pane-meta, .inbox-detail) [data-tone="neutral"] {
+:is(.inbox-pane-meta, .inbox-detail, .info-pr-meta) [data-tone="neutral"] {
   --tone: var(--color-text-secondary);
 }
-:is(.inbox-pane-meta, .inbox-detail) [data-tone] {
+:is(.inbox-pane-meta, .inbox-detail, .info-pr-meta) [data-tone] {
   --tone-text: var(--tone);
 }
-[data-theme="light"] :is(.inbox-pane-meta, .inbox-detail) [data-tone] {
+[data-theme="light"] :is(.inbox-pane-meta, .inbox-detail, .info-pr-meta) [data-tone] {
   --tone-text: color-mix(in srgb, var(--tone) 62%, black);
 }
-[data-theme="light"] :is(.inbox-pane-meta, .inbox-detail) [data-tone="neutral"] {
+[data-theme="light"] :is(.inbox-pane-meta, .inbox-detail, .info-pr-meta) [data-tone="neutral"] {
   --tone-text: var(--color-text-secondary);
 }
 
@@ -2159,6 +2167,12 @@
   contain-intrinsic-size: auto 26px;
 }
 
+/* Laid out whole for the frame a place below them is scrolled to, so the
+   scroll lands where the place really is. Each keeps that size after. */
+.inbox-detail[data-revealing] :is(.inbox-detail-stream-card, .inbox-detail-stream-event) {
+  content-visibility: visible;
+}
+
 .inbox-detail-card {
   min-width: 0;
   border: 1px solid var(--color-border-strong);
@@ -2608,9 +2622,11 @@
   gap: 8px;
 }
 
-/* The merge card ends an open pull request's stream. */
+/* The merge card ends an open pull request's stream. Scrolled to from the
+   info panel, it lands below the tabs that stick over the top. */
 .inbox-detail-merge-card {
   margin-top: 16px;
+  scroll-margin-top: calc(var(--inbox-detail-tabs-height) + var(--space-2));
 }
 
 .inbox-detail-merge-card

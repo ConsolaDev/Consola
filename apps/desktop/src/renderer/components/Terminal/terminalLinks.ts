@@ -1,11 +1,11 @@
 import { routeTerminalLink } from '../../../shared/browser';
 import { browserBridge } from '../../services/browserBridge';
-import { useNavigationStore } from '../../stores/navigationStore';
 import { usePreferencesStore } from '../../stores/preferencesStore';
+import { useSidePanelStore } from '../../stores/sidePanelStore';
 
 /**
- * Open a link clicked in a session's terminal, in Consola's browser beside the
- * session or in the OS browser, by the person's rule (`Preferences.terminalLinks`)
+ * Open a link clicked in a session's terminal, in its Browser tab or in the
+ * OS browser, by the person's rule (`Preferences.terminalLinks`)
  * and whether Shift was held. The rule is read at the click, so a change in
  * Settings applies to links already on screen.
  *
@@ -28,9 +28,9 @@ export function openTerminalLink(sessionId: string, event: MouseEvent, uri: stri
     window.open(uri, '_blank');
     return;
   }
-  // The panel is shown at once: the tab is main's to create, and a refused
-  // address simply leaves the panel as it was, empty or not.
-  useNavigationStore.getState().setBrowserVisible(true);
+  // The Browser tab opens at once: the page tab is main's to create, and a
+  // refused address simply leaves the browser as it was, empty or not.
+  useSidePanelStore.getState().openKind('browser');
   browserBridge.open(sessionId, uri).catch((error: unknown) => {
     console.error('Could not open a terminal link in the browser.', error);
   });

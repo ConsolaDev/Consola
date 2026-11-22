@@ -104,7 +104,7 @@ export function SessionNameEditor({
       void save();
     } else if (event.key === 'Escape') {
       // Escape cancels the rename and nothing else: listeners on the window
-      // (the review panel closes on Escape) must not see it.
+      // (the Inbox closes its pane on Escape) must not see it.
       event.preventDefault();
       event.stopPropagation();
       cancel();

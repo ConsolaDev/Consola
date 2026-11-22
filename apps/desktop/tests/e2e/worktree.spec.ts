@@ -5,11 +5,13 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { createProfileDir, launchElectron } from './helpers/electron';
+import { infoSection } from './helpers/infoPanel';
 import { createBuiltInHarness } from '../../src/shared/harness';
 
 /**
- * Which checkout a session runs in: the header names it beside the session,
- * the sidebar marks worktree rows, and git status reads the worktree itself.
+ * Which checkout a session runs in: the info panel's Folder row names it and
+ * its card explains it, the sidebar marks worktree rows, and git status reads
+ * the worktree itself.
  */
 
 const WORKSPACE_NAME = 'Sprocket';
@@ -149,7 +151,19 @@ async function holdWorkspace(target: Page): Promise<void> {
 
 const row = (target: Page, name: string) =>
   target.locator('.session-nav-item').filter({ hasText: name });
-const chip = (target: Page) => target.locator('.workspace-view-header .checkout-chip');
+/** The info panel's Folder row, named `<kind> <~path>. Copy folder path`. */
+const folderRow = (target: Page, kind: string) =>
+  infoSection(target, 'Environment').getByRole('button', {
+    name: new RegExp(`^${kind} .+\\. Copy folder path$`),
+  });
+/** The Folder row's card, which explains the checkout. */
+const checkoutCard = (target: Page) => target.locator('.checkout-tooltip');
+/**
+ * The card's labelled facts. Child combinators: Radix also renders a visually
+ * hidden copy of the content for screen readers, which a descendant query
+ * would count twice.
+ */
+const cardFacts = (target: Page) => target.locator('.checkout-tooltip > .checkout-tooltip-facts');
 const screenshot = (name: string) => page.screenshot({ path: `tests/e2e/screenshots/${name}` });
 
 test.describe('worktree visibility', () => {
@@ -167,34 +181,37 @@ test.describe('worktree visibility', () => {
     fs.rmSync(base, { recursive: true, force: true });
   });
 
-  test('the header says which checkout a session runs in, and git status reads that checkout', async () => {
+  test("the info panel's Folder row says which checkout a session runs in, and git status reads that checkout", async () => {
     test.setTimeout(60_000);
     await row(page, 'Fix the login redirect').click();
-    await expect(chip(page)).toHaveAttribute('data-kind', 'worktree');
-    await expect(chip(page)).toContainText('Worktree');
-    await expect(chip(page)).toContainText(WORKTREE_BRANCH);
+    await expect(folderRow(page, 'Worktree')).toBeVisible();
+    // The header no longer names the checkout: the Folder row and its card do.
+    await expect(page.locator('.workspace-view-header .checkout-chip')).toHaveCount(0);
     await expect(page.locator('.git-stats-count')).toHaveText('1 file');
     await screenshot('worktree-header.png');
 
-    await chip(page).hover();
-    const tooltip = page.locator('.checkout-tooltip');
+    await folderRow(page, 'Worktree').hover();
     // The three things people mix up, each labelled: the branch, the
     // worktree's own (generated) folder, and the main checkout it belongs to.
-    // Child combinators: Radix also renders a visually hidden copy of the
-    // content for screen readers, which a descendant query would count twice.
-    const facts = page.locator('.checkout-tooltip > .checkout-tooltip-facts');
-    await expect(tooltip.first()).toContainText('Worktree');
-    await expect(facts.locator('> dt')).toHaveText(['Branch', 'Folder', 'Main checkout']);
-    await expect(facts.locator('> dd').nth(0)).toContainText(WORKTREE_BRANCH);
-    await expect(facts.locator('> dd').nth(1)).toContainText(tree);
-    await expect(facts.locator('> dd').nth(2)).toContainText(repo);
+    await expect(checkoutCard(page)).toContainText('Worktree');
+    await expect(cardFacts(page).locator('> dt')).toHaveText(['Branch', 'Folder', 'Main checkout']);
+    await expect(cardFacts(page).locator('> dd').nth(0)).toContainText(WORKTREE_BRANCH);
+    await expect(cardFacts(page).locator('> dd').nth(1)).toContainText(tree);
+    await expect(cardFacts(page).locator('> dd').nth(2)).toContainText(repo);
+    // The card is the row's only explanation, so no native title shows with it.
+    await expect(folderRow(page, 'Worktree')).not.toHaveAttribute('title');
     await screenshot('worktree-tooltip.png');
     await page.mouse.move(0, 0);
 
     await row(page, 'Tidy the README').click();
-    await expect(chip(page)).toHaveAttribute('data-kind', 'main');
-    await expect(chip(page)).toHaveText('main');
+    await expect(folderRow(page, 'Main checkout')).toBeVisible();
     await expect(page.locator('.git-stats-count')).toHaveCount(0);
+    // The keyboard opens the card too.
+    await folderRow(page, 'Main checkout').focus();
+    await expect(checkoutCard(page)).toContainText('Main checkout');
+    await expect(cardFacts(page).locator('> dt')).toHaveText(['Branch', 'Folder']);
+    await expect(cardFacts(page).locator('> dd').nth(0)).toContainText('main');
+    await expect(cardFacts(page).locator('> dd').nth(1)).toContainText(repo);
     await screenshot('worktree-main-checkout.png');
   });
 
@@ -202,11 +219,11 @@ test.describe('worktree visibility', () => {
     test.setTimeout(60_000);
     await row(page, 'Plan the redirect fix').click();
     // Launched in the repo, and still there until the CLI says otherwise.
-    await expect(chip(page)).toHaveAttribute('data-kind', 'main');
+    await expect(folderRow(page, 'Main checkout')).toBeVisible();
     await expect(page.locator('.git-stats-count')).toHaveCount(0);
 
-    await expect(chip(page)).toHaveAttribute('data-kind', 'worktree', { timeout: 15_000 });
-    await expect(chip(page)).toContainText(WORKTREE_BRANCH);
+    await expect(folderRow(page, 'Worktree')).toBeVisible({ timeout: 15_000 });
+    await expect(infoSection(page, 'Branch')).toContainText(WORKTREE_BRANCH);
     await expect(page.locator('.git-stats-count')).toHaveText('1 file');
     await expect(
       row(page, 'Plan the redirect fix').locator('.session-nav-item-worktree'),

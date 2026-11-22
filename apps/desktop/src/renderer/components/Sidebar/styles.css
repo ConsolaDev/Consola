@@ -1357,7 +1357,7 @@
 }
 
 /* The worktree mark wears the worktree hue, like the detailed row's line and
-   the header's chip, so the row and the pane it opens still match. */
+   the info panel's Folder row, so the row and the pane it opens still match. */
 .session-row-mark--worktree {
   color: var(--color-worktree);
 }

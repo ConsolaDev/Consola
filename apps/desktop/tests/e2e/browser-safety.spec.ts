@@ -3,6 +3,7 @@ import type { ElectronApplication, Page } from '@playwright/test';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { showBrowser } from './helpers/browserTab';
 import { launchElectron, removeProfile, settingsChord } from './helpers/electron';
 import { type FixtureServer, startFixtureServer } from './helpers/fixtureServer';
 import { startTlsFixture, type TlsFixture } from './helpers/tlsFixture';
@@ -69,13 +70,6 @@ async function seed(page: Page, root: string): Promise<{ workspaceId: string; se
 const panel = (page: Page) => page.getByTestId('browser-panel');
 const address = (page: Page) => page.getByRole('textbox', { name: 'Address' });
 
-async function showBrowser(page: Page): Promise<void> {
-  if (!(await panel(page).isVisible())) {
-    await page.getByRole('button', { name: /^(Show|Hide) browser$/ }).click();
-  }
-  await expect(panel(page)).toBeVisible();
-}
-
 async function typeAddress(page: Page, text: string): Promise<void> {
   await address(page).click();
   await address(page).fill(text);
@@ -136,7 +130,7 @@ test.describe('in-app browser safety', () => {
     await expect(page.locator('.browser-error')).toHaveCount(0);
 
     // The approval is for this certificate: a second tab loads without asking.
-    await page.getByRole('button', { name: 'New tab', exact: true }).click();
+    await panel(page).getByRole('button', { name: 'New tab', exact: true }).click();
     await typeAddress(page, tls.url);
     await expect
       .poll(async () => (await guestTitles(app)).filter((t) => t === 'Secure').length)
@@ -154,7 +148,7 @@ test.describe('in-app browser safety', () => {
     await expect(page.getByRole('dialog')).toHaveCount(0);
 
     // Asked again, as if it had never been approved.
-    await page.getByRole('button', { name: 'New tab', exact: true }).click();
+    await panel(page).getByRole('button', { name: 'New tab', exact: true }).click();
     await typeAddress(page, tls.url);
     await expect(page.locator('.browser-error')).toContainText('is not trusted');
   });
@@ -226,9 +220,9 @@ test.describe('in-app browser safety', () => {
   test('a sign-in waits for its tab to be the one shown', async () => {
     await typeAddress(page, `${fixtures.host}/secret.html`);
     await expect(prompt(page)).toBeVisible();
-    await page.getByRole('button', { name: 'New tab', exact: true }).click();
+    await panel(page).getByRole('button', { name: 'New tab', exact: true }).click();
     await expect(prompt(page)).toHaveCount(0);
-    await page.getByRole('tab').first().click();
+    await panel(page).getByRole('tab').first().click();
     await expect(prompt(page)).toBeVisible();
   });
 

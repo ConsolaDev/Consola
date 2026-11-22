@@ -135,6 +135,37 @@ export const BROWSER_SHORTCUT_LABELS: Record<ShortcutPlatform, string> = {
 };
 
 /**
+ * Shows or hides the side panel beside the session: Option+Cmd+B on macOS,
+ * Ctrl+Alt+B elsewhere. Matched on the physical key, because Option turns
+ * `key` into `∫` on a Mac. Never with Shift: the chord is exactly these keys.
+ * Shift+Option+Cmd+B is no chord of the app's, and the Working shelf's is
+ * Shift+Cmd+B, without Option.
+ */
+export function isSidePanelShortcut(chord: KeyChord, platform: ShortcutPlatform): boolean {
+  return hasPrimary(chord, platform) && chord.alt && !chord.shift && chord.code === 'KeyB';
+}
+
+export const SIDE_PANEL_SHORTCUT_LABELS: Record<ShortcutPlatform, string> = {
+  mac: '⌥⌘B',
+  other: 'Ctrl+Alt+B',
+};
+
+/**
+ * Shows or hides the info panel beside the session: Option+Cmd+J on macOS,
+ * Ctrl+Alt+J elsewhere. Matched on the physical key, because Option turns
+ * `key` into `∆` on a Mac. Not ⌥⌘I, the obvious one, which is Toggle
+ * Developer Tools in the View menu the app ships. Never with Shift.
+ */
+export function isInfoPanelShortcut(chord: KeyChord, platform: ShortcutPlatform): boolean {
+  return hasPrimary(chord, platform) && chord.alt && !chord.shift && chord.code === 'KeyJ';
+}
+
+export const INFO_PANEL_SHORTCUT_LABELS: Record<ShortcutPlatform, string> = {
+  mac: '⌥⌘J',
+  other: 'Ctrl+Alt+J',
+};
+
+/**
  * Cmd+W closes the nearest thing on screen (`renderer/utils/closeShortcut`).
  * macOS only: elsewhere it would be Ctrl+W, which the terminal needs, as
  * delete-word-backwards in every shell and in Claude's composer. Shift+Cmd+W
@@ -197,6 +228,8 @@ export type ForwardedShortcut =
   | { kind: 'sidebar' }
   | { kind: 'terminal' }
   | { kind: 'browser' }
+  | { kind: 'side-panel' }
+  | { kind: 'info-panel' }
   | { kind: 'close' }
   | { kind: BrowserFocusedAction };
 
@@ -219,6 +252,8 @@ export function forwardedShortcutFor(
   if (isSidebarShortcut(chord)) return { kind: 'sidebar' };
   if (isShellShortcut(chord)) return { kind: 'terminal' };
   if (isBrowserShortcut(chord, platform)) return { kind: 'browser' };
+  if (isSidePanelShortcut(chord, platform)) return { kind: 'side-panel' };
+  if (isInfoPanelShortcut(chord, platform)) return { kind: 'info-panel' };
   if (isCloseShortcut(chord, platform)) return { kind: 'close' };
   const action = matchBrowserFocusedShortcut(chord, platform);
   return action ? { kind: action } : null;

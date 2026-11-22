@@ -1,5 +1,7 @@
 import { isShellShortcut } from '../../utils/shellShortcut';
 import { isBrowserShortcut, matchWorkspaceShortcut } from '../../utils/platform';
+import { isInfoPanelShortcut } from '../../utils/infoPanelShortcut';
+import { isSidePanelShortcut } from '../../utils/sidePanelShortcut';
 import { useEffect, useRef } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
@@ -169,6 +171,8 @@ export function useTerminal({
       if (
         isShellShortcut(event) ||
         isBrowserShortcut(event) ||
+        isSidePanelShortcut(event) ||
+        isInfoPanelShortcut(event) ||
         matchWorkspaceShortcut(event) !== null
       ) {
         event.preventDefault();

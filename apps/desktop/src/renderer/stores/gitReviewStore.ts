@@ -4,10 +4,11 @@ import { useGitStatusStore } from './gitStatusStore';
 
 type ViewMode = 'diff' | 'file';
 
+/**
+ * What the review shows and is doing. Whether it is on screen is not here:
+ * it is the side panel's Changes tab, so `sidePanelStore` decides that.
+ */
 interface GitReviewState {
-  // Panel visibility
-  isOpen: boolean;
-
   // Sidebar collapsed state
   isSidebarCollapsed: boolean;
 
@@ -31,9 +32,6 @@ interface GitReviewState {
   scrollToFile: string | null;
 
   // Actions
-  open: () => void;
-  close: () => void;
-  toggle: () => void;
   toggleSidebar: () => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
   toggleFileExpanded: (filePath: string) => void;
@@ -56,7 +54,6 @@ interface GitReviewState {
 }
 
 export const useGitReviewStore = create<GitReviewState>((set, get) => ({
-  isOpen: false,
   isSidebarCollapsed: false,
   expandedFiles: new Set(),
   viewMode: new Map(),
@@ -65,12 +62,6 @@ export const useGitReviewStore = create<GitReviewState>((set, get) => ({
   isCommitting: false,
   error: null,
   scrollToFile: null,
-
-  open: () => set({ isOpen: true }),
-
-  close: () => set({ isOpen: false }),
-
-  toggle: () => set((state) => ({ isOpen: !state.isOpen })),
 
   toggleSidebar: () => set((state) => ({ isSidebarCollapsed: !state.isSidebarCollapsed })),
 
@@ -181,7 +172,6 @@ export const useGitReviewStore = create<GitReviewState>((set, get) => ({
 
   reset: () =>
     set({
-      isOpen: false,
       isSidebarCollapsed: false,
       expandedFiles: new Set(),
       viewMode: new Map(),

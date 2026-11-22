@@ -33,8 +33,11 @@ import {
 } from './browserView';
 import './styles.css';
 
-/** A press on one of these starts a drag that a page must not swallow. */
-const DRAG_HANDLES = '[data-separator], .resize-handle, .sidebar-resize-handle';
+/**
+ * A press on one of these can start a drag that a page must not swallow: a
+ * panel separator, the sidebar's edge, or a side panel tab.
+ */
+const DRAG_HANDLES = '[data-separator], .resize-handle, .sidebar-resize-handle, .side-panel-tab';
 
 /** The parts of Electron's `<webview>` element the host calls. */
 interface WebviewElement extends HTMLElement {
@@ -67,8 +70,9 @@ const NONE: ReadonlySet<string> = new Set();
  * root and drawn over the browser panel's slot.
  *
  * A `<webview>` loses its page when its element moves, so the elements never
- * live in the panel (which unmounts with every overlay and re-renders with
- * every session switch): they live here, in one parent, in the order they
+ * live in the panel (which unmounts whenever its tab goes behind, the side
+ * panel hides or an overlay covers it, and remounts with every session
+ * switch): they live here, in one parent, in the order they
  * were created (`hostOrder`), and are only ever added or removed. Each keeps
  * the address and partition it was created with; every later navigation goes
  * through main.

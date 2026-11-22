@@ -3,6 +3,7 @@ import type { ElectronApplication, Page } from '@playwright/test';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { showBrowser } from './helpers/browserTab';
 import { launchElectron, removeProfile } from './helpers/electron';
 import { type FixtureServer, startFixtureServer } from './helpers/fixtureServer';
 
@@ -71,7 +72,6 @@ async function seed(page: Page, root: string): Promise<{ workspaceId: string; se
 /** Where the stub writes whatever the session's input receives. */
 const typed = (root: string) => path.join(root, 'typed.txt');
 
-const panel = (page: Page) => page.getByTestId('browser-panel');
 const address = (page: Page) => page.getByRole('textbox', { name: 'Address' });
 const sendButton = (page: Page) =>
   page.getByRole('button', { name: 'Send a screenshot to the session' });
@@ -96,8 +96,7 @@ test.describe('screenshot to the session', () => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-browser-capture-'));
     ({ app, page, userDataDir } = await launchElectron());
     ids = await seed(page, root);
-    await page.getByRole('button', { name: /^(Show|Hide) browser$/ }).click();
-    await expect(panel(page)).toBeVisible();
+    await showBrowser(page);
   });
 
   test.afterEach(async () => {

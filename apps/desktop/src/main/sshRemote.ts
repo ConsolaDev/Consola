@@ -29,3 +29,23 @@ export function resolveSshRemote(
   const hostname = resolveHost(host);
   return hostname ? `${prefix}${hostname}${separator}${repoPath}` : remote;
 }
+
+/**
+ * `resolve`, asked once per remote for the life of the run. `resolveSshRemote`
+ * runs `ssh -G` synchronously, so a caller that resolves on every request
+ * would block main's event loop each time. The cost: an ssh config edited
+ * during a run is seen only after a restart.
+ */
+export function memoizeRemoteResolver(
+  resolve: (remote: string) => string = resolveSshRemote,
+): (remote: string) => string {
+  const resolved = new Map<string, string>();
+  return (remote) => {
+    let answer = resolved.get(remote);
+    if (answer === undefined) {
+      answer = resolve(remote);
+      resolved.set(remote, answer);
+    }
+    return answer;
+  };
+}
