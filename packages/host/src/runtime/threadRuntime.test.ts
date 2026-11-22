@@ -17,6 +17,7 @@ import {
   type OrchestratorV2ScenarioResult,
   ProviderReplayFixtures,
 } from '@t3tools/server-orchestration/testing';
+import * as Clock from 'effect/Clock';
 import * as Duration from 'effect/Duration';
 import * as Effect from 'effect/Effect';
 import * as Exit from 'effect/Exit';
@@ -170,11 +171,13 @@ describe('ThreadRuntime', () => {
       withReplay('simple', ({ spec, handle, prompt, assertT3Output }) =>
         Effect.gen(function* () {
           expect(handle.snapshot().thread.id).toBe(spec.sessionId);
+          const sentAt = yield* Clock.currentTimeMillis;
 
           yield* handle.dispatch(prompt);
           const projection = yield* waitForSnapshot(handle, (current) =>
             statuses(current).includes('completed'),
           );
+          expect(handle.lastActivityMs()).toBeGreaterThanOrEqual(sentAt);
 
           expect(statuses(projection)).toEqual(['completed']);
           const types = projection.turnItems.map((item) => item.type);
