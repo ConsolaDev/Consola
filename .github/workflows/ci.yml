@@ -52,8 +52,17 @@ jobs:
       # The site's demo runs the desktop renderer against a hand-written bridge,
       # and its build does not typecheck: this is what notices a bridge it lacks.
       - run: pnpm --filter @consola/website typecheck
-      - run: pnpm --filter @consola/cloud-api --filter @consola/cloud-web --filter @consola/host typecheck
-      - run: pnpm --filter consola --filter @consola/factory-spec --filter @consola/cloud-api --filter @consola/cloud-web --filter @consola/host test
+      - run: pnpm --filter @consola/cloud-api --filter @consola/cloud-web --filter @consola/host --filter @consola/agent-ui typecheck
+      # @consola/agent-ui's browser tests run in Vitest's browser mode on Playwright's Chromium.
+      - run: pnpm --filter @consola/agent-ui exec playwright install chromium
+      - run: pnpm --filter consola --filter @consola/factory-spec --filter @consola/cloud-api --filter @consola/cloud-web --filter @consola/host --filter @consola/agent-ui test
+      # The chat's browser bundle must hold no server SDK (packages/agent-ui/AGENTS.md, "Build").
+      - run: pnpm --filter @consola/agent-ui build
+      - run: |
+          if grep -rlE "@cursor/sdk|@anthropic-ai/claude-agent-sdk" packages/agent-ui/dist; then
+            echo "A server SDK reached @consola/agent-ui's bundle." >&2
+            exit 1
+          fi
 
   vendor:
     # t3code's packages, copied into vendor/t3code (vendor/t3code/UPSTREAM.md),
