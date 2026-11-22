@@ -501,17 +501,17 @@ panel it is view state, kept in the renderer.
   only for an active viewer (`watch`, through `useWorkItemDetails`), one
   read per item at a time, at most once per `INBOX_REFRESH_INTERVAL_MS`
   (a failed read counts as one, quiet or loud) unless forced by the person's
-  Refresh or Retry or the re-read after a write. A forced load never takes the answer of a read already in flight,
-  which may predate the write, unless a loud forced load started that read;
-  it waits, then gets one more. The store's own reads (a watch's first load,
-  the re-check once an entry goes stale) are quiet once the entry holds
-  details, so the pane's editors never lock under the person's typing. The
-  mergeability poll is its own: a few quiet reads while `mergeState` is
-  `UNKNOWN`, only while watched (`MERGE_STATE_POLLS`). At most
-  `MAX_UNWATCHED_DETAILS` (20) entries nobody watches keep their details,
-  the least recently read dropped first. A folded section, a hidden panel, a
-  tab behind another and the mark read nothing: `useDetailsEntry` reads the
-  cache and never watches.
+  Refresh or Retry or the re-read after a write. A forced load never takes
+  the answer of a read already in flight, which may predate the write,
+  unless a loud forced load started that read; it waits, then gets one more.
+  The store's own reads (a watch's first load, the re-check once an entry
+  goes stale) are quiet once the entry holds details, so the pane's editors
+  never lock under the person's typing. The mergeability poll is its own: a
+  few quiet reads while `mergeState` is `UNKNOWN`, only while watched
+  (`MERGE_STATE_POLLS`). At most `MAX_UNWATCHED_DETAILS` (20) entries nobody
+  watches keep their details, the least recently read dropped first. A
+  folded section, a hidden panel, a tab behind another and the mark read
+  nothing: `useDetailsEntry` reads the cache and never watches.
 - **A branch's pull request is found in main** (`BranchPullRequestFinder`),
   for a session linked to none. Main reads the branch from the folder
   (`readBranchIdentity`), so the renderer never sends one; origin is mapped

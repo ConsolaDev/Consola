@@ -268,12 +268,12 @@ function check(key: string, options?: LoadOptions): void {
 /**
  * What a watched item does next, planned when watching starts and after
  * every read of it; while a read runs, its end plans instead, so nothing
- * planned before it is left to fire meanwhile. The item is
- * checked once its entry goes stale, timed from the read rather than from a
- * fixed interval, which would find the entry a read's latency short of stale
- * and wait out a second interval. And while GitHub is still working
- * mergeability out, a quiet read follows shortly, as GitHub's own page keeps
- * asking, a few times per spell of watching.
+ * planned before it is left to fire meanwhile. The item is checked once its
+ * entry goes stale, timed from the last read, answered or failed, rather
+ * than from a fixed interval, which would find the entry a read's latency
+ * short of stale and wait out a second interval. And while GitHub is still
+ * working mergeability out, a quiet read follows shortly, as GitHub's own
+ * page keeps asking, a few times per spell of watching.
  */
 function follow(key: string): void {
   const watch = watches.get(key);
