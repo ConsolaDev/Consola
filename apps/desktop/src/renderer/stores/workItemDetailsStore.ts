@@ -231,7 +231,9 @@ function readNext(key: string, target: DetailsTarget, quiet: boolean): Promise<D
 
 /**
  * Drops the details of the items read longest ago that nobody watches, past
- * `MAX_UNWATCHED_DETAILS`. One with a read running stays: its answer is due.
+ * `MAX_UNWATCHED_DETAILS`. A failed read counts as a read, so a failure just
+ * kept is not the first to go. One with a read running stays: its answer is
+ * due.
  */
 function prune(): void {
   const { entries } = useWorkItemDetailsStore.getState();
@@ -241,7 +243,7 @@ function prune(): void {
   const dropped = new Set(
     unwatched
       .filter((key) => !inFlight.has(key))
-      .sort((a, b) => entries[a].fetchedAt - entries[b].fetchedAt)
+      .sort((a, b) => lastReadAt(entries[a]) - lastReadAt(entries[b]))
       .slice(0, excess),
   );
   if (dropped.size === 0) return;

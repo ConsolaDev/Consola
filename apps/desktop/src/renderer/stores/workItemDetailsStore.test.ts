@@ -353,6 +353,30 @@ describe('workItemDetailsStore', () => {
     expect(Object.keys(useWorkItemDetailsStore.getState().entries)).toHaveLength(21);
   });
 
+  it('a failed read counts as a read when the least recently read are dropped, so its failure stays fresh', async () => {
+    const item = (number: number): DetailsTarget => ({ ...target, ref: { ...ref, number } });
+    const has = (number: number) =>
+      useWorkItemDetailsStore.getState().entries[detailsKey(item(number))]?.details !== undefined;
+    for (let number = 1; number <= 20; number++) {
+      vi.advanceTimersByTime(1_000);
+      await load(item(number));
+    }
+    // The oldest answer is read again, and that read fails.
+    vi.advanceTimersByTime(1_000);
+    getDetails.mockRejectedValueOnce(new Error('rate limited'));
+    await load(item(1), { force: true });
+    vi.advanceTimersByTime(1_000);
+    await load(item(21));
+    expect(has(1)).toBe(true);
+    expect(has(2)).toBe(false);
+
+    // Its failure still counts: shown again within the interval, it is not read.
+    const reads = getDetails.mock.calls.length;
+    watch(item(1));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(getDetails).toHaveBeenCalledTimes(reads);
+  });
+
   it('never drops an item whose read is running, nor one still watched', async () => {
     const item = (number: number): DetailsTarget => ({ ...target, ref: { ...ref, number } });
     const has = (number: number) =>
@@ -384,16 +408,22 @@ describe('workItemDetailsStore', () => {
     expect(has(5)).toBe(true);
   });
 
-  it('a failed forced read of the oldest unwatched item answers with its failure, though the item is then dropped', async () => {
+  it('a failed forced read answers with its failure, though the cache then drops the item', async () => {
     const item = (number: number): DetailsTarget => ({ ...target, ref: { ...ref, number } });
     for (let number = 1; number <= 20; number++) {
       vi.advanceTimersByTime(1_000);
       await load(item(number));
     }
-    // The oldest is read again, the person's Refresh...
+    // A read that ends is the newest read, so the cache drops another item
+    // first, unless every other one it could drop is being read: here, the
+    // person's Refresh of the first item, with every other one read again...
     const refresh = deferred();
     const refreshed = load(item(1), { force: true });
-    // ...while a 21st item's first read lands with a forced read queued
+    for (let number = 2; number <= 20; number++) {
+      deferred();
+      void load(item(number), { force: true });
+    }
+    // ...and a 21st item's first read landing with a forced read queued
     // behind it, so the store holds one item past its cap until a read ends.
     const first = deferred();
     deferred();
