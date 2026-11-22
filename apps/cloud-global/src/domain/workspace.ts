@@ -23,7 +23,15 @@ export const WORKSPACE_SLUG_MAX = 48;
 /** Lowercase letters and digits, with single dashes between them. */
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
-export type WorkspaceProblem = 'name_missing' | 'name_too_long' | 'slug_invalid' | 'region_unknown';
+/** What `checkNewWorkspace` can find wrong with a request, in the order it names them. */
+export const WORKSPACE_PROBLEMS = [
+  'name_missing',
+  'name_too_long',
+  'slug_invalid',
+  'region_unknown',
+] as const;
+
+export type WorkspaceProblem = (typeof WORKSPACE_PROBLEMS)[number];
 
 /**
  * Whether a request for a new workspace can be made: a name (trimmed, at most

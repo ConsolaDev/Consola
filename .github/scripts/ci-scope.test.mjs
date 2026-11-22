@@ -41,6 +41,14 @@ test('a change to one cloud app checks that app alone, not the desktop', () => {
   });
 });
 
+test('a change to cloud-global checks the web app too, whose API types are generated from it', () => {
+  assert.deepEqual(checks(pr(['apps/cloud-global/openapi.json'], ['@consola/cloud-global'])), {
+    desktop: false,
+    website: false,
+    packages: ['@consola/cloud-global', '@consola/cloud-web'],
+  });
+});
+
 test('a change to the desktop checks the website too, whose demo is its renderer', () => {
   assert.deepEqual(checks(pr(['apps/desktop/src/shared/constants.ts'], ['consola'])), {
     desktop: true,

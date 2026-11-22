@@ -1,7 +1,11 @@
+import type { components } from './apiContract';
+
 /**
  * Workspaces as the web app sees them. `cloud-global` is the authority on every rule here: the
  * web app imports no package, so it keeps its own copy, to check a request before sending it
- * and to suggest a slug. When the server disagrees, its answer is what the page shows.
+ * and to suggest a slug. When the server disagrees, its answer is what the page shows. The
+ * copies are checked against the API's contract (`apiContract.ts`) as the app typechecks, so the
+ * API cannot gain a region, a role or a problem the page does not name.
  */
 
 /** The regions a workspace can be in, with the names the page gives them. */
@@ -22,13 +26,18 @@ export function regionName(region: string): string {
 }
 
 /** A workspace as the person signed in sees it: with their role in it. */
-export type MyWorkspace = { id: string; name: string; slug: string; region: string; role: string };
+export type MyWorkspace = components['schemas']['MyWorkspace'];
 
-const ROLE_NAMES: Record<string, string> = { owner: 'Owner', admin: 'Admin', member: 'Member' };
+/** What the page calls each role the API has: one more there fails the typecheck here. */
+const ROLE_NAMES = {
+  owner: 'Owner',
+  admin: 'Admin',
+  member: 'Member',
+} satisfies Record<MyWorkspace['role'], string>;
 
 /** What the page calls a role; one it does not know is shown as the server sent it. */
 export function roleName(role: string): string {
-  return ROLE_NAMES[role] ?? role;
+  return Object.hasOwn(ROLE_NAMES, role) ? ROLE_NAMES[role as keyof typeof ROLE_NAMES] : role;
 }
 
 /** What a person asks for when they make a workspace, once `checkNewWorkspace` accepts it. */
