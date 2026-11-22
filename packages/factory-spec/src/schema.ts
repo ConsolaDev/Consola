@@ -355,6 +355,10 @@ function automationEntrySchema() {
       agent: explained('`agent:` goes on a step, not on the automation.'),
       skills: explained(ENTRY_SKILLS_AND_SERVERS),
       mcpServers: explained(ENTRY_SKILLS_AND_SERVERS),
+      // Control flow belongs to the steps, so an entry says where it goes.
+      gate: explained('A gate is a step; put it in `steps:`.'),
+      // biome-ignore lint/suspicious/noThenProperty: `then:` is a factory.yml key; this schema is never awaited.
+      then: explained('`then:` goes on a step.'),
       ...laterEntryKeys(),
       // A file belongs to one workspace, so there is nothing to select.
       workspace: explained(

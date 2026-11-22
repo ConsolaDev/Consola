@@ -38,7 +38,8 @@ function agentWords(
 
 /**
  * Each step as the automation page draws it: "Prompt", "Review action", an
- * agent-only step's agent, or the command's first line. A step that names an
+ * agent-only step's agent, the command's first line, or a gate's question
+ * (with its question and choices again, as written). A step that names an
  * agent also gives its agent's words and file; `agents` (by name) gives each
  * one's harness and model, and its servers and skills when it names any
  * (the node's third line); an agent it lacks is named alone.
@@ -54,6 +55,16 @@ export function describeSteps(
   >,
 ): NonNullable<AutomationView['steps']> {
   return steps.map((step) => {
+    if (step.kind === 'gate') {
+      return {
+        id: step.id,
+        kind: step.kind,
+        ...(step.if !== undefined ? { if: step.if } : {}),
+        summary: step.ask,
+        ask: step.ask,
+        ...(step.choices ? { choices: [...step.choices] } : {}),
+      };
+    }
     const known =
       step.kind === 'agent' &&
       step.agent !== undefined &&

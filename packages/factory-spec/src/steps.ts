@@ -18,6 +18,7 @@ import {
   type ExpressionScope,
 } from './expression';
 import { parseDurationMs } from './duration';
+import { gateHasNo, parseGateBody, parseThen } from './flow';
 import { AUTOMATION_NAME_PATTERN } from './names';
 import type { OutputType } from './outputs';
 import type { Trigger } from './schema';
@@ -125,6 +126,8 @@ interface StepCommon {
 
 export interface AgentStep extends StepCommon {
   kind: 'agent';
+  /** `then: stop`: once it completes, the run ends. Present only when the file writes it. */
+  stop?: true;
   prompt?: string;
   action?: string;
   /** The agent it runs as (`agents/<name>.md`), present only when the file writes one. */
@@ -139,6 +142,8 @@ export interface AgentStep extends StepCommon {
 
 export interface CommandStep extends StepCommon {
   kind: 'run';
+  /** `then: stop`: once it completes, the run ends. Present only when the file writes it. */
+  stop?: true;
   run: string;
   env: Record<string, string>;
   outputs: Record<string, OutputType>;
@@ -147,7 +152,30 @@ export interface CommandStep extends StepCommon {
   dryRun: 'report' | 'run';
 }
 
-export type Step = AgentStep | CommandStep;
+/**
+ * `gate:`: a person decides. It runs nothing; its one output is `decision`,
+ * one of its choices (`gateChoices`), for an `if:` to branch on.
+ */
+export interface GateStep extends StepCommon {
+  kind: 'gate';
+  /** As written, 1 to 300 characters; its `{{ }}` paths are trusted ones only, as a prompt's. */
+  ask: string;
+  /** The documents its card shows, `<step>.<artifact>` as written; empty when it names none. */
+  show: string[];
+  /** 2 to 6 words, present only when written; without them the gate offers approve (and reject). */
+  choices?: string[];
+  /** `then: stop`, present only when written. */
+  stop?: true;
+}
+
+export type Step = AgentStep | CommandStep | GateStep;
+
+export { GATE_CHOICE_PATTERN, MAX_GATE_ASK, MAX_GATE_SHOW } from './flow';
+
+/** The decisions a gate offers besides Reject: its choices, or approve. */
+export function gateChoices(gate: { choices?: readonly string[] }): string[] {
+  return gate.choices ? [...gate.choices] : ['approve'];
+}
 
 /**
  * Keys a later slice owns, with what each arrives with. One table for steps
@@ -155,11 +183,8 @@ export type Step = AgentStep | CommandStep;
  * the step it guards.
  */
 export const LATER_KEYS: Readonly<Record<string, string>> = {
-  gate: 'write steps',
   repeat: 'write steps',
   on_exhausted: 'write steps',
-  // biome-ignore lint/suspicious/noThenProperty: `then:` is a factory.yml key; this table is never awaited.
-  then: 'write steps',
   on_failure: 'write steps',
   checkout: 'write steps',
   environment: 'write steps',
@@ -177,7 +202,7 @@ export function laterKeyMessage(key: string): string {
   return `\`${key}\` arrives with ${LATER_KEYS[key]}; it is not supported yet.`;
 }
 
-const COMMON_KEYS = ['id', 'if'];
+const COMMON_KEYS = ['id', 'if', 'then'];
 const AGENT_KEYS = ['prompt', 'action', 'agent', 'outputs', 'artifacts', 'reads', 'max_turns'];
 const COMMAND_KEYS = ['run', 'env', 'outputs', 'timeout', 'dry_run'];
 const ALL_KEYS = new Set([...COMMON_KEYS, ...AGENT_KEYS, ...COMMAND_KEYS]);
@@ -396,42 +421,12 @@ function checkTemplate(text: string, path: Array<string | number>, fail: Fail): 
   return false;
 }
 
-function parseStep(raw: unknown, index: number, fail: Fail): Step | null {
-  const failAt: Fail = (message, path = []) => fail(message, [index, ...path]);
-  if (!isRecord(raw)) {
-    failAt('Expected a step: a mapping with one of `prompt`, `action`, `agent` or `run`.');
-    return null;
-  }
-  let ok = true;
-  const bad: Fail = (message, path) => {
-    ok = false;
-    failAt(message, path);
-  };
-
-  // Keys: later slices', then strangers.
-  for (const key of Object.keys(raw)) {
-    if (ALL_KEYS.has(key)) continue;
-    if (key === 'inputs')
-      bad('`inputs` is not a step key: use `reads` to name what an earlier step wrote.', [key]);
-    else if (key === 'skills' || key === 'mcpServers') bad(STEP_SKILLS_AND_SERVERS, [key]);
-    else if (Object.prototype.hasOwnProperty.call(LATER_KEYS, key))
-      bad(laterKeyMessage(key), [key]);
-    else bad(`Unrecognized key in a step: ${key}.`, [key]);
-  }
-
-  const present = ONE_OF.filter((key) => key in raw);
-  if (present.length > 1 || (present.length === 0 && !('agent' in raw))) {
-    bad(
-      present.length === 0
-        ? 'A step has one of `prompt`, `action`, `agent` or `run`.'
-        : `A step names one thing to do; got ${present.join(' and ')}.`,
-    );
-    return null;
-  }
-  // An agent step's instruction: its prompt, its action, or none (the agent's body alone).
-  const kind: 'prompt' | 'action' | 'run' | 'agent' = present.length > 0 ? present[0] : 'agent';
-
-  // Id.
+/** A step's `id` (or `step-<n>`) and its `if:`, each refused at its key. Shared by every kind of step. */
+function parseIdAndIf(
+  raw: Record<string, unknown>,
+  index: number,
+  bad: Fail,
+): { id: string; named: boolean; condition?: string } {
   let id = `step-${index + 1}`;
   let named = false;
   if ('id' in raw) {
@@ -469,6 +464,68 @@ function parseStep(raw: unknown, index: number, fail: Fail): Step | null {
       else condition = given;
     }
   }
+  return { id, named, ...(condition !== undefined ? { condition } : {}) };
+}
+
+/** A gate takes these keys and no other: it asks a person and runs nothing. */
+const GATE_STEP_KEYS = ['id', 'if', 'then', 'gate'];
+
+function parseStep(raw: unknown, index: number, fail: Fail): Step | null {
+  const failAt: Fail = (message, path = []) => fail(message, [index, ...path]);
+  if (!isRecord(raw)) {
+    failAt('Expected a step: a mapping with one of `prompt`, `action`, `agent` or `run`.');
+    return null;
+  }
+  let ok = true;
+  const bad: Fail = (message, path) => {
+    ok = false;
+    failAt(message, path);
+  };
+
+  // A gate: every key it does not take is one it would run.
+  if ('gate' in raw) {
+    for (const key of Object.keys(raw))
+      if (!GATE_STEP_KEYS.includes(key)) bad(gateHasNo(key), [key]);
+    const { id, named, condition } = parseIdAndIf(raw, index, bad);
+    const body = parseGateBody(raw.gate, bad);
+    const stop = 'then' in raw ? parseThen(raw.then, bad) : undefined;
+    if (!ok || !body) return null;
+    return {
+      id,
+      named,
+      ...(condition !== undefined ? { if: condition } : {}),
+      kind: 'gate',
+      ...body,
+      ...(stop ? { stop } : {}),
+    };
+  }
+
+  // Keys: later slices', then strangers.
+  for (const key of Object.keys(raw)) {
+    if (ALL_KEYS.has(key)) continue;
+    if (key === 'inputs')
+      bad('`inputs` is not a step key: use `reads` to name what an earlier step wrote.', [key]);
+    else if (key === 'skills' || key === 'mcpServers') bad(STEP_SKILLS_AND_SERVERS, [key]);
+    else if (Object.prototype.hasOwnProperty.call(LATER_KEYS, key))
+      bad(laterKeyMessage(key), [key]);
+    else bad(`Unrecognized key in a step: ${key}.`, [key]);
+  }
+
+  const present = ONE_OF.filter((key) => key in raw);
+  if (present.length > 1 || (present.length === 0 && !('agent' in raw))) {
+    bad(
+      present.length === 0
+        ? 'A step has one of `prompt`, `action`, `agent` or `run`.'
+        : `A step names one thing to do; got ${present.join(' and ')}.`,
+    );
+    return null;
+  }
+  // An agent step's instruction: its prompt, its action, or none (the agent's body alone).
+  const kind: 'prompt' | 'action' | 'run' | 'agent' = present.length > 0 ? present[0] : 'agent';
+
+  const { id, named, condition } = parseIdAndIf(raw, index, bad);
+  // `then: stop`, only when written, so a step without it parses, and hashes, as before.
+  const stop = 'then' in raw ? parseThen(raw.then, bad) : undefined;
 
   // outputs (a command may name its stdout instead).
   let outputs: Record<string, OutputType> = {};
@@ -557,6 +614,7 @@ function parseStep(raw: unknown, index: number, fail: Fail): Step | null {
       ...(stdout ? { stdout } : {}),
       timeoutMs,
       dryRun,
+      ...(stop ? { stop } : {}),
     };
   }
 
@@ -685,6 +743,7 @@ function parseStep(raw: unknown, index: number, fail: Fail): Step | null {
     reads,
     handover,
     ...(maxTurns !== undefined ? { maxTurns } : {}),
+    ...(stop ? { stop } : {}),
   };
 }
 
@@ -784,9 +843,29 @@ function exprTypeOf(type: OutputType, step: string, name: string): ExprType {
   }
 }
 
-/** The documents a step writes: its declared artifacts and handover, or a command's stdout. */
+/** The documents a step writes: its declared artifacts and handover, or a command's stdout. A gate writes none. */
 function artifactsOf(step: Step): string[] {
+  if (step.kind === 'gate') return [];
   return step.kind === 'agent' ? ['handover', ...step.artifacts] : step.stdout ? ['output'] : [];
+}
+
+/** A step's outputs by name: a gate's one is `decision`, an enum of what it offers. */
+function outputsOf(step: Step): Record<string, OutputType> {
+  return step.kind === 'gate'
+    ? { decision: { type: 'enum', values: gateChoices(step) } }
+    : step.outputs;
+}
+
+/** The text a step's templates are in, and where each is used: a prompt or a gate's question, or a command's env. */
+function templatedTexts(step: Step): Array<[string, 'prompt' | 'env']> {
+  switch (step.kind) {
+    case 'run':
+      return Object.values(step.env).map((value): [string, 'env'] => [value, 'env']);
+    case 'gate':
+      return [[step.ask, 'prompt']];
+    case 'agent':
+      return step.prompt !== undefined ? [[step.prompt, 'prompt']] : [];
+  }
 }
 
 type Lookup = { step: Step } | { problem: string };
@@ -822,7 +901,7 @@ function previousProblem(steps: Step[], id: string, name: string): string | unde
     if (producer.kind === 'agent' && name === 'handover') producer.handover = 'required';
     return undefined;
   }
-  if (own(producer.outputs, name)) return `\`previous\` reads documents; ${name} is an output`;
+  if (own(outputsOf(producer), name)) return `\`previous\` reads documents; ${name} is an output`;
   return `\`${id}\` has no artifact \`${name}\` (${listed(artifactsOf(producer))})`;
 }
 
@@ -867,14 +946,15 @@ export function checkSteps(
             const found = earlierStep(steps, id, index);
             if ('problem' in found) return found;
             const { step: earlier } = found;
-            if (own(earlier.outputs, name)) return exprTypeOf(earlier.outputs[name], id, name);
+            const outputs = outputsOf(earlier);
+            if (own(outputs, name)) return exprTypeOf(outputs[name], id, name);
             if (artifactsOf(earlier).includes(name)) {
               return {
                 problem: `\`${name}\` is an artifact of \`${id}\`; artifacts are prose; branch on an output`,
               };
             }
             return {
-              problem: `\`${id}\` has no output \`${name}\` (${listed(Object.keys(earlier.outputs))})`,
+              problem: `\`${id}\` has no output \`${name}\` (${listed(Object.keys(outputs))})`,
             };
           },
           item: () => (itemKind === 'none' ? { problem: noItem } : { kind: 'unknown' }),
@@ -883,33 +963,35 @@ export function checkSteps(
       }
     }
 
-    if (step.kind === 'agent') {
-      step.reads.forEach((read, readIndex) => {
-        // `parseStep` kept only entries of one of the two shapes.
-        const ref = parseReadRef(read);
-        if (!ref) return;
-        const { step: id, name } = ref;
-        if (ref.previous) {
-          const problem = previousProblem(steps, id, name);
-          if (problem) fail(`\`${read}\`: ${problem}`, at('reads', readIndex));
-          return;
-        }
-        const found = earlierStep(steps, id, index);
-        if ('problem' in found)
-          return fail(`\`${read}\`: ${found.problem}`, at('reads', readIndex));
-        const earlier = found.step;
-        if (artifactsOf(earlier).includes(name)) {
-          if (earlier.kind === 'agent' && name === 'handover') earlier.handover = 'required';
-          return;
-        }
-        fail(
-          own(earlier.outputs, name)
-            ? `\`${read}\`: \`${name}\` is an output, not a document; use it in an \`if:\` or a template`
-            : `\`${read}\`: \`${id}\` has no artifact \`${name}\` (${listed(artifactsOf(earlier))})`,
-          at('reads', readIndex),
-        );
-      });
-    }
+    // A document an earlier step wrote, named by `reads:` or by a gate's `show:`; a handover named is required.
+    const checkDocument = (read: string, location: Array<string | number>) => {
+      // `parseStep` kept only entries of one of the two shapes (a gate's `show`, never `previous`).
+      const ref = parseReadRef(read);
+      if (!ref) return;
+      const { step: id, name } = ref;
+      if (ref.previous) {
+        const problem = previousProblem(steps, id, name);
+        if (problem) fail(`\`${read}\`: ${problem}`, location);
+        return;
+      }
+      const found = earlierStep(steps, id, index);
+      if ('problem' in found) return fail(`\`${read}\`: ${found.problem}`, location);
+      const earlier = found.step;
+      if (artifactsOf(earlier).includes(name)) {
+        if (earlier.kind === 'agent' && name === 'handover') earlier.handover = 'required';
+        return;
+      }
+      fail(
+        own(outputsOf(earlier), name)
+          ? `\`${read}\`: \`${name}\` is an output, not a document; use it in an \`if:\` or a template`
+          : `\`${read}\`: \`${id}\` has no artifact \`${name}\` (${listed(artifactsOf(earlier))})`,
+        location,
+      );
+    };
+    if (step.kind === 'agent')
+      step.reads.forEach((read, readIndex) => checkDocument(read, at('reads', readIndex)));
+    if (step.kind === 'gate')
+      step.show.forEach((shown, showIndex) => checkDocument(shown, at('gate', 'show', showIndex)));
 
     const checkText = (text: string, where: 'prompt' | 'env', location: Array<string | number>) => {
       for (const ref of templatePaths(text)) {
@@ -934,11 +1016,12 @@ export function checkSteps(
       const found = earlierStep(steps, ref.step, index);
       if ('problem' in found) return `\`${shown}\`: ${found.problem}`;
       const earlier = found.step;
-      if (own(earlier.outputs, ref.name)) {
+      const outputs = outputsOf(earlier);
+      if (own(outputs, ref.name)) {
         if (ref.file) {
           return `\`${shown}\`: \`.file\` names an artifact's file, and ${ref.name} is an output`;
         }
-        const type = earlier.outputs[ref.name];
+        const type = outputs[ref.name];
         if (where === 'prompt' && type.type === 'string') return UNTRUSTED(ref.text);
         return undefined;
       }
@@ -947,12 +1030,13 @@ export function checkSteps(
         if (earlier.kind === 'agent' && ref.name === 'handover') earlier.handover = 'required';
         return undefined;
       }
-      const names = [...Object.keys(earlier.outputs), ...artifactsOf(earlier)];
+      const names = [...Object.keys(outputs), ...artifactsOf(earlier)];
       return `\`${shown}\`: \`${ref.step}\` has no output or artifact \`${ref.name}\` (${listed(names)})`;
     };
 
     if (step.kind === 'agent' && step.prompt !== undefined)
       checkText(step.prompt, 'prompt', at('prompt'));
+    if (step.kind === 'gate') checkText(step.ask, 'prompt', at('gate', 'ask'));
     if (step.kind === 'run') {
       for (const [name, value] of Object.entries(step.env))
         checkText(value, 'env', at('env', name));
@@ -974,13 +1058,7 @@ export function stepItemFields(
         }
       }
     }
-    const texts: Array<[string, 'prompt' | 'env']> =
-      step.kind === 'run'
-        ? Object.values(step.env).map((value): [string, 'env'] => [value, 'env'])
-        : step.prompt !== undefined
-          ? [[step.prompt, 'prompt']]
-          : [];
-    for (const [text, where] of texts) {
+    for (const [text, where] of templatedTexts(step)) {
       for (const ref of templatePaths(text)) {
         if (ref.root === 'item') found.push({ step: step.id, field: ref.field, where });
       }
@@ -1082,13 +1160,7 @@ export function stepItemFieldProblems(
       if (parsed.ok)
         problems.push(...ifItemProblems(parsed.expr, (name, text) => lookup(name, text)?.type));
     }
-    const texts: Array<[string, 'prompt' | 'env']> =
-      step.kind === 'run'
-        ? Object.values(step.env).map((value): [string, 'env'] => [value, 'env'])
-        : step.prompt !== undefined
-          ? [[step.prompt, 'prompt']]
-          : [];
-    for (const [text, where] of texts) {
+    for (const [text, where] of templatedTexts(step)) {
       for (const ref of templatePaths(text)) {
         if (ref.root !== 'item') continue;
         const field = lookup(ref.field, `item.${ref.field}`);

@@ -44,10 +44,14 @@ export interface AutomationView {
    */
   steps?: Array<{
     id: string;
-    kind: 'agent' | 'run';
+    kind: 'agent' | 'run' | 'gate';
     if?: string;
     summary: string /** A command marked `dry_run: run`: it runs when the run only reports. */;
     dryRun?: true;
+    /** A gate's question, as written. */
+    ask?: string;
+    /** A gate's choices, when the file names them; without them it offers approve (and reject). */
+    choices?: string[];
     /** The agent it runs as, as its node names it: "investigator · claude-work · opus". */
     agent?: string;
     /** The agent's file, "agents/investigator.md": what the Allow card lists. */

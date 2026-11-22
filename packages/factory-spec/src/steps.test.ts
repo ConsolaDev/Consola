@@ -146,11 +146,8 @@ describe('ids', () => {
 });
 
 const STEP_KEYS: Record<string, string> = {
-  gate: 'write steps',
   repeat: 'write steps',
   on_exhausted: 'write steps',
-  // biome-ignore lint/suspicious/noThenProperty: `then:` is a factory.yml key; this table is never awaited.
-  then: 'write steps',
   on_failure: 'write steps',
   checkout: 'write steps',
   environment: 'write steps',
@@ -180,6 +177,15 @@ describe("refuses later slices' keys with a reason", () => {
     const issue = only(result);
     expect(issue.path).toMatch(new RegExp(`${key}$`));
     expect(issue.message).toBe(`\`${key}\` arrives with ${arrives}; it is not supported yet.`);
+  });
+
+  it.each([
+    ['gate', 'A gate is a step; put it in `steps:`.'],
+    ['then', '`then:` goes on a step.'],
+  ])('entry key %s says where it goes', (key, message) => {
+    const issue = only(one(`${REVIEW}    steps:\n      - prompt: hi\n    ${key}: x\n`));
+    expect(issue.path).toMatch(new RegExp(`${key}$`));
+    expect(issue.message).toBe(message);
   });
 
   it('says what to use instead of inputs on a step', () => {
@@ -305,7 +311,7 @@ describe('agent', () => {
 
   it("keeps the later slices' words and inputs' own on an agent step", () => {
     for (const [key, arrives] of [
-      ['gate', 'write steps'],
+      ['environment', 'write steps'],
       ['wait', 'waiting runs'],
       ['uses', 'connections as data'],
       ['callable', 'callable automations'],
@@ -1481,6 +1487,26 @@ describe('stepItemFieldProblems', () => {
       { step: 'a', field: 'number', where: 'if' },
       { step: 'a', field: 'url', where: 'env' },
       { step: 'b', field: 'key', where: 'prompt' },
+    ]);
+  });
+
+  it("reads a gate's question as a prompt", () => {
+    const automation = entry(['- id: decide\n  gate: { ask: "Approve #{{item.number}}?" }']).result
+      .automations[0];
+    if (!automation || !isStepsEntry(automation)) throw new Error('steps');
+    expect(stepItemFields(automation.steps)).toEqual([
+      { step: 'decide', field: 'number', where: 'prompt' },
+    ]);
+    // A gate naming an untrusted field never parses, so it is built by hand, as `agentStep` is.
+    const gate: Step = {
+      id: 'decide',
+      named: true,
+      kind: 'gate',
+      ask: '{{item.title}}?',
+      show: [],
+    };
+    expect(problems(gate)).toEqual([
+      'item.title: it is text someone else wrote; the step gets it below its prompt as data.',
     ]);
   });
 });

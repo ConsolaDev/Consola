@@ -199,6 +199,7 @@ import {
   type StepsRunPreview,
 } from './steps/definition';
 import { isEngineRun, isStepsRun } from './steps/recover';
+import { flowNotYet } from './steps/flowLater';
 import { advanceSteps, type Lane, type StepUpdate } from './steps/sequence';
 import {
   closeSteps,
@@ -2424,6 +2425,8 @@ export class AutomationService {
     if (!found) return null;
     const { run, workspaceId, definition, step, record } = found;
     const detail: StepDetail = { runId, step, record };
+    // A gate runs nothing: no agent, no command, no logs.
+    if (step.kind === 'gate') return detail;
     if (step.kind !== 'run') {
       const agent = definition.agents?.[step.id];
       return agent
@@ -4807,6 +4810,9 @@ export class AutomationService {
       ...servers,
     });
     const { steps } = automation;
+    // A key the format accepts and the engine does not run yet stops the entry, in words (slice 3, Call 2).
+    const notYet = flowNotYet(automation);
+    if (notYet) return unable(notYet);
 
     const scoped = scopeNamed(workspace, automation.scope);
     if ('problem' in scoped) return unable(scoped.problem);

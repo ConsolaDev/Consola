@@ -325,7 +325,7 @@ function StepRow({
             <span className="automations-trace-name">
               <span className="automations-trace-id">{step.id}</span>
               <span className="automations-trace-kind">
-                {step.kind === 'agent' ? 'Agent' : 'Command'}
+                {step.kind === 'agent' ? 'Agent' : step.kind === 'gate' ? 'Gate' : 'Command'}
               </span>
             </span>
             {summary && !open && <span className="automations-trace-summary">{summary}</span>}

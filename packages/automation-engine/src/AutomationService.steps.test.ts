@@ -61,6 +61,21 @@ async function listed(options: StepsHarnessOptions) {
 }
 
 describe('a steps entry, resolved against its workspace', () => {
+  it('an entry with a gate does not run yet, and says why', async () => {
+    const GATED_ENTRY = file(
+      entry(
+        'gated',
+        ON_REVIEW,
+        '- id: review\n  action: Review',
+        '- id: decide\n  gate: { ask: Post it as an approval?, show: [review.handover] }',
+      ),
+    );
+    const h = await stepsHarness({ yaml: GATED_ENTRY });
+    expect(h.service.list(WORKSPACE_ID).find((view) => view.name === 'gated')?.problem).toBe(
+      '`gate` runs from the next update; this automation does not run yet.',
+    );
+  });
+
   it("resolves, its version covering each action step's body", async () => {
     const h = await stepsHarness({ yaml: TEMPLATE });
     expect(h.service.list(WORKSPACE_ID)[0]).toMatchObject({ name: NAME, asksFirst: true });

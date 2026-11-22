@@ -3,6 +3,7 @@ import {
   parseExpression,
   type AgentStep,
   type CommandStep,
+  type GateStep,
   type Step,
   type StepRun,
   type StepRunStatus,
@@ -78,6 +79,60 @@ describe('laneOf', () => {
     [fresh, 'command'],
     [review, 'agent'],
   ] as const)('%s', (step, lane) => expect(laneOf(step)).toBe(lane));
+
+  it('is never asked of a gate, which takes no slot: asking is loud', () => {
+    const gate: GateStep = { kind: 'gate', id: 'decide', named: true, ask: 'Post it?', show: [] };
+    expect(() => laneOf(gate)).toThrow('a gate has no lane');
+  });
+});
+
+describe('a gate in the sequence (before the engine runs gates)', () => {
+  const decide: GateStep = {
+    kind: 'gate',
+    id: 'decide',
+    named: true,
+    ask: 'Post it as {{steps.review.verdict}}?',
+    show: [],
+  };
+  const gateRecord = (status: StepRunStatus, extra: Partial<StepRun> = {}): StepRun => ({
+    id: 'decide',
+    kind: 'gate',
+    status,
+    attempt: 1,
+    ...extra,
+  });
+
+  it("waits on what its question templates: a skipped producer fails it, as a prompt's would", () => {
+    const steps: Step[] = [review, decide];
+    expect(
+      advanceSteps({
+        steps,
+        records: [record(review, 'skipped', { skipped: 'if: x is false' }), gateRecord('pending')],
+        dryRun: false,
+      }),
+    ).toEqual({
+      kind: 'fail',
+      stepId: 'decide',
+      error: 'steps.review.verdict has no value: review was skipped',
+      updates: [
+        {
+          id: 'decide',
+          status: 'failed',
+          error: 'steps.review.verdict has no value: review was skipped',
+        },
+      ],
+    });
+  });
+
+  it('leaves a gate out of the verdicts it has no declared outputs for', () => {
+    const steps: Step[] = [review, decide];
+    expect(
+      runSummary(steps, [
+        done(review, { verdict: 'approve' }),
+        gateRecord('completed', { outputs: { decision: 'approve' } }),
+      ]),
+    ).toBe('review → decide (approve)');
+  });
 });
 
 describe('advanceSteps: choosing a step', () => {

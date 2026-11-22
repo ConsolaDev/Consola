@@ -21,6 +21,8 @@ import {
 export type Lane = 'agent' | 'command';
 
 export function laneOf(step: Step): Lane {
+  // A gate parks the run and takes no slot: asking for its lane is a slip, so it is loud.
+  if (step.kind === 'gate') throw new Error('a gate has no lane');
   return step.kind === 'agent' ? 'agent' : 'command';
 }
 
@@ -117,11 +119,13 @@ function dependenciesOf(
     }
   }
   const texts =
-    step.kind === 'agent'
-      ? step.prompt === undefined
-        ? []
-        : [step.prompt]
-      : Object.values(step.env);
+    step.kind === 'gate'
+      ? [step.ask]
+      : step.kind === 'agent'
+        ? step.prompt === undefined
+          ? []
+          : [step.prompt]
+        : Object.values(step.env);
   const templates: Reference[] = [];
   for (const text of texts) {
     for (const path of templatePaths(text)) {
@@ -337,6 +341,8 @@ export function runSummary(steps: Step[], records: StepRun[]): string {
 
   const verdicts: string[] = [];
   for (const step of completed) {
+    // A gate declares no outputs; its decision joins the verdicts once gates run.
+    if (step.kind === 'gate') continue;
     const outputs = byId.get(step.id)?.outputs ?? {};
     for (const [name, type] of Object.entries(step.outputs)) {
       if (type.type === 'enum' && own(outputs, name)) verdicts.push(String(outputs[name]));

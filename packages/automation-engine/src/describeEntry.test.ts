@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { AgentStep } from '@consola/factory-spec';
+import type { AgentStep, GateStep } from '@consola/factory-spec';
 import { describeEvery, describeSteps } from './describeEntry';
 
 describe('describeEvery', () => {
@@ -23,6 +23,35 @@ describe('describeSteps', () => {
     reads: [],
     handover: 'optional',
     ...fields,
+  });
+
+  it('describes a gate by its question, with its choices and no command', () => {
+    const gate: GateStep = {
+      id: 'decide',
+      named: true,
+      kind: 'gate',
+      if: "steps.investigate.verdict == 'approve'",
+      ask: 'Post it as an approval?',
+      show: ['investigate.handover'],
+      choices: ['approve', 'comment'],
+    };
+    expect(describeSteps([gate, { ...gate, id: 'plain', choices: undefined }])).toEqual([
+      {
+        id: 'decide',
+        kind: 'gate',
+        if: "steps.investigate.verdict == 'approve'",
+        summary: 'Post it as an approval?',
+        ask: 'Post it as an approval?',
+        choices: ['approve', 'comment'],
+      },
+      {
+        id: 'plain',
+        kind: 'gate',
+        if: "steps.investigate.verdict == 'approve'",
+        summary: 'Post it as an approval?',
+        ask: 'Post it as an approval?',
+      },
+    ]);
   });
 
   it("names an agent-only step by its agent, and keeps a prompt's and an action's words", () => {

@@ -131,6 +131,7 @@ export function StepDetail({
           <NotRunFacts run={run} step={record} tone={tone} definition={ready?.step} />
         )}
         {(ran || tone === 'reported') &&
+          record.kind !== 'gate' &&
           (record.kind === 'agent' ? (
             <AgentFacts workspace={workspace} run={run} step={record} detail={ready} />
           ) : (
@@ -220,8 +221,15 @@ function NotRunFacts({
   );
 }
 
-/** What a step that did not run would have run: its command and variables as written, or its prompt. */
+/** What a step that did not run would have run: its command and variables as written, or its prompt; a gate's question. */
 function WouldRun({ definition }: { definition: Definition }) {
+  if (definition.kind === 'gate') {
+    return (
+      <Fact label="Would ask">
+        <p className="automations-fact-text">{definition.ask}</p>
+      </Fact>
+    );
+  }
   if (definition.kind === 'run') {
     const env = Object.entries(definition.env);
     return (

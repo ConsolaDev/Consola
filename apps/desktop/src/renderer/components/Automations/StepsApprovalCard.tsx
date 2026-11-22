@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Bot, Terminal } from 'lucide-react';
+import { Bot, Hand, Terminal } from 'lucide-react';
 import type { RunDefinition } from '../../../shared/automations';
 import { automationsBridge } from '../../services/automationsBridge';
 import { ipcErrorMessage } from '../../utils/ipcErrorMessage';
@@ -131,7 +131,8 @@ function ApprovalStep({
   action: RunDefinition['actions'][string] | undefined;
   definition: RunDefinition;
 }) {
-  const Icon = step.kind === 'agent' ? Bot : Terminal;
+  // A gate asks a person and runs nothing: never drawn as a command.
+  const Icon = step.kind === 'agent' ? Bot : step.kind === 'gate' ? Hand : Terminal;
   // The agent it runs as, exactly as approved: who it is, then what this step asks.
   const agent = step.kind === 'agent' ? approvalAgent(definition, step.id) : null;
   const named = agent?.skills !== null && agent?.skills !== undefined;
@@ -142,7 +143,11 @@ function ApprovalStep({
         <Icon size={13} aria-hidden="true" />
         <span className="automations-approval-id">{step.id}</span>
         <span className="automations-meta">
-          {step.kind === 'agent' ? (agent?.head ?? 'Agent, read-only') : 'Command'}
+          {step.kind === 'agent'
+            ? (agent?.head ?? 'Agent, read-only')
+            : step.kind === 'gate'
+              ? 'Gate'
+              : 'Command'}
         </span>
       </div>
       {step.if !== undefined && (
@@ -198,6 +203,11 @@ function ApprovalStep({
         ) : step.prompt !== undefined || !agent ? (
           <Folded label="The prompt it will send" text={step.prompt ?? ''} />
         ) : null
+      ) : step.kind === 'gate' ? (
+        <div className="automations-approval-field">
+          <span className="automations-approval-label">asks</span>
+          <span>{step.ask}</span>
+        </div>
       ) : (
         <>
           <Folded label="The command" text={step.run} mono />

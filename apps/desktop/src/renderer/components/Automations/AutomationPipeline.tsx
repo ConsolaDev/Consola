@@ -209,9 +209,9 @@ export function PipelineGraph({
       <PipelineNode
         key={`step:${entry.id}`}
         state={pathLit && index === 0 ? targetState : undefined}
-        icon={entry.kind === 'agent' ? Bot : Wrench}
-        kicker={entry.kind === 'agent' ? 'Agent step' : 'Command'}
-        title={entry.kind === 'agent' ? entry.summary : <code>{entry.summary}</code>}
+        icon={entry.kind === 'agent' ? Bot : entry.kind === 'gate' ? Hand : Wrench}
+        kicker={entry.kind === 'agent' ? 'Agent step' : entry.kind === 'gate' ? 'Gate' : 'Command'}
+        title={entry.kind === 'run' ? <code>{entry.summary}</code> : entry.summary}
         subtitle={
           entry.agent !== undefined && entry.agent !== entry.summary ? entry.agent : undefined
         }
@@ -223,7 +223,9 @@ export function PipelineGraph({
           ? liveAction
           : entry.kind === 'agent'
             ? agentStepFoot(entry.servers)
-            : commandFoot(entry, automation.mode)}
+            : entry.kind === 'gate'
+              ? null
+              : commandFoot(entry, automation.mode)}
       </PipelineNode>
     ));
     return (
