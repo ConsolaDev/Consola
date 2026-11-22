@@ -160,11 +160,13 @@ The service is built in rings, and imports point inward only.
 - `src/domain/` holds the rules and the types they speak of, such as the
   regions (`region.ts`, which takes them from the contract) and the order a
   workspace's copy applies its messages in (`workspaceCopy.ts`). It is plain
-  TypeScript, with no I/O, and no package but the contract (below).
+  TypeScript, with no I/O, and no package but the two contracts (below).
 - `src/application/` holds the use cases (`checkHealth`, `authenticate`,
-  `describeMe`, `receiveDelivery`) and, in `ports.ts`, the stores, probes,
-  the `TokenVerifier`, the `DeliveryVerifier`, the `WorkspaceCopies` and the
-  `Clock` they need. A use case is a plain function that takes its ports
+  `describeMe`, `receiveDelivery`, and the cloud sessions' `sessionOptions`,
+  `startSession`, `listSessions`, `getSession`, `stopSession` and
+  `applyRunnerUpdate`) and, in `ports.ts`, the stores, probes,
+  the `TokenVerifier`, the `DeliveryVerifier`, the `WorkspaceCopies`, the
+  `CloudSessionStore`, the `RunnerChannel`, `Ids` and the `Clock` they need. A use case is a plain function that takes its ports
   first.
 - `src/adapters/` implements the ports with a library, one folder each:
   - `persistence/` is Drizzle on PGlite or Postgres: the database
@@ -176,7 +178,10 @@ The service is built in rings, and imports point inward only.
   - `token/` is jose: the `TokenVerifier` and where its keys come from
     (`cellTokens.ts`), and the `DeliveryVerifier`, on the same keys
     (`outboxDeliveries.ts`);
-  - `clock/` is the machine's clock, the `Clock`.
+  - `clock/` is the machine's clock, the `Clock`;
+  - `runner/` is the `RunnerChannel`, how the cell reaches a workspace's
+    runner. Until the runner's socket exists, `noRunner` answers that none is
+    connected. It imports no database library, HTTP framework or `jose`.
 - The composition ring wires them together. `src/compose.ts` is the one place
   adapters are built and handed the ports they need (`composeCell`), and the
   place startup steps go. Adapters call use cases themselves; what they never
@@ -204,17 +209,25 @@ The service is built in rings, and imports point inward only.
   - `adapters/persistence` never imports `hono` or `jose`;
   - `adapters/token` is the one place `jose` is imported, and never imports
     `hono` or a database library;
-  - `adapters/clock` imports no package.
+  - `adapters/clock` imports no package;
+  - `adapters/runner` never imports a database library, `hono` or `jose`.
 - No file, tests included, imports another app, Better Auth
   (`better-auth`, `@better-auth/*`) or a workspace package (`@consola/*`, or
-  `consola`, the desktop), with one exception: `@consola/cloud-contract`
-  (`packages/cloud-contract`), the contract the cell shares with
-  `cloud-global`. It holds the regions, the workspace roles, the claims of the
-  token `cloud-global` mints for a cell, and the outbox messages it sends one.
-  It does no I/O, which its own boundary test proves, so any layer may import
-  it, `domain` and `application` included. Only its entry point counts: a path
-  inside it is refused. Before changing it, read
-  `packages/cloud-contract/AGENTS.md`.
+  `consola`, the desktop), with two exceptions, the contracts the cell shares
+  with the others it talks to:
+  - `@consola/cloud-contract` (`packages/cloud-contract`), shared with
+    `cloud-global`. It holds the regions, the workspace roles, the claims of
+    the token `cloud-global` mints for a cell, and the outbox messages it
+    sends one. Before changing it, read `packages/cloud-contract/AGENTS.md`.
+  - `@consola/runner-protocol` (`packages/runner-protocol`, MIT), shared with
+    the runners. It holds what a cell and its runners say to each other: the
+    messages over a runner's socket, the readers of a repository and a
+    harness, and the session pass's claims. Before changing it, read
+    `packages/runner-protocol/AGENTS.md`.
+
+  Each does no I/O, which its own boundary test proves, so any layer may
+  import it, `domain` and `application` included. Only an entry point counts:
+  a path inside one is refused.
 - Test files (`*.test.ts`) are exempt from the layer rules, because they wire
   real pieces together the way `compose.ts` does.
 
@@ -224,14 +237,53 @@ the TypeScript syntax tree (`import`, `import type`, `export … from`, dynamic
 reference counts, directly or through `globalThis`, never a property or a
 member that shares the name (`request.process`, `{ fetch: 1 }`). A file that
 sits in no layer fails it too. The rules are data at its top (`LAYERS`,
-`NEVER`, `CLOUD_CONTRACT`), so a new layer or folder is added there first. It
+`NEVER`, `CONTRACTS`), so a new layer or folder is added there first. It
 also reads every package in the workspace and checks that each one but the
-contract is refused, so a new package is covered without being named.
+two contracts is refused, so a new package is covered without being named.
 
 `src/adapters/persistence/schema.test.ts` enforces the table rules: every table
 in `schema` has a not-null `workspace_id`, and none is an account table (the
 copy of a workspace's members is `workspace_member`, ids and a role, never
 `member`).
+
+## Cloud sessions
+
+A person's cloud session (`cloud_session`, `domain/cloudSession.ts`) is a
+sandbox a workspace's runner runs for them. The cell records it, checks that
+the connected runner offers the repository and the harness, and hands the start
+or stop to the runner through the `RunnerChannel` port.
+
+- **Routes** (`adapters/http/cloudSessions.ts`, behind `requireCaller`):
+  `GET /api/cloud-sessions/options`, `POST /api/cloud-sessions`,
+  `GET /api/cloud-sessions`, `GET /api/cloud-sessions/:id` and
+  `POST /api/cloud-sessions/:id/stop` (202). They answer codes: `no_runner`
+  (503), `repository_not_offered`, `harness_not_offered` and `invalid_request`
+  (400), `not_found` (404). The body is exactly `{ repository, harness }`.
+- **Whose.** A session is visible only to the person who started it, in the
+  workspace of their token: another person's, or another workspace's, is
+  `not_found`, never 403.
+- **No runner, nothing recorded.** A start is checked against the runner's
+  offer before any row is written, and before anything is sent. Until Task 3's
+  socket, `composeCell` passes `noRunner`, so every start is 503.
+- **Statuses** (`nextStatus`): `starting` goes to `running` or `failed`, and
+  `running` to `stopped` or `failed`. An ended session never moves again, and
+  an ended row ignores every update. A person's stop is the one other way to
+  end: it takes a `starting` or `running` row to `stopped`.
+- **A failure's two sources, kept apart.** `error` is the message a runner
+  reported (the provider's or the start script's), shown as it came.
+  `errorCode` is a code the cell decided itself (`CELL_FAILURE_CODES`:
+  `runner_restarted`, `runner_unreachable`), which `cloud-web` words. A failed
+  row has one of them, never both, so a runner can never forge a code by
+  naming one in its message, and the web never shows a code as text.
+- **Stop never waits for the runner.** A person can always end their session:
+  the row becomes `stopped` at once, and the runner is told only when it is the
+  session's own runner and connected. A runner that is away or cannot be told
+  still holds the sandbox, but the row is ended, so its `hello` finds the
+  session ended and gets a `session.stop` for it. The runner therefore never
+  keeps a sandbox for a session the cell considers ended.
+- **Updates from a runner** (`applyRunnerUpdate`) count only from the runner
+  the row names, and are compare-and-set on the row's status, so a late update
+  never overwrites an end.
 
 ## Adding a feature
 
@@ -273,4 +325,5 @@ transaction at a time, so the compare-and-set is also tested directly
 `drizzle/` holds the migrations, written by
 `pnpm --filter @consola/cloud-region db:generate --name <what>` after
 `tables.ts` changes. They apply when the cell starts. The first is
-`0000_workspace_copy`.
+`0000_workspace_copy`, then `0001_cloud_session`. `cloud_session` has no
+foreign key to `workspace`, so a session does not wait for the outbox.

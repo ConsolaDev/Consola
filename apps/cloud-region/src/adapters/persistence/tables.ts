@@ -6,7 +6,8 @@
 // checks both.
 
 import type { WorkspaceRole } from '@consola/cloud-contract';
-import { bigint, pgTable, primaryKey, text } from 'drizzle-orm/pg-core';
+import type { CellFailureCode, CloudSessionStatus } from '../../domain/cloudSession.js';
+import { bigint, index, pgTable, primaryKey, text } from 'drizzle-orm/pg-core';
 
 /**
  * The cell's copy of each workspace in its region, kept from cloud-global's outbox messages: a row
@@ -34,4 +35,29 @@ export const workspaceMembers = pgTable(
     role: text('role').$type<WorkspaceRole>().notNull(),
   },
   (table) => [primaryKey({ columns: [table.workspaceId, table.personId] })],
+);
+
+/**
+ * A person's cloud session. No foreign key to `workspace`: a session is the workspace's whatever
+ * the outbox has delivered yet. `error` is a message a runner reported and `error_code` a code the
+ * cell decided (`CELL_FAILURE_CODES`); a failure has one of them.
+ */
+export const cloudSessions = pgTable(
+  'cloud_session',
+  {
+    id: text('id').primaryKey(),
+    workspaceId: text('workspace_id').notNull(),
+    personId: text('person_id').notNull(),
+    repository: text('repository').notNull(),
+    harness: text('harness').notNull(),
+    status: text('status').$type<CloudSessionStatus>().notNull(),
+    title: text('title'),
+    hostUrl: text('host_url'),
+    error: text('error'),
+    errorCode: text('error_code').$type<CellFailureCode>(),
+    runnerId: text('runner_id').notNull(),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    endedAt: bigint('ended_at', { mode: 'number' }),
+  },
+  (table) => [index('cloud_session_owner').on(table.workspaceId, table.personId, table.createdAt)],
 );

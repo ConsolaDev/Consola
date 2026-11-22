@@ -192,13 +192,18 @@ health check and the outbox's deliveries (signed with the same key) carries a
 cell token, checked with `cloud-global`'s public keys,
 and the person, workspace and role come from that token alone, never from the
 request. Nothing in `apps/desktop` depends on the cloud apps, and none
-imports from the desktop, the website, another app or `packages/*`, with one
-exception: `cloud-global` and `cloud-region` both import
+imports from the desktop, the website, another app or `packages/*`, with these
+exceptions: `cloud-global` and `cloud-region` both import
 `packages/cloud-contract` (`@consola/cloud-contract`), what the two agree on:
 the regions, the workspace roles, the claims of the token `cloud-global` mints
 for a cell, the outbox messages it sends one and how it delivers them. It does
 no I/O, so any layer of either app may import it; before changing it, read
-`packages/cloud-contract/AGENTS.md`. Setup is in
+`packages/cloud-contract/AGENTS.md`. `cloud-region` also imports
+`packages/runner-protocol` (`@consola/runner-protocol`, MIT), what a cell and
+its runners say to each other: the runner socket's messages, the readers of a
+repository and a harness, and the session pass's claims. It also does no I/O,
+so any layer of the cell may import it; before changing it, read
+`packages/runner-protocol/AGENTS.md`. Setup is in
 `apps/cloud-global/README.md` and `apps/cloud-region/README.md`. Before
 changing a cloud app, read its own `AGENTS.md` (`apps/cloud-global/AGENTS.md`,
 `apps/cloud-region/AGENTS.md`, `apps/cloud-web/AGENTS.md`): it holds the layer

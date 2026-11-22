@@ -2,7 +2,9 @@ import type { Hono } from 'hono';
 import { systemClock } from './adapters/clock/systemClock.js';
 import { createApp } from './adapters/http/app.js';
 import type { Database } from './adapters/persistence/database.js';
+import { randomIds } from './adapters/persistence/cloudSessions.js';
 import { createDrizzleStores } from './adapters/persistence/stores.js';
+import { noRunner } from './adapters/runner/noRunner.js';
 import {
   type CellTokenKeys,
   cloudGlobalKeys,
@@ -35,6 +37,13 @@ export function composeCell(deps: {
     deliveries: createJoseDeliveryVerifier(keys),
     workspaceCopies: stores.workspaceCopies,
     clock: systemClock,
+    // Until the runner's socket exists, no runner is ever connected.
+    cloudSessions: {
+      sessions: stores.cloudSessions,
+      runners: noRunner,
+      ids: randomIds,
+      clock: systemClock,
+    },
   });
   return { app };
 }

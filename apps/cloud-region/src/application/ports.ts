@@ -1,5 +1,7 @@
 // What the use cases need from the world outside, each implemented by an adapter.
 
+import type { Harness, Repository } from '@consola/runner-protocol';
+import type { CloudSession, CloudSessionStatus } from '../domain/cloudSession.js';
 import type { CopyChange } from '../domain/workspaceCopy.js';
 
 export type HealthProbe = {
@@ -73,4 +75,67 @@ export type WorkspaceCopies = {
    * `moved`, with nothing changed. Throws when the database does not answer.
    */
   applyAfter(step: CopyStep): Promise<'applied' | 'moved'>;
+};
+
+/** What a connected runner offers a workspace: where it can start a session, and with what. */
+export type Offer = {
+  runnerId: string;
+  repositories: Repository[];
+  harnesses: Harness[];
+};
+
+/** What the cell asks a runner to start, in the cell's terms (the socket adds the pass key). */
+export type SessionStartRequest = {
+  sessionId: string;
+  workspaceId: string;
+  repository: Repository;
+  harness: Harness;
+};
+
+/** The runner that serves a workspace, as the use cases see it. */
+export type RunnerChannel = {
+  /** What the workspace's connected runner offers, or null when none is connected. */
+  connected(workspaceId: string): Offer | null;
+  /** Hands a start to the runner. Rejects when it cannot be delivered. */
+  startSession(runnerId: string, request: SessionStartRequest): Promise<void>;
+  /** Hands a stop to the runner. Rejects when it cannot be delivered. */
+  stopSession(runnerId: string, sessionId: string): Promise<void>;
+};
+
+/** What a use case may change on a row; a key left out stays. */
+export type CloudSessionChanges = Partial<
+  Pick<CloudSession, 'status' | 'title' | 'hostUrl' | 'error' | 'errorCode' | 'endedAt'>
+>;
+
+/** The cell's record of its cloud sessions. Every method throws when the database does not answer. */
+export type CloudSessionStore = {
+  insert(session: CloudSession): Promise<void>;
+  /** One session by id, whoever's. For the runner's updates, never for a person's request. */
+  find(sessionId: string): Promise<CloudSession | null>;
+  /** The session if it is `personId`'s own in `workspaceId`, else null. */
+  findOwn(workspaceId: string, personId: string, sessionId: string): Promise<CloudSession | null>;
+  /** The person's sessions in the workspace, newest first. */
+  listOwn(workspaceId: string, personId: string): Promise<CloudSession[]>;
+  /**
+   * Applies `changes` only if the row still has the status `expected`: a compare-and-set, so a
+   * late update never overwrites an end. True when it applied.
+   */
+  update(
+    sessionId: string,
+    expected: CloudSessionStatus,
+    changes: CloudSessionChanges,
+  ): Promise<boolean>;
+};
+
+export type Ids = {
+  /** A new unguessable id. */
+  newId(): string;
+};
+
+/** Everything the cloud session use cases need. */
+export type CloudSessionPorts = {
+  sessions: CloudSessionStore;
+  runners: RunnerChannel;
+  ids: Ids;
+  clock: Clock;
 };

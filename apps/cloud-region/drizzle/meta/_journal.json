@@ -8,6 +8,13 @@
       "when": 1795361667961,
       "tag": "0000_workspace_copy",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1795386605754,
+      "tag": "0001_cloud_session",
+      "breakpoints": true
     }
   ]
 }

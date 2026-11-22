@@ -369,6 +369,9 @@ importers:
       '@consola/cloud-contract':
         specifier: workspace:*
         version: link:../../packages/cloud-contract
+      '@consola/runner-protocol':
+        specifier: workspace:*
+        version: link:../../packages/runner-protocol
       '@electric-sql/pglite':
         specifier: ^0.5.17
         version: 0.5.17

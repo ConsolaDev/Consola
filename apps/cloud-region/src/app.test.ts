@@ -42,7 +42,7 @@ import {
 } from 'vitest';
 import type { CellEnv } from './adapters/http/caller.js';
 import { type Database, migrateDatabase, openDatabase } from './adapters/persistence/database.js';
-import { workspaceMembers, workspaces } from './adapters/persistence/tables.js';
+import { cloudSessions, workspaceMembers, workspaces } from './adapters/persistence/tables.js';
 import { composeCell } from './compose.js';
 import { type CellConfig, loadConfig } from './config.js';
 
@@ -865,5 +865,44 @@ describe('a delivery sent as a cell token', () => {
     const response = await app.request('/api/me', { headers: bearer(delivery) });
     expect(response.status).toBe(401);
     expect(await response.json()).toEqual({ error: 'invalid_token' });
+  });
+});
+
+describe('cloud sessions, with no runner connected (until the runner socket exists)', () => {
+  const json = async (token: string, path: string, init: RequestInit = {}) =>
+    app.request(path, {
+      ...init,
+      headers: { ...bearer(token), 'content-type': 'application/json' },
+    });
+
+  it('answers 503 {"error":"no_runner"} to a start and records nothing', async () => {
+    const token = await mint();
+    const response = await json(token, '/api/cloud-sessions', {
+      method: 'POST',
+      body: JSON.stringify({ repository: 'sprocket/catalog-portal', harness: 'claude' }),
+    });
+    expect(response.status).toBe(503);
+    expect(await response.text()).toBe('{"error":"no_runner"}');
+    expect(await db.select().from(cloudSessions)).toEqual([]);
+  });
+
+  it('answers 503 no_runner to the options', async () => {
+    const response = await json(await mint(), '/api/cloud-sessions/options');
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: 'no_runner' });
+  });
+
+  it('lists none, and holds no session by any id', async () => {
+    const token = await mint();
+    expect(await (await json(token, '/api/cloud-sessions')).json()).toEqual([]);
+    expect((await json(token, '/api/cloud-sessions/session-1')).status).toBe(404);
+    expect(
+      (await json(token, '/api/cloud-sessions/session-1/stop', { method: 'POST' })).status,
+    ).toBe(404);
+  });
+
+  it('needs a token', async () => {
+    expect((await app.request('/api/cloud-sessions')).status).toBe(401);
+    expect((await app.request('/api/cloud-sessions', { method: 'POST' })).status).toBe(401);
   });
 });

@@ -3,6 +3,7 @@ import { checkHealth } from '../../application/health.js';
 import { describeMe } from '../../application/me.js';
 import type {
   Clock,
+  CloudSessionPorts,
   DeliveryVerifier,
   HealthProbe,
   TokenVerifier,
@@ -10,6 +11,7 @@ import type {
 } from '../../application/ports.js';
 import type { Region } from '../../domain/region.js';
 import { requireCaller } from './caller.js';
+import { cloudSessionRoutes } from './cloudSessions.js';
 import { outboxRoutes } from './outbox.js';
 
 /**
@@ -29,9 +31,10 @@ export function createApp(deps: {
   deliveries: DeliveryVerifier;
   workspaceCopies: WorkspaceCopies;
   clock: Clock;
+  cloudSessions: CloudSessionPorts;
   report?: (line: string) => void;
 }): Hono {
-  const { region, health, tokens, deliveries, workspaceCopies, clock } = deps;
+  const { region, health, tokens, deliveries, workspaceCopies, clock, cloudSessions } = deps;
   const report = deps.report ?? ((line: string) => console.error(line));
   const app = new Hono();
 
@@ -50,6 +53,9 @@ export function createApp(deps: {
 
   // Who is asking, as this cell sees them.
   cell.get('/api/me', (c) => c.json(describeMe(c.var.caller)));
+
+  // A person's cloud sessions.
+  cell.route('/', cloudSessionRoutes(cloudSessions));
 
   return app;
 }

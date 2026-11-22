@@ -13,7 +13,8 @@ import { describe, expect, it } from 'vitest';
  * `application` also reach no global that touches the machine (`process`, `fetch`, timers).
  * Test files are exempt from the layer rules, since they wire real pieces together the way the
  * ring does. The cell holds no accounts, so no file, tests included, imports Better Auth. Of the
- * workspace's packages, only the contract the cell shares with `cloud-global` may be imported.
+ * workspace's packages, only the two contracts may be imported: the one the cell shares with
+ * `cloud-global`, and the one it shares with its runners.
  */
 
 const SRC = dirname(fileURLToPath(import.meta.url));
@@ -53,7 +54,13 @@ const HTTP_LIBRARIES = ['hono', '@hono/*'];
 /** What checks a cell token's signature, which only `adapters/token` may hold. */
 const TOKEN_LIBRARIES = ['jose'];
 
-const ADAPTERS = ['adapters/persistence', 'adapters/http', 'adapters/token', 'adapters/clock'];
+const ADAPTERS = [
+  'adapters/persistence',
+  'adapters/http',
+  'adapters/token',
+  'adapters/clock',
+  'adapters/runner',
+];
 const RING = ['compose', 'main', 'startupError'];
 
 const LAYERS: Layer[] = [
@@ -94,6 +101,13 @@ const LAYERS: Layer[] = [
     refuses: [ANY_PACKAGE],
     noGlobals: [],
   },
+  // The runners' channel: no database, no HTTP framework, no token library.
+  {
+    at: 'adapters/runner',
+    reaches: ['domain', 'application', 'adapters/runner', 'config'],
+    refuses: [...DATABASE_LIBRARIES, ...HTTP_LIBRARIES, ...TOKEN_LIBRARIES],
+    noGlobals: [],
+  },
   // A pure parser of the environment: no I/O, and nothing but `domain`, whose region it checks.
   { at: 'config', reaches: ['domain'], refuses: [NODE_BUILTINS], noGlobals: [] },
   // The composition ring, where everything meets.
@@ -106,16 +120,20 @@ const LAYERS: Layer[] = [
 ];
 
 /**
- * The one workspace package any file may import, from any layer: the contract the cell shares
- * with `cloud-global` (`packages/cloud-contract`). It does no I/O, which its own boundary test
- * proves, so `domain` and `application` may import it, and it is the only package they may. Only
- * its entry point counts: a path inside it is refused like any other workspace package.
+ * The two workspace packages any file may import, from any layer. `@consola/cloud-contract`
+ * (`packages/cloud-contract`) is what the cell shares with `cloud-global`, and
+ * `@consola/runner-protocol` (`packages/runner-protocol`) is what it says to its runners and they
+ * to it. Each does no I/O, which its own boundary test proves, so `domain` and `application` may
+ * import them, and they are the only packages they may. Only an entry point counts: a path inside
+ * one is refused like any other workspace package.
  */
 const CLOUD_CONTRACT = '@consola/cloud-contract';
+const RUNNER_PROTOCOL = '@consola/runner-protocol';
+const CONTRACTS = [CLOUD_CONTRACT, RUNNER_PROTOCOL];
 
 /**
  * What every file, tests included, may never import: another app or a workspace package but the
- * contract (`consola` is the desktop app's name), and Better Auth, since accounts live in
+ * contracts (`consola` is the desktop app's name), and Better Auth, since accounts live in
  * `cloud-global` and a cell holds none.
  */
 const NEVER = ['@consola/*', 'consola', 'better-auth', '@better-auth/*'];
@@ -289,7 +307,7 @@ function violationsOf(file: string, source: string): string[] {
       const reached = layerOf(target);
       return !reached || !own?.reaches.includes(reached.at);
     }
-    if (specifier === CLOUD_CONTRACT) return false;
+    if (CONTRACTS.includes(specifier)) return false;
     if (NEVER.some((pattern) => matches(pattern, specifier))) return true;
     if (test) return false;
     return own?.refuses.some((pattern) => matches(pattern, specifier)) ?? false;
@@ -424,6 +442,24 @@ describe('the dependency rule', () => {
     ['config.ts', '@consola/cloud-contract', true],
     ['compose.ts', '@consola/cloud-contract', true],
     ['x.test.ts', '@consola/cloud-contract', true],
+    ['domain/x.ts', '@consola/runner-protocol', true],
+    ['application/x.ts', '@consola/runner-protocol', true],
+    ['adapters/persistence/x.ts', '@consola/runner-protocol', true],
+    ['adapters/http/x.ts', '@consola/runner-protocol', true],
+    ['adapters/runner/x.ts', '@consola/runner-protocol', true],
+    ['config.ts', '@consola/runner-protocol', true],
+    ['compose.ts', '@consola/runner-protocol', true],
+    ['x.test.ts', '@consola/runner-protocol', true],
+    ['domain/x.ts', '@consola/runner-protocol/dist/messages.js', false],
+    ['domain/x.ts', '../../../../packages/runner-protocol/src/messages.js', false],
+    ['compose.ts', '@consola/runner-protocols', false],
+    ['adapters/runner/x.ts', '../../application/ports.js', true],
+    ['adapters/runner/x.ts', 'hono', false],
+    ['adapters/runner/x.ts', 'drizzle-orm', false],
+    ['adapters/runner/x.ts', 'jose', false],
+    ['adapters/runner/x.ts', '../http/app.js', false],
+    ['adapters/http/x.ts', '../runner/noRunner.js', false],
+    ['adapters/persistence/x.ts', 'node:crypto', true],
     ['domain/x.ts', '@consola/cloud-contract/dist/region.js', false],
     ['compose.ts', '@consola/cloud-contracts', false],
     ['domain/x.ts', '../../../../packages/cloud-contract/src/region.js', false],
@@ -434,15 +470,16 @@ describe('the dependency rule', () => {
     );
   });
 
-  it('the checker refuses every workspace package but the contract, wherever it is imported', () => {
+  it('the checker refuses every workspace package but the two contracts, wherever it is imported', () => {
     const packages = workspacePackages();
     expect(packages).toContain(CLOUD_CONTRACT);
+    expect(packages).toContain(RUNNER_PROTOCOL);
     expect(packages).toContain('@consola/cloud-region');
     expect(packages.length).toBeGreaterThan(5);
     // The ring refuses no package of its own and tests are exempt from the layer rules, so only
     // NEVER stands between them and a workspace package.
     for (const file of ['compose.ts', 'adapters/http/x.ts', 'domain/x.ts', 'x.test.ts']) {
-      for (const name of packages.filter((p) => p !== CLOUD_CONTRACT)) {
+      for (const name of packages.filter((p) => !CONTRACTS.includes(p))) {
         expect(violationsOf(file, `import x from '${name}';`)).toEqual([`${file} imports ${name}`]);
       }
     }
