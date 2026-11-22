@@ -414,6 +414,18 @@ importers:
         specifier: ^4.1.12
         version: 4.1.12(@types/node@20.19.31)(vite@7.3.8(@types/node@20.19.31)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
 
+  packages/sandbox:
+    devDependencies:
+      '@types/node':
+        specifier: ^20.11.19
+        version: 20.19.31
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.12
+        version: 4.1.12(@types/node@20.19.31)(vite@7.3.8(@types/node@20.19.31)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
+
 packages:
 
   '@babel/code-frame@7.29.7':
