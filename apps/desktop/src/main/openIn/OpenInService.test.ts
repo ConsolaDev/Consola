@@ -234,9 +234,12 @@ describe('OpenInService.open', () => {
     expect(await openIn.open({ targetId: 'vscode', path: `${bundle}/` })).toMatchObject({
       ok: false,
     });
-    expect(await openIn.open({ targetId: 'finder', path: path.join(root, 'Tools.APP') })).toEqual({
+    // Whatever the casing of its extension.
+    const upper = path.join(root, 'Tools.APP');
+    fs.mkdirSync(path.join(upper, 'Contents'), { recursive: true });
+    expect(await openIn.open({ targetId: 'finder', path: upper })).toEqual({
       ok: false,
-      error: `${path.join(root, 'Tools.APP')} does not exist.`,
+      error: `${upper} is an app, not a folder.`,
     });
     expect(launch).not.toHaveBeenCalled();
   });
