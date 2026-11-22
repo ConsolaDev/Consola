@@ -46,6 +46,7 @@ const OVER = 'it is over 1 MB';
 /** How much of a file one read takes: a small file is never given a buffer the size of the cap. */
 const READ_CHUNK = 64 * 1024;
 const NOT_A_FILE = 'it is not a regular file';
+const DANGLING = 'its target is not there';
 
 /** Why a file or folder whose real path leaves the folder's is not read, nor written through. */
 const outsideWords = (relative: string) =>
@@ -246,10 +247,12 @@ export class FactoryFolder implements FactoryFolderHandle {
 
   /**
    * A text file through a link that stays inside the folder: its text, or
-   * nothing when it is not there (a link whose target is gone included). One
-   * whose real path leaves the folder is `outside`, never read. Over
-   * `MAX_FACTORY_TEXT_BYTES`, not a regular file, or a read that fails, it is
-   * unread, with the reason.
+   * nothing when it is not there. A link whose target is not there is
+   * unread, not gone: the link says the person still means it (a target
+   * briefly missing must not remove an automation), and deleting the link is
+   * what removes it. One whose real path leaves the folder is `outside`,
+   * never read. Over `MAX_FACTORY_TEXT_BYTES`, not a regular file, or a read
+   * that fails, it is unread, with the reason.
    */
   private async readOne(
     relative: string,
@@ -260,7 +263,11 @@ export class FactoryFolder implements FactoryFolderHandle {
     let read: Bounded;
     try {
       const place = placeIn(realFolder, file);
-      if (place === null) return { exists: false, text: null };
+      if (place === null) {
+        if (!statOrNull(file, false)?.isSymbolicLink()) return { exists: false, text: null };
+        files.unread.push({ path: relative, reason: DANGLING });
+        return { exists: true, text: null };
+      }
       if (!place.inside) {
         files.outside.push(relative);
         return { exists: true, text: null };

@@ -322,16 +322,24 @@ describe('FactoryFolder.read', () => {
     expect(files.stray).toEqual([]);
   });
 
-  it('a link whose target is gone is no file, and nothing throws', async () => {
+  it('a link whose target is gone is unread, not gone: the link says it is still meant (review M4)', async () => {
     const dir = tmp();
     fs.mkdirSync(path.join(dir, 'agents'));
     fs.symlinkSync(path.join(dir, 'nowhere.md'), path.join(dir, 'agents/investigator.md'));
     fs.symlinkSync(path.join(dir, 'nowhere.yml'), path.join(dir, 'factory.yml'));
     const { exists, files } = await new FactoryFolder(dir).read();
-    expect(exists).toBe(false);
+    expect(exists).toBe(true);
     expect(files.factoryYml).toBeNull();
     expect(files.agents).toEqual({});
-    expect(files.unread).toEqual([]);
+    expect(files.unread).toEqual([
+      { path: 'factory.yml', reason: 'its target is not there' },
+      { path: 'agents/investigator.md', reason: 'its target is not there' },
+    ]);
+    // Deleting the link is deleting the file.
+    fs.rmSync(path.join(dir, 'agents/investigator.md'));
+    expect((await new FactoryFolder(dir).read()).files.unread).toEqual([
+      { path: 'factory.yml', reason: 'its target is not there' },
+    ]);
   });
 });
 
