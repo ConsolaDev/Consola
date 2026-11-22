@@ -32,13 +32,51 @@ It connects to one `@consola/host` session (`packages/host`) and renders t3's ch
   stub it or write a Consola version. `~/` is t3's alias for `src/t3/` (`tsconfig.json` paths and
   the alias in `vite.config.ts`).
 - **Consola's code** is the rest: `src/AgentChat.tsx`, `src/t3Document.ts`, `src/index.ts`,
-  `src/styles.css`, `build/` (the CSS scope, the built-CSS check and the typecheck), the configs
-  and the tests. Biome lints it.
+  `src/styles.css`, `src/publishedTypes.ts`, `types/` (the published declarations),
+  `test-consumer/` (an embedder's program), `build/` (the CSS scope, the built-CSS check and the
+  typecheck), the configs and the tests. Biome lints it.
 - **Types.** `pnpm typecheck` (`build/typecheck.ts`) runs t3's checker (`effect-tsgo`) over the
   browser program (`tsconfig.json`, t3's web settings) and the Node one (`tsconfig.node.json`).
   Four errors in copied files are expected and listed there: callbacks typed by t3's router
   registration, which names t3's whole app. Any other error, or one of the four going away,
-  fails it.
+  fails it. It also checks an embedder's program against the published types ("Types" below).
+
+## Types
+
+An embedder typechecks against `types/`, never the source: `package.json`'s `exports` give
+`types/index.d.ts` for `@consola/agent-ui` and `types/styles.css.d.ts` for
+`@consola/agent-ui/styles.css`. The source cannot be the published types. `src/index.ts`
+reaches `AgentChat.tsx` and through it t3's copy, whose `~/` imports resolve only under this
+package's `tsconfig.json`, and an embedder's checker would then read t3's source and the
+`@t3tools/*` packages under its own settings: 570 errors in `test-consumer/`'s program when
+`exports` named `src/index.ts`.
+
+- **Written by hand.** The surface is one component and its props: three strings and a
+  function. Emitting it from the source would take either t3's whole program (its `~/` paths, its
+  four errors, a declaration for every copied file) or an isolated-declarations step in the
+  build, after which an embedder could not typecheck before building the package; and the
+  output would carry whatever `AgentChat.tsx`'s exports come to name, the leak this prevents.
+  `types/` needs no build and imports only `react`'s types.
+- **Kept equal to the source.** `src/publishedTypes.ts` (types only, imported by nothing) fails
+  `pnpm typecheck` when `AgentChatProps` or `AgentChat` differ from `src/index.ts`'s
+  (`readonly` and optional modifiers included), or when `src/index.ts` exports a value
+  `types/index.d.ts` does not. A change to the props is made in both.
+- **The stylesheet has a declaration** (`export {}`), so an embedder that checks side-effect
+  imports (`noUncheckedSideEffectImports`) resolves `@consola/agent-ui/styles.css` without
+  declaring every `*.css` module. Bundlers do not read the `types` condition; they get
+  `dist/agent-ui.css`.
+- **An embedder's program** (`test-consumer/`): its own `tsconfig.json` (cloud-web's settings,
+  stricter where a looser one would hide something: no ambient types, side-effect imports
+  checked, the package's declarations checked rather than skipped) and one screen that imports
+  `AgentChat`, its props type and the stylesheet by name, renders the chat, and expects an error
+  for each wrong prop. It has no `package.json`, so the name resolves as the package's own (a
+  self-reference, through the same `exports` a workspace link gives cloud-web), and needs no
+  workspace entry. `build/typecheck.ts` checks it with TypeScript's `tsc`, as the apps check
+  theirs, and fails on any error, and on any file the program reads other than its own,
+  `types/` and libraries' declarations (TypeScript's, React's): a published type that reached
+  `src/`, t3's copy or another workspace package shows there. It runs wherever `pnpm typecheck`
+  does, CI's `Agent UI` job included, which runs whenever this package or what it depends on
+  changes.
 
 ## The licence boundary
 
@@ -256,8 +294,8 @@ after the chat shows its thread.
 `pnpm --filter @consola/agent-ui build` is a library build: `dist/agent-ui.js` (ES module,
 `react` and `react-dom` external, so the page's React renders it) and `dist/agent-ui.css`, which
 `package.json` exports as `@consola/agent-ui` and `@consola/agent-ui/styles.css` (types from
-`src/index.ts`). React reaches the library only as imports: `esmExternalRequirePlugin` turns the
-`require('react')` of CommonJS dependencies (`use-sync-external-store`'s shim) into imports, as
+`types/`, "Types" above). React reaches the library only as imports: `esmExternalRequirePlugin`
+turns the `require('react')` of CommonJS dependencies (`use-sync-external-store`'s shim) into imports, as
 left in an ES module it throws at import in a browser. Modules run in source order across the
 chunks (`strictExecutionOrder`; see "t3 does not write the page's document"). Build before a
 page imports it. `src/index.ts` imports `src/styles.css`, because
@@ -287,7 +325,7 @@ resolved from the package's folder.
 
 ```bash
 pnpm --filter @consola/agent-ui test        # the unit tests (Node: boundary, CSS scope) and the browser tests
-pnpm --filter @consola/agent-ui typecheck   # build/typecheck.ts
+pnpm --filter @consola/agent-ui typecheck   # build/typecheck.ts: t3's programs and an embedder's (test-consumer/)
 pnpm --filter @consola/agent-ui build
 pnpm --filter @consola/agent-ui check:css   # the built stylesheet (build first)
 pnpm --filter @consola/agent-ui test:dist   # the built library in a page (build first)

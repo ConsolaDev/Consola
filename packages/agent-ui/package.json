@@ -7,13 +7,17 @@
   "type": "module",
   "exports": {
     ".": {
-      "types": "./src/index.ts",
+      "types": "./types/index.d.ts",
       "default": "./dist/agent-ui.js"
     },
-    "./styles.css": "./dist/agent-ui.css"
+    "./styles.css": {
+      "types": "./types/styles.css.d.ts",
+      "default": "./dist/agent-ui.css"
+    }
   },
   "files": [
     "dist",
+    "types",
     "LICENSE"
   ],
   "scripts": {
