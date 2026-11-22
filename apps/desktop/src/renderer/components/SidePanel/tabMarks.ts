@@ -83,18 +83,3 @@ export function useTabMarks(
 ): ReadonlyArray<{ kind: TabKindId; mark: TabMark | null }> {
   return TAB_KINDS.map((kind) => ({ kind: kind.id, mark: markReaderOf(kind.id)(facts) }));
 }
-
-/**
- * The dots a button draws for the marks it carries, one attribute per tone.
- * A shortcut or a tab holds one kind, so at most one; the side panel toggle
- * can carry both.
- */
-export function markDots(marks: readonly TabMark[]): {
-  'data-agent-dot'?: true;
-  'data-alert-dot'?: true;
-} {
-  return {
-    'data-agent-dot': marks.some((mark) => mark.tone === 'agent') || undefined,
-    'data-alert-dot': marks.some((mark) => mark.tone === 'alert') || undefined,
-  };
-}
