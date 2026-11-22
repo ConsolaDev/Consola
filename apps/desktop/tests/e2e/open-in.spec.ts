@@ -5,7 +5,9 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type { NewSessionFields } from '../../src/shared/workspace';
+import { showBrowser } from './helpers/browserTab';
 import { commandPaletteChord, launchElectron } from './helpers/electron';
+import { startFixtureServer } from './helpers/fixtureServer';
 import { infoPanelChord, infoSection } from './helpers/infoPanel';
 
 /** What a test run would have opened: main records it and opens nothing. */
@@ -222,6 +224,80 @@ test.describe('open in', () => {
     await openButton('VS Code').click();
     await expect(page.locator('.toast-message')).toHaveText(`${notes} does not exist.`);
     expect(await launches()).toHaveLength(opened);
+  });
+
+  test('⌘O opens the folder with the keyboard in a browser page, and nothing under the Inbox', async () => {
+    const fixtures = await startFixtureServer();
+    try {
+      await openSession('Paginate the catalog search');
+      await expect(openButton('Finder')).toBeVisible();
+
+      // A page in the Browser tab, loaded, with the keyboard in it.
+      const url = fixtures.url('/a.html');
+      await showBrowser(page);
+      const address = page.getByRole('textbox', { name: 'Address' });
+      await address.click();
+      await address.fill(`${fixtures.host}/a.html`);
+      await address.press('Enter');
+      await expect
+        .poll(() =>
+          app.evaluate(({ webContents }, pageUrl) => {
+            const guest = webContents
+              .getAllWebContents()
+              .find(
+                (contents) => contents.getType() === 'webview' && contents.getURL() === pageUrl,
+              );
+            return !!guest && !guest.isLoading();
+          }, url),
+        )
+        .toBe(true);
+      await page
+        .locator('.browser-page[data-presence="shown"] webview')
+        .evaluate((webview) => (webview as HTMLElement).focus());
+      expect(await page.evaluate(() => document.activeElement?.tagName)).toBe('WEBVIEW');
+
+      // A page gets its keys on its own web contents, never the window's, so
+      // main stands in for the person there, pressing ⌘O and letting go.
+      await app.evaluate(({ webContents }, pageUrl) => {
+        const guest = webContents
+          .getAllWebContents()
+          .find((contents) => contents.getType() === 'webview' && contents.getURL() === pageUrl);
+        if (!guest) throw new Error(`no page at ${pageUrl}`);
+        guest.sendInputEvent({ type: 'keyDown', keyCode: 'O', modifiers: ['meta'] });
+        guest.sendInputEvent({ type: 'keyUp', keyCode: 'O', modifiers: ['meta'] });
+      }, url);
+      await expect
+        .poll(launches)
+        .toEqual([{ targetId: 'finder', appPath: FINDER, folder: catalog }]);
+
+      // Under the Inbox, which covers the session pane: ⌘O opens nothing.
+      const inbox = page
+        .getByRole('navigation', { name: 'Main navigation' })
+        .getByRole('button', { name: 'Inbox', exact: true });
+      await inbox.click();
+      await expect(inbox).toHaveAttribute('aria-current', 'page');
+      await openChord();
+
+      // ⌘O in another session: had the press under the Inbox opened A's
+      // folder, it would be recorded before this one, so the recorder
+      // holding B's next says it did not, with no fixed wait.
+      await page
+        .getByRole('navigation', { name: 'Main navigation' })
+        .getByRole('button', { name: 'Home', exact: true })
+        .click();
+      // The info panel steps aside for the Browser tab on this window: ⌘O
+      // opens all the same.
+      await openSession('Review notes');
+      await expect(page.locator('.workspace-view-header')).toContainText('Review notes');
+      await conversation().focus();
+      await openChord();
+      await expect.poll(launches).toEqual([
+        { targetId: 'finder', appPath: FINDER, folder: catalog },
+        { targetId: 'finder', appPath: FINDER, folder: notes },
+      ]);
+    } finally {
+      await fixtures.close();
+    }
   });
 
   test('no folder, no button: a removed worktree shows none and ⌘O opens nothing', async () => {
