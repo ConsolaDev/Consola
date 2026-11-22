@@ -45,6 +45,23 @@ beforeEach(() => {
 });
 afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
 
+/**
+ * A partial clone of origin at `feat/billing`, missing main's copy of
+ * `src/client.ts`, which a diff against origin/main needs.
+ */
+function partialCloneMissingABlob(): string {
+  git(clone, 'checkout', 'main');
+  commitFile(clone, 'src/client.ts', 2);
+  git(clone, 'push', 'origin', 'main');
+  git(clone, 'checkout', '-b', 'feat/billing');
+  commitFile(clone, 'src/client.ts', 3);
+  git(clone, 'push', 'origin', 'feat/billing');
+  git(origin, 'config', 'uploadpack.allowFilter', 'true');
+  const partial = path.join(root, 'partial');
+  git(root, 'clone', '--filter=blob:none', '--branch', 'feat/billing', `file://${origin}`, partial);
+  return partial;
+}
+
 describe('readBranchFacts', () => {
   it('counts the commits waiting to be pushed, and those behind when there are some', async () => {
     expect((await readBranchFacts(clone)).upstream).toEqual({
@@ -136,25 +153,9 @@ describe('readBranchFacts', () => {
   });
 
   it('never fetches a blob a partial clone is missing', async () => {
-    git(clone, 'checkout', 'main');
-    commitFile(clone, 'src/client.ts', 2);
-    git(clone, 'push', 'origin', 'main');
-    git(clone, 'checkout', '-b', 'feat/billing');
-    commitFile(clone, 'src/client.ts', 3);
-    git(clone, 'push', 'origin', 'feat/billing');
     // Cloned at the branch, so main's copy of client.ts, which the diff
     // needs, was never fetched.
-    git(origin, 'config', 'uploadpack.allowFilter', 'true');
-    const partial = path.join(root, 'partial');
-    git(
-      root,
-      'clone',
-      '--filter=blob:none',
-      '--branch',
-      'feat/billing',
-      `file://${origin}`,
-      partial,
-    );
+    const partial = partialCloneMissingABlob();
 
     expect((await readBranchFacts(partial)).base).toBeNull();
 
@@ -166,6 +167,40 @@ describe('readBranchFacts', () => {
       additions: 1,
       deletions: 0,
     });
+  });
+
+  it('runs nothing against origin, which is there to reach, in any read', async () => {
+    // origin is the real bare repo, so a fetch could succeed. Every way git
+    // reaches it runs one of these programs, which here leaves a mark and
+    // refuses.
+    const marker = path.join(root, 'origin-reached');
+    const trap = path.join(root, 'trap.sh');
+    fs.writeFileSync(trap, `#!/bin/sh\ntouch "${marker}"\nexit 1\n`, { mode: 0o755 });
+    const partial = partialCloneMissingABlob();
+    git(clone, 'checkout', 'feat/search-pagination');
+    for (const repo of [clone, partial]) {
+      git(repo, 'config', 'remote.origin.uploadpack', trap);
+      git(repo, 'config', 'remote.origin.receivepack', trap);
+    }
+    const identity = (url: string) => url;
+
+    expect(await readBranchFacts(clone)).toMatchObject({
+      upstream: { ahead: 2 },
+      base: { ref: 'origin/main' },
+    });
+    expect((await readBranchFacts(clone, 'main')).base?.ref).toBe('origin/main');
+    expect((await readBranchIdentity(clone, identity))?.branch).toBe('feat/search-pagination');
+    expect((await readBranchFacts(partial)).base).toBeNull();
+    expect((await readBranchIdentity(partial, identity))?.branch).toBe('feat/billing');
+    expect(fs.existsSync(marker)).toBe(false);
+
+    // The trap does catch a fetch: an explicit one, and the one git itself
+    // makes to fill a partial clone in.
+    expect(() => git(clone, 'fetch')).toThrow();
+    expect(fs.existsSync(marker)).toBe(true);
+    fs.rmSync(marker);
+    expect(() => git(partial, 'diff', '--numstat', 'origin/main...HEAD')).toThrow();
+    expect(fs.existsSync(marker)).toBe(true);
   });
 
   it('answers no facts for a folder outside git', async () => {
