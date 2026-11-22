@@ -147,11 +147,13 @@ export function createGitHubApp(deps: {
     url: string,
     init: { method?: string; token?: string; basic?: string; body?: unknown },
   ): Promise<Response> {
+    // Compared by origin, never by prefix: `https://api.github.com.example` starts with it too.
+    const toApi = new URL(url).origin === API;
     const headers: Record<string, string> = {
-      accept: url.startsWith(API) ? 'application/vnd.github+json' : 'application/json',
+      accept: toApi ? 'application/vnd.github+json' : 'application/json',
       'user-agent': 'Consola Cloud',
     };
-    if (url.startsWith(API)) headers['x-github-api-version'] = API_VERSION;
+    if (toApi) headers['x-github-api-version'] = API_VERSION;
     if (init.token) headers.authorization = `Bearer ${init.token}`;
     if (init.basic) headers.authorization = `Basic ${init.basic}`;
     if (init.body !== undefined) headers['content-type'] = 'application/json';
