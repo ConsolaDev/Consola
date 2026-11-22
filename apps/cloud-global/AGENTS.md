@@ -455,10 +455,12 @@ lists them (`GITHUB_CALLBACK_RESULTS`).
   an unconfigured app is 503 `github_not_configured`.
 - `GET /api/github/callback`: the app's callback URL, where GitHub sends the
   person back (with "Request user authorization (OAuth) during installation"
-  on). It always redirects to `<PUBLIC_URL>/?github=<result>#/connections`,
-  where `<result>` is `finishGitHubInstall`'s outcome in snake case
-  (`connected`, `taken`, `not_installer`, …) or `signed_out`. The web app's
-  Connections section reads it once and clears it.
+  on). It always redirects to
+  `<PUBLIC_URL>/?github=<result>#/settings/connections`, where `<result>` is
+  `finishGitHubInstall`'s outcome in snake case (`connected`, `taken`,
+  `not_installer`, …) or `signed_out`. The web app's Settings, on its
+  Connections page, reads it once and clears it. That address is the web
+  app's (`CONNECTIONS_PAGE` in `app.ts`), so the two change together.
 - `DELETE /api/connections/github/installations/{installationId}`: removes the
   workspace's record. The app stays installed on GitHub until someone
   uninstalls it there. One the workspace does not hold, another's included,

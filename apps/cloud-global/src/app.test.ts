@@ -1002,7 +1002,7 @@ describe('GitHub as a connection', () => {
       state: url.searchParams.get('state') ?? '',
     });
     expect(back.status).toBe(302);
-    expect(back.location).toBe(`${WEB_ORIGIN}/?github=connected#/connections`);
+    expect(back.location).toBe(`${WEB_ORIGIN}/?github=connected#/settings/connections`);
     expect(back.headers.get('referrer-policy')).toBe('no-referrer');
 
     expect(await get('/api/connections', login.headers)).toEqual({

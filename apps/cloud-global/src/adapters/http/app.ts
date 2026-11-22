@@ -47,10 +47,10 @@ import {
 const CHANGES = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
 /**
- * Where in the web app a Connect ends: its Connections page. The web app keeps the same address
- * (`#/connections`), so the two change together.
+ * Where in the web app a Connect ends: its Settings, on the Connections page. The web app keeps
+ * the same address (`#/settings/connections`), so the two change together.
  */
-const CONNECTIONS_PAGE = '#/connections';
+const CONNECTIONS_PAGE = '#/settings/connections';
 
 type GitHubCallbackResult = (typeof GITHUB_CALLBACK_RESULTS)[number];
 
@@ -279,8 +279,9 @@ export function createApp(deps: {
 
   // Where GitHub sends the person back after installing the app (its "callback URL", with user
   // authorisation during installation on). It is a browser redirect, so it carries the session
-  // cookie, and it ends on the web app's Connections page, which reads `?github=` once. Its
-  // query is read as it comes, never validated: whatever GitHub sends, it redirects.
+  // cookie, and it ends on the web app's Settings, on its Connections page, which reads
+  // `?github=` once. Its query is read as it comes, never validated: whatever GitHub sends, it
+  // redirects.
   app.openapi(getGitHubCallback, async (c) => {
     const back = (result: GitHubCallbackResult) => {
       c.header('cache-control', 'no-store');

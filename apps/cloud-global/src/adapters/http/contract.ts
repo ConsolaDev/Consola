@@ -326,11 +326,11 @@ export const getGitHubCallback = createRoute({
   description:
     'The GitHub App’s callback URL, reached by a browser redirect from GitHub with `state`, ' +
     '`code`, `installation_id`, `setup_action` or `error`. It never answers JSON: it always ' +
-    'redirects to the web app’s Connections page, with how the Connect ended in `?github=`: ' +
-    `one of ${GITHUB_CALLBACK_RESULTS.map((result) => `\`${result}\``).join(', ')}.`,
+    'redirects to the web app’s Settings, on its Connections page, with how the Connect ended ' +
+    `in \`?github=\`: one of ${GITHUB_CALLBACK_RESULTS.map((result) => `\`${result}\``).join(', ')}.`,
   responses: {
     302: {
-      description: 'To `<PUBLIC_URL>/?github=<result>#/connections`.',
+      description: 'To `<PUBLIC_URL>/?github=<result>#/settings/connections`.',
       headers: z.object({ location: z.string() }),
     },
   },

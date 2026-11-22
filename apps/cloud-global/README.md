@@ -72,7 +72,7 @@ database.
 ## Connect GitHub
 
 A workspace connects GitHub by installing Consola's GitHub App from the web
-app's Connections page. The API starts without it: with none of the app's
+app's Settings, on its Connections page. The API starts without it: with none of the app's
 settings set, the page says GitHub is not configured here. Set all four or
 none, or the API refuses to start.
 
