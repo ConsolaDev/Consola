@@ -256,7 +256,7 @@ import type {
 import type { SnoozeWhen } from '../shared/snooze';
 import { activityOf, type AttentionState } from '../shared/attention';
 import type { ActivateWorkspaceResult, WorkspaceView } from '../shared/types';
-import { automationsTickMs } from './test-mode';
+import { automationsRetryMs, automationsTickMs } from './test-mode';
 import { noticeTarget } from './automations/noticeTarget';
 
 // One terminal per session tab, kept alive while the session is open
@@ -2161,8 +2161,9 @@ export function setupIpcHandlers(): boolean {
       timer.unref?.();
       return () => clearInterval(timer);
     },
-    // An end-to-end test's faster tick; undefined (the engine's own) outside a test run.
+    // An end-to-end test's faster tick and retry waits; undefined (the engine's own) outside a test run.
     tickMs: automationsTickMs(),
+    retryBackoffMs: automationsRetryMs(),
     inboxSnapshot: (workspaceId) => {
       const snapshot = inbox.getSnapshot(workspaceId);
       return snapshot ? toItemSnapshot(snapshot) : null;

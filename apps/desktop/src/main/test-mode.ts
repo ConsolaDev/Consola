@@ -19,6 +19,19 @@ export function automationsTickMs(
 }
 
 /**
+ * The wait every declared automation retry takes in an end-to-end test
+ * (`CONSOLA_AUTOMATIONS_RETRY_MS`), instead of 1, 5 and 15 minutes, so a
+ * retry finishes in seconds: honoured only in a test run, and only as a
+ * whole number of at least 500 ms. Anything else is undefined, the engine's.
+ */
+export function automationsRetryMs(
+  raw = process.env.CONSOLA_AUTOMATIONS_RETRY_MS,
+  test = isTest,
+): number | undefined {
+  return automationsTickMs(raw, test);
+}
+
+/**
  * Hands an object to the E2E suite, which reaches it from
  * `electronApp.evaluate` as `globalThis.__consolaTest[name]`. Only in a test
  * launch: anywhere else nothing is exposed, so no other code in main can come

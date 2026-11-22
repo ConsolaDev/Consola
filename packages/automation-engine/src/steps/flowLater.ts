@@ -1,4 +1,4 @@
-import { leafSteps, type StepsAutomation } from '@consola/factory-spec';
+import type { StepsAutomation } from '@consola/factory-spec';
 
 /*
  * Temporary, for slice 3's build (Call 2): the format accepts a control-flow
@@ -7,20 +7,13 @@ import { leafSteps, type StepsAutomation } from '@consola/factory-spec';
  * from `NOT_YET`; the last deletes this file.
  */
 
-export type FlowKey = 'on_failure' | 'budget';
+export type FlowKey = 'budget';
 
-const NOT_YET: readonly FlowKey[] = ['on_failure', 'budget'];
+const NOT_YET: readonly FlowKey[] = ['budget'];
 
 /** Whether the entry writes `key`, a loop's steps included. */
 function writes(automation: StepsAutomation, key: FlowKey): boolean {
   switch (key) {
-    case 'on_failure':
-      return (
-        automation.onFailure !== undefined ||
-        leafSteps(automation.steps).some(
-          (step) => step.kind !== 'gate' && step.onFailure !== undefined,
-        )
-      );
     case 'budget':
       return automation.budget !== undefined;
   }

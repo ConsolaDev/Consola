@@ -214,6 +214,7 @@ import {
   holdsWhileWaiting,
   isLoopRow,
   laneOfRecord,
+  restartSteps,
   retrySteps,
   retryTargetOf,
   stepRecordsOf,
@@ -222,10 +223,13 @@ import {
   withGateAnswered,
   withGateAsked,
   withNextAttempt,
+  withRetryDue,
+  withRetryWait,
   withRound,
   withStep,
   withUpdate,
 } from './steps/stepRecords';
+import { entryMayRetry, retriesSpentError, retryDelayMs, stepMayRetry } from './steps/retry';
 import {
   gateMaterialRefs,
   gateOffer,
@@ -312,6 +316,8 @@ export interface AutomationServiceDeps {
   every(ms: number, run: () => void): () => void;
   /** How often the tick runs; `TICK_MS` unless the host sets it (end-to-end tests do). */
   tickMs?: number;
+  /** Every declared retry's wait, in ms, instead of 1, 5 and 15 minutes; end-to-end tests set it (Call 7). */
+  retryBackoffMs?: number;
   /** A workspace's latest Inbox snapshot, or null before its first fetch. */
   inboxSnapshot(workspaceId: string): ItemSnapshot | null;
   /** Fetch a workspace's Inbox now — an event automation's "Check now". */
@@ -711,6 +717,13 @@ export class AutomationService {
   private readonly starting = new Set<string>();
   /** Of those, the ones a person asked to stop; honoured as soon as what started has. */
   private readonly stopRequested = new Set<string>();
+  /**
+   * Runs a person stopped, until they end: what fails in them then is the
+   * person's doing, so nothing in them retries by itself (Call 8). The record
+   * cannot tell a stop from a failure; memory is enough, since a quit ends
+   * every turn and command the stop reached.
+   */
+  private readonly stoppedByPerson = new Set<string>();
   /**
    * Steps runs started from the line whose first step is not running yet
    * (preparing their item's checkout, or that step queued), and the lane it
@@ -1419,6 +1432,7 @@ export class AutomationService {
     this.ticking = true;
     try {
       this.runDueChecks();
+      this.resumeDueWaits();
       const now = this.deps.now();
       for (const entry of this.allResolved()) {
         // A run still in progress keeps the occurrence for a later
@@ -2682,6 +2696,7 @@ export class AutomationService {
    */
   private stopSteps(run: RunRecord): void {
     const action = stopAction(run, { starting: this.starting.has(run.id) });
+    if (action.kind !== 'none') this.stoppedByPerson.add(run.id);
     switch (action.kind) {
       case 'none':
         return;
@@ -2801,6 +2816,13 @@ export class AutomationService {
           // A run on the item that waited for the claim may start now.
           void this.pump();
           throw error;
+        }
+        // A person answered a gate about the head the run recorded: a moved item asks for a new run.
+        const answered = movedSinceAnswered(this.deps.store.get(runId)!, prepared.head, workItem);
+        if (answered) {
+          this.retrying.delete(runId);
+          void this.pump();
+          throw new Error(answered);
         }
         // Let go of only as the run takes the checkout over, below: nothing runs between the two.
         this.retrying.delete(runId);
@@ -3548,6 +3570,8 @@ export class AutomationService {
       this.finish(runId, 'rejected', { summary: error.message });
       return;
     }
+    // Nothing ran: the entry's declared retry may start it again later.
+    if (this.entryRetryWait(runId, describeError(error), false)) return;
     this.finish(runId, 'failed', { error: describeError(error) });
     this.notify(
       `${this.deps.store.get(runId)!.automationId} could not start`,
@@ -3642,6 +3666,7 @@ export class AutomationService {
       this.finish(runId, 'completed', { summary: next.summary });
       this.notify(`${run.automationId}: done`, next.summary, runId);
     } else {
+      if (this.entryRetryWait(runId, next.error, options.quiet === true)) return;
       this.finish(runId, 'failed', { error: next.error });
       if (!options.quiet) this.notify(`${run.automationId} did not finish`, next.error, runId);
     }
@@ -4491,12 +4516,177 @@ export class AutomationService {
     end: { status: 'completed' | 'reported' } | { status: 'failed'; error: string },
     options: { quiet?: boolean; also?: Partial<StepRun> } = {},
   ): void {
-    this.writeSteps(
-      runId,
-      withStep(this.stepsOf(runId), stepId, { ...options.also, ...end, finishedAt: this.iso() }),
-    );
+    let steps = withStep(this.stepsOf(runId), stepId, {
+      ...options.also,
+      ...end,
+      finishedAt: this.iso(),
+    });
+    if (end.status === 'failed') {
+      // A quiet failure is the person's own (a stop, a session they closed): it never retries by itself.
+      const retried = this.stepRetryWait(runId, stepId, steps, end.error, options.quiet === true);
+      if (retried === null) return;
+      steps = retried;
+    }
+    this.writeSteps(runId, steps);
     this.broadcastRun(runId);
     this.advance(runId, { quiet: options.quiet });
+  }
+
+  /**
+   * A step's own failure, as its declared retry takes it (Calls 6–8): when
+   * it may retry (`stepMayRetry`), the failure and the wait are one line,
+   * the step `waiting` until its backoff ends and the run `waiting`, holding
+   * no slot and advancing nothing (null); when its retries are spent, its
+   * error says how many times it was tried; else its rows as they are.
+   */
+  private stepRetryWait(
+    runId: string,
+    stepId: string,
+    steps: StepRun[],
+    error: string,
+    byPerson: boolean,
+  ): StepRun[] | null {
+    // Its definition unread, it cannot be asked: `advance` fails the run on it.
+    const loaded = this.definitionOf(this.deps.store.get(runId)!);
+    if (!('definition' in loaded)) return steps;
+    const step = leafSteps(loaded.definition.automation.steps).find(
+      (candidate) => candidate.id === stepId,
+    );
+    const record = steps.find((candidate) => candidate.id === stepId);
+    const declared = step && step.kind !== 'gate' ? (step.onFailure?.retry ?? 0) : 0;
+    if (!step || !record || declared === 0) return steps;
+    const used = record.retries ?? 0;
+    const person = byPerson || this.stoppedByPerson.has(runId);
+    const may = stepMayRetry({
+      step,
+      record,
+      agentNamesServer: agentNamesServer(loaded.definition, stepId),
+      stoppedByPerson: person,
+      overBudget: false,
+    });
+    // Spent: its own failure says how many times it was tried; a person's stop says only that.
+    if (!may)
+      return used >= declared && !person
+        ? withStep(steps, stepId, { error: retriesSpentError(error, used + 1) })
+        : steps;
+    const now = this.iso();
+    this.deps.store.update(runId, {
+      status: 'waiting',
+      steps: withRetryWait(steps, stepId, this.retryAtFrom(used)),
+      updatedAt: now,
+    });
+    this.admitted.delete(runId);
+    this.broadcastRun(runId);
+    void this.pump();
+    return null;
+  }
+
+  /**
+   * A run that would fail, as the entry's declared retry takes it: when
+   * nothing in it can have acted (`entryMayRetry`), it waits on one line,
+   * `waiting` with `retryAt` and its error, its rows as they are, instead of
+   * ending; true when it does.
+   */
+  private entryRetryWait(runId: string, error: string, byPerson: boolean): boolean {
+    const run = this.deps.store.get(runId)!;
+    const loaded = this.definitionOf(run);
+    if (!('definition' in loaded)) return false;
+    const { definition } = loaded;
+    const retried = run.retried ?? 0;
+    const may = entryMayRetry({
+      declared: definition.automation.onFailure?.retry ?? 0,
+      retried,
+      entries: definition.automation.steps,
+      records: run.steps ?? [],
+      agentNamesServer: (stepId) => agentNamesServer(definition, stepId),
+      stoppedByPerson: byPerson || this.stoppedByPerson.has(runId),
+      overBudget: false,
+    });
+    if (!may) return false;
+    this.deps.store.update(runId, {
+      status: 'waiting',
+      retryAt: this.retryAtFrom(retried),
+      error,
+      updatedAt: this.iso(),
+    });
+    this.admitted.delete(runId);
+    this.broadcastRun(runId);
+    void this.pump();
+    return true;
+  }
+
+  /** When a wait ends that follows `used` retries already waited out: 1, 5, then 15 minutes, or the host's. */
+  private retryAtFrom(used: number): string {
+    return new Date(
+      this.deps.now().getTime() + retryDelayMs(used, this.deps.retryBackoffMs),
+    ).toISOString();
+  }
+
+  /**
+   * Every declared retry whose time came goes on (at each tick, so at start
+   * for one that came while Consola was closed). A step's: its next attempt,
+   * `pending`, and the run `running`, on one line; then the run goes on from
+   * its record. The entry's: every row its next attempt (`restartSteps`),
+   * `retried` one more, and an item run's checkout without its head, so it
+   * is prepared again; but while a session runs in that checkout it waits on
+   * (review B2), as a start waits for a busy checkout: the run holds the
+   * item meanwhile, so no other run can take it.
+   */
+  private resumeDueWaits(): void {
+    const now = this.deps.now().getTime();
+    for (const run of [...this.deps.store.runs()]) {
+      if (run.status !== 'waiting' || !isStepsRun(run)) continue;
+      if (run.retryAt !== undefined) {
+        if (Date.parse(run.retryAt) <= now) this.restartRun(run);
+        continue;
+      }
+      const due = run.steps?.find(
+        (step) =>
+          step.status === 'waiting' &&
+          step.retryAt !== undefined &&
+          Date.parse(step.retryAt) <= now,
+      );
+      if (!due) continue;
+      const at = this.iso();
+      this.deps.store.update(run.id, {
+        status: 'running',
+        steps: withRetryDue(run.steps ?? [], due.id, at),
+        updatedAt: at,
+      });
+      this.broadcastRun(run.id);
+      this.pickUp(this.deps.store.get(run.id)!);
+    }
+  }
+
+  /** The entry's declared retry: the run starts again from its first step (`resumeDueWaits`). */
+  private restartRun(run: RunRecord): void {
+    const loaded = this.definitionOf(run);
+    const workItem =
+      'definition' in loaded && !loaded.definition.automation.scope ? itemRefOf(run) : undefined;
+    const workspaceId = run.attribution.workspaceId ?? '';
+    const dir = workItem
+      ? (run.checkout?.cwd ?? this.deps.checkout.pathFor(workspaceId, workItem))
+      : undefined;
+    if (dir && this.deps.checkoutBusy(dir)) return;
+    const at = this.iso();
+    this.deps.store.update(run.id, {
+      status: 'running',
+      retried: (run.retried ?? 0) + 1,
+      retryAt: undefined,
+      error: undefined,
+      steps: restartSteps(run.steps ?? [], at),
+      updatedAt: at,
+      ...(dir
+        ? {
+            checkout: {
+              cwd: dir,
+              ...(run.checkout?.scopeId ? { scopeId: run.checkout.scopeId } : {}),
+            },
+          }
+        : {}),
+    });
+    this.broadcastRun(run.id);
+    this.pickUp(this.deps.store.get(run.id)!);
   }
 
   /**
@@ -5784,8 +5974,9 @@ export class AutomationService {
   ): void {
     const now = this.iso();
     const run = this.deps.store.get(runId);
-    // An ended run holds no slot.
+    // An ended run holds no slot, and a stop of it is over.
     this.admitted.delete(runId);
+    this.stoppedByPerson.delete(runId);
     // A failed agent run's launch-time "Running in …" says nothing true any more.
     const stale = status === 'failed' && !outcome.summary ? sessionRunningIn(run) : null;
     this.deps.store.update(runId, {
@@ -5946,6 +6137,32 @@ function sessionRunningIn(run: RunRecord | undefined): string | null {
 /** A run that starts a session: its result is the preview of what it starts. */
 function isAgentRun(run: RunRecord): boolean {
   return (run.result as { kind?: unknown } | undefined)?.kind === 'agent-run';
+}
+
+/** Whether a step's agent names an MCP server, which may post or change things (Call 8). */
+function agentNamesServer(definition: RunDefinition, stepId: string): boolean {
+  return (definition.agents?.[stepId]?.mcpServers.length ?? 0) > 0;
+}
+
+/**
+ * Why a retry that prepared the item's checkout again cannot go on: a
+ * person answered a gate in the run about the head it recorded, and the
+ * item has moved since (a gate's answer in an earlier round counts too).
+ * Null when nothing was answered, or the head is the one it recorded.
+ */
+function movedSinceAnswered(run: RunRecord, head: string, workItem: ItemRef): string | null {
+  if (!run.checkout?.head || head === run.checkout.head) return null;
+  const answered = [...(run.steps ?? [])]
+    .reverse()
+    .find(
+      (record) =>
+        record.gate?.decision !== undefined ||
+        (record.previous ?? []).some((line) => line.decision !== undefined),
+    );
+  if (!answered) return null;
+  return workItem.type === 'pr'
+    ? `This pull request has new commits since you answered \`${answered.id}\`; run it again to review them.`
+    : `This item has changed since you answered \`${answered.id}\`; run it again.`;
 }
 
 /**

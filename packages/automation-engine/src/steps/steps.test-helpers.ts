@@ -181,6 +181,8 @@ export interface StepsHarnessOptions {
   tools?: TestTool[];
   /** The host's work items. Default: a host that reads no work item URL. */
   workItems?: WorkItemPort;
+  /** Every declared retry's wait, as the host may set it (Call 7). Default: the engine's backoff. */
+  retryBackoffMs?: number;
 }
 
 /** What the fake host holds and recorded. A test edits the first part to move the world, then resyncs. */
@@ -647,6 +649,7 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
       world.broadcasts.push(workspaceId);
     },
     every: () => () => {},
+    ...(options.retryBackoffMs !== undefined ? { retryBackoffMs: options.retryBackoffMs } : {}),
     inboxSnapshot: (workspaceId) => world.inbox.get(workspaceId) ?? null,
     refreshInbox: async (workspaceId) => {
       world.refreshes.push(workspaceId);
