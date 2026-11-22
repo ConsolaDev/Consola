@@ -219,9 +219,10 @@ in every cloud app, a new app included:
   `.github/scripts/ci-scope.mjs` checks the client with every change to the
   API (`cloud-global` → `cloud-web`), and a new pair is added there.
 
-`cloud-global` and `cloud-web` follow it today; `cloud-region`'s routes move
-onto a contract of their own the same way. Each app's `AGENTS.md` ("The
-contract", "The API's contract") holds the details and the library's traps.
+A cell is no exception: `cloud-region` declares its routes in a contract of its
+own, and a client of the cell gets its own generated types and client, the
+same way. Each app's `AGENTS.md` ("The contract", "The API's contract") holds
+the details and the library's traps.
 
 The browser talks only to the web app's origin. Vite proxies `/api` to the API,
 so the session cookie is first-party and the API needs no CORS. Better Auth
