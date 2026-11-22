@@ -9,18 +9,26 @@ repository's guide is the root `AGENTS.md`, and setup is in
 
 The app is built in layers, and imports point inward only.
 
-- `src/domain/` holds the rules and the types they speak of: `Me`, `MeState`
-  and `MyWorkspace` (`me.ts`), the sentences for a failed sign-in or sign-out
-  (`messages.ts`) and where the running source is (`source.ts`). It is plain
-  TypeScript, with no package and no browser I/O.
+- `src/domain/` holds the rules and the types they speak of: `Me` and
+  `MeState` (`me.ts`); workspaces (`workspace.ts`: `MyWorkspace`, `REGIONS`
+  and `regionName`, `roleName`, `checkNewWorkspace`, `suggestSlug`, the create
+  form's `WorkspaceDraft` with `withName` and `withSlug`, and the API's
+  answers `WorkspacesState`, `CreateWorkspaceAnswer` and
+  `SwitchWorkspaceAnswer`); the sentences (`messages.ts`) for a failed
+  sign-in or sign-out, for each problem with a new workspace, a taken slug, a
+  failed switch and the create form's hints; and where the running source is
+  (`source.ts`). It is plain TypeScript, with no package and no browser I/O.
 - `src/services/` is everything that talks to something outside the page: the
-  API (`api.ts`: `loadMe`), Better Auth's client (`authClient.ts`:
+  API (`api.ts`: `loadMe`, `loadWorkspaces`, `createWorkspace`,
+  `switchWorkspace`), Better Auth's client (`authClient.ts`:
   `signInWithGoogle`, `signOut`) and the address bar (`signInRedirect.ts`:
   `takeSignInErrorCode`). A service answers in domain types and sentences,
   never in a library's own.
-- `src/ui/` holds the React screens (`App.tsx` and the cards beside it) and
-  `styles.css`. A screen asks a service and shows what comes back. It does not
-  fetch, touch the address or know Better Auth.
+- `src/ui/` holds the React screens (`App.tsx` and the cards beside it:
+  `SignInCard`, `ProfileCard`, `CreateWorkspaceCard`, and the topbar's
+  `WorkspaceSwitcher` and `SignOutButton`) and `styles.css`. A screen asks a
+  service and shows what comes back. It does not fetch, touch the address or
+  know Better Auth.
 - The entry wires the page. `src/main.tsx` mounts `ui/App` inside Radix's
   `Theme` and follows the system's colour scheme, and `src/env.d.ts` declares
   the build constants (`__CONSOLA_COMMIT__`, `__CONSOLA_VERSION__`) that
@@ -43,7 +51,8 @@ The app is built in layers, and imports point inward only.
   so `Footer.tsx` may read them.
 - Services are called from `ui`. A screen calls the service behind what it
   shows or does: `App.tsx` loads the page's state, and a card calls the
-  service behind its own button (`SignInCard.tsx`, `SignOutButton.tsx`).
+  service behind its own button (`SignInCard.tsx`, `SignOutButton.tsx`,
+  `CreateWorkspaceCard.tsx`, `WorkspaceSwitcher.tsx`).
   `domain` and `main.tsx` call none.
 - No file imports another app or a workspace package (`@consola/*`).
 - Test files (`*.test.ts`) are exempt from the layer rules (the never-import
@@ -57,6 +66,27 @@ counts, directly or through `window`, never a property or a prop that shares
 the name (`props.location`, `{ location: '/' }`). A file that sits in no layer
 fails it too. The rules are data at its top (`LAYERS`), so a new layer or
 folder is added there first.
+
+## Workspaces
+
+The API is `cloud-global`'s (its `AGENTS.md`, "Workspaces"), and it is the
+authority on every rule. The web app imports no package, so `workspace.ts`
+keeps its own copy of the name, slug and region rules: to check a request
+before sending it and to suggest a slug. Whatever the server answers is what
+the page shows, so a copy that drifts costs a round trip, never a wrong
+workspace. Keep both in step.
+
+- Only a 401 means signed out. A failed fetch, a status or error code a call
+  does not expect, or a body that is not JSON is `unavailable`, so a service
+  that is down never looks like a signed-out person.
+- After a create or a switch the page loads `/api/me` and `/api/workspaces`
+  again (`App.tsx`'s `load`); no reload. Only the latest load's answer is
+  shown.
+- A person with no workspace open sees the create form under their profile.
+  One with a workspace reaches the switcher, and the form, from the topbar.
+- No region is picked for the person: it can never change, and the form says
+  so (`REGION_HINT`). The slug follows the name until the person types their
+  own.
 
 ## Adding a feature
 
