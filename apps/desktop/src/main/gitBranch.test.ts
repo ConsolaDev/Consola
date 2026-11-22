@@ -7,8 +7,9 @@ import { NO_BRANCH_FACTS } from '../shared/branchFacts';
 import { isPlainBranchName, readBranchFacts, readBranchIdentity } from './gitBranch';
 
 /**
- * Each test here runs a dozen git processes or more, which a loaded machine
- * can slow to seconds each.
+ * Each test here, and the setup before it, runs a dozen git processes or more,
+ * which a loaded machine can slow to seconds each: every test, and the setup,
+ * gets this long rather than the default 5 s (10 s for a hook).
  */
 const HEAVY_GIT_MS = 20_000;
 
@@ -48,7 +49,7 @@ beforeEach(() => {
   git(clone, 'push', '-u', 'origin', 'feat/search-pagination');
   commitFile(clone, 'src/query.ts', 2);
   commitFile(clone, 'tests/search.test.ts', 4);
-});
+}, HEAVY_GIT_MS);
 afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
 
 /**
@@ -98,7 +99,7 @@ function partialCloneMissingABlob(): string {
   return partial;
 }
 
-describe('readBranchFacts', () => {
+describe('readBranchFacts', { timeout: HEAVY_GIT_MS }, () => {
   it('counts the commits waiting to be pushed, and those behind when there are some', async () => {
     expect((await readBranchFacts(clone)).upstream).toEqual({
       ref: 'origin/feat/search-pagination',
@@ -160,7 +161,7 @@ describe('readBranchFacts', () => {
       additions: 2_009,
       deletions: 0,
     });
-  }, HEAVY_GIT_MS);
+  });
 
   it("compares with the pull request's base when the clone knows it, else with the default", async () => {
     git(clone, 'push', 'origin', 'main:release');
@@ -190,10 +191,18 @@ describe('readBranchFacts', () => {
     expect((await readBranchFacts(clone, 'main')).base).toBeNull();
   });
 
-  it('ignores a base name that could be read as an option', async () => {
-    expect((await readBranchFacts(clone, '--output=/tmp/consola-x')).base?.ref).toBe('origin/main');
-    expect(fs.existsSync('/tmp/consola-x')).toBe(false);
+  it('never compares with a base whose name could be read as an option, though the clone has it', async () => {
+    // git takes this as a remote-tracking ref, so only the name's check keeps
+    // the reads from finding it and comparing with it.
+    const leak = path.join(root, 'leak');
+    const optionLike = `--output=${leak}`;
+    git(clone, 'update-ref', `refs/remotes/origin/${optionLike}`, 'origin/main');
+    expect(git(clone, 'show-ref', `refs/remotes/origin/${optionLike}`)).not.toBe('');
 
+    expect((await readBranchFacts(clone, optionLike)).base?.ref).toBe('origin/main');
+    expect(fs.existsSync(leak)).toBe(false);
+
+    expect(isPlainBranchName(optionLike)).toBe(false);
     expect(isPlainBranchName('-x')).toBe(false);
     expect(isPlainBranchName('a..b')).toBe(false);
     expect(isPlainBranchName('a b')).toBe(false);
@@ -259,7 +268,7 @@ describe('readBranchFacts', () => {
   });
 });
 
-describe('readBranchIdentity', () => {
+describe('readBranchIdentity', { timeout: HEAVY_GIT_MS }, () => {
   it('names the branch, its name on the remote, and origin', async () => {
     git(clone, 'config', 'branch.feat/search-pagination.merge', 'refs/heads/search-pages');
     const identity = (url: string) => url;
