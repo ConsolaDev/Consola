@@ -35,7 +35,7 @@ const secret = process.env.GITHUB_WEBHOOK_SECRET ?? '';
 const secretLine =
   secret.length >= 32
     ? '  Secret:      the value of GITHUB_WEBHOOK_SECRET in apps/cloud-global/.env (set, not shown)'
-    : '  Secret:      none yet. Make one with `openssl rand -hex 32`, put it in apps/cloud-global/.env as\n' +
+    : `  Secret:      ${secret === '' ? 'none yet' : 'the one set is under 32 characters'}. Make one with \`openssl rand -hex 32\`, put it in apps/cloud-global/.env as\n` +
       '               GITHUB_WEBHOOK_SECRET=<it>, restart `pnpm dev:cloud`, and paste the same value here';
 
 /** Says, once, what to set on the GitHub App for the tunnel at `address`. */
