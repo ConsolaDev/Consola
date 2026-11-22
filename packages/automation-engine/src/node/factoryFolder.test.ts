@@ -210,6 +210,31 @@ describe('FactoryFolder.read', () => {
     },
   );
 
+  it('a skill file swapped for a link between its look and its read is not followed (O_NOFOLLOW)', async () => {
+    const dir = tmp();
+    const outside = tmp('factory-outside-');
+    layout(outside, { 'secret.md': 'not for the skill' });
+    layout(dir, { 'skills/raced/SKILL.md': SKILL, 'skills/raced/notes.md': 'a regular file' });
+    const raced = path.join(dir, 'skills/raced/notes.md');
+    // The look sees a regular file; by the read, it is a link out of the folder.
+    const regular = fs.lstatSync(raced);
+    fs.rmSync(raced);
+    fs.symlinkSync(path.join(outside, 'secret.md'), raced);
+    const realLstat = fs.promises.lstat.bind(fs.promises);
+    const lstat = vi
+      .spyOn(fs.promises, 'lstat')
+      .mockImplementation(async (file, ...rest) =>
+        String(file) === raced ? regular : realLstat(file, ...(rest as [])),
+      );
+    try {
+      const { files } = await new FactoryFolder(dir).read();
+      const entry = files.skills.raced.find((candidate) => candidate.path === 'notes.md');
+      expect(entry).toEqual({ path: 'notes.md', kind: 'symlink' });
+    } finally {
+      lstat.mockRestore();
+    }
+  });
+
   it('skills: never through a symlink, and no further than the limits', async () => {
     const dir = tmp();
     const outside = tmp('factory-outside-');
