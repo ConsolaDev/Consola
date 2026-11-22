@@ -621,7 +621,10 @@ session's thread (`ThreadRuntime.open`), then listens (`listenHost`), so
   `connectedClients()`, whether a turn runs (`working`), and the last activity:
   the thread's (`lastActivityMs`) or the last moment a client was connected,
   whichever is later; becoming ready counts as activity. When it holds, the
-  host prints `exit`, closes the session and exits 0.
+  host prints `exit`, closes the session and exits 0. A pending approval or
+  question (`waiting`) does not hold it: with no page connected and no turn
+  running, the host exits once the idle minutes pass, and the request, the
+  thread and its history (t3's in-memory SQLite) go with it.
 - **Signals.** SIGTERM and SIGINT interrupt the program: its scope closes (the
   server, the thread, the provider session and the CLI it runs), then the
   process exits 0 (1, with a message, if that takes over 15 seconds).
@@ -683,7 +686,9 @@ then names `pass` as missing, so open the URL with it again. Point `--cwd` only 
 you trust: Claude loads its project and local settings and their hooks with no trust prompt,
 t3 writes checkpoint refs and objects into its git repository, and a command you approve in the
 chat runs as you, not confined to that folder ("What a turn does on the person's machine"). The dev page has no `onPassExpired`, so an
-expired pass shows the chat's "host refused this chat's pass" notice.
+expired pass shows the chat's "host refused this chat's pass" notice. The host exits
+once no page has been connected for `--idle-minutes` (default 10) and no turn runs, a
+pending approval included (it is lost); start it again for a new session.
 
 ## Licensing
 
