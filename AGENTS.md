@@ -41,8 +41,9 @@ front. E2E runs themselves are already hidden and unfocusable
 All commands above run from the repository root. The pnpm workspace contains
 `apps/desktop` (`consola`), `apps/website` (`@consola/website`),
 `apps/cloud-api` (`@consola/cloud-api`), `apps/cloud-web` (`@consola/cloud-web`),
-`packages/factory-spec` (`@consola/factory-spec`, MIT) and
-`packages/automation-engine` (`@consola/automation-engine`). Turborepo
+`packages/factory-spec` (`@consola/factory-spec`, MIT),
+`packages/automation-engine` (`@consola/automation-engine`) and
+`packages/sandbox` (`@consola/sandbox`). Turborepo
 orchestrates builds, tests, and typechecking. Paths below beginning with `src/`,
 `scripts/`, or `dist/` are relative to `apps/desktop`. Use
 `pnpm --filter consola exec <tool>` for app-specific tools.
@@ -84,6 +85,20 @@ onto the package's narrow views. `src/shared/automations.ts` re-exports the
 runner's types, type-only, so the renderer never loads the engine's runtime.
 Beside it, `packages/factory-spec` (MIT) holds the `factory.yml` schema,
 parser and Run record that every runner shares.
+
+### Sandboxes
+
+`packages/sandbox` (`@consola/sandbox`, AGPL-3.0-only) is the one interface
+every runner uses to start and drive sandboxes: create one from a template,
+run a command and stream its output, read and write files, expose a port,
+stop it. E2B is the first provider behind it, invisible to users. Code holds
+`Sandboxes` from `sandboxesFrom(provider)`, which checks every request before a
+provider sees it, and checks a capability (`pausing`, `snapshots`) by its
+member, never by which provider it has. Its core does no I/O, which its
+`boundary.test.ts` proves; every provider passes its contract
+(`src/contract.test.ts`), and its in-memory `FakeProvider` is what other
+packages' tests use. Before changing it, or adding a provider, read
+`packages/sandbox/AGENTS.md`.
 
 ### Main Process Key Files
 - `index.ts` - App lifecycle, window management
