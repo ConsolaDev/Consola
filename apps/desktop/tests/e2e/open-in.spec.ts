@@ -361,5 +361,10 @@ test.describe('open in', () => {
         folder: catalog,
       },
     ]);
+    // Nor was it sent to main and refused there, which records nothing but
+    // says why in a toast. That press was answered before this one was
+    // recorded, and a toast stays for five seconds, so a count taken now
+    // sees it; a waiting assertion could outlast it.
+    expect(await page.locator('.toast-message').count()).toBe(0);
   });
 });
