@@ -1,8 +1,9 @@
 # Consola Cloud: cloud-global
 
 The global part of Consola Cloud's control plane, shared by every region:
-Google sign-in, sessions, the workspaces people make, each in a region, and the
-short-lived token a regional cell trusts. The web app is `apps/cloud-web`; the
+Google sign-in, sessions, the workspaces people make, each in a region, the
+short-lived token a regional cell trusts, and the outbox that tells each cell
+of its workspaces and their members. The web app is `apps/cloud-web`; the
 browser only talks to the web app, which proxies `/api` to this service.
 
 Sign-in is open to any Google account with a verified email, and anyone signed
@@ -48,6 +49,14 @@ and paste the line it prints after `CELL_TOKEN_PRIVATE_KEY=`. Keep it in
 need only its public key, which the API publishes, with no sign-in, at
 `/api/cell-token/keys`. The set holds only this key, so a new one cuts short
 the tokens the old one signed (they live five minutes at most).
+
+`CELL_URL_EU` is the EU cell, which the API tells of every workspace made
+there and of who is in it. `.env.example` sets it to `http://127.0.0.1:3101`,
+where `pnpm dev:cloud-region` runs the cell; `CELL_URL_US` names a US one. The
+cell can start before or after the API: until it answers, the API keeps each
+message and tries again, waiting longer each time, up to five minutes. A
+region with no cell set keeps its messages, and the API says so once. An
+`.env` from before the outbox lacks the variable, so add it.
 
 Open `http://localhost:5175`. `pnpm dev:cloud` starts the API and the web app
 together. The web app's proxy targets the API on port 3100, so leave `PORT`
@@ -98,4 +107,14 @@ Migrations apply when the API starts.
 ```bash
 pnpm --filter @consola/cloud-global test
 pnpm --filter @consola/cloud-global typecheck
+```
+
+The tests run on PGlite. The few that check what concurrent transactions do
+also run on a real Postgres when `CLOUD_GLOBAL_TEST_POSTGRES_URL` names a
+server's maintenance database; each makes a database of its own there and
+drops it:
+
+```bash
+CLOUD_GLOBAL_TEST_POSTGRES_URL=postgres://consola:consola@localhost:5432/postgres \
+  pnpm --filter @consola/cloud-global test
 ```
