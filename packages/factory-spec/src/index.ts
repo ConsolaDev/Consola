@@ -71,9 +71,19 @@ export {
 } from './factory';
 export { parseFactorySpec, type FactorySpecIssue, type FactorySpecParseResult } from './parse';
 export {
+  AGENT_SECRETS_REASON,
+  ENTRY_SECRETS_REASON,
+  MAX_SECRET_NAME_LENGTH,
+  MAX_SECRETS_PER_PLACE,
+  parseSecretNames,
+  secretNameProblem,
+  secretTemplateReason,
+} from './secrets';
+export {
   hasTemplateBraces,
   parseTemplate,
   renderTemplate,
+  secretPathProblem,
   templatePaths,
   type TemplatePart,
   type TemplatePath,

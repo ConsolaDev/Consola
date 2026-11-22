@@ -12,6 +12,7 @@ import { readFrontmatter, splitFrontmatter } from './frontmatter';
 import type { FactorySpecIssue } from './issues';
 import { stableStringify } from './run';
 import { AUTOMATION_NAME_PATTERN } from './schema';
+import { AGENT_SECRETS_REASON } from './secrets';
 import { laterKeyMessage, MAX_TURNS_LIMIT } from './steps';
 import { hasTemplateBraces } from './template';
 
@@ -68,7 +69,7 @@ const COMPILED =
   "Consola compiles an agent's permissions from `tools`, `mcpServers` and `skills`; it takes no others.";
 const REFUSED_AGENT_KEYS: Readonly<Record<string, string>> = {
   environment: laterKeyMessage('environment'),
-  secrets: laterKeyMessage('secrets'),
+  secrets: AGENT_SECRETS_REASON,
   hooks: COMPILED,
   permissionMode: COMPILED,
   'allowed-tools': COMPILED,

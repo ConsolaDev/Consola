@@ -467,5 +467,10 @@ describe('what an agent writing agent files and automation files is told', () =>
     expect(text).toContain(
       'a link leading outside the folder: Consola reads only files inside it.',
     );
+    // An agent file's secrets are refused for good, not for later (5a-1).
+    expect(text).toContain(
+      'secrets (a secret given to an agent can reach its model, its transcript and its pane; a run: step names the secrets its command needs)',
+    );
+    expect(text).not.toContain('secrets (later slices)');
   });
 });

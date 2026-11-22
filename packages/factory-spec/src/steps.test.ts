@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { parseFactorySpec, parseFactoryYml } from './parse';
 import { isStepsEntry } from './schema';
+import { AGENT_SECRETS_REASON, ENTRY_SECRETS_REASON, secretTemplateReason } from './secrets';
 import {
   ENV_PREFIX_EXCEPTIONS,
   isRefusedEnvName,
@@ -159,7 +160,6 @@ const STEP_KEYS: Record<string, string> = {
   concurrency: 'waiting runs',
   uses: 'connections as data',
   with: 'connections as data',
-  secrets: 'connections as data',
 };
 const ENTRY_KEYS: Record<string, string> = {
   ...STEP_KEYS,
@@ -558,6 +558,59 @@ describe('a command', () => {
     expect(issue.path).toBe('automations[0].steps[0].artifacts');
     expect(issue.message).toMatch(/a command writes no artifacts/);
     expect(only(command('  reads: [a.handover]')).path).toBe('automations[0].steps[0].reads');
+  });
+});
+
+describe('secrets: on a command step', () => {
+  const IN_BOTH = '`TOKEN` is in both `env:` and `secrets:`; a value comes from one place.';
+
+  it('names the secrets it needs, in order', () => {
+    const step = firstStep<CommandStep>(command('  secrets: [PAGER_TOKEN, TRACKER_TOKEN]'));
+    expect(step.secrets).toEqual(['PAGER_TOKEN', 'TRACKER_TOKEN']);
+  });
+
+  it('has no secrets key when it names none', () => {
+    expect('secrets' in firstStep<CommandStep>(command())).toBe(false);
+    expect('secrets' in firstStep<CommandStep>(command('  secrets: []'))).toBe(false);
+  });
+
+  it("refuses a name that is also in the step's env:", () => {
+    const issue = only(command('  env: { TOKEN: x }\n  secrets: [TOKEN]'));
+    expect(issue.path).toBe('automations[0].steps[0].secrets[0]');
+    expect(issue.message).toBe(IN_BOTH);
+  });
+
+  it("keeps GH_TOKEN the bound account's", () => {
+    const issue = only(command('  secrets: [GH_TOKEN]'));
+    expect(issue.path).toBe('automations[0].steps[0].secrets[0]');
+    expect(issue.message).toBe(
+      "Commands act as the workspace's bound GitHub account, whose token Consola puts in `GH_TOKEN` (decision 37). To act as another account, bind it to the workspace.",
+    );
+  });
+
+  it('refuses secrets on an agent step', () => {
+    const issue = only(agent('  secrets: [PAGER_TOKEN]'));
+    expect(issue.path).toBe('automations[0].steps[0].secrets');
+    expect(issue.message).toBe(AGENT_SECRETS_REASON);
+  });
+
+  it('refuses secrets on an entry', () => {
+    const issue = only(one(`${REVIEW}    steps:\n      - run: echo hi\n    secrets: [X]\n`));
+    expect(issue.path).toMatch(/secrets$/);
+    expect(issue.message).toBe(ENTRY_SECRETS_REASON);
+  });
+
+  it('says how a secret reaches a command wherever a template names one', () => {
+    const inEnv = only(command('  env: { PAGER_KEY: "{{secrets.PAGER_TOKEN}}" }'));
+    expect(inEnv.path).toBe('automations[0].steps[0].env.PAGER_KEY');
+    expect(inEnv.message).toBe(secretTemplateReason('PAGER_TOKEN'));
+    const inPrompt = only(steps('- prompt: "Page with {{ secrets.PAGER_TOKEN }}"'));
+    expect(inPrompt.path).toBe('automations[0].steps[0].prompt');
+    expect(inPrompt.message).toBe(secretTemplateReason('PAGER_TOKEN'));
+    const inRun = only(steps('- run: curl -H "{{secrets.PAGER_TOKEN}}" x'));
+    expect(inRun.path).toBe('automations[0].steps[0].run');
+    expect(inRun.message).toBe(secretTemplateReason('PAGER_TOKEN'));
+    expect(only(steps('- run: echo "{{ secrets }}"')).message).toBe(secretTemplateReason());
   });
 });
 

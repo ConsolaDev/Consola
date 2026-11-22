@@ -18,94 +18,23 @@ import {
   type ExpressionScope,
 } from './expression';
 import { parseDurationMs } from './duration';
+import { ENV_NAME_PATTERN, isRefusedEnvName, REFUSED_ENV_LIST } from './envNames';
 import { AUTOMATION_NAME_PATTERN } from './names';
 import type { OutputType } from './outputs';
 import type { Trigger } from './schema';
+import { AGENT_SECRETS_REASON, parseSecretNames, secretTemplateReason } from './secrets';
 import { hasTemplateBraces, parseTemplate, templatePaths, type TemplatePath } from './template';
 
 export const STEP_ID_PATTERN = /^[a-z][a-z0-9-]{0,31}$/;
 export const OUTPUT_NAME_PATTERN = /^[a-z][a-z0-9_]{0,31}$/;
 export const ARTIFACT_NAME_PATTERN = /^[a-z][a-z0-9-]{0,63}$/;
-export const ENV_NAME_PATTERN = /^[A-Z_][A-Z0-9_]*$/;
-
-/**
- * `env:` names that make a program run a value: a shell sources a file or runs
- * a string, git or ssh starts a program, a loader or runtime loads code, or
- * the value picks which program runs. `BASH_ENV: "{{steps.review.handover.file}}"`
- * would have bash source a file an agent wrote from a pull request's text.
- * Refused outright, templated or not: a value must stay data, and a command
- * that needs one sets it inside `run:`, where it reads as the code it is.
- *
- * A denylist cannot name every such variable, so it says only what it
- * refuses: these exact names, every name with one of `REFUSED_ENV_PREFIXES`
- * but `ENV_PREFIX_EXCEPTIONS`. Names a prefix covers are not repeated here.
- */
-export const REFUSED_ENV_NAMES = [
-  'BASH_ENV',
-  'ENV',
-  'PROMPT_COMMAND',
-  'PS4',
-  'SHELLOPTS',
-  'BASHOPTS',
-  'IFS',
-  'HOME',
-  'ZDOTDIR',
-  'SSH_ASKPASS',
-  'PAGER',
-  'EDITOR',
-  'VISUAL',
-  'BROWSER',
-  'LESSOPEN',
-  'LESSCLOSE',
-  'GCONV_PATH',
-  '_JAVA_OPTIONS',
-  'PATH',
-] as const;
-
-/**
- * Prefixes `env:` refuses every name with: loaders (`LD_`, `DYLD_`), runtimes
- * (`PYTHON`, `PERL`, `RUBY`, `NODE_`, `JAVA_`, `NPM_CONFIG_`), where programs
- * find their configuration (`XDG_`), and git's and gh's own (`GIT_`, `GH_`).
- * `NPM_CONFIG_` matches in any case, as npm reads `npm_config_*` too; the
- * rest match as written. (Git's `GIT_CONFIG_COUNT` from the login
- * environment still reaches a command; the engine appends its hooks-off
- * entry after it.)
- */
-export const REFUSED_ENV_PREFIXES = [
-  'LD_',
-  'DYLD_',
-  'PYTHON',
-  'PERL',
-  'RUBY',
-  'NODE_',
-  'JAVA_',
-  'NPM_CONFIG_',
-  'XDG_',
-  'GIT_',
-  'GH_',
-] as const;
-
-/** Names a refused prefix lets through: gh's token and host are data. */
-export const ENV_PREFIX_EXCEPTIONS = ['GH_TOKEN', 'GH_HOST'] as const;
-
-/** Prefixes matched in any case. */
-const CASELESS_ENV_PREFIXES: ReadonlySet<string> = new Set(['NPM_CONFIG_']);
-
-/** Whether `env:` refuses a name: one of `REFUSED_ENV_NAMES`, or a refused prefix's that is not an exception. */
-export function isRefusedEnvName(name: string): boolean {
-  if ((REFUSED_ENV_NAMES as readonly string[]).includes(name)) return true;
-  if ((ENV_PREFIX_EXCEPTIONS as readonly string[]).includes(name)) return false;
-  return REFUSED_ENV_PREFIXES.some((prefix) =>
-    CASELESS_ENV_PREFIXES.has(prefix)
-      ? name.toUpperCase().startsWith(prefix)
-      : name.startsWith(prefix),
-  );
-}
-
-/** What `env:` refuses, as its refusal lists it. */
-const REFUSED_ENV_LIST =
-  `${REFUSED_ENV_NAMES.join(', ')}, and every name matching ${REFUSED_ENV_PREFIXES.map((prefix) => `${prefix}*`).join(', ')} ` +
-  `(${ENV_PREFIX_EXCEPTIONS.join(' and ')} are allowed)`;
+export {
+  ENV_NAME_PATTERN,
+  ENV_PREFIX_EXCEPTIONS,
+  isRefusedEnvName,
+  REFUSED_ENV_NAMES,
+  REFUSED_ENV_PREFIXES,
+} from './envNames';
 
 export const MAX_STEPS = 20;
 export const MAX_OUTPUTS = 10;
@@ -145,6 +74,8 @@ export interface CommandStep extends StepCommon {
   stdout?: 'json' | 'text';
   timeoutMs: number;
   dryRun: 'report' | 'run';
+  /** The secrets it needs, by name, each its own environment variable; present only when written and non-empty. */
+  secrets?: string[];
 }
 
 export type Step = AgentStep | CommandStep;
@@ -168,7 +99,6 @@ export const LATER_KEYS: Readonly<Record<string, string>> = {
   concurrency: 'waiting runs',
   uses: 'connections as data',
   with: 'connections as data',
-  secrets: 'connections as data',
   callable: 'callable automations',
   inputs: 'callable automations',
 };
@@ -179,7 +109,7 @@ export function laterKeyMessage(key: string): string {
 
 const COMMON_KEYS = ['id', 'if'];
 const AGENT_KEYS = ['prompt', 'action', 'agent', 'outputs', 'artifacts', 'reads', 'max_turns'];
-const COMMAND_KEYS = ['run', 'env', 'outputs', 'timeout', 'dry_run'];
+const COMMAND_KEYS = ['run', 'env', 'outputs', 'timeout', 'dry_run', 'secrets'];
 const ALL_KEYS = new Set([...COMMON_KEYS, ...AGENT_KEYS, ...COMMAND_KEYS]);
 /** Exclusive: a step names one thing to do. `agent:` goes with `prompt:` or `action:`, or alone. */
 const ONE_OF = ['prompt', 'action', 'run'] as const;
@@ -508,8 +438,12 @@ function parseStep(raw: unknown, index: number, fail: Fail): Step | null {
       bad('Expected the command to run, e.g. `run: gh pr view "$PR"`.', ['run']);
     } else if (hasTemplateBraces(run)) {
       const found = /\{\{[^}]*\}\}/.exec(run)?.[0] ?? '{{';
+      // `{{ secrets.X }}` says how a secret reaches a command, rather than to move it into `env:`.
+      const [root, name] = found.slice(2, -2).trim().split('.');
       bad(
-        `Values reach a command only as environment variables: move \`${found}\` into \`env:\` and use \`"$PR"\`.`,
+        root === 'secrets'
+          ? secretTemplateReason(name)
+          : `Values reach a command only as environment variables: move \`${found}\` into \`env:\` and use \`"$PR"\`.`,
         ['run'],
       );
     }
@@ -545,6 +479,14 @@ function parseStep(raw: unknown, index: number, fail: Fail): Step | null {
       if (raw.dry_run === 'report' || raw.dry_run === 'run') dryRun = raw.dry_run;
       else bad('Expected `dry_run` to be `report` or `run`.', ['dry_run']);
     }
+    const secrets =
+      'secrets' in raw
+        ? parseSecretNames(
+            raw.secrets,
+            (message, path = []) => bad(message, ['secrets', ...path]),
+            Object.keys(env),
+          )
+        : null;
     if (!ok || typeof run !== 'string' || timeoutMs === null) return null;
     return {
       id,
@@ -557,6 +499,8 @@ function parseStep(raw: unknown, index: number, fail: Fail): Step | null {
       ...(stdout ? { stdout } : {}),
       timeoutMs,
       dryRun,
+      // Only when it names any, so a step without one parses, and hashes, as before the key existed.
+      ...(secrets && secrets.length > 0 ? { secrets } : {}),
     };
   }
 
@@ -564,6 +508,7 @@ function parseStep(raw: unknown, index: number, fail: Fail): Step | null {
   for (const key of ['env', 'timeout', 'dry_run'].filter((key) => key in raw)) {
     bad(`\`${key}\` is for a command (\`run:\`); an agent step does not take it.`, [key]);
   }
+  if ('secrets' in raw) bad(AGENT_SECRETS_REASON, ['secrets']);
   // A step with `agent:` and neither `prompt:` nor `action:` runs on the agent's body alone.
   const text = kind === 'agent' ? undefined : raw[kind];
   if (kind !== 'agent') {

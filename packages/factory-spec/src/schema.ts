@@ -4,6 +4,7 @@ import { cronError } from './cron';
 import { AUTOMATION_NAME_PATTERN } from './names';
 import { parseManualTrigger, parsePollTrigger, type ManualTrigger, type PollTrigger } from './poll';
 import { parseToolRef, type RunTarget } from './runTarget';
+import { ENTRY_SECRETS_REASON } from './secrets';
 import {
   ACTION_ON_KEYED_POLL,
   checkSteps,
@@ -355,6 +356,7 @@ function automationEntrySchema() {
       agent: explained('`agent:` goes on a step, not on the automation.'),
       skills: explained(ENTRY_SKILLS_AND_SERVERS),
       mcpServers: explained(ENTRY_SKILLS_AND_SERVERS),
+      secrets: explained(ENTRY_SECRETS_REASON),
       ...laterEntryKeys(),
       // A file belongs to one workspace, so there is nothing to select.
       workspace: explained(
