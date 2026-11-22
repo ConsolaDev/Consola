@@ -31,8 +31,11 @@ The service is built in rings, and imports point inward only.
     of what a cell must hear about is `writeWorkspaceChange` (below);
   - `auth/` is Better Auth (`betterAuth.ts`). Its hooks call use cases and run
     no query of their own;
-  - `http/` is the Hono routes (`app.ts`). Each route asks a use case and maps
-    its answer to a status and a body;
+  - `http/` is the Hono routes. `contract.ts` declares every route but
+    sign-in, with what it takes and every answer it gives, in Zod
+    (`@hono/zod-openapi`); `app.ts` implements them, and TypeScript checks
+    each handler's answers against the route's (see "The contract"). Each
+    route asks a use case and maps its answer to a status and a body;
   - `cellToken/` is `jose` (`cellTokenSigner.ts`): it signs the cell token and
     outbox messages with the configured private key and publishes the public
     key (below). It is the only code that holds the private key;
@@ -367,6 +370,36 @@ wakes.
   one needs a claim on each workspace's first message first (a lease, or
   `for update skip locked`).
 
+## The contract
+
+`src/adapters/http/contract.ts` is the API's contract, and `openapi.json` is
+generated from it (`pnpm --filter @consola/cloud-global openapi:generate`;
+`openapi.test.ts` fails while it is stale). The web app's types are generated
+from `openapi.json`, which it reads as a file, so a change here reaches it
+through that file, and CI checks the web app with every change to this app
+(`.github/scripts/ci-scope.mjs`).
+
+- **A route is added to the contract first**, then implemented in `app.ts`
+  and added to `ROUTES`. Every status a route can answer is declared, with its
+  body: TypeScript refuses a handler answer the route does not declare, a
+  missing field or a wrong literal, but not an extra field. That one the HTTP
+  suite catches: `app.test.ts` checks every answer it reads against the
+  route's schema, and answers are strict objects (a private key's `d` in the
+  key set fails it, for one).
+- **A request schema checks shape, never rules.** It is never stricter than
+  the domain rule behind it, and a route whose rules name problems hands a
+  body of the wrong shape to them in its hook (`POST /api/workspaces` calls
+  `checkNewWorkspace`), so every problem is still named. Any other wrong shape
+  is 400 `invalid_request` (the app's `defaultHook`), never the validator's own
+  answer.
+- **A body that is not JSON is refused before any route sees it**: 400
+  `invalid_request` if it does not parse, 415 `unsupported_media_type` without
+  a JSON content type (`onError`). A session check runs before the body is
+  read (route `middleware`), so a signed-out request is 401 whatever it sends.
+- **A schema used both alone and nullable is a union at the nullable use**
+  (`z.union([MyWorkspace, z.null()])`): `.nullable()` on a named schema makes
+  every use of the name nullable. `openapi.test.ts` checks no named schema is.
+
 ## Tests
 
 A test sits beside its module and is named after it (`membershipStore.ts`,
@@ -374,7 +407,8 @@ A test sits beside its module and is named after it (`membershipStore.ts`,
 cases are tested on a migrated `pglite:memory` database through the real
 Drizzle stores: the database is never mocked. `src/app.test.ts` is the HTTP
 suite, end to end. It builds the service through `compose.ts`
-(`composeApi`), as `main.ts` does, so it tests the wiring that runs.
+(`composeApi`), as `main.ts` does, so it tests the wiring that runs, and it
+checks every answer against the contract.
 
 PGlite runs one transaction at a time, so a test of what concurrent
 transactions do proves something only on a real Postgres. Such a test runs
@@ -383,6 +417,9 @@ maintenance database, `postgres://…/postgres`), and is skipped otherwise.
 
 ## Generated files
 
+- `openapi.json` is the contract (above), written by
+  `pnpm --filter @consola/cloud-global openapi:generate`. Never edit it by
+  hand; Biome leaves it alone, since it is compared byte for byte.
 - `src/adapters/persistence/outboxSchema.ts` is Consola's own table, written
   by hand, and never by `auth:generate`. `drizzle.config.ts` reads it beside
   `auth-schema.ts`, and `schema.ts` puts the two together.

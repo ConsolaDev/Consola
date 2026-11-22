@@ -1,5 +1,5 @@
 import type { BetterAuthPlugin } from 'better-auth';
-import type { Hono } from 'hono';
+import type { OpenAPIHono } from '@hono/zod-openapi';
 import { type CloudAuth, createAuth, currentSessionOf } from './adapters/auth/betterAuth.js';
 import { createCellTokenSigner } from './adapters/cellToken/cellTokenSigner.js';
 import { createApp } from './adapters/http/app.js';
@@ -19,7 +19,7 @@ import type { CloudConfig } from './config.js';
 export async function composeApi(
   deps: { db: Database; config: CloudConfig },
   extraPlugins: BetterAuthPlugin[] = [],
-): Promise<{ app: Hono; auth: CloudAuth; outbox: OutboxWorker }> {
+): Promise<{ app: OpenAPIHono; auth: CloudAuth; outbox: OutboxWorker }> {
   const { db, config } = deps;
   // A change that writes a message wakes the worker, which is built below, once the stores are.
   let messageWritten = () => {};
