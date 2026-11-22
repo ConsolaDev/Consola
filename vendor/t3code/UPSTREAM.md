@@ -2891,3 +2891,35 @@ Consola", and each later lift's): follow the imports, `new URL(…,
 import.meta.url)` and `vi.mock` paths in the newer `apps/server`, copy the
 closure over `apps/server/` (with t3's `tsconfig.json`), delete the files that
 left it, and compare the `t3` manifest's dependencies with t3's lockfile.
+
+Then audit, against the newer source, everything Consola wrote down about t3's:
+
+- [ ] **The CLI-credentials guard.** `packages/host/src/runtime/credentials.ts`: the
+  login files a driver may read (`.credentials.json`, `auth.json`) and the hosts its HTTP
+  client refuses (`api.anthropic.com`, `opencode.ai`, `api.openai.com`, `auth.openai.com`);
+  grep the drivers (`provider/Drivers/`, `packages/provider-*/src/server/`) for new reads of a
+  login, token or usage API. And the CLI variables the host's tests clear
+  (`CLI_VARIABLES`, `CLI_VARIABLE_PREFIXES` in `packages/host/src/testing/machine.ts`, which
+  `src/testing/setup.ts` applies): every config, login or install variable the five drivers and
+  the install probes read.
+- [ ] **`NOT_RUN_HERE`** in `apps/server/vitest.config.ts` and
+  `packages/provider-opencode/vitest.config.ts`: each name still names a test, and each still
+  needs skipping for the reason given.
+- [ ] **The reproduced `ws.ts` helpers** ("The host RPC server lift"): diff each against the
+  newer `apps/server/src/ws.ts` at the lines recorded, and update the lines.
+- [ ] **The t3 versions**: `T3_SERVER_VERSION` (`packages/host/src/adapters/rpcServer.ts`),
+  `T3_APP_VERSION` (`packages/agent-ui/build/t3Version.ts`) and `apps/server/package.json`'s
+  `version` take t3's new version (their tests check they agree).
+- [ ] **"What each entry reaches"** (the provider entries' Cursor table): walk each entry's
+  imports again; a new path to `@cursor/sdk` changes what a bundle must exclude.
+- [ ] **The provider test globs** (`{Claude,claude}*.test.ts`, `{Codex,codex}*.test.ts` and
+  `server-orchestration`'s list, in each entry package's `vitest.config.ts`): every lifted
+  test still runs exactly once.
+- [ ] **The OpenCode local edit** (`provider-opencode/src/server/driver.ts`, "Local changes"):
+  re-apply it at the call's new line, or drop it if t3 gives that read a seam.
+- [ ] **The Apple `.glb` exclusion** (the chat view's device models): still excluded, and still
+  without a redistribution licence.
+- [ ] **The pins**: the chat view's React, React types and Playwright stay at Consola's versions
+  ("Dependencies at Consola's versions, not t3's").
+- [ ] **The licence lines**: every copied `package.json`, new ones included, gains
+  `"license": "MIT"` ("Local changes").
