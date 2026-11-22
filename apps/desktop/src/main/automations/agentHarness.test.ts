@@ -1,15 +1,20 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { AgentHarnessQuery } from '@consola/automation-engine';
 import type { Harness } from '../../shared/harness';
 import type { HarnessCapabilitiesResult } from '../../shared/types';
-import { getDriver, toolPolicyProblem } from '../drivers';
+import { getDriver, type HarnessDriver, toolPolicyProblem } from '../drivers';
+import { CodexDriver } from '../drivers/CodexDriver';
+import type { McpServerReport } from '../drivers/HarnessDriver';
 import type { HarnessCapabilitiesCache } from '../HarnessCapabilitiesCache';
 import {
   agentHarnessRefusal,
   agentHarnessView,
   cachedModels,
+  harnessesWithServers,
+  noAgentGrants,
   SERVERS_AND_SKILLS_LATER,
 } from './agentHarness';
+import type { McpServersCache, ServersAnswer } from './mcpServersCache';
 
 /** A harness record named Stub, on the claude driver unless `fields` say otherwise. */
 function harness(fields: Partial<Harness> = {}): Harness {
@@ -144,29 +149,18 @@ describe('agentHarnessView, for an agent', () => {
     });
   });
 
-  it("a Codex harness gives the Codex driver's own read-only refusal", () => {
+  it("a Codex harness gives the Codex driver's own read-only refusal, and why it runs no agent", () => {
     const codex = view(query({ harnessId: 'codex-1' }));
     expect(codex.problem).toBe(toolPolicyProblem({ driverId: 'codex' }, 'read-only'));
     expect(codex.problem).not.toBeNull();
-    expect(codex.agentProblem).toBeNull();
+    expect(codex.agentProblem).toBe(
+      `${codex.problem} Steps on Codex arrive later; they need a Codex harness with a home of its own.`,
+    );
   });
 
-  it('an agent that names a server or a skill is refused until they arrive', () => {
+  it("2-B's launch refusal keeps its words until the launch compiles too", () => {
     expect(SERVERS_AND_SKILLS_LATER).toBe(
       'Servers and skills for agents arrive with the next update',
-    );
-    for (const named of [
-      query({ harnessId: 'claude-work', mcpServers: [{ name: 'notion' }] }),
-      query({ harnessId: 'claude-work', skills: ['incident-triage'] }),
-      query({ mcpServers: [{ name: 'grafana', tools: ['query_logs'] }] }),
-    ])
-      expect(view(named).agentProblem).toBe(SERVERS_AND_SKILLS_LATER);
-    // On a harness it cannot run on at all, that is said first.
-    expect(view(query({ harnessId: 'nope', mcpServers: [{ name: 'notion' }] })).agentProblem).toBe(
-      UNKNOWN,
-    );
-    expect(view(query({ harnessId: 'off', skills: ['incident-triage'] })).agentProblem).toBe(
-      '`off` is turned off: turn it on in Settings › Harnesses, or change `harness:`',
     );
   });
 
@@ -216,6 +210,282 @@ describe('agentHarnessView, for an agent', () => {
     view(query({ harnessId: 'claude-work' }), HARNESSES, models);
     // An unknown harness has no models to ask for.
     expect(asked).toEqual(['claude-work', 'default']);
+  });
+});
+
+describe("agentHarnessView, for an agent's servers and skills", () => {
+  const SLACK = 'https://mcp.slack.example/mcp';
+  const GRAFANA: McpServerReport = {
+    name: 'grafana',
+    source: 'user',
+    transport: 'stdio',
+    tools: ['query_logs'],
+    status: 'connected',
+  };
+  const NEEDS_AUTH_SLACK: McpServerReport = {
+    name: 'claude.ai Slack',
+    source: 'connector',
+    transport: 'claudeai-proxy',
+    url: SLACK,
+    status: 'needs-auth',
+  };
+  const HARNESSES: Harness[] = [
+    harness({ id: 'default', name: 'Claude', isBuiltIn: true }),
+    harness({ id: 'claude-work', name: 'Claude work', configDir: '/home/alice/.claude-work' }),
+    harness({ id: 'off', name: 'Off', enabled: false }),
+    harness({ id: 'codex-1', name: 'Codex', driverId: 'codex' }),
+    harness({ id: 'codex-off', name: 'Codex off', driverId: 'codex', enabled: false }),
+    harness({ id: 'agy-1', name: 'Antigravity', driverId: 'antigravity' }),
+    harness({ id: 'pinned', name: 'Pinned', extraArgs: ['--mcp-config', 'x.json'] }),
+  ];
+  const query = (fields: Partial<AgentHarnessQuery> = {}): AgentHarnessQuery => ({
+    harnessId: 'claude-work',
+    mcpServers: [],
+    skills: [],
+    checkout: 'scope',
+    ...fields,
+  });
+  /** The view with `answer` as every harness's servers; records what it was asked. */
+  const view = (
+    agent: AgentHarnessQuery,
+    answer: ServersAnswer = { state: 'settled', servers: [GRAFANA] },
+    driverFor?: (id?: Harness['driverId']) => HarnessDriver,
+  ) => {
+    const serversNow = vi.fn((_harness: Harness | undefined) => answer);
+    const missingServers = vi.fn();
+    const result = agentHarnessView({
+      harnesses: HARNESSES,
+      defaultHarnessId: 'default',
+      agent,
+      serversNow,
+      missingServers,
+      ...(driverFor ? { driverFor } : {}),
+    });
+    return { result, serversNow, missingServers };
+  };
+  const GRAFANA_AGENT = { mcpServers: [{ name: 'grafana' }] };
+
+  it('a server its harness has: nothing to say, but no warning either', () => {
+    const { result, serversNow } = view(query(GRAFANA_AGENT));
+    expect(result).toEqual({
+      name: 'Claude work',
+      problem: null,
+      stepProblem: null,
+      agentProblem: null,
+      warning: null,
+      serverWarnings: [],
+    });
+    expect(serversNow).toHaveBeenCalledWith(HARNESSES[1]);
+  });
+
+  it("the person's own server on an item step is refused, at the servers", () => {
+    const { result } = view(query({ ...GRAFANA_AGENT, checkout: 'item' }));
+    expect(result.agentProblem).toBeNull();
+    expect(result.serversProblem).toBe(
+      "`grafana` comes from Claude work's own settings, and a step on someone else's pull request or issue starts it, or a helper command it runs for its sign-in, inside the author's checkout, where `npx`, `uvx` or a relative path can run the author's code. On item steps, use a claude.ai connector; this server works in scheduled steps.",
+    );
+  });
+
+  it('a probe under way: the entry waits', () => {
+    const { result } = view(query(GRAFANA_AGENT), { state: 'pending' });
+    expect(result.serversPending).toBe(
+      'Asking Claude work which MCP servers it has; this applies once it answers.',
+    );
+    expect(result.serversProblem ?? null).toBeNull();
+    expect(result.serversUnknown ?? null).toBeNull();
+  });
+
+  it('a probe that failed: why, as the entry’s problem', () => {
+    const { result } = view(query(GRAFANA_AGENT), {
+      state: 'failed',
+      error: 'spawn claude ENOENT',
+    });
+    expect(result.serversUnknown).toBe(
+      "Couldn't ask Claude work which MCP servers it has: spawn claude ENOENT",
+    );
+    expect(result.serversProblem ?? null).toBeNull();
+    expect(result.serversPending ?? null).toBeNull();
+  });
+
+  it('a name its harness lacks: refused with what it has, and asked about once more', () => {
+    const { result, missingServers } = view(
+      query({ mcpServers: [{ name: 'grafanna' }, { name: 'grafana' }, { name: 'tracker' }] }),
+    );
+    expect(result.serversProblem).toBe(
+      "`grafanna` isn't one of Claude work's MCP servers (it has: grafana). Add it with `claude mcp add --scope user`, or fix the name.",
+    );
+    expect(result.agentProblem).toBeNull();
+    expect(missingServers).toHaveBeenCalledTimes(1);
+    expect(missingServers).toHaveBeenCalledWith(HARNESSES[1], ['grafanna', 'tracker']);
+  });
+
+  it('with no way to ask the CLI, says it could not', () => {
+    const result = agentHarnessView({
+      harnesses: HARNESSES,
+      defaultHarnessId: 'default',
+      agent: query(GRAFANA_AGENT),
+    });
+    expect(result.serversUnknown).toBe(
+      "Couldn't ask Claude work which MCP servers it has: its CLI is not asked here.",
+    );
+  });
+
+  it('skills alone ask no CLI and say nothing', () => {
+    const { result, serversNow, missingServers } = view(query({ skills: ['incident-triage'] }));
+    expect(serversNow).not.toHaveBeenCalled();
+    expect(missingServers).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      name: 'Claude work',
+      problem: null,
+      stepProblem: null,
+      agentProblem: null,
+      warning: null,
+      serverWarnings: [],
+    });
+  });
+
+  it('a server that needs a sign-in is a warning, never a problem', () => {
+    const { result } = view(query({ mcpServers: [{ name: 'claude.ai Slack' }] }), {
+      state: 'settled',
+      servers: [NEEDS_AUTH_SLACK],
+    });
+    expect(result.serversProblem ?? null).toBeNull();
+    expect(result.serverWarnings).toEqual([
+      '`claude.ai Slack` needs you to sign in again in Claude work: run `claude`, then /mcp.',
+    ]);
+  });
+
+  it("a harness's own --mcp-config is a step problem only for an agent with servers", () => {
+    expect(view(query({ harnessId: 'pinned', ...GRAFANA_AGENT })).result.stepProblem).toBe(
+      "This harness's extra arguments set `--mcp-config`, which would override what Consola launches each step's turn with. Remove it in Settings › Harnesses.",
+    );
+    expect(view(query({ harnessId: 'pinned' })).result.stepProblem).toBeNull();
+  });
+
+  it('a harness turned off says so, and its CLI is not asked', () => {
+    const { result, serversNow } = view(query({ harnessId: 'off', ...GRAFANA_AGENT }));
+    expect(result.agentProblem).toBe(
+      '`off` is turned off: turn it on in Settings › Harnesses, or change `harness:`',
+    );
+    expect(serversNow).not.toHaveBeenCalled();
+    expect(result.serversProblem ?? null).toBeNull();
+  });
+
+  it('a Codex harness: its read-only refusal, then why it runs no agent, servers or not', () => {
+    const refusal = toolPolicyProblem({ driverId: 'codex' }, 'read-only');
+    for (const agent of [
+      query({ harnessId: 'codex-1' }),
+      query({ harnessId: 'codex-1', ...GRAFANA_AGENT }),
+    ]) {
+      const { result, serversNow } = view(agent);
+      expect(result.agentProblem).toBe(
+        `${refusal} Steps on Codex arrive later; they need a Codex harness with a home of its own.`,
+      );
+      expect(serversNow).not.toHaveBeenCalled();
+    }
+  });
+
+  it('a Codex harness turned off says that first', () => {
+    expect(view(query({ harnessId: 'codex-off' })).result.agentProblem).toBe(
+      '`codex-off` is turned off: turn it on in Settings › Harnesses, or change `harness:`',
+    );
+  });
+
+  it('a narrowing reaches the compile: a tool the server lacks is refused', () => {
+    const { result } = view(query({ mcpServers: [{ name: 'grafana', tools: ['post_logs'] }] }));
+    expect(result.serversProblem).toBe('`grafana` has no tool `post_logs` (it has: query_logs).');
+  });
+
+  it('an Antigravity harness: its own read-only refusal is the reason, and its CLI is not asked', () => {
+    const refusal = toolPolicyProblem({ driverId: 'antigravity' }, 'read-only');
+    expect(refusal).not.toBeNull();
+    const named = view(query({ harnessId: 'agy-1', ...GRAFANA_AGENT }));
+    expect(named.result).toMatchObject({ problem: refusal, agentProblem: null });
+    expect(named.serversNow).not.toHaveBeenCalled();
+    expect(view(query({ harnessId: 'agy-1' })).result).toEqual({
+      name: 'Antigravity',
+      problem: refusal,
+      stepProblem: null,
+      agentProblem: null,
+      warning: null,
+    });
+  });
+
+  it("a driver's reason it runs no agent steps stands alone where it has no read-only refusal", () => {
+    const later = {
+      ...getDriver('claude'),
+      agentRefusal: 'Steps here arrive later.',
+    } as HarnessDriver;
+    const { result, serversNow } = view(query(GRAFANA_AGENT), undefined, () => later);
+    expect(result.problem).toBeNull();
+    expect(result.agentProblem).toBe('Steps here arrive later.');
+    expect(serversNow).not.toHaveBeenCalled();
+  });
+
+  it('a driver that runs read-only but compiles no agent refuses one that names servers or skills', () => {
+    const plain = { ...getDriver('claude'), compileAgent: undefined } as HarnessDriver;
+    const driverFor = () => plain;
+    for (const agent of [query(GRAFANA_AGENT), query({ skills: ['incident-triage'] })]) {
+      const { result, serversNow } = view(agent, undefined, driverFor);
+      expect(result.agentProblem).toBe(noAgentGrants('Claude work'));
+      expect(serversNow).not.toHaveBeenCalled();
+    }
+    expect(noAgentGrants('Claude work')).toBe(
+      "Claude work can't give an agent MCP servers or skills.",
+    );
+    // An agent that names neither has nothing for it to compile.
+    expect(view(query(), undefined, driverFor).result.agentProblem).toBeNull();
+  });
+});
+
+describe('harnessesWithServers', () => {
+  const HARNESSES: Harness[] = [
+    harness({ id: 'work', name: 'Claude work', configDir: '/home/alice/.claude-work' }),
+    harness({ id: 'pending', name: 'Pending', configDir: '/home/alice/.p' }),
+    harness({ id: 'failed', name: 'Failed', configDir: '/home/alice/.f', enabled: false }),
+    harness({ id: 'never', name: 'Never', configDir: '/home/alice/.n', archived: true }),
+  ];
+  const answers: Record<string, ServersAnswer> = {
+    '/home/alice/.claude-work': {
+      state: 'settled',
+      servers: [
+        {
+          name: 'tracker',
+          source: 'user',
+          transport: 'http',
+          url: 'https://t.example',
+          status: 'connected',
+        },
+        { name: 'grafana', source: 'user', transport: 'stdio', status: 'failed' },
+      ],
+    },
+    '/home/alice/.p': { state: 'pending' },
+    '/home/alice/.f': { state: 'failed', error: 'spawn claude ENOENT' },
+  };
+  const throws = () => {
+    throw new Error('describing capabilities must start nothing');
+  };
+  const cache = {
+    peek: (_driver: HarnessDriver, config: { configDir?: string }) =>
+      answers[config.configDir ?? ''],
+    ask: throws,
+    get: throws,
+    missing: throws,
+  } as unknown as McpServersCache;
+
+  it('names the servers of each harness whose answer has settled, and asks nothing', () => {
+    expect(harnessesWithServers(HARNESSES, cache)).toStrictEqual([
+      {
+        id: 'work',
+        name: 'Claude work',
+        enabled: true,
+        archived: false,
+        servers: ['tracker', 'grafana'],
+      },
+      { id: 'pending', name: 'Pending', enabled: true, archived: false },
+      { id: 'failed', name: 'Failed', enabled: false, archived: false },
+      { id: 'never', name: 'Never', enabled: true, archived: true },
+    ]);
   });
 });
 

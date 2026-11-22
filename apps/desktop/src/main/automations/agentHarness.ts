@@ -1,15 +1,24 @@
 import type { AgentHarnessAnswer, AgentHarnessQuery } from '@consola/automation-engine';
 import { launchFieldsFor, type Harness } from '../../shared/harness';
-import { getDriver, stepTurnProblem, toolPolicyProblem } from '../drivers';
+import type { HarnessDriverId } from '../../shared/types';
+import { getDriver, type HarnessDriver, stepTurnProblem, toolPolicyProblem } from '../drivers';
 import { toHarnessConfig } from '../drivers/HarnessDriver';
 import type { HarnessCapabilitiesCache } from '../HarnessCapabilitiesCache';
+import type { McpServersCache, ServersAnswer } from './mcpServersCache';
 
 /**
- * Why an agent that names MCP servers or skills cannot run yet: no driver
- * compiles them in this build, so the host refuses rather than launch the
- * step without what its agent requires (contract 9).
+ * Why a step whose agent names MCP servers or skills does not launch yet:
+ * the factory checks them against the harness's CLI when it applies, but the
+ * launch does not compile them into the step's session until the next task,
+ * so it refuses rather than run the step without what its agent requires
+ * (contract 9).
  */
 export const SERVERS_AND_SKILLS_LATER = 'Servers and skills for agents arrive with the next update';
+
+/** Why an agent naming servers or skills cannot run on a harness whose driver compiles none. */
+export function noAgentGrants(harnessName: string): string {
+  return `${harnessName} can't give an agent MCP servers or skills.`;
+}
 
 /**
  * Why an agent cannot run on the harness it names: unknown, archived or
@@ -48,6 +57,31 @@ export function cachedModels(
 }
 
 /**
+ * What an agent writing automations is told of each harness: 2-B's four
+ * fields, then `servers`, the names from a settled answer only. It can read
+ * nothing but `peek`, so describing capabilities never starts a probe
+ * (review G5).
+ */
+export function harnessesWithServers(
+  harnesses: readonly Harness[],
+  cache: Pick<McpServersCache, 'peek'>,
+): Array<{ id: string; name: string; enabled: boolean; archived: boolean; servers?: string[] }> {
+  return harnesses.map((harness) => {
+    const fields = launchFieldsFor(harness);
+    const answer = cache.peek(getDriver(fields.driverId), toHarnessConfig(fields));
+    return {
+      id: harness.id,
+      name: harness.name,
+      enabled: harness.enabled,
+      archived: harness.archived,
+      ...(answer?.state === 'settled'
+        ? { servers: answer.servers.map((server) => server.name) }
+        : {}),
+    };
+  });
+}
+
+/**
  * What the engine's `agentHarness` port answers.
  *
  * With no agent, for the workspace's default harness (none: the built-in
@@ -57,17 +91,30 @@ export function cachedModels(
  * with an agent step.
  *
  * For an agent, the same of the harness it runs on (its `harness:`, else the
- * default), with `--model` among the flags its extra arguments may not set
- * when the agent sets a model, and two more: `agentProblem`, why it cannot
- * run there at all (the harness unknown, archived or turned off, or, in this
- * build, any server or skill it names), and `warning`, a model the harness's
- * cached capabilities do not list, which never blocks.
+ * default), with `--model` (when the agent sets a model) and the flags that
+ * load servers (when it names any) among those its extra arguments may not
+ * set, and more: `agentProblem`, why it cannot run there at all (the harness
+ * unknown, archived or turned off; a driver that runs no agent steps, in its
+ * own words; one that compiles no servers or skills, for an agent naming
+ * them); `warning`, a model the harness's cached capabilities do not list,
+ * which never blocks; and, for an agent naming servers, what its CLI says of
+ * them: a probe under way (`serversPending`), one that failed
+ * (`serversUnknown`), or the driver's compile against the answer, a refusal
+ * (`serversProblem`, its missing names asked about once more) or warnings
+ * (`serverWarnings`). Nothing is asked or compiled for an agent the harness
+ * already refuses.
  */
 export function agentHarnessView(input: {
   harnesses: readonly Harness[];
   defaultHarnessId: string | undefined;
   agent?: AgentHarnessQuery;
   modelsOf?(harness: Harness | undefined): readonly string[] | undefined;
+  /** The harness's servers as its CLI said, starting a probe when there is no answer: `McpServersCache.ask`. */
+  serversNow?(harness: Harness | undefined): ServersAnswer;
+  /** An agent names servers that answer lacks: `McpServersCache.missing`. */
+  missingServers?(harness: Harness | undefined, names: readonly string[]): void;
+  /** The driver for a harness's driver id; absent, `getDriver`. For tests. */
+  driverFor?(id?: HarnessDriverId): HarnessDriver;
 }): AgentHarnessAnswer {
   const { harnesses, defaultHarnessId, agent, modelsOf } = input;
   const byId = (id: string | undefined) => harnesses.find((candidate) => candidate.id === id);
@@ -97,14 +144,68 @@ export function agentHarnessView(input: {
   const fields = launchFieldsFor(harness);
   const name = harness?.name ?? 'Claude';
   const models = agent.model !== undefined ? modelsOf?.(harness) : undefined;
-  return {
+  const driver = (input.driverFor ?? getDriver)(fields.driverId);
+  const problem = toolPolicyProblem(fields, 'read-only');
+  const answer: AgentHarnessAnswer = {
     name,
-    problem: toolPolicyProblem(fields, 'read-only'),
-    stepProblem: stepTurnProblem(fields, { model: agent.model !== undefined }),
-    agentProblem: refusal ?? (named ? SERVERS_AND_SKILLS_LATER : null),
+    problem,
+    stepProblem: stepTurnProblem(fields, {
+      model: agent.model !== undefined,
+      servers: agent.mcpServers.length > 0,
+    }),
+    agentProblem: refusal,
     warning:
       models && agent.model !== undefined && !models.includes(agent.model)
         ? `\`${agent.model}\` is not among the models ${name} lists; \`--model\` also takes a model's full name, and a step on a model the CLI does not have fails.`
         : null,
   };
+  if (refusal === null && driver.agentRefusal !== undefined) {
+    return {
+      ...answer,
+      agentProblem: problem ? `${problem} ${driver.agentRefusal}` : driver.agentRefusal,
+    };
+  }
+  // A harness it cannot run on at all is the answer (review M4).
+  if (refusal !== null || problem !== null || !named) return answer;
+  if (!driver.compileAgent) return { ...answer, agentProblem: noAgentGrants(name) };
+  let servers: ServersAnswer = { state: 'settled', servers: [] };
+  if (agent.mcpServers.length > 0) {
+    servers = input.serversNow?.(harness) ?? {
+      state: 'failed',
+      error: 'its CLI is not asked here.',
+    };
+    if (servers.state === 'pending') {
+      return {
+        ...answer,
+        serversPending: `Asking ${name} which MCP servers it has; this applies once it answers.`,
+      };
+    }
+    if (servers.state === 'failed') {
+      return {
+        ...answer,
+        serversUnknown: `Couldn't ask ${name} which MCP servers it has: ${servers.error}`,
+      };
+    }
+  }
+  const reported = servers.servers;
+  const compiled = driver.compileAgent({
+    config: toHarnessConfig(fields),
+    harnessName: name,
+    agent: {
+      tools: 'read-only',
+      mcpServers: agent.mcpServers.map((server) => ({
+        name: server.name,
+        ...(server.tools ? { tools: [...server.tools] } : {}),
+      })),
+      skills: [...agent.skills],
+    },
+    checkout: agent.checkout,
+    servers: reported,
+  });
+  if (compiled.ok) return { ...answer, serverWarnings: compiled.warnings };
+  const lacking = agent.mcpServers
+    .map((server) => server.name)
+    .filter((wanted) => !reported.some((server) => server.name === wanted));
+  if (lacking.length > 0) input.missingServers?.(harness, lacking);
+  return { ...answer, serversProblem: compiled.problem };
 }

@@ -122,7 +122,8 @@ import {
   toTurnReportView,
   toWorkspaceView,
 } from './automations/engineViews';
-import { agentHarnessView, cachedModels } from './automations/agentHarness';
+import { agentHarnessView, cachedModels, harnessesWithServers } from './automations/agentHarness';
+import { McpServersCache } from './automations/mcpServersCache';
 import {
   launchAgentRun,
   runningIn,
@@ -2091,6 +2092,16 @@ export function setupIpcHandlers(): boolean {
     const record = sessionRecord(workspaces.getAll(), sessionId);
     return record ? manager.get(record.instanceId) : undefined;
   };
+  // Which MCP servers each harness has, as its CLI said: asked when a factory
+  // first needs it, kept for the app's life (a failure until Check again);
+  // every answer re-checks the folders that waited on it.
+  const mcpServers = new McpServersCache({
+    onSettled: () => void automationService?.syncWorkspaces(),
+  });
+  const serversOf = (harness: Harness | undefined) => {
+    const fields = launchFieldsFor(harness);
+    return { driver: getDriver(fields.driverId), config: toHarnessConfig(fields) };
+  };
   const automations = new AutomationService({
     folderFor: (workspaceId) => new FactoryFolder(workspaceDataDir(workspaceId)),
     // Each folder's last applied version, in Consola's own state: what keeps running while a file has a problem.
@@ -2177,13 +2188,20 @@ export function setupIpcHandlers(): boolean {
         agent,
         // Only an answer the cache already holds: applying never starts a probe.
         modelsOf: (harness) => cachedModels(harnessCapabilitiesCache, harness),
+        // An agent's servers are another matter: the first need asks the CLI.
+        serversNow: (harness) => {
+          const { driver, config } = serversOf(harness);
+          return mcpServers.ask(driver, config);
+        },
+        missingServers: (harness, names) => {
+          const { driver, config } = serversOf(harness);
+          mcpServers.missing(driver, config, names);
+        },
       });
     },
-    // What an agent writing automations may name in an agent file's `harness:`.
-    listHarnesses: () =>
-      harnesses
-        .getAll()
-        .map(({ id, name, enabled, archived }) => ({ id, name, enabled, archived })),
+    // What an agent writing automations may name in an agent file's `harness:`,
+    // and each one's servers once its CLI has said (never asking it).
+    listHarnesses: () => harnessesWithServers(harnesses.getAll(), mcpServers),
     stopAgent: (session, reason) =>
       automationTerminal(session.id)?.stopUnattendedTurn(reason) ?? false,
     platform: process.platform,
@@ -2443,9 +2461,12 @@ export function setupIpcHandlers(): boolean {
       });
     },
   );
-  ipcMain.handle(IPC_CHANNELS.AUTOMATIONS_RECHECK, (_event, workspaceId: unknown) =>
-    automations.recheck(workspaceArg(workspaceId)),
-  );
+  // Check again asks every harness's CLI afresh which servers it has, then re-reads the folder.
+  ipcMain.handle(IPC_CHANNELS.AUTOMATIONS_RECHECK, (_event, workspaceId: unknown) => {
+    const id = workspaceArg(workspaceId);
+    mcpServers.refresh();
+    return automations.recheck(id);
+  });
 
   ipcMain.handle(IPC_CHANNELS.CONDUCTOR_CREATE, (_event, request: ConductorCreateRequest) =>
     createConductor(

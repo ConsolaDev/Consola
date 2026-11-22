@@ -12,9 +12,11 @@ import { launchElectron } from './helpers/electron';
  * agent files runs each step on its agent's harness and model with the
  * agent's body in its prompt; the folder applies as a unit, so a broken file
  * keeps the last applied version running, under a banner, across a restart;
- * a removal always applies; an agent that names servers or skills is refused
- * until 2-C; a harness turned off stops an unchanged entry and holds back a
- * changed one; and a slice-1 file beside agent files runs exactly as before.
+ * a removal always applies; an agent naming a server its harness's CLI does
+ * not list is refused when the factory applies, and a server probe that fails
+ * stops the entry and holds nothing back; a harness turned off stops an
+ * unchanged entry and holds back a changed one; and a slice-1 file beside
+ * agent files runs exactly as before.
  *
  * Nothing here reaches a model. The stub `claude`
  * (`tests/fixtures/claude-steps.cjs`) speaks stream-json and MCP as the real
@@ -125,7 +127,11 @@ const BROKEN_REVIEWER_BANNER = new RegExp(
 );
 
 const WRITE_TOOLS = 'Write tools arrive with write steps; an agent is read-only until then.';
-const SERVERS_LATER = 'Servers and skills for agents arrive with the next update';
+/** What the reviewer naming `notion` is told when Personal stub's CLI lists only `grafana`. */
+const UNKNOWN_NOTION =
+  "`notion` isn't one of Personal stub's MCP servers (it has: grafana). Add it with `claude mcp add --scope user`, or fix the name.";
+/** The start of what an entry says when Personal stub's CLI could not be asked. */
+const COULD_NOT_ASK = "Couldn't ask Personal stub which MCP servers it has: ";
 const TURNED_OFF =
   '`stub-personal` is turned off: turn it on in Settings › Harnesses, or change `harness:`';
 
@@ -323,14 +329,23 @@ async function relaunch(steps: Steps): Promise<void> {
 /**
  * The agents' harness, `stub-personal`: the same stub, through a wrapper that
  * first logs `PERSONAL <argv>` (line breaks flattened), with a config dir of
- * its own, so its conversations' transcripts are written there.
+ * its own, so its conversations' transcripts are written there. `env` is
+ * exported by that wrapper only, so the stub's knobs (`STUB_CLAUDE_MCP`)
+ * describe this harness's profile and no other.
  */
-async function addPersonalHarness(steps: Steps): Promise<string> {
+async function addPersonalHarness(
+  steps: Steps,
+  options: { env?: Record<string, string> } = {},
+): Promise<string> {
   const wrapper = path.join(steps.base, 'claude-personal.sh');
+  const exports = Object.entries(options.env ?? {}).map(
+    ([name, value]) => `export ${name}='${value}'`,
+  );
   fs.writeFileSync(
     wrapper,
     [
       '#!/bin/sh',
+      ...exports,
       `printf 'PERSONAL %s\\n' "$(printf '%s ' "$@" | tr '\\n' ' ')" >> "$STUB_CLAUDE_LOG"`,
       `exec '${process.execPath}' '${path.join(FIXTURES, 'claude-steps.cjs')}' "$@"`,
       '',
@@ -954,11 +969,26 @@ test('removing an automation always applies, even beside a broken file', async (
   }
 });
 
-test('an agent that names servers or skills is refused, and says why', async () => {
+test('an agent naming a server its harness lacks is refused at apply, and says why', async () => {
   test.setTimeout(240_000);
   const steps = await setUpSteps();
   try {
-    await addPersonalHarness(steps);
+    // Personal stub's profile has one user server, grafana; the probe reads it from its account file.
+    const mcp = path.join(steps.base, 'mcp-personal.json');
+    fs.writeFileSync(
+      mcp,
+      JSON.stringify([
+        {
+          name: 'grafana',
+          scope: 'dynamic',
+          type: 'stdio',
+          status: 'connected',
+          tools: ['query_logs'],
+        },
+      ]),
+    );
+    const configDir = await addPersonalHarness(steps, { env: { STUB_CLAUDE_MCP: mcp } });
+    fs.writeFileSync(path.join(configDir, '.claude.json'), '{}');
     // A first start: the folder has never applied (no applied version), as on an upgrade.
     await steps.app.close();
     writeAgentFiles(steps, reviewer('REVIEWER-BODY-1', 'mcpServers: [notion]\n'));
@@ -979,15 +1009,24 @@ test('an agent that names servers or skills is refused, and says why', async () 
     await railButton.click();
     const dashboard = await openAutomations(steps.page);
 
-    // Entry by entry: catalog-agents is listed, with its agent's problem, and runs nothing.
+    // Entry by entry, once the CLI has answered: catalog-agents is listed, with why, and runs nothing.
     const row = rowOf(steps.page, 'catalog-agents');
-    await expect(row).toContainText(`Not running: agents/reviewer.md: ${SERVERS_LATER}`, {
+    await expect(row).toContainText(`Not running: agents/reviewer.md: ${UNKNOWN_NOTION}`, {
       timeout: 15_000,
     });
     await expect(row.getByRole('button', { name: 'Run now' })).toBeDisabled();
     expect((await snapshotOf(steps)).standing).toBeUndefined();
+    // It was asked from the home folder, under the probe's flags, never in the checkout.
+    const asked = steps.claudeLog().filter((line) => line.startsWith('CONTROL mcp_status in '));
+    expect(asked.length).toBeGreaterThan(0);
+    for (const line of asked) {
+      expect(line).toContain('--restricted');
+      expect(line).toContain(`--mcp-config ${path.join(configDir, '.claude.json')}`);
+      expect(line).not.toContain(` in ${steps.clone} `);
+    }
     await steps.page.waitForTimeout(2000);
     expect(steps.launches()).toEqual([]);
+    expect(personalLaunches(steps)).toEqual([]);
 
     // From a clean apply, the same edit is held back: the banner, and why, at the agent's file.
     writeFactoryFile(steps, REVIEWER_FILE, reviewer());
@@ -1001,10 +1040,40 @@ test('an agent that names servers or skills is refused, and says why', async () 
       { timeout: 15_000 },
     );
     await expect(issueGroup(steps.page, REVIEWER_FILE)).toContainText(
-      `agents/reviewer.md: ${SERVERS_LATER}`,
+      `agents/reviewer.md: ${UNKNOWN_NOTION}`,
     );
     expect(dashboard).toBeTruthy();
     expect(steps.launches()).toEqual([]);
+    expect(personalLaunches(steps)).toEqual([]);
+  } finally {
+    await steps.close();
+  }
+});
+
+test('a server probe that fails stops the entry, and holds nothing back', async () => {
+  test.setTimeout(240_000);
+  const steps = await setUpSteps();
+  try {
+    // No STUB_CLAUDE_MCP: Personal stub refuses the control protocol, so asking its servers fails.
+    await addPersonalHarness(steps);
+    const dashboard = await openAutomations(steps.page);
+    writeAgentFiles(steps);
+    const row = rowOf(steps.page, 'catalog-agents');
+    await expect(row.getByRole('button', { name: 'Run now' })).toBeEnabled({ timeout: 15_000 });
+    expect((await snapshotOf(steps)).standing).toBeUndefined();
+
+    writeFactoryFile(steps, REVIEWER_FILE, reviewer('REVIEWER-BODY-1', 'mcpServers: [notion]\n'));
+    // A failed probe is the entry's problem, never the folder's: the edit applies, and the entry stops.
+    await expect(row).toContainText(`Not running: agents/reviewer.md: ${COULD_NOT_ASK}`, {
+      timeout: 15_000,
+    });
+    await expect(row.getByRole('button', { name: 'Run now' })).toBeDisabled();
+    await expect(bannerOf(steps.page)).toHaveCount(0);
+    expect((await snapshotOf(steps)).standing).toBeUndefined();
+    expect(dashboard).toBeTruthy();
+    await steps.page.waitForTimeout(2000);
+    expect(steps.launches()).toEqual([]);
+    expect(personalLaunches(steps)).toEqual([]);
   } finally {
     await steps.close();
   }
