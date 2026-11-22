@@ -859,7 +859,7 @@ round a new attempt carrying `round`; read an entry's steps through
 `leafSteps`, never `automation.steps`, or a step inside a loop goes unseen.
 Only what cannot have acted retries by itself (`steps/retry.ts`): the
 validator refuses a step's `on_failure` on a step that may have acted, and an
-entry's `on_failure`, accepted on any entry, is decided when its run fails
+entry's `on_failure`, accepted on any `steps:` entry, is decided when its run fails
 (`entryMayRetry`: it starts again only if nothing in it acted). The budget is
 checked at every step boundary; nothing passes `--max-budget-usd` yet.
 
