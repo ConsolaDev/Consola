@@ -18,6 +18,7 @@ import type { HarnessAccount, HarnessCapabilities, HarnessProbeResult } from '..
 import type { HarnessLimits } from '../../shared/usageLimits';
 import type { SessionToolPolicy } from '../../shared/workspace';
 import { CONSOLA_MCP_SERVER, mcpToolName, READ_ONLY_CONSOLA_TOOLS } from '../mcp/names';
+import { probeClaudeMcpServers } from './claudeAgent';
 import { claudeAttentionHooks, claudeHookSettings } from './claudeHooks';
 import { createClaudeTurnReader } from './claudeTurnReader';
 import {
@@ -26,6 +27,7 @@ import {
   type CliNameRead,
   type HarnessConfig,
   type HarnessDriver,
+  type McpServerReport,
   type SessionLaunch,
   type TextGenerationRequest,
   type TurnReader,
@@ -537,6 +539,36 @@ export class ClaudeDriver implements HarnessDriver {
         resolvedBinary,
         os.homedir(),
         this.composeEnv(config, getLoginEnv()),
+      );
+    } catch (error) {
+      throw new Error(
+        describeSpawnFailure(
+          resolvedBinary,
+          error instanceof Error ? error : new Error(String(error)),
+        ),
+      );
+    }
+  }
+
+  /**
+   * Ask this harness's CLI which MCP servers it would offer a step: its
+   * user servers, from the account file when there is one (whether it is
+   * there is all that is looked at: its contents are the CLI's to read),
+   * and its claude.ai connectors. From the home directory, as
+   * `probeCapabilities`, and without the harness's extra args. It connects
+   * to every server it lists, so it starts the profile's stdio servers.
+   */
+  public async probeMcpServers(config: HarnessConfig): Promise<McpServerReport[]> {
+    if (config.binaryPath && !isExecutable(config.binaryPath)) {
+      throw new Error(`Not executable: ${config.binaryPath}`);
+    }
+    const resolvedBinary = this.resolveBinary(config);
+    const accountFile = resolveAccountFile(config);
+    try {
+      return await probeClaudeMcpServers(
+        resolvedBinary,
+        this.composeEnv(config, getLoginEnv()),
+        fs.existsSync(accountFile) ? accountFile : null,
       );
     } catch (error) {
       throw new Error(

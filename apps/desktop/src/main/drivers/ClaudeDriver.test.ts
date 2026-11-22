@@ -538,3 +538,69 @@ process.stdin.on('end', () => {
     if (!Number.isNaN(pid)) expect(alive(pid)).toBe(false);
   }, 10_000);
 });
+
+describe('probeMcpServers', () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-mcp-probe-'));
+  });
+  afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  /** A CLI that answers the probe at once and logs its argv to `argv.json` beside it. */
+  function probeCli(): string {
+    const file = path.join(dir, 'probe.cjs');
+    fs.writeFileSync(
+      file,
+      `require('fs').writeFileSync(${JSON.stringify(path.join(dir, 'argv.json'))}, JSON.stringify(process.argv.slice(2)));
+const lines = require('readline').createInterface({ input: process.stdin });
+lines.on('line', (line) => {
+  const message = JSON.parse(line);
+  const response = message.request.subtype === 'initialize'
+    ? { commands: [] }
+    : { mcpServers: [{ name: 'grafana', status: 'connected', scope: 'dynamic', config: { type: 'stdio' } }] };
+  process.stdout.write(JSON.stringify({ type: 'control_response',
+    response: { subtype: 'success', request_id: message.request_id, response } }) + '\\n');
+});
+setTimeout(() => {}, 10000);`,
+    );
+    const shim = path.join(dir, 'claude');
+    fs.writeFileSync(shim, `#!/bin/sh\nexec "${process.execPath}" "${file}" "$@"\n`);
+    fs.chmodSync(shim, 0o755);
+    return shim;
+  }
+  const argvSeen = (): string[] =>
+    JSON.parse(fs.readFileSync(path.join(dir, 'argv.json'), 'utf8')) as string[];
+
+  it('refuses a pinned binary that is not executable', async () => {
+    const file = path.join(dir, 'plain.js');
+    fs.writeFileSync(file, '');
+    await expect(
+      new ClaudeDriver().probeMcpServers({ binaryPath: file, extraArgs: [] }),
+    ).rejects.toThrow(`Not executable: ${file}`);
+  });
+
+  it("names the harness's account file to --mcp-config when it is there", async () => {
+    const configDir = path.join(dir, 'profile');
+    fs.mkdirSync(configDir);
+    fs.writeFileSync(path.join(configDir, '.claude.json'), '{}');
+    const report = await new ClaudeDriver().probeMcpServers({
+      binaryPath: probeCli(),
+      configDir,
+      extraArgs: ['--mcp-config', 'extra.json'],
+    });
+
+    expect(report).toEqual([expect.objectContaining({ name: 'grafana', source: 'user' })]);
+    const argv = argvSeen();
+    expect(argv.slice(-2)).toEqual(['--mcp-config', path.join(configDir, '.claude.json')]);
+    // The harness's extra args are not passed, as the capabilities probe passes none.
+    expect(argv).not.toContain('extra.json');
+  });
+
+  it('passes no --mcp-config when the account file is not there', async () => {
+    const configDir = path.join(dir, 'empty-profile');
+    fs.mkdirSync(configDir);
+    await new ClaudeDriver().probeMcpServers({ binaryPath: probeCli(), configDir, extraArgs: [] });
+
+    expect(argvSeen()).not.toContain('--mcp-config');
+  });
+});

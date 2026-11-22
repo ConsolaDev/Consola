@@ -197,6 +197,13 @@ export interface HarnessDriver {
   probeCapabilities?(config: HarnessConfig): Promise<HarnessCapabilities>;
 
   /**
+   * The MCP servers this harness's CLI would offer a step, asked of the
+   * CLI, never read from its files. Throws when the CLI cannot be asked.
+   * Absent: it grants no servers.
+   */
+  probeMcpServers?(config: HarnessConfig): Promise<McpServerReport[]>;
+
+  /**
    * How this CLI reports, on its own initiative, that it needs the person.
    *
    * Optional: a CLI with nothing like hooks omits it and its sessions stay
@@ -213,6 +220,30 @@ export interface HarnessDriver {
    * limit there simply stops, with no time to come back at.
    */
   readonly usageLimits?: UsageLimitReporting;
+}
+
+/**
+ * Where a step's run works: the item's own checkout (someone else's code)
+ * or a scope folder (the person's). The same union as the engine's
+ * `CheckoutKind`: the host hands one to the other, so the compiler keeps
+ * them equal, and this contract imports nothing from the engine.
+ */
+export type CheckoutKind = 'item' | 'scope';
+
+/** One MCP server as a harness's CLI reports it: what a step could be granted. */
+export interface McpServerReport {
+  /** As the CLI names it, exactly: an agent names it the same way. */
+  name: string;
+  /** Where it comes from: the person's own file, a claude.ai connector, a plugin, or anything else. */
+  source: 'user' | 'connector' | 'plugin' | 'other';
+  transport: 'stdio' | 'http' | 'sse' | 'claudeai-proxy' | 'other';
+  /** A remote server's or connector's address, as the CLI reported it. */
+  url?: string;
+  /** Its tools' names, when the CLI listed them (a connected server). */
+  tools?: string[];
+  status: string;
+  /** Where this CLI signs in to it, in the driver's words. */
+  signInHint?: string;
 }
 
 /** A driver's attention-reporting capability: where its CLI is told to post, and what the posts mean. */
