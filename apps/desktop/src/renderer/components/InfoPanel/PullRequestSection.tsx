@@ -280,7 +280,9 @@ function ItemRows({
           )}
         </div>
       )}
-      {found && <FoundRow facts={facts} item={ref} />}
+      {/* Keyed by session: the panel stays mounted across a switch, and a
+          refusal or a link in flight belongs to the session it was for. */}
+      {found && <FoundRow key={facts.session.id} facts={facts} item={ref} />}
       {details && ref.type === 'pr' && (
         <PullRequestLines workspaceId={target.workspaceId} details={details} activate={activate} />
       )}
