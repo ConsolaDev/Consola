@@ -16,7 +16,9 @@ pnpm run dev:cloud        # Consola Cloud: the API (3100) and the web app (5175)
 pnpm run build            # Production build (all processes)
 pnpm start                # Run production build
 pnpm run test:e2e         # Run Playwright E2E tests
-pnpm test                 # Every package's tests via Turborepo (the website's Playwright suite included)
+pnpm test                 # Every Consola package's tests via Turborepo (the website's Playwright suite included; not vendor/)
+pnpm run test:vendor      # The copied t3code packages' own tests, as CI's vendor job runs them (Linux)
+pnpm run typecheck:vendor # The copied t3code packages' own typecheck, as CI's vendor job runs it
 pnpm --filter @consola/automation-engine test   # Just the engine's tests
 ```
 
