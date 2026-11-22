@@ -205,6 +205,28 @@ export interface SavedAutomation {
   notApplied?: { issues: string[]; since: string };
 }
 
+/**
+ * One agent an entry's steps run as, as the version that runs has it: what
+ * the Allow card shows before Allow accepts that version. While the folder
+ * does not apply, that is the applied version's agent, never the live file.
+ */
+export interface EntryAgentView {
+  name: string;
+  /** `agents/<name>.md`. */
+  file: string;
+  description?: string;
+  harnessId?: string;
+  model?: string;
+  /** Its standing instructions, exactly as written. */
+  body: string;
+}
+
+/** An entry's agents, each once in step order, at `version`: the one Allow sends back. */
+export interface EntryAgentsView {
+  version: string;
+  agents: EntryAgentView[];
+}
+
 /** A factory folder that does not apply: the last applied version keeps running. */
 export interface FactoryStanding {
   /** The banner's sentence, worded when the snapshot is built. */

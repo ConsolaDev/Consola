@@ -1,16 +1,22 @@
+import { useEffect, useState } from 'react';
 import { ExternalLink, ShieldCheck } from 'lucide-react';
-import type { AutomationView } from '../../../shared/automations';
+import type { AutomationView, EntryAgentsView } from '../../../shared/automations';
 import { automationsBridge } from '../../services/automationsBridge';
+import { useAutomationsStore } from '../../stores/automationsStore';
+import { ipcErrorMessage } from '../../utils/ipcErrorMessage';
 import { EntrySource } from './AutomationPipeline';
-import { allowAgentLines, allowNotes, grantWords } from './checkWords';
+import { allowAgentSections, allowNotes, grantWords } from './checkWords';
 import { useIntent } from './parts';
 
 /**
  * What allowing a poll entry lets Consola do, shown before it does it: the
- * check command in full, how often it runs, what the mode then does, and the
- * entry as written, so every step is seen exactly as the file has it, and
- * each agent file its steps run as, to open and read. Allow is for this
- * version of the entry; one that changed since is asked to be reviewed again.
+ * check command in full, how often it runs, what the mode then does, the
+ * entry as written, and the description and body of each agent its steps
+ * run as, so every step is seen exactly as the version Allow accepts has it.
+ * While the folder does not apply that is the running version, never the
+ * live files: Open then says it shows the file as it is now. Allow waits for
+ * every agent's body at that version. Allow is for this version of the
+ * entry; one that changed since is asked to be reviewed again.
  */
 export function AllowCard({
   workspaceId,
@@ -24,10 +30,33 @@ export function AllowCard({
   onOpenFile: () => void;
 }) {
   const { busy, error, act } = useIntent();
+  const standing = useAutomationsStore(
+    (state) => state.snapshots[workspaceId]?.standing !== undefined,
+  );
+  const [loaded, setLoaded] = useState<EntryAgentsView | null | undefined>(undefined);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    automationsBridge.getEntryAgents(workspaceId, automation.name).then(
+      (agents) => {
+        if (!live) return;
+        setLoaded(agents);
+        setLoadError(null);
+      },
+      (failure: unknown) => {
+        if (live) setLoadError(ipcErrorMessage(failure));
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [workspaceId, automation]);
+
   const { check, version } = automation;
   if (!check || !version) return null;
   const notes = allowNotes(automation);
-  const agentFiles = allowAgentLines(automation);
+  const { ready, agents } = allowAgentSections(automation, loaded, standing);
   return (
     <section className="automations-allow-card" aria-label={`Allow ${automation.name}`}>
       <div className="automations-allow-body">
@@ -50,23 +79,45 @@ export function AllowCard({
         opening={opening}
         onOpenFile={onOpenFile}
       />
-      {agentFiles.length > 0 && (
+      {agents.length > 0 && (
         <ul className="automations-allow-agents" aria-label="Agent files">
-          {agentFiles.map(({ file, text }) => (
-            <li key={file} className="automations-allow-line">
-              {text}
-              <button
-                type="button"
-                className="dialog-button-secondary automations-small-button"
-                aria-label={`Open ${file}`}
-                disabled={busy !== null}
-                onClick={() =>
-                  void act(`open:${file}`, () => automationsBridge.openFile(workspaceId, file))
-                }
-              >
-                <ExternalLink size={12} aria-hidden="true" />
-                Open
-              </button>
+          {agents.map((agent) => (
+            <li key={agent.file} className="automations-allow-agent">
+              <div className="automations-allow-line">
+                {agent.text}
+                <button
+                  type="button"
+                  className="dialog-button-secondary automations-small-button"
+                  aria-label={`${agent.openLabel}: ${agent.file}`}
+                  disabled={busy !== null}
+                  onClick={() =>
+                    void act(`open:${agent.file}`, () =>
+                      automationsBridge.openFile(workspaceId, agent.file),
+                    )
+                  }
+                >
+                  <ExternalLink size={12} aria-hidden="true" />
+                  {agent.openLabel}
+                </button>
+              </div>
+              {agent.body === undefined ? (
+                <p className="automations-hint">{loadError ?? 'Loading…'}</p>
+              ) : (
+                <>
+                  {agent.note && (
+                    <p className="automations-hint automations-entry-note" role="note">
+                      {agent.note}
+                    </p>
+                  )}
+                  {agent.description !== undefined && (
+                    <p className="automations-approval-description">{agent.description}</p>
+                  )}
+                  <details className="automations-details automations-allow-agent-body">
+                    <summary>{agent.file}</summary>
+                    <pre className="automations-prompt">{agent.body}</pre>
+                  </details>
+                </>
+              )}
             </li>
           ))}
         </ul>
@@ -80,7 +131,7 @@ export function AllowCard({
         <button
           type="button"
           className="dialog-button-primary automations-small-button"
-          disabled={busy !== null}
+          disabled={busy !== null || !ready}
           onClick={() =>
             void act('allow', () => automationsBridge.allow(workspaceId, automation.name, version))
           }

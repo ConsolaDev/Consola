@@ -94,6 +94,20 @@ steps:
 `;
 }
 
+const CATALOG_WATCH_FILE = 'automations/catalog-watch.yaml';
+/** A poll whose check finds nothing (it never runs before Allow), and whose one step runs as the reviewer. */
+const CATALOG_WATCH = `on:
+  poll:
+    every: 1h
+    run: printf '[]'
+    key: .id
+scope: catalog-portal
+mode: auto
+steps:
+  - id: look
+    agent: reviewer
+`;
+
 const OLD_DIGEST = `on: { cron: ${NEVER} }
 scope: catalog-portal
 mode: auto
@@ -843,6 +857,62 @@ test('a broken agent file keeps the last applied version, with the banner; a fix
     await start(steps, approval, 4);
     await expect.poll(() => personalLaunches(steps).length, { timeout: 30_000 }).toBe(4);
     expect(personalLaunches(steps)[3]).toContain('REVIEWER-BODY-2');
+  } finally {
+    await steps.close();
+  }
+});
+
+test('while the folder does not apply, the Allow card shows the agent as the version that runs (review B1)', async () => {
+  test.setTimeout(240_000);
+  const steps = await setUpSteps();
+  try {
+    await addPersonalHarness(steps);
+    await openAutomations(steps.page);
+    // A poll entry whose step runs as the reviewer: it waits for Allow, at the version with body 1.
+    writeFactoryFile(steps, REVIEWER_FILE, reviewer('REVIEWER-BODY-1'));
+    writeFactoryFile(steps, NOTER_FILE, NOTER);
+    writeFactoryFile(steps, CATALOG_WATCH_FILE, CATALOG_WATCH);
+    await expect(rowOf(steps.page, 'catalog-watch')).toHaveCount(1, { timeout: 15_000 });
+    await expect
+      .poll(async () => (await snapshotOf(steps)).automations[0]?.needsAllow, { timeout: 15_000 })
+      .toBe(true);
+    const listed = (await snapshotOf(steps)).automations[0].version;
+
+    // Another file breaks, so the folder keeps that version; then the reviewer is rewritten.
+    writeFactoryFile(steps, NOTER_FILE, `---\ntools: write\n---\n${NOTER}`);
+    await expect(bannerOf(steps.page)).toHaveCount(1, { timeout: 15_000 });
+    writeFactoryFile(steps, REVIEWER_FILE, reviewer('REVIEWER-BODY-2'));
+    await expect
+      .poll(() => fs.readFileSync(path.join(folderOf(steps), REVIEWER_FILE), 'utf8'), {
+        timeout: 5_000,
+      })
+      .toContain('REVIEWER-BODY-2');
+    await steps.page.waitForTimeout(5000);
+    expect((await snapshotOf(steps)).automations[0].version).toBe(listed);
+
+    // The card shows the body Allow accepts, the running version's, and says so; Open is the file as it is now.
+    const panel = await openAutomation(steps, 'catalog-watch');
+    const card = panel.getByRole('region', { name: 'Allow catalog-watch' });
+    const agent = card.locator('.automations-allow-agent', { hasText: REVIEWER_FILE });
+    await agent.locator('summary', { hasText: REVIEWER_FILE }).click();
+    await expect(agent.locator('.automations-prompt')).toContainText('REVIEWER-BODY-1');
+    await expect(agent.locator('.automations-prompt')).not.toContainText('REVIEWER-BODY-2');
+    await expect(agent).toContainText("Reviews catalog-portal's changes.");
+    await expect(agent.locator('.automations-entry-note')).toHaveText(
+      'This is the version that runs; your edits have not applied.',
+    );
+    await expect(
+      agent.getByRole('button', { name: `Open as it is now: ${REVIEWER_FILE}`, exact: true }),
+    ).toBeVisible();
+    await expect(
+      card.getByRole('button', { name: 'Open as it is now', exact: true }),
+    ).toBeVisible();
+
+    // Allow accepts exactly that version.
+    await card.getByRole('button', { name: 'Allow', exact: true }).click();
+    await expect
+      .poll(async () => (await snapshotOf(steps)).automations[0]?.needsAllow, { timeout: 15_000 })
+      .toBeUndefined();
   } finally {
     await steps.close();
   }

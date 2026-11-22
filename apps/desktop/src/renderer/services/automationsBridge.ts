@@ -2,6 +2,7 @@ import type {
   AuthoringRequest,
   AutomationsChange,
   AutomationsSnapshot,
+  EntryAgentsView,
   ItemTarget,
   ItemTargets,
   ListRunsQuery,
@@ -125,6 +126,10 @@ export const automationsBridge = {
   /** One entry exactly as factory.yml has it; null when the file or the entry is gone. */
   getEntry: async (workspaceId: string, name: string): Promise<string | null> =>
     (getAPI() ?? unavailable()).getEntry(workspaceId, name),
+
+  /** An entry's agents as the version it lists has them: what Allow accepts. Null when the entry is gone. */
+  getEntryAgents: async (workspaceId: string, name: string): Promise<EntryAgentsView | null> =>
+    (getAPI() ?? unavailable()).getEntryAgents(workspaceId, name),
 
   onChanged: (callback: (change: AutomationsChange) => void): (() => void) =>
     getAPI()?.onChanged(callback) ?? (() => {}),

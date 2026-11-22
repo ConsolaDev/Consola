@@ -13,6 +13,7 @@ import type { Session } from './workspace';
 import type {
   AgentRunPreview,
   AutomationsSnapshot,
+  EntryAgentsView,
   ItemTarget,
   ItemTargets,
   ListRunsQuery,
@@ -43,6 +44,8 @@ export type {
   AgentRunPreview,
   AutomationsSnapshot,
   FactoryStanding,
+  EntryAgentView,
+  EntryAgentsView,
   RunDefinition,
   StepsRunPreview,
   StepDetail,
@@ -141,6 +144,12 @@ export interface AutomationsAPI {
   acknowledge: (workspaceId: string, name: string) => Promise<void>;
   /** One entry exactly as factory.yml has it (`- name: …`); null when there is no such entry or no file. */
   getEntry: (workspaceId: string, name: string) => Promise<string | null>;
+  /**
+   * The agents an entry's steps run as, as the version it lists has them (the
+   * version Allow accepts); while the folder does not apply, the running
+   * version's, never the live files. Null when there is no such entry.
+   */
+  getEntryAgents: (workspaceId: string, name: string) => Promise<EntryAgentsView | null>;
   onChanged: (callback: (change: AutomationsChange) => void) => () => void;
 }
 

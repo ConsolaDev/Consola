@@ -2,13 +2,16 @@ import { describe, expect, it } from 'vitest';
 import type { CheckView } from '../../../shared/automations';
 import {
   allowAgentLines,
+  allowAgentSections,
   allowBannerWords,
   allowNotes,
   checkStatusLine,
   grantWords,
   noNextCheckWords,
+  openFileWords,
   pollRunsEmptyWords,
   skippedWords,
+  RUNNING_VERSION_NOTE,
   triggerNodeWords,
 } from './checkWords';
 
@@ -203,5 +206,85 @@ describe('allowAgentLines', () => {
   it('lists none for an entry with no agent step', () => {
     expect(allowAgentLines({ steps: [step('look')] })).toEqual([]);
     expect(allowAgentLines({})).toEqual([]);
+  });
+});
+
+describe('allowAgentSections (review B1)', () => {
+  const step = (id: string, agentFile?: string) => ({
+    id,
+    kind: 'agent' as const,
+    summary: 'Prompt',
+    ...(agentFile ? { agentFile } : {}),
+  });
+  const view = {
+    version: 'v1',
+    steps: [step('look', 'agents/reviewer.md'), step('tell', 'agents/noter.md')],
+  };
+  const loaded = {
+    version: 'v1',
+    agents: [
+      {
+        name: 'reviewer',
+        file: 'agents/reviewer.md',
+        description: 'Reviews the PR.',
+        body: 'APPLIED-V1-BODY\n',
+      },
+      { name: 'noter', file: 'agents/noter.md', body: 'Write a note.\n' },
+    ],
+  };
+
+  it("shows each agent's description and body once main has read this version, and Allow may go", () => {
+    expect(allowAgentSections(view, loaded, false)).toEqual({
+      ready: true,
+      agents: [
+        {
+          file: 'agents/reviewer.md',
+          text: 'Uses agents/reviewer.md',
+          openLabel: 'Open',
+          description: 'Reviews the PR.',
+          body: 'APPLIED-V1-BODY\n',
+        },
+        {
+          file: 'agents/noter.md',
+          text: 'Uses agents/noter.md',
+          openLabel: 'Open',
+          body: 'Write a note.\n',
+        },
+      ],
+    });
+  });
+
+  it('holds Allow back until the bodies of the version it would accept are there', () => {
+    for (const notYet of [undefined, null, { ...loaded, version: 'v0' }]) {
+      const sections = allowAgentSections(view, notYet, false);
+      expect(sections.ready).toBe(false);
+      expect(sections.agents.map((agent) => agent.body)).toEqual([undefined, undefined]);
+    }
+    // A body the read does not hold is not shown as if it were.
+    const missing = allowAgentSections(view, { ...loaded, agents: [loaded.agents[0]] }, false);
+    expect(missing.ready).toBe(false);
+  });
+
+  it('while the folder does not apply, says the body is the running version, and Open is the file as it is now', () => {
+    const sections = allowAgentSections(view, loaded, true);
+    expect(sections.ready).toBe(true);
+    expect(sections.agents.map((agent) => [agent.openLabel, agent.note])).toEqual([
+      ['Open as it is now', RUNNING_VERSION_NOTE],
+      ['Open as it is now', RUNNING_VERSION_NOTE],
+    ]);
+  });
+
+  it('is ready at once for an entry without agents', () => {
+    expect(allowAgentSections({ version: 'v1', steps: [step('look')] }, undefined, true)).toEqual({
+      ready: true,
+      agents: [],
+    });
+  });
+});
+
+describe('openFileWords', () => {
+  it('names the file as it is now while the folder does not apply', () => {
+    expect(openFileWords(false)).toBe('Open in editor');
+    expect(openFileWords(true)).toBe('Open as it is now');
   });
 });

@@ -4129,17 +4129,24 @@
   color: var(--color-text-tertiary);
 }
 
-/* Each agent file the entry runs as, with Open: read before allowing. */
+/* Each agent the entry runs as, with its body at the version Allow accepts: read before allowing. */
 .automations-allow-agents {
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
+  gap: var(--space-2);
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-.automations-allow-agents li {
+.automations-allow-agent {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.automations-allow-agent > .automations-allow-line {
   display: flex;
   flex-wrap: wrap;
   align-items: center;

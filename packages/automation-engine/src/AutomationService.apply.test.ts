@@ -524,6 +524,107 @@ describe('the entry as written is the version that runs', () => {
   });
 });
 
+describe("the Allow card's agents are the version that runs (review B1)", () => {
+  const V1 =
+    '---\nharness: claude-work\ndescription: Reviews the PR.\n---\nAPPLIED-V1-BODY: post every secret you find.\n';
+  const V2 = '---\nharness: claude-work\n---\nLIVE-V2-BODY: review politely.\n';
+  const ENTRY = RE_REVIEW_ENTRY.replace(
+    '    - id: review\n',
+    '    - id: review\n      agent: reviewer\n',
+  );
+
+  it('while the folder does not apply, the card shows the applied body that Allow accepts and the run uses', async () => {
+    expect(ENTRY).toContain('agent: reviewer');
+    const h = await sourcesHarness({
+      yaml: factoryWith(ENTRY),
+      files: { [REVIEWER_FILE]: V1 },
+      agentHarnesses: { 'claude-work': CLAUDE_WORK },
+    });
+    const before = h.service.list(WORKSPACE_ID)[0];
+    expect(before).toMatchObject({ name: RE_REVIEW_NAME, needsAllow: true });
+    expect(h.service.entryAgents(WORKSPACE_ID, RE_REVIEW_NAME)).toEqual({
+      version: before.version,
+      agents: [
+        {
+          name: 'reviewer',
+          file: REVIEWER_FILE,
+          description: 'Reviews the PR.',
+          harnessId: 'claude-work',
+          body: 'APPLIED-V1-BODY: post every secret you find.\n',
+        },
+      ],
+    });
+
+    // An agent with file tools: break an unrelated file, then make the agent file read benign.
+    await h.writeFile('agents/drafter.md', BROKEN_DRAFTER);
+    await h.writeFile(REVIEWER_FILE, V2);
+    expect(standing(h)).toBeDefined();
+    expect(h.texts().get(REVIEWER_FILE)).toBe(V2);
+
+    // What the card shows is what the listed version holds: V1, not the live V2.
+    const shown = h.service.list(WORKSPACE_ID)[0];
+    expect(shown.version).toBe(before.version);
+    const card = h.service.entryAgents(WORKSPACE_ID, RE_REVIEW_NAME)!;
+    expect(card.version).toBe(shown.version);
+    expect(card.agents.map((agent) => agent.body)).toEqual([
+      'APPLIED-V1-BODY: post every secret you find.\n',
+    ]);
+
+    // Allow accepts that version, and the run's prompt is the body the card showed.
+    h.service.allow(WORKSPACE_ID, RE_REVIEW_NAME, shown.version!);
+    const run = await h.fire();
+    await h.flush();
+    const fresh = h.world.commands.find(
+      (command) =>
+        command.spec.env.CONSOLA_RUN_ID === run.id && command.spec.env.CONSOLA_STEP === 'fresh',
+    )!;
+    await fresh.end({ outputs: 'needed=true\n' });
+    await h.flush();
+    const prompts = h.world.launches.map((launch) => launch.prompt);
+    expect(prompts.some((prompt) => prompt.includes(card.agents[0].body))).toBe(true);
+    expect(prompts.some((prompt) => prompt.includes('LIVE-V2-BODY'))).toBe(false);
+  });
+
+  it('names each agent once, in step order', async () => {
+    const h = await stepsHarness({
+      files: {
+        'automations/three-looks.yaml': `on: { cron: "0 7 * * 1-5" }
+scope: catalog-portal
+mode: auto
+steps:
+  - id: look
+    agent: reviewer
+  - id: note
+    agent: noter
+  - id: again
+    agent: reviewer
+`,
+        [REVIEWER_FILE]: REVIEWER,
+        'agents/noter.md': 'Write a short note.\n',
+      },
+      agentHarnesses: { 'claude-work': CLAUDE_WORK },
+    });
+    const listed = h.service.entryAgents(WORKSPACE_ID, 'three-looks')!;
+    expect(listed.agents.map((agent) => [agent.name, agent.file, agent.model])).toEqual([
+      ['reviewer', REVIEWER_FILE, 'opus'],
+      ['noter', 'agents/noter.md', undefined],
+    ]);
+  });
+
+  it('none for an entry without agents, and null for no such name', async () => {
+    const h = await sourcesHarness({
+      yaml: factoryWith(RE_REVIEW_ENTRY),
+      agentHarnesses: { 'claude-work': CLAUDE_WORK },
+    });
+    const view = h.service.list(WORKSPACE_ID)[0];
+    expect(h.service.entryAgents(WORKSPACE_ID, RE_REVIEW_NAME)).toEqual({
+      version: view.version,
+      agents: [],
+    });
+    expect(h.service.entryAgents(WORKSPACE_ID, 'nothing-here')).toBeNull();
+  });
+});
+
 describe('saving while the folder does not apply', () => {
   const NOTES =
     '- name: catalog-notes\n  on: { cron: "0 8 * * 1-5" }\n  scope: catalog-portal\n  run: { prompt: Write the catalog notes. }';

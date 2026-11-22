@@ -1,4 +1,9 @@
-import type { AutomationMode, AutomationView, CheckView } from '../../../shared/automations';
+import type {
+  AutomationMode,
+  AutomationView,
+  CheckView,
+  EntryAgentsView,
+} from '../../../shared/automations';
 import { formatAgo } from './presentation';
 
 const items = (count: number) => `${count} ${count === 1 ? 'item' : 'items'}`;
@@ -104,4 +109,54 @@ export function allowAgentLines(
     if (step.agentFile !== undefined && !files.includes(step.agentFile)) files.push(step.agentFile);
   }
   return files.map((file) => ({ file, text: `Uses ${file}` }));
+}
+
+/** Said above what a card shows while the folder does not apply: the text is the running version's. */
+export const RUNNING_VERSION_NOTE = 'This is the version that runs; your edits have not applied.';
+
+/**
+ * A factory file's Open, beside a version the card shows: while the folder
+ * does not apply, Open shows the file as it is now, which is not the version
+ * shown (and not what Allow accepts), so it says so.
+ */
+export function openFileWords(standing: boolean): string {
+  return standing ? 'Open as it is now' : 'Open in editor';
+}
+
+/** One agent on the Allow card: its file, and, once read at the listed version, its description and body. */
+export interface AllowAgentSection {
+  file: string;
+  text: string;
+  openLabel: string;
+  description?: string;
+  body?: string;
+  /** While the folder does not apply: the body is the running version's. */
+  note?: string;
+}
+
+/**
+ * The Allow card's agents: each file the steps name, once, in step order,
+ * with the description and body main read for the version the view lists
+ * (`loaded`), never the live file. Allow accepts that version, so it is
+ * `ready` only once every agent's body at that version is there: the person
+ * reads exactly what they accept. An entry without agents is ready at once.
+ */
+export function allowAgentSections(
+  view: Pick<AutomationView, 'steps' | 'version'>,
+  loaded: EntryAgentsView | null | undefined,
+  standing: boolean,
+): { ready: boolean; agents: AllowAgentSection[] } {
+  const atVersion = loaded && loaded.version === view.version ? loaded : undefined;
+  const agents = allowAgentLines(view).map(({ file, text }): AllowAgentSection => {
+    const agent = atVersion?.agents.find((candidate) => candidate.file === file);
+    return {
+      file,
+      text,
+      openLabel: standing ? openFileWords(true) : 'Open',
+      ...(agent?.description !== undefined ? { description: agent.description } : {}),
+      ...(agent ? { body: agent.body } : {}),
+      ...(agent && standing ? { note: RUNNING_VERSION_NOTE } : {}),
+    };
+  });
+  return { ready: agents.every((agent) => agent.body !== undefined), agents };
 }

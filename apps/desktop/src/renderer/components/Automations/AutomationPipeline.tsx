@@ -21,7 +21,7 @@ import type { AutomationView, RunListEntry } from '../../../shared/automations';
 import { automationsBridge } from '../../services/automationsBridge';
 import { useAutomationsStore } from '../../stores/automationsStore';
 import { ipcErrorMessage } from '../../utils/ipcErrorMessage';
-import { triggerNodeWords } from './checkWords';
+import { openFileWords, RUNNING_VERSION_NOTE, triggerNodeWords } from './checkWords';
 import {
   approvalStep,
   commandFoot,
@@ -381,15 +381,12 @@ export function EntrySource({
           onClick={onOpenFile}
         >
           <ExternalLink size={12} aria-hidden="true" />
-          Open in editor
+          {openFileWords(standing)}
         </button>
       }
     />
   );
 }
-
-/** Said above the entry while the folder does not apply: the text is the running version's. */
-export const RUNNING_VERSION_NOTE = 'This is the version that runs; your edits have not applied.';
 
 /**
  * One entry as code, with a copy button, under the name of its file.

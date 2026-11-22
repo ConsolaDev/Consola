@@ -34,6 +34,8 @@ export type {
   AgentRunPreview,
   AutomationsSnapshot,
   FactoryStanding,
+  EntryAgentView,
+  EntryAgentsView,
   ItemRef,
   InboxItemView,
   ItemSnapshot,

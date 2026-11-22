@@ -907,6 +907,7 @@ export function installMock() {
     startAuthoring: automationsUnavailable,
     acknowledge: async () => {},
     getEntry: async () => null,
+    getEntryAgents: async () => null,
     onChanged: () => () => {},
   };
   const browserAPI = browserMock({

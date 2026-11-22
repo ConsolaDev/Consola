@@ -102,6 +102,7 @@ import type {
   ConversationTarget,
   ActionView,
   FactoryStanding,
+  EntryAgentsView,
   AgentRunPreview,
   AutomationsSnapshot,
   AutomationView,
@@ -1187,6 +1188,37 @@ export class AutomationService {
     if (factory.standing && factory.applied) return appliedEntryText(factory.applied, name);
     const live = await this.liveEntry(workspaceId, name);
     return live === null ? null : live.text;
+  }
+
+  /**
+   * The agents an entry's steps run as, each once in step order, as the
+   * version it lists has them (`version`, what Allow accepts): while the
+   * folder does not apply, the applied version's agents, never the live
+   * files. Null when there is no such entry.
+   */
+  public entryAgents(workspaceId: string, name: string): EntryAgentsView | null {
+    const entry = this.factoryOf(workspaceId).resolved.find(
+      (candidate) => candidate.automation.name === name,
+    );
+    if (!entry) return null;
+    const agents: EntryAgentsView['agents'] = [];
+    if (isStepsEntry(entry.automation)) {
+      for (const step of entry.automation.steps) {
+        if (step.kind !== 'agent' || step.agent === undefined) continue;
+        if (agents.some((agent) => agent.name === step.agent)) continue;
+        const agent = entry.agents?.[step.agent];
+        if (!agent || !Object.prototype.hasOwnProperty.call(entry.agents, step.agent)) continue;
+        agents.push({
+          name: agent.name,
+          file: `agents/${agent.name}.md`,
+          ...(agent.description !== undefined ? { description: agent.description } : {}),
+          ...(agent.harness !== undefined ? { harnessId: agent.harness } : {}),
+          ...(agent.model !== undefined ? { model: agent.model } : {}),
+          body: agent.body,
+        });
+      }
+    }
+    return { version: entry.version, agents };
   }
 
   /**

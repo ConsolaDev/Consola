@@ -182,6 +182,7 @@ export const IPC_CHANNELS = {
   AUTOMATIONS_START_AUTHORING: 'automations:start-authoring', // A session that drafts an entry with the person
   AUTOMATIONS_ACKNOWLEDGE: 'automations:acknowledge', // Mark an agent-added automation as seen
   AUTOMATIONS_GET_ENTRY: 'automations:get-entry', // One factory.yml entry exactly as written, for its details
+  AUTOMATIONS_GET_ENTRY_AGENTS: 'automations:get-entry-agents', // An entry's agents as the version that runs has them, for the Allow card
   AUTOMATIONS_LIST_RUNS: 'automations:list-runs', // One page of a workspace's run history, filtered, newest first
   AUTOMATIONS_GET_RUN_DEFINITION: 'automations:get-run-definition', // A steps run's whole definition snapshot
   AUTOMATIONS_GET_STEP_DETAIL: 'automations:get-step-detail', // One step's record, definition, command.json and log tails

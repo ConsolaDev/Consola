@@ -710,6 +710,8 @@ contextBridge.exposeInMainWorld('automationsAPI', {
     ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_ACKNOWLEDGE, workspaceId, name),
   getEntry: (workspaceId, name) =>
     ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_GET_ENTRY, workspaceId, name),
+  getEntryAgents: (workspaceId, name) =>
+    ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_GET_ENTRY_AGENTS, workspaceId, name),
   onChanged: (callback) => subscribe(IPC_CHANNELS.AUTOMATIONS_CHANGED, callback),
 } satisfies AutomationsAPI);
 
