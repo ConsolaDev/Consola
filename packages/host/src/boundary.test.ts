@@ -23,6 +23,12 @@ const SRC = dirname(fileURLToPath(import.meta.url));
 const ANY_PACKAGE = '*';
 /** Every `node:` builtin, however it is spelled. */
 const NODE_BUILTINS = 'node:*';
+/**
+ * t3's test kits: `@t3tools/provider-testing`, any package's `testing` entry
+ * (`@t3tools/provider-claude/testing`), and any `testkit` module of the lifted server
+ * (`t3/orchestration-v2/testkit/…`, `….testkit.ts`). Replays and fakes are for tests only.
+ */
+const TEST_KITS = 'test-kits';
 
 type Layer = {
   /** A folder under `src/`, or a file there without its extension. */
@@ -60,23 +66,23 @@ const LAYERS: Layer[] = [
   },
   {
     // Effect services over the vendored packages. Free to use them and `core`, never the
-    // adapters that sit outside it.
+    // adapters that sit outside it, and never a test kit outside a test.
     at: 'runtime',
     reaches: ['core', 'runtime'],
-    refuses: [],
+    refuses: [TEST_KITS],
     noGlobals: [],
   },
   {
     at: 'adapters',
     reaches: ['core', 'runtime', 'adapters'],
-    refuses: [],
+    refuses: [TEST_KITS],
     noGlobals: [],
   },
   // The one wiring file, where everything meets.
   {
     at: 'bin',
     reaches: ['core', 'runtime', 'adapters'],
-    refuses: [],
+    refuses: [TEST_KITS],
     noGlobals: [],
   },
 ];
@@ -221,6 +227,14 @@ function packageName(specifier: string): string {
 function matches(pattern: string, specifier: string): boolean {
   if (pattern === ANY_PACKAGE) return true;
   if (pattern === NODE_BUILTINS) return isBuiltin(specifier);
+  if (pattern === TEST_KITS) {
+    return (
+      packageName(specifier) === '@t3tools/provider-testing' ||
+      /\/testing$/.test(specifier) ||
+      /(^|\/)testkit\//.test(specifier) ||
+      /\.testkit\.ts$/.test(specifier)
+    );
+  }
   // A subpath pattern (`effect/process`) names that entry point and anything below it.
   if (pattern.includes('/') && !pattern.endsWith('/*') && !pattern.startsWith('@')) {
     return specifier === pattern || specifier.startsWith(`${pattern}/`);
@@ -332,6 +346,14 @@ describe('the dependency rule', () => {
     ['runtime/x.ts', 't3/orchestration-v2/Orchestrator.ts', true],
     ['runtime/x.ts', 'node:path', true],
     ['runtime/x.ts', './drivers.ts', true],
+    ['runtime/x.ts', '@t3tools/provider-testing/replayWorkspace', false],
+    ['runtime/x.ts', '@t3tools/provider-claude/testing', false],
+    ['runtime/x.ts', '@t3tools/server-orchestration/testing', false],
+    ['runtime/x.ts', 't3/orchestration-v2/testkit/ProviderReplayHarness.ts', false],
+    ['runtime/x.ts', 't3/mcp/McpSessionRegistry.testkit.ts', false],
+    ['runtime/x.test.ts', '@t3tools/provider-claude/testing', true],
+    ['adapters/x.ts', '@t3tools/provider-claude/testing', false],
+    ['bin.ts', '@t3tools/provider-testing/replayGate', false],
     ['runtime/x.ts', '../adapters/ws.ts', false],
     ['runtime/x.ts', '../bin.ts', false],
     ['adapters/x.ts', '../core/pass.ts', true],

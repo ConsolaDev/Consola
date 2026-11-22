@@ -1,27 +1,30 @@
+// @effect-diagnostics nodeBuiltinImport:off - A session's project is named after its folder.
+import { basename } from 'node:path';
 import {
   CommandId,
   type OrchestrationV2Command,
   type OrchestrationV2StoredEvent,
   type OrchestrationV2ThreadProjection,
   ProjectId,
+  type RuntimeMode,
   ThreadId,
 } from '@t3tools/contracts';
-import type * as McpProviderSessions from '@t3tools/provider-core/server/McpProviderSessions';
+import type { AnyProviderDriver } from '@t3tools/provider-core/server/driver';
 import * as Clock from 'effect/Clock';
 import * as Context from 'effect/Context';
 import * as Effect from 'effect/Effect';
 import * as Layer from 'effect/Layer';
+import * as Logger from 'effect/Logger';
 import * as Schema from 'effect/Schema';
 import type * as Scope from 'effect/Scope';
 import * as Semaphore from 'effect/Semaphore';
 import * as Stream from 'effect/Stream';
 import * as Orchestrator from 't3/orchestration-v2/Orchestrator.ts';
-import type * as ProviderAdapterRegistry from 't3/orchestration-v2/ProviderAdapterRegistry.ts';
-import type { RuntimePolicyV2Override } from 't3/orchestration-v2/RuntimePolicy.ts';
-import * as ProviderReplayHarness from 't3/orchestration-v2/testkit/ProviderReplayHarness.ts';
+import * as ProjectService from 't3/project/ProjectService.ts';
 import { decideCommand } from '../core/commandPolicy.ts';
 import type { SessionSpec } from '../core/sessionSpec.ts';
-import { defaultModelSelection } from './drivers.ts';
+import { defaultModelSelection, HOST_DRIVERS, type HostDriversEnv } from './drivers.ts';
+import { layerOrchestration, startOrchestration } from './orchestration.ts';
 
 /** One stored event of the thread: `{ sequence, event }`, and the command that caused it. */
 export type ThreadEvent = OrchestrationV2StoredEvent;
@@ -36,11 +39,12 @@ export type ThreadHandle = {
   /** The last stored event `snapshot()` holds, as t3's snapshot item carries it. */
   snapshotSequence(): number;
   /**
-   * Every event of the thread from its first, then live, projected for the wire as t3's
-   * `streamStoredEventsFrom` gives them. Each run of the stream is its own subscription; to join
-   * it to a snapshot, drop the events at or below that snapshot's sequence.
+   * The thread's stored events after `afterSequence` (every one when it is omitted), replayed
+   * from storage and then live, projected for the wire as t3's `streamStoredEventsFrom` gives
+   * them; each run is its own subscription. To join a snapshot, read `snapshotSequence()` and
+   * `snapshot()` together, then pass that sequence: no event is missed or repeated.
    */
-  events: Stream.Stream<ThreadEvent, ThreadRuntimeError>;
+  events(afterSequence?: number): Stream.Stream<ThreadEvent, ThreadRuntimeError>;
   /** Runs one of the commands the host offers (`decideCommand`); refuses every other. */
   dispatch(
     command: OrchestrationV2Command,
@@ -70,21 +74,28 @@ export class NotOfferedError extends Schema.TaggedError<NotOfferedError>()('NotO
   }
 }
 
-export interface ThreadRuntimeOptions<E> {
+export interface ThreadRuntimeOptions {
+  /** Where t3's server paths live; nothing the host keeps there is a credential. */
+  readonly stateDir: string;
+  /** The environment the CLIs start with, where each finds its own login. */
+  readonly env: Record<string, string | undefined>;
   /**
-   * The adapter registry a session's harness runs on: `hostAdapters` for the person's CLI, or one
-   * of t3's replay harnesses in a test.
+   * For tests only, the seam t3's replay harness uses: drivers in place of `HOST_DRIVERS`, such
+   * as Claude's driver with a replay adapter. The host never sets it.
    */
-  readonly adapters: (
-    spec: SessionSpec,
-  ) => Layer.Layer<
-    ProviderAdapterRegistry.ProviderAdapterRegistryV2,
-    E,
-    McpProviderSessions.McpProviderSessions
-  >;
-  /** The approval and sandbox policy every turn runs under. The cwd is the session's. */
-  readonly runtimePolicy?: Omit<RuntimePolicyV2Override, 'cwd'>;
+  readonly drivers?: ReadonlyArray<AnyProviderDriver<HostDriversEnv>>;
+  /**
+   * For tests only: the mode a replayed fixture was recorded in. The host never sets it, so a
+   * thread always opens in `approval-required` (see `HOST_RUNTIME_MODE`).
+   */
+  readonly runtimeMode?: RuntimeMode;
 }
+
+/**
+ * Every thread opens in t3's mode that asks before a command runs or a file is written. t3's own
+ * default (`DEFAULT_RUNTIME_MODE`) is `full-access`, which asks nothing; the host never uses it.
+ */
+export const HOST_RUNTIME_MODE: RuntimeMode = 'approval-required';
 
 export class ThreadRuntime extends Context.Service<
   ThreadRuntime,
@@ -95,15 +106,12 @@ export class ThreadRuntime extends Context.Service<
   }
 >()('@consola/host/runtime/threadRuntime') {}
 
-/** The one project of a host's thread: t3 files every thread under a project. */
-const HOST_PROJECT_ID = ProjectId.make('project:consola-host');
-
 /**
- * Each `open` builds t3's OrchestratorV2 the way t3's replay harness does (`layerWithRegistry`,
- * over in-memory SQLite) in the caller's scope, then creates the session's thread. Closing the
- * scope stops the provider session and drops the thread.
+ * Each `open` builds t3's production orchestration (`layerOrchestration`) in the caller's scope,
+ * files the session's folder as its project, and creates its thread. Closing the scope stops the
+ * provider session and drops the thread. t3's logs go to stderr.
  */
-export const layer = <E>(options: ThreadRuntimeOptions<E>): Layer.Layer<ThreadRuntime> =>
+export const layer = (options: ThreadRuntimeOptions): Layer.Layer<ThreadRuntime> =>
   Layer.succeed(
     ThreadRuntime,
     ThreadRuntime.of({
@@ -112,15 +120,32 @@ export const layer = <E>(options: ThreadRuntimeOptions<E>): Layer.Layer<ThreadRu
         const threadId = ThreadId.make(sessionId);
         const failed = (operation: ThreadRuntimeError['operation']) => (cause: unknown) =>
           new ThreadRuntimeError({ sessionId, operation, cause });
+        const toStderr = Effect.provideService(Logger.LogToStderr, true);
 
         const context = yield* Layer.build(
-          ProviderReplayHarness.layerWithRegistry(
-            { name: sessionId, runtimePolicyOverride: { ...options.runtimePolicy, cwd: spec.cwd } },
-            options.adapters(spec),
-          ),
-        ).pipe(Effect.mapError(failed('open')));
+          layerOrchestration({
+            stateDir: options.stateDir,
+            env: options.env,
+            drivers: options.drivers ?? HOST_DRIVERS,
+          }),
+        ).pipe(Effect.mapError(failed('open')), toStderr);
+        yield* startOrchestration.pipe(
+          Effect.provideContext(context),
+          Effect.mapError(failed('open')),
+          toStderr,
+        );
         const orchestrator = Context.get(context, Orchestrator.OrchestratorV2);
+        const projects = Context.get(context, ProjectService.ProjectService);
 
+        const projectId = ProjectId.make(`project:${sessionId}`);
+        yield* projects
+          .create({
+            commandId: CommandId.make(`command:${sessionId}:project.create`),
+            projectId,
+            title: basename(spec.cwd) || spec.cwd,
+            workspaceRoot: spec.cwd,
+          })
+          .pipe(Effect.mapError(failed('open')), toStderr);
         yield* orchestrator
           .dispatch({
             type: 'thread.create',
@@ -128,15 +153,15 @@ export const layer = <E>(options: ThreadRuntimeOptions<E>): Layer.Layer<ThreadRu
             creationSource: 'web',
             commandId: CommandId.make(`command:${sessionId}:thread.create`),
             threadId,
-            projectId: HOST_PROJECT_ID,
+            projectId,
             title: 'New thread',
             modelSelection: spec.modelSelection ?? defaultModelSelection(spec.harness),
-            runtimeMode: 'full-access',
+            runtimeMode: options.runtimeMode ?? HOST_RUNTIME_MODE,
             interactionMode: 'default',
             branch: null,
             worktreePath: null,
           })
-          .pipe(Effect.mapError(failed('open')));
+          .pipe(Effect.mapError(failed('open')), toStderr);
 
         let current = yield* orchestrator
           .getThreadSnapshot(threadId)
@@ -164,22 +189,27 @@ export const layer = <E>(options: ThreadRuntimeOptions<E>): Layer.Layer<ThreadRu
             ),
           ),
           Effect.catchCause((cause) => Effect.logError('Session event stream ended.', cause)),
+          toStderr,
           Effect.forkScoped,
         );
 
         const handle: ThreadHandle = {
           snapshot: () => current.projection,
           snapshotSequence: () => current.snapshotSequence,
-          events: orchestrator
-            .streamStoredEventsFrom({ threadId })
-            .pipe(Stream.mapError(failed('events'))),
+          events: (afterSequence) =>
+            orchestrator
+              .streamStoredEventsFrom({
+                threadId,
+                ...(afterSequence === undefined ? {} : { afterSequence }),
+              })
+              .pipe(Stream.mapError(failed('events'))),
           dispatch: Effect.fn('ThreadHandle.dispatch')(function* (command) {
             if (decideCommand(command.type) === 'not-offered') {
               return yield* new NotOfferedError({ commandType: command.type });
             }
             yield* orchestrator
               .dispatch(command)
-              .pipe(Effect.andThen(refresh), Effect.mapError(failed('dispatch')));
+              .pipe(Effect.andThen(refresh), Effect.mapError(failed('dispatch')), toStderr);
           }),
           lastActivityMs: () => lastActivity,
         };

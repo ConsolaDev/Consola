@@ -527,6 +527,9 @@ importers:
       '@t3tools/shared':
         specifier: workspace:*
         version: link:../../vendor/t3code/packages/shared
+      '@t3tools/source-control-core':
+        specifier: workspace:*
+        version: link:../../vendor/t3code/packages/source-control-core
       effect:
         specifier: 'catalog:'
         version: 4.1.5
