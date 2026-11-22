@@ -277,6 +277,9 @@ importers:
       hono:
         specifier: ^4.13.19
         version: 4.13.19
+      jose:
+        specifier: ^6.2.10
+        version: 6.2.10
       pg:
         specifier: ^8.23.1
         version: 8.23.1
