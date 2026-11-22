@@ -265,7 +265,8 @@ a library build writes only the CSS its entry imports: without it `dist/agent-ui
 what t3's modules import (KaTeX, the PDF viewer) and the chat is unstyled. `pnpm --filter
 @consola/agent-ui check:css` (`build/checkBuiltCss.ts`, run by CI after the build) checks the
 built file: t3's theme, a Tailwind utility and Consola's token mapping are in it, every rule is
-scoped to the chat, and nothing page-global is there beyond the at-rules listed in "What is
+scoped to the chat (a `+` or `~` straight after the scope styles the chat's siblings, so it
+fails), and nothing page-global is there beyond the at-rules listed in "What is
 page-global" below. The output must contain no `@cursor/sdk` and no
 `@anthropic-ai/claude-agent-sdk` (CI greps `dist/` for both); either would mean server code
 reached the browser bundle. `dist/` is large (t3's lazy office, PDF, HEIC and syntax-highlighting

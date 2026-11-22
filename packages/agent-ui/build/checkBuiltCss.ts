@@ -71,8 +71,30 @@ const splitTopLevel = (list: string): string[] => {
 };
 
 /**
+ * The first combinator at the top level of `rest` (what follows a scope prefix): `' '` for a
+ * descendant, `>`, `+` or `~`; `null` when there is none.
+ */
+const firstCombinator = (rest: string): string | null => {
+  let depth = 0;
+  for (let index = 0; index < rest.length; index++) {
+    const char = rest[index] ?? '';
+    if (char === '\\') index++;
+    else if (char === '(' || char === '[') depth++;
+    else if (char === ')' || char === ']') depth--;
+    else if (depth === 0 && '>+~'.includes(char)) return char;
+    else if (depth === 0 && /\s/.test(char)) {
+      const next = rest.slice(index).trimStart()[0] ?? '';
+      return '>+~'.includes(next) && next !== '' ? next : ' ';
+    }
+  }
+  return null;
+};
+
+/**
  * Whether a selector applies only inside the chat. A minifier merges selectors into one
- * `:is(a, b)`, so such a selector is scoped when each of its arguments is.
+ * `:is(a, b)`, so such a selector is scoped when each of its arguments is. A sibling
+ * combinator straight after the scope (`.consola-agent-ui + p`, `….consola-agent-ui:hover ~ p`)
+ * styles the scope's siblings, outside the chat, so it is not.
  */
 const isScoped = (selector: string): boolean => {
   const compacted = compact(selector);
@@ -83,7 +105,9 @@ const isScoped = (selector: string): boolean => {
   return SCOPED_PREFIXES.some(
     (prefix) =>
       compacted === prefix ||
-      (compacted.startsWith(prefix) && /^[\s.:[>+~]/.test(compacted.slice(prefix.length))),
+      (compacted.startsWith(prefix) &&
+        /^[\s.:[>+~]/.test(compacted.slice(prefix.length)) &&
+        !'+~'.includes(firstCombinator(compacted.slice(prefix.length)) ?? ' ')),
   );
 };
 

@@ -50,6 +50,24 @@ describe('checkBuiltCss', () => {
     ]);
   });
 
+  it('fails a sibling combinator straight after the scope, which styles the page beside the chat', () => {
+    const leaks = [
+      '.consola-agent-ui+p',
+      '.consola-agent-ui ~ p',
+      `${INSIDE}~p`,
+      '.consola-agent-ui:hover+p',
+      '.consola-agent-ui[data-x] ~ .page',
+    ];
+    expect(
+      checkBuiltCss(`${CHAT}${leaks.map((leak) => `${leak}{color:red}`).join('')}`).problems,
+    ).toEqual(leaks.map((leak) => `unscoped selector: ${leak}`));
+    // Siblings inside the chat stay inside it.
+    const inside = [`${INSIDE} .a+.b`, '.consola-agent-ui>.a~.b', '.consola-agent-ui :is(.a+.b)'];
+    expect(
+      checkBuiltCss(`${CHAT}${inside.map((rule) => `${rule}{color:red}`).join('')}`).problems,
+    ).toEqual([]);
+  });
+
   it("takes dark mode only from the chat's own dark class", () => {
     const own = ':where(.consola-agent-ui-theme,.consola-agent-ui-portal).dark';
     expect(checkBuiltCss(`${CHAT}${INSIDE} .a:is(${own},${own} *){color:red}`).problems).toEqual(
