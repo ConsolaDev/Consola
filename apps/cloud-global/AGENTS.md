@@ -30,9 +30,9 @@ The service is built in rings, and imports point inward only.
   `cellTokenKeys`, `deliverOutbox`, `listConnections`, `startGitHubInstall`,
   `finishGitHubInstall`, `disconnectGitHub`, `mintGitHubToken`,
   `checkHealth`) and, in `ports.ts`, the stores, probes, signers, the cell and
-  the GitHub App they need. A use case is a plain function that takes its ports first, and is
-  handed the time when it needs it (`mintCellToken`'s `issuedAt`,
-  `deliverOutbox`'s `now`).
+  the GitHub App they need. A use case is a plain function that takes its
+  ports first, and is handed the time when it needs it (`mintCellToken`'s
+  `issuedAt`, `deliverOutbox`'s `now`).
 - `src/adapters/` implements the ports with a library, one folder each:
   - `persistence/` is Drizzle on PGlite or Postgres: the database, the schema,
     and one store per port, which `stores.ts` builds together. Its one writer
