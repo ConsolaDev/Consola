@@ -2,8 +2,9 @@
 
 The global part of Consola Cloud's control plane, shared by every region:
 Google sign-in, sessions, the workspaces people make, each in a region, the
-short-lived token a regional cell trusts, and the outbox that tells each cell
-of its workspaces and their members. The web app is `apps/cloud-web`; the
+short-lived token a regional cell trusts, the outbox that tells each cell of
+its workspaces and their members, and the GitHub App installations workspaces
+connect. The web app is `apps/cloud-web`; the
 browser only talks to the web app, which proxies `/api` to this service.
 
 Sign-in is open to any Google account with a verified email, and anyone signed
@@ -67,6 +68,43 @@ bad variable, if one is missing or wrong.
 By default the data is PGlite (Postgres in-process) in
 `apps/cloud-global/.data/cloud-db`. Deleting that folder resets the local
 database.
+
+## Connect GitHub
+
+A workspace connects GitHub by installing Consola's GitHub App from the web
+app's Connections page. The API starts without it: with none of the app's
+settings set, the page says GitHub is not configured here. Set all four or
+none, or the API refuses to start.
+
+Register a development app of your own (GitHub, Settings, Developer settings,
+GitHub Apps, New GitHub App), separate from the one a deployment uses: an app
+has one webhook address, so each environment needs its own.
+
+- **Callback URL:** `http://localhost:5175/api/github/callback`, the web app's
+  address, so the redirect back carries your session cookie.
+- **Request user authorization (OAuth) during installation:** on. The
+  `installation_id` in GitHub's redirect can be forged, so Consola exchanges
+  the redirect's one-time code for your GitHub token, checks with GitHub that
+  you can reach that installation, then revokes the token. GitHub greys out
+  the Setup URL once this is on; the callback replaces it.
+- **Webhook URL:** your Cloudflare tunnel's address plus
+  `/api/github/webhooks` (14.2), with a secret from `openssl rand -hex 32`.
+- **Repository permissions:** Metadata read, Contents read and write, Pull
+  requests read and write. Each token Consola mints is narrowed below these.
+- **Where it can be installed:** only on this account, for development.
+
+Then, on the app's General page, note the client ID and the slug (the name in
+`github.com/apps/<slug>`), generate a client secret and a private key, and set
+`GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET`, `GITHUB_APP_SLUG` and
+`GITHUB_APP_PRIVATE_KEY_PATH` (the full path to the downloaded `.pem`, outside
+the repository: `.gitignore` covers `.env` files, not keys).
+
+Connect only from Consola. An installation made on GitHub directly is never
+recorded for a workspace: Connect sends GitHub a state only your session can
+finish with. If the app is already installed on an account, Connect takes you
+to its settings on GitHub, and saving them there brings you back connected.
+Disconnecting removes Consola's record only; the app stays installed on GitHub
+until you uninstall it there, which the page links to.
 
 ## The shared contract
 

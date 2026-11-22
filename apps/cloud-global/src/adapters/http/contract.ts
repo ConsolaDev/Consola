@@ -196,6 +196,186 @@ export const getCellTokenKeys = createRoute({
   },
 });
 
+export const GitHubAccount = z
+  .strictObject({
+    id: z.number().int(),
+    login: z.string(),
+    type: z.enum(['Organization', 'User']),
+  })
+  .openapi('GitHubAccount', {
+    description: 'The GitHub account, an organisation or a person, the app is installed on.',
+  });
+
+export const GitHubRepository = z
+  .strictObject({
+    id: z.number().int(),
+    fullName: z.string(),
+    private: z.boolean(),
+    url: z.string(),
+  })
+  .openapi('GitHubRepository');
+
+export const GitHubRepositories = z
+  .discriminatedUnion('kind', [
+    z.strictObject({ kind: z.literal('listed'), repositories: z.array(GitHubRepository) }),
+    z.strictObject({ kind: z.literal('gone') }),
+    z.strictObject({ kind: z.literal('unavailable') }),
+  ])
+  .openapi('GitHubRepositories', {
+    description:
+      'What GitHub says the installation covers now: its repositories, `gone` when GitHub no ' +
+      'longer has the installation (uninstalled or suspended there), or `unavailable` when ' +
+      'GitHub did not say. Asked of GitHub each time, never stored.',
+  });
+
+export const GitHubConnection = z
+  .strictObject({
+    id: z.number().int(),
+    account: GitHubAccount,
+    connectedAt: z.string().openapi({ format: 'date-time' }),
+    settingsUrl: z
+      .string()
+      .openapi({
+        description: 'Where on GitHub its repositories are chosen, and it is uninstalled.',
+      }),
+    repositories: GitHubRepositories,
+  })
+  .openapi('GitHubConnection', { description: 'A GitHub App installation the workspace holds.' });
+
+export const Connections = z
+  .strictObject({
+    canManage: z
+      .boolean()
+      .openapi({
+        description: 'Whether the person may connect and disconnect: an owner or admin.',
+      }),
+    github: z.strictObject({
+      configured: z
+        .boolean()
+        .openapi({ description: 'Whether this server has the GitHub App’s settings.' }),
+      installations: z.array(GitHubConnection),
+    }),
+  })
+  .openapi('Connections', { description: 'What the workspace is connected to.' });
+
+const noActiveWorkspace = json(
+  failure('no_active_workspace'),
+  'The session has no active workspace.',
+);
+
+export const getConnections = createRoute({
+  method: 'get',
+  path: '/api/connections',
+  summary: "What my session's active workspace is connected to",
+  description: 'Any member may read it; `canManage` says whether they may change it.',
+  responses: {
+    200: json(Connections, 'The workspace’s connections.'),
+    401: signedOut,
+    403: json(failure('not_a_member'), 'The person is not in the workspace their session names.'),
+    409: noActiveWorkspace,
+  },
+});
+
+export const postGitHubInstall = createRoute({
+  method: 'post',
+  path: '/api/connections/github/install',
+  summary: 'Start connecting GitHub to my active workspace',
+  description:
+    'The address on GitHub that installs the app, carrying a state signed for this session. ' +
+    'Only an owner or admin may. No cache keeps the answer (`Cache-Control: no-store`).',
+  responses: {
+    200: json(
+      z.strictObject({ url: z.string() }).openapi('GitHubInstallAddress'),
+      'Where to send the person.',
+    ),
+    401: signedOut,
+    403: {
+      content: {
+        'application/json': {
+          schema: z.union([failure('not_a_member'), failure('not_allowed'), failure('bad_origin')]),
+        },
+      },
+      description:
+        'The person is not in the workspace, is not an owner or admin of it, or the request ' +
+        'did not come from the web app.',
+    },
+    409: noActiveWorkspace,
+    503: json(failure('github_not_configured'), 'This server has no GitHub App settings.'),
+  },
+});
+
+/** How a Connect ended, as the callback names it in the web app's `?github=`. */
+export const GITHUB_CALLBACK_RESULTS = [
+  'connected',
+  'already_connected',
+  'requested',
+  'cancelled',
+  'bad_state',
+  'expired',
+  'not_allowed',
+  'code_refused',
+  'not_installer',
+  'taken',
+  'invalid',
+  'unavailable',
+  'not_configured',
+  'signed_out',
+] as const;
+
+export const getGitHubCallback = createRoute({
+  method: 'get',
+  path: '/api/github/callback',
+  summary: 'Where GitHub sends a person back after installing the app',
+  description:
+    'The GitHub App’s callback URL, reached by a browser redirect from GitHub with `state`, ' +
+    '`code`, `installation_id`, `setup_action` or `error`. It never answers JSON: it always ' +
+    'redirects to the web app’s Connections page, with how the Connect ended in `?github=`: ' +
+    `one of ${GITHUB_CALLBACK_RESULTS.map((result) => `\`${result}\``).join(', ')}.`,
+  responses: {
+    302: {
+      description: 'To `<PUBLIC_URL>/?github=<result>#/connections`.',
+      headers: z.object({ location: z.string() }),
+    },
+  },
+});
+
+export const deleteGitHubInstallation = createRoute({
+  method: 'delete',
+  path: '/api/connections/github/installations/{installationId}',
+  summary: 'Disconnect a GitHub installation from my active workspace',
+  description:
+    'Removes the workspace’s record. The app stays installed on GitHub until someone ' +
+    'uninstalls it there (`settingsUrl`). Only an owner or admin may.',
+  request: {
+    params: z.object({
+      installationId: z.string().openapi({
+        param: { name: 'installationId', in: 'path' },
+        description: 'The installation’s id on GitHub, a positive whole number.',
+      }),
+    }),
+  },
+  responses: {
+    204: { description: 'Disconnected.' },
+    400: json(failure('invalid_request'), 'The id is not a GitHub id.'),
+    401: signedOut,
+    403: {
+      content: {
+        'application/json': {
+          schema: z.union([failure('not_a_member'), failure('not_allowed'), failure('bad_origin')]),
+        },
+      },
+      description:
+        'The person is not in the workspace, is not an owner or admin of it, or the request ' +
+        'did not come from the web app.',
+    },
+    404: json(
+      failure('installation_not_found'),
+      'The workspace holds no installation with that id, whether or not another does.',
+    ),
+    409: noActiveWorkspace,
+  },
+});
+
 export const getHealth = createRoute({
   method: 'get',
   path: '/api/health',
@@ -214,5 +394,9 @@ export const ROUTES = [
   postWorkspace,
   postCellToken,
   getCellTokenKeys,
+  getConnections,
+  postGitHubInstall,
+  getGitHubCallback,
+  deleteGitHubInstallation,
   getHealth,
 ];

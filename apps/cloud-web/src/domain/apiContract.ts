@@ -403,6 +403,318 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/connections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What my session's active workspace is connected to
+         * @description Any member may read it; `canManage` says whether they may change it.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The workspace’s connections. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Connections"];
+                    };
+                };
+                /** @description Nobody is signed in. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "signed_out";
+                        };
+                    };
+                };
+                /** @description The person is not in the workspace their session names. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "not_a_member";
+                        };
+                    };
+                };
+                /** @description The session has no active workspace. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "no_active_workspace";
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/connections/github/install": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start connecting GitHub to my active workspace
+         * @description The address on GitHub that installs the app, carrying a state signed for this session. Only an owner or admin may. No cache keeps the answer (`Cache-Control: no-store`).
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Where to send the person. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["GitHubInstallAddress"];
+                    };
+                };
+                /** @description Nobody is signed in. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "signed_out";
+                        };
+                    };
+                };
+                /** @description The person is not in the workspace, is not an owner or admin of it, or the request did not come from the web app. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "not_a_member";
+                        } | {
+                            /** @enum {string} */
+                            error: "not_allowed";
+                        } | {
+                            /** @enum {string} */
+                            error: "bad_origin";
+                        };
+                    };
+                };
+                /** @description The session has no active workspace. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "no_active_workspace";
+                        };
+                    };
+                };
+                /** @description This server has no GitHub App settings. */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "github_not_configured";
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/github/callback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Where GitHub sends a person back after installing the app
+         * @description The GitHub App’s callback URL, reached by a browser redirect from GitHub with `state`, `code`, `installation_id`, `setup_action` or `error`. It never answers JSON: it always redirects to the web app’s Connections page, with how the Connect ended in `?github=`: one of `connected`, `already_connected`, `requested`, `cancelled`, `bad_state`, `expired`, `not_allowed`, `code_refused`, `not_installer`, `taken`, `invalid`, `unavailable`, `not_configured`, `signed_out`.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description To `<PUBLIC_URL>/?github=<result>#/connections`. */
+                302: {
+                    headers: {
+                        location: string;
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/connections/github/installations/{installationId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Disconnect a GitHub installation from my active workspace
+         * @description Removes the workspace’s record. The app stays installed on GitHub until someone uninstalls it there (`settingsUrl`). Only an owner or admin may.
+         */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The installation’s id on GitHub, a positive whole number. */
+                    installationId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Disconnected. */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description The id is not a GitHub id. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "invalid_request";
+                        };
+                    };
+                };
+                /** @description Nobody is signed in. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "signed_out";
+                        };
+                    };
+                };
+                /** @description The person is not in the workspace, is not an owner or admin of it, or the request did not come from the web app. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "not_a_member";
+                        } | {
+                            /** @enum {string} */
+                            error: "not_allowed";
+                        } | {
+                            /** @enum {string} */
+                            error: "bad_origin";
+                        };
+                    };
+                };
+                /** @description The workspace holds no installation with that id, whether or not another does. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "installation_not_found";
+                        };
+                    };
+                };
+                /** @description The session has no active workspace. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "no_active_workspace";
+                        };
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/health": {
         parameters: {
             query?: never;
@@ -515,6 +827,54 @@ export interface components {
             alg: "EdDSA";
             /** @enum {string} */
             use: "sig";
+        };
+        /** @description What the workspace is connected to. */
+        Connections: {
+            /** @description Whether the person may connect and disconnect: an owner or admin. */
+            canManage: boolean;
+            github: {
+                /** @description Whether this server has the GitHub App’s settings. */
+                configured: boolean;
+                installations: components["schemas"]["GitHubConnection"][];
+            };
+        };
+        /** @description A GitHub App installation the workspace holds. */
+        GitHubConnection: {
+            id: number;
+            account: components["schemas"]["GitHubAccount"];
+            /** Format: date-time */
+            connectedAt: string;
+            /** @description Where on GitHub its repositories are chosen, and it is uninstalled. */
+            settingsUrl: string;
+            repositories: components["schemas"]["GitHubRepositories"];
+        };
+        /** @description The GitHub account, an organisation or a person, the app is installed on. */
+        GitHubAccount: {
+            id: number;
+            login: string;
+            /** @enum {string} */
+            type: "Organization" | "User";
+        };
+        /** @description What GitHub says the installation covers now: its repositories, `gone` when GitHub no longer has the installation (uninstalled or suspended there), or `unavailable` when GitHub did not say. Asked of GitHub each time, never stored. */
+        GitHubRepositories: {
+            /** @enum {string} */
+            kind: "listed";
+            repositories: components["schemas"]["GitHubRepository"][];
+        } | {
+            /** @enum {string} */
+            kind: "gone";
+        } | {
+            /** @enum {string} */
+            kind: "unavailable";
+        };
+        GitHubRepository: {
+            id: number;
+            fullName: string;
+            private: boolean;
+            url: string;
+        };
+        GitHubInstallAddress: {
+            url: string;
         };
     };
     responses: never;

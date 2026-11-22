@@ -5,6 +5,12 @@ import type {
   Region,
   WorkspaceRole,
 } from '@consola/cloud-contract';
+import type {
+  ConnectedInstallation,
+  GitHubInstallation,
+  GitHubRepository,
+  InstallState,
+} from '../domain/connections.js';
 import type { MyWorkspace, NewWorkspace, Workspace } from '../domain/workspace.js';
 
 // What the use cases need from the world outside, each implemented by an adapter.
@@ -131,4 +137,69 @@ export type CellDelivery = {
   reaches(region: Region): boolean;
   /** Sends one signed message to the region's cell; `signal` abandons it. */
   deliver(region: Region, signedMessage: string, signal?: AbortSignal): Promise<DeliveryAnswer>;
+};
+
+/**
+ * The installations of Consola's GitHub App that workspaces hold. An installation belongs to one
+ * workspace at most: its id is the record's key.
+ */
+export type InstallationStore = {
+  /**
+   * Records that the workspace holds the installation, unless another workspace already does
+   * (`taken`, and then nothing is written). One the workspace already holds is
+   * `already-connected`, and its account is written again, since an organisation can be renamed.
+   */
+  connect(entry: {
+    installation: GitHubInstallation;
+    workspaceId: string;
+    connectedBy: string;
+    at: Date;
+  }): Promise<'connected' | 'already-connected' | 'taken'>;
+  /** The installations the workspace holds, in the order they were connected. */
+  ofWorkspace(workspaceId: string): Promise<ConnectedInstallation[]>;
+  /**
+   * Removes the record that the workspace holds the installation. False when it holds no such
+   * installation, another workspace's included, and then nothing is removed.
+   */
+  disconnect(ids: { workspaceId: string; installationId: number }): Promise<boolean>;
+};
+
+/** Signs the `state` of a Connect, and reads one back only when this signer signed it. */
+export type InstallStateSigner = {
+  sign(state: InstallState): string;
+  /** The state, or null when it is not one this signer signed, or not a state at all. */
+  read(token: string): InstallState | null;
+};
+
+/**
+ * Consola's GitHub App, as GitHub answers for it. A call GitHub cannot answer (down, slow, or an
+ * answer of a shape it never gives) is `unavailable`, never thrown.
+ */
+export type GitHubApp = {
+  /** The address that installs the app, carrying `state` back to Consola's callback. */
+  installUrl(state: string): string;
+  /**
+   * The installations that the person GitHub sent back with `code` can reach: GitHub's own
+   * answer to who installed what, since the callback's `installation_id` can be forged. The code
+   * is used once, and the token it is exchanged for is revoked once read, never kept. A code
+   * GitHub refuses (used, expired, made up) is `code-refused`.
+   */
+  installationsOfInstaller(
+    code: string,
+  ): Promise<
+    | { kind: 'listed'; installations: GitHubInstallation[] }
+    | { kind: 'code-refused' }
+    | { kind: 'unavailable' }
+  >;
+  /**
+   * The repositories an installation covers, as GitHub says now. An installation GitHub no
+   * longer has (uninstalled, or suspended) is `gone`.
+   */
+  repositoriesOf(
+    installationId: number,
+  ): Promise<
+    | { kind: 'listed'; repositories: GitHubRepository[] }
+    | { kind: 'gone' }
+    | { kind: 'unavailable' }
+  >;
 };
