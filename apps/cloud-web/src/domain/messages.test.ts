@@ -5,6 +5,8 @@ import {
   messageForSwitchFailure,
   messagesForCreateRefusal,
   messagesForWorkspaceProblems,
+  REGION_HINT,
+  SLUG_HINT,
   WORKSPACES_UNAVAILABLE,
 } from './messages';
 
@@ -110,5 +112,17 @@ describe('messageForSwitchFailure', () => {
 describe('WORKSPACES_UNAVAILABLE', () => {
   it('says the list could not be loaded', () => {
     expect(WORKSPACES_UNAVAILABLE).toBe('Your workspaces couldn’t be loaded.');
+  });
+});
+
+describe('the create form’s hints', () => {
+  it('say what a slug may hold, and that it is unique', () => {
+    expect(SLUG_HINT).toBe('Lowercase letters, digits and dashes. No two workspaces share one.');
+  });
+
+  it('say that the region can never be changed', () => {
+    expect(REGION_HINT).toBe(
+      'Pick the one nearest your team. A workspace’s region can’t be changed once it’s created.',
+    );
   });
 });

@@ -91,3 +91,10 @@ export function messageForSwitchFailure(
 
 /** What the switcher says when the person's workspaces could not be listed. */
 export const WORKSPACES_UNAVAILABLE = 'Your workspaces couldn’t be loaded.';
+
+/** What the create form says under the slug, before anything is wrong with it. */
+export const SLUG_HINT = 'Lowercase letters, digits and dashes. No two workspaces share one.';
+
+/** What the create form says under the regions: the one choice that is final. */
+export const REGION_HINT =
+  'Pick the one nearest your team. A workspace’s region can’t be changed once it’s created.';

@@ -20,6 +20,7 @@ export function SignInCard({ error }: { error: string | null }) {
   return (
     <section className="card">
       <h1 className="heading">Sign in to Consola Cloud</h1>
+      <p className="muted">Open your workspaces, or create your first one.</p>
       {shown && (
         <p className="error" role="alert">
           {shown}
