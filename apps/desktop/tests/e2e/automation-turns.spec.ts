@@ -18,10 +18,10 @@ import { launchElectron } from './helpers/electron';
  * endpoint, so a step's handover and outputs arrive the way a real CLI's
  * would. Its knobs (`STUB_CLAUDE_COST`, `STUB_CLAUDE_SUBTYPE`, …) are fixed
  * for the app a test launches, so every turn of one test reports the same
- * figures: the stub's `total_cost_usd` (0.0123) is the same on a first turn
- * and on its reminder, which the engine reads as the conversation's running
- * total (a resumed print turn's cost is, canary row 14), so a reminded step
- * costs 0.0123 while its turns add up.
+ * figures, unless a cost or turns knob is a comma list, whose n-th value is
+ * a conversation's n-th turn's. The engine reads a resumed turn's
+ * `total_cost_usd` as the conversation's running total (canary row 14): the
+ * reminder scenario reports 0.0015 then 0.003, and the step costs 0.003.
  *
  * The helpers are copied from `automation-steps.spec.ts`, not imported, so
  * each spec runs only its own tests. A pane is read from its remount
@@ -767,10 +767,14 @@ test('a reminder runs with its own cap, and its cost is added', async () => {
   test.setTimeout(180_000);
   // The first turn sets nothing. The reminder, resumed, waits at the gate
   // before it reads its knobs, so the verdict written between the turns is
-  // what it sets, however soon Consola relaunches it.
+  // what it sets, however soon Consola relaunches it. Each turn reports the
+  // conversation's running cost, as the real CLI does: 0.0015, then 0.003.
   const steps = await setUpSteps({
     outputs: '',
-    env: ({ base }) => ({ STUB_CLAUDE_RESUME_GATE: path.join(base, 'resume-gate') }),
+    env: ({ base }) => ({
+      STUB_CLAUDE_RESUME_GATE: path.join(base, 'resume-gate'),
+      STUB_CLAUDE_COST: '0.0015,0.003',
+    }),
   });
   const gate = steps.env.STUB_CLAUDE_RESUME_GATE;
   try {
@@ -807,23 +811,24 @@ test('a reminder runs with its own cap, and its cost is added', async () => {
     const look = stepsOf(record).look;
     expect(look.reminded).toBe(true);
     expect(look.outputs).toEqual({ verdict: 'approve' });
-    // Turns add up. The stub reports the same `total_cost_usd` on both, which
-    // is the conversation's running total by the second (a resumed print
-    // turn's cost is), so the attempt cost 0.0123, not twice that.
-    expect(look.turn).toEqual({ costUsd: STUB_COST, turns: 6 });
+    // Turns add up. A resumed print turn's `total_cost_usd` is the
+    // conversation's running total, so the reminder's 0.003 is the attempt's
+    // cost, not 0.0015 + 0.003.
+    expect(look.turn).toEqual({ costUsd: 0.003, turns: 6 });
     expect(look.model).toBe(STUB_MODEL);
-    expect(record.costUsd).toBeCloseTo(STUB_COST, 10);
+    expect(record.costUsd).toBeCloseTo(0.003, 10);
     const turns = turnFile(steps, record.id, 'look', 1).turns;
     expect(turns).toHaveLength(2);
     expect(turns[0].maxTurns).toBeUndefined();
     expect(turns[1].maxTurns).toBe(3);
+    expect(turns.map((one) => one.result?.total_cost_usd)).toEqual([0.0015, 0.003]);
 
     const panel = await openRun(steps);
     const lookDetail = await openStep(panel, 'look');
     const turnFact = lookDetail.locator('.automations-fact').filter({ hasText: /^Turn/ });
-    await expect(turnFact).toContainText('6 turns · $0.0123 est. · claude-stub-1');
+    await expect(turnFact).toContainText('6 turns · $0.0030 est. · claude-stub-1');
     await expect(turnFact).not.toContainText('at most');
-    await expect(panel.locator('.automations-run-stats')).toContainText('$0.0123 est.');
+    await expect(panel.locator('.automations-run-stats')).toContainText('$0.0030 est.');
   } finally {
     await steps.close();
   }

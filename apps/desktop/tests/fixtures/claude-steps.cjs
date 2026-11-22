@@ -82,8 +82,12 @@
 //                               finds it makes none.
 //   Only in stream-json:
 //   STUB_CLAUDE_MODEL=name      `init`'s model; default `claude-stub-1`
-//   STUB_CLAUDE_COST=usd        the result's `total_cost_usd`; default 0.0123
-//   STUB_CLAUDE_TURNS=n         the result's `num_turns`; default 3
+//   STUB_CLAUDE_COST=usd        the result's `total_cost_usd`; default 0.0123. A comma list
+//                               (`0.0015,0.003`) gives the n-th turn of a conversation its n-th
+//                               value, the last once it runs out, counted by the `END <id>`
+//                               lines in STUB_CLAUDE_LOG: the real CLI reports a resumed
+//                               turn's cost as the conversation's running total
+//   STUB_CLAUDE_TURNS=n         the result's `num_turns`; default 3. A comma list as above
 //   STUB_CLAUDE_SUBTYPE=name    the result's `subtype`; default `success`. Anything else is
 //                               `is_error`; `error_max_turns` has no `result` text
 //   STUB_CLAUDE_HOOKS_FILE=path read at each launch when the file exists: a JSON list of
@@ -445,10 +449,27 @@ function permissionDenials() {
     }));
 }
 
-/** A number knob, or its default when unset. */
+/** How many turns of this conversation ended before this one: its `END <id>` lines in the log. */
+function turnsBefore() {
+  const file = process.env.STUB_CLAUDE_LOG;
+  if (!file || !fs.existsSync(file)) return 0;
+  const ended = `END ${SESSION_ID} `;
+  return fs
+    .readFileSync(file, 'utf8')
+    .split('\n')
+    .filter((line) => line.startsWith(ended)).length;
+}
+
+/**
+ * A number knob, or its default when unset. A comma list gives the n-th turn
+ * of a conversation its n-th value (`turnsBefore`), and the last once the
+ * list runs out.
+ */
 function numberKnob(name, fallback) {
   const value = process.env[name];
-  return value ? Number(value) : fallback;
+  if (!value) return fallback;
+  const values = value.split(',');
+  return Number(values[Math.min(turnsBefore(), values.length - 1)]);
 }
 
 async function printTurn() {

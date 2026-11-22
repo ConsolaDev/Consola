@@ -74,6 +74,15 @@ async function started() {
 }
 
 const STOPPED = 'a server it needs was not connected';
+
+/**
+ * The sessions whose failed init check waits for their turn's end. Private
+ * state, read here because freeing it is all its deletion does: no later
+ * turn of the session could see a stale entry (a retry is a new session).
+ */
+function pendingInitFailures(h: StepsHarness): string[] {
+  return [...(h.service as unknown as { initFailures: Map<string, string> }).initFailures.keys()];
+}
 const HINT = 'run `claude`, then /mcp';
 
 describe('a step turn’s init, with no server granted (2-A)', () => {
@@ -289,11 +298,14 @@ describe('a step turn’s init, with a server granted', () => {
     });
   });
 
-  it('the words are used once', async () => {
+  it('the words are used once, and a retry’s new session is not poisoned', async () => {
     const { h, run } = await started();
     h.service.turnStarted('session-1', { servers: [] });
+    expect(pendingInitFailures(h)).toEqual(['session-1']);
     await h.world.endTurn('session-1', { exitCode: 0, stopped: STOPPED, report: turnReport({}) });
     expect(h.store.get(run.id)?.status).toBe('failed');
+    // Its turn's end took them: nothing is kept for a session that has no turn left.
+    expect(pendingInitFailures(h)).toEqual([]);
 
     await h.service.retry(run.id);
     await h.flush();

@@ -103,6 +103,26 @@ describe('the stub claude in stream-json', { timeout: 30_000 }, () => {
     expect(named.at(-1)).toMatchObject({ num_turns: 7, total_cost_usd: 0.0123 });
   });
 
+  it('a comma list gives each turn of a conversation its own value, the last once it runs out', () => {
+    const dir = scratch();
+    const config = scratch();
+    const log = path.join(dir, 'claude.log');
+    const env = { STUB_CLAUDE_LOG: log, STUB_CLAUDE_COST: '0.0015,0.003', STUB_CLAUDE_TURNS: '3,2' };
+    const cost = (...flags: string[]) =>
+      jsonLines(
+        spawnSync(process.execPath, [STUB, '-p', ...flags, ...REPORT, '--', 'hi'], {
+          env: { PATH: process.env.PATH, CLAUDE_CONFIG_DIR: config, ...env },
+          encoding: 'utf8',
+        }).stdout,
+      ).at(-1);
+    // The real CLI's `total_cost_usd` is the conversation's running total (canary row 14).
+    expect(cost('--session-id', 'c1')).toMatchObject({ total_cost_usd: 0.0015, num_turns: 3 });
+    expect(cost('--resume', 'c1')).toMatchObject({ total_cost_usd: 0.003, num_turns: 2 });
+    expect(cost('--resume', 'c1')).toMatchObject({ total_cost_usd: 0.003, num_turns: 2 });
+    // Another conversation starts the list again.
+    expect(cost('--session-id', 'c2')).toMatchObject({ total_cost_usd: 0.0015, num_turns: 3 });
+  });
+
   it('error_max_turns is an error with no result text', () => {
     const { stdout, status } = turn({ STUB_CLAUDE_SUBTYPE: 'error_max_turns' });
     const result = jsonLines(stdout).at(-1);
