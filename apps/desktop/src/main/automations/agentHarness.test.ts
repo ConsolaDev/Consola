@@ -3,7 +3,6 @@ import type { AgentHarnessQuery } from '@consola/automation-engine';
 import type { Harness } from '../../shared/harness';
 import type { HarnessCapabilitiesResult } from '../../shared/types';
 import { getDriver, type HarnessDriver, toolPolicyProblem } from '../drivers';
-import { CodexDriver } from '../drivers/CodexDriver';
 import type { McpServerReport } from '../drivers/HarnessDriver';
 import type { HarnessCapabilitiesCache } from '../HarnessCapabilitiesCache';
 import {
@@ -12,7 +11,6 @@ import {
   cachedModels,
   harnessesWithServers,
   noAgentGrants,
-  SERVERS_AND_SKILLS_LATER,
 } from './agentHarness';
 import type { McpServersCache, ServersAnswer } from './mcpServersCache';
 
@@ -155,12 +153,6 @@ describe('agentHarnessView, for an agent', () => {
     expect(codex.problem).not.toBeNull();
     expect(codex.agentProblem).toBe(
       `${codex.problem} Steps on Codex arrive later; they need a Codex harness with a home of its own.`,
-    );
-  });
-
-  it("2-B's launch refusal keeps its words until the launch compiles too", () => {
-    expect(SERVERS_AND_SKILLS_LATER).toBe(
-      'Servers and skills for agents arrive with the next update',
     );
   });
 

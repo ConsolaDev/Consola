@@ -1,21 +1,30 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as os from 'node:os';
 
-const { spawnMock, buildArgsMock, readCwdMock, loginEnv, providerDriverMock, turnReaders } =
-  vi.hoisted(() => ({
-    spawnMock: vi.fn(),
-    buildArgsMock: vi.fn(),
-    readCwdMock: vi.fn(),
-    /** The mocked driver's `createTurnReader`; a `beforeEach` sets it to Claude's real one. */
-    turnReaders: { create: undefined as (() => import('./drivers').TurnReader) | undefined },
-    /** What the mocked LoginEnvironment answers; reset before each test. */
-    loginEnv: {
-      current: {} as Record<string, string>,
-      problem: null as string | null,
-      retry: null as Promise<void> | null,
-    },
-    providerDriverMock: vi.fn(),
-  }));
+const {
+  spawnMock,
+  buildArgsMock,
+  readCwdMock,
+  launchNoticeMock,
+  loginEnv,
+  providerDriverMock,
+  turnReaders,
+} = vi.hoisted(() => ({
+  spawnMock: vi.fn(),
+  buildArgsMock: vi.fn(),
+  readCwdMock: vi.fn(),
+  /** The mocked driver's `launchNotice`; none unless a test says otherwise. */
+  launchNoticeMock: vi.fn(),
+  /** The mocked driver's `createTurnReader`; a `beforeEach` sets it to Claude's real one. */
+  turnReaders: { create: undefined as (() => import('./drivers').TurnReader) | undefined },
+  /** What the mocked LoginEnvironment answers; reset before each test. */
+  loginEnv: {
+    current: {} as Record<string, string>,
+    problem: null as string | null,
+    retry: null as Promise<void> | null,
+  },
+  providerDriverMock: vi.fn(),
+}));
 
 vi.mock('node-pty', () => ({ spawn: spawnMock }));
 vi.mock('./LoginEnvironment', () => ({
@@ -37,6 +46,7 @@ vi.mock('./drivers', () => ({
     composeEnv: (_harness: unknown, env: Record<string, string | undefined>) => env,
     readWorkingDirectory: readCwdMock,
     createTurnReader: turnReaders.create,
+    launchNotice: launchNoticeMock,
   }),
   toHarnessConfig: (options: unknown) => options,
 }));
@@ -142,6 +152,7 @@ beforeEach(() => {
   spawnMock.mockReset();
   buildArgsMock.mockReset().mockReturnValue([]);
   readCwdMock.mockReset().mockReturnValue(null);
+  launchNoticeMock.mockReset().mockReturnValue(null);
   turnReaders.create = createClaudeTurnReader;
   return () => vi.useRealTimers();
 });
@@ -450,6 +461,122 @@ describe('TerminalService fresh conversation', () => {
     expect(() => service.startFreshConversation('new-id', 'Review again.')).toThrow(/automation/);
     expect(pty.kills()).toBe(0);
     expect(service.conversationId()).toBe('consola-id');
+    service.destroy();
+  });
+});
+
+describe("TerminalService a step's grants", () => {
+  const GRANTS = {
+    driverId: 'claude' as const,
+    servers: [{ name: 'grafana' }],
+    skills: ['incident-triage'],
+    allowedMcpServers: [{ serverName: 'consola' }, { serverName: 'grafana' }],
+    strict: true,
+    allowedTools: ['mcp__grafana__*', 'Skill(consola-step:incident-triage)'],
+    pluginDir: '/data/runs/r1/look/1/plugin',
+  };
+  const stepTerminal = (fields: Record<string, unknown> = {}) =>
+    new TerminalService({
+      cwd: os.tmpdir(),
+      claudeSessionId: 'step-id',
+      resume: false,
+      toolPolicy: 'read-only',
+      unattended: true,
+      initialPrompt: 'look',
+      grants: GRANTS,
+      ...fields,
+    });
+
+  it('hands the grants to every launch: the turn, a resume, a reminder and a restart', async () => {
+    const turn = installFakePty();
+    const service = stepTerminal();
+    service.start();
+    await vi.advanceTimersByTimeAsync(0);
+    turn.exit(0);
+    await vi.advanceTimersByTimeAsync(SETTLE_MS);
+
+    const resumed = installFakePty();
+    service.relaunch({ cwd: os.tmpdir(), prompt: 'go on', unattended: false });
+    await vi.advanceTimersByTimeAsync(0);
+    resumed.exit(0);
+    await vi.advanceTimersByTimeAsync(SETTLE_MS);
+
+    const reminder = installFakePty();
+    service.relaunch({ cwd: os.tmpdir(), prompt: 'remind', unattended: true, maxTurns: 3 });
+    await vi.advanceTimersByTimeAsync(0);
+    reminder.exit(0);
+    await vi.advanceTimersByTimeAsync(SETTLE_MS);
+
+    installFakePty();
+    service.restartClaude();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(buildArgsMock.mock.calls.map((call) => [call[1].unattended, call[1].grants])).toEqual([
+      [true, GRANTS],
+      [false, GRANTS],
+      [true, GRANTS],
+      [false, GRANTS],
+    ]);
+    service.destroy();
+  });
+
+  it('a terminal with none passes none', async () => {
+    installFakePty();
+    const service = stepTerminal({ grants: undefined });
+    service.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(Object.prototype.hasOwnProperty.call(buildArgsMock.mock.calls[0][1], 'grants')).toBe(
+      false,
+    );
+    service.destroy();
+  });
+
+  it("writes the driver's line for a launch above the CLI's output, once per launch", async () => {
+    launchNoticeMock.mockReturnValue('NOTICE-1');
+    const first = installFakePty();
+    const service = stepTerminal({ unattended: false, initialPrompt: undefined, resume: true });
+    const output: string[] = [];
+    service.on('data', (data) => output.push(data));
+    service.start();
+    await vi.advanceTimersByTimeAsync(0);
+    first.feed('CLI-FIRST');
+    await vi.advanceTimersByTimeAsync(0);
+    const joined = output.join('');
+    expect(joined.indexOf('NOTICE-1')).toBeGreaterThan(-1);
+    expect(joined.indexOf('NOTICE-1')).toBeLessThan(joined.indexOf('CLI-FIRST'));
+    expect(joined.split('NOTICE-1')).toHaveLength(2);
+    expect(launchNoticeMock).toHaveBeenCalledWith(expect.objectContaining({ grants: GRANTS }));
+
+    first.exit(0);
+    await vi.advanceTimersByTimeAsync(SETTLE_MS);
+    installFakePty();
+    service.restartClaude();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(output.join('').split('NOTICE-1')).toHaveLength(3);
+    service.destroy();
+  });
+
+  it('a harness switch drops them: the next launch has none', async () => {
+    installFakePty();
+    const service = stepTerminal({
+      unattended: false,
+      initialPrompt: undefined,
+      resume: true,
+      driverId: 'claude',
+      configDirOverride: '/Users/me/.claude-work',
+    });
+    service.start();
+    await vi.advanceTimersByTimeAsync(0);
+    installFakePty();
+    service.switchHarness({
+      launch: { driverId: 'claude', configDirOverride: '/Users/me/.claude-personal' },
+      claudeSessionId: 'new-id',
+      notice: 'Switched.',
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(buildArgsMock.mock.calls[0][1].grants).toEqual(GRANTS);
+    expect(Object.prototype.hasOwnProperty.call(buildArgsMock.mock.calls[1][1], 'grants')).toBe(
+      false,
+    );
     service.destroy();
   });
 });

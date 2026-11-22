@@ -1,3 +1,4 @@
+import type { AgentGrants } from './agentGrants';
 import type { WorkspaceIconValue } from './workspaceIcons';
 import type { RemovedWorktree, WorkspaceWorktreeCleanup } from './worktreeCleanup';
 import { BUILT_IN_HARNESS_ID } from './constants';
@@ -112,6 +113,8 @@ export interface Session {
   automation?: SessionProvenance;
   /** A step's turn cap, from its file: replayed on every unattended launch, fixed for the session's life. */
   maxTurns?: number;
+  /** What a step's agent was granted, compiled when its attempt launched: replayed on every launch, fixed for the session's life; a harness switch drops it. */
+  grants?: AgentGrants;
   createdAt: number;
   /** Creation-time seed only. Real activity lives in the attention ledger; read it through `activityOf`. */
   lastActiveAt: number;
@@ -156,7 +159,9 @@ export interface HarnessSwitchChange {
  * the record a switch launches from can never differ.
  */
 export function switchedSession(session: Session, change: HarnessSwitchChange): Session {
-  const { model: _model, agentCwd: _agentCwd, ...kept } = session;
+  // What the old harness offered goes with it: its model, where its process
+  // worked, and the grants its driver compiled (fewer grants, never more).
+  const { model: _model, agentCwd: _agentCwd, grants: _grants, ...kept } = session;
   const prior = change.left
     ? [...(session.priorConversations ?? []), change.left].slice(-MAX_PRIOR_CONVERSATIONS)
     : session.priorConversations;
@@ -426,6 +431,7 @@ export type NewSessionFields = Pick<
       | 'toolPolicy'
       | 'automation'
       | 'maxTurns'
+      | 'grants'
       | 'nameIsUserSet'
     >
   >;

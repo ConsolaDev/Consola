@@ -12,6 +12,7 @@ import {
 } from './SessionLauncher';
 import type { NewSessionFields, Session, Workspace } from '../shared/workspace';
 import type { Harness } from '../shared/harness';
+import type { AgentGrants } from '../shared/agentGrants';
 
 // Real folders on disk. The launcher refuses to spawn into a working folder
 // that is not there, so a made-up fixture path would send every case down the
@@ -691,6 +692,86 @@ describe('SessionLauncher', () => {
 
   describe('a step session’s turns', () => {
     const STEP = { name: 'catalog-notes', runId: 'r1', step: { id: 'look', attempt: 1 } };
+    const GRANTS: AgentGrants = {
+      driverId: 'claude',
+      servers: [{ name: 'grafana' }],
+      skills: [],
+      allowedMcpServers: [{ serverName: 'consola' }, { serverName: 'grafana' }],
+      strict: true,
+      accountFile: '/Users/me/.claude-work/.claude.json',
+      allowedTools: ['mcp__grafana__*'],
+    };
+
+    it("a step session's grants reach its record and every launch of it, a reopen included", async () => {
+      const { launcher, workspaces, terminals } = buildLauncher(sessionFixture());
+      workspaces.createSession.mockImplementation(
+        (_workspaceId: string, fields: NewSessionFields) =>
+          ({ ...sessionFixture(), ...fields }) as Session,
+      );
+      const session = await launcher.launchSession('ws-1', {
+        ...launchFields,
+        toolPolicy: 'read-only',
+        automation: STEP,
+        grants: GRANTS,
+        initialPrompt: 'look',
+        unattended: true,
+      });
+      expect((workspaces.createSession.mock.calls[0] as unknown[])[1]).toMatchObject({
+        grants: GRANTS,
+      });
+      expect(terminals.startHeadless.mock.calls[0][1]).toMatchObject({ grants: GRANTS });
+
+      // A reopen after a restart starts the record as it is.
+      await launcher.startRecorded('ws-1', { ...session, hasStarted: true }, { resume: true });
+      expect(terminals.startHeadless.mock.calls[1][1]).toMatchObject({
+        resume: true,
+        grants: GRANTS,
+      });
+    });
+
+    it('a session with no grants launches with no grants key', async () => {
+      const { launcher, terminals } = buildLauncher(sessionFixture());
+      await launcher.launchSession('ws-1', launchFields);
+      expect(
+        Object.prototype.hasOwnProperty.call(terminals.startHeadless.mock.calls[0][1], 'grants'),
+      ).toBe(false);
+    });
+
+    it('a reminder in a live terminal leaves its grants as the terminal has them', async () => {
+      const session = sessionFixture({
+        toolPolicy: 'read-only',
+        hasStarted: true,
+        automation: STEP,
+        grants: GRANTS,
+      });
+      const { launcher, workspaces, terminals } = buildLauncher(session);
+      workspaces.getAll.mockReturnValue([{ ...workspaceFixture(), sessions: [session] }]);
+      terminals.get.mockReturnValue({ ...existingTerminal(), hasClaudeExited: () => true });
+      await launcher.relaunchUnattended('ws-1', 'session-1', 'remind');
+      expect(terminals.relaunch).toHaveBeenCalledWith('instance-1', {
+        cwd: scopeDir,
+        prompt: 'remind',
+        unattended: true,
+      });
+    });
+
+    it('a full-tools fork of a step session carries none of its grants', async () => {
+      const source = sessionFixture({
+        toolPolicy: 'read-only',
+        hasStarted: true,
+        automation: STEP,
+        grants: GRANTS,
+      });
+      const { launcher, workspaces, terminals } = buildLauncher(source);
+      workspaces.getAll.mockReturnValue([{ ...workspaceFixture(), sessions: [source] }]);
+      workspaces.createSession.mockImplementation(
+        (_workspaceId: string, fields: NewSessionFields) =>
+          ({ ...sessionFixture(), ...fields, id: 'session-2' }) as Session,
+      );
+      await launcher.forkWithFullTools('ws-1', 'session-1');
+      expect((workspaces.createSession.mock.calls[0] as unknown[])[1]).not.toHaveProperty('grants');
+      expect(terminals.startHeadless.mock.calls[0][1]).not.toHaveProperty('grants');
+    });
 
     it("a step session's terminal reports its unattended turns and carries its cap", async () => {
       const { launcher, workspaces, terminals } = buildLauncher(sessionFixture());
@@ -842,6 +923,11 @@ describe('SessionLauncher', () => {
         'a step session with a cap',
         { automation: STEP, maxTurns: 6 },
         { reportTurns: true, maxTurns: 6 },
+      ],
+      [
+        "a step session with its agent's grants",
+        { automation: STEP, maxTurns: 3, grants: GRANTS },
+        { reportTurns: true, maxTurns: 3, grants: GRANTS },
       ],
       ['a step session without one', { automation: STEP }, { reportTurns: true }],
       [

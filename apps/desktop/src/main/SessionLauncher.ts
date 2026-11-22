@@ -96,16 +96,18 @@ export function reportTurnsFor(session: Pick<Session, 'automation'>): boolean {
 
 /**
  * What every launch takes from a session's record, never from a window:
- * whether its unattended turns report, and its turn cap, only when the
- * record has one. No record (a terminal nothing names): nothing reports.
+ * whether its unattended turns report, and its turn cap and its agent's
+ * grants, each only when the record has them. No record (a terminal
+ * nothing names): nothing reports.
  */
 export function recordLaunchFields(
-  session: Pick<Session, 'automation' | 'maxTurns'> | undefined,
-): Pick<TerminalServiceOptions, 'reportTurns' | 'maxTurns'> {
+  session: Pick<Session, 'automation' | 'maxTurns' | 'grants'> | undefined,
+): Pick<TerminalServiceOptions, 'reportTurns' | 'maxTurns' | 'grants'> {
   if (!session) return { reportTurns: false };
   return {
     reportTurns: reportTurnsFor(session),
     ...(session.maxTurns !== undefined ? { maxTurns: session.maxTurns } : {}),
+    ...(session.grants !== undefined ? { grants: session.grants } : {}),
   };
 }
 

@@ -5,7 +5,11 @@ import * as path from 'node:path';
 import { StartedByHandError, type AgentLaunchRequest } from '@consola/automation-engine';
 import type { Harness } from '../../shared/harness';
 import type { Session, Workspace } from '../../shared/workspace';
+import { getDriver, type HarnessDriver, toolPolicyProblem } from '../drivers';
+import { compileClaudeAgent } from '../drivers/claudeAgent';
+import type { McpServerReport } from '../drivers/HarnessDriver';
 import type { GitProviderDriver } from '../providers/GitProviderDriver';
+import type { LaunchSessionFields } from '../SessionLauncher';
 import {
   launchAgentRun,
   prepareItemWorktree,
@@ -65,9 +69,10 @@ function harnessRecord(fields: Partial<Harness>): Harness {
 /** The harness records every launch here can see: the workspace's default `work`, and three an agent may name. */
 const HARNESSES: Harness[] = [
   harnessRecord({ id: 'work' }),
-  harnessRecord({ id: 'claude-work', name: 'Claude work' }),
+  harnessRecord({ id: 'claude-work', name: 'Claude work', configDir: '/home/alice/.claude-work' }),
   harnessRecord({ id: 'old', name: 'Old', archived: true }),
   harnessRecord({ id: 'off', name: 'Off', enabled: false }),
+  harnessRecord({ id: 'codex-1', name: 'Codex', driverId: 'codex' }),
 ];
 
 function deps(overrides: Partial<AgentLaunchDeps> = {}) {
@@ -89,6 +94,7 @@ function deps(overrides: Partial<AgentLaunchDeps> = {}) {
     composeEnv: async () => ({ GH_TOKEN: 'token' }),
     restoreGroup: vi.fn(),
     harnesses: () => HARNESSES,
+    serversForLaunch: vi.fn(async (): Promise<McpServerReport[]> => []),
     ...overrides,
     // Last, and never overridden: the tests read its calls.
     launchSession,
@@ -346,7 +352,10 @@ describe('launchAgentRun', () => {
 
   describe("a step's agent", () => {
     /** A scheduled step on sprocket's catalog-portal, its agent as given. */
-    const agentStep = (agent?: NonNullable<AgentLaunchRequest['step']>['agent']) => ({
+    const agentStep = (
+      agent?: NonNullable<AgentLaunchRequest['step']>['agent'],
+      fields: Partial<NonNullable<AgentLaunchRequest['step']>> = {},
+    ) => ({
       workspaceId: 'ws-1',
       run: { id: 'run-3', automation: 'catalog-review' },
       prompt: 'Look.',
@@ -357,6 +366,7 @@ describe('launchAgentRun', () => {
         scopeId: 'scope-api',
         name: 'catalog-review · look',
         checkout: 'scope' as const,
+        ...fields,
         ...(agent ? { agent } : {}),
       },
     });
@@ -428,28 +438,238 @@ describe('launchAgentRun', () => {
       ).rejects.toThrow(words);
       expect(d.launchSession).not.toHaveBeenCalled();
     });
+  });
 
-    it('an agent that names a server or a skill starts nothing: none is ever silently dropped', async () => {
-      for (const agent of [
-        {
-          name: 'investigator',
-          harnessId: 'claude-work',
-          mcpServers: [{ name: 'notion' }],
-          skills: [],
-        },
-        {
-          name: 'investigator',
-          harnessId: 'claude-work',
-          mcpServers: [],
-          skills: ['incident-triage'],
-        },
-      ]) {
-        const d = deps();
-        await expect(launchAgentRun(d, agentStep(agent))).rejects.toThrow(
-          'It did not start: Servers and skills for agents arrive with the next update.',
-        );
-        expect(d.launchSession).not.toHaveBeenCalled();
-      }
+  describe("a step's agent's servers and skills", () => {
+    const GRAFANA: McpServerReport = {
+      name: 'grafana',
+      source: 'user',
+      transport: 'stdio',
+      tools: ['query_logs'],
+      status: 'connected',
+    };
+    const TRACKER: McpServerReport = { ...GRAFANA, name: 'tracker', tools: undefined };
+    const PLUGIN = '/data/runs/run-3/look/1/plugin';
+    const SKILLS = '/data/runs/run-3/skills';
+    const investigator = (
+      fields: Partial<NonNullable<NonNullable<AgentLaunchRequest['step']>['agent']>> = {},
+    ) => ({
+      name: 'investigator',
+      harnessId: 'claude-work',
+      model: 'haiku',
+      mcpServers: [{ name: 'grafana' }],
+      skills: [] as string[],
+      ...fields,
+    });
+    const step = (
+      agent: ReturnType<typeof investigator>,
+      fields: Partial<NonNullable<AgentLaunchRequest['step']>> = {},
+    ) => ({
+      workspaceId: 'ws-1',
+      run: { id: 'run-3', automation: 'investigate-alerts' },
+      prompt: 'Look.',
+      step: {
+        id: 'look',
+        attempt: 1,
+        cwd: '/code/api',
+        scopeId: 'scope-api',
+        name: 'investigate-alerts · look',
+        checkout: 'scope' as const,
+        ...fields,
+        agent,
+      },
+    });
+    /** Claude's driver, compiling for real, with a `stageSkills` the test watches. */
+    const watchedClaude = (stageSkills = vi.fn(async (): Promise<void> => {})) => {
+      const claude = getDriver('claude');
+      const driver = {
+        id: 'claude',
+        compileAgent: (input: Parameters<NonNullable<HarnessDriver['compileAgent']>>[0]) =>
+          claude.compileAgent!(input),
+        stageSkills,
+      } as unknown as HarnessDriver;
+      return { driver, stageSkills };
+    };
+    const ACCOUNT = '/home/alice/.claude-work/.claude.json';
+    const fieldsOf = (d: ReturnType<typeof deps>) =>
+      d.launchSession.mock.calls[0][1] as LaunchSessionFields;
+
+    it("compiles the agent against its harness's servers, and the session carries the grants", async () => {
+      const { driver, stageSkills } = watchedClaude();
+      const d = deps({ serversForLaunch: vi.fn(async () => [GRAFANA]), driverFor: () => driver });
+      await launchAgentRun(d, step(investigator()));
+      const compiled = compileClaudeAgent({
+        config: { configDir: '/home/alice/.claude-work', extraArgs: [] },
+        harnessName: 'Claude work',
+        agent: { tools: 'read-only', mcpServers: [{ name: 'grafana' }], skills: [] },
+        checkout: 'scope',
+        servers: [GRAFANA],
+        accountFile: ACCOUNT,
+      });
+      if (!compiled.ok) throw new Error(compiled.problem);
+      expect(fieldsOf(d)).toMatchObject({
+        harnessId: 'claude-work',
+        model: 'haiku',
+        toolPolicy: 'read-only',
+        grants: compiled.grants,
+      });
+      expect(fieldsOf(d).grants).toMatchObject({ accountFile: ACCOUNT, strict: true });
+      expect(d.serversForLaunch).toHaveBeenCalledWith(HARNESSES[1]);
+      expect(stageSkills).not.toHaveBeenCalled();
+    });
+
+    it('a narrowed server is granted only its tools', async () => {
+      const d = deps({ serversForLaunch: vi.fn(async () => [GRAFANA]) });
+      await launchAgentRun(
+        d,
+        step(investigator({ mcpServers: [{ name: 'grafana', tools: ['query_logs'] }] })),
+      );
+      expect(fieldsOf(d).grants).toMatchObject({
+        servers: [{ name: 'grafana', tools: ['query_logs'] }],
+        allowedTools: ['mcp__grafana__query_logs'],
+      });
+    });
+
+    it("stages the skills from the run's copy into the step's plugin dir, and names it in the grants", async () => {
+      const { driver, stageSkills } = watchedClaude();
+      const d = deps({ driverFor: () => driver });
+      await launchAgentRun(
+        d,
+        step(investigator({ mcpServers: [], skills: ['incident-triage'], skillsDir: SKILLS }), {
+          pluginDir: PLUGIN,
+        }),
+      );
+      const { grants } = fieldsOf(d);
+      expect(grants).toMatchObject({
+        skills: ['incident-triage'],
+        pluginDir: PLUGIN,
+        allowedTools: ['Skill(consola-step:incident-triage)'],
+      });
+      expect(stageSkills).toHaveBeenCalledWith(grants, SKILLS);
+      // Skills alone ask no CLI which servers it has.
+      expect(d.serversForLaunch).not.toHaveBeenCalled();
+    });
+
+    it('a plugin dir that cannot be built starts nothing', async () => {
+      const { driver } = watchedClaude(vi.fn(async () => Promise.reject(new Error('EACCES'))));
+      const d = deps({ driverFor: () => driver });
+      await expect(
+        launchAgentRun(
+          d,
+          step(investigator({ mcpServers: [], skills: ['incident-triage'], skillsDir: SKILLS }), {
+            pluginDir: PLUGIN,
+          }),
+        ),
+      ).rejects.toThrow(/^It did not start: EACCES\.$/);
+      expect(d.launchSession).not.toHaveBeenCalled();
+    });
+
+    it('skills with no copy in the run folder, or a driver that cannot stage them, start nothing', async () => {
+      const unstaged = deps({ driverFor: () => watchedClaude().driver });
+      await expect(
+        launchAgentRun(
+          unstaged,
+          step(investigator({ mcpServers: [], skills: ['incident-triage'] }), {
+            pluginDir: PLUGIN,
+          }),
+        ),
+      ).rejects.toThrow(
+        /^It did not start: its skills have no copy in the run folder to build its plugin from\.$/,
+      );
+      const claude = getDriver('claude');
+      const noStage = {
+        id: 'claude',
+        compileAgent: (input: Parameters<NonNullable<HarnessDriver['compileAgent']>>[0]) =>
+          claude.compileAgent!(input),
+      } as unknown as HarnessDriver;
+      const d = deps({ driverFor: () => noStage });
+      await expect(
+        launchAgentRun(
+          d,
+          step(investigator({ mcpServers: [], skills: ['incident-triage'], skillsDir: SKILLS }), {
+            pluginDir: PLUGIN,
+          }),
+        ),
+      ).rejects.toThrow(
+        /^It did not start: Claude work can't give an agent MCP servers or skills\.$/,
+      );
+      expect(unstaged.launchSession).not.toHaveBeenCalled();
+      expect(d.launchSession).not.toHaveBeenCalled();
+    });
+
+    it("the person's own server on an item step is refused, in the driver's words", async () => {
+      const d = deps({ serversForLaunch: vi.fn(async () => [GRAFANA]) });
+      const refused = launchAgentRun(d, step(investigator(), { checkout: 'item' }));
+      await expect(refused).rejects.toThrow(
+        /^It did not start: `grafana` comes from Claude work's own settings, .* this server works in scheduled steps\.$/,
+      );
+      expect(d.launchSession).not.toHaveBeenCalled();
+    });
+
+    it('a CLI that cannot be asked which servers it has starts nothing, and says why', async () => {
+      const d = deps({
+        serversForLaunch: vi.fn(async () => Promise.reject(new Error('spawn claude ENOENT'))),
+      });
+      await expect(launchAgentRun(d, step(investigator()))).rejects.toThrow(
+        /^It did not start: Couldn't ask Claude work which MCP servers it has: spawn claude ENOENT\.$/,
+      );
+      expect(d.launchSession).not.toHaveBeenCalled();
+    });
+
+    it('a server gone from the harness since the factory applied is refused, in words (Review Focus 3)', async () => {
+      const d = deps({ serversForLaunch: vi.fn(async () => [TRACKER]) });
+      await expect(launchAgentRun(d, step(investigator()))).rejects.toThrow(
+        /^It did not start: `grafana` isn't one of Claude work's MCP servers \(it has: tracker\)\. Add it with `claude mcp add --scope user`, or fix the name\.$/,
+      );
+      expect(d.launchSession).not.toHaveBeenCalled();
+    });
+
+    it("an entry that applied while its harness's probe ran waits for the answer, and is refused in words when it lacks the server", async () => {
+      let answer: (servers: McpServerReport[]) => void = () => {};
+      const d = deps({
+        serversForLaunch: vi.fn(
+          () => new Promise<McpServerReport[]>((resolve) => (answer = resolve)),
+        ),
+      });
+      const launch = launchAgentRun(d, step(investigator({ mcpServers: [{ name: 'notion' }] })));
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(d.launchSession).not.toHaveBeenCalled();
+      answer([GRAFANA]);
+      await expect(launch).rejects.toThrow(
+        /^It did not start: `notion` isn't one of Claude work's MCP servers \(it has: grafana\)\./,
+      );
+      expect(d.launchSession).not.toHaveBeenCalled();
+    });
+
+    it('an agent that names neither launches as before: no grants, and no CLI asked', async () => {
+      const d = deps();
+      await launchAgentRun(d, step(investigator({ mcpServers: [] })));
+      expect(Object.prototype.hasOwnProperty.call(fieldsOf(d), 'grants')).toBe(false);
+      expect(d.serversForLaunch).not.toHaveBeenCalled();
+      const plain = deps();
+      await launchAgentRun(plain, {
+        ...step(investigator()),
+        step: { ...step(investigator()).step, agent: undefined },
+      });
+      expect(Object.prototype.hasOwnProperty.call(fieldsOf(plain), 'grants')).toBe(false);
+    });
+
+    it('a harness that cannot run read-only gives its own reason first, and its CLI is not asked', async () => {
+      const d = deps();
+      await expect(launchAgentRun(d, step(investigator({ harnessId: 'codex-1' })))).rejects.toThrow(
+        `It did not start: ${toolPolicyProblem({ driverId: 'codex' }, 'read-only')!.replace(/\.$/, '')}.`,
+      );
+      expect(d.serversForLaunch).not.toHaveBeenCalled();
+      expect(d.launchSession).not.toHaveBeenCalled();
+    });
+
+    it('a driver that runs read-only but compiles no agent starts nothing', async () => {
+      const d = deps({ driverFor: () => ({ id: 'claude' }) as unknown as HarnessDriver });
+      await expect(launchAgentRun(d, step(investigator()))).rejects.toThrow(
+        /^It did not start: Claude work can't give an agent MCP servers or skills\.$/,
+      );
+      expect(d.serversForLaunch).not.toHaveBeenCalled();
+      expect(d.launchSession).not.toHaveBeenCalled();
     });
   });
 

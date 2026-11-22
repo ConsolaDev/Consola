@@ -13,6 +13,8 @@ import {
   type TurnReader,
   type TurnReport,
 } from './drivers';
+import type { SessionLaunch } from './drivers/HarnessDriver';
+import type { AgentGrants } from '../shared/agentGrants';
 import { ScreenModel } from './ScreenModel';
 import { PROVIDER_META, isGitProviderId, type GitProviderId } from '../shared/providers';
 import { getProviderDriver, layerProviderToken } from './providers';
@@ -251,6 +253,8 @@ export interface TerminalServiceOptions extends HarnessLaunchFields {
   maxTurns?: number;
   /** A cap for the first unattended launch only (a reminder spawned fresh); consumed by it. */
   turnMaxTurns?: number;
+  /** The record's grants, handed to the driver on every launch. From the record, never a window. */
+  grants?: AgentGrants;
 }
 
 export interface TerminalExitInfo {
@@ -584,6 +588,8 @@ export class TerminalService extends EventEmitter {
     this.options.configDirOverride = change.launch.configDirOverride;
     this.options.extraArgs = change.launch.extraArgs;
     this.options.model = undefined;
+    // The grants were the old driver's compile, for the old harness's servers.
+    this.options.grants = undefined;
     this.options.attentionUrl = change.attentionUrl;
     this.driver = getDriver(change.launch.driverId);
     this.harness = toHarnessConfig(change.launch);
@@ -769,7 +775,7 @@ export class TerminalService extends EventEmitter {
         : this.options.maxTurns;
       const attentionUrl = await this.options.attentionUrl?.();
       if (this.isDestroyed || this.claudePty) return;
-      const launchArgs = this.driver.buildSessionArgs(this.harness, {
+      const launch: SessionLaunch = {
         sessionId: this.options.claudeSessionId,
         cwd: this.options.cwd,
         resume,
@@ -782,7 +788,13 @@ export class TerminalService extends EventEmitter {
         attentionUrl,
         ...(reporting ? { reportTurn: true } : {}),
         ...(maxTurns !== undefined ? { maxTurns } : {}),
-      });
+        ...(this.options.grants !== undefined ? { grants: this.options.grants } : {}),
+      };
+      // The driver's own line about this launch (a step's skills no longer
+      // kept), above whatever the CLI prints.
+      const driverNotice = this.driver.launchNotice?.(launch);
+      if (driverNotice) this.writeNotice(driverNotice, formatInfo);
+      const launchArgs = this.driver.buildSessionArgs(this.harness, launch);
       const args = Array.isArray(launchArgs) ? launchArgs : await launchArgs;
       if (this.isDestroyed || this.claudePty) return;
 

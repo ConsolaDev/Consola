@@ -143,6 +143,7 @@ import {
   AUTOMATION_TEMPLATES,
   AutomationService,
   FactoryFolder,
+  OPEN_STATUSES,
   RunFolder,
   RunHistoryFiles,
   RunStore,
@@ -700,11 +701,12 @@ export function setupIpcHandlers(): boolean {
   ipcMain.handle(
     IPC_CHANNELS.WORKSPACE_SESSION_CREATE,
     async (_event, workspaceId: string, payload: NewSessionFields, checkout?: SessionCheckout) => {
-      // Where a session came from, what its agent may do and how many turns
-      // a step's may take are main's to set, when an automation launches
-      // one; a window never does.
+      // Where a session came from, what its agent may do, how many turns
+      // a step's may take and what its agent was granted are main's to set,
+      // when an automation launches one; a window never does.
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const { toolPolicy, automation, maxTurns, ...fields } = payload ?? ({} as NewSessionFields);
+      const { toolPolicy, automation, maxTurns, grants, ...fields } =
+        payload ?? ({} as NewSessionFields);
       if (!checkout) return workspaces.createSession(workspaceId, fields);
       const scope = checkoutScope(workspaceId, fields.scopeId);
       const cwd = await sessionCheckouts.prepare(scope.path, checkout);
@@ -2168,6 +2170,11 @@ export function setupIpcHandlers(): boolean {
           restoreGroup: (id, groupId) => workspaces.restoreGroup(id, groupId),
           launchSession: (workspaceId, fields) => launcher.launchSession(workspaceId, fields),
           harnesses: () => harnesses.getAll(),
+          // What a step's agent compiles against: the CLI's answer, waited for.
+          serversForLaunch: (harness) => {
+            const { driver, config } = serversOf(harness);
+            return mcpServers.get(driver, config);
+          },
         },
         request,
       ),
@@ -2506,6 +2513,12 @@ export function setupIpcHandlers(): boolean {
     handoffs,
     forgetAttention: forgetTerminalAttention,
     limitedUntil: (harnessId) => usageLimitService?.limitedUntil(harnessId),
+    // The engine's own record of the run, never attention's holds, which
+    // never hold a steps run's sessions (review N1).
+    runIsOpen: (runId) => {
+      const run = automationService?.getRun(runId);
+      return run != null && OPEN_STATUSES.includes(run.status);
+    },
   });
   ipcMain.handle(
     IPC_CHANNELS.WORKSPACE_SESSION_SWITCH_PREVIEW,

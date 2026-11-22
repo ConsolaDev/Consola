@@ -6,15 +6,6 @@ import { toHarnessConfig } from '../drivers/HarnessDriver';
 import type { HarnessCapabilitiesCache } from '../HarnessCapabilitiesCache';
 import type { McpServersCache, ServersAnswer } from './mcpServersCache';
 
-/**
- * Why a step whose agent names MCP servers or skills does not launch yet:
- * the factory checks them against the harness's CLI when it applies, but the
- * launch does not compile them into the step's session until the next task,
- * so it refuses rather than run the step without what its agent requires
- * (contract 9).
- */
-export const SERVERS_AND_SKILLS_LATER = 'Servers and skills for agents arrive with the next update';
-
 /** Why an agent naming servers or skills cannot run on a harness whose driver compiles none. */
 export function noAgentGrants(harnessName: string): string {
   return `${harnessName} can't give an agent MCP servers or skills.`;

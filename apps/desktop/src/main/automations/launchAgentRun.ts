@@ -1,11 +1,15 @@
 import { StartedByHandError, type AgentLaunchRequest } from '@consola/automation-engine';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import type { AgentGrants } from '../../shared/agentGrants';
 import type { GitProviderId } from '../../shared/providers';
+import type { HarnessDriverId } from '../../shared/types';
 import type { WorkItemRef } from '../../shared/workItems';
 import { sameWorkItem, workItemKey } from '../../shared/workItems';
-import type { Harness } from '../../shared/harness';
+import { launchFieldsFor, type Harness } from '../../shared/harness';
 import { generateSessionInstanceId, type Session, type Workspace } from '../../shared/workspace';
+import { getDriver, type HarnessDriver, toHarnessConfig, toolPolicyProblem } from '../drivers';
+import type { McpServerReport } from '../drivers/HarnessDriver';
 import type { GitProviderDriver } from '../providers/GitProviderDriver';
 import {
   chainWorktreeStep,
@@ -15,7 +19,7 @@ import {
 } from '../providers/launchWorkItem';
 import { withoutGitHooks } from '../gitHooks';
 import type { LaunchSessionFields } from '../SessionLauncher';
-import { agentHarnessRefusal, SERVERS_AND_SKILLS_LATER } from './agentHarness';
+import { agentHarnessRefusal, noAgentGrants } from './agentHarness';
 import { toWorkItemRef } from './engineViews';
 
 export { withoutGitHooks };
@@ -36,6 +40,83 @@ export interface AgentLaunchDeps {
   launchSession(workspaceId: string, fields: LaunchSessionFields): Promise<Session>;
   /** Every harness record, archived and turned-off ones included: a step's agent names one by id. */
   harnesses(): readonly Harness[];
+  /**
+   * The harness's servers, as its CLI last said, waiting for an answer under
+   * way (`McpServersCache.get`): what a launch compiles against (review M3).
+   */
+  serversForLaunch(harness: Harness | undefined): Promise<McpServerReport[]>;
+  /** The driver for a harness's driver id; absent, `getDriver`. For tests. */
+  driverFor?(id?: HarnessDriverId): HarnessDriver;
+}
+
+/** A launch refused in words: one final full stop, whether the words end in one or not. */
+function didNotStart(words: string): Error {
+  return new Error(`It did not start: ${words.replace(/\.$/, '')}.`);
+}
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+type StepAgent = NonNullable<NonNullable<AgentLaunchRequest['step']>['agent']>;
+
+/**
+ * A step's agent compiled for its attempt's launch, from the snapshot's
+ * requirements, the run's checkout kind and the harness's servers as its CLI
+ * says now (waiting for an answer under way), with its skills staged into
+ * the attempt's plugin dir from the run's copy; or a refusal in words, which
+ * starts nothing. The harness's own reasons come first, as at apply.
+ */
+async function compileForLaunch(
+  deps: AgentLaunchDeps,
+  workspace: Workspace,
+  step: NonNullable<AgentLaunchRequest['step']>,
+  agent: StepAgent,
+): Promise<AgentGrants> {
+  const harness = deps
+    .harnesses()
+    .find((candidate) => candidate.id === (agent.harnessId ?? workspace.defaultHarnessId));
+  const fields = launchFieldsFor(harness);
+  const name = harness?.name ?? 'Claude';
+  const policy = toolPolicyProblem(fields, 'read-only');
+  if (policy) throw didNotStart(policy);
+  const driver = (deps.driverFor ?? getDriver)(fields.driverId);
+  if (!driver.compileAgent) throw didNotStart(noAgentGrants(name));
+  let servers: McpServerReport[] = [];
+  if (agent.mcpServers.length > 0) {
+    try {
+      servers = await deps.serversForLaunch(harness);
+    } catch (error) {
+      throw didNotStart(`Couldn't ask ${name} which MCP servers it has: ${messageOf(error)}`);
+    }
+  }
+  const compiled = driver.compileAgent({
+    config: toHarnessConfig(fields),
+    harnessName: name,
+    agent: {
+      tools: 'read-only',
+      mcpServers: agent.mcpServers.map((server) => ({
+        name: server.name,
+        ...(server.tools ? { tools: [...server.tools] } : {}),
+      })),
+      skills: [...agent.skills],
+    },
+    checkout: step.checkout,
+    servers,
+    ...(step.pluginDir !== undefined ? { pluginDir: step.pluginDir } : {}),
+  });
+  if (!compiled.ok) throw didNotStart(compiled.problem);
+  if (agent.skills.length > 0) {
+    if (!driver.stageSkills) throw didNotStart(noAgentGrants(name));
+    if (agent.skillsDir === undefined)
+      throw didNotStart('its skills have no copy in the run folder to build its plugin from');
+    try {
+      await driver.stageSkills(compiled.grants, agent.skillsDir);
+    } catch (error) {
+      throw didNotStart(messageOf(error));
+    }
+  }
+  return compiled.grants;
 }
 
 /**
@@ -197,9 +278,12 @@ export async function launchAgentRun(
   const refused =
     agent?.harnessId !== undefined ? agentHarnessRefusal(deps.harnesses(), agent.harnessId) : null;
   if (refused) throw new Error(`It did not start: ${refused}.`);
-  // No driver compiles an agent's servers or skills yet: never launch without them.
-  if (agent && (agent.mcpServers.length > 0 || agent.skills.length > 0))
-    throw new Error(`It did not start: ${SERVERS_AND_SKILLS_LATER}.`);
+  // What its agent names is compiled now, at each attempt's launch, and rides
+  // on the session's record into every launch of it; never dropped silently.
+  const grants =
+    step && agent && (agent.mcpServers.length > 0 || agent.skills.length > 0)
+      ? await compileForLaunch(deps, workspace, step, agent)
+      : undefined;
   const common = {
     workspaceId: workspace.id,
     instanceId: generateSessionInstanceId(workspace.id),
@@ -216,6 +300,8 @@ export async function launchAgentRun(
     // The step's cap, on the record like its tool policy: every unattended
     // launch of the session replays it.
     ...(step?.maxTurns !== undefined ? { maxTurns: step.maxTurns } : {}),
+    // Its agent's grants, on the record the same way: fixed for the session's life.
+    ...(grants !== undefined ? { grants } : {}),
     initialPrompt: request.prompt,
     // Nobody is watching: the first turn runs non-interactively, so
     // there is no composer to type into and no trust prompt to stall on.
