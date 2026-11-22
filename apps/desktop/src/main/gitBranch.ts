@@ -66,9 +66,14 @@ function lineCount(field: string | undefined): number {
   return Number.isInteger(count) ? count : 0;
 }
 
+/** Room for tens of thousands of changed files' numstat lines, as WorktreeService gives its diffs. */
+const NUMSTAT_MAX_BUFFER = 10 * 1024 * 1024;
+
 /** HEAD against its merge base with `ref`, or null when the two share no history. */
 async function compareWith(dir: string, ref: string): Promise<BranchFacts['base']> {
-  const numstat = await git(dir, ['diff', '--numstat', `${ref}...HEAD`, '--']);
+  const numstat = await git(dir, ['diff', '--numstat', `${ref}...HEAD`, '--'], {
+    maxBuffer: NUMSTAT_MAX_BUFFER,
+  });
   if (numstat === null) return null;
   const lines = numstat.split('\n').filter(Boolean);
   let additions = 0;

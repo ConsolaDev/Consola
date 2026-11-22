@@ -6,6 +6,12 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { NO_BRANCH_FACTS } from '../shared/branchFacts';
 import { isPlainBranchName, readBranchFacts, readBranchIdentity } from './gitBranch';
 
+/**
+ * Each test here runs a dozen git processes or more, which a loaded machine
+ * can slow to seconds each.
+ */
+const HEAVY_GIT_MS = 20_000;
+
 let root: string;
 let origin: string;
 let clone: string;
@@ -13,7 +19,7 @@ const git = (cwd: string, ...args: string[]) =>
   execFileSync(
     'git',
     ['-C', cwd, '-c', 'user.name=JaviDev', '-c', 'user.email=javidev@sprocket.example', ...args],
-    { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
+    { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 16 * 1024 * 1024 },
   ).trim();
 /** Commits `file`, written with `lines` lines, in `repo`. */
 const commitFile = (repo: string, file: string, lines: number) => {
@@ -134,6 +140,27 @@ describe('readBranchFacts', () => {
       deletions: 0,
     });
   });
+
+  it('keeps the base line for a branch whose changes outgrow a 1 MiB buffer', async () => {
+    // Paths of about 700 bytes, so 2,000 files' numstat lines pass 1 MiB.
+    const deep = path.join('generated', ...[1, 2, 3].map((n) => `${'d'.repeat(200)}${n}`));
+    fs.mkdirSync(path.join(clone, deep), { recursive: true });
+    for (let i = 0; i < 2_000; i++) {
+      fs.writeFileSync(path.join(clone, deep, `${'f'.repeat(80)}${i}.txt`), 'x\n');
+    }
+    git(clone, 'add', 'generated');
+    git(clone, 'commit', '-m', 'generate fixtures');
+    expect(git(clone, 'diff', '--numstat', 'origin/main...HEAD').length).toBeGreaterThan(
+      1024 * 1024,
+    );
+
+    expect((await readBranchFacts(clone)).base).toEqual({
+      ref: 'origin/main',
+      files: 2_003,
+      additions: 2_009,
+      deletions: 0,
+    });
+  }, HEAVY_GIT_MS);
 
   it("compares with the pull request's base when the clone knows it, else with the default", async () => {
     git(clone, 'push', 'origin', 'main:release');
