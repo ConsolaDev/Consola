@@ -23,6 +23,8 @@ import { ipcErrorMessage } from '../../utils/ipcErrorMessage';
 import {
   conversationCount,
   errorAfterRead,
+  failureShownAtMount,
+  isNewReadFailure,
   quoteReply,
   readFailureMessage,
   type SaidReadFailure,
@@ -161,21 +163,22 @@ export function WorkItemDetailPanel({
 
   // A failed read the pane did not start (the one watching starts, a
   // re-check, another viewer's Refresh) is said here as `refresh` says its
-  // own. One that failed before the pane mounted is not news. Each one said
-  // is remembered, so a later good read, whoever asked for it, takes it back.
-  const failedAt = entry?.errorAt;
+  // own. One that failed before the pane mounted is not news while there
+  // are details to show (`failureShownAtMount`). Each one said is
+  // remembered, so a later good read, whoever asked for it, takes it back.
+  const errorAt = entry?.errorAt;
   const failure = entry?.error;
   const fetchedAt = entry?.fetchedAt ?? 0;
-  const shownFailureAt = useRef(failedAt);
+  const shownFailureAt = useRef(failureShownAtMount(entry));
   const saidFailure = useRef<SaidReadFailure | null>(null);
   useEffect(() => {
-    if (!failedAt || failedAt === shownFailureAt.current) return;
-    shownFailureAt.current = failedAt;
+    if (!isNewReadFailure(errorAt, shownFailureAt.current)) return;
+    shownFailureAt.current = errorAt;
     const message = readFailureMessage(failure ?? '');
-    saidFailure.current = { message, at: failedAt };
+    saidFailure.current = { message, at: errorAt };
     setMessageAt('head');
     setError(message);
-  }, [failedAt, failure]);
+  }, [errorAt, failure]);
   useEffect(() => {
     const said = saidFailure.current;
     if (said) setError((shown) => errorAfterRead(shown, said, fetchedAt));

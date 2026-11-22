@@ -721,6 +721,26 @@ export function readFailureMessage(error: string): string {
   return `Could not refresh details: ${error}`;
 }
 
+/**
+ * The failure a pane mounting on the item takes as already said. One held
+ * beside details to show is old news. One held with no details is all the
+ * pane has to say: the item was opened again within the interval after it,
+ * so nothing reads, and without it the pane would be blank and silent.
+ */
+export function failureShownAtMount(
+  entry: { details?: unknown; errorAt?: number } | undefined,
+): number | undefined {
+  return entry?.details ? entry.errorAt : undefined;
+}
+
+/** Whether the entry's failure (its `errorAt`) is one the head has not said yet. */
+export function isNewReadFailure(
+  errorAt: number | undefined,
+  shownAt: number | undefined,
+): errorAt is number {
+  return errorAt !== undefined && errorAt !== shownAt;
+}
+
 /** A read failure the head said: its words, and when the read failed (the entry's `errorAt`). */
 export interface SaidReadFailure {
   message: string;
