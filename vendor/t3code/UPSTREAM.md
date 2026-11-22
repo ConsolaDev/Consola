@@ -134,7 +134,8 @@ they need, and gives them entry packages shaped like `provider-pi`. The rules:
   (`@anthropic-ai/claude-agent-sdk` 0.3.321, `@effect/platform-node` and
   `-shared` 4.1.5, `@ff-labs/fff-node` 0.11.0, `@napi-rs/keyring` 1.3.0,
   `diff` 8.0.3, `effect` 4.1.5, `ffi-rs` 1.3.2, `proper-lockfile` 4.1.2,
-  `yaml` 2.9.0, `yauzl` 3.4.0; dev: `@effect/vitest` 4.1.5, `@types/node`
+  `stream-chain` 4.2.5, `stream-json` 3.7.0 (added by the host runtime lift,
+  below), `yaml` 2.9.0, `yauzl` 3.4.0; dev: `@effect/vitest` 4.1.5, `@types/node`
   24.12.4, `@types/proper-lockfile` 4.1.4, `@types/yauzl` 3.4.0, `vite-plus`
   1.4.0), plus `workspace:*` for the copied packages. None of them moves what
   Consola's own packages (`.`, `apps/*`, `packages/*`) resolve to: their
@@ -1368,6 +1369,31 @@ unchanged: the only `pnpm-lock.yaml` change is the new
 `vendor/t3code/packages/server-orchestration` importer. The lifted tree is now
 827 files.
 
+### The host runtime lift
+
+For `@consola/host`'s thread runtime (Task 6), which composes t3's production
+orchestration (`orchestration-v2/runtimeLayer.ts`) the way t3's `server.ts`
+does. Same method and tree. Seed: `src/orchestration-v2/runtimeLayer.ts`. Its
+closure of relative imports is 458 files at `d51d8c47`; the tree lacked 15,
+all source, each copied byte for byte (compared with `cmp` after copying):
+
+- `orchestration-v2/runtimeLayer.ts`, `orchestration-v2/WorktreeBranchSync.ts`
+- `guest/GuestShareService.ts`, `guest/guestAttachments.ts`, `guest/guestView.ts`
+- `mcpApps/McpAppRequests.ts`, `mcpApps/McpSignIn.ts`
+- `persistence/ProviderSessionRuntime.ts`
+- `project/AgentSessionImporter.ts`, `project/AgentSessionJson.ts`,
+  `project/AgentSessionScanner.ts`, `project/ScratchThreadPromotion.ts`
+- `auth/PayloadSigner.ts`, `cloud/ManagedEndpointRuntime.ts`,
+  `cloud/RelayClientLedger.ts`
+
+None of them is `src/bin.ts`, `server.ts`, `ws.ts` or an `http*` module.
+`project/AgentSessionJson.ts` imports `stream-chain` and `stream-json`, which
+the lifted server did not need before; both join `apps/server/package.json`
+at the versions t3's lockfile resolves for its `apps/server` importer
+(`stream-chain` 4.2.5, `stream-json` 3.7.0). The only `pnpm-lock.yaml` change
+is those two entries under the `t3` importer and their two packages; Consola's
+own packages resolve as before. The lifted tree is now 842 files.
+
 ### Known runtime gaps
 
 Paths the lifted code builds only at run time, which no import names, are not
@@ -1393,8 +1419,8 @@ t3's `src/bin.ts` is not lifted: it is started by path, not imported, and
 through `binMain.ts` → `binCli.ts` it is t3's whole CLI and HTTP server (the
 Codex closure's `new URL("../bin.ts", …)` in `CodexManagedRuntime.test.ts`
 would add about 295 more files to the lifted tree, and `node-pty`, `playwright-core`,
-`undici`, `stream-json`, `saxes`, `character-entities` and `stream-chain`
-among new dependencies). Of the lifted tests, only one reaches it, and it is
+`undici`, `saxes` and `character-entities` among new dependencies; this count
+predates the host runtime lift, which brought `stream-json` and `stream-chain`). Of the lifted tests, only one reaches it, and it is
 not run here: `CodexManagedRuntime.test.ts` "managed Codex primary account
 shares home state without routing owned tokens through ambient CLI overrides"
 (see "The lifted server's tests").
