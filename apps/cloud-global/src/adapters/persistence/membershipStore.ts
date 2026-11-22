@@ -2,6 +2,7 @@ import { and, asc, eq } from 'drizzle-orm';
 import type { MembershipStore } from '../../application/ports.js';
 import type { MyWorkspace } from '../../domain/workspace.js';
 import type { Database } from './database.js';
+import { iconOf } from './iconOf.js';
 import { regionOf } from './regionOf.js';
 import { roleOf } from './roleOf.js';
 import { schema } from './schema.js';
@@ -15,14 +16,20 @@ export function createMembershipStore(db: Database): MembershipStore {
         name: schema.organization.name,
         slug: schema.organization.slug,
         region: schema.organization.region,
+        logo: schema.organization.logo,
         role: schema.member.role,
       })
       .from(schema.member)
       .innerJoin(schema.organization, eq(schema.organization.id, schema.member.organizationId));
 
-  const asMine = (
-    row: Omit<MyWorkspace, 'region' | 'role'> & { region: string; role: string },
-  ): MyWorkspace => ({ ...row, region: regionOf(row), role: roleOf(row) });
+  const asMine = ({
+    logo,
+    ...row
+  }: Omit<MyWorkspace, 'region' | 'role' | 'icon'> & {
+    region: string;
+    role: string;
+    logo: string | null;
+  }): MyWorkspace => ({ ...row, region: regionOf(row), role: roleOf(row), icon: iconOf({ logo }) });
 
   return {
     async workspaceFor(ids) {

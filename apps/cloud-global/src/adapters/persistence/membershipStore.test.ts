@@ -49,6 +49,7 @@ describe('the membership store', () => {
       slug: 'acme',
       region: 'us',
       role: 'owner',
+      icon: null,
     });
   });
 

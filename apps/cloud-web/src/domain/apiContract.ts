@@ -152,6 +152,118 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/me/workspace/icon": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set or clear my active workspace's icon
+         * @description Only an owner or an admin of the workspace may. It changes the icon alone, never the workspace’s name, slug or region.
+         */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["WorkspaceIconChange"];
+                };
+            };
+            responses: {
+                /** @description The workspace, wearing the icon it was given. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MyWorkspace"];
+                    };
+                };
+                /** @description The icon is not one of the set, or the body is not what the route takes. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "icon_unknown";
+                        } | {
+                            /** @enum {string} */
+                            error: "invalid_request";
+                        };
+                    };
+                };
+                /** @description Nobody is signed in. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "signed_out";
+                        };
+                    };
+                };
+                /** @description The person is not in the workspace, is a member who may not change it, or the change did not come from the web app. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "not_a_member";
+                        } | {
+                            /** @enum {string} */
+                            error: "not_allowed";
+                        } | {
+                            /** @enum {string} */
+                            error: "bad_origin";
+                        };
+                    };
+                };
+                /** @description The session has no active workspace. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "no_active_workspace";
+                        };
+                    };
+                };
+                /** @description The body is not JSON (`Content-Type: application/json`). */
+                415: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "unsupported_media_type";
+                        };
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/me/workspace/members": {
         parameters: {
             query?: never;
@@ -872,9 +984,17 @@ export interface components {
             region: "eu" | "us";
             /** @enum {string} */
             role: "owner" | "admin" | "member";
+            /** @description The icon the workspace wears, by the desktop app’s ids; null for none, which shows its initial. */
+            icon: ("layout" | "briefcase" | "home" | "code" | "terminal" | "rocket" | "flask" | "lightbulb" | "palette" | "book" | "graduation-cap" | "globe" | "heart" | "star" | "zap" | "coffee" | "music" | "gamepad" | "camera" | "compass" | "mountain" | "leaf" | "sun" | "moon" | "emoji-rocket" | "emoji-sparkles" | "emoji-lightning" | "emoji-fire" | "emoji-target" | "emoji-brain" | "emoji-bulb" | "emoji-tools" | "emoji-laptop" | "emoji-robot" | "emoji-flask" | "emoji-palette" | "emoji-books" | "emoji-note" | "emoji-briefcase" | "emoji-house" | "emoji-coffee" | "emoji-seedling" | "emoji-tree" | "emoji-mountain" | "emoji-ocean" | "emoji-sun" | "emoji-moon" | "emoji-globe" | "emoji-star" | "emoji-heart" | "emoji-music" | "emoji-gamepad" | "emoji-cat" | "emoji-dog" | "emoji-fox" | "emoji-unicorn") | null;
+            /** @description Whether the person may change how the workspace looks (an owner or admin). */
+            canManage: boolean;
         };
         ActiveWorkspace: {
             workspaceId: string;
+        };
+        /** @description An icon from the desktop app’s set, or null to take the icon off. */
+        WorkspaceIconChange: {
+            icon: string | null;
         };
         /** @description A member of a workspace, as its other members see them. */
         WorkspaceMember: {

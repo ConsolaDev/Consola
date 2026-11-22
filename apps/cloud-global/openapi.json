@@ -105,6 +105,79 @@
               "admin",
               "member"
             ]
+          },
+          "icon": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "layout",
+                  "briefcase",
+                  "home",
+                  "code",
+                  "terminal",
+                  "rocket",
+                  "flask",
+                  "lightbulb",
+                  "palette",
+                  "book",
+                  "graduation-cap",
+                  "globe",
+                  "heart",
+                  "star",
+                  "zap",
+                  "coffee",
+                  "music",
+                  "gamepad",
+                  "camera",
+                  "compass",
+                  "mountain",
+                  "leaf",
+                  "sun",
+                  "moon",
+                  "emoji-rocket",
+                  "emoji-sparkles",
+                  "emoji-lightning",
+                  "emoji-fire",
+                  "emoji-target",
+                  "emoji-brain",
+                  "emoji-bulb",
+                  "emoji-tools",
+                  "emoji-laptop",
+                  "emoji-robot",
+                  "emoji-flask",
+                  "emoji-palette",
+                  "emoji-books",
+                  "emoji-note",
+                  "emoji-briefcase",
+                  "emoji-house",
+                  "emoji-coffee",
+                  "emoji-seedling",
+                  "emoji-tree",
+                  "emoji-mountain",
+                  "emoji-ocean",
+                  "emoji-sun",
+                  "emoji-moon",
+                  "emoji-globe",
+                  "emoji-star",
+                  "emoji-heart",
+                  "emoji-music",
+                  "emoji-gamepad",
+                  "emoji-cat",
+                  "emoji-dog",
+                  "emoji-fox",
+                  "emoji-unicorn"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The icon the workspace wears, by the desktop app’s ids; null for none, which shows its initial."
+          },
+          "canManage": {
+            "type": "boolean",
+            "description": "Whether the person may change how the workspace looks (an owner or admin)."
           }
         },
         "required": [
@@ -112,7 +185,9 @@
           "name",
           "slug",
           "region",
-          "role"
+          "role",
+          "icon",
+          "canManage"
         ],
         "additionalProperties": false,
         "description": "A workspace as one of its members sees it."
@@ -127,6 +202,25 @@
         "required": [
           "workspaceId"
         ]
+      },
+      "WorkspaceIconChange": {
+        "type": "object",
+        "properties": {
+          "icon": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "icon"
+        ],
+        "description": "An icon from the desktop app’s set, or null to take the icon off."
       },
       "WorkspaceMember": {
         "type": "object",
@@ -641,6 +735,197 @@
                       "type": "string",
                       "enum": [
                         "workspace_not_found"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "The body is not JSON (`Content-Type: application/json`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "unsupported_media_type"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/me/workspace/icon": {
+      "put": {
+        "summary": "Set or clear my active workspace's icon",
+        "description": "Only an owner or an admin of the workspace may. It changes the icon alone, never the workspace’s name, slug or region.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkspaceIconChange"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The workspace, wearing the icon it was given.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MyWorkspace"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The icon is not one of the set, or the body is not what the route takes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "icon_unknown"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "invalid_request"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Nobody is signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "signed_out"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The person is not in the workspace, is a member who may not change it, or the change did not come from the web app.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "not_a_member"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "not_allowed"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "bad_origin"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The session has no active workspace.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "no_active_workspace"
                       ]
                     }
                   },

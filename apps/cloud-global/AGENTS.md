@@ -15,15 +15,17 @@ The service is built in rings, and imports point inward only.
   (`CREATOR_ROLE`), which workspace a new session opens
   (`defaultActiveWorkspace`), the regions a workspace can be in (`REGIONS` and
   `isRegion`, which `region.ts` takes from the contract), how long the outbox
-  waits before it delivers a message again (`retryDelayMs`), who may connect
-  another service (`mayManageConnections`) and whether a Connect's state
+  waits before it delivers a message again (`retryDelayMs`), who may change
+  how a workspace looks (`mayManageWorkspace`) and the icons it may wear
+  (`WORKSPACE_ICONS`, `checkWorkspaceIcon` in `workspaceIcon.ts`), who may
+  connect another service (`mayManageConnections`) and whether a Connect's state
   finishes in this session (`checkInstallState`), and `Workspace`,
   `MyWorkspace`, `Person`, `SignedIn` and the GitHub types
   (`connections.ts`). It is plain TypeScript, with no I/O, and no package but
   the contract (below).
 - `src/application/` holds the use cases (`createWorkspace`,
-  `listMyWorkspaces`, `setActiveWorkspace`, `listActiveWorkspaceMembers`,
-  `workspaceForNewSession`,
+  `listMyWorkspaces`, `setActiveWorkspace`, `setWorkspaceIcon`,
+  `listActiveWorkspaceMembers`, `workspaceForNewSession`,
   `mayCreateAccount`, `mayStartSession`, `describeMe`, `mintCellToken`,
   `cellTokenKeys`, `deliverOutbox`, `listConnections`, `startGitHubInstall`,
   `finishGitHubInstall`, `disconnectGitHub`, `checkHealth`) and, in
@@ -157,13 +159,25 @@ between them.
 - `PUT /api/me/workspace` `{ workspaceId }`: makes one of the person's
   workspaces active (`setActiveWorkspace`); one they are not in is 404, like
   one that does not exist;
+- `PUT /api/me/workspace/icon` `{ icon }`: sets the active workspace's icon,
+  or takes it off (null) (`setWorkspaceIcon`). Only an owner or an admin may
+  (`mayManageWorkspace`; anyone else is 403 `not_allowed`), read from the
+  database, never the request. An icon is one of `WORKSPACE_ICONS`, the
+  desktop app's own ids (`workspaceIcon.test.ts` reads its
+  `shared/workspaceIcons.ts` and fails when the two differ), so a workspace
+  known to both wears the same icon; anything else is 400 `icon_unknown`.
+  It writes the icon alone, into Better Auth's `organization.logo`, which
+  reads back as no icon when it holds anything else (`iconOf`);
 - `GET /api/me/workspace/members`: the active workspace's members, each with
   their global id, name, email, image and role, in the order they joined
   (`listActiveWorkspaceMembers`). Every member may list them: a cell names
   people by global id only, so this is how the web app puts a name to them
   (8.2, Teams). No workspace open is 409 `no_active_workspace`; one the person
   is not in is 403 `not_a_member`;
-- `GET /api/workspaces`: the person's workspaces, in the order they joined;
+- `GET /api/workspaces`: the person's workspaces, in the order they joined.
+  Every workspace an answer names carries its `icon` and `canManage`, whether
+  the person may change it (`mayManageWorkspace`), so the web app shows its
+  controls by what the server says, never by reading the role;
 - `POST /api/workspaces` `{ name, slug, region }`: makes one
   (`createWorkspace`). The creator is its owner and their session opens it. A
   request `checkNewWorkspace` refuses is 400 with every problem named; a slug
@@ -215,8 +229,10 @@ list belongs in a regional cell, never here.
   yet.
 - **Proposed**, after Linear's published list of what it keeps global, and not
   yet confirmed:
-  - the workspace list: id, name, slug and region (`organization`, with Better
-    Auth's own `logo`, `created_at` and `metadata`);
+  - the workspace list: id, name, slug, region and icon (`organization`, with
+    Better Auth's own `logo`, which holds the icon's id, `created_at` and
+    `metadata`). The icon is global because the switcher shows every
+    workspace's, whatever its region;
   - membership: who is in which workspace, their workspace-level role, and
     pending invites (`member`, `invitation`);
   - app installs: which installation belongs to which workspace
@@ -251,9 +267,10 @@ afterwards:
 
 - `WorkspaceStore.create` writes it only when it makes the row, and every
   store reads back only a listed region (`regionOf`);
-- no route changes a workspace: Consola's routes make and switch, and Better
-  Auth's are closed. Its organisation plugin also declares the region with
-  `input: false`, so nothing it would accept carries one;
+- no route moves a workspace: Consola's routes make and switch, and set an
+  icon, which writes `logo` alone; Better Auth's are closed. Its organisation
+  plugin also declares the region with `input: false`, so nothing it would
+  accept carries one;
 - a new route or hook that writes `organization` must leave `region` alone, and
   `src/app.test.ts` checks that no route moves it.
 
@@ -331,7 +348,9 @@ removing one (`member.removed`). So the outbox holds every change that
 committed, and none that did not. Nothing else writes `organization` or
 `member`: a new store that changes either calls it inside its own
 transaction, then tells `messageWritten` once that commits, so the worker
-wakes.
+wakes. The one exception is `WorkspaceStore.setIcon`, which writes
+`organization.logo` alone: no cell holds an icon, so there is no message to
+commit with it. A change a cell must hear about never goes that way.
 
 **Proposed** (6.1, CON-52), not yet confirmed:
 
