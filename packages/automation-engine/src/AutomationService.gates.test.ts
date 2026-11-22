@@ -874,3 +874,159 @@ describe('what a gate shows', () => {
     expect(h.service.gateOf('run-404', 'decide')).toBeNull();
   });
 });
+
+describe('a parked run holds its item and its checkout (Review Focus 3)', () => {
+  const PR51 = inboxItem({ repo: 'sprocket/catalog-portal', number: 51 });
+  const DIR = checkoutPathFor(PR51.workItem);
+  const PR_51_KEY = 'github:sprocket/catalog-portal:pr:51';
+  const ON_DEMAND = '    on: manual\n    applies_to: [pr]\n    mode: auto\n';
+  const YAML = file(
+    entry(
+      'review-gated',
+      ON_REVIEW,
+      '- id: look\n  prompt: Look at {{item.url}}.',
+      '- id: decide\n  gate: { ask: Post it? }',
+      '- id: after\n  run: echo posted',
+    ),
+    entry('second', ON_DEMAND, '- id: again\n  prompt: Look again at {{item.url}}.'),
+  );
+  const TARGET = { workItem: { repo: 'sprocket/catalog-portal', number: 51, type: 'pr' as const } };
+
+  async function watching(): Promise<StepsHarness> {
+    const h = await stepsHarness({ yaml: YAML });
+    await h.poll([]);
+    acceptEvery(h, YAML);
+    await h.poll([PR51]);
+    return h;
+  }
+  const gatedRun = (h: StepsHarness) =>
+    h.store.runs().find((run) => run.automationId === 'review-gated')!;
+  const secondRun = (h: StepsHarness) =>
+    h.store.runs().find((run) => run.automationId === 'second')!;
+  const lookEnds = async (h: StepsHarness) => {
+    const run = gatedRun(h);
+    await h.world.endTurn(byId(stepsOf(h, run.id), 'look').sessionId!);
+  };
+
+  it("a run parked at a gate on #51 keeps a second automation's run on #51 waiting, saying what for", async () => {
+    const h = await watching();
+    await lookEnds(h);
+    const gated = gatedRun(h);
+    expect(h.store.get(gated.id)?.status).toBe('waiting');
+    expect(h.service.checkoutHeld(DIR, PR_51_KEY)).toBe(true);
+    expect(h.service.checkoutHeld(DIR)).toBe(true);
+    await h.service.trigger(WORKSPACE_ID, 'second', {}, TARGET);
+    await h.flush();
+    const second = secondRun(h);
+    expect(h.store.get(second.id)).toMatchObject({
+      status: 'queued',
+      summary: "waiting for this item's checkout",
+      waitingFor: { gate: { automation: 'review-gated', run: gated.id, step: 'decide' } },
+    });
+    // Never reset under the parked run.
+    expect(h.world.checkouts.prepared).toHaveLength(1);
+    expect(h.world.launches).toHaveLength(1);
+
+    h.service.answerGate(gated.id, 'decide', 'approve');
+    await h.flush();
+    await h.world.commands[0].end();
+    expect(h.store.get(gated.id)?.status).toBe('completed');
+    // It started, and says no more what it waited for.
+    expect(h.store.get(second.id)).toMatchObject({ status: 'running' });
+    expect(h.store.get(second.id)?.waitingFor).toBeUndefined();
+    expect(h.store.get(second.id)?.summary).not.toBe("waiting for this item's checkout");
+    expect(h.world.checkouts.prepared).toHaveLength(2);
+  });
+
+  it('starts the moment the parked run ends, saying no more what it waited for', async () => {
+    const h = await watching();
+    await lookEnds(h);
+    const gated = gatedRun(h);
+    await h.service.trigger(WORKSPACE_ID, 'second', {}, TARGET);
+    await h.flush();
+    const second = secondRun(h);
+    expect(h.store.get(second.id)?.waitingFor).toBeDefined();
+    // A reject ends it at once: the next look is the second run's start.
+    h.service.answerGate(gated.id, 'decide', 'reject');
+    await h.flush();
+    expect(h.store.get(second.id)?.status).toBe('running');
+    expect(h.store.get(second.id)?.waitingFor).toBeUndefined();
+    expect(
+      h.history.appends.some(
+        (line) => line.run.id === second.id && line.run.status === 'running' && line.run.waitingFor,
+      ),
+    ).toBe(false);
+  });
+
+  it('says what it waits for once the holder parks, and stops saying it once the gate is answered (review S3)', async () => {
+    const h = await watching();
+    const gated = gatedRun(h);
+    await h.service.trigger(WORKSPACE_ID, 'second', {}, TARGET);
+    await h.flush();
+    const second = secondRun(h);
+    expect(h.store.get(second.id)).toMatchObject({
+      status: 'queued',
+      summary: "waiting for this item's checkout",
+    });
+    expect(h.store.get(second.id)?.waitingFor).toBeUndefined();
+    const placed = h.store.get(second.id)!.updatedAt;
+
+    await lookEnds(h);
+    expect(h.store.get(gated.id)?.status).toBe('waiting');
+    expect(h.store.get(second.id)?.waitingFor).toEqual({
+      gate: { automation: 'review-gated', run: gated.id, step: 'decide' },
+    });
+    const linesOf = () => h.history.appends.filter((line) => line.run.id === second.id).length;
+    const parked = linesOf();
+    // Every later look that finds the same writes nothing.
+    await h.tick();
+    expect(linesOf()).toBe(parked);
+
+    h.service.answerGate(gated.id, 'decide', 'approve');
+    await h.flush();
+    await h.tick();
+    expect(h.store.get(gated.id)?.status).toBe('running');
+    expect(h.store.get(second.id)).toMatchObject({
+      status: 'queued',
+      summary: "waiting for this item's checkout",
+    });
+    expect(h.store.get(second.id)?.waitingFor).toBeUndefined();
+    // One more line, not one per look.
+    expect(linesOf()).toBe(parked + 1);
+    // Its place in line is not moved by what it says.
+    expect(h.store.get(second.id)?.updatedAt).toBe(placed);
+  });
+
+  it('a run waiting out a declared retry holds the checkout too, and names no gate', async () => {
+    const h = await watching();
+    const gated = gatedRun(h);
+    // As a declared retry's wait leaves it (Task 14 makes it; the record is enough here).
+    h.store.update(gated.id, {
+      status: 'waiting',
+      steps: stepsOf(h, gated.id).map((step) =>
+        step.id === 'look'
+          ? { ...step, status: 'waiting', retryAt: 'later', retries: 1, error: 'x' }
+          : step,
+      ),
+    });
+    expect(h.service.checkoutHeld(DIR, PR_51_KEY)).toBe(true);
+    await h.service.trigger(WORKSPACE_ID, 'second', {}, TARGET);
+    await h.flush();
+    expect(h.store.get(secondRun(h).id)).toMatchObject({
+      status: 'queued',
+      summary: "waiting for this item's checkout",
+    });
+    expect(h.store.get(secondRun(h).id)?.waitingFor).toBeUndefined();
+    // So does the entry's own wait.
+    h.store.update(gated.id, {
+      steps: stepsOf(h, gated.id).map((step) =>
+        step.id === 'look' ? { ...step, status: 'failed', retryAt: undefined } : step,
+      ),
+      retryAt: 'later',
+    });
+    expect(h.service.checkoutHeld(DIR, PR_51_KEY)).toBe(true);
+    // A run that ended holds nothing.
+    h.store.update(gated.id, { status: 'failed', retryAt: undefined });
+    expect(h.service.checkoutHeld(DIR, PR_51_KEY)).toBe(false);
+  });
+});

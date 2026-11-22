@@ -48,7 +48,7 @@ import {
   workItemSource,
   type EventSource,
 } from './connections';
-import { advanceSeen, forgetFired, markFired, type OpenState } from './seenRecord';
+import { advanceSeen, forgetFired, heldRevision, markFired, type OpenState } from './seenRecord';
 import {
   agentToolContext,
   CONSOLA_NAMESPACE,
@@ -209,6 +209,7 @@ import { flowNotYet } from './steps/flowLater';
 import { advanceSteps, type Lane, type StepUpdate } from './steps/sequence';
 import {
   closeSteps,
+  holdsWhileWaiting,
   isLoopRow,
   laneOfRecord,
   retrySteps,
@@ -1524,9 +1525,13 @@ export class AutomationService {
 
   /**
    * Each item's open run of this automation (Call 11): the newest one not
-   * ended. `waiting` for a person, or in line without ever having started;
-   * `working` once started, a turn a quit interrupted and now waiting to
-   * resume included.
+   * ended. `not-started` while it waits for a person's approval, or in line
+   * without ever having started (it absorbs a new revision); `working` once
+   * started, a turn a quit interrupted and now waiting to resume included,
+   * and a run `waiting` at a gate or a declared retry (it holds the
+   * revision). Firing reads the status, the safer default (review M3): in
+   * 3-A every `waiting` run is one that holds (`holdsWhileWaiting`); slice
+   * 4's waits that consume what they waited for must read the case here.
    */
   private openStates(entry: Resolved): Map<string, OpenState> {
     const open = new Map<string, OpenState>();
@@ -1535,8 +1540,9 @@ export class AutomationService {
       const itemKey = run.trigger.item?.key;
       if (itemKey === undefined || open.has(itemKey) || !isRunOf(run, entry)) continue;
       if (run.status === 'needs-approval' || (run.status === 'queued' && !run.startedAt))
-        open.set(itemKey, 'waiting');
-      else if (run.status === 'running' || run.status === 'queued') open.set(itemKey, 'working');
+        open.set(itemKey, 'not-started');
+      else if (run.status === 'running' || run.status === 'queued' || run.status === 'waiting')
+        open.set(itemKey, 'working');
     }
     return open;
   }
@@ -3332,18 +3338,25 @@ export class AutomationService {
   /**
    * Whether a started, unfinished steps run holds `dir`: its checkout is
    * there, or it is on the item `itemKey`. Every workspace's runs count:
-   * one service serves them all, and the folder is one per item. A retry
-   * preparing a failed run's checkout holds it too.
+   * one service serves them all, and the folder is one per item. A run
+   * parked at a gate or a declared retry holds it as a running one does,
+   * with no process (`holdsWhileWaiting`), and a retry preparing a failed
+   * run's checkout holds it too.
    */
   public checkoutHeld(dir: string, itemKey?: string): boolean {
     for (const claim of this.retrying.values()) {
       if (claim.dir === dir || (itemKey !== undefined && claim.itemKey === itemKey)) return true;
     }
+    return this.checkoutHolder(dir, itemKey) !== undefined;
+  }
+
+  /** The steps run that holds `dir` (or the item `itemKey`): running, or parked holding it. */
+  private checkoutHolder(dir: string, itemKey?: string): RunRecord | undefined {
     return this.deps.store
       .runs()
-      .some(
+      .find(
         (run) =>
-          run.status === 'running' &&
+          (run.status === 'running' || holdsWhileWaiting(run)) &&
           isStepsRun(run) &&
           (run.checkout?.cwd === dir ||
             (itemKey !== undefined && run.trigger.item?.key === itemKey)),
@@ -3372,7 +3385,7 @@ export class AutomationService {
     const workItem = lane && !scope ? itemRefOf(run) : undefined;
     const dir = workItem ? this.deps.checkout.pathFor(entry.workspaceId, workItem) : undefined;
     if (dir && (this.checkoutHeld(dir, run.trigger.item?.key) || this.deps.checkoutBusy(dir))) {
-      this.waitForCheckout(run);
+      this.waitForCheckout(run, dir);
       return;
     }
     if (item?.object !== undefined) {
@@ -3409,6 +3422,8 @@ export class AutomationService {
           }
         : {}),
       ...(item ? refreshedTrigger(run, item) : {}),
+      // What it waited for is over: it starts.
+      ...(run.waitingFor ? { waitingFor: undefined } : {}),
       ...(lane && scope ? { checkout: { cwd: scope.path, scopeId: scope.id } } : {}),
       ...(dir ? { checkout: { cwd: dir } } : {}),
     });
@@ -3426,11 +3441,25 @@ export class AutomationService {
     void this.prepareCheckout(run.id, { workspaceId: entry.workspaceId, workItem, ...byHand });
   }
 
-  /** A run whose item's checkout is held waits, saying so once: not at every look. */
-  private waitForCheckout(run: RunRecord): void {
-    if (run.summary === WAITING_FOR_CHECKOUT) return;
+  /**
+   * A run whose item's checkout is held waits, saying so, and, while the
+   * run that holds it is parked at a gate, naming that gate (`waitingFor`,
+   * review S3). Both are worked out on every look and written only when
+   * either changed, so it follows the holder as it parks and as it is
+   * answered, one line per change and none per look.
+   */
+  private waitForCheckout(run: RunRecord, dir: string): void {
+    const current = this.deps.store.get(run.id) ?? run;
+    const holder = this.checkoutHolder(dir, current.trigger.item?.key);
+    const gate = holder ? waitingGateOf(holder) : undefined;
+    const waitingFor =
+      holder && gate
+        ? { gate: { automation: holder.automationId, run: holder.id, step: gate.id } }
+        : undefined;
+    const same = JSON.stringify(current.waitingFor) === JSON.stringify(waitingFor);
+    if (current.summary === WAITING_FOR_CHECKOUT && same) return;
     // Not `updatedAt`: that is its place in line.
-    this.deps.store.update(run.id, { summary: WAITING_FOR_CHECKOUT });
+    this.deps.store.update(run.id, { summary: WAITING_FOR_CHECKOUT, waitingFor });
     this.broadcastRun(run.id);
   }
 
@@ -3667,10 +3696,31 @@ export class AutomationService {
       material,
       choices: offer.choices,
       ...(offer.loop ? { loop: { id: offer.loop.id, rounds: record.round ?? 0 } } : {}),
+      ...this.newerRevisionOf(run),
       ...(decision !== undefined && at !== undefined
         ? { answered: { decision, by: 'person' as const, at } }
         : {}),
     };
+  }
+
+  /**
+   * Whether a newer revision of the run's item is held until the run ends
+   * (Call 12): its item, as its poll's last check has it now, carries a
+   * revision the entry's seen record has not marked fired. Only a poll's
+   * items carry one (an Inbox item has none, Call 12).
+   */
+  private newerRevisionOf(run: RunRecord): Pick<GateView, 'newerRevision'> {
+    const entry = this.entryOf(run);
+    const wanted = run.trigger.item;
+    const key = automationKeyOf(run);
+    if (!entry || !wanted || key === undefined) return {};
+    // Only a poll has a last check: any other entry's item has no revision here.
+    const polled = latestResult(this.checks.get(automationKey(entry)), entry.version)?.find(
+      (candidate) => candidate.key === wanted.key,
+    );
+    if (!polled || !heldRevision(this.deps.store.seen(key), polledSourceItem(polled, true)))
+      return {};
+    return { newerRevision: wanted.type === 'pr' ? 'pull-request' : 'item' };
   }
 
   /**
