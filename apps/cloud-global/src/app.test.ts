@@ -20,6 +20,8 @@ import { composeApi } from './compose.js';
 import { type CloudConfig, ConfigError, type Ed25519PrivateJwk } from './config.js';
 
 const WEB_ORIGIN = 'http://localhost:5175';
+const ACME_CELL = 'http://127.0.0.1:3101';
+const SPROCKET_CELL = 'http://127.0.0.1:3102';
 
 // A key made for this run only, never one written down.
 const cellKey = generateKeyPairSync('ed25519').privateKey.export({
@@ -33,6 +35,8 @@ const config: CloudConfig = {
   port: 3100,
   google: { clientId: 'sprocket-test-client-id', clientSecret: 'sprocket-test-client-secret' },
   cellTokenPrivateKey: cellKey,
+  // A cell in each region, which no test reaches unless it starts the outbox's worker.
+  cellUrls: { eu: ACME_CELL, us: SPROCKET_CELL },
 };
 
 let db: Database;

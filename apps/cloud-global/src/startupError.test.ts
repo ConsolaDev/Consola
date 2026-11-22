@@ -14,6 +14,7 @@ const config: CloudConfig = {
     x: 'sprocket-test-cell-key-public-part',
     d: 'sprocket-test-cell-key-private-part',
   },
+  cellUrls: {},
 };
 
 describe('describeStartupFailure', () => {

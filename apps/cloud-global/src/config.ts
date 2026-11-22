@@ -1,3 +1,4 @@
+import { REGIONS, type Region } from '@consola/cloud-contract';
 import { z } from 'zod';
 
 /**
@@ -12,9 +13,22 @@ export type CloudConfig = {
   publicUrl: string;
   port: number;
   google: { clientId: string; clientSecret: string };
-  /** The key cell tokens are signed with. It is never logged, and never sent anywhere. */
+  /**
+   * The key cell tokens and outbox messages are signed with. It is never logged, and never sent
+   * anywhere.
+   */
   cellTokenPrivateKey: Ed25519PrivateJwk;
+  /**
+   * Each region's cell, as an origin, from `CELL_URL_<REGION>`. A region with none keeps its
+   * outbox messages until one is set.
+   */
+  cellUrls: Partial<Record<Region, string>>;
 };
+
+/** The variable that names a region's cell: `CELL_URL_EU` for `eu`. */
+export function cellUrlVariable(region: Region): string {
+  return `CELL_URL_${region.toUpperCase()}`;
+}
 
 export class ConfigError extends Error {
   readonly problems: string[];
@@ -118,17 +132,45 @@ const rawEnv = z.object({
     .optional(),
 });
 
+/** A region's cell, optional, as an origin like `PUBLIC_URL`. */
+const cellUrl = z
+  .string()
+  .refine(
+    (value) => originOf(value) !== null,
+    'must be an http or https address with no path, query or fragment',
+  )
+  .transform((value) => originOf(value) as string)
+  .optional();
+
+/** One cell variable per region the contract lists, so a new region gets its own. */
+const cellEnv: z.ZodType<Record<string, string | undefined>> = z.object(
+  Object.fromEntries(REGIONS.map((region) => [cellUrlVariable(region), cellUrl])),
+);
+
+/** An optional variable set to nothing is unset, as `.env.example` leaves one. */
+const unsetWhenEmpty = (value: string | undefined) => (value === '' ? undefined : value);
+
 export function loadConfig(env: Record<string, string | undefined>): CloudConfig {
-  const result = rawEnv.safeParse({
+  const optional = ['PORT', ...REGIONS.map(cellUrlVariable)];
+  const input = {
     ...env,
-    PORT: env.PORT === undefined || env.PORT === '' ? undefined : env.PORT,
-  });
-  if (!result.success) {
-    throw new ConfigError(
-      result.error.issues.map((issue) => `${String(issue.path[0])}: ${issue.message}`),
-    );
+    ...Object.fromEntries(optional.map((name) => [name, unsetWhenEmpty(env[name])])),
+  };
+  const result = rawEnv.safeParse(input);
+  const cellResult = cellEnv.safeParse(input);
+  if (!result.success || !cellResult.success) {
+    const issues = [
+      ...(result.success ? [] : result.error.issues),
+      ...(cellResult.success ? [] : cellResult.error.issues),
+    ];
+    throw new ConfigError(issues.map((issue) => `${String(issue.path[0])}: ${issue.message}`));
   }
   const parsed = result.data;
+  const cells: Partial<Record<Region, string>> = {};
+  for (const region of REGIONS) {
+    const url = cellResult.data[cellUrlVariable(region)];
+    if (url !== undefined) cells[region] = url;
+  }
   return {
     databaseUrl: parsed.DATABASE_URL,
     authSecret: parsed.BETTER_AUTH_SECRET,
@@ -136,5 +178,6 @@ export function loadConfig(env: Record<string, string | undefined>): CloudConfig
     port: parsed.PORT ?? 3100,
     google: { clientId: parsed.GOOGLE_CLIENT_ID, clientSecret: parsed.GOOGLE_CLIENT_SECRET },
     cellTokenPrivateKey: parsed.CELL_TOKEN_PRIVATE_KEY,
+    cellUrls: cells,
   };
 }
