@@ -222,7 +222,9 @@ automations:
     ]);
     expect(result.issues).toMatchObject([{ file: 'factory.yml', automation: 'bad', line: 10 }]);
     expect(result.entryPath('investigate')).toEqual(['automations', 0]);
-    expect(result.entryPath('bad')).toBeUndefined();
+    expect(result.entryPath('bad')).toEqual(['automations', 1]);
+    expect(result.entryPath('other')).toBeUndefined();
+    expect(result.entryNames).toEqual(['investigate', 'bad']);
     expect(result.lineAt(['automations', 0, 'steps', 0, 'agent'])).toBe(6);
   });
 
@@ -233,6 +235,26 @@ automations:
     expect(parseFactoryYml('version: 2\nautomations: []\n').unreadable).toBe(true);
     expect(parseFactoryYml(`${VALID}  - name: bad\n    mode: sometimes\n`).unreadable).toBe(false);
     expect(parseFactoryYml('').unreadable).toBe(false);
+  });
+
+  it('points entryPath at the entry that loaded, not an earlier one of that name that failed', () => {
+    const entry = '    on: { cron: "0 9 * * *" }\n    run: { tool: consola#x }\n';
+    const result = parseFactoryYml(
+      `version: 1\nautomations:\n  - name: a\n    mode: sometimes\n${entry}  - name: a\n${entry}`,
+    );
+    expect(result.automations).toHaveLength(1);
+    expect(result.entryPath('a')).toEqual(['automations', 1]);
+    expect(result.entryNames).toEqual(['a']);
+  });
+
+  it('points entryPath at the first of two failed entries of one name', () => {
+    const entry =
+      '    on: { cron: "0 9 * * *" }\n    run: { tool: consola#x }\n    mode: sometimes\n';
+    const result = parseFactoryYml(
+      `version: 1\nautomations:\n  - name: a\n${entry}  - name: a\n${entry}`,
+    );
+    expect(result.automations).toEqual([]);
+    expect(result.entryPath('a')).toEqual(['automations', 0]);
   });
 
   it('equals parseFactorySpec on a slice-1 file but for file', () => {

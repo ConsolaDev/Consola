@@ -59,6 +59,15 @@ export {
   type PollTrigger,
 } from './poll';
 export { parseAutomationEntry, type AutomationEntryResult } from './entry';
+export {
+  LATER_FOLDERS,
+  MAX_FACTORY_TEXT_BYTES,
+  factoryFilesOf,
+  parseFactory,
+  type FactoryFiles,
+  type FactoryNotice,
+  type FactoryParseResult,
+} from './factory';
 export { parseFactorySpec, type FactorySpecIssue, type FactorySpecParseResult } from './parse';
 export {
   hasTemplateBraces,

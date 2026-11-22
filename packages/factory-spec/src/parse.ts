@@ -15,8 +15,13 @@ export interface FactoryYmlResult extends FactorySpecParseResult {
   unreadable: boolean;
   /** The 1-based line of the node at `path`, or of its nearest ancestor that has one. */
   lineAt(path: Array<string | number>): number | undefined;
-  /** Where a loaded automation's entry is in the file, `['automations', <index>]`. */
+  /**
+   * Where the entry with this name is in the file, `['automations', <index>]`:
+   * the one that loaded, else the first that has the name and failed.
+   */
   entryPath(name: string): Array<string | number> | undefined;
+  /** Every name an entry gives itself, loaded or not, once each, in file order. */
+  entryNames: string[];
 }
 
 const FILE = 'factory.yml';
@@ -38,6 +43,7 @@ export function parseFactoryYml(text: string): FactoryYmlResult {
     offset === undefined ? undefined : lineCounter.linePos(offset).line;
   const lineAt = (path: Array<string | number>) => lineOf(closestNode(doc, path)?.range?.[0]);
   const indexes = new Map<string, number>();
+  const named = new Map<string, number>();
   const result = (
     automations: Automation[],
     issues: FactorySpecIssue[],
@@ -48,9 +54,10 @@ export function parseFactoryYml(text: string): FactoryYmlResult {
     unreadable,
     lineAt,
     entryPath: (name) => {
-      const index = indexes.get(name);
+      const index = indexes.get(name) ?? named.get(name);
       return index === undefined ? undefined : ['automations', index];
     },
+    entryNames: [...named.keys()],
   });
 
   if (doc.errors.length > 0) {
@@ -85,6 +92,7 @@ export function parseFactoryYml(text: string): FactoryYmlResult {
   envelope.data.automations.forEach((raw, index) => {
     const base: Array<string | number> = ['automations', index];
     const name = readableName(raw);
+    if (name !== undefined && !named.has(name)) named.set(name, index);
     const line = lineOf(nodeAt(doc, base)?.range?.[0]);
     const parsed = schema.safeParse(raw);
     if (!parsed.success) {
