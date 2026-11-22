@@ -3,6 +3,7 @@ import { parseFactorySpec, type StepRun, type StepsAutomation } from '@consola/f
 import type { TurnOutcome, TurnReportView, TurnResultView } from '../views';
 import type { AgentRequirements, RunDefinition } from './definition';
 import {
+  CONSOLA_SERVER_NAME,
   ERROR_LINE_MAX,
   initProblem,
   reminderCap,
@@ -10,6 +11,7 @@ import {
   requiredServers,
   runCostOf,
   stepHarnessQuery,
+  strayServerProblem,
   turnFailure,
   withTurnRecorded,
 } from './turnReport';
@@ -354,6 +356,49 @@ describe('initProblem', () => {
         { servers: [{ name: 'grafana', status: 'connected' }], signInHint: hint },
         'Stub',
       ),
+    ).toBeNull();
+  });
+});
+
+describe('strayServerProblem (review M3)', () => {
+  const STRAY =
+    "`tracker` was loaded, and this step's agent does not grant it: its CLI started a server Consola did not give the step, so the step stops rather than run beside it.";
+
+  it('names a server init loaded that the agent does not grant, whatever its status', () => {
+    for (const status of ['connected', 'failed', 'needs-auth', 'pending']) {
+      expect(
+        strayServerProblem([{ name: 'grafana' }], {
+          servers: [
+            { name: CONSOLA_SERVER_NAME, status: 'connected' },
+            { name: 'grafana', status: 'connected' },
+            { name: 'tracker', status },
+          ],
+        }),
+      ).toBe(STRAY);
+    }
+  });
+
+  it("Consola's own server and the granted ones are no problem", () => {
+    expect(CONSOLA_SERVER_NAME).toBe('consola');
+    expect(
+      strayServerProblem([{ name: 'grafana' }, { name: 'claude.ai Coralogix' }], {
+        servers: [
+          { name: 'consola', status: 'connected' },
+          { name: 'claude.ai Coralogix', status: 'connected' },
+          { name: 'grafana', status: 'failed' },
+        ],
+      }),
+    ).toBeNull();
+  });
+
+  it('leaves a step that grants no server to --strict-mcp-config, as 2-A does', () => {
+    expect(
+      strayServerProblem([], {
+        servers: [
+          { name: 'consola', status: 'connected' },
+          { name: 'tracker', status: 'connected' },
+        ],
+      }),
     ).toBeNull();
   });
 });

@@ -80,6 +80,9 @@ async function started() {
 }
 
 const STOPPED = 'a server it needs was not connected';
+const STRAY_STOPPED = 'it loaded a server it was not given';
+const STRAY =
+  "`tracker` was loaded, and this step's agent does not grant it: its CLI started a server Consola did not give the step, so the step stops rather than run beside it.";
 
 /**
  * The sessions whose failed init check waits for their turn's end. Private
@@ -193,6 +196,24 @@ describe('a step turn’s init, with a server granted', () => {
     );
   });
 
+  it('a server init loaded that the agent does not grant stops the turn, and the step fails with those words (review M3)', async () => {
+    const { h, run } = await started();
+    h.service.turnStarted('session-1', {
+      servers: [
+        { name: 'consola', status: 'connected' },
+        { name: 'grafana', status: 'connected' },
+        { name: 'tracker', status: 'connected' },
+      ],
+    });
+    expect(h.world.stops).toEqual([{ sessionId: 'session-1', reason: STRAY_STOPPED }]);
+    await h.world.endTurn('session-1', {
+      exitCode: 0,
+      stopped: STRAY_STOPPED,
+      report: turnReport({}),
+    });
+    expect(h.store.get(run.id)?.steps?.[0]).toMatchObject({ status: 'failed', error: STRAY });
+  });
+
   it('a connected server is no problem', async () => {
     const { h, run } = await started();
     // The report carries the init the start heard, as the host's does.
@@ -275,6 +296,24 @@ describe('a step turn’s init, with a server granted', () => {
         error:
           '`grafana` was not connected (needs-auth). Sign in to it in Claude (run `claude`, then /mcp), then retry this step.',
       });
+    });
+
+    it('an init only the report carries, with a server the agent does not grant, fails the step (review M3)', async () => {
+      const { h, run } = await started();
+      h.world.setOutputs('session-1', { mood: 'calm' });
+      await h.world.endTurn('session-1', {
+        exitCode: 0,
+        report: {
+          ...turnReport({}),
+          init: {
+            servers: [
+              { name: 'grafana', status: 'connected' },
+              { name: 'tracker', status: 'failed' },
+            ],
+          },
+        },
+      });
+      expect(h.store.get(run.id)?.steps?.[0]).toMatchObject({ status: 'failed', error: STRAY });
     });
 
     it('an init only the report carries, with the server connected, completes', async () => {

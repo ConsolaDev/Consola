@@ -89,6 +89,7 @@ export {
   REMINDER_PREFIX,
   type StepPromptInput,
 } from './steps/stepPrompt';
+export { CONSOLA_SERVER_NAME } from './steps/turnReport';
 export {
   StepIO,
   stepToolSpecs,

@@ -160,6 +160,7 @@ import {
   reminderCap,
   reportedFailure,
   requiredServers,
+  strayServerProblem,
   stepHarnessQuery,
   runCostOf,
   turnFailure,
@@ -1547,7 +1548,8 @@ export class AutomationService {
    * step at once, so the run page shows it while the turn runs. Every server
    * the step's agent grants must be there and connected: the CLI would run
    * the turn without one, so the turn is stopped, and the step fails in the
-   * engine's words when it ends (`initFailures`). Only a running step's
+   * engine's words when it ends (`initFailures`). So it is when the turn
+   * loaded a server it was not given (review M3). Only a running step's
    * session is heard; anything else is ignored, and so is a run whose
    * definition cannot be read, which fails when its turn ends.
    */
@@ -1563,12 +1565,18 @@ export class AutomationService {
     if (!('definition' in loaded)) return;
     const required = requiredServers(loaded.definition, record.id);
     if (required.length === 0) return;
-    const harness = this.stepHarnessName(run, loaded.definition, record.id);
-    const problem = initProblem(required, init, harness);
+    // A server it was not given comes first: the CLI started it beside the step (review M3).
+    const stray = strayServerProblem(required, init);
+    const problem =
+      stray ?? initProblem(required, init, this.stepHarnessName(run, loaded.definition, record.id));
     if (!problem) return;
     this.initFailures.set(sessionId, problem);
     const session = this.sessionNamed(run, sessionId);
-    if (session) this.deps.stopAgent(session, 'a server it needs was not connected');
+    if (session)
+      this.deps.stopAgent(
+        session,
+        stray ? 'it loaded a server it was not given' : 'a server it needs was not connected',
+      );
   }
 
   /**
@@ -3899,11 +3907,13 @@ export class AutomationService {
     const initFailure =
       this.initFailures.get(sessionId) ??
       ('definition' in loaded && required.length > 0 && report?.init
-        ? (initProblem(
+        ? (strayServerProblem(required, report.init) ??
+          initProblem(
             required,
             report.init,
             this.stepHarnessName(run, loaded.definition, record.id),
-          ) ?? undefined)
+          ) ??
+          undefined)
         : undefined);
     this.initFailures.delete(sessionId);
     if (report) {

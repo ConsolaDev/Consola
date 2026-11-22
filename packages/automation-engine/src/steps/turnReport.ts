@@ -6,7 +6,7 @@ import type { RunDefinition } from './definition';
 /*
  * What a step turn's report means, as pure functions: whether the turn
  * failed and in what words, the reminder's cap, which servers its `init` must
- * show, and how its figures add to the step's record. The host parses the
+ * show and which it must not, and how its figures add to the step's record. The host parses the
  * CLI's stream; this reads only the views it hands over.
  */
 
@@ -157,6 +157,35 @@ export function initProblem(
       const where = init.signInHint ? `${harnessName} (${init.signInHint})` : harnessName;
       return `\`${name}\` was not connected (${server.status}). Sign in to it in ${where}, then retry this step.`;
     }
+  }
+  return null;
+}
+
+/**
+ * The name of Consola's own MCP server on every step's turn, which carries
+ * the step's tools: the one server a turn's `init` may list beside those its
+ * agent grants. The host names it so in every session's MCP config.
+ */
+export const CONSOLA_SERVER_NAME = 'consola';
+
+/**
+ * Why a turn's `init` fails its step for what it loaded beyond its grants:
+ * the first server, whatever its status, that is neither Consola's own nor
+ * one the step's agent grants; null when there is none. The CLI's allow-list
+ * should have kept it out, so a CLI that stops honouring it fails steps
+ * rather than quietly starting servers (review M3). A step that grants no
+ * server runs under `--strict-mcp-config`, which 2-A's checks rely on, so it
+ * is not asked.
+ */
+export function strayServerProblem(
+  required: Array<{ name: string }>,
+  init: TurnInitView,
+): string | null {
+  if (required.length === 0) return null;
+  for (const server of init.servers) {
+    if (server.name === CONSOLA_SERVER_NAME) continue;
+    if (required.some((granted) => granted.name === server.name)) continue;
+    return `\`${server.name}\` was loaded, and this step's agent does not grant it: its CLI started a server Consola did not give the step, so the step stops rather than run beside it.`;
   }
   return null;
 }
