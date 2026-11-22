@@ -42,6 +42,7 @@ import {
   mergeRunPages,
   foldDroppedRuns,
   runRowWords,
+  sidebarRunWaits,
   newestRunFirst,
   olderRunsCursor,
   triggerLabel,
@@ -294,6 +295,27 @@ describe('runRowWords', () => {
       about: 'It stopped before finishing (exit 1)',
       step: null,
     });
+  });
+});
+
+describe('sidebarRunWaits (3-A code review M2)', () => {
+  it('says a run at a gate waits for the person there, and only an approval for its approval', () => {
+    const gate = {
+      id: 'decide',
+      status: 'waiting' as const,
+      index: 3,
+      count: 4,
+      kind: 'gate' as const,
+      gate: true as const,
+    };
+    expect(sidebarRunWaits(run({ status: 'waiting', step: gate }))).toBe(
+      'waiting for you at decide',
+    );
+    // A loop's row at its exhaustion gate is a gate too.
+    expect(
+      sidebarRunWaits(run({ status: 'waiting', step: { ...gate, id: 'polish', kind: 'repeat' } })),
+    ).toBe('waiting for you at polish');
+    expect(sidebarRunWaits(run({ status: 'needs-approval' }))).toBe('waiting for your approval');
   });
 });
 

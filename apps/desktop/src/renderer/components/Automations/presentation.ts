@@ -237,6 +237,18 @@ export function stepWords(run: RunListEntry): string | null {
 }
 
 /**
+ * What a sidebar row's run waits for (it has a row because it wants the
+ * person, `runAttention`): the person at a gate, a loop's exhaustion gate
+ * included, or their approval of its start. Answering a gate is not
+ * approving a run (3-A code review M2).
+ */
+export function sidebarRunWaits(run: Pick<RunListEntry, 'status' | 'step'>): string {
+  return run.status === 'waiting' && run.step?.gate
+    ? `waiting for you at ${run.step.id}`
+    : 'waiting for your approval';
+}
+
+/**
  * What a run held by another run's gate waits for (it waits for its item's
  * checkout, which that run holds while it waits for the person): "waiting
  * for you at `decide` in `review-assigned-prs-gated`". Null for any other.
