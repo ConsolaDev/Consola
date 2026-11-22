@@ -79,10 +79,25 @@ test.describe('info panel', () => {
     const notes = path.join(root, 'notes');
     fs.mkdirSync(notes);
 
+    // The agent, which answers the health probe's --version at once.
     const stub = path.join(root, 'agent.sh');
-    fs.writeFileSync(stub, '#!/bin/sh\nprintf "Agent ready\\n"\nexec sleep 300\n', {
-      mode: 0o755,
-    });
+    fs.writeFileSync(
+      stub,
+      [
+        '#!/bin/sh',
+        'case "$*" in *--version*) echo "2.1.0 (Claude Code)"; exit 0;; esac',
+        'printf "Agent ready\\n"',
+        'exec sleep 300',
+      ].join('\n'),
+      { mode: 0o755 },
+    );
+    // The harness's own config folder, signed in as a fictional account, so
+    // nothing reads the person's real Claude config.
+    const configDir = path.join(root, 'claude-config');
+    write(
+      path.join(configDir, '.claude.json'),
+      JSON.stringify({ oauthAccount: { emailAddress: 'javidev@sprocket.example' } }),
+    );
 
     // GitHub's answers for each branch's pull requests: A's branch has #51,
     // B's none. Any other branch is a 404.
@@ -105,12 +120,13 @@ test.describe('info panel', () => {
 
     ({ app, page, userDataDir } = await launchElectron({ env }));
     await page.evaluate(
-      async ({ repo, docs, notes, stub }) => {
+      async ({ repo, docs, notes, stub, configDir }) => {
         await window.harnessStateAPI.addHarness({
           id: 'info-panel-stub',
           driverId: 'claude',
           name: 'Stub',
           binaryPath: stub,
+          configDir,
           accentColor: '#555555',
         });
         const workspace = await window.workspaceAPI.createWorkspace(
@@ -143,7 +159,7 @@ test.describe('info panel', () => {
           workItemAction: 'Fix CI',
         });
       },
-      { repo, docs, notes, stub },
+      { repo, docs, notes, stub, configDir },
     );
   });
 
@@ -371,17 +387,41 @@ test.describe('info panel', () => {
   test('Environment says where each session runs', async () => {
     await openSession('Paginate the catalog search');
     const environment = infoSection(page, 'Environment');
-    // The driver's label, as the sidebar's harness mark words it.
-    await expect(environment).toContainText('Claude Code · Stub');
+    // The driver's label, as the sidebar's harness mark words it, and the
+    // account its config folder is signed in as.
+    const harnessRow = environment.locator('.info-row').filter({ hasText: 'Claude Code · Stub' });
+    await expect(harnessRow).toBeVisible();
+    // The row says what the harness's health last read, and asks nothing
+    // itself: the person's re-check reads it, from the stub's own folder.
+    await page.keyboard.press(commandPaletteChord());
+    await page.keyboard.type('Re-check harnesses');
+    await page.keyboard.press('Enter');
+    await expect(harnessRow).toContainText('javidev@sprocket.example');
     await expect(folderRow('Main checkout')).toBeVisible();
     // The computer's name, or "This Mac": never an empty row.
     await expect(environment.locator('.info-row').first()).toHaveText(/\S/);
 
     await openSession('Update the readme');
     await expect(folderRow('Worktree')).toBeVisible();
+    // The copy lands in a stand-in for the clipboard, never the person's own.
+    await page.evaluate(() => {
+      const copied: string[] = [];
+      (window as unknown as { __copied: string[] }).__copied = copied;
+      Object.defineProperty(navigator.clipboard, 'writeText', {
+        configurable: true,
+        value: async (text: string) => {
+          copied.push(text);
+        },
+      });
+    });
     await folderRow('Worktree').click();
-    await expect.poll(() => app.evaluate(({ clipboard }) => clipboard.readText())).toBe(docs);
-    await expect(folderRow('Worktree')).toHaveAttribute('title', /Copied the folder path/);
+    // Said for 1.5 s, then the title explains again.
+    await expect(folderRow('Worktree')).toHaveAttribute('title', /Copied the folder path/, {
+      timeout: 1_000,
+    });
+    expect(
+      await page.evaluate(() => (window as unknown as { __copied: string[] }).__copied),
+    ).toEqual([docs]);
 
     await openSession('Review notes');
     await expect(folderRow('Folder')).toBeVisible();
@@ -718,6 +758,21 @@ test.describe('info panel', () => {
       'true',
     );
     await expect(merge).toBeInViewport();
+
+    // An ask is acted on once, across a remount too. Files changed asked
+    // for, then A and back: the tab is keyed by session, so D's pane mounts
+    // afresh, on its Conversation tab, and does not go to Files changed again.
+    await section.getByRole('button', { name: /^2 unresolved threads/ }).click();
+    await expect(files).toHaveAttribute('aria-selected', 'true');
+    await openSession('Paginate the catalog search');
+    await expect(prSection().getByText(FOUND, { exact: true })).toBeVisible();
+    await openSession(FIX_CI);
+    await expect(prSection().getByText(FOUND, { exact: true })).toHaveCount(0);
+    await expect(remote().getByRole('tab', { name: /^Conversation/ })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    await expect(files).toHaveAttribute('aria-selected', 'false');
   });
 
   test('one read for the section and the tab together, and none while folded or hidden', async () => {
