@@ -1056,18 +1056,23 @@ export class TerminalService extends EventEmitter {
       this.emit('data', shown);
     }
     if (report.limitNotice) this.streamLimitNotice = true;
-    if (!this.unattendedStopReason)
-      this.writeNotice(turnSummary({ ...report, maxTurns }, exitCode), formatInfo);
     // Nothing more can come from this process, so its screen is read once,
-    // now, before Consola's summary lands on it (it is written a tick
-    // later): the summary quotes the CLI's words, which are no menu. The
-    // pending settle would read it with the summary, so it goes.
+    // now, before Consola's summary lands on it: the summary quotes the
+    // CLI's words, which are no menu. The pending settle would read it with
+    // the summary, so it goes.
     if (this.idleTimer) {
       clearTimeout(this.idleTimer);
       this.idleTimer = null;
     }
     this.followWorkingDirectory();
     this.classifyScreen();
+    // Then the summary, on this turn's own screen before its exit is heard:
+    // a reminder relaunched off the exit starts on a fresh one.
+    if (!this.unattendedStopReason) {
+      const summary = formatInfo(turnSummary({ ...report, maxTurns }, exitCode));
+      this.getScreen().write(summary);
+      this.emit('data', summary);
+    }
     this.afterScreenSettles(() => {
       this.emit('exit', {
         exitCode,

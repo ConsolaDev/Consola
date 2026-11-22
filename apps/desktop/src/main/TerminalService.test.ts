@@ -1768,6 +1768,34 @@ describe('TerminalService a reporting turn', () => {
     service.destroy();
   });
 
+  it('a turn’s summary is on its own screen before its exit is heard, so a reminder starts clean', async () => {
+    const fake = installFakePty();
+    const service = reporting();
+    const heard: string[] = [];
+    service.on('data', (data: string) => {
+      if (data.includes('Finished:')) heard.push('summary');
+    });
+    const reminder = installFakePty;
+    service.on('exit', () => {
+      heard.push('exit');
+      // The engine reminds a step synchronously off its turn's exit.
+      if (heard.filter((event) => event === 'exit').length > 1) return;
+      reminder();
+      service.relaunch({ cwd: os.tmpdir(), prompt: 'remind', unattended: true, maxTurns: 3 });
+    });
+    service.start();
+    await vi.advanceTimersByTimeAsync(0);
+    fake.feed(pty(INIT, RESULT_OK));
+    fake.exit(0);
+    await vi.advanceTimersByTimeAsync(SETTLE_MS);
+    expect(heard).toEqual(['summary', 'exit']);
+    // The reminder's screen holds its own lines only.
+    const shown = remounted(service);
+    expect(shown).toContain('Its progress shows here');
+    expect(shown).not.toContain('Finished:');
+    service.destroy();
+  });
+
   it('turnMaxTurns is consumed by the first unattended launch', async () => {
     const fake = installFakePty();
     const service = reporting({ turnMaxTurns: 5 });
