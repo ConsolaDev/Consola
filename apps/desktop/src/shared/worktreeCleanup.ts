@@ -35,7 +35,7 @@ export type BlockerKind =
   | 'busy'
   /** A session on it is open in a window. */
   | 'shown'
-  /** An automation run is holding a session on it. */
+  /** An automation run is holding a session on it, or holds it as its checkout. */
   | 'held'
   /** A session on it was active within the quiet period. */
   | 'recent'

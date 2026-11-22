@@ -3427,14 +3427,29 @@ export class AutomationService {
     return this.checkoutHolder(dir, itemKey) !== undefined;
   }
 
+  /**
+   * Every folder a steps run holds as its checkout, as `checkoutHeld` counts
+   * it: a run working in it, parked in it at a gate or a declared retry, or a
+   * retry preparing it. For a host that removes folders: a parked run has no
+   * process there and its sessions may have settled, but its next step works
+   * in that folder (3-A code review S1).
+   */
+  public heldCheckouts(): string[] {
+    const dirs = new Set<string>();
+    for (const claim of this.retrying.values()) dirs.add(claim.dir);
+    for (const run of this.deps.store.runs()) {
+      if (holdsCheckout(run) && run.checkout?.cwd) dirs.add(run.checkout.cwd);
+    }
+    return [...dirs];
+  }
+
   /** The steps run that holds `dir` (or the item `itemKey`): running, or parked holding it. */
   private checkoutHolder(dir: string, itemKey?: string): RunRecord | undefined {
     return this.deps.store
       .runs()
       .find(
         (run) =>
-          (run.status === 'running' || holdsWhileWaiting(run)) &&
-          isStepsRun(run) &&
+          holdsCheckout(run) &&
           (run.checkout?.cwd === dir ||
             (itemKey !== undefined && run.trigger.item?.key === itemKey)),
       );
@@ -6270,6 +6285,11 @@ function toListEntry(run: RunRecord): RunListEntry {
     ...(run.status === 'needs-approval' || run.status === 'queued' ? { result } : {}),
     ...(step ? { step } : {}),
   };
+}
+
+/** A steps run that holds its checkout: running, or parked holding it (`holdsWhileWaiting`). */
+function holdsCheckout(run: RunRecord): boolean {
+  return (run.status === 'running' || holdsWhileWaiting(run)) && isStepsRun(run);
 }
 
 /**

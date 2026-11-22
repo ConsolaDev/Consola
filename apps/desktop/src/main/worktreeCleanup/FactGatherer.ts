@@ -35,6 +35,12 @@ export interface FactSources {
   isShown(instanceId: string): boolean;
   /** Sessions an open or pending automation run holds. */
   heldSessionIds(): ReadonlySet<string>;
+  /**
+   * Whether an automation run holds the tree as its checkout, as the engine
+   * counts it: a run parked at a gate has no process there and its sessions
+   * may have settled, yet its next step works in it.
+   */
+  runHolds(tree: string): boolean;
   /** Real activity, from the attention ledger. */
   lastActiveAt(session: Session): number;
   /**
@@ -95,6 +101,19 @@ export interface Gathered {
 }
 
 /**
+ * Whether one of the folders automation runs hold (`heldCheckouts`) is
+ * `tree` or lies in it, read through the tree's own resolution: a run names
+ * its checkout as it built the path, the cleanup by its real one.
+ */
+export function treeHeldByRun(
+  tree: string,
+  heldCheckouts: readonly string[],
+  worktrees: Pick<WorktreeService, 'managedTreeOf'>,
+): boolean {
+  return heldCheckouts.some((dir) => worktrees.managedTreeOf(dir) === tree);
+}
+
+/**
  * The facts `judge` decides on, cheapest first: the sessions' own state, then
  * the folder's registration, processes and status, then the slow checks —
  * published commits, hidden edits, ignored files, nested repositories — only
@@ -127,6 +146,7 @@ export class FactGatherer {
       managed: this.sources.worktrees.managedTreeOf(tree) === tree,
       scopeFolder: this.scopeWithin(tree),
       recentlyPrepared: this.sources.lock.recentlyPrepared(tree),
+      heldByRun: this.sources.runHolds(tree),
     };
     const facts: TreeFacts = { tree, users: userFacts, disk };
     const done = () => ({ facts, inspection });
@@ -258,7 +278,10 @@ export class FactGatherer {
 
 /** Clean placeholders, so `treeBlockers` answers about what has been read so far. */
 const CLEAN: Required<
-  Omit<DiskFacts, 'managed' | 'scopeFolder' | 'recentlyPrepared' | 'branch' | 'dirtyFiles'>
+  Omit<
+    DiskFacts,
+    'managed' | 'scopeFolder' | 'recentlyPrepared' | 'heldByRun' | 'branch' | 'dirtyFiles'
+  >
 > = {
   head: 'unread',
   dirty: false,

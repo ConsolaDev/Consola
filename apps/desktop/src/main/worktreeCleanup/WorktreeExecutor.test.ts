@@ -115,6 +115,7 @@ class Rig {
       status: (instanceId) => this.statuses.get(instanceId) ?? 'exited',
       isShown: () => false,
       heldSessionIds: () => new Set(),
+      runHolds: () => false,
       lastActiveAt: (session) => session.lastActiveAt,
       ownProcessIds: () => ({ agents: new Set(), shells: new Set() }),
       worktrees: Object.assign(Object.create(worktrees), {

@@ -62,6 +62,11 @@ export interface DiskFacts {
   /** The name of a workspace folder that is, or lies inside, the tree. */
   scopeFolder: string | null;
   recentlyPrepared: boolean;
+  /**
+   * An automation run holds it as its checkout: working in it, or parked at a
+   * gate or a declared retry, its next step to run there (3-A code review S1).
+   */
+  heldByRun: boolean;
   head?: string | null;
   branch?: string | null;
   dirty?: boolean | null;
@@ -263,6 +268,7 @@ export function treeBlockers(disk: DiskFacts): Blocker[] {
   if (disk.locked === true) add('locked', 'git has it locked');
   else if (disk.locked === null) add('unknown', 'git could not say whether it is locked');
   if (disk.recentlyPrepared) add('recently-prepared', 'a session is being started in it');
+  if (disk.heldByRun) add('held', 'an automation run is holding it');
 
   const processes = disk.processes;
   if (processes === null || processes?.kind === 'unknown') {

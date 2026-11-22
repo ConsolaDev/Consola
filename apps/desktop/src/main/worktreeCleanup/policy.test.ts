@@ -18,6 +18,7 @@ const CLEAN: DiskFacts = {
   managed: true,
   scopeFolder: null,
   recentlyPrepared: false,
+  heldByRun: false,
   head: 'a'.repeat(40),
   branch: 'consola/session-1',
   dirty: false,
@@ -167,6 +168,7 @@ describe('judge: what the folder says', () => {
     ['a workspace folder', { scopeFolder: 'app' }, 'scope-folder'],
     ['locked', { locked: true }, 'locked'],
     ['a fresh checkout', { recentlyPrepared: true }, 'recently-prepared'],
+    ['an automation run holding it (3-A code review S1)', { heldByRun: true }, 'held'],
     [
       'a process',
       { processes: { kind: 'present' as const, processes: [{ pid: 7, command: 'node' }] } },
@@ -197,6 +199,31 @@ describe('judge: what the folder says', () => {
     ['ignored files not checked', { ignored: undefined }],
   ])('keeps it when a fact is unknown: %s', (_label, disk) => {
     expect(headline([user()], disk)).toBe('unknown');
+  });
+
+  it('keeps a tree a run holds under every rule, and when its session is deleted (3-A code review S1)', () => {
+    const due = [
+      user({ rules: rules({ settledDays: 1 }) }),
+      user({
+        rules: rules({ prFinished: true }),
+        settledAt: null,
+        pullRequest: { kind: 'finished', number: 51, status: 'merged' },
+      }),
+    ];
+    for (const one of due) {
+      expect(headline([one])).toBe('remove');
+      expect(verdictOf([one], { heldByRun: true })).toMatchObject({
+        decision: 'keep',
+        blockers: [{ kind: 'held', detail: 'an automation run is holding it' }],
+      });
+    }
+    const deleted: JudgeRequest = {
+      trigger: 'session-deleted',
+      targets: new Set(['s-1']),
+      now: NOW,
+    };
+    expect(headline([user()], {}, deleted)).toBe('remove');
+    expect(headline([user()], { heldByRun: true }, deleted)).toBe('held');
   });
 
   it('writes the sentences the delete dialog shows', () => {

@@ -4040,6 +4040,8 @@ describe('retry', () => {
     h.world.checkouts.gate = preparing.promise;
     const retrying = h.service.retry(first.id);
     expect(h.service.checkoutHeld(CHECKOUT)).toBe(true);
+    // Both runs failed: only the retry's claim names the folder (3-A code review S1).
+    expect(h.service.heldCheckouts()).toEqual([CHECKOUT]);
     await expect(h.service.retry(second.id)).rejects.toThrow(HELD);
     // The item comes back into the list: each automation's new run waits for the checkout.
     await h.poll([]);

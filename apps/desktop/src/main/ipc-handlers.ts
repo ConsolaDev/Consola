@@ -96,6 +96,7 @@ import { HarnessSwitcher } from './harnessSwitch/HarnessSwitcher';
 import { SessionCleanupService } from './cleanup/SessionCleanupService';
 import { WorktreeCleanupService } from './worktreeCleanup';
 import { WorktreeRebuilder } from './worktreeCleanup/WorktreeRebuilder';
+import { treeHeldByRun } from './worktreeCleanup/FactGatherer';
 import { CleanupHistory } from './worktreeCleanup/CleanupHistory';
 import {
   RUN_ENDED_DEBOUNCE_MS,
@@ -1835,6 +1836,9 @@ export function setupIpcHandlers(): boolean {
     status: sessionStatus,
     isShown: (instanceId) => viewing.isShown(instanceId),
     heldSessionIds: () => new Set(attention.holds().keys()),
+    // A run parked at a gate holds its checkout with no process and settled sessions (3-A code
+    // review S1). Read at call time, once the runner below exists.
+    runHolds: (tree) => treeHeldByRun(tree, automations.heldCheckouts(), worktrees),
     lastActiveAt: (session) => activityOf(session, attentionLedger.get(session.id)),
     ownProcessIds: (sessions) => {
       const agents = new Set<number>();

@@ -1044,6 +1044,40 @@ describe('a parked run holds its item and its checkout (Review Focus 3)', () => 
     h.store.update(gated.id, { status: 'failed', retryAt: undefined });
     expect(h.service.checkoutHeld(DIR, PR_51_KEY)).toBe(false);
   });
+
+  it('names every checkout it holds, for a host that removes folders (3-A code review S1)', async () => {
+    const h = await watching();
+    const gated = gatedRun(h);
+    // Running: its checkout is held.
+    expect(h.service.heldCheckouts()).toEqual([DIR]);
+    await lookEnds(h);
+    // Parked at the gate, no process and every session of it settled: still held.
+    expect(h.store.get(gated.id)?.status).toBe('waiting');
+    expect(h.service.heldCheckouts()).toEqual([DIR]);
+    // A step's own retry wait, and the entry's, hold it as well.
+    h.store.update(gated.id, {
+      steps: stepsOf(h, gated.id).map((step) =>
+        step.id === 'decide'
+          ? { ...step, status: 'pending', gate: undefined }
+          : step.id === 'look'
+            ? { ...step, status: 'waiting', retryAt: 'later', retries: 1, error: 'x' }
+            : step,
+      ),
+    });
+    expect(h.service.heldCheckouts()).toEqual([DIR]);
+    h.store.update(gated.id, {
+      steps: stepsOf(h, gated.id).map((step) =>
+        step.id === 'look' ? { ...step, status: 'failed', retryAt: undefined } : step,
+      ),
+      retryAt: 'later',
+    });
+    expect(h.service.heldCheckouts()).toEqual([DIR]);
+    // A run waiting for nothing of its own holds nothing; nor does one that ended.
+    h.store.update(gated.id, { retryAt: undefined });
+    expect(h.service.heldCheckouts()).toEqual([]);
+    h.store.update(gated.id, { status: 'failed' });
+    expect(h.service.heldCheckouts()).toEqual([]);
+  });
 });
 
 describe("the cards' flow lines (Call 13)", () => {

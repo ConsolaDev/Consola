@@ -741,9 +741,11 @@ and always delete the session.
   (skip-worktree, assume-unchanged), ignored with no identical copy in the
   main checkout (rebuildable folders like `node_modules` excepted), a nested
   repository, a lock, a process still running in it (`lsof`; unreadable is
-  unknown), a session on it that is working, waiting, held by a run, open in
-  a window or active within the hour, and any other session still using it
-  through `cwd` or `agentCwd`.
+  unknown), an automation run whose checkout it is, working in it or parked
+  at a gate or a retry with no process there (`heldCheckouts`), a session on
+  it that is working, waiting, held by a run, open in a window or active
+  within the hour, and any other session still using it through `cwd` or
+  `agentCwd`.
 - **The session stays.** For the sweep's rules the session keeps its
   record and `cwd`; the executor writes `Session.removedWorktree` on every
   session of the tree (`WorkspaceService.recordWorktreesRemoved`, its one
