@@ -114,7 +114,7 @@ import { TERMINAL_RUN_STATUSES } from '@consola/factory-spec';
 import { worktreePathLock } from './worktreeCleanup/PathLock';
 import { ProcessCwdIndex } from './worktreeCleanup/ProcessCwdIndex';
 import { ToolRegistry } from './tools/Tool';
-import { consolaTools } from './tools/consolaTools';
+import { automationControl, consolaTools } from './tools/consolaTools';
 import { desktopWorkItemPort } from './automations/workItemPort';
 import {
   sessionRecord,
@@ -2008,7 +2008,8 @@ export function setupIpcHandlers(): boolean {
     snoozer: () => sessionSnoozer,
     snoozes: () => attention.snoozes(),
     isManagedPath: (dir) => worktrees.isManagedPath(dir),
-    automations: () => automations,
+    // Only the members the tools use: never the runner whole (3-A code review S4).
+    automations: () => automationControl(automations),
     // Fetched here, with the token only main holds: a read-only session
     // has none, and this is how it reads the item it is about.
     workItemContext: async (sessionId) => {
