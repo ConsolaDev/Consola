@@ -8,6 +8,7 @@ import type { WorkItemRef } from '../shared/workItems';
 import type { Workspace } from '../shared/workspace';
 import type { RemovedWorktree } from '../shared/worktreeCleanup';
 import { getProviderDriver, type GitProviderDriver } from './providers';
+import { withoutRepositoryOverrides } from '@consola/automation-engine';
 import { withoutGitHooks } from './gitHooks';
 import { resolveSshRemote } from './sshRemote';
 import {
@@ -96,26 +97,6 @@ async function lstatOrNull(target: string): Promise<fs.Stats | null> {
   } catch {
     return null;
   }
-}
-
-/**
- * Variables that aim git at another repository, index or object store than
- * the folder it runs in. A login shell may export one; in a checkout that is
- * reset, it would reset someone else's.
- */
-const GIT_REPOSITORY_VARIABLES = [
-  'GIT_DIR',
-  'GIT_WORK_TREE',
-  'GIT_INDEX_FILE',
-  'GIT_COMMON_DIR',
-  'GIT_OBJECT_DIRECTORY',
-  'GIT_ALTERNATE_OBJECT_DIRECTORIES',
-] as const;
-
-function withoutRepositoryOverrides(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  const clean = { ...env };
-  for (const name of GIT_REPOSITORY_VARIABLES) delete clean[name];
-  return clean;
 }
 
 /** Spec naming: `<repo-basename>-<type>-<number>`, e.g. catalog-portal-pr-51. */

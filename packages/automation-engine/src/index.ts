@@ -124,7 +124,9 @@ export {
 export {
   MAX_ARTIFACT_BYTES,
   agentRequirements,
+  runEnvironment,
   type AgentRequirements,
+  type RunEnvironment,
   type CommandFile,
   type LogTail,
   type RunDefinition,
@@ -134,6 +136,21 @@ export {
 } from './steps/definition';
 export type { CheckoutRequest, PreparedCheckout, CheckoutPort } from './steps/checkout';
 export { entryCheckoutKind, entryReadsItems, runCheckoutKind } from './steps/checkout';
+export type {
+  MadeRunCheckout,
+  RunCheckoutPort,
+  RunCheckoutRequest,
+  RunCheckoutStage,
+  SettleRequest,
+  SettleResult,
+  StepProcesses,
+} from './steps/runCheckout';
+export {
+  commitMessage,
+  flaggedPaths,
+  RunCheckoutError,
+  runOwnedDirName,
+} from './steps/runCheckout';
 export {
   LOG_CAP_BYTES,
   OUTPUT_FILE_CAP_BYTES,
@@ -142,7 +159,7 @@ export {
   describeFailure,
   maskSecrets,
 } from './steps/commandIO';
-export { withoutGitHooks } from './gitEnv';
+export { withoutGitHooks, withoutRepositoryOverrides } from './gitEnv';
 export {
   describeError,
   agentToolContext,
