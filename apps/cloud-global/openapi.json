@@ -28,6 +28,23 @@
         ],
         "description": "How a Connect ended, as the callback names it in the web app’s `?github=`."
       },
+      "GitHubWebhookReceived": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "type": "string",
+            "enum": [
+              "delivered",
+              "pong"
+            ]
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "additionalProperties": false,
+        "description": "`delivered`: the workspace’s cell recorded the event. `pong`: GitHub’s ping, passed on to no cell."
+      },
       "Me": {
         "type": "object",
         "properties": {
@@ -446,6 +463,216 @@
     "parameters": {}
   },
   "paths": {
+    "/api/github/webhooks": {
+      "post": {
+        "summary": "Receive one of the GitHub App’s webhook deliveries",
+        "description": "The GitHub App’s webhook URL. GitHub calls it, with no session and no Origin, so it is outside the origin check. The body is GitHub’s event payload as JSON, read as raw bytes and checked against `X-Hub-Signature-256` (HMAC-SHA256 under the app’s webhook secret, compared in constant time) before anything else is read; `X-GitHub-Event` names the event and `X-GitHub-Delivery` is GitHub’s id of the delivery, which it keeps when it sends a delivery again. The event is passed on, signed, to the cell of the workspace that holds its installation, which records each delivery once. Nothing of it is kept here.",
+        "responses": {
+          "200": {
+            "description": "Received.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubWebhookReceived"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Signed, but a header or the body is not what GitHub sends.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "invalid_delivery"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No `X-Hub-Signature-256`, or not GitHub’s signature over this body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "bad_signature"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The workspace’s cell had this delivery already: sent again, or replayed. Nothing changed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "duplicate_delivery"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Over the 25 MB GitHub puts in a delivery at most.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "too_large"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Dropped: the event came through an installation no workspace holds, or through none.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "unknown_installation"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "no_installation"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "The workspace’s cell did not take the event. GitHub’s Redeliver sends it again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "cell_unavailable"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "This server has no webhook secret (`GITHUB_WEBHOOK_SECRET`), or no cell for the workspace’s region.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "webhooks_not_configured"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "cell_not_configured"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/me": {
       "get": {
         "summary": "Who is signed in",

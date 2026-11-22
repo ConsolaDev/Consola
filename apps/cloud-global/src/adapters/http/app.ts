@@ -12,13 +12,16 @@ import {
 import { checkHealth } from '../../application/health.js';
 import { describeMe } from '../../application/me.js';
 import type {
+  CellEvents,
   CellTokenSigner,
   GitHubApp,
+  GitHubEventSigner,
   HealthProbe,
   InstallationStore,
   InstallStateSigner,
   MembershipStore,
   SessionStore,
+  WebhookSignatures,
   WorkspaceStore,
 } from '../../application/ports.js';
 import {
@@ -44,6 +47,7 @@ import {
   postWorkspace,
   putActiveWorkspace,
 } from './contract.js';
+import { type WebhookLog, webhookRoutes } from './webhooks.js';
 
 const CHANGES = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
@@ -117,6 +121,13 @@ export function createApp(deps: {
   github: GitHubApp | null;
   installStates: InstallStateSigner;
   health: HealthProbe;
+  /** GitHub's webhooks: null signatures when no webhook secret is set (`webhooks.ts`). */
+  webhooks: {
+    signatures: WebhookSignatures | null;
+    signer: GitHubEventSigner;
+    cells: CellEvents;
+    log?: WebhookLog;
+  };
 }): OpenAPIHono {
   const {
     handleAuth,
@@ -130,6 +141,7 @@ export function createApp(deps: {
     github,
     installStates,
     health,
+    webhooks,
   } = deps;
   // A body of the wrong shape is 400 `invalid_request` unless its route says otherwise, never
   // the validator's own answer, which is not in the contract.
@@ -152,6 +164,10 @@ export function createApp(deps: {
   });
 
   app.all('/api/auth/*', (c) => handleAuth(c.req.raw));
+
+  // GitHub's webhooks, before the origin check: GitHub sends no Origin and no cookie, and the
+  // signature over the body is what says a delivery is GitHub's.
+  webhookRoutes(app, { ...webhooks, installations, log: webhooks.log ?? console });
 
   app.use('/api/*', async (c, next) => {
     if (!CHANGES.has(c.req.method) || c.req.header('origin') === webOrigin) return next();

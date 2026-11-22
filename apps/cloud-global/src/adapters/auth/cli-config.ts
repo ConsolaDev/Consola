@@ -16,6 +16,7 @@ const placeholder: CloudConfig = {
   cellTokenPrivateKey: { kty: 'OKP', crv: 'Ed25519', x: 'placeholder', d: 'placeholder' },
   cellUrls: {},
   github: null,
+  githubWebhookSecret: null,
 };
 
 const { db } = openDatabase(placeholder.databaseUrl);
