@@ -3732,6 +3732,12 @@
   color: var(--color-info);
 }
 
+/* A gate the person rejected: where the run stopped, by their word, not a failure. */
+.automations-trace-rejected .automations-trace-icon,
+.automations-trace-rejected .automations-trace-outcome {
+  color: var(--color-text-secondary);
+}
+
 .automations-trace-waiting .automations-trace-icon,
 .automations-trace-waiting .automations-trace-outcome,
 .automations-trace-asks .automations-trace-icon,

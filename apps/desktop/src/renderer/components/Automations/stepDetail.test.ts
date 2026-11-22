@@ -611,6 +611,30 @@ describe('gates, retries and loops in the trace', () => {
     );
   });
 
+  it('draws a gate the person rejected as rejected, never as passed (3-A code review S2)', () => {
+    const rejected = { askedAt: T1, decision: 'reject', by: 'person' as const, at: T1 };
+    const gate = gateRow('completed', rejected);
+    const ended = run({ status: 'rejected' });
+    expect(stepTone(gate, true)).toBe('rejected');
+    expect(stepOutcome('rejected', null)).toBe('Rejected');
+    expect(stepSummary(gate, ended, NOW)).toBe('rejected by you 5m ago');
+    // A loop rejected at its exhaustion gate: its row is completed with the decision, and no note.
+    const loop = step({ id: 'polish', kind: 'repeat', status: 'completed', gate: rejected });
+    expect(stepTone(loop, true)).toBe('rejected');
+    expect(stepSummary(loop, ended, NOW)).toBe('rejected by you 5m ago');
+    // An approved one still passes.
+    expect(stepTone(gateRow('completed', { ...rejected, decision: 'approve' }), true)).toBe(
+      'passed',
+    );
+    // Counted as rejected, not completed.
+    const steps = [
+      step({ id: 'look', kind: 'agent', status: 'completed' }),
+      gate,
+      step({ id: 'publish', status: 'not-run' }),
+    ];
+    expect(stepCounts(steps, true)).toBe('3 steps · 1 completed · 1 rejected · 1 did not run');
+  });
+
   it("reads a not-run step's note, then a gate's rejection", () => {
     const thenStopped = run({
       status: 'completed',

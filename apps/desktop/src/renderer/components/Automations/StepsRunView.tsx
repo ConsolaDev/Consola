@@ -10,6 +10,7 @@ import {
   Hand,
   Hourglass,
   LoaderCircle,
+  OctagonX,
   Repeat,
   RotateCcw,
   ScanSearch,
@@ -56,6 +57,7 @@ import { formatElapsed, waitingForWords } from './presentation';
 
 const TONE_ICONS: Record<StepTone, LucideIcon> = {
   passed: CircleCheck,
+  rejected: OctagonX,
   failed: CircleX,
   running: LoaderCircle,
   waiting: Clock,

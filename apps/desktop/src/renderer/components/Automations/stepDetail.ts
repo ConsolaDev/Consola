@@ -187,10 +187,13 @@ export function visibleTail(
  * status this build does not know reads the same way, never as an outcome.
  * `waiting` is a step queued for a slot; a row parked at a gate (a gate's,
  * or a loop's at its exhaustion gate) `asks`, and one waiting out its
- * declared retry is `retrying`.
+ * declared retry is `retrying`. A gate the person rejected (a gate's row, or
+ * a loop's rejected at its exhaustion gate) is `rejected`: its row is
+ * `completed`, but the run stopped there (3-A code review S2).
  */
 export type StepTone =
   | 'passed'
+  | 'rejected'
   | 'failed'
   | 'running'
   | 'waiting'
@@ -212,6 +215,7 @@ export function stepTone(step: StepRun | StepRunStatus, runOver: boolean): StepT
   const status = typeof step === 'string' ? step : step.status;
   if (status === 'waiting' && row?.gate) return 'asks';
   if (status === 'waiting' && row?.retryAt !== undefined) return 'retrying';
+  if (status === 'completed' && row?.gate?.decision === 'reject') return 'rejected';
   switch (status) {
     case 'completed':
       return 'passed';
@@ -241,6 +245,8 @@ export function stepOutcome(tone: StepTone, ms: number | null): string {
   switch (tone) {
     case 'passed':
       return took ? `Completed in ${took}` : 'Completed';
+    case 'rejected':
+      return 'Rejected';
     case 'failed':
       return took ? `Failed after ${took}` : 'Failed';
     case 'running':
@@ -380,6 +386,10 @@ export function stepSummary(
     }
     case 'not-run':
       return notRunReason(run, step);
+    case 'rejected': {
+      const at = step.gate?.at;
+      return `rejected by you${at ? ` ${formatAgo(at, now)}` : ''}`;
+    }
     case 'reported':
       return step.note ?? 'A dry run: it was not run';
     case 'running':
@@ -496,6 +506,7 @@ export function stepCounts(rows: StepRun[], runOver: boolean): string {
   }
   const words: Array<[StepTone, string]> = [
     ['passed', 'completed'],
+    ['rejected', 'rejected'],
     ['failed', 'failed'],
     ['running', 'running'],
     ['asks', 'waiting for you'],
