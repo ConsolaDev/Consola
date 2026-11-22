@@ -19,7 +19,10 @@
       // Hand-minified, and parts of it do not parse.
       "!apps/website/src/styles.css",
       // Copied from t3code; kept byte for byte (vendor/t3code/UPSTREAM.md).
-      "!vendor"
+      "!vendor",
+      // Copied from t3code; kept byte for byte (vendor/t3code/UPSTREAM.md).
+      "!packages/agent-ui/src/t3",
+      "!packages/agent-ui/src/gt.config.json"
     ]
   },
   "formatter": {
