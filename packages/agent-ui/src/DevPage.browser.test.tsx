@@ -4,7 +4,7 @@ import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeAll, expect, it, vi } from 'vite-plus/test';
 import { page } from 'vite-plus/test/browser';
-import { DevPage } from '../dev/DevPage.tsx';
+import { DevPage, forgetPassInAddress } from '../dev/DevPage.tsx';
 import { addToPage, answerOf, forgetStoredThreads, host } from './testing/render.tsx';
 
 beforeAll(forgetStoredThreads);
@@ -53,4 +53,34 @@ it("renders the session's conversation from ws:// host, pass and session paramet
   expect(container.querySelector('[data-theme="dark"]')).not.toBeNull();
   expect(container.textContent).not.toContain(pass);
   unmount();
+});
+
+it('takes the pass out of the address, replacing the history entry and keeping the rest', () => {
+  const replaced: Array<{ state: unknown; url: string }> = [];
+  const state = { page: 'sprocket' };
+  const bar = (href: string) => ({
+    location: { href },
+    history: {
+      state,
+      replaceState: (given: unknown, _unused: string, url: URL) => {
+        replaced.push({ state: given, url: url.href });
+      },
+    },
+  });
+
+  forgetPassInAddress(
+    bar(
+      'http://localhost:5176/?host=ws://127.0.0.1:7420&pass=secret-pass-value&session=demo-1&theme=dark',
+    ),
+  );
+  expect(replaced).toEqual([
+    {
+      state,
+      url: 'http://localhost:5176/?host=ws%3A%2F%2F127.0.0.1%3A7420&session=demo-1&theme=dark',
+    },
+  ]);
+
+  // An address with no pass is left as it is.
+  forgetPassInAddress(bar('http://localhost:5176/?host=ws://127.0.0.1:7420&session=demo-1'));
+  expect(replaced).toHaveLength(1);
 });

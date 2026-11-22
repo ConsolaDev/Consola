@@ -121,8 +121,20 @@ pieces:
     (`AgentChat.storedSessions.browser.test.tsx`). Without Web Locks (an insecure context)
     nothing is removed this way.
   - **Never**: composer drafts, client settings and UI state, the theme keys, the analytics id
-    and t3's favicon cache (`t3code:project-favicons`). They hold no credential. The pass never
-    reaches `localStorage`, a URL or the history.
+    and t3's favicon cache (`t3code:project-favicons`). They hold no credential.
+
+- **Where the pass travels.** `AgentChat` holds it in React state and hands it to t3, which:
+  - keeps it in IndexedDB (its catalog, above) while the host is registered;
+  - sends it as `Authorization: Bearer <pass>` on the HTTP calls before the socket (the ticket
+    and the session);
+  - opens the socket at `ws(s)://<host>/ws?wsTicket=<pass>`: the host issues the pass itself as
+    t3's ticket, so the pass is in the socket's URL, which the browser's developer tools show
+    (the host redacts it from its own logs and traces). A ticket distinct from the pass is a
+    Track B decision (`packages/host`'s `AGENTS.md`, "Before the socket").
+
+  It never reaches `localStorage` or the page's history from `AgentChat`. The dev page reads it
+  from its address (`?pass=`) and takes it out at once (`dev/DevPage.tsx`, `history.replaceState`),
+  so it is not left in the address bar or the history.
 
 ## How the styles are scoped
 
@@ -257,5 +269,5 @@ for the run (`src/testing/passKeys.ts`, so a test can ask for a pass of any life
 `signHostPass` command; `watchSockets` and `openedSockets` record the sockets the page opens),
 and sends the fixture's message through t3's RPC client, on a machine of its own: a temporary
 home, no CLI or API-key variable, fake CLIs on the `PATH`; teardown fails the run if any CLI
-call saw another home or a config folder. Each browser test file deletes t3's IndexedDB first, so what it shows comes from
-the host. Files run one at a time.
+call saw another home or a config folder. Each browser test file deletes t3's IndexedDB first,
+so what it shows comes from the host. Files run one at a time.

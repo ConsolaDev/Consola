@@ -234,7 +234,9 @@ handlers are host glue that calls the helpers `ws.ts` calls
   - `POST /api/auth/websocket-ticket/rpc` with `Authorization: Bearer <pass>`:
     `{ ticket, expiresAt }`, the ticket being the pass itself (the host keeps
     no sessions to mint one from), expiring with it. The socket verifies it
-    again.
+    again. So the pass travels in the socket's URL (`wsTicket`), where a
+    browser's developer tools show it; a ticket distinct from the pass
+    (short-lived, used once) is a Track B decision.
   - `GET /api/auth/session` with the same header: `authenticated: true`, the
     host's auth descriptor, `HOST_SCOPES` (`orchestration:read` and
     `orchestration:operate`, all it serves, so t3's UI offers nothing more),
@@ -622,7 +624,10 @@ Open `http://localhost:5176/?host=ws://127.0.0.1:7420&pass=<dev-pass>&session=<s
 7420), `session` is the `--session-id`, and `<dev-pass>` is the `pass` of the `dev-pass` line the
 host prints on stdout after `ready`. It is a dev pass, valid 12 hours (`expiresInSeconds` 43200);
 past that, or after a restart (the key pair is new each time), restart the host and open the URL
-with the new pass. The page names any parameter missing and never shows the pass. Use a scratch
+with the new pass. The page names any parameter missing and never shows the pass, and takes
+`pass` out of its address as soon as it has read it (`history.replaceState`, keeping `host`,
+`session` and `theme`), so the pass is not left in the address bar or the history; a reload
+then names `pass` as missing, so open the URL with it again. Use a scratch
 `--cwd`: the chat can run tools there once approved. The dev page has no `onPassExpired`, so an
 expired pass shows the chat's "host refused this chat's pass" notice.
 
