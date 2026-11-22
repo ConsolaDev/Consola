@@ -54,6 +54,15 @@ describe('loadOpenInTargets', () => {
     expect(useOpenInStore.getState().targets).toEqual([VS_CODE, FINDER]);
     warn.mockRestore();
   });
+
+  it('holds an empty list when main never answered, so the menu can open and ask again', async () => {
+    bridge.list.mockRejectedValueOnce(new Error('main went away'));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(await loadOpenInTargets()).toEqual([]);
+    expect(useOpenInStore.getState().targets).toEqual([]);
+    expect(await loadOpenInTargets()).toEqual([VS_CODE, FINDER]);
+    warn.mockRestore();
+  });
 });
 
 describe('openFolderInFavourite', () => {

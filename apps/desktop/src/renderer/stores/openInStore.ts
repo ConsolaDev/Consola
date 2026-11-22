@@ -20,7 +20,11 @@ export const useOpenInStore = create<OpenInState>(() => ({ targets: null }));
 
 let asking: Promise<OpenInTarget[]> | null = null;
 
-/** Asks main for the apps, once at a time; its answer replaces the list. */
+/**
+ * Asks main for the apps, once at a time; its answer replaces the list. One
+ * that fails keeps the list there was, or leaves an empty one, so the menu
+ * still opens, and asks again.
+ */
 export function loadOpenInTargets(): Promise<OpenInTarget[]> {
   asking ??= openInBridge
     .list()
@@ -31,7 +35,9 @@ export function loadOpenInTargets(): Promise<OpenInTarget[]> {
       },
       (error: unknown) => {
         console.warn('Open in: listing the apps failed:', error);
-        return useOpenInStore.getState().targets ?? [];
+        const kept = useOpenInStore.getState().targets ?? [];
+        useOpenInStore.setState({ targets: kept });
+        return kept;
       },
     )
     .finally(() => {

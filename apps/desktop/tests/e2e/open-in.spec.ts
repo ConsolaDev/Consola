@@ -209,6 +209,13 @@ test.describe('open in', () => {
       appPath: path.join(applications, 'Visual Studio Code.app'),
       folder: notes,
     });
+
+    // Main checks the folder itself: one gone since is refused, and says so.
+    const opened = (await launches()).length;
+    fs.rmSync(notes, { recursive: true, force: true });
+    await openButton('VS Code').click();
+    await expect(page.locator('.toast-message')).toHaveText(`${notes} does not exist.`);
+    expect(await launches()).toHaveLength(opened);
   });
 
   test('no folder, no button: a removed worktree shows none and ⌘O opens nothing', async () => {
