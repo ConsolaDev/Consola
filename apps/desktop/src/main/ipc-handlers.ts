@@ -22,7 +22,6 @@ import {
   protocol,
   screen as electronScreen,
   session as electronSession,
-  shell,
   webContents as electronWebContents,
 } from 'electron';
 import type { BrowserStateFile } from '../shared/browser';
