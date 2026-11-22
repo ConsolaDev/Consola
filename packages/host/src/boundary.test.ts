@@ -39,6 +39,11 @@ type Layer = {
   refuses: string[];
   /** Globals it may not refer to. */
   noGlobals: string[];
+  /**
+   * Whether it may use a test seam (a name ending in `ForTests`) as tests do: only for a ring
+   * that nothing but tests reaches, so a seam it uses still never reaches the host's own code.
+   */
+  testSeams?: true;
 };
 
 /** Globals that reach the machine or the network without an import, timers included. */
@@ -79,12 +84,14 @@ const LAYERS: Layer[] = [
     noGlobals: [],
   },
   {
-    // What tests share (an isolated machine, fake CLIs). No other ring reaches it, so only tests
-    // import it; it may use the test runner and t3's test kits.
+    // What tests share (an isolated machine, fake CLIs, the command over a replay). No other ring
+    // reaches it, so only tests import it, or start it with node; it may use the test runner,
+    // t3's test kits and test seams, and run the command `bin.ts` wires.
     at: 'testing',
-    reaches: ['core', 'runtime', 'testing'],
+    reaches: ['core', 'runtime', 'testing', 'bin'],
     refuses: [],
     noGlobals: [],
+    testSeams: true,
   },
   // The one wiring file, where everything meets.
   {
@@ -342,7 +349,7 @@ function violationsOf(file: string, source: string): string[] {
     test || !own
       ? []
       : [...new Set(referencesOf(source, file).filter((name) => own.noGlobals.includes(name)))];
-  const seams = test ? [] : [...new Set(testOnlyReferencesOf(source, file))];
+  const seams = test || own?.testSeams ? [] : [...new Set(testOnlyReferencesOf(source, file))];
   return [
     ...imports,
     ...globals.map((name) => `${file} uses ${name}`),
@@ -427,6 +434,7 @@ describe('the dependency rule', () => {
     ['testing/x.ts', '@t3tools/provider-claude/testing', true],
     ['testing/x.ts', 'vite-plus/test', true],
     ['testing/x.ts', '../adapters/ws.ts', false],
+    ['testing/x.ts', '../bin.ts', true],
     ['runtime/x.test.ts', '../testing/machine.ts', true],
     ['runtime/x.ts', '../adapters/ws.ts', false],
     ['runtime/x.ts', '../bin.ts', false],
@@ -461,6 +469,14 @@ describe('the dependency rule', () => {
     ['a renamed import', "import { layerForTests as layer } from './runtime/threadRuntime.ts';"],
   ])('the checker refuses a test-only seam outside tests: %s', (_spelling, source) => {
     expect(violationsOf('bin.ts', source)).toContain('bin.ts uses layerForTests');
+  });
+
+  it('only the testing ring, which only tests reach, may use a seam outside a test', () => {
+    const source =
+      "import { layerForTests } from '../runtime/threadRuntime.ts';\nlayerForTests({}, {});";
+    expect(violationsOf('testing/x.ts', source)).toEqual([]);
+    expect(violationsOf('adapters/x.ts', source)).toContain('adapters/x.ts uses layerForTests');
+    expect(violationsOf('runtime/x.ts', source)).toContain('runtime/x.ts uses layerForTests');
   });
 
   it('a module may declare a test-only seam, build one from another, and a test may use it', () => {

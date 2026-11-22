@@ -14,7 +14,8 @@ Imports point inward only; `src/boundary.test.ts` fails on any that does not.
 
 - `src/core/` holds the pure decisions and the types they speak of: which
   commands are offered (`decideCommand`), whether a session pass's claims hold
-  (`checkPassClaims`), when the host is idle (`isIdle`) and `SessionSpec`. No
+  (`checkPassClaims`), when the host is idle (`isIdle`: no client, no running
+  turn, nothing done for the idle minutes) and `SessionSpec`. No
   `node:` builtin, no `effect/process`, `ws` or `jose`, and no global that
   touches the machine (`process`, `fetch`, `WebSocket`, timers). It may name the
   vendored `@t3tools/contracts`.
@@ -22,17 +23,19 @@ Imports point inward only; `src/boundary.test.ts` fails on any that does not.
   import them (by package name, or `t3/<path>.ts` for a lifted server file) and
   `core/`, never `adapters/`.
 - `src/adapters/` is everything that touches the outside: the WebSocket server,
-  verifying a pass's signature, process I/O. It may import `core/` and
-  `runtime/`.
-- `src/bin.ts` is the only wiring: it builds the adapters and hands them to the
-  runtime.
+  verifying a pass's signature, the dev pass (`devPass.ts`), the lines on
+  stdout (`stdoutEvents.ts`). It may import `core/` and `runtime/`.
+- `src/bin.ts` is the only wiring: it parses the command line, builds the
+  adapters and hands them the runtime (`consola-host session`, below).
 - `src/testing/` is what tests share: `machine.ts` (a machine of a test's own,
   with fake CLIs), `setup.ts` (Vitest's setup file, which isolates the whole
   test process; "Tests" below), `replay.ts` (sessions whose Claude driver
-  replays one of t3's recorded fixtures) and `t3Client.ts` (t3's RPC client,
-  connected as `@t3tools/client-runtime` connects it). No other ring reaches
-  it, so only `*.test.ts` files and `vite.config.ts` use it; it may use the
-  test runner and t3's test kits.
+  replays one of t3's recorded fixtures), `t3Client.ts` (t3's RPC client,
+  connected as `@t3tools/client-runtime` connects it) and `replaySession.ts`
+  (the session command over a replay, which `bin.test.ts` starts with node).
+  No other ring reaches it, so only `*.test.ts` files, `vite.config.ts` and a
+  test's `node` use it; it may use the test runner, t3's test kits and test
+  seams, and reach `bin.ts` to run its command.
 
 To add a ring, add a row to `LAYERS` and a case to the table in
 `boundary.test.ts`. Test files are exempt from the layer rules, but never import
@@ -93,6 +96,7 @@ handling, ingestion or projection of its own.
 type ThreadHandle = {
   snapshot(): OrchestrationV2ThreadProjection; // t3's getThreadSnapshot, kept current
   snapshotSequence(): number; // the last stored event snapshot() holds
+  snapshots(): Stream<OrchestrationV2ThreadProjection>; // snapshot() now, then each newer one
   events(afterSequence?: number): Stream<OrchestrationV2StoredEvent, ThreadRuntimeError>;
   dispatch(
     command: OrchestrationV2Command,
@@ -115,6 +119,9 @@ type ThreadServerView = {
 - `snapshot()` is refreshed on every stored event by t3's unbounded
   `streamStoredEvents`, so a pending approval is there with no client
   connected. Project it for the wire before sending, as t3's `ws.ts` does.
+  `snapshots()` is the same projection as a stream: the current one, then
+  each that replaces it, after the refresh, so a reader never sees an event
+  before `snapshot()` holds it.
 - `events(after)` is t3's `streamStoredEventsFrom({ threadId, afterSequence })`:
   stored events replayed, then live, projected for the wire. To join a
   snapshot, read `snapshotSequence()` and `snapshot()` together and pass that
@@ -137,7 +144,9 @@ type ThreadServerView = {
 `ws://<host>:<port>/ws`, with Effect's RPC server over t3's own `WsRpcGroup`,
 one RPC server per connection, as t3's `ws.ts` runs it. `listenHost(options)`
 listens in the caller's scope and answers the port (`0` asks for an ephemeral
-one); `serveHost` is `listenHost` then never. `host` is the caller's: the
+one) and `connectedClients()`, the connections open now (each counts from the
+moment its pass lets it in until its socket closes; a refused one never
+counts); `serveHost` is `listenHost` then never. `host` is the caller's: the
 server adds no default bind address. `ws.ts` itself is not lifted; the
 handlers are host glue that calls the helpers `ws.ts` calls
 (`vendor/t3code/UPSTREAM.md`, "The host RPC server lift").
@@ -161,8 +170,11 @@ handlers are host glue that calls the helpers `ws.ts` calls
   never logged, and `PassRejected` carries the reason only. No tracer sees it
   either: the server makes no HTTP request span
   (`HttpMiddleware.TracerDisabledWhen`), which would record the URL the pass
-  travels in, and the RPC server traces nothing (`disableTracing`). Then, as
-  t3, a client must speak orchestration protocol 2 (`426` otherwise).
+  travels in, and the RPC server traces nothing (`disableTracing`). Every
+  request also runs with `pass` among effect's redacted query parameters
+  (`HOST_REDACTED_URL_PARAMS`, effect's own `UrlParams.CurrentRedactedNames`
+  plus `pass`), so whatever shows a URL the server handles redacts it. Then,
+  as t3, a client must speak orchestration protocol 2 (`426` otherwise).
 - **What is served** is `SERVED_METHODS`, the one list, with why each is
   there: `orchestration.subscribeThread`, `orchestration.dispatchCommand` and
   `orchestration.subscribeCommandOutput` (the thread), `subscribeServerConfig`
@@ -213,11 +225,12 @@ the host never uses it, and `SessionSpec` has no field to ask for it.
 Tests that replay a fixture recorded in another mode, or substitute t3's replay
 adapter, use `layerForTests(options, { drivers, runtimeMode })`, which builds on
 `layerOrchestrationForTests(options, drivers)`. `boundary.test.ts` refuses
-every use of a name ending in `ForTests` outside `*.test.ts` (a call, a
-namespace member, an import under another name), except in the body of another
-seam that is a function (code that runs only when a test calls it, never as a
-module loads), so no host code can reach a seam; `layer(options)` takes
-neither, and `layerOrchestration(options)` always hydrates `HOST_DRIVERS`.
+every use of a name ending in `ForTests` outside `*.test.ts` and `src/testing/`
+(a call, a namespace member, an import under another name), except in the body
+of another seam that is a function (code that runs only when a test calls it,
+never as a module loads), so no host code can reach a seam (`bin.ts` included);
+`layer(options)` takes neither, and `layerOrchestration(options)` always
+hydrates `HOST_DRIVERS`.
 
 ### The CLIs inherit the host's environment
 
@@ -419,11 +432,79 @@ adapter is t3's Claude replay adapter. Test kits (`@t3tools/provider-testing`, a
 `testkit` module) are imported only from `*.test.ts` files; `boundary.test.ts`
 refuses them anywhere else.
 
+## The `session` command
+
+`src/bin.ts` is the package's `consola-host` bin, run by Node 26 straight from
+source (type stripping; no build step):
+
+```
+consola-host session --session-id <id> --harness <claude|codex|opencode|pi|acp> --cwd <dir>
+  [--port <n, default 7420; 0 for a free one>] [--bind <address, default 127.0.0.1>]
+  --pass-public-key <Ed25519 public key, SPKI PEM file> | --dev
+  [--idle-minutes <n, default 10; fractions allowed>] [--state-dir <dir>]
+```
+
+Track B's runner starts it in a sandbox and reads its stdout. It opens the
+session's thread (`ThreadRuntime.open`), then listens (`listenHost`), so
+`ready` means a client can connect now.
+
+- **Stdout is JSON lines and nothing else** (`HostLine`,
+  `adapters/stdoutEvents.ts`), each flushed before the next is written:
+  `{"type":"ready","port":<n>}` (the port it got), with `--dev`
+  `{"type":"dev-pass","pass":"<jwt>","expiresInSeconds":43200}`, then
+  `{"type":"title","title":"…"}` and
+  `{"type":"status","status":"working"|"waiting"|"idle"}` as they change, and
+  `{"type":"exit","reason":"idle"}`. Every Effect log goes to stderr
+  (`Logger.LogToStderr` over the whole program), and so does every error.
+- **Status and title** follow `handle.snapshots()` (`reportSession`): a
+  pending runtime request (an approval or a question, t3's
+  `runtimeRequests[].status`) is `waiting`, an active run (t3's own
+  `isActiveRun`) is `working`, anything else `idle`; the title is the
+  projection's `thread.title`. A line is printed only on a change from what was
+  last said, and `ready` says idle and the thread's first title. t3 titles a
+  thread twice on its first message, from the message's title seed and then
+  with its generated title, so both are lines.
+- **Idle exit.** Each second the host asks `isIdle` with the server's
+  `connectedClients()`, whether a turn runs (`working`), and the last activity:
+  the thread's (`lastActivityMs`) or the last moment a client was connected,
+  whichever is later; becoming ready counts as activity. When it holds, the
+  host prints `exit`, closes the session and exits 0.
+- **Signals.** SIGTERM and SIGINT interrupt the program: its scope closes (the
+  server, the thread, the provider session and the CLI it runs), then the
+  process exits 0 (1, with a message, if that takes over 15 seconds).
+- **Start failures** (a bad flag, a key file that cannot be read or is not an
+  Ed25519 public key, `--cwd` not a folder, a port taken): a message on stderr
+  (`consola-host: …`, with the usage for a bad flag), exit 1, nothing on
+  stdout. The key is read and checked before any CLI starts.
+- **`--dev`** stands in for the cell: an Ed25519 key pair made in memory
+  (`adapters/devPass.ts`), whose private key is never returned, printed or
+  written, and one pass signed with it: `sub` `dev`, `ws` `local` (names no
+  person or workspace has), `sid` the session id, `iat` now, `exp` twelve hours
+  later. `--pass-public-key` is ignored and `--session-id` defaults to
+  `dev-session`. Without `--dev`, `--pass-public-key` is required.
+- **State.** t3's state and settings live in `--state-dir`
+  (`<dir>/userdata/settings.json`), or in a temporary folder removed at exit.
+  The tests pass one whose settings turn update checks off, so a host they
+  start asks no one online.
+
+`runSession(args, runtimeFor)` takes the runtime as a parameter; the entry at
+the bottom of `bin.ts` passes `ThreadRuntime.layer`. `testing/replaySession.ts`
+runs the same `sessionCommand` and `runHostProcess` over `layerForTests` with
+the Claude replay driver, checking out the fixture's workspace as `--cwd`.
+`bin.test.ts` starts both with node under the test's machine (fake CLIs on the
+PATH, the test's home): the replay through a whole turn (`ready`, `dev-pass`, a
+message sent with the pass, `status` and `title` lines, exit 0 on SIGTERM), and
+the real bin for `ready`, `dev-pass`, a socket that takes the pass, SIGTERM
+with no process left (a fake `claude` that stays running, as the capabilities
+probe's would), the cell's key, the idle exit, and the start failures. Each
+asserts that every stdout line is a `HostLine`.
+
 ## Running it
 
 ```bash
 pnpm --filter @consola/host test        # vp test run (Vite+), config in vite.config.ts
 pnpm --filter @consola/host typecheck   # effect-tsgo, hoisted by publicHoistPattern
+node packages/host/src/bin.ts session --dev --harness claude --cwd <folder>   # from the repo root
 ```
 
 ## Licensing
