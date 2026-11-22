@@ -1,4 +1,4 @@
-import { generateKeyPairSync } from 'node:crypto';
+import { generateKeyPairSync, type KeyObject } from 'node:crypto';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -9,6 +9,10 @@ import {
   CELL_TOKEN_KEYS_PATH,
   CELL_TOKEN_LIFETIME_SECONDS,
   CLOCK_SKEW_SECONDS,
+  GITHUB_TOKEN_REQUEST_LIFETIME_SECONDS,
+  GITHUB_TOKEN_REQUEST_TYPE,
+  type GitHubTokenAsk,
+  gitHubTokenRequest,
   OUTBOX_DELIVERY_MEDIA_TYPE,
   OUTBOX_DELIVERY_PATH,
   OUTBOX_MESSAGE_TYPE,
@@ -18,6 +22,7 @@ import {
 import { organization, type TestHelpers, testUtils } from 'better-auth/plugins';
 import { eq } from 'drizzle-orm';
 import {
+  CompactSign,
   calculateJwkThumbprint,
   compactVerify,
   createLocalJWKSet,
@@ -32,7 +37,12 @@ import type { OutboxWorker } from './adapters/outbox/outboxWorker.js';
 import { type Database, migrateDatabase, openDatabase } from './adapters/persistence/database.js';
 import { schema } from './adapters/persistence/schema.js';
 import { composeApi } from './compose.js';
-import { type CloudConfig, ConfigError, type Ed25519PrivateJwk } from './config.js';
+import {
+  type CloudConfig,
+  ConfigError,
+  type Ed25519PrivateJwk,
+  type Ed25519PublicJwk,
+} from './config.js';
 
 const WEB_ORIGIN = 'http://localhost:5175';
 const ACME_CELL = 'http://127.0.0.1:3101';
@@ -43,6 +53,15 @@ const cellKey = generateKeyPairSync('ed25519').privateKey.export({
   format: 'jwk',
 }) as Ed25519PrivateJwk;
 
+// Each region's cell's own key, made for this run only: the cells sign their requests with them.
+const cellPairOf = () => {
+  const { privateKey } = generateKeyPairSync('ed25519');
+  const x = privateKey.export({ format: 'jwk' }).x as string;
+  return { privateKey, publicJwk: { kty: 'OKP', crv: 'Ed25519', x } as Ed25519PublicJwk };
+};
+const euCell = cellPairOf();
+const usCell = cellPairOf();
+
 const config: CloudConfig = {
   databaseUrl: 'pglite:memory',
   authSecret: 'sprocket-test-secret-that-is-long-enough-to-sign-with',
@@ -52,6 +71,7 @@ const config: CloudConfig = {
   cellTokenPrivateKey: cellKey,
   // A cell in each region, which no test reaches unless it starts the outbox's worker.
   cellUrls: { eu: ACME_CELL, us: SPROCKET_CELL },
+  cellPublicKeys: { eu: euCell.publicJwk, us: usCell.publicJwk },
   github: null,
 };
 
@@ -1295,11 +1315,478 @@ describe('GitHub as a connection', () => {
   });
 });
 
+describe('GitHub tokens for a cell', () => {
+  // A key made for this run only, never one written down, in a folder of its own.
+  const appKey = generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey;
+  let keyFolder: string;
+  let withGitHub: CloudConfig;
+
+  beforeAll(async () => {
+    keyFolder = await mkdtemp(join(tmpdir(), 'consola-github-tokens-'));
+    const privateKeyPath = join(keyFolder, 'app.pem');
+    await writeFile(privateKeyPath, appKey.export({ type: 'pkcs1', format: 'pem' }));
+    withGitHub = {
+      ...config,
+      github: {
+        clientId: 'Iv23liSprocketTest',
+        clientSecret: 'sprocket-test-github-client-secret',
+        slug: 'consola-dev',
+        privateKeyPath,
+      },
+    };
+  });
+
+  afterAll(async () => {
+    await rm(keyFolder, { recursive: true, force: true });
+  });
+
+  /** What each installation covers on GitHub: Acme's 41, Bolt's 42 and Sprocket's 52. */
+  const COVERED: Record<number, { id: number; full_name: string }[]> = {
+    41: [
+      { id: 410, full_name: 'acme/catalog-portal' },
+      { id: 411, full_name: 'acme/api' },
+    ],
+    42: [{ id: 420, full_name: 'bolt/site' }],
+    52: [{ id: 520, full_name: 'sprocket/factory' }],
+  };
+
+  /**
+   * GitHub's answers, as recorded against GitHub on 2026-11-22 with the development app (names
+   * changed): a token minted with `repository_ids` carries exactly those repositories and the
+   * permissions asked, plus metadata read; it reads its own repository (200) and gets 404 for
+   * every other private repository of the same installation; a repository the installation does
+   * not cover is 422; and a revoked token is 401.
+   */
+  const RECORDED = {
+    notFound: {
+      message: 'Not Found',
+      documentation_url: 'https://docs.github.com/rest',
+      status: '404',
+    },
+    notAccessible: {
+      message:
+        'There is at least one repository that does not exist or is not accessible to the parent installation.',
+      documentation_url:
+        'https://docs.github.com/rest/apps/apps#create-an-installation-access-token-for-an-app',
+      status: '422',
+    },
+  };
+
+  let tokens: Map<string, { installationId: number; repositoryIds: number[] }>;
+  let mintBodies: unknown[];
+  let revoked: string[];
+  /** When set, what GitHub answers a narrowed mint instead. */
+  let mintAnswer: ((installationId: number) => Response) | null;
+
+  /** GitHub, as minting talks to it, behind `fetch`, answering as recorded. */
+  function fakeGitHub() {
+    tokens = new Map();
+    mintBodies = [];
+    revoked = [];
+    mintAnswer = null;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(input instanceof Request ? input.url : String(input));
+      const method = init?.method ?? 'GET';
+      const route = `${method} ${url.origin}${url.pathname}`;
+      const token = new Headers(init?.headers).get('authorization')?.replace('Bearer ', '') ?? '';
+      const mint =
+        /^POST https:\/\/api\.github\.com\/app\/installations\/(\d+)\/access_tokens$/.exec(route);
+      if (mint) {
+        const installationId = Number(mint[1]);
+        const body = JSON.parse(String(init?.body)) as {
+          repository_ids?: number[];
+          permissions: Record<string, string>;
+        };
+        if (!body.repository_ids) {
+          // The metadata token the repositories are listed with.
+          return Response.json(
+            { token: `ghs_listing_${installationId}`, expires_at: '2099-01-01T00:00:00Z' },
+            { status: 201 },
+          );
+        }
+        mintBodies.push(body);
+        if (mintAnswer) return mintAnswer(installationId);
+        const covered = COVERED[installationId] ?? [];
+        const repositories = body.repository_ids.map((id) => covered.find((r) => r.id === id));
+        if (repositories.some((repository) => !repository)) {
+          return Response.json(RECORDED.notAccessible, { status: 422 });
+        }
+        const minted = `ghs_narrowed_${tokens.size + 1}`;
+        tokens.set(minted, { installationId, repositoryIds: body.repository_ids });
+        return Response.json(
+          {
+            token: minted,
+            expires_at: '2099-01-01T00:00:00Z',
+            permissions: { ...body.permissions, metadata: 'read' },
+            repository_selection: 'selected',
+            repositories,
+          },
+          { status: 201 },
+        );
+      }
+      if (route === 'GET https://api.github.com/installation/repositories') {
+        const installationId = Number(token.replace('ghs_listing_', ''));
+        const repositories = (COVERED[installationId] ?? []).map((repository) => ({
+          ...repository,
+          private: true,
+          html_url: `https://github.com/${repository.full_name}`,
+        }));
+        return Response.json({ total_count: repositories.length, repositories });
+      }
+      const read = /^GET https:\/\/api\.github\.com\/repositories\/(\d+)$/.exec(route);
+      if (read) {
+        const scope = tokens.get(token);
+        if (!scope) return Response.json({ message: 'Bad credentials' }, { status: 401 });
+        return scope.repositoryIds.includes(Number(read[1]))
+          ? Response.json({ id: Number(read[1]) })
+          : Response.json(RECORDED.notFound, { status: 404 });
+      }
+      if (route === 'DELETE https://api.github.com/installation/token') {
+        revoked.push(token);
+        tokens.delete(token);
+        return new Response(null, { status: 204 });
+      }
+      throw new Error(`The test made an unexpected request to ${method} ${url}`);
+    });
+  }
+
+  /** A read of a repository by id with `token`, as a cell would make it on GitHub. */
+  async function readRepository(token: string, id: number) {
+    const response = await fetch(`https://api.github.com/repositories/${id}`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    return response.status;
+  }
+
+  let workspaceIds: { acme: string; bolt: string; sprocket: string };
+
+  beforeEach(async () => {
+    ({ app, auth } = await composeApi({ db, config: withGitHub }, [testUtils()]));
+    test = ((await auth.$context) as unknown as { test: TestHelpers }).test;
+    const dana = await signIn('dana@acme.test', 'Dana Ortiz');
+    const lee = await signIn('lee@bolt.test', 'Lee Park');
+    const acmeMade = await makeWorkspace(dana.headers, acme);
+    const sprocketMade = await makeWorkspace(dana.headers, {
+      name: 'Sprocket',
+      slug: 'sprocket',
+      region: 'us',
+    });
+    const boltMade = await makeWorkspace(lee.headers, { name: 'Bolt', slug: 'bolt', region: 'eu' });
+    workspaceIds = { acme: acmeMade.id, bolt: boltMade.id, sprocket: sprocketMade.id };
+    const holds = (installationId: number, organizationId: string, login: string) => ({
+      installationId,
+      organizationId,
+      accountId: installationId + 9000,
+      accountLogin: login,
+      accountType: 'Organization',
+      connectedAt: new Date(),
+    });
+    await db
+      .insert(schema.githubInstallation)
+      .values([
+        holds(41, acmeMade.id, 'acme'),
+        holds(42, boltMade.id, 'bolt'),
+        holds(52, sprocketMade.id, 'sprocket'),
+      ]);
+    fakeGitHub();
+  });
+
+  /** A request as a cell signs it, with its own key: Acme's catalog portal, to pull, by default. */
+  async function signedBy(
+    cell: { privateKey: KeyObject; publicJwk: Ed25519PublicJwk },
+    ask: Partial<GitHubTokenAsk> = {},
+  ) {
+    const request = gitHubTokenRequest({
+      workspaceId: workspaceIds.acme,
+      installationId: 41,
+      purpose: 'factory-pull',
+      repositoryIds: [410],
+      issuedAt: Math.floor(Date.now() / 1000),
+      ...ask,
+    });
+    const kid = await calculateJwkThumbprint(cell.publicJwk);
+    return new CompactSign(new TextEncoder().encode(JSON.stringify(request)))
+      .setProtectedHeader({ alg: CELL_TOKEN_ALGORITHM, kid, typ: GITHUB_TOKEN_REQUEST_TYPE })
+      .sign(cell.privateKey);
+  }
+
+  /** The cell's call: no session, no origin, the signed request in the body. */
+  async function askForToken(signed: string, headers: HeadersInit = {}) {
+    const response = await app.request('/api/github/tokens', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...headers },
+      body: JSON.stringify({ request: signed }),
+    });
+    const answer = await answerOf('POST', '/api/github/tokens', response);
+    return { ...answer, headers: response.headers };
+  }
+
+  const storedMints = () => db.select().from(schema.githubTokenMint);
+
+  it('a cell gets a token for one repository, which GitHub lets read that repository alone', async () => {
+    const answer = await askForToken(await signedBy(euCell));
+    expect(answer.status).toBe(201);
+    expect(answer.body).toEqual({
+      token: 'ghs_narrowed_1',
+      expiresAt: Date.parse('2099-01-01T00:00:00Z') / 1000,
+      repositories: [{ id: 410, fullName: 'acme/catalog-portal' }],
+      permissions: { contents: 'read', metadata: 'read' },
+    });
+    expect(answer.headers.get('cache-control')).toBe('no-store');
+    expect(mintBodies).toEqual([{ repository_ids: [410], permissions: { contents: 'read' } }]);
+
+    // As GitHub answers it: the repository it was minted for, and not the installation's other.
+    expect(await readRepository(answer.body.token, 410)).toBe(200);
+    expect(await readRepository(answer.body.token, 411)).toBe(404);
+    expect(await readRepository(answer.body.token, 520)).toBe(404);
+
+    const [record, ...more] = await storedMints();
+    expect(more).toEqual([]);
+    expect(record).toMatchObject({
+      organizationId: workspaceIds.acme,
+      installationId: 41,
+      purpose: 'factory-pull',
+      repositoryIds: [410],
+      permissions: { contents: 'read', metadata: 'read' },
+      expiresAt: new Date('2099-01-01T00:00:00Z'),
+    });
+    expect(JSON.stringify(record)).not.toContain('ghs_');
+  });
+
+  it('gives each purpose its own permissions, and records every mint', async () => {
+    const save = await askForToken(await signedBy(euCell, { purpose: 'factory-save' }));
+    expect(save.body.permissions).toEqual({ contents: 'write', metadata: 'read' });
+    const review = await askForToken(
+      await signedBy(euCell, { purpose: 'review-run', repositoryIds: [411, 410] }),
+    );
+    expect(review.body.permissions).toEqual({
+      contents: 'read',
+      pull_requests: 'write',
+      metadata: 'read',
+    });
+    expect(review.body.repositories).toEqual([
+      { id: 410, fullName: 'acme/catalog-portal' },
+      { id: 411, fullName: 'acme/api' },
+    ]);
+    const us = await askForToken(
+      await signedBy(usCell, {
+        workspaceId: workspaceIds.sprocket,
+        installationId: 52,
+        repositoryIds: [520],
+      }),
+    );
+    expect(us.status).toBe(201);
+    expect(mintBodies).toEqual([
+      { repository_ids: [410], permissions: { contents: 'write' } },
+      { repository_ids: [410, 411], permissions: { contents: 'read', pull_requests: 'write' } },
+      { repository_ids: [520], permissions: { contents: 'read' } },
+    ]);
+    expect((await storedMints()).map((row) => [row.purpose, row.organizationId])).toEqual([
+      ['factory-save', workspaceIds.acme],
+      ['review-run', workspaceIds.acme],
+      ['factory-pull', workspaceIds.sprocket],
+    ]);
+  });
+
+  it('is outside the origin check: its authority is the signature, wherever it comes from', async () => {
+    const elsewhere = await askForToken(await signedBy(euCell), {
+      origin: 'http://localhost:9999',
+    });
+    expect(elsewhere.status).toBe(201);
+    const unsigned = await askForToken('not-signed', { origin: 'http://localhost:9999' });
+    expect(unsigned).toMatchObject({ status: 401, body: { error: 'unsigned' } });
+  });
+
+  it("refuses what no cell signed: a stranger's key, or the cell token a browser holds", async () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const stranger = cellPairOf();
+    expect(await askForToken(await signedBy(stranger))).toMatchObject({
+      status: 401,
+      body: { error: 'unsigned' },
+    });
+
+    // Dana, signed in, holds a cell token for Acme; it mints nothing at GitHub.
+    const dana = await signIn('dana.again@acme.test', 'Dana Ortiz');
+    await makeWorkspace(dana.headers, { name: 'Acme Two', slug: 'acme-two', region: 'eu' });
+    const minted = await app.request('/api/cell-token', {
+      method: 'POST',
+      headers: fromBrowser(dana.headers),
+    });
+    const { token } = (await minted.json()) as { token: string };
+    expect(await askForToken(token, fromBrowser(dana.headers))).toMatchObject({
+      status: 401,
+      body: { error: 'unsigned' },
+    });
+    expect(mintBodies).toEqual([]);
+    expect(await storedMints()).toEqual([]);
+    expect(logged).toHaveBeenCalledWith(
+      "A request for a GitHub token carried no cell's signature.",
+    );
+  });
+
+  it("never gives one workspace's cell a token for another workspace's installation", async () => {
+    // Bolt's request, signed by the EU cell that serves both, names Acme's installation.
+    expect(
+      await askForToken(
+        await signedBy(euCell, { workspaceId: workspaceIds.bolt, installationId: 41 }),
+      ),
+    ).toMatchObject({ status: 404, body: { error: 'installation_not_found' } });
+    // Acme's request names Bolt's installation and repository.
+    expect(
+      await askForToken(await signedBy(euCell, { installationId: 42, repositoryIds: [420] })),
+    ).toMatchObject({ status: 404, body: { error: 'installation_not_found' } });
+    // The US cell asks for Acme, which is in the EU.
+    expect(await askForToken(await signedBy(usCell))).toMatchObject({
+      status: 403,
+      body: { error: 'other_region' },
+    });
+    expect(mintBodies).toEqual([]);
+    expect(await storedMints()).toEqual([]);
+  });
+
+  it("refuses a repository outside the workspace's installation, before anything is minted", async () => {
+    const answer = await askForToken(
+      await signedBy(euCell, { purpose: 'review-run', repositoryIds: [410, 520] }),
+    );
+    expect(answer).toMatchObject({
+      status: 403,
+      body: { error: 'repository_not_covered', repositoryIds: [520] },
+    });
+    expect(mintBodies).toEqual([]);
+    expect(await storedMints()).toEqual([]);
+  });
+
+  it('refuses a request the contract does not read, or one its purpose does not allow', async () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const expired = await signedBy(euCell, {
+      issuedAt: Math.floor(Date.now() / 1000) - GITHUB_TOKEN_REQUEST_LIFETIME_SECONDS - 120,
+    });
+    expect(await askForToken(expired)).toMatchObject({
+      status: 400,
+      body: { error: 'unreadable' },
+    });
+    expect(logged).toHaveBeenCalledWith(
+      "A cell's request for a GitHub token was refused: the request has expired.",
+    );
+    expect(
+      await askForToken(
+        await signedBy(euCell, { purpose: 'factory-save', repositoryIds: [410, 411] }),
+      ),
+    ).toMatchObject({
+      status: 400,
+      body: { error: 'invalid_token_request', problems: ['too-many-repositories'] },
+    });
+    expect(await askForToken(await signedBy(euCell, { repositoryIds: [] }))).toMatchObject({
+      status: 400,
+      body: { error: 'invalid_token_request', problems: ['no-repositories'] },
+    });
+
+    const noRequest = await app.request('/api/github/tokens', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ token: 'x' }),
+    });
+    expect(await answerOf('POST', '/api/github/tokens', noRequest)).toEqual({
+      status: 400,
+      body: { error: 'invalid_request' },
+    });
+    const notJson = await app.request('/api/github/tokens', {
+      method: 'POST',
+      headers: { 'content-type': 'application/jose' },
+      body: await signedBy(euCell),
+    });
+    expect(await answerOf('POST', '/api/github/tokens', notJson)).toEqual({
+      status: 415,
+      body: { error: 'unsupported_media_type' },
+    });
+    expect(mintBodies).toEqual([]);
+  });
+
+  it('passes on what GitHub says of the installation and the scope', async () => {
+    mintAnswer = () => Response.json(RECORDED.notAccessible, { status: 422 });
+    expect(await askForToken(await signedBy(euCell))).toMatchObject({
+      status: 403,
+      body: { error: 'scope_refused' },
+    });
+    mintAnswer = () => Response.json({ message: 'Not Found' }, { status: 404 });
+    expect(await askForToken(await signedBy(euCell))).toMatchObject({
+      status: 410,
+      body: { error: 'installation_gone' },
+    });
+    expect(await storedMints()).toEqual([]);
+  });
+
+  it('revokes a token GitHub did not narrow as asked, and hands out nothing', async () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mintAnswer = () =>
+      Response.json(
+        {
+          token: 'ghs_whole_installation',
+          expires_at: '2099-01-01T00:00:00Z',
+          permissions: { contents: 'read', metadata: 'read' },
+          repository_selection: 'all',
+        },
+        { status: 201 },
+      );
+    expect(await askForToken(await signedBy(euCell))).toMatchObject({
+      status: 503,
+      body: { error: 'github_unavailable' },
+    });
+    expect(revoked).toEqual(['ghs_whole_installation']);
+    expect(await storedMints()).toEqual([]);
+    expect(logged).toHaveBeenCalledWith(
+      'GitHub minted a token other than the one asked; it was revoked.',
+    );
+  });
+
+  it('mints nothing when this server has no GitHub App', async () => {
+    ({ app } = await composeApi({ db, config }, [testUtils()]));
+    expect(await askForToken(await signedBy(euCell))).toMatchObject({
+      status: 503,
+      body: { error: 'github_not_configured' },
+    });
+  });
+
+  it('never logs a token, a request or a key', async () => {
+    const logs = (['log', 'info', 'warn', 'error', 'debug', 'trace'] as const).map((method) =>
+      vi.spyOn(console, method).mockImplementation(() => {}),
+    );
+    const good = await signedBy(euCell);
+    await askForToken(good);
+    await askForToken(await signedBy(cellPairOf()));
+    await askForToken(
+      await signedBy(euCell, {
+        issuedAt: Math.floor(Date.now() / 1000) - GITHUB_TOKEN_REQUEST_LIFETIME_SECONDS - 120,
+      }),
+    );
+    mintAnswer = () =>
+      Response.json({ token: 'ghs_wide', expires_at: '2099-01-01T00:00:00Z' }, { status: 201 });
+    await askForToken(await signedBy(euCell));
+
+    const logged = logs
+      .flatMap((spy) => spy.mock.calls)
+      .map((args) => args.map((arg) => inspect(arg, { depth: 10 })).join(' '))
+      .join('\n');
+    expect(logged).not.toBe('');
+    for (const secret of [
+      'ghs_',
+      good,
+      good.split('.')[2] ?? '',
+      euCell.privateKey.export({ format: 'jwk' }).d as string,
+      appKey.export({ type: 'pkcs1', format: 'pem' }).toString().split('\n')[1] ?? '',
+    ]) {
+      expect(secret).not.toBe('');
+      expect(logged).not.toContain(secret);
+    }
+  });
+});
+
 describe('routes', () => {
   it('are these, and no other', () => {
     // A route with middleware or a body schema is one entry per handler in its chain.
     expect([...new Set(app.routes.map((route) => `${route.method} ${route.path}`))]).toEqual([
       'ALL /api/auth/*',
+      'POST /api/github/tokens',
       'ALL /api/*',
       'GET /api/me',
       'PUT /api/me/workspace',

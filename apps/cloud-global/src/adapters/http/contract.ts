@@ -1,9 +1,11 @@
 import {
   CELL_TOKEN_ALGORITHM,
   CELL_TOKEN_KEYS_PATH,
+  GITHUB_TOKEN_REQUEST_TYPE,
   WORKSPACE_ROLES,
 } from '@consola/cloud-contract';
 import { createRoute, z } from '@hono/zod-openapi';
+import { TOKEN_REQUEST_PROBLEMS } from '../../domain/gitHubTokens.js';
 import { REGIONS } from '../../domain/region.js';
 import {
   WORKSPACE_NAME_MAX,
@@ -424,6 +426,117 @@ export const deleteGitHubInstallation = createRoute({
   },
 });
 
+// GitHub tokens for a cell (14.3): the one route a cell calls, signed by the cell, not a browser.
+
+export const GitHubTokenRequestBody = z
+  .object({
+    request: z.string().openapi({
+      description:
+        `The request, signed by the cell: a JWS in compact serialization whose payload is the ` +
+        `contract's \`GitHubTokenRequest\` as JSON, with \`alg\` \`${CELL_TOKEN_ALGORITHM}\`, the ` +
+        `cell's key's \`kid\` and \`typ\` \`${GITHUB_TOKEN_REQUEST_TYPE}\` in its protected header.`,
+    }),
+  })
+  .openapi('GitHubTokenRequestBody');
+
+const access = z.enum(['read', 'write']);
+
+export const GitHubToken = z
+  .strictObject({
+    token: z.string().openapi({ description: 'An installation token. Never log or store it.' }),
+    expiresAt: z.number().int().openapi({ description: 'In whole seconds since the epoch.' }),
+    repositories: z
+      .array(z.strictObject({ id: z.number().int(), fullName: z.string() }))
+      .openapi({ description: 'Exactly the repositories asked for, as GitHub names them now.' }),
+    permissions: z
+      .strictObject({
+        contents: access.optional(),
+        pull_requests: access.optional(),
+        metadata: z.literal('read').optional(),
+      })
+      .openapi({
+        description:
+          "Exactly the purpose's permissions, and the metadata read GitHub gives every token.",
+      }),
+  })
+  .openapi('GitHubToken', {
+    description: 'A GitHub token narrowed to a workspace’s repositories, for an hour at most.',
+  });
+
+export const postGitHubToken = createRoute({
+  method: 'post',
+  path: '/api/github/tokens',
+  summary: 'Mint a GitHub token for a cell, narrowed to repositories and a purpose',
+  description:
+    'Called by a regional cell, never a browser: the request is signed with the key configured ' +
+    'for the cell’s region, so it sits outside the origin check and carries no session. The ' +
+    'workspace must hold the installation and be in that cell’s region, and the installation ' +
+    'must cover every repository. The purpose fixes the permissions. Every token minted is ' +
+    'recorded; the token itself is not, and no cache keeps the answer (`Cache-Control: no-store`).',
+  request: body(GitHubTokenRequestBody),
+  responses: {
+    201: json(GitHubToken, 'The token, narrowed as asked.'),
+    400: {
+      content: {
+        'application/json': {
+          schema: z.union([
+            failure('invalid_request'),
+            failure('unreadable'),
+            z
+              .strictObject({
+                error: z.literal('invalid_token_request'),
+                problems: z.array(z.enum(TOKEN_REQUEST_PROBLEMS)),
+              })
+              .openapi('InvalidTokenRequest', {
+                description: 'Every problem with the repositories asked for, in rule order.',
+              }),
+          ]),
+        },
+      },
+      description:
+        'The body is not `{ request }`, the signed request is none the contract reads (expired, ' +
+        'say), or its repositories break the purpose’s rules.',
+    },
+    401: json(failure('unsigned'), 'No cell’s key checks the request.'),
+    403: {
+      content: {
+        'application/json': {
+          schema: z.union([
+            failure('other_region'),
+            z
+              .strictObject({
+                error: z.literal('repository_not_covered'),
+                repositoryIds: z.array(z.number().int()),
+              })
+              .openapi('RepositoryNotCovered', {
+                description:
+                  'The repositories, by their GitHub ids, the installation does not cover.',
+              }),
+            failure('scope_refused'),
+          ]),
+        },
+      },
+      description:
+        'The workspace is in another region than the cell, the installation does not cover a ' +
+        'repository, or GitHub refused the scope (a permission the app was not granted).',
+    },
+    404: json(
+      failure('installation_not_found'),
+      'The workspace holds no installation with that id, whether or not another does.',
+    ),
+    410: json(failure('installation_gone'), 'GitHub no longer has the installation.'),
+    415: unsupportedMediaType,
+    503: {
+      content: {
+        'application/json': {
+          schema: z.union([failure('github_not_configured'), failure('github_unavailable')]),
+        },
+      },
+      description: 'This server has no GitHub App, or GitHub did not answer as it should.',
+    },
+  },
+});
+
 export const getHealth = createRoute({
   method: 'get',
   path: '/api/health',
@@ -448,4 +561,6 @@ export const ROUTES = [
   getGitHubCallback,
   deleteGitHubInstallation,
   getHealth,
+  // Registered before every other route, outside the origin check: a cell calls it.
+  postGitHubToken,
 ];

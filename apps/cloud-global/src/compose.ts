@@ -1,6 +1,7 @@
 import type { BetterAuthPlugin } from 'better-auth';
 import type { OpenAPIHono } from '@hono/zod-openapi';
 import { type CloudAuth, createAuth, currentSessionOf } from './adapters/auth/betterAuth.js';
+import { createCellRequestVerifier } from './adapters/cellToken/cellRequestVerifier.js';
 import { createCellTokenSigner } from './adapters/cellToken/cellTokenSigner.js';
 import { createGitHubApp, loadGitHubAppKey } from './adapters/github/gitHubApp.js';
 import { createInstallStateSigner } from './adapters/github/installStateSigner.js';
@@ -65,6 +66,8 @@ export async function composeApi(
     github,
     installStates: createInstallStateSigner(config.authSecret),
     health: stores.health,
+    cellRequests: await createCellRequestVerifier(config.cellPublicKeys),
+    tokenMints: stores.tokenMints,
   });
 
   return { app, auth, outbox };

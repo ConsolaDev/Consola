@@ -440,6 +440,180 @@ describe("an installation's repositories", () => {
   });
 });
 
+describe('minting a narrowed token', () => {
+  const MINT = 'POST https://api.github.com/app/installations/41/access_tokens';
+  const REVOKE = 'DELETE https://api.github.com/installation/token';
+  const scope = { repositoryIds: [410], permissions: { contents: 'read' as const } };
+
+  /** GitHub's answer to a mint, as it gives one for `repository_ids` (fixture names). */
+  const minted = (overrides: Record<string, unknown> = {}) =>
+    Response.json(
+      {
+        token: 'ghs_narrowed',
+        expires_at: '2026-11-22T13:00:00Z',
+        permissions: { contents: 'read', metadata: 'read' },
+        repository_selection: 'selected',
+        repositories: [repository(410, 'acme/catalog-portal')],
+        ...overrides,
+      },
+      { status: 201 },
+    );
+
+  it('asks GitHub, as the app, for exactly these repositories and permissions', async () => {
+    const github = fakeGitHub({ [MINT]: () => minted() });
+    const { app, logged } = appFor(github);
+
+    expect(await app.mintToken(41, scope)).toEqual({
+      kind: 'minted',
+      token: 'ghs_narrowed',
+      expiresAt: new Date('2026-11-22T13:00:00Z'),
+      repositories: [{ id: 410, fullName: 'acme/catalog-portal' }],
+      permissions: { contents: 'read', metadata: 'read' },
+    });
+    const [mint] = github.calls;
+    expect(mint?.body).toEqual({ repository_ids: [410], permissions: { contents: 'read' } });
+    expect(appTokenClaims(mint?.headers.get('authorization') ?? null).iss).toBe(config.clientId);
+    expect(logged).toEqual([]);
+  });
+
+  it('mints a new token every time: a narrowed token is never kept or reused', async () => {
+    let count = 0;
+    const github = fakeGitHub({
+      [MINT]: () => {
+        count += 1;
+        return minted({ token: `ghs_narrowed_${count}` });
+      },
+    });
+    const { app } = appFor(github);
+    const first = await app.mintToken(41, scope);
+    const second = await app.mintToken(41, scope);
+    expect(first.kind === 'minted' && first.token).toBe('ghs_narrowed_1');
+    expect(second.kind === 'minted' && second.token).toBe('ghs_narrowed_2');
+  });
+
+  it('never hands a narrowed token to the repositories list, which keeps its own', async () => {
+    const github = fakeGitHub({
+      [MINT]: ({ body }) =>
+        (body as { repository_ids?: number[] }).repository_ids
+          ? minted()
+          : Response.json(
+              { token: 'ghs_metadata', expires_at: '2026-11-22T13:00:00Z' },
+              { status: 201 },
+            ),
+      'GET https://api.github.com/installation/repositories': () =>
+        Response.json({ total_count: 0, repositories: [] }),
+    });
+    const { app } = appFor(github);
+    await app.mintToken(41, scope);
+    await app.repositoriesOf(41);
+    const list = github.calls.find((call) => call.url.pathname === '/installation/repositories');
+    expect(list?.headers.get('authorization')).toBe('Bearer ghs_metadata');
+  });
+
+  it('passes on what GitHub says the token carries, for the caller to check', async () => {
+    const github = fakeGitHub({
+      [MINT]: () =>
+        minted({
+          permissions: { contents: 'write', administration: 'write' },
+          repositories: [repository(410, 'acme/catalog-portal'), repository(411, 'acme/api')],
+        }),
+    });
+    const answer = await appFor(github).app.mintToken(41, scope);
+    expect(answer).toMatchObject({
+      kind: 'minted',
+      repositories: [
+        { id: 410, fullName: 'acme/catalog-portal' },
+        { id: 411, fullName: 'acme/api' },
+      ],
+      permissions: { contents: 'write', administration: 'write' },
+    });
+  });
+
+  it('takes an answer with no repositories or permissions as carrying none', async () => {
+    const github = fakeGitHub({
+      [MINT]: () =>
+        Response.json({ token: 'ghs_whole', expires_at: '2026-11-22T13:00:00Z' }, { status: 201 }),
+    });
+    expect(await appFor(github).app.mintToken(41, scope)).toEqual({
+      kind: 'minted',
+      token: 'ghs_whole',
+      expiresAt: new Date('2026-11-22T13:00:00Z'),
+      repositories: [],
+      permissions: {},
+    });
+  });
+
+  it('is gone for an installation GitHub no longer has, or has suspended', async () => {
+    for (const status of [404, 403]) {
+      const github = fakeGitHub({ [MINT]: () => Response.json({}, { status }) });
+      expect(await appFor(github).app.mintToken(41, scope)).toEqual({ kind: 'gone' });
+    }
+  });
+
+  it('is refused when GitHub will not narrow a token to that scope', async () => {
+    const github = fakeGitHub({
+      [MINT]: () =>
+        Response.json(
+          { message: 'There is at least one repository that does not exist or is not accessible' },
+          { status: 422 },
+        ),
+    });
+    const { app, logged } = appFor(github);
+    expect(await app.mintToken(41, scope)).toEqual({ kind: 'refused' });
+    expect(logged).toEqual(['GitHub refused a narrowed token for installation 41 (HTTP 422).']);
+  });
+
+  it('is unavailable when GitHub refuses the app, or does not answer', async () => {
+    const refusing = fakeGitHub({ [MINT]: () => Response.json({}, { status: 401 }) });
+    expect(await appFor(refusing).app.mintToken(41, scope)).toEqual({ kind: 'unavailable' });
+
+    const silent = fakeGitHub({
+      [MINT]: () => {
+        throw new DOMException('The operation timed out.', 'TimeoutError');
+      },
+    });
+    expect(await appFor(silent).app.mintToken(41, scope)).toEqual({ kind: 'unavailable' });
+  });
+
+  it('revokes a token minted with an answer it cannot read, rather than leave it live', async () => {
+    const github = fakeGitHub({
+      [MINT]: () => minted({ expires_at: 'never' }),
+      [REVOKE]: revoked,
+    });
+    const { app } = appFor(github);
+    expect(await app.mintToken(41, scope)).toEqual({ kind: 'unavailable' });
+    const revoke = github.calls.find((call) => call.method === 'DELETE');
+    expect(revoke?.headers.get('authorization')).toBe('Bearer ghs_narrowed');
+  });
+
+  it('revokes a token with the token itself', async () => {
+    const github = fakeGitHub({ [REVOKE]: revoked });
+    const { app, logged } = appFor(github);
+    await app.revokeToken('ghs_narrowed');
+    expect(github.calls).toHaveLength(1);
+    expect(github.calls[0]?.headers.get('authorization')).toBe('Bearer ghs_narrowed');
+    expect(logged).toEqual([]);
+  });
+
+  it('never throws when a revoke fails, and logs no token', async () => {
+    const refusing = fakeGitHub({ [REVOKE]: () => Response.json({}, { status: 401 }) });
+    const first = appFor(refusing);
+    await first.app.revokeToken('ghs_narrowed');
+    expect(first.logged).toEqual(['GitHub did not revoke a narrowed token (HTTP 401).']);
+
+    const silent = fakeGitHub({
+      [REVOKE]: () => {
+        throw new TypeError('fetch failed');
+      },
+    });
+    const second = appFor(silent);
+    await second.app.revokeToken('ghs_narrowed');
+    for (const line of [...first.logged, ...second.logged]) {
+      expect(line).not.toContain('ghs_narrowed');
+    }
+  });
+});
+
 describe("the app's private key", () => {
   let folder: string;
 
