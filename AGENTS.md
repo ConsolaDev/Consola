@@ -602,6 +602,21 @@ a quit mid-command is known after a restart. Such a command is never re-run
 automatically: the restart fails it as interrupted, and Retry warns before it
 runs again.
 
+### A Step's Turn Reports Itself
+
+A step's unattended turns run with `--output-format stream-json`: the driver's
+reader parses it (`createTurnReader`) and `TerminalService` shows Consola's
+lines instead (notice, tool calls, non-JSON lines, summary), so never read such
+a turn from its pane. Only Ctrl+C reaches the CLI (the PTY echoes other keys
+into the stream), what Consola quotes of the report goes through `oneLine`, and
+the report stays in main. The engine decides failure, cost and the reminder's
+cap from `TurnReportView` (`steps/turnReport.ts`). Attention never reads the
+pane's prose: `working` is the turn's own status, a question comes from hooks
+and non-JSON lines, a limit from `StopFailure` and the stream (OR'd into
+`limit-notice`). The reopen is a plain resume: no stream-json, no `--max-turns`.
+Extra args setting `--output-format`, `--input-format` or `--max-turns` refuse
+steps. Rerun `scripts/claude-steps-canary.mjs` after every CLI upgrade.
+
 ### Harnesses Are Launch Descriptions
 
 A harness is one configured agent CLI: a binary path, a config directory, and
