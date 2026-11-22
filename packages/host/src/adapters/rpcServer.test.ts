@@ -1,5 +1,6 @@
 // @effect-diagnostics nodeBuiltinImport:off - Each test makes its own pass keys with node:crypto.
 import { generateKeyPairSync, type KeyObject } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import {
   CommandId,
   type ModelSelection,
@@ -55,6 +56,7 @@ import {
   listenHost,
   NOT_OFFERED_BY_HOST,
   SERVED_METHODS,
+  T3_SERVER_VERSION,
 } from './rpcServer.ts';
 
 /** Every test runs on a machine of its own, with fake CLIs (`../testing/machine.ts`). */
@@ -309,6 +311,15 @@ const runTheTurn = (handle: ThreadHandle, prompt: OrchestrationV2Command) =>
 
 const userMessages = (handle: ThreadHandle) =>
   handle.snapshot().turnItems.filter((item) => item.type === 'user_message');
+
+it("names the lifted t3 server's version (vendor/t3code/apps/server/package.json)", () => {
+  const serverPackage = new URL(
+    '../../../../vendor/t3code/apps/server/package.json',
+    import.meta.url,
+  );
+  const { version } = JSON.parse(readFileSync(serverPackage, 'utf8')) as { version: string };
+  expect(T3_SERVER_VERSION).toBe(version);
+});
 
 describe('serveHost', () => {
   it('fails to start, naming the problem and never the key, when the pass key is not an Ed25519 key', async () => {

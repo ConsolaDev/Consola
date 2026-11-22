@@ -180,8 +180,11 @@ const CLOSE_REASONS = {
 /** Why a connection the pass let in is closed (`4401`) at the pass's `exp`. */
 const PASS_EXPIRED_REASON = 'The session pass has expired.';
 
-/** The version of the t3 server whose code this host runs (`vendor/t3code/apps/server`). */
-const T3_SERVER_VERSION = '0.1.11';
+/**
+ * The version of the t3 server whose code this host runs: `vendor/t3code/apps/server/package.json`
+ * `version` (`rpcServer.test.ts` checks they agree).
+ */
+export const T3_SERVER_VERSION = '0.1.11';
 
 /**
  * The host is no t3 auth server: a connection is let in by its pass, and that is the only session

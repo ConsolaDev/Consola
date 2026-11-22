@@ -7,12 +7,10 @@ import { esmExternalRequirePlugin } from 'vite/rolldown/plugins';
 import { defineConfig, type Plugin } from 'vite-plus';
 import { playwright } from 'vite-plus/test/browser-playwright';
 import { scopeCss } from './build/scopeCss.ts';
+import { T3_APP_VERSION } from './build/t3Version.ts';
 import { signPass } from './src/testing/passKeys.ts';
 
 const here = (path: string) => fileURLToPath(new URL(path, import.meta.url));
-
-/** t3's web app version (`apps/web/package.json` at d51d8c47), as its build stamps it. */
-const T3_APP_VERSION = '0.1.11';
 
 /**
  * The `import.meta.env` values t3's `vite.config.ts` defines, for a hosted build with no backend
