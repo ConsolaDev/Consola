@@ -178,7 +178,14 @@ list belongs in a regional cell, never here.
     pending invites (`member`, `invitation`);
   - app installs: which installation belongs to which workspace, the GitHub
     App's key and the tokens minted from it (no table yet);
-  - webhook intake, with the bodies dropped (no table yet).
+  - webhook intake, with the bodies dropped (no table yet);
+  - the outbox (6.1, CON-52): each change a workspace's cell must hear
+    about, and how its delivery went (`outbox_message`). It may live here
+    because it holds nothing that is not already on this list: a workspace's
+    id and region (`organization`), and a person's id and role in it
+    (`member`), never an email or a name: it has no column for one, and its
+    checks hold each row to the contract's shape. Its delivery columns hold
+    times, a count and a status or the contract's reason, never a body.
 - **Billing** joins the list if decision D6 puts it in the global part.
 
 `src/adapters/persistence/alwaysGlobal.test.ts` pins the list. Its
