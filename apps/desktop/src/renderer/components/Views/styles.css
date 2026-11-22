@@ -641,9 +641,10 @@
 
 /* A kind's mark (`markPlaces`): on a header shortcut, on the side panel toggle, or on a tab in
    the side panel's bar. An agent's (it used a page the person has not seen) is the accent dot,
-   `::after`; an alert (a pull request's failing check) is the red one, `::before`. One rule
-   draws both for all three places, so a dot cannot differ between them; only a tab places it
-   apart. A literal radius: var(--radius-full) resolves to 0 inside .radix-themes. */
+   `::after`; an alert (a pull request's failing check, or changes requested on it) is the red
+   one, `::before`. One rule draws both for all three places, so a dot cannot differ between
+   them; only a tab places it apart. A literal radius: var(--radius-full) resolves to 0 inside
+   .radix-themes. */
 .path-display-toggle[data-agent-dot],
 .path-display-toggle[data-alert-dot],
 .side-panel-tab-trigger[data-agent-dot],
