@@ -197,7 +197,8 @@ What each entry reaches matters to anything that bundles it. `./server` reaches
 `ffi-rs` (through `src/policy/ManagedPolicy.ts`) and only the `client`
 subpaths of the other providers, so not the Cursor SDK. `./testing` reaches
 the whole Claude closure below, `@t3tools/provider-cursor/server` (and with it
-`@cursor/sdk`) included, and is for tests only.
+`@cursor/sdk`) included, and is for tests only. The table under `server-orchestration`, "What each entry
+reaches", lists every entry of the three entry packages.
 
 ### `@t3tools/provider-codex` (`packages/provider-codex`)
 
@@ -250,33 +251,84 @@ errors of one do not collide with another's.
 | `./projection` | `applyToProjection`, `emptyProjection`, `ORCHESTRATION_V2_PROJECTION_SCHEMA_VERSION` (the server's reducer); `applyOrchestrationV2ProjectionEvent`, `getProjectionArrayReplacementIndex`, `type ApplyOrchestrationV2ProjectionEventOptions` (the reducer clients apply to what the wire sends) | `t3/orchestration-v2/ProjectionStore.ts`; `@t3tools/client-runtime/state/orchestration-v2-projection` |
 | `./testing` | everything `OrchestratorScenario.ts` exports (`runOrchestratorV2Scenario`, the step types and error); namespaces `ProviderReplayHarness`, `ProviderReplayFixtures`, `ProjectionReplay`, `ReplayFixtureShared` (`fixtures/shared.ts`: the prompts, model selections, policies and `assert*` helpers the scenarios use); `ORCHESTRATOR_REPLAY_FIXTURES` | `t3/orchestration-v2/testkit/…` |
 
-**Where the reducers live.** t3 has two. The server applies a domain event to a
-whole `OrchestrationV2ThreadProjection` with `applyToProjection`
-(`ProjectionStore.ts`, with `emptyProjection`), which the SQL-backed
-`ProjectionStoreV2` calls while `EventSinkV2` writes. It is a plain function,
-but the file also holds the SQLite layer, so importing it loads `effect/sql`.
-Clients apply the wire form with `applyOrchestrationV2ProjectionEvent` in
+**Where the reducers live.** t3 has two. The server's is `applyToProjection`
+(with `emptyProjection`), defined in `ProjectionStore.ts` but not called by it
+or by `EventSink.ts`: `ProjectionStoreV2` writes its SQL rows itself when
+`EventSinkV2` hands it events. The function is applied in memory by
+`Orchestrator.ts` (not in an entry of this package), which folds events into a
+whole `OrchestrationV2ThreadProjection` (`emptyProjection` at line 1939,
+`applyToProjection` at lines 1947, 7304, 7336, 7360 and 7416; its only
+non-test callers). It is a plain function, but its file also holds the SQLite
+layer, so importing it loads `effect/sql`. The reducer clients apply to what
+the wire sends is `applyOrchestrationV2ProjectionEvent` in
 `@t3tools/client-runtime` (already copied). `./projection` exports both.
 
 **What the ingestion needs from persistence** (the host's thread runtime must
-provide in-memory versions; nothing here builds them).
-`ProviderEventIngestor.layer` requires `EventSinkV2`, `GitVcsDriver`,
-`IdAllocatorV2`, `ProjectionStoreV2`, `ThreadCommandExecutor` and
-`ProviderInstanceRegistry`, and reads `ProviderTurnAnalytics`, `AgentScope` and
-`UsageLimitResetFallback` (references with defaults). Its output goes through
-`EventSinkV2` (`write`, `writeWithEffects`, `writeIfRunCurrent`,
-`withProviderBatch`, and `consumeProviderEvents`, which `ProviderCommitBatch`
-batches); it reads current state back through `ProjectionStoreV2` (the control
-reads its `ProjectionStoreV2Shape` lists). `EventSinkV2.layer` needs
-`EventStoreV2` (append and read stored events, a per-thread sequence, publish
-after commit), `ProjectionStoreV2` and `SqlClient`, and builds on
-`CommandReceiptStore`, `EffectOutbox`, `ProjectStore`, `TurnItemPositionStore`
-and `ThreadViewers`, all SQLite-backed (`persistence/…`). `RunExecutionService`
-and `ProviderSessionManager` sit above those, plus the adapter registry. An
-in-memory host therefore replaces `EventStoreV2` and `ProjectionStoreV2` (the
-two that own the data), and either fakes the stores beneath `EventSinkV2` or
-runs t3's own layers over an in-memory `SqlClient` (`node:sqlite` `:memory:`
-works here: the tests do exactly that).
+provide in-memory versions; nothing here builds them), read from the
+`yield*`s of each layer:
+
+- `ProviderEventIngestor.layer` (`ProviderEventIngestor.ts` lines 252-261)
+  requires `EventSinkV2`, `GitVcsDriver`, `IdAllocatorV2`, `ProjectionStoreV2`,
+  `ThreadCommandExecutor` and `ProviderInstanceRegistry`; it also reads
+  `ProviderTurnAnalytics`, `AgentScope` and `UsageLimitResetFallback`
+  (references with defaults).
+- `EventSinkV2.layer` (`EventSink.ts` lines 286-293) requires `SqlClient`,
+  `ThreadViewers`, `CommandReceiptStoreV2`, `EffectOutboxV2`, `EventStoreV2`,
+  `ProjectionStoreV2`, `ProjectStoreV2` and `TurnItemPositionStoreV2`.
+  The ingestor's output goes through its `write`, `writeWithEffects`,
+  `writeIfRunCurrent`, `withProviderBatch` and `consumeProviderEvents`
+  (batched by `ProviderCommitBatch`); the ingestor reads current state back
+  through `ProjectionStoreV2` (the control reads its `ProjectionStoreV2Shape`
+  lists).
+- `EventStoreV2` holds the stored events (append, read, a sequence, publish
+  after commit); the other stores beneath `EventSinkV2` are SQLite-backed
+  (`persistence/…`). `RunExecutionService` and `ProviderSessionManager` sit
+  above these, plus the adapter registry.
+
+An in-memory host therefore replaces `EventStoreV2` and `ProjectionStoreV2`
+(the two that own the data), and either fakes the other stores beneath
+`EventSinkV2` or runs t3's own layers over an in-memory `SqlClient`
+(`node:sqlite` `:memory:` works here: the tests do exactly that).
+
+**What each entry reaches** (does a bundle of it contain `@cursor/sdk`?).
+Derived by a transitive import walk, not by reasoning: a breadth-first
+walk from each entry file over every `import`, `export … from` (with `export *
+as` namespaces) and `new URL(…, import.meta.url)`, resolving relative paths,
+`t3/…` and each vendored package's own `exports` map (type-only imports count,
+so it over-approximates), and recording any file that imports `@cursor/sdk`.
+The walker was a throwaway script (TypeScript's `preProcessFile` plus a regex
+for `export … from`), not committed; a file's count is its reachable files in
+the lifted tree and the copied packages.
+
+| Package | Entry | Reaches `@cursor/sdk`? | Through |
+|---|---|---|---|
+| `provider-claude` | `./server` (414 files) | no | the Claude Agent SDK, `ffi-rs`, and only the other providers' `client` subpaths |
+| `provider-claude` | `./settings` (81) | no | |
+| `provider-claude` | `./testing` (972) | yes, 19 files import it | `ClaudeAdapterV2.testkit.ts` → `testkit/ProviderReplayHarness.ts` → `ThreadManagementService.ts` → `workspace/restoreMissingWorktree.ts` → `terminal/Manager.ts` → `provider/ProviderInstanceRegistryHydration.ts` → `provider/ProviderOrchestrationAdapterInfrastructure.ts` → `@t3tools/provider-cursor/server/CursorAgentSdk` (and `CursorAgentSdkProcessRunner`); also `provider/builtInDrivers.ts` → `provider-cursor/server` |
+| `provider-codex` | `./server` (567) | no | `ffi-rs`, the `client` and `server/driver` subpaths of other providers |
+| `provider-codex` | `./settings` (81) | no | |
+| `provider-codex` | `./testing` (973) | yes, 19 files | the same chain, from `CodexAdapterV2.testkit.ts` |
+| `server-orchestration` | `./projection` (280) | no | |
+| `server-orchestration` | `./server` (904) | yes, 19 files | `RunExecutionService.ts` → `RunFinalizationService.ts` → `vcs/VcsStatusBroadcaster.ts` → `git/GitWorkflowService.ts` → `git/GitManager.ts` → `project/ProjectSetupScriptRunner.ts` → `terminal/Manager.ts` → `provider/ProviderInstanceRegistryHydration.ts` → `provider/ProviderOrchestrationAdapterInfrastructure.ts` → `provider-cursor/server/CursorAgentSdk` and `CursorAgentSdkProcessRunner` |
+| `server-orchestration` | `./testing` (1,253) | yes, 19 files | the same chain, from `ProviderReplayHarness.ts` |
+
+Walked one level down, from the modules `./server` re-exports (each its own
+start): `ProviderCommitBatch.ts` (1 file), `assistantStreaming.ts` (83),
+`EventStore.ts` (85), `ProjectionStore.ts` (276), `EventSink.ts` (292),
+`ProviderEventIngestor.ts` (489) and `ProviderSessionManager.ts` (650) reach no
+`@cursor/sdk`; `RunExecutionService.ts` (903) does, through
+`RunFinalizationService.ts` as above. (`ProviderInstanceRegistryHydration.ts`
+itself reaches it through `ProviderOrchestrationAdapterInfrastructure.ts` and
+`builtInDrivers.ts`.) So a bundle that must not contain the Cursor SDK can
+take: `provider-claude`'s `./server` and `./settings`, `provider-codex`'s
+`./server` and `./settings`, `server-orchestration`'s `./projection`, and,
+by deep path rather than the `./server` barrel (`t3/orchestration-v2/<file>.ts`,
+with a bundler that follows imports exactly), `ProviderEventIngestor`,
+`ProviderCommitBatch`, `ProviderSessionManager`, `EventSink`, `EventStore`,
+`ProjectionStore` and `assistantStreaming`. It cannot take
+`server-orchestration`'s `./server` barrel (because of `RunExecutionService`),
+nor any `./testing`. A barrel that omits `RunExecutionService` would need a new
+entry file in Consola's own package, a later task's call.
 
 **Replay scenarios** are under `testkit/fixtures/<scenario>/` (`input.ts`, and
 per driver `<driver>_output.ts` and `<driver>_transcript.ndjson`). All 94
