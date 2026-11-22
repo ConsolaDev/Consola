@@ -1057,10 +1057,10 @@ export function setupIpcHandlers(): boolean {
   );
   // A checkout's branch's pull request, for a session linked to none. Main
   // reads the branch from the folder, and the finder asks the provider once
-  // per account, repo and branch per Inbox interval. Origin's ssh alias is
-  // resolved once per host for the run (a failed lookup is asked again):
-  // `ssh -G` runs synchronously, and the finder reads the identity on every
-  // find, before its cache.
+  // per account, repo and branch per Inbox interval. The finder reads the
+  // identity on every find, before its cache, so origin's ssh alias is looked
+  // up without blocking main and kept per host for the run; after a lookup
+  // that failed, the next find asks again.
   const resolveRemote = memoizeRemoteResolver();
   const branchPullRequests = new BranchPullRequestFinder({
     getWorkspace: (id) => workspaces.getAll().find((workspace) => workspace.id === id),

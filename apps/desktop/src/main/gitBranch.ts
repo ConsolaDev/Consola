@@ -1,6 +1,6 @@
 import type { BranchFacts } from '../shared/branchFacts';
 import { readGit as git } from './gitRead';
-import { resolveSshRemote } from './sshRemote';
+import { resolveSshRemoteAsync } from './sshRemote';
 
 /**
  * A checkout's branch as the clone already knows it: what it has to push or
@@ -110,19 +110,22 @@ export interface BranchIdentity {
 /** The names a branch's pull request is found by, or null outside git. */
 export async function readBranchIdentity(
   dir: string,
-  resolveRemote: (url: string) => string = resolveSshRemote,
+  resolveRemote: (url: string) => Promise<string> = resolveSshRemoteAsync,
 ): Promise<BranchIdentity | null> {
   if ((await git(dir, ['rev-parse', '--git-dir'])) === null) return null;
   const [branch, originUrl] = await Promise.all([
     git(dir, ['symbolic-ref', '--quiet', '--short', 'HEAD']),
     git(dir, ['remote', 'get-url', 'origin']),
   ]);
-  const merge = branch ? await git(dir, ['config', '--get', `branch.${branch}.merge`]) : null;
+  const [merge, resolvedOrigin] = await Promise.all([
+    branch ? git(dir, ['config', '--get', `branch.${branch}.merge`]) : null,
+    originUrl ? resolveRemote(originUrl) : null,
+  ]);
   return {
     branch: branch || null,
     remoteBranch: merge?.startsWith('refs/heads/')
       ? merge.slice('refs/heads/'.length)
       : branch || null,
-    originUrl: originUrl ? resolveRemote(originUrl) : null,
+    originUrl: resolvedOrigin,
   };
 }

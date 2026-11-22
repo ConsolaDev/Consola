@@ -228,7 +228,9 @@ describe('readBranchFacts', { timeout: HEAVY_GIT_MS }, () => {
       base: { ref: 'origin/main' },
     });
     expect((await readBranchFacts(clone, 'main')).base?.ref).toBe('origin/main');
-    expect((await readBranchIdentity(clone, (url) => url))?.branch).toBe('feat/search-pagination');
+    expect((await readBranchIdentity(clone, async (url) => url))?.branch).toBe(
+      'feat/search-pagination',
+    );
     expect(fs.existsSync(marker)).toBe(false);
 
     // The trap does catch a fetch.
@@ -244,7 +246,7 @@ describe('readBranchFacts', { timeout: HEAVY_GIT_MS }, () => {
     const marker = trapOrigin(partial);
 
     expect((await readBranchFacts(partial)).base).toBeNull();
-    expect((await readBranchIdentity(partial, (url) => url))?.branch).toBe('feat/billing');
+    expect((await readBranchIdentity(partial, async (url) => url))?.branch).toBe('feat/billing');
     expect(fs.existsSync(marker)).toBe(false);
 
     // git itself would fetch it to fill the clone in, which the trap catches.
@@ -271,7 +273,7 @@ describe('readBranchFacts', { timeout: HEAVY_GIT_MS }, () => {
 describe('readBranchIdentity', { timeout: HEAVY_GIT_MS }, () => {
   it('names the branch, its name on the remote, and origin', async () => {
     git(clone, 'config', 'branch.feat/search-pagination.merge', 'refs/heads/search-pages');
-    const identity = (url: string) => url;
+    const identity = async (url: string) => url;
 
     expect(await readBranchIdentity(clone, identity)).toEqual({
       branch: 'feat/search-pagination',
