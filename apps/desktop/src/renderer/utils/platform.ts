@@ -54,12 +54,15 @@ export function isSidebarShortcut(event: KeyboardEvent): boolean {
   return isSidebar(chordOf(event));
 }
 
-/** Shows or hides the browser panel. */
+/** The Browser tab's chord: opens it, or hides the side panel while it is in front. */
 export function isBrowserShortcut(event: KeyboardEvent): boolean {
   return isBrowser(chordOf(event), PLATFORM);
 }
 
 export const BROWSER_SHORTCUT_LABEL = BROWSER_SHORTCUT_LABELS[PLATFORM];
+
+/** The Files tab's chord (`useKeyboardShortcuts`), as its tooltip, the palette and Settings write it. */
+export const FILES_SHORTCUT_LABEL = isMac ? '⇧⌘E' : 'Ctrl+Shift+E';
 
 /**
  * The Working shelf chord: Cmd+Shift+B on macOS, Ctrl+Shift+B elsewhere.

@@ -1,6 +1,8 @@
 import { useId, type ReactNode } from 'react';
 import { AppUpdatesSection } from '../AppUpdates';
 import { SHELL_SHORTCUT_LABEL } from '../../utils/shellShortcut';
+import { INFO_PANEL_SHORTCUT_LABEL } from '../../utils/infoPanelShortcut';
+import { SIDE_PANEL_SHORTCUT_LABEL } from '../../utils/sidePanelShortcut';
 import * as Dialog from '@radix-ui/react-dialog';
 import {
   X,
@@ -35,6 +37,7 @@ import { useTheme } from '../../hooks/useTheme';
 import {
   BROWSER_SHORTCUT_LABEL,
   COMMAND_PALETTE_SHORTCUT_LABEL,
+  FILES_SHORTCUT_LABEL,
   isMac,
 } from '../../utils/platform';
 import { HarnessesSection } from '../Harnesses';
@@ -61,6 +64,7 @@ import {
 } from './settingsSections';
 import { SnoozeOptions } from '../Settings/SnoozeOptions';
 import { SessionRowsOption } from '../Settings/SessionRowsOption';
+import { RememberLayoutOption } from '../Settings/RememberLayoutOption';
 import './styles.css';
 // The workspace panels' own rules (ws-*) live with the panels.
 import '../WorkspaceSettings/styles.css';
@@ -329,6 +333,8 @@ function AppearanceSection({
           </button>
         </div>
       </div>
+
+      <RememberLayoutOption />
     </div>
   );
 }
@@ -388,7 +394,6 @@ function AppBrowserSection() {
 function ShortcutsSection() {
   // Mirrors what useKeyboardShortcuts actually binds -- nothing aspirational.
   const mod = isMac ? '⌘' : 'Ctrl+';
-  const shift = isMac ? '⇧' : 'Shift+';
   const shortcuts = [
     { label: 'Command palette', key: COMMAND_PALETTE_SHORTCUT_LABEL },
     { label: 'New session', key: `${mod}N` },
@@ -396,11 +401,13 @@ function ShortcutsSection() {
     { label: 'New window', key: isMac ? '⌥⌘N' : 'Ctrl+Alt+N' },
     { label: 'Switch workspace by position', key: `${mod}1–9` },
     { label: 'Toggle sidebar', key: `${mod}\\` },
-    { label: 'Toggle file explorer', key: `${mod}${shift}E` },
-    { label: 'Toggle browser', key: BROWSER_SHORTCUT_LABEL },
-    { label: 'Toggle terminal', key: SHELL_SHORTCUT_LABEL },
+    { label: 'Files tab', key: FILES_SHORTCUT_LABEL },
+    { label: 'Browser tab', key: BROWSER_SHORTCUT_LABEL },
+    { label: 'Terminal tab', key: SHELL_SHORTCUT_LABEL },
+    { label: 'Show or hide the side panel', key: SIDE_PANEL_SHORTCUT_LABEL },
+    { label: 'Show or hide the info panel', key: INFO_PANEL_SHORTCUT_LABEL },
     { label: 'Open settings', key: `${mod},` },
-    { label: 'Cycle theme', key: `${mod}${shift}T` },
+    { label: 'Cycle theme', key: isMac ? '⇧⌘T' : 'Ctrl+Shift+T' },
     { label: 'Rename session', key: 'F2' },
   ];
 

@@ -1,5 +1,4 @@
 import { isShellShortcut } from '../utils/shellShortcut';
-import { useShellStore } from '../stores/shellStore';
 import { useWorkspaceStore } from '../stores/workspaceStore';
 import { useEffect } from 'react';
 import { useNavigationStore } from '../stores/navigationStore';
@@ -9,6 +8,14 @@ import { useBrowserSlotStore } from '../stores/browserSlotStore';
 import { useBrowserStore } from '../stores/browserStore';
 import { requestBrowserPanelFocus } from '../stores/browserPanelFocusStore';
 import { closeTarget, isCloseShortcut, type KeyboardPlace } from '../utils/closeShortcut';
+import {
+  kindOnScreen,
+  pressShortcutOnScreen,
+  toggleInfoPanelOnScreen,
+  toggleSidePanelOnScreen,
+} from '../utils/sidePanelActions';
+import { isInfoPanelShortcut } from '../utils/infoPanelShortcut';
+import { isSidePanelShortcut } from '../utils/sidePanelShortcut';
 import {
   isBrowserShortcut,
   isCommandPaletteShortcut,
@@ -39,16 +46,6 @@ function switchToWorkspaceAt(index: number, repeat: boolean): boolean {
   return true;
 }
 
-/** Shows or hides the open session's terminal. False when no session is open. */
-function toggleOpenSessionShell(repeat: boolean): boolean {
-  const { activeWorkspaceId, activeSessionId, overlay } = useNavigationStore.getState();
-  if (!activeWorkspaceId || !activeSessionId || overlay !== null) return false;
-  const session = useWorkspaceStore.getState().getSession(activeWorkspaceId, activeSessionId);
-  if (!session) return false;
-  if (!repeat) useShellStore.getState().toggle(session.instanceId);
-  return true;
-}
-
 /**
  * The app's global shortcuts.
  *
@@ -59,8 +56,6 @@ function toggleOpenSessionShell(repeat: boolean): boolean {
  */
 export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) {
   const toggleSidebar = useNavigationStore((state) => state.toggleSidebar);
-  const toggleExplorer = useNavigationStore((state) => state.toggleExplorer);
-  const toggleBrowser = useNavigationStore((state) => state.toggleBrowser);
   const cycleTheme = useSettingsStore((state) => state.cycleTheme);
   const {
     onNewSession,
@@ -103,15 +98,33 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
         return;
       }
 
-      // Shows or hides the browser panel beside the session.
+      // ⇧⌘L: the Browser tab, as a kind's header button does. The key is
+      // taken even where it does nothing: with no session on screen, or
+      // under the Inbox or Automations.
       if (isBrowserShortcut(event)) {
         event.preventDefault();
-        if (!event.repeat) toggleBrowser();
+        if (!event.repeat) pressShortcutOnScreen('browser');
         return;
       }
 
+      // Shows or hides the side panel beside the session on screen.
+      if (isSidePanelShortcut(event)) {
+        event.preventDefault();
+        if (!event.repeat) toggleSidePanelOnScreen();
+        return;
+      }
+
+      // Shows or hides the info panel beside the session on screen.
+      if (isInfoPanelShortcut(event)) {
+        event.preventDefault();
+        if (!event.repeat) toggleInfoPanelOnScreen();
+        return;
+      }
+
+      // Ctrl+` : the Terminal tab, as its header button does. Held, it acts
+      // once, rather than showing and hiding the side panel on every repeat.
       if (isShellShortcut(event)) {
-        if (toggleOpenSessionShell(event.repeat)) event.preventDefault();
+        if (event.repeat || pressShortcutOnScreen('terminal')) event.preventDefault();
         return;
       }
 
@@ -162,10 +175,11 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
         return;
       }
 
-      // Cmd/Ctrl + Shift + E : Toggle file explorer
-      if (isMod && event.shiftKey && event.key === 'e') {
+      // Cmd/Ctrl + Shift + E : the Files tab, as its header button does.
+      // With Shift held, `key` is the capital.
+      if (isMod && event.shiftKey && event.key.toLowerCase() === 'e') {
         event.preventDefault();
-        toggleExplorer();
+        if (!event.repeat) pressShortcutOnScreen('files');
         return;
       }
     };
@@ -191,10 +205,16 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
           toggleSidebar();
           return;
         case 'terminal':
-          toggleOpenSessionShell(false);
+          pressShortcutOnScreen('terminal');
           return;
         case 'browser':
-          toggleBrowser();
+          pressShortcutOnScreen('browser');
+          return;
+        case 'side-panel':
+          toggleSidePanelOnScreen();
+          return;
+        case 'info-panel':
+          toggleInfoPanelOnScreen();
           return;
         // Main sends a held ⌘W once, so this is one press.
         case 'close':
@@ -211,8 +231,6 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
     };
   }, [
     toggleSidebar,
-    toggleExplorer,
-    toggleBrowser,
     cycleTheme,
     onNewSession,
     onNewSessionWithOptions,
@@ -247,6 +265,7 @@ function closeNearest(keyboard: KeyboardPlace): void {
     overlay: navigation.overlay,
     activeSessionId: navigation.activeSessionId,
     activePreviewTabId: preview.activeTabId,
+    filesTabOnScreen: kindOnScreen('files'),
     shownBrowserTabId,
     keyboard,
   });

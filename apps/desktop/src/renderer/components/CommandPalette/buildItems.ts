@@ -1,10 +1,9 @@
 import {
   Boxes,
   FolderPlus,
-  FolderTree,
-  GitBranch,
   GitCommit,
   Globe,
+  List,
   Minus,
   PanelLeft,
   PanelRight,
@@ -26,7 +25,10 @@ import { checkoutPathForSession, primaryScope, scopeForSession } from '../../../
 import { useGitReviewStore } from '../../stores/gitReviewStore';
 import { useGitStatusStore } from '../../stores/gitStatusStore';
 import { useHarnessStore } from '../../stores/harnessStore';
+import { toggleInfoPanel } from '../../stores/infoPanelRoomStore';
 import { useNavigationStore } from '../../stores/navigationStore';
+import { useSidePanelStore } from '../../stores/sidePanelStore';
+import { TAB_KINDS, type TabKindId } from '../../sidePanel/tabKinds';
 import {
   useSettingsStore,
   TERMINAL_FONT_SIZE_MAX,
@@ -37,7 +39,9 @@ import { dialogBridge } from '../../services/dialogBridge';
 import { focusSessionAddressBar, openInSessionBrowser } from '../Browser/browserActions';
 import { createQuickSession, openNewSessionDialog } from '../../utils/sessionActions';
 import { workspaceStatusFor, type AttentionMap } from '../../utils/sessionStatus';
-import { BROWSER_SHORTCUT_LABEL, isMac, WORKING_SHELF_SHORTCUT_LABEL } from '../../utils/platform';
+import { isMac, WORKING_SHELF_SHORTCUT_LABEL } from '../../utils/platform';
+import { INFO_PANEL_SHORTCUT_LABEL } from '../../utils/infoPanelShortcut';
+import { SIDE_PANEL_SHORTCUT_LABEL } from '../../utils/sidePanelShortcut';
 import type {
   PaletteMode,
   ActionPaletteItem,
@@ -72,7 +76,24 @@ export interface PaletteContext {
   gitStatusRootPath: string | null;
   stagedCount: number;
   commitMessage: string;
-  isGitReviewOpen: boolean;
+  /**
+   * The side panel's tab kinds for the active session, in registry order;
+   * empty without one, and while the Inbox or Automations lies over it.
+   */
+  tabKinds: Array<{ id: TabKindId; title: string; available: boolean }>;
+  /** Whether the side panel is showing, so its row says what choosing it will do. */
+  isSidePanelVisible: boolean;
+  /**
+   * Whether the info panel is on screen, so its row says what choosing it
+   * will do: Show while it has stepped aside for a narrow window.
+   */
+  isInfoPanelVisible: boolean;
+  /**
+   * The Inbox or Automations lies over the active session. The session stays
+   * active behind it, but its side panel is not on screen, and the side
+   * panel's chords do nothing there.
+   */
+  isOverlayOpen: boolean;
   terminalFontSize: number;
   /** Servers running from the active session's folder, read when the palette opened. */
   localServers: LocalServer[];
@@ -219,26 +240,31 @@ export function buildActionItems(ctx: PaletteContext): ActionPaletteItem[] {
     run: () => useNavigationStore.getState().toggleSidebar(),
   });
 
-  // The explorer and review panels only exist inside a session's content view.
+  // The info panel and the side panel only exist beside a session, and are
+  // not on screen under an overlay, where their chords do nothing either.
+  if (activeSession && !ctx.isOverlayOpen) {
+    items.push({
+      kind: 'action',
+      section: 'actions',
+      id: 'action.view.toggle-info-panel',
+      label: ctx.isInfoPanelVisible ? 'Hide info panel' : 'Show info panel',
+      icon: List,
+      shortcutHint: INFO_PANEL_SHORTCUT_LABEL,
+      run: toggleInfoPanel,
+    });
+    items.push({
+      kind: 'action',
+      section: 'actions',
+      id: 'action.view.toggle-side-panel',
+      label: ctx.isSidePanelVisible ? 'Hide side panel' : 'Show side panel',
+      icon: PanelRight,
+      shortcutHint: SIDE_PANEL_SHORTCUT_LABEL,
+      run: () => useSidePanelStore.getState().toggleVisible(),
+    });
+  }
+
+  // The browser only exists beside a session: these open its Browser tab.
   if (activeSession) {
-    items.push({
-      kind: 'action',
-      section: 'actions',
-      id: 'action.view.toggle-explorer',
-      label: 'Toggle file explorer',
-      icon: FolderTree,
-      shortcutHint: isMac ? '⇧⌘E' : 'Ctrl+Shift+E',
-      run: () => useNavigationStore.getState().toggleExplorer(),
-    });
-    items.push({
-      kind: 'action',
-      section: 'actions',
-      id: 'action.view.toggle-browser',
-      label: 'Toggle browser',
-      icon: Globe,
-      shortcutHint: BROWSER_SHORTCUT_LABEL,
-      run: () => useNavigationStore.getState().toggleBrowser(),
-    });
     items.push({
       kind: 'action',
       section: 'actions',
@@ -259,17 +285,20 @@ export function buildActionItems(ctx: PaletteContext): ActionPaletteItem[] {
     }
   }
 
-  // Only a linked session has an item to show, and only a workspace with an
-  // account can read it -- the same rule as the strip's Details toggle.
-  if (activeSession?.workItem && activeWorkspace?.provider) {
+  // One row per tab kind that applies to the active session. The side panel
+  // only exists beside one, on screen, so without a session, or under an
+  // overlay, `tabKinds` is empty.
+  for (const kind of TAB_KINDS) {
+    const entry = ctx.tabKinds.find((candidate) => candidate.id === kind.id);
+    if (!entry?.available) continue;
     items.push({
       kind: 'action',
       section: 'actions',
-      id: 'action.view.toggle-work-item-panel',
-      label: `Toggle ${activeSession.workItem.type === 'pr' ? 'pull request' : 'issue'} details`,
-      context: `${activeSession.workItem.repo}#${activeSession.workItem.number}`,
-      icon: PanelRight,
-      run: () => useNavigationStore.getState().toggleWorkItemPanel(),
+      id: `action.side-panel.open.${kind.id}`,
+      label: `Open ${entry.title}`,
+      icon: kind.icon,
+      shortcutHint: kind.chord,
+      run: () => useSidePanelStore.getState().openKind(kind.id),
     });
   }
 
@@ -322,19 +351,6 @@ export function buildActionItems(ctx: PaletteContext): ActionPaletteItem[] {
   if (scope?.isGitRepo && gitRoot) {
     const rootPath = gitRoot;
 
-    if (activeSession) {
-      items.push({
-        kind: 'action',
-        section: 'actions',
-        id: 'action.git.toggle-review',
-        // One row rather than separate open and toggle entries, labelled by
-        // what it is about to do. Gated on isGitRepo to match the toolbar.
-        label: ctx.isGitReviewOpen ? 'Close git review' : 'Open git review',
-        icon: GitBranch,
-        run: () => useGitReviewStore.getState().toggle(),
-      });
-    }
-
     // Generate and commit need a status that actually describes this repo.
     if (hasFreshGitStatus(ctx) && ctx.stagedCount > 0) {
       items.push({
@@ -345,8 +361,8 @@ export function buildActionItems(ctx: PaletteContext): ActionPaletteItem[] {
         context: `${ctx.stagedCount} staged`,
         icon: Sparkles,
         run: () => {
-          // The review panel is where the draft and any error surface.
-          useGitReviewStore.getState().open();
+          // The Changes tab is where the draft and any error surface.
+          useSidePanelStore.getState().openKind('changes');
           return useGitReviewStore.getState().generateCommitMessage(rootPath);
         },
       });
@@ -360,7 +376,7 @@ export function buildActionItems(ctx: PaletteContext): ActionPaletteItem[] {
           context: `${ctx.stagedCount} staged`,
           icon: GitCommit,
           run: () => {
-            useGitReviewStore.getState().open();
+            useSidePanelStore.getState().openKind('changes');
             return useGitReviewStore.getState().commitStaged(rootPath);
           },
         });

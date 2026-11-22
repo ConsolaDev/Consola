@@ -1,3 +1,4 @@
+import type { BranchPullRequestAnswer } from '../../shared/branchPullRequest';
 import type { GitProviderId, ProviderProbeResult } from '../../shared/providers';
 import type {
   CloneRepoResult,
@@ -72,5 +73,20 @@ export const providerBridge = {
     const api = getAPI();
     if (!api) return null;
     return api.cloneRepo(workspaceId, repo, destinationDir);
+  },
+
+  /**
+   * The pull request of the branch checked out in `dir`, which main reads
+   * from the folder itself. Cached in main per account, repo and branch;
+   * `force` (the person's Refresh or Retry) asks the provider again.
+   */
+  findBranchPullRequest: async (
+    workspaceId: string,
+    dir: string,
+    options?: { force?: boolean },
+  ): Promise<BranchPullRequestAnswer> => {
+    const api = getAPI();
+    if (!api) return { kind: 'none', branch: null };
+    return api.findBranchPullRequest(workspaceId, dir, options);
   },
 };

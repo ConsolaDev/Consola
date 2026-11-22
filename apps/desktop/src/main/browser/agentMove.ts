@@ -18,7 +18,7 @@ export interface AgentMoveDeps {
  * Moving a tab is using it, even the person's own and even the
  * one they are looking at, so the move marks the tab as any call does
  * (`agentActive`): the strip shows the marker, and a window not showing the
- * session dots its globe. The mark mounts nothing. A tab with no page only
+ * session marks its Browser kind. The mark mounts nothing. A tab with no page only
  * records its new address, so its move is over at once; a tab with a page
  * stays marked until that page has loaded what the move asked for (its
  * `did-stop-loading`), or goes, and at most `CALL_DEADLINE_MS`, like any

@@ -178,13 +178,6 @@
   background-color: var(--color-scrollbar-thumb-hover);
 }
 
-.session-terminal-layout {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  min-height: 0;
-}
-
 .shell-details {
   display: flex;
   align-items: center;
@@ -208,33 +201,4 @@
 .shell-error {
   padding: var(--space-2) var(--space-3);
   color: var(--color-warning);
-}
-.shell-resize-handle {
-  height: 5px;
-  background: var(--color-border);
-  cursor: row-resize;
-}
-.shell-resize-handle:hover,
-.shell-resize-handle:focus-visible {
-  background: var(--color-accent);
-}
-
-.shell-collapse-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  border: 0;
-  border-radius: var(--radius-md);
-  background: transparent;
-  color: var(--color-text-secondary);
-  cursor: pointer;
-}
-
-.shell-collapse-button:hover {
-  background: var(--color-bg-hover);
-  color: var(--color-text-primary);
 }

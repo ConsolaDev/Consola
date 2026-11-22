@@ -8,10 +8,8 @@ import {
   groupSessionsByWorkItem,
   hasAccentBar,
   isRepoCloned,
-  metaLineFor,
   relativeTime,
   reviewStateLabel,
-  roleLabelFor,
   worstStatusForItem,
 } from './inboxPresentation';
 
@@ -167,43 +165,6 @@ describe('isRepoCloned', () => {
         'sprocket/catalog-portal',
       ),
     ).toBe(true);
-  });
-});
-
-describe('roleLabelFor and metaLineFor', () => {
-  it('names the strongest role', () => {
-    expect(roleLabelFor(makeItem())).toBe('review requested');
-    expect(roleLabelFor(makeItem({ roles: ['review-requested-team'] }))).toBe(
-      'team review requested',
-    );
-    expect(roleLabelFor(makeItem({ roles: ['author'] }))).toBe('your PR');
-    expect(roleLabelFor(makeItem({ roles: ['author'], workItem: { ...issue12 } }))).toBe(
-      'your issue',
-    );
-    expect(roleLabelFor(makeItem({ roles: ['assignee'] }))).toBe('assigned to you');
-    expect(roleLabelFor(makeItem({ roles: ['involved'] }))).toBe('involves you');
-  });
-
-  it('joins repo, role, CI, review state, and diff stats', () => {
-    expect(metaLineFor(makeItem())).toBe(
-      'catalog-portal · review requested · CI failing · awaiting approval · +210 −88',
-    );
-  });
-
-  it('omits what an issue does not have', () => {
-    expect(
-      metaLineFor(
-        makeItem({
-          workItem: { ...issue12 },
-          roles: ['assignee'],
-          reviewDecision: 'none',
-          ciStatus: undefined,
-          checks: undefined,
-          additions: undefined,
-          deletions: undefined,
-        }),
-      ),
-    ).toBe('media-upload-api · assigned to you');
   });
 });
 

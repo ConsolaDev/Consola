@@ -77,30 +77,6 @@ export function isRepoCloned(
   return resolved[repo] !== null;
 }
 
-/** The strongest reason an item is in the inbox, for the strip's meta line. */
-export function roleLabelFor(item: InboxItem): string {
-  if (item.roles.includes('review-requested-direct')) return 'review requested';
-  if (item.roles.includes('review-requested-team')) return 'team review requested';
-  if (item.roles.includes('author')) return item.workItem.type === 'pr' ? 'your PR' : 'your issue';
-  if (item.roles.includes('assignee')) return 'assigned to you';
-  return 'involves you';
-}
-
-/** The one-line subtitle the strip shows: repo · role · CI · review · +a −d. */
-export function metaLineFor(item: InboxItem): string {
-  const parts: string[] = [
-    item.workItem.repo.split('/').pop() ?? item.workItem.repo,
-    roleLabelFor(item),
-  ];
-  if (item.ciStatus) parts.push(`CI ${item.ciStatus}`);
-  const review = reviewStateLabel(item);
-  if (review) parts.push(review.toLowerCase());
-  if (item.additions !== undefined || item.deletions !== undefined) {
-    parts.push(`+${item.additions ?? 0} −${item.deletions ?? 0}`);
-  }
-  return parts.join(' · ');
-}
-
 /**
  * A workspace's sessions bucketed by the item they are linked to, keyed by
  * workItemKey so repo casing never splits one item in two. Computed once

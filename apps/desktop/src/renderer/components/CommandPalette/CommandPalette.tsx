@@ -2,7 +2,6 @@ import { requestSessionDelete } from '../Dialogs/DeleteSessionDialog';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { ChevronLeft, Search, SearchX } from 'lucide-react';
-import { usePreviewTabStore } from '../../stores/previewTabStore';
 import { useGitReviewStore } from '../../stores/gitReviewStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { useNavigationStore } from '../../stores/navigationStore';
@@ -13,6 +12,7 @@ import {
   restartSession,
 } from '../../utils/sessionActions';
 import { SCOPE_SHORTCUT_LABELS } from '../../utils/platform';
+import { openDiffInFilesTab } from '../../utils/sidePanelActions';
 import { CommandPaletteRow, rowElementId } from './CommandPaletteRow';
 import { usePaletteContext, usePaletteResults } from './usePaletteResults';
 import {
@@ -256,13 +256,11 @@ export function CommandPalette({ open, onOpenChange, initialScope }: CommandPale
       }
 
       if (item.kind === 'file') {
-        // Opening a diff needs the review panel, which lives in the content view.
-        useGitReviewStore.getState().open();
+        // The diff opens as a preview in the Files tab, and the file is
+        // expanded and scrolled to in the Changes tab for when that is on screen.
         useGitReviewStore.getState().setFileExpanded(item.relativePath, true);
         useGitReviewStore.getState().setScrollToFile(item.relativePath);
-        usePreviewTabStore
-          .getState()
-          .openDiff(item.rootPath, item.relativePath, item.status === 'staged');
+        openDiffInFilesTab(item.rootPath, item.relativePath, item.status === 'staged');
         close();
       }
     },

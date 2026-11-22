@@ -59,4 +59,9 @@ export const windowBridge = {
   onQuitShortcut(callback: (state: QuitShortcutState) => void): () => void {
     return window.windowAPI.onQuitShortcut(callback);
   },
+
+  /** The name this computer goes by, or null when it has none. Main reads it once per run. */
+  getComputerName(): Promise<string | null> {
+    return window.windowAPI.getComputerName();
+  },
 };

@@ -296,6 +296,7 @@ export function installMock() {
     onQuitShortcut: noSubscription,
     onOpenSettings: noSubscription,
     onShowAutomations: noSubscription,
+    getComputerName: async () => null,
     openWindow: async (id) => {
       if (id) {
         windowWorkspace = id;
@@ -606,6 +607,9 @@ export function installMock() {
       return { ok: true };
     },
     cloneRepo: async (_id, _repo, destination) => ({ ok: true, path: destination }),
+    // As main answers once it has read the folder's branch: for that branch,
+    // so the info panel says there is none rather than looking for good.
+    findBranchPullRequest: async (_id, dir) => ({ kind: 'none', branch: branchOf(dir) }),
   };
   changes.set('/demo/acme/platform', [
     { path: 'src/lib/retry.ts', status: 'modified' },
@@ -628,6 +632,18 @@ export function installMock() {
       mainCheckout: path.split('/.worktrees/')[0],
       branch: branchOf(path),
     }),
+    // A main checkout on main is level with origin/main, its own upstream,
+    // so it has no base line. A worktree's branch has one commit to push and
+    // two files changed since main.
+    getBranchFacts: async (path) => {
+      const branch = branchOf(path);
+      if (branch === 'main')
+        return { upstream: { ref: 'origin/main', ahead: 0, behind: 0 }, base: null };
+      return {
+        upstream: { ref: `origin/${branch}`, ahead: 1, behind: 0 },
+        base: { ref: 'origin/main', files: 2, additions: 9, deletions: 1 },
+      };
+    },
     getDiff: async (_path, file, staged) => diff(file, staged),
     stageFile: async (path, file) => {
       const f = changes.get(path)?.find((f) => f.path === file);

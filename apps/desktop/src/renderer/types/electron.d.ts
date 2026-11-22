@@ -20,6 +20,7 @@ import type {
 import type { SnoozePresetSetting, SnoozeWhen } from '../../shared/snooze';
 import type { UsageLimitsState } from '../../shared/usageLimits';
 import type { CheckoutInfo } from '../../shared/sessionCheckout';
+import type { BranchFacts } from '../../shared/branchFacts';
 export interface FolderInfo {
   path: string;
   name: string;
@@ -117,6 +118,8 @@ export interface PreferencesAPI {
 export interface GitAPI {
   getStatus: (rootPath: string) => Promise<GitStatusResult>;
   getCheckout: (dir: string) => Promise<CheckoutInfo>;
+  /** Push and base counts, compared with what the clone last fetched; never fetches. */
+  getBranchFacts: (dir: string, baseBranch?: string) => Promise<BranchFacts>;
   getDiff: (rootPath: string, filePath: string, staged: boolean) => Promise<GitDiffResult>;
   stageFile: (rootPath: string, filePath: string) => Promise<{ success: boolean }>;
   unstageFile: (rootPath: string, filePath: string) => Promise<{ success: boolean }>;

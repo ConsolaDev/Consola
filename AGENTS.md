@@ -13,6 +13,7 @@ Consola is an Electron desktop application that provides a structured AI-assiste
 ```bash
 pnpm run dev              # Full dev environment (Vite HMR + tsc --watch + Electron auto-restart)
 pnpm run dev:cloud        # Consola Cloud: the API (3100) and the web app (5175)
+pnpm run dev:cloud-region # Consola Cloud's regional cell (3101), set up by its .env
 pnpm run build            # Production build (all processes)
 pnpm start                # Run production build
 pnpm run test:e2e         # Run Playwright E2E tests
@@ -40,9 +41,11 @@ front. E2E runs themselves are already hidden and unfocusable
 
 All commands above run from the repository root. The pnpm workspace contains
 `apps/desktop` (`consola`), `apps/website` (`@consola/website`),
-`apps/cloud-api` (`@consola/cloud-api`), `apps/cloud-web` (`@consola/cloud-web`),
-`packages/factory-spec` (`@consola/factory-spec`, MIT) and
-`packages/automation-engine` (`@consola/automation-engine`). Turborepo
+`apps/cloud-global` (`@consola/cloud-global`), `apps/cloud-region`
+(`@consola/cloud-region`), `apps/cloud-web` (`@consola/cloud-web`),
+`packages/factory-spec` (`@consola/factory-spec`, MIT),
+`packages/automation-engine` (`@consola/automation-engine`) and
+`packages/sandbox` (`@consola/sandbox`). Turborepo
 orchestrates builds, tests, and typechecking. Paths below beginning with `src/`,
 `scripts/`, or `dist/` are relative to `apps/desktop`. Use
 `pnpm --filter consola exec <tool>` for app-specific tools.
@@ -85,6 +88,20 @@ runner's types, type-only, so the renderer never loads the engine's runtime.
 Beside it, `packages/factory-spec` (MIT) holds the `factory.yml` schema,
 parser and Run record that every runner shares.
 
+### Sandboxes
+
+`packages/sandbox` (`@consola/sandbox`, AGPL-3.0-only) is the one interface
+every runner uses to start and drive sandboxes: create one from a template,
+run a command and stream its output, read and write files, expose a port,
+stop it. E2B is the first provider behind it, invisible to users. Code holds
+`Sandboxes` from `sandboxesFrom(provider)`, which checks every request before a
+provider sees it, and checks a capability (`pausing`, `snapshots`) by its
+member, never by which provider it has. Its core does no I/O, which its
+`boundary.test.ts` proves; every provider passes its contract
+(`src/contract.test.ts`), and its in-memory `FakeProvider` is what other
+packages' tests use. Before changing it, or adding a provider, read
+`packages/sandbox/AGENTS.md`.
+
 ### Main Process Key Files
 - `index.ts` - App lifecycle, window management
 - `ipc-handlers.ts` - All IPC message routing
@@ -108,23 +125,32 @@ parser and Run record that every runner shares.
 
 ### Consola Cloud
 
-`apps/cloud-api` (`@consola/cloud-api`, Hono, Better Auth, Drizzle on PGlite or
-Postgres) and `apps/cloud-web` (`@consola/cloud-web`, Vite and React) are the
-company layer's first piece: Google sign-in and the deployment's one
-organisation. Nothing in `apps/desktop` depends on them, and neither imports
-from the desktop, the website or `packages/*`. Setup is in
-`apps/cloud-api/README.md`. Before changing either cloud app, read its own
-`AGENTS.md` (`apps/cloud-api/AGENTS.md`, `apps/cloud-web/AGENTS.md`): it holds
-the layer rules and the dependency rule that keeps them apart.
+`apps/cloud-global` (`@consola/cloud-global`, Hono, Better Auth, Drizzle on
+PGlite or Postgres) and `apps/cloud-web` (`@consola/cloud-web`, Vite and React)
+are the company layer's first piece: Google sign-in and the deployment's one
+organisation. `cloud-global` is the control plane's global part, which every
+region shares. Every workspace has a region (`eu` or `us`), picked when it is
+made and never changed. What `cloud-global` may store is the always-global
+list in its `AGENTS.md`, pinned by a test; anything else belongs in a regional
+cell. `apps/cloud-region` (`@consola/cloud-region`, Hono, Drizzle on PGlite or
+Postgres) is the regional cell: one copy per region, configured with its
+region, holding what a workspace has there that is not global. It holds no
+accounts (people are referenced by their global id), and every table carries
+the workspace id. Nothing in `apps/desktop` depends on the cloud apps, and none
+imports from the desktop, the website, another app or `packages/*`. Setup is in
+`apps/cloud-global/README.md` and `apps/cloud-region/README.md`. Before
+changing a cloud app, read its own `AGENTS.md` (`apps/cloud-global/AGENTS.md`,
+`apps/cloud-region/AGENTS.md`, `apps/cloud-web/AGENTS.md`): it holds the layer
+rules and the dependency rule that keeps them apart.
 
 The browser talks only to the web app's origin. Vite proxies `/api` to the API,
 so the session cookie is first-party and the API needs no CORS. Better Auth
 owns sign-in and sessions, and its tables are generated
-(`pnpm --filter @consola/cloud-api auth:generate`), never hand-edited. Every
+(`pnpm --filter @consola/cloud-global auth:generate`), never hand-edited. Every
 table that holds company data carries `organization_id`, and a person reaches
 it through `member`.
 
-`mayJoin` (`apps/cloud-api/src/domain/joinRule.ts`) is checked before an account
+`mayJoin` (`apps/cloud-global/src/domain/joinRule.ts`) is checked before an account
 is created and before every new session. It is open for now (any Google
 account with a verified email), so this deployment is for local use only. The
 later rule that limits it to the company lands in `mayJoin` and so gates every
@@ -208,15 +234,16 @@ upstream fixed.
 ### Pages Live in One Place
 
 The in-app browser's pages are `<webview>` guests, and Electron destroys the
-guest of an element that moves. So no page lives in the browser panel, which
-unmounts under every overlay and re-renders on every session switch:
+guest of an element that moves. So no page lives in the Browser tab, which
+unmounts whenever it goes behind another tab, its group is hidden, the side
+panel hides, or an overlay covers it, and remounts on every session switch:
 `BrowserHost`, at the layout's root, holds every page of the window's
 workspace in one parent, in creation order (`hostOrder`), and only ever adds
-or removes one. The panel's slot only says where to draw. A page out of sight
+or removes one. The tab's slot only says where to draw. A page out of sight
 is `display: none`, or painting but `inert` while an agent reads it
 (`pagePresence`), never `visibility: hidden`, after which Electron 43 can
 leave a macOS guest blank for good. DevTools open in a window of their own
-(`mode: 'detach'`), so the page keeps its whole panel.
+(`mode: 'detach'`), so the page keeps its whole slot.
 
 - **Main decides what a guest is.** `will-attach-webview` asks `decideAttach`
   (`browser/guestPolicy.ts`): the workspace's own partition, a web address (or
@@ -330,9 +357,10 @@ a harness switch leaves them alone.
   insists on a real press may ignore them. An agent's script carries no user
   gesture (`withoutUserGesture`), so it opens no file chooser or fullscreen,
   and a popup window needs the person's press (`decidePopup`). Nothing an
-  agent does opens the panel or focuses the window or the page's web contents;
-  an act's in-page `focus()` moves only the page's focus. Its tabs open behind
-  the one showing; its use marks the tab and the globe button.
+  agent does opens the Browser tab or the side panel, or focuses the window
+  or the page's web contents; an act's in-page `focus()` moves only the
+  page's focus. Its tabs open behind the one showing; its use marks the tab,
+  and sets the Browser kind's mark.
 - **The person comes first.** Their input on a tab (`PersonInput.noteInput`)
   is a key or button going down in its page, or a move or answer they make
   from Consola's controls (`personNavigated`: an address, back, forward,
@@ -379,6 +407,175 @@ a harness switch leaves them alone.
   (`expectOffScreen`). It cannot see Electron also show dialogs another way
   (nothing asserts on a box on screen), nor what Electron's listener does with
   a dialog handed back, which the recorder stands in for.
+
+### The Side Panel Holds Tabs
+
+Beside each session's conversation sits its side panel: one group of tabs,
+or two, stacked or side by side. It is not the Automations overlay's own
+side panel (`components/Automations/SidePanel.tsx`,
+`.automations-side-panel`). Each tab is a kind (Changes, Files, Terminal,
+Browser, Pull request) or the "+" list's placeholder (`NEW_TAB`). It is
+view state, kept in the renderer, never on a `Workspace` or `Session`
+record.
+
+- **`sidePanel/tabKinds.ts` is the only list of kinds** (`TAB_KINDS`), and its
+  order is canonical: the header's shortcuts, the "+" list and the palette
+  iterate it, and a stored layout is repaired against it, so none of them
+  lists kinds by id; code that means one kind (a chord, the palette's commit
+  rows, a terminal link) names it. A kind is an entry there, its view in
+  `TAB_VIEWS` (`components/SidePanel/tabViews.tsx`, a component per kind,
+  keyed by every id, so a kind without a view does not typecheck) and, if it
+  has one, its mark in `TAB_MARKS`. Whether a kind applies to the session is
+  its own `availability`, read from `TabFacts`, whose `checkoutPath` is
+  `checkoutPathForSession`'s: Changes, Files and Terminal are unavailable
+  while the worktree is removed, and say why in their tab.
+- **Every arrangement change goes through `sidePanel/layout.ts`.** Its
+  functions are pure and return their input when an action does not apply;
+  the store wraps each function that changes the layout in an action of the
+  same name, and components change the layout only through those; the
+  queries are called directly. The layout is a tree, so allowing deeper
+  splits is a change of rule, not of format: `canSplit` is the one place a
+  change checks the two-group cap (`MAX_GROUPS`). A stored layout from
+  another build goes through `repairLayout`, which applies the cap to what
+  storage holds, drops what it cannot keep (an unknown kind, a kind twice, a
+  third group) and never throws.
+- **The conversation's panel stays the unconditional first child of
+  `ContentView`'s `Group`**, with the same key and no wrapper that differs
+  between layouts. Opening, closing, splitting, maximizing or dragging in the
+  side panel then only resizes the conversation; a remount would reattach
+  its terminal at a captured size (see "Terminals Outlive Their Views").
+  Each group's panel is keyed by its group's id, so a group that survives a
+  split or unsplit is not remounted either.
+- **A shell mounts only through `bodyFor`**: in front, in a visible group
+  (`isInFront`, `visibleGroups`), and available. A kind with `mount: 'front'`
+  renders nothing anywhere else, and Terminal is one, because its view
+  attaching spawns the shell and main rebuilds a removed worktree first: a
+  tab behind another, in a group Maximize hides, in a hidden side panel or
+  for a removed worktree starts nothing. A shell takes the keyboard only on
+  the person's own request (`takeFocusRequest`). `openKind`, `pressShortcut`,
+  `bringToFront` and `choosePlaceholder` set a request only when the kind was
+  not in front on screen before and is after; a launch, a session switch or
+  a return from an overlay sets no request by itself, so keys meant for
+  Claude never land in a shell. The "+" list takes the keyboard by the same
+  rule. Under the Inbox or Automations the side panel's chords do nothing,
+  and the palette leaves out the side panel's rows, so the two agree; a row
+  the person runs there (the browser's, as on main) is their own action.
+- **The side panel's own closes, and the chords that hide it, never drop
+  the keyboard to the body** (`keyboardAfterClose.ts`). The palette's
+  "Hide side panel" row is not one of them: run with the keyboard in a
+  shell or a page, it leaves the keyboard on the body, and that is
+  accepted. A close from the tab bar, with the keyboard on
+  the tab or in what it shows, hands it to the tab now in front, else to the
+  conversation (`keyboardAfterClose`). A tab closed from inside its own view
+  (Changes' Escape, a view's own close button) or with the keyboard in its
+  page, and a chord that hides the side panel with the keyboard in it or in
+  a page, send it to the conversation's terminal (`keyboardToConversation`).
+  Either way a held key's repeats stop at the window. An action taken from
+  the conversation, the header or the palette leaves the keyboard where it
+  is.
+- **The Browser tab holds no page.** Pages stay in `BrowserHost` (see "Pages
+  Live in One Place"); the Browser kind's view only claims the slot a page is
+  drawn over, and only while mounted (`mount: 'front'`), so a tab behind, a
+  hidden group or a hidden side panel never leaves a page drawn over the
+  window. Its mark (an agent used the session's browser while no Browser tab
+  showed it) is on its header shortcut while Browser is one of the three, on
+  its tab while that is in a group on screen, and otherwise on the side panel
+  toggle (`markPlaces`). `.side-panel-tab` is one of `BrowserHost`'s drag
+  handles, so a tab dragged across a shown page does not stall. The drop
+  target and the tab menu draw above the page's layer (`--z-browser-page`).
+- **Layout, use counts and the setting live in `sidePanelStore`**, on
+  localStorage (`consola-side-panel`), never in `Preferences`. The layout is
+  written and read only while "Remember the side panel's layout" is on;
+  otherwise the panel starts as one hidden group at every launch. The
+  header's three shortcuts are the most used kinds, ranked once per run
+  (`shortcutKinds`), so nothing moves under the pointer. Sizes live apart,
+  in `useDefaultLayout`'s keys (the session pane, each orientation's groups,
+  the Files tab), and are always remembered, whatever the setting. A
+  `Group` inside the side panel mounts only once its box is laid out at its
+  size (`useSized`): react-resizable-panels checks the saved sizes against
+  the box as the group mounts, and one that mounts as the side panel comes
+  on screen, before it is laid out, loses them and writes the loss back.
+
+### The Info Panel States Facts
+
+Between the conversation and the side panel sits the info panel
+(`components/InfoPanel/`, `<Panel id="info-panel">`): where the session
+runs, its branch and its pull request, said at a glance. Like the side
+panel it is view state, kept in the renderer.
+
+- **It is a glance.** Three sections in a fixed order (`INFO_SECTION_IDS`),
+  where a later section joins. A row with more behind it opens a tab
+  (`openKind`, or `reveal` for a place inside the tab's view, such as the
+  pane's merge card, which the view acts on once per `revealRequest.seq`);
+  the Folder row copies its path, and its card, on hover or focus, explains
+  the checkout (a worktree's branch, folder and main checkout). Nothing in
+  the panel navigates or takes the keyboard, on mount or otherwise.
+  Visibility rides with the layout (`sidePanelStore.infoVisible`,
+  written only under the remember setting, shown when absent); folds sit in
+  `settingsStore.infoSectionOpen` and are always kept. While the side panel
+  is open on a session pane narrower than `INFO_PANEL_ROOM_PX` (1010px: 60
+  columns of conversation beside both panels), the panel steps aside
+  (`infoPanelShown`, `infoPanel/stepAside.ts`) without writing `infoVisible`,
+  everything that asks whether it shows reads that answer, and its toggle
+  shows it anyway until the side panel hides or the pane has room. A folded section
+  renders neither its rows nor its heading's actions (`InfoSection`), so
+  whatever they read never starts. Showing, hiding or resizing the panel
+  only resizes the conversation, which stays `ContentView`'s first child.
+- **One budget per pull request.** `workItemDetailsStore` is the only way to
+  an item's details. The Inbox's pane, the Pull request tab and the info
+  panel share its entries (`detailsKey`: workspace, account, item). It reads
+  only for an active viewer (`watch`, through `useWorkItemDetails`), one
+  read per item at a time, at most once per `INBOX_REFRESH_INTERVAL_MS`
+  unless forced by the person's Refresh or Retry or the re-read after a
+  write. A forced load never takes the answer of a read already in flight,
+  which may predate the write, unless a loud forced load started that read;
+  it waits, then gets one more. The store's own reads (a watch's first load,
+  the re-check once an entry goes stale) are quiet once the entry holds
+  details, so the pane's editors never lock under the person's typing. The
+  mergeability poll is its own: a few quiet reads while `mergeState` is
+  `UNKNOWN`, only while watched (`MERGE_STATE_POLLS`). At most
+  `MAX_UNWATCHED_DETAILS` (20) entries nobody watches keep their details,
+  the least recently read dropped first. A folded section, a hidden panel, a
+  tab behind another and the mark read nothing: `useDetailsEntry` reads the
+  cache and never watches.
+- **A branch's pull request is found in main** (`BranchPullRequestFinder`),
+  for a session linked to none. Main reads the branch from the folder
+  (`readBranchIdentity`), so the renderer never sends one; origin is mapped
+  by the driver's `repoOfRemote`, and `lookupPullRequests` is asked once per
+  provider, account, repo and the branch's name on the remote per interval
+  (`BRANCH_LOOKUP_TTL_MS`), a failure kept as long as an answer, sooner only
+  for Retry or Refresh. It is asked only while someone looks: the info panel
+  shown with Pull request open, or the Pull request tab in front
+  (`useBranchPullRequestLookup`, from `ContentView`). It is never written to
+  the record; Link writes `workItem`. Every answer names the branch it was
+  read for and counts only while the checkout is on it
+  (`foundPullRequestOf`). `branchPullRequestStore` never lets an answer that
+  says nothing new replace one that does: an answer for another branch
+  never ends a lookup (one more is asked), a failed lookup keeps a pull
+  request already found for the same branch, and an answer that read no
+  branch keeps the asked branch's answer, or fails it so Retry is offered.
+- **Branch facts never fetch** (`readBranchFacts`, with
+  `GIT_NO_LAZY_FETCH=1`, a 10 s timeout and argument lists): every count is
+  against what the clone already has, and what git cannot answer is a line
+  not drawn, never a throw. "vs" compares with the session's pull request's
+  base when its details are cached, else `origin/HEAD`, never a guessed
+  `main`. They are read while the Branch section is open and again after
+  each git status refresh of that checkout (`gitStatusStore.refreshedAt`);
+  a load during a read gets one more read after it (`branchFactsStore`), so
+  a commit made mid-read is counted. Uncommitted reads the stats of its own
+  checkout (`statsFor`, `statsRoot`), never the last checkout's during a
+  session switch.
+- **A kind's mark has a tone** (`agent` or `alert`), and every mark takes
+  the same three places (`markPlaces`): its header shortcut; its tab in a
+  group on screen, drawn there only while behind another tab, since in
+  front its view says it; and with neither, the side panel toggle.
+  `markDots` is where a tone becomes `data-agent-dot` or
+  `data-alert-dot`. The toggle draws every mark left to it
+  (`marksOnToggle`), the red dot in the corner and the accent one 8px to its
+  left, and says each after its label, in registry order
+  (`labelWithMarks`). The Pull request mark (a failing check, changes
+  requested) reads the newer of the cached details and the Inbox snapshot's
+  item (`pullRequestAlert`), and never asks for a read.
 
 ### Each Workspace Remembers Where It Was Left
 
@@ -476,7 +673,7 @@ from there.
 
 Whether a folder *is* a worktree is asked of git (`readCheckout`, cached per
 folder in `checkoutStore`), not inferred from the record: a scope can itself
-be a worktree. The header's checkout chip and the sidebar's worktree line read
+be a worktree. The info panel's Folder row and the sidebar's worktree line read
 that one answer, so they cannot name different branches for one session.
 
 ### Worktrees Are Removed, Sessions Stay
@@ -869,6 +1066,7 @@ All channel names are defined in `src/shared/constants.ts`. Key patterns:
 - `file:*` - File operations
 - `git:*` - Git status and commit message generation
 - `dialog:*` - Native dialogs
+- `app:*` - The machine Consola runs on: its name (`app:get-computer-name`), read once per run
 - `worktree-cleanup:*` - Cleanup preview, "Clean up now", history, and a deleted session's outcome
 - `browser:*` - In-app browser tabs, page actions and snapshots; every id is checked against the sender's workspace
 

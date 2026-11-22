@@ -318,7 +318,10 @@
   height: 100%;
 }
 
-/* The top of a session's pane. Everything on it changes with the session. */
+/* The top of a session's pane. Everything on it changes with the session.
+   When it runs out of room, the session's name (and its scope) give way
+   first, down to their minimum; only then the snooze chip's words. The
+   counts, the refresh and the controls never do. */
 .workspace-view-header {
   display: flex;
   flex: none;
@@ -330,7 +333,10 @@
   border-bottom: 1px solid var(--color-border);
 }
 
-/* The name gives way first; the chips beside it are short and say more. */
+/* The name gives way first; the chip beside it is short and says more. It
+   counts for no width (a zero basis) and grows into what the rest leave, up
+   to its whole text, so it is cut before anything else shrinks. Its grow
+   weight dwarfs the counts', which take only what is left once it is whole. */
 .workspace-view-title {
   margin: 0;
   font-size: var(--font-size-sm);
@@ -339,8 +345,9 @@
   display: flex;
   align-items: center;
   gap: 0;
+  flex: 1000 0 0%;
   min-width: 48px;
-  flex-shrink: 1;
+  max-width: max-content;
 }
 
 /* Scope and name shrink alike, so the longer one gives up more width. */
@@ -373,8 +380,9 @@
 }
 
 /* The header's rename field, in the title's own type and as wide as its text,
-   so the name is edited where it stood. As tall as the checkout chip beside
-   it, so the header does not grow while it is open. */
+   so the name is edited where it stood. As tall as the snooze chip, and
+   shorter than the header's buttons, so the header does not grow while it is
+   open. */
 .session-header-rename-input {
   field-sizing: content;
   min-width: 8ch;
@@ -397,210 +405,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
   min-width: 0;
-}
-
-/* Checkout chip — which checkout the session's edits land in.
- *
- * One slot, two states sharing a shape: a repository's own checkout is a
- * quiet hairline pill with its branch; a linked worktree prefixes a labelled
- * segment in --color-worktree. Same outline, different fill, so the eye learns
- * the slot once and reads the state at a glance. */
-.checkout-chip {
-  display: inline-flex;
-  align-items: stretch;
-  /* Never squeezed: the path beside it gives way first, since the chip is
-     the answer and the path only repeats it in longer form. */
-  flex-shrink: 0;
-  height: 22px;
-  padding: 0;
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-sm);
-  background: transparent;
-  font: inherit;
-  color: var(--color-text-secondary);
-  cursor: pointer;
-  overflow: hidden;
-  animation: checkout-chip-in 220ms cubic-bezier(0.25, 1, 0.5, 1);
-  transition:
-    border-color var(--transition-fast),
-    background var(--transition-fast),
-    color var(--transition-fast);
-}
-
-.checkout-chip:hover {
-  border-color: var(--color-border-hover);
-  background: var(--color-bg-hover);
-  color: var(--color-text-primary);
-}
-
-.checkout-chip:focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 1px;
-}
-
-.checkout-chip-icon {
-  align-self: center;
-  flex-shrink: 0;
-  margin-left: 7px;
-  color: var(--color-text-tertiary);
-}
-
-.checkout-chip-ref {
-  align-self: center;
-  max-width: 28ch;
-  padding: 0 8px 0 5px;
-  font-family: var(--font-mono);
-  font-size: var(--font-size-sm);
-  line-height: 20px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.checkout-chip[data-kind="worktree"] {
-  border-color: var(--color-worktree-border);
-  color: var(--color-text-primary);
-}
-
-.checkout-chip[data-kind="worktree"]:hover {
-  border-color: var(--color-worktree);
-  background: var(--color-worktree-muted);
-}
-
-.checkout-chip-kind {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  flex-shrink: 0;
-  padding: 0 7px;
-  border-right: 1px solid var(--color-worktree-border);
-  background: var(--color-worktree-muted);
-  color: var(--color-worktree);
-  font-family: var(--font-sans);
-  font-size: 10px;
-  font-weight: var(--font-weight-semibold);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-@keyframes checkout-chip-in {
-  from {
-    opacity: 0;
-    transform: translateY(2px);
-  }
-}
-
-/* The tooltip explains the checkout as labelled facts — branch, folder,
-   main checkout — because the worktree's folder is named by Consola and never
-   matches its branch. Doubled class: .tooltip-content is declared later in
-   this file and would otherwise win. */
-.tooltip-content.checkout-tooltip {
-  display: flex;
-  flex-direction: column;
-  /* The shared tooltip centres its items; this one reads as a left-aligned
-     note. */
-  align-items: stretch;
-  gap: 8px;
-  width: max-content;
-  max-width: 440px;
-  padding: 10px 12px;
-  font-size: var(--font-size-xs);
-  text-align: left;
-  word-break: normal;
-}
-
-/* Echoes the chip's own label, so the tooltip reads as its explanation. */
-.checkout-tooltip-title {
-  font-family: var(--font-sans);
-  font-size: 10px;
-  font-weight: var(--font-weight-semibold);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--color-text-secondary);
-}
-
-.checkout-tooltip-title[data-kind="worktree"] {
-  color: var(--color-worktree);
-}
-
-.checkout-tooltip-lead {
-  margin: 0;
-  max-width: 46ch;
-  font-family: var(--font-sans);
-  font-size: var(--font-size-sm);
-  line-height: 1.45;
-  color: var(--color-text-secondary);
-}
-
-.checkout-tooltip-lead strong {
-  font-weight: var(--font-weight-medium);
-  color: var(--color-text-primary);
-}
-
-.checkout-tooltip-facts {
-  display: grid;
-  grid-template-columns: max-content minmax(0, 1fr);
-  column-gap: 12px;
-  row-gap: 8px;
-  margin: 0;
-  padding-top: 8px;
-  border-top: 1px solid var(--color-border);
-}
-
-.checkout-tooltip-facts dt {
-  font-family: var(--font-sans);
-  line-height: 18px;
-  color: var(--color-text-secondary);
-}
-
-.checkout-tooltip-facts dd {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-  margin: 0;
-}
-
-.checkout-tooltip-value {
-  display: flex;
-  align-items: flex-start;
-  gap: 6px;
-  font-family: var(--font-mono);
-  line-height: 18px;
-  color: var(--color-text-primary);
-  overflow-wrap: anywhere;
-}
-
-.checkout-tooltip-value > svg {
-  flex-shrink: 0;
-  margin-top: 3px;
-  color: var(--color-text-tertiary);
-}
-
-.checkout-tooltip-value[data-kind="worktree"] > svg {
-  color: var(--color-worktree);
-}
-
-.checkout-tooltip-note {
-  padding-left: 18px;
-  font-family: var(--font-sans);
-  line-height: 1.4;
-  color: var(--color-text-secondary);
-}
-
-.checkout-tooltip-hint {
-  font-family: var(--font-sans);
-  color: var(--color-text-tertiary);
-}
-
-.checkout-tooltip-hint[data-copied] {
-  color: var(--color-success);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .checkout-chip {
-    animation: none;
-  }
 }
 
 .workspace-view-content {
@@ -755,12 +559,15 @@
 }
 
 /* Path Display */
+/* Takes the room the title leaves, and never less than what it holds. With a
+   zero basis its counts and refresh counted for no width, so the title kept
+   all of its own and they ran on under the side panel controls, which took
+   their clicks. Now the title is what gives way. */
 .path-display-container {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  flex: 1;
-  min-width: 0;
+  flex: 1 0 auto;
 }
 
 .path-display-text {
@@ -801,13 +608,53 @@
   color: var(--color-accent);
 }
 
-/* The globe's dot: an agent opened or used a page the person has not seen.
-   A literal radius: var(--radius-full) resolves to 0 inside .radix-themes. */
-.path-display-toggle[data-agent-dot] {
+/* The header's right end: the shortcuts, a separator, then the side panel
+   toggle. Without a checkout nothing fills the row before it, so it keeps to
+   the right edge on its own. */
+.side-panel-controls {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+
+/* 4px of margin on each side, with the 4px gap, leaves 8px around it */
+.side-panel-controls-separator {
+  flex-shrink: 0;
+  width: 1px;
+  height: 16px;
+  margin: 0 4px;
+  padding: 0;
+  border: none;
+  /* The plain border colour is a tenth of white in dark: almost invisible */
+  background: var(--color-border-hover);
+}
+
+/* A shortcut for a tab that does not apply here: dimmed, its tooltip says why */
+.path-display-toggle[aria-disabled="true"],
+.path-display-toggle[aria-disabled="true"]:hover {
+  background: transparent;
+  color: var(--color-text-disabled);
+  cursor: default;
+}
+
+/* A kind's mark (`markPlaces`): on a header shortcut, on the side panel toggle, or on a tab in
+   the side panel's bar. An agent's (it used a page the person has not seen) is the accent dot,
+   `::after`; an alert (a pull request's failing check) is the red one, `::before`. One rule
+   draws both for all three places, so a dot cannot differ between them; only a tab places it
+   apart. A literal radius: var(--radius-full) resolves to 0 inside .radix-themes. */
+.path-display-toggle[data-agent-dot],
+.path-display-toggle[data-alert-dot],
+.side-panel-tab-trigger[data-agent-dot],
+.side-panel-tab-trigger[data-alert-dot] {
   position: relative;
 }
 
-.path-display-toggle[data-agent-dot]::after {
+.path-display-toggle[data-agent-dot]::after,
+.path-display-toggle[data-alert-dot]::before,
+.side-panel-tab-trigger[data-agent-dot]::after,
+.side-panel-tab-trigger[data-alert-dot]::before {
   content: "";
   position: absolute;
   top: 3px;
@@ -817,6 +664,28 @@
   border-radius: 50%;
   background: var(--color-accent);
   pointer-events: none;
+}
+
+.path-display-toggle[data-alert-dot]::before,
+.side-panel-tab-trigger[data-alert-dot]::before {
+  background: var(--color-error);
+}
+
+/* Both on one button, which only the side panel toggle can be: the red dot keeps
+   the corner, and the agent's sits 8px to its left, 2px clear of it. */
+.path-display-toggle[data-agent-dot][data-alert-dot]::after {
+  right: 11px;
+}
+
+/* On a tab the dot sits on its icon's corner, as it does on a header button's
+   icon: at the tab's own corner it touched the label's last letter, which ends
+   4px from that edge. The 14px icon starts at the trigger's left padding, and
+   the dot overlaps its corner by 4px, as on the header. A tab holds one kind,
+   so it never carries both. */
+.side-panel-tab-trigger[data-agent-dot]::after,
+.side-panel-tab-trigger[data-alert-dot]::before {
+  right: auto;
+  left: calc(var(--space-2) + 10px);
 }
 
 /* Git stats badge */
@@ -919,6 +788,12 @@
 .code-file-content pre {
   height: 100%;
   margin: 0 !important;
+}
+
+/* Focused by Tab or a click, so the keys scroll it; ringed for the keyboard only */
+.code-file-content pre:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
 }
 
 /* ========================================
@@ -1103,6 +978,12 @@
   font-family: var(--font-mono);
   font-size: 13px;
   line-height: 1.5;
+}
+
+/* Focused by Tab or a click, so the keys scroll it; ringed for the keyboard only */
+.diff-unified-content:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
 }
 
 .diff-unified-line {

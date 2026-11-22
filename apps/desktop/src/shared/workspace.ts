@@ -97,9 +97,9 @@ export interface Session {
   // relation says why the session exists, never where it runs.
   workItem?: WorkItemRef;
   // The action's NAME at launch — "Review", "Fix CI" — a label for the
-  // sidebar and the strip. A name rather than an id so renaming or deleting
-  // the action later never rewrites what a past session was. Absent for
-  // sessions linked by hand.
+  // sidebar and the info panel. A name rather than an id so renaming or
+  // deleting the action later never rewrites what a past session was. Absent
+  // for sessions linked by hand.
   workItemAction?: string;
   // What this conversation's agent may do, beyond its CLI's own defaults.
   // Absent means nothing is pinned — every hand-made session. Fixed for the

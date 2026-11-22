@@ -1,7 +1,6 @@
 import { dialogBridge } from '../services/dialogBridge';
 import { useWorkspaceStore } from '../stores/workspaceStore';
 import { useNavigationStore } from '../stores/navigationStore';
-import { useShellStore } from '../stores/shellStore';
 import { useTerminalStore } from '../stores/terminalStore';
 import type { Scope } from '../../shared/workspace';
 
@@ -31,7 +30,6 @@ export async function deleteScopeCompletely(workspaceId: string, scopeId: string
   await store.removeScope(workspaceId, scopeId);
 
   for (const session of sessions) {
-    useShellStore.getState().remove(session.instanceId);
     useTerminalStore.getState().removeInstance(session.instanceId);
   }
   const navigation = useNavigationStore.getState();

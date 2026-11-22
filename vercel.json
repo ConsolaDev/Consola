@@ -1,8 +1,8 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": null,
-  "installCommand": "npx -y pnpm@10.28.2 install --frozen-lockfile --ignore-scripts",
-  "buildCommand": "npx -y pnpm@10.28.2 --filter @consola/website build",
+  "installCommand": "npx -y pnpm@12.21.0 install --frozen-lockfile --ignore-scripts",
+  "buildCommand": "npx -y pnpm@12.21.0 --filter @consola/website build",
   "outputDirectory": "apps/website/dist",
   "rewrites": [
     {

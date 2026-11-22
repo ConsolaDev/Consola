@@ -75,19 +75,45 @@ function systemOpens(app: ElectronApplication): Promise<string[]> {
   ]);
 }
 
-/** Print `url` in the session's shell and return the row that shows it. */
-async function printLink(page: Page, url: string): Promise<Locator> {
+/**
+ * Prints `url` in the session's shell, and answers the shell. The URL is
+ * assembled by printf, in two quoted halves, so the echoed command line never
+ * holds it whole and only the printed line is a link.
+ */
+async function printInShell(page: Page, url: string): Promise<Locator> {
   const shell = page.getByTestId('session-shell');
-  // The URL is assembled by printf, so the echoed command line never holds it
-  // whole and only the printed line is a link.
   const at = url.indexOf('//') + 2;
   await shell
     .locator('textarea')
     .pressSequentially(`printf '%s%s\\n' '${url.slice(0, at)}' '${url.slice(at)}'`);
   await page.keyboard.press('Enter');
+  return shell;
+}
+
+/** Print `url` in the session's shell and return the row that shows it. */
+async function printLink(page: Page, url: string): Promise<Locator> {
+  const shell = await printInShell(page, url);
   const row = shell.locator('.xterm-rows > div').filter({ hasText: url }).last();
   await expect(row).toBeVisible();
   return row;
+}
+
+/**
+ * Print `url`, long enough to wrap across rows, and return the first row it
+ * fills. Only the printed line starts with the address itself.
+ */
+async function printWrappedLink(page: Page, url: string): Promise<Locator> {
+  const shell = await printInShell(page, url);
+  // Its scheme, host and port, which fit on the first row and are where no
+  // other row starts.
+  const at = url.indexOf('//') + 2;
+  const start = url.slice(0, url.indexOf('/', at) + 1).replace(/[.?]/g, '\\$&');
+  const first = shell
+    .locator('.xterm-rows > div')
+    .filter({ hasText: new RegExp(`^${start}`) })
+    .last();
+  await expect(first).toBeVisible();
+  return first;
 }
 
 async function clickLink(page: Page, row: Locator, shift: boolean): Promise<void> {
@@ -120,33 +146,65 @@ async function clickLink(page: Page, row: Locator, shift: boolean): Promise<void
   }
 }
 
+interface Launched {
+  app: ElectronApplication;
+  page: Page;
+  root: string;
+  userDataDir: string;
+  ids: { workspaceId: string; sessionId: string };
+}
+
+/**
+ * The app on a fresh profile, its window given `size` if any, with the Links
+ * session open, its shell in front in the side panel's Terminal tab, and the
+ * system browser replaced with a recorder.
+ */
+async function launchOnTheShell(size?: { width: number; height: number }): Promise<Launched> {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-links-'));
+  const { app, page, userDataDir } = await launchElectron();
+  if (size) {
+    const appWindow = await app.browserWindow(page);
+    await appWindow.evaluate(
+      (browserWindow, { width, height }) => browserWindow.setContentSize(width, height),
+      size,
+    );
+  }
+  const ids = await seed(page, root);
+  await recordSystemOpens(app);
+  await page
+    .getByRole('navigation', { name: 'Workspaces', exact: true })
+    .getByRole('button', { name: /Links/ })
+    .click();
+  await page.locator('.session-nav-item').filter({ hasText: 'Links session' }).click();
+  await page.locator('[data-conversation-terminal] .terminal-surface textarea').focus();
+  await page.keyboard.press('Control+Backquote');
+  await expect(page.getByTestId('session-shell')).toBeVisible();
+  await expect(page.locator('.shell-directory')).toBeVisible();
+  return { app, page, root, userDataDir, ids };
+}
+
+async function closeAndClean({ app, root, userDataDir }: Launched): Promise<void> {
+  await app.close();
+  removeProfile(userDataDir);
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
 test.describe('terminal links and the session browser', () => {
+  let launched: Launched;
   let app: ElectronApplication;
   let page: Page;
-  let root: string;
-  let userDataDir: string;
-  let ids: { workspaceId: string; sessionId: string };
+  let ids: Launched['ids'];
 
   test.beforeEach(async () => {
-    root = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-links-'));
-    ({ app, page, userDataDir } = await launchElectron());
-    ids = await seed(page, root);
-    await recordSystemOpens(app);
-    await page
-      .getByRole('navigation', { name: 'Workspaces', exact: true })
-      .getByRole('button', { name: /Links/ })
-      .click();
-    await page.locator('.session-nav-item').filter({ hasText: 'Links session' }).click();
-    await page.locator('.terminal-surface textarea').focus();
-    await page.keyboard.press('Control+Backquote');
-    await expect(page.getByTestId('session-shell')).toBeVisible();
-    await expect(page.locator('.shell-directory')).toBeVisible();
+    // The shell is the side panel's Terminal tab, a narrower column than the
+    // conversation's. A wider window keeps each printed link on one row,
+    // which `printLink` finds it by.
+    launched = await launchOnTheShell({ width: 1400, height: 800 });
+    ({ app, page, ids } = launched);
   });
 
   test.afterEach(async () => {
-    await app.close();
-    removeProfile(userDataDir);
-    fs.rmSync(root, { recursive: true, force: true });
+    await closeAndClean(launched);
   });
 
   test('a local link opens in the session browser, Shift sends it to the system, and an outside link goes out', async () => {
@@ -164,6 +222,9 @@ test.describe('terminal links and the session browser', () => {
       )
       .toEqual([local]);
     expect(await systemOpens(app)).toEqual([]);
+    // The Browser tab took the shell's place in its group: bring the shell back.
+    await page.getByRole('tab', { name: 'Terminal', exact: true }).click();
+    await expect(page.getByTestId('session-shell')).toBeVisible();
 
     // Shift is the other way, for this click only.
     await clickLink(page, row, true);
@@ -213,5 +274,41 @@ test.describe('terminal links and the session browser', () => {
       )
       .toEqual([local]);
     expect(await systemOpens(app)).toEqual([local]);
+  });
+});
+
+test.describe('a terminal link at the window’s default width', () => {
+  let launched: Launched;
+  let app: ElectronApplication;
+  let page: Page;
+  let ids: Launched['ids'];
+
+  test.beforeEach(async () => {
+    launched = await launchOnTheShell();
+    ({ app, page, ids } = launched);
+  });
+
+  test.afterEach(async () => {
+    await closeAndClean(launched);
+  });
+
+  test('a link wrapped across rows of the Terminal tab opens whole in the session browser', async () => {
+    const local = fixtures.url(`/a.html?wrapped=${'x'.repeat(60)}`);
+    const first = await printWrappedLink(page, local);
+    // It does wrap: its first row holds only the start of it.
+    const shown = ((await first.textContent()) ?? '').replace(/\u00a0/g, ' ').trim();
+    expect(shown.length).toBeLessThan(local.length);
+    expect(local.startsWith(shown)).toBe(true);
+
+    await clickLink(page, first, false);
+    await expect(panel(page)).toBeVisible();
+    await expect
+      .poll(async () =>
+        (await page.evaluate((id) => window.browserAPI.get(id), ids.sessionId)).tabs.map(
+          (tab) => tab.url,
+        ),
+      )
+      .toEqual([local]);
+    expect(await systemOpens(app)).toEqual([]);
   });
 });

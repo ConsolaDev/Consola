@@ -22,7 +22,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v4
         with:
           node-version: 26.13.1
@@ -42,7 +42,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v4
         with:
           node-version: 26.13.1
@@ -54,5 +54,5 @@ jobs:
       # The site's demo runs the desktop renderer against a hand-written bridge,
       # and its build does not typecheck: this is what notices a bridge it lacks.
       - run: pnpm --filter @consola/website typecheck
-      - run: pnpm --filter @consola/cloud-api --filter @consola/cloud-web typecheck
-      - run: pnpm --filter consola --filter @consola/factory-spec --filter @consola/automation-engine --filter @consola/cloud-api --filter @consola/cloud-web test
+      - run: pnpm --filter @consola/cloud-global --filter @consola/cloud-region --filter @consola/cloud-web --filter @consola/sandbox typecheck
+      - run: pnpm --filter consola --filter @consola/factory-spec --filter @consola/automation-engine --filter @consola/cloud-global --filter @consola/cloud-region --filter @consola/cloud-web --filter @consola/sandbox test
