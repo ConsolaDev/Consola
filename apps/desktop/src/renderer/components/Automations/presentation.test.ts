@@ -32,6 +32,10 @@ import {
   unseenFailures,
   statusLabel,
   statusWord,
+  rejectedAtGate,
+  runStatusLabel,
+  runStatusWord,
+  statusCounts,
   stepWords,
   mergeRunPages,
   foldDroppedRuns,
@@ -1577,5 +1581,99 @@ describe('noticesLine', () => {
         'agents/noter.md: Something about a file.',
     );
     expect(line).not.toContain('\n');
+  });
+});
+
+// Slice 3 (review S2): a run a person rejected at a gate reads as rejected, never as turned down.
+describe('a run rejected at a gate', () => {
+  const T = ago(HOUR);
+  const rejectedRun = run({
+    id: 'rg',
+    status: 'rejected',
+    steps: [
+      {
+        id: 'decide',
+        kind: 'gate',
+        status: 'completed',
+        attempt: 1,
+        gate: { askedAt: T, decision: 'reject', by: 'person', at: T },
+      },
+    ],
+  } as Partial<RunListEntry>);
+  const turnedDownRun = run({ id: 'td', status: 'rejected' });
+
+  it("calls a run rejected at a gate 'rejected', and one turned down 'dismissed'", () => {
+    expect(rejectedAtGate(rejectedRun)).toBe('decide');
+    expect(runStatusWord(rejectedRun)).toBe('rejected');
+    expect(runStatusWord(turnedDownRun)).toBe('dismissed');
+    expect(runStatusWord(run({ status: 'failed' }))).toBe('failed');
+  });
+
+  it("labels them 'Rejected' and 'Dismissed', from a record or a list entry (review S2)", () => {
+    expect(runStatusLabel(rejectedRun)).toBe('Rejected');
+    expect(runStatusLabel(turnedDownRun)).toBe('Dismissed');
+    expect(
+      runStatusLabel({
+        status: 'rejected',
+        step: {
+          id: 'decide',
+          status: 'completed',
+          index: 3,
+          count: 5,
+          kind: 'gate',
+          gate: true,
+        },
+      }),
+    ).toBe('Rejected');
+    // A list entry whose step is no gate's: turned down, as before.
+    expect(
+      runStatusLabel({
+        status: 'rejected',
+        step: { id: 'review', status: 'not-run', index: 1, count: 2, kind: 'agent' },
+      }),
+    ).toBe('Dismissed');
+    expect(runStatusLabel(run({ status: 'waiting' }))).toBe('On hold');
+    // A list entry waiting at a gate names that gate too: it is on hold, not rejected.
+    expect(
+      runStatusLabel({
+        status: 'waiting',
+        step: { id: 'decide', status: 'waiting', index: 3, count: 5, kind: 'gate', gate: true },
+      }),
+    ).toBe('On hold');
+  });
+
+  it('names the gate the run was rejected at, after an earlier one it went past', () => {
+    const twoGates = run({
+      status: 'rejected',
+      steps: [
+        {
+          id: 'decide',
+          kind: 'gate',
+          status: 'completed',
+          attempt: 1,
+          outputs: { decision: 'approve' },
+          gate: { askedAt: T, decision: 'approve', by: 'person', at: T },
+        },
+        {
+          id: 'confirm',
+          kind: 'gate',
+          status: 'completed',
+          attempt: 1,
+          gate: { askedAt: T, decision: 'reject', by: 'person', at: T },
+        },
+      ],
+    } as Partial<RunListEntry>);
+    expect(rejectedAtGate(twoGates)).toBe('confirm');
+  });
+
+  it('counts a run rejected at a gate apart in the strip (review S2)', () => {
+    const runs = [run(), rejectedRun, turnedDownRun];
+    expect(recentRunsInWords(runs)).toBe('Last 3 runs: 1 completed, 1 rejected, 1 dismissed');
+    expect(recentRunsInWords([rejectedRun, rejectedRun])).toBe('Last 2 runs: all rejected');
+    // The insights' colours keep one bucket per status.
+    expect(statusCounts(runs)).toEqual([
+      { status: 'completed', count: 1 },
+      { status: 'rejected', count: 2 },
+    ]);
   });
 });

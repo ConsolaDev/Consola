@@ -14,6 +14,7 @@ import {
   LOG_CAP_BYTES,
   logWasCapped,
   notRunReason,
+  retryLine,
   retryScope,
   skippedCondition,
   stepCounts,
@@ -555,5 +556,119 @@ describe('agentFacts (2-C)', () => {
   it('gives nothing for an agent naming neither, or no agent', () => {
     expect(agentFacts(agent({}))).toEqual([]);
     expect(agentFacts({})).toEqual([]);
+  });
+});
+
+// Slice 3: a row parked at a gate or out a retry, a gate's answer, a loop's notes.
+describe('gates, retries and loops in the trace', () => {
+  const T1 = '2026-11-12T11:55:00.000Z';
+  const gateRow = (status: StepRun['status'], gate?: StepRun['gate']) =>
+    step({ id: 'decide', kind: 'gate', status, ...(gate ? { gate } : {}) });
+  const clock = (iso: string) =>
+    new Date(iso).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+
+  it('a waiting gate asks, a waiting retry waits to retry', () => {
+    expect(stepTone(gateRow('waiting', { askedAt: T1 }), false)).toBe('asks');
+    expect(
+      stepTone(step({ id: 'look', kind: 'agent', status: 'waiting', retryAt: T1 }), false),
+    ).toBe('retrying');
+    // A loop's row at its exhaustion gate asks too.
+    expect(
+      stepTone(
+        step({ id: 'polish', kind: 'repeat', status: 'waiting', gate: { askedAt: T1 } }),
+        false,
+      ),
+    ).toBe('asks');
+    expect(stepOutcome('asks', null)).toBe('Waiting for you');
+    expect(stepOutcome('retrying', null)).toBe('Waiting to retry');
+    // Only a status, as before: nothing to say it parked.
+    expect(stepTone('waiting', false)).toBe('pending');
+  });
+
+  it('says where a parked row waits, and how a gate was answered', () => {
+    const running = run({ status: 'waiting' });
+    expect(stepSummary(gateRow('waiting', { askedAt: T1 }), running)).toBe(
+      'waiting for you at decide',
+    );
+    expect(
+      stepSummary(step({ id: 'look', kind: 'agent', status: 'waiting', retryAt: T1 }), running),
+    ).toBe(`retries at ${clock(T1)}`);
+    expect(
+      stepSummary(
+        gateRow('completed', { askedAt: T1, decision: 'comment', by: 'person', at: T1 }),
+        run(),
+        NOW,
+      ),
+    ).toBe('answered comment by you 5m ago');
+    expect(
+      stepSummary(
+        step({ id: 'polish', kind: 'repeat', status: 'completed', note: 'clean after round 2' }),
+        run(),
+      ),
+    ).toBe('clean after round 2');
+    expect(stepSummary({ ...gateRow('reported'), note: 'Would have asked: Post it?' }, run())).toBe(
+      'Would have asked: Post it?',
+    );
+  });
+
+  it("reads a not-run step's note, then a gate's rejection", () => {
+    const thenStopped = run({
+      status: 'completed',
+      steps: [
+        step({ id: 'not-ours', status: 'completed' }),
+        step({ id: 'fix', status: 'not-run', note: 'the run stopped after `not-ours`' }),
+      ],
+    });
+    expect(notRunReason(thenStopped, thenStopped.steps![1])).toBe(
+      'the run stopped after `not-ours`',
+    );
+    expect(stepSummary(thenStopped.steps![1], thenStopped)).toBe(
+      'the run stopped after `not-ours`',
+    );
+    const rejected = run({
+      status: 'rejected',
+      steps: [
+        step({ id: 'review', kind: 'agent', status: 'completed' }),
+        gateRow('completed', { askedAt: T1, decision: 'reject', by: 'person', at: T1 }),
+        step({ id: 'publish-decided', status: 'not-run' }),
+      ],
+    });
+    expect(notRunReason(rejected, rejected.steps![2])).toBe(
+      'The run was rejected at `decide` before this step.',
+    );
+    // Turned down before it started: as before.
+    expect(notRunReason(run({ status: 'rejected' }), step({ status: 'not-run' }))).toBe(
+      'The run was turned down before it started.',
+    );
+  });
+
+  it('names the step a run failed at inside a loop, not the loop (review S10)', () => {
+    const steps = [
+      step({ id: 'polish', kind: 'repeat', status: 'failed', round: 2, max: 3 }),
+      step({ id: 'review', kind: 'agent', status: 'completed', round: 2 }),
+      step({ id: 'address', kind: 'agent', status: 'failed', round: 2 }),
+      step({ id: 'pr', status: 'not-run' }),
+    ];
+    expect(notRunReason(run({ status: 'failed', steps }), steps[3])).toBe(
+      'The run stopped at address before reaching it.',
+    );
+  });
+
+  it("says when a step's retry runs, and which of its tries it will be", () => {
+    const waiting = { retryAt: T1, retries: 1 };
+    expect(retryLine(waiting, { onFailure: { retry: 2 } })).toBe(
+      `retries at ${clock(T1)}, attempt 2 of 3`,
+    );
+    expect(retryLine(waiting)).toBe(`retries at ${clock(T1)}`);
+    expect(retryLine({})).toBeNull();
+  });
+
+  it("counts a loop's steps, not its row, and words the parked ones", () => {
+    const steps = [
+      step({ id: 'polish', kind: 'repeat', status: 'running', round: 1, max: 3 }),
+      step({ id: 'look', kind: 'agent', status: 'waiting', retryAt: T1 }),
+      gateRow('waiting', { askedAt: T1 }),
+    ];
+    expect(stepCounts(steps, false)).toBe('2 steps · 1 waiting for you · 1 waiting to retry');
   });
 });

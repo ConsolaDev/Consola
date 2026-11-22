@@ -54,7 +54,7 @@ import {
   recentRunsInWords,
   runAbout,
   runTitle,
-  statusLabel,
+  runStatusLabel,
   tableShowsUnseenFailures,
   triggerInWords,
   triggerLabel,
@@ -618,7 +618,7 @@ function HistoryBar({
         >
           <span className="automations-bar-tooltip-head">
             <StatusDot status={run.status} />
-            <strong>{statusLabel(run.status)}</strong>
+            <strong>{runStatusLabel(run)}</strong>
             <span className="automations-bar-tooltip-when">
               {formatRunWhen(run.createdAt, now)}
             </span>

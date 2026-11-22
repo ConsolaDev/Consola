@@ -44,7 +44,7 @@ import {
   runAgainTarget,
   runRowWords,
   runTitle,
-  statusLabel,
+  runStatusLabel,
   triggerInWords,
   type RunAutomationOption,
   type RunFacts,
@@ -113,7 +113,7 @@ export function RunItem({
 }) {
   const washed = useArrivedOnMount(arrived);
   const { about, step } = runRowWords(run);
-  const status = `${statusLabel(run.status)}${run.status === 'queued' && place !== undefined ? ` · ${place} in line` : ''}`;
+  const status = `${runStatusLabel(run)}${run.status === 'queued' && place !== undefined ? ` · ${place} in line` : ''}`;
   // With nothing to say about itself, a run's "about" is its status: the title says that instead.
   const title = about !== run.status ? about : status;
   const worked = run.status === 'completed' || run.status === 'failed' || run.status === 'running';

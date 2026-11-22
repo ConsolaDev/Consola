@@ -3562,8 +3562,22 @@
   border-radius: var(--radius-lg);
 }
 
-.automations-trace-step + .automations-trace-step {
+.automations-trace-step + .automations-trace-step,
+.automations-trace > li + li {
   border-top: 1px solid var(--color-border);
+}
+
+/* A loop: its own row, then the rows of its steps, set in under it. */
+.automations-trace-loop:focus {
+  outline: none;
+}
+
+.automations-trace-loop.automations-flash {
+  animation-name: automations-flash-row;
+}
+
+.automations-trace-inner {
+  margin: 0 var(--space-3) 10px calc(var(--space-3) + 16px + var(--space-3));
 }
 
 .automations-trace-step:focus {
@@ -3695,8 +3709,21 @@
 }
 
 .automations-trace-waiting .automations-trace-icon,
-.automations-trace-waiting .automations-trace-outcome {
+.automations-trace-waiting .automations-trace-outcome,
+.automations-trace-asks .automations-trace-icon,
+.automations-trace-asks .automations-trace-outcome,
+.automations-trace-retrying .automations-trace-icon,
+.automations-trace-retrying .automations-trace-outcome {
   color: var(--color-warning);
+}
+
+/* A gate waiting for the person reads as the step that needs them. */
+.automations-trace-asks .automations-trace-head {
+  background: color-mix(in srgb, var(--color-warning) 6%, transparent);
+}
+
+.automations-trace-asks .automations-trace-head:hover {
+  background: color-mix(in srgb, var(--color-warning) 10%, transparent);
 }
 
 .automations-trace-skipped .automations-trace-id,
@@ -4275,4 +4302,62 @@
 .automations-earlier-run {
   align-self: flex-start;
   font-size: var(--font-size-sm, 12px);
+}
+
+/* A gate's card on the run page: its question, the documents it shows, one button per choice and Reject. */
+.automations-gate-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 2px 0;
+}
+
+.automations-gate-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin: 0;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-normal);
+  color: var(--color-text-primary);
+}
+
+.automations-gate-heading svg {
+  flex: none;
+  margin-top: 3px;
+  color: var(--color-warning);
+}
+
+.automations-gate-material {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.automations-gate-material-label {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-tertiary);
+}
+
+.automations-gate-newer {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-warning);
+}
+
+.automations-gate-answered {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.automations-gate-choices {
+  flex-wrap: wrap;
+}
+
+/* A run a person rejected at a gate: said once, at the top, as a failure is. */
+.automations-rejected > svg {
+  color: var(--color-warning);
 }

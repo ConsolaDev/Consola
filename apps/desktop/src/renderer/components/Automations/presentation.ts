@@ -41,6 +41,41 @@ export function statusWord(status: RunFacts['status']): string {
   return STATUS_WORDS[status];
 }
 
+/** What `rejectedAtGate` reads: a record's steps, or a list entry's `step`, which has no records. */
+export type RejectedFacts = Pick<RunFacts, 'status' | 'steps'> & { step?: RunListEntry['step'] };
+
+/**
+ * The gate a person rejected a run at, when they did: from its records (the
+ * gate row whose answer is `reject`), or for a list entry its `step`, which
+ * names the gate a rejected run ended at (`gate`). Undefined for any other
+ * run, a `rejected` one turned down before it started included.
+ */
+export function rejectedAtGate(run: RejectedFacts): string | undefined {
+  if (run.status !== 'rejected') return undefined;
+  const row = run.steps?.find((step) => step.gate?.decision === 'reject');
+  if (row) return row.id;
+  return run.step?.gate ? run.step.id : undefined;
+}
+
+/**
+ * A run's status in one word, as `statusWord` says it, but a run rejected at
+ * a gate is `rejected`: it ran, then a person said no, which is not a run
+ * turned down before it started (`dismissed`).
+ */
+export function runStatusWord(run: RejectedFacts): string {
+  return rejectedAtGate(run) !== undefined ? 'rejected' : statusWord(run.status);
+}
+
+/** A run's status as a label, as `statusLabel` says it, but `Rejected` for a run rejected at a gate. */
+export function runStatusLabel(run: RejectedFacts): string {
+  return rejectedAtGate(run) !== undefined ? 'Rejected' : statusLabel(run.status);
+}
+
+/** A time of day, as the run list says one: `10:42`, in the person's own clock. */
+export function clockTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+}
+
 /** What an automation does when it fires, in words. */
 export function modeInWords(
   mode: AutomationMode,
@@ -550,20 +585,39 @@ const STRIP_ORDER: ReadonlyArray<RunFacts['status']> = [
 ];
 
 /** The strip in words, for whoever cannot see its colours: "Last 12 runs: 11 completed, 1 failed". */
-export function recentRunsInWords(runs: RunFacts[]): string {
+export function recentRunsInWords(runs: Array<RunFacts & RejectedFacts>): string {
   if (runs.length === 0) return 'No runs in the last 30 days';
   const lead = runs.length === 1 ? 'Last run' : `Last ${runs.length} runs`;
-  const present = STRIP_ORDER.filter((status) => runs.some((run) => run.status === status));
-  if (present.length === 1)
-    return `${lead}: ${runs.length === 1 ? '' : 'all '}${statusWord(present[0])}`;
+  const counts = wordCounts(runs);
+  if (counts.length === 1) return `${lead}: ${runs.length === 1 ? '' : 'all '}${counts[0].word}`;
   return `${lead}: ${statusCountsInWords(runs)}`;
 }
 
-/** How runs ended, counted in the strip's order: "3 completed, 1 failed". */
-export function statusCountsInWords(runs: RunFacts[]): string {
-  return statusCounts(runs)
-    .map(({ status, count }) => `${count} ${statusWord(status)}`)
+/**
+ * How runs ended, counted in the strip's order: "3 completed, 1 failed". A
+ * run rejected at a gate counts apart from one turned down before it
+ * started: "1 rejected, 1 dismissed" (`runStatusWord`).
+ */
+export function statusCountsInWords(runs: Array<RunFacts & RejectedFacts>): string {
+  return wordCounts(runs)
+    .map(({ word, count }) => `${count} ${word}`)
     .join(', ');
+}
+
+/** Runs counted by `runStatusWord`, in the strip's order (a gate's `rejected` before `dismissed`). */
+function wordCounts(runs: Array<RunFacts & RejectedFacts>): Array<{ word: string; count: number }> {
+  const counts: Array<{ word: string; count: number }> = [];
+  for (const status of STRIP_ORDER) {
+    const words =
+      status === 'rejected' ? ['rejected', statusWord('rejected')] : [statusWord(status)];
+    for (const word of words) {
+      const count = runs.filter(
+        (run) => run.status === status && runStatusWord(run) === word,
+      ).length;
+      if (count > 0) counts.push({ word, count });
+    }
+  }
+  return counts;
 }
 
 /** Runs counted by status, in the strip's order, leaving out the ones none have. */

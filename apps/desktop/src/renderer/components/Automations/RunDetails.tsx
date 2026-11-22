@@ -41,18 +41,18 @@ import {
 import {
   filterRuns,
   finalAnswer,
-  formatAgo,
   formatDuration,
   formatElapsed,
   formatTime,
   NO_RUN_FILTER,
   runStage,
-  statusLabel,
+  runStatusLabel,
   triggerInWords,
 } from './presentation';
 import {
   adjacentRuns,
   durationAgainstUsual,
+  leadDetail,
   runNotes,
   runStages,
   type RunStage,
@@ -462,23 +462,8 @@ function RunLead({
   history: RunListEntry[];
   landed: boolean;
 }) {
-  const duration = run.startedAt ? formatDuration(run, now) : null;
   const ended = run.finishedAt ?? run.updatedAt;
-  const detail =
-    run.status === 'running'
-      ? `for ${duration ?? '0s'}`
-      : run.status === 'queued'
-        ? place !== undefined
-          ? `${place} in line`
-          : formatAgo(run.createdAt, now)
-        : run.status === 'needs-approval'
-          ? `asked ${formatAgo(run.createdAt, now)}`
-          : [
-              duration ? `${run.status === 'failed' ? 'after' : 'in'} ${duration}` : null,
-              formatAgo(ended, now),
-            ]
-              .filter(Boolean)
-              .join(' · ');
+  const detail = leadDetail(run, now, place);
   const notes = runNotes(run, history);
   const preview = isAgentRunPreview(run.result) ? run.result : null;
   // An agent run's own summary repeats what the page shows ("Running in …", "Ready in …"); so does a
@@ -498,7 +483,7 @@ function RunLead({
       <div className="automations-lead-text">
         <p className="automations-lead-headline">
           <span className={`automations-run-status automations-tone-${run.status}`}>
-            {statusLabel(run.status)}
+            {runStatusLabel(run)}
           </span>
           <span className="automations-lead-when" title={formatTime(ended)}>
             {detail}

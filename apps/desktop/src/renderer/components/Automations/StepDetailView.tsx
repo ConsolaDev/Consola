@@ -24,6 +24,7 @@ import {
   formatBytes,
   logWasCapped,
   notRunReason,
+  retryLine,
   runIsOver,
   skippedCondition,
   stepTone,
@@ -97,7 +98,7 @@ export function StepDetail({
   const ready = detail.state === 'ready' ? detail.value : null;
   const record = ready?.record ?? step;
   const attempts = attemptsLine(record);
-  const tone = stepTone(record.status, runIsOver(run.status));
+  const tone = stepTone(record, runIsOver(run.status));
   // Failed before it started (its `if:` could not be read, a value it needed was missing): nothing ran to trace.
   const failedEarly = tone === 'failed' && record.startedAt === undefined;
   const ran = (tone === 'passed' || tone === 'failed' || tone === 'running') && !failedEarly;
@@ -180,7 +181,9 @@ function NotRunFacts({
   const values = condition ? conditionValues(condition, run.steps ?? []) : [];
   return (
     <>
-      <Fact label={tone === 'pending' || tone === 'waiting' ? 'Waits' : 'Why'}>
+      <Fact
+        label={tone === 'pending' || tone === 'waiting' || tone === 'retrying' ? 'Waits' : 'Why'}
+      >
         {tone === 'skipped' ? (
           condition ? (
             <>
@@ -210,10 +213,21 @@ function NotRunFacts({
           <p className="automations-fact-text">
             For a free agent slot. A few automation sessions work at once; the rest start in order.
           </p>
+        ) : tone === 'retrying' ? (
+          <>
+            <p className="automations-fact-text">
+              To try again by itself: it {step.error ? 'failed' : 'stopped'}, and its file lets it
+              retry.
+            </p>
+            <p className="automations-fact-text">{retryLine(step, definition)}</p>
+            {step.error && (
+              <p className="automations-fact-text automations-fact-bad">{step.error}</p>
+            )}
+          </>
         ) : tone === 'pending' ? (
           <p className="automations-fact-text">It starts once the steps before it are done.</p>
         ) : (
-          <p className="automations-fact-text">{notRunReason(run)}</p>
+          <p className="automations-fact-text">{notRunReason(run, step)}</p>
         )}
       </Fact>
       {definition && <WouldRun definition={definition} />}
