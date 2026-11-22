@@ -46,7 +46,8 @@ type NodeState = 'due' | 'waiting' | 'running' | 'queued' | 'passed' | 'preview'
  *
  * The nodes carry what is happening now, and only that: the countdown to
  * the next run, a run waiting at the approval step, one parked at a gate
- * (or a loop's exhaustion gate), one working in the target. How past runs went is the lead's and the run list's to say.
+ * (or a loop's exhaustion gate), one working in the target. How past runs
+ * went is the lead's and the run list's to say.
  */
 export function PipelineGraph({
   automation,
