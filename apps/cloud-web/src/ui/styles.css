@@ -25,6 +25,107 @@ body {
   gap: 16px;
 }
 
+/* The dashboard: the topbar across the page, then its nav beside the open section. */
+.main.wide {
+  max-width: 960px;
+  justify-content: flex-start;
+}
+
+.dashboard {
+  display: grid;
+  grid-template-columns: 168px minmax(0, 1fr);
+  align-items: start;
+  gap: 24px;
+}
+
+.dashboard-nav ul {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.nav-link {
+  display: block;
+  padding: 6px 10px;
+  border-radius: 6px;
+  color: var(--gray-11);
+  font-size: 14px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.nav-link:hover {
+  background: var(--gray-a3);
+  color: var(--gray-12);
+}
+
+.nav-link[aria-current="page"] {
+  background: var(--accent-a3);
+  color: var(--accent-11);
+  font-weight: 500;
+}
+
+.nav-link:focus-visible {
+  outline: 2px solid var(--accent-8);
+  outline-offset: 0;
+}
+
+.dashboard-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+/* Narrow screens put the nav above the section, as a row that scrolls. */
+@media (max-width: 640px) {
+  .dashboard {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+
+  .dashboard-nav ul {
+    flex-direction: row;
+    overflow-x: auto;
+  }
+}
+
+/* A section's title, with its page's actions at the end of the line. */
+.section-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  min-height: 36px;
+}
+
+.section-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+/* Label and value pairs, such as the overview's facts about the workspace. */
+.facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 8px 24px;
+  margin: 0;
+}
+
+.facts dt {
+  color: var(--gray-11);
+}
+
+.facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
 .topbar {
   display: flex;
   flex-wrap: wrap;
