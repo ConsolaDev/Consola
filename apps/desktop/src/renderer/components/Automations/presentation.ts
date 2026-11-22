@@ -1151,6 +1151,22 @@ export function runAgainTarget(run: RunRecord): ItemTarget | null {
   return null;
 }
 
+/** A name as the factory's files take it (factory-spec's `AUTOMATION_NAME_PATTERN`). */
+const FILE_NAME = '[a-z0-9][a-z0-9-]{0,63}';
+const OPENABLE = new RegExp(
+  `^(?:factory\\.yml|automations/${FILE_NAME}\\.yaml|agents/${FILE_NAME}\\.md|skills/${FILE_NAME}/SKILL\\.md)$`,
+);
+
+/**
+ * Whether Open accepts this path of the folder: one of the factory's own
+ * files (`FactoryFolder.pathOf`'s rule, copied, with a parity test in main).
+ * A stray, a skill's folder or its other files, and a name that is no name
+ * are listed with their issues but offer no Open, which would only refuse.
+ */
+export function isOpenableFile(relative: string): boolean {
+  return OPENABLE.test(relative);
+}
+
 /**
  * The folder's issues by the file each is in, files in the order they first
  * appear and issues in theirs; one with no file is `factory.yml`'s, the file

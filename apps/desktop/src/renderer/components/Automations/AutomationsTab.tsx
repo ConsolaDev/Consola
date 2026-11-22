@@ -44,6 +44,7 @@ import {
   formatRunWhen,
   formatTime,
   historySlots,
+  isOpenableFile,
   issuesByFile,
   issuesTitle,
   latestRun,
@@ -268,16 +269,18 @@ function FileIssues({
         <div key={file} className="automations-issues-file">
           <div className="automations-issues-file-head">
             <code>{file}</code>
-            <button
-              type="button"
-              className="automations-link-button"
-              aria-label={`Open ${file}`}
-              disabled={opening}
-              onClick={() => onOpen(file)}
-            >
-              <ExternalLink size={11} aria-hidden="true" />
-              Open
-            </button>
+            {isOpenableFile(file) && (
+              <button
+                type="button"
+                className="automations-link-button"
+                aria-label={`Open ${file}`}
+                disabled={opening}
+                onClick={() => onOpen(file)}
+              >
+                <ExternalLink size={11} aria-hidden="true" />
+                Open
+              </button>
+            )}
           </div>
           <ul>
             {issues.map((issue, index) => (
