@@ -1529,6 +1529,8 @@ like t3:
 |---|---|---|
 | `src/t3/index.css` | `apps/web/src/index.css` | t3's Tailwind entry and theme. `main.tsx` imports it, not `ChatView.tsx`; Consola's `src/styles.css` imports it. |
 | `src/t3/vite-env.d.ts` | `apps/web/src/vite-env.d.ts` | The `import.meta.env` and `window.desktopBridge` types the copied files are checked against. |
+| `src/t3/i18n/I18nProvider.tsx`, `src/t3/i18n/runtime.ts`, `src/t3/i18n/initializeI18n.ts` | same paths | t3's language setup, which `AgentChat.tsx` mounts and starts as t3's `AppRoot.tsx` and `appInit.tsx` do: without it, t3's `gt-react` hooks throw. Their closure adds nothing else (`hooks/useSettings.ts` and `i18n/locales.ts`, `messages.ts` are in the closure). |
+| `src/t3/i18n/translations/*.json` (10) | same paths | The catalogs `initializeI18n.ts` loads with a template `import()` (one chunk per language, English never loaded), so the chat speaks the person's language as t3's does. |
 | `src/t3/terminal/ghostty/fonts/LICENSE` | same path | The font's MIT notice, which travels with `SymbolsNerdFontMono-Regular.woff2`. |
 | `src/gt.config.json` | `apps/web/gt.config.json` | `i18n/locales.ts` imports `../../gt.config.json`, which resolves here. |
 | `src/t3-root/assets/prod/t3-black-web-apple-touch-180.png` | `assets/prod/t3-black-web-apple-touch-180.png` | `components/T3AppIcon.tsx` imports it as `../../../../assets/prod/…`, t3's repository root, which has no place in this package; `vite.config.ts` resolves that one specifier here. |
@@ -1543,11 +1545,11 @@ Consola does not redistribute them: they are left out of the copy, and
 phone preview they draw is part of t3's in-app browser, which `AgentChat` does not
 mount). The other 1,032 closure files are copied.
 
-So `src/t3/` holds 1,035 files: the 1,032 and the three t3 files above. No copied file
+So `src/t3/` holds 1,048 files: the 1,032 and the sixteen t3 files above. No copied file
 differs from `d51d8c47`; none is listed under "Local changes".
 
 <details>
-<summary>Every file under <code>packages/agent-ui/src/t3/</code> (1,035, from <code>apps/web/src/</code>)</summary>
+<summary>Every file under <code>packages/agent-ui/src/t3/</code> (1,048, from <code>apps/web/src/</code>)</summary>
 
 ```
 appearanceFonts.ts
@@ -2385,8 +2387,21 @@ hooks/useThreadRouteTarget.ts
 hooks/useWorkspaceMutationRefresh.ts
 hooks/useWorktreeRepositoryChoices.ts
 hostedPairing.ts
+i18n/I18nProvider.tsx
+i18n/initializeI18n.ts
 i18n/locales.ts
 i18n/messages.ts
+i18n/runtime.ts
+i18n/translations/de.json
+i18n/translations/en.json
+i18n/translations/es.json
+i18n/translations/fr.json
+i18n/translations/ja.json
+i18n/translations/ko.json
+i18n/translations/pt-BR.json
+i18n/translations/ru.json
+i18n/translations/sv.json
+i18n/translations/zh.json
 index.css
 keybindings.ts
 lib/accessibilityAnnouncements.ts

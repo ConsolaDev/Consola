@@ -1,3 +1,4 @@
+// @effect-diagnostics nodeBuiltinImport:off - Vite loads its config in Node, before any Effect runtime.
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import tailwindcss from '@tailwindcss/postcss';
@@ -63,9 +64,10 @@ export default defineConfig({
     ]),
   ),
   resolve: {
-    tsconfigPaths: true,
     dedupe: ['react', 'react-dom'],
     alias: [
+      // t3's `~/` (`apps/web/tsconfig.json` paths), as an alias so Vite's dependency scan follows it.
+      { find: /^~\//, replacement: `${here('./src/t3')}/` },
       {
         // t3's repository root, from `components/T3AppIcon.tsx` (vendor/t3code/UPSTREAM.md).
         find: '../../../../assets/prod/t3-black-web-apple-touch-180.png',
@@ -105,6 +107,8 @@ export default defineConfig({
         test: {
           name: 'browser',
           include: ['src/**/*.browser.test.tsx'],
+          // One page at a time: each file's page starts with nothing shown.
+          fileParallelism: false,
           // A host replaying t3's `simple` fixture, on an isolated machine (see the file).
           globalSetup: ['./src/testing/hostSession.ts'],
           hookTimeout: 60_000,

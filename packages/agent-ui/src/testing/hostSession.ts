@@ -1,3 +1,5 @@
+// @effect-diagnostics nodeBuiltinImport:off - It starts the tests' host processes on a machine of its own.
+// @effect-diagnostics globalTimers:off - A Vitest global setup, outside any Effect runtime.
 /**
  * The browser tests' host (Vitest `globalSetup`, run in Node before any browser starts): the
  * host's own test entry, `consola-host session` replaying t3's recorded Claude `simple` fixture

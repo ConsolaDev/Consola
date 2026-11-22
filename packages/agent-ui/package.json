@@ -18,7 +18,7 @@
   ],
   "scripts": {
     "build": "vp build",
-    "typecheck": "effect-tsgo tsrs --noEmit",
+    "typecheck": "node build/typecheck.ts",
     "test": "vp test run"
   },
   "peerDependencies": {
@@ -117,6 +117,7 @@
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "tailwindcss": "4.3.3",
+    "typescript": "5.9.3",
     "vite": "npm:@voidzero-dev/vite-plus-core@1.4.0",
     "vite-plus": "catalog:"
   }

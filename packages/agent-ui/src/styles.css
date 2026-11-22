@@ -1,5 +1,85 @@
 /*
  * @consola/agent-ui's stylesheet: t3's Tailwind entry and theme, compiled and then scoped
- * (build/scopeCss.ts), so it styles only what `AgentChat` renders.
+ * (build/scopeCss.ts), so it styles only what `AgentChat` renders: `.consola-agent-ui`, and the
+ * popups it opens (`.consola-agent-ui-portal`). t3's `:root`, `html` and `body` rules apply to
+ * `.consola-agent-ui-theme`, the element inside the root that stands in for t3's document.
  */
 @import "./t3/index.css";
+
+/*
+ * Consola's colour tokens, where the page carries them: the desktop sets them on
+ * `html[data-theme="light" | "dark"]`. They are read there, under names of this package's own,
+ * because inside the chat Tailwind's theme reuses some of the same names (`--color-border`,
+ * `--color-accent`, …). The selector names the scope only to keep it out of scopeCss's reach; it
+ * matches the element carrying `data-theme`.
+ */
+:where([data-theme]):not(.consola-agent-ui) {
+  --consola-agent-ui-bg: var(--color-bg-primary);
+  --consola-agent-ui-bg-raised: var(--color-bg-secondary);
+  --consola-agent-ui-bg-muted: var(--color-bg-tertiary);
+  --consola-agent-ui-bg-sidebar: var(--color-bg-sidebar);
+  --consola-agent-ui-bg-hover: var(--color-bg-hover);
+  --consola-agent-ui-text: var(--color-text-primary);
+  --consola-agent-ui-text-muted: var(--color-text-secondary);
+  --consola-agent-ui-text-faint: var(--color-text-tertiary);
+  --consola-agent-ui-border: var(--color-border);
+  --consola-agent-ui-border-strong: var(--color-border-strong);
+  --consola-agent-ui-accent: var(--color-accent);
+  --consola-agent-ui-on-accent: var(--color-accent-text);
+  --consola-agent-ui-error: var(--color-error);
+  --consola-agent-ui-warning: var(--color-warning);
+  --consola-agent-ui-success: var(--color-success);
+  --consola-agent-ui-info: var(--color-info);
+  --consola-agent-ui-scrollbar: var(--color-scrollbar-thumb);
+  --consola-agent-ui-scrollbar-hover: var(--color-scrollbar-thumb-hover);
+}
+
+/*
+ * t3's theme variables, mapped to those tokens. Light or dark is the page's: `AgentChat` puts
+ * `dark` on the theme element (and its popups) when the nearest `[data-theme]` says so, and the
+ * tokens already carry that theme's colours. A page without them keeps t3's own palette, light or
+ * dark as the system asks.
+ */
+:where([data-theme]) .consola-agent-ui .consola-agent-ui-theme,
+:where([data-theme]) .consola-agent-ui-portal[data-base-ui-portal] {
+  --background: var(--consola-agent-ui-bg);
+  --foreground: var(--consola-agent-ui-text);
+  --card: var(--consola-agent-ui-bg-raised);
+  --card-foreground: var(--consola-agent-ui-text);
+  --popover: var(--consola-agent-ui-bg-raised);
+  --popover-foreground: var(--consola-agent-ui-text);
+  --primary: var(--consola-agent-ui-accent);
+  --primary-foreground: var(--consola-agent-ui-on-accent);
+  --secondary: var(--consola-agent-ui-bg-muted);
+  --secondary-foreground: var(--consola-agent-ui-text);
+  --muted: var(--consola-agent-ui-bg-muted);
+  --muted-foreground: var(--consola-agent-ui-text-muted);
+  --placeholder: var(--consola-agent-ui-text-faint);
+  --accent: var(--consola-agent-ui-bg-hover);
+  --accent-foreground: var(--consola-agent-ui-text);
+  --border: var(--consola-agent-ui-border);
+  --input: var(--consola-agent-ui-border-strong);
+  --ring: var(--consola-agent-ui-accent);
+  --destructive: var(--consola-agent-ui-error);
+  --error: var(--consola-agent-ui-error);
+  --warning: var(--consola-agent-ui-warning);
+  --success: var(--consola-agent-ui-success);
+  --info: var(--consola-agent-ui-info);
+  --sidebar: var(--consola-agent-ui-bg-sidebar);
+  --app-scrollbar-thumb: var(--consola-agent-ui-scrollbar);
+  --app-scrollbar-thumb-hover: var(--consola-agent-ui-scrollbar-hover);
+}
+
+/*
+ * The chat fills the box it is given and lays itself out inside it: `contain: layout` makes the
+ * root the containing block of t3's fixed-position controls, which would otherwise sit on the
+ * page's viewport.
+ */
+.consola-agent-ui {
+  contain: layout;
+  height: 100%;
+}
+
+.consola-agent-ui .consola-agent-ui-theme {
+  height: 100%;
+}

@@ -25,5 +25,11 @@
       }
     ]
   },
-  "include": ["src", "build", "vite.config.ts"]
+  "include": ["src"],
+  // Node's side is tsconfig.node.json.
+  "exclude": [
+    "src/testing/hostSession.ts",
+    "src/testing/sendFixtureMessage.ts",
+    "src/boundary.test.ts"
+  ]
 }
