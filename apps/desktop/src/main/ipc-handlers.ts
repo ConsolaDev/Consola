@@ -59,7 +59,7 @@ import { SessionLauncher, launchFieldsFor } from './SessionLauncher';
 import { fanOut } from './fanOut';
 import { listScopeRepos } from './scopeRepos';
 import { runHeadless } from './drivers/ClaudeDriver';
-import { getDriver, toHarnessConfig, toolPolicyProblem } from './drivers';
+import { getDriver, toHarnessConfig } from './drivers';
 import { harnessCapabilitiesCache } from './HarnessCapabilitiesCache';
 import { SessionNamer } from './sessionTitles/SessionNamer';
 import { borrowProviderEnv, composeProviderEnv, getProviderDriver } from './providers';
@@ -105,7 +105,14 @@ import { ProcessCwdIndex } from './worktreeCleanup/ProcessCwdIndex';
 import { ToolRegistry } from './tools/Tool';
 import { consolaTools } from './tools/consolaTools';
 import { desktopWorkItemPort } from './automations/workItemPort';
-import { sessionRecord, toItemSnapshot, toWorkspaceView } from './automations/engineViews';
+import {
+  sessionRecord,
+  toItemSnapshot,
+  toTurnInitView,
+  toTurnReportView,
+  toWorkspaceView,
+} from './automations/engineViews';
+import { agentHarnessView } from './automations/agentHarness';
 import {
   launchAgentRun,
   runningIn,
@@ -1678,11 +1685,20 @@ export function setupIpcHandlers(): boolean {
       exitCode: info.exitCode,
       lastLine: info.lastLine,
       stopped: info.stopped,
+      ...(info.report ? { report: toTurnReportView(info.report) } : {}),
     });
     // Work that completed is a result nobody has looked at: the session is done, not merely exited.
     if (ended?.completed) attentionSessions.runCompleted(instanceId);
     // "Its automation run ended" may now apply; a little later, once it has settled.
     worktreeSweeper?.kick(RUN_ENDED_DEBOUNCE_MS);
+  });
+  // A step's reporting turn says which model it runs and which servers it
+  // loaded as it starts: the engine records the model and checks the servers
+  // its agent needs, stopping the turn at once when one is missing.
+  manager.addTurnInitListener((instanceId, init) => {
+    const located = findSessionByInstanceId(workspaces.getAll(), instanceId);
+    if (!located) return;
+    automationService?.turnStarted(located.session.id, toTurnInitView(init));
   });
   // A CLI that quits on an error needs the person: it ends a snooze. Exit 0
   // never does (it covers /exit, Ctrl+C and a death by signal), nor a turn
@@ -2111,13 +2127,9 @@ export function setupIpcHandlers(): boolean {
     hasLiveTerminal: (session) => automationTerminal(session.id)?.hasClaudeExited() === false,
     agentHarness: (workspaceId) => {
       const workspace = workspaces.getAll().find((candidate) => candidate.id === workspaceId);
-      const harness = harnesses
-        .getAll()
-        .find((candidate) => candidate.id === workspace?.defaultHarnessId);
-      return {
-        name: harness?.name ?? 'Claude',
-        problem: toolPolicyProblem(launchFieldsFor(harness), 'read-only'),
-      };
+      return agentHarnessView(
+        harnesses.getAll().find((candidate) => candidate.id === workspace?.defaultHarnessId),
+      );
     },
     stopAgent: (session, reason) =>
       automationTerminal(session.id)?.stopUnattendedTurn(reason) ?? false,
