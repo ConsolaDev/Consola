@@ -660,27 +660,34 @@ test.describe('info panel', () => {
   });
 
   test("the Branch section compares with the pull request's base", async () => {
-    // Against origin's default branch, as for any session.
-    await openSession('Paginate the catalog search');
-    await expect(baseRow('origin/main')).toContainText('3 files');
-    const againstMain = await baseRow('origin/main').textContent();
-
-    // origin's default branch is now the branch's own upstream, which an
-    // unlinked session does not compare with. The pull request's base is
-    // still main, which D compares with.
+    // origin's default branch is A's own upstream, which no session compares
+    // with. #51's base is main, so a line against origin/main can only come
+    // from the pull request.
     git(
       repo,
       'symbolic-ref',
       'refs/remotes/origin/HEAD',
       'refs/remotes/origin/feat/search-pagination',
     );
+
+    // A, whose branch #51 was found from, once #51's details are read.
+    await openSession('Paginate the catalog search');
+    await expect(prSection().getByText(FOUND, { exact: true })).toBeVisible();
+    await expect(prSection().getByText('into main', { exact: true })).toBeVisible();
+    await expect(baseRow('origin/main')).toContainText('3 files');
+    const againstMain = await baseRow('origin/main').textContent();
+
+    // D, linked to #51, in the same checkout: the same line.
     await openSession(FIX_CI);
     await expect(prSection().getByText('into main', { exact: true })).toBeVisible();
     await expect(baseRow('origin/main')).toContainText('3 files');
     expect(await baseRow('origin/main').textContent()).toBe(againstMain);
 
-    await openSession('Paginate the catalog search');
-    await expect(branchRow('feat/search-pagination')).toContainText('↑2');
-    await expect(baseRow('origin/')).toHaveCount(0);
+    // B's branch has no pull request: it compares with origin's default branch.
+    await openSession('Update the readme');
+    await expect(
+      prSection().getByText('No pull request for this branch.', { exact: true }),
+    ).toBeVisible();
+    await expect(baseRow('origin/feat/search-pagination')).toContainText('No changes');
   });
 });

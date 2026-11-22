@@ -14,8 +14,9 @@ const ICON_SIZE = 14;
 
 /**
  * The checkout's branch: what waits to be pushed, what is uncommitted, and
- * how far it has come from its base, the session's pull request's when its
- * details are known. Every count is what the clone already holds; nothing is
+ * how far it has come from its base, the session's pull request's (linked,
+ * else found from the branch) when its details are known. Every count is
+ * what the clone already holds; nothing is
  * fetched. Drawn only for a checkout git knows, or a removed worktree
  * (`branchSectionShown`).
  */
@@ -45,7 +46,10 @@ function BranchRows({ facts }: { facts: TabFacts }) {
     <CheckoutRows
       dir={facts.checkoutPath}
       label={label}
-      pullRequest={detailsTargetOf(facts.workspace, sessionPullRequest(facts.session)?.ref)}
+      pullRequest={detailsTargetOf(
+        facts.workspace,
+        sessionPullRequest(facts.session, facts.foundPullRequest)?.ref,
+      )}
     />
   );
 }
