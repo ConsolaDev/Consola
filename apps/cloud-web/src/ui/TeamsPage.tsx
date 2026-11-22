@@ -1,3 +1,4 @@
+import { Plus } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   MEMBER_VIEW_NOTE,
@@ -14,10 +15,10 @@ import { TeamNameForm } from './TeamNameForm';
 import './TeamsPage.css';
 
 /**
- * The workspace's teams, from its regional cell. Owners and admins see every team and change
- * them; a member sees the teams they are in, with no controls, since the cell says which
- * (`canManage`). After every change the page loads the teams again, so it shows what the cell
- * holds, whoever else changed it meanwhile.
+ * Settings → Teams: the workspace's teams, from its regional cell. Owners and admins see every
+ * team and change them; a member sees the teams they are in, with no controls, since the cell
+ * says which (`canManage`). After every change the page loads the teams again, so it shows what
+ * the cell holds, whoever else changed it meanwhile.
  */
 export function TeamsPage({ workspace }: SectionProps) {
   const [state, setState] = useState<TeamsState | null>(null);
@@ -42,40 +43,44 @@ export function TeamsPage({ workspace }: SectionProps) {
   const listed = state?.kind === 'listed' ? state : null;
 
   return (
-    <>
-      <header className="section-header">
-        <h1 className="section-title">Teams</h1>
+    <div className="settings-section teams">
+      <div className="teams-header">
+        <div className="settings-option-info">
+          <h2 className="settings-section-title">Teams</h2>
+          <p className="settings-option-description">
+            {TEAMS_INTRO}
+            {listed && !listed.canManage && ` ${MEMBER_VIEW_NOTE}`}
+          </p>
+        </div>
         {listed?.canManage && !creating && (
-          <button type="button" className="button primary" onClick={() => setCreating(true)}>
+          <button
+            type="button"
+            className="settings-button accent"
+            onClick={() => setCreating(true)}
+          >
+            <Plus size={14} aria-hidden="true" />
             New team
           </button>
         )}
-      </header>
-      <p className="muted">
-        {TEAMS_INTRO}
-        {listed && !listed.canManage && ` ${MEMBER_VIEW_NOTE}`}
-      </p>
+      </div>
 
-      {state === null && <p className="muted">Loading teams…</p>}
+      {state === null && <p className="settings-option-description">Loading teams…</p>}
 
       {state && state.kind !== 'listed' && (
-        <section className="card">
+        <div className="teams-card teams-notice">
           <p role="alert">{messageForTeamsState(state, workspace)}</p>
           {(state.kind === 'pending' || state.kind === 'unavailable') && (
-            <div className="actions">
-              <button type="button" className="button" onClick={() => void load()}>
-                Try again
-              </button>
-            </div>
+            <button type="button" className="settings-button" onClick={() => void load()}>
+              Try again
+            </button>
           )}
-        </section>
+        </div>
       )}
 
       {listed && creating && (
-        <section className="card">
-          <h2 className="heading">New team</h2>
+        <div className="teams-card">
           <TeamNameForm
-            label="Name"
+            label="New team"
             submitLabel="Create team"
             onCancel={() => setCreating(false)}
             onSubmit={async (name) => {
@@ -88,25 +93,27 @@ export function TeamsPage({ workspace }: SectionProps) {
               return answer.kind === 'invalid' ? answer : failure;
             }}
           />
-        </section>
+        </div>
       )}
 
       {listed && listed.teams.length === 0 && (
-        <section className="card">
-          <p className="muted">{NO_TEAMS_FOR_MEMBER}</p>
-        </section>
+        <p className="settings-option-description">{NO_TEAMS_FOR_MEMBER}</p>
       )}
 
-      {listed?.teams.map((team) => (
-        <TeamCard
-          key={team.id}
-          team={team}
-          members={listed.members}
-          canManage={listed.canManage}
-          workspace={workspace}
-          onChanged={load}
-        />
-      ))}
-    </>
+      {listed && listed.teams.length > 0 && (
+        <div className="teams-list">
+          {listed.teams.map((team) => (
+            <TeamCard
+              key={team.id}
+              team={team}
+              members={listed.members}
+              canManage={listed.canManage}
+              workspace={workspace}
+              onChanged={load}
+            />
+          ))}
+        </div>
+      )}
+    </div>
   );
 }

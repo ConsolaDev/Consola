@@ -1,5 +1,6 @@
 import { DropdownMenu } from '@radix-ui/themes';
-import { useState } from 'react';
+import { Ellipsis, UserPlus, X } from 'lucide-react';
+import { useCallback, useState } from 'react';
 import { firstTeamNote, messageForTeamChange } from '../domain/teamMessages';
 import {
   addableTo,
@@ -23,10 +24,10 @@ function initials(name: string): string {
 
 function Avatar({ member }: { member: WorkspaceMember | null }) {
   if (member?.image) {
-    return <img className="avatar small" src={member.image} alt="" referrerPolicy="no-referrer" />;
+    return <img className="teams-avatar" src={member.image} alt="" referrerPolicy="no-referrer" />;
   }
   return (
-    <span className="avatar small" aria-hidden="true">
+    <span className="teams-avatar" aria-hidden="true">
       {member ? initials(member.name) : '?'}
     </span>
   );
@@ -35,9 +36,9 @@ function Avatar({ member }: { member: WorkspaceMember | null }) {
 const memberCount = (count: number) => (count === 1 ? '1 member' : `${count} members`);
 
 /**
- * One team: its name, its members, and, for someone who manages teams, its controls. A change
- * that goes through, or that finds the team or the person's rights changed, has the page load
- * the teams again (`onChanged`).
+ * One team, as a card in Settings → Teams: its name, its members, and, for someone who manages
+ * teams, its controls. A change that goes through, or that finds the team or the person's rights
+ * changed, has the page load the teams again (`onChanged`).
  */
 export function TeamCard({
   team,
@@ -55,6 +56,12 @@ export function TeamCard({
   const [mode, setMode] = useState<'view' | 'rename' | 'delete'>('view');
   const [pending, setPending] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
+  // Radix puts a menu at the end of the page's body, which a modal dialog leaves inert: inside
+  // Settings, a menu must open within the dialog to take a click.
+  const [menuHost, setMenuHost] = useState<HTMLElement | undefined>(undefined);
+  const card = useCallback((element: HTMLElement | null) => {
+    setMenuHost(element?.closest('dialog') ?? undefined);
+  }, []);
   const ws = { id: workspace.id };
 
   /** Sends a change, says why if it did not go through, and loads the teams again if needed. */
@@ -73,10 +80,10 @@ export function TeamCard({
   const addable = addableTo(team, members);
 
   return (
-    <section className="card team" aria-label={team.name}>
-      <header className="team-header">
+    <section ref={card} className="teams-card" aria-label={team.name}>
+      <header className="teams-card-header">
         {mode === 'rename' ? (
-          <div className="team-rename">
+          <div className="teams-rename">
             <TeamNameForm
               label={`Rename ${team.name}`}
               initial={team.name}
@@ -95,17 +102,28 @@ export function TeamCard({
           </div>
         ) : (
           <>
-            <h2 className="heading team-name">{team.name}</h2>
-            {team.first && <span className="badge">First team</span>}
-            <span className="muted team-count">{memberCount(team.memberIds.length)}</span>
+            <div className="teams-card-title">
+              <h3 className="settings-option-label teams-name">
+                {team.name}
+                {team.first && <span className="settings-chip">First team</span>}
+              </h3>
+              <p className="settings-option-description">
+                {memberCount(team.memberIds.length)}
+                {team.first && ` · ${firstTeamNote(workspace.name)}`}
+              </p>
+            </div>
             {canManage && (
               <DropdownMenu.Root>
                 <DropdownMenu.Trigger disabled={pending}>
-                  <button type="button" className="icon-button" aria-label={`${team.name}: more`}>
-                    <span aria-hidden="true">⋯</span>
+                  <button
+                    type="button"
+                    className="teams-icon-button"
+                    aria-label={`${team.name}: more`}
+                  >
+                    <Ellipsis size={16} aria-hidden="true" />
                   </button>
                 </DropdownMenu.Trigger>
-                <DropdownMenu.Content align="end">
+                <DropdownMenu.Content align="end" size="1" container={menuHost}>
                   <DropdownMenu.Item onSelect={() => setMode('rename')}>Rename…</DropdownMenu.Item>
                   {!team.first && (
                     <DropdownMenu.Item color="red" onSelect={() => setMode('delete')}>
@@ -119,17 +137,15 @@ export function TeamCard({
         )}
       </header>
 
-      {team.first && <p className="muted team-note">{firstTeamNote(workspace.name)}</p>}
-
       {mode === 'delete' && (
-        <div className="confirm" role="alertdialog" aria-label={`Delete ${team.name}`}>
+        <div className="teams-confirm" role="alertdialog" aria-label={`Delete ${team.name}`}>
           <p>
             Delete <strong>{team.name}</strong>? Its members stay in {workspace.name}.
           </p>
-          <div className="actions">
+          <div className="teams-buttons">
             <button
               type="button"
-              className="button"
+              className="settings-button"
               disabled={pending}
               onClick={() => setMode('view')}
             >
@@ -137,7 +153,7 @@ export function TeamCard({
             </button>
             <button
               type="button"
-              className="button danger"
+              className="settings-button danger"
               disabled={pending}
               onClick={() =>
                 void run(() => teamsService.deleteTeam(ws, team.id)).then((answer) => {
@@ -152,25 +168,25 @@ export function TeamCard({
       )}
 
       {team.memberIds.length === 0 ? (
-        <p className="muted">Nobody is in this team yet.</p>
+        <p className="teams-empty">Nobody is in this team yet.</p>
       ) : (
-        <ul className="team-members">
+        <ul className="teams-members">
           {team.memberIds.map((personId) => {
             const shown = memberOf(personId, members);
             const member = shown.kind === 'member' ? shown.member : null;
             const name = member?.name ?? 'Someone who left';
             return (
-              <li key={personId} className="team-member">
+              <li key={personId} className="teams-member">
                 <Avatar member={member} />
-                <span className="member-text">
-                  <span className="member-name">{name}</span>
-                  {member && <span className="member-email">{member.email}</span>}
+                <span className="teams-member-text">
+                  <span className="teams-member-name">{name}</span>
+                  {member && <span className="teams-member-email">{member.email}</span>}
                 </span>
-                {member && <span className="member-role">{roleName(member.role)}</span>}
+                {member && <span className="teams-member-role">{roleName(member.role)}</span>}
                 {canManage && (
                   <button
                     type="button"
-                    className="icon-button"
+                    className="teams-icon-button"
                     aria-label={`Remove ${name} from ${team.name}`}
                     title={`Remove from ${team.name}`}
                     disabled={pending}
@@ -178,7 +194,7 @@ export function TeamCard({
                       void run(() => teamsService.removeTeamMember(ws, team.id, personId))
                     }
                   >
-                    <span aria-hidden="true">×</span>
+                    <X size={14} aria-hidden="true" />
                   </button>
                 )}
               </li>
@@ -188,15 +204,20 @@ export function TeamCard({
       )}
 
       {canManage && (
-        <div className="team-actions">
+        <div className="teams-card-footer">
           <DropdownMenu.Root>
             <DropdownMenu.Trigger disabled={pending || addable.length === 0}>
-              <button type="button" className="button">
+              <button type="button" className="settings-button">
+                <UserPlus size={14} aria-hidden="true" />
                 {addable.length === 0 ? 'Everyone is in this team' : 'Add member'}
-                {addable.length > 0 && <DropdownMenu.TriggerIcon />}
               </button>
             </DropdownMenu.Trigger>
-            <DropdownMenu.Content align="start" className="add-member-menu">
+            <DropdownMenu.Content
+              align="start"
+              size="1"
+              className="teams-add-menu"
+              container={menuHost}
+            >
               {addable.map((member) => (
                 <DropdownMenu.Item
                   key={member.id}
@@ -204,8 +225,8 @@ export function TeamCard({
                     void run(() => teamsService.addTeamMember(ws, team.id, member.id))
                   }
                 >
-                  <span className="add-member-name">{member.name}</span>
-                  <span className="add-member-email">{member.email}</span>
+                  <span className="teams-add-name">{member.name}</span>
+                  <span className="teams-add-email">{member.email}</span>
                 </DropdownMenu.Item>
               ))}
             </DropdownMenu.Content>
@@ -214,7 +235,7 @@ export function TeamCard({
       )}
 
       {failure && (
-        <p className="error" role="alert">
+        <p className="teams-error" role="alert">
           {failure}
         </p>
       )}

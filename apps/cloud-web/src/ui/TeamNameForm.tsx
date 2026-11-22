@@ -45,14 +45,14 @@ export function TeamNameForm({
   }
 
   return (
-    <form className="team-name-form" onSubmit={(event) => void submit(event)} noValidate>
-      <label className="label" htmlFor={id}>
+    <form className="teams-name-form" onSubmit={(event) => void submit(event)} noValidate>
+      <label className="settings-option-label" htmlFor={id}>
         {label}
       </label>
-      <div className="team-name-row">
+      <div className="teams-name-row">
         <input
           id={id}
-          className="input"
+          className="input teams-input"
           value={name}
           maxLength={TEAM_NAME_MAX * 2}
           autoComplete="off"
@@ -66,15 +66,15 @@ export function TeamNameForm({
           // The form opens on the person's own click, so the field takes the keyboard.
           autoFocus
         />
-        <button type="submit" className="button primary" disabled={pending}>
+        <button type="submit" className="settings-button accent" disabled={pending}>
           {submitLabel}
         </button>
-        <button type="button" className="button" disabled={pending} onClick={onCancel}>
+        <button type="button" className="settings-button" disabled={pending} onClick={onCancel}>
           Cancel
         </button>
       </div>
       {problems.length > 0 && (
-        <p id={`${id}-problems`} className="error" role="alert">
+        <p id={`${id}-problems`} className="teams-error" role="alert">
           {problems.join(' ')}
         </p>
       )}

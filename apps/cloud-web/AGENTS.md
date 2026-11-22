@@ -45,10 +45,12 @@ The app is built in layers, and imports point inward only.
 - `src/ui/` holds the React screens (`App.tsx` and the cards beside it:
   `SignInCard`, `ProfileCard`, `CreateWorkspaceCard`, and the topbar's
   `WorkspaceSwitcher` and `SignOutButton`), the dashboard (`Dashboard.tsx`,
-  its list of sections `sections.tsx`, and each section's page:
-  `OverviewPage.tsx`, and `TeamsPage.tsx` with `TeamCard.tsx` and
-  `TeamNameForm.tsx`) and `styles.css`. A screen asks a service and shows
-  what comes back. It does not fetch, touch the address or know Better Auth.
+  its list of sections `sections.tsx` and each section's page, such as
+  `OverviewPage.tsx`), Settings (`SettingsDialog.tsx`, its pages in
+  `settingsPages.tsx`: `ConnectionsPage.tsx`, and `TeamsPage.tsx` with
+  `TeamCard.tsx` and `TeamNameForm.tsx`) and `styles.css`. A screen asks a
+  service and shows what comes back. It does not fetch, touch the address or
+  know Better Auth.
 - The entry wires the page. `src/main.tsx` mounts `ui/App` inside Radix's
   `Theme` and follows the system's colour scheme, and `src/env.d.ts` declares
   the build constants (`__CONSOLA_COMMIT__`, `__CONSOLA_VERSION__`) that
@@ -121,12 +123,21 @@ read across apps.
 
 ## Teams
 
-The Teams section (`ui/TeamsPage.tsx`, a card per team in `ui/TeamCard.tsx`)
-shows the workspace's teams, which live in its regional cell
+Settings → Teams (`#/settings/teams`, an entry of `SETTINGS_PAGES` after
+Connections: `ui/TeamsPage.tsx`, a card per team in `ui/TeamCard.tsx`) shows
+the workspace's teams, which live in its regional cell
 (`apps/cloud-region/AGENTS.md`, "Teams"). The cell is the authority on every
 rule; `domain/teams.ts` keeps a copy of the name rule (`checkTeamName`) to
 check a name before sending it, and `domain/teamMessages.ts` says every
-answer.
+answer. The page is built from Settings' shared classes (the title,
+descriptions, `.settings-button`, `.settings-chip`) and its own, all `teams-*`
+in `ui/TeamsPage.css`.
+
+- **A menu inside Settings opens inside the dialog.** Radix puts a menu's
+  content at the end of the page's body, which Settings' modal `<dialog>`
+  leaves inert, so its items would take no click. `TeamCard` hands each
+  `DropdownMenu.Content` the dialog it sits in (`container`); any Radix menu,
+  popover or select on a Settings page needs the same.
 
 - **The page reaches a cell through its own origin**: `/cell/<region>/…`,
   which the dev server proxies to that region's cell (`vite.config.ts`, from
@@ -215,8 +226,8 @@ column (`.main`; the dashboard widens it with `.main.wide`).
 - **Styles.** `styles.css` holds the shell's classes (`.dashboard`,
   `.nav-link`, `.section-header`, `.section-title`, `.facts`) beside the shared
   ones (`.card`, `.heading`, `.muted`, `.error`, `.button`). A page's own
-  styles go in a stylesheet beside it (`ui/TeamsPage.css`), imported by the
-  page.
+  styles go in a stylesheet beside it (`ui/ConnectionsPage.css`,
+  `ui/TeamsPage.css`), imported by the page.
 
 ## Settings
 

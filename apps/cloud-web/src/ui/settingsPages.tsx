@@ -1,7 +1,8 @@
-import { type LucideIcon, Plug } from 'lucide-react';
+import { type LucideIcon, Plug, Users } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { ConnectionsPage } from './ConnectionsPage';
 import type { SectionProps } from './sections';
+import { TeamsPage } from './TeamsPage';
 
 /** One page of Settings: its id in the address, its entry in the list, and what it shows. */
 export type SettingsPage = {
@@ -22,4 +23,5 @@ export type SettingsPage = {
  */
 export const SETTINGS_PAGES: readonly [SettingsPage, ...SettingsPage[]] = [
   { id: 'connections', label: 'Connections', icon: Plug, View: ConnectionsPage },
+  { id: 'teams', label: 'Teams', icon: Users, View: TeamsPage },
 ];
