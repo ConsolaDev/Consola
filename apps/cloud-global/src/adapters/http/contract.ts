@@ -108,6 +108,39 @@ export const putActiveWorkspace = createRoute({
   },
 });
 
+export const WorkspaceMember = z
+  .strictObject({
+    id: z.string(),
+    name: z.string(),
+    email: z.string(),
+    image: z.union([z.string(), z.null()]),
+    role: z.enum(WORKSPACE_ROLES),
+  })
+  .openapi('WorkspaceMember', {
+    description: 'A member of a workspace, as its other members see them.',
+  });
+
+export const getActiveWorkspaceMembers = createRoute({
+  method: 'get',
+  path: '/api/me/workspace/members',
+  summary: "My active workspace's members, in the order they joined",
+  description:
+    'Every member of the workspace may list them. A person is named by the global id a cell ' +
+    'knows them by (`id`), so the web app can put a name to the ids a cell answers with.',
+  responses: {
+    200: json(
+      z.strictObject({ members: z.array(WorkspaceMember) }),
+      'The members, with their roles.',
+    ),
+    401: signedOut,
+    403: json(
+      failure('not_a_member'),
+      'The person is not in the workspace their session names, any more or ever.',
+    ),
+    409: json(failure('no_active_workspace'), 'The session has no active workspace.'),
+  },
+});
+
 export const listWorkspaces = createRoute({
   method: 'get',
   path: '/api/workspaces',
@@ -142,6 +175,14 @@ export const CellToken = z
   .strictObject({
     token: z.string(),
     expiresAt: z.number().int().openapi({ description: 'In whole seconds since the epoch.' }),
+    workspaceId: z.string().openapi({
+      description:
+        'The workspace the token is for: the one active when it was minted, which another tab ' +
+        'may have switched since the page loaded.',
+    }),
+    region: z
+      .enum(REGIONS)
+      .openapi({ description: "The workspace's region, whose cell takes the token." }),
   })
   .openapi('CellToken', {
     description: "The token the session's active workspace's cell trusts, for minutes.",
@@ -464,6 +505,7 @@ export const ROUTES = [
   postGitHubWebhook,
   getMe,
   putActiveWorkspace,
+  getActiveWorkspaceMembers,
   listWorkspaces,
   postWorkspace,
   postCellToken,

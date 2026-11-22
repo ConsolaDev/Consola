@@ -20,8 +20,9 @@ export type Section = {
  * The dashboard's sections, in the nav's order, and the one list of them: a new page is one
  * entry here. The first is the one an address naming no section opens.
  *
- * Every member of the workspace sees every section. What a person may do on a page (manage
- * teams, connect GitHub) is the page's to show or hide, by what the server answers.
+ * Every member of the workspace sees every section. What a person may do on a page is the
+ * page's to show or hide, by what the server answers. Settings is no section: it is a dialog
+ * over the open one, with pages of its own (`settingsPages.tsx`), Teams and Connections among them.
  */
 export const SECTIONS: readonly [Section, ...Section[]] = [
   { id: 'overview', label: 'Overview', View: OverviewPage },

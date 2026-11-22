@@ -77,6 +77,25 @@ describe('the membership store', () => {
     expect(await memberships.workspacesOf('nobody')).toEqual([]);
   });
 
+  it('membersOf lists a workspace’s members with their roles, in the order they joined', async () => {
+    await workspace('acme');
+    await workspace('sprocket');
+    await member('acme', 'lee', 'member', '2026-11-03');
+    await member('acme', 'dana', 'owner', '2026-11-01');
+    await member('sprocket', 'lee', 'owner', '2026-11-02');
+    expect(await memberships.membersOf('acme')).toEqual([
+      { id: 'dana', name: 'Dana', email: 'dana@acme.test', image: null, role: 'owner' },
+      { id: 'lee', name: 'Lee', email: 'lee@sprocket.test', image: null, role: 'member' },
+    ]);
+    expect(await memberships.membersOf('gone')).toEqual([]);
+  });
+
+  it('membersOf refuses a member stored with an unknown role', async () => {
+    await workspace('acme');
+    await member('acme', 'dana', 'admin,member', '2026-11-01');
+    await expect(memberships.membersOf('acme')).rejects.toThrow(/acme has an unknown role/);
+  });
+
   it('refuses a membership stored with an unknown role', async () => {
     await workspace('acme');
     await member('acme', 'dana', 'superuser', '2026-11-01');

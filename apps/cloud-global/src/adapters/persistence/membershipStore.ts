@@ -41,5 +41,23 @@ export function createMembershipStore(db: Database): MembershipStore {
         .orderBy(asc(schema.member.createdAt), asc(schema.member.id));
       return rows.map(asMine);
     },
+
+    async membersOf(workspaceId) {
+      const rows = await db
+        .select({
+          id: schema.user.id,
+          name: schema.user.name,
+          email: schema.user.email,
+          image: schema.user.image,
+          role: schema.member.role,
+          slug: schema.organization.slug,
+        })
+        .from(schema.member)
+        .innerJoin(schema.user, eq(schema.user.id, schema.member.userId))
+        .innerJoin(schema.organization, eq(schema.organization.id, schema.member.organizationId))
+        .where(eq(schema.member.organizationId, workspaceId))
+        .orderBy(asc(schema.member.createdAt), asc(schema.member.id));
+      return rows.map(({ slug, ...member }) => ({ ...member, role: roleOf({ slug, ...member }) }));
+    },
   };
 }

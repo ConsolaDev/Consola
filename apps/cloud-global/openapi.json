@@ -145,6 +145,47 @@
           "workspaceId"
         ]
       },
+      "WorkspaceMember": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "image": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "owner",
+              "admin",
+              "member"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "email",
+          "image",
+          "role"
+        ],
+        "additionalProperties": false,
+        "description": "A member of a workspace, as its other members see them."
+      },
       "InvalidWorkspace": {
         "type": "object",
         "properties": {
@@ -207,11 +248,25 @@
           "expiresAt": {
             "type": "integer",
             "description": "In whole seconds since the epoch."
+          },
+          "workspaceId": {
+            "type": "string",
+            "description": "The workspace the token is for: the one active when it was minted, which another tab may have switched since the page loaded."
+          },
+          "region": {
+            "type": "string",
+            "enum": [
+              "eu",
+              "us"
+            ],
+            "description": "The workspace's region, whose cell takes the token."
           }
         },
         "required": [
           "token",
-          "expiresAt"
+          "expiresAt",
+          "workspaceId",
+          "region"
         ],
         "additionalProperties": false,
         "description": "The token the session's active workspace's cell trusts, for minutes."
@@ -835,6 +890,102 @@
                       "type": "string",
                       "enum": [
                         "unsupported_media_type"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/me/workspace/members": {
+      "get": {
+        "summary": "My active workspace's members, in the order they joined",
+        "description": "Every member of the workspace may list them. A person is named by the global id a cell knows them by (`id`), so the web app can put a name to the ids a cell answers with.",
+        "responses": {
+          "200": {
+            "description": "The members, with their roles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "members": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/WorkspaceMember"
+                      }
+                    }
+                  },
+                  "required": [
+                    "members"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Nobody is signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "signed_out"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The person is not in the workspace their session names, any more or ever.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "not_a_member"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The session has no active workspace.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "no_active_workspace"
                       ]
                     }
                   },

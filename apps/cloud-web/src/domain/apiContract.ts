@@ -281,6 +281,83 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/me/workspace/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * My active workspace's members, in the order they joined
+         * @description Every member of the workspace may list them. A person is named by the global id a cell knows them by (`id`), so the web app can put a name to the ids a cell answers with.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The members, with their roles. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            members: components["schemas"]["WorkspaceMember"][];
+                        };
+                    };
+                };
+                /** @description Nobody is signed in. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "signed_out";
+                        };
+                    };
+                };
+                /** @description The person is not in the workspace their session names, any more or ever. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "not_a_member";
+                        };
+                    };
+                };
+                /** @description The session has no active workspace. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "no_active_workspace";
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/workspaces": {
         parameters: {
             query?: never;
@@ -933,6 +1010,15 @@ export interface components {
         ActiveWorkspace: {
             workspaceId: string;
         };
+        /** @description A member of a workspace, as its other members see them. */
+        WorkspaceMember: {
+            id: string;
+            name: string;
+            email: string;
+            image: string | null;
+            /** @enum {string} */
+            role: "owner" | "admin" | "member";
+        };
         /** @description Every problem, in the order the rules name them. */
         InvalidWorkspace: {
             /** @enum {string} */
@@ -951,6 +1037,13 @@ export interface components {
             token: string;
             /** @description In whole seconds since the epoch. */
             expiresAt: number;
+            /** @description The workspace the token is for: the one active when it was minted, which another tab may have switched since the page loaded. */
+            workspaceId: string;
+            /**
+             * @description The workspace's region, whose cell takes the token.
+             * @enum {string}
+             */
+            region: "eu" | "us";
         };
         CellTokenKeySet: {
             keys: components["schemas"]["CellTokenPublicKey"][];

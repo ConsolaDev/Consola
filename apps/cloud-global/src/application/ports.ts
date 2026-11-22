@@ -13,7 +13,7 @@ import type {
   InstallerFacts,
   InstallState,
 } from '../domain/connections.js';
-import type { MyWorkspace, NewWorkspace, Workspace } from '../domain/workspace.js';
+import type { MyWorkspace, NewWorkspace, Workspace, WorkspaceMember } from '../domain/workspace.js';
 
 // What the use cases need from the world outside, each implemented by an adapter.
 
@@ -34,6 +34,8 @@ export type MembershipStore = {
   workspaceFor(ids: { workspaceId: string; userId: string }): Promise<MyWorkspace | null>;
   /** Every workspace the person is in, in the order they joined. */
   workspacesOf(userId: string): Promise<MyWorkspace[]>;
+  /** Every member of the workspace, with their role, in the order they joined. */
+  membersOf(workspaceId: string): Promise<WorkspaceMember[]>;
 };
 
 export type SessionStore = {

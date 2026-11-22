@@ -11,6 +11,15 @@ export type Workspace = { id: string; name: string; slug: string; region: Region
 /** A workspace as one of its members sees it: with their role in it. */
 export type MyWorkspace = Workspace & { role: WorkspaceRole };
 
+/** A member of a workspace, as its other members see them: who they are, and their role. */
+export type WorkspaceMember = {
+  id: string;
+  name: string;
+  email: string;
+  image: string | null;
+  role: WorkspaceRole;
+};
+
 /** What a person asks for when they make a workspace, once `checkNewWorkspace` accepts it. */
 export type NewWorkspace = { name: string; slug: string; region: Region };
 

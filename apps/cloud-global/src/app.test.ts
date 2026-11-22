@@ -545,7 +545,12 @@ describe('the cell token', () => {
     expect(minted).toEqual({
       status: 200,
       cacheControl: 'no-store',
-      body: { token: expect.any(String), expiresAt: expect.any(Number) },
+      body: {
+        token: expect.any(String),
+        expiresAt: expect.any(Number),
+        workspaceId: workspace.id,
+        region: 'us',
+      },
     });
     const { claims, header } = await asACell(minted.body.token);
     expect(claims).toEqual({
@@ -816,6 +821,52 @@ describe('the outbox', () => {
     expect(await asACell(deliveries[0] as Delivery)).toBe(
       `{"workspaceId":"${workspace.id}","region":"us","sequence":1,"change":{"type":"workspace.created"}}`,
     );
+  });
+});
+
+describe('GET /api/me/workspace/members', () => {
+  const path = '/api/me/workspace/members';
+
+  it('is 401 signed out', async () => {
+    expect(await get(path)).toEqual({ status: 401, body: { error: 'signed_out' } });
+  });
+
+  it('is 409 with no workspace open', async () => {
+    const login = await signIn('dana@acme.test', 'Dana Ortiz');
+    expect(await get(path, login.headers)).toEqual({
+      status: 409,
+      body: { error: 'no_active_workspace' },
+    });
+  });
+
+  it("lists the active workspace's members, with their global ids and roles", async () => {
+    const dana = await signIn('dana@acme.test', 'Dana Ortiz');
+    const workspace = await makeWorkspace(dana.headers);
+    const lee = await signIn('lee@acme.test', 'Lee Park');
+    await db.insert(schema.member).values({
+      id: 'acme-lee',
+      organizationId: workspace.id,
+      userId: lee.user.id,
+      role: 'member',
+      createdAt: new Date(Date.now() + 1000),
+    });
+
+    const answer = await get(path, dana.headers);
+    expect(answer.status).toBe(200);
+    expect(answer.body.members).toEqual([
+      { id: dana.user.id, name: 'Dana Ortiz', email: 'dana@acme.test', image: null, role: 'owner' },
+      { id: lee.user.id, name: 'Lee Park', email: 'lee@acme.test', image: null, role: 'member' },
+    ]);
+  });
+
+  it('lists no one for a session whose workspace the person has left', async () => {
+    const dana = await signIn('dana@acme.test', 'Dana Ortiz');
+    const workspace = await makeWorkspace(dana.headers);
+    await db.delete(schema.member).where(eq(schema.member.organizationId, workspace.id));
+    expect(await get(path, dana.headers)).toEqual({
+      status: 403,
+      body: { error: 'not_a_member' },
+    });
   });
 });
 
@@ -1627,6 +1678,7 @@ describe('routes', () => {
       'ALL /api/*',
       'GET /api/me',
       'PUT /api/me/workspace',
+      'GET /api/me/workspace/members',
       'GET /api/workspaces',
       'POST /api/workspaces',
       'POST /api/cell-token',

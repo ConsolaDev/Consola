@@ -18,18 +18,24 @@ The app is built in layers, and imports point inward only.
   sign-in or sign-out, for each problem with a new workspace, a taken slug, a
   failed switch and the create form's hints; connections (`connections.ts`:
   the answers of `/api/connections`, a Connect's results, the services that
-  come later) and their sentences (`connectionMessages.ts`); where the running
-  source is (`source.ts`); and how the address names a dashboard section
-  (`sections.ts`: `sectionIdOfHash`, `hashOfSection`, `chooseSection`) and a
-  settings page (`settings.ts`: `settingsPageIdOfHash`, `hashOfSettingsPage`).
-  It is plain TypeScript, with no package and no browser I/O. `apiContract.ts`
-  holds the API's types, generated from `apps/cloud-global/openapi.json`
-  (see "The API's contract").
+  come later) and their sentences (`connectionMessages.ts`); teams
+  (`teams.ts`: `Team`, `WorkspaceMember`, `checkTeamName`, `memberOf`,
+  `addableTo`, `TeamsState`, `TeamChange`) and their sentences
+  (`teamMessages.ts`); where the running source is (`source.ts`); and how
+  the address names a dashboard section (`sections.ts`: `sectionIdOfHash`,
+  `hashOfSection`, `chooseSection`) and a settings page (`settings.ts`:
+  `settingsPageIdOfHash`, `hashOfSettingsPage`). It is plain TypeScript,
+  with no package and no browser I/O. `apiContract.ts` and
+  `cellApiContract.ts` hold the APIs' types, generated from
+  `apps/cloud-global/openapi.json` and `apps/cloud-region/openapi.json` (see
+  "The API's contract").
 - `src/services/` is everything that talks to something outside the page: the
   API (`api.ts`: `loadMe`, `loadWorkspaces`, `createWorkspace`,
   `switchWorkspace`, `loadConnections`, `startGitHubConnect`,
   `disconnectGitHub`, through `createApi`, an `openapi-fetch` client typed by
-  the contract), Better Auth's client (`authClient.ts`: `signInWithGoogle`,
+  the contract), the workspace's cell (`teams.ts`: `teamsService`, built by
+  `createTeamsService` on `createCellApi`), Better Auth's client
+  (`authClient.ts`: `signInWithGoogle`,
   `signOut`) and the address bar (`signInRedirect.ts`:
   `takeSignInErrorCode`; `address.ts`: `currentSectionId`, `openSection`,
   `onSectionChange`; `settingsAddress.ts`: `currentSettingsPageId`,
@@ -39,9 +45,12 @@ The app is built in layers, and imports point inward only.
 - `src/ui/` holds the React screens (`App.tsx` and the cards beside it:
   `SignInCard`, `ProfileCard`, `CreateWorkspaceCard`, and the topbar's
   `WorkspaceSwitcher` and `SignOutButton`), the dashboard (`Dashboard.tsx`,
-  its list of sections `sections.tsx`, and each section's page, such as
-  `OverviewPage.tsx`) and `styles.css`. A screen asks a service and shows
-  what comes back. It does not fetch, touch the address or know Better Auth.
+  its list of sections `sections.tsx` and each section's page, such as
+  `OverviewPage.tsx`), Settings (`SettingsDialog.tsx`, its pages in
+  `settingsPages.tsx`: `ConnectionsPage.tsx`, and `TeamsPage.tsx` with
+  `TeamCard.tsx` and `TeamNameForm.tsx`) and `styles.css`. A screen asks a
+  service and shows what comes back. It does not fetch, touch the address or
+  know Better Auth.
 - The entry wires the page. `src/main.tsx` mounts `ui/App` inside Radix's
   `Theme` and follows the system's colour scheme, and `src/env.d.ts` declares
   the build constants (`__CONSOLA_COMMIT__`, `__CONSOLA_VERSION__`) that
@@ -103,9 +112,59 @@ while it is stale). It is types only, with no import and no I/O, so it sits in
   defensively, so a service keeps its checks of the status and the body's
   shape.
 
-CI checks this app with every change to `cloud-global`
+The regional cell has a contract of its own: `src/domain/cellApiContract.ts`
+holds its types, generated the same way from `apps/cloud-region/openapi.json`
+(`cellApiContract.test.ts`). `api:generate` rewrites both. Every region's cell
+runs the same code, so one contract serves them all.
+
+CI checks this app with every change to `cloud-global` or `cloud-region`
 (`.github/scripts/ci-scope.mjs`), since the package graph cannot see a file
 read across apps.
+
+## Teams
+
+Settings → Teams (`#/settings/teams`, an entry of `SETTINGS_PAGES` after
+Connections: `ui/TeamsPage.tsx`, a card per team in `ui/TeamCard.tsx`) shows
+the workspace's teams, which live in its regional cell
+(`apps/cloud-region/AGENTS.md`, "Teams"). The cell is the authority on every
+rule; `domain/teams.ts` keeps a copy of the name rule (`checkTeamName`) to
+check a name before sending it, and `domain/teamMessages.ts` says every
+answer. The page is built from Settings' shared classes (the title,
+descriptions, `.settings-button`, `.settings-chip`) and its own, all `teams-*`
+in `ui/TeamsPage.css`.
+
+- **A team's menus open inside Settings' dialog** (`useSettingsMenuHost`;
+  see "Settings"), or they would take no click.
+
+- **The page reaches a cell through its own origin**: `/cell/<region>/…`,
+  which the dev server proxies to that region's cell (`vite.config.ts`, from
+  `CELL_URL_EU` and `CELL_URL_US`, defaulting to 3101 and 3102). So the cell
+  needs no CORS, and the page holds no cell address.
+- **Every call to a cell carries a cell token**, as `Authorization: Bearer`,
+  never a cookie. `services/teams.ts` mints it from `cloud-global`
+  (`POST /api/cell-token`), keeps it until 30 seconds before it expires, and
+  mints it again once when the cell refuses it (401). The answer names the
+  token's workspace and region: a token for another workspace than the page
+  shows (another tab switched the session's) is never sent (`switched`), and
+  the region picks the cell.
+- **A team names its members by global id.** Their names come from
+  `cloud-global` (`GET /api/me/workspace/members`), loaded beside the teams;
+  an id it no longer lists shows as someone who left (`memberOf`).
+- **Controls follow the cell's answer**: `canManage` shows New team, the ⋯
+  menu (Rename, and Delete for any team but the first), Add member and each
+  member's ×. A member sees the teams they are in and no control.
+- **Every change loads the teams again** (`onChanged`), so the page shows what
+  the cell holds, whoever else changed it. A change refused because the team
+  is gone, the person may no longer manage teams, or someone left the
+  workspace reloads too, and says why.
+- **States the cell answers**: `pending` (the cell does not hold the workspace
+  yet: `cloud-global`'s outbox has not delivered it, so check `CELL_URL_EU` and
+  that the cell runs), `unavailable` (the cell or `cloud-global` does not
+  answer), `switched` and `signed-out`, each with its sentence and, where it
+  can help, Try again.
+
+The section needs the workspace's cell running (`pnpm dev:cloud-region`) and
+`cloud-global` delivering its outbox there (`CELL_URL_EU` in its `.env`).
 
 ## Workspaces
 
@@ -164,8 +223,8 @@ column (`.main`; the dashboard widens it with `.main.wide`).
 - **Styles.** `styles.css` holds the shell's classes (`.dashboard`,
   `.nav-link`, `.section-header`, `.section-title`, `.facts`) beside the shared
   ones (`.card`, `.heading`, `.muted`, `.error`, `.button`). A page's own
-  styles go in a stylesheet beside it (`ui/TeamsPage.css`), imported by the
-  page.
+  styles go in a stylesheet beside it (`ui/ConnectionsPage.css`,
+  `ui/TeamsPage.css`), imported by the page.
 
 ## Settings
 
@@ -194,6 +253,12 @@ Sizes and spacing are the desktop's; colours are this app's Radix tokens.
   page (the workspace's details, its members, billing) is one entry there and
   files of its own. They are all the workspace's for now; a group of the
   person's own settings would sit above, as the desktop's App group does.
+- **A Radix overlay inside a page renders into the dialog (`container`), or
+  it is inert.** Radix puts a DropdownMenu's, Popover's, Select's or
+  Tooltip's content at the end of the page's body, which the modal dialog
+  makes inert: it shows, and takes no click. `useSettingsMenuHost()`
+  (`SettingsDialog.tsx`) gives a page the dialog to hand as the content's
+  `container`, from a `ref` on any element of the page (`TeamCard` uses it).
 - On a narrow screen it fills the window and its list becomes a row above
   the page.
 
