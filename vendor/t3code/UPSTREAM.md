@@ -223,6 +223,27 @@ through the tests and the testkit, and a few imports pull in most of it:
   which imports every replay scenario's `input.ts` and `output.ts`, for every
   driver.
 
+Not followed: file paths the lifted code only builds at run time, which no
+import names.
+
+- `../bin.ts`, in `src/provider/DocumentText.ts` and
+  `src/provider/ProviderOrchestrationAdapterInfrastructure.ts`
+  (`new URL(import.meta.url.endsWith(".ts") ? "../bin.ts" : "./bin.mjs", …)`):
+  t3's CLI entry, which they start as a child process for its
+  `__document-text` and `__cursor-sdk-worker` subcommands. Lifting it would
+  bring in t3's whole CLI and HTTP server (`bin.ts` → `binMain.ts` →
+  `binCli.ts`): 260 more source files, and `node-pty`, `playwright-core`,
+  `undici`, `stream-json` and `saxes` among new dependencies. It is left for
+  a decision rather than lifted. Without it, the adapter's text
+  extraction from document attachments (`DocumentText`, which
+  `ClaudeAdapterV2.ts` imports) and the Cursor worker launch fail when they
+  run; no copied test reaches either.
+- `src/config.ts`'s `client` and `../../web/dist` (t3's web client build) and
+  `src/resourceTelemetry/ResourceMonitorBinary.ts`'s `resource-monitor`
+  binary: looked for, and optional.
+- The transcripts `scripts/dev-replay-agent.ts` reads, used only in t3's dev
+  mode (`devUrl`).
+
 Every lifted file is byte-identical to `d51d8c47` (checked by comparing each
 one with the clone). The paths, relative to t3's `apps/server/`:
 
@@ -989,9 +1010,42 @@ src/zipArchive.ts
 
 </details>
 
+### `apps/server/`, for `@t3tools/ssh`'s tests
+
+`packages/ssh/src/launcherTestHarness.ts` runs t3's SSH helper command from
+`<t3 root>/apps/server/src/cli/sshHelper.ts`, a path it builds from its own
+location (`new URL("../../../", import.meta.url)`). So that file and its
+closure, found the same way, are lifted to `vendor/t3code/apps/server/`, at
+t3's paths, byte for byte:
+
+```
+package.json
+src/cli/sshHelper.ts
+src/cloud/serviceProtocol.ts
+src/cloud/serviceSelectionLock.ts
+src/desktopUpdate/DesktopUpdateMarker.ts
+src/legacyServerOwner.ts
+src/noCopyOnWrite.ts
+src/serviceLauncher.ts
+```
+
+`package.json` is t3's server manifest, which `sshHelper.ts` reads for its
+version (and which gives these files `"type": "module"`). It is not a
+workspace package (`pnpm-workspace.yaml` names `vendor/t3code/packages/*`),
+so nothing installs its dependencies; the files import only `effect` and
+`@t3tools/contracts`, which resolve from `vendor/t3code/node_modules`
+(`@consola/t3code-vendor`, below). Without them two of `ssh`'s tests ("archive
+launcher reuses the replacement without host Node", "waits for a boot service
+between two servers (archive: true)") fail on every OS.
+
 ### Duplicated across lifted packages
 
-None yet: `provider-claude` is the only lifted package.
+Six of the eight `apps/server/` files above are also in `provider-claude`:
+`src/cloud/serviceProtocol.ts`, `src/cloud/serviceSelectionLock.ts`,
+`src/desktopUpdate/DesktopUpdateMarker.ts`, `src/legacyServerOwner.ts`,
+`src/noCopyOnWrite.ts`, `src/serviceLauncher.ts` (`src/cli/sshHelper.ts` and
+t3's `package.json` are not). Besides those, none yet: `provider-claude` is
+the only lifted package.
 
 ## Local changes to copied files
 
@@ -999,8 +1053,8 @@ None yet: `provider-claude` is the only lifted package.
 |---|---|---|
 | `packages/*/package.json` (all 33) | Adds the line `"license": "MIT",` after `"private": true,` | t3 leaves `license` unset. Consola's rule is that every `package.json` names its licence, and a copied package keeps t3's MIT. Nothing else in the files changes. |
 
-No other copied file differs from `d51d8c47`, the files lifted into
-`provider-claude` included.
+No other copied file differs from `d51d8c47`, the lifted files (in
+`provider-claude` and `apps/server/`) included.
 
 ## Consola's side
 
@@ -1009,7 +1063,8 @@ Files Consola writes for this folder (not copied):
 - `vendor/t3code/package.json`: `@consola/t3code-vendor`, private. It stands
   in for t3's root `package.json` and holds what the copied packages' scripts
   expect at the root: `@effect/tsgo` 0.67.1, `vite-plus` and `@types/node`
-  (catalog).
+  (catalog), and `effect` (catalog) and `@t3tools/contracts`, which the files
+  lifted to `apps/server/` for `ssh`'s tests import.
 - This file.
 - `tsconfig.lifted.json`, which the lifted packages extend in place of
   `tsconfig.base.json`. It is `tsconfig.effect.json`'s plugin block with one
@@ -1148,25 +1203,26 @@ On macOS three of t3's tests fail, as they would in t3 (t3 tests on Linux):
 
 The two packages the Claude lift brought in fail on macOS in the same way:
 
-- `ssh` `src/tunnel.test.ts`, six tests. "names missing gzip after
+- `ssh` `src/tunnel.test.ts`, four tests. "names missing gzip after
   verifying with sha256sum" and "… with shasum" expect `tar -xzf` to fail
   without `gzip` on the PATH, as GNU tar does; macOS's bsdtar decompresses by
   itself. "a reconnect from an older client keeps a newer managed server
-  running", "a newer client still replaces an older managed server",
-  "archive launcher reuses the replacement without host Node" and "waits for
-  a boot service between two servers (archive: true)" start a fake runtime,
-  `exec node …`, from a shell given only `HOME`, so they need `node` on the
-  shell's default PATH (`/usr/bin:/bin`), where a Mac with Node from nvm has
-  none. `tailscale` passes.
+  running" and "a newer client still replaces an older managed server" start
+  a fake runtime, `exec node …`, from a shell given only `HOME`, so they need
+  `node` on the shell's default PATH, where a Mac with Node from nvm has
+  none. All 84 pass on Linux (Node 26.13.1 in Debian bookworm, as a
+  non-root user). `tailscale` passes everywhere.
 
 ### `provider-claude`'s tests
 
 All 16 copied test files run; nothing is listed as "not run here", since
 everything they need was lifted with them (the orchestrator, its SQLite
-persistence on `node:sqlite`, the fake Claude CLIs they write). 657 tests:
-656 pass and one is skipped by t3's own condition,
+persistence on `node:sqlite`, the fake Claude CLIs they write). 657 tests,
+all passing on Linux. On macOS one is skipped by t3's own condition,
 `ClaudeCapabilitiesProbe.test.ts` "starts a Bash launcher that calls an
-exported function in the probe's workspace" (`skipIf` not Linux).
+exported function in the probe's workspace" (`skipIf` not Linux). They need
+no `claude` on the PATH and no Claude login: they pass with `env -i` and a
+PATH of Node and `/usr/bin:/bin` only.
 `ClaudeAdapterV2.test.ts` runs all 474 of its tests (none is skipped on
 macOS or Linux), `ClaudeAgentSdkQueryRunner.test.ts` 26, and
 `ClaudeReplayFixtures.integration.test.ts` 40 (one per Claude fixture
