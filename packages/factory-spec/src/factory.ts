@@ -361,12 +361,16 @@ export function parseFactory(files: FactoryFiles): FactoryParseResult {
 }
 
 /**
- * A persisted version's texts, by path relative to the folder, as
+ * A persisted version's texts, by path relative to the folder, and its skill
+ * files, by skill name, each by its path inside the skill's folder, as
  * `parseFactory`'s input: `factory.yml`, `automations/<n>.yaml` and
- * `agents/<n>.md`; any other path is ignored. No skills, no strays, no later
- * folders, nothing unread.
+ * `agents/<n>.md`; any other text path is ignored. No strays, no later
+ * folders, nothing unread or outside; no skills when none are given.
  */
-export function factoryFilesOf(texts: Readonly<Record<string, string>>): FactoryFiles {
+export function factoryFilesOf(
+  texts: Readonly<Record<string, string>>,
+  skills?: Readonly<Record<string, ReadonlyArray<{ path: string; bytes: Uint8Array }>>>,
+): FactoryFiles {
   const files: FactoryFiles = {
     factoryYml: null,
     automations: {},
@@ -384,5 +388,7 @@ export function factoryFilesOf(texts: Readonly<Record<string, string>>): Factory
     else if (automation) files.automations[automation[1]] = texts[path];
     else if (agent) files.agents[agent[1]] = texts[path];
   }
+  for (const name of Object.keys(skills ?? {}))
+    files.skills[name] = skills![name].map((entry) => ({ path: entry.path, bytes: entry.bytes }));
   return files;
 }

@@ -71,6 +71,7 @@ import { describeSchedule } from './describeSchedule';
 import {
   agentIssues,
   agentQuery,
+  appliedSkills,
   appliedTexts,
   decideApply,
   describeAppliedAt,
@@ -83,6 +84,7 @@ import type {
   AgentLaunchRequest,
   AppliedFactory,
   AppliedFactoryStore,
+  AppliedSkill,
   CommandPort,
   CommandResult,
   CommandSpec,
@@ -4220,7 +4222,7 @@ export class AutomationService {
     }
     if (!record) return null;
     try {
-      return { record, parse: parseFactory(factoryFilesOf(record.texts)) };
+      return { record, parse: parseFactory(factoryFilesOf(record.texts, skillFilesOf(record))) };
     } catch (error) {
       console.error(
         `Could not parse ${folder}'s applied factory; it applies as on a first start.`,
@@ -4257,29 +4259,39 @@ export class AutomationService {
       return;
     }
     factory.standing = undefined;
-    // A first start keeps what its entries use; a clean apply, every text it read.
+    // A first start keeps what its entries use; a clean apply, every text and skill it read.
     const clean = decision.kind === 'applies';
     const texts = clean
       ? appliedTexts(read.files, read.parse)
       : appliedTexts(read.files, read.parse, read.parse.automations);
-    this.keepApplied(factory, texts, clean);
+    const skills = clean
+      ? appliedSkills(read.parse)
+      : appliedSkills(read.parse, read.parse.automations);
+    this.keepApplied(factory, texts, skills, clean);
     this.resolveAll(workspaceId, factory, read.parse.automations, read.parse.agents);
   }
 
-  /** Persist what applied when it differs from what is kept; `appliedAt` moves only when the texts do. */
+  /** Persist what applied when it differs from what is kept; `appliedAt` moves only when a text or a skill does. */
   private keepApplied(
     factory: WorkspaceFactory,
     texts: Record<string, string>,
+    skills: Record<string, AppliedSkill>,
     clean: boolean,
   ): void {
     const kept = factory.applied?.record;
-    const sameTexts = kept !== undefined && stableStringify(kept.texts) === stableStringify(texts);
-    if (sameTexts && kept.clean === clean) return;
+    // A skill compares by its hash, which covers its bytes; a version kept with none holds none.
+    const filesOf = (version: {
+      texts: Record<string, string>;
+      skills?: Record<string, AppliedSkill>;
+    }) => stableStringify({ texts: version.texts, skills: skillHashesOf(version.skills) });
+    const sameFiles = kept !== undefined && filesOf(kept) === filesOf({ texts, skills });
+    if (sameFiles && kept.clean === clean) return;
     const record: AppliedFactory = {
       folder: factory.folder.folderPath,
-      appliedAt: sameTexts ? kept.appliedAt : this.iso(),
+      appliedAt: sameFiles ? kept.appliedAt : this.iso(),
       clean,
       texts,
+      ...(Object.keys(skills).length > 0 ? { skills } : {}),
     };
     factory.applied = { record, parse: factory.read.parse };
     try {
@@ -5504,6 +5516,21 @@ function isEntryIssue(issue: FactorySpecIssue): boolean {
 /** The file an entry of that name lives in, as `whereIs` found it. */
 function homeFile(name: string, where: 'factory.yml' | 'file'): string {
   return where === 'factory.yml' ? 'factory.yml' : `automations/${name}.yaml`;
+}
+
+/** An applied version's skill files, by skill name, as `factoryFilesOf` takes them; none for a version kept with none. */
+function skillFilesOf(record: AppliedFactory): Record<string, AppliedSkill['files']> | undefined {
+  if (!record.skills) return undefined;
+  const files: Record<string, AppliedSkill['files']> = {};
+  for (const name of Object.keys(record.skills)) files[name] = record.skills[name].files;
+  return files;
+}
+
+/** Each skill's hash by its name, sorted: what "the same skills" compares. */
+function skillHashesOf(skills: Record<string, AppliedSkill> | undefined): Record<string, string> {
+  const hashes: Record<string, string> = {};
+  for (const name of Object.keys(skills ?? {}).sort()) hashes[name] = skills![name].hash;
+  return hashes;
 }
 
 /**

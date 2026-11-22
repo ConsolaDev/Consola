@@ -9,7 +9,7 @@ import {
   type FactoryParseResult,
   type FactorySpecIssue,
 } from '@consola/factory-spec';
-import type { AgentHarnessAnswer, AgentHarnessQuery } from '../ports';
+import type { AgentHarnessAnswer, AgentHarnessQuery, AppliedSkill } from '../ports';
 
 /*
  * What of a factory folder applies, decided from its parse alone, and what
@@ -212,6 +212,31 @@ export function appliedTexts(
     }
   }
   return texts;
+}
+
+/**
+ * The skills a version persists beside its texts: every skill the read
+ * holds, or, given `only` (the entries a first start applied), the skills of
+ * the valid agents those entries name. Each its own copy of the file list.
+ */
+export function appliedSkills(
+  read: FactoryParseResult,
+  only?: readonly Automation[],
+): Record<string, AppliedSkill> {
+  const names = new Set<string>();
+  if (!only) for (const name of Object.keys(read.skills)) names.add(name);
+  else
+    for (const automation of only)
+      for (const agent of agentNamesOf(automation))
+        if (own(read.agents, agent))
+          for (const skill of read.agents[agent].skills) names.add(skill);
+  const skills: Record<string, AppliedSkill> = {};
+  // Every skill a valid agent names is a valid skill of the read (`parseFactory` keeps no other agent).
+  for (const name of [...names].sort()) {
+    const skill = read.skills[name];
+    skills[name] = { hash: skill.hash, files: skill.files.map((file) => ({ ...file })) };
+  }
+  return skills;
 }
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];

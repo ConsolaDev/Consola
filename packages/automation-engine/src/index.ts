@@ -64,6 +64,7 @@ export type {
   FactoryFolderHandle,
   AppliedFactory,
   AppliedFactoryStore,
+  AppliedSkill,
   EngineToolCaller,
   EngineToolScope,
   EngineToolContext,

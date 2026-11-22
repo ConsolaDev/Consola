@@ -62,7 +62,13 @@ export interface FactoryFolderHandle {
   pathOf(relative: string): string | null;
 }
 
-/** A factory folder's last applied version: the texts it applied from. */
+/** One skill of an applied version: its files, by path inside its folder, and `skillHash` of them. */
+export interface AppliedSkill {
+  hash: string;
+  files: Array<{ path: string; bytes: Uint8Array }>;
+}
+
+/** A factory folder's last applied version: the texts and skill files it applied from. */
 export interface AppliedFactory {
   folder: string;
   /** When it applied (ISO). */
@@ -71,6 +77,12 @@ export interface AppliedFactory {
   clean: boolean;
   /** By path relative to the folder. No list of removals: they are recomputed at each read. */
   texts: Record<string, string>;
+  /**
+   * By skill name: every skill a clean apply read, or, on a first start, the
+   * skills of the agents its applied entries name. Absent when there are
+   * none (and in a version kept before skills were).
+   */
+  skills?: Record<string, AppliedSkill>;
 }
 
 /** Where the applied version of each factory folder is kept, in Consola's own state. */

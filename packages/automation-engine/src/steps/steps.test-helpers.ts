@@ -159,8 +159,8 @@ export interface StepsHarnessOptions {
   yaml?: string;
   /**
    * ws-1's other factory files, by path in the folder: `automations/<name>.yaml`,
-   * `agents/<name>.md`; a file under `environments/`, `connections/` or `evals/`
-   * makes that folder exist.
+   * `agents/<name>.md`, `skills/<name>/<path>` (read as its UTF-8 bytes); a file
+   * under `environments/`, `connections/` or `evals/` makes that folder exist.
    */
   files?: Record<string, string>;
   /** The harnesses an agent may name, by id, as the agent check answers for each. Default: none. */
@@ -316,6 +316,25 @@ export interface StepsHarness {
   advance(ms: number): void;
 }
 
+/**
+ * The skill files among a folder's texts (`skills/<name>/<path>`), each
+ * skill's by its path inside the skill's folder, as UTF-8 bytes: what the
+ * folder's adapter hands `parseFactory` as `FactoryFiles.skills`.
+ */
+export function skillFilesOf(
+  texts: ReadonlyMap<string, string>,
+): Record<string, Array<{ path: string; bytes: Uint8Array }>> {
+  const skills: Record<string, Array<{ path: string; bytes: Uint8Array }>> = {};
+  for (const [relative, text] of texts) {
+    const found = /^skills\/([^/]+)\/(.+)$/.exec(relative);
+    if (!found) continue;
+    const [, name, inside] = found;
+    if (!Object.prototype.hasOwnProperty.call(skills, name)) skills[name] = [];
+    skills[name].push({ path: inside, bytes: new TextEncoder().encode(text) });
+  }
+  return skills;
+}
+
 /** An applied-version store held in memory, copied on the way in and out as a file would be. */
 export interface MemoryAppliedStore extends AppliedFactoryStore {
   /** What it holds, by folder. */
@@ -468,7 +487,7 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
     }
     return files;
   };
-  // The folder as `FactoryFolder` keeps it, in memory: no skills or strays.
+  // The folder as `FactoryFolder` keeps it, in memory: no strays; skill files as their UTF-8 bytes.
   const folderFor = (workspaceId: string): FactoryFolderHandle => {
     const folderPath = `/home/me/.consola/workspaces/${workspaceId}`;
     const filePath = `${folderPath}/factory.yml`;
@@ -490,7 +509,7 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
         return {
           exists: files().has('factory.yml'),
           files: {
-            ...factoryFilesOf(Object.fromEntries(files())),
+            ...factoryFilesOf(Object.fromEntries(files()), skillFilesOf(files())),
             laterFolders: Object.keys(LATER_FOLDERS).filter((folder) =>
               paths.some((relative) => relative.startsWith(`${folder}/`)),
             ),

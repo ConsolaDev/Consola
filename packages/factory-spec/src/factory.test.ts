@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { factoryFilesOf, isIgnoredFileName, parseFactory, type FactoryFiles } from './factory';
 import { parseFactorySpec } from './parse';
-import type { SkillFileEntry } from './skills';
+import { skillHash, type SkillFileEntry } from './skills';
 
 const files = (over: Partial<FactoryFiles> = {}): FactoryFiles => ({
   factoryYml: null,
@@ -70,12 +70,12 @@ model: haiku
 ---
 You write replies for an on-call channel: plain sentences, no headings, the action first.
 `;
+const TRIAGE_SKILL_MD =
+  "---\nname: incident-triage\ndescription: The team's triage checklist.\n---\nCheck the alert first.\n";
+const TRIAGE_QUERIES = 'Use rate() over five minutes.\n';
 const TRIAGE: SkillFileEntry[] = [
-  text(
-    'SKILL.md',
-    "---\nname: incident-triage\ndescription: The team's triage checklist.\n---\nCheck the alert first.\n",
-  ),
-  text('queries.md', 'Use rate() over five minutes.\n'),
+  text('SKILL.md', TRIAGE_SKILL_MD),
+  text('queries.md', TRIAGE_QUERIES),
 ];
 const EMPTY_YML = 'version: 1\nautomations:\n';
 const ACCEPTANCE = (): FactoryFiles =>
@@ -571,7 +571,7 @@ automations:
       expect(persisted.agents).toEqual(direct.agents);
     });
 
-    it('carries no skills, so an agent that names one is then not kept', () => {
+    it('given no skills, carries none, so an agent that names one is then not kept', () => {
       const result = parseFactory(
         factoryFilesOf({
           'agents/investigator.md': INVESTIGATOR,
@@ -582,6 +582,36 @@ automations:
       expect(result.issues.map((issue) => issue.message)).toEqual([
         '`incident-triage` is not a skill here: there is no skills/incident-triage/SKILL.md.',
       ]);
+    });
+
+    it("carries a persisted version's skill files, so its agents keep the skills they name (2-C)", () => {
+      const triage = [
+        { path: 'SKILL.md', bytes: new TextEncoder().encode(TRIAGE_SKILL_MD) },
+        { path: 'queries.md', bytes: new TextEncoder().encode(TRIAGE_QUERIES) },
+      ];
+      const result = parseFactory(
+        factoryFilesOf(
+          { 'agents/investigator.md': INVESTIGATOR, 'agents/summariser.md': SUMMARISER },
+          { 'incident-triage': triage },
+        ),
+      );
+      expect(result.issues).toEqual([]);
+      expect(Object.keys(result.agents).sort()).toEqual(['investigator', 'summariser']);
+      expect(result.agents.investigator.skills).toEqual(['incident-triage']);
+      expect(result.skills['incident-triage'].hash).toBe(skillHash(triage));
+      // The agent hashes as it does read from the folder itself, its skill's bytes included.
+      expect(result.agents.investigator.hash).toBe(
+        parseFactory(ACCEPTANCE()).agents.investigator.hash,
+      );
+    });
+
+    it('holds its own lists of the skill files it is given', () => {
+      const triage = [{ path: 'SKILL.md', bytes: new TextEncoder().encode(TRIAGE_SKILL_MD) }];
+      const given = { 'incident-triage': triage };
+      const carried = factoryFilesOf({}, given);
+      triage.push({ path: 'late.md', bytes: new TextEncoder().encode('Added after.\n') });
+      expect(carried.skills['incident-triage'].map((entry) => entry.path)).toEqual(['SKILL.md']);
+      expect(factoryFilesOf({}).skills).toEqual({});
     });
 
     it('reads a missing factory.yml as none', () => {

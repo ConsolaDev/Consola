@@ -14,6 +14,7 @@ import type { AgentHarnessAnswer } from '../ports';
 import {
   agentIssues,
   agentQuery,
+  appliedSkills,
   appliedTexts,
   decideApply,
   describeAppliedAt,
@@ -463,6 +464,90 @@ describe('appliedTexts', () => {
       'agents/reviewer.md': REVIEWER,
     });
     expect(appliedTexts(files(texts), parse, [])).toEqual({});
+  });
+});
+
+describe('appliedSkills (2-C)', () => {
+  const bytes = (text: string) => new TextEncoder().encode(text);
+  const skill = (name: string, extra: Array<{ path: string; bytes: Uint8Array }> = []) => [
+    {
+      path: 'SKILL.md',
+      bytes: bytes(`---\nname: ${name}\ndescription: The ${name} notes.\n---\nRead me.\n`),
+    },
+    ...extra,
+  ];
+  const TRIAGE = skill('incident-triage', [
+    { path: 'queries.md', bytes: bytes('rate() over 5m.\n') },
+  ]);
+  const NOTES = skill('release-notes');
+  const TRIAGER = '---\nharness: claude-work\nskills: [incident-triage]\n---\nYou triage.\n';
+  const WRITER =
+    '---\nharness: claude-work\nskills: [release-notes, incident-triage]\n---\nYou write.\n';
+  const TRIAGE_ENTRY =
+    'on: { cron: "0 7 * * 1-5" }\nscope: catalog-portal\nmode: auto\nsteps:\n  - id: look\n    agent: triager\n';
+  const texts = {
+    'factory.yml': factoryYml(NIGHTLY),
+    'automations/triage.yaml': TRIAGE_ENTRY,
+    'automations/write.yaml': TRIAGE_ENTRY.replace('agent: triager', 'agent: writer'),
+    'agents/triager.md': TRIAGER,
+    'agents/writer.md': WRITER,
+  };
+  const parse = parseFactory(
+    factoryFilesOf(texts, { 'incident-triage': TRIAGE, 'release-notes': NOTES }),
+  );
+
+  it('without `only`, every skill the read holds, each with its hash and files', () => {
+    expect(parse.issues).toEqual([]);
+    const all = appliedSkills(parse);
+    expect(Object.keys(all).sort()).toEqual(['incident-triage', 'release-notes']);
+    expect(all['incident-triage']).toEqual({
+      hash: parse.skills['incident-triage'].hash,
+      files: parse.skills['incident-triage'].files,
+    });
+    expect(all['incident-triage'].files.map((file) => file.path)).toEqual([
+      'SKILL.md',
+      'queries.md',
+    ]);
+    expect(all['release-notes'].hash).toBe(parse.skills['release-notes'].hash);
+  });
+
+  it('with `only`, the skills of the agents those entries name', () => {
+    expect(Object.keys(appliedSkills(parse, [entry(parse, 'triage')]))).toEqual([
+      'incident-triage',
+    ]);
+    expect(Object.keys(appliedSkills(parse, [entry(parse, 'write')])).sort()).toEqual([
+      'incident-triage',
+      'release-notes',
+    ]);
+    // An entry with no agent, or none at all, keeps none.
+    expect(appliedSkills(parse, [entry(parse, 'nightly')])).toEqual({});
+    expect(appliedSkills(parse, [])).toEqual({});
+  });
+
+  it('an entry keeps nothing of an agent the read does not hold as valid', () => {
+    const broken = parseFactory(
+      factoryFilesOf(
+        {
+          ...texts,
+          'agents/writer.md': WRITER.replace('harness: claude-work\n', 'tools: write\n'),
+        },
+        { 'incident-triage': TRIAGE, 'release-notes': NOTES },
+      ),
+    );
+    expect(broken.agents.writer).toBeUndefined();
+    // `write` as the clean read had it names the writer, which this read does not hold.
+    expect(appliedSkills(broken, [entry(parse, 'write')])).toEqual({});
+    expect(
+      Object.keys(appliedSkills(broken, [entry(parse, 'triage'), entry(parse, 'write')])),
+    ).toEqual(['incident-triage']);
+    // Every valid skill is still the read's.
+    expect(Object.keys(appliedSkills(broken)).sort()).toEqual(['incident-triage', 'release-notes']);
+  });
+
+  it("holds its own lists, not the parse's", () => {
+    const all = appliedSkills(parse);
+    all['incident-triage'].files.pop();
+    expect(parse.skills['incident-triage'].files).toHaveLength(2);
   });
 });
 

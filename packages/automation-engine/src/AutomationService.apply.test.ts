@@ -15,6 +15,7 @@ import {
 } from './sources/sources.test-helpers';
 import {
   memoryAppliedStore,
+  skillFilesOf,
   stepsHarness,
   turnReport,
   WORKSPACE_ID,
@@ -694,6 +695,143 @@ describe('saving while the folder does not apply', () => {
     expect(saved).not.toHaveProperty('needsAllow');
     // The running version asks before its next unattended run.
     expect(viewOf(h)?.asksFirst).toBe(true);
+  });
+});
+
+describe('the applied version keeps its skills (2-C)', () => {
+  const SKILLED_REVIEWER = REVIEWER.replace(
+    'max_turns: 30\n',
+    'max_turns: 30\nskills: [incident-triage]\n',
+  );
+  const TRIAGE_MD =
+    "---\nname: incident-triage\ndescription: The team's triage checklist.\n---\nCheck the alert first.\n";
+  const QUERIES = 'Use rate() over five minutes.\n';
+  const NOTES_MD =
+    '---\nname: release-notes\ndescription: How we write notes.\n---\nShort lines.\n';
+  const SKILL_FILES = {
+    'skills/incident-triage/SKILL.md': TRIAGE_MD,
+    'skills/incident-triage/queries.md': QUERIES,
+  };
+  /** The folder, its reviewer naming incident-triage, and a skill no agent names. */
+  const skilled = (options: StepsHarnessOptions = {}) =>
+    folder({
+      files: {
+        [CATALOG_REVIEW_FILE]: CATALOG_REVIEW,
+        [REVIEWER_FILE]: SKILLED_REVIEWER,
+        ...SKILL_FILES,
+        'skills/release-notes/SKILL.md': NOTES_MD,
+      },
+      ...options,
+    });
+  /** ws-1's folder as the adapter reads it now, skills included. */
+  const parsed = (h: StepsHarness) =>
+    parseFactory(factoryFilesOf(Object.fromEntries(h.texts()), skillFilesOf(h.texts())));
+  /** Accept catalog-review at the version its files give it now. */
+  const accept = (h: StepsHarness) => {
+    const read = parsed(h);
+    const automation = read.automations.find((entry) => entry.name === ENTRY_NAME)!;
+    h.store.accept(
+      `${WORKSPACE_ID} ${ENTRY_NAME}`,
+      automationVersion(automation, stepsResolvedBody({}, { reviewer: read.agents.reviewer.hash })),
+    );
+    return read.agents.reviewer.hash;
+  };
+  /** Edit the skill's queries.md and break the reviewer, in one read. */
+  const editAndBreak = async (h: StepsHarness) => {
+    h.texts().set('skills/incident-triage/queries.md', 'Use rate() over one minute.\n');
+    h.texts().set(
+      REVIEWER_FILE,
+      SKILLED_REVIEWER.replace('model: opus\n', 'model: opus\ntools: write\n'),
+    );
+    await h.service.reload(WORKSPACE_ID);
+  };
+  const skillHashOf = (h: StepsHarness, name: string) => parsed(h).skills[name].hash;
+
+  it('a clean apply keeps every skill it read, bytes and hash, in the store', async () => {
+    const h = await skilled();
+    const record = h.appliedStore.records.get(FOLDER)!;
+    expect(record.clean).toBe(true);
+    expect(Object.keys(record.skills ?? {}).sort()).toEqual(['incident-triage', 'release-notes']);
+    const triage = record.skills!['incident-triage'];
+    expect(triage.hash).toBe(skillHashOf(h, 'incident-triage'));
+    expect(triage.files.map((file) => file.path)).toEqual(['SKILL.md', 'queries.md']);
+    expect(new TextDecoder().decode(triage.files[1].bytes)).toBe(QUERIES);
+    // The texts are the files', skills apart.
+    expect(Object.keys(record.texts).sort()).toEqual([
+      REVIEWER_FILE,
+      CATALOG_REVIEW_FILE,
+      'factory.yml',
+    ]);
+  });
+
+  it('a skill edited while the folder does not apply leaves the running agent as it applied', async () => {
+    const h = await skilled();
+    const applied = accept(h);
+    await editAndBreak(h);
+    expect(standing(h)).toBeDefined();
+    const run = await runNow(h);
+    expect(h.service.getRunDefinition(run.id)?.agents?.look.hash).toBe(applied);
+    // What the store keeps is the version that applied: the skill's old bytes.
+    const kept = h.appliedStore.records.get(FOLDER)!.skills!['incident-triage'];
+    expect(new TextDecoder().decode(kept.files[1].bytes)).toBe(QUERIES);
+  });
+
+  it('a relaunch with the folder still broken runs the applied version, its skills read from the store', async () => {
+    const h = await skilled();
+    const applied = accept(h);
+    await editAndBreak(h);
+    const reads = h.appliedStore.reads;
+    const next = await h.relaunch();
+    expect(next.appliedStore.reads).toBeGreaterThan(reads);
+    expect(standing(next)).toBeDefined();
+    expect(viewOf(next)?.problem).toBeUndefined();
+    const run = await runNow(next);
+    expect(next.service.getRunDefinition(run.id)?.agents?.look.hash).toBe(applied);
+    expect(next.world.launches).toHaveLength(1);
+    expect(next.world.launches[0].prompt).toContain("You review catalog-portal's changes.");
+  });
+
+  it('a first start keeps only the skills of the agents its applied entries use', async () => {
+    const h = await skilled({
+      files: {
+        [CATALOG_REVIEW_FILE]: CATALOG_REVIEW,
+        [REVIEWER_FILE]: SKILLED_REVIEWER,
+        ...SKILL_FILES,
+        'skills/release-notes/SKILL.md': NOTES_MD,
+        [OLD_DIGEST_FILE]: OLD_DIGEST.replace('mode: confirm', 'mode: sometimes'),
+      },
+    });
+    expect(names(h)).toEqual([ENTRY_NAME]);
+    const record = h.appliedStore.records.get(FOLDER)!;
+    expect(record.clean).toBe(false);
+    expect(Object.keys(record.skills ?? {})).toEqual(['incident-triage']);
+    expect(record.skills!['incident-triage'].hash).toBe(skillHashOf(h, 'incident-triage'));
+  });
+
+  it('a skill edit alone moves the applied time; a re-check that changes nothing writes nothing', async () => {
+    const h = await skilled();
+    const first = h.appliedStore.records.get(FOLDER)!.appliedAt;
+    const writes = h.appliedStore.writes;
+    await h.service.syncWorkspaces();
+    expect(h.appliedStore.writes).toBe(writes);
+    h.advance(60 * 60 * 1000);
+    await h.writeFile('skills/incident-triage/queries.md', 'Use rate() over one minute.\n');
+    const record = h.appliedStore.records.get(FOLDER)!;
+    expect(h.appliedStore.writes).toBe(writes + 1);
+    expect(record.appliedAt).not.toBe(first);
+    expect(record.skills!['incident-triage'].hash).toBe(skillHashOf(h, 'incident-triage'));
+  });
+
+  it('a version kept before skills were (no skills) applies again as it was, with no write', async () => {
+    const store = memoryAppliedStore();
+    const h = await folder({ appliedStore: store });
+    const kept = store.records.get(FOLDER)!;
+    expect(kept).not.toHaveProperty('skills');
+    const writes = store.writes;
+    const next = await h.relaunch();
+    expect(store.writes).toBe(writes);
+    expect(standing(next)).toBeUndefined();
+    expect(store.records.get(FOLDER)!.appliedAt).toBe(kept.appliedAt);
   });
 });
 
