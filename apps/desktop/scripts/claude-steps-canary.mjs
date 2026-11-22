@@ -36,6 +36,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
+import { stepFlags } from './claude-step-flags.mjs';
 
 const USAGE =
   'usage: node apps/desktop/scripts/claude-steps-canary.mjs [--binary <path>] [--only <id,…>] [--spend-tokens] [--profile <config dir>] [--keep]';
@@ -66,24 +67,8 @@ const SESSION_VARS = [
   'CLAUDE_EFFORT',
 ];
 
-/** The tool a step's agent reports its outputs with, as Claude names it. */
-const SET_OUTPUTS = 'mcp__consola__consola_set_outputs';
-
-/** A step's read-only flags, as `src/main/drivers/ClaudeDriver.ts` (READ_ONLY_ARGS) writes them. */
-function stepFlags({ tools = 'Read,Grep,Glob', allowed = [], restricted = true } = {}) {
-  return [
-    '--strict-mcp-config',
-    '--permission-mode',
-    'dontAsk',
-    '--tools',
-    tools,
-    '--allowedTools',
-    SET_OUTPUTS,
-    ...allowed,
-    // Last, and taking no value: it closes the variadic tool list above.
-    ...(restricted ? ['--restricted'] : []),
-  ];
-}
+// A step's read-only flags (`stepFlags`) are in
+// `claude-step-flags.mjs`, where a unit test keeps them equal to the driver's.
 
 const READ_ONLY = stepFlags();
 
