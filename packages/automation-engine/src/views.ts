@@ -197,6 +197,22 @@ export interface SavedAutomation {
   line?: number;
   /** A poll entry it wrote: it does not check until a person allows it on its page. */
   needsAllow?: true;
+  /**
+   * The folder does not apply after the save, so what it wrote is not running
+   * yet: what keeps it (each `<file>:<line>: <message>`, its last full stop
+   * removed), and when the version that keeps running applied, in words.
+   */
+  notApplied?: { issues: string[]; since: string };
+}
+
+/** A factory folder that does not apply: the last applied version keeps running. */
+export interface FactoryStanding {
+  /** The banner's sentence, worded when the snapshot is built. */
+  message: string;
+  /** When the running version applied (ISO). */
+  appliedAt: string;
+  /** Entries a removal stopped at this read although the rest did not apply (recomputed at each read). */
+  removed: string[];
 }
 
 /** What a run is, as the activity list groups it: an agent session, an in-process tool, or an agent's call waiting for a person. */
@@ -281,7 +297,11 @@ export interface AutomationsSnapshot {
   filePath: string;
   fileExists: boolean;
   automations: AutomationView[];
-  /** Problems with the folder's files or with individual entries, each with its `file`. */
+  /**
+   * Problems with the folder's files or with individual entries, each with its
+   * `file`; while the folder does not apply, everything that keeps it from
+   * applying, a changed entry's harness problem included.
+   */
   issues: FactorySpecIssue[];
   /**
    * What the person should know that stops nothing: a folder a later slice
@@ -302,6 +322,8 @@ export interface AutomationsSnapshot {
   suggestAssignedReviews: boolean;
   /** The ready-made automations, with what this workspace lacks for each and which are already in the file. */
   templates: TemplateView[];
+  /** Present only while the folder does not apply: the last applied version keeps running. */
+  standing?: FactoryStanding;
 }
 
 /** A PR or issue, named the way the engine needs it: the provider is an opaque id here. */

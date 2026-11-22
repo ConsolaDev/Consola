@@ -316,6 +316,47 @@ describe('save_automation and Allow', () => {
     expect(result.summary).toBe('Added sweep in factory.yml.');
   });
 
+  it('says when the factory does not apply after the save, and what keeps it', async () => {
+    saveEntry.mockResolvedValueOnce({
+      name: 'catalog-notes',
+      file: 'factory.yml',
+      replaced: false,
+      entry: '- name: catalog-notes',
+      notApplied: {
+        issues: [
+          'agents/reviewer.md:5: Write tools arrive with write steps; an agent is read-only until then',
+        ],
+        since: '08:00',
+      },
+    });
+    const result = await registry.invoke(
+      'save_automation',
+      { entry: '- name: catalog-notes' },
+      as('me'),
+    );
+    expect(result.summary).toBe(
+      "Added catalog-notes in factory.yml, but the factory doesn't apply until these are fixed: agents/reviewer.md:5: Write tools arrive with write steps; an agent is read-only until then. The version from 08:00 keeps running.",
+    );
+  });
+
+  it('joins every issue that keeps the factory from applying', async () => {
+    saveEntry.mockResolvedValueOnce({
+      name: 'catalog-review',
+      file: 'automations/catalog-review.yaml',
+      replaced: true,
+      entry: '- name: catalog-review',
+      notApplied: { issues: ['agents/a.md:2: One', 'agents/b.md: Two'], since: '21 Nov 10:42' },
+    });
+    const result = await registry.invoke(
+      'save_automation',
+      { entry: '- name: catalog-review', replace: true },
+      as('me'),
+    );
+    expect(result.summary).toBe(
+      "Replaced catalog-review in automations/catalog-review.yaml, but the factory doesn't apply until these are fixed: agents/a.md:2: One; agents/b.md: Two. The version from 21 Nov 10:42 keeps running.",
+    );
+  });
+
   it('names the file it wrote: an entry replaced in its own automation file', async () => {
     saveEntry.mockResolvedValueOnce({
       name: 'catalog-review',

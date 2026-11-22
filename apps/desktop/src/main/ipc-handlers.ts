@@ -131,6 +131,7 @@ import { parseAuthoringRequest } from './automations/authoringRequest';
 import type { AutomationsChange } from '../shared/automations';
 import { asRunTarget } from './automations/runTarget';
 import {
+  AppliedFactoryFiles,
   AUTOMATION_TEMPLATES,
   AutomationService,
   FactoryFolder,
@@ -2061,6 +2062,8 @@ export function setupIpcHandlers(): boolean {
   };
   const automations = new AutomationService({
     folderFor: (workspaceId) => new FactoryFolder(workspaceDataDir(workspaceId)),
+    // Each folder's last applied version, in Consola's own state: what keeps running while a file has a problem.
+    appliedStore: new AppliedFactoryFiles(path.join(app.getPath('userData'), 'factory-applied')),
     store: runStore,
     runFolder: new RunFolder(),
     workItems: desktopWorkItemPort({

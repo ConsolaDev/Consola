@@ -6,6 +6,7 @@ import {
   automationFileText,
   automationItemText,
   automationVersion,
+  factoryFilesOf,
   isStepsEntry,
   nextCronOccurrence,
   parseAutomationEntry,
@@ -67,11 +68,21 @@ import {
   describeTriggerAsWritten,
 } from './describeEntry';
 import { describeSchedule } from './describeSchedule';
-import { agentIssues, agentQuery } from './factory/apply';
+import {
+  agentIssues,
+  agentQuery,
+  appliedTexts,
+  decideApply,
+  describeAppliedAt,
+  standingMessage,
+  type ApplyDecision,
+} from './factory/apply';
 import type {
   AgentHarnessAnswer,
   AgentHarnessQuery,
   AgentLaunchRequest,
+  AppliedFactory,
+  AppliedFactoryStore,
   CommandPort,
   CommandResult,
   CommandSpec,
@@ -90,6 +101,7 @@ import { SNAPSHOT_ENDED_RUNS } from './views';
 import type {
   ConversationTarget,
   ActionView,
+  FactoryStanding,
   AgentRunPreview,
   AutomationsSnapshot,
   AutomationView,
@@ -240,6 +252,11 @@ export interface SaveEntryOptions {
 export interface AutomationServiceDeps {
   /** A workspace's factory folder; asked for once, when the workspace is first seen. */
   folderFor(workspaceId: string): FactoryFolderHandle;
+  /**
+   * Each folder's last applied version: what keeps running while a file has
+   * a problem, across restarts. Read once per workspace, at its first load.
+   */
+  appliedStore: AppliedFactoryStore;
   store: RunStore;
   /** Each run's folder: its definition snapshot and its steps' documents. */
   runFolder: RunFolderPort;
@@ -446,6 +463,12 @@ interface WorkspaceFactory {
   resolved: Resolved[];
   /** The resolved entries' warnings, each once: the snapshot's notices after the read's own. */
   warnings: FactoryNotice[];
+  /** Whether the store was read: once, at the folder's first load. Until then nothing is decided. */
+  storeRead: boolean;
+  /** The last applied version, kept with its parse; only `reapply` replaces it (the store is read once). */
+  applied: { record: AppliedFactory; parse: FactoryParseResult } | null;
+  /** Present while the folder does not apply: why, and when the version that runs applied. */
+  standing?: { decision: Extract<ApplyDecision, { kind: 'keeps' }>; appliedAt: string };
 }
 
 /** A folder not read yet: nothing in it. */
@@ -750,6 +773,12 @@ export class AutomationService {
         this.deps.store.workspacesWithStepsRuns().has(workspaceId) ||
         factory.resolved.some((entry) => pollOf(entry) !== null);
       this.deps.store.forgetWorkspace(workspaceId);
+      // Its applied version goes too, as its run records do.
+      try {
+        this.deps.appliedStore.forget(factory.folder.folderPath);
+      } catch (error) {
+        console.error(`Could not forget ${workspaceId}'s applied factory.`, error);
+      }
       if (hasFolders) {
         try {
           this.deps.runFolder.removeAll(workspaceId);
@@ -764,27 +793,47 @@ export class AutomationService {
     const added = [...current].filter((id) => !this.factories.has(id));
     for (const workspaceId of added) {
       const folder = this.deps.folderFor(workspaceId);
-      this.factories.set(workspaceId, { folder, read: notRead(), resolved: [], warnings: [] });
+      this.factories.set(workspaceId, {
+        folder,
+        read: notRead(),
+        resolved: [],
+        warnings: [],
+        storeRead: false,
+        applied: null,
+      });
       folder.watch(() => void this.reload(workspaceId));
     }
 
-    // Settings edits re-resolve without touching the file. Broadcast only
-    // what changed: this runs on every workspace write, session clicks
-    // included. A template's `missing` follows the same settings.
+    // Settings and harness edits re-check without touching the files: a
+    // harness turned off can stop a changed entry from applying, and turned
+    // on again, let it. Broadcast only what changed: this runs on every
+    // workspace write, session clicks included, and reads nothing of the
+    // applied version. A template's `missing` follows the same settings.
     const settingsView = (workspaceId: string, factory: WorkspaceFactory) =>
-      stableStringify([this.list(workspaceId), this.templatesOf(workspaceId, factory)]);
+      stableStringify([
+        this.list(workspaceId),
+        this.templatesOf(workspaceId, factory),
+        factory.standing?.decision ?? null,
+      ]);
+    const runningOf = (factory: WorkspaceFactory) =>
+      stableStringify(factory.resolved.map(scheduleKey));
+    let runningChanged = false;
     for (const [workspaceId, factory] of this.factories) {
       if (added.includes(workspaceId)) continue;
       const before = settingsView(workspaceId, factory);
-      this.resolveAll(workspaceId, factory);
+      const running = runningOf(factory);
+      this.reapply(workspaceId, factory);
+      if (runningOf(factory) !== running) runningChanged = true;
       if (settingsView(workspaceId, factory) !== before) this.broadcast(workspaceId);
     }
 
     // Every file is read before schedules are reconciled: reconciling
     // while one is unread would forget its fire times, and with them the
-    // catch-up for whatever it missed while Consola was closed.
+    // catch-up for whatever it missed while Consola was closed. A re-check
+    // that changed what runs reconciles too: an entry that just applied
+    // starts its schedule now.
     await Promise.all(added.map((workspaceId) => this.load(workspaceId)));
-    if (added.length > 0 || removed.length > 0) this.settleSchedules();
+    if (added.length > 0 || removed.length > 0 || runningChanged) this.settleSchedules();
     // A settings edit can change a poll entry's version too: an action a step names.
     for (const workspaceId of this.factories.keys()) this.announceAllows(workspaceId);
     for (const workspaceId of added) this.broadcast(workspaceId);
@@ -838,6 +887,11 @@ export class AutomationService {
     this.settleSchedules();
     this.announceAllows(workspaceId);
     this.broadcast(workspaceId);
+  }
+
+  /** Check again: re-read the folder and re-check what applies, as a change to one of its files would. */
+  public async recheck(workspaceId: string): Promise<void> {
+    await this.reload(workspaceId);
   }
 
   /**
@@ -1026,9 +1080,12 @@ export class AutomationService {
     await this.reload(workspaceId);
     // Again once it is live: a run fired while the file was being reloaded was of the entry before.
     this.deps.store.markRevoked(key, this.iso());
-    const live = this.factories
-      .get(workspaceId)
-      ?.resolved.find((candidate) => candidate.automation.name === automation.name);
+    const after = this.factories.get(workspaceId);
+    // Saved but not running: the folder does not apply, and the version before keeps running.
+    const standing = after?.standing;
+    const live = standing
+      ? undefined
+      : after?.resolved.find((candidate) => candidate.automation.name === automation.name);
     const line = live?.automation.line;
     // A poll entry it wrote does not check until a person allows it, whoever saved it.
     const waits = live !== undefined && this.needsAllow(live);
@@ -1039,6 +1096,14 @@ export class AutomationService {
       entry: item,
       ...(line ? { line } : {}),
       ...(waits ? { needsAllow: true as const } : {}),
+      ...(standing
+        ? {
+            notApplied: {
+              issues: standing.decision.blocking.map(describeBlocking),
+              since: describeAppliedAt(standing.appliedAt, this.deps.now()),
+            },
+          }
+        : {}),
     };
   }
 
@@ -1060,8 +1125,13 @@ export class AutomationService {
    * One entry exactly as its file has it: a factory.yml entry as its
    * `- name: …` item, and an entry in `automations/<name>.yaml` as that whole
    * file, so its lines are the file's own. Null when there is no such entry.
+   * While the folder does not apply, the entry as the running version has
+   * it, not the live file: Allow accepts that version, so the person reads
+   * exactly what they accept.
    */
   public async entryText(workspaceId: string, name: string): Promise<string | null> {
+    const factory = this.factoryOf(workspaceId);
+    if (factory.standing && factory.applied) return appliedEntryText(factory.applied, name);
     const live = await this.liveEntry(workspaceId, name);
     return live === null ? null : live.text;
   }
@@ -2503,7 +2573,8 @@ export class AutomationService {
       filePath: factory.folder.filePath,
       fileExists: factory.read.exists,
       automations: this.list(workspaceId),
-      issues: factory.read.parse.issues,
+      // While the folder does not apply, every reason it does not: a changed entry's harness too.
+      issues: factory.standing ? factory.standing.decision.blocking : factory.read.parse.issues,
       notices: [...factory.read.parse.notices, ...factory.warnings],
       runs,
       // True only when `listRuns` would hand over an ended run after the oldest one shown.
@@ -2515,6 +2586,17 @@ export class AutomationService {
       queue,
       suggestAssignedReviews: this.assignedReviewsSuggestion(workspaceId, factory),
       templates: this.templatesOf(workspaceId, factory),
+      ...(factory.standing ? { standing: this.standingView(factory.standing) } : {}),
+    };
+  }
+
+  /** The banner, worded now: a banner left overnight names the day its version applied. */
+  private standingView(standing: NonNullable<WorkspaceFactory['standing']>): FactoryStanding {
+    const { decision, appliedAt } = standing;
+    return {
+      message: standingMessage(decision, appliedAt, this.deps.now()),
+      appliedAt,
+      removed: [...decision.removed],
     };
   }
 
@@ -4003,16 +4085,97 @@ export class AutomationService {
     if (this.factories.get(workspaceId) !== factory) return false;
     const checkedBefore = factory.resolved.some((entry) => pollOf(entry) !== null);
     factory.read = { exists, files, parse: parseFactory(files) };
-    this.resolveAll(workspaceId, factory);
+    // Read once, at the folder's first load: afterwards only `reapply` replaces it.
+    if (!factory.storeRead) {
+      factory.applied = this.readApplied(factory.folder.folderPath);
+      factory.storeRead = true;
+    }
+    this.reapply(workspaceId, factory);
     this.sweepCheckLogs(workspaceId, factory, checkedBefore);
     return true;
+  }
+
+  /** A folder's applied version, parsed from its texts; none when the store has none, or cannot say. */
+  private readApplied(folder: string): WorkspaceFactory['applied'] {
+    let record: AppliedFactory | null;
+    try {
+      record = this.deps.appliedStore.read(folder);
+    } catch (error) {
+      // The folder then applies as on its first start, which runs nothing a file does not say.
+      console.error(
+        `Could not read ${folder}'s applied factory; it applies as on a first start.`,
+        error,
+      );
+      record = null;
+    }
+    return record && { record, parse: parseFactory(factoryFilesOf(record.texts)) };
+  }
+
+  /**
+   * Decide what of a folder runs, from its latest read and its applied
+   * version, and resolve that: the read, when it applies (as a unit, or,
+   * before the folder's first clean apply, entry by entry); otherwise the
+   * applied version, less the entries this read removes, each with that
+   * version's agents. What applied is persisted, and only when it changed.
+   * No I/O but that write, and no parse: `syncWorkspaces` calls it on every
+   * workspace write.
+   */
+  private reapply(workspaceId: string, factory: WorkspaceFactory): void {
+    // Not read yet: there is nothing to decide, and nothing may overwrite the store.
+    if (!factory.storeRead) return;
+    const { read, applied } = factory;
+    const ask = (agent: AgentDefinition) => this.deps.agentHarness(workspaceId, agentQuery(agent));
+    const decision = decideApply({
+      read: read.parse,
+      applied: applied && { parse: applied.parse, clean: applied.record.clean },
+      problemsOf: (automation) => agentIssues(automation, read.parse.agents, ask).problems,
+    });
+    if (decision.kind === 'keeps' && applied) {
+      factory.standing = { decision, appliedAt: applied.record.appliedAt };
+      const removed = new Set(decision.removed);
+      const running = applied.parse.automations.filter((entry) => !removed.has(entry.name));
+      this.resolveAll(workspaceId, factory, running, applied.parse.agents);
+      return;
+    }
+    factory.standing = undefined;
+    // A first start keeps what its entries use; a clean apply, every text it read.
+    const clean = decision.kind === 'applies';
+    const texts = clean
+      ? appliedTexts(read.files, read.parse)
+      : appliedTexts(read.files, read.parse, read.parse.automations);
+    this.keepApplied(factory, texts, clean);
+    this.resolveAll(workspaceId, factory, read.parse.automations, read.parse.agents);
+  }
+
+  /** Persist what applied when it differs from what is kept; `appliedAt` moves only when the texts do. */
+  private keepApplied(
+    factory: WorkspaceFactory,
+    texts: Record<string, string>,
+    clean: boolean,
+  ): void {
+    const kept = factory.applied?.record;
+    const sameTexts = kept !== undefined && stableStringify(kept.texts) === stableStringify(texts);
+    if (sameTexts && kept.clean === clean) return;
+    const record: AppliedFactory = {
+      folder: factory.folder.folderPath,
+      appliedAt: sameTexts ? kept.appliedAt : this.iso(),
+      clean,
+      texts,
+    };
+    factory.applied = { record, parse: factory.read.parse };
+    try {
+      this.deps.appliedStore.write(record);
+    } catch (error) {
+      // It runs regardless; a restart decides again, from the files and what the store last kept.
+      console.error(`Could not keep ${record.folder}'s applied factory.`, error);
+    }
   }
 
   /**
    * Remove the logs of checks a folder that read cleanly no longer has (an
    * automation renamed or removed), at start-up as after a reload. A read
    * with issues keeps them all, as it keeps its lists: it may be hiding an
-   * entry behind a typo. Only a folder that has a poll entry, or had one at
+   * entry behind a typo. So does a folder that does not apply. Only a folder that has a poll entry, or had one at
    * its last read, is swept, so a workspace that never checks is never
    * looked at. A failure costs disk, not the load.
    */
@@ -4021,7 +4184,7 @@ export class AutomationService {
     factory: WorkspaceFactory,
     checkedBefore: boolean,
   ): void {
-    if (factory.read.parse.issues.length > 0) return;
+    if (holdsLists(factory)) return;
     const names = factory.resolved
       .filter((entry) => pollOf(entry) !== null)
       .map((entry) => entry.automation.name);
@@ -4033,9 +4196,13 @@ export class AutomationService {
     }
   }
 
-  /** Resolve every entry the folder's read holds, against its agents; their warnings once each. */
-  private resolveAll(workspaceId: string, factory: WorkspaceFactory): void {
-    const { automations, agents } = factory.read.parse;
+  /** Resolve what runs, each entry against the agents of the version it comes from; their warnings once each. */
+  private resolveAll(
+    workspaceId: string,
+    factory: WorkspaceFactory,
+    automations: readonly Automation[],
+    agents: Readonly<Record<string, AgentDefinition>>,
+  ): void {
     factory.resolved = automations.map((automation) =>
       this.resolve(workspaceId, automation, agents),
     );
@@ -4061,6 +4228,8 @@ export class AutomationService {
     // typo: its workspace's lists are kept until the files say otherwise,
     // so fixing the typo catches up instead of starting from scratch.
     // An agent's addition is kept the same way, so its mark survives too.
+    // So is a folder that does not apply: an entry saved meanwhile is not
+    // running yet, and would lose its marks.
     const kept = new Set(
       resolved
         .filter((entry) => entry.automation.trigger.kind === 'event' || pollOf(entry))
@@ -4068,7 +4237,7 @@ export class AutomationService {
     );
     const named = new Set(resolved.map(automationKey));
     for (const [workspaceId, factory] of this.factories) {
-      if (factory.read.parse.issues.length === 0) continue;
+      if (!holdsLists(factory)) continue;
       for (const key of this.deps.store.seenKeys())
         if (key.startsWith(`${workspaceId} `)) kept.add(key);
       for (const key of this.deps.store.addedKeys())
@@ -4077,7 +4246,7 @@ export class AutomationService {
     // A revocation is kept through a broken file too: the entry it guards is still in there.
     const revoked = new Set(named);
     for (const [workspaceId, factory] of this.factories) {
-      if (factory.read.parse.issues.length === 0) continue;
+      if (!holdsLists(factory)) continue;
       for (const key of this.deps.store.revokedKeys())
         if (key.startsWith(`${workspaceId} `)) revoked.add(key);
     }
@@ -5216,6 +5385,34 @@ function isEntryIssue(issue: FactorySpecIssue): boolean {
 /** The file an entry of that name lives in, as `whereIs` found it. */
 function homeFile(name: string, where: 'factory.yml' | 'file'): string {
   return where === 'factory.yml' ? 'factory.yml' : `automations/${name}.yaml`;
+}
+
+/**
+ * Whether a folder keeps its workspace's lists (seen items, additions,
+ * revocations) and check logs whatever its entries say: it read with
+ * issues, or it does not apply, so what runs is not what the files say.
+ */
+function holdsLists(factory: Pick<WorkspaceFactory, 'read' | 'standing'>): boolean {
+  return factory.read.parse.issues.length > 0 || factory.standing !== undefined;
+}
+
+/** An entry as an applied version has it: its factory.yml item, or its whole file; null when it has none. */
+function appliedEntryText(
+  applied: { record: AppliedFactory; parse: FactoryParseResult },
+  name: string,
+): string | null {
+  const entry = applied.parse.automations.find((candidate) => candidate.name === name);
+  if (!entry?.file) return null;
+  const text = applied.record.texts[entry.file];
+  if (text === undefined) return null;
+  return entry.file === 'factory.yml' ? automationEntryText(text, name) : text;
+}
+
+/** What keeps a folder from applying, as a save's result says it: `<file>:<line>: <message>`. */
+function describeBlocking(issue: FactorySpecIssue): string {
+  const where = [issue.file, issue.line].filter((part) => part !== undefined).join(':');
+  const message = issue.message.trim().replace(/\.$/, '');
+  return where ? `${where}: ${message}` : message;
 }
 
 /** An issue as a reason: where it is, then what is wrong. */

@@ -493,7 +493,16 @@ export function consolaTools(deps: ConsolaToolDeps): ToolDefinition[] {
           replace: args.replace,
           by: { sessionId: self.id, sessionName: self.name },
         });
-        const base = `${saved.replaced ? 'Replaced' : 'Added'} ${saved.name} in ${saved.file}.`;
+        const written = `${saved.replaced ? 'Replaced' : 'Added'} ${saved.name} in ${saved.file}`;
+        // Saved, but not running: the folder does not apply, so the version before it keeps running.
+        if (saved.notApplied) {
+          const { issues, since } = saved.notApplied;
+          return {
+            summary: `${written}, but the factory doesn't apply until these are fixed: ${issues.join('; ')}. The version from ${since} keeps running.`,
+            data: saved,
+          };
+        }
+        const base = `${written}.`;
         // An entry with a problem is not waiting for Allow (saveEntry
         // returns no needsAllow for it): say the problem instead.
         const problem = saved.needsAllow

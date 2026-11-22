@@ -21,6 +21,8 @@ import type {
   AgentHarnessAnswer,
   AgentHarnessQuery,
   AgentLaunchRequest,
+  AppliedFactory,
+  AppliedFactoryStore,
   CommandResult,
   CommandSpec,
   FactoryFolderHandle,
@@ -54,7 +56,8 @@ import type { StepToolAnswer } from './stepTools';
  * working as written. `relaunch` quits the service and starts another over the
  * same state, history, run folder, files, clock and world, as reopening
  * Consola would. ws-1's factory folder is held in memory, file by file
- * (`factory.yml`, `automations/<name>.yaml`, `agents/<name>.md`).
+ * (`factory.yml`, `automations/<name>.yaml`, `agents/<name>.md`), and so is
+ * the applied version of each folder (`memoryAppliedStore`).
  */
 
 export const WORKSPACE_ID = 'ws-1';
@@ -162,6 +165,8 @@ export interface StepsHarnessOptions {
   files?: Record<string, string>;
   /** The harnesses an agent may name, by id, as the agent check answers for each. Default: none. */
   agentHarnesses?: Record<string, AgentHarnessAnswer>;
+  /** Where each folder's applied version is kept; it outlives `relaunch`. Default: a new, empty one. */
+  appliedStore?: MemoryAppliedStore;
   /** What `process.platform` would say on the host. Default `darwin`. */
   platform?: NodeJS.Platform;
   /** The default harness, as the agent check sees it. Default: Claude, able to run read-only and steps. */
@@ -196,6 +201,8 @@ export interface StepsWorld {
   harnessQueries: Array<AgentHarnessQuery | undefined>;
   /** How many times ws-1's folder was read. */
   folderReads: number;
+  /** Every read of a folder waits for this while it is set, after counting the read. */
+  folderReadGate?: Promise<void>;
   /** Each workspace's latest Inbox snapshot, as `inboxSnapshot` returns it. */
   inbox: Map<string, ItemSnapshot>;
   /** Sessions a pane has a live terminal for: a person opened them. */
@@ -283,6 +290,8 @@ export interface StepsHarness {
   notices: AutomationNotice[];
   /** Replace ws-1's factory.yml and reload it, as the file watcher would. */
   setYaml(yaml: string): Promise<void>;
+  /** Each folder's applied version, as the service kept it: the same store across relaunches. */
+  appliedStore: MemoryAppliedStore;
   /** Write one of ws-1's factory files (null deletes it), then reload, as the watcher would. */
   writeFile(relative: string, text: string | null): Promise<void>;
   /** ws-1's factory files as they are now, by path in the folder. */
@@ -297,6 +306,49 @@ export interface StepsHarness {
   flush(): Promise<void>;
   now(): Date;
   advance(ms: number): void;
+}
+
+/** An applied-version store held in memory, copied on the way in and out as a file would be. */
+export interface MemoryAppliedStore extends AppliedFactoryStore {
+  /** What it holds, by folder. */
+  records: Map<string, AppliedFactory>;
+  /** How many reads and writes it was asked for. */
+  reads: number;
+  writes: number;
+  /** Every folder `forget` was asked for, in order. */
+  forgotten: string[];
+  /** While set, `read` returns null whatever it holds: a damaged file, logged and moved aside. */
+  damaged: boolean;
+  /** While set, `read` throws it: a store that cannot say. */
+  readThrows?: unknown;
+  /** While set, `write` throws it, after counting the call, and keeps nothing. */
+  writeThrows?: unknown;
+}
+
+export function memoryAppliedStore(): MemoryAppliedStore {
+  const store: MemoryAppliedStore = {
+    records: new Map(),
+    reads: 0,
+    writes: 0,
+    forgotten: [],
+    damaged: false,
+    read(folder) {
+      store.reads++;
+      if (store.readThrows) throw store.readThrows;
+      const record = store.records.get(folder);
+      return record && !store.damaged ? structuredClone(record) : null;
+    },
+    write(applied) {
+      store.writes++;
+      if (store.writeThrows) throw store.writeThrows;
+      store.records.set(applied.folder, structuredClone(applied));
+    },
+    forget(folder) {
+      store.forgotten.push(folder);
+      store.records.delete(folder);
+    },
+  };
+  return store;
 }
 
 /** A state file held in memory, copied on write as a real one would be. */
@@ -393,6 +445,7 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
   // What outlives a quit: the state file, the run logs and the run folder.
   const stateFile = memoryStateFile();
   const history = memoryHistory();
+  const appliedStore = options.appliedStore ?? memoryAppliedStore();
   const folder = new RunFolder((workspaceId) => path.join(root, workspaceId));
   let id = 0;
 
@@ -420,6 +473,7 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
       filePath,
       read: async () => {
         if (workspaceId === WORKSPACE_ID) world.folderReads++;
+        if (world.folderReadGate) await world.folderReadGate;
         const paths = [...files().keys()];
         return {
           exists: files().has('factory.yml'),
@@ -509,6 +563,7 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
 
   const deps = (store: RunStore): AutomationServiceDeps => ({
     folderFor,
+    appliedStore,
     store,
     runFolder: folder,
     workItems: options.workItems ?? {
@@ -657,6 +712,7 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
         await service.reload(WORKSPACE_ID);
       },
       texts: () => filesOf(WORKSPACE_ID),
+      appliedStore,
       async poll(items) {
         const snapshot: ItemSnapshot = {
           workspaceId: WORKSPACE_ID,

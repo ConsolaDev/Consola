@@ -119,6 +119,8 @@ async function runner(
       readAutomationFile: async () => null,
       pathOf: (relative) => `/home/me/.consola/workspaces/${workspaceId}/${relative}`,
     }),
+    // Keeps nothing: every load is a first start.
+    appliedStore: { read: () => null, write: () => {}, forget: () => {} },
     store: new RunStore({ read: () => null, write: () => {} }, noHistory),
     // Nothing here runs steps: any path it is asked for throws.
     runFolder: new RunFolder(() => {

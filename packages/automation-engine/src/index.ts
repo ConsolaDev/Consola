@@ -33,6 +33,7 @@ export type {
   RunListPage,
   AgentRunPreview,
   AutomationsSnapshot,
+  FactoryStanding,
   ItemRef,
   InboxItemView,
   ItemSnapshot,
