@@ -6,8 +6,9 @@
  * Consola's tests drive a stub `claude`, so none of them notices the real CLI
  * changing something agent steps rely on: the shape of its stream-json in a
  * PTY, its hooks under a step's flags, what `--restricted` keeps out, how a
- * blocked server shows, what a resumed turn reports. This script asks the
- * real one, one row per assumption, and prints what it saw.
+ * blocked server shows, what a resumed turn reports, which model `--model`
+ * puts a step's turn on (rows 16 to 19). This script asks the real one, one
+ * row per assumption, and prints what it saw.
  *
  * It is a developer script with an owner. The app never runs it, and neither
  * does CI. Run it after every CLI upgrade, before the new version is used for
@@ -1302,6 +1303,117 @@ async function row15() {
 }
 
 /**
+ * Rows 16 and 17's turn: the scratch profile, not signed in, so the turn
+ * fails after its `init`, which names the model the CLI chose. `modelFlags`
+ * go before the step's flags, where the driver puts an agent's `--model`.
+ */
+async function modelTurn(modelFlags) {
+  const result = await pty(
+    ['-p', '--no-session-persistence', ...modelFlags, ...REPORT, ...READ_ONLY, '--', 'Say hi'],
+    { cwd: neutral, env: scratchEnv(), guard: true },
+  );
+  return { result, init: initOf(jsonLines(result.text).events) };
+}
+
+function noModel(turn, flags) {
+  return `the turn with ${flags} has no init.model (exit ${turn.result.exitCode}; ${turn.init ? `init.model is ${JSON.stringify(turn.init.model)}` : 'no init'})`;
+}
+
+async function row16() {
+  const alias = await modelTurn(HAIKU);
+  if (alias.result.killedForLogin)
+    return {
+      status: 'SKIP',
+      why: `the scratch profile found a login (${alias.result.killedForLogin})`,
+    };
+  const first = alias.init?.model;
+  if (typeof first !== 'string') return { status: 'FAIL', why: noModel(alias, '--model haiku') };
+  if (!first.includes('haiku'))
+    return { status: 'FAIL', why: `--model haiku put the turn on ${first}, not a haiku model` };
+  const full = await modelTurn(['--model', first]);
+  if (full.result.killedForLogin)
+    return {
+      status: 'SKIP',
+      why: `the scratch profile found a login (${full.result.killedForLogin})`,
+    };
+  const second = full.init?.model;
+  if (typeof second !== 'string') return { status: 'FAIL', why: noModel(full, `--model ${first}`) };
+  const saw = `--model haiku → init.model ${first}; --model ${first} → init.model ${second}`;
+  return second === first ? { status: 'PASS', why: saw } : { status: 'FAIL', why: saw };
+}
+
+async function row17() {
+  const turn = await modelTurn(['--model', 'haiku', '--model', 'opus']);
+  if (turn.result.killedForLogin)
+    return {
+      status: 'SKIP',
+      why: `the scratch profile found a login (${turn.result.killedForLogin})`,
+    };
+  const model = turn.init?.model;
+  if (typeof model !== 'string')
+    return { status: 'FAIL', why: noModel(turn, '--model haiku --model opus') };
+  const saw = `--model haiku --model opus → init.model ${model}`;
+  return model.includes('opus') && !model.includes('haiku')
+    ? { status: 'PASS', why: `${saw}: the last one wins` }
+    : { status: 'FAIL', why: `${saw}, not the last one's (opus)` };
+}
+
+async function row18() {
+  const result = await run(readOnlyTurn('Say hi'), { cwd: neutral, env: profileEnv() });
+  const events = jsonLines(result.stdout).events;
+  const last = resultOf(events);
+  if (!last)
+    return {
+      status: 'FAIL',
+      why: `no result; exit ${result.exitCode}; ${short(result.stderr, 120)}`,
+    };
+  const models = Object.keys(last.modelUsage ?? {});
+  const problems = [];
+  if (last.subtype !== 'success') problems.push(`result.subtype is ${last.subtype}`);
+  if (last.is_error !== false) problems.push(`result.is_error is ${last.is_error}`);
+  if (models.length === 0) problems.push('result.modelUsage names no model');
+  const others = models.filter((model) => !model.includes('haiku'));
+  if (others.length) problems.push(`result.modelUsage names ${others.join(', ')}`);
+  const saw = `init.model ${initOf(events)?.model}; ${figures(last)}`;
+  return problems.length
+    ? { status: 'FAIL', why: `${problems.join('; ')}; ${saw}` }
+    : { status: 'PASS', why: saw };
+}
+
+/** A model id no CLI has. */
+const MISSING_MODEL = 'claude-consola-canary-nonexistent';
+
+async function row19() {
+  const result = await run(
+    [
+      '-p',
+      '--no-session-persistence',
+      '--model',
+      MISSING_MODEL,
+      ...REPORT,
+      ...READ_ONLY,
+      '--',
+      'Say hi',
+    ],
+    { cwd: neutral, env: profileEnv() },
+  );
+  const last = resultOf(jsonLines(result.stdout).events);
+  const stderrLine = result.stderr.split('\n').find((line) => line.trim()) ?? '';
+  const said = last
+    ? `result ${last.subtype}, is_error ${last.is_error}: ${JSON.stringify(short(last.result, 160))}`
+    : `no result; stderr: ${JSON.stringify(short(stderrLine, 160))}`;
+  const saw = `${said}; exit ${result.exitCode}`;
+  // The only failure: a turn that succeeded on some model, so a step on a
+  // model its CLI lacks would run anyway and "a model not listed is a
+  // warning" would be unsafe.
+  if (last?.is_error === false)
+    return { status: 'FAIL', why: `a turn on ${MISSING_MODEL} succeeded: ${saw}` };
+  if (last?.is_error === true || (!last && result.exitCode !== 0))
+    return { status: 'PASS', why: saw };
+  return { status: 'INFO', why: `no successful result, in a shape this row does not know: ${saw}` };
+}
+
+/**
  * `needs`: `zero` sends no prompt; `prompt` sends one in the scratch profile,
  * so a login there skips it; `profile` needs `--profile` and a login;
  * `tokens` spends tokens on it.
@@ -1352,6 +1464,25 @@ const ROWS = [
     run: row14,
   },
   { id: '15', name: 'a logged-in turn in a PTY prints only JSON', needs: 'tokens', run: row15 },
+  {
+    id: '16',
+    name: "--model reaches a step's turn, by alias and by full id",
+    needs: 'prompt',
+    run: row16,
+  },
+  {
+    id: '17',
+    name: "the last --model wins, which is why a harness's own --model is refused",
+    needs: 'prompt',
+    run: row17,
+  },
+  { id: '18', name: "a step's turn runs on the model it names", needs: 'tokens', run: row18 },
+  {
+    id: '19',
+    name: 'a model the CLI does not have fails the turn',
+    needs: 'profile',
+    run: row19,
+  },
 ];
 
 async function preflight() {
