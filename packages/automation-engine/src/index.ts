@@ -71,6 +71,7 @@ export type {
   EngineToolResult,
   EngineTool,
   ToolsPort,
+  CheckoutKind,
   AgentLaunchRequest,
   AgentHarnessQuery,
   AgentHarnessAnswer,
@@ -108,6 +109,7 @@ export {
   type StepsRunPreview,
 } from './steps/definition';
 export type { CheckoutRequest, PreparedCheckout, CheckoutPort } from './steps/checkout';
+export { entryCheckoutKind, entryReadsItems, runCheckoutKind } from './steps/checkout';
 export {
   LOG_CAP_BYTES,
   OUTPUT_FILE_CAP_BYTES,

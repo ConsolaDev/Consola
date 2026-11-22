@@ -1,4 +1,5 @@
 import type { AgentDefinition, Step, StepRun, StepsAutomation } from '@consola/factory-spec';
+import type { CheckoutKind } from '../ports';
 
 /**
  * What a step's agent requires, as its run's definition keeps it: the agent
@@ -56,6 +57,15 @@ export interface RunDefinition {
   >;
   /** By step id, each step that names an agent; absent when no step does. */
   agents?: Record<string, AgentRequirements>;
+  /**
+   * The entry's checkout kind as it fired (`entryCheckoutKind`): one witness
+   * of the run's (`runCheckoutKind`). Absent in a definition written before 2-C.
+   */
+  checkout?: CheckoutKind;
+  /** Its runs carry an item, text other people wrote (`entryReadsItems`); absent when not. */
+  readsItems?: true;
+  /** `skillHash` by name of every skill a step's agent names, as the run's copy must hold it; absent when none does. */
+  skills?: Record<string, string>;
 }
 
 /**

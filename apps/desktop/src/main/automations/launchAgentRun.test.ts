@@ -221,6 +221,7 @@ describe('launchAgentRun', () => {
       cwd: checkout,
       scopeId: 'scope-api',
       name: 'Add retries · review',
+      checkout: 'item' as const,
     };
     await launchAgentRun(d, { ...itemRun, step });
     expect(d.launchSession).toHaveBeenCalledWith('ws-1', {
@@ -251,6 +252,7 @@ describe('launchAgentRun', () => {
       cwd: '/code/api',
       scopeId: 'scope-api',
       name: 'morning · digest',
+      checkout: 'scope' as const,
     };
     await launchAgentRun(scheduled, {
       workspaceId: 'ws-1',
@@ -283,6 +285,7 @@ describe('launchAgentRun', () => {
         cwd: '/worktrees/api-pr-123-automation',
         scopeId: 'scope-api',
         name: 'Add retries · review',
+        checkout: 'item',
         maxTurns: 6,
       },
     });
@@ -299,6 +302,7 @@ describe('launchAgentRun', () => {
         cwd: '/worktrees/api-pr-123-automation',
         scopeId: 'scope-api',
         name: 'Add retries · review',
+        checkout: 'item',
       },
     });
     expect(d.launchSession.mock.calls[0][1]).not.toHaveProperty('maxTurns');
@@ -320,6 +324,7 @@ describe('launchAgentRun', () => {
       cwd: '/worktrees/api-pr-123-automation',
       scopeId: 'scope-api',
       name: 'Add retries · review',
+      checkout: 'item' as const,
     };
 
     // A later step, or a prompt step: the person's session is no reason not to run it.
@@ -351,6 +356,7 @@ describe('launchAgentRun', () => {
         cwd: '/code/api',
         scopeId: 'scope-api',
         name: 'catalog-review · look',
+        checkout: 'scope' as const,
         ...(agent ? { agent } : {}),
       },
     });

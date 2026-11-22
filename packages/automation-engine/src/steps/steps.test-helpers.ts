@@ -308,6 +308,8 @@ export interface StepsHarness {
   poll(items: InboxItemView[]): Promise<void>;
   /** Quit, then start a new service over the same state, history, run folder, files, clock and world. */
   relaunch(): Promise<StepsHarness>;
+  /** Flip one byte of the run's copy of a skill's `SKILL.md`, on disk: an editor or a disk error, between attempts. */
+  corruptSkill(workspaceId: string, runId: string, name: string): void;
   /** A scheduler tick, then whatever it set going. */
   tick(): Promise<void>;
   /** Let queued promise chains (launches awaited one after another) settle. */
@@ -773,6 +775,12 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
       async relaunch() {
         service.shutdown();
         return launch();
+      },
+      corruptSkill(workspaceId, runId, name) {
+        const file = path.join(folder.skillsDir(workspaceId, runId), name, 'SKILL.md');
+        const bytes = fs.readFileSync(file);
+        bytes[bytes.length - 1] ^= 0x01;
+        fs.writeFileSync(file, bytes);
       },
       async tick() {
         await service.tick();

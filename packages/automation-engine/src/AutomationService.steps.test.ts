@@ -512,6 +512,7 @@ describe('firing a steps run', () => {
       automation: only(DAILY),
       version: run.actionVersion,
       actions: {},
+      checkout: 'scope',
     });
 
     // An action step's body is in the snapshot, by step id.
@@ -522,6 +523,8 @@ describe('firing a steps run', () => {
       automation: only(TEMPLATE),
       version: TEMPLATE_VERSION,
       actions: { review: { name: 'Review', body: REVIEW_BODY, groupId: 'g-1' } },
+      checkout: 'item',
+      readsItems: true,
     });
     expect(reviewing.result).toEqual({
       kind: 'steps-run',
@@ -1049,6 +1052,7 @@ describe('running a steps run', () => {
       cwd: '/code/api',
       scopeId: 'scope-api',
       name: 'nightly · two',
+      checkout: 'scope',
     });
     expect(h.world.launches[1].prompt).toContain('\n\nWrite up the calm night for the team.\n\n');
 
@@ -4209,6 +4213,7 @@ describe('retry', () => {
       cwd: '/code/api',
       scopeId: 'scope-api',
       name: 'nightly · one',
+      checkout: 'scope',
     });
 
     const gone = await accepted(THREE);

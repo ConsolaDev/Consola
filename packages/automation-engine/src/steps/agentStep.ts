@@ -6,7 +6,7 @@ import {
   type RunRecord,
   type StepRun,
 } from '@consola/factory-spec';
-import type { AgentLaunchRequest, RunFolderPort } from '../ports';
+import type { AgentLaunchRequest, CheckoutKind, RunFolderPort } from '../ports';
 import type { ItemSource } from '../sources/itemSource';
 import { previousDocument } from '../sources/previous';
 import { fillActionPlaceholders } from '../support';
@@ -168,7 +168,10 @@ export function stepCap(definition: RunDefinition, stepId: string): number | und
  * `source` is the run's own (`runItemSource`), and `polled` a poll run's
  * `item.json`: what its header, fence and item fields come from. `previous`
  * is the earlier run on its item (`run.previous`), whose documents a
- * `previous.*` read lists from `folder`.
+ * `previous.*` read lists from `folder`. `checkoutKind` is the run's
+ * (`runCheckoutKind`), which the request carries as `step.checkout`;
+ * `skillsDir` and `pluginDir`, given when the step's agent names skills,
+ * are the run's checked copy of them and where the host builds its plugin.
  */
 export function agentStepLaunch(input: {
   workspaceId: string;
@@ -176,6 +179,9 @@ export function agentStepLaunch(input: {
   definition: RunDefinition;
   stepId: string;
   checkout: { cwd: string; scopeId: string };
+  checkoutKind: CheckoutKind;
+  skillsDir?: string;
+  pluginDir?: string;
   source: ItemSource | undefined;
   polled: Record<string, unknown> | undefined;
   previous: { runId: string } | undefined;
@@ -183,6 +189,7 @@ export function agentStepLaunch(input: {
 }): AgentStepLaunch {
   const { workspaceId, run, definition, stepId, checkout, source, polled, previous, folder } =
     input;
+  const { checkoutKind, skillsDir, pluginDir } = input;
   const { steps } = definition.automation;
   const index = steps.findIndex((candidate) => candidate.id === stepId);
   const step = steps[index];
@@ -265,6 +272,8 @@ export function agentStepLaunch(input: {
         cwd: checkout.cwd,
         scopeId: checkout.scopeId,
         name,
+        checkout: checkoutKind,
+        ...(pluginDir !== undefined ? { pluginDir } : {}),
         ...(maxTurns !== undefined ? { maxTurns } : {}),
         ...(agent
           ? {
@@ -277,6 +286,7 @@ export function agentStepLaunch(input: {
                   ...(server.tools !== undefined ? { tools: [...server.tools] } : {}),
                 })),
                 skills: [...agent.skills],
+                ...(skillsDir !== undefined ? { skillsDir } : {}),
               },
             }
           : {}),

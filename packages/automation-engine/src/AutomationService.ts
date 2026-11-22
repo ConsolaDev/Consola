@@ -12,6 +12,7 @@ import {
   parseAutomationEntry,
   parseFactory,
   parseFactorySpec,
+  skillHash,
   stableStringify,
   STEP_ID_PATTERN,
   stepItemFieldProblems,
@@ -32,6 +33,7 @@ import {
   type RunRecord,
   type RunStatus,
   type RunTrigger,
+  type SkillDefinition,
   type Step,
   type StepRun,
   type StepsAutomation,
@@ -162,7 +164,14 @@ import {
   uncheckedInitProblem,
   withTurnRecorded,
 } from './steps/turnReport';
-import type { CheckoutPort, CheckoutRequest, PreparedCheckout } from './steps/checkout';
+import {
+  entryCheckoutKind,
+  entryReadsItems,
+  runCheckoutKind,
+  type CheckoutPort,
+  type CheckoutRequest,
+  type PreparedCheckout,
+} from './steps/checkout';
 import { describeFailure, LOG_CAP_BYTES, maskSecrets, utf8Bytes } from './steps/commandIO';
 import {
   commandOutcome,
@@ -441,6 +450,8 @@ interface Resolved {
     startsInDryRun: boolean;
     /** The first agent step's action, when it is one: the label a session started by hand on the item carries. */
     byHandLabel?: string;
+    /** Every skill a step's agent names, from the version it resolved against: what a fired run copies into its folder. */
+    skills: Readonly<Record<string, SkillDefinition>>;
   };
   /**
    * Where its runs' items come from (roadmap contract 4): the event source,
@@ -1109,7 +1120,12 @@ export class AutomationService {
     // Against the folder's agents as last read: an agent its steps name must be there, and valid.
     const troubled = agentWithProblems(automation, factory.read.parse);
     if (troubled) throw notSaved([troubled]);
-    const problem = this.resolve(workspaceId, automation, factory.read.parse.agents).problem;
+    const problem = this.resolve(
+      workspaceId,
+      automation,
+      factory.read.parse.agents,
+      factory.read.parse.skills,
+    ).problem;
     if (problem) throw notSaved([problem]);
     // By name as written, so an entry that fails to load still holds its name.
     const where = await folder.whereIs(name).catch((error: unknown) => {
@@ -3410,12 +3426,20 @@ export class AutomationService {
       this.settleStep(runId, stepId, { status: 'failed', error: `${itemOf.error}.` });
       return;
     }
+    // Its skills, as this run copied them when it fired: checked before anything is built from them.
+    const skills = this.stepSkillsOf(workspaceId, run, loaded.definition, stepId);
+    if ('error' in skills) {
+      this.settleStep(runId, stepId, { status: 'failed', error: skills.error });
+      return;
+    }
     const launch = agentStepLaunch({
       workspaceId,
       run,
       definition: loaded.definition,
       stepId,
       checkout: { cwd, scopeId },
+      checkoutKind: runCheckoutKind(run, loaded.definition),
+      ...skills,
       ...itemOf,
       previous: run.previous,
       folder: this.deps.runFolder,
@@ -3474,6 +3498,47 @@ export class AutomationService {
     } finally {
       this.doneStarting(runId, stepId);
     }
+  }
+
+  /**
+   * Where an agent step's skills are, once the run's copy of each skill its
+   * agent names hashes to what the definition recorded: the copy, and the
+   * attempt's plugin dir the host builds from it. Nothing for an agent that
+   * names none. Any difference, a skill gone, or one the definition does not
+   * list is the step's error: a retry delivers what was approved or nothing.
+   */
+  private stepSkillsOf(
+    workspaceId: string,
+    run: RunRecord,
+    definition: RunDefinition,
+    stepId: string,
+  ): { skillsDir?: string; pluginDir?: string } | { error: string } {
+    const names = definition.agents?.[stepId]?.skills ?? [];
+    const record = run.steps?.find((candidate) => candidate.id === stepId);
+    // A step the run has no record of is refused by `agentStepLaunch`, in its own words.
+    if (names.length === 0 || !record) return {};
+    let held: ReturnType<RunFolderPort['readSkills']>;
+    try {
+      held = this.deps.runFolder.readSkills(workspaceId, run.id, names);
+    } catch (error) {
+      const reason = describeError(error).trim().replace(/\.$/, '');
+      return {
+        error: `Its skills could not be read from the run folder (${reason}), so it did not start: run the automation again.`,
+      };
+    }
+    // A skill the definition records no hash for differs too: `skillHash` is never undefined.
+    const changed = names.find((name) => {
+      const files = held[name];
+      return !files || skillHash(files) !== definition.skills?.[name];
+    });
+    if (changed !== undefined)
+      return {
+        error: `Its skills in the run folder are not the ones its version holds (skills/${changed}), so it did not start: run the automation again.`,
+      };
+    return {
+      skillsDir: this.deps.runFolder.skillsDir(workspaceId, run.id),
+      pluginDir: `${this.deps.runFolder.attemptDir(workspaceId, run.id, stepId, record.attempt)}/plugin`,
+    };
   }
 
   /**
@@ -4255,7 +4320,7 @@ export class AutomationService {
       factory.standing = { decision, appliedAt: applied.record.appliedAt };
       const removed = new Set(decision.removed);
       const running = applied.parse.automations.filter((entry) => !removed.has(entry.name));
-      this.resolveAll(workspaceId, factory, running, applied.parse.agents);
+      this.resolveAll(workspaceId, factory, running, applied.parse.agents, applied.parse.skills);
       return;
     }
     factory.standing = undefined;
@@ -4268,7 +4333,13 @@ export class AutomationService {
       ? appliedSkills(read.parse)
       : appliedSkills(read.parse, read.parse.automations);
     this.keepApplied(factory, texts, skills, clean);
-    this.resolveAll(workspaceId, factory, read.parse.automations, read.parse.agents);
+    this.resolveAll(
+      workspaceId,
+      factory,
+      read.parse.automations,
+      read.parse.agents,
+      read.parse.skills,
+    );
   }
 
   /** Persist what applied when it differs from what is kept; `appliedAt` moves only when a text or a skill does. */
@@ -4327,15 +4398,16 @@ export class AutomationService {
     }
   }
 
-  /** Resolve what runs, each entry against the agents of the version it comes from; their warnings once each. */
+  /** Resolve what runs, each entry against the agents and skills of the version it comes from; their warnings once each. */
   private resolveAll(
     workspaceId: string,
     factory: WorkspaceFactory,
     automations: readonly Automation[],
     agents: Readonly<Record<string, AgentDefinition>>,
+    skills: Readonly<Record<string, SkillDefinition>>,
   ): void {
     factory.resolved = automations.map((automation) =>
-      this.resolve(workspaceId, automation, agents),
+      this.resolve(workspaceId, automation, agents, skills),
     );
     const warnings = new Map<string, FactoryNotice>();
     for (const entry of factory.resolved)
@@ -4405,13 +4477,15 @@ export class AutomationService {
   /**
    * What an entry resolves to in its workspace, or why it cannot run. Which
    * tools, actions, scopes, connections and events exist is the runner's to
-   * say; each problem names the one that was asked for. `agents` are the
-   * folder's, by name: what a step's `agent:` names.
+   * say; each problem names the one that was asked for. `agents` and
+   * `skills` are the folder's, by name: what a step's `agent:` names, and
+   * what that agent's `skills:` name.
    */
   private resolve(
     workspaceId: string,
     automation: Automation,
     agents: Readonly<Record<string, AgentDefinition>>,
+    skills: Readonly<Record<string, SkillDefinition>>,
   ): Resolved {
     const workspace = this.deps.getWorkspaces().find((candidate) => candidate.id === workspaceId);
     const base = automationVersion(automation);
@@ -4508,7 +4582,7 @@ export class AutomationService {
 
     // The checks above are a steps entry's too; the rest are its own.
     if (isStepsEntry(automation))
-      return this.resolveSteps(workspaceId, automation, agents, source, event);
+      return this.resolveSteps(workspaceId, automation, agents, skills, source, event);
     const { run } = automation;
 
     if (run.kind === 'tool') {
@@ -4583,6 +4657,7 @@ export class AutomationService {
     workspaceId: string,
     automation: StepsAutomation,
     agents: Readonly<Record<string, AgentDefinition>>,
+    skills: Readonly<Record<string, SkillDefinition>>,
     source: ItemSource | undefined,
     event: EventSource | undefined,
   ): Resolved {
@@ -4604,6 +4679,8 @@ export class AutomationService {
     // By step id, each step's agent as the run's definition keeps it; by agent, its hash for the version.
     const stepAgents: Record<string, AgentRequirements> = {};
     const agentHashes: Record<string, string> = {};
+    // By name, every skill a step's agent names: the run copies these, and its definition holds their hashes.
+    const stepSkills: Record<string, SkillDefinition> = {};
     for (const step of steps) {
       if (step.kind !== 'agent') continue;
       if (step.agent !== undefined) {
@@ -4613,6 +4690,14 @@ export class AutomationService {
             `its step \`${step.id}\` names the agent \`${step.agent}\`, and agents/${step.agent}.md is not in this factory`,
           );
         const agent = agents[step.agent];
+        // Nor any agent whose skill is not valid: the same guard, for what its run would copy.
+        for (const skill of agent.skills) {
+          if (!Object.prototype.hasOwnProperty.call(skills, skill))
+            return unable(
+              `agents/${agent.name}.md names the skill \`${skill}\`, and skills/${skill}/ is not in this factory`,
+            );
+          stepSkills[skill] = skills[skill];
+        }
         stepAgents[step.id] = agentRequirements(agent);
         agentHashes[agent.name] = agent.hash;
       }
@@ -4672,12 +4757,25 @@ export class AutomationService {
           version,
           actions,
           ...(Object.keys(stepAgents).length > 0 ? { agents: stepAgents } : {}),
+          // Every run of an item entry has a work item, and no other entry's run works in one.
+          checkout: entryCheckoutKind(automation),
+          ...(entryReadsItems(automation) ? { readsItems: true as const } : {}),
+          ...(Object.keys(stepSkills).length > 0
+            ? {
+                skills: Object.fromEntries(
+                  Object.keys(stepSkills)
+                    .sort()
+                    .map((name) => [name, stepSkills[name].hash]),
+                ),
+              }
+            : {}),
         },
         ...(scoped.scope ? { scope: scoped.scope } : {}),
         hasAgentStep,
         startsInDryRun:
           hasAgentStep || steps.some((step) => step.kind === 'run' && step.dryRun === 'run'),
         ...(firstAgent?.action !== undefined ? { byHandLabel: actions[firstAgent.id].name } : {}),
+        skills: stepSkills,
       },
     };
   }
@@ -4817,8 +4915,11 @@ export class AutomationService {
    * to one open run per item. Its definition — the entry and every action a
    * step names, as of now — is written to its folder before it is recorded:
    * it is what the approval shows and what the run executes, whatever is
-   * edited later. A poll's item is written beside it (`item.json`), the
-   * object as its check printed it.
+   * edited later. So is its own copy of every skill a step's agent names
+   * (`skills/`), from the version it resolved against, which each attempt
+   * checks against the definition's hashes before it launches. A poll's
+   * item is written beside them (`item.json`), the object as its check
+   * printed it.
    */
   private fireSteps(
     entry: Resolved,
@@ -4830,7 +4931,7 @@ export class AutomationService {
       const lined = this.inLine(entry);
       if (lined) return lined;
     }
-    const { definition, scope } = entry.steps!;
+    const { definition, scope, skills } = entry.steps!;
     const { mode, asks } = this.effectiveMode(entry, trigger);
     const base = this.newStepsRun(entry, trigger, mode, item);
     const run: RunRecord =
@@ -4840,6 +4941,15 @@ export class AutomationService {
     let writing = 'definition';
     try {
       this.deps.runFolder.writeDefinition(entry.workspaceId, run.id, definition);
+      writing = 'skills';
+      if (definition.skills)
+        this.deps.runFolder.writeSkills(
+          entry.workspaceId,
+          run.id,
+          Object.fromEntries(
+            Object.keys(definition.skills).map((name) => [name, skills[name].files]),
+          ),
+        );
       writing = 'item';
       if (item?.object !== undefined)
         this.deps.runFolder.writeItem(entry.workspaceId, run.id, item.object);

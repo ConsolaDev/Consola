@@ -150,6 +150,14 @@ export interface ToolsPort {
   ): Promise<EngineToolResult>;
 }
 
+/**
+ * Whose checkout a run works in: `item`, a checkout of the item's own
+ * repository (someone else's pull request or issue, the author's code), or
+ * `scope`, one of the workspace's own folders. What a host compiles an
+ * agent's servers for.
+ */
+export type CheckoutKind = 'item' | 'scope';
+
 /** A request to start one agent run's session. */
 export interface AgentLaunchRequest {
   workspaceId: string;
@@ -187,6 +195,10 @@ export interface AgentLaunchRequest {
     cwd: string;
     scopeId: string;
     name: string;
+    /** The run's checkout kind (`runCheckoutKind`): what the host compiles the agent's servers for. */
+    checkout: CheckoutKind;
+    /** `<attempt dir>/plugin`, where the host builds the step's plugin: only when its agent names skills. */
+    pluginDir?: string;
     maxTurns?: number;
     agent?: {
       name: string;
@@ -194,6 +206,8 @@ export interface AgentLaunchRequest {
       model?: string;
       mcpServers: Array<{ name: string; tools?: string[] }>;
       skills: string[];
+      /** The run's copy of its skills (`runs/<run>/skills/`), checked against its definition: only when it names skills. */
+      skillsDir?: string;
     };
   };
 }
@@ -264,6 +278,24 @@ export interface RunFolderPort {
   itemPath(workspaceId: string, runId: string): string;
   runDir(workspaceId: string, runId: string): string;
   attemptDir(workspaceId: string, runId: string, stepId: string, attempt: number): string;
+  /** `runs/<run>/skills/`: the run's copy of every skill its steps' agents name. */
+  skillsDir(workspaceId: string, runId: string): string;
+  /** Each skill written whole under `runs/<run>/skills/<name>/`; refuses a name or a path that is no token, writing nothing. */
+  writeSkills(
+    workspaceId: string,
+    runId: string,
+    skills: Readonly<Record<string, ReadonlyArray<{ path: string; bytes: Uint8Array }>>>,
+  ): void;
+  /**
+   * Each named skill's files as the run folder holds them, regular files
+   * only, sorted by path; null for a skill that is not there, or that holds
+   * anything but folders and regular files. Throws on a read that fails.
+   */
+  readSkills(
+    workspaceId: string,
+    runId: string,
+    names: readonly string[],
+  ): Record<string, Array<{ path: string; bytes: Uint8Array }> | null>;
   writeDefinition(workspaceId: string, runId: string, definition: RunDefinition): void;
   readDefinition(workspaceId: string, runId: string): RunDefinition | null;
   /** Atomic; throws over `MAX_ARTIFACT_BYTES`. `format` is required for `output`. */

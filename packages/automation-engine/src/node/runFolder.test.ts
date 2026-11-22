@@ -309,4 +309,123 @@ describe('RunFolder', () => {
       expect(() => folder.workspaceDir('../x')).toThrow();
     });
   });
+
+  describe("the run's own copy of its skills (2-C)", () => {
+    const bytes = (text: string) => new TextEncoder().encode(text);
+    /** Not UTF-8: a PNG's signature and bytes no text decoder keeps. */
+    const BLOB = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0xff, 0xfe, 0x00]);
+    const TRIAGE = [
+      { path: 'refs/queries.md', bytes: bytes('Use rate() over five minutes.\n') },
+      { path: 'SKILL.md', bytes: bytes('---\nname: incident-triage\n---\nCheck the alert.\n') },
+      { path: 'blob.bin', bytes: BLOB },
+      // Beside the folder `refs`: by path it comes first, though a walk reaches the folder first.
+      { path: 'refs.md', bytes: bytes('See refs/.\n') },
+    ];
+
+    it('skillsDir is <run dir>/skills', () => {
+      expect(folder.skillsDir('ws', 'r1')).toBe(path.join(folder.runDir('ws', 'r1'), 'skills'));
+      expect(() => folder.skillsDir('ws', '../r1')).toThrow();
+    });
+
+    it('writeSkills then readSkills gives every file back, binaries too, sorted by path', () => {
+      folder.writeSkills('ws', 'r1', {
+        'incident-triage': TRIAGE,
+        'release-notes': [{ path: 'SKILL.md', bytes: bytes('Short lines.\n') }],
+      });
+      const read = folder.readSkills('ws', 'r1', ['incident-triage', 'release-notes']);
+      expect(read['incident-triage']?.map((file) => file.path)).toEqual([
+        'SKILL.md',
+        'blob.bin',
+        'refs.md',
+        'refs/queries.md',
+      ]);
+      expect(read['incident-triage']?.[1].bytes).toEqual(BLOB);
+      expect(new TextDecoder().decode(read['release-notes']?.[0].bytes)).toBe('Short lines.\n');
+      expect(
+        fs.readFileSync(path.join(folder.skillsDir('ws', 'r1'), 'incident-triage', 'blob.bin')),
+      ).toEqual(Buffer.from(BLOB));
+      // Only what is asked for is read.
+      expect(Object.keys(folder.readSkills('ws', 'r1', ['release-notes']))).toEqual([
+        'release-notes',
+      ]);
+    });
+
+    it('refuses a name or a path that is no token, writing nothing', () => {
+      const one = [{ path: 'SKILL.md', bytes: bytes('x') }];
+      const refused: Array<Record<string, Array<{ path: string; bytes: Uint8Array }>>> = [
+        { '../x': one },
+        { 'Incident Triage': one },
+        { 'incident-triage': [{ path: '../SKILL.md', bytes: bytes('x') }] },
+        { 'incident-triage': [{ path: '/etc/SKILL.md', bytes: bytes('x') }] },
+        { 'incident-triage': [{ path: 'refs/./a.md', bytes: bytes('x') }] },
+        { 'incident-triage': [{ path: 'refs\\a.md', bytes: bytes('x') }] },
+        { 'incident-triage': [{ path: '', bytes: bytes('x') }] },
+        // A good skill beside a bad one: the good one is not written either.
+        { 'release-notes': one, 'incident-triage': [{ path: 'a/../../b', bytes: bytes('x') }] },
+      ];
+      for (const skills of refused) {
+        expect(
+          () => folder.writeSkills('ws', 'r1', skills),
+          JSON.stringify(Object.keys(skills)),
+        ).toThrow(/not a path inside a skill|Not a skill name/);
+      }
+      expect(fs.existsSync(folder.skillsDir('ws', 'r1'))).toBe(false);
+      expect(() => folder.readSkills('ws', 'r1', ['../x'])).toThrow(/Not a skill name/);
+    });
+
+    it('a missing skill, or a run with no copy, reads as null', () => {
+      expect(folder.readSkills('ws', 'r1', ['incident-triage'])).toEqual({
+        'incident-triage': null,
+      });
+      folder.writeSkills('ws', 'r1', { 'incident-triage': TRIAGE });
+      expect(folder.readSkills('ws', 'r1', ['incident-triage', 'release-notes'])).toMatchObject({
+        'release-notes': null,
+      });
+    });
+
+    it('a skill holding a link, or one that is a link or a file, reads as null', () => {
+      folder.writeSkills('ws', 'r1', {
+        'incident-triage': TRIAGE,
+        'release-notes': [{ path: 'SKILL.md', bytes: bytes('Short lines.\n') }],
+      });
+      const dir = folder.skillsDir('ws', 'r1');
+      const outside = path.join(tmp, 'outside.md');
+      fs.writeFileSync(outside, 'Use rate() over five minutes.\n');
+      // An identical copy, through a link: the bytes would hash the same, and it is still refused.
+      fs.rmSync(path.join(dir, 'incident-triage', 'refs', 'queries.md'));
+      fs.symlinkSync(outside, path.join(dir, 'incident-triage', 'refs', 'queries.md'));
+      fs.rmSync(path.join(dir, 'release-notes'), { recursive: true });
+      fs.symlinkSync(path.join(tmp, 'elsewhere'), path.join(dir, 'release-notes'));
+      fs.mkdirSync(path.join(tmp, 'elsewhere'));
+      fs.writeFileSync(path.join(tmp, 'elsewhere', 'SKILL.md'), 'Short lines.\n');
+      fs.writeFileSync(path.join(dir, 'plain-file'), 'x');
+      expect(
+        folder.readSkills('ws', 'r1', ['incident-triage', 'release-notes', 'plain-file']),
+      ).toEqual({
+        'incident-triage': null,
+        'release-notes': null,
+        'plain-file': null,
+      });
+    });
+
+    it('a skills folder that is a link reads every skill as null', () => {
+      const elsewhere = path.join(tmp, 'elsewhere');
+      fs.mkdirSync(path.join(elsewhere, 'incident-triage'), { recursive: true });
+      fs.writeFileSync(path.join(elsewhere, 'incident-triage', 'SKILL.md'), 'x');
+      fs.mkdirSync(folder.runDir('ws', 'r1'), { recursive: true });
+      fs.symlinkSync(elsewhere, folder.skillsDir('ws', 'r1'));
+      expect(folder.readSkills('ws', 'r1', ['incident-triage'])).toEqual({
+        'incident-triage': null,
+      });
+    });
+
+    it('writing again replaces the copy whole', () => {
+      folder.writeSkills('ws', 'r1', { 'incident-triage': TRIAGE });
+      folder.writeSkills('ws', 'r1', {
+        'release-notes': [{ path: 'SKILL.md', bytes: bytes('Short lines.\n') }],
+      });
+      expect(fs.readdirSync(folder.skillsDir('ws', 'r1'))).toEqual(['release-notes']);
+      expect(fs.readdirSync(folder.runDir('ws', 'r1'))).toEqual(['skills']);
+    });
+  });
 });

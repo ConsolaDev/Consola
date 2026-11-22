@@ -74,6 +74,7 @@ describe('agentStepLaunch', () => {
       definition: { automation, version: 'v', actions: {} },
       stepId: 'write',
       checkout: { cwd: '/code/api', scopeId: 'scope-api' },
+      checkoutKind: 'scope',
       source: undefined,
       polled: undefined,
       previous: undefined,
@@ -137,6 +138,7 @@ describe("agentStepLaunch and a step's max_turns", () => {
       definition,
       stepId: 'research',
       checkout: { cwd: '/code/api', scopeId: 'scope-api' },
+      checkoutKind: 'scope',
       source: undefined,
       polled: undefined,
       previous: undefined,
@@ -174,6 +176,7 @@ describe('agentStepLaunch on a poll', () => {
         cwd: '/worktrees/catalog-portal-pr-51-automation',
         scopeId: 'scope-catalog-portal',
       },
+      checkoutKind: 'item',
       source: runItemSource(review, parsesGitHub),
       polled: { url: 'https://github.com/sprocket/catalog-portal/pull/51', head: 'abc' },
       previous: undefined,
@@ -218,6 +221,7 @@ describe('agentStepLaunch on a poll', () => {
         cwd: '/worktrees/catalog-portal-issue-52-automation',
         scopeId: 'scope-catalog-portal',
       },
+      checkoutKind: 'item' as const,
       source: runItemSource(prOnly, parsesGitHub),
       polled: undefined,
       previous: undefined,
@@ -246,6 +250,7 @@ describe('agentStepLaunch on a poll', () => {
         cwd: '/worktrees/catalog-portal-pr-51-automation',
         scopeId: 'scope-catalog-portal',
       },
+      checkoutKind: 'item',
       source: runItemSource(look, parsesGitHub),
       polled: {
         url: 'https://github.com/sprocket/catalog-portal/pull/51',
@@ -292,6 +297,7 @@ describe('agentStepLaunch on a poll', () => {
       definition: keyed,
       stepId: 'look',
       checkout: { cwd: '/code/api', scopeId: 'scope-api' },
+      checkoutKind: 'scope',
       source: runItemSource(keyed, parsesGitHub),
       polled: { id: 'T-7', state: 'open', title: 'Ticket 7' },
       previous: undefined,
@@ -349,6 +355,7 @@ describe('agentStepLaunch reading previous', () => {
       definition: rereview,
       stepId: 'review',
       checkout: { cwd: '/code/catalog-portal', scopeId: 'scope-portal' },
+      checkoutKind: 'scope',
       source: undefined,
       polled: undefined,
       previous,
@@ -407,6 +414,7 @@ describe('agentStepLaunch reading previous', () => {
       definition: rereview,
       stepId: 'review',
       checkout: { cwd: '/code/catalog-portal', scopeId: 'scope-portal' },
+      checkoutKind: 'scope',
       source: undefined,
       polled: undefined,
       previous: { runId: 'run-0' },
@@ -453,6 +461,7 @@ describe('agentStepLaunch reading previous', () => {
       definition: hand,
       stepId: 'review',
       checkout: { cwd: '/code/catalog-portal', scopeId: 'scope-portal' },
+      checkoutKind: 'scope',
       source: undefined,
       polled: undefined,
       previous: { runId: 'run-0' },
@@ -506,6 +515,7 @@ describe('agentStepLaunch with an agent', () => {
       definition,
       stepId: 'investigate',
       checkout: { cwd: '/code/api', scopeId: 'scope-api' },
+      checkoutKind: 'scope',
       source: undefined,
       polled: undefined,
       previous: undefined,
@@ -579,6 +589,58 @@ describe('agentStepLaunch with an agent', () => {
     expect(step).toBeDefined();
     expect(Object.prototype.hasOwnProperty.call(step, 'agent')).toBe(false);
     expect(Object.prototype.hasOwnProperty.call(step, 'maxTurns')).toBe(false);
+  });
+
+  it("carries the run's checkout kind as the request's `checkout` (2-C)", () => {
+    const definition = definitionOf('        agent: investigator\n');
+    expect(requestOf(definition).step?.checkout).toBe('scope');
+    const onItem = agentStepLaunch({
+      workspaceId: 'ws-1',
+      run: {
+        ...run({}),
+        steps: [{ id: 'investigate', kind: 'agent', status: 'queued', attempt: 1 }],
+      },
+      definition,
+      stepId: 'investigate',
+      checkout: { cwd: '/code/api', scopeId: 'scope-api' },
+      checkoutKind: 'item',
+      source: undefined,
+      polled: undefined,
+      previous: undefined,
+      folder: UNREAD_FOLDER,
+    });
+    if (!onItem.ok) throw new Error(onItem.error);
+    expect(onItem.request.step?.checkout).toBe('item');
+  });
+
+  it("with skills, the request names the run's copy and the attempt's plugin dir; without, neither (2-C)", () => {
+    const skilled = definitionOf('        agent: investigator\n', {
+      investigate: { ...INVESTIGATOR, skills: ['incident-triage'] },
+    });
+    const launch = agentStepLaunch({
+      workspaceId: 'ws-1',
+      run: {
+        ...run({}),
+        steps: [{ id: 'investigate', kind: 'agent', status: 'queued', attempt: 1 }],
+      },
+      definition: skilled,
+      stepId: 'investigate',
+      checkout: { cwd: '/code/api', scopeId: 'scope-api' },
+      checkoutKind: 'scope',
+      skillsDir: '/state/ws-1/runs/run-1/skills',
+      pluginDir: '/state/ws-1/runs/run-1/investigate/1/plugin',
+      source: undefined,
+      polled: undefined,
+      previous: undefined,
+      folder: UNREAD_FOLDER,
+    });
+    if (!launch.ok) throw new Error(launch.error);
+    expect(launch.request.step?.pluginDir).toBe('/state/ws-1/runs/run-1/investigate/1/plugin');
+    expect(launch.request.step?.agent?.skillsDir).toBe('/state/ws-1/runs/run-1/skills');
+
+    const { step } = requestOf(definitionOf('        agent: investigator\n'));
+    expect(Object.prototype.hasOwnProperty.call(step, 'pluginDir')).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(step?.agent, 'skillsDir')).toBe(false);
   });
 
   it('a step whose agent the definition lacks does not launch', () => {
