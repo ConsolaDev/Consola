@@ -63,8 +63,8 @@ jobs:
         run: pnpm exec biome ci --diagnostic-level=error .
       - name: Licences
         run: node .github/scripts/check-licenses.mjs
-      - name: CI scripts' tests
-        run: node --test '.github/scripts/*.test.mjs'
+      - name: Repository scripts' tests
+        run: node --test '.github/scripts/*.test.mjs' 'tools/*.test.mjs'
 
   # Fails a pull request that adds or updates a dependency with a known
   # vulnerability. Licences are checked by `lint`, from the installed tree.

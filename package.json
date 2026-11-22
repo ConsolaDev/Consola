@@ -7,6 +7,8 @@
     "node": "26.13.1"
   },
   "scripts": {
+    "postinstall": "node tools/link-worktree-env.mjs",
+    "link-env": "node tools/link-worktree-env.mjs",
     "dev": "turbo run dev --filter=consola",
     "dev:website": "turbo run dev --filter=@consola/website",
     "dev:cloud": "turbo run dev --filter=@consola/cloud-global --filter=@consola/cloud-web",
