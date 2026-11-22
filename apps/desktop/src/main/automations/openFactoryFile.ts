@@ -5,11 +5,13 @@ import { FactoryFolder, locateInFolder } from '@consola/automation-engine';
 /** How a factory file reaches the person's editor. */
 export interface OpenFactoryFileDeps {
   platform: NodeJS.Platform;
-  /** Runs a program with its arguments, never through a shell: macOS's `open -t`. */
+  /** Runs a program with its arguments, never through a shell: macOS's `/usr/bin/open -t`. */
   execFile: (file: string, args: string[]) => Promise<void>;
 }
 
 const GONE = 'That file is not there any more.';
+/** macOS's own `open`, by its path: never whatever `open` a PATH (a dev shell's, say) finds first. */
+const MAC_OPEN = '/usr/bin/open';
 const OWN_FILES =
   "Open shows only the factory's own files: factory.yml, automations/<name>.yaml, agents/<name>.md and skills/<name>/SKILL.md.";
 
@@ -26,7 +28,7 @@ function errorCode(error: unknown): string | undefined {
  * anything. Every link is resolved first, by the reader's own rule
  * (`locateInFolder`), and only a regular file whose real path is one of the
  * factory's own files (what its reader reads, by `FactoryFolder.pathOf`'s
- * rule) inside the folder's real path opens, and only as text: `open -t` on
+ * rule) inside the folder's real path opens, and only as text: `/usr/bin/open -t` on
  * macOS, through `execFile`, never a shell.
  * Nothing goes to the default handler: elsewhere the person is given the
  * path to open in their editor.
@@ -64,5 +66,5 @@ export async function openFactoryFile(
     );
   }
   if (deps.platform !== 'darwin') throw new Error(`Open it in your editor: ${real}`);
-  await deps.execFile('open', ['-t', real]);
+  await deps.execFile(MAC_OPEN, ['-t', real]);
 }
