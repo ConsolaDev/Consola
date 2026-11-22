@@ -470,6 +470,80 @@ record.
   the box as the group mounts, and one that mounts as the side panel comes
   on screen, before it is laid out, loses them and writes the loss back.
 
+### The Info Panel States Facts
+
+Between the conversation and the side panel sits the info panel
+(`components/InfoPanel/`, `<Panel id="info-panel">`): where the session
+runs, its branch and its pull request, said at a glance. Like the side
+panel it is view state, kept in the renderer.
+
+- **It is a glance.** Three sections in a fixed order (`INFO_SECTION_IDS`),
+  where a later section joins. A row with more behind it opens a tab
+  (`openKind`, or `reveal` for a place inside the tab's view, such as the
+  pane's merge card, which the view acts on once per `revealRequest.seq`);
+  nothing in the panel navigates or takes the keyboard, on mount or
+  otherwise. Visibility rides with the layout (`sidePanelStore.infoVisible`,
+  written only under the remember setting, shown when absent); folds sit in
+  `settingsStore.infoSectionOpen` and are always kept. A folded section
+  renders neither its rows nor its heading's actions (`InfoSection`), so
+  whatever they read never starts. Showing, hiding or resizing the panel
+  only resizes the conversation, which stays `ContentView`'s first child.
+- **One budget per pull request.** `workItemDetailsStore` is the only way to
+  an item's details. The Inbox's pane, the Pull request tab and the info
+  panel share its entries (`detailsKey`: workspace, account, item). It reads
+  only for an active viewer (`watch`, through `useWorkItemDetails`), one
+  read per item at a time, at most once per `INBOX_REFRESH_INTERVAL_MS`
+  unless forced by the person's Refresh or Retry or the re-read after a
+  write. A forced load never takes the answer of a read already in flight,
+  which may predate the write, unless a loud forced load started that read;
+  it waits, then gets one more. The store's own reads (a watch's first load,
+  the re-check once an entry goes stale) are quiet once the entry holds
+  details, so the pane's editors never lock under the person's typing. The
+  mergeability poll is its own: a few quiet reads while `mergeState` is
+  `UNKNOWN`, only while watched (`MERGE_STATE_POLLS`). At most
+  `MAX_UNWATCHED_DETAILS` (20) entries nobody watches keep their details,
+  the least recently read dropped first. A folded section, a hidden panel, a
+  tab behind another and the mark read nothing: `useDetailsEntry` reads the
+  cache and never watches.
+- **A branch's pull request is found in main** (`BranchPullRequestFinder`),
+  for a session linked to none. Main reads the branch from the folder
+  (`readBranchIdentity`), so the renderer never sends one; origin is mapped
+  by the driver's `repoOfRemote`, and `lookupPullRequests` is asked once per
+  provider, account, repo and the branch's name on the remote per interval
+  (`BRANCH_LOOKUP_TTL_MS`), a failure kept as long as an answer, sooner only
+  for Retry or Refresh. It is asked only while someone looks: the info panel
+  shown with Pull request open, or the Pull request tab in front
+  (`useBranchPullRequestLookup`, from `ContentView`). It is never written to
+  the record; Link writes `workItem`. Every answer names the branch it was
+  read for and counts only while the checkout is on it
+  (`foundPullRequestOf`). `branchPullRequestStore` never lets an answer that
+  says nothing new replace one that does: an answer for another branch
+  never ends a lookup (one more is asked), a failed lookup keeps a pull
+  request already found for the same branch, and an answer that read no
+  branch keeps the asked branch's answer, or fails it so Retry is offered.
+- **Branch facts never fetch** (`readBranchFacts`, with
+  `GIT_NO_LAZY_FETCH=1`, a 10 s timeout and argument lists): every count is
+  against what the clone already has, and what git cannot answer is a line
+  not drawn, never a throw. "vs" compares with the session's pull request's
+  base when its details are cached, else `origin/HEAD`, never a guessed
+  `main`. They are read while the Branch section is open and again after
+  each git status refresh of that checkout (`gitStatusStore.refreshedAt`);
+  a load during a read gets one more read after it (`branchFactsStore`), so
+  a commit made mid-read is counted. Uncommitted reads the stats of its own
+  checkout (`statsFor`, `statsRoot`), never the last checkout's during a
+  session switch.
+- **A kind's mark has a tone** (`agent` or `alert`), and every mark takes
+  the same three places (`markPlaces`): its header shortcut; its tab in a
+  group on screen, drawn there only while behind another tab, since in
+  front its view says it; and with neither, the side panel toggle.
+  `markDots` is where a tone becomes `data-agent-dot` or
+  `data-alert-dot`. The toggle draws every mark left to it
+  (`marksOnToggle`), the red dot in the corner and the accent one 8px to its
+  left, and says each after its label, in registry order
+  (`labelWithMarks`). The Pull request mark (a failing check, changes
+  requested) reads the newer of the cached details and the Inbox snapshot's
+  item (`pullRequestAlert`), and never asks for a read.
+
 ### Each Workspace Remembers Where It Was Left
 
 Switching workspaces returns to the view that workspace was last on, rather
