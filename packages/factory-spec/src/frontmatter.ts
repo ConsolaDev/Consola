@@ -1,4 +1,5 @@
 import { isMap, isPair, isScalar, LineCounter, parseDocument } from 'yaml';
+import { documentValue } from './yamlValue';
 
 /**
  * A Markdown file's YAML frontmatter, split from its body. Internal: agent
@@ -84,5 +85,7 @@ export function readFrontmatter(yaml: string, firstLine: number): ReadFrontmatte
     const range = pair && isScalar(pair.key) ? pair.key.range : undefined;
     return fileLine(range?.[0]);
   };
-  return { ok: true, value: doc.toJS(), lineOf };
+  const value = documentValue(doc);
+  if (!value.ok) return { ok: false, errors: [{ message: value.message, line: firstLine }] };
+  return { ok: true, value: value.value, lineOf };
 }

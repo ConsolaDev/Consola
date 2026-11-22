@@ -477,6 +477,31 @@ interface WorkspaceFactory {
   standing?: { decision: Extract<ApplyDecision, { kind: 'keeps' }>; appliedAt: string };
 }
 
+/**
+ * A folder whose read or parse threw: one issue, on factory.yml, and every
+ * file counted as not read whole, so the applied version keeps running with
+ * nothing removed. `exists` is the last read's.
+ */
+function unreadFolder(exists: boolean, error: unknown): FactoryRead {
+  const reason = (error instanceof Error ? error.message : String(error)).split('\n')[0].trim();
+  const read = notRead();
+  return {
+    ...read,
+    exists,
+    parse: {
+      ...read.parse,
+      issues: [
+        {
+          message: `Could not read this factory's folder: ${reason.replace(/\.$/, '')}.`,
+          file: 'factory.yml',
+          path: '',
+        },
+      ],
+      unreadable: ['factory.yml', 'automations/', 'agents/', 'skills/'],
+    },
+  };
+}
+
 /** A folder not read yet: nothing in it. */
 function notRead(): FactoryRead {
   return {
@@ -807,7 +832,11 @@ export class AutomationService {
         storeRead: false,
         applied: null,
       });
-      folder.watch(() => void this.reload(workspaceId));
+      folder.watch(() => {
+        this.reload(workspaceId).catch((error: unknown) => {
+          console.error(`Could not reload ${workspaceId}'s factory folder.`, error);
+        });
+      });
     }
 
     // Settings and harness edits re-check without touching the files: a
@@ -838,7 +867,12 @@ export class AutomationService {
     // catch-up for whatever it missed while Consola was closed. A re-check
     // that changed what runs reconciles too: an entry that just applied
     // starts its schedule now.
-    await Promise.all(added.map((workspaceId) => this.load(workspaceId)));
+    // One workspace's folder never stops another's: a load that throws is logged, and the rest go on.
+    const loads = await Promise.allSettled(added.map((workspaceId) => this.load(workspaceId)));
+    loads.forEach((load, index) => {
+      if (load.status === 'rejected')
+        console.error(`Could not load ${added[index]}'s factory folder.`, load.reason);
+    });
     if (added.length > 0 || removed.length > 0 || runningChanged) this.settleSchedules();
     // A settings edit can change a poll entry's version too: an action a step names.
     for (const workspaceId of this.factories.keys()) this.announceAllows(workspaceId);
@@ -4114,10 +4148,18 @@ export class AutomationService {
   private async load(workspaceId: string): Promise<boolean> {
     const factory = this.factories.get(workspaceId);
     if (!factory) return false;
-    const { exists, files } = await factory.folder.read();
+    let read: FactoryRead;
+    try {
+      const { exists, files } = await factory.folder.read();
+      read = { exists, files, parse: parseFactory(files) };
+    } catch (error) {
+      // Nothing in it can be told apart from the failure: it is one issue, and nothing it ran is removed.
+      console.error(`Could not read ${workspaceId}'s factory folder.`, error);
+      read = unreadFolder(factory.read.exists, error);
+    }
     if (this.factories.get(workspaceId) !== factory) return false;
     const checkedBefore = factory.resolved.some((entry) => pollOf(entry) !== null);
-    factory.read = { exists, files, parse: parseFactory(files) };
+    factory.read = read;
     // Read once, at the folder's first load: afterwards only `reapply` replaces it.
     if (!factory.storeRead) {
       factory.applied = this.readApplied(factory.folder.folderPath);
@@ -4141,7 +4183,16 @@ export class AutomationService {
       );
       record = null;
     }
-    return record && { record, parse: parseFactory(factoryFilesOf(record.texts)) };
+    if (!record) return null;
+    try {
+      return { record, parse: parseFactory(factoryFilesOf(record.texts)) };
+    } catch (error) {
+      console.error(
+        `Could not parse ${folder}'s applied factory; it applies as on a first start.`,
+        error,
+      );
+      return null;
+    }
   }
 
   /**

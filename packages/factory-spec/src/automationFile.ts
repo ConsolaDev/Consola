@@ -8,6 +8,7 @@ import { LineCounter, parseDocument } from 'yaml';
 import { closestNode, toIssue, type FactorySpecIssue } from './issues';
 import { AUTOMATION_NAME_PATTERN } from './names';
 import { automationSchema, type Automation } from './schema';
+import { documentValue } from './yamlValue';
 
 export interface AutomationFileResult {
   /** Present only when there are no issues: named after the file, with its `file` and `line: 1`. */
@@ -69,7 +70,15 @@ export function parseAutomationFile(fileName: string, text: string): AutomationF
       lineAt,
     };
   }
-  const root: unknown = doc.toJS();
+  const value = documentValue(doc);
+  if (!value.ok) {
+    return {
+      issues: [ours({ message: value.message, path: '', line: 1 })],
+      unreadable: true,
+      lineAt,
+    };
+  }
+  const root: unknown = value.value;
   if (!isRecord(root)) {
     return { issues: [ours({ message: ROOT, path: '', line: 1 })], unreadable: true, lineAt };
   }

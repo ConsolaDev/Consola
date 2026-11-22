@@ -203,6 +203,10 @@ export interface StepsWorld {
   folderReads: number;
   /** Every read of a folder waits for this while it is set, after counting the read. */
   folderReadGate?: Promise<void>;
+  /** Every read of a folder throws this while it is set, after counting the read. */
+  folderReadThrows?: unknown;
+  /** What each folder's `watch` was handed, by workspace id: call one to fire it, as a change on disk would. */
+  watchers: Map<string, () => void>;
   /** The host's harness records, as `listHarnesses` lists them. Default: none. */
   harnessRecords: Array<{ id: string; name: string; enabled: boolean; archived: boolean }>;
   /** Each workspace's latest Inbox snapshot, as `inboxSnapshot` returns it. */
@@ -407,6 +411,7 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
     agentHarnesses: { ...options.agentHarnesses },
     harnessQueries: [],
     folderReads: 0,
+    watchers: new Map(),
     harnessRecords: [],
     inbox: new Map(),
     liveTerminals: new Set(),
@@ -477,6 +482,7 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
       read: async () => {
         if (workspaceId === WORKSPACE_ID) world.folderReads++;
         if (world.folderReadGate) await world.folderReadGate;
+        if (world.folderReadThrows) throw world.folderReadThrows;
         const paths = [...files().keys()];
         return {
           exists: files().has('factory.yml'),
@@ -488,8 +494,12 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
           },
         };
       },
-      watch: () => {},
-      unwatch: () => {},
+      watch: (onChange) => {
+        world.watchers.set(workspaceId, onChange);
+      },
+      unwatch: () => {
+        world.watchers.delete(workspaceId);
+      },
       ensureExists: async (template) => {
         if (!files().has('factory.yml')) files().set('factory.yml', template);
         return filePath;

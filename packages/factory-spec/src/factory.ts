@@ -93,7 +93,26 @@ function strayMessage(path: string): string {
   return `\`${path}\` is not an agent, an automation or a skill.`;
 }
 
-/** Parse a whole factory folder. Never throws. */
+/**
+ * `parse()`, or why it threw: a file's own parser must never stop the folder
+ * parsing, so a throw (whatever its cause) becomes that file's issue.
+ */
+function guarded<T>(parse: () => T): { ok: true; value: T } | { ok: false; reason: string } {
+  try {
+    return { ok: true, value: parse() };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { ok: false, reason: message.split('\n')[0].trim().replace(/\.$/, '') };
+  }
+}
+
+const couldNotRead = (file: string, reason: string): FactorySpecIssue => ({
+  message: `Could not read \`${file}\`: ${reason}.`,
+  file,
+  path: '',
+});
+
+/** Parse a whole factory folder. Never throws: a file whose parser throws is that file's issue. */
 export function parseFactory(files: FactoryFiles): FactoryParseResult {
   const issues: FactorySpecIssue[] = [];
   const notices: FactoryNotice[] = [];
@@ -106,7 +125,12 @@ export function parseFactory(files: FactoryFiles): FactoryParseResult {
   const skills: Record<string, SkillDefinition> = {};
   for (const name of sortedKeys(files.skills)) {
     present.push(`skills/${name}`);
-    const parsed = parseSkill(name, files.skills[name]);
+    const read = guarded(() => parseSkill(name, files.skills[name]));
+    if (!read.ok) {
+      issues.push(couldNotRead(`skills/${name}`, read.reason));
+      continue;
+    }
+    const parsed = read.value;
     issues.push(...parsed.issues);
     if (parsed.skill && !unreadUnder(`skills/${name}/`)) skills[name] = parsed.skill;
   }
@@ -117,7 +141,12 @@ export function parseFactory(files: FactoryFiles): FactoryParseResult {
   for (const name of sortedKeys(files.agents)) {
     const file = `agents/${name}.md`;
     present.push(file);
-    const parsed = parseAgentFile(name, files.agents[name]);
+    const read = guarded(() => parseAgentFile(name, files.agents[name]));
+    if (!read.ok) {
+      issues.push(couldNotRead(file, read.reason));
+      continue;
+    }
+    const parsed = read.value;
     issues.push(...parsed.issues);
     const agent = parsed.agent;
     if (!agent) continue;
@@ -142,7 +171,14 @@ export function parseFactory(files: FactoryFiles): FactoryParseResult {
 
   // Automations: factory.yml's entries, then each automation file's.
   let candidates: Candidate[] = [];
-  const yml = files.factoryYml === null ? undefined : parseFactoryYml(files.factoryYml);
+  const ymlRead =
+    files.factoryYml === null ? undefined : guarded(() => parseFactoryYml(files.factoryYml!));
+  if (ymlRead && !ymlRead.ok) {
+    present.push('factory.yml');
+    unreadable.push('factory.yml');
+    issues.push(couldNotRead('factory.yml', ymlRead.reason));
+  }
+  const yml = ymlRead?.ok ? ymlRead.value : undefined;
   if (yml) {
     present.push('factory.yml');
     if (yml.unreadable) unreadable.push('factory.yml');
@@ -161,7 +197,13 @@ export function parseFactory(files: FactoryFiles): FactoryParseResult {
   for (const name of automationFiles) {
     const file = `automations/${name}.yaml`;
     present.push(file);
-    const parsed = parseAutomationFile(name, files.automations[name]);
+    const read = guarded(() => parseAutomationFile(name, files.automations[name]));
+    if (!read.ok) {
+      unreadable.push(file);
+      issues.push(couldNotRead(file, read.reason));
+      continue;
+    }
+    const parsed = read.value;
     if (parsed.unreadable) unreadable.push(file);
     issues.push(...parsed.issues);
     if (parsed.automation) {

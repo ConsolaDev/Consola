@@ -1,6 +1,7 @@
 import { LineCounter, parseDocument } from 'yaml';
 import { closestNode, formatPath, nodeAt, toIssue, type FactorySpecIssue } from './issues';
 import { automationSchema, fileSchema, isStepsEntry, type Automation } from './schema';
+import { documentValue } from './yamlValue';
 
 export type { FactorySpecIssue };
 
@@ -72,7 +73,9 @@ export function parseFactoryYml(text: string): FactoryYmlResult {
     );
   }
 
-  const root: unknown = doc.toJS();
+  const value = documentValue(doc);
+  if (!value.ok) return result([], [{ message: value.message, path: '', line: 1 }], true);
+  const root: unknown = value.value;
   // An empty (or comments-only) file is a valid "no automations yet".
   if (root === null || root === undefined) return result([], [], false);
 
