@@ -152,9 +152,9 @@ packages' tests use. Before changing it, or adding a provider, read
 
 `apps/cloud-global` (`@consola/cloud-global`, Hono, Better Auth, Drizzle on
 PGlite or Postgres) and `apps/cloud-web` (`@consola/cloud-web`, Vite and React)
-are the company layer's first piece: Google sign-in and the deployment's one
-organisation. `cloud-global` is the control plane's global part, which every
-region shares. Every workspace has a region (`eu` or `us`), picked when it is
+are the company layer's first piece: Google sign-in and workspaces people make,
+belong to several of and switch between. `cloud-global` is the control plane's
+global part, which every region shares. Every workspace has a region (`eu` or `us`), picked when it is
 made and never changed. What `cloud-global` may store is the always-global
 list in its `AGENTS.md`, pinned by a test; anything else belongs in a regional
 cell. `apps/cloud-region` (`@consola/cloud-region`, Hono, Drizzle on PGlite or
@@ -177,9 +177,10 @@ rules and the dependency rule that keeps them apart.
 The browser talks only to the web app's origin. Vite proxies `/api` to the API,
 so the session cookie is first-party and the API needs no CORS. Better Auth
 owns sign-in and sessions, and its tables are generated
-(`pnpm --filter @consola/cloud-global auth:generate`), never hand-edited. Every
-table that holds company data carries `organization_id`, and a person reaches
-it through `member`.
+(`pnpm --filter @consola/cloud-global auth:generate`), never hand-edited.
+Workspaces are Consola's own routes (`/api/workspaces`), with every route of
+Better Auth's organisation plugin closed. Every table that holds company data
+carries `organization_id`, and a person reaches it through `member`.
 
 `mayJoin` (`apps/cloud-global/src/domain/joinRule.ts`) is checked before an account
 is created and before every new session. It is open for now (any Google

@@ -1,35 +1,30 @@
-import type { Organization, Person } from '../domain/organization.js';
+import type { Person, SignedIn } from '../domain/person.js';
+import type { MyWorkspace } from '../domain/workspace.js';
 import type { MembershipStore } from './ports.js';
 
-/** Who is asking, in this organisation: nobody, someone who is not a member, or a member. */
+/**
+ * Who is asking, and the workspace their session has active. A session whose active workspace
+ * the person is no longer in, or that names none, has no workspace.
+ */
 export async function describeMe(
   memberships: MembershipStore,
-  organization: Organization,
-  person: Person | null,
+  session: SignedIn | null,
 ): Promise<
   | { kind: 'signed-out' }
-  | { kind: 'not-member' }
-  | { kind: 'member'; me: { user: Person; organization: Organization; role: string } }
+  | { kind: 'signed-in'; me: { user: Person; workspace: MyWorkspace | null } }
 > {
-  if (!person) return { kind: 'signed-out' };
+  if (!session) return { kind: 'signed-out' };
 
-  const membership = await memberships.find({
-    organizationId: organization.id,
-    userId: person.id,
-  });
-  if (!membership) return { kind: 'not-member' };
+  const { person, activeWorkspaceId } = session;
+  const workspace = activeWorkspaceId
+    ? await memberships.workspaceFor({ workspaceId: activeWorkspaceId, userId: person.id })
+    : null;
 
   return {
-    kind: 'member',
+    kind: 'signed-in',
     me: {
       user: { id: person.id, name: person.name, email: person.email, image: person.image },
-      organization: {
-        id: organization.id,
-        name: organization.name,
-        slug: organization.slug,
-        region: organization.region,
-      },
-      role: membership.role,
+      workspace,
     },
   };
 }

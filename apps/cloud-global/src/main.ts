@@ -6,9 +6,8 @@ import {
   type OpenDatabase,
   openDatabase,
 } from './adapters/persistence/database.js';
-import { composeApi, prepareOrganization } from './compose.js';
+import { composeApi } from './compose.js';
 import { type CloudConfig, ConfigError, loadConfig } from './config.js';
-import type { Organization } from './domain/organization.js';
 import { describeStartupFailure } from './startupError.js';
 
 // Beside package.json, from both `src/main.ts` (tsx) and `dist/main.js` (node).
@@ -30,16 +29,14 @@ try {
 }
 
 let database: OpenDatabase;
-let organization: Organization;
 try {
   database = openDatabase(config.databaseUrl);
   await migrateDatabase(database.db);
-  organization = await prepareOrganization(database.db, config);
 } catch (error) {
   cannotStart([`The database could not be prepared: ${describeStartupFailure(error, config)}`]);
 }
 
-const { app } = composeApi({ db: database.db, config, organization });
+const { app } = composeApi({ db: database.db, config });
 
 const server = serve({ fetch: app.fetch, hostname: '127.0.0.1', port: config.port }, (info) => {
   console.log(

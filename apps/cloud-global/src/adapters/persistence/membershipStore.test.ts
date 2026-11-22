@@ -1,30 +1,38 @@
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { MembershipStore } from '../../application/ports.js';
-import { type Organization, roleForNewMember } from '../../domain/organization.js';
 import { type Database, migrateDatabase, openDatabase } from './database.js';
-import { schema } from './schema.js';
 import { createMembershipStore } from './membershipStore.js';
-import { createOrganizationStore } from './organizationStore.js';
+import { schema } from './schema.js';
 
 let db: Database;
 let close: () => Promise<void>;
 let memberships: MembershipStore;
-let org: Organization;
+
+async function workspace(id: string, region = 'eu') {
+  await db
+    .insert(schema.organization)
+    .values({ id, name: `Workspace ${id}`, slug: id, region, createdAt: new Date() });
+}
+
+async function member(workspaceId: string, userId: string, role: string, joined: string) {
+  await db.insert(schema.member).values({
+    id: `${workspaceId}-${userId}`,
+    organizationId: workspaceId,
+    userId,
+    role,
+    createdAt: new Date(joined),
+  });
+}
 
 beforeEach(async () => {
   ({ db, close } = openDatabase('pglite:memory'));
   await migrateDatabase(db);
   await db.insert(schema.user).values([
-    { id: 'dana', name: 'Dana', email: 'dana@sprocket.test', emailVerified: true },
+    { id: 'dana', name: 'Dana', email: 'dana@acme.test', emailVerified: true },
     { id: 'lee', name: 'Lee', email: 'lee@sprocket.test', emailVerified: true },
   ]);
   memberships = createMembershipStore(db);
-  org = await createOrganizationStore(db).ensure({
-    name: 'Sprocket',
-    slug: 'sprocket',
-    region: 'eu',
-  });
 });
 
 afterEach(async () => {
@@ -32,56 +40,53 @@ afterEach(async () => {
 });
 
 describe('the membership store', () => {
-  it('join inserts the role roleFor gives for the members already there', async () => {
-    const asked: number[] = [];
-    const roleFor = (existingMembers: number) => {
-      asked.push(existingMembers);
-      return `role-${existingMembers}`;
-    };
-    expect(await memberships.join({ organizationId: org.id, userId: 'dana' }, roleFor)).toEqual({
-      role: 'role-0',
-    });
-    expect(await memberships.join({ organizationId: org.id, userId: 'lee' }, roleFor)).toEqual({
-      role: 'role-1',
-    });
-    expect(await memberships.join({ organizationId: org.id, userId: 'dana' }, roleFor)).toEqual({
-      role: 'role-0',
-    });
-    expect(asked).toEqual([0, 1]);
-  });
-
-  it('joining again keeps the role and adds no row', async () => {
-    await memberships.join({ organizationId: org.id, userId: 'dana' }, roleForNewMember);
-    expect(
-      await memberships.join({ organizationId: org.id, userId: 'dana' }, roleForNewMember),
-    ).toEqual({
+  it('workspaceFor is the workspace with the role, for a member', async () => {
+    await workspace('acme', 'us');
+    await member('acme', 'dana', 'owner', '2026-11-01');
+    expect(await memberships.workspaceFor({ workspaceId: 'acme', userId: 'dana' })).toEqual({
+      id: 'acme',
+      name: 'Workspace acme',
+      slug: 'acme',
+      region: 'us',
       role: 'owner',
     });
-    const rows = await db.select().from(schema.member).where(eq(schema.member.userId, 'dana'));
-    expect(rows).toHaveLength(1);
   });
 
-  it('concurrent joins add one row', async () => {
-    const ids = { organizationId: org.id, userId: 'dana' };
-    // PGlite runs one transaction at a time, so here the three joins queue up whatever the
-    // store does. On a real Postgres pool they run at once, and the advisory lock is what keeps
-    // this to one row.
-    const roles = await Promise.all([
-      memberships.join(ids, roleForNewMember),
-      memberships.join(ids, roleForNewMember),
-      memberships.join(ids, roleForNewMember),
+  it('workspaceFor is null for someone outside it, or a workspace that is not there', async () => {
+    await workspace('acme');
+    await member('acme', 'dana', 'owner', '2026-11-01');
+    expect(await memberships.workspaceFor({ workspaceId: 'acme', userId: 'lee' })).toBeNull();
+    expect(await memberships.workspaceFor({ workspaceId: 'gone', userId: 'dana' })).toBeNull();
+  });
+
+  it('workspacesOf lists only the person’s workspaces, in the order they joined', async () => {
+    await workspace('sprocket');
+    await workspace('acme');
+    await workspace('elsewhere');
+    await member('sprocket', 'dana', 'member', '2026-11-03');
+    await member('acme', 'dana', 'owner', '2026-11-01');
+    await member('elsewhere', 'lee', 'owner', '2026-11-02');
+
+    expect(await memberships.workspacesOf('dana')).toEqual([
+      expect.objectContaining({ id: 'acme', role: 'owner' }),
+      expect.objectContaining({ id: 'sprocket', role: 'member' }),
     ]);
-    expect(roles).toEqual([{ role: 'owner' }, { role: 'owner' }, { role: 'owner' }]);
-    const rows = await db.select().from(schema.member).where(eq(schema.member.userId, 'dana'));
-    expect(rows).toHaveLength(1);
-    expect(rows[0]?.role).toBe('owner');
+    expect(await memberships.workspacesOf('lee')).toEqual([
+      expect.objectContaining({ id: 'elsewhere', role: 'owner' }),
+    ]);
+    expect(await memberships.workspacesOf('nobody')).toEqual([]);
   });
 
-  it('find answers null for a non-member', async () => {
-    await memberships.join({ organizationId: org.id, userId: 'dana' }, roleForNewMember);
-    expect(await memberships.find({ organizationId: org.id, userId: 'lee' })).toBeNull();
-    expect(await memberships.find({ organizationId: org.id, userId: 'dana' })).toEqual({
-      role: 'owner',
-    });
+  it('refuses a workspace stored in an unknown region', async () => {
+    await workspace('acme');
+    await member('acme', 'dana', 'owner', '2026-11-01');
+    await db
+      .update(schema.organization)
+      .set({ region: 'ap' })
+      .where(eq(schema.organization.id, 'acme'));
+    await expect(memberships.workspacesOf('dana')).rejects.toThrow(/unknown region, "ap"/);
+    await expect(memberships.workspaceFor({ workspaceId: 'acme', userId: 'dana' })).rejects.toThrow(
+      /unknown region, "ap"/,
+    );
   });
 });

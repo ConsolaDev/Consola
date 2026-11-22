@@ -7,8 +7,6 @@ const valid = {
   PUBLIC_URL: 'http://localhost:5175',
   GOOGLE_CLIENT_ID: 'id.apps.googleusercontent.com',
   GOOGLE_CLIENT_SECRET: 's',
-  ORG_NAME: 'Sprocket',
-  ORG_SLUG: 'sprocket',
 };
 
 function failureOf(env: Record<string, string | undefined>): ConfigError {
@@ -29,7 +27,6 @@ describe('loadConfig', () => {
       publicUrl: 'http://localhost:5175',
       port: 3100,
       google: { clientId: 'id.apps.googleusercontent.com', clientSecret: 's' },
-      organization: { name: 'Sprocket', slug: 'sprocket' },
     });
   });
 
@@ -69,9 +66,10 @@ describe('loadConfig', () => {
     expect(failure.problems.join('\n')).toContain('BETTER_AUTH_SECRET');
   });
 
-  it('refuses a slug that is not lowercase letters, digits and dashes', () => {
-    const failure = failureOf({ ...valid, ORG_SLUG: 'Sprocket Inc' });
-    expect(failure.problems.join('\n')).toContain('ORG_SLUG');
+  it('ignores the organisation settings an older .env still has', () => {
+    expect(loadConfig({ ...valid, ORG_NAME: 'Sprocket', ORG_SLUG: 'Sprocket Inc' })).toEqual(
+      loadConfig(valid),
+    );
   });
 
   it('names every problem at once', () => {
@@ -82,8 +80,6 @@ describe('loadConfig', () => {
       'PUBLIC_URL',
       'GOOGLE_CLIENT_ID',
       'GOOGLE_CLIENT_SECRET',
-      'ORG_NAME',
-      'ORG_SLUG',
     ]) {
       expect(failure.problems.some((p) => p.startsWith(`${name}:`))).toBe(true);
       expect(failure.message).toContain(name);

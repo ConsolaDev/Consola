@@ -1,12 +1,17 @@
 # Consola Cloud: cloud-global
 
 The global part of Consola Cloud's control plane, shared by every region:
-Google sign-in, sessions and the deployment's one organisation. The web app is
-`apps/cloud-web`; the browser only talks to the web app, which proxies `/api`
-to this service.
+Google sign-in, sessions and the workspaces people make, each in a region. The
+web app is `apps/cloud-web`; the browser only talks to the web app, which
+proxies `/api` to this service.
 
-Sign-in is open to any Google account with a verified email. It is for local
-use only, until a later round limits it to the company.
+Sign-in is open to any Google account with a verified email, and anyone signed
+in can make workspaces. It is for local use only, until a later round limits it
+to the company.
+
+An `.env` from before workspaces may still set `ORG_NAME` and `ORG_SLUG`.
+Nothing reads them any more, so they can go. The organisation they made carries
+on as an ordinary workspace, with its members.
 
 ## Create a Google OAuth client
 
