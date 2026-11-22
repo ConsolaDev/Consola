@@ -1,12 +1,5 @@
 import { beforeAll, expect, it } from 'vite-plus/test';
-import {
-  addStylesheet,
-  addToPage,
-  answerOf,
-  forgetStoredThreads,
-  host,
-  mountChat,
-} from './testing/render.tsx';
+import { addToPage, answerOf, forgetStoredThreads, host, mountChat } from './testing/render.tsx';
 
 // What the chat shows comes from the host, not from t3's stored copy of an earlier file's chat.
 beforeAll(forgetStoredThreads);
@@ -22,7 +15,6 @@ it("takes Consola's colour tokens and dark theme from the page, popups included"
   addToPage(tokens);
   document.documentElement.setAttribute('data-theme', 'dark');
   try {
-    addStylesheet();
     await mountChat({ hostUrl, pass, sessionId });
     await expect.element(answerOf(assistantText)).toBeVisible();
 

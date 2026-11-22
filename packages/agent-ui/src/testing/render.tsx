@@ -2,8 +2,7 @@ import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, inject } from 'vite-plus/test';
 import { page } from 'vite-plus/test/browser';
-import { AgentChat, type AgentChatProps } from '../index.ts';
-import stylesheet from '../styles.css?inline';
+import type { AgentChatProps } from '../index.ts';
 import { HOST_SESSION_KEY, type HostSession } from './hostSessionKey.ts';
 
 declare global {
@@ -41,22 +40,19 @@ export const forgetStoredThreads = async () => {
   );
 };
 
-/** Adds the package's stylesheet, as a consumer's `import '@consola/agent-ui/styles.css'` does. */
-export const addStylesheet = () => {
-  const style = document.createElement('style');
-  style.textContent = stylesheet;
-  document.head.append(style);
-  cleanups.push(() => style.remove());
-};
-
 /** Appends `element` to the page until the test ends. */
 export const addToPage = (element: HTMLElement) => {
   document.body.append(element);
   cleanups.push(() => element.remove());
 };
 
-/** Mounts `AgentChat` in a container of a chat's size, until the test ends. */
+/**
+ * Mounts `AgentChat` in a container of a chat's size, until the test ends. The package is imported
+ * here, on first use, as a page imports it (its stylesheet with it), so a test can look at the page
+ * before anything of the package has run.
+ */
 export const mountChat = async (props: AgentChatProps) => {
+  const { AgentChat } = await import('../index.ts');
   const container = document.createElement('div');
   container.style.height = '720px';
   addToPage(container);

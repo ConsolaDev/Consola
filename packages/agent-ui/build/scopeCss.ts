@@ -12,8 +12,10 @@ export const THEME_CLASS = 'consola-agent-ui-theme';
 export const PORTAL_CLASS = 'consola-agent-ui-portal';
 
 const DOCUMENT_SELECTOR = /^(?::root|:host|html|body)(?![\w-])/;
-const INSIDE = `:where(.${SCOPE_CLASS}, .${PORTAL_CLASS})`;
-const AS_DOCUMENT = `:where(.${SCOPE_CLASS} .${THEME_CLASS}, .${PORTAL_CLASS})`;
+/** What every scoped selector but a document one starts with: inside the chat or a popup of it. */
+export const INSIDE = `:where(.${SCOPE_CLASS}, .${PORTAL_CLASS})`;
+/** What a scoped document selector starts with: the theme element or a popup. */
+export const AS_DOCUMENT = `:where(.${SCOPE_CLASS} .${THEME_CLASS}, .${PORTAL_CLASS})`;
 
 /**
  * One selector of t3's CSS, moved inside the scope. A selector for the document (`:root`,
@@ -29,7 +31,8 @@ export const scopeSelector = (selector: string): string => {
   return `${INSIDE} ${trimmed}`;
 };
 
-const insideKeyframes = (rule: Rule): boolean => {
+/** Whether a rule is a keyframe step, which is not a selector. */
+export const insideKeyframes = (rule: Rule): boolean => {
   for (let node: Node | undefined = rule.parent; node !== undefined; node = node.parent) {
     if (node.type === 'atrule' && /keyframes$/i.test((node as AtRule).name)) return true;
   }

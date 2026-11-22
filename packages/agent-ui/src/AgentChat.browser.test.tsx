@@ -1,12 +1,5 @@
 import { beforeAll, expect, it } from 'vite-plus/test';
-import {
-  addStylesheet,
-  addToPage,
-  answerOf,
-  forgetStoredThreads,
-  host,
-  mountChat,
-} from './testing/render.tsx';
+import { addToPage, answerOf, forgetStoredThreads, host, mountChat } from './testing/render.tsx';
 
 // What the chat shows comes from the host, not from t3's stored copy of an earlier file's chat.
 beforeAll(forgetStoredThreads);
@@ -25,7 +18,6 @@ it("renders the session's thread from its host, styling nothing outside the chat
   addToPage(outside);
   const before = styleOf(outside);
 
-  addStylesheet();
   await mountChat({ hostUrl, pass, sessionId });
 
   await expect.element(answerOf(assistantText)).toBeVisible();

@@ -96,7 +96,23 @@ it with `@tailwindcss/postcss`, then `build/scopeCss.ts` rewrites every selector
   that uses Base UI itself would see its own portals marked too.
 
 Nothing else on the page is styled; `AgentChat.browser.test.tsx` checks a paragraph beside the
-chat keeps its font, margin, line height and colour. The root has `contain: layout`, so t3's
+chat keeps its font, margin, line height and colour.
+
+**What is page-global.** A few at-rules have no selector to scope, so they apply to the whole
+page. None styles anything by itself, and `build/checkBuiltCss.ts` fails the build's check on any
+other kind:
+
+- 17 `@keyframes` (Tailwind's `spin` and `pulse`, t3's `skeleton`, `status-pulse`,
+  `live-tool-shine` and the rest; the check prints the list). A keyframe only runs where a rule
+  names it. Harmless today: Consola's own `spin` (`GitReviewPanel`, `Views`) is the same full turn,
+  and no Consola page names `pulse` or any of t3's. A page that defines one of these names
+  differently gets whichever definition comes last.
+- 105 `@property` registrations: Tailwind's `--tw-*` and t3's
+  `--assistant-citation-highlight-opacity`. They give those custom properties a type and initial
+  value page-wide, which matters only where something reads them; no Consola page does.
+- `@font-face` for KaTeX's fonts (`KaTeX_Main`, …), used only by a rule naming them.
+- The `@layer` names `properties, theme, base, clerk, components, utilities`. A page with layers
+  of the same names would have t3's rules merged into them; Consola's pages use no layers. The root has `contain: layout`, so t3's
 fixed-position controls are placed inside the chat, not on the page's viewport.
 
 **Theme.** Where the page carries Consola's colour tokens (the desktop sets them on
@@ -110,7 +126,13 @@ on the theme element and its popups. Without the tokens, t3's own palette applie
 `pnpm --filter @consola/agent-ui build` is a library build: `dist/agent-ui.js` (ES module,
 `react` and `react-dom` external, so the page's React renders it) and `dist/agent-ui.css`, which
 `package.json` exports as `@consola/agent-ui` and `@consola/agent-ui/styles.css` (types from
-`src/index.ts`). Build before a page imports it. The output must contain no `@cursor/sdk` and no
+`src/index.ts`). Build before a page imports it. `src/index.ts` imports `src/styles.css`, because
+a library build writes only the CSS its entry imports: without it `dist/agent-ui.css` holds just
+what t3's modules import (KaTeX, the PDF viewer) and the chat is unstyled. `pnpm --filter
+@consola/agent-ui check:css` (`build/checkBuiltCss.ts`, run by CI after the build) checks the
+built file: t3's theme, a Tailwind utility and Consola's token mapping are in it, every rule is
+scoped to the chat, and nothing page-global is there beyond the at-rules listed in "What is
+page-global" below. The output must contain no `@cursor/sdk` and no
 `@anthropic-ai/claude-agent-sdk` (CI greps `dist/` for both); either would mean server code
 reached the browser bundle. `dist/` is large (t3's lazy office, PDF, HEIC and syntax-highlighting
 workers and its translations), loaded only when used.
