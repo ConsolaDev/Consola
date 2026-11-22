@@ -6,20 +6,33 @@ import {
   CELL_TOKEN_KEYS_PATH,
   CELL_TOKEN_LIFETIME_SECONDS,
   CLOCK_SKEW_SECONDS,
+  OUTBOX_DELIVERY_MEDIA_TYPE,
+  OUTBOX_DELIVERY_PATH,
+  OUTBOX_MESSAGE_TYPE,
   readCellTokenClaims,
+  readOutboxMessage,
 } from '@consola/cloud-contract';
 import { organization, type TestHelpers, testUtils } from 'better-auth/plugins';
 import { eq } from 'drizzle-orm';
 import type { Hono } from 'hono';
-import { calculateJwkThumbprint, createLocalJWKSet, type JSONWebKeySet, jwtVerify } from 'jose';
+import {
+  calculateJwkThumbprint,
+  compactVerify,
+  createLocalJWKSet,
+  type JSONWebKeySet,
+  jwtVerify,
+} from 'jose';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type CloudAuth, closedPaths } from './adapters/auth/betterAuth.js';
+import type { OutboxWorker } from './adapters/outbox/outboxWorker.js';
 import { type Database, migrateDatabase, openDatabase } from './adapters/persistence/database.js';
 import { schema } from './adapters/persistence/schema.js';
 import { composeApi } from './compose.js';
 import { type CloudConfig, ConfigError, type Ed25519PrivateJwk } from './config.js';
 
 const WEB_ORIGIN = 'http://localhost:5175';
+const ACME_CELL = 'http://127.0.0.1:3101';
+const SPROCKET_CELL = 'http://127.0.0.1:3102';
 
 // A key made for this run only, never one written down.
 const cellKey = generateKeyPairSync('ed25519').privateKey.export({
@@ -33,6 +46,8 @@ const config: CloudConfig = {
   port: 3100,
   google: { clientId: 'sprocket-test-client-id', clientSecret: 'sprocket-test-client-secret' },
   cellTokenPrivateKey: cellKey,
+  // A cell in each region, which no test reaches unless it starts the outbox's worker.
+  cellUrls: { eu: ACME_CELL, us: SPROCKET_CELL },
 };
 
 let db: Database;
@@ -40,6 +55,7 @@ let closeDatabase: () => Promise<void>;
 let auth: CloudAuth;
 let test: TestHelpers;
 let app: Hono;
+let outbox: OutboxWorker;
 // Better Auth keeps rate-limit counts per client address and path for the whole file, so each
 // test signs in from an address of its own (TEST-NET-3, never routed).
 let clients = 0;
@@ -58,12 +74,14 @@ beforeEach(async () => {
   };
   await migrateDatabase(db);
   // Built the way main.ts builds it, with Better Auth's test helpers added.
-  ({ app, auth } = await composeApi({ db, config }, [testUtils()]));
+  ({ app, auth, outbox } = await composeApi({ db, config }, [testUtils()]));
   // The plugin is passed in at runtime, so the type of `$context` does not know about it.
   test = ((await auth.$context) as unknown as { test: TestHelpers }).test;
 });
 
 afterEach(async () => {
+  // As main.ts does: the worker ends its pass before the database closes.
+  await outbox.stop();
   vi.restoreAllMocks();
   await closeDatabase();
 });
@@ -620,6 +638,110 @@ describe('the cell token', () => {
       .map((args) => args.map((arg) => inspect(arg, { depth: 10 })).join(' '))
       .join('\n');
     expect(logged).not.toContain(cellKey.d);
+  });
+});
+
+describe('the outbox', () => {
+  type Delivery = { url: string; type: string | null; body: string };
+
+  /** Every cell's address, answering 200 to every delivery and keeping each. */
+  function cellsAnswering(): Delivery[] {
+    const deliveries: Delivery[] = [];
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const request = new Request(input, init);
+      if (![ACME_CELL, SPROCKET_CELL].includes(new URL(request.url).origin)) {
+        throw new Error(`The test made an unexpected request to ${request.url}`);
+      }
+      deliveries.push({
+        url: request.url,
+        type: request.headers.get('content-type'),
+        body: await request.text(),
+      });
+      return Response.json({ applied: true });
+    });
+    return deliveries;
+  }
+
+  /** A delivery read the way a cell reads it: its signature against the published keys. */
+  async function asACell(delivery: Delivery) {
+    const response = await app.request(CELL_TOKEN_KEYS_PATH);
+    const keys = (await response.json()) as JSONWebKeySet;
+    const { payload, protectedHeader } = await compactVerify(
+      delivery.body,
+      createLocalJWKSet(keys),
+      { algorithms: [CELL_TOKEN_ALGORITHM] },
+    );
+    expect(protectedHeader).toEqual({
+      alg: CELL_TOKEN_ALGORITHM,
+      kid: keys.keys[0]?.kid,
+      typ: OUTBOX_MESSAGE_TYPE,
+    });
+    const json = new TextDecoder().decode(payload);
+    expect(readOutboxMessage(JSON.parse(json)).ok).toBe(true);
+    return json;
+  }
+
+  it("delivers a new workspace to its region's cell, signed, as ids and roles only", async () => {
+    const deliveries = cellsAnswering();
+    const logs = (['log', 'info', 'warn', 'error', 'debug', 'trace'] as const).map((method) =>
+      vi.spyOn(console, method).mockImplementation(() => {}),
+    );
+    const login = await signIn('dana@acme.test', 'Dana Ortiz');
+    const workspace = await makeWorkspace(login.headers);
+
+    // Built, as main.ts builds it, but not started: nothing has gone to any cell yet.
+    expect(deliveries).toEqual([]);
+    outbox.start();
+    await vi.waitFor(() => expect(deliveries).toHaveLength(2));
+    await outbox.stop();
+
+    expect(deliveries.map(({ url, type }) => ({ url, type }))).toEqual([
+      { url: `${ACME_CELL}${OUTBOX_DELIVERY_PATH}`, type: OUTBOX_DELIVERY_MEDIA_TYPE },
+      { url: `${ACME_CELL}${OUTBOX_DELIVERY_PATH}`, type: OUTBOX_DELIVERY_MEDIA_TYPE },
+    ]);
+    const messages = [];
+    for (const delivery of deliveries) messages.push(await asACell(delivery));
+    expect(messages).toEqual([
+      `{"workspaceId":"${workspace.id}","region":"eu","sequence":1,"change":{"type":"workspace.created"}}`,
+      `{"workspaceId":"${workspace.id}","region":"eu","sequence":2,"change":{"type":"member.added","personId":"${login.user.id}","role":"owner"}}`,
+    ]);
+    for (const message of messages) {
+      expect(message).not.toContain('dana@acme.test');
+      expect(message).not.toContain('Dana');
+      expect(message).not.toContain('Acme');
+    }
+
+    // The log names ids and statuses, never a signature or the key.
+    const logged = logs
+      .flatMap((spy) => spy.mock.calls)
+      .map((args) => args.map((arg) => inspect(arg, { depth: 10 })).join(' '))
+      .join('\n');
+    expect(logged).toContain(`delivered message 2 of workspace ${workspace.id}`);
+    for (const delivery of deliveries) expect(logged).not.toContain(delivery.body.split('.')[2]);
+    expect(logged).not.toContain(cellKey.d);
+  });
+
+  it('wakes as a workspace is made, rather than at its next poll', async () => {
+    const deliveries = cellsAnswering();
+    vi.spyOn(console, 'info').mockImplementation(() => {});
+    outbox.start();
+    const login = await signIn('lee@sprocket.test', 'Lee Park');
+
+    // Sprocket is in the US, so its messages go to the US cell, and well inside the poll.
+    const workspace = await makeWorkspace(login.headers, {
+      name: 'Sprocket',
+      slug: 'sprocket',
+      region: 'us',
+    });
+    await vi.waitFor(() => expect(deliveries).toHaveLength(2), { timeout: 5_000 });
+
+    expect(deliveries.map((delivery) => delivery.url)).toEqual([
+      `${SPROCKET_CELL}${OUTBOX_DELIVERY_PATH}`,
+      `${SPROCKET_CELL}${OUTBOX_DELIVERY_PATH}`,
+    ]);
+    expect(await asACell(deliveries[0] as Delivery)).toBe(
+      `{"workspaceId":"${workspace.id}","region":"us","sequence":1,"change":{"type":"workspace.created"}}`,
+    );
   });
 });
 

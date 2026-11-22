@@ -14,37 +14,46 @@ The service is built in rings, and imports point inward only.
   (`mayJoin`), what a new workspace needs (`checkNewWorkspace`) and who owns it
   (`CREATOR_ROLE`), which workspace a new session opens
   (`defaultActiveWorkspace`), the regions a workspace can be in (`REGIONS` and
-  `isRegion`, which `region.ts` takes from the contract), and `Workspace`,
+  `isRegion`, which `region.ts` takes from the contract), how long the outbox
+  waits before it delivers a message again (`retryDelayMs`), and `Workspace`,
   `MyWorkspace`, `Person` and `SignedIn`. It is plain TypeScript, with no I/O,
   and no package but the contract (below).
 - `src/application/` holds the use cases (`createWorkspace`,
   `listMyWorkspaces`, `setActiveWorkspace`, `workspaceForNewSession`,
   `mayCreateAccount`, `mayStartSession`, `describeMe`, `mintCellToken`,
-  `cellTokenKeys`, `checkHealth`) and, in `ports.ts`, the stores, probes and
-  signer they need. A use case is a plain function that takes its ports first,
-  and is handed the time when it needs it (`mintCellToken`'s `issuedAt`).
+  `cellTokenKeys`, `deliverOutbox`, `checkHealth`) and, in `ports.ts`, the
+  stores, probes, signers and the cell they need. A use case is a plain
+  function that takes its ports first, and is handed the time when it needs it
+  (`mintCellToken`'s `issuedAt`, `deliverOutbox`'s `now`).
 - `src/adapters/` implements the ports with a library, one folder each:
   - `persistence/` is Drizzle on PGlite or Postgres: the database, the schema,
-    and one store per port, which `stores.ts` builds together;
+    and one store per port, which `stores.ts` builds together. Its one writer
+    of what a cell must hear about is `writeWorkspaceChange` (below);
   - `auth/` is Better Auth (`betterAuth.ts`). Its hooks call use cases and run
     no query of their own;
   - `http/` is the Hono routes (`app.ts`). Each route asks a use case and maps
     its answer to a status and a body;
-  - `cellToken/` is `jose` (`cellTokenSigner.ts`): it signs the cell token with
-    the configured private key and publishes the public key (below). It is the
-    only code that holds the private key.
+  - `cellToken/` is `jose` (`cellTokenSigner.ts`): it signs the cell token and
+    outbox messages with the configured private key and publishes the public
+    key (below). It is the only code that holds the private key;
+  - `outbox/` delivers the outbox: the request to a cell (`cellDelivery.ts`,
+    with `fetch`) and the worker's loop and timers (`outboxWorker.ts`), which
+    runs `deliverOutbox` (below).
 - The composition ring wires them together. `src/compose.ts` is the one place
   adapters are built and handed the ports they need (`composeApi`), and the one
   place a startup step would live (there is none today). `composeApi` is
   async, because building the cell token's signer is, and a configured key
   that is not a key pair fails there as a `ConfigError`, which `main.ts`
-  reports like any other configuration problem. Adapters call use
+  reports like any other configuration problem. It builds the outbox's worker
+  and wakes it from the stores, but never starts it. Adapters call use
   cases themselves; what they never do is build another adapter. The one
   exception is `src/adapters/auth/cli-config.ts`, which builds the stores and
   `createAuth` for the schema CLI: it is tooling, and never runs in the
   service.
   `src/main.ts` loads the environment, opens and migrates the database, calls
-  `compose.ts` and serves, and `src/startupError.ts` words a failure to start.
+  `compose.ts` and serves; once it listens, it starts the outbox's worker, and
+  it stops the worker before it closes the database. `src/startupError.ts`
+  words a failure to start.
   `src/config.ts` parses the environment. It is shared configuration that any
   adapter may read, so it stays a pure parser that imports no other file and no
   I/O.
@@ -72,7 +81,10 @@ The service is built in rings, and imports point inward only.
     `adapters/persistence`, because Better Auth's Drizzle adapter needs the
     database and its schema;
   - `adapters/cellToken` never imports `hono`, `better-auth`, a database
-    library or another adapter. It is the only one that imports `jose`.
+    library or another adapter. It is the only one that imports `jose`;
+  - `adapters/outbox` never imports `hono`, `better-auth`, a database library,
+    `jose` or another adapter: the store and the signer reach it as ports,
+    which `compose.ts` passes in.
 - No file, tests included, imports another app or a workspace package
   (`@consola/*`, or `consola`, the desktop), with one exception:
   `@consola/cloud-contract` (`packages/cloud-contract`), the contract
@@ -100,7 +112,9 @@ contract is refused, so a new package is covered without being named.
 1. A rule or a type goes in `domain`.
 2. A use case goes in `application`, with any port it needs in `ports.ts`.
 3. An adapter implements the port. For the database, that is a store in
-   `adapters/persistence`, added to `createDrizzleStores`.
+   `adapters/persistence`, added to `createDrizzleStores`. A store that
+   changes a workspace or its members does it through `writeWorkspaceChange`,
+   in its own transaction ("The outbox").
 4. A route in `adapters/http`, or a hook in `adapters/auth`, calls the use
    case.
 5. `compose.ts` builds the adapter and hands it its ports, and nothing else
@@ -139,8 +153,8 @@ session's `active_organization_id`), and every route it brings is closed:
 - the rules are domain functions a use case calls, never a hook threaded
   through Better Auth's routes, its error shapes or its role checks;
 - a workspace and its first member are written in one transaction
-  (`WorkspaceStore.create`), which is where the cell's "workspace created"
-  message (epic 6) can join them;
+  (`WorkspaceStore.create`), with the cell's `workspace.created` and
+  `member.added` messages (6.1, "The outbox");
 - one way to make, list or switch workspaces, so the web app and later
   clients never have two to choose from.
 
@@ -148,7 +162,8 @@ A member's role is one of the contract's `WORKSPACE_ROLES` (`owner`, `admin`,
 `member`), and the stores read back only a listed one (`roleOf`). Membership
 comes only from making a workspace for now, as its `owner` (`CREATOR_ROLE`):
 signing in joins nothing. Invites, roles and removal (3.2) are routes of Consola's own too, on
-Better Auth's `member` and `invitation` tables. A new session starts in the
+Better Auth's `member` and `invitation` tables, and change `member` only
+through `writeWorkspaceChange`, so the cell hears of each. A new session starts in the
 workspace `defaultActiveWorkspace` picks (the one last active, else the first
 joined, else none). `SessionStore` writes the active workspace on the
 `session` row itself, which is right only while Better Auth's cookie cache
@@ -178,7 +193,14 @@ list belongs in a regional cell, never here.
     pending invites (`member`, `invitation`);
   - app installs: which installation belongs to which workspace, the GitHub
     App's key and the tokens minted from it (no table yet);
-  - webhook intake, with the bodies dropped (no table yet).
+  - webhook intake, with the bodies dropped (no table yet);
+  - the outbox (6.1, CON-52): each change a workspace's cell must hear
+    about, and how its delivery went (`outbox_message`). It may live here
+    because it holds nothing that is not already on this list: a workspace's
+    id and region (`organization`), and a person's id and role in it
+    (`member`), never an email or a name: it has no column for one, and its
+    checks hold each row to the contract's shape. Its delivery columns hold
+    times, a count and a status or the contract's reason, never a body.
 - **Billing** joins the list if decision D6 puts it in the global part.
 
 `src/adapters/persistence/alwaysGlobal.test.ts` pins the list. Its
@@ -256,6 +278,95 @@ No other claim is added: a cell's reader refuses one it does not know.
   beside the old until the old one's tokens expire, needs a second setting
   that holds only public keys. It waits until a deployment needs it.
 
+## The outbox
+
+A workspace's cell holds no accounts and reads nothing from here, so
+`cloud-global` tells it what it must know: that the workspace was made, and who
+is in it with which role. The contract fixes the messages and how they are
+delivered (`packages/cloud-contract/AGENTS.md`, "The outbox messages" and
+"Delivering a message"). This is how `cloud-global` keeps its side.
+
+**A change and its message commit together, or not at all.** This is the
+rule. Every change a cell must hear about is written by `writeWorkspaceChange`
+(`adapters/persistence/workspaceChanges.ts`), in the transaction that makes
+it, with its message: making a workspace (`workspace.created`), adding a
+member (`member.added`), changing a member's role (`member.role-changed`) and
+removing one (`member.removed`). So the outbox holds every change that
+committed, and none that did not. Nothing else writes `organization` or
+`member`: a new store that changes either calls it inside its own
+transaction, then tells `messageWritten` once that commits, so the worker
+wakes.
+
+**Proposed** (6.1, CON-52), not yet confirmed:
+
+- **Where changes happen today.** Only `WorkspaceStore.create`, for a
+  workspace and its owner: messages 1 and 2. Adding, changing and removing
+  members have no routes yet (epic 3), and their stores will call
+  `writeWorkspaceChange` too. Better Auth writes neither table: its
+  organisation routes are closed, signing in joins nothing, and its
+  `delete-user` route stays off (Better Auth's default). Deleting an account
+  would take its `member` rows with it and past the outbox, so turning that on
+  means writing each `member.removed` first.
+- **Sequences.** A message's `sequence` is one more than its workspace's
+  last, from 1, with no gaps, in commit order. A change to a workspace that
+  exists locks its `organization` row (`for no key update`) before it writes
+  anything, so a second change to it waits for the first to commit or roll
+  back, then counts from it. The primary key (`organization_id`, `sequence`)
+  backs it. A change that changes nothing (a member already there, or not
+  there, or already in the role) writes nothing. `workspaceChanges.test.ts`
+  races changes against each other, on PGlite always and on a real Postgres
+  when `CLOUD_GLOBAL_TEST_POSTGRES_URL` names a server's maintenance database
+  (the test makes a database there and drops it); without the lock, the
+  Postgres run fails on the primary key.
+- **A row** (`outbox_message`, hand-written in `outboxSchema.ts`) holds the
+  message's fields and its delivery: attempts, the last attempt and its
+  error, when the next is due, and when the cell confirmed it. Checks hold it
+  to the contract's shape. A message is kept once delivered. There is no
+  foreign key: a message outlives what it speaks of.
+- **The backfill.** Migration `0002` gives every workspace already there the
+  messages a new one gets: its `workspace.created`, then one `member.added`
+  per member, in the order they joined, all due at once. A role the contract
+  does not list (Better Auth's `admin,member`; nothing here writes one) stops
+  the migration, naming the workspace's slug, rather than being guessed. Set
+  the row's role, then start again.
+- **Signing.** The signer that mints cell tokens signs each message
+  (`signOutboxMessage`), as the contract says: its JSON as the payload of a
+  compact JWS, with `alg`, the key's `kid` and `typ` in the protected header.
+- **Delivering** is one pass of `deliverOutbox`. Each workspace's first
+  undelivered message is read with the contract's reader, signed and posted to
+  its region's cell; a 2xx confirms it, and the next goes at once. Any other
+  status, a redirect (never followed), no connection and no answer within
+  `DELIVERY_TIMEOUT_MS` (10 s) fail, and the message is tried again after
+  `retryDelayMs`: 1 s, doubling, never more than 5 minutes. A message is
+  never skipped, a workspace's next waits for its current one, and workspaces
+  go side by side, so one that is stuck holds up only itself. A stored
+  message the reader refuses is never sent: it fails with the reader's
+  reason. A 409 is retried like any refusal; a cell that lost what it applied
+  is 6.3's to reconcile (CON-57).
+- **What is recorded** for each try: `attempts`, `last_attempt_at`,
+  `last_error` (`status 503 (unavailable)`,
+  `status 409 (outOfOrder): the cell applies sequence 3 next`,
+  `no connection (ECONNREFUSED)`, `no answer within 10000 ms`: a status, the
+  contract's answer and reason, never a body), `next_attempt_at` and
+  `delivered_at`.
+- **Where cells are.** `CELL_URL_EU` and `CELL_URL_US`, one optional origin
+  per region in `REGIONS` (`cellUrlVariable`), read like `PUBLIC_URL`. A region
+  with none keeps its messages untouched, and the worker says so once.
+- **The worker** (`createOutboxWorker`) runs in this process: a pass when
+  `main.ts` starts it (after the migrations, once the API listens and so
+  publishes the keys a cell checks with), on a wake from a change that
+  wrote a message, when the earliest retry is due, and otherwise every
+  `OUTBOX_POLL_MS` (10 s); never two at once. `composeApi` builds it and never
+  starts it, so building the service sends nothing. Stopping it abandons a
+  delivery in flight without recording it, so the message goes again; the
+  cell takes a message it has applied as confirmed. It logs ids and statuses
+  only, never a message, its signature or the key.
+- **One process.** The worker assumes it is the only one: one `cloud-global`
+  process delivers the outbox, on localhost. Two would send each workspace's
+  messages twice over and record over each other's tries. Running more than
+  one needs a claim on each workspace's first message first (a lease, or
+  `for update skip locked`).
+
 ## Tests
 
 A test sits beside its module and is named after it (`membershipStore.ts`,
@@ -265,8 +376,16 @@ Drizzle stores: the database is never mocked. `src/app.test.ts` is the HTTP
 suite, end to end. It builds the service through `compose.ts`
 (`composeApi`), as `main.ts` does, so it tests the wiring that runs.
 
+PGlite runs one transaction at a time, so a test of what concurrent
+transactions do proves something only on a real Postgres. Such a test runs
+there too when `CLOUD_GLOBAL_TEST_POSTGRES_URL` is set (to a server's
+maintenance database, `postgres://…/postgres`), and is skipped otherwise.
+
 ## Generated files
 
+- `src/adapters/persistence/outboxSchema.ts` is Consola's own table, written
+  by hand, and never by `auth:generate`. `drizzle.config.ts` reads it beside
+  `auth-schema.ts`, and `schema.ts` puts the two together.
 - `src/adapters/persistence/auth-schema.ts` holds Better Auth's tables,
   written by `pnpm --filter @consola/cloud-global auth:generate` from
   `src/adapters/auth/cli-config.ts`. Never edit it by hand. The CLI drops the
@@ -278,5 +397,6 @@ suite, end to end. It builds the service through `compose.ts`
   rows, drizzle-kit writes `ADD COLUMN … NOT NULL`, which fails on those rows:
   edit the generated SQL to add the column, fill it and then require it, as
   `0001_organization_region.sql` does, and test it from a database migrated
-  only that far (`database.test.ts`, `migrateUpTo`). `db:generate` should then
-  report no schema changes.
+  only that far (`database.test.ts`, `migrateUpTo`). A backfill goes in the
+  same migration, after the SQL drizzle-kit wrote, as `0002_outbox_message.sql`
+  does. `db:generate` should then report no schema changes.

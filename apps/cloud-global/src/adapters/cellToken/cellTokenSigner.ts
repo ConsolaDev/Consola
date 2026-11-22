@@ -1,7 +1,7 @@
 import { createPrivateKey, createPublicKey, type KeyObject } from 'node:crypto';
-import { CELL_TOKEN_ALGORITHM } from '@consola/cloud-contract';
-import { calculateJwkThumbprint, SignJWT } from 'jose';
-import type { CellTokenPublicKey, CellTokenSigner } from '../../application/ports.js';
+import { CELL_TOKEN_ALGORITHM, OUTBOX_MESSAGE_TYPE } from '@consola/cloud-contract';
+import { CompactSign, calculateJwkThumbprint, SignJWT } from 'jose';
+import type { CellTokenPublicKey, CellTokenSigner, OutboxSigner } from '../../application/ports.js';
 import { ConfigError, type Ed25519PrivateJwk } from '../../config.js';
 
 /**
@@ -21,12 +21,17 @@ function privateKeyOf(jwk: Ed25519PrivateJwk): KeyObject {
 }
 
 /**
- * Signs cell tokens with `jose`, using the configured Ed25519 private key, and publishes the
- * public key that checks them. That key is derived from the private key itself, so a cell always
- * checks with the key that signs, and its `kid` is its JWK thumbprint (RFC 7638). The private
- * key stays inside: nothing here logs it, and `publicKeys` never carries `d`.
+ * Signs what a cell trusts from `cloud-global`, with `jose` and the configured Ed25519 private
+ * key, and publishes the public key that checks it. Two things are signed with the one key: cell
+ * tokens (`sign`, a JWT) and outbox messages (`signOutboxMessage`, a compact JWS whose `typ` is
+ * `OUTBOX_MESSAGE_TYPE`), so a cell checks both against the one key set. The public key is
+ * derived from the private key itself, so a cell always checks with the key that signs, and its
+ * `kid` is its JWK thumbprint (RFC 7638). The private key stays inside: nothing here logs it,
+ * and `publicKeys` never carries `d`.
  */
-export async function createCellTokenSigner(jwk: Ed25519PrivateJwk): Promise<CellTokenSigner> {
+export async function createCellTokenSigner(
+  jwk: Ed25519PrivateJwk,
+): Promise<CellTokenSigner & OutboxSigner> {
   const privateKey = privateKeyOf(jwk);
   const { x } = createPublicKey(privateKey).export({ format: 'jwk' });
   if (typeof x !== 'string') throw new Error('Node gave an Ed25519 public key no `x`.');
@@ -39,11 +44,17 @@ export async function createCellTokenSigner(jwk: Ed25519PrivateJwk): Promise<Cel
     alg: CELL_TOKEN_ALGORITHM,
     use: 'sig',
   };
+  const encoder = new TextEncoder();
 
   return {
     sign: (claims) =>
       new SignJWT({ ...claims })
         .setProtectedHeader({ alg: CELL_TOKEN_ALGORITHM, kid })
+        .sign(privateKey),
+    // The payload is the message's JSON and nothing else, so a cell reads exactly what was sent.
+    signOutboxMessage: (message) =>
+      new CompactSign(encoder.encode(JSON.stringify(message)))
+        .setProtectedHeader({ alg: CELL_TOKEN_ALGORITHM, kid, typ: OUTBOX_MESSAGE_TYPE })
         .sign(privateKey),
     // A copy each time, so nothing a caller does to it changes what is published.
     publicKeys: () => ({ keys: [{ ...published }] }),

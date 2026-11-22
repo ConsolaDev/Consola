@@ -1,6 +1,7 @@
 import { generateKeyPairSync } from 'node:crypto';
+import { REGIONS } from '@consola/cloud-contract';
 import { describe, expect, it } from 'vitest';
-import { ConfigError, loadConfig } from './config.js';
+import { ConfigError, cellUrlVariable, loadConfig } from './config.js';
 
 // A key made for this run only, never one written down.
 const cellKey = generateKeyPairSync('ed25519').privateKey.export({ format: 'jwk' }) as {
@@ -38,7 +39,45 @@ describe('loadConfig', () => {
       port: 3100,
       google: { clientId: 'id.apps.googleusercontent.com', clientSecret: 's' },
       cellTokenPrivateKey: { kty: 'OKP', crv: 'Ed25519', x: cellKey.x, d: cellKey.d },
+      cellUrls: {},
     });
+  });
+
+  it("reads each region's cell, as an origin, from its own variable", () => {
+    expect(
+      loadConfig({
+        ...valid,
+        CELL_URL_EU: 'http://127.0.0.1:3101/',
+        CELL_URL_US: 'https://us.cells.sprocket.test',
+      }).cellUrls,
+    ).toEqual({ eu: 'http://127.0.0.1:3101', us: 'https://us.cells.sprocket.test' });
+  });
+
+  it('names one cell variable for every region the contract lists', () => {
+    expect(REGIONS.map(cellUrlVariable)).toEqual(['CELL_URL_EU', 'CELL_URL_US']);
+  });
+
+  it('leaves out a region whose cell is unset or empty, so its messages wait', () => {
+    expect(loadConfig({ ...valid, CELL_URL_EU: 'http://127.0.0.1:3101' }).cellUrls).toEqual({
+      eu: 'http://127.0.0.1:3101',
+    });
+    expect(loadConfig({ ...valid, CELL_URL_EU: '', CELL_URL_US: '' }).cellUrls).toEqual({});
+  });
+
+  it.each([
+    ['a path', 'http://127.0.0.1:3101/api'],
+    ['a query', 'http://127.0.0.1:3101/?region=eu'],
+    ['another scheme', 'ftp://127.0.0.1:3101'],
+    ['no address at all', 'acme-cell'],
+  ])("refuses a region's cell with %s, naming its variable", (_what, value) => {
+    const failure = failureOf({ ...valid, CELL_URL_US: value });
+    expect(failure.problems).toEqual([expect.stringMatching(/^CELL_URL_US: /)]);
+  });
+
+  it('names a bad cell beside every other problem', () => {
+    const failure = failureOf({ CELL_URL_EU: 'acme-cell' });
+    expect(failure.problems.some((p) => p.startsWith('DATABASE_URL:'))).toBe(true);
+    expect(failure.problems.some((p) => p.startsWith('CELL_URL_EU:'))).toBe(true);
   });
 
   it('reads PORT when set', () => {

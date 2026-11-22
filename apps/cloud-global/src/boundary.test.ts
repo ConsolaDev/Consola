@@ -48,7 +48,13 @@ const MACHINE_GLOBALS = [
   'global',
 ];
 
-const ADAPTERS = ['adapters/persistence', 'adapters/auth', 'adapters/http', 'adapters/cellToken'];
+const ADAPTERS = [
+  'adapters/persistence',
+  'adapters/auth',
+  'adapters/http',
+  'adapters/cellToken',
+  'adapters/outbox',
+];
 const RING = ['compose', 'main', 'startupError'];
 
 const LAYERS: Layer[] = [
@@ -97,6 +103,24 @@ const LAYERS: Layer[] = [
       'drizzle-orm',
       '@electric-sql/pglite',
       'pg',
+    ],
+    noGlobals: [],
+  },
+  {
+    // Delivering the outbox: the worker's timers and the request to a cell, with `fetch`. It is
+    // handed the store and the signer as ports, so no library: never the database, which the
+    // store queries, nor `jose`, since only `adapters/cellToken` holds the key.
+    at: 'adapters/outbox',
+    reaches: ['domain', 'application', 'adapters/outbox', 'config'],
+    refuses: [
+      'hono',
+      '@hono/*',
+      'better-auth',
+      '@better-auth/*',
+      'drizzle-orm',
+      '@electric-sql/pglite',
+      'pg',
+      'jose',
     ],
     noGlobals: [],
   },
@@ -415,6 +439,21 @@ describe('the dependency rule', () => {
     ['adapters/cellToken/x.ts', '../http/app.js', false],
     ['adapters/cellToken/x.ts', '../../compose.js', false],
     ['adapters/cellToken/x.ts', '@consola/cloud-contract', true],
+    ['adapters/outbox/x.ts', '../../application/outbox.js', true],
+    ['adapters/outbox/x.ts', '../../config.js', true],
+    ['adapters/outbox/x.ts', '@consola/cloud-contract', true],
+    ['adapters/outbox/x.ts', 'jose', false],
+    ['adapters/outbox/x.ts', 'drizzle-orm', false],
+    ['adapters/outbox/x.ts', 'pg', false],
+    ['adapters/outbox/x.ts', 'hono', false],
+    ['adapters/outbox/x.ts', 'better-auth', false],
+    ['adapters/outbox/x.ts', '../persistence/outboxStore.js', false],
+    ['adapters/outbox/x.ts', '../cellToken/cellTokenSigner.js', false],
+    ['adapters/outbox/x.ts', '../../compose.js', false],
+    ['adapters/persistence/x.ts', '../outbox/outboxWorker.js', false],
+    ['adapters/http/x.ts', '../outbox/outboxWorker.js', false],
+    ['compose.ts', './adapters/outbox/outboxWorker.js', true],
+    ['main.ts', './adapters/outbox/outboxWorker.js', true],
     ['domain/x.ts', 'jose', false],
     ['application/x.ts', 'jose', false],
     ['compose.ts', './adapters/cellToken/cellTokenSigner.js', true],

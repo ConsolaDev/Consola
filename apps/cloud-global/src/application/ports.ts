@@ -1,12 +1,19 @@
-import type { CELL_TOKEN_ALGORITHM, CellTokenClaims, WorkspaceRole } from '@consola/cloud-contract';
+import type {
+  CELL_TOKEN_ALGORITHM,
+  CellTokenClaims,
+  OutboxMessage,
+  Region,
+  WorkspaceRole,
+} from '@consola/cloud-contract';
 import type { MyWorkspace, NewWorkspace, Workspace } from '../domain/workspace.js';
 
 // What the use cases need from the world outside, each implemented by an adapter.
 
 export type WorkspaceStore = {
   /**
-   * Makes the workspace and its first member, together or not at all. A slug that any workspace
-   * has, in any region, is `slug-taken`, and then nothing is written.
+   * Makes the workspace and its first member, together or not at all, each with the outbox
+   * message its cell must hear (`workspace.created`, then `member.added`). A slug that any
+   * workspace has, in any region, is `slug-taken`, and then nothing is written.
    */
   create(
     workspace: NewWorkspace,
@@ -62,4 +69,66 @@ export type CellTokenSigner = {
   sign(claims: CellTokenClaims): Promise<string>;
   /** The public keys tokens are checked with, the signing key's among them. */
   publicKeys(): CellTokenKeySet;
+};
+
+/** Which message of which workspace: the outbox's key. */
+export type OutboxMessageKey = { workspaceId: string; sequence: number };
+
+/** A message its cell has not confirmed yet, as the outbox holds it. */
+export type UndeliveredMessage = {
+  key: OutboxMessageKey;
+  /**
+   * The message as stored, in the contract's shape. It is read with the contract's reader
+   * (`readOutboxMessage`) before it is signed, so a row nothing here wrote is never sent.
+   */
+  stored: unknown;
+  /** How many deliveries of it have failed so far. */
+  attempts: number;
+  /** When its next delivery is due; null when none has failed, so it is due at once. */
+  nextAttemptAt: Date | null;
+};
+
+export type OutboxStore = {
+  /** Each workspace's first message its cell has not confirmed: the only one it may be sent. */
+  firstUndelivered(): Promise<UndeliveredMessage[]>;
+  /** The workspace's first message its cell has not confirmed, or null when it has them all. */
+  firstUndeliveredOf(workspaceId: string): Promise<UndeliveredMessage | null>;
+  /** Records the cell's confirmation, at `at`. */
+  recordDelivered(key: OutboxMessageKey, at: Date): Promise<void>;
+  /**
+   * Records a failed delivery: when it was, why (a status or a reason, never a body, a signature
+   * or a key), and when the next one is due.
+   */
+  recordFailed(
+    key: OutboxMessageKey,
+    failure: { at: Date; error: string; nextAttemptAt: Date },
+  ): Promise<void>;
+};
+
+export type OutboxSigner = {
+  /**
+   * The message, signed for its cell: a JWS in compact serialization whose payload is the
+   * message's JSON, signed with the key that signs cell tokens, and whose protected header names
+   * `CELL_TOKEN_ALGORITHM`, that key's `kid` and `OUTBOX_MESSAGE_TYPE`.
+   */
+  signOutboxMessage(message: OutboxMessage): Promise<string>;
+};
+
+/** What one delivery came to. */
+export type DeliveryAnswer =
+  /** The cell answered 2xx: it has the message. */
+  | { kind: 'confirmed'; status: number }
+  /**
+   * Anything else: a refusal, no answer in time, or no connection. `error` says which, in words
+   * that hold no body, signature or key.
+   */
+  | { kind: 'failed'; error: string }
+  /** Abandoned, because the worker is stopping: nothing is known of it, and nothing is recorded. */
+  | { kind: 'stopped' };
+
+export type CellDelivery = {
+  /** Whether the region has a cell to deliver to. */
+  reaches(region: Region): boolean;
+  /** Sends one signed message to the region's cell; `signal` abandons it. */
+  deliver(region: Region, signedMessage: string, signal?: AbortSignal): Promise<DeliveryAnswer>;
 };

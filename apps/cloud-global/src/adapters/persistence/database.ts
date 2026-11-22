@@ -13,6 +13,9 @@ import { schema } from './schema.js';
 /** Either driver, through drizzle's one query builder and `.transaction`. */
 export type Database = PgDatabase<PgQueryResultHKT, typeof schema>;
 
+/** A transaction on either driver, as `Database.transaction` hands it to its callback. */
+export type Transaction = Parameters<Parameters<Database['transaction']>[0]>[0];
+
 export type OpenDatabase = { db: Database; close(): Promise<void> };
 
 // Resolves from both `src/adapters/persistence` and `dist/adapters/persistence`.
