@@ -2604,11 +2604,27 @@ worktreeRepositoryChoiceStore.ts
 
 </details>
 
+**Dependencies at Consola's versions, not t3's.** `packages/agent-ui/package.json` names
+the chat's external dependencies at t3's versions (`apps/web/package.json` and t3's
+catalog at `d51d8c47`), except four, which stay at the versions Consola's own packages
+use:
+
+| Dependency | agent-ui | t3 | Why |
+|---|---|---|---|
+| `react`, `react-dom` | 19.2.4 (peer `^19.2.4`) | 19.3.0 | Consola's apps are on `^19.2.4` (`apps/desktop`, `apps/website`, `apps/cloud-web`). With 19.3.0 in the workspace, pnpm moved the React peer that `better-auth` resolves for `cloud-api` and `cloud-web`, and that `@pierre/diffs` resolves for `client-runtime`, so packages that never import the chat would run on another React. The chat typechecks and runs on 19.2.4; React is a peer and external in the build, so a page renders it with its own. |
+| `@types/react`, `@types/react-dom` | 19.2.10, 19.2.3 | `~19.3.0` | Follow `react`: the 19.2 types for the 19.2 runtime. |
+| `playwright` | 1.62.1 | 1.64.1 | Consola's E2E suites use `@playwright/test` `^1.62.1` (`apps/desktop`, `apps/website`). 1.64.1 moved the `playwright` peer of `vite-plus` in 33 importers. The chat's browser tests run on 1.62.1's Chromium. |
+
+A re-sync keeps these four where Consola's packages are, not where t3 is: moving
+them moves Consola's apps. When Consola's own React or Playwright moves, move them
+with it.
+
 **Re-syncing:** compute the closure again from `components/ChatView.tsx` in the newer
 `apps/web/src` (and add what `AgentChat.tsx` imports from `~/`), copy it over
 `src/t3/`, delete files that left it, check `components/device/models/sources.json` for
 a licence before copying any model, and compare `apps/web/package.json` and t3's
-lockfile with `packages/agent-ui/package.json`.
+lockfile with `packages/agent-ui/package.json`, leaving the four dependencies above at
+Consola's versions.
 
 
 ## Local changes to copied files
@@ -2845,7 +2861,9 @@ one skipped; macOS: also the two `ClaudeSkills` failures above).
 Copy the same paths from a newer commit over these, compute the closure again
 (new `workspace:` dependencies join it), re-apply the changes listed under
 "Local changes", and compare t3's catalog, `patchedDependencies` and the
-overrides above with `pnpm-workspace.yaml`.
+overrides above with `pnpm-workspace.yaml`. The chat view's React, React types
+and Playwright stay at Consola's versions ("Dependencies at Consola's versions,
+not t3's", under "The chat view").
 
 For the lifted server files, start again from every seed (under "Lifted by
 Consola", and each later lift's): follow the imports, `new URL(…,
