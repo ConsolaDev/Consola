@@ -61,7 +61,13 @@ jobs:
       # The built stylesheet a page imports holds the chat's styles, every rule scoped to the chat
       # (packages/agent-ui/build/checkBuiltCss.ts).
       - run: pnpm --filter @consola/agent-ui check:css
+      # grep exits 2 on a missing folder, which the `if` would read as "no hit": check there is
+      # a bundle to search first.
       - run: |
+          if ! test -d packages/agent-ui/dist || test -z "$(ls -A packages/agent-ui/dist)"; then
+            echo "No @consola/agent-ui bundle to check in packages/agent-ui/dist." >&2
+            exit 1
+          fi
           if grep -rlE "@cursor/sdk|@anthropic-ai/claude-agent-sdk" packages/agent-ui/dist; then
             echo "A server SDK reached @consola/agent-ui's bundle." >&2
             exit 1
