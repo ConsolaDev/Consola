@@ -49,8 +49,11 @@ const MACHINE_GLOBALS = [
 ];
 
 const DATABASE_LIBRARIES = ['drizzle-orm', '@electric-sql/pglite', 'pg'];
+const HTTP_LIBRARIES = ['hono', '@hono/*'];
+/** What checks a cell token's signature, which only `adapters/token` may hold. */
+const TOKEN_LIBRARIES = ['jose'];
 
-const ADAPTERS = ['adapters/persistence', 'adapters/http'];
+const ADAPTERS = ['adapters/persistence', 'adapters/http', 'adapters/token', 'adapters/clock'];
 const RING = ['compose', 'main', 'startupError'];
 
 const LAYERS: Layer[] = [
@@ -69,13 +72,26 @@ const LAYERS: Layer[] = [
   {
     at: 'adapters/persistence',
     reaches: ['domain', 'application', 'adapters/persistence', 'config'],
-    refuses: ['hono', '@hono/*'],
+    refuses: [...HTTP_LIBRARIES, ...TOKEN_LIBRARIES],
     noGlobals: [],
   },
   {
     at: 'adapters/http',
     reaches: ['domain', 'application', 'adapters/http', 'config'],
-    refuses: DATABASE_LIBRARIES,
+    refuses: [...DATABASE_LIBRARIES, ...TOKEN_LIBRARIES],
+    noGlobals: [],
+  },
+  {
+    at: 'adapters/token',
+    reaches: ['domain', 'application', 'adapters/token', 'config'],
+    refuses: [...DATABASE_LIBRARIES, ...HTTP_LIBRARIES],
+    noGlobals: [],
+  },
+  // The machine's clock needs no library at all.
+  {
+    at: 'adapters/clock',
+    reaches: ['domain', 'application', 'adapters/clock', 'config'],
+    refuses: [ANY_PACKAGE],
     noGlobals: [],
   },
   // A pure parser of the environment: no I/O, and nothing but `domain`, whose region it checks.
@@ -368,6 +384,25 @@ describe('the dependency rule', () => {
     ['adapters/http/x.ts', 'pg', false],
     ['adapters/http/x.ts', '../persistence/database.js', false],
     ['adapters/http/x.ts', '../../main.js', false],
+    ['adapters/http/x.ts', 'jose', false],
+    ['adapters/http/x.ts', '../token/cellTokens.js', false],
+    ['adapters/persistence/x.ts', 'jose', false],
+    ['adapters/token/x.ts', 'jose', true],
+    ['adapters/token/x.ts', '../../application/ports.js', true],
+    ['adapters/token/x.ts', '../../config.js', true],
+    ['adapters/token/x.ts', 'hono', false],
+    ['adapters/token/x.ts', 'drizzle-orm', false],
+    ['adapters/token/x.ts', '../http/app.js', false],
+    ['adapters/token/x.ts', '../../compose.js', false],
+    ['adapters/clock/x.ts', '../../application/ports.js', true],
+    ['adapters/clock/x.ts', 'jose', false],
+    ['adapters/clock/x.ts', 'node:perf_hooks', false],
+    ['adapters/clock/x.ts', '../token/cellTokens.js', false],
+    ['domain/x.ts', 'jose', false],
+    ['application/x.ts', 'jose', false],
+    ['compose.ts', './adapters/token/cellTokens.js', true],
+    ['compose.ts', './adapters/clock/systemClock.js', true],
+    ['compose.ts', 'jose', true],
     ['config.ts', 'zod', true],
     ['config.ts', './domain/region.js', true],
     ['config.ts', 'node:fs', false],

@@ -6,6 +6,7 @@ const config: CellConfig = {
   databaseUrl: 'postgres://consola:s3cret%2Fsprocket@db.sprocket.test:5432/consola_cell_eu',
   region: 'eu',
   port: 3101,
+  cloudGlobalUrl: 'http://127.0.0.1:3100',
 };
 
 describe('describeStartupFailure', () => {
