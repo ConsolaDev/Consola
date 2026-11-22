@@ -5,6 +5,7 @@ import { describeMe } from '../../application/me.js';
 import type {
   Clock,
   DeliveryVerifier,
+  FactoryStore,
   HealthProbe,
   TeamStore,
   TokenVerifier,
@@ -13,6 +14,7 @@ import type {
 import type { Region } from '../../domain/region.js';
 import { type CellEnv, requireCaller } from './caller.js';
 import { getHealth, getMe } from './contract.js';
+import { factoryRoutes } from './factories.js';
 import { outboxRoutes } from './outbox.js';
 import { teamRoutes } from './teams.js';
 
@@ -51,10 +53,11 @@ export function createApp(deps: {
   deliveries: DeliveryVerifier;
   workspaceCopies: WorkspaceCopies;
   teams: TeamStore;
+  factories: FactoryStore;
   clock: Clock;
   report?: (line: string) => void;
 }): OpenAPIHono<CellEnv> {
-  const { region, health, tokens, deliveries, workspaceCopies, teams, clock } = deps;
+  const { region, health, tokens, deliveries, workspaceCopies, teams, factories, clock } = deps;
   const report = deps.report ?? ((line: string) => console.error(line));
   // A body of the wrong shape is 400 `invalid_request`, never the validator's own answer, which
   // is not in the contract.
@@ -93,6 +96,7 @@ export function createApp(deps: {
   app.openapi(getMe, (c) => c.json(describeMe(c.var.caller), 200));
 
   teamRoutes(app, teams);
+  factoryRoutes(app, teams, factories);
 
   return app;
 }

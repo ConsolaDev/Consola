@@ -45,8 +45,13 @@ import type { CellEnv } from './adapters/http/caller.js';
 import {
   deleteTeam,
   deleteTeamMember,
+  getFactory,
+  getFactoryVersion,
+  listFactories,
   listTeams,
   patchTeam,
+  postFactory,
+  postFactoryVersion,
   postTeam,
   putTeamMember,
   type ROUTES,
@@ -1125,6 +1130,288 @@ describe('teams', () => {
       FIRST_TEAM_NAME,
       'Platform',
     ]);
+  });
+});
+
+type FactoryBody = {
+  id: string;
+  name: string;
+  teamId: string;
+  source: { kind: 'stored' };
+  latestVersion: number;
+  updatedAt: string;
+};
+type FileBody = { path: string; content: string };
+
+async function makeFactory(name: string, teamId: string, who: Partial<CellTokenGrant> = owner) {
+  const answer = await ask(postFactory, '/api/factories', who, { body: { name, teamId } });
+  expect(answer.status).toBe(201);
+  return answer.body as FactoryBody;
+}
+
+async function factoriesSeenBy(who: Partial<CellTokenGrant>) {
+  const answer = await ask(listFactories, '/api/factories', who);
+  expect(answer.status).toBe(200);
+  return (answer.body as { factories: FactoryBody[] }).factories.map((factory) => factory.name);
+}
+
+const saveFiles = (
+  factoryId: string,
+  who: Partial<CellTokenGrant>,
+  body: { baseVersion: number; files: FileBody[] },
+) => ask(postFactoryVersion, `/api/factories/${factoryId}/versions`, who, { body });
+
+const REVIEWER = '---\ndescription: Reviews pull requests.\n---\nYou review pull requests.\n';
+const FILES: FileBody[] = [
+  { path: 'factory.yml', content: 'version: 1\nautomations:\n' },
+  { path: 'agents/reviewer.md', content: REVIEWER },
+];
+
+describe('factories', () => {
+  beforeEach(() => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  /** Acme's first team, which everyone is in. */
+  async function general() {
+    const [first] = (await teamsSeenBy(owner)).teams;
+    if (!first) throw new Error('Acme has no first team');
+    return first;
+  }
+
+  it('are made blank, naming the team that owns them, and read with their latest version', async () => {
+    await acmeWithMembers();
+    const team = await general();
+    const deploys = await makeFactory('Deploys', team.id);
+    expect(deploys).toEqual({
+      id: expect.any(String),
+      name: 'Deploys',
+      teamId: team.id,
+      source: { kind: 'stored' },
+      latestVersion: 1,
+      updatedAt: expect.any(String),
+    });
+    expect(await ask(getFactory, `/api/factories/${deploys.id}`, member)).toEqual({
+      status: 200,
+      body: {
+        factory: deploys,
+        version: {
+          factoryId: deploys.id,
+          version: 1,
+          savedAt: deploys.updatedAt,
+          savedBy: owner.personId,
+          files: [],
+        },
+      },
+    });
+  });
+
+  it('save files as a new version, read the latest, and keep every earlier one', async () => {
+    await acmeWithMembers();
+    const deploys = await makeFactory('Deploys', (await general()).id);
+
+    const saved = await saveFiles(deploys.id, member, { baseVersion: 1, files: FILES });
+    expect(saved).toEqual({
+      status: 201,
+      body: {
+        version: {
+          factoryId: deploys.id,
+          version: 2,
+          savedAt: expect.any(String),
+          savedBy: member.personId,
+          files: [FILES[1], FILES[0]],
+        },
+        notices: [],
+      },
+    });
+
+    const latest = await ask(getFactory, `/api/factories/${deploys.id}`, admin);
+    expect(latest.body).toMatchObject({
+      factory: { latestVersion: 2 },
+      version: { version: 2, files: [FILES[1], FILES[0]] },
+    });
+    const versions = `/api/factories/${deploys.id}/versions`;
+    expect((await ask(getFactoryVersion, `${versions}/1`, admin)).body).toMatchObject({
+      version: 1,
+      files: [],
+    });
+    expect((await ask(getFactoryVersion, `${versions}/2`, admin)).body).toEqual(
+      (saved.body as { version: unknown }).version,
+    );
+    expect(await ask(getFactoryVersion, `${versions}/3`, admin)).toEqual({
+      status: 404,
+      body: { error: 'version_not_found' },
+    });
+    for (const version of ['0', 'latest', '1.5', '01']) {
+      expect(await ask(getFactoryVersion, `${versions}/${version}`, admin)).toEqual({
+        status: 400,
+        body: { error: 'invalid_request' },
+      });
+    }
+  });
+
+  it('refuse files that fail the factory schema, with the errors, and save nothing', async () => {
+    await acmeWithMembers();
+    const deploys = await makeFactory('Deploys', (await general()).id);
+    const answer = await saveFiles(deploys.id, owner, {
+      baseVersion: 1,
+      files: [
+        { path: 'factory.yml', content: 'version: 1\nautomations:\n  - name: x\n    bogus: 1\n' },
+        { path: 'agents/reviewer.md', content: '---\ncolour: blue\n---\nYou review.\n' },
+        { path: 'notes.txt', content: 'Remember the milk.' },
+      ],
+    });
+    expect(answer.status).toBe(400);
+    const { error, issues } = answer.body as {
+      error: string;
+      issues: { file?: string; line?: number; message: string }[];
+    };
+    expect(error).toBe('invalid_files');
+    expect(issues).toContainEqual(
+      expect.objectContaining({
+        file: 'factory.yml',
+        line: 4,
+        message: 'Unrecognized key: "bogus"',
+      }),
+    );
+    expect(issues).toContainEqual(
+      expect.objectContaining({
+        file: 'agents/reviewer.md',
+        line: 2,
+        message: 'Unrecognized key in an agent file: `colour`.',
+      }),
+    );
+    expect(issues).toContainEqual(expect.objectContaining({ file: 'notes.txt' }));
+    expect((await ask(getFactory, `/api/factories/${deploys.id}`, owner)).body).toMatchObject({
+      factory: { latestVersion: 1 },
+    });
+  });
+
+  it('are hidden from a member outside their team, and seen by an admin', async () => {
+    await acmeWithMembers();
+    const platform = await makeTeam('Platform');
+    const deploys = await makeFactory('Deploys', platform.id);
+    await makeFactory('Reviews', (await general()).id);
+
+    expect(await factoriesSeenBy(member)).toEqual(['Reviews']);
+    const notFound = { status: 404, body: { error: 'factory_not_found' } };
+    expect(await ask(getFactory, `/api/factories/${deploys.id}`, member)).toEqual(notFound);
+    expect(await ask(getFactoryVersion, `/api/factories/${deploys.id}/versions/1`, member)).toEqual(
+      notFound,
+    );
+    expect(await saveFiles(deploys.id, member, { baseVersion: 1, files: FILES })).toEqual(notFound);
+
+    expect(await factoriesSeenBy(admin)).toEqual(['Deploys', 'Reviews']);
+    expect((await ask(getFactory, `/api/factories/${deploys.id}`, admin)).status).toBe(200);
+
+    // Once in Platform, the member sees its factory.
+    await ask(putTeamMember, `/api/teams/${platform.id}/members/${member.personId}`, owner);
+    expect(await factoriesSeenBy(member)).toEqual(['Deploys', 'Reviews']);
+  });
+
+  it('are made only for a team the caller sees, with a name unique in the workspace', async () => {
+    await acmeWithMembers();
+    const platform = await makeTeam('Platform');
+    const teamNotFound = { status: 404, body: { error: 'team_not_found' } };
+    expect(
+      await ask(postFactory, '/api/factories', member, {
+        body: { name: 'Mine', teamId: platform.id },
+      }),
+    ).toEqual(teamNotFound);
+    expect(
+      await ask(postFactory, '/api/factories', owner, {
+        body: { name: 'Mine', teamId: 'no-such-team' },
+      }),
+    ).toEqual(teamNotFound);
+
+    const team = await general();
+    await makeFactory('Deploys', team.id, member);
+    expect(
+      await ask(postFactory, '/api/factories', admin, {
+        body: { name: 'DEPLOYS', teamId: team.id },
+      }),
+    ).toEqual({ status: 409, body: { error: 'name_taken' } });
+    expect(
+      await ask(postFactory, '/api/factories', admin, { body: { name: ' ', teamId: team.id } }),
+    ).toEqual({ status: 400, body: { error: 'invalid_factory', problems: ['name_missing'] } });
+    for (const body of [{ name: 'Mine' }, { name: 7, teamId: team.id }, 'not json']) {
+      expect(await ask(postFactory, '/api/factories', owner, { body })).toEqual({
+        status: 400,
+        body: { error: 'invalid_request' },
+      });
+    }
+  });
+
+  it('refuse a save from a version that is no longer the latest, naming the latest', async () => {
+    await acmeWithMembers();
+    const deploys = await makeFactory('Deploys', (await general()).id);
+    expect((await saveFiles(deploys.id, owner, { baseVersion: 1, files: FILES })).status).toBe(201);
+    for (const baseVersion of [1, 3, -1, 2 ** 40]) {
+      expect(await saveFiles(deploys.id, admin, { baseVersion, files: [] })).toEqual({
+        status: 409,
+        body: { error: 'version_moved', latestVersion: 2 },
+      });
+    }
+  });
+
+  it('refuse a body that is not files, or larger than any factory', async () => {
+    await acmeWithMembers();
+    const deploys = await makeFactory('Deploys', (await general()).id);
+    const path = `/api/factories/${deploys.id}/versions`;
+    for (const body of [{ files: [] }, { baseVersion: 1, files: [{ path: 'x' }] }, 'not json']) {
+      expect(await ask(postFactoryVersion, path, owner, { body })).toEqual({
+        status: 400,
+        body: { error: 'invalid_request' },
+      });
+    }
+    expect(
+      await ask(postFactoryVersion, path, owner, {
+        body: JSON.stringify({ baseVersion: 1, files: [] }),
+        headers: { 'content-type': 'text/plain' },
+      }),
+    ).toEqual({ status: 415, body: { error: 'unsupported_media_type' } });
+
+    const huge = 'a'.repeat(17 * 1024 * 1024);
+    expect(
+      await ask(postFactoryVersion, path, owner, {
+        body: { baseVersion: 1, files: [{ path: 'agents/huge.md', content: huge }] },
+      }),
+    ).toEqual({ status: 413, body: { error: 'too_large' } });
+  });
+
+  it('are pending while the cell does not hold the workspace', async () => {
+    const pending = { status: 409, body: { error: 'workspace_pending' } };
+    expect(await ask(listFactories, '/api/factories', owner)).toEqual(pending);
+    expect(await ask(getFactory, '/api/factories/x', owner)).toEqual(pending);
+    expect(
+      await ask(postFactory, '/api/factories', owner, { body: { name: 'Mine', teamId: 'x' } }),
+    ).toEqual(pending);
+  });
+
+  it("of another workspace are none of the caller's: not found, never saved", async () => {
+    await acmeWithMembers();
+    const deploys = await makeFactory('Deploys', (await general()).id);
+    for (const message of [
+      created({ workspaceId: 'sprocket' }),
+      outboxMessage(2, { type: 'member.added', ...owner }, { workspaceId: 'sprocket' }),
+    ]) {
+      expect((await deliver(message)).status).toBe(200);
+    }
+    const stranger = { ...owner, workspaceId: 'sprocket' };
+    const notFound = { status: 404, body: { error: 'factory_not_found' } };
+    expect(await factoriesSeenBy(stranger)).toEqual([]);
+    expect(await ask(getFactory, `/api/factories/${deploys.id}`, stranger)).toEqual(notFound);
+    expect(await saveFiles(deploys.id, stranger, { baseVersion: 1, files: [] })).toEqual(notFound);
+  });
+
+  it('keep the team that owns them: it is not deleted', async () => {
+    await acmeWithMembers();
+    const platform = await makeTeam('Platform');
+    await makeFactory('Deploys', platform.id);
+    expect(await ask(deleteTeam, `/api/teams/${platform.id}`, owner)).toEqual({
+      status: 409,
+      body: { error: 'owns_factories' },
+    });
   });
 });
 

@@ -36,6 +36,7 @@ export function composeCell(deps: {
     deliveries: createJoseDeliveryVerifier(keys),
     workspaceCopies: stores.workspaceCopies,
     teams: stores.teams,
+    factories: stores.factories,
     clock: systemClock,
   });
   return { app };
