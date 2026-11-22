@@ -61,7 +61,7 @@ async function listed(options: StepsHarnessOptions) {
 }
 
 describe('a steps entry, resolved against its workspace', () => {
-  it('an entry with a gate does not run yet, and says why', async () => {
+  it('an entry with a gate runs: it is not refused for it', async () => {
     const GATED_ENTRY = file(
       entry(
         'gated',
@@ -71,9 +71,9 @@ describe('a steps entry, resolved against its workspace', () => {
       ),
     );
     const h = await stepsHarness({ yaml: GATED_ENTRY });
-    expect(h.service.list(WORKSPACE_ID).find((view) => view.name === 'gated')?.problem).toBe(
-      '`gate` runs from the next update; this automation does not run yet.',
-    );
+    expect(
+      h.service.list(WORKSPACE_ID).find((view) => view.name === 'gated')?.problem,
+    ).toBeUndefined();
   });
 
   it("resolves, its version covering each action step's body", async () => {
@@ -2567,7 +2567,13 @@ describe('the snapshot and history by page', () => {
     });
     const [entry] = h.service.snapshot(WORKSPACE_ID).runs;
     expect(entry).not.toHaveProperty('steps');
-    expect(entry.step).toEqual({ id: 'publish', status: 'queued', index: 3, count: 3 });
+    expect(entry.step).toEqual({
+      id: 'publish',
+      status: 'queued',
+      index: 3,
+      count: 3,
+      kind: 'run',
+    });
   });
 
   describe('the step an ended run names', () => {
@@ -2596,6 +2602,7 @@ describe('the snapshot and history by page', () => {
         status: 'failed',
         index: 2,
         count: 3,
+        kind: 'run',
       });
     });
 
@@ -2611,6 +2618,7 @@ describe('the snapshot and history by page', () => {
         status: 'not-run',
         index: 2,
         count: 3,
+        kind: 'run',
       });
       expect(await stepOf('failed', [step('s1', 'skipped'), step('s2', 'not-run')])).toMatchObject({
         id: 's2',
@@ -2629,12 +2637,14 @@ describe('the snapshot and history by page', () => {
         status: 'completed',
         index: 2,
         count: 3,
+        kind: 'run',
       });
       expect(await stepOf('failed', steps)).toEqual({
         id: 's1',
         status: 'failed',
         index: 1,
         count: 3,
+        kind: 'run',
       });
       expect(
         await stepOf('rejected', [step('s1', 'completed'), step('s2', 'failed')]),
@@ -2653,6 +2663,7 @@ describe('the snapshot and history by page', () => {
         status: 'reported',
         index: 2,
         count: 3,
+        kind: 'run',
       });
     });
 

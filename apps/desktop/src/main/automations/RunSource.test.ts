@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { RunRecord } from '@consola/factory-spec';
+import type { RunRecord, StepRun } from '@consola/factory-spec';
 import { runAttention } from '@consola/automation-engine';
 import { RunSource } from './RunSource';
 import { AttentionService } from '../attention/AttentionService';
@@ -13,6 +13,29 @@ describe('runAttention', () => {
     for (const status of ['queued', 'running', 'completed', 'failed', 'rejected']) {
       expect(runAttention(run('a', status))).toBeNull();
     }
+  });
+
+  it('wants the person for a run waiting at a gate, never for one waiting out a retry (slice 3)', () => {
+    const waiting = (step: Partial<StepRun>): RunRecord =>
+      ({
+        id: 'a',
+        status: 'waiting',
+        steps: [{ id: 'decide', kind: 'gate', status: 'waiting', attempt: 1, ...step }],
+      }) as unknown as RunRecord;
+    expect(runAttention(waiting({ gate: { askedAt: '2026-11-22T09:00:00.000Z' } }))).toBe(
+      'needs-attention',
+    );
+    expect(
+      runAttention(waiting({ kind: 'agent', retryAt: '2026-11-22T09:01:00.000Z' })),
+    ).toBeNull();
+    // A loop's row at its exhaustion gate asks the person too.
+    expect(
+      runAttention(waiting({ kind: 'repeat', gate: { askedAt: '2026-11-22T09:00:00.000Z' } })),
+    ).toBe('needs-attention');
+    const source = new RunSource(() => [
+      waiting({ gate: { askedAt: '2026-11-22T09:00:00.000Z' } }),
+    ]);
+    expect([...source.read()]).toEqual([['run:a', 'needs-attention']]);
   });
 
   it('answers null, not an error, for a status this build does not know', () => {

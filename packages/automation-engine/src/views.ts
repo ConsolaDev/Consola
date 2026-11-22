@@ -4,6 +4,7 @@ import type {
   FactorySpecIssue,
   RunRecord,
   RunStatus,
+  StepRun,
   StepRunStatus,
 } from '@consola/factory-spec';
 import type { RunFilter } from './runFilter';
@@ -290,13 +291,50 @@ export type RunListEntry = Omit<RunRecord, 'result' | 'approval' | 'steps'> & {
   kind: RunKind;
   result?: unknown;
   /**
-   * Where a steps run is: its queued or running step, else the step it
-   * ended at (the failed one; for a completed run the last that ran).
-   * `index` is 1-based. Absent for a legacy run and for one no step of
-   * which ran. The rest of the steps are `getRun`'s.
+   * Where a steps run is: its queued, running or waiting step (a loop's row
+   * only while it waits at its exhaustion gate), else the step it ended at
+   * (the failed one, a failed step before the loop it failed; the gate it
+   * was rejected at; for a completed run the last that ran). `index` is
+   * 1-based over every record. `kind` is the row's; `round` its round, and
+   * inside a loop `loop` names the loop and `max` its rounds (a loop's own
+   * row carries its `max`); `retryAt` while it waits out a retry; `gate`
+   * for a row waiting at a gate, or the one a run was rejected at. Absent
+   * for a legacy run and for one no step of which ran. The rest of the
+   * steps are `getRun`'s.
    */
-  step?: { id: string; status: StepRunStatus; index: number; count: number };
+  step?: {
+    id: string;
+    status: StepRunStatus;
+    index: number;
+    count: number;
+    kind: StepRun['kind'];
+    round?: number;
+    max?: number;
+    loop?: string;
+    retryAt?: string;
+    gate?: true;
+  };
 };
+
+/**
+ * A gate as its card shows it: the question with its values filled in, the
+ * documents it shows (each read from its step's latest attempt, `label`
+ * `<step>.<name>`, cut at `MAX_ARTIFACT_BYTES`), and the choices the run's
+ * own definition offers besides Reject, which the card always offers.
+ */
+export interface GateView {
+  runId: string;
+  stepId: string;
+  /** Rendered from the run's trusted values. */
+  ask: string;
+  material: Array<{ step: string; name: string; label: string; text: string; truncated: boolean }>;
+  choices: string[];
+  /** An exhaustion gate: the loop, and how many rounds it ran. */
+  loop?: { id: string; rounds: number };
+  /** A newer revision of the run's item is held until the run ends (Task 12). */
+  newerRevision?: 'pull-request' | 'item';
+  answered?: { decision: string; by: 'person'; at: string };
+}
 
 /** How many ended runs a snapshot carries beside every live one. */
 export const SNAPSHOT_ENDED_RUNS = 200;

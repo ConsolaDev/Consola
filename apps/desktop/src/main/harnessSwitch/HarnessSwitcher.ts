@@ -50,7 +50,7 @@ export interface HarnessSwitcherDeps {
   /** When a harness can be used again by any model, if its CLI said it is at its limit. */
   limitedUntil?: (harnessId: string) => number | undefined;
   /**
-   * Whether this run is still open (`queued`, `running`, `needs-approval`):
+   * Whether this run is still open (`queued`, `running`, `needs-approval`, `waiting`):
    * a step's session stays on its agent's harness until its run ends
    * (decision 2, review S9). Absent, nothing is refused for it.
    */

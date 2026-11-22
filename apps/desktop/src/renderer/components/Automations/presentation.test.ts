@@ -256,7 +256,13 @@ describe('foldDroppedRuns', () => {
 
 describe('runRowWords', () => {
   const item = { key: 'k', url: 'u', title: 'Fix the cart' };
-  const step = { id: 'publish', status: 'failed' as const, index: 2, count: 3 };
+  const step = {
+    id: 'publish',
+    status: 'failed' as const,
+    index: 2,
+    count: 3,
+    kind: 'run' as const,
+  };
 
   it("keeps an event run's item title and puts the step beside it", () => {
     const failed = run({
@@ -290,7 +296,12 @@ describe('stepWords', () => {
     status: RunListEntry['status'],
     stepStatus: 'queued' | 'running' | 'failed' | 'completed' | 'not-run',
     extra: Partial<RunListEntry> = {},
-  ) => run({ status, step: { id: 'publish', status: stepStatus, index: 2, count: 3 }, ...extra });
+  ) =>
+    run({
+      status,
+      step: { id: 'publish', status: stepStatus, index: 2, count: 3, kind: 'run' },
+      ...extra,
+    });
 
   it('says which step a run is at', () => {
     expect(stepWords(at('running', 'running'))).toBe('running · publish');
@@ -322,7 +333,7 @@ describe('filterRuns', () => {
       run({
         id: 's',
         kind: 'agent',
-        step: { id: 'review', status: 'completed', index: 1, count: 2 },
+        step: { id: 'review', status: 'completed', index: 1, count: 2, kind: 'agent' },
       }),
       run({ id: 't', kind: 'tool' }),
     ];

@@ -110,6 +110,7 @@ import type {
   ConversationTarget,
   ActionView,
   FactoryStanding,
+  GateView,
   EntryAgentsView,
   AgentRunPreview,
   AutomationsSnapshot,
@@ -193,6 +194,7 @@ import {
 } from './steps/commandStep';
 import {
   agentRequirements,
+  MAX_ARTIFACT_BYTES,
   skillMarkdown,
   withKnownTools,
   type AgentRequirements,
@@ -207,15 +209,26 @@ import { flowNotYet } from './steps/flowLater';
 import { advanceSteps, type Lane, type StepUpdate } from './steps/sequence';
 import {
   closeSteps,
+  isLoopRow,
   laneOfRecord,
   retrySteps,
   retryTargetOf,
   stepRecordsOf,
+  waitingGateOf,
   withAttemptStarted,
+  withGateAnswered,
+  withGateAsked,
   withNextAttempt,
   withStep,
   withUpdate,
 } from './steps/stepRecords';
+import {
+  gateMaterialRefs,
+  gateOffer,
+  gateRefusal,
+  notWaitingForYou,
+  renderGateAsk,
+} from './steps/gate';
 import { NO_TURN_TO_STOP, stopAction, stoppedBefore } from './steps/stop';
 import { StepIO } from './steps/stepTools';
 
@@ -430,17 +443,27 @@ const MAX_RESULT_CHARS = 20_000;
 /** Requests one agent session may leave waiting before it must wait for the person. */
 export const MAX_WAITING_PER_SESSION = 10;
 
-/** A run that has not finished: one more of these for the same thing would be a duplicate. */
-export const OPEN_STATUSES: readonly RunStatus[] = ['queued', 'running', 'needs-approval'];
+/**
+ * A run that has not finished: one more of these for the same thing would be a duplicate. A run
+ * `waiting` at a gate or a declared retry is one (Call 11): it holds no process, and it is not over.
+ */
+export const OPEN_STATUSES: readonly RunStatus[] = [
+  'queued',
+  'running',
+  'needs-approval',
+  'waiting',
+];
 
 /**
  * What a run asks of the person, as the attention queue sees it; null means
  * it has no row of its own. A running run is represented by its session, so
- * only a run waiting for approval wants the person. Run statuses only ever
- * grow, so one this build does not know is null rather than an error.
+ * only a run waiting for approval, or waiting at a gate for an answer, wants
+ * the person; one waiting out a retry does not. Run statuses only ever grow,
+ * so one this build does not know is null rather than an error.
  */
-export function runAttention(run: Pick<RunRecord, 'status'>): 'needs-attention' | null {
-  return run.status === 'needs-approval' ? 'needs-attention' : null;
+export function runAttention(run: Pick<RunRecord, 'status' | 'steps'>): 'needs-attention' | null {
+  if (run.status === 'needs-approval') return 'needs-attention';
+  return waitingGateOf(run) ? 'needs-attention' : null;
 }
 
 interface Resolved {
@@ -757,6 +780,8 @@ export class AutomationService {
     this.sweepRunFolders();
     this.started = true;
     await this.syncWorkspaces();
+    // A gate that waited while Consola was closed still waits: say so again, once.
+    for (const run of this.deps.store.runs()) if (waitingGateOf(run)) this.noticeGate(run);
     this.announcingAllows = true;
     this.stopTicking = this.deps.every(this.deps.tickMs ?? TICK_MS, () => void this.tick());
     // Catch up on anything missed while Consola was closed, and resume
@@ -2691,6 +2716,22 @@ export class AutomationService {
           this.stopRequested.delete(run.id);
         }
         return;
+      case 'end-wait': {
+        // Parked with no process: it ends here. A gate fails with the stop; a step waiting out its retry goes back
+        // to the failure that made it wait; the entry's own wait leaves its rows as they are.
+        const now = this.iso();
+        const steps = this.stepsOf(run.id).map((record): StepRun => {
+          if (record.id !== action.stepId) return record;
+          if (record.gate === undefined) {
+            const { retryAt: _retryAt, ...rest } = record;
+            return { ...rest, status: 'failed' };
+          }
+          return { ...record, status: 'failed', error: action.error, finishedAt: now };
+        });
+        this.finish(run.id, 'failed', { error: action.error }, [], steps);
+        void this.pump();
+        return;
+      }
     }
   }
 
@@ -3037,8 +3078,12 @@ export class AutomationService {
   /**
    * The lane of the first step a steps run that has not started would run,
    * asked of the sequencer over its pending record; null when it would run
-   * none. One whose automation changed waits where its first step would:
-   * its check rejects it when its turn comes, as for any other run.
+   * none. A gate as its first move takes the command lane (Call 9, review
+   * B2): the run waits in line, claims and prepares its checkout (or records
+   * its scope's folder) as for a first command, then parks holding it,
+   * giving the slot back. One whose automation changed waits where its first
+   * step would: its check rejects it when its turn comes, as for any other
+   * run.
    */
   private firstLaneOf(run: RunRecord): Lane | null {
     const records = run.steps ?? [];
@@ -3054,7 +3099,8 @@ export class AutomationService {
       dryRun: run.dryRun === true,
       ...stepItemOf(run, itemOf),
     });
-    return next.kind === 'start' ? next.lane : null;
+    if (next.kind === 'start') return next.lane;
+    return next.kind === 'ask' ? 'command' : null;
   }
 
   /**
@@ -3476,8 +3522,7 @@ export class AutomationService {
       ...stepItemOf(run, itemOf),
     });
     if (next.kind === 'wait') return;
-    // `flowNotYet` keeps every entry with a gate or a loop from running until they run (slice 3, Call 2): never silently.
-    if (next.kind === 'ask') throw new Error('a gate is not run yet');
+    // `flowNotYet` keeps every entry with a loop from running until loops run (slice 3, Call 2): never silently.
     if (next.kind === 'round') throw new Error('a loop is not run yet');
     const stopping = this.stopRequested.delete(runId);
     // A stopped run never completes by skips: when every step left would skip, the one it would look at next fails,
@@ -3498,13 +3543,18 @@ export class AutomationService {
     }
     for (const update of next.updates)
       this.writeSteps(runId, withUpdate(this.stepsOf(runId), update, this.iso()));
-    if (next.kind === 'start' && stopping) {
+    // A stop that landed between steps fails the step it would start, or the gate it would park at (review S8).
+    if ((next.kind === 'start' || next.kind === 'ask') && stopping) {
       this.settleStep(
         runId,
         next.stepId,
         { status: 'failed', error: stoppedBefore(next.stepId) },
         { quiet: true },
       );
+      return;
+    }
+    if (next.kind === 'ask') {
+      this.park(runId, next.stepId);
       return;
     }
     if (next.kind === 'start') {
@@ -3523,6 +3573,132 @@ export class AutomationService {
       if (!options.quiet) this.notify(`${run.automationId} did not finish`, next.error, runId);
     }
     void this.pump();
+  }
+
+  /**
+   * The run parks at `stepId`'s gate (a gate's row, or a loop's row at its
+   * exhaustion gate): one line writes the row `waiting`, asked now, and the
+   * run `waiting`, before anything else. Nothing is ended and nothing starts:
+   * it holds no process, and gives back the slot it was let in on, so what
+   * runs after the answer waits in line as any step does (Call 11). Then the
+   * person is told.
+   */
+  private park(runId: string, stepId: string): void {
+    const now = this.iso();
+    this.deps.store.update(runId, {
+      status: 'waiting',
+      steps: withGateAsked(this.stepsOf(runId), stepId, now),
+      updatedAt: now,
+    });
+    this.admitted.delete(runId);
+    this.broadcastRun(runId);
+    this.noticeGate(this.deps.store.get(runId)!);
+    void this.pump();
+  }
+
+  /** A run waiting at a gate tells the person: `<automation> is waiting for you`, and the question, filled in. */
+  private noticeGate(run: RunRecord): void {
+    const at = waitingGateOf(run);
+    if (!at) return;
+    const loaded = this.definitionOf(run);
+    const offer =
+      'definition' in loaded ? gateOffer(loaded.definition.automation.steps, at.id) : null;
+    if (!offer) return;
+    this.notify(`${run.automationId} is waiting for you`, renderGateAsk(offer.ask, run), run.id);
+  }
+
+  /**
+   * A person's answer to the gate `stepId` waits at: one of the choices the
+   * run's own definition offers (or approve), or `reject`. Anything else, or
+   * a row that is not waiting for one (answered already, from another
+   * window), is refused and changes nothing. A choice completes the row, its
+   * decision its output, and puts the run back to `running` on the same
+   * line; then the run goes on from its record (`pickUp`), in the checkout
+   * it recorded before it parked (Call 9). A reject ends the run `rejected`
+   * at that row, on one line. Answering approves nothing and accepts
+   * nothing: `approvedAt` and the accepted versions stay as they are
+   * (contract 10). The desktop's renderer is its only caller.
+   */
+  public answerGate(runId: string, stepId: string, decision: string): RunRecord {
+    const run = this.deps.store.get(runId);
+    if (!run || !isStepsRun(run)) throw new Error(notWaitingForYou(String(stepId)));
+    const loaded = this.definitionOf(run);
+    if ('problem' in loaded) throw new Error(loaded.problem);
+    const refusal = gateRefusal(run, loaded.definition.automation.steps, stepId, decision);
+    if (refusal) throw new Error(refusal);
+    const now = this.iso();
+    const steps = withGateAnswered(run.steps ?? [], stepId, { decision, nowIso: now });
+    if (decision === 'reject') {
+      this.finish(runId, 'rejected', { summary: `rejected at ${stepId}` }, [], steps);
+      void this.pump();
+      return { ...this.deps.store.get(runId)! };
+    }
+    this.deps.store.update(runId, { status: 'running', steps, updatedAt: now });
+    this.broadcastRun(runId);
+    this.pickUp(this.deps.store.get(runId)!);
+    return { ...this.deps.store.get(runId)! };
+  }
+
+  /**
+   * A gate a run asked, as its card shows it: from the run's record and its
+   * own definition, whatever the file says now; null for a step that is no
+   * gate, or one never asked. Reads the run folder only: nothing starts.
+   */
+  public gateOf(runId: string, stepId: string): GateView | null {
+    if (typeof stepId !== 'string') return null;
+    const read = this.readSteps(runId);
+    if (!read) return null;
+    const { run, workspaceId, definition } = read;
+    const entries = definition.automation.steps;
+    const offer = gateOffer(entries, stepId);
+    const records = run.steps ?? [];
+    const record = records.find((candidate) => candidate.id === stepId);
+    if (!offer || !record?.gate) return null;
+    const material = gateMaterialRefs(entries, records, stepId).flatMap((ref) => {
+      const attempt = records.find((candidate) => candidate.id === ref.step)?.attempt;
+      const read = attempt === undefined ? null : this.materialOf(workspaceId, runId, ref, attempt);
+      return read ? [{ ...ref, label: `${ref.step}.${ref.name}`, ...read }] : [];
+    });
+    const { decision, at } = record.gate;
+    return {
+      runId,
+      stepId,
+      ask: renderGateAsk(offer.ask, run),
+      material,
+      choices: offer.choices,
+      ...(offer.loop ? { loop: { id: offer.loop.id, rounds: record.round ?? 0 } } : {}),
+      ...(decision !== undefined && at !== undefined
+        ? { answered: { decision, by: 'person' as const, at } }
+        : {}),
+    };
+  }
+
+  /**
+   * One document a gate shows, from its step's attempt: whole, as a step
+   * writes at most `MAX_ARTIFACT_BYTES`; one larger (put there by hand)
+   * shows its last `MAX_ARTIFACT_BYTES`, marked `truncated`. Null when it
+   * is not there.
+   */
+  private materialOf(
+    workspaceId: string,
+    runId: string,
+    ref: { step: string; name: string },
+    attempt: number,
+  ): { text: string; truncated: boolean } | null {
+    const formats = ref.name === 'output' ? (['json', 'text'] as const) : [undefined];
+    for (const format of formats) {
+      const file = this.deps.runFolder.artifactPath(
+        workspaceId,
+        runId,
+        ref.step,
+        attempt,
+        ref.name,
+        format,
+      );
+      const read = this.deps.runFolder.tail(file, MAX_ARTIFACT_BYTES);
+      if (read) return { text: read.text, truncated: read.truncated };
+    }
+    return null;
   }
 
   /**
@@ -5157,11 +5333,20 @@ export class AutomationService {
     });
   }
 
-  /** The run of a scheduled or requested automation that is queued or running: the one a fire returns instead of adding another. */
+  /**
+   * The run of a scheduled or requested automation that is queued, running
+   * or waiting (at a gate, or out a retry): the one a fire returns instead of
+   * adding another, so a parked run is the automation's one open run (Call
+   * 11, review B3).
+   */
   private inLine(entry: Resolved): RunRecord | undefined {
     return this.deps.store
       .runs()
-      .find((run) => isRunOf(run, entry) && (run.status === 'queued' || run.status === 'running'));
+      .find(
+        (run) =>
+          isRunOf(run, entry) &&
+          (run.status === 'queued' || run.status === 'running' || run.status === 'waiting'),
+      );
   }
 
   /**
@@ -5454,13 +5639,16 @@ export class AutomationService {
 
   /**
    * End a run. A steps run's `stepUpdates` are applied as it ends, and
-   * every step it had not reached is `not-run` (`closeSteps`).
+   * every step it had not reached is `not-run` (`closeSteps`). `records`,
+   * when given, replaces its step records first, so a change to a row and
+   * the run's end are one line (a gate's answer, a stop of a waiting run).
    */
   private finish(
     runId: string,
     status: Extract<RunStatus, 'completed' | 'failed' | 'rejected'>,
     outcome: { result?: EngineToolResult; summary?: string; error?: string },
     stepUpdates: StepUpdate[] = [],
+    records?: StepRun[],
   ): void {
     const now = this.iso();
     const run = this.deps.store.get(runId);
@@ -5476,7 +5664,9 @@ export class AutomationService {
         : {}),
       ...(outcome.summary ? { summary: outcome.summary } : {}),
       ...(outcome.error ? { error: outcome.error } : {}),
-      ...(run?.steps ? { steps: closeSteps(run.steps, now, stepUpdates, status) } : {}),
+      ...((records ?? run?.steps)
+        ? { steps: closeSteps(records ?? run!.steps!, now, stepUpdates, status) }
+        : {}),
       updatedAt: now,
       finishedAt: now,
     });
@@ -5631,8 +5821,8 @@ function isAgentRun(run: RunRecord): boolean {
  * it waits for a person or a slot. Everything else is `getRun`'s.
  */
 function toListEntry(run: RunRecord): RunListEntry {
-  const { result, approval: _approval, steps, ...rest } = run;
-  const step = currentStep(steps, run.status);
+  const { result, approval: _approval, steps: _steps, ...rest } = run;
+  const step = currentStep(run);
   return {
     ...rest,
     kind: runKind(run),
@@ -5642,38 +5832,74 @@ function toListEntry(run: RunRecord): RunListEntry {
 }
 
 /**
- * The step a list row names: the first queued or running one. Otherwise where
- * the run ended: a failed run's failed step, or, when it failed between steps,
- * the first step it did not reach (`not-run`), so the row never reads "failed
- * at" a step that completed; none when it failed before its first step, or
- * after its last. For any other ended run, the last step that ran. A skipped
- * or not-run step has not run.
+ * The step a list row names: the first leaf queued, running or waiting (a
+ * gate, a retry), else a loop's row waiting at its exhaustion gate.
+ * Otherwise where the run ended: a failed run's failed step (a failed leaf
+ * before the failed row of the loop it is in, as `retryTargetOf` orders
+ * them, review S10), or, when it failed between steps, the first step it did
+ * not reach (`not-run`), so the row never reads "failed at" a step that
+ * completed; none when it failed before its first step, or after its last.
+ * A run rejected at a gate: that gate's row. For any other ended run, the
+ * last step that ran. A skipped or not-run step has not run.
  */
-function currentStep(steps: RunRecord['steps'], status: RunRecord['status']): RunListEntry['step'] {
+function currentStep(run: RunRecord): RunListEntry['step'] {
+  const { steps, status } = run;
   if (!steps?.length) return undefined;
-  let at = steps.findIndex((step) => step.status === 'queued' || step.status === 'running');
+  const leaf = (step: StepRun) => !isLoopRow(step);
+  let at = steps.findIndex(
+    (step) =>
+      leaf(step) &&
+      (step.status === 'queued' || step.status === 'running' || step.status === 'waiting'),
+  );
+  if (at < 0) at = steps.findIndex((step) => isLoopRow(step) && step.status === 'waiting');
   if (at < 0 && status === 'failed') {
-    at = steps.findIndex((step) => step.status === 'failed');
+    at = steps.findIndex((step) => step.status === 'failed' && leaf(step));
+    if (at < 0) at = steps.findIndex((step) => step.status === 'failed');
     if (at < 0) {
       const unreached = steps.findIndex((step) => step.status === 'not-run');
       if (unreached <= 0) return undefined;
       at = unreached;
     }
   }
+  if (at < 0 && status === 'rejected')
+    at = steps.findIndex((step) => step.gate?.decision === 'reject');
   if (at < 0) {
     for (let index = steps.length - 1; index >= 0 && at < 0; index--) {
       if (['completed', 'failed', 'reported'].includes(steps[index].status)) at = index;
     }
   }
   if (at < 0) return undefined;
-  return { id: steps[at].id, status: steps[at].status, index: at + 1, count: steps.length };
+  const row = steps[at];
+  // The run's preview says which loop each row is inside; the loop's own row, its rounds.
+  const preview = run.result as Partial<StepsRunPreview> | undefined;
+  const loop = preview?.steps?.find((step) => step.id === row.id)?.loop;
+  const max = isLoopRow(row)
+    ? row.max
+    : loop === undefined
+      ? undefined
+      : steps.find((step) => step.id === loop)?.max;
+  const atGate =
+    row.gate !== undefined && (row.status === 'waiting' || row.gate.decision === 'reject');
+  return {
+    id: row.id,
+    status: row.status,
+    index: at + 1,
+    count: steps.length,
+    kind: row.kind,
+    ...(row.round !== undefined ? { round: row.round } : {}),
+    ...(max !== undefined ? { max } : {}),
+    ...(loop !== undefined ? { loop } : {}),
+    ...(row.retryAt !== undefined ? { retryAt: row.retryAt } : {}),
+    ...(atGate ? { gate: true as const } : {}),
+  };
 }
 
-/** Waiting for a person or a slot, or working: the snapshot never leaves these out. */
+/** Waiting for a person, a slot, a gate's answer or a retry, or working: the snapshot never leaves these out. */
 const LIVE_RUN_STATUSES: ReadonlySet<RunRecord['status']> = new Set([
   'needs-approval',
   'queued',
   'running',
+  'waiting',
 ]);
 
 function isLiveRun(run: RunRecord): boolean {

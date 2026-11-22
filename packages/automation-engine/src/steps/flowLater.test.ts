@@ -46,25 +46,21 @@ function entryWith(...steps: StepEntry[]): StepsAutomation {
 }
 
 describe('flowNotYet', () => {
-  it('names the first key the engine does not run yet', () => {
-    expect(flowNotYet(entryWith(gateStep('decide')))).toBe(
-      '`gate` runs from the next update; this automation does not run yet.',
-    );
-    expect(flowNotYet(entryWith(commandStep('a', { stop: true })))).toBe(
-      '`then` runs from the next update; this automation does not run yet.',
-    );
+  it('runs gates and then: stop: an entry with one is not refused for it', () => {
+    expect(flowNotYet(entryWith(gateStep('decide')))).toBeNull();
+    expect(flowNotYet(entryWith(commandStep('a', { stop: true })))).toBeNull();
     expect(flowNotYet(entryWith(commandStep('a')))).toBeNull();
   });
 
-  it('names repeat for a loop, and what a loop holds before it', () => {
+  it('names repeat for a loop, whatever it holds', () => {
     expect(flowNotYet(entryWith(loop('polish', commandStep('a'))))).toBe(
       '`repeat` runs from the next update; this automation does not run yet.',
     );
     expect(flowNotYet(entryWith(loop('polish', gateStep('decide'))))).toBe(
-      '`gate` runs from the next update; this automation does not run yet.',
+      '`repeat` runs from the next update; this automation does not run yet.',
     );
     expect(flowNotYet(entryWith(loop('polish', commandStep('a', { stop: true }))))).toBe(
-      '`then` runs from the next update; this automation does not run yet.',
+      '`repeat` runs from the next update; this automation does not run yet.',
     );
   });
 
@@ -86,9 +82,13 @@ describe('flowNotYet', () => {
     expect(flowNotYet({ ...entryWith(commandStep('a')), checkout: { pr: 'item' } })).toBeNull();
   });
 
-  it('names gate before then when an entry writes both', () => {
-    expect(flowNotYet(entryWith(commandStep('a', { stop: true }), gateStep('decide')))).toBe(
-      '`gate` runs from the next update; this automation does not run yet.',
-    );
+  it('names repeat before on_failure and budget when an entry writes them all', () => {
+    expect(
+      flowNotYet({
+        ...entryWith(gateStep('decide'), loop('polish', commandStep('a'))),
+        onFailure: { retry: 1 },
+        budget: { usd: 5 },
+      }),
+    ).toBe('`repeat` runs from the next update; this automation does not run yet.');
   });
 });

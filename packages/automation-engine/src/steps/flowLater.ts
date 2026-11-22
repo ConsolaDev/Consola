@@ -7,17 +7,13 @@ import { leafSteps, type StepsAutomation } from '@consola/factory-spec';
  * from `NOT_YET`; the last deletes this file.
  */
 
-export type FlowKey = 'gate' | 'then' | 'repeat' | 'on_failure' | 'budget';
+export type FlowKey = 'repeat' | 'on_failure' | 'budget';
 
-const NOT_YET: readonly FlowKey[] = ['gate', 'then', 'repeat', 'on_failure', 'budget'];
+const NOT_YET: readonly FlowKey[] = ['repeat', 'on_failure', 'budget'];
 
 /** Whether the entry writes `key`, a loop's steps included. */
 function writes(automation: StepsAutomation, key: FlowKey): boolean {
   switch (key) {
-    case 'gate':
-      return leafSteps(automation.steps).some((step) => step.kind === 'gate');
-    case 'then':
-      return leafSteps(automation.steps).some((step) => step.stop === true);
     case 'repeat':
       return automation.steps.some((step) => step.kind === 'repeat');
     case 'on_failure':

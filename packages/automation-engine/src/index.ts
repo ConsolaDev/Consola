@@ -17,6 +17,7 @@ export { describeEvery, describeRun, describeTriggerAsWritten } from './describe
 export type {
   AutomationView,
   CheckView,
+  GateView,
   ItemTarget,
   ItemTargetRow,
   ItemTargets,
@@ -59,6 +60,7 @@ export {
 export type { RunHistory } from './ports';
 export { recoverAfterRestart, isEngineRun, INTERRUPTED_COMMAND } from './steps/recover';
 export { retryTargetOf } from './steps/stepRecords';
+export { gateMaterialRefs, gateOffer, gateRefusal, renderGateAsk } from './steps/gate';
 export {
   entryMayRetry,
   RETRY_BACKOFF_MS,

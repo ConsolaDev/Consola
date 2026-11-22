@@ -306,6 +306,8 @@ export interface StepsHarness {
   folder: RunFolder;
   world: StepsWorld;
   notices: AutomationNotice[];
+  /** For each notice, in the same order, how many lines history had appended when it was pushed (review S5). */
+  noticeAppends: number[];
   /** Replace ws-1's factory.yml and reload it, as the file watcher would. */
   setYaml(yaml: string): Promise<void>;
   /** Each folder's applied version, as the service kept it: the same store across relaunches. */
@@ -474,6 +476,7 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
     broadcasts: [],
   };
   const notices: AutomationNotice[] = [];
+  const noticeAppends: number[] = [];
   // ws-1's factory folder, file by file; every other workspace's is empty.
   const folders = new Map<string, Map<string, string>>([
     [
@@ -635,7 +638,10 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
     getWorkspaces: () => (world.workspaceDeleted ? [] : [world.workspace]),
     now: () => clock,
     newId: () => `run-${++id}`,
-    notify: (notice) => notices.push(notice),
+    notify: (notice) => {
+      notices.push(notice);
+      noticeAppends.push(history.appends.length);
+    },
     broadcast: (workspaceId) => {
       if (world.broadcastThrows) throw world.broadcastThrows;
       world.broadcasts.push(workspaceId);
@@ -763,6 +769,7 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
       folder,
       world,
       notices,
+      noticeAppends,
       async setYaml(next) {
         filesOf(WORKSPACE_ID).set('factory.yml', next);
         await service.reload(WORKSPACE_ID);
