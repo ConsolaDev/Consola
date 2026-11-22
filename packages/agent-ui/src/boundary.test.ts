@@ -9,14 +9,16 @@ import { describe, expect, it } from 'vite-plus/test';
  * Keeps the licence boundary. `@consola/agent-ui` is MIT, and `@consola/host` and the apps are
  * AGPL, so the package's own code (everything under `src/` but the copied `src/t3/`, the tests
  * and `src/testing/`) imports neither: not `@consola/host` (a devDependency, for the tests'
- * replay host only) and no path into `apps/`. The copied code is t3's MIT code and imports
- * neither either; it is checked too.
+ * replay host only) and no path into `apps/`. Nor does it import `src/testing/`, which is
+ * exempt only because nothing shipped reaches it: it imports `@consola/host`. The copied code is
+ * t3's MIT code and imports none of them either; it is checked too.
  */
 
 const SRC = dirname(fileURLToPath(import.meta.url));
 const PACKAGE = resolve(SRC, '..');
 const REPOSITORY = resolve(PACKAGE, '../..');
 const APPS = join(REPOSITORY, 'apps');
+const TESTING = join(SRC, 'testing');
 const HOST = join(REPOSITORY, 'packages', 'host');
 const under = (path: string, dir: string) => path === dir || path.startsWith(`${dir}${sep}`);
 
@@ -43,6 +45,9 @@ export const crossing = (file: string, specifier: string): string | null => {
     const target = resolve(dirname(file), specifier);
     if (under(target, APPS)) return 'imports a path under apps/ (AGPL)';
     if (under(target, HOST)) return 'imports @consola/host (AGPL)';
+    if (under(target, TESTING) && !isTestOnly(file)) {
+      return 'imports src/testing/ (test code, which imports @consola/host)';
+    }
   }
   return null;
 };
@@ -82,6 +87,15 @@ describe('the licence boundary', () => {
     expect(crossing(own, '../../host/src/bin.ts')).toBe('imports @consola/host (AGPL)');
     expect(crossing(own, '~/components/ChatView')).toBeNull();
     expect(crossing(own, './index.ts')).toBeNull();
+    // src/testing/ is for the tests: shipped code that imports it carries @consola/host in.
+    expect(crossing(own, './testing/render.tsx')).toBe(
+      'imports src/testing/ (test code, which imports @consola/host)',
+    );
+    expect(
+      crossing(join(SRC, 't3', 'components', 'ChatView.tsx'), '../../testing/hostSession.ts'),
+    ).toBe('imports src/testing/ (test code, which imports @consola/host)');
+    expect(crossing(join(SRC, 'AgentChat.browser.test.tsx'), './testing/render.tsx')).toBeNull();
+    expect(crossing(join(TESTING, 'render.tsx'), './hostSessionKey.ts')).toBeNull();
   });
 
   it('keeps @consola/host a devDependency only', () => {

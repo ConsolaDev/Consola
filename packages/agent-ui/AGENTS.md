@@ -43,7 +43,9 @@ It connects to one `@consola/host` session (`packages/host`) and renders t3's ch
 `@consola/agent-ui` is MIT, with t3's notice (`LICENSE`); `@consola/host` and the apps are
 AGPL. So nothing the package ships imports `@consola/host` or a path under `apps/`:
 `@consola/host` is a devDependency only, for the browser tests' replay host (`src/testing/`).
-`src/boundary.test.ts` fails on any such import outside the tests and `src/testing/`, and on
+`src/boundary.test.ts` fails on any such import outside the tests and `src/testing/`, on an
+import of `src/testing/` from anything but a test or `src/testing/` itself (it imports
+`@consola/host`, so shipped code importing it would carry the host in), and on
 `@consola/host` in any non-dev dependency field.
 
 ## How the connection is set up
