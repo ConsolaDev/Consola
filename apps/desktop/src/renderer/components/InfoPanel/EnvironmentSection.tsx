@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import * as Tooltip from '@radix-ui/react-tooltip';
 import { Folder, FolderGit2, GitBranch, Laptop, Lock } from 'lucide-react';
 import { getDriverDescriptor } from '../../../shared/constants';
@@ -147,6 +147,7 @@ function FolderRow({
   const [copiedPath, setCopiedPath] = useState<string | null>(null);
   // What the pointer or the keyboard asked for, whether or not there is a card yet.
   const [cardOpen, setCardOpen] = useState(false);
+  const rowRef = useRef<HTMLButtonElement>(null);
   const copied = copiedPath === line.path;
 
   useEffect(() => {
@@ -160,10 +161,12 @@ function FolderRow({
   const card = checkout && checkout.kind !== 'none' ? checkout : undefined;
   const cardReady = useHeldFor(card !== undefined, CARD_DELAY_MS);
   const cardShown = card !== undefined && cardReady && cardOpen;
-  // Radix asks to open while there is no card yet, but closing what is not
-  // open changes nothing, so it never says so. The pointer or the keyboard
-  // leaving the row takes the ask back, or a late answer from git would open
-  // a card nobody points at.
+  // Radix asks to open while there is no card yet, and never takes it back:
+  // when the pointer leaves, it only clears its open timer (its card closes
+  // on leaving the card's grace area, which a card not drawn has none of),
+  // and on blur its close of a card that is not open changes nothing, so it
+  // never says so. The pointer or the keyboard leaving the row takes the ask
+  // back, or a late answer from git would open a card nobody points at.
   const withdraw = () => {
     if (!cardShown) setCardOpen(false);
   };
@@ -179,8 +182,13 @@ function FolderRow({
       () => {
         setCopiedPath(copiedNow);
         // The row's own pointer-down closes the card; reopen it so the
-        // confirmation is seen where the click happened.
-        setCardOpen(true);
+        // confirmation is seen where the click happened, but only while the
+        // pointer or the keyboard is still on the row: a card opened after
+        // the pointer left has no grace area to close it by.
+        const row = rowRef.current;
+        if (row && (row.matches(':hover') || row === document.activeElement)) {
+          setCardOpen(true);
+        }
       },
       () => {
         // Clipboard refused (no focus); the card or title keeps offering the copy.
@@ -193,7 +201,7 @@ function FolderRow({
   return (
     <Tooltip.Provider delayDuration={CARD_DELAY_MS}>
       <Tooltip.Root open={cardShown} onOpenChange={setCardOpen}>
-        <Tooltip.Trigger asChild onPointerLeave={withdraw} onBlur={withdraw}>
+        <Tooltip.Trigger asChild ref={rowRef} onPointerLeave={withdraw} onBlur={withdraw}>
           <InfoRow
             icon={icon}
             label={

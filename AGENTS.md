@@ -482,7 +482,7 @@ panel it is view state, kept in the renderer.
   (`openKind`, or `reveal` for a place inside the tab's view, such as the
   pane's merge card, which the view acts on once per `revealRequest.seq`);
   the Folder row copies its path, and its card, on hover or focus, explains
-  the checkout (its branch, the session's folder, the path the row copies,
+  the checkout (its branch, the session's folder (the path the row copies)
   and a worktree's main checkout). Nothing in
   the panel navigates or takes the keyboard, on mount or otherwise.
   Visibility rides with the layout (`sidePanelStore.infoVisible`,

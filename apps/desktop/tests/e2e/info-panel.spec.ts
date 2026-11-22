@@ -474,15 +474,44 @@ test.describe('info panel', () => {
     expect(await copiedPaths()).toEqual([docs]);
     await expect(checkoutCardHint()).toHaveText('Click to copy the folder path');
 
-    // Copied again, then straight to another session: its folder was not
-    // copied. Read at once, while B's "Copied" would still stand (1.5 s).
+    // Copied again, but the clipboard answers only once A's card is up: B's
+    // copy lands while A is on screen, and A's folder was not copied, so its
+    // card does not say so. Held, the copy's 1.5 s cannot run out first.
+    await page.evaluate(() => {
+      const stand = window as unknown as { __copied: string[]; __answerCopy?: () => void };
+      Object.defineProperty(navigator.clipboard, 'writeText', {
+        configurable: true,
+        value: (text: string) =>
+          new Promise<void>((resolve) => {
+            stand.__answerCopy = () => {
+              stand.__copied.push(text);
+              resolve();
+            };
+          }),
+      });
+    });
     await folderRow('Worktree').click();
-    await expect(checkoutCardHint()).toHaveText('Copied the folder path', { timeout: 1_000 });
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () => typeof (window as unknown as { __answerCopy?: () => void }).__answerCopy,
+        ),
+      )
+      .toBe('function');
     await openSession('Paginate the catalog search');
     await folderRow('Main checkout').hover();
     await expect(checkoutCardTitle()).toHaveText('Main checkout');
-    expect(await checkoutCardHint().textContent()).toBe('Click to copy the folder path');
+    await expect(checkoutCardHint()).toHaveText('Click to copy the folder path');
+    await page.evaluate(async () => {
+      (window as unknown as { __answerCopy: () => void }).__answerCopy();
+      // The row's own `then` runs in the microtasks after the answer; React
+      // draws what it set in a task after that.
+      await Promise.resolve();
+      await Promise.resolve();
+      await new Promise((drawn) => setTimeout(drawn, 100));
+    });
     expect(await copiedPaths()).toEqual([docs, docs]);
+    expect(await checkoutCardHint().textContent()).toBe('Click to copy the folder path');
 
     // A folder outside git has no card: its native title explains the copy.
     await openSession('Review notes');

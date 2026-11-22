@@ -396,7 +396,9 @@ button.info-row:focus-visible {
   display: inline-flex;
   padding: 1.5px;
   border-radius: 999px;
-  background: linear-gradient(var(--info-row-tint), var(--info-row-tint)), var(--color-bg-primary);
+  background:
+    linear-gradient(var(--info-row-tint, transparent), var(--info-row-tint, transparent)),
+    var(--color-bg-primary);
   box-shadow: 0 0 0 1.5px var(--ring);
 }
 .info-reviewer + .info-reviewer {
