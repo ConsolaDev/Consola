@@ -6,8 +6,11 @@ import {
   type OrchestrationV2StoredEvent,
   type OrchestrationV2ThreadProjection,
   ProjectId,
+  type OrchestrationV2CommandOutputError,
+  type OrchestrationV2CommandOutputFrame,
   type RuntimeMode,
   ThreadId,
+  type TurnItemId,
 } from '@t3tools/contracts';
 import type { AnyProviderDriver } from '@t3tools/provider-core/server/driver';
 import * as Clock from 'effect/Clock';
@@ -19,8 +22,12 @@ import * as Schema from 'effect/Schema';
 import type * as Scope from 'effect/Scope';
 import * as Semaphore from 'effect/Semaphore';
 import * as Stream from 'effect/Stream';
+import * as ServerConfig from 't3/config.ts';
+import * as CommandOutputHub from 't3/orchestration-v2/CommandOutputHub.ts';
 import * as Orchestrator from 't3/orchestration-v2/Orchestrator.ts';
 import * as ProjectService from 't3/project/ProjectService.ts';
+import * as ProviderRegistry from 't3/provider/ProviderRegistry.ts';
+import * as ServerSettings from 't3/serverSettings.ts';
 import { decideCommand } from '../core/commandPolicy.ts';
 import type { SessionSpec } from '../core/sessionSpec.ts';
 import { defaultModelSelection, HOST_DRIVERS, type HostDriversEnv } from './drivers.ts';
@@ -49,12 +56,45 @@ export type ThreadHandle = {
    * `snapshot()` together, then pass that sequence: no event is missed or repeated.
    */
   events(afterSequence?: number): Stream.Stream<ThreadEvent, ThreadRuntimeError>;
-  /** Runs one of the commands the host offers (`decideCommand`); refuses every other. */
+  /**
+   * Runs one of the commands the host offers (`decideCommand`); refuses every other. Answers t3's
+   * dispatch result: the sequence the command's events were stored at (a command id already
+   * accepted is not run again, and answers its first sequence).
+   */
   dispatch(
     command: OrchestrationV2Command,
-  ): Effect.Effect<void, NotOfferedError | ThreadRuntimeError>;
+  ): Effect.Effect<{ readonly sequence: number }, NotOfferedError | ThreadRuntimeError>;
+  /**
+   * The live output of one of the thread's command rows, from t3's `CommandOutputHub` (the one
+   * its provider sessions write to), as t3's `subscribeCommandOutput` serves it.
+   */
+  commandOutput(
+    itemId: TurnItemId,
+  ): Stream.Stream<OrchestrationV2CommandOutputFrame, OrchestrationV2CommandOutputError>;
+  /** What t3's server-config and provider RPCs read: `ThreadServerView`. */
+  readonly server: ThreadServerView;
   /** When the thread last did anything: a stored event or a dispatch, in epoch milliseconds. */
   lastActivityMs(): number;
+};
+
+/**
+ * The services of the session's composition that t3's `ws.ts` builds its server config and
+ * provider list from, so the host serves them from the same place: nothing here is faked.
+ */
+export type ThreadServerView = {
+  /**
+   * t3's `ProviderRegistry`: one snapshot per provider instance in the `ProviderInstanceRegistry`
+   * the composition hydrated from `HOST_DRIVERS`, its changes, and its refreshes.
+   */
+  readonly providers: ProviderRegistry.ProviderRegistry['Service'];
+  /** t3's settings, as its settings service reads them, and their changes. */
+  readonly settings: ServerSettings.ServerSettingsService['Service']['getSettings'];
+  readonly settingsChanges: ServerSettings.ServerSettingsService['Service']['subscribeChanges'];
+  /** The session's folder: the thread's project, where its turns run. */
+  readonly cwd: string;
+  /** t3's config paths a server config names: keybindings (not served) and logs. */
+  readonly keybindingsConfigPath: string;
+  readonly logsDir: string;
 };
 
 export class ThreadRuntimeError extends Schema.TaggedError<ThreadRuntimeError>()(
@@ -141,6 +181,9 @@ const make = (
         );
         const orchestrator = Context.get(context, Orchestrator.OrchestratorV2);
         const projects = Context.get(context, ProjectService.ProjectService);
+        const commandOutput = Context.get(context, CommandOutputHub.CommandOutputHub);
+        const settings = Context.get(context, ServerSettings.ServerSettingsService);
+        const config = Context.get(context, ServerConfig.ServerConfig);
 
         const projectId = ProjectId.make(`project:${sessionId}`);
         yield* projects
@@ -212,10 +255,20 @@ const make = (
             if (decideCommand(command.type) === 'not-offered') {
               return yield* new NotOfferedError({ commandType: command.type });
             }
-            yield* orchestrator
+            const result = yield* orchestrator
               .dispatch(command)
-              .pipe(Effect.andThen(refresh), Effect.mapError(failed('dispatch')), toStderr);
+              .pipe(Effect.tap(refresh), Effect.mapError(failed('dispatch')), toStderr);
+            return { sequence: result.sequence };
           }),
+          commandOutput: (itemId) => commandOutput.subscribe({ threadId, itemId }),
+          server: {
+            providers: Context.get(context, ProviderRegistry.ProviderRegistry),
+            settings: settings.getSettings,
+            settingsChanges: settings.subscribeChanges,
+            cwd: spec.cwd,
+            keybindingsConfigPath: config.keybindingsConfigPath,
+            logsDir: config.logsDir,
+          },
           lastActivityMs: () => lastActivity,
         };
         return handle;

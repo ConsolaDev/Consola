@@ -533,10 +533,16 @@ importers:
       effect:
         specifier: 'catalog:'
         version: 4.1.5
+      jose:
+        specifier: 6.2.10
+        version: 6.2.10
       t3:
         specifier: workspace:*
         version: link:../../vendor/t3code/apps/server
     devDependencies:
+      '@t3tools/client-runtime':
+        specifier: workspace:*
+        version: link:../../vendor/t3code/packages/client-runtime
       '@t3tools/provider-testing':
         specifier: workspace:*
         version: link:../../vendor/t3code/packages/provider-testing

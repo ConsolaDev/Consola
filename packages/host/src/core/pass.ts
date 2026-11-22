@@ -34,3 +34,17 @@ export function checkPassClaims(
   if (claims.iat > nowSeconds + CLOCK_SKEW_SECONDS) return { ok: false, reason: 'not-yet-valid' };
   return { ok: true };
 }
+
+/**
+ * Why a connection's pass was refused: `missing`, `invalid` (a bad signature, an algorithm other
+ * than EdDSA, claims that are not a pass's), or a verdict of `checkPassClaims`.
+ */
+export type PassRefusal = 'missing' | 'invalid' | Extract<PassVerdict, { ok: false }>['reason'];
+
+/**
+ * The WebSocket close code for a refused pass: `4403` when the pass is valid but opens another
+ * session, `4401` for every other refusal (the client needs a new pass).
+ */
+export function passCloseCode(refusal: PassRefusal): 4401 | 4403 {
+  return refusal === 'wrong-session' ? 4403 : 4401;
+}

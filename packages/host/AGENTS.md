@@ -27,10 +27,12 @@ Imports point inward only; `src/boundary.test.ts` fails on any that does not.
 - `src/bin.ts` is the only wiring: it builds the adapters and hands them to the
   runtime.
 - `src/testing/` is what tests share: `machine.ts` (a machine of a test's own,
-  with fake CLIs) and `setup.ts` (Vitest's setup file, which isolates the whole
-  test process; "Tests" below). No other ring reaches it, so only `*.test.ts`
-  files and `vite.config.ts` use it; it may use the test runner and t3's test
-  kits.
+  with fake CLIs), `setup.ts` (Vitest's setup file, which isolates the whole
+  test process; "Tests" below), `replay.ts` (sessions whose Claude driver
+  replays one of t3's recorded fixtures) and `t3Client.ts` (t3's RPC client,
+  connected as `@t3tools/client-runtime` connects it). No other ring reaches
+  it, so only `*.test.ts` files and `vite.config.ts` use it; it may use the
+  test runner and t3's test kits.
 
 To add a ring, add a row to `LAYERS` and a case to the table in
 `boundary.test.ts`. Test files are exempt from the layer rules, but never import
@@ -58,7 +60,8 @@ handling, ingestion or projection of its own.
   in-memory `node:sqlite`, t3's settings service (shipped defaults,
   `<stateDir>/userdata/settings.json`), t3's `ProviderHostLive` over that same
   config and settings, the model manifest, git and source control, and t3's
-  `ProviderInstanceRegistry` hydrated from `HOST_DRIVERS`.
+  `ProviderInstanceRegistry` hydrated from `HOST_DRIVERS`, with t3's
+  `ProviderRegistry` (its provider list) over it.
   `startOrchestration` runs t3's startup order (`serverRuntimeStartup.ts`):
   settings, recovery, delegated tasks, then the effect worker; closing the
   scope shuts the providers down.
@@ -79,8 +82,21 @@ type ThreadHandle = {
   snapshot(): OrchestrationV2ThreadProjection; // t3's getThreadSnapshot, kept current
   snapshotSequence(): number; // the last stored event snapshot() holds
   events(afterSequence?: number): Stream<OrchestrationV2StoredEvent, ThreadRuntimeError>;
-  dispatch(command: OrchestrationV2Command): Effect<void, NotOfferedError | ThreadRuntimeError>;
+  dispatch(
+    command: OrchestrationV2Command,
+  ): Effect<{ sequence: number }, NotOfferedError | ThreadRuntimeError>;
+  commandOutput(itemId: TurnItemId): Stream<OrchestrationV2CommandOutputFrame, OrchestrationV2CommandOutputError>;
+  server: ThreadServerView; // what the server-config and provider RPCs read
   lastActivityMs(): number;
+};
+
+type ThreadServerView = {
+  providers: ProviderRegistry; // t3's, over the hydrated ProviderInstanceRegistry
+  settings: Effect<ServerSettings, ServerSettingsError>; // t3's settings service
+  settingsChanges: Effect<Stream<ServerSettings>, never, Scope>;
+  cwd: string; // the session's folder
+  keybindingsConfigPath: string; // t3's config paths
+  logsDir: string;
 };
 ```
 
@@ -92,7 +108,77 @@ type ThreadHandle = {
   snapshot, read `snapshotSequence()` and `snapshot()` together and pass that
   sequence: no event is missed or repeated (Review Focus 2).
 - `dispatch` asks `decideCommand` first and refuses anything not offered with
-  `NotOfferedError`, before t3 sees it.
+  `NotOfferedError`, before t3 sees it. It answers t3's dispatch result, the
+  sequence the command's events were stored at; a command id t3 already
+  accepted is not run again (t3 answers its first sequence).
+- `commandOutput(itemId)` is t3's `CommandOutputHub.subscribe` for one of the
+  thread's command rows: the hub its provider sessions write to.
+- `server` hands out the services of the composition t3's `ws.ts` builds its
+  server config and provider list from, so nothing served is made up: t3's
+  `ProviderRegistry` (one snapshot per provider instance, its changes and
+  refreshes), its settings and their changes, the session's folder and t3's
+  config paths.
+
+## The WebSocket server
+
+`src/adapters/rpcServer.ts` serves one session's thread to t3's chat UI at
+`ws://<host>:<port>/ws`, with Effect's RPC server over t3's own `WsRpcGroup`,
+one RPC server per connection, as t3's `ws.ts` runs it. `listenHost(options)`
+listens in the caller's scope and answers the port (`0` asks for an ephemeral
+one); `serveHost` is `listenHost` then never. `host` is the caller's: the
+server adds no default bind address. `ws.ts` itself is not lifted; the
+handlers are host glue that calls the helpers `ws.ts` calls
+(`vendor/t3code/UPSTREAM.md`, "The host RPC server lift").
+
+- **The pass first.** A connection's `pass` query parameter is verified
+  (`passVerifier.ts`) before anything else is answered: a compact JWS signed
+  with EdDSA by the cell's Ed25519 key (jose, `algorithms: ['EdDSA']`, so
+  `none`, HMAC and every other algorithm are refused, and a non-Ed25519 key
+  refuses every pass), whose payload decodes as a pass's claims; then
+  `checkPassClaims` judges them. A refused WebSocket is upgraded and closed
+  with `passCloseCode`: `4403` for a valid pass for another session, `4401`
+  for every other refusal (missing, invalid, expired, not yet valid). The
+  pass and its claims are never logged, and `PassRejected` carries the reason
+  only. Then, as t3, a client must speak orchestration protocol 2 (`426`
+  otherwise).
+- **What is served** is `SERVED_METHODS`, the one list, with why each is
+  there: `orchestration.subscribeThread`, `orchestration.dispatchCommand` and
+  `orchestration.subscribeCommandOutput` (the thread), `subscribeServerConfig`
+  (client-runtime's session is ready only once its first snapshot arrives; it
+  carries the provider list), `server.probe` (the session's liveness check)
+  and `server.refreshProviders` (the composer's model picker and its folder
+  snapshot). Each follows its `ws.ts` handler; what the host leaves out is
+  named at the handler (keybindings, themes, usage-limit sources, bounded
+  history windows, on-demand machine catalogs). Only the session's own thread
+  and folder are served: another thread id is t3's typed not-found error.
+- **Every other method** answers `NotOfferedByHost` (`{ method }`, message
+  `This host does not offer <method>.`). Each method declares t3's own
+  failures, and t3's unchanged client decodes only those, so the refusal
+  travels as the request's defect: the client sees a defect named
+  `NotOfferedByHost`, and the socket keeps serving (`disableFatalDefects`).
+- **Snapshot then live.** `subscribeThread` reads `snapshotSequence()` and
+  `snapshot()` together, sends the snapshot projected for the wire, then
+  `events(snapshotSequence)` through t3's live coalescer: nothing missed or
+  repeated (Review Focus 2). A cursor (`afterSequence`) is replayed as t3
+  replays it (`decideThreadResume`), or answered with a snapshot. Each client
+  is its own subscription, and a command runs once whoever sends it (Review
+  Focus 4).
+- **The environment is the session.** The config's environment id is the
+  session id, it advertises no optional capability (what the host does not
+  serve, t3's UI does not offer), and its auth descriptor says a bearer pass
+  lets a client in.
+- **No client tracking in `ws`.** The HTTP server makes its `ws`
+  WebSocketServer at the first upgrade and closes it with the scope, before
+  its own finalizer closes the sockets; with `ws`'s client tracking that close
+  waits for every socket to end, so a scope closed with a client connected
+  would hang. `listenHost` turns it off (`websocket: { clientTracking: false }`).
+
+Nothing under `adapters/` reaches the Cursor SDK beyond the runtime: of the
+lifted modules `rpcServer.ts` imports, only `serverSettings.ts` and
+`orchestration-v2/ThreadManagementService.ts` reach `@t3tools/provider-cursor`
+at all, through modules the runtime already imports (`serverSettings.ts` →
+`settingsSecrets.ts` → `@t3tools/provider-cursor/client`, which does not import
+`@cursor/sdk`; `ThreadManagementService.ts` → the orchestrator's graph, below).
 
 ### The host never starts a CLI in full access
 

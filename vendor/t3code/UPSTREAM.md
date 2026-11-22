@@ -1394,6 +1394,28 @@ at the versions t3's lockfile resolves for its `apps/server` importer
 is those two entries under the `t3` importer and their two packages; Consola's
 own packages resolve as before. The lifted tree is now 842 files.
 
+### The host RPC server lift
+
+For `@consola/host`'s WebSocket server (Task 7), which serves a slice of t3's
+`WsRpcGroup` with Effect's RPC server, as t3's `ws.ts` does. `ws.ts` itself is
+not lifted (it is t3's whole RPC server, reaching its HTTP server and product
+services); the host writes its own handlers and reuses the helpers `ws.ts`
+calls for them. Every one of those was already in the tree but one, copied byte
+for byte (compared with `cmp` after copying):
+
+- `rpcInitialItems.ts`: the initial items of a subscription (a snapshot, a
+  replay) as a stream that releases them once delivered. It imports only
+  `effect`.
+
+The helpers already here that the host's handlers call:
+`orchestration-v2/WireProjection.ts` (`projectThreadProjectionForWire`,
+`threadStreamEventItem`, `makeLiveBodyDeduper`),
+`orchestration-v2/ThreadLiveEventCoalescer.ts`,
+`orchestration-v2/ThreadStream.ts` (`decideThreadResume`),
+`orchestration-v2/ThreadManagementService.ts` (`withCreationProvenance`),
+`terminal/OutputProtocol.ts` (`withOutputWindow`) and `serverSettings.ts`
+(`redactServerSettingsForClient`). The lifted tree is now 843 files.
+
 ### Known runtime gaps
 
 Paths the lifted code builds only at run time, which no import names, are not

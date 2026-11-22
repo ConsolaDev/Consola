@@ -25,9 +25,11 @@
     "@t3tools/shared": "workspace:*",
     "@t3tools/source-control-core": "workspace:*",
     "effect": "catalog:",
+    "jose": "6.2.10",
     "t3": "workspace:*"
   },
   "devDependencies": {
+    "@t3tools/client-runtime": "workspace:*",
     "@t3tools/provider-testing": "workspace:*",
     "@types/node": "catalog:",
     "typescript": "^5.9.3",

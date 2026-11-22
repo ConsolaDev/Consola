@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vite-plus/test';
-import { checkPassClaims, type PassClaims } from './pass.ts';
+import { checkPassClaims, type PassClaims, passCloseCode } from './pass.ts';
 
 const NOW = 1_800_000_000;
 const claims = (over: Partial<PassClaims> = {}): PassClaims => ({
@@ -39,5 +39,17 @@ describe('checkPassClaims', () => {
 
   it('allows 60 s of clock skew on iat', () => {
     expect(checkPassClaims(claims({ iat: NOW + 59 }), 's-1', NOW)).toEqual({ ok: true });
+  });
+});
+
+describe('passCloseCode', () => {
+  it('closes with 4401 for a pass that is missing, invalid, expired or not yet valid', () => {
+    for (const refusal of ['missing', 'invalid', 'expired', 'not-yet-valid'] as const) {
+      expect(passCloseCode(refusal)).toBe(4401);
+    }
+  });
+
+  it('closes with 4403 for a valid pass for another session', () => {
+    expect(passCloseCode('wrong-session')).toBe(4403);
   });
 });

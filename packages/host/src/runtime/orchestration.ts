@@ -309,7 +309,8 @@ const makeOrchestration = <R>(
       ),
     ),
     Layer.provide(WorkspacePaths.layer),
-    Layer.provide(ProviderRegistry.layer),
+    // Merged, not only provided: the server-config RPCs read t3's provider list from it.
+    Layer.provideMerge(ProviderRegistry.layer),
     Layer.provideMerge(layerProviderInstances(drivers)),
     Layer.provide(HostStandIns.layerMcp),
     Layer.provide(HostStandIns.layerTerminals),
