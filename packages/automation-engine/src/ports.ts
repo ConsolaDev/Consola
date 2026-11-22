@@ -2,7 +2,7 @@
  * What a host supplies to the engine. The host's full contract is this file
  * plus `AutomationServiceDeps` in `AutomationService.ts`.
  */
-import type { FactorySpecParseResult, RunRecord } from '@consola/factory-spec';
+import type { FactoryFiles, FactorySpecParseResult, RunRecord } from '@consola/factory-spec';
 import type { ItemRef, SessionView, StepTurnFile } from './views';
 import type { RunDefinition } from './steps/definition';
 
@@ -44,6 +44,63 @@ export interface FactoryFileHandle {
   replaceAutomation(name: string, entryYaml: string): Promise<void>;
   /** The file as written, or null when there is none yet. */
   readText(): Promise<string | null>;
+}
+
+/** What reading a workspace's factory folder yields. */
+export interface FactoryFolderRead {
+  /** `factory.yml` exists: what Open file creates. */
+  exists: boolean;
+  files: FactoryFiles;
+}
+
+/**
+ * One workspace's factory folder: `factory.yml`, `automations/`, `agents/`
+ * and `skills/`, read, watched and written. Every write is whole and atomic,
+ * through a symlink kept with dotfiles.
+ */
+export interface FactoryFolderHandle {
+  readonly folderPath: string;
+  /** Its `factory.yml`. */
+  readonly filePath: string;
+  read(): Promise<FactoryFolderRead>;
+  watch(onChange: () => void): void;
+  unwatch(): void;
+  /** Create `factory.yml` from `template` when it is missing; returns its path. */
+  ensureExists(template: string): Promise<string>;
+  /** Add one automation (a `- name: …` item) at the end of `factory.yml`'s list, keeping everything else. */
+  appendAutomation(entryYaml: string): Promise<void>;
+  /** Swap the automation called `name` in `factory.yml` for `entryYaml`, in place, keeping every byte outside it. */
+  replaceAutomation(name: string, entryYaml: string): Promise<void>;
+  /** Write `automations/<name>.yaml` whole, atomically. */
+  writeAutomationFile(name: string, text: string): Promise<void>;
+  /** Where an entry of that name is written now, read now: `factory.yml` first. */
+  whereIs(name: string): Promise<'factory.yml' | 'file' | null>;
+  /** `factory.yml` as written, or null when there is none yet. */
+  readText(): Promise<string | null>;
+  /** `automations/<name>.yaml` as written, or null when there is none. */
+  readAutomationFile(name: string): Promise<string | null>;
+  /** The absolute path of one of the folder's own files; null for any other path. */
+  pathOf(relative: string): string | null;
+}
+
+/** A factory folder's last applied version: the texts it applied from. */
+export interface AppliedFactory {
+  folder: string;
+  /** When it applied (ISO). */
+  appliedAt: string;
+  /** It applied as a unit; false while a first start applies entries one by one. */
+  clean: boolean;
+  /** By path relative to the folder. No list of removals: they are recomputed at each read. */
+  texts: Record<string, string>;
+}
+
+/** Where the applied version of each factory folder is kept, in Consola's own state. */
+export interface AppliedFactoryStore {
+  /** Null when none was written, or when what was written is damaged. */
+  read(folder: string): AppliedFactory | null;
+  write(applied: AppliedFactory): void;
+  /** The folder's workspace was deleted: its applied version goes with it. */
+  forget(folder: string): void;
 }
 
 /*

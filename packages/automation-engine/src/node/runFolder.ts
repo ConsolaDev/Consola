@@ -8,7 +8,7 @@ import {
 import type { RunFolderPort } from '../ports';
 import { MAX_ARTIFACT_BYTES, type RunDefinition } from '../steps/definition';
 import type { StepTurnFile } from '../views';
-import { workspaceDataDir } from './factoryFile';
+import { workspaceDataDir } from './factoryFolder';
 
 const TOKEN = /^[A-Za-z0-9_-]+$/;
 const LEGACY_STEP = /^step-\d+$/;

@@ -1,5 +1,4 @@
 import * as fs from 'node:fs';
-import * as os from 'node:os';
 import * as path from 'node:path';
 import {
   appendAutomationEntry,
@@ -7,28 +6,6 @@ import {
   replaceAutomationEntry,
 } from '@consola/factory-spec';
 import type { LoadedFactoryFile } from '../ports';
-
-/** Workspace ids are generated tokens; anything else never reaches the filesystem as a path. */
-const WORKSPACE_ID = /^[A-Za-z0-9_-]+$/;
-
-/**
- * One workspace's folder under `~/.consola/workspaces/<id>`: the home of its
- * `factory.yml`. Under `~/.consola` with the worktrees rather
- * than in Consola's own state, so the files are text a person can keep with
- * their dotfiles. Keyed by id, not name, so renaming a workspace never orphans
- * them. `CONSOLA_FACTORY_DIR` replaces the `workspaces` folder — the seam tests use.
- */
-export function workspaceDataDir(workspaceId: string): string {
-  if (!WORKSPACE_ID.test(workspaceId))
-    throw new Error(`Not a workspace id: ${JSON.stringify(workspaceId)}.`);
-  const root = process.env.CONSOLA_FACTORY_DIR ?? path.join(os.homedir(), '.consola', 'workspaces');
-  return path.join(root, workspaceId);
-}
-
-/** One workspace's personal automations: `factory.yml` in its data folder. */
-export function workspaceFactoryPath(workspaceId: string): string {
-  return path.join(workspaceDataDir(workspaceId), 'factory.yml');
-}
 
 /**
  * One workspace's spec file: read, parsed, watched.
