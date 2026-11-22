@@ -22,6 +22,7 @@ import * as Schema from 'effect/Schema';
 import type * as Scope from 'effect/Scope';
 import * as Semaphore from 'effect/Semaphore';
 import * as Stream from 'effect/Stream';
+import * as SubscriptionRef from 'effect/SubscriptionRef';
 import * as ServerConfig from 't3/config.ts';
 import * as CommandOutputHub from 't3/orchestration-v2/CommandOutputHub.ts';
 import * as Orchestrator from 't3/orchestration-v2/Orchestrator.ts';
@@ -49,6 +50,11 @@ export type ThreadHandle = {
   snapshot(): OrchestrationV2ThreadProjection;
   /** The last stored event `snapshot()` holds, as t3's snapshot item carries it. */
   snapshotSequence(): number;
+  /**
+   * `snapshot()` now, then each projection that replaces it: one per refresh, after every stored
+   * event and every dispatch, so a reader sees what `snapshot()` would answer at that moment.
+   */
+  snapshots(): Stream.Stream<OrchestrationV2ThreadProjection>;
   /**
    * The thread's stored events after `afterSequence` (every one when it is omitted), replayed
    * from storage and then live, projected for the wire as t3's `streamStoredEventsFrom` gives
@@ -215,12 +221,16 @@ const make = (
           .getThreadSnapshot(threadId)
           .pipe(Effect.mapError(failed('open')));
         let lastActivity = yield* Clock.currentTimeMillis;
+        const projections = yield* SubscriptionRef.make(current.projection);
         const reading = yield* Semaphore.make(1);
         // Reads the projection again; a slower read never replaces a newer one.
         const refresh = reading.withPermits(1)(
           Effect.gen(function* () {
             const next = yield* orchestrator.getThreadSnapshot(threadId);
-            if (next.snapshotSequence >= current.snapshotSequence) current = next;
+            if (next.snapshotSequence >= current.snapshotSequence) {
+              current = next;
+              yield* SubscriptionRef.set(projections, next.projection);
+            }
             lastActivity = yield* Clock.currentTimeMillis;
           }),
         );
@@ -244,6 +254,7 @@ const make = (
         const handle: ThreadHandle = {
           snapshot: () => current.projection,
           snapshotSequence: () => current.snapshotSequence,
+          snapshots: () => SubscriptionRef.changes(projections),
           events: (afterSequence) =>
             orchestrator
               .streamStoredEventsFrom({
