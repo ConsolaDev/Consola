@@ -348,6 +348,7 @@ automations:
       files({
         factoryYml: EMPTY_YML,
         stray: ['agents/notes.txt', 'automations/x.yml', 'skills/readme.md'],
+        // `environments/` is read since slice 3-B: no notice for it any more.
         laterFolders: ['environments', 'evals'],
       }),
     );
@@ -371,10 +372,6 @@ automations:
       },
     ]);
     expect(result.notices).toEqual([
-      {
-        message:
-          '`environments/` is read from slice 3 (write steps); its files have no effect yet.',
-      },
       { message: '`evals/` is read from slice 8 (evals); its files have no effect yet.' },
     ]);
     // Only the folders a later slice owns: any other name gets no notice.
@@ -822,5 +819,59 @@ describe('repos: across the folder (slice 3-B)', () => {
       '`sprocket/catalog-portal` is not in `repos:` in factory.yml.',
     ]);
     expect(result.repos).toEqual([]);
+  });
+});
+
+describe('environments/ (slice 3-B)', () => {
+  const EMPTY_FILES = files({ factoryYml: EMPTY_YML });
+
+  it('environments/ is read: no notice, its strays reported, its files parsed', () => {
+    const parsed = parseFactory({
+      ...EMPTY_FILES,
+      environments: { sandboxed: 'isolation: sandbox\n' },
+      stray: ['environments/x.yml'],
+    });
+    expect(parsed.environments.sandboxed.isolation).toBe('sandbox');
+    expect(parsed.notices.map((n) => n.message).join()).not.toContain('environments/');
+    expect(parsed.issues.map((i) => i.message)).toContain(
+      '`environments/x.yml` is not an environment: environment files are `environments/<name>.yaml`.',
+    );
+  });
+
+  it('names each file present, keeps only the valid ones, and says what is wrong in each', () => {
+    const parsed = parseFactory({
+      ...EMPTY_FILES,
+      environments: {
+        sandboxed: 'isolation: sandbox\nenv: [CI]\n',
+        broken: 'isolation: host\nenv: [CI]\n',
+      },
+    });
+    expect(Object.keys(parsed.environments)).toEqual(['sandboxed']);
+    expect(parsed.environments.sandboxed).toMatchObject({ name: 'sandboxed', env: ['CI'] });
+    expect(parsed.present).toEqual(
+      expect.arrayContaining(['environments/broken.yaml', 'environments/sandboxed.yaml']),
+    );
+    expect(parsed.issues).toEqual([
+      expect.objectContaining({
+        file: 'environments/broken.yaml',
+        path: 'env',
+        message: expect.stringContaining('On `host` a step has your whole network'),
+      }),
+    ]);
+  });
+
+  it('reads none when the adapter gives none (every slice-1 and 2 caller)', () => {
+    const parsed = parseFactory(EMPTY_FILES);
+    expect(parsed.environments).toEqual({});
+    expect(parsed.issues).toEqual([]);
+  });
+
+  it('factoryFilesOf reads environments/<n>.yaml back, and nothing else under environments/', () => {
+    const read = factoryFilesOf({
+      'factory.yml': EMPTY_YML,
+      'environments/sandboxed.yaml': 'isolation: sandbox\n',
+      'environments/x.yml': 'isolation: host\n',
+    });
+    expect(read.environments).toEqual({ sandboxed: 'isolation: sandbox\n' });
   });
 });

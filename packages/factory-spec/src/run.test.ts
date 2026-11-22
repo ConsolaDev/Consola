@@ -685,3 +685,26 @@ describe('a run-owned checkout in the version (slice 3-B, only added)', () => {
     );
   });
 });
+
+describe('stepsResolvedBody with environments (slice 3-B, only added)', () => {
+  it('stepsResolvedBody is unchanged with no environment, and names one when given', () => {
+    expect(stepsResolvedBody({}, { a: 'h' })).toBe(stableStringify({ agents: { a: 'h' } }));
+    expect(stepsResolvedBody({}, { a: 'h' }, { e: 'x' })).toBe(
+      stableStringify({ agents: { a: 'h' }, environments: { e: 'x' } }),
+    );
+  });
+
+  it('is byte for byte what it was with an empty map of environments, and covers an action beside them', () => {
+    expect(stepsResolvedBody({ s: 'b' }, { a: 'h' }, {})).toBe(
+      stepsResolvedBody({ s: 'b' }, { a: 'h' }),
+    );
+    expect(stepsResolvedBody({ s: 'b' }, {}, {})).toBe(stableStringify({ s: 'b' }));
+    expect(stepsResolvedBody({}, {}, {})).toBeUndefined();
+    expect(stepsResolvedBody({ s: 'b' }, { a: 'h' }, { e: 'x' })).toBe(
+      stableStringify({ actions: { s: 'b' }, agents: { a: 'h' }, environments: { e: 'x' } }),
+    );
+    expect(stepsResolvedBody({}, { a: 'h' }, { e: 'x' })).not.toBe(
+      stepsResolvedBody({}, { a: 'h' }, { e: 'y' }),
+    );
+  });
+});

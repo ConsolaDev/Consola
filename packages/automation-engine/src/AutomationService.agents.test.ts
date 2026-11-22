@@ -218,14 +218,14 @@ describe('a step that names an agent', () => {
         'automations/catalog-recheck.yaml': CATALOG_REVIEW.replace('0 7 * * 1-5', '0 12 * * 1-5'),
         [REVIEWER_FILE]: REVIEWER,
         // A folder a later slice reads: the read's own notice comes first.
-        'environments/staging.yaml': 'isolation: host\n',
+        'connections/staging.yaml': 'kind: github\n',
       },
       agentHarnesses: { 'claude-work': { ...CLAUDE_WORK, warning } },
     });
     expect(h.service.snapshot(WORKSPACE_ID).notices).toEqual([
       {
         message:
-          '`environments/` is read from slice 3 (write steps); its files have no effect yet.',
+          '`connections/` is read from slice 5 (connections as data); its files have no effect yet.',
       },
       { file: REVIEWER_FILE, line: 3, message: warning },
     ]);

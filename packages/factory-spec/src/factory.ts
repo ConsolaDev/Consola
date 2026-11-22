@@ -1,12 +1,13 @@
 /**
  * The factory folder, parsed whole: `factory.yml`, `automations/<name>.yaml`,
- * `agents/<name>.md` and `skills/<name>/`. Every check of each file runs,
+ * `agents/<name>.md`, `skills/<name>/` and `environments/<name>.yaml`. Every check of each file runs,
  * then the references across files: each step's `agent:` names a valid agent
  * file, each agent's `skills:` a valid skill folder, and no automation name is
  * defined twice. The texts come in already read (a runner's adapter reads the
  * folder), so this does no I/O and every runner parses a folder alike.
  */
 import { agentHash, parseAgentFile, type AgentDefinition } from './agents';
+import { parseEnvironmentFile, type EnvironmentDefinition } from './environments';
 import { parseAutomationFile } from './automationFile';
 import { formatPath, type FactorySpecIssue } from './issues';
 import { AUTOMATION_NAME_PATTERN } from './names';
@@ -21,7 +22,6 @@ export const MAX_FACTORY_TEXT_BYTES = 1024 * 1024;
 
 /** Folders a later slice reads, and the slice: the notice's words. */
 export const LATER_FOLDERS: Readonly<Record<string, string>> = {
-  environments: 'slice 3 (write steps)',
   connections: 'slice 5 (connections as data)',
   evals: 'slice 8 (evals)',
 };
@@ -56,6 +56,12 @@ export interface FactoryFiles {
   agents: Record<string, string>;
   /** `skills/<name>/`, by `<name>`, each entry's path relative to the skill's folder. */
   skills: Record<string, SkillFileEntry[]>;
+  /**
+   * `environments/<name>.yaml`, by `<name>` (slice 3-B). Optional: an
+   * adapter or a persisted version from before environments has none, read
+   * as none.
+   */
+  environments?: Record<string, string>;
   /** Paths in the three folders that are none of these, but for the names `isIgnoredFileName` passes over. */
   stray: string[];
   /** Which of `LATER_FOLDERS`' keys exist. */
@@ -85,6 +91,8 @@ export interface FactoryParseResult {
   agents: Record<string, AgentDefinition>;
   /** The valid skills. */
   skills: Record<string, SkillDefinition>;
+  /** The valid environments, by name (slice 3-B). */
+  environments: Record<string, EnvironmentDefinition>;
   /** Each with `file`. */
   issues: FactorySpecIssue[];
   notices: FactoryNotice[];
@@ -126,6 +134,8 @@ function strayMessage(path: string): string {
     return `\`${path}\` is not an automation: automation files are \`automations/<name>.yaml\`.`;
   if (path.startsWith('skills/'))
     return `\`${path}\` is not a skill: a skill is a folder, \`skills/<name>/SKILL.md\`.`;
+  if (path.startsWith('environments/'))
+    return `\`${path}\` is not an environment: environment files are \`environments/<name>.yaml\`.`;
   return `\`${path}\` is not an agent, an automation or a skill.`;
 }
 
@@ -176,6 +186,20 @@ export function parseFactory(files: FactoryFiles): FactoryParseResult {
     if (parsed.skill && !unreadUnder(`skills/${name}/`)) skills[name] = parsed.skill;
   }
   const skillIsThere = (name: string) => own(files.skills, name) || unreadUnder(`skills/${name}/`);
+
+  // Environments (slice 3-B): the valid ones are kept; an agent names one from Task 6 on.
+  const environments: Record<string, EnvironmentDefinition> = {};
+  for (const name of sortedKeys(files.environments ?? {})) {
+    const file = `environments/${name}.yaml`;
+    present.push(file);
+    const read = guarded(() => parseEnvironmentFile(name, files.environments![name]));
+    if (!read.ok) {
+      issues.push(couldNotRead(file, read.reason));
+      continue;
+    }
+    issues.push(...read.value.issues);
+    if (read.value.environment) environments[name] = read.value.environment;
+  }
 
   // Agents: each skill an agent names must be a valid skill, or the agent is not kept.
   const agents: Record<string, AgentDefinition> = {};
@@ -399,6 +423,7 @@ export function parseFactory(files: FactoryFiles): FactoryParseResult {
     automations: candidates.map((candidate) => candidate.automation),
     agents,
     skills,
+    environments,
     issues,
     notices,
     present,
@@ -410,8 +435,8 @@ export function parseFactory(files: FactoryFiles): FactoryParseResult {
 /**
  * A persisted version's texts, by path relative to the folder, and its skill
  * files, by skill name, each by its path inside the skill's folder, as
- * `parseFactory`'s input: `factory.yml`, `automations/<n>.yaml` and
- * `agents/<n>.md`; any other text path is ignored. No strays, no later
+ * `parseFactory`'s input: `factory.yml`, `automations/<n>.yaml`,
+ * `agents/<n>.md` and `environments/<n>.yaml`; any other text path is ignored. No strays, no later
  * folders, nothing unread or outside; no skills when none are given.
  */
 export function factoryFilesOf(
@@ -431,9 +456,14 @@ export function factoryFilesOf(
   for (const path of Object.keys(texts)) {
     const automation = /^automations\/([^/]+)\.yaml$/.exec(path);
     const agent = /^agents\/([^/]+)\.md$/.exec(path);
+    const environment = /^environments\/([^/]+)\.yaml$/.exec(path);
     if (path === 'factory.yml') files.factoryYml = texts[path];
     else if (automation) files.automations[automation[1]] = texts[path];
     else if (agent) files.agents[agent[1]] = texts[path];
+    else if (environment) {
+      if (files.environments === undefined) files.environments = {};
+      files.environments[environment[1]] = texts[path];
+    }
   }
   for (const name of Object.keys(skills ?? {}))
     files.skills[name] = skills![name].map((entry) => ({ path: entry.path, bytes: entry.bytes }));

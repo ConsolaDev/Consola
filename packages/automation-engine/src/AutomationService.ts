@@ -611,6 +611,7 @@ function notRead(): FactoryRead {
       present: [],
       unreadable: [],
       repos: [],
+      environments: {},
     },
   };
 }

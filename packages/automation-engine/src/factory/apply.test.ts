@@ -667,6 +667,13 @@ describe('appliedTexts', () => {
     });
     expect(appliedTexts(files(texts), parse, [])).toEqual({});
   });
+
+  it('keeps environments/<n>.yaml, read back by factoryFilesOf (slice 3-B)', () => {
+    const withEnvironment = { ...texts, 'environments/sandboxed.yaml': 'isolation: sandbox\n' };
+    const kept = appliedTexts(files(withEnvironment), read(withEnvironment));
+    expect(kept).toEqual(withEnvironment);
+    expect(factoryFilesOf(kept).environments).toEqual({ sandboxed: 'isolation: sandbox\n' });
+  });
 });
 
 describe('appliedSkills (2-C)', () => {

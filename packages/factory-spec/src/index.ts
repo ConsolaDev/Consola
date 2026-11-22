@@ -29,6 +29,13 @@ export {
   type BranchValues,
 } from './branchName';
 export {
+  MAX_ENVIRONMENT_ENTRIES,
+  environmentHash,
+  looksLikeCredential,
+  parseEnvironmentFile,
+  type EnvironmentDefinition,
+} from './environments';
+export {
   MAX_REPOS,
   REPO_PATTERN,
   isItemCheckout,

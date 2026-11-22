@@ -103,13 +103,15 @@ describe('FactoryFolder.read', () => {
     const { exists, files } = await new FactoryFolder(dir).read();
     expect(exists).toBe(false);
     expect(files.factoryYml).toBeNull();
+    // `environments/` is the factory's own since slice 3-B: its `dev.yml` is a stray, not a later file.
     expect(files.stray).toEqual([
       'agents/notes.txt',
       'automations/drafts',
       'automations/x.yml',
+      'environments/dev.yml',
       'skills/readme.md',
     ]);
-    expect(files.laterFolders).toEqual(['environments', 'evals']);
+    expect(files.laterFolders).toEqual(['evals']);
     expect(files.automations).toEqual({});
     expect(files.agents).toEqual({});
     expect(files.skills).toEqual({});
@@ -150,6 +152,7 @@ describe('FactoryFolder.read', () => {
         automations: {},
         agents: {},
         skills: {},
+        environments: {},
         stray: [],
         laterFolders: [],
         unread: [],
@@ -328,6 +331,40 @@ describe('FactoryFolder.read', () => {
     expect(read.files.unread).toEqual([]);
   });
 
+  it('reads environments/ as it reads agents/: <name>.yaml, strays, no link outside (slice 3-B)', async () => {
+    const outside = tmp('factory-outside-');
+    layout(outside, { 'out.yaml': 'isolation: host\n' });
+    const dir = tmp();
+    layout(dir, {
+      'factory.yml': FACTORY,
+      'environments/sandboxed.yaml': 'isolation: sandbox\n',
+      'environments/notes.txt': 'notes',
+      'environments/Big.yaml': 'isolation: host\n',
+      'environments/.sandboxed.yaml.swp': 'an editor',
+      'environments/sandboxed.yaml~': 'an editor',
+    });
+    fs.symlinkSync(path.join(outside, 'out.yaml'), path.join(dir, 'environments/out.yaml'));
+    const { files } = await new FactoryFolder(dir).read();
+    expect(files.environments).toEqual({ sandboxed: 'isolation: sandbox\n' });
+    expect(files.stray).toEqual(['environments/Big.yaml', 'environments/notes.txt']);
+    expect(files.outside).toEqual(['environments/out.yaml']);
+    expect(files.laterFolders).toEqual([]);
+    expect(new FactoryFolder(dir).pathOf('environments/sandboxed.yaml')).toBe(
+      path.join(dir, 'environments/sandboxed.yaml'),
+    );
+  });
+
+  it('an environments/ folder that links outside is not listed', async () => {
+    const elsewhere = tmp('factory-elsewhere-');
+    layout(elsewhere, { 'environments/sandboxed.yaml': 'isolation: sandbox\n' });
+    const dir = tmp();
+    layout(dir, { 'factory.yml': FACTORY });
+    fs.symlinkSync(path.join(elsewhere, 'environments'), path.join(dir, 'environments'));
+    const { files } = await new FactoryFolder(dir).read();
+    expect(files.outside).toEqual(['environments/']);
+    expect(files.environments).toEqual({});
+  });
+
   it('a folder of the three that links outside is not listed (review S3)', async () => {
     const elsewhere = tmp('factory-elsewhere-');
     layout(elsewhere, {
@@ -420,7 +457,13 @@ describe('FactoryFolder.watch', () => {
 
   it('sees a later folder appear', async () => {
     const { dir, changes } = watched();
-    fs.mkdirSync(path.join(dir, 'environments'));
+    fs.mkdirSync(path.join(dir, 'evals'));
+    await eventually(() => changes() > 0);
+  });
+
+  it('sees an environment file written (slice 3-B)', async () => {
+    const { dir, changes } = watched();
+    layout(dir, { 'environments/sandboxed.yaml': 'isolation: sandbox\n' });
     await eventually(() => changes() > 0);
   });
 
@@ -810,12 +853,15 @@ automations:
 describe('FactoryFolder.pathOf', () => {
   const folder = new FactoryFolder('/home/alice/.consola/workspaces/ws-1');
 
-  it.each(['factory.yml', 'automations/x.yaml', 'agents/x.md', 'skills/x/SKILL.md'])(
-    'gives %s inside the folder',
-    (relative) => {
-      expect(folder.pathOf(relative)).toBe(`/home/alice/.consola/workspaces/ws-1/${relative}`);
-    },
-  );
+  it.each([
+    'factory.yml',
+    'automations/x.yaml',
+    'agents/x.md',
+    'skills/x/SKILL.md',
+    'environments/sandboxed.yaml',
+  ])('gives %s inside the folder', (relative) => {
+    expect(folder.pathOf(relative)).toBe(`/home/alice/.consola/workspaces/ws-1/${relative}`);
+  });
 
   it.each([
     '../x',
@@ -828,6 +874,10 @@ describe('FactoryFolder.pathOf', () => {
     'agents/../factory.yml',
     'automations/x.yml',
     'agents/.hidden.md',
+    'environments/a/b.yaml',
+    'environments/x.yml',
+    'environments/.x.yaml',
+    'environments/X.yaml',
     '',
   ])('refuses %j', (relative) => {
     expect(folder.pathOf(relative)).toBeNull();

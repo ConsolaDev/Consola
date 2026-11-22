@@ -312,7 +312,9 @@ export function automationVersion(
 /**
  * A steps entry's `resolvedBody`: today's `stableStringify({ <stepId>: <action body> })`, or undefined, when no step
  * names an agent; `stableStringify({ actions, agents: { <agent>: <agentHash> } })` when one does (`actions` absent
- * when none is used). Every runner hashes an entry through this.
+ * when none is used); and, when an agent names an environment (slice 3-B),
+ * `stableStringify({ actions, agents, environments: { <name>: <environmentHash> } })`. Every runner hashes an entry
+ * through this.
  *
  * So an entry no step of which names an agent (every slice-1 entry) hashes byte for byte as before, and an agent
  * file, a skill it names or a server it names changes the version of exactly the entries that use that agent.
@@ -320,8 +322,18 @@ export function automationVersion(
 export function stepsResolvedBody(
   actionBodies: Readonly<Record<string, string>>,
   agentHashes: Readonly<Record<string, string>>,
+  environmentHashes?: Readonly<Record<string, string>>,
 ): string | undefined {
   const actions = Object.keys(actionBodies).length > 0 ? actionBodies : undefined;
+  // An environment a write agent names is in the version too (slice 3-B); none moves no hash.
+  const environments =
+    environmentHashes !== undefined && Object.keys(environmentHashes).length > 0
+      ? environmentHashes
+      : undefined;
+  if (environments !== undefined) {
+    const agents = Object.keys(agentHashes).length > 0 ? agentHashes : undefined;
+    return stableStringify({ actions, agents, environments });
+  }
   if (Object.keys(agentHashes).length === 0)
     return actions === undefined ? undefined : stableStringify(actions);
   return stableStringify({ actions, agents: agentHashes });

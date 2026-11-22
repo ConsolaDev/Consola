@@ -240,10 +240,11 @@ export function decideApply(input: {
 }
 
 /**
- * The texts a version persists: every text read, or, given `only` (the
- * entries a first start applied), the texts those entries use: `factory.yml`
- * whole when one of them lives there, each one's own automation file, and
- * every agent file they name.
+ * The texts a version persists: every text read (environment files
+ * included, slice 3-B), or, given `only` (the entries a first start
+ * applied), the texts those entries use: `factory.yml` whole when one of
+ * them lives there, each one's own automation file, and every agent file
+ * they name.
  */
 export function appliedTexts(
   files: FactoryFiles,
@@ -256,6 +257,9 @@ export function appliedTexts(
     for (const name of Object.keys(files.automations))
       texts[`automations/${name}.yaml`] = files.automations[name];
     for (const name of Object.keys(files.agents)) texts[`agents/${name}.md`] = files.agents[name];
+    const environments = files.environments ?? {};
+    for (const name of Object.keys(environments))
+      texts[`environments/${name}.yaml`] = environments[name];
     return texts;
   }
   for (const automation of only) {
