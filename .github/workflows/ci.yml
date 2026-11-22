@@ -74,5 +74,9 @@ jobs:
       # The copied packages need no install script; skipping them skips
       # fetching Electron and rebuilding node-pty for the desktop app.
       - run: pnpm install --frozen-lockfile --ignore-scripts
-      - run: pnpm --filter "./vendor/t3code/packages/*" typecheck
-      - run: pnpm --filter "./vendor/t3code/packages/*" test
+      - run: pnpm --filter "./vendor/t3code/packages/*" --filter "./vendor/t3code/apps/*" typecheck
+      # The lifted t3 server files (vendor/t3code/apps/server) hold their own
+      # tests. The packages that re-export them (everything depending on
+      # @t3tools/server) run a slice of those same tests, so they are left out
+      # here and every copied test runs once.
+      - run: pnpm --filter "./vendor/t3code/packages/*" --filter "./vendor/t3code/apps/*" --filter "!...^@t3tools/server" test

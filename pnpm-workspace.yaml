@@ -4,6 +4,8 @@ packages:
   # Copied from t3code (vendor/t3code/UPSTREAM.md).
   - vendor/t3code
   - vendor/t3code/packages/*
+  # t3 server files lifted by Consola, at their upstream path.
+  - vendor/t3code/apps/*
 
 # Versions the copied t3code packages ask for with `catalog:`, at t3's values
 # (vendor/t3code/UPSTREAM.md). Consola's own packages pin their versions.
@@ -11,7 +13,6 @@ catalog:
   '@effect/graphql-generator': 4.1.5
   '@effect/openapi-generator': 4.1.5
   '@effect/platform-node': 4.1.5
-  '@effect/platform-node-shared': 4.1.5
   '@effect/vitest': 4.1.5
   '@noble/curves': 1.9.1
   '@noble/hashes': 1.8.0

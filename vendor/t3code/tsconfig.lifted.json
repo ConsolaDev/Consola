@@ -1,10 +1,11 @@
 {
-  // Consola's file (UPSTREAM.md, "Lifted by Consola"), for the packages lifted out
-  // of t3's apps/server. Their service keys keep t3's server package name
-  // ("t3/provider/..."), and effect-tsgo's deterministicKeys rule expects the
-  // name of the package a file sits in, so that one rule is off. Everything else
-  // is tsconfig.effect.json's plugin block, which a package's own "plugins"
-  // replaces whole: keep the two equal when re-syncing.
+  // Consola's file (UPSTREAM.md, "Lifted by Consola"), for the lifted server files
+  // (apps/server, @t3tools/server) and the packages that re-export them. Their
+  // service keys keep t3's server package name ("t3/provider/..."), and
+  // effect-tsgo's deterministicKeys rule expects the name of the package a file
+  // sits in (@t3tools/server), so that one rule is off. Everything else is
+  // tsconfig.effect.json's plugin block, which a package's own "plugins" replaces
+  // whole: keep the two equal when re-syncing.
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "plugins": [
