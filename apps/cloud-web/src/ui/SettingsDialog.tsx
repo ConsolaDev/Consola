@@ -1,5 +1,13 @@
 import { X } from 'lucide-react';
-import { type ReactNode, useEffect, useId, useRef, useSyncExternalStore } from 'react';
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import { chooseSection } from '../domain/sections';
 import { hashOfSettingsPage } from '../domain/settings';
 import { currentSettingsPageId, onSettingsPageChange } from '../services/settingsAddress';
@@ -8,6 +16,24 @@ import { SETTINGS_PAGES } from './settingsPages';
 import './SettingsDialog.css';
 
 const subscribe = (changed: () => void) => onSettingsPageChange(() => changed());
+
+/**
+ * Where a Radix overlay on a settings page renders. Radix puts a DropdownMenu's, Popover's,
+ * Select's or Tooltip's content at the end of the page's body, which this modal dialog makes
+ * inert: it shows, and takes no click. Hand `ref` to any element of the page, and `container` to
+ * the overlay's content, which then renders inside the dialog (and inside the Theme, as the dialog
+ * is).
+ */
+export function useSettingsMenuHost(): {
+  ref: (element: HTMLElement | null) => void;
+  container: HTMLElement | undefined;
+} {
+  const [container, setContainer] = useState<HTMLElement | undefined>(undefined);
+  const ref = useCallback((element: HTMLElement | null) => {
+    setContainer(element?.closest('dialog') ?? undefined);
+  }, []);
+  return { ref, container };
+}
 
 /** The settings page the address names, kept in step with it. */
 function useSettingsPageId(): string | null {

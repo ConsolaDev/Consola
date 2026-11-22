@@ -1,6 +1,6 @@
 import { DropdownMenu } from '@radix-ui/themes';
 import { Ellipsis, UserPlus, X } from 'lucide-react';
-import { useCallback, useState } from 'react';
+import { useState } from 'react';
 import { firstTeamNote, messageForTeamChange } from '../domain/teamMessages';
 import {
   addableTo,
@@ -11,6 +11,7 @@ import {
 } from '../domain/teams';
 import { type MyWorkspace, roleName } from '../domain/workspace';
 import { teamsService } from '../services/teams';
+import { useSettingsMenuHost } from './SettingsDialog';
 import { TeamNameForm } from './TeamNameForm';
 
 function initials(name: string): string {
@@ -56,12 +57,8 @@ export function TeamCard({
   const [mode, setMode] = useState<'view' | 'rename' | 'delete'>('view');
   const [pending, setPending] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
-  // Radix puts a menu at the end of the page's body, which a modal dialog leaves inert: inside
-  // Settings, a menu must open within the dialog to take a click.
-  const [menuHost, setMenuHost] = useState<HTMLElement | undefined>(undefined);
-  const card = useCallback((element: HTMLElement | null) => {
-    setMenuHost(element?.closest('dialog') ?? undefined);
-  }, []);
+  // The card's menus open inside Settings' dialog, or they take no click.
+  const { ref: card, container: menuHost } = useSettingsMenuHost();
   const ws = { id: workspace.id };
 
   /** Sends a change, says why if it did not go through, and loads the teams again if needed. */

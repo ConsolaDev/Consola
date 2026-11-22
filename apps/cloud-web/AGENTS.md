@@ -133,11 +133,8 @@ answer. The page is built from Settings' shared classes (the title,
 descriptions, `.settings-button`, `.settings-chip`) and its own, all `teams-*`
 in `ui/TeamsPage.css`.
 
-- **A menu inside Settings opens inside the dialog.** Radix puts a menu's
-  content at the end of the page's body, which Settings' modal `<dialog>`
-  leaves inert, so its items would take no click. `TeamCard` hands each
-  `DropdownMenu.Content` the dialog it sits in (`container`); any Radix menu,
-  popover or select on a Settings page needs the same.
+- **A team's menus open inside Settings' dialog** (`useSettingsMenuHost`;
+  see "Settings"), or they would take no click.
 
 - **The page reaches a cell through its own origin**: `/cell/<region>/…`,
   which the dev server proxies to that region's cell (`vite.config.ts`, from
@@ -256,6 +253,12 @@ Sizes and spacing are the desktop's; colours are this app's Radix tokens.
   page (the workspace's details, its members, billing) is one entry there and
   files of its own. They are all the workspace's for now; a group of the
   person's own settings would sit above, as the desktop's App group does.
+- **A Radix overlay inside a page renders into the dialog (`container`), or
+  it is inert.** Radix puts a DropdownMenu's, Popover's, Select's or
+  Tooltip's content at the end of the page's body, which the modal dialog
+  makes inert: it shows, and takes no click. `useSettingsMenuHost()`
+  (`SettingsDialog.tsx`) gives a page the dialog to hand as the content's
+  `container`, from a `ref` on any element of the page (`TeamCard` uses it).
 - On a narrow screen it fills the window and its list becomes a row above
   the page.
 
