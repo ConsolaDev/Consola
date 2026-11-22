@@ -19,7 +19,6 @@ import * as Cause from 'effect/Cause';
 import * as Effect from 'effect/Effect';
 import * as Duration from 'effect/Duration';
 import * as Fiber from 'effect/Fiber';
-import * as Schedule from 'effect/Schedule';
 import * as Stream from 'effect/Stream';
 import { type JSX, type RefObject, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import ChatView from '~/components/ChatView';
@@ -150,10 +149,12 @@ const passRefused = (state: SupervisorConnectionState): boolean =>
   state.lastFailure.reason === 'authentication';
 
 /**
- * How long the chat looks for its environment in t3's registry before it gives up: the
- * registration lands within one reconcile, which is local.
+ * How long the chat waits for its environment to show in t3's registry before it says it could
+ * not connect: the registration lands within one reconcile, which is local, unless the page's hold
+ * waits on another window removing the session's pass (`storedSessions.ts`). The chat keeps
+ * watching after that, and the notice goes once t3 connects.
  */
-const REGISTRATION_WAIT = Schedule.spaced(Duration.millis(100)).pipe(Schedule.upTo({ times: 100 }));
+const REGISTRATION_WAIT = Duration.seconds(10);
 
 /**
  * Why the chat shows no conversation, when it is the chat's own doing rather than t3's: t3 shows
@@ -281,11 +282,30 @@ function useHostConnection(props: AgentChatProps): ChatProblem | null {
         if (stopped) return;
         const watch = Effect.gen(function* () {
           const registry = yield* EnvironmentRegistry.EnvironmentRegistry;
-          yield* registry.stateChanges(environmentId).pipe(
-            // Until the registration lands the environment is unknown: look again shortly.
-            Stream.retry(REGISTRATION_WAIT),
-            Stream.runForEach((state) => Effect.sync(() => onState(state))),
+          let shown = false;
+          // t3's registry shows nothing of an environment until it is registered, then its state.
+          const states = registry.stateChanges(environmentId).pipe(
+            Stream.runForEach((state) =>
+              Effect.sync(() => {
+                shown = true;
+                onState(state);
+              }),
+            ),
           );
+          const deadline = Effect.sleep(REGISTRATION_WAIT).pipe(
+            Effect.andThen(
+              Effect.sync(() => {
+                if (shown || stopped) return;
+                logFailure(
+                  "t3's connection has not shown the host's state after 10 seconds; still waiting.",
+                  new Error("The host is not registered with t3's connection yet."),
+                  [pass],
+                );
+                setProblem({ kind: 'connection-failed' });
+              }),
+            ),
+          );
+          yield* Effect.all([states, deadline], { concurrency: 'unbounded', discard: true });
         }).pipe(
           Effect.catchCause((cause) =>
             Effect.sync(() => {

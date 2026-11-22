@@ -91,7 +91,11 @@ pieces:
     starting, t3 refusing the registration, or the environment not appearing in t3's registry
     within ten seconds (`REGISTRATION_WAIT`) ("The chat could not connect to its host").
 
-  The notice goes once the host connects. Every failure of the chat's own is also logged
+  The notice goes once the host connects: the chat keeps watching t3's state after the ten
+  seconds, so a registration that lands later (its hold waiting on another window removing the
+  session's pass) takes the notice back (`AgentChat.lateRegistration.browser.test.tsx`). t3's
+  registry shows nothing of an environment until it is registered (it never fails for one it
+  does not know), so the ten seconds are a deadline on its first state. Every failure of the chat's own is also logged
   (`console.error`, `@consola/agent-ui: …`), with the passes the page holds taken out of the
   detail: the page sees nothing else of it.
 - **What else is mounted**: t3's `I18nProvider` (started once per page), its atom registry, and a
