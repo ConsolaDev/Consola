@@ -207,7 +207,6 @@ import {
   type StepsRunPreview,
 } from './steps/definition';
 import { isEngineRun, isStepsRun } from './steps/recover';
-import { flowNotYet } from './steps/flowLater';
 import { advanceSteps, type Advance, type Lane, type StepUpdate } from './steps/sequence';
 import {
   closeSteps,
@@ -411,6 +410,14 @@ const RETRY_HELD = 'Another run on this item is working; retry once it ends.';
 
 /** What a retry of a run that never started is refused with: there is no step it got to, and its approval did not cover a start. */
 const NEVER_STARTED = 'It never started; run it again.';
+
+/**
+ * What a retry of a run over its budget is refused with. Spent cannot go
+ * down, and a raised `budget:` is a new version: the retry runs the run's
+ * own snapshot, so it would only fail again at its first boundary.
+ */
+const OVER_BUDGET_RETRY =
+  "This run can't continue: it is over the budget it was approved with. Raise `budget:` in the file and run it again.";
 
 /** Why an agent's run waits, and what approving it does: it never accepts the entry. */
 const AN_AGENT_ASKED = 'An agent asked for this run: approving runs this run only.';
@@ -2783,8 +2790,11 @@ export class AutomationService {
       throw new Error(`Run ${runId} is not a failed steps run.`);
     // Refused at approval or turned away in line: its approval never covered a start, so the click must not be one.
     if (!run.startedAt) throw new Error(NEVER_STARTED);
-    if (this.retrying.has(runId)) throw new Error(`Run ${runId} is already being retried.`);
+    // By the budget its own snapshot was approved with: raising `budget:` in the file cannot help this run.
     const loaded = this.definitionOf(run);
+    if ('definition' in loaded && isOverBudget(loaded.definition, run))
+      throw new Error(OVER_BUDGET_RETRY);
+    if (this.retrying.has(runId)) throw new Error(`Run ${runId} is already being retried.`);
     if ('problem' in loaded) throw new Error(loaded.problem);
     const target = retryTargetOf(run.steps ?? []);
     if (!target) throw new Error(`Run ${runId} has no step to retry.`);
@@ -3159,6 +3169,7 @@ export class AutomationService {
       run.dryRun === true,
       stepItemOf(run, itemOf),
       this.iso(),
+      budgetOf(entry.steps.definition, run),
     );
     if (next.kind === 'start') return next.lane;
     return next.kind === 'ask' ? 'command' : null;
@@ -3602,11 +3613,13 @@ export class AutomationService {
       this.failRun(runId, `${itemOf.error}; it cannot continue.`, options);
       return;
     }
+    const budget = budgetOf(loaded.definition, run);
     const next = advanceSteps({
       steps: loaded.definition.automation.steps,
       records: run.steps,
       dryRun: run.dryRun === true,
       ...stepItemOf(run, itemOf),
+      ...(budget ? { budget } : {}),
     });
     if (next.kind === 'wait') return;
     const stopping = this.stopRequested.delete(runId);
@@ -3668,7 +3681,14 @@ export class AutomationService {
     } else {
       if (this.entryRetryWait(runId, next.error, options.quiet === true)) return;
       this.finish(runId, 'failed', { error: next.error });
-      if (!options.quiet) this.notify(`${run.automationId} did not finish`, next.error, runId);
+      if (!options.quiet)
+        this.notify(
+          next.overBudget
+            ? `${run.automationId} went over its budget`
+            : `${run.automationId} did not finish`,
+          next.error,
+          runId,
+        );
     }
     void this.pump();
   }
@@ -4562,7 +4582,7 @@ export class AutomationService {
       record,
       agentNamesServer: agentNamesServer(loaded.definition, stepId),
       stoppedByPerson: person,
-      overBudget: false,
+      overBudget: isOverBudget(loaded.definition, this.deps.store.get(runId)!),
     });
     // Spent: its own failure says how many times it was tried; a person's stop says only that.
     if (!may)
@@ -4600,7 +4620,7 @@ export class AutomationService {
       records: run.steps ?? [],
       agentNamesServer: (stepId) => agentNamesServer(definition, stepId),
       stoppedByPerson: byPerson || this.stoppedByPerson.has(runId),
-      overBudget: false,
+      overBudget: isOverBudget(definition, run),
     });
     if (!may) return false;
     this.deps.store.update(runId, {
@@ -5398,10 +5418,6 @@ export class AutomationService {
     }
     if (stops.length > 0)
       return unable(stops[0].message, warnings, { recheck: true, unasked: true });
-    // A key the format accepts and the engine does not run yet stops the entry, in words (slice 3,
-    // Call 2): last, so every other problem the entry has is said first.
-    const notYet = flowNotYet(automation);
-    if (notYet) return unable(notYet, warnings);
 
     // The bodies live in settings, not the file: editing one asks again. So
     // does editing an agent file a step names: its hash is in the version.
@@ -6166,6 +6182,26 @@ function movedSinceAnswered(run: RunRecord, head: string, workItem: ItemRef): st
 }
 
 /**
+ * The ceiling a run's own definition sets and what the run has spent (its
+ * `costUsd`: each step's turns, as the CLI reported them, Call 12's running
+ * totals already taken apart), for the sequencer's boundary check; none
+ * without a `budget:`.
+ */
+function budgetOf(
+  definition: RunDefinition,
+  run: Pick<RunRecord, 'costUsd'>,
+): { usd: number; spent: number } | undefined {
+  const usd = definition.automation.budget?.usd;
+  return usd === undefined ? undefined : { usd, spent: run.costUsd ?? 0 };
+}
+
+/** Whether a run has spent the budget its own definition was approved with (none: never). */
+function isOverBudget(definition: RunDefinition, run: Pick<RunRecord, 'costUsd'>): boolean {
+  const budget = budgetOf(definition, run);
+  return budget !== undefined && budget.spent >= budget.usd;
+}
+
+/**
  * What a run would do first from `records`, as the sequencer says, a loop's
  * round followed into its steps (over a copy, `withRound` applied as
  * `advance` would) until it starts a step, asks, completes or fails.
@@ -6176,10 +6212,17 @@ function firstMove(
   dryRun: boolean,
   item: Pick<Parameters<typeof advanceSteps>[0], 'itemValue' | 'untypedItem'>,
   nowIso: string,
+  budget?: { usd: number; spent: number },
 ): Advance {
   let current = records;
   for (;;) {
-    const next = advanceSteps({ steps: entries, records: current, dryRun, ...item });
+    const next = advanceSteps({
+      steps: entries,
+      records: current,
+      dryRun,
+      ...item,
+      ...(budget ? { budget } : {}),
+    });
     if (next.kind !== 'round') return next;
     // The sequencer begins a round only of a loop of these entries.
     const block = flatSteps(entries).find((row) => row.step.id === next.blockId)
