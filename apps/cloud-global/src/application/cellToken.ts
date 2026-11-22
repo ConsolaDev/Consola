@@ -1,4 +1,4 @@
-import { cellTokenClaims } from '@consola/cloud-contract';
+import { cellTokenClaims, type Region } from '@consola/cloud-contract';
 import type { SignedIn } from '../domain/person.js';
 import type { CellTokenKeySet, CellTokenSigner, MembershipStore } from './ports.js';
 
@@ -16,7 +16,7 @@ export async function mintCellToken(
   session: SignedIn,
   issuedAt: number,
 ): Promise<
-  | { kind: 'minted'; token: string; expiresAt: number }
+  | { kind: 'minted'; token: string; expiresAt: number; workspaceId: string; region: Region }
   | { kind: 'no-workspace' }
   | { kind: 'not-a-member' }
 > {
@@ -36,7 +36,14 @@ export async function mintCellToken(
     region: workspace.region,
     issuedAt,
   });
-  return { kind: 'minted', token: await ports.signer.sign(claims), expiresAt: claims.exp };
+  const token = await ports.signer.sign(claims);
+  return {
+    kind: 'minted',
+    token,
+    expiresAt: claims.exp,
+    workspaceId: workspace.id,
+    region: workspace.region,
+  };
 }
 
 /** The public keys a cell checks cell tokens with. Reading them needs no sign-in. */

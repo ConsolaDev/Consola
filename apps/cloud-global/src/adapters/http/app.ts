@@ -11,6 +11,7 @@ import {
 } from '../../application/connections.js';
 import { checkHealth } from '../../application/health.js';
 import { describeMe } from '../../application/me.js';
+import { listActiveWorkspaceMembers } from '../../application/members.js';
 import type {
   CellTokenSigner,
   GitHubApp,
@@ -33,6 +34,7 @@ import {
   deleteGitHubInstallation,
   type GITHUB_CALLBACK_RESULTS,
   GitHubCallbackResult,
+  getActiveWorkspaceMembers,
   getCellTokenKeys,
   getConnections,
   getGitHubCallback,
@@ -183,6 +185,18 @@ export function createApp(deps: {
     return c.json(answer.workspace, 200);
   });
 
+  app.openapi(
+    { ...getActiveWorkspaceMembers, middleware: [requireSession] as const },
+    async (c) => {
+      const answer = await listActiveWorkspaceMembers(memberships, c.var.session);
+      if (answer.kind === 'no-workspace') {
+        return c.json({ error: 'no_active_workspace' } as const, 409);
+      }
+      if (answer.kind === 'not-a-member') return c.json({ error: 'not_a_member' } as const, 403);
+      return c.json({ members: answer.members }, 200);
+    },
+  );
+
   app.openapi({ ...listWorkspaces, middleware: [requireSession] as const }, async (c) =>
     c.json({ workspaces: await listMyWorkspaces(memberships, c.var.session.person) }, 200),
   );
@@ -227,7 +241,8 @@ export function createApp(deps: {
     if (answer.kind === 'not-a-member') return c.json({ error: 'not_a_member' } as const, 403);
     // A token is a credential, so no cache keeps it.
     c.header('cache-control', 'no-store');
-    return c.json({ token: answer.token, expiresAt: answer.expiresAt }, 200);
+    const { token, expiresAt, workspaceId, region } = answer;
+    return c.json({ token, expiresAt, workspaceId, region }, 200);
   });
 
   // The public keys a cell checks the token with, for anyone to read.
