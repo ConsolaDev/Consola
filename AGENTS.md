@@ -69,6 +69,16 @@ runs pnpm through `npx pnpm@<version>`: keep that version equal to
 `packageManager`. Electron bundles its own Node, so none of this changes the
 app's runtime.
 
+`.env` files are gitignored, so a new git worktree has none, and an app that
+needs one (`apps/cloud-global/.env`, say) will not start there. `pnpm install`
+fixes that: its `postinstall` (`tools/link-worktree-env.mjs`) links every
+`.env` and `.env.*` the main checkout has, at the root or in a package's
+folder, into the worktree, as symbolic links to the main checkout's files. It
+never replaces a file that is there, links only what git ignores, and does
+nothing in the main checkout, in a plain clone (CI) or outside git. Run it by
+hand with `pnpm link-env`. A relative `pglite:` `DATABASE_URL` then gives each
+worktree a database of its own.
+
 ### CI
 
 CI (`.github/workflows/ci.yml`) runs a pull request's checks only where its
