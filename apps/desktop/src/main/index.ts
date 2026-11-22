@@ -2,7 +2,9 @@ import { Menu, MenuItem, app, protocol } from 'electron';
 import { IPC_CHANNELS } from '../shared/constants';
 import { WORK_ITEM_ASSET_SCHEME } from '../shared/workItemAssets';
 import { setupAppUpdates } from './appUpdates';
-import { isBackgroundTest } from './test-mode';
+import { allDrivers } from './drivers';
+import { guardTestLaunches, testLaunches } from './drivers/testLaunchGuard';
+import { exposeToTests, isBackgroundTest, isTest } from './test-mode';
 import {
   consolaWindows,
   contextToReopen,
@@ -73,6 +75,15 @@ if (!app.requestSingleInstanceLock()) {
 }
 
 let cleanupAppUpdates: (() => void) | undefined;
+
+// A test launch of the app runs no CLI the test did not provide: a harness's
+// own stub, or the run's stand-in for the ambient CLI; anything else is
+// refused before it runs. Both are there for the spec to fail on (review S4).
+// Before anything can spawn one.
+if (isTest) {
+  guardTestLaunches(allDrivers(), process.env.CONSOLA_TEST_AMBIENT_CLI);
+  exposeToTests('launches', testLaunches);
+}
 
 app.whenReady().then(() => {
   // Handlers are registered once for the process, not once per window: they

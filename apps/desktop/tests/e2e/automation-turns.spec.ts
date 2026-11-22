@@ -291,7 +291,7 @@ async function setUpSteps(options: StepsOptions = {}): Promise<Steps> {
       ...(typeof options.env === 'function' ? options.env({ base }) : (options.env ?? {})),
     };
     const userDataDir = path.join(base, 'profile');
-    const launched = await launchElectron({ userDataDir, env });
+    const launched = await launchElectron({ userDataDir, env, strictLaunches: true });
     app = launched.app;
     const { page } = launched;
     const workspaceId = await page.evaluate(

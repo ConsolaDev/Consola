@@ -283,7 +283,7 @@ async function setUpSteps(options: StepsOptions = {}): Promise<Steps> {
       ...(typeof options.env === 'function' ? options.env({ base, head }) : (options.env ?? {})),
     };
     const userDataDir = path.join(base, 'profile');
-    const launched = await launchElectron({ userDataDir, env });
+    const launched = await launchElectron({ userDataDir, env, strictLaunches: true });
     app = launched.app;
     const { page } = launched;
     const workspaceId = await page.evaluate(
@@ -1008,6 +1008,7 @@ test('a restart mid-publish fails the run and never posts twice', async () => {
     const ghBefore = steps.ghLog().length;
     const since = () => steps.ghLog().slice(ghBefore);
     const relaunched = await launchElectron({
+      strictLaunches: true,
       userDataDir: steps.userDataDir,
       env: { ...steps.env, STUB_GH_SLEEP: '0' },
     });

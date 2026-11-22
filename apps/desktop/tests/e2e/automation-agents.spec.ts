@@ -245,7 +245,7 @@ async function setUpSteps(): Promise<Steps> {
       STUB_CLAUDE_HANDOVER: files.handover,
     };
     const userDataDir = path.join(base, 'profile');
-    const launched = await launchElectron({ userDataDir, env });
+    const launched = await launchElectron({ userDataDir, env, strictLaunches: true });
     app = launched.app;
     const { page } = launched;
     const workspaceId = await page.evaluate(
@@ -311,7 +311,11 @@ async function setUpSteps(): Promise<Steps> {
 /** Quit, then launch again on the same profile and environment; the window reopens where it was left. */
 async function relaunch(steps: Steps): Promise<void> {
   await steps.app.close();
-  const relaunched = await launchElectron({ userDataDir: steps.userDataDir, env: steps.env });
+  const relaunched = await launchElectron({
+    userDataDir: steps.userDataDir,
+    env: steps.env,
+    strictLaunches: true,
+  });
   steps.app = relaunched.app;
   steps.page = relaunched.page;
 }
@@ -962,7 +966,11 @@ test('an agent that names servers or skills is refused, and says why', async () 
     const store = path.join(`${steps.userDataDir} Test`, 'factory-applied');
     expect(fs.readdirSync(store)).toHaveLength(1);
     fs.rmSync(store, { recursive: true, force: true });
-    const relaunched = await launchElectron({ userDataDir: steps.userDataDir, env: steps.env });
+    const relaunched = await launchElectron({
+      userDataDir: steps.userDataDir,
+      env: steps.env,
+      strictLaunches: true,
+    });
     steps.app = relaunched.app;
     steps.page = relaunched.page;
     const railButton = steps.page

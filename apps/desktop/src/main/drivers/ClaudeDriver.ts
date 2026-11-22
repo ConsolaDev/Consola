@@ -675,8 +675,8 @@ export interface HeadlessResult {
 export async function runHeadless(
   prompt: string,
   options: { cwd: string; timeoutMs?: number } = { cwd: process.cwd() },
+  driver: HarnessDriver = new ClaudeDriver(),
 ): Promise<HeadlessResult> {
-  const driver = new ClaudeDriver();
   const config: HarnessConfig = { extraArgs: [] };
   const binary = driver.resolveBinary(config);
   const args = ['-p', prompt, '--output-format', 'json', '--allowed-tools', ''];

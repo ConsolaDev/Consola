@@ -2899,7 +2899,8 @@ ${truncatedDiff}`;
 
       // A one-shot headless CLI call: this only transforms the diff into text
       // and runs with tools disabled, so it never touches the repository.
-      const result = await runHeadless(prompt, { cwd: rootPath });
+      // The registry's Claude driver, so a test run's launch guard covers it too.
+      const result = await runHeadless(prompt, { cwd: rootPath }, getDriver('claude'));
 
       if (result.isError || !result.text) {
         return { message: '', error: 'Could not generate a commit message' };
