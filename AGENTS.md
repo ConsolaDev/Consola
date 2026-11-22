@@ -488,8 +488,8 @@ panel it is view state, kept in the renderer.
   does from anywhere in a session pane; its chevron lists the apps main
   found (`main/openIn/`, one table), and a pick there or in the palette
   becomes the favourite. Main opens only an app it found, on an absolute
-  path that is a folder, with argument lists; a test run records instead
-  of opening. No folder (a removed worktree), no button. Nothing in
+  path that is a folder and not an app's bundle, with argument lists; a
+  test run records instead of opening. No folder (a removed worktree), no button. Nothing in
   the panel navigates or takes the keyboard, on mount or otherwise.
   Visibility rides with the layout (`sidePanelStore.infoVisible`,
   written only under the remember setting, shown when absent); folds sit in
