@@ -17,13 +17,16 @@ once so that neither keeps its own copy:
   (`CellTokenClaims`, `cellTokenClaims`, `readCellTokenClaims`), and the
   algorithm, audience, lifetime and clock skew both sides use;
 - the messages `cloud-global`'s outbox sends a cell (`OutboxMessage`,
-  `WorkspaceChange`, `readOutboxMessage`).
+  `WorkspaceChange`, `readOutboxMessage`), and how it delivers them: the
+  path, the signed body, and what each answer means (`OUTBOX_DELIVERY_PATH`,
+  `OUTBOX_MESSAGE_TYPE`, `OUTBOX_ANSWER`, `readOutOfOrderAnswer`).
 
 It holds no signing, no verifying and no delivery. Minting and signing the
 token are `cloud-global`'s (issue 5.3), checking its signature and its region
-the cell's (5.4). The outbox table and its worker are `cloud-global`'s (6.1);
-applying a message, checking its region and its order, and how delivery is
-authenticated are the cell's (6.2).
+the cell's (5.4). The outbox table, signing a message and the worker that
+delivers it are `cloud-global`'s (6.1); checking a delivery's signature,
+applying its message, and checking its region and its order are the cell's
+(6.2).
 
 Only the two cloud apps import it, from any of their layers, `domain` and
 `application` included. It is AGPL-3.0-only, because only Consola's own apps
@@ -53,11 +56,12 @@ like the apps' own boundary tests.
 
 ## Reading what the other side sent
 
-Everything that crosses between the apps is read with its reader, after its
-signature is checked: `readCellTokenClaims(payload, nowSeconds)` for a token's
-claims, `readOutboxMessage(value)` for a message. Each returns
-`{ ok: true, value }` or `{ ok: false, reason }`, and never throws on what it
-reads.
+Everything that crosses between the apps is read with its reader:
+`readCellTokenClaims(payload, nowSeconds)` for a token's claims and
+`readOutboxMessage(value)` for a message, each once its signature is checked,
+and `readOutOfOrderAnswer(value)` for a cell's `outOfOrder` answer. Each
+returns `{ ok: true, value }` or `{ ok: false, reason }`, and never throws on
+what it reads.
 
 - **Strict.** A field missing, a field the contract does not name, a role or
   region it does not list, or a change type it does not know is refused,
@@ -110,6 +114,39 @@ reads.
   the order their changes committed. The reader refuses a `workspace.created`
   anywhere else, and any other change at 1. A cell applies a workspace's
   messages in sequence order, so one it has applied already changes nothing.
+
+### Delivering a message
+
+- **One message a request**: `POST` to `OUTBOX_DELIVERY_PATH` on the cell's
+  origin. It is the one route of a cell's, besides its health check, that
+  carries no cell token: a delivery is no person's request, and its
+  signature is what says it is `cloud-global`'s.
+- **The body is the message, signed**: its JSON as the payload of a JWS in
+  compact serialization (RFC 7515), sent as `OUTBOX_DELIVERY_MEDIA_TYPE`
+  (`application/jose`). The protected header holds `alg`
+  (`CELL_TOKEN_ALGORITHM`), the signing key's `kid`, and `typ`
+  (`OUTBOX_MESSAGE_TYPE`), and nothing a cell must understand beyond them.
+- **The key is the cell token's.** `cloud-global` signs with
+  `CELL_TOKEN_PRIVATE_KEY`, and a cell checks against the key set it already
+  fetches from `CELL_TOKEN_KEYS_PATH`, picking the key by `kid`, allowing
+  `CELL_TOKEN_ALGORITHM` alone and refusing any other `typ`. One key means one
+  secret to configure and one rotation. Neither can pass for the other: a cell
+  token's claims are no message `readOutboxMessage` takes, and a message names
+  no `aud`, so no cell takes it for a token.
+- **No time in it.** A message is applied once, by its sequence, so one sent
+  again, or captured and sent later, changes nothing a cell has applied.
+- **The answers** are `OUTBOX_ANSWER`'s, by status: `applied` (200) when the
+  cell has the message, applied now or before; `unreadable` (400);
+  `unsigned` (401); `outOfOrder` (409), whose body
+  (`readOutOfOrderAnswer`) names the sequence the cell applies next;
+  `otherRegion` (421); and `unavailable` (503) when the cell cannot get the
+  keys or its database. A cell checks in that order: the signature, then the
+  message, then its region, then its sequence.
+- **`cloud-global` takes a 2xx alone as confirmation**, and retries every
+  other answer, a refusal or a failed connection included, waiting longer
+  each time. It never skips a message, and a workspace's next message waits
+  until this one is confirmed, so the order per workspace is kept. A refusal
+  that never clears holds up its workspace alone, where it can be seen.
 
 ## Changing the contract
 
