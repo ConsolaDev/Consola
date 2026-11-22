@@ -146,8 +146,6 @@ describe('ids', () => {
 });
 
 const STEP_KEYS: Record<string, string> = {
-  repeat: 'write steps',
-  on_exhausted: 'write steps',
   on_failure: 'write steps',
   checkout: 'write steps',
   environment: 'write steps',
@@ -182,6 +180,8 @@ describe("refuses later slices' keys with a reason", () => {
   it.each([
     ['gate', 'A gate is a step; put it in `steps:`.'],
     ['then', '`then:` goes on a step.'],
+    ['repeat', 'A loop is a step; put it in `steps:`.'],
+    ['on_exhausted', '`on_exhausted` goes on a `repeat` block.'],
   ])('entry key %s says where it goes', (key, message) => {
     const issue = only(one(`${REVIEW}    steps:\n      - prompt: hi\n    ${key}: x\n`));
     expect(issue.path).toMatch(new RegExp(`${key}$`));
@@ -1135,7 +1135,7 @@ describe('across steps', () => {
 function stepOf(result: ReturnType<typeof parseFactorySpec>, index: number): Step {
   const automation = result.automations[0];
   if (!automation || !isStepsEntry(automation)) throw new Error(JSON.stringify(result.issues));
-  return automation.steps[index];
+  return automation.steps[index] as Step;
 }
 
 describe('previous', () => {

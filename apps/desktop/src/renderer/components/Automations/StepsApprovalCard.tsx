@@ -1,10 +1,16 @@
 import { useEffect, useState } from 'react';
-import { Bot, Hand, Terminal } from 'lucide-react';
+import { Bot, Hand, Repeat, Terminal } from 'lucide-react';
 import type { RunDefinition } from '../../../shared/automations';
 import { automationsBridge } from '../../services/automationsBridge';
 import { ipcErrorMessage } from '../../utils/ipcErrorMessage';
 import { ITEM_TEXT_LINE } from './agentGrantWords';
-import { approvalAgent, approvalNotes, approvalSkills, dryRunCommands } from './approvalCard';
+import {
+  approvalAgent,
+  approvalNotes,
+  approvalSkills,
+  definitionEntries,
+  dryRunCommands,
+} from './approvalCard';
 import { useIntent } from './parts';
 
 type Loaded =
@@ -73,15 +79,26 @@ export function StepsApprovalCard({
       {ready && (
         <>
           <ol className="automations-approval-steps">
-            {ready.automation.steps.map((step) => (
-              <ApprovalStep
-                key={step.id}
-                runId={runId}
-                step={step}
-                action={ready.actions[step.id]}
-                definition={ready}
-              />
-            ))}
+            {/* Record order: a loop's own row (its id, until its card lines are drawn), then its steps. */}
+            {definitionEntries(ready.automation.steps).map(({ step }) =>
+              step.kind === 'repeat' ? (
+                <li key={step.id} className="automations-approval-step">
+                  <div className="automations-approval-head">
+                    <Repeat size={13} aria-hidden="true" />
+                    <span className="automations-approval-id">{step.id}</span>
+                    <span className="automations-meta">Loop</span>
+                  </div>
+                </li>
+              ) : (
+                <ApprovalStep
+                  key={step.id}
+                  runId={runId}
+                  step={step}
+                  action={ready.actions[step.id]}
+                  definition={ready}
+                />
+              ),
+            )}
           </ol>
           {approvalNotes(ready, itemType).map((note) => (
             <p key={note} className="automations-hint">
@@ -127,7 +144,7 @@ function ApprovalStep({
   definition,
 }: {
   runId: string;
-  step: RunDefinition['automation']['steps'][number];
+  step: Exclude<RunDefinition['automation']['steps'][number], { kind: 'repeat' }>;
   action: RunDefinition['actions'][string] | undefined;
   definition: RunDefinition;
 }) {

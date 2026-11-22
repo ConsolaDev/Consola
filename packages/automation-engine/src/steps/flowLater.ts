@@ -1,4 +1,4 @@
-import type { StepsAutomation } from '@consola/factory-spec';
+import { leafSteps, type StepsAutomation } from '@consola/factory-spec';
 
 /*
  * Temporary, for slice 3's build (Call 2): the format accepts a control-flow
@@ -11,14 +11,15 @@ export type FlowKey = 'gate' | 'then' | 'repeat' | 'on_failure' | 'budget';
 
 const NOT_YET: readonly FlowKey[] = ['gate', 'then', 'repeat', 'on_failure', 'budget'];
 
-/** Whether the entry writes `key`. `repeat`, `on_failure` and `budget` are still refused by the format. */
+/** Whether the entry writes `key`, a loop's steps included. `on_failure` and `budget` are still refused by the format. */
 function writes(automation: StepsAutomation, key: FlowKey): boolean {
   switch (key) {
     case 'gate':
-      return automation.steps.some((step) => step.kind === 'gate');
+      return leafSteps(automation.steps).some((step) => step.kind === 'gate');
     case 'then':
-      return automation.steps.some((step) => step.stop === true);
+      return leafSteps(automation.steps).some((step) => step.stop === true);
     case 'repeat':
+      return automation.steps.some((step) => step.kind === 'repeat');
     case 'on_failure':
     case 'budget':
       return false;

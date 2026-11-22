@@ -197,6 +197,38 @@ automations:
       ]);
     });
 
+    it("points at a loop's step that names an agent the folder does not have", () => {
+      const result = parseFactory(
+        files({
+          factoryYml: [
+            'version: 1',
+            'automations:',
+            '  - name: triage',
+            '    on: { cron: "0 9 * * *" }',
+            '    scope: ops',
+            '    steps:',
+            '      - id: polish',
+            '        repeat: { max: 2, until: steps.look.done }',
+            '        steps:',
+            '          - id: look',
+            '            agent: noter',
+            '            outputs: { done: boolean }',
+            '',
+          ].join('\n'),
+        }),
+      );
+      expect(result.automations).toEqual([]);
+      expect(result.issues).toEqual([
+        {
+          message: '`noter` is not an agent here: there is no agents/noter.md.',
+          file: 'factory.yml',
+          path: 'automations[0].steps[0].steps[0].agent',
+          line: 11,
+          automation: 'triage',
+        },
+      ]);
+    });
+
     it("says an agent whose own file has problems is why the step's entry is left out", () => {
       const folder = ACCEPTANCE();
       folder.agents.summariser = SUMMARISER.replace('model: haiku', 'model: haiku\ntools: write');
@@ -521,6 +553,32 @@ automations:
       );
       expect(result.issues.map((issue) => issue.message)).toEqual([
         "A dry run can't keep a server's tools to reads: use `confirm`, or remove `a` from `investigator`'s servers, `b` from `investigator`'s servers and `c` from `investigator`'s servers for this automation.",
+      ]);
+    });
+
+    it("names the servers of an agent only a loop's step names", () => {
+      const looped = [
+        'on: { cron: "0 9 * * *" }',
+        'scope: ops-notes',
+        'mode: notify',
+        'steps:',
+        '  - id: polish',
+        '    repeat: { max: 2, until: steps.investigate.done }',
+        '    steps:',
+        '      - id: investigate',
+        '        agent: investigator',
+        '        outputs: { done: boolean }',
+        '',
+      ].join('\n');
+      const result = parseFactory(
+        files({
+          automations: { looped },
+          agents: { investigator: INVESTIGATOR },
+          skills: { 'incident-triage': TRIAGE },
+        }),
+      );
+      expect(result.issues.map((issue) => issue.message)).toEqual([
+        "A dry run can't keep a server's tools to reads: use `confirm`, or remove `claude.ai Coralogix` from `investigator`'s servers for this automation.",
       ]);
     });
 

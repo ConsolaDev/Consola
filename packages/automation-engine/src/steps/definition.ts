@@ -108,7 +108,8 @@ export interface RunDefinition {
  */
 export interface StepsRunPreview {
   kind: 'steps-run';
-  steps: Array<{ id: string; kind: 'agent' | 'run' | 'gate' }>;
+  /** Record order: a loop's row (`repeat`), then its steps, each with `loop`, its loop's id. */
+  steps: Array<{ id: string; kind: 'agent' | 'run' | 'gate' | 'repeat'; loop?: string }>;
   /** The item an event run is about. Title and author are the author's own text. */
   item?: { url: string; title: string; author: string; label: string };
   /** A scheduled run's scope. */

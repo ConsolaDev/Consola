@@ -10,8 +10,9 @@ import {
   LATER_KEYS,
   laterKeyMessage,
   stepsSchema,
-  type Step,
+  type StepEntry,
 } from './steps';
+import { ON_EXHAUSTED_OUTSIDE } from './flow';
 
 /**
  * `auto` runs as soon as the trigger fires. `confirm` previews and waits for
@@ -76,9 +77,9 @@ interface AutomationCommon {
  * hashes exactly as it did before steps existed.
  */
 export type Automation = AutomationCommon &
-  ({ run: RunTarget; steps?: never } | { steps: Step[]; run?: never });
+  ({ run: RunTarget; steps?: never } | { steps: StepEntry[]; run?: never });
 
-export type StepsAutomation = Extract<Automation, { steps: Step[] }>;
+export type StepsAutomation = Extract<Automation, { steps: StepEntry[] }>;
 
 export function isStepsEntry(automation: Automation): automation is StepsAutomation {
   return automation.steps !== undefined;
@@ -357,6 +358,8 @@ function automationEntrySchema() {
       mcpServers: explained(ENTRY_SKILLS_AND_SERVERS),
       // Control flow belongs to the steps, so an entry says where it goes.
       gate: explained('A gate is a step; put it in `steps:`.'),
+      repeat: explained('A loop is a step; put it in `steps:`.'),
+      on_exhausted: explained(ON_EXHAUSTED_OUTSIDE),
       // biome-ignore lint/suspicious/noThenProperty: `then:` is a factory.yml key; this schema is never awaited.
       then: explained('`then:` goes on a step.'),
       ...laterEntryKeys(),

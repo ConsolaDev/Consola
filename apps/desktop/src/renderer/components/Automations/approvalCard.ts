@@ -1,10 +1,35 @@
 import type { RunDefinition, StepDetail } from '../../../shared/automations';
 import { agentStepHead, serverGrantLine, skillsLine } from './agentGrantWords';
 
-type DefinitionStep = RunDefinition['automation']['steps'][number];
+type DefinitionEntry = RunDefinition['automation']['steps'][number];
+type DefinitionStep = Exclude<DefinitionEntry, { kind: 'repeat' }>;
+
+/*
+ * The renderer's copy of factory-spec's `flatSteps` and `leafSteps`: the
+ * renderer loads no factory-spec runtime (its `run.ts` imports Node's
+ * crypto), only its types. `src/main/automations/stepTree.parity.test.ts`
+ * keeps the two one rule.
+ */
+
+/** Record order: each entry, and right after a loop its steps, each with `loop`, the loop's id. */
+export function definitionEntries(
+  entries: readonly DefinitionEntry[],
+): Array<{ step: DefinitionEntry; loop?: string }> {
+  return entries.flatMap(
+    (step): Array<{ step: DefinitionEntry; loop?: string }> =>
+      step.kind === 'repeat'
+        ? [{ step }, ...step.steps.map((inner) => ({ step: inner, loop: step.id }))]
+        : [{ step }],
+  );
+}
+
+/** Every leaf step, a loop's included, in file order: what every "does any step…" question reads. */
+export function definitionLeaves(entries: readonly DefinitionEntry[]): DefinitionStep[] {
+  return entries.flatMap((step) => (step.kind === 'repeat' ? step.steps : [step]));
+}
 
 const hasCommand = (definition: RunDefinition) =>
-  definition.automation.steps.some((step) => step.kind === 'run');
+  definitionLeaves(definition.automation.steps).some((step) => step.kind === 'run');
 
 /**
  * What a steps run's approval says besides its steps: whose logins a command
@@ -32,7 +57,7 @@ export function approvalNotes(
  * card names them whether or not this run is a dry run.
  */
 export function dryRunCommands(definition: RunDefinition): string[] {
-  return definition.automation.steps
+  return definitionLeaves(definition.automation.steps)
     .filter(
       (step): step is Extract<DefinitionStep, { kind: 'run' }> =>
         step.kind === 'run' && step.dryRun === 'run',

@@ -1,6 +1,7 @@
 import {
   automationVersion,
   isStepsEntry,
+  leafSteps,
   stepsResolvedBody,
   type AgentDefinition,
   type Automation,
@@ -24,7 +25,7 @@ const own = (object: object, key: string) => Object.prototype.hasOwnProperty.cal
 function agentNamesOf(automation: Automation): string[] {
   if (!isStepsEntry(automation)) return [];
   const names: string[] = [];
-  for (const step of automation.steps) {
+  for (const step of leafSteps(automation.steps)) {
     if (step.kind === 'agent' && step.agent !== undefined && !names.includes(step.agent))
       names.push(step.agent);
   }

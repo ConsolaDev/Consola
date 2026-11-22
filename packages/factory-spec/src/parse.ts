@@ -1,6 +1,7 @@
 import { LineCounter, parseDocument } from 'yaml';
 import { closestNode, formatPath, nodeAt, toIssue, type FactorySpecIssue } from './issues';
 import { automationSchema, fileSchema, isStepsEntry, type Automation } from './schema';
+import { flatSteps } from './steps';
 import { documentValue } from './yamlValue';
 
 export type { FactorySpecIssue };
@@ -137,9 +138,10 @@ export function parseFactorySpec(text: string): FactorySpecParseResult {
   const automations: Automation[] = [];
   const issues = read.issues.map(withoutFile);
   for (const automation of read.automations) {
+    // A loop's steps too, each at its own line (`steps[i].steps[j].agent`).
     const agentSteps = isStepsEntry(automation)
-      ? automation.steps.flatMap((step, index) =>
-          step.kind === 'agent' && step.agent !== undefined ? [{ agent: step.agent, index }] : [],
+      ? flatSteps(automation.steps).flatMap(({ step, path }) =>
+          step.kind === 'agent' && step.agent !== undefined ? [{ agent: step.agent, path }] : [],
         )
       : [];
     if (agentSteps.length === 0) {
@@ -147,8 +149,8 @@ export function parseFactorySpec(text: string): FactorySpecParseResult {
       continue;
     }
     const base = read.entryPath(automation.name) ?? [];
-    for (const { agent, index } of agentSteps) {
-      const path = [...base, 'steps', index, 'agent'];
+    for (const { agent, path: at } of agentSteps) {
+      const path = [...base, 'steps', ...at, 'agent'];
       const line = read.lineAt(path);
       issues.push({
         message: `\`agent: ${agent}\` names agents/${agent}.md, and this factory.yml is read without its folder.`,

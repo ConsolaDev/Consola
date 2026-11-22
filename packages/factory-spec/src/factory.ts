@@ -13,6 +13,7 @@ import { AUTOMATION_NAME_PATTERN } from './names';
 import { parseFactoryYml } from './parse';
 import { isStepsEntry, type Automation } from './schema';
 import { parseSkill, type SkillDefinition, type SkillFileEntry } from './skills';
+import { flatSteps, leafSteps } from './steps';
 
 /** The largest text file the folder's reader reads; a larger one is reported as not read. */
 export const MAX_FACTORY_TEXT_BYTES = 1024 * 1024;
@@ -280,10 +281,11 @@ export function parseFactory(files: FactoryFiles): FactoryParseResult {
     const { automation } = candidate;
     if (!isStepsEntry(automation)) return true;
     let kept = true;
-    automation.steps.forEach((step, index) => {
+    // A loop's steps too, each at its own line (`steps[i].steps[j].agent`).
+    flatSteps(automation.steps).forEach(({ step, path: at }) => {
       if (step.kind !== 'agent' || step.agent === undefined || own(agents, step.agent)) return;
       kept = false;
-      const path = candidate.pathTo(['steps', index, 'agent']);
+      const path = candidate.pathTo(['steps', ...at, 'agent']);
       const line = candidate.lineAt(path);
       const there = agentIsThere(step.agent);
       issues.push({
@@ -306,7 +308,7 @@ export function parseFactory(files: FactoryFiles): FactoryParseResult {
     if (automation.mode !== 'notify' || !isStepsEntry(automation)) return true;
     const named = new Set<string>();
     const pairs: string[] = [];
-    for (const step of automation.steps) {
+    for (const step of leafSteps(automation.steps)) {
       if (step.kind !== 'agent' || step.agent === undefined || named.has(step.agent)) continue;
       named.add(step.agent);
       for (const server of agents[step.agent].mcpServers)

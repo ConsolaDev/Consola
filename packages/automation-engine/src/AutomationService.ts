@@ -7,7 +7,9 @@ import {
   automationItemText,
   automationVersion,
   factoryFilesOf,
+  flatSteps,
   isStepsEntry,
+  leafSteps,
   nextCronOccurrence,
   parseAutomationEntry,
   parseFactory,
@@ -68,6 +70,7 @@ import {
   describeRun,
   describeSteps,
   describeTriggerAsWritten,
+  dryRunStarts,
 } from './describeEntry';
 import { describeSchedule } from './describeSchedule';
 import {
@@ -1256,7 +1259,7 @@ export class AutomationService {
     if (!entry) return null;
     const agents: EntryAgentsView['agents'] = [];
     if (isStepsEntry(entry.automation)) {
-      for (const step of entry.automation.steps) {
+      for (const step of leafSteps(entry.automation.steps)) {
         if (step.kind !== 'agent' || step.agent === undefined) continue;
         if (agents.some((agent) => agent.name === step.agent)) continue;
         const agent = entry.agents?.[step.agent];
@@ -2567,7 +2570,10 @@ export class AutomationService {
   } | null {
     if (typeof stepId !== 'string' || !STEP_ID_PATTERN.test(stepId)) return null;
     const read = this.readSteps(runId);
-    const step = read?.definition.automation.steps.find((candidate) => candidate.id === stepId);
+    // A leaf: a loop's own row runs nothing and has no step to show.
+    const step = read
+      ? leafSteps(read.definition.automation.steps).find((candidate) => candidate.id === stepId)
+      : undefined;
     const record = read?.run.steps?.find((candidate) => candidate.id === stepId);
     return read && step && record
       ? { run: read.run, workspaceId: read.workspaceId, definition: read.definition, step, record }
@@ -3015,7 +3021,7 @@ export class AutomationService {
       return;
     }
     // As at its start: a source fired it and its first agent step is an action, so a review the person started by hand wins.
-    const first = definition.automation.steps.find((step) => step.kind === 'agent');
+    const first = leafSteps(definition.automation.steps).find((step) => step.kind === 'agent');
     const label = first ? definition.actions[first.id]?.name : undefined;
     const byHand =
       firedBySource(run) && label ? { startedByHand: { label, since: run.createdAt } } : {};
@@ -3040,8 +3046,9 @@ export class AutomationService {
     // At this version the entry's definition is the run's snapshot, and its source the one the run builds. A
     // guess at its lane: an `item.json` that cannot be read reads as none here, and fails the run when it starts.
     const itemOf = this.itemOfSource(run, entry.source);
+    // The sequencer reads leaves until it runs loops (slice 3); every entry it runs has none yet (`flowNotYet`).
     const next = advanceSteps({
-      steps: entry.steps.definition.automation.steps,
+      steps: leafSteps(entry.steps.definition.automation.steps),
       records,
       dryRun: run.dryRun === true,
       ...stepItemOf(run, itemOf),
@@ -3461,8 +3468,9 @@ export class AutomationService {
       this.failRun(runId, `${itemOf.error}; it cannot continue.`, options);
       return;
     }
+    // The sequencer reads leaves until it runs loops (slice 3); every entry it runs has none yet (`flowNotYet`).
     const next = advanceSteps({
-      steps: loaded.definition.automation.steps,
+      steps: leafSteps(loaded.definition.automation.steps),
       records: run.steps,
       dryRun: run.dryRun === true,
       ...stepItemOf(run, itemOf),
@@ -4809,10 +4817,8 @@ export class AutomationService {
       ...(warnings.length > 0 ? { warnings } : {}),
       ...servers,
     });
-    const { steps } = automation;
-    // A key the format accepts and the engine does not run yet stops the entry, in words (slice 3, Call 2).
-    const notYet = flowNotYet(automation);
-    if (notYet) return unable(notYet);
+    // Every leaf, a loop's steps included: what "does any step…" reads.
+    const steps = leafSteps(automation.steps);
 
     const scoped = scopeNamed(workspace, automation.scope);
     if ('problem' in scoped) return unable(scoped.problem);
@@ -4861,7 +4867,7 @@ export class AutomationService {
     const fields = source?.itemFields;
     const [fieldProblem] =
       fields && source.connection !== undefined
-        ? stepItemFieldProblems(steps, fields, source.connection)
+        ? stepItemFieldProblems(automation.steps, fields, source.connection)
         : [];
     if (fieldProblem) return unable(fieldProblem);
 
@@ -4887,6 +4893,10 @@ export class AutomationService {
     }
     if (stops.length > 0)
       return unable(stops[0].message, warnings, { recheck: true, unasked: true });
+    // A key the format accepts and the engine does not run yet stops the entry, in words (slice 3,
+    // Call 2): last, so every other problem the entry has is said first.
+    const notYet = flowNotYet(automation);
+    if (notYet) return unable(notYet, warnings);
 
     // The bodies live in settings, not the file: editing one asks again. So
     // does editing an agent file a step names: its hash is in the version.
@@ -4934,8 +4944,7 @@ export class AutomationService {
         },
         ...(scoped.scope ? { scope: scoped.scope } : {}),
         hasAgentStep,
-        startsInDryRun:
-          hasAgentStep || steps.some((step) => step.kind === 'run' && step.dryRun === 'run'),
+        startsInDryRun: dryRunStarts(automation.steps),
         ...(firstAgent?.action !== undefined ? { byHandLabel: actions[firstAgent.id].name } : {}),
         skills: stepSkills,
       },
@@ -5390,10 +5399,15 @@ export class AutomationService {
     item?: SourceItem,
   ): RunRecord {
     const { definition, scope } = entry.steps!;
-    const { steps } = definition.automation;
+    // Record order: a loop's row, then its steps', each marked with its loop.
+    const steps = flatSteps(definition.automation.steps);
     const preview: StepsRunPreview = {
       kind: 'steps-run',
-      steps: steps.map((step) => ({ id: step.id, kind: step.kind })),
+      steps: steps.map(({ step, block }) => ({
+        id: step.id,
+        kind: step.kind,
+        ...(block ? { loop: block.id } : {}),
+      })),
       ...(item
         ? {
             item: {
@@ -5410,7 +5424,7 @@ export class AutomationService {
       ...this.newRun(entry, trigger, mode),
       result: preview,
       steps: steps.map(
-        (step): StepRun => ({ id: step.id, kind: step.kind, status: 'pending', attempt: 1 }),
+        ({ step }): StepRun => ({ id: step.id, kind: step.kind, status: 'pending', attempt: 1 }),
       ),
       ...(entry.automation.mode === 'notify' ? { dryRun: true } : {}),
     };
@@ -5849,7 +5863,7 @@ function describeIssue(issue: FactorySpecIssue): string {
  */
 function agentWithProblems(automation: Automation, read: FactoryParseResult): string | null {
   if (!isStepsEntry(automation)) return null;
-  for (const step of automation.steps) {
+  for (const step of leafSteps(automation.steps)) {
     if (step.kind !== 'agent' || step.agent === undefined) continue;
     if (Object.prototype.hasOwnProperty.call(read.agents, step.agent)) continue;
     const file = `agents/${step.agent}.md`;

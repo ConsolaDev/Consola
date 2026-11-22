@@ -1,4 +1,5 @@
 import {
+  leafSteps,
   parseReadRef,
   parseTemplate,
   renderTemplate,
@@ -148,7 +149,7 @@ export type AgentStepLaunch =
  * agent's; undefined when neither writes one, or for a command step.
  */
 export function stepCap(definition: RunDefinition, stepId: string): number | undefined {
-  const step = definition.automation.steps.find((candidate) => candidate.id === stepId);
+  const step = leafSteps(definition.automation.steps).find((candidate) => candidate.id === stepId);
   if (step?.kind !== 'agent') return undefined;
   return step.maxTurns ?? definition.agents?.[stepId]?.maxTurns;
 }
@@ -193,7 +194,8 @@ export function agentStepLaunch(input: {
   const { workspaceId, run, definition, stepId, checkout, source, polled, previous, folder } =
     input;
   const { checkoutKind, skillsDir, pluginDir } = input;
-  const { steps } = definition.automation;
+  // Every leaf, a loop's included: the step's place among them is what its prompt says ("step 2 of 4").
+  const steps = leafSteps(definition.automation.steps);
   const index = steps.findIndex((candidate) => candidate.id === stepId);
   const step = steps[index];
   const record = run.steps?.find((candidate) => candidate.id === stepId);

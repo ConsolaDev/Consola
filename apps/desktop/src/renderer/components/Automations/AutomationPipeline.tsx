@@ -12,6 +12,7 @@ import {
   Inbox,
   LoaderCircle,
   MousePointerClick,
+  Repeat,
   ScanSearch,
   Wrench,
   Zap,
@@ -209,8 +210,24 @@ export function PipelineGraph({
       <PipelineNode
         key={`step:${entry.id}`}
         state={pathLit && index === 0 ? targetState : undefined}
-        icon={entry.kind === 'agent' ? Bot : entry.kind === 'gate' ? Hand : Wrench}
-        kicker={entry.kind === 'agent' ? 'Agent step' : entry.kind === 'gate' ? 'Gate' : 'Command'}
+        icon={
+          entry.kind === 'agent'
+            ? Bot
+            : entry.kind === 'gate'
+              ? Hand
+              : entry.kind === 'repeat'
+                ? Repeat
+                : Wrench
+        }
+        kicker={
+          entry.kind === 'agent'
+            ? 'Agent step'
+            : entry.kind === 'gate'
+              ? 'Gate'
+              : entry.kind === 'repeat'
+                ? 'Loop'
+                : 'Command'
+        }
         title={entry.kind === 'run' ? <code>{entry.summary}</code> : entry.summary}
         subtitle={
           entry.agent !== undefined && entry.agent !== entry.summary ? entry.agent : undefined
@@ -223,7 +240,7 @@ export function PipelineGraph({
           ? liveAction
           : entry.kind === 'agent'
             ? agentStepFoot(entry.servers)
-            : entry.kind === 'gate'
+            : entry.kind === 'gate' || entry.kind === 'repeat'
               ? null
               : commandFoot(entry, automation.mode)}
       </PipelineNode>

@@ -1,8 +1,12 @@
 import {
+  flatSteps,
   isStepsEntry,
+  leafSteps,
   type AgentDefinition,
   type Automation,
+  type RepeatStep,
   type Step,
+  type StepEntry,
 } from '@consola/factory-spec';
 import { clipText } from './steps/commandIO';
 import type { AutomationView } from './views';
@@ -12,19 +16,35 @@ const COMMAND_SUMMARY_CHARS = 80;
 
 const actionRuns = (name: string) => `${name} action`;
 
-/** What an entry runs, in words: "Review action", "Prompt", "Tool: cleanup_stale_sessions", "Steps: review → publish". */
+/**
+ * What an entry runs, in words: "Review action", "Prompt", "Tool:
+ * cleanup_stale_sessions", "Steps: review → publish" (a loop's steps in
+ * line, as the run takes them).
+ */
 export function describeRun(automation: Automation): string {
   if (isStepsEntry(automation))
-    return `Steps: ${automation.steps.map((step) => step.id).join(' → ')}`;
+    return `Steps: ${leafSteps(automation.steps)
+      .map((step) => step.id)
+      .join(' → ')}`;
   const { run } = automation;
   if (run.kind === 'tool') return `Tool: ${run.tool}`;
   return run.kind === 'action' ? actionRuns(run.name) : 'Prompt';
 }
 
+/**
+ * Whether a dry run of these steps starts anything: an agent step (read-only
+ * agents run in a dry run) or a `dry_run: run` command, a loop's included.
+ */
+export function dryRunStarts(entries: readonly StepEntry[]): boolean {
+  return leafSteps(entries).some(
+    (step) => step.kind === 'agent' || (step.kind === 'run' && step.dryRun === 'run'),
+  );
+}
+
 /** A tool run in-process, or agent sessions; an entry of commands only runs no agent, so it reads as a tool. */
 export function describeKind(automation: Automation): AutomationView['kind'] {
   if (isStepsEntry(automation))
-    return automation.steps.some((step) => step.kind === 'agent') ? 'agent' : 'tool';
+    return leafSteps(automation.steps).some((step) => step.kind === 'agent') ? 'agent' : 'tool';
   return automation.run.kind === 'tool' ? 'tool' : 'agent';
 }
 
@@ -36,8 +56,18 @@ function agentWords(
   return [name, agent?.harness, agent?.model].filter((part) => part !== undefined).join(' · ');
 }
 
+/** By name, what a step's node says of its agent: its harness and model, its servers and skills. */
+type StepAgents = Readonly<
+  Record<
+    string,
+    Pick<AgentDefinition, 'harness' | 'model'> &
+      Partial<Pick<AgentDefinition, 'mcpServers' | 'skills'>>
+  >
+>;
+
 /**
- * Each step as the automation page draws it: "Prompt", "Review action", an
+ * Each step as the automation page draws it, in record order (a loop's row,
+ * then its steps, each with `loop`): "Prompt", "Review action", an
  * agent-only step's agent, the command's first line, or a gate's question
  * (with its question and choices again, as written). A step that names an
  * agent also gives its agent's words and file; `agents` (by name) gives each
@@ -45,63 +75,84 @@ function agentWords(
  * (the node's third line); an agent it lacks is named alone.
  */
 export function describeSteps(
-  steps: Step[],
-  agents?: Readonly<
-    Record<
-      string,
-      Pick<AgentDefinition, 'harness' | 'model'> &
-        Partial<Pick<AgentDefinition, 'mcpServers' | 'skills'>>
-    >
-  >,
+  entries: readonly StepEntry[],
+  agents?: StepAgents,
 ): NonNullable<AutomationView['steps']> {
-  return steps.map((step) => {
-    if (step.kind === 'gate') {
-      return {
-        id: step.id,
-        kind: step.kind,
-        ...(step.if !== undefined ? { if: step.if } : {}),
-        summary: step.ask,
-        ask: step.ask,
-        ...(step.choices ? { choices: [...step.choices] } : {}),
-      };
-    }
-    const known =
-      step.kind === 'agent' &&
-      step.agent !== undefined &&
-      agents &&
-      Object.prototype.hasOwnProperty.call(agents, step.agent)
-        ? agents[step.agent]
-        : undefined;
-    const agent =
-      step.kind === 'agent' && step.agent !== undefined
-        ? {
-            words: agentWords(step.agent, known),
-            file: `agents/${step.agent}.md`,
-            servers: known?.mcpServers?.map((server) => ({
-              name: server.name,
-              ...(server.tools !== undefined ? { tools: [...server.tools] } : {}),
-            })),
-            skills: known?.skills ? [...known.skills] : undefined,
-          }
-        : undefined;
+  return flatSteps(entries).map(({ step, block }) =>
+    step.kind === 'repeat'
+      ? describeLoop(step)
+      : { ...describeLeaf(step, agents), ...(block ? { loop: block.id } : {}) },
+  );
+}
+
+/** A loop's own row: its bound, its condition and how it ends; its steps follow it, each with `loop`. */
+function describeLoop(step: RepeatStep): NonNullable<AutomationView['steps']>[number] {
+  return {
+    id: step.id,
+    kind: 'repeat',
+    ...(step.if !== undefined ? { if: step.if } : {}),
+    summary: `up to ${step.max} rounds · until ${step.until.replace(/\bsteps\./g, '')}`,
+    max: step.max,
+    until: step.until,
+    exhausted:
+      step.onExhausted === undefined || step.onExhausted === 'fail'
+        ? 'fail'
+        : step.onExhausted === 'continue'
+          ? 'continue'
+          : 'gate',
+  };
+}
+
+function describeLeaf(
+  step: Step,
+  agents: StepAgents | undefined,
+): NonNullable<AutomationView['steps']>[number] {
+  if (step.kind === 'gate') {
     return {
       id: step.id,
       kind: step.kind,
       ...(step.if !== undefined ? { if: step.if } : {}),
-      ...(step.kind === 'run' && step.dryRun === 'run' ? { dryRun: true as const } : {}),
-      summary:
-        step.kind === 'run'
-          ? commandSummary(step.run)
-          : step.action !== undefined
-            ? actionRuns(step.action)
-            : step.prompt === undefined && agent
-              ? agent.words
-              : 'Prompt',
-      ...(agent ? { agent: agent.words, agentFile: agent.file } : {}),
-      ...(agent?.servers && agent.servers.length > 0 ? { servers: agent.servers } : {}),
-      ...(agent?.skills && agent.skills.length > 0 ? { skills: agent.skills } : {}),
+      summary: step.ask,
+      ask: step.ask,
+      ...(step.choices ? { choices: [...step.choices] } : {}),
     };
-  });
+  }
+  const known =
+    step.kind === 'agent' &&
+    step.agent !== undefined &&
+    agents &&
+    Object.prototype.hasOwnProperty.call(agents, step.agent)
+      ? agents[step.agent]
+      : undefined;
+  const agent =
+    step.kind === 'agent' && step.agent !== undefined
+      ? {
+          words: agentWords(step.agent, known),
+          file: `agents/${step.agent}.md`,
+          servers: known?.mcpServers?.map((server) => ({
+            name: server.name,
+            ...(server.tools !== undefined ? { tools: [...server.tools] } : {}),
+          })),
+          skills: known?.skills ? [...known.skills] : undefined,
+        }
+      : undefined;
+  return {
+    id: step.id,
+    kind: step.kind,
+    ...(step.if !== undefined ? { if: step.if } : {}),
+    ...(step.kind === 'run' && step.dryRun === 'run' ? { dryRun: true as const } : {}),
+    summary:
+      step.kind === 'run'
+        ? commandSummary(step.run)
+        : step.action !== undefined
+          ? actionRuns(step.action)
+          : step.prompt === undefined && agent
+            ? agent.words
+            : 'Prompt',
+    ...(agent ? { agent: agent.words, agentFile: agent.file } : {}),
+    ...(agent?.servers && agent.servers.length > 0 ? { servers: agent.servers } : {}),
+    ...(agent?.skills && agent.skills.length > 0 ? { skills: agent.skills } : {}),
+  };
 }
 
 function commandSummary(command: string): string {

@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { RunDefinition } from '../../../shared/automations';
-import { approvalAgent, approvalNotes, approvalSkills, dryRunCommands } from './approvalCard';
+import {
+  approvalAgent,
+  approvalNotes,
+  approvalSkills,
+  definitionEntries,
+  definitionLeaves,
+  dryRunCommands,
+} from './approvalCard';
 
 type Step = RunDefinition['automation']['steps'][number];
 
@@ -66,6 +73,55 @@ describe('dryRunCommands', () => {
 
   it('is empty when no command opts in', () => {
     expect(dryRunCommands(definitionOf(agent('review'), command('post')))).toEqual([]);
+  });
+});
+
+const loop = (id: string, ...steps: Step[]): Step =>
+  ({
+    id,
+    kind: 'repeat',
+    named: true,
+    max: 3,
+    until: 'steps.review.findings == 0',
+    steps,
+  }) as unknown as Step;
+
+describe('a definition with a loop (slice 3)', () => {
+  it('names the commands of an entry whose only command is inside a loop', () => {
+    const definition = definitionOf(
+      agent('review'),
+      loop('polish', agent('again'), command('check', 'run')),
+    );
+    expect(approvalNotes(definition, null)).toEqual([
+      'Its commands run as you (your logins, the bound GitHub account).',
+    ]);
+    expect(dryRunCommands(definition)).toEqual(['check']);
+  });
+
+  it('walks the tree in record order, and its leaves in file order', () => {
+    const definition = definitionOf(
+      command('fresh'),
+      loop('polish', agent('review'), command('check')),
+      command('pr'),
+    );
+    expect(
+      definitionEntries(definition.automation.steps).map(({ step, loop: block }) => [
+        step.id,
+        block,
+      ]),
+    ).toEqual([
+      ['fresh', undefined],
+      ['polish', undefined],
+      ['review', 'polish'],
+      ['check', 'polish'],
+      ['pr', undefined],
+    ]);
+    expect(definitionLeaves(definition.automation.steps).map((step) => step.id)).toEqual([
+      'fresh',
+      'review',
+      'check',
+      'pr',
+    ]);
   });
 });
 

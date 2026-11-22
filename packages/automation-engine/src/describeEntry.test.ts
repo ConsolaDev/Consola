@@ -1,6 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import type { AgentStep, GateStep } from '@consola/factory-spec';
-import { describeEvery, describeSteps } from './describeEntry';
+import {
+  parseFactorySpec,
+  type AgentStep,
+  type Automation,
+  type GateStep,
+} from '@consola/factory-spec';
+import {
+  describeEvery,
+  describeKind,
+  describeRun,
+  describeSteps,
+  dryRunStarts,
+} from './describeEntry';
 
 describe('describeEvery', () => {
   it.each([
@@ -136,5 +147,69 @@ describe('describeSteps', () => {
       agent: 'investigator',
       agentFile: 'agents/investigator.md',
     });
+  });
+});
+
+/** One parsed entry on review requests whose steps are the given lines. */
+function looped(...lines: string[]): Automation {
+  const result = parseFactorySpec(
+    `version: 1\nautomations:\n  - name: a\n    on: { github: pull_request.review_requested }\n    steps:\n${lines
+      .map((line) => `      ${line.replace(/\n/g, '\n      ')}`)
+      .join('\n')}\n`,
+  );
+  if (result.issues.length > 0) throw new Error(JSON.stringify(result.issues));
+  return result.automations[0];
+}
+
+const POLISH = [
+  '- id: polish',
+  '  repeat: { max: 3, until: steps.review.findings == 0 }',
+  '  on_exhausted: { gate: "Open it anyway?" }',
+  '  steps:',
+  '    - id: review\n      prompt: Review it.\n      outputs: { findings: integer }',
+  '    - id: address\n      if: steps.review.findings > 0\n      run: echo\n      dry_run: run',
+].join('\n');
+
+describe('an entry with a loop (slice 3)', () => {
+  it('is an agent entry when its only agent step is inside the loop', () => {
+    expect(describeKind(looped('- id: fetch\n  run: gh pr view', POLISH))).toBe('agent');
+    expect(describeKind(looped('- id: fetch\n  run: gh pr view'))).toBe('tool');
+  });
+
+  it("says what it runs with the loop's steps in line", () => {
+    expect(describeRun(looped('- id: fetch\n  run: gh pr view', POLISH))).toBe(
+      'Steps: fetch → review → address',
+    );
+  });
+
+  it('describes the loop, then its steps marked with it', () => {
+    const automation = looped('- id: fetch\n  run: gh pr view', POLISH, '- id: pr\n  run: echo');
+    if (!automation.steps) throw new Error('steps');
+    const described = describeSteps(automation.steps);
+    expect(described.map(({ id, kind, loop }) => [id, kind, loop])).toEqual([
+      ['fetch', 'run', undefined],
+      ['polish', 'repeat', undefined],
+      ['review', 'agent', 'polish'],
+      ['address', 'run', 'polish'],
+      ['pr', 'run', undefined],
+    ]);
+    expect(described[1]).toEqual({
+      id: 'polish',
+      kind: 'repeat',
+      summary: 'up to 3 rounds · until review.findings == 0',
+      max: 3,
+      until: 'steps.review.findings == 0',
+      exhausted: 'gate',
+    });
+  });
+
+  it("counts a loop's agent, or its dry_run: run command, as starting in a dry run", () => {
+    const inner = (step: string) =>
+      looped(
+        `- id: polish\n  repeat: { max: 2, until: steps.s.ok }\n  steps:\n    - id: s\n${step.replace(/^/gm, '      ')}\n      outputs: { ok: boolean }`,
+      );
+    expect(dryRunStarts(inner('prompt: Look.').steps!)).toBe(true);
+    expect(dryRunStarts(inner('run: echo\ndry_run: run').steps!)).toBe(true);
+    expect(dryRunStarts(inner('run: echo').steps!)).toBe(false);
   });
 });

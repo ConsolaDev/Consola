@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { parseFactorySpec } from './parse';
-import { isStepsEntry } from './schema';
-import { gateChoices, type CommandStep, type GateStep } from './steps';
+import { isStepsEntry, type StepsAutomation } from './schema';
+import {
+  flatSteps,
+  gateChoices,
+  leafSteps,
+  stepItemFields,
+  type CommandStep,
+  type GateStep,
+} from './steps';
 
 /*
  * Slice 3's control flow in the format: gates, `then: stop`, and (from the
@@ -203,5 +210,309 @@ describe('then: stop', () => {
       false,
     );
     expect(firstStep<GateStep>(steps('- gate: { ask: ok }\n  then: stop')).stop).toBe(true);
+  });
+});
+
+const LOOP = [
+  '- id: polish',
+  '  repeat: { max: 3, until: steps.review.findings == 0 }',
+  '  steps:',
+  '    - id: review\n      prompt: Review it.\n      outputs: { findings: integer }',
+  '    - id: address\n      if: steps.review.findings > 0\n      prompt: Address it.\n      reads: [review.handover]',
+].join('\n');
+
+/** The loop with its header line replaced. */
+const loopWith = (header: string) =>
+  LOOP.replace('  repeat: { max: 3, until: steps.review.findings == 0 }', `  ${header}`);
+
+/** The loop with `extra` lines (2-space indented keys of the block) after its id. */
+const loopPlus = (extra: string) => LOOP.replace('- id: polish', `- id: polish\n${extra}`);
+
+describe('repeat:', () => {
+  it('parses a loop, its steps in order, and flattens to record order', () => {
+    const result = steps(
+      '- id: fix\n  prompt: Fix it.',
+      LOOP,
+      '- id: pr\n  if: steps.review.findings == 0\n  run: echo',
+    );
+    expect(result.issues).toEqual([]);
+    const entries = (result.automations[0] as StepsAutomation).steps;
+    expect(flatSteps(entries).map(({ step, block }) => [step.id, block?.id])).toEqual([
+      ['fix', undefined],
+      ['polish', undefined],
+      ['review', 'polish'],
+      ['address', 'polish'],
+      ['pr', undefined],
+    ]);
+    expect(flatSteps(entries).map(({ path }) => path)).toEqual([
+      [0],
+      [1],
+      [1, 'steps', 0],
+      [1, 'steps', 1],
+      [2],
+    ]);
+    expect(leafSteps(entries).map((step) => step.id)).toEqual(['fix', 'review', 'address', 'pr']);
+    expect(entries[1]).toMatchObject({
+      kind: 'repeat',
+      id: 'polish',
+      named: true,
+      max: 3,
+      until: 'steps.review.findings == 0',
+    });
+    expect(Object.prototype.hasOwnProperty.call(entries[1], 'onExhausted')).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(entries[1], 'if')).toBe(false);
+  });
+
+  it.each([
+    [
+      'repeat: { until: steps.review.findings == 0 }',
+      "`repeat` without `max` arrives with waiting runs (slice 4), bounded by a wait's timeout.",
+    ],
+    [
+      'repeat: { max: 11, until: steps.review.findings == 0 }',
+      '`max` is a whole number from 1 to 10.',
+    ],
+    [
+      'repeat: { max: 0, until: steps.review.findings == 0 }',
+      '`max` is a whole number from 1 to 10.',
+    ],
+    [
+      'repeat: { max: 2.5, until: steps.review.findings == 0 }',
+      '`max` is a whole number from 1 to 10.',
+    ],
+    ['repeat: { max: 3 }', 'Say when the loop is done: `until: steps.review.findings == 0`.'],
+    [
+      'repeat: { max: 3, until: 3 }',
+      'Say when the loop is done: `until: steps.review.findings == 0`.',
+    ],
+  ])('refuses %s', (header, message) => {
+    expect(only(steps(loopWith(header))).message).toBe(message);
+  });
+
+  it.each([
+    ['repeat: 3', 'Write a loop as `repeat: { max: 3, until: steps.review.findings == 0 }`.'],
+    [
+      'repeat: { max: 3, until: steps.review.findings == 0, every: 1h }',
+      'Unrecognized key in `repeat`: every.',
+    ],
+    [`repeat: { max: 3, until: "${'x'.repeat(501)}" }`, 'An `until` is at most 500 characters.'],
+  ])('refuses the header %s', (header, message) => {
+    expect(only(steps(loopWith(header))).message).toBe(message);
+  });
+
+  it('refuses a loop in a loop, a loop without an id, then: and on_failure on a loop', () => {
+    const inner = [
+      '- id: outer',
+      '  repeat: { max: 2, until: steps.review.findings == 0 }',
+      '  steps:',
+      `    ${LOOP.replace(/\n/g, '\n    ')}`,
+    ].join('\n');
+    expect(only(steps(inner))).toMatchObject({
+      path: 'automations[0].steps[0].steps[0]',
+      message: 'A loop inside a loop is not supported.',
+    });
+    expect(only(steps(LOOP.replace('- id: polish\n  repeat', '- repeat')))).toMatchObject({
+      path: 'automations[0].steps[0]',
+      message: 'A loop needs an `id`, e.g. `id: polish`.',
+    });
+    expect(only(steps(loopPlus('  then: stop')))).toMatchObject({
+      path: 'automations[0].steps[0].then',
+      message: '`then:` goes on a step; a loop ends by its `until` or its `on_exhausted`.',
+    });
+    expect(only(steps(loopPlus('  on_failure: { retry: 1 }')))).toMatchObject({
+      path: 'automations[0].steps[0].on_failure',
+      message:
+        "`on_failure` goes on a step or on the automation; a loop's rounds are bounded by `max`.",
+    });
+    expect(only(steps(loopPlus('  colour: red'))).message).toBe(
+      'Unrecognized key in a loop: colour.',
+    );
+  });
+
+  it('holds a loop to 1 to 10 steps', () => {
+    expect(
+      only(steps('- id: polish\n  repeat: { max: 2, until: "true" }\n  steps: []')).message,
+    ).toBe('A loop has 1 to 10 steps.');
+    const eleven = Array.from({ length: 11 }, (_, i) => `    - id: s${i}\n      run: echo`).join(
+      '\n',
+    );
+    expect(
+      only(steps(`- id: polish\n  repeat: { max: 2, until: "true" }\n  steps:\n${eleven}`)).message,
+    ).toBe('A loop has 1 to 10 steps.');
+  });
+
+  it('counts inner steps toward 20 and keeps ids unique across them', () => {
+    const eighteen = Array.from({ length: 18 }, (_, i) => `- id: s${i}\n  run: echo`);
+    const three = [
+      '- id: polish',
+      '  repeat: { max: 2, until: steps.a.n == 0 }',
+      '  steps:',
+      '    - id: a\n      run: echo\n      outputs: { n: integer }',
+      '    - id: b\n      run: echo',
+      '    - id: c\n      run: echo',
+    ].join('\n');
+    expect(only(steps(...eighteen, three)).message).toBe(
+      'An entry with `steps:` has 1 to 20 steps, written as a list.',
+    );
+    expect(steps(...eighteen.slice(1), three).issues).toEqual([]);
+    expect(only(steps('- id: review\n  run: echo', LOOP))).toMatchObject({
+      path: 'automations[0].steps[1].steps[0].id',
+      message: 'Step ids are unique; `review` is used twice.',
+    });
+    expect(only(steps('- id: polish\n  run: echo', LOOP))).toMatchObject({
+      path: 'automations[0].steps[1].id',
+      message: 'Step ids are unique; `polish` is used twice.',
+    });
+  });
+
+  it('names an unnamed step by its place in the record', () => {
+    const result = steps(LOOP, '- run: echo');
+    const entries = (result.automations[0] as StepsAutomation).steps;
+    expect(flatSteps(entries).map(({ step }) => step.id)).toEqual([
+      'polish',
+      'review',
+      'address',
+      'step-4',
+    ]);
+  });
+
+  it("lets a later step read the loop's latest round, and refuses an inner step reading a later one", () => {
+    expect(steps(LOOP, '- id: pr\n  if: steps.review.findings == 0\n  run: echo').issues).toEqual(
+      [],
+    );
+    const reversed = LOOP.replace(
+      '      prompt: Review it.\n',
+      '      prompt: Review it.\n      reads: [address.handover]\n',
+    );
+    expect(only(steps(reversed)).message).toBe(
+      "`address.handover`: `address` is not before this step: it is a later step, so it has not run when this one's turn comes",
+    );
+    expect(
+      only(steps(LOOP, '- id: pr\n  if: steps.polish.findings == 0\n  run: echo')).message,
+    ).toMatch(/`polish` is a loop/);
+  });
+
+  it('checks until against every inner step', () => {
+    expect(only(steps(loopWith('repeat: { max: 3, until: steps.address.done }'))).message).toBe(
+      '`steps.address.done`: `address` has no output `done` (it has none)',
+    );
+    expect(
+      only(steps(loopWith('repeat: { max: 3, until: "steps.review.findings == " }'))).message,
+    ).toMatch(/^Cannot read this `until`/);
+    expect(
+      only(
+        steps(
+          loopWith('repeat: { max: 3, until: steps.later.n == 0 }'),
+          '- id: later\n  run: echo\n  outputs: { n: integer }',
+        ),
+      ).message,
+    ).toBe(
+      "`steps.later.n`: `later` is not before this step: it is a later step, so it has not run when this one's turn comes",
+    );
+  });
+
+  it.each([
+    ['fail', 'fail'],
+    ['continue', 'continue'],
+    [
+      '{ gate: "Open the pull request anyway?" }',
+      { ask: 'Open the pull request anyway?', show: [] },
+    ],
+    [
+      '{ gate: { ask: "Anyway?", show: [review.handover] } }',
+      { ask: 'Anyway?', show: ['review.handover'] },
+    ],
+  ])('parses on_exhausted: %s', (value, parsed) => {
+    const result = steps(loopPlus(`  on_exhausted: ${value}`));
+    expect(result.issues).toEqual([]);
+    expect((result.automations[0] as StepsAutomation).steps[0]).toMatchObject({
+      onExhausted: parsed,
+    });
+  });
+
+  const SHAPE =
+    '`on_exhausted` is `fail`, `continue`, `{ gate: "<question>" }` or `{ gate: { ask, show } }`.';
+  it.each([
+    ['stop', '', SHAPE],
+    ['{ retry: 1 }', '', SHAPE],
+    ['{ gate: ok, then: stop }', '', SHAPE],
+    ['{ gate: 3 }', '.gate', SHAPE],
+    ['{ gate: "" }', '.gate', 'A gate asks 1 to 300 characters of text.'],
+    ['{ gate: { ask: ok, choices: [a, b] } }', '.gate.choices', SHAPE],
+  ])('refuses on_exhausted: %s', (value, at, message) => {
+    expect(only(steps(loopPlus(`  on_exhausted: ${value}`)))).toMatchObject({
+      path: `automations[0].steps[0].on_exhausted${at}`,
+      message,
+    });
+  });
+
+  it("checks an exhaustion gate's question and documents against the loop's steps", () => {
+    expect(
+      only(steps(loopPlus('  on_exhausted: { gate: { ask: ok, show: [nowhere.handover] } }')))
+        .message,
+    ).toMatch(/there is no step `nowhere`/);
+    expect(only(steps(loopPlus('  on_exhausted: { gate: "{{item.title}}?" }'))).message).toMatch(
+      /someone else wrote/,
+    );
+  });
+
+  it('refuses on_exhausted outside a loop', () => {
+    expect(only(command('  on_exhausted: fail')).message).toBe(
+      '`on_exhausted` goes on a `repeat` block.',
+    );
+  });
+
+  it("lets a loop's if: read the steps before it", () => {
+    expect(
+      steps(
+        '- id: triage\n  run: echo\n  outputs: { bug: boolean }',
+        loopPlus('  if: steps.triage.bug'),
+      ).issues,
+    ).toEqual([]);
+    expect(only(steps(loopPlus('  if: steps.review.findings > 0'))).message).toMatch(
+      /`review` is not before this step/,
+    );
+  });
+});
+
+describe('a loop, read by every other part of the format', () => {
+  it('names a loop as no step to read from, in previous too', () => {
+    expect(
+      only(steps(LOOP, '- id: post\n  run: echo\n  env: { NOTES: "{{previous.polish.handover}}" }'))
+        .message,
+    ).toBe('`{{previous.polish.handover}}`: `polish` is a loop; name one of its steps');
+  });
+
+  it("points at a loop's step that names an agent, read without its folder", () => {
+    const issue = only(
+      steps(
+        '- id: polish\n  repeat: { max: 2, until: steps.look.done }\n  steps:\n    - id: look\n      agent: reviewer\n      outputs: { done: boolean }',
+      ),
+    );
+    expect(issue).toMatchObject({
+      path: 'automations[0].steps[0].steps[0].agent',
+      message:
+        '`agent: reviewer` names agents/reviewer.md, and this factory.yml is read without its folder.',
+    });
+  });
+
+  it("lists the item fields a loop's if, until, exhaustion gate and steps use", () => {
+    const result = steps(
+      [
+        '- id: polish',
+        '  if: "item.number > 1"',
+        '  repeat: { max: 2, until: "item.number > 2" }',
+        '  on_exhausted: { gate: "Approve #{{item.number}} anyway?" }',
+        '  steps:',
+        '    - id: look\n      prompt: "Look at {{item.url}}."',
+      ].join('\n'),
+    );
+    const entries = (result.automations[0] as StepsAutomation).steps;
+    expect(stepItemFields(entries)).toEqual([
+      { step: 'polish', field: 'number', where: 'if' },
+      { step: 'polish', field: 'number', where: 'if' },
+      { step: 'polish', field: 'number', where: 'prompt' },
+      { step: 'look', field: 'url', where: 'prompt' },
+    ]);
   });
 });

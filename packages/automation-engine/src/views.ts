@@ -44,7 +44,8 @@ export interface AutomationView {
    */
   steps?: Array<{
     id: string;
-    kind: 'agent' | 'run' | 'gate';
+    /** `repeat`: a loop's own row; its steps follow it, each with `loop`. */
+    kind: 'agent' | 'run' | 'gate' | 'repeat';
     if?: string;
     summary: string /** A command marked `dry_run: run`: it runs when the run only reports. */;
     dryRun?: true;
@@ -52,6 +53,14 @@ export interface AutomationView {
     ask?: string;
     /** A gate's choices, when the file names them; without them it offers approve (and reject). */
     choices?: string[];
+    /** A step inside a loop: the loop's id. */
+    loop?: string;
+    /** A loop's bound (`repeat.max`). */
+    max?: number;
+    /** A loop's `until`, as written. */
+    until?: string;
+    /** How a loop ends when `until` is still not met after its last round. */
+    exhausted?: 'fail' | 'continue' | 'gate';
     /** The agent it runs as, as its node names it: "investigator · claude-work · opus". */
     agent?: string;
     /** The agent's file, "agents/investigator.md": what the Allow card lists. */

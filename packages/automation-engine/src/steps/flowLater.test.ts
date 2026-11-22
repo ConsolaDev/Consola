@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import type { CommandStep, GateStep, Step, StepsAutomation } from '@consola/factory-spec';
+import type {
+  CommandStep,
+  GateStep,
+  RepeatStep,
+  Step,
+  StepEntry,
+  StepsAutomation,
+} from '@consola/factory-spec';
 import { flowNotYet } from './flowLater';
 
 function commandStep(id: string, extra: Partial<CommandStep> = {}): CommandStep {
@@ -20,7 +27,11 @@ function gateStep(id: string, extra: Partial<GateStep> = {}): GateStep {
   return { kind: 'gate', id, named: true, ask: 'Post it?', show: [], ...extra };
 }
 
-function entryWith(...steps: Step[]): StepsAutomation {
+function loop(id: string, ...steps: Step[]): RepeatStep {
+  return { kind: 'repeat', id, named: true, max: 2, until: 'steps.a.ok', steps };
+}
+
+function entryWith(...steps: StepEntry[]): StepsAutomation {
   return {
     name: 'gated',
     trigger: {
@@ -43,6 +54,18 @@ describe('flowNotYet', () => {
       '`then` runs from the next update; this automation does not run yet.',
     );
     expect(flowNotYet(entryWith(commandStep('a')))).toBeNull();
+  });
+
+  it('names repeat for a loop, and what a loop holds before it', () => {
+    expect(flowNotYet(entryWith(loop('polish', commandStep('a'))))).toBe(
+      '`repeat` runs from the next update; this automation does not run yet.',
+    );
+    expect(flowNotYet(entryWith(loop('polish', gateStep('decide'))))).toBe(
+      '`gate` runs from the next update; this automation does not run yet.',
+    );
+    expect(flowNotYet(entryWith(loop('polish', commandStep('a', { stop: true }))))).toBe(
+      '`then` runs from the next update; this automation does not run yet.',
+    );
   });
 
   it('names gate before then when an entry writes both', () => {

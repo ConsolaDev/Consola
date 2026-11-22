@@ -1,4 +1,5 @@
 import {
+  leafSteps,
   parseTemplate,
   renderTemplate,
   type CommandStep,
@@ -133,7 +134,7 @@ function valueAt(
   const written = (record.artifacts ?? []).some((artifact) => artifact.name === path.name);
   if (path.file) {
     if (!written) return { missing: `${path.step} completed without it` };
-    const producer = definition.automation.steps.find((step) => step.id === path.step);
+    const producer = leafSteps(definition.automation.steps).find((step) => step.id === path.step);
     const format = path.name === 'output' && producer?.kind === 'run' ? producer.stdout : undefined;
     const file = folder.artifactPath(
       workspaceId,
@@ -206,7 +207,7 @@ export function prepareCommand(input: {
   previous: { runId: string } | undefined;
 }): { ok: true; command: PreparedCommand } | { ok: false; error: string } {
   const { run, definition, stepId, cwd, workspaceId, folder, source, polled, previous } = input;
-  const step = definition.automation.steps.find((candidate) => candidate.id === stepId);
+  const step = leafSteps(definition.automation.steps).find((candidate) => candidate.id === stepId);
   const record = run.steps?.find((candidate) => candidate.id === stepId);
   if (step?.kind !== 'run' || !record)
     return { ok: false, error: `Its definition has no command step ${stepId}.` };

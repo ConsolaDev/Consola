@@ -3,6 +3,7 @@ import {
   ARTIFACT_NAME_PATTERN,
   checkOutputs,
   describeOutputType,
+  leafSteps,
   parseReadRef,
   type AgentStep,
   type OutputType,
@@ -115,7 +116,7 @@ function requiredOf(step: AgentStep): string[] {
 }
 
 function agentStep(definition: RunDefinition, stepId: string): AgentStep | undefined {
-  return definition.automation.steps.find(
+  return leafSteps(definition.automation.steps).find(
     (step): step is AgentStep => step.kind === 'agent' && step.id === stepId,
   );
 }
