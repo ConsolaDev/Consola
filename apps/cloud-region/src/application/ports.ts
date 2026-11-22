@@ -1,6 +1,7 @@
 // What the use cases need from the world outside, each implemented by an adapter.
 
 import type { WorkspaceRole } from '@consola/cloud-contract';
+import type { Factory, FactoryFile, FactoryVersion } from '../domain/factory.js';
 import type { Team } from '../domain/team.js';
 import type { CopyChange } from '../domain/workspaceCopy.js';
 
@@ -96,8 +97,14 @@ export type TeamStore = {
     teamId: string,
     name: string,
   ): Promise<Team | 'not-found' | 'name-taken'>;
-  /** Deletes a team and every place in it, unless it is the first team, which stays. */
-  remove(workspaceId: string, teamId: string): Promise<'removed' | 'not-found' | 'first-team'>;
+  /**
+   * Deletes a team and every place in it, unless it is the first team or owns a factory, which
+   * stay.
+   */
+  remove(
+    workspaceId: string,
+    teamId: string,
+  ): Promise<'removed' | 'not-found' | 'first-team' | 'owns-factories'>;
   /**
    * Makes the person a member of the team, if they are a member of the workspace in the cell's
    * copy (`not-a-member` when not). A person already in it stays as they are.
@@ -109,4 +116,44 @@ export type TeamStore = {
   ): Promise<Team | 'not-found' | 'not-a-member'>;
   /** Takes the person out of the team. Someone not in it changes nothing. */
   removeMember(workspaceId: string, teamId: string, personId: string): Promise<Team | 'not-found'>;
+};
+
+/** What saving a factory's files found. */
+export type FactorySave =
+  | { kind: 'saved'; version: FactoryVersion }
+  | { kind: 'not-found' }
+  /** The factory's latest version is no longer the one the files were saved from. */
+  | { kind: 'moved'; latestVersion: number };
+
+/**
+ * A workspace's factories and the versions of their files. Every call is scoped by the
+ * workspace's id, and a factory of another workspace is one the store does not have. Every call
+ * throws when the database does not answer.
+ */
+export type FactoryStore = {
+  /** The workspace's factories, by name whatever its case. */
+  list(workspaceId: string): Promise<Factory[]>;
+  /** One factory, or null when the workspace has no factory with that id. */
+  get(workspaceId: string, factoryId: string): Promise<Factory | null>;
+  /**
+   * Makes a factory owned by the team, its files stored here, with a first version that holds no
+   * files, saved by `personId`. `name-taken` when another factory of the workspace has the name,
+   * in any case; `team-not-found` when the workspace has no such team.
+   */
+  create(
+    workspaceId: string,
+    input: { name: string; teamId: string; personId: string },
+  ): Promise<Factory | 'name-taken' | 'team-not-found'>;
+  /** One version of a factory's files, its files by path, or null when there is no such version. */
+  version(workspaceId: string, factoryId: string, version: number): Promise<FactoryVersion | null>;
+  /**
+   * Saves `files` as the factory's next version, saved by `personId`, if its latest version is
+   * still `baseVersion`: a compare-and-set, so of two saves from one version only the first
+   * lands, and the other is `moved`, with nothing changed.
+   */
+  save(
+    workspaceId: string,
+    factoryId: string,
+    input: { baseVersion: number; files: readonly FactoryFile[]; personId: string },
+  ): Promise<FactorySave>;
 };

@@ -142,13 +142,18 @@ parser and Run record that every runner shares.
 
 `packages/sandbox` (`@consola/sandbox`, AGPL-3.0-only) is the one interface
 every runner uses to start and drive sandboxes: create one from a template,
-run a command and stream its output, read and write files, expose a port,
-stop it. E2B is the first provider behind it, invisible to users. Code holds
-`Sandboxes` from `sandboxesFrom(provider)`, which checks every request before a
-provider sees it, and checks a capability (`pausing`, `snapshots`) by its
-member, never by which provider it has. Its core does no I/O, which its
-`boundary.test.ts` proves; every provider passes its contract
-(`src/contract.test.ts`), and its in-memory `FakeProvider` is what other
+with a lifetime, run a command and stream its output, read and write files,
+expose a port, stop it, and reach it again by its id from another process.
+E2B is the first provider behind it (`@consola/sandbox/e2b`, an entry point
+of its own), invisible to users. Code holds `Sandboxes` from
+`sandboxesFrom(provider)`, which checks every request before a provider sees
+it, and checks a capability (`pausing`, `snapshots`, `keepAlive`) by its
+member, never by which provider it has. A sandbox's lifetime is a hard
+maximum and the only thing that stops one whose runner died, so long work
+renews it (`keepAlive`) rather than setting a long one. Its core does no
+I/O, which its `boundary.test.ts` proves; every provider passes its contract
+(`src/contract.test.ts`, against real E2B when `E2B_API_KEY` is set in
+`packages/sandbox/.env`), and its in-memory `FakeProvider` is what other
 packages' tests use. Before changing it, or adding a provider, read
 `packages/sandbox/AGENTS.md`.
 
@@ -191,13 +196,17 @@ health check and the outbox's deliveries (signed with the same key) carries a
 cell token, checked with `cloud-global`'s public keys,
 and the person, workspace and role come from that token alone, never from the
 request. Nothing in `apps/desktop` depends on the cloud apps, and none
-imports from the desktop, the website, another app or `packages/*`, with one
-exception: `cloud-global` and `cloud-region` both import
+imports from the desktop, the website, another app or `packages/*`, with two
+exceptions. `cloud-global` and `cloud-region` both import
 `packages/cloud-contract` (`@consola/cloud-contract`), what the two agree on:
 the regions, the workspace roles, the claims of the token `cloud-global` mints
-for a cell, the outbox messages it sends one and how it delivers them. It does
+for a cell, the outbox messages it sends one and how it delivers them, and a
+cell's signed request for a GitHub token. It does
 no I/O, so any layer of either app may import it; before changing it, read
-`packages/cloud-contract/AGENTS.md`. Setup is in
+`packages/cloud-contract/AGENTS.md`. And `cloud-region` imports
+`packages/factory-spec` (`@consola/factory-spec`), the factory files' schema
+every runner shares, to check the factory files it stores; it does no I/O
+either, so any layer of the cell may import it. Setup is in
 `apps/cloud-global/README.md` and `apps/cloud-region/README.md`. Before
 changing a cloud app, read its own `AGENTS.md` (`apps/cloud-global/AGENTS.md`,
 `apps/cloud-region/AGENTS.md`, `apps/cloud-web/AGENTS.md`): it holds the layer

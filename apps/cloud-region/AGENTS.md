@@ -214,8 +214,77 @@ would put teams in `cloud-global`'s database. The rules are in
   taking out someone not in it (`DELETE`), changes nothing. The store holds
   the member's copy row while it writes (`for key share`), so they cannot
   leave the workspace in between.
-- **A team that owns something** is a later rule: when factories arrive
-  (9.2), deleting a team that owns one needs a rule of its own.
+- **A team that owns a factory** is not deleted (409 `owns_factories`), below
+  ("Factories").
+
+## Factories
+
+A workspace's factories live in its cell, with their files (decided
+2026-11-22: a factory's definition is saved in Consola's backend, or pulled
+from a git repo). The rules are in `domain/factory.ts`, the use cases in
+`application/factories.ts`, the store in `adapters/persistence/factories.ts`
+and the routes in `adapters/http/factories.ts`.
+
+- **Three tables**, each with its `workspace_id`: `factory` (`factory_id`,
+  which the cell gives it, `name`, `team_id`, `source`, `latest_version`),
+  `factory_version` (`version`, `saved_by_person_id`, `saved_at`) and
+  `factory_file` (`path`, `content`), a row per file of a version. A factory
+  points at its team through both ids, so its team is always one of its own
+  workspace, and a version points at its factory, and a file at its version,
+  the same way.
+- **The files** are a factory folder's, in the format `packages/factory-spec`
+  defines: `factory.yml`, `automations/<name>.yaml`, `agents/<name>.md` and
+  `skills/<name>/…`, each a path inside the folder and its text. Runners and
+  scorers have no format there yet, so the cell takes none. A file under a
+  later slice's folder (factory-spec's `LATER_FOLDERS`: `environments/`,
+  `connections/`, `evals/`) is stored with factory-spec's notice that it has
+  no effect yet, as the desktop's folder applies it; any other path is refused
+  as the folder's reader refuses a stray. Files are text: a binary file in a
+  skill cannot be saved yet.
+- **A set is stored only if it keeps the schema** (`checkFactoryFiles`). The
+  set is checked first: at most `FACTORY_FILES_MAX` files and
+  `FACTORY_BYTES_MAX` bytes, each path inside the folder and given once, each
+  file at most factory-spec's `MAX_FACTORY_TEXT_BYTES`, with no NUL (no
+  Postgres text holds one) and no lone surrogate. Then factory-spec's
+  `parseFactory` checks every file and the references across them. Any issue
+  refuses the whole set: 400 `invalid_files`, with every issue in
+  factory-spec's shape (`file`, `line`, `message`…). Never write a second
+  schema here. `folderOf` sorts the files as the folder's reader would, into
+  records built by `Object.fromEntries`, so a name such as `__proto__` is
+  checked, never lost. A body over `SAVE_BODY_MAX` is 413 `too_large` before
+  it is read.
+- **Versions.** A factory is made blank: version 1, holding no files. Each
+  save is the next version, never a change to one. A save names
+  `baseVersion`, the version its files were edited from, and lands only while
+  that is still the latest, by a compare-and-set on `latest_version` (409
+  `version_moved`, with the latest, otherwise), so a save never undoes one it
+  did not see. Every version stays readable (`GET
+  /api/factories/{factoryId}/versions/{version}`), and `GET
+  /api/factories/{factoryId}` answers the factory with its latest version's
+  files.
+- **Where the files come from** is `source`: `stored`, for now. A GitHub
+  repository (9.4) is the second kind; saving a repo factory's files is to be
+  refused then.
+- **Who may do what** follows the team (decided 2026-11-21): a person sees the
+  factories of the teams they see (`factoriesSeenBy`, on `teamsSeenBy` and
+  `actingRole`), so owners and admins see every factory, and a member the
+  factories of the teams they are in. Whoever sees a factory may save its
+  files, and may make one for any team they see (only who sees was decided).
+  A factory the caller does not see is 404 `factory_not_found`, and a team
+  they do not see 404 `team_not_found`, so a member learns nothing of another
+  team's.
+- **Names** are checked as teams' are (`checkFactoryName`, 400
+  `invalid_factory`) and are unique in the workspace whatever their case
+  (`factory_name_unique`, on `lower(name)`; 409 `name_taken`).
+- **The order of the checks**: what was sent (the name, or the files), then
+  whether the cell holds the workspace (409 `workspace_pending`), then whether
+  the caller sees the team or the factory, then the base version, then what
+  the store finds. What the caller sees is read just before the write, as the
+  teams' role is.
+- **A team that owns a factory** is not deleted (409 `owns_factories`): the
+  factory's foreign key to its team refuses it, and the team store answers
+  `owns-factories`. Moving a factory to another team, or deleting one, comes
+  later.
 
 ## The API's contract
 
@@ -228,9 +297,9 @@ built the way `cloud-global`'s contract is
 
 - **Answers are strict objects** (`z.strictObject`); request bodies are
   checked for their shape only (`z.object`), never for the domain's rules.
-  The HTTP suite reads every teams answer with the schema its route declares
-  for its status (`answerOf`), so an undeclared status or a field the
-  contract does not name fails a test.
+  The HTTP suite reads every teams and factories answer with the schema its
+  route declares for its status (`answerOf`), so an undeclared status or a
+  field the contract does not name fails a test.
 - **The token check's answers** (401 `token_required`/`invalid_token`, 421
   `wrong_region`, 503 `token_check_unavailable`) are declared once
   (`tokenFailures`) and spread into every route behind the check.
@@ -255,22 +324,24 @@ The service is built in rings, and imports point inward only.
 
 - `src/domain/` holds the rules and the types they speak of, such as the
   regions (`region.ts`, which takes them from the contract), the order a
-  workspace's copy applies its messages in (`workspaceCopy.ts`) and teams
-  (`team.ts`). It is plain TypeScript, with no I/O, and no package but the
-  contract (below).
+  workspace's copy applies its messages in (`workspaceCopy.ts`), teams
+  (`team.ts`) and factories (`factory.ts`). It is plain TypeScript, with no
+  I/O, and no package but the shared ones (below).
 - `src/application/` holds the use cases (`checkHealth`, `authenticate`,
-  `describeMe`, `receiveDelivery`, and the teams' in `teams.ts`) and, in
-  `ports.ts`, the stores, probes, the `TokenVerifier`, the
-  `DeliveryVerifier`, the `WorkspaceCopies`, the `TeamStore` and the `Clock`
-  they need. A use case is a plain function that takes its ports first.
+  `describeMe`, `receiveDelivery`, the teams' in `teams.ts` and the
+  factories' in `factories.ts`) and, in `ports.ts`, the stores, probes, the
+  `TokenVerifier`, the `DeliveryVerifier`, the `WorkspaceCopies`, the
+  `TeamStore`, the `FactoryStore` and the `Clock` they need. A use case is a
+  plain function that takes its ports first.
 - `src/adapters/` implements the ports with a library, one folder each:
   - `persistence/` is Drizzle on PGlite or Postgres: the database
     (`database.ts`), the tables (`tables.ts`, re-exported as `schema` by
     `schema.ts`), and one store per port, which `stores.ts` builds together;
   - `http/` is the contract (`contract.ts`), the Hono routes (`app.ts`), the
     token check in front of them (`caller.ts`), the outbox's route
-    (`outbox.ts`) and the teams' (`teams.ts`). Each route asks a use case and
-    maps its answer to a status and a body;
+    (`outbox.ts`), the teams' (`teams.ts`) and the factories'
+    (`factories.ts`). Each route asks a use case and maps its answer to a
+    status and a body;
   - `token/` is jose: the `TokenVerifier` and where its keys come from
     (`cellTokens.ts`), and the `DeliveryVerifier`, on the same keys
     (`outboxDeliveries.ts`);
@@ -289,7 +360,7 @@ The service is built in rings, and imports point inward only.
 ## The dependency rule
 
 - `domain` imports only `domain`. `application` imports only `domain` and
-  `application`. Neither imports a package (but the contract) or a `node:`
+  `application`. Neither imports a package (but the shared ones) or a `node:`
   builtin, and neither refers to a global that reaches the machine: `process`,
   `fetch`, `require`,
   `XMLHttpRequest`, `WebSocket`, the timers (`setTimeout`, `setInterval`,
@@ -305,14 +376,18 @@ The service is built in rings, and imports point inward only.
   - `adapters/clock` imports no package.
 - No file, tests included, imports another app, Better Auth
   (`better-auth`, `@better-auth/*`) or a workspace package (`@consola/*`, or
-  `consola`, the desktop), with one exception: `@consola/cloud-contract`
-  (`packages/cloud-contract`), the contract the cell shares with
-  `cloud-global`. It holds the regions, the workspace roles, the claims of the
-  token `cloud-global` mints for a cell, and the outbox messages it sends one.
-  It does no I/O, which its own boundary test proves, so any layer may import
-  it, `domain` and `application` included. Only its entry point counts: a path
-  inside it is refused. Before changing it, read
-  `packages/cloud-contract/AGENTS.md`.
+  `consola`, the desktop), with two exceptions, the shared packages, which
+  any layer may import, `domain` and `application` included. Only an entry
+  point counts: a path inside either is refused.
+  - `@consola/cloud-contract` (`packages/cloud-contract`), the contract the
+    cell shares with `cloud-global`. It holds the regions, the workspace
+    roles, the claims of the token `cloud-global` mints for a cell, and the
+    outbox messages it sends one. It does no I/O, which its own boundary test
+    proves. Before changing it, read `packages/cloud-contract/AGENTS.md`.
+  - `@consola/factory-spec` (`packages/factory-spec`, MIT), the factory
+    files' schema and parser every runner shares, with which the cell checks
+    the files it stores (above, "Factories"). It parses texts it is handed and
+    does no I/O.
 - Test files (`*.test.ts`) are exempt from the layer rules, because they wire
   real pieces together the way `compose.ts` does.
 
@@ -322,9 +397,9 @@ the TypeScript syntax tree (`import`, `import type`, `export … from`, dynamic
 reference counts, directly or through `globalThis`, never a property or a
 member that shares the name (`request.process`, `{ fetch: 1 }`). A file that
 sits in no layer fails it too. The rules are data at its top (`LAYERS`,
-`NEVER`, `CLOUD_CONTRACT`), so a new layer or folder is added there first. It
+`NEVER`, `SHARED_PACKAGES`), so a new layer or folder is added there first. It
 also reads every package in the workspace and checks that each one but the
-contract is refused, so a new package is covered without being named.
+shared ones is refused, so a new package is covered without being named.
 
 `src/adapters/persistence/schema.test.ts` enforces the table rules: every table
 in `schema` has a not-null `workspace_id`, and none is an account table (the
@@ -376,7 +451,8 @@ transaction at a time, so the compare-and-set is also tested directly
 `tables.ts` changes. They apply when the cell starts. The first is
 `0000_workspace_copy`; `0001_teams` ends with two statements written by hand,
 which give the workspaces already held their first team
-(`migrations.test.ts` runs it over a database migrated to `0000` only).
+(`migrations.test.ts` runs it over a database migrated to `0000` only);
+`0002_factories` adds the factories' tables, all generated.
 Postgres cuts a name at 63 characters, and drizzle's names for a composite
 foreign key run past that, so such a key is named in `tables.ts`.
 

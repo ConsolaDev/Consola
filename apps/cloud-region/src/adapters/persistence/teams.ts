@@ -2,26 +2,13 @@ import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import type { TeamStore } from '../../application/ports.js';
 import type { Team } from '../../domain/team.js';
 import type { Database } from './database.js';
+import { FOREIGN_KEY_VIOLATION, failedWith, UNIQUE_VIOLATION } from './sqlState.js';
 import { teamMembers, teams, workspaceMembers, workspaces } from './tables.js';
 
 type Transaction = Parameters<Parameters<Database['transaction']>[0]>[0];
 type Executor = Database | Transaction;
 
-/** Postgres's code for a unique constraint a write would break. */
-const UNIQUE_VIOLATION = '23505';
-
-/**
- * Whether a failed write broke a unique constraint. Drizzle wraps the driver's error, so its
- * causes are read too; both PGlite's and pg's errors carry the SQLSTATE as `code`.
- */
-function isUniqueViolation(error: unknown): boolean {
-  let current = error;
-  for (let depth = 0; current instanceof Error && depth < 5; depth++) {
-    if ((current as { code?: unknown }).code === UNIQUE_VIOLATION) return true;
-    current = current.cause;
-  }
-  return false;
-}
+const isUniqueViolation = (error: unknown) => failedWith(error, UNIQUE_VIOLATION);
 
 const inTeam = (workspaceId: string, teamId: string) =>
   and(eq(teams.workspaceId, workspaceId), eq(teams.teamId, teamId));
@@ -125,11 +112,18 @@ export function createTeamStore(db: Database): TeamStore {
 
     async remove(workspaceId, teamId) {
       // The first team is never deleted, whoever asks: the condition holds that, not a read
-      // before the write that another request could slip between.
-      const deleted = await db
-        .delete(teams)
-        .where(and(inTeam(workspaceId, teamId), eq(teams.isFirst, false)))
-        .returning({ id: teams.teamId });
+      // before the write that another request could slip between. A team that owns a factory
+      // stays too, which the factory's foreign key holds.
+      let deleted: { id: string }[];
+      try {
+        deleted = await db
+          .delete(teams)
+          .where(and(inTeam(workspaceId, teamId), eq(teams.isFirst, false)))
+          .returning({ id: teams.teamId });
+      } catch (error) {
+        if (failedWith(error, FOREIGN_KEY_VIOLATION)) return 'owns-factories';
+        throw error;
+      }
       if (deleted.length === 1) return 'removed';
       const [kept] = await db
         .select({ id: teams.teamId })

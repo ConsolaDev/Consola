@@ -19,6 +19,7 @@ const app = createApp({
   deliveries: unreachable as never,
   workspaceCopies: unreachable as never,
   teams: unreachable as never,
+  factories: unreachable as never,
   clock: unreachable as never,
   report: () => {},
 });
