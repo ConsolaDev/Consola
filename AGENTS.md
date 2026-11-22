@@ -43,10 +43,13 @@ front. E2E runs themselves are already hidden and unfocusable
 All commands above run from the repository root. The pnpm workspace contains
 `apps/desktop` (`consola`), `apps/website` (`@consola/website`),
 `apps/cloud-api` (`@consola/cloud-api`), `apps/cloud-web` (`@consola/cloud-web`),
-`packages/factory-spec` (`@consola/factory-spec`, MIT) and
-`packages/automation-engine` (`@consola/automation-engine`). Turborepo
-orchestrates builds, tests, and typechecking. Paths below beginning with `src/`,
-`scripts/`, or `dist/` are relative to `apps/desktop`. Use
+`packages/factory-spec` (`@consola/factory-spec`, MIT),
+`packages/automation-engine` (`@consola/automation-engine`),
+`packages/host` (`@consola/host`, AGPL), `packages/agent-ui`
+(`@consola/agent-ui`, MIT) and the copied t3code packages under
+`vendor/t3code/` ("Vendored t3code", below). Turborepo orchestrates builds,
+tests, and typechecking; the root runs leave `vendor/` out. Paths below
+beginning with `src/`, `scripts/`, or `dist/` are relative to `apps/desktop`. Use
 `pnpm --filter consola exec <tool>` for app-specific tools.
 
 Tooling runs on one exact Node version, named in three places that move
@@ -133,6 +136,19 @@ later rule that limits it to the company lands in `mayJoin` and so gates every
 sign-in (sessions already open when the rule changes are not ended this
 round). The web app's footer links to the source of the commit it runs
 (AGPL §13).
+
+### Vendored t3code
+
+`vendor/t3code/` is t3code's packages and server files, copied byte for byte (MIT, its own
+`LICENSE`). Never edit a copied file there or in `packages/agent-ui/src/t3/`; Biome ignores
+them. A change that cannot be avoided, every file copied and every re-sync are recorded in
+`vendor/t3code/UPSTREAM.md`, in the same commit. Two Consola packages build on it:
+`packages/host` (`@consola/host`, AGPL), which runs t3's orchestration for one session and
+serves t3's RPC behind a session pass, and `packages/agent-ui` (`@consola/agent-ui`, MIT),
+t3's chat view behind `AgentChat`. Read each one's `AGENTS.md` before changing it. The
+copied packages' own checks are not part of `pnpm test` or `pnpm typecheck`: run
+`pnpm run test:vendor` and `pnpm run typecheck:vendor` (CI's `vendor` job, on Linux, where a
+few of t3's tests assume Linux and fail on macOS).
 
 ## Critical Patterns
 
