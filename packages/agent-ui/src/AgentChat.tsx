@@ -412,7 +412,7 @@ function useChatDark(root: RefObject<HTMLElement | null>): boolean {
 }
 
 /**
- * t3's popups/ are Base UI portals at the end of `<body>`, outside the chat. While the chat is
+ * t3's popups are Base UI portals at the end of `<body>`, outside the chat. While the chat is
  * mounted, each is marked as the chat's (`styles.css` styles inside it) and given the chat's
  * theme. A page that uses Base UI itself would see its own portals marked too.
  */

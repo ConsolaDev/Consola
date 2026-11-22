@@ -107,7 +107,8 @@ pieces:
     `consola-host:<session>`, and its profile) and its cache per environment (the thread and
     shell snapshots it shows before a connection is back, server config, queries).
   - `localStorage`: the person's unsent composer drafts (`t3code:composer-drafts:v1`, per
-    thread), its client settings (`t3code:client-settings:v1`) and UI state (`t3code:ui-state:v1`,
+    thread), the prompts they stash from the composer (`t3code:prompt-stash:v2`,
+    `promptStashStore.ts`), its client settings (`t3code:client-settings:v1`) and UI state (`t3code:ui-state:v1`,
     panel widths, …), the theme keys (`t3code:theme`, `t3code:theme-appearance-mode`, which
     `AgentChat` sets to the chat's light or dark, `t3code:theme-halves:v1`, `t3code:themes:v1`),
     and the analytics device id (`t3code:analytics-device-id`, a random id t3's platform
@@ -127,7 +128,7 @@ pieces:
     that closed without unmounting left, and never touches what another open window shows
     (`AgentChat.storedSessions.browser.test.tsx`). Without Web Locks (an insecure context)
     nothing is removed this way.
-  - **Never**: composer drafts, client settings and UI state, the theme keys, the analytics id
+  - **Never**: composer drafts, stashed prompts, client settings and UI state, the theme keys, the analytics id
     and t3's favicon cache (`t3code:project-favicons`). They hold no credential.
 
 - **Where the pass travels.** `AgentChat` holds it in React state and hands it to t3, which:
@@ -174,8 +175,12 @@ other kind:
   value page-wide, which matters only where something reads them; no Consola page does.
 - `@font-face` for KaTeX's fonts (`KaTeX_Main`, …), used only by a rule naming them.
 - The `@layer` names `properties, theme, base, clerk, components, utilities`. A page with layers
-  of the same names would have t3's rules merged into them; Consola's pages use no layers. The root has `contain: layout`, so t3's
-fixed-position controls are placed inside the chat, not on the page's viewport.
+  of the same names would have t3's rules merged into them; no Consola page declares any of
+  them. The dev page has one layer of its own, `consola-dev-page` (`dev/index.html`, html, body
+  and `#root` only), declared before the chat's stylesheet loads, so it is the lowest layer.
+
+The root has `contain: layout`, so t3's fixed-position controls are placed inside the chat, not
+on the page's viewport.
 
 **Theme.** Where the page carries Consola's colour tokens (the desktop sets them on
 `html[data-theme]`), `styles.css` reads them there under `--consola-agent-ui-*` names and maps
@@ -236,6 +241,14 @@ after the chat shows its thread.
 - t3's composer reads `<html>`'s `dark` class to pick its code-block highlighting
   (`ComposerPromptEditorTiptap.tsx`). It reads only; on a page without that class (Consola's)
   code typed in the composer is highlighted with the light palette in a dark chat.
+- While t3's model picker is open (`components/chat/ProviderModelPicker.tsx:38-83`), it sets
+  `overflow: hidden` on `<body>` (and a `padding-right` the width of the page's scrollbar) and
+  `overscroll-behavior: contain` on `<html>`, inline, and listens for `wheel` and `touchmove`
+  on the document to stop the page behind it scrolling; it puts the earlier inline values back
+  when it closes.
+- While a panel edge is dragged (`hooks/useResizeDrag.ts:108-109`), `<body>` gets an inline
+  `cursor: col-resize` and `user-select: none`; at the end both are removed (`:60-61`), not put
+  back, so an inline `cursor` or `user-select` the page had set on `<body>` is lost.
 - `localStorage` and IndexedDB, below.
 
 ## Build
