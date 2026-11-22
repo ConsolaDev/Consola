@@ -844,17 +844,22 @@
   cursor: default;
 }
 
-/* A kind's mark (`markPlaces`), such as an agent having used a page the person has not seen:
-   on a header shortcut, on the side panel toggle, or on a tab in the side panel's bar. One rule
-   draws it for all three, so the dot cannot differ between them; only a tab places it apart.
-   A literal radius: var(--radius-full) resolves to 0 inside .radix-themes. */
+/* A kind's mark (`markPlaces`): on a header shortcut, on the side panel toggle, or on a tab in
+   the side panel's bar. An agent's (it used a page the person has not seen) is the accent dot,
+   `::after`; an alert (a pull request's failing check) is the red one, `::before`. One rule
+   draws both for all three places, so a dot cannot differ between them; only a tab places it
+   apart. A literal radius: var(--radius-full) resolves to 0 inside .radix-themes. */
 .path-display-toggle[data-agent-dot],
-.side-panel-tab-trigger[data-agent-dot] {
+.path-display-toggle[data-alert-dot],
+.side-panel-tab-trigger[data-agent-dot],
+.side-panel-tab-trigger[data-alert-dot] {
   position: relative;
 }
 
 .path-display-toggle[data-agent-dot]::after,
-.side-panel-tab-trigger[data-agent-dot]::after {
+.path-display-toggle[data-alert-dot]::before,
+.side-panel-tab-trigger[data-agent-dot]::after,
+.side-panel-tab-trigger[data-alert-dot]::before {
   content: "";
   position: absolute;
   top: 3px;
@@ -866,11 +871,24 @@
   pointer-events: none;
 }
 
+.path-display-toggle[data-alert-dot]::before,
+.side-panel-tab-trigger[data-alert-dot]::before {
+  background: var(--color-error);
+}
+
+/* Both on one button, which only the side panel toggle can be: the red dot keeps
+   the corner, and the agent's sits 8px to its left, 2px clear of it. */
+.path-display-toggle[data-agent-dot][data-alert-dot]::after {
+  right: 11px;
+}
+
 /* On a tab the dot sits on its icon's corner, as it does on a header button's
    icon: at the tab's own corner it touched the label's last letter, which ends
    4px from that edge. The 14px icon starts at the trigger's left padding, and
-   the dot overlaps its corner by 4px, as on the header. */
-.side-panel-tab-trigger[data-agent-dot]::after {
+   the dot overlaps its corner by 4px, as on the header. A tab holds one kind,
+   so it never carries both. */
+.side-panel-tab-trigger[data-agent-dot]::after,
+.side-panel-tab-trigger[data-alert-dot]::before {
   right: auto;
   left: calc(var(--space-2) + 10px);
 }

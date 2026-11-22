@@ -1,11 +1,19 @@
+import { sameWorkItem } from '../../../shared/workItems';
+import { alertPanelWords, alertWords, pullRequestAlert } from '../../infoPanel/pullRequestAlert';
+import { detailsTargetOf, sessionPullRequest } from '../../infoPanel/sessionPullRequest';
+import type { MarkTone } from '../../sidePanel/marks';
 import { isTabKindId, TAB_KINDS, type TabFacts, type TabKindId } from '../../sidePanel/tabKinds';
 import { useBrowserAgentDot } from '../../stores/browserAgentDotStore';
+import { useInboxStore } from '../../stores/inboxStore';
+import { useDetailsEntry } from '../../stores/workItemDetailsStore';
 
 /**
  * What a kind's mark says, beside the dot that draws it. Where it is drawn
  * is `markPlaces`' to decide; whether there is one is the kind's own.
  */
 export interface TabMark {
+  /** Which dot draws it: the accent one for an agent's use, the red one for something wrong. */
+  tone: MarkTone;
   /** Said after the kind's own name: "Browser, which the agent used". */
   onKind: string;
   /** Said after the side panel toggle's label: "Show side panel, where the agent used the browser". */
@@ -13,6 +21,7 @@ export interface TabMark {
 }
 
 const BROWSER_MARK: TabMark = {
+  tone: 'agent',
   onKind: 'which the agent used',
   onPanel: 'where the agent used the browser',
 };
@@ -22,9 +31,32 @@ function useBrowserMark(facts: TabFacts): TabMark | null {
   return useBrowserAgentDot(facts.session.id) ? BROWSER_MARK : null;
 }
 
+/**
+ * The session's pull request, linked or found from its branch, has a failing
+ * check or a request for changes. Read from what is already known, its
+ * cached details or the Inbox's copy of it, whichever is newer: it never
+ * watches or loads, so a mark drawn with no viewer on screen asks for nothing.
+ */
+function usePullRequestMark(facts: TabFacts): TabMark | null {
+  const item = sessionPullRequest(facts.session, facts.foundPullRequest);
+  const target = detailsTargetOf(facts.workspace, item?.ref);
+  const entry = useDetailsEntry(target);
+  const inbox = useInboxStore((state) => state.snapshots[facts.workspace.id]);
+  if (!target) return null;
+  const alert = pullRequestAlert({
+    details: entry?.details,
+    detailsAt: entry?.fetchedAt ?? 0,
+    item: inbox?.items.find((candidate) => sameWorkItem(candidate.workItem, target.ref)),
+    itemAt: inbox?.fetchedAt ?? 0,
+  });
+  if (!alert) return null;
+  return { tone: 'alert', onKind: alertWords(alert), onPanel: alertPanelWords(alert) };
+}
+
 /** Each entry is a hook; a kind without one has no mark. */
 export const TAB_MARKS: Partial<Record<TabKindId, (facts: TabFacts) => TabMark | null>> = {
   browser: useBrowserMark,
+  'pull-request': usePullRequestMark,
 };
 
 const noMark = (): null => null;
@@ -50,4 +82,19 @@ export function useTabMarks(
   facts: TabFacts,
 ): ReadonlyArray<{ kind: TabKindId; mark: TabMark | null }> {
   return TAB_KINDS.map((kind) => ({ kind: kind.id, mark: markReaderOf(kind.id)(facts) }));
+}
+
+/**
+ * The dots a button draws for the marks it carries, one attribute per tone.
+ * A shortcut or a tab holds one kind, so at most one; the side panel toggle
+ * can carry both.
+ */
+export function markDots(marks: readonly TabMark[]): {
+  'data-agent-dot'?: true;
+  'data-alert-dot'?: true;
+} {
+  return {
+    'data-agent-dot': marks.some((mark) => mark.tone === 'agent') || undefined,
+    'data-alert-dot': marks.some((mark) => mark.tone === 'alert') || undefined,
+  };
 }

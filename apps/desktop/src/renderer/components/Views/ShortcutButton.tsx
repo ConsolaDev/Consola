@@ -2,7 +2,7 @@ import * as Tooltip from '@radix-ui/react-tooltip';
 import { isInFront } from '../../sidePanel/layout';
 import { shortcutActs, tabKind, type TabFacts, type TabKindId } from '../../sidePanel/tabKinds';
 import { useSidePanelStore } from '../../stores/sidePanelStore';
-import { useTabMark } from '../SidePanel/tabMarks';
+import { markDots, useTabMark } from '../SidePanel/tabMarks';
 
 /**
  * A header button for one tab kind: it opens the kind's tab, and hides the
@@ -45,7 +45,7 @@ export function ShortcutButton({ kind, facts }: { kind: TabKindId; facts: TabFac
             aria-pressed={inFront}
             aria-disabled={acts ? undefined : true}
             aria-keyshortcuts={entry.keyshortcuts}
-            data-agent-dot={mark ? true : undefined}
+            {...markDots(mark ? [mark] : [])}
             onClick={() => {
               if (acts) pressShortcut(kind);
             }}

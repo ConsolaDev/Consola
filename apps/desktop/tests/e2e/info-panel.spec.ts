@@ -690,4 +690,83 @@ test.describe('info panel', () => {
     ).toBeVisible();
     await expect(baseRow('origin/feat/search-pagination')).toContainText('No changes');
   });
+
+  /**
+   * When main last read the Inbox, 0 before it has. The Inbox's #51 has a
+   * failing check and no review yet, so a read of it landing after #51's
+   * details would speak over them: the newer source decides.
+   */
+  const inboxReadAt = () =>
+    page.evaluate(async () => {
+      const workspace = (await window.workspaceAPI.getSnapshot()).workspaces[0];
+      return (await window.inboxAPI.getInbox(workspace.id))?.fetchedAt ?? 0;
+    });
+
+  test("the pull request's red mark goes on its shortcut, else its tab, else the side panel toggle", async () => {
+    const checksFailing = () => prSection().getByRole('button', { name: /^1 check failing/ });
+    const onKind = 'Pull request #51, a check is failing and changes are requested';
+
+    // The toggle: Pull request is none of the header's three, and the side
+    // panel is hidden.
+    await expect.poll(inboxReadAt).toBeGreaterThan(0);
+    await openSession(FIX_CI);
+    await expect(checksFailing()).toBeVisible();
+    await expect(
+      page.locator('.side-panel-controls').getByRole('button', { name: /^Pull request/ }),
+    ).toHaveCount(0);
+    await expect(page.getByTestId('side-panel')).toHaveCount(0);
+    await expect(sidePanelToggle()).toHaveAttribute('data-alert-dot', 'true');
+    await expect(sidePanelToggle()).not.toHaveAttribute('data-agent-dot');
+    await expect(sidePanelToggle()).toHaveAccessibleName(
+      'Show side panel, where the pull request has a failing check and changes requested',
+    );
+
+    // The tab, once it sits behind Changes on screen. In front, it shows
+    // what its mark is about.
+    await prTitle().click();
+    await expect(sidePanelTab('Pull request #51')).toHaveAttribute('aria-selected', 'true');
+    await expect(sidePanelTab('Pull request #51')).not.toHaveAttribute('data-alert-dot');
+    await page.getByRole('button', { name: 'Changes', exact: true }).click();
+    await expect(sidePanelTab('Changes')).toHaveAttribute('aria-selected', 'true');
+    const tabOf51 = page
+      .getByRole('tablist', { name: 'Side panel tabs' })
+      .getByRole('tab', { name: /^Pull request #51/ });
+    await expect(tabOf51).toHaveAttribute('data-alert-dot', 'true');
+    await expect(tabOf51).toHaveAccessibleName(onKind);
+    await expect(sidePanelToggle()).not.toHaveAttribute('data-alert-dot');
+    await expect(sidePanelToggle()).toHaveAccessibleName('Hide side panel');
+
+    // The shortcut: Pull request opened five times today is one of the
+    // header's three at the next launch, which keeps the layout.
+    await page.evaluate((key) => {
+      const stored = JSON.parse(localStorage.getItem(key) ?? '{}');
+      const now = Date.now();
+      stored.state = { ...stored.state, uses: { 'pull-request': [now, now, now, now, now] } };
+      localStorage.setItem(key, JSON.stringify(stored));
+    }, 'consola-side-panel');
+    await app.close();
+    ({ app, page } = await launchElectron({ userDataDir, env }));
+    await expect.poll(inboxReadAt).toBeGreaterThan(0);
+    await openSession(FIX_CI);
+    await expect(checksFailing()).toBeVisible();
+    const shortcut = page
+      .locator('.side-panel-controls')
+      .getByRole('button', { name: onKind, exact: true });
+    await expect(shortcut).toHaveAttribute('data-alert-dot', 'true');
+    await expect(page.getByTestId('side-panel')).toBeVisible();
+    await sidePanelToggle().click();
+    await expect(page.getByTestId('side-panel')).toHaveCount(0);
+    // The shortcut already carries the mark.
+    await expect(sidePanelToggle()).toHaveAccessibleName('Show side panel');
+    await expect(sidePanelToggle()).not.toHaveAttribute('data-alert-dot');
+
+    // No reads: with nothing on screen to show #51, the mark stays on what
+    // was read, and asks for nothing.
+    const reads = detailReadsOf51();
+    await page.getByRole('button', { name: 'Hide info panel', exact: true }).click();
+    await expect(infoPanel(page)).toHaveCount(0);
+    await page.waitForTimeout(2000);
+    await expect(shortcut).toHaveAttribute('data-alert-dot', 'true');
+    expect(detailReadsOf51()).toBe(reads);
+  });
 });
