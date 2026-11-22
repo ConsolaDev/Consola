@@ -1,10 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import type { CheckoutInfo } from '../../shared/sessionCheckout';
-import type { HarnessModel } from '../../shared/types';
+import type { HarnessAccount, HarnessModel } from '../../shared/types';
 import { createSessionRecord, createWorkspaceRecord, type Session } from '../../shared/workspace';
 import type { RemovedWorktree } from '../../shared/worktreeCleanup';
 import { tabFactsFor } from '../sidePanel/tabKinds';
-import { folderLine, harnessLine, readOnlyLine, splitForMiddle } from './environment';
+import {
+  type CapabilitiesAnswer,
+  folderLine,
+  harnessLine,
+  readOnlyLine,
+  splitForMiddle,
+} from './environment';
 
 const workspace = createWorkspaceRecord('catalog-portal', '/repos/catalog-portal', true);
 const session = createSessionRecord({
@@ -88,40 +94,104 @@ describe('harnessLine', () => {
     description: 'Fast and capable',
   };
 
-  it('harnessLine prefers the CLI’s own account and model names', () => {
-    // The capability account, while the CLI says it is signed in.
+  /** What the harness launches as now, and what it launched as before an edit. */
+  const NOW = '["claude","/opt/claude",null,[]]';
+  const BEFORE_EDIT = '["claude","/usr/local/bin/claude",null,[]]';
+  /** The account read from the harness's config folder. */
+  const onDisk: HarnessAccount = { emailAddress: 'disk@sprocket.example', displayName: 'JaviDev' };
+  const accountOf = (answer: CapabilitiesAnswer | undefined, healthAccount = onDisk) =>
+    harnessLine({ driverLabel: 'Claude Code', signature: NOW, answer, healthAccount }).account;
+
+  it('harnessLine: a CLI signed in names its account, by email, else the one read from disk', () => {
     expect(
       harnessLine({
         driverLabel: 'Claude Code',
         harnessName: 'Stub',
-        capabilityAccount: { signedIn: true, emailAddress: 'javidev@sprocket.example' },
-        healthAccount: { emailAddress: 'old@sprocket.example' },
+        signature: NOW,
+        answer: {
+          signature: NOW,
+          account: { signedIn: true, emailAddress: 'javidev@sprocket.example' },
+        },
+        healthAccount: onDisk,
       }),
     ).toEqual({ label: 'Claude Code · Stub', account: 'javidev@sprocket.example' });
 
-    // Else the account read from the config folder, by email, else by name.
+    // Signed in, with no email said: the account on disk, by email, else by name.
+    expect(accountOf({ signature: NOW, account: { signedIn: true } })).toBe(
+      'disk@sprocket.example',
+    );
     expect(
-      harnessLine({
-        driverLabel: 'Claude Code',
-        harnessName: 'Stub',
-        capabilityAccount: { signedIn: false },
-        healthAccount: { emailAddress: 'javidev@sprocket.example', displayName: 'JaviDev' },
-      }).account,
-    ).toBe('javidev@sprocket.example');
+      accountOf({ signature: NOW, account: { signedIn: true } }, { displayName: 'JaviDev' }),
+    ).toBe('JaviDev');
+  });
+
+  it('harnessLine: a CLI signed out has no account, whatever its config folder holds', () => {
+    expect(accountOf({ signature: NOW, account: { signedIn: false } })).toBeUndefined();
+  });
+
+  it('harnessLine: with no answer for the harness as it launches now, the account read from disk', () => {
+    // None yet.
+    expect(accountOf(undefined)).toBe('disk@sprocket.example');
     expect(
       harnessLine({ driverLabel: 'Claude Code', healthAccount: { displayName: 'JaviDev' } }),
     ).toEqual({ label: 'Claude Code', account: 'JaviDev' });
 
+    // An answer that says nothing of the account decides nothing about it.
+    expect(accountOf({ signature: NOW, models: [] })).toBe('disk@sprocket.example');
+
+    // The harness was edited since it answered: that was another install,
+    // maybe another account, so neither its sign-in nor its sign-out counts.
+    expect(
+      accountOf({
+        signature: BEFORE_EDIT,
+        account: { signedIn: true, emailAddress: 'old@sprocket.example' },
+      }),
+    ).toBe('disk@sprocket.example');
+    expect(accountOf({ signature: BEFORE_EDIT, account: { signedIn: false } })).toBe(
+      'disk@sprocket.example',
+    );
+    // An answer that names no launch is for none.
+    expect(accountOf({ account: { signedIn: true, emailAddress: 'old@sprocket.example' } })).toBe(
+      'disk@sprocket.example',
+    );
+    // Nor anything on disk: no account at all.
+    expect(accountOf(undefined, {})).toBeUndefined();
+  });
+
+  it('harnessLine names the model as the CLI lists it, else the way a person says it', () => {
     // A model the CLI lists, by the name it gives it.
     expect(
-      harnessLine({ driverLabel: 'Claude Code', model: 'sonnet', models: [sonnet] }).model,
+      harnessLine({
+        driverLabel: 'Claude Code',
+        model: 'sonnet',
+        signature: NOW,
+        answer: { signature: NOW, models: [sonnet] },
+      }).model,
     ).toBe('Sonnet 4.5');
 
     // One it does not list, said the way a person says it.
     expect(
-      harnessLine({ driverLabel: 'Claude Code', model: 'claude-opus-4-6', models: [sonnet] }).model,
+      harnessLine({
+        driverLabel: 'Claude Code',
+        model: 'claude-opus-4-6',
+        signature: NOW,
+        answer: { signature: NOW, models: [sonnet] },
+      }).model,
     ).toBe('Opus 4.6');
     expect(harnessLine({ driverLabel: 'Codex', model: 'claude-opus-4-6' }).model).toBe('Opus 4.6');
+
+    // The list of an install the harness no longer launches names nothing.
+    expect(
+      harnessLine({
+        driverLabel: 'Claude Code',
+        model: 'claude-sonnet-4-5',
+        signature: NOW,
+        answer: {
+          signature: BEFORE_EDIT,
+          models: [{ ...sonnet, value: 'claude-sonnet-4-5', displayName: 'Old Sonnet' }],
+        },
+      }).model,
+    ).toBe('Sonnet 4.5');
 
     // Nothing known: the driver alone.
     expect(harnessLine({ driverLabel: 'Codex' })).toEqual({ label: 'Codex' });

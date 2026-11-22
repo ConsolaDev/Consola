@@ -1,10 +1,12 @@
 import { expect, test } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type { NewSessionFields } from '../../src/shared/workspace';
+import { CONVERSATION_ROOM_PX, INFO_PANEL_ROOM_PX } from '../../src/renderer/infoPanel/stepAside';
 import { commandPaletteChord, launchElectron } from './helpers/electron';
 import { infoPanel, infoPanelChord, infoSection, roomForBothPanels } from './helpers/infoPanel';
 
@@ -24,6 +26,8 @@ test.describe('info panel', () => {
   let repo: string;
   /** The second checkout, a linked worktree of the clone on `docs/readme`. */
   let docs: string;
+  /** Where the stub reads #51's details from. */
+  let detailsDir: string;
 
   const git = (cwd: string, ...args: string[]) =>
     execFileSync(
@@ -111,11 +115,20 @@ test.describe('info panel', () => {
         '',
       ].join('\n'),
     );
+    // #51's details, in a copy a test may change: a fixture moved away fails
+    // the read that needs it.
+    detailsDir = path.join(root, 'details');
+    fs.cpSync(path.join(STUB_GH_DIR, 'details'), detailsDir, { recursive: true });
     env = {
       CONSOLA_GH_PATH: path.join(STUB_GH_DIR, 'gh'),
       STUB_GH_LOG: path.join(root, 'gh.log'),
       STUB_GH_PULLS: pulls,
       STUB_GH_PULLS_HOLD: path.join(root, 'pulls.hold'),
+      STUB_GH_DETAILS_DIR: detailsDir,
+      // While this file exists, GitHub refuses every write.
+      STUB_GH_MUTATION_FAILURE_FILE: path.join(root, 'writes.refused'),
+      // Every git command main runs, so a test can count its reads.
+      GIT_TRACE: path.join(root, 'git-trace.log'),
     };
 
     ({ app, page, userDataDir } = await launchElectron({ env }));
@@ -200,19 +213,96 @@ test.describe('info panel', () => {
   const uncommitted = () =>
     infoSection(page, 'Branch').getByRole('button', { name: /^Uncommitted, .+\. Open Changes$/ });
   /**
-   * The session header's buttons that something else is drawn over at their
-   * centre, by name: none, when each takes its own click.
+   * The session header's buttons out of reach, by name: not wholly inside
+   * the window, or with something else drawn over their centre. None, when
+   * each is on screen and takes its own click.
    */
   const coveredHeaderControls = () =>
     page.locator('.workspace-view-header').evaluate((row) =>
       [...row.querySelectorAll('button')]
         .filter((button) => {
           const box = button.getBoundingClientRect();
+          if (box.width === 0 || box.left < 0 || box.right > window.innerWidth) return true;
           const hit = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
           return !hit || !button.contains(hit);
         })
         .map((button) => button.getAttribute('aria-label') ?? button.textContent),
     );
+  /** Gives the window this content width, as a person narrowing it would. */
+  const windowWidth = async (width: number) => {
+    const appWindow = await app.browserWindow(page);
+    await appWindow.evaluate(
+      (browserWindow, size) => browserWindow.setContentSize(size, 700),
+      width,
+    );
+    await expect.poll(() => page.evaluate(() => window.innerWidth)).toBe(width);
+  };
+  /** The session pane's width, which the conversation and both panels share. */
+  const paneWidth = async () =>
+    (await page.locator('.workspace-view-content').boundingBox())?.width ?? 0;
+  /** Gives the window the width that leaves the session pane `width` wide. */
+  const windowForPane = async (width: number) => {
+    const besidePane = (await page.evaluate(() => window.innerWidth)) - (await paneWidth());
+    await windowWidth(Math.round(width + besidePane));
+  };
+  /**
+   * The conversation's 60 columns, as drawn. react-resizable-panels turns
+   * `CONVERSATION_ROOM_PX` into a share of the panels' widths, which it
+   * measures in whole pixels, so the floor lands within a pixel of it.
+   */
+  const SIXTY_COLUMNS = CONVERSATION_ROOM_PX - 1;
+  /** A panel's width in the session pane, by its id: `agent` is the conversation. */
+  const panelWidth = async (id: 'agent' | 'info-panel' | 'side-panel') =>
+    (await page.getByTestId(id).boundingBox())?.width ?? 0;
+  /** Holds on to the conversation's xterm, which a remount would replace. */
+  const holdConversation = () =>
+    page.evaluate(() => {
+      (window as unknown as Record<string, Element | null>).__conversation = document.querySelector(
+        '[data-conversation-terminal] .xterm',
+      );
+    });
+  /** Whether the conversation still has the xterm `holdConversation` held. */
+  const sameConversation = () =>
+    page.evaluate(() => {
+      const kept = (window as unknown as Record<string, Element | null>).__conversation;
+      return (
+        !!kept?.isConnected &&
+        document.querySelector('[data-conversation-terminal] .xterm') === kept
+      );
+    });
+  /** Adds a session to Sprocket, in `cwd`, once the app is up. */
+  const addSession = (name: string, instanceId: string, cwd: string) =>
+    page.evaluate(
+      async ({ name, instanceId, cwd }) => {
+        const { workspaces } = await window.workspaceAPI.getSnapshot();
+        const workspace = workspaces.find((candidate) => candidate.name === 'Sprocket');
+        if (!workspace) throw new Error('No Sprocket workspace');
+        await window.workspaceAPI.createSession(workspace.id, {
+          name,
+          nameIsUserSet: true,
+          workspaceId: workspace.id,
+          instanceId,
+          harnessId: 'info-panel-stub',
+          scopeId: workspace.scopes[0].id,
+          cwd,
+        });
+      },
+      { name, instanceId, cwd },
+    );
+  /** Copies land in a stand-in for the clipboard, never the person's own. */
+  const standInClipboard = () =>
+    page.evaluate(() => {
+      const copied: string[] = [];
+      (window as unknown as { __copied: string[] }).__copied = copied;
+      Object.defineProperty(navigator.clipboard, 'writeText', {
+        configurable: true,
+        value: async (text: string) => {
+          copied.push(text);
+        },
+      });
+    });
+  const copiedPaths = () =>
+    page.evaluate(() => (window as unknown as { __copied: string[] }).__copied);
   /** The branch against its base, a plain fact. */
   const baseRow = (ref: string) =>
     infoSection(page, 'Branch')
@@ -248,12 +338,34 @@ test.describe('info panel', () => {
       .split('\n')
       .filter((line) => line.includes(`head=sprocket%3A${encodeURIComponent(branch)}`)).length;
   };
+  /**
+   * How many times main read a branch's facts, of any checkout: each read
+   * asks git for the upstream this way once (`gitBranch.ts`), and nothing
+   * else in main does.
+   */
+  const branchFactsReads = () => {
+    const trace = env.GIT_TRACE;
+    return (fs.existsSync(trace) ? fs.readFileSync(trace, 'utf8') : '')
+      .split('\n')
+      .filter((line) => line.includes('rev-parse --abbrev-ref --symbolic-full-name')).length;
+  };
+  /** #51's header in the stub's details, which a read of them needs. */
+  const pullRequestFixture = () => path.join(detailsDir, 'ConsolaPullRequest.json');
+  /** The next read of #51's details fails, as GitHub's would, until `answerReads`. */
+  const failReads = () => fs.renameSync(pullRequestFixture(), `${pullRequestFixture()}.away`);
+  const answerReads = () => fs.renameSync(`${pullRequestFixture()}.away`, pullRequestFixture());
   const sidePanelToggle = () => page.getByRole('button', { name: /^(Show|Hide) side panel/ });
   /** The side panel's list of kinds, which an empty side panel shows when it is shown. */
   const newTabOption = (name: string) =>
     page
       .getByRole('listbox', { name: 'Open in this tab' })
       .getByRole('option', { name, exact: true });
+  /** Shows the side panel, empty, and picks a kind from its list by its key, once the list has the keyboard. */
+  const openTabFromList = async (key: string) => {
+    await sidePanelToggle().click();
+    await expect(page.getByRole('listbox', { name: 'Open in this tab' })).toBeFocused();
+    await page.keyboard.press(key);
+  };
   const FOUND = 'Found from the branch';
 
   test('the info panel sits beside the conversation, and its toggle and chord hide and show it', async () => {
@@ -290,6 +402,61 @@ test.describe('info panel', () => {
     await page.keyboard.type('Hide info panel');
     await page.keyboard.press('Enter');
     await expect(infoPanel(page)).toHaveCount(0);
+  });
+
+  test('⌥⌘J on a row of the panel hands the keyboard to the conversation, and in a shell types nothing there', async () => {
+    // The Terminal tab beside the panel, which needs a wide window.
+    await roomForBothPanels(app, page);
+    await openSession('Paginate the catalog search');
+
+    // The row goes with the panel, so the keyboard goes to the conversation,
+    // never to the body.
+    await folderRow('Main checkout').focus();
+    await expect(folderRow('Main checkout')).toBeFocused();
+    await page.keyboard.press(infoPanelChord());
+    await expect(infoPanel(page)).toHaveCount(0);
+    await expect(conversation()).toBeFocused();
+    await page.keyboard.press(infoPanelChord());
+    await expect(infoPanel(page)).toBeVisible();
+    await expect(conversation()).toBeFocused();
+
+    // In the Terminal tab's shell, running `cat -v`, which prints back every
+    // byte it is sent, an escape as `^[`.
+    await page.keyboard.press('Control+Backquote');
+    const shell = page.getByTestId('session-shell');
+    const input = shell.locator('textarea');
+    await expect(input).toBeFocused();
+    const shellLines = () =>
+      shell
+        .locator('.xterm-rows > div')
+        .evaluateAll((rows) => rows.map((row) => (row.textContent ?? '').trim()));
+    await input.pressSequentially("printf 'rea''dy\\n'; cat -v");
+    await page.keyboard.press('Enter');
+    await expect.poll(shellLines, { timeout: 15_000 }).toContain('ready');
+
+    // The chord hides the panel and shows it again, and the keyboard stays
+    // in the shell.
+    await page.keyboard.press(infoPanelChord());
+    await expect(infoPanel(page)).toHaveCount(0);
+    await expect(input).toBeFocused();
+    await page.keyboard.press(infoPanelChord());
+    await expect(infoPanel(page)).toBeVisible();
+    await expect(input).toBeFocused();
+
+    // The line typed next, as the terminal echoes it and as `cat -v` prints
+    // it, and no other line after `ready`, so the shell was sent nothing by
+    // the chord. Off macOS the chord is Ctrl+Alt+J, which xterm would send as
+    // an escape and a line feed: `cat -v` would print a `^[` line of its own.
+    // On macOS xterm never sends a ⌘ chord, so there this guards the toggle
+    // and the keyboard staying in the shell.
+    await page.keyboard.type('end');
+    await page.keyboard.press('Enter');
+    await expect
+      .poll(async () => {
+        const lines = await shellLines();
+        return lines.slice(lines.indexOf('ready') + 1).filter((line) => line !== '');
+      })
+      .toEqual(['end', 'end']);
   });
 
   test('on the default window the info panel steps aside for the side panel, and is back when there is room', async () => {
@@ -392,6 +559,102 @@ test.describe('info panel', () => {
     ).toHaveAttribute('aria-pressed', 'true');
   });
 
+  test('beside both panels the conversation keeps 60 columns while the pane holds them', async () => {
+    await openSession('Paginate the catalog search');
+    await expect(infoPanel(page)).toBeVisible();
+    await holdConversation();
+    const sidePanel = () => page.getByTestId('side-panel');
+    /** The panels' widths and their total, which each size is a share of (no separators). */
+    const widths = async () => {
+      const [agent, info, side] = await Promise.all(
+        (['agent', 'info-panel', 'side-panel'] as const).map(panelWidth),
+      );
+      return { agent, side, panels: agent + info + side };
+    };
+
+    // A pane just over the room for all three, and the side panel opened at
+    // its default 40%, which would leave the conversation about 360px: the
+    // panels give way instead, the side panel among them.
+    await windowForPane(INFO_PANEL_ROOM_PX + 10);
+    await page
+      .locator('.side-panel-controls')
+      .getByRole('button', { name: 'Changes', exact: true })
+      .click();
+    await expect(sidePanel()).toBeVisible();
+    await expect(infoPanel(page)).toBeVisible();
+    await expect.poll(() => panelWidth('agent')).toBeGreaterThanOrEqual(SIXTY_COLUMNS);
+    const opened = await widths();
+    expect(opened.side).toBeLessThan(0.4 * opened.panels - 4);
+    expect(await sameConversation(), 'the side panel opened beside both').toBe(true);
+
+    // The default window: the info panel steps aside, and the 60 columns go
+    // with it.
+    await windowWidth(1000);
+    await expect(infoPanel(page)).toHaveCount(0);
+    expect(await sameConversation(), 'the info panel stepped aside').toBe(true);
+
+    // The person keeps the panel, on a pane with no room for 60 columns
+    // beside both: the conversation can still go down to a fifth of it.
+    await page.getByRole('button', { name: 'Show info panel', exact: true }).click();
+    await expect(infoPanel(page)).toBeVisible();
+    await expect(sidePanel()).toBeVisible();
+    const edge = (await page.locator('.info-panel-resize-handle').boundingBox())!;
+    const paneLeft = (await page.locator('.workspace-view-content').boundingBox())!.x;
+    await page.mouse.move(edge.x + edge.width / 2, edge.y + edge.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(paneLeft + 4, edge.y + edge.height / 2, { steps: 8 });
+    await page.mouse.up();
+    const conversationShare = async () => {
+      const { agent, panels } = await widths();
+      return agent / panels;
+    };
+    await expect.poll(conversationShare).toBeLessThan(0.21);
+    expect(await conversationShare()).toBeGreaterThan(0.19);
+    expect(await sameConversation(), 'kept on a narrow pane').toBe(true);
+
+    // Room again: the keep ends, all three stay, and the conversation has its
+    // 60 columns back from the split the narrow pane left.
+    await windowWidth(1400);
+    await expect(infoPanel(page)).toBeVisible();
+    await expect(sidePanel()).toBeVisible();
+    await expect.poll(() => panelWidth('agent')).toBeGreaterThanOrEqual(SIXTY_COLUMNS);
+    expect(await sameConversation(), 'room again').toBe(true);
+  });
+
+  test('a split saved with the conversation at its narrow floor restores with 60 columns on a wide window', async () => {
+    // react-resizable-panels' key for the session pane's three-panel layout.
+    const allThree = 'react-resizable-panels:session-pane:agent:info-panel:side-panel';
+    await roomForBothPanels(app, page);
+    await openSession('Paginate the catalog search');
+    await page
+      .locator('.side-panel-controls')
+      .getByRole('button', { name: 'Changes', exact: true })
+      .click();
+    await expect(page.getByTestId('side-panel')).toBeVisible();
+    await expect(infoPanel(page)).toBeVisible();
+    // What a keep on a narrow window leaves saved: the conversation dragged
+    // to a fifth of the pane. Written after the last layout change, just
+    // before the app quits.
+    await page.evaluate(
+      (key) =>
+        localStorage.setItem(
+          key,
+          JSON.stringify({ agent: 20, 'info-panel': 35, 'side-panel': 45 }),
+        ),
+      allThree,
+    );
+    await app.close();
+
+    ({ app, page } = await launchElectron({ userDataDir, env }));
+    // The window comes back as wide as it was, the side panel open beside
+    // the info panel.
+    await expect.poll(() => page.evaluate(() => window.innerWidth)).toBe(1400);
+    await openSession('Paginate the catalog search');
+    await expect(page.getByTestId('side-panel')).toBeVisible();
+    await expect(infoPanel(page)).toBeVisible();
+    await expect.poll(() => panelWidth('agent')).toBeGreaterThanOrEqual(SIXTY_COLUMNS);
+  });
+
   test('Environment says where each session runs', async () => {
     await openSession('Paginate the catalog search');
     const environment = infoSection(page, 'Environment');
@@ -405,6 +668,16 @@ test.describe('info panel', () => {
     await page.keyboard.type('Re-check harnesses');
     await page.keyboard.press('Enter');
     await expect(harnessRow).toContainText('javidev@sprocket.example');
+    // The re-check probes the built-in harness too, which the launch pins to
+    // a stub and a folder of the profile's: never the person's own Claude.
+    const builtIn = await page.evaluate(
+      async () =>
+        (await window.harnessStateAPI.getSnapshot()).harnesses.find(
+          (harness) => harness.isBuiltIn,
+        ) ?? null,
+    );
+    expect(builtIn?.binaryPath?.startsWith(`${userDataDir}${path.sep}`)).toBe(true);
+    expect(builtIn?.configDir?.startsWith(`${userDataDir}${path.sep}`)).toBe(true);
     await expect(folderRow('Main checkout')).toBeVisible();
     // The computer's name, or "This Mac": never an empty row.
     await expect(environment.locator('.info-row').first()).toHaveText(/\S/);
@@ -423,24 +696,51 @@ test.describe('info panel', () => {
     await expect(checkoutCardTitle()).toHaveText('Worktree');
     await expect(checkoutCard()).toContainText('docs/readme');
     await expect(checkoutCardHint()).toHaveText('Click to copy the folder path');
-    // The copy lands in a stand-in for the clipboard, never the person's own.
-    await page.evaluate(() => {
-      const copied: string[] = [];
-      (window as unknown as { __copied: string[] }).__copied = copied;
-      Object.defineProperty(navigator.clipboard, 'writeText', {
-        configurable: true,
-        value: async (text: string) => {
-          copied.push(text);
-        },
-      });
-    });
+    await standInClipboard();
     await folderRow('Worktree').click();
     // The click closes the card; it opens again to say so, for 1.5 s.
     await expect(checkoutCardHint()).toHaveText('Copied the folder path', { timeout: 1_000 });
-    expect(
-      await page.evaluate(() => (window as unknown as { __copied: string[] }).__copied),
-    ).toEqual([docs]);
+    expect(await copiedPaths()).toEqual([docs]);
     await expect(checkoutCardHint()).toHaveText('Click to copy the folder path');
+
+    // Copied again, but the clipboard answers only once A's card is up: B's
+    // copy lands while A is on screen, and A's folder was not copied, so its
+    // card does not say so. Held, the copy's 1.5 s cannot run out first.
+    await page.evaluate(() => {
+      const stand = window as unknown as { __copied: string[]; __answerCopy?: () => void };
+      Object.defineProperty(navigator.clipboard, 'writeText', {
+        configurable: true,
+        value: (text: string) =>
+          new Promise<void>((resolve) => {
+            stand.__answerCopy = () => {
+              stand.__copied.push(text);
+              resolve();
+            };
+          }),
+      });
+    });
+    await folderRow('Worktree').click();
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () => typeof (window as unknown as { __answerCopy?: () => void }).__answerCopy,
+        ),
+      )
+      .toBe('function');
+    await openSession('Paginate the catalog search');
+    await folderRow('Main checkout').hover();
+    await expect(checkoutCardTitle()).toHaveText('Main checkout');
+    await expect(checkoutCardHint()).toHaveText('Click to copy the folder path');
+    await page.evaluate(async () => {
+      (window as unknown as { __answerCopy: () => void }).__answerCopy();
+      // The row's own `then` runs in the microtasks after the answer; React
+      // draws what it set in a task after that.
+      await Promise.resolve();
+      await Promise.resolve();
+      await new Promise((drawn) => setTimeout(drawn, 100));
+    });
+    expect(await copiedPaths()).toEqual([docs, docs]);
+    expect(await checkoutCardHint().textContent()).toBe('Click to copy the folder path');
 
     // A folder outside git has no card: its native title explains the copy.
     await openSession('Review notes');
@@ -555,6 +855,112 @@ test.describe('info panel', () => {
     await expect(uncommitted()).toContainText('None');
   });
 
+  test('a folded Branch section, or a hidden panel, reads nothing of the branch', async () => {
+    await openSession('Paginate the catalog search');
+    const branch = branchRow('feat/search-pagination');
+    const heading = () =>
+      infoSection(page, 'Branch').getByRole('button', { name: 'Branch', exact: true });
+    const refresh = page.getByRole('button', { name: 'Refresh git status', exact: true });
+    await expect(branch).toContainText('↑2');
+    // Read again against #51's base once its details land, found from the
+    // branch: every read the open section asks for is in before folding.
+    await expect(prSection().getByText('into main', { exact: true })).toBeVisible();
+    await expect(baseRow('origin/main')).toContainText('3 files');
+    await page.waitForTimeout(1000);
+    const open = branchFactsReads();
+    expect(open).toBeGreaterThan(0);
+
+    // Folded: a commit made behind Consola's back, the header's refresh,
+    // another session and back, none of which an open section lets pass.
+    await heading().click();
+    await expect(heading()).toHaveAttribute('aria-expanded', 'false');
+    git(repo, 'commit', '-q', '-am', 'Show fifty results a page');
+    await refresh.click();
+    await openSession('Update the readme');
+    await openSession('Paginate the catalog search');
+    await expect(heading()).toHaveAttribute('aria-expanded', 'false');
+    await page.waitForTimeout(1000);
+    expect(branchFactsReads()).toBe(open);
+
+    // Open again, it reads, and counts the commit.
+    await heading().click();
+    await expect(branch).toContainText('↑3');
+    const reopened = branchFactsReads();
+    expect(reopened).toBeGreaterThan(open);
+
+    // Hidden: the same.
+    await page.getByRole('button', { name: 'Hide info panel', exact: true }).click();
+    await expect(infoPanel(page)).toHaveCount(0);
+    git(repo, 'commit', '-q', '--allow-empty', '-m', 'Note the page size');
+    await refresh.click();
+    await openSession('Update the readme');
+    await openSession('Paginate the catalog search');
+    await expect(refresh).toBeVisible();
+    await page.waitForTimeout(1000);
+    expect(branchFactsReads()).toBe(reopened);
+    await page.getByRole('button', { name: 'Show info panel', exact: true }).click();
+    await expect(branch).toContainText('↑4');
+  });
+
+  test('a removed worktree’s Branch section names the branch it was on, and reads no checkout in its place', async () => {
+    // `removedWorktree` is main's to write (`recordWorktreesRemoved`), so the
+    // test seeds it through the profile, read at the next launch. Its main
+    // checkout is the clone, the session's scope folder too, so a read that
+    // fell back to either would be traced. A read of the removed folder
+    // itself never reaches the trace (git stops at `-C` on a missing folder
+    // before it traces anything), so that is not what this pins.
+    await app.close();
+    const stateFile = path.join(`${userDataDir} Test`, 'workspaces.json');
+    const saved = JSON.parse(fs.readFileSync(stateFile, 'utf8')) as {
+      workspaces: { name: string; sessions: Record<string, unknown>[] }[];
+    };
+    const workspace = saved.workspaces.find((candidate) => candidate.name === 'Sprocket')!;
+    const sibling = workspace.sessions.find((session) => session.name === 'Review notes')!;
+    const worktree = path.join(root, 'old-experiment');
+    workspace.sessions.push({
+      ...sibling,
+      id: 'info-g',
+      name: 'Old experiment',
+      instanceId: 'info-g',
+      claudeSessionId: randomUUID(),
+      cwd: worktree,
+      removedWorktree: {
+        path: worktree,
+        mainRepo: repo,
+        commit: 'a'.repeat(40),
+        branch: 'consola/old-experiment',
+        keepRef: 'refs/consola/worktrees/old-experiment',
+        trigger: 'settled',
+        removedAt: Date.now(),
+      },
+    });
+    fs.writeFileSync(stateFile, JSON.stringify(saved));
+    ({ app, page } = await launchElectron({ userDataDir, env }));
+
+    // From a session with a live checkout, whose reads this launch's trace
+    // counts, once every read it asks for is in (the one against #51's base
+    // included).
+    const atLaunch = branchFactsReads();
+    await openSession('Paginate the catalog search');
+    await expect(branchRow('feat/search-pagination')).toContainText('↑2');
+    await expect(prSection().getByText('into main', { exact: true })).toBeVisible();
+    await expect(baseRow('origin/main')).toContainText('3 files');
+    await page.waitForTimeout(1000);
+    const before = branchFactsReads();
+    expect(before).toBeGreaterThan(atLaunch);
+
+    await openSession('Old experiment');
+    const section = infoSection(page, 'Branch');
+    await expect(section.locator('.info-row').first()).toHaveText('consola/old-experiment');
+    await expect(
+      section.getByText('No checkout until the session next starts.', { exact: true }),
+    ).toBeVisible();
+    // Nothing else: no folder to count changes in, or to compare.
+    await expect(section.locator('.info-row')).toHaveCount(2);
+    await page.waitForTimeout(1000);
+    expect(branchFactsReads()).toBe(before);
+  });
+
   test("a snoozed session's header keeps every control in reach at the default window", async () => {
     await openSession('Paginate the catalog search');
     await expect(uncommitted()).toContainText('1 file');
@@ -572,6 +978,71 @@ test.describe('info panel', () => {
     await expect(header.getByRole('button', { name: 'Wake', exact: true })).toBeVisible();
     await expect(header.getByRole('button', { name: /^(Show|Hide) side panel/ })).toBeVisible();
     expect(await coveredHeaderControls()).toEqual([]);
+  });
+
+  test('down to an 800px window, every header control is in reach, and a folder outside git cuts its path', async () => {
+    // A folder outside git whose path is longer than a narrow header holds.
+    const minutes = path.join(
+      root,
+      'notes',
+      'meeting-minutes-for-the-catalog-portal-search-pagination-review-with-ellen-and-mateo',
+    );
+    fs.mkdirSync(minutes, { recursive: true });
+    await addSession('Read the pagination review minutes', 'info-e', minutes);
+    await windowWidth(800);
+    const header = page.locator('.workspace-view-header');
+    const controls = header.locator('.side-panel-controls');
+
+    // A checkout: its counts and refresh, then the controls, all in reach.
+    await openSession('Paginate the catalog search');
+    await expect(uncommitted()).toContainText('1 file');
+    await expect(header.locator('.git-stats-count')).toHaveText('1 file');
+    await expect(header.getByRole('button', { name: 'Refresh git status' })).toBeVisible();
+    expect(await coveredHeaderControls()).toEqual([]);
+
+    // A folder outside git prints its path, cut with an ellipsis before the
+    // controls, which stay in reach.
+    await openSession('Read the pagination review minutes');
+    await expect(folderRow('Folder')).toBeVisible();
+    const folder = header.locator('.workspace-view-path');
+    await expect(folder).toContainText('meeting-minutes');
+    expect(await folder.evaluate((text) => text.scrollWidth > text.clientWidth)).toBe(true);
+    const folderBox = await folder.boundingBox();
+    const controlsBox = await controls.boundingBox();
+    if (!folderBox || !controlsBox) throw new Error('The header draws no folder or no controls');
+    expect(folderBox.x + folderBox.width).toBeLessThanOrEqual(controlsBox.x);
+    expect(await coveredHeaderControls()).toEqual([]);
+  });
+
+  test('a session in a folder below its checkout’s top: the card names that folder, and Uncommitted waits for git', async () => {
+    // Git status is read only at a repository's top, so nobody has counted
+    // this folder's changes.
+    const src = path.join(repo, 'src');
+    await addSession('Tidy the search module', 'info-f', src);
+    await openSession('Paginate the catalog search');
+    await expect(uncommitted()).toContainText('1 file');
+
+    await openSession('Tidy the search module');
+    await expect(branchRow('feat/search-pagination')).toBeVisible();
+    // This folder's own read has landed: it says no repository, so the
+    // header has no refresh, and Uncommitted is not drawn, never `None`.
+    await expect(page.getByRole('button', { name: 'Refresh git status' })).toHaveCount(0);
+    await expect(
+      infoSection(page, 'Branch').getByRole('button', { name: /^Uncommitted/ }),
+    ).toHaveCount(0);
+
+    // The card's Folder is the session's own, the path the row copies, not
+    // the checkout's top.
+    await standInClipboard();
+    await folderRow('Main checkout').hover();
+    await expect(checkoutCardTitle()).toHaveText('Main checkout');
+    const cardFolder = page.locator(
+      '.checkout-tooltip > .checkout-tooltip-facts > dd:nth-of-type(2) > .checkout-tooltip-value',
+    );
+    await expect(cardFolder).toHaveText(src);
+    await folderRow('Main checkout').click();
+    await expect(checkoutCardHint()).toHaveText('Copied the folder path', { timeout: 1_000 });
+    expect(await copiedPaths()).toEqual([src]);
   });
 
   test("a linked session's pull request, at a glance", async () => {
@@ -805,8 +1276,34 @@ test.describe('info panel', () => {
   test('one read for the section and the tab together, and none while folded or hidden', async () => {
     // Both panels at once, which needs a wide window.
     await roomForBothPanels(app, page);
-    await openSession(FIX_CI);
     const section = prSection();
+    const heading = section.getByRole('button', { name: 'Pull request', exact: true });
+    const header = page.locator('.workspace-view-header');
+
+    // Hidden before #51 is first read: D reads nothing, as a read while
+    // hidden would be the first in the log.
+    await openSession('Update the readme');
+    await page.getByRole('button', { name: 'Hide info panel', exact: true }).click();
+    await expect(infoPanel(page)).toHaveCount(0);
+    await openSession(FIX_CI);
+    await expect(header).toContainText('Fix CI for billing');
+    await page.waitForTimeout(1000);
+    expect(detailReadsOf51()).toBe(0);
+
+    // Folded before it is first read: the same. Folded on B, so D is never
+    // on screen with the section open.
+    await openSession('Update the readme');
+    await page.getByRole('button', { name: 'Show info panel', exact: true }).click();
+    await heading.click();
+    await expect(heading).toHaveAttribute('aria-expanded', 'false');
+    await openSession(FIX_CI);
+    await expect(header).toContainText('Fix CI for billing');
+    await expect(heading).toHaveAttribute('aria-expanded', 'false');
+    await page.waitForTimeout(1000);
+    expect(detailReadsOf51()).toBe(0);
+
+    // Opened, the section reads it, once.
+    await heading.click();
     await expect(section.getByText('2 unresolved threads', { exact: true })).toBeVisible();
     expect(detailReadsOf51()).toBe(1);
 
@@ -816,7 +1313,6 @@ test.describe('info panel', () => {
     expect(detailReadsOf51()).toBe(1);
 
     // Folded, with the tab behind Changes: neither reads, on the way back either.
-    const heading = section.getByRole('button', { name: 'Pull request', exact: true });
     await heading.click();
     await expect(heading).toHaveAttribute('aria-expanded', 'false');
     await page.getByRole('button', { name: 'Changes', exact: true }).click();
@@ -846,6 +1342,169 @@ test.describe('info panel', () => {
     // The person's Refresh always reads.
     await prActions().getByRole('button', { name: 'Refresh pull request', exact: true }).click();
     await expect.poll(detailReadsOf51).toBe(2);
+  });
+
+  test('with no account, the Pull request section says so, and reads nothing', async () => {
+    await page.evaluate(async () => {
+      const [workspace] = (await window.workspaceAPI.getSnapshot()).workspaces;
+      await window.workspaceAPI.setProviderBinding(workspace.id, null);
+    });
+    const noAccount = () =>
+      prSection().getByText('This workspace has no account to read pull requests with.', {
+        exact: true,
+      });
+    const onGitHub = () => prSection().getByRole('link', { name: 'Open on GitHub', exact: true });
+
+    // D, linked to #51: the sentence, and the item on GitHub, with nothing to refresh.
+    await openSession(FIX_CI);
+    await expect(noAccount()).toBeVisible();
+    await expect(onGitHub()).toHaveAttribute(
+      'href',
+      'https://github.com/sprocket/catalog-portal/pull/51',
+    );
+    await expect(prSection().getByRole('button', { name: 'Refresh pull request' })).toHaveCount(0);
+
+    // A, on a branch: the same sentence, and no item to open.
+    await openSession('Paginate the catalog search');
+    await expect(noAccount()).toBeVisible();
+    await expect(onGitHub()).toHaveCount(0);
+    await page.waitForTimeout(1000);
+    expect(detailReadsOf51()).toBe(0);
+    expect(lookupsOf('feat/search-pagination')).toBe(0);
+
+    // Its action opens Settings where the workspace gets one.
+    await prSection().getByRole('button', { name: 'Workspace settings', exact: true }).click();
+    await expect(
+      page
+        .getByRole('dialog', { name: 'Settings', exact: true })
+        .getByRole('button', { name: 'Provider', exact: true }),
+    ).toHaveAttribute('aria-current', 'true');
+  });
+
+  test('a pull request that could not be read says why, and Retry reads it again', async () => {
+    failReads();
+    await openSession(FIX_CI);
+    const failed = () => prSection().getByText(/^Couldn’t read the pull request: /);
+    await expect(failed()).toBeVisible();
+    await expect.poll(detailReadsOf51).toBe(1);
+
+    answerReads();
+    await prSection().getByRole('button', { name: 'Retry', exact: true }).click();
+    await expect(prSection().getByText('2 unresolved threads', { exact: true })).toBeVisible();
+    await expect(failed()).toHaveCount(0);
+    expect(detailReadsOf51()).toBe(2);
+  });
+
+  test('a Pull request tab behind another tab reads nothing, its mergeability polls included', async () => {
+    // GitHub still working out whether #51 can merge: while the item is on
+    // screen, a quiet read follows every few seconds.
+    const fixture = pullRequestFixture();
+    fs.writeFileSync(
+      fixture,
+      fs
+        .readFileSync(fixture, 'utf8')
+        .replace('"mergeStateStatus": "BLOCKED"', '"mergeStateStatus": "UNKNOWN"'),
+    );
+    test.setTimeout(60_000);
+    // Only the tab looks at #51: the info panel's section would too.
+    await openSession(FIX_CI);
+    await page.getByRole('button', { name: 'Hide info panel', exact: true }).click();
+    await expect(infoPanel(page)).toHaveCount(0);
+    await openTabFromList('p');
+    // Named for its mark too while it is behind.
+    const tabOf51 = page
+      .getByRole('tablist', { name: 'Side panel tabs' })
+      .getByRole('tab', { name: /^Pull request #51/ });
+    await expect(tabOf51).toHaveAttribute('aria-selected', 'true');
+    await expect(remote().getByRole('region', { name: 'Merge' })).toBeAttached();
+    await expect.poll(detailReadsOf51, { timeout: 10_000 }).toBeGreaterThanOrEqual(2);
+
+    // Behind Changes, the polls stop: a read already under way when the tab
+    // went behind is given a moment to be counted, then two polls' time.
+    await page.getByRole('button', { name: 'Changes', exact: true }).click();
+    await expect(sidePanelTab('Changes')).toHaveAttribute('aria-selected', 'true');
+    await page.waitForTimeout(1000);
+    const behind = detailReadsOf51();
+    await page.waitForTimeout(7000);
+    expect(detailReadsOf51()).toBe(behind);
+
+    // In front again, they go on.
+    await tabOf51.click();
+    await expect.poll(detailReadsOf51, { timeout: 10_000 }).toBeGreaterThan(behind);
+  });
+
+  test("the pane's head says a read it did not start failed, and takes that back once a read succeeds", async () => {
+    // The info panel's Refresh beside the tab's pane: a wide window.
+    await roomForBothPanels(app, page);
+    await openSession(FIX_CI);
+    await prTitle().click();
+    await expect(remote().getByRole('region', { name: 'Merge' })).toBeAttached();
+    const head = page.getByTestId('work-item-panel').locator('.inbox-detail-head');
+    const said = head.getByRole('alert');
+    const refresh = prActions().getByRole('button', { name: 'Refresh pull request', exact: true });
+    const refreshed = async (reads: number) => {
+      await expect.poll(detailReadsOf51).toBe(reads);
+      await expect(refresh).toHaveAttribute('aria-busy', 'false');
+    };
+
+    // The info panel's Refresh fails: a read the pane did not start, which
+    // its head says all the same.
+    failReads();
+    await refresh.click();
+    await expect(said).toHaveText(/^Could not refresh details: /);
+
+    // The next one succeeds: the head takes it back, with no Dismiss.
+    answerReads();
+    await refresh.click();
+    await expect(said).toHaveCount(0);
+
+    // A write's own error is not a read's to take back.
+    fs.writeFileSync(env.STUB_GH_MUTATION_FAILURE_FILE, '');
+    await head.getByRole('button', { name: 'More actions', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Convert to draft' }).click();
+    await expect(said).toHaveText(/repository rules are not satisfied/);
+    fs.rmSync(env.STUB_GH_MUTATION_FAILURE_FILE);
+    const reads = detailReadsOf51();
+    await refresh.click();
+    await refreshed(reads + 1);
+    await expect(said).toHaveText(/repository rules are not satisfied/);
+  });
+
+  test('a pane opened again on a pull request whose first read failed says so, and reads nothing more until asked', async () => {
+    // The info panel beside the tab's pane: a wide window.
+    await roomForBothPanels(app, page);
+    failReads();
+    await openSession(FIX_CI);
+    await openTabFromList('p');
+    await expect(sidePanelTab('Pull request #51')).toHaveAttribute('aria-selected', 'true');
+    const head = page.getByTestId('work-item-panel').locator('.inbox-detail-head');
+    const said = head.getByRole('alert');
+    await expect(said).toHaveText(/^Could not refresh details: /);
+    await expect(prSection().getByText(/^Couldn’t read the pull request: /)).toBeVisible();
+    // One read, for the section and the tab together.
+    await expect.poll(detailReadsOf51).toBe(1);
+
+    // Away to a session whose tab has no item, so the pane goes, and back
+    // within the interval: the pane, mounted afresh with no details to
+    // show, says the failure again rather than drawing blank, and nothing
+    // reads #51 again, a failed read being as fresh as an answer.
+    await openSession('Review notes');
+    await expect(page.getByTestId('side-panel')).toContainText(
+      'This session is not linked to a pull request or issue.',
+    );
+    await expect(page.getByTestId('work-item-panel')).toHaveCount(0);
+    await openSession(FIX_CI);
+    await expect(said).toHaveText(/^Could not refresh details: /);
+    await page.waitForTimeout(1000);
+    expect(detailReadsOf51()).toBe(1);
+
+    // Asked by the pane's own Refresh, with the read answering again: the
+    // details draw, and the head takes the failure back.
+    answerReads();
+    await head.getByRole('button', { name: 'Refresh details', exact: true }).click();
+    await expect(remote().getByRole('region', { name: 'Merge' })).toBeAttached();
+    await expect(said).toHaveCount(0);
+    expect(detailReadsOf51()).toBe(2);
   });
 
   test("the Branch section compares with the pull request's base", async () => {

@@ -79,6 +79,7 @@ import { readCheckout } from './gitCheckout';
 import { isPlainBranchName, readBranchFacts, readBranchIdentity } from './gitBranch';
 import { memoizeRemoteResolver } from './sshRemote';
 import { readComputerName } from './computerName';
+import { createOpenInService } from './openIn/createOpenInService';
 import { NO_BRANCH_FACTS } from '../shared/branchFacts';
 import {
   NotificationPolicy,
@@ -1083,9 +1084,10 @@ export function setupIpcHandlers(): boolean {
   );
   // A checkout's branch's pull request, for a session linked to none. Main
   // reads the branch from the folder, and the finder asks the provider once
-  // per account, repo and branch per Inbox interval. Origin's ssh alias is
-  // resolved once per URL for the run: `ssh -G` runs synchronously, and the
-  // finder reads the identity on every find, before its cache.
+  // per account, repo and branch per Inbox interval. The finder reads the
+  // identity on every find, before its cache, so origin's ssh alias is looked
+  // up without blocking main and kept per host for the run; after a lookup
+  // that failed, the next find asks again.
   const resolveRemote = memoizeRemoteResolver();
   const branchPullRequests = new BranchPullRequestFinder({
     getWorkspace: (id) => workspaces.getAll().find((workspace) => workspace.id === id),
@@ -3020,6 +3022,11 @@ ${truncatedDiff}`;
 
   ipcMain.handle(IPC_CHANNELS.APP_GET_COMPUTER_NAME, () => readComputerName());
 
+  // "Open in": main opens only an app it found, on a folder it checked.
+  const openIn = createOpenInService();
+  ipcMain.handle(IPC_CHANNELS.OPEN_IN_LIST, () => openIn.list());
+  ipcMain.handle(IPC_CHANNELS.OPEN_IN_OPEN, (_event, request: unknown) => openIn.open(request));
+
   ipcMain.on(
     IPC_CHANNELS.WINDOW_SET_VIEW,
     (event, workspaceId: string | null, view: WorkspaceView) => {
@@ -3280,5 +3287,7 @@ export function cleanupIpcHandlers(): void {
   ipcMain.removeHandler(IPC_CHANNELS.WINDOW_ACTIVATE_WORKSPACE);
   ipcMain.removeHandler(IPC_CHANNELS.WINDOW_OPEN);
   ipcMain.removeHandler(IPC_CHANNELS.APP_GET_COMPUTER_NAME);
+  ipcMain.removeHandler(IPC_CHANNELS.OPEN_IN_LIST);
+  ipcMain.removeHandler(IPC_CHANNELS.OPEN_IN_OPEN);
   ipcMain.removeAllListeners(IPC_CHANNELS.WINDOW_SET_VIEW);
 }

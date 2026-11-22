@@ -85,13 +85,15 @@ export function toggleSidePanelOnScreen(): boolean {
 }
 
 /**
- * What the header's info panel toggle does, for its chord: shows or hides
- * the info panel, by what is on screen (`toggleInfoPanel`), so a panel that
- * stepped aside for a narrow window is shown. Does nothing, and answers
- * false, with no session on screen, the Inbox or Automations included, since
- * there is no info panel there. Showing it takes no keyboard; hiding it with
- * the keyboard on one of its rows hands the keyboard to the conversation,
- * never to the body.
+ * The info panel chord's action (⌥⌘J on macOS, Ctrl+Alt+J elsewhere), from
+ * the window's keydown and from a page that has the keyboard (main forwards
+ * the chord on `browser:shortcut`): what the header's info panel toggle and
+ * the palette's row do (`toggleInfoPanel`, which they call directly), by
+ * what is on screen, so a panel that stepped aside for a narrow window is
+ * shown. Does nothing, and answers false, with no session on screen, the
+ * Inbox or Automations included, since there is no info panel there. Showing
+ * it takes no keyboard; hiding it with the keyboard on one of its rows hands
+ * the keyboard to the conversation, never to the body.
  */
 export function toggleInfoPanelOnScreen(): boolean {
   if (!currentTabFacts()) return false;

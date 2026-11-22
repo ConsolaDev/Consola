@@ -910,6 +910,14 @@ export function installMock() {
     getEntryAgents: async () => null,
     onChanged: () => () => {},
   };
+  // "Open in" offers two apps, with no icons, and opens nothing.
+  const openInAPI: Window['openInAPI'] = {
+    list: async () => [
+      { id: 'vscode', label: 'VS Code', kind: 'app' },
+      { id: 'finder', label: 'Finder', kind: 'file-manager' },
+    ],
+    open: async () => ({ ok: true }),
+  };
   const browserAPI = browserMock({
     snapshots: browserEvents,
     workspaceOf: (sessionId) =>
@@ -932,6 +940,7 @@ export function installMock() {
     conductorAPI,
     automationsAPI,
     browserAPI,
+    openInAPI,
   };
   Object.assign(window, bridge);
   // Sample repository links are illustrative; do not take visitors to invented PRs.

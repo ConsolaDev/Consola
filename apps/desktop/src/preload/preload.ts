@@ -25,6 +25,7 @@ import type { BrowserAPI, TerminalLinkRule } from '../shared/browser';
 import type { SessionCheckout, CheckoutContext, CheckoutInfo } from '../shared/sessionCheckout';
 import type { BranchFacts } from '../shared/branchFacts';
 import type { BranchPullRequestAnswer } from '../shared/branchPullRequest';
+import type { OpenInAPI } from '../shared/openIn';
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import type {
   TerminalCreateOptions,
@@ -746,5 +747,10 @@ contextBridge.exposeInMainWorld('windowAPI', {
   getComputerName: (): Promise<string | null> =>
     ipcRenderer.invoke(IPC_CHANNELS.APP_GET_COMPUTER_NAME),
 });
+
+contextBridge.exposeInMainWorld('openInAPI', {
+  list: () => ipcRenderer.invoke(IPC_CHANNELS.OPEN_IN_LIST),
+  open: (request) => ipcRenderer.invoke(IPC_CHANNELS.OPEN_IN_OPEN, request),
+} satisfies OpenInAPI);
 
 // Session storage types

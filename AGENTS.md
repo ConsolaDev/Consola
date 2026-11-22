@@ -551,16 +551,34 @@ panel it is view state, kept in the renderer.
   (`openKind`, or `reveal` for a place inside the tab's view, such as the
   pane's merge card, which the view acts on once per `revealRequest.seq`);
   the Folder row copies its path, and its card, on hover or focus, explains
-  the checkout (a worktree's branch, folder and main checkout). Nothing in
+  the checkout (its branch, the session's folder (the path the row copies)
+  and a worktree's main checkout). Under it, "Open in" opens that folder in
+  the app last picked (`settingsStore.openInFavourite`, else the file
+  manager, Finder on a Mac), as ⌘O
+  (Ctrl+Alt+O elsewhere: a bare Ctrl+O is the terminal's) does from
+  anywhere in a session pane; its chevron lists the apps main found
+  (`main/openIn/`, one table), and a pick there or in the palette becomes
+  the favourite. Main opens only an app it found, on the real path an
+  absolute one leads to (links and `..` followed), which must be a folder
+  and not an app's bundle, with argument lists; a test run records instead
+  of opening. No folder (a removed worktree), no button. Nothing in
   the panel navigates or takes the keyboard, on mount or otherwise.
   Visibility rides with the layout (`sidePanelStore.infoVisible`,
   written only under the remember setting, shown when absent); folds sit in
   `settingsStore.infoSectionOpen` and are always kept. While the side panel
-  is open on a session pane narrower than `INFO_PANEL_ROOM_PX` (1010px: 60
-  columns of conversation beside both panels), the panel steps aside
+  is open on a session pane narrower than `INFO_PANEL_ROOM_PX` (1026px: 60
+  columns of conversation beside both panels and their two separators,
+  `PANEL_SEPARATOR_PX`), the panel steps aside
   (`infoPanelShown`, `infoPanel/stepAside.ts`) without writing `infoVisible`,
   everything that asks whether it shows reads that answer, and its toggle
-  shows it anyway until the side panel hides or the pane has room. A folded section
+  shows it anyway until the side panel hides or the pane has room. While all
+  three show on a pane with that room, the conversation's `minSize` is those
+  60 columns (`CONVERSATION_ROOM_PX`, `conversationKeepsRoom`), else 20%: the
+  panels give way before it, and a split saved while the person kept the
+  panel on a narrow pane never restores it narrower on a pane that holds
+  them. That leans on react-resizable-panels, which re-registers a Panel
+  whose `minSize` changes and re-validates its remembered layout, and a saved
+  one as it restores. A folded section
   renders neither its rows nor its heading's actions (`InfoSection`), so
   whatever they read never starts. Showing, hiding or resizing the panel
   only resizes the conversation, which stays `ContentView`'s first child.
@@ -569,26 +587,29 @@ panel it is view state, kept in the renderer.
   panel share its entries (`detailsKey`: workspace, account, item). It reads
   only for an active viewer (`watch`, through `useWorkItemDetails`), one
   read per item at a time, at most once per `INBOX_REFRESH_INTERVAL_MS`
-  unless forced by the person's Refresh or Retry or the re-read after a
-  write. A forced load never takes the answer of a read already in flight,
-  which may predate the write, unless a loud forced load started that read;
-  it waits, then gets one more. The store's own reads (a watch's first load,
-  the re-check once an entry goes stale) are quiet once the entry holds
-  details, so the pane's editors never lock under the person's typing. The
-  mergeability poll is its own: a few quiet reads while `mergeState` is
-  `UNKNOWN`, only while watched (`MERGE_STATE_POLLS`). At most
-  `MAX_UNWATCHED_DETAILS` (20) entries nobody watches keep their details,
-  the least recently read dropped first. A folded section, a hidden panel, a
-  tab behind another and the mark read nothing: `useDetailsEntry` reads the
-  cache and never watches.
+  (a failed read counts as one, quiet or loud) unless forced by the person's
+  Refresh or Retry or the re-read after a write. A forced load never takes
+  the answer of a read already in flight, which may predate the write,
+  unless a loud forced load started that read; it waits, then gets one more.
+  The store's own reads (a watch's first load, the re-check once an entry
+  goes stale) are quiet once the entry holds details, so the pane's editors
+  never lock under the person's typing. The mergeability poll is its own: a
+  few quiet reads while `mergeState` is `UNKNOWN`, only while watched
+  (`MERGE_STATE_POLLS`). At most `MAX_UNWATCHED_DETAILS` (20) entries nobody
+  watches keep their details, the least recently read dropped first. A
+  folded section, a hidden panel, a tab behind another and the mark read
+  nothing: `useDetailsEntry` reads the cache and never watches.
 - **A branch's pull request is found in main** (`BranchPullRequestFinder`),
   for a session linked to none. Main reads the branch from the folder
   (`readBranchIdentity`), so the renderer never sends one; origin is mapped
   by the driver's `repoOfRemote`, and `lookupPullRequests` is asked once per
   provider, account, repo and the branch's name on the remote per interval
-  (`BRANCH_LOOKUP_TTL_MS`), a failure kept as long as an answer, sooner only
-  for Retry or Refresh. It is asked only while someone looks: the info panel
-  shown with Pull request open, or the Pull request tab in front
+  (`BRANCH_LOOKUP_TTL_MS`, counted from the ask, not the answer, less a
+  few seconds' slack, `ASK_SLACK_MS`, so the renderer's re-ask one interval
+  on is not served the old answer), a failure kept as long as an answer,
+  sooner only for Retry or Refresh. It is asked
+  only while someone looks: the info panel shown with Pull request open, or
+  the Pull request tab in front
   (`useBranchPullRequestLookup`, from `ContentView`). It is never written to
   the record; Link writes `workItem`. Every answer names the branch it was
   read for and counts only while the checkout is on it
@@ -597,17 +618,24 @@ panel it is view state, kept in the renderer.
   never ends a lookup (one more is asked), a failed lookup keeps a pull
   request already found for the same branch, and an answer that read no
   branch keeps the asked branch's answer, or fails it so Retry is offered.
-- **Branch facts never fetch** (`readBranchFacts`, with
-  `GIT_NO_LAZY_FETCH=1`, a 10 s timeout and argument lists): every count is
-  against what the clone already has, and what git cannot answer is a line
-  not drawn, never a throw. "vs" compares with the session's pull request's
-  base when its details are cached, else `origin/HEAD`, never a guessed
-  `main`. They are read while the Branch section is open and again after
-  each git status refresh of that checkout (`gitStatusStore.refreshedAt`);
+- **Branch facts never fetch**, on git 2.44 and later (`readBranchFacts`,
+  through `readGit`: `GIT_NO_LAZY_FETCH=1`, which an older git ignores, so a
+  partial clone's diff there fetches what it lacks; `GIT_TERMINAL_PROMPT=0`,
+  a 10 s timeout and argument lists): every count is against what the clone
+  already has, and what git cannot answer is a line not drawn, never a throw.
+  "vs" compares with the session's pull request's base when its details are
+  cached, else `origin/HEAD`, never a guessed `main`. They are read while the
+  Branch section is open and again after each git status refresh of that
+  checkout (`gitStatusStore.refreshedAt`);
   a load during a read gets one more read after it (`branchFactsStore`), so
-  a commit made mid-read is counted. Uncommitted reads the stats of its own
-  checkout (`statsFor`, `statsRoot`), never the last checkout's during a
-  session switch.
+  a commit made mid-read is counted. Uncommitted, like the header's counts,
+  reads the stats git gave for its own checkout (`statsFor`, `statsRoot`),
+  never the last checkout's during a session switch, and says `None` only
+  when git did (`uncommittedFor`): while git reads its checkout for the
+  first time the row stays with no value, so the rows below do not jump;
+  with no read of it under way and none landed (a folder below its
+  repository's top, whose status is never read), or where git said no
+  repository, the row is not drawn.
 - **A kind's mark has a tone** (`agent` or `alert`), and every mark takes
   the same three places (`markPlaces`): its header shortcut; its tab in a
   group on screen, drawn there only while behind another tab, since in
@@ -1136,6 +1164,7 @@ All channel names are defined in `src/shared/constants.ts`. Key patterns:
 - `git:*` - Git status and commit message generation
 - `dialog:*` - Native dialogs
 - `app:*` - The machine Consola runs on: its name (`app:get-computer-name`), read once per run
+- `open-in:*` - "Open in" a session's folder: the apps main found (`open-in:list`), and opening one (`open-in:open`), which main checks first
 - `worktree-cleanup:*` - Cleanup preview, "Clean up now", history, and a deleted session's outcome
 - `browser:*` - In-app browser tabs, page actions and snapshots; every id is checked against the sender's workspace
 

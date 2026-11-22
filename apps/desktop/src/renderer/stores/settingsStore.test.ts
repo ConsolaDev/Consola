@@ -160,6 +160,30 @@ describe('sidebar shelves', () => {
   });
 });
 
+describe('the Open in favourite', () => {
+  it('is no app until one is picked, and the pick is kept', () => {
+    expect(useSettingsStore.getInitialState().openInFavourite).toBeNull();
+    useSettingsStore.getState().setOpenInFavourite('intellij');
+    expect(useSettingsStore.getState().openInFavourite).toBe('intellij');
+    const { merge, partialize } = useSettingsStore.persist.getOptions();
+    expect(partialize!(useSettingsStore.getState())).toMatchObject({
+      openInFavourite: 'intellij',
+    });
+    const read = (saved: unknown) =>
+      (
+        merge!(saved, useSettingsStore.getInitialState()) as ReturnType<
+          typeof useSettingsStore.getState
+        >
+      ).openInFavourite;
+    expect(read({ openInFavourite: 'vscode' })).toBe('vscode');
+    // Anything but an id reads as no pick.
+    expect(read({ openInFavourite: 7 })).toBeNull();
+    expect(read({ openInFavourite: '' })).toBeNull();
+    expect(read(undefined)).toBeNull();
+    useSettingsStore.setState({ openInFavourite: null });
+  });
+});
+
 describe('info panel sections', () => {
   it('section fold state keeps only booleans, and every section starts open', () => {
     for (const id of INFO_SECTION_IDS) expect(isInfoSectionOpen({}, id)).toBe(true);

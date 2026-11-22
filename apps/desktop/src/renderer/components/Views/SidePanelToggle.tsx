@@ -1,11 +1,11 @@
 import * as Tooltip from '@radix-ui/react-tooltip';
 import { PanelRight } from 'lucide-react';
-import { labelWithMarks, marksOnToggle } from '../../sidePanel/marks';
+import { labelWithMarks, markDots, marksOnToggle } from '../../sidePanel/marks';
 import type { TabFacts, TabKindId } from '../../sidePanel/tabKinds';
 import { useSidePanelStore } from '../../stores/sidePanelStore';
 import { isMac } from '../../utils/platform';
 import { SIDE_PANEL_SHORTCUT_LABEL } from '../../utils/sidePanelShortcut';
-import { markDots, useTabMarks } from '../SidePanel/tabMarks';
+import { useTabMarks } from '../SidePanel/tabMarks';
 
 /**
  * Shows or hides the side panel, as its chord does. The header's last

@@ -3,7 +3,7 @@ import { baseLine, branchLabel, pushValue, uncommittedValue } from '../../infoPa
 import { detailsTargetOf, sessionPullRequest } from '../../infoPanel/sessionPullRequest';
 import type { TabFacts } from '../../sidePanel/tabKinds';
 import { useBranchFacts } from '../../stores/branchFactsStore';
-import { statsFor, useGitStatusStore } from '../../stores/gitStatusStore';
+import { uncommittedFor, useGitStatusStore } from '../../stores/gitStatusStore';
 import { useSidePanelStore } from '../../stores/sidePanelStore';
 import { type DetailsTarget, useDetailsEntry } from '../../stores/workItemDetailsStore';
 import { DiffCounts } from '../Inbox/WorkItemDetailParts';
@@ -119,13 +119,15 @@ function BranchRow({
 /**
  * What the working tree holds that is not committed, from the git status the
  * header keeps on this checkout. Opens Changes, where it can be reviewed.
+ * It never says `None` on git's behalf (`uncommittedFor`): with no value
+ * while git reads this checkout for the first time, and not drawn where
+ * nothing is read, or git said the folder is no repository's top.
  */
 function UncommittedRow({ dir }: { dir: string }) {
-  // Undefined until a read of this checkout lands: during a session switch
-  // the store already tracks `dir` but still holds the other checkout's
-  // counts. The row then shows no value, neither theirs nor `None`.
-  const stats = useGitStatusStore((state) => statsFor(state, dir));
+  const view = useGitStatusStore((state) => uncommittedFor(state, dir));
   const openKind = useSidePanelStore((state) => state.openKind);
+  if (view === null) return null;
+  const stats = view === 'reading' ? undefined : view;
   const value = stats && uncommittedValue(stats);
   const spoken =
     stats === undefined

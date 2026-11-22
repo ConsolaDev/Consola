@@ -37,6 +37,12 @@ export interface DetailsEntry {
   /** Why the last read that showed itself failed, until a read succeeds. */
   error?: string;
   errorAt?: number;
+  /**
+   * When a read last failed, quiet or loud, until a read succeeds. A failure
+   * is as fresh as an answer: only a forced load reads the item again before
+   * `DETAILS_REFRESH_MS` has passed since it.
+   */
+  failedAt?: number;
 }
 
 interface LoadOptions {
@@ -99,7 +105,8 @@ const watches = new Map<string, Watch>();
  * pane, the Pull request tab and the info panel. Each read spends the
  * account's request budget, so an item is read only for a viewer that can be
  * seen (`watch`), once at a time however many ask, and no more than once per
- * `DETAILS_REFRESH_MS` unless someone forces it. At most
+ * `DETAILS_REFRESH_MS` unless someone forces it, a failed read counting as
+ * one: asking again at once would only spend the budget again. At most
  * `MAX_UNWATCHED_DETAILS` items nobody watches keep their details.
  *
  * Kept in the renderer rather than main: main allows one window per
@@ -116,7 +123,7 @@ export const useWorkItemDetailsStore = create<WorkItemDetailsState>((_, get) => 
       return readNext(key, target, quiet);
     }
     const known = get().entries[key];
-    if (!force && known && Date.now() - known.fetchedAt < DETAILS_REFRESH_MS) {
+    if (!force && known && Date.now() - lastReadAt(known) < DETAILS_REFRESH_MS) {
       return Promise.resolve(known);
     }
     return read(key, target, { force, quiet });
@@ -149,6 +156,11 @@ function entryOf(key: string): DetailsEntry {
   return useWorkItemDetailsStore.getState().entries[key] ?? NEVER_READ;
 }
 
+/** When the item was last read, answered or failed: what its freshness is timed from. */
+function lastReadAt(entry: DetailsEntry | undefined): number {
+  return Math.max(entry?.fetchedAt ?? 0, entry?.failedAt ?? 0);
+}
+
 function patch(key: string, change: Partial<DetailsEntry>): void {
   useWorkItemDetailsStore.setState((state) => ({
     entries: { ...state.entries, [key]: { ...(state.entries[key] ?? NEVER_READ), ...change } },
@@ -170,13 +182,21 @@ function read(
         fetchedAt: Date.now(),
         error: undefined,
         errorAt: undefined,
+        failedAt: undefined,
         ...(quiet ? {} : { loading: false }),
       });
     } catch (error) {
       // A failure keeps the last details: what the item was is still worth showing.
-      if (!quiet)
-        patch(key, { loading: false, error: ipcErrorMessage(error), errorAt: Date.now() });
+      const failedAt = Date.now();
+      patch(
+        key,
+        quiet
+          ? { failedAt }
+          : { loading: false, error: ipcErrorMessage(error), errorAt: failedAt, failedAt },
+      );
     }
+    // Taken before anything after it can change the entry: pruning may drop it.
+    const answer = entryOf(key);
     const next = nextReads.get(key);
     if (next) {
       nextReads.delete(key);
@@ -186,7 +206,7 @@ function read(
       prune();
       follow(key);
     }
-    return entryOf(key);
+    return answer;
   })();
   inFlight.set(key, { promise, loudForced: force && !quiet });
   return promise;
@@ -211,7 +231,9 @@ function readNext(key: string, target: DetailsTarget, quiet: boolean): Promise<D
 
 /**
  * Drops the details of the items read longest ago that nobody watches, past
- * `MAX_UNWATCHED_DETAILS`. One with a read running stays: its answer is due.
+ * `MAX_UNWATCHED_DETAILS`. A failed read counts as a read, so a failure just
+ * kept is not the first to go. One with a read running stays: its answer is
+ * due.
  */
 function prune(): void {
   const { entries } = useWorkItemDetailsStore.getState();
@@ -221,7 +243,7 @@ function prune(): void {
   const dropped = new Set(
     unwatched
       .filter((key) => !inFlight.has(key))
-      .sort((a, b) => entries[a].fetchedAt - entries[b].fetchedAt)
+      .sort((a, b) => lastReadAt(entries[a]) - lastReadAt(entries[b]))
       .slice(0, excess),
   );
   if (dropped.size === 0) return;
@@ -247,20 +269,22 @@ function check(key: string, options?: LoadOptions): void {
 
 /**
  * What a watched item does next, planned when watching starts and after
- * every read of it; while a read runs, its end plans instead. The item is
- * checked once its entry goes stale, timed from the read rather than from a
- * fixed interval, which would find the entry a read's latency short of stale
- * and wait out a second interval. And while GitHub is still working
- * mergeability out, a quiet read follows shortly, as GitHub's own page keeps
- * asking, a few times per spell of watching.
+ * every read of it; while a read runs, its end plans instead, so nothing
+ * planned before it is left to fire meanwhile. The item is checked once its
+ * entry goes stale, timed from the last read, answered or failed, rather
+ * than from a fixed interval, which would find the entry a read's latency
+ * short of stale and wait out a second interval. And while GitHub is still
+ * working mergeability out, a quiet read follows shortly, as GitHub's own
+ * page keeps asking, a few times per spell of watching.
  */
 function follow(key: string): void {
   const watch = watches.get(key);
-  if (!watch || inFlight.has(key)) return;
+  if (!watch) return;
   clearTimeout(watch.recheck);
   clearTimeout(watch.poll);
+  if (inFlight.has(key)) return;
   const entry = useWorkItemDetailsStore.getState().entries[key];
-  const age = Date.now() - (entry?.fetchedAt ?? 0);
+  const age = Date.now() - lastReadAt(entry);
   const untilStale = age < DETAILS_REFRESH_MS ? DETAILS_REFRESH_MS - age : DETAILS_REFRESH_MS;
   watch.recheck = setTimeout(() => check(key), untilStale);
   if (entry?.details?.mergeState === 'UNKNOWN' && watch.polls < MERGE_STATE_POLLS) {

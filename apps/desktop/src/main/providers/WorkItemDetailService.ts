@@ -1,6 +1,7 @@
 import { isValidWorkItemRef, toWorkItemRef } from '../../shared/workItems';
 import { workItemMutationSchema } from '../../shared/workItemDetails';
 import type { InboxServiceDeps } from './InboxService';
+import { repoInOrg } from './repoInOrg';
 
 /** Resolve identity and credentials in main; renderer input never selects an account. */
 export class WorkItemDetailService {
@@ -16,7 +17,7 @@ export class WorkItemDetailService {
     const provider = this.deps.getWorkspace(workspaceId)?.provider;
     if (!provider || provider.id !== input.provider)
       throw new Error('Work item does not match the workspace provider.');
-    if (provider.org && input.repo.split('/')[0].toLowerCase() !== provider.org.toLowerCase()) {
+    if (!repoInOrg(input.repo, provider.org)) {
       throw new Error('Work item is outside the workspace organization.');
     }
     const driver = this.deps.resolveDriver(provider.id);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { defaultLayout, openKind, setVisible, splitWithTab, toggleMaximize } from './layout';
-import { labelWithMarks, markPlaces, marksOnToggle } from './marks';
+import { labelWithMarks, markDots, markPlaces, marksOnToggle } from './marks';
 
 const header = ['changes', 'files', 'terminal'];
 const none = { shortcut: false, tab: false, toggle: false };
@@ -103,6 +103,24 @@ describe('marksOnToggle', () => {
         { headerKinds: header, layout: defaultLayout() },
       ),
     ).toEqual([]);
+  });
+});
+
+describe('markDots', () => {
+  const agent = { tone: 'agent' as const };
+  const alert = { tone: 'alert' as const };
+
+  it('an agent’s use draws the accent dot alone', () => {
+    expect(markDots([agent])).toEqual({ 'data-agent-dot': true, 'data-alert-dot': undefined });
+  });
+
+  it('something wrong draws the red dot alone', () => {
+    expect(markDots([alert])).toEqual({ 'data-agent-dot': undefined, 'data-alert-dot': true });
+  });
+
+  it('a button carrying both draws both, and one carrying none draws neither', () => {
+    expect(markDots([alert, agent])).toEqual({ 'data-agent-dot': true, 'data-alert-dot': true });
+    expect(markDots([])).toEqual({ 'data-agent-dot': undefined, 'data-alert-dot': undefined });
   });
 });
 

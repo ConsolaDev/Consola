@@ -15,6 +15,8 @@ import {
   toggleSidePanelOnScreen,
 } from '../utils/sidePanelActions';
 import { isInfoPanelShortcut } from '../utils/infoPanelShortcut';
+import { openFolderOnScreen } from '../utils/openInActions';
+import { isOpenInShortcut } from '../utils/openInShortcut';
 import { isSidePanelShortcut } from '../utils/sidePanelShortcut';
 import {
   isBrowserShortcut,
@@ -121,6 +123,13 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
         return;
       }
 
+      // ⌘O opens the session's folder in the favourite app; held, once.
+      if (isOpenInShortcut(event)) {
+        event.preventDefault();
+        if (!event.repeat) openFolderOnScreen();
+        return;
+      }
+
       // Ctrl+` : the Terminal tab, as its header button does. Held, it acts
       // once, rather than showing and hiding the side panel on every repeat.
       if (isShellShortcut(event)) {
@@ -215,6 +224,9 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
           return;
         case 'info-panel':
           toggleInfoPanelOnScreen();
+          return;
+        case 'open-in':
+          openFolderOnScreen();
           return;
         // Main sends a held ⌘W once, so this is one press.
         case 'close':

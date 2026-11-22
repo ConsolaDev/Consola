@@ -1,4 +1,7 @@
-import { describe, expect, it, vi } from 'vitest';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { memoizeRemoteResolver, resolveSshRemote } from './sshRemote';
 
 describe('resolveSshRemote', () => {
@@ -30,21 +33,83 @@ describe('resolveSshRemote', () => {
 });
 
 describe('memoizeRemoteResolver', () => {
-  it('resolves each remote once for the run', () => {
-    const resolve = vi.fn((remote: string) => remote.replace('@personal:', '@github.com:'));
-    const resolveRemote = memoizeRemoteResolver(resolve);
-    for (let i = 0; i < 3; i++) {
-      expect(resolveRemote('git@personal:sprocket/catalog-portal.git')).toBe(
-        'git@github.com:sprocket/catalog-portal.git',
-      );
+  const REMOTE = 'git@personal:sprocket/catalog-portal.git';
+  const RESOLVED = 'git@github.com:sprocket/catalog-portal.git';
+
+  let bin: string;
+  let runs: string;
+  const path0 = process.env.PATH;
+  beforeEach(() => {
+    bin = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'consola-ssh-')));
+    runs = path.join(bin, 'runs');
+    process.env.PATH = `${bin}${path.delimiter}${path0}`;
+  });
+  afterEach(() => {
+    process.env.PATH = path0;
+    fs.rmSync(bin, { recursive: true, force: true });
+  });
+  /** An `ssh` found first on PATH that logs each run's arguments, then runs `body`. */
+  const fakeSsh = (body: string) =>
+    fs.writeFileSync(path.join(bin, 'ssh'), `#!/bin/sh\necho "$*" >> "${runs}"\n${body}\n`, {
+      mode: 0o755,
+    });
+  /** The arguments of each run of the fake ssh, in order. */
+  const sshRuns = () =>
+    fs.existsSync(runs) ? fs.readFileSync(runs, 'utf8').split('\n').filter(Boolean) : [];
+  const NAMES_GITHUB = "printf 'user git\\nhostname github.com\\nport 22\\n'";
+
+  it('never blocks main on an ssh that hangs, and answers once the lookup gives up', async () => {
+    // A slow `Match exec` in the person's ssh config, say.
+    fakeSsh('exec sleep 30');
+    const resolveRemote = memoizeRemoteResolver();
+    let ticks = 0;
+    const ticker = setInterval(() => ticks++, 50);
+    try {
+      const asked = Date.now();
+      const answer = resolveRemote(REMOTE);
+      expect(Date.now() - asked).toBeLessThan(500);
+      await expect(answer).resolves.toBe(REMOTE);
+      expect(ticks).toBeGreaterThan(5);
+    } finally {
+      clearInterval(ticker);
     }
-    expect(resolveRemote('git@personal:sprocket/billing.git')).toBe(
-      'git@github.com:sprocket/billing.git',
-    );
-    expect(resolve).toHaveBeenCalledTimes(2);
-    expect(resolve.mock.calls.map(([remote]) => remote)).toEqual([
-      'git@personal:sprocket/catalog-portal.git',
-      'git@personal:sprocket/billing.git',
-    ]);
+  }, 10_000);
+
+  it('runs one ssh -G for finds that ask about one host at once, and keeps the hostname it named', async () => {
+    fakeSsh(`sleep 0.3\n${NAMES_GITHUB}`);
+    const resolveRemote = memoizeRemoteResolver();
+    await expect(
+      Promise.all([resolveRemote(REMOTE), resolveRemote('git@personal:sprocket/billing.git')]),
+    ).resolves.toEqual([RESOLVED, 'git@github.com:sprocket/billing.git']);
+    await expect(resolveRemote(REMOTE)).resolves.toBe(RESOLVED);
+    expect(sshRuns()).toEqual(['-G personal']);
+  });
+
+  it('asks again on the next find after an ssh -G that failed', async () => {
+    // Fails on its first run only.
+    fakeSsh(`[ "$(wc -l < "${runs}")" -gt 1 ] || exit 255\n${NAMES_GITHUB}`);
+    const resolveRemote = memoizeRemoteResolver();
+    await expect(resolveRemote(REMOTE)).resolves.toBe(REMOTE);
+    await expect(resolveRemote(REMOTE)).resolves.toBe(RESOLVED);
+    await expect(resolveRemote(REMOTE)).resolves.toBe(RESOLVED);
+    expect(sshRuns()).toEqual(['-G personal', '-G personal']);
+  });
+
+  it('asks about each host once for the run, whichever remote names it', async () => {
+    // An alias resolves to its host; a host that is no alias resolves to itself.
+    const resolveHost = vi.fn(async (host: string) => (host === 'personal' ? 'github.com' : host));
+    const resolveRemote = memoizeRemoteResolver(resolveHost);
+    for (let i = 0; i < 3; i++) await expect(resolveRemote(REMOTE)).resolves.toBe(RESOLVED);
+    await expect(resolveRemote(RESOLVED)).resolves.toBe(RESOLVED);
+    await expect(resolveRemote(RESOLVED)).resolves.toBe(RESOLVED);
+    expect(resolveHost.mock.calls).toEqual([['personal'], ['github.com']]);
+  });
+
+  it('never asks about a remote that is not ssh', async () => {
+    const resolveHost = vi.fn(async () => 'github.com');
+    const resolveRemote = memoizeRemoteResolver(resolveHost);
+    const https = 'https://github.com/sprocket/catalog-portal.git';
+    await expect(resolveRemote(https)).resolves.toBe(https);
+    expect(resolveHost).not.toHaveBeenCalled();
   });
 });
