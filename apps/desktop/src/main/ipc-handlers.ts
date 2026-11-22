@@ -129,6 +129,7 @@ import {
   worktreeHeld,
   type ItemWorktreeDeps,
 } from './automations/launchAgentRun';
+import { entryArgs, openFileArgs, workspaceArg } from './automations/factoryFileArgs';
 import { openFactoryFile } from './automations/openFactoryFile';
 import { automationCheckoutPort } from './automations/automationCheckout';
 import { readRunConversation } from './automations/runConversation';
@@ -2421,20 +2422,15 @@ export function setupIpcHandlers(): boolean {
   );
   ipcMain.handle(
     IPC_CHANNELS.AUTOMATIONS_GET_ENTRY_AGENTS,
-    (_event, workspaceId: unknown, name: unknown) => {
-      if (typeof workspaceId !== 'string' || typeof name !== 'string') {
-        throw new Error('Workspace id and automation name required.');
-      }
+    (_event, rawWorkspaceId: unknown, rawName: unknown) => {
+      const { workspaceId, name } = entryArgs(rawWorkspaceId, rawName);
       return automations.entryAgents(workspaceId, name);
     },
   );
   ipcMain.handle(
     IPC_CHANNELS.AUTOMATIONS_OPEN_FILE,
-    async (_event, workspaceId: unknown, file: unknown) => {
-      if (typeof workspaceId !== 'string') throw new Error('Workspace id required.');
-      if (file !== undefined && typeof file !== 'string') {
-        throw new Error(`Not a file of this factory: \`${String(file)}\`.`);
-      }
+    async (_event, rawWorkspaceId: unknown, rawFile: unknown) => {
+      const { workspaceId, file } = openFileArgs(rawWorkspaceId, rawFile);
       const filePath = await automations.factoryFilePath(workspaceId, file);
       // Only the factory's own files, links resolved, and only as text: never the default handler.
       await openFactoryFile(workspaceDataDir(workspaceId), filePath, file ?? 'factory.yml', {
@@ -2447,10 +2443,9 @@ export function setupIpcHandlers(): boolean {
       });
     },
   );
-  ipcMain.handle(IPC_CHANNELS.AUTOMATIONS_RECHECK, (_event, workspaceId: unknown) => {
-    if (typeof workspaceId !== 'string') throw new Error('Workspace id required.');
-    return automations.recheck(workspaceId);
-  });
+  ipcMain.handle(IPC_CHANNELS.AUTOMATIONS_RECHECK, (_event, workspaceId: unknown) =>
+    automations.recheck(workspaceArg(workspaceId)),
+  );
 
   ipcMain.handle(IPC_CHANNELS.CONDUCTOR_CREATE, (_event, request: ConductorCreateRequest) =>
     createConductor(
