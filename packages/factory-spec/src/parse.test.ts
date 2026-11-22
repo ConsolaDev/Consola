@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseFactorySpec } from './parse';
+import { parseFactorySpec, parseFactoryYml } from './parse';
 
 const VALID = `
 version: 1
@@ -140,5 +140,108 @@ automations:
     expect(result.automations).toHaveLength(1);
     expect(result.issues[0].message).toMatch(/Duplicate automation name "a"/);
     expect(result.issues[0].line).toBe(6);
+  });
+
+  it.each([
+    [
+      'mcpServers',
+      '[notion]',
+      'Inline server definitions arrive with connections as data. Name a server the harness already has in an agent file.',
+    ],
+    ['repos', '[catalog-portal]', '`repos` arrives with write steps; it is not supported yet.'],
+    ['policy', '{}', '`policy` arrives with shared factories; it is not supported yet.'],
+    ['library', 'x', '`library` arrives with shared factories; it is not supported yet.'],
+    ['defaults', '{}', '`defaults` arrives with shared factories; it is not supported yet.'],
+    ['name', 'sprocket', '`name` arrives with shared factories; it is not supported yet.'],
+    [
+      'connections',
+      '[]',
+      '`connections` arrives with connections as data; it is not supported yet.',
+    ],
+  ])('refuses %s at the top level, at its line, loading nothing', (key, value, message) => {
+    const result = parseFactorySpec(`${VALID}${key}: ${value}\n`);
+    expect(result.automations).toEqual([]);
+    expect(result.issues).toEqual([{ message, path: key, line: 8 }]);
+  });
+
+  it('leaves out an entry whose step names an agent, saying why, and loads the rest', () => {
+    const result = parseFactorySpec(`version: 1
+automations:
+  - name: investigate
+    on: { github: pull_request.review_requested }
+    steps:
+      - prompt: Read it.
+      - agent: investigator
+  - name: clean-up-stale-sessions
+    on: { cron: "0 9 * * *" }
+    run: { tool: consola#cleanup_stale_sessions }
+`);
+    expect(result.automations.map((automation) => automation.name)).toEqual([
+      'clean-up-stale-sessions',
+    ]);
+    expect(result.issues).toEqual([
+      {
+        message:
+          '`agent: investigator` names agents/investigator.md, and this factory.yml is read without its folder.',
+        path: 'automations[0].steps[1].agent',
+        line: 7,
+        automation: 'investigate',
+      },
+    ]);
+    for (const value of [...result.automations, ...result.issues])
+      expect(Object.prototype.hasOwnProperty.call(value, 'file')).toBe(false);
+  });
+
+  it('adds no file to what it returns, issues included', () => {
+    const result = parseFactorySpec(
+      `${VALID}  - name: bad\n    on: { cron: "0 9 * * *" }\n    run: { tool: consola#x }\n    mode: sometimes\n`,
+    );
+    expect(result.automations).toHaveLength(1);
+    expect(result.issues).toHaveLength(1);
+    for (const value of [...result.automations, ...result.issues])
+      expect(Object.prototype.hasOwnProperty.call(value, 'file')).toBe(false);
+  });
+});
+
+describe('parseFactoryYml', () => {
+  it('reads factory.yml as the folder does: agent steps kept, every automation and issue with its file', () => {
+    const result = parseFactoryYml(`version: 1
+automations:
+  - name: investigate
+    on: { github: pull_request.review_requested }
+    steps:
+      - agent: investigator
+  - name: bad
+    on: { cron: "0 9 * * *" }
+    run: { tool: consola#x }
+    mode: sometimes
+`);
+    expect(result.unreadable).toBe(false);
+    expect(result.automations).toMatchObject([
+      { name: 'investigate', file: 'factory.yml', line: 3 },
+    ]);
+    expect(result.issues).toMatchObject([{ file: 'factory.yml', automation: 'bad', line: 10 }]);
+    expect(result.entryPath('investigate')).toEqual(['automations', 0]);
+    expect(result.entryPath('bad')).toBeUndefined();
+    expect(result.lineAt(['automations', 0, 'steps', 0, 'agent'])).toBe(6);
+  });
+
+  it('is unreadable when the YAML does not parse or its envelope fails, not for an entry', () => {
+    expect(parseFactoryYml('version: 1\nautomations:\n  - name: a\n   bad: [\n').unreadable).toBe(
+      true,
+    );
+    expect(parseFactoryYml('version: 2\nautomations: []\n').unreadable).toBe(true);
+    expect(parseFactoryYml(`${VALID}  - name: bad\n    mode: sometimes\n`).unreadable).toBe(false);
+    expect(parseFactoryYml('').unreadable).toBe(false);
+  });
+
+  it('equals parseFactorySpec on a slice-1 file but for file', () => {
+    const text = `${VALID}  - name: bad\n    on: { cron: "0 9 * * *" }\n    run: { tool: consola#x }\n    mode: sometimes\n`;
+    const folder = parseFactoryYml(text);
+    const alone = parseFactorySpec(text);
+    expect(folder.automations).toEqual(
+      alone.automations.map((automation) => ({ ...automation, file: 'factory.yml' })),
+    );
+    expect(folder.issues).toEqual(alone.issues.map((issue) => ({ ...issue, file: 'factory.yml' })));
   });
 });

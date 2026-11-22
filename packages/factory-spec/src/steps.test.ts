@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseFactorySpec } from './parse';
+import { parseFactorySpec, parseFactoryYml } from './parse';
 import { isStepsEntry } from './schema';
 import {
   ENV_PREFIX_EXCEPTIONS,
@@ -95,7 +95,7 @@ describe('a step has exactly one of prompt, action or run', () => {
   it('refuses none', () => {
     const issue = only(steps('- id: review'));
     expect(issue.path).toBe('automations[0].steps[0]');
-    expect(issue.message).toMatch(/one of `prompt`, `action` or `run`/);
+    expect(issue.message).toBe('A step has one of `prompt`, `action`, `agent` or `run`.');
   });
 
   it('refuses two', () => {
@@ -146,9 +146,6 @@ describe('ids', () => {
 });
 
 const STEP_KEYS: Record<string, string> = {
-  agent: 'agents as files',
-  skills: 'agents as files',
-  mcpServers: 'agents as files',
   gate: 'write steps',
   repeat: 'write steps',
   on_exhausted: 'write steps',
@@ -203,6 +200,149 @@ describe("refuses later slices' keys with a reason", () => {
   });
 });
 
+/** One entry read as the folder reads factory.yml, so a step may name an agent (`parseFactorySpec` refuses one). */
+const inFolder = (...items: string[]) =>
+  parseFactoryYml(
+    `version: 1\nautomations:\n  - name: a\n${REVIEW}    steps:\n${items.map((item) => `      ${item.replace(/\n/g, '\n      ')}`).join('\n')}\n`,
+  );
+
+describe('a step that is not a mapping', () => {
+  it('says what a step is', () => {
+    expect(only(steps('- hi'))).toMatchObject({
+      path: 'automations[0].steps[0]',
+      message: 'Expected a step: a mapping with one of `prompt`, `action`, `agent` or `run`.',
+    });
+  });
+});
+
+describe('agent', () => {
+  it.each([
+    ['alone', '- agent: investigator', { agent: 'investigator' }],
+    [
+      'with a prompt',
+      '- agent: summariser\n  prompt: Write the reply.',
+      { agent: 'summariser', prompt: 'Write the reply.' },
+    ],
+    [
+      'with an action',
+      '- agent: reviewer\n  action: Review',
+      { agent: 'reviewer', action: 'Review' },
+    ],
+  ])('takes an agent step %s', (_, item, expected) => {
+    const step = firstStep<AgentStep>(inFolder(item));
+    expect(step).toMatchObject({ kind: 'agent', ...expected });
+    if (!('prompt' in expected))
+      expect(Object.prototype.hasOwnProperty.call(step, 'prompt')).toBe(false);
+    if (!('action' in expected))
+      expect(Object.prototype.hasOwnProperty.call(step, 'action')).toBe(false);
+  });
+
+  it('keeps every other key of an agent step beside it', () => {
+    expect(
+      firstStep<AgentStep>(
+        inFolder(
+          '- id: investigate\n  agent: investigator\n  outputs: { severity: { enum: [noise, high] } }\n  max_turns: 6',
+        ),
+      ),
+    ).toEqual({
+      id: 'investigate',
+      named: true,
+      kind: 'agent',
+      agent: 'investigator',
+      outputs: { severity: { type: 'enum', values: ['noise', 'high'] } },
+      artifacts: [],
+      reads: [],
+      handover: 'optional',
+      maxTurns: 6,
+    });
+  });
+
+  it('says a step has one of the four', () => {
+    expect(only(inFolder('- id: x\n  outputs: { ok: boolean }'))).toMatchObject({
+      path: 'automations[0].steps[0]',
+      message: 'A step has one of `prompt`, `action`, `agent` or `run`.',
+    });
+  });
+
+  it('keeps prompt and action exclusive, in their own words', () => {
+    expect(only(inFolder('- agent: x\n  prompt: hi\n  action: Review')).message).toBe(
+      'A step names one thing to do; got prompt and action.',
+    );
+  });
+
+  it('refuses it on a run: step', () => {
+    expect(only(inFolder('- run: echo hi\n  agent: investigator'))).toMatchObject({
+      path: 'automations[0].steps[0].agent',
+      message: 'A command runs no agent; `agent:` and `max_turns` are for agent steps.',
+    });
+  });
+
+  it.each(['skills', 'mcpServers'])('refuses %s on a step, saying where it goes', (key) => {
+    expect(only(inFolder(`- agent: investigator\n  ${key}: [x]`))).toMatchObject({
+      path: `automations[0].steps[0].${key}`,
+      message:
+        'Name skills and servers in an agent file (`agents/<name>.md`), then set `agent:` on this step.',
+    });
+  });
+
+  it.each(['acme/.consola/agents/x@v3', 'x@v3', 'team/x'])(
+    'refuses a pinned reference %s',
+    (reference) => {
+      expect(only(inFolder(`- agent: "${reference}"`))).toMatchObject({
+        path: 'automations[0].steps[0].agent',
+        message: 'Pinned references arrive with shared factories.',
+      });
+    },
+  );
+
+  it.each(['Investigator', "''", '3', '[a]', 'investigator.md'])('refuses agent: %s', (value) => {
+    expect(only(inFolder(`- agent: ${value}`))).toMatchObject({
+      path: 'automations[0].steps[0].agent',
+      message:
+        "Expected `agent` to be an agent's name, its file agents/<name>.md without `.md`: e.g. `agent: investigator`.",
+    });
+  });
+
+  it("keeps the later slices' words and inputs' own on an agent step", () => {
+    for (const [key, arrives] of [
+      ['gate', 'write steps'],
+      ['wait', 'waiting runs'],
+      ['uses', 'connections as data'],
+      ['callable', 'callable automations'],
+    ]) {
+      expect(only(inFolder(`- agent: investigator\n  ${key}: x`)).message).toBe(
+        `\`${key}\` arrives with ${arrives}; it is not supported yet.`,
+      );
+    }
+    expect(only(inFolder('- agent: investigator\n  inputs: x')).message).toBe(
+      '`inputs` is not a step key: use `reads` to name what an earlier step wrote.',
+    );
+  });
+
+  it('is absent when not written', () => {
+    const step = firstStep<AgentStep>(agent());
+    expect(Object.prototype.hasOwnProperty.call(step, 'agent')).toBe(false);
+  });
+});
+
+describe('agent, skills and mcpServers on an entry', () => {
+  it.each([
+    ['agent', '`agent:` goes on a step, not on the automation.'],
+    [
+      'skills',
+      'Name skills and servers in an agent file (`agents/<name>.md`), then set `agent:` on a step.',
+    ],
+    [
+      'mcpServers',
+      'Name skills and servers in an agent file (`agents/<name>.md`), then set `agent:` on a step.',
+    ],
+  ])('refuses %s, saying where it goes', (key, message) => {
+    const issue = only(one(`${REVIEW}    steps:\n      - prompt: hi\n    ${key}: x\n`));
+    expect(issue.path).toBe(`automations[0].${key}`);
+    expect(issue.message).toBe(message);
+  });
+});
+
 describe('max_turns', () => {
   it.each([1, 6, 500])('takes %i on an agent step', (n) => {
     expect(firstStep<AgentStep>(agent(`  max_turns: ${n}`)).maxTurns).toBe(n);
@@ -231,12 +371,6 @@ describe('max_turns', () => {
     const issue = only(one(`${REVIEW}    steps:\n      - prompt: hi\n    max_turns: 3\n`));
     expect(issue.path).toMatch(/max_turns$/);
     expect(issue.message).toBe('`max_turns` goes on a step, not on the automation.');
-  });
-
-  it.each(['agent', 'skills', 'mcpServers'])('still refuses %s for later', (key) => {
-    expect(only(agent(`  ${key}: x`)).message).toBe(
-      `\`${key}\` arrives with agents as files; it is not supported yet.`,
-    );
   });
 });
 

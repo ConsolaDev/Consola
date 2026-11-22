@@ -23,7 +23,7 @@ export function describeKind(automation: Automation): AutomationView['kind'] {
   return automation.run.kind === 'tool' ? 'tool' : 'agent';
 }
 
-/** Each step as the automation page draws it: "Prompt", "Review action", or the command's first line. */
+/** Each step as the automation page draws it: "Prompt", "Review action", an agent-only step's agent, or the command's first line. */
 export function describeSteps(steps: Step[]): NonNullable<AutomationView['steps']> {
   return steps.map((step) => ({
     id: step.id,
@@ -35,7 +35,9 @@ export function describeSteps(steps: Step[]): NonNullable<AutomationView['steps'
         ? commandSummary(step.run)
         : step.action !== undefined
           ? actionRuns(step.action)
-          : 'Prompt',
+          : step.prompt === undefined && step.agent !== undefined
+            ? step.agent
+            : 'Prompt',
   }));
 }
 

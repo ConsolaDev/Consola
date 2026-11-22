@@ -20,7 +20,14 @@ export {
   type ParsedAgent,
 } from './agents';
 export { cronError, nextCronOccurrence } from './cron';
-export { appendAutomationEntry, automationEntryText, replaceAutomationEntry } from './edit';
+export { parseAutomationFile, type AutomationFileResult } from './automationFile';
+export {
+  appendAutomationEntry,
+  automationEntryText,
+  automationFileText,
+  automationItemText,
+  replaceAutomationEntry,
+} from './edit';
 export {
   MAX_IF_LENGTH,
   checkExpression,
