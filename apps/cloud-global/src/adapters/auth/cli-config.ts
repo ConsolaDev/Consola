@@ -13,6 +13,7 @@ const placeholder: CloudConfig = {
   publicUrl: 'http://localhost:5175',
   port: 3100,
   google: { clientId: 'placeholder', clientSecret: 'placeholder' },
+  cellTokenPrivateKey: { kty: 'OKP', crv: 'Ed25519', x: 'placeholder', d: 'placeholder' },
 };
 
 const { db } = openDatabase(placeholder.databaseUrl);

@@ -1,14 +1,30 @@
+import { generateKeyPairSync } from 'node:crypto';
+import { inspect } from 'node:util';
+import {
+  CELL_TOKEN_ALGORITHM,
+  CELL_TOKEN_AUDIENCE,
+  CELL_TOKEN_KEYS_PATH,
+  CELL_TOKEN_LIFETIME_SECONDS,
+  CLOCK_SKEW_SECONDS,
+  readCellTokenClaims,
+} from '@consola/cloud-contract';
 import { organization, type TestHelpers, testUtils } from 'better-auth/plugins';
 import { eq } from 'drizzle-orm';
 import type { Hono } from 'hono';
+import { calculateJwkThumbprint, createLocalJWKSet, type JSONWebKeySet, jwtVerify } from 'jose';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type CloudAuth, closedPaths } from './adapters/auth/betterAuth.js';
 import { type Database, migrateDatabase, openDatabase } from './adapters/persistence/database.js';
 import { schema } from './adapters/persistence/schema.js';
 import { composeApi } from './compose.js';
-import type { CloudConfig } from './config.js';
+import { type CloudConfig, ConfigError, type Ed25519PrivateJwk } from './config.js';
 
 const WEB_ORIGIN = 'http://localhost:5175';
+
+// A key made for this run only, never one written down.
+const cellKey = generateKeyPairSync('ed25519').privateKey.export({
+  format: 'jwk',
+}) as Ed25519PrivateJwk;
 
 const config: CloudConfig = {
   databaseUrl: 'pglite:memory',
@@ -16,6 +32,7 @@ const config: CloudConfig = {
   publicUrl: WEB_ORIGIN,
   port: 3100,
   google: { clientId: 'sprocket-test-client-id', clientSecret: 'sprocket-test-client-secret' },
+  cellTokenPrivateKey: cellKey,
 };
 
 let db: Database;
@@ -41,7 +58,7 @@ beforeEach(async () => {
   };
   await migrateDatabase(db);
   // Built the way main.ts builds it, with Better Auth's test helpers added.
-  ({ app, auth } = composeApi({ db, config }, [testUtils()]));
+  ({ app, auth } = await composeApi({ db, config }, [testUtils()]));
   // The plugin is passed in at runtime, so the type of `$context` does not know about it.
   test = ((await auth.$context) as unknown as { test: TestHelpers }).test;
 });
@@ -373,6 +390,239 @@ describe('workspaces', () => {
   });
 });
 
+describe('the cell token', () => {
+  /** Asks for a cell token the way the web app does: a POST from its origin, as `headers`' session. */
+  async function mint(headers?: Headers, body?: unknown) {
+    const response = await app.request('/api/cell-token', {
+      method: 'POST',
+      headers: fromBrowser(headers),
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+    return {
+      status: response.status,
+      cacheControl: response.headers.get('cache-control'),
+      body: await response.json(),
+    };
+  }
+
+  /** The published key set, fetched as a cell fetches it: with no sign-in. */
+  async function publishedKeys(): Promise<JSONWebKeySet> {
+    const response = await app.request(CELL_TOKEN_KEYS_PATH);
+    expect(response.status).toBe(200);
+    return response.json();
+  }
+
+  /**
+   * A token checked the way a cell checks it: its signature against the published keys, with
+   * EdDSA alone and the cell's audience, then its claims with the contract's reader.
+   */
+  async function asACell(token: string) {
+    const { payload, protectedHeader } = await jwtVerify(
+      token,
+      createLocalJWKSet(await publishedKeys()),
+      {
+        algorithms: [CELL_TOKEN_ALGORITHM],
+        audience: CELL_TOKEN_AUDIENCE,
+        clockTolerance: CLOCK_SKEW_SECONDS,
+      },
+    );
+    const read = readCellTokenClaims(payload, Math.floor(Date.now() / 1000));
+    if (!read.ok) throw new Error(`A cell refuses the token: ${read.reason}.`);
+    return { claims: read.value, header: protectedHeader };
+  }
+
+  /** The claims of the token the session is minted now, as a cell reads them. */
+  async function mintedClaims(headers: Headers) {
+    const minted = await mint(headers);
+    expect(minted.status).toBe(200);
+    return (await asACell(minted.body.token)).claims;
+  }
+
+  it('is 401 signed out', async () => {
+    expect(await mint()).toMatchObject({ status: 401, body: { error: 'signed_out' } });
+  });
+
+  it("is minted for the session's workspace, for minutes, and checks with the published keys", async () => {
+    const login = await signIn('dana@sprocket.test', 'Dana Ortiz');
+    const workspace = await makeWorkspace(login.headers, { ...acme, region: 'us' });
+
+    const before = Math.floor(Date.now() / 1000);
+    const minted = await mint(login.headers);
+    const after = Math.floor(Date.now() / 1000);
+
+    expect(minted).toEqual({
+      status: 200,
+      cacheControl: 'no-store',
+      body: { token: expect.any(String), expiresAt: expect.any(Number) },
+    });
+    const { claims, header } = await asACell(minted.body.token);
+    expect(claims).toEqual({
+      aud: CELL_TOKEN_AUDIENCE,
+      sub: login.user.id,
+      ws: workspace.id,
+      role: 'owner',
+      region: 'us',
+      iat: expect.any(Number),
+      exp: minted.body.expiresAt,
+    });
+    expect(claims.iat).toBeGreaterThanOrEqual(before);
+    expect(claims.iat).toBeLessThanOrEqual(after);
+    expect(claims.exp - claims.iat).toBe(CELL_TOKEN_LIFETIME_SECONDS);
+    expect(CELL_TOKEN_LIFETIME_SECONDS).toBeLessThanOrEqual(10 * 60);
+    expect(header).toEqual({ alg: 'EdDSA', kid: (await publishedKeys()).keys[0]?.kid });
+  });
+
+  it('names the region of the workspace the session has active, whichever it is', async () => {
+    const login = await signIn('dana@sprocket.test', 'Dana Ortiz');
+    const inUs = await makeWorkspace(login.headers, { ...acme, region: 'us' });
+    const inEu = await makeWorkspace(login.headers, {
+      name: 'Acme Labs',
+      slug: 'acme-labs',
+      region: 'eu',
+    });
+
+    expect(await mintedClaims(login.headers)).toMatchObject({ ws: inEu.id, region: 'eu' });
+    await send('PUT', '/api/me/workspace', { workspaceId: inUs.id }, login.headers);
+    expect(await mintedClaims(login.headers)).toMatchObject({ ws: inUs.id, region: 'us' });
+  });
+
+  it('takes the workspace and the role from the database, never from the request', async () => {
+    const dana = await signIn('dana@sprocket.test', 'Dana Ortiz');
+    const acmeWorkspace = await makeWorkspace(dana.headers, acme);
+    const lee = await signIn('lee@sprocket.test', 'Lee Park');
+    const sprocket = await makeWorkspace(lee.headers, {
+      name: 'Sprocket',
+      slug: 'sprocket',
+      region: 'us',
+    });
+    await db.insert(schema.member).values({
+      id: 'm-dana-sprocket',
+      organizationId: sprocket.id,
+      userId: dana.user.id,
+      role: 'member',
+      createdAt: new Date(),
+    });
+
+    // Whatever the request says, the token is for the session's own workspace, as stored.
+    const asked = await mint(dana.headers, {
+      workspaceId: sprocket.id,
+      ws: sprocket.id,
+      sub: lee.user.id,
+      role: 'owner',
+      region: 'us',
+    });
+    expect((await asACell(asked.body.token)).claims).toMatchObject({
+      sub: dana.user.id,
+      ws: acmeWorkspace.id,
+      role: 'owner',
+      region: 'eu',
+    });
+
+    await send('PUT', '/api/me/workspace', { workspaceId: sprocket.id }, dana.headers);
+    expect(await mintedClaims(dana.headers)).toMatchObject({ ws: sprocket.id, role: 'member' });
+    await db
+      .update(schema.member)
+      .set({ role: 'admin' })
+      .where(eq(schema.member.id, 'm-dana-sprocket'));
+    expect(await mintedClaims(dana.headers)).toMatchObject({ ws: sprocket.id, role: 'admin' });
+  });
+
+  it('is 409 for a session with no active workspace', async () => {
+    const login = await signIn('dana@sprocket.test', 'Dana Ortiz');
+    expect(await mint(login.headers)).toEqual({
+      status: 409,
+      cacheControl: null,
+      body: { error: 'no_active_workspace' },
+    });
+  });
+
+  it('is never minted for a workspace the person is not in', async () => {
+    const dana = await signIn('dana@sprocket.test', 'Dana Ortiz');
+    const danas = await makeWorkspace(dana.headers);
+    const lee = await signIn('lee@sprocket.test', 'Lee Park');
+    const notAMember = { status: 403, cacheControl: null, body: { error: 'not_a_member' } };
+
+    // Lee's session names Dana's workspace, however it came to.
+    await db
+      .update(schema.session)
+      .set({ activeOrganizationId: danas.id })
+      .where(eq(schema.session.userId, lee.user.id));
+    expect(await mint(lee.headers)).toEqual(notAMember);
+
+    // Dana, once she is no longer in it, gets none either.
+    await db.delete(schema.member).where(eq(schema.member.userId, dana.user.id));
+    expect(await mint(dana.headers)).toEqual(notAMember);
+  });
+
+  it('is refused from anywhere but the web app', async () => {
+    const login = await signIn('dana@sprocket.test', 'Dana Ortiz');
+    await makeWorkspace(login.headers);
+    for (const origin of ['http://localhost:3000', null]) {
+      const headers = fromBrowser(login.headers);
+      if (origin === null) headers.delete('origin');
+      else headers.set('origin', origin);
+      const response = await app.request('/api/cell-token', { method: 'POST', headers });
+      expect(response.status).toBe(403);
+      expect(await response.json()).toEqual({ error: 'bad_origin' });
+    }
+  });
+
+  it('publishes its public key to anyone, named by its thumbprint, and never the private key', async () => {
+    const response = await app.request(CELL_TOKEN_KEYS_PATH);
+    expect(response.status).toBe(200);
+    const text = await response.text();
+
+    const publicKey = { kty: 'OKP', crv: 'Ed25519', x: cellKey.x };
+    expect(JSON.parse(text)).toEqual({
+      keys: [
+        { ...publicKey, kid: await calculateJwkThumbprint(publicKey), alg: 'EdDSA', use: 'sig' },
+      ],
+    });
+    expect(text).not.toContain('"d"');
+    expect(text).not.toContain(cellKey.d);
+  });
+
+  it('a key that is not a key pair stops the service from being built', async () => {
+    const other = generateKeyPairSync('ed25519').privateKey.export({ format: 'jwk' });
+    const failure = await composeApi({
+      db,
+      config: { ...config, cellTokenPrivateKey: { ...cellKey, x: String(other.x) } },
+    }).catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(ConfigError);
+    expect((failure as ConfigError).problems).toEqual([
+      expect.stringMatching(/^CELL_TOKEN_PRIVATE_KEY: /),
+    ]);
+    expect((failure as ConfigError).message).not.toContain(cellKey.d);
+  });
+
+  it('the private key is never logged', async () => {
+    const logs = (['log', 'info', 'warn', 'error', 'debug', 'trace'] as const).map((method) =>
+      vi.spyOn(console, method).mockImplementation(() => {}),
+    );
+
+    await composeApi({ db, config });
+    await composeApi({ db, config: { ...config, cellTokenPrivateKey: { ...cellKey, x: 'x' } } })
+      .then(() => {
+        throw new Error('A key that is not a key pair was taken.');
+      })
+      .catch((error: unknown) => {
+        if (!(error instanceof ConfigError)) throw error;
+      });
+    const login = await signIn('dana@sprocket.test', 'Dana Ortiz');
+    expect((await mint(login.headers)).status).toBe(409);
+    await makeWorkspace(login.headers);
+    expect((await mint(login.headers)).status).toBe(200);
+    await publishedKeys();
+
+    const logged = logs
+      .flatMap((spy) => spy.mock.calls)
+      .map((args) => args.map((arg) => inspect(arg, { depth: 10 })).join(' '))
+      .join('\n');
+    expect(logged).not.toContain(cellKey.d);
+  });
+});
+
 describe('routes', () => {
   it('are these, and no other', () => {
     expect(app.routes.map((route) => `${route.method} ${route.path}`)).toEqual([
@@ -382,6 +632,8 @@ describe('routes', () => {
       'PUT /api/me/workspace',
       'GET /api/workspaces',
       'POST /api/workspaces',
+      'POST /api/cell-token',
+      'GET /api/cell-token/keys',
       'GET /api/health',
     ]);
   });
@@ -644,10 +896,12 @@ describe('the session cookie', () => {
   });
 
   it('the session cookie is Secure when PUBLIC_URL is https', async () => {
-    const overHttps = composeApi({
-      db,
-      config: { ...config, publicUrl: 'https://cloud.sprocket.test' },
-    }).auth;
+    const overHttps = (
+      await composeApi({
+        db,
+        config: { ...config, publicUrl: 'https://cloud.sprocket.test' },
+      })
+    ).auth;
     const { attributes } = (await overHttps.$context).authCookies.sessionToken;
     expect(attributes).toMatchObject({ httpOnly: true, sameSite: 'lax', secure: true });
   });

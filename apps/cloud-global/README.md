@@ -1,9 +1,9 @@
 # Consola Cloud: cloud-global
 
 The global part of Consola Cloud's control plane, shared by every region:
-Google sign-in, sessions and the workspaces people make, each in a region. The
-web app is `apps/cloud-web`; the browser only talks to the web app, which
-proxies `/api` to this service.
+Google sign-in, sessions, the workspaces people make, each in a region, and the
+short-lived token a regional cell trusts. The web app is `apps/cloud-web`; the
+browser only talks to the web app, which proxies `/api` to this service.
 
 Sign-in is open to any Google account with a verified email, and anyone signed
 in can make workspaces. It is for local use only, until a later round limits it
@@ -34,6 +34,20 @@ pnpm dev:cloud
 
 `BETTER_AUTH_SECRET` starts empty, and the API will not start until you set
 one (`openssl rand -base64 32`).
+
+`CELL_TOKEN_PRIVATE_KEY` starts empty too, and an `.env` from before it is
+needed lacks it. It is the Ed25519 key that signs the token a regional cell
+trusts, written as a JSON Web Key on one line. Make one with
+
+```bash
+pnpm --filter @consola/cloud-global cell-key:generate
+```
+
+and paste the line it prints after `CELL_TOKEN_PRIVATE_KEY=`. Keep it in
+`.env` only: anyone who has it can mint tokens every cell trusts. The cells
+need only its public key, which the API publishes, with no sign-in, at
+`/api/cell-token/keys`. The set holds only this key, so a new one cuts short
+the tokens the old one signed (they live five minutes at most).
 
 Open `http://localhost:5175`. `pnpm dev:cloud` starts the API and the web app
 together. The web app's proxy targets the API on port 3100, so leave `PORT`

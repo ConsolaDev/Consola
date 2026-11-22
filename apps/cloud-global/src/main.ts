@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { serve } from '@hono/node-server';
+import type { Hono } from 'hono';
 import {
   migrateDatabase,
   type OpenDatabase,
@@ -36,7 +37,13 @@ try {
   cannotStart([`The database could not be prepared: ${describeStartupFailure(error, config)}`]);
 }
 
-const { app } = composeApi({ db: database.db, config });
+let app: Hono;
+try {
+  ({ app } = await composeApi({ db: database.db, config }));
+} catch (error) {
+  if (!(error instanceof ConfigError)) throw error;
+  cannotStart(error.problems);
+}
 
 const server = serve({ fetch: app.fetch, hostname: '127.0.0.1', port: config.port }, (info) => {
   console.log(

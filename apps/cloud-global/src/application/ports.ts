@@ -1,4 +1,4 @@
-import type { WorkspaceRole } from '@consola/cloud-contract';
+import type { CELL_TOKEN_ALGORITHM, CellTokenClaims, WorkspaceRole } from '@consola/cloud-contract';
 import type { MyWorkspace, NewWorkspace, Workspace } from '../domain/workspace.js';
 
 // What the use cases need from the world outside, each implemented by an adapter.
@@ -36,4 +36,30 @@ export type PeopleStore = {
 export type HealthProbe = {
   /** Whether the database answers a query, never throwing when it does not. */
   databaseAnswers(): Promise<boolean>;
+};
+
+/**
+ * A public key a cell checks cell tokens with, as the key set publishes it: Ed25519, named by its
+ * JWK thumbprint (RFC 7638). It never has a private part (`d`).
+ */
+export type CellTokenPublicKey = {
+  kty: 'OKP';
+  crv: 'Ed25519';
+  x: string;
+  kid: string;
+  alg: typeof CELL_TOKEN_ALGORITHM;
+  use: 'sig';
+};
+
+/** The public keys a cell checks cell tokens with: a JSON Web Key Set (RFC 7517). */
+export type CellTokenKeySet = { keys: CellTokenPublicKey[] };
+
+export type CellTokenSigner = {
+  /**
+   * The claims, signed as a cell token: a JWT whose header names `CELL_TOKEN_ALGORITHM` and the
+   * `kid` of the key that signed it, and whose payload is the claims and nothing else.
+   */
+  sign(claims: CellTokenClaims): Promise<string>;
+  /** The public keys tokens are checked with, the signing key's among them. */
+  publicKeys(): CellTokenKeySet;
 };

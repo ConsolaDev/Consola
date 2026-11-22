@@ -1,11 +1,19 @@
 import { z } from 'zod';
 
+/**
+ * An Ed25519 private key as a JSON Web Key (RFC 8037): `x` is its public key and `d` its private
+ * key, each 32 bytes in base64url.
+ */
+export type Ed25519PrivateJwk = { kty: 'OKP'; crv: 'Ed25519'; x: string; d: string };
+
 export type CloudConfig = {
   databaseUrl: string;
   authSecret: string;
   publicUrl: string;
   port: number;
   google: { clientId: string; clientSecret: string };
+  /** The key cell tokens are signed with. It is never logged, and never sent anywhere. */
+  cellTokenPrivateKey: Ed25519PrivateJwk;
 };
 
 export class ConfigError extends Error {
@@ -33,8 +41,52 @@ function originOf(value: string): string | null {
   return url.origin;
 }
 
-const required = (what: string) =>
-  z.string({ error: `${what} is required` }).min(1, `${what} is required`);
+const required = (what: string, hint?: string) => {
+  const message = hint ? `${what} is required (${hint})` : `${what} is required`;
+  return z.string({ error: message }).min(1, message);
+};
+
+const MAKE_A_KEY = 'make one with `pnpm --filter @consola/cloud-global cell-key:generate`';
+
+/** 32 bytes in unpadded base64url. */
+const KEY_BYTES = /^[A-Za-z0-9_-]{43}$/;
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+/**
+ * The configured private key, as a JWK of exactly `kty`, `crv`, `x` and `d`, or what is wrong
+ * with it. Other members (`kid`, `alg`) are dropped: the contract fixes both. Whether `x` really
+ * is the public key of `d` takes cryptography, so the signer checks that when it is built. No
+ * problem quotes the value, `JSON.parse`'s own words included, since they can.
+ */
+function readPrivateJwk(
+  value: string,
+): { ok: true; key: Ed25519PrivateJwk } | { ok: false; problem: string } {
+  let jwk: unknown;
+  try {
+    jwk = JSON.parse(value);
+  } catch {
+    jwk = undefined;
+  }
+  if (!isRecord(jwk)) {
+    return { ok: false, problem: `must be a JSON Web Key on one line (${MAKE_A_KEY})` };
+  }
+  if (jwk.kty !== 'OKP' || jwk.crv !== 'Ed25519') {
+    return { ok: false, problem: 'must be an Ed25519 key (`kty` OKP, `crv` Ed25519)' };
+  }
+  if (jwk.d === undefined) {
+    return {
+      ok: false,
+      problem: `must be a private key, and this one has no \`d\` (${MAKE_A_KEY})`,
+    };
+  }
+  const { x, d } = jwk;
+  if (typeof x !== 'string' || !KEY_BYTES.test(x) || typeof d !== 'string' || !KEY_BYTES.test(d)) {
+    return { ok: false, problem: '`x` and `d` must each be 32 bytes in base64url' };
+  }
+  return { ok: true, key: { kty: 'OKP', crv: 'Ed25519', x, d } };
+}
 
 const rawEnv = z.object({
   DATABASE_URL: required('a database URL').refine(
@@ -50,6 +102,14 @@ const rawEnv = z.object({
     .transform((value) => originOf(value) as string),
   GOOGLE_CLIENT_ID: required('a Google client ID'),
   GOOGLE_CLIENT_SECRET: required('a Google client secret'),
+  CELL_TOKEN_PRIVATE_KEY: required("the cell token's private key", MAKE_A_KEY).transform(
+    (value, ctx) => {
+      const read = readPrivateJwk(value);
+      if (read.ok) return read.key;
+      ctx.addIssue({ code: 'custom', message: read.problem });
+      return z.NEVER;
+    },
+  ),
   PORT: z.coerce
     .number()
     .int('must be a whole number')
@@ -75,5 +135,6 @@ export function loadConfig(env: Record<string, string | undefined>): CloudConfig
     publicUrl: parsed.PUBLIC_URL,
     port: parsed.PORT ?? 3100,
     google: { clientId: parsed.GOOGLE_CLIENT_ID, clientSecret: parsed.GOOGLE_CLIENT_SECRET },
+    cellTokenPrivateKey: parsed.CELL_TOKEN_PRIVATE_KEY,
   };
 }
