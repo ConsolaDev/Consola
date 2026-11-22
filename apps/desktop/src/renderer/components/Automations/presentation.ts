@@ -201,22 +201,62 @@ export const CHECKOUT_WAIT = "waiting for this item's checkout";
 
 /**
  * Where a `steps:` run is, in the words a row shows in place of `runAbout`:
- * "running · publish", "waiting for a slot before publish", "failed at
- * publish" ("failed before publish" when it failed between steps, and the
- * engine names the step it did not reach), or that it waits for its item's
- * checkout. Null when there is nothing step-shaped to say (a legacy run, a
- * run that finished), so the row keeps `runAbout`.
+ * "waiting for you at decide" at a gate, "retrying fix at 10:42" out a
+ * retry, "round 2 of 3 · review" inside a loop, "running · publish",
+ * "waiting for a slot before publish", "failed at publish" ("failed before
+ * publish" when it failed between steps, and the engine names the step it
+ * did not reach), or that it waits for its item's checkout (for another
+ * run's gate, `waitingForWords`). Null when there is nothing step-shaped to
+ * say (a legacy run, a run that finished), so the row keeps `runAbout`.
  */
 export function stepWords(run: RunListEntry): string | null {
-  if (run.status === 'queued' && run.summary === CHECKOUT_WAIT) return CHECKOUT_WAIT;
+  if (run.status === 'queued' && run.summary === CHECKOUT_WAIT)
+    return waitingForWords(run) ?? CHECKOUT_WAIT;
   const step = run.step;
   if (!step) return null;
+  if (run.status === 'waiting' && step.gate) return `waiting for you at ${step.id}`;
+  if (run.status === 'waiting' && step.retryAt !== undefined)
+    return `retrying ${step.id} at ${clockTime(step.retryAt)}`;
+  if (
+    run.status === 'running' &&
+    step.status === 'running' &&
+    step.loop !== undefined &&
+    step.round !== undefined &&
+    step.max !== undefined
+  )
+    return `round ${step.round} of ${step.max} · ${step.id}`;
   if (run.status === 'running' && step.status === 'running') return `running · ${step.id}`;
   if (run.status === 'running' && step.status === 'queued')
     return `waiting for a slot before ${step.id}`;
   if (run.status === 'failed')
     return step.status === 'not-run' ? `failed before ${step.id}` : `failed at ${step.id}`;
   return null;
+}
+
+/**
+ * What a run held by another run's gate waits for (it waits for its item's
+ * checkout, which that run holds while it waits for the person): "waiting
+ * for you at `decide` in `review-assigned-prs-gated`". Null for any other.
+ */
+export function waitingForWords(run: Pick<RunListEntry, 'waitingFor'>): string | null {
+  const gate = run.waitingFor?.gate;
+  return gate ? `waiting for you at \`${gate.step}\` in \`${gate.automation}\`` : null;
+}
+
+/** Whether a run waits for the person at a gate: a list entry's `step` says so, or a record's waiting gate row. */
+function isWaitingAtGate(run: RunFacts & { step?: RunListEntry['step'] }): boolean {
+  return (
+    run.status === 'waiting' &&
+    (run.step?.gate === true ||
+      (run.steps ?? []).some((step) => step.status === 'waiting' && step.gate !== undefined))
+  );
+}
+
+/** The runs Activity's first group shows: waiting for the person at a gate, oldest first. */
+export function waitingForYouRuns(runs: readonly RunListEntry[]): RunListEntry[] {
+  return runs
+    .filter((run) => isWaitingAtGate(run))
+    .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
 }
 
 export type RunFilter = 'all' | 'agent' | 'tool' | 'failed';
@@ -990,23 +1030,40 @@ export function statusLabel(status: RunFacts['status']): string {
 
 /**
  * The run an automation's row speaks for, strongest first: one waiting for
- * the person however old, then one running, then one queued, else the
- * newest. `runs` oldest first, as `recentRuns` gives them; `place` is a
- * queued run's place in line.
+ * the person's approval however old, then one waiting for them at a gate,
+ * then one running, then one queued, else the newest. `runs` oldest first,
+ * as `recentRuns` gives them; `place` is a queued run's place in line. A
+ * waiting run's detail is the run page's: `asked <ago>` at a gate (since the
+ * line it parked on), `retries at 10:42` out a retry.
  */
 export function latestRun(
-  runs: RunFacts[],
+  runs: Array<RunFacts & { step?: RunListEntry['step'] }>,
   now: Date,
   place?: (runId: string) => number | undefined,
 ): LatestRun | null {
   const newestFirst = [...runs].reverse();
   const run =
     newestFirst.find((candidate) => candidate.status === 'needs-approval') ??
+    newestFirst.find((candidate) => isWaitingAtGate(candidate)) ??
     newestFirst.find((candidate) => candidate.status === 'running') ??
     newestFirst.find((candidate) => candidate.status === 'queued') ??
     newestFirst[0];
   if (!run) return null;
-  const label = statusLabel(run.status);
+  const label = runStatusLabel(run);
+  if (run.status === 'waiting') {
+    if (isWaitingAtGate(run))
+      return { run, tone: run.status, label, detail: `asked ${formatAgo(run.updatedAt, now)}` };
+    const retryAt =
+      run.step?.retryAt ??
+      run.steps?.find((step) => step.status === 'waiting')?.retryAt ??
+      run.retryAt;
+    return {
+      run,
+      tone: run.status,
+      label,
+      detail: retryAt ? `retries at ${clockTime(retryAt)}` : formatAgo(run.updatedAt, now),
+    };
+  }
   if (run.status === 'running')
     return { run, tone: run.status, label, detail: `for ${formatDuration(run, now) ?? '0s'}` };
   if (run.status === 'queued') {
@@ -1184,10 +1241,14 @@ export function lastRunWords(lastRun: ItemTargetRow['lastRun'], now: Date): stri
       return 'running now';
     case 'needs-approval':
       return 'waiting for you';
+    case 'waiting':
+      return lastRun.gate !== undefined ? `waiting for you at ${lastRun.gate}` : 'retrying';
     case 'failed':
       return `failed ${whenWords(lastRun.at, now)}`;
     case 'rejected':
-      return `dismissed ${whenWords(lastRun.at, now)}`;
+      return lastRun.gate !== undefined
+        ? `rejected at \`${lastRun.gate}\` ${whenWords(lastRun.at, now)}`
+        : `dismissed ${whenWords(lastRun.at, now)}`;
     default:
       return `ran ${whenWords(lastRun.at, now)}`;
   }

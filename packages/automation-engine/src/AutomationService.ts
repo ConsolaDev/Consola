@@ -1861,10 +1861,14 @@ export class AutomationService {
     for (const run of this.deps.store.runs()) {
       const itemKey = run.trigger.item?.key;
       if (itemKey === undefined || lastRuns.has(itemKey) || !isRunOf(run, entry)) continue;
+      // The gate it waits at, or the one a person rejected it at (a reject ends the run): what Run on… names.
+      const gate =
+        waitingGateOf(run)?.id ?? run.steps?.find((step) => step.gate?.decision === 'reject')?.id;
       lastRuns.set(itemKey, {
         id: run.id,
         status: run.status,
         at: run.finishedAt ?? run.createdAt,
+        ...(gate !== undefined ? { gate } : {}),
       });
     }
     const row = (target: ItemTarget, item: SourceItem): ItemTargetRow => {

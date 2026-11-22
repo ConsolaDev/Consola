@@ -37,6 +37,8 @@ import {
   runStatusWord,
   statusCounts,
   stepWords,
+  waitingForWords,
+  waitingForYouRuns,
   mergeRunPages,
   foldDroppedRuns,
   runRowWords,
@@ -1675,5 +1677,211 @@ describe('a run rejected at a gate', () => {
       { status: 'completed', count: 1 },
       { status: 'rejected', count: 2 },
     ]);
+  });
+});
+
+// Slice 3: Activity's "Waiting for you", the list rows' words, Run on…'s last run.
+describe('a parked run in the lists', () => {
+  const RETRY_AT = '2026-11-12T12:42:00.000Z';
+  const clock = (iso: string) =>
+    new Date(iso).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  const gateStep = {
+    id: 'decide',
+    status: 'waiting' as const,
+    index: 3,
+    count: 5,
+    kind: 'gate' as const,
+    gate: true as const,
+  };
+
+  it.each([
+    [{ status: 'waiting', step: gateStep }, 'waiting for you at decide'],
+    [
+      {
+        status: 'running',
+        step: {
+          id: 'review',
+          status: 'running',
+          index: 3,
+          count: 5,
+          kind: 'agent',
+          round: 2,
+          max: 3,
+          loop: 'polish',
+        },
+      },
+      'round 2 of 3 · review',
+    ],
+    [
+      {
+        status: 'waiting',
+        step: {
+          id: 'fix',
+          status: 'waiting',
+          index: 2,
+          count: 4,
+          kind: 'agent',
+          retryAt: RETRY_AT,
+        },
+      },
+      `retrying fix at ${clock(RETRY_AT)}`,
+    ],
+  ])('words a list row %#', (entry, words) => {
+    expect(stepWords(run(entry as Partial<RunListEntry>))).toBe(words);
+  });
+
+  it('says a run failed at the step inside the loop that failed (review S10)', () => {
+    expect(
+      stepWords(
+        run({
+          status: 'failed',
+          step: {
+            id: 'address',
+            status: 'failed',
+            index: 6,
+            count: 7,
+            kind: 'agent',
+            round: 2,
+            max: 3,
+            loop: 'polish',
+          },
+        }),
+      ),
+    ).toBe('failed at address');
+    // Waiting for a slot inside a loop keeps its words.
+    expect(
+      stepWords(
+        run({
+          status: 'running',
+          step: {
+            id: 'review',
+            status: 'queued',
+            index: 3,
+            count: 5,
+            kind: 'agent',
+            round: 2,
+            max: 3,
+            loop: 'polish',
+          },
+        }),
+      ),
+    ).toBe('waiting for a slot before review');
+  });
+
+  it("says what a run held by another run's gate waits for", () => {
+    const held = {
+      waitingFor: { gate: { automation: 'review-assigned-prs-gated', run: 'r1', step: 'decide' } },
+    };
+    expect(waitingForWords(held)).toBe(
+      'waiting for you at `decide` in `review-assigned-prs-gated`',
+    );
+    expect(waitingForWords({})).toBeNull();
+    // On its row, in place of the checkout's own words.
+    expect(
+      stepWords(run({ status: 'queued', summary: "waiting for this item's checkout", ...held })),
+    ).toBe('waiting for you at `decide` in `review-assigned-prs-gated`');
+  });
+
+  it('puts only runs waiting at a gate first, oldest first, and leaves them out of their day (review S7)', () => {
+    const newer = run({ id: 'g2', status: 'waiting', step: gateStep, createdAt: ago(HOUR) });
+    const older = run({ id: 'g1', status: 'waiting', step: gateStep, createdAt: ago(3 * HOUR) });
+    const retrying = run({
+      id: 'w',
+      status: 'waiting',
+      createdAt: ago(2 * HOUR),
+      step: { ...gateStep, id: 'fix', kind: 'agent', gate: undefined, retryAt: RETRY_AT },
+    });
+    const done = run({ id: 'd', createdAt: ago(4 * HOUR) });
+    // Rejected at a gate: its list entry names that gate, and it waits for no one.
+    const rejected = run({
+      id: 'x',
+      status: 'rejected',
+      createdAt: ago(5 * HOUR),
+      step: { ...gateStep, status: 'completed' },
+    });
+    const runs = [newer, retrying, older, done, rejected];
+    const first = waitingForYouRuns(runs);
+    expect(first.map((one) => one.id)).toEqual(['g1', 'g2']);
+    const rest = runs.filter((one) => !first.includes(one));
+    expect(groupRunsByDay(rest, NOW).flatMap((group) => group.runs.map((one) => one.id))).toEqual([
+      'w',
+      'd',
+      'x',
+    ]);
+  });
+
+  it("speaks for a run waiting at a gate on its automation's row before a running one (review S1)", () => {
+    const running = run({
+      id: 'r',
+      status: 'running',
+      startedAt: ago(60_000),
+      createdAt: ago(HOUR),
+    });
+    const atGate = run({
+      id: 'g',
+      status: 'waiting',
+      step: gateStep,
+      createdAt: ago(2 * HOUR),
+      updatedAt: ago(3 * 60_000),
+    });
+    expect(latestRun([atGate, running], NOW)).toMatchObject({
+      tone: 'waiting',
+      label: 'On hold',
+      detail: 'asked 3m ago',
+    });
+    expect(latestRun([atGate, running], NOW)?.run.id).toBe('g');
+    const asking = run({ id: 'a', status: 'needs-approval', createdAt: ago(DAY) });
+    expect(latestRun([asking, atGate], NOW)?.run.id).toBe('a');
+    const retrying = run({
+      id: 'w',
+      status: 'waiting',
+      step: { ...gateStep, id: 'fix', kind: 'agent', gate: undefined, retryAt: RETRY_AT },
+    });
+    expect(latestRun([retrying], NOW)).toMatchObject({
+      label: 'On hold',
+      detail: `retries at ${clock(RETRY_AT)}`,
+    });
+    // The whole run's wait, on the run itself.
+    expect(latestRun([run({ id: 'e', status: 'waiting', retryAt: RETRY_AT })], NOW)).toMatchObject({
+      detail: `retries at ${clock(RETRY_AT)}`,
+    });
+    // A full record says it by its rows.
+    const record = run({
+      id: 'f',
+      status: 'waiting',
+      updatedAt: ago(4 * 60_000),
+      steps: [
+        { id: 'decide', kind: 'gate', status: 'waiting', attempt: 1, gate: { askedAt: ago(HOUR) } },
+      ],
+    } as Partial<RunListEntry>);
+    expect(latestRun([record, running], NOW)).toMatchObject({ detail: 'asked 4m ago' });
+    expect(latestRun([record, running], NOW)?.run.id).toBe('f');
+    const retryRecord = run({
+      id: 'rr',
+      status: 'waiting',
+      steps: [{ id: 'fix', kind: 'agent', status: 'waiting', attempt: 1, retryAt: RETRY_AT }],
+    } as Partial<RunListEntry>);
+    expect(latestRun([retryRecord], NOW)?.detail).toBe(`retries at ${clock(RETRY_AT)}`);
+    // A run rejected at a gate is labelled so.
+    const rejected = run({
+      id: 'x',
+      status: 'rejected',
+      step: { ...gateStep, status: 'completed' },
+      finishedAt: ago(HOUR),
+    });
+    expect(latestRun([rejected], NOW)?.label).toBe('Rejected');
+  });
+
+  it("says Run on…'s last run waited, retried or was rejected at a gate", () => {
+    expect(lastRunWords({ id: 'r', status: 'waiting', at: ago(HOUR), gate: 'decide' }, NOW)).toBe(
+      'waiting for you at decide',
+    );
+    expect(lastRunWords({ id: 'r', status: 'waiting', at: ago(HOUR) }, NOW)).toBe('retrying');
+    expect(
+      lastRunWords({ id: 'r', status: 'rejected', at: ago(2 * DAY), gate: 'decide' }, NOW),
+    ).toBe('rejected at `decide` 2 days ago');
+    expect(lastRunWords({ id: 'r', status: 'rejected', at: ago(2 * DAY) }, NOW)).toBe(
+      'dismissed 2 days ago',
+    );
   });
 });

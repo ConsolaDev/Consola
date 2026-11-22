@@ -4783,3 +4783,56 @@ describe('reading a run: failures and the output artifact', () => {
     });
   });
 });
+
+// Slice 3: Run on…'s last run names the gate a run waits at, or was rejected at.
+describe("Run on…'s last run at a gate", () => {
+  const GATED = factory(
+    `${ON_REVIEW}    mode: auto\n`,
+    '- id: look\n  prompt: Look at {{item.url}}.',
+    '- id: decide\n  gate: { ask: Post it? }',
+    '- id: after\n  run: echo posted',
+  );
+
+  async function parked(): Promise<{ h: StepsHarness; run: RunRecord }> {
+    const h = await watching({ yaml: GATED });
+    acceptEvery(h, GATED);
+    await h.poll([PR51]);
+    const [run] = h.store.runs();
+    await h.world.endTurn(run.steps![0].sessionId!);
+    expect(h.store.get(run.id)?.status).toBe('waiting');
+    return { h, run: h.store.get(run.id)! };
+  }
+  const lastRunOn51 = (h: StepsHarness) =>
+    h.service.listRunTargets(WORKSPACE_ID, NAME).inbox.find((row) => row.url === PR51.url)?.lastRun;
+
+  it('names the gate a run on the item waits at', async () => {
+    const { h, run } = await parked();
+    expect(lastRunOn51(h)).toEqual({
+      id: run.id,
+      status: 'waiting',
+      at: run.createdAt,
+      gate: 'decide',
+    });
+  });
+
+  it('names the gate a run on the item was rejected at', async () => {
+    const { h, run } = await parked();
+    h.service.answerGate(run.id, 'decide', 'reject');
+    await h.flush();
+    expect(lastRunOn51(h)).toMatchObject({ id: run.id, status: 'rejected', gate: 'decide' });
+  });
+
+  it('names no gate for a run that went past it', async () => {
+    const { h, run } = await parked();
+    h.service.answerGate(run.id, 'decide', 'approve');
+    await h.flush();
+    await h.world.commands.at(-1)!.end();
+    expect(h.store.get(run.id)?.status).toBe('completed');
+    expect(lastRunOn51(h)).toEqual({
+      id: run.id,
+      status: 'completed',
+      at: h.store.get(run.id)!.finishedAt,
+    });
+    expect(lastRunOn51(h)).not.toHaveProperty('gate');
+  });
+});

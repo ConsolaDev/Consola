@@ -52,7 +52,7 @@ import {
   turnFacts,
   type StepTone,
 } from './stepDetail';
-import { formatElapsed } from './presentation';
+import { formatElapsed, waitingForWords } from './presentation';
 
 const TONE_ICONS: Record<StepTone, LucideIcon> = {
   passed: CircleCheck,
@@ -122,6 +122,8 @@ export function StepsRunView({
   const allOpen = steps.length > 0 && steps.every((step) => isOpen(step.id));
   const rows = traceRows(run, isStepsRunPreview(run.result) ? loopsOf(run.result) : {});
   const rejected = rejectedWords(run);
+  // Held in line by another run that waits for the person at a gate on the same item.
+  const heldBy = run.status === 'queued' ? waitingForWords(run) : null;
 
   const retryTarget = runRetryTarget(run);
   // A command that may have done its work (Consola quit on it, or it was stopped, timed out or killed) asks first.
@@ -234,6 +236,8 @@ export function StepsRunView({
           </div>
         </div>
       )}
+
+      {heldBy && <p className="automations-hint automations-held-by">{heldBy}</p>}
 
       {run.status === 'failed' && (
         <FailureNote

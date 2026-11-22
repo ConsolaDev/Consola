@@ -118,9 +118,10 @@ export interface ItemTargetRow {
   url: string;
   /**
    * This automation's newest run on the item, from run history: `at` is
-   * when it ended, or, while it has not, when it was made.
+   * when it ended, or, while it has not, when it was made; `gate` the gate
+   * it waits at, or the one a person rejected it at.
    */
-  lastRun?: { id: string; status: RunStatus; at: string };
+  lastRun?: { id: string; status: RunStatus; at: string; gate?: string };
   /** Why it cannot be run on: "<owner/repo> is not cloned in this workspace." Absent when it can. */
   unavailable?: string;
 }

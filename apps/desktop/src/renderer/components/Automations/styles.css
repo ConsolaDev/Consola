@@ -4361,3 +4361,13 @@
 .automations-rejected > svg {
   color: var(--color-warning);
 }
+
+/* Activity's first group: runs waiting for the person at a gate. */
+.automations-run-waiting .automations-run-day-head {
+  color: var(--color-warning);
+}
+
+/* A queued run held by another run's gate on the same item. */
+.automations-held-by {
+  margin: 0;
+}
