@@ -43,7 +43,7 @@ const COMPILED =
 const NEEDS_HARNESS =
   'An agent that names servers or skills names its harness too: add `harness: <id>`, the harness whose CLI has them.';
 const FORMAT_CHARACTERS = (what: string) =>
-  `${what} is plain text: no bidi overrides or zero-width characters, which make text read as something else.`;
+  `${what} is visible text: letters, numbers, punctuation, symbols and plain spaces, with no line or paragraph separators, combining marks, invisible fillers or format characters, which make text read as something else.`;
 const SERVERS =
   'Expected `mcpServers` to be a list of server names, each optionally narrowed to its tools: `- notion` or `- grafana: [query_logs]`.';
 const TOOL_NAME =
@@ -206,6 +206,85 @@ describe('parseAgentFile', () => {
     ["max_turns: '6'\n", 'max_turns', MAX_TURNS],
   ])('refuses %j', (front, path, message) => {
     expect(only(agent(front))).toMatchObject({ file: 'agents/investigator.md', path, message });
+  });
+
+  describe("visible text only, on a card (the review's validator differential)", () => {
+    // Each makes a description, a server name or a model read as other text on a card, or break a line.
+    const INVISIBLE: Array<[string, string]> = [
+      ['a line separator', '\\u2028'],
+      ['a paragraph separator', '\\u2029'],
+      ['a variation selector', '\\uFE0F'],
+      ['an enclosing mark', '\\u20DD'],
+      ['a combining mark that composes with nothing', '\\u0336'],
+      ['the Hangul choseong filler', '\\u115F'],
+      ['the Hangul jungseong filler', '\\u1160'],
+      ['the Hangul filler', '\\u3164'],
+      ['the halfwidth Hangul filler', '\\uFFA0'],
+      ['the blank Braille pattern', '\\u2800'],
+      ['a no-break space', '\\u00A0'],
+      ['an ideographic space', '\\u3000'],
+      ['a zero-width space', '\\u200B'],
+    ];
+
+    it.each(INVISIBLE)('refuses %s in a description', (_, escaped) => {
+      expect(only(agent(`description: "Reviews${escaped}the PR"\n`))).toMatchObject({
+        path: 'description',
+        message: FORMAT_CHARACTERS('`description`'),
+      });
+    });
+
+    it.each(INVISIBLE)('refuses %s in a server name, bare or narrowed', (_, escaped) => {
+      for (const servers of [`["noti${escaped}on"]`, `[{ "noti${escaped}on": [search] }]`]) {
+        expect(only(agent(`${H}mcpServers: ${servers}\n`))).toMatchObject({
+          path: 'mcpServers',
+          message: FORMAT_CHARACTERS('A server name'),
+        });
+      }
+    });
+
+    it.each(
+      INVISIBLE.filter(
+        ([, escaped]) => !['\\u00A0', '\\u3000', '\\u2028', '\\u2029'].includes(escaped),
+      ),
+    )('refuses %s in a model', (_, escaped) => {
+      expect(only(agent(`model: "opus${escaped}"\n`))).toMatchObject({
+        path: 'model',
+        message: FORMAT_CHARACTERS('`model`'),
+      });
+    });
+
+    it('takes the names and descriptions people write', () => {
+      const taken = parsed(
+        `${H}description: "Reviews catalog-portal’s PRs — fast, in 日本語 too; 100% (ok)."\nmcpServers: [claude.ai Coralogix, grafana-prod_2, servidor-é, "tools 🔧", { notion: [search] }]\nmodel: claude-opus-4-1@20250805\n`,
+      );
+      expect(taken.description).toBe(
+        'Reviews catalog-portal’s PRs — fast, in 日本語 too; 100% (ok).',
+      );
+      expect(taken.mcpServers.map((server) => server.name)).toEqual([
+        'claude.ai Coralogix',
+        'grafana-prod_2',
+        'servidor-é',
+        'tools 🔧',
+        'notion',
+      ]);
+    });
+
+    it('reads a server name and a description NFC-normalised, so two spellings are one name and one hash', () => {
+      const decomposed = 'servidor-é';
+      const composed = 'servidor-é';
+      const nfd = parsed(`${H}description: "Caf${'é'}"\nmcpServers: ["${decomposed}"]\n`);
+      const nfc = parsed(`${H}description: "Café"\nmcpServers: ["${composed}"]\n`);
+      expect(nfd.mcpServers).toEqual([{ name: composed }]);
+      expect(nfd.description).toBe('Café');
+      expect(agentHash(nfd, {})).toBe(agentHash(nfc, {}));
+      expect(parsed(`${H}mcpServers: [{ "${decomposed}": [search] }]\n`).mcpServers).toEqual([
+        { name: composed, tools: ['search'] },
+      ]);
+      expect(only(agent(`${H}mcpServers: ["${decomposed}", "${composed}"]\n`))).toMatchObject({
+        path: 'mcpServers',
+        message: `\`${composed}\` is listed twice.`,
+      });
+    });
   });
 
   it('takes 20 servers, 20 skills, a 200-character description and max_turns 1 and 500', () => {

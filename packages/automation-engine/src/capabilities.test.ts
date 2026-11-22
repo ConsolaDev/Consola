@@ -376,6 +376,10 @@ describe('what an agent writing agent files and automation files is told', () =>
     expect(text).toContain(
       'a command at load (the characters ! and ` together) anywhere in SKILL.md, in a file with a text extension, or in any file that is valid UTF-8 (a binary, such as an image or a font, is not read for it).',
     );
+    // Card text is visible text (the validator differential).
+    expect(text).toContain(
+      "It, a server's name and the model are visible text: letters, numbers, punctuation, symbols and plain spaces",
+    );
     // An editor's leftovers are passed over (review S5).
     expect(text).toContain('such as x.md~, #x.md#, x.orig or Thumbs.db, are passed over');
     // A link out of the folder is never read (review S3).

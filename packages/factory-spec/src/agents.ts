@@ -103,22 +103,38 @@ const MESSAGES = {
 } as const;
 
 const listedTwice = (name: string) => `\`${name}\` is listed twice.`;
+/** Letters, numbers, punctuation, symbols and the plain space: what shows as itself on one line. */
+const VISIBLE_TEXT = /^[\p{L}\p{N}\p{P}\p{S} ]*$/u;
+/** Letters and a symbol that show nothing: the Hangul fillers, the halfwidth one, the blank Braille pattern. */
+const INVISIBLE_FILLER = /[\u115F\u1160\u3164\uFFA0\u2800]/u;
+
 /**
- * Format characters (`\p{Cf}`: bidi overrides, zero-width joiners and
- * spaces) change how text shows without showing, so a description or a
- * server name on a card could read as other text, and from slice 6 these
- * can be other people's.
+ * Text an agent file shows on a card (its description, a server's name, its
+ * model) is visible text, compared NFC: anything else can make it read as
+ * other text, or break a line Consola shows, and from slice 6 these can be
+ * other people's (a name that looks like `notion` could be another server).
+ * An allow-list, so what it refuses is everything else: format characters
+ * (bidi overrides, zero-width spaces and joiners), line and paragraph
+ * separators, combining marks left over once composed and variation
+ * selectors, spaces other than the plain one, and the invisible fillers.
  */
-const FORMAT_CHARACTER = /\p{Cf}/u;
-const plainTextOnly = (what: string) =>
-  `${what} is plain text: no bidi overrides or zero-width characters, which make text read as something else.`;
+const isVisibleText = (text: string): boolean =>
+  VISIBLE_TEXT.test(text) && !INVISIBLE_FILLER.test(text);
+const visibleTextOnly = (what: string) =>
+  `${what} is visible text: letters, numbers, punctuation, symbols and plain spaces, with no line or paragraph separators, combining marks, invisible fillers or format characters, which make text read as something else.`;
 const own = (object: object, key: string) => Object.prototype.hasOwnProperty.call(object, key);
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
-/** A server's name as its CLI reports it (`notion`, `claude.ai Coralogix`): text on one line, no surrounding space. */
+/**
+ * A server's name as its CLI reports it (`notion`, `claude.ai Coralogix`),
+ * already NFC: text on one line, no surrounding space. Visible text only is
+ * checked apart, with its own words (`isVisibleText`).
+ */
 const isServerName = (name: unknown): name is string =>
   typeof name === 'string' && name !== '' && name.trim() === name && !/\p{Cc}/u.test(name);
+const nfc = (value: unknown): unknown =>
+  typeof value === 'string' ? value.normalize('NFC') : value;
 
 /** The servers, or why they are refused. */
 function readServers(value: unknown): AgentServer[] | string {
@@ -126,14 +142,16 @@ function readServers(value: unknown): AgentServer[] | string {
   if (value.length > MAX_AGENT_SERVERS) return MESSAGES.tooManyServers;
   const servers: AgentServer[] = [];
   for (const item of value) {
-    const name = isRecord(item) && Object.keys(item).length === 1 ? Object.keys(item)[0] : item;
-    if (typeof name === 'string' && FORMAT_CHARACTER.test(name))
-      return plainTextOnly('A server name');
+    // NFC before any check, comparison or hash: two spellings of one name are one name.
+    const raw = isRecord(item) && Object.keys(item).length === 1 ? Object.keys(item)[0] : item;
+    const given = nfc(raw);
+    if (isServerName(given) && !isVisibleText(given)) return visibleTextOnly('A server name');
     let server: AgentServer;
-    if (isServerName(item)) server = { name: item };
+    if (typeof item === 'string' && isServerName(given)) server = { name: given };
     else if (isRecord(item) && Object.keys(item).length === 1) {
-      const [name] = Object.keys(item);
-      const listed = item[name];
+      const [key] = Object.keys(item);
+      const name = key.normalize('NFC');
+      const listed = item[key];
       if (!isServerName(name) || !Array.isArray(listed) || listed.length === 0)
         return MESSAGES.servers;
       const tools: string[] = [];
@@ -222,9 +240,14 @@ export function parseAgentFile(
 
   let description: string | undefined;
   if (has('description')) {
-    const given = front.description;
-    if (typeof given === 'string' && FORMAT_CHARACTER.test(given))
-      issue(plainTextOnly('`description`'), 'description', lineOf('description'));
+    const given = nfc(front.description);
+    if (
+      typeof given === 'string' &&
+      given.trim() !== '' &&
+      !/[\r\n]/.test(given) &&
+      !isVisibleText(given)
+    )
+      issue(visibleTextOnly('`description`'), 'description', lineOf('description'));
     else if (
       typeof given === 'string' &&
       given.trim() !== '' &&
@@ -244,8 +267,11 @@ export function parseAgentFile(
 
   let model: string | undefined;
   if (has('model')) {
-    if (typeof front.model === 'string' && MODEL_PATTERN.test(front.model)) model = front.model;
-    else issue(MESSAGES.model, 'model', lineOf('model'));
+    if (typeof front.model !== 'string' || !MODEL_PATTERN.test(front.model))
+      issue(MESSAGES.model, 'model', lineOf('model'));
+    else if (!isVisibleText(front.model))
+      issue(visibleTextOnly('`model`'), 'model', lineOf('model'));
+    else model = front.model;
   }
 
   let mcpServers: AgentServer[] = [];
