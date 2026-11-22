@@ -6,6 +6,7 @@ import {
   leafSteps,
   parseFactorySpec,
   stableStringify,
+  TERMINAL_RUN_STATUSES,
   type RunRecord,
   type StepRun,
 } from '@consola/factory-spec';
@@ -957,6 +958,19 @@ describe('a parked run holds its item and its checkout (Review Focus 3)', () => 
         (line) => line.run.id === second.id && line.run.status === 'running' && line.run.waitingFor,
       ),
     ).toBe(false);
+  });
+
+  it('a held run the person stops ends saying no more what it waited for (3-A code review B2)', async () => {
+    const h = await watching();
+    await lookEnds(h);
+    await h.service.trigger(WORKSPACE_ID, 'second', {}, TARGET);
+    await h.flush();
+    const second = secondRun(h);
+    expect(h.store.get(second.id)?.waitingFor).toBeDefined();
+    h.service.stop(second.id);
+    await h.flush();
+    expect(TERMINAL_RUN_STATUSES).toContain(h.store.get(second.id)?.status);
+    expect(h.store.get(second.id)?.waitingFor).toBeUndefined();
   });
 
   it('says what it waits for once the holder parks, and stops saying it once the gate is answered (review S3)', async () => {

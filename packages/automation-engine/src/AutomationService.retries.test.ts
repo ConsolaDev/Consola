@@ -451,6 +451,104 @@ describe("the entry's declared retry", () => {
     });
   });
 
+  describe('a stopped wait leaves no time behind (review B2)', () => {
+    const GATED = file(
+      entry(
+        'again',
+        `${MANUAL}${ENTRY_RETRY()}`,
+        LOOK(),
+        '- id: post\n  run: ./post',
+        '- id: decide\n  gate: { ask: Go on? }',
+      ),
+    );
+    const posts = (h: StepsHarness) =>
+      h.world.commands.filter((command) => command.spec.env.CONSOLA_STEP === 'post').length;
+    /** `again` in its entry's wait after `look` failed: then the person stops it. */
+    async function stoppedInItsWait(h: StepsHarness): Promise<RunRecord> {
+      const run = await fire(h, 'again');
+      await endStep(h, run.id, 'look', FAILED_TURN);
+      expect(h.store.get(run.id)).toMatchObject({ status: 'waiting', retryAt: expect.any(String) });
+      h.service.stop(run.id);
+      await h.flush();
+      return h.store.get(run.id)!;
+    }
+
+    it("a person's Stop, then Retry, then a gate: the tick never starts the run again by itself", async () => {
+      const h = await accepted(GATED);
+      const stopped = await stoppedInItsWait(h);
+      expect(stopped).toMatchObject({ status: 'failed', error: 'Stopped before its retry.' });
+      expect(stopped.retryAt).toBeUndefined();
+      await h.service.retry(stopped.id);
+      await h.flush();
+      expect(h.store.get(stopped.id)?.retryAt).toBeUndefined();
+      await endStep(h, stopped.id, 'look');
+      await endCommand(h, stopped.id, 'post');
+      await h.flush();
+      expect(h.store.get(stopped.id)?.status).toBe('waiting');
+      expect(rowOf(h, stopped.id, 'decide').status).toBe('waiting');
+      // Past the time the stopped wait had: the person's question stays, and `post` never runs again.
+      h.advance(2 * MINUTE);
+      await h.tick();
+      await h.flush();
+      expect(h.store.get(stopped.id)).toMatchObject({ status: 'waiting' });
+      expect(h.store.get(stopped.id)?.retried ?? 0).toBe(0);
+      expect(rowOf(h, stopped.id, 'decide')).toMatchObject({ status: 'waiting', attempt: 1 });
+      expect(rowOf(h, stopped.id, 'post')).toMatchObject({ status: 'completed', attempt: 1 });
+      expect(posts(h)).toBe(1);
+    });
+
+    it('a Retry of a run an earlier build left with its wait time drops it', async () => {
+      const h = await accepted(GATED);
+      const stopped = await stoppedInItsWait(h);
+      // As a build before this fix left a stopped wait: failed, its time still on it.
+      h.store.update(stopped.id, { retryAt: plus(h.now(), MINUTE) });
+      await h.service.retry(stopped.id);
+      await h.flush();
+      expect(h.store.get(stopped.id)).toMatchObject({ status: 'running' });
+      expect(h.store.get(stopped.id)?.retryAt).toBeUndefined();
+    });
+
+    it('the tick never starts again a run that waits at one of its rows, whatever time the run carries', async () => {
+      const h = await accepted(GATED);
+      const run = await fire(h, 'again');
+      await endStep(h, run.id, 'look');
+      await endCommand(h, run.id, 'post');
+      await h.flush();
+      expect(rowOf(h, run.id, 'decide').status).toBe('waiting');
+      // As an earlier build's stopped and retried wait leaves it: a time on the run that no wait of its own set.
+      h.store.update(run.id, { retryAt: plus(h.now(), MINUTE) });
+      h.advance(2 * MINUTE);
+      await h.tick();
+      await h.flush();
+      expect(h.store.get(run.id)).toMatchObject({ status: 'waiting' });
+      expect(h.store.get(run.id)?.retried ?? 0).toBe(0);
+      expect(h.store.get(run.id)?.retryAt).toBeUndefined();
+      expect(rowOf(h, run.id, 'decide')).toMatchObject({ status: 'waiting', attempt: 1 });
+      expect(posts(h)).toBe(1);
+      // The person's answer goes on as ever.
+      h.service.answerGate(run.id, 'decide', 'approve');
+      await h.flush();
+      expect(h.store.get(run.id)?.status).toBe('completed');
+    });
+
+    it("a step's own retry is resumed at its time, not held back by a later time on the run", async () => {
+      const yaml = file(entry('again', `${MANUAL}${ENTRY_RETRY()}`, LOOK(1)));
+      const h = await accepted(yaml);
+      const run = await fire(h, 'again');
+      await endStep(h, run.id, 'look', FAILED_TURN);
+      expect(rowOf(h, run.id, 'look')).toMatchObject({
+        status: 'waiting',
+        retryAt: expect.any(String),
+      });
+      h.store.update(run.id, { retryAt: plus(h.now(), 60 * MINUTE) });
+      h.advance(MINUTE);
+      await h.tick();
+      await h.flush();
+      expect(rowOf(h, run.id, 'look')).toMatchObject({ status: 'running', attempt: 2 });
+      expect(h.store.get(run.id)?.retried ?? 0).toBe(0);
+    });
+  });
+
   it.each([
     [
       "a command's intent",

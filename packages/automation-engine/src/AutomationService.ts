@@ -2852,6 +2852,8 @@ export class AutomationService {
     this.deps.store.update(runId, {
       status: 'running',
       error: undefined,
+      // A person's Retry is a new approval: no wait the run had goes on by itself (3-A code review B2).
+      ...(current.retryAt !== undefined ? { retryAt: undefined } : {}),
       finishedAt: undefined,
       startedAt: current.startedAt ?? now,
       updatedAt: now,
@@ -4658,15 +4660,22 @@ export class AutomationService {
    * `retried` one more, and an item run's checkout without its head, so it
    * is prepared again; but while a session runs in that checkout it waits on
    * (review B2), as a start waits for a busy checkout: the run holds the
-   * item meanwhile, so no other run can take it.
+   * item meanwhile, so no other run can take it. The entry's wait is a run
+   * that waits at none of its rows: a time on a run parked at a gate or in a
+   * step's own wait is a leftover (an earlier build's stopped and retried
+   * wait, 3-A code review B2), dropped, never a restart over either.
    */
   private resumeDueWaits(): void {
     const now = this.deps.now().getTime();
     for (const run of [...this.deps.store.runs()]) {
       if (run.status !== 'waiting' || !isStepsRun(run)) continue;
       if (run.retryAt !== undefined) {
-        if (Date.parse(run.retryAt) <= now) this.restartRun(run);
-        continue;
+        if (!(run.steps ?? []).some((step) => step.status === 'waiting')) {
+          if (Date.parse(run.retryAt) <= now) this.restartRun(run);
+          continue;
+        }
+        this.deps.store.update(run.id, { retryAt: undefined });
+        this.broadcastRun(run.id);
       }
       const due = run.steps?.find(
         (step) =>
@@ -6005,6 +6014,10 @@ export class AutomationService {
     const stale = status === 'failed' && !outcome.summary ? sessionRunningIn(run) : null;
     this.deps.store.update(runId, {
       status,
+      // An ended run waits for nothing: a time left on it would start it again at the next wait, and
+      // another run's gate it was held for is no more its business (3-A code review B2).
+      ...(run?.retryAt !== undefined ? { retryAt: undefined } : {}),
+      ...(run?.waitingFor ? { waitingFor: undefined } : {}),
       ...(stale !== null ? { summary: `Did not finish in “${stale}”.` } : {}),
       ...(outcome.result
         ? { summary: outcome.result.summary, result: compact(outcome.result.data) }
