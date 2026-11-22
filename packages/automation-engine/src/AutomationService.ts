@@ -877,12 +877,15 @@ export class AutomationService {
     // harness turned off can stop a changed entry from applying, and turned
     // on again, let it. Broadcast only what changed: this runs on every
     // workspace write, session clicks included, and reads nothing of the
-    // applied version. A template's `missing` follows the same settings.
+    // applied version. A template's `missing` follows the same settings, and
+    // a harness's answer can change only the notices (a server that needs a
+    // sign-in), which the windows must hear too.
     const settingsView = (workspaceId: string, factory: WorkspaceFactory) =>
       stableStringify([
         this.list(workspaceId),
         this.templatesOf(workspaceId, factory),
         factory.standing?.decision ?? null,
+        factory.warnings,
       ]);
     const runningOf = (factory: WorkspaceFactory) =>
       stableStringify(factory.resolved.map(scheduleKey));

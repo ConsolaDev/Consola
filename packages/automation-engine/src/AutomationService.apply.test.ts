@@ -963,6 +963,23 @@ describe('servers, as the host answers for them (2-C)', () => {
     expect(investigate(h)?.problem).toBeUndefined();
   });
 
+  it('a server warning that appears at a re-check reaches the windows, though no entry changed (2-C Task 14)', async () => {
+    const h = await investigating();
+    const warning =
+      '`claude.ai Coralogix` needs you to sign in again in Work stub: run `claude`, then /mcp.';
+    const before = h.world.broadcasts.length;
+    answer = { serverWarnings: [warning] };
+    await h.service.syncWorkspaces();
+    expect(investigate(h)?.problem).toBeUndefined();
+    expect(h.world.broadcasts.length).toBeGreaterThan(before);
+    // And one that goes away with the next answer is taken back the same way.
+    const shown = h.world.broadcasts.length;
+    answer = {};
+    await h.service.syncWorkspaces();
+    expect(h.service.snapshot(WORKSPACE_ID).notices.some((n) => n.message === warning)).toBe(false);
+    expect(h.world.broadcasts.length).toBeGreaterThan(shown);
+  });
+
   it('a probe that failed does not refuse a save; the saved entry shows the problem', async () => {
     const h = await investigating();
     answer = { serversUnknown: FAILED };
