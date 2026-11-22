@@ -238,6 +238,12 @@ export function compileClaudeAgent(
         `\`${name}\` comes from ${harnessName}'s own settings, and a step on someone else's pull request or issue starts it, or a helper command it runs for its sign-in, inside the author's checkout, where \`npx\`, \`uvx\` or a relative path can run the author's code. On item steps, use a claude.ai connector; this server works in scheduled steps.`,
       );
     }
+    // A run's own checkout holds what its earlier steps wrote (slice 3-B), read-only agents' included.
+    if (server.source === 'user' && checkout === 'run-owned') {
+      return refused(
+        `\`${name}\` comes from ${harnessName}'s own settings, and a step in a run's own checkout starts it, or a helper command it runs for its sign-in, inside that checkout, where \`npx\`, \`uvx\` or a relative path can run what is there. A run's checkout holds what earlier steps wrote, and a server started there could run it; use a claude.ai connector.`,
+      );
+    }
     if (keptByName(server) && !KEPT_BY_NAME.test(name)) {
       return refused(
         `\`${name}\` can't be kept by name in Claude's allow-list, which takes only ASCII letters, digits, \`_\` and \`-\`, so a step could never load it; rename it in ${harnessName}.`,

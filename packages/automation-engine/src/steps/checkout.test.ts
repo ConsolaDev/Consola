@@ -161,3 +161,94 @@ describe('prCheckoutProblem (slice 3, Call 15)', () => {
     expect(prCheckoutProblem(entry(`${REVIEW}${PR_CHECKOUT}`), undefined)).toBe(PR_ITEM_NEEDS_PRS);
   });
 });
+
+describe('a checkout the run owns (slice 3-B)', () => {
+  const OWNED = '  checkout: { repo: sprocket/catalog-portal, branch: "fix/{{run.id}}" }\n';
+  it.each([
+    ['an event', '  on: { github: pull_request.review_requested }\n'],
+    [
+      'a poll with item:',
+      '  on:\n    poll: { every: 30m, run: ./list-prs, item: { github: .url } }\n',
+    ],
+    ['a poll with key:', '  on:\n    poll: { every: 1h, run: ./alerts, key: .id }\n'],
+    ['a schedule', '  on: { cron: "0 9 * * 1-5" }\n'],
+    ['on: manual with applies_to', '  on: manual\n  applies_to: [pr]\n'],
+    ['on: manual', '  on: manual\n'],
+  ])('%s with checkout: { repo, branch } runs in its own checkout', (_what, on) => {
+    expect(entryCheckoutKind(entry(`${on}${OWNED}`))).toBe('run-owned');
+  });
+
+  const owned = entry(
+    `  on: { github: pull_request.review_requested }\n${OWNED}`,
+  ) as StepsAutomation;
+  const onItems = entry('  on: { github: pull_request.review_requested }\n') as StepsAutomation;
+  const definition = (
+    automation: StepsAutomation,
+    checkout?: 'item' | 'scope' | 'run-owned',
+  ): RunDefinition => ({
+    automation,
+    version: 'v',
+    actions: {},
+    ...(checkout ? { checkout } : {}),
+  });
+  const ITEM_RUN = {
+    id: 'run-1',
+    runner: 'local',
+    source: 'personal',
+    automationId: 'watch',
+    actionName: 'steps',
+    actionVersion: 'v',
+    mode: 'auto',
+    trigger: {
+      kind: 'event',
+      at: '2026-11-22T09:00:00.000Z',
+      connection: 'github',
+      item: {
+        key: 'github:sprocket/catalog-portal:pr:51',
+        url: 'https://github.com/sprocket/catalog-portal/pull/51',
+        title: 'Add retries',
+        repo: 'sprocket/catalog-portal',
+        number: 51,
+        type: 'pr',
+      },
+    },
+    status: 'running',
+    attribution: { automationId: 'watch', actionName: 'steps', triggerKind: 'event' },
+    createdAt: '2026-11-22T09:00:00.000Z',
+    updatedAt: '2026-11-22T09:00:00.000Z',
+  } as RunRecord;
+
+  it('a run records its kind; a run-owned record outvotes the item and its head', () => {
+    expect(
+      runCheckoutKind(
+        {
+          ...ITEM_RUN,
+          checkout: { cwd: '/w/catalog-portal-run-3f2a91c0', kind: 'run-owned', head: 'abc' },
+        },
+        definition(onItems, 'item'),
+      ),
+    ).toBe('run-owned');
+  });
+
+  it('a definition that says run-owned is run-owned, before the checkout is made', () => {
+    expect(runCheckoutKind(ITEM_RUN, definition(owned, 'run-owned'))).toBe('run-owned');
+  });
+
+  it("an item run's record with kind item stays item, and one without kind reads as before", () => {
+    expect(
+      runCheckoutKind(
+        {
+          ...ITEM_RUN,
+          checkout: { cwd: '/w/catalog-portal-pr-51', scopeId: 's', kind: 'item', head: 'abc' },
+        },
+        definition(onItems),
+      ),
+    ).toBe('item');
+    expect(
+      runCheckoutKind(
+        { ...ITEM_RUN, checkout: { cwd: '/w/x', scopeId: 's', head: 'abc' } },
+        definition(onItems),
+      ),
+    ).toBe('item');
+  });
+});

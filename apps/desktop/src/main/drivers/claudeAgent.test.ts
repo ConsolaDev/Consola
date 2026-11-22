@@ -448,6 +448,13 @@ describe('compileClaudeAgent', () => {
     });
   });
 
+  it("a connector on a run-owned step is offered, as on an item's (slice 3-B)", () => {
+    expect(compile({ mcpServers: [{ name: 'claude.ai Coralogix' }] }, 'run-owned')).toStrictEqual(
+      compile({ mcpServers: [{ name: 'claude.ai Coralogix' }] }, 'item'),
+    );
+    expect(compile({ mcpServers: [{ name: 'claude.ai Coralogix' }] }, 'run-owned').ok).toBe(true);
+  });
+
   it('a connector, on an item: kept by URL, strict dropped, no account file', () => {
     expect(compile({ mcpServers: [{ name: 'claude.ai Coralogix' }] }, 'item')).toStrictEqual({
       ok: true,
@@ -619,6 +626,21 @@ describe('compileClaudeAgent', () => {
       'item',
       null,
       "`tracker` comes from Claude work's own settings, and a step on someone else's pull request or issue starts it, or a helper command it runs for its sign-in, inside the author's checkout, where `npx`, `uvx` or a relative path can run the author's code. On item steps, use a claude.ai connector; this server works in scheduled steps.",
+    ],
+    // Slice 3-B: a run's own checkout holds what earlier steps wrote.
+    [
+      'a stdio user server on a run-owned step',
+      { mcpServers: [{ name: 'grafana' }] },
+      'run-owned',
+      null,
+      "`grafana` comes from Claude work's own settings, and a step in a run's own checkout starts it, or a helper command it runs for its sign-in, inside that checkout, where `npx`, `uvx` or a relative path can run what is there. A run's checkout holds what earlier steps wrote, and a server started there could run it; use a claude.ai connector.",
+    ],
+    [
+      'a remote user server on a run-owned step',
+      { mcpServers: [{ name: 'tracker' }] },
+      'run-owned',
+      null,
+      "`tracker` comes from Claude work's own settings, and a step in a run's own checkout starts it, or a helper command it runs for its sign-in, inside that checkout, where `npx`, `uvx` or a relative path can run what is there. A run's checkout holds what earlier steps wrote, and a server started there could run it; use a claude.ai connector.",
     ],
     [
       'a source and transport it does not know',

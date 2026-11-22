@@ -255,7 +255,7 @@ export interface HarnessDriver {
  * `CheckoutKind`: the host hands one to the other, so the compiler keeps
  * them equal, and this contract imports nothing from the engine.
  */
-export type CheckoutKind = 'item' | 'scope';
+export type CheckoutKind = 'item' | 'scope' | 'run-owned';
 
 /** One MCP server as a harness's CLI reports it: what a step could be granted. */
 export interface McpServerReport {

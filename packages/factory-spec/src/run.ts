@@ -92,6 +92,29 @@ export interface StepRun {
   /** The agent file's name (`agents/<name>.md`), when the step named one. */
   agent?: string;
   /**
+   * A write step's agent `tools:` (slice 3-B), written when it starts: what
+   * a restart reads to fail a write step it cannot resume. Absent: read-only.
+   */
+  tools?: 'edit' | 'write';
+  /**
+   * A step in a run's own checkout (slice 3-B): the commit it started from,
+   * and once Consola settled it, the commit it ended at, the files changed
+   * and the paths flagged for a person's look.
+   */
+  checkout?: { before: string; after?: string; files?: number; flagged?: string[] };
+  /**
+   * A write step's environment as it launched (slice 3-B): its isolation,
+   * the CLI's version, and which of its `env:` names the person's
+   * environment had (`passed`) and lacked (`missing`).
+   */
+  environment?: {
+    name: string;
+    isolation: 'host' | 'sandbox';
+    cliVersion?: string;
+    passed?: string[];
+    missing?: string[];
+  };
+  /**
    * The latest attempt's turns, summed: its first turn, a resume, its
    * reminder. `costUsd` is the CLI's estimate, present only when a turn
    * reported one (a reported 0 is 0); `turns` the turns it took; `maxTurns`
@@ -214,13 +237,42 @@ export interface RunRecord {
   previous?: { runId: string };
   /** The run only reported what its commands would do. */
   dryRun?: boolean;
-  /** Where an item run worked; `head` is the commit it checked out. */
-  checkout?: { cwd: string; scopeId?: string; head?: string };
+  /**
+   * Where the run worked; `head` is the commit it checked out (an item's) or
+   * is now at (a checkout the run owns). `kind` is written from slice 3-B
+   * on; a record without it reads as slice 1 decided it. A checkout the run
+   * owns (slice 3-B) also records its repository, its branch, the commit it
+   * cut from (`base`), what people's sessions left there (`byPerson`), the
+   * session last seen holding it (`lastHolder`), and, once worktree cleanup
+   * removed it, where its commit was kept (`removed`).
+   */
+  checkout?: {
+    cwd: string;
+    scopeId?: string;
+    head?: string;
+    kind?: 'item' | 'scope' | 'run-owned';
+    repo?: string;
+    branch?: string;
+    base?: string;
+    byPerson?: Array<{
+      /** The session the run last saw holding it; absent when none was seen. */
+      session?: string;
+      before: string;
+      after: string;
+      files: number;
+      flagged?: string[];
+      at: string;
+    }>;
+    lastHolder?: string;
+    removed?: { commit: string; keepRef: string; at: string };
+  };
   /**
    * What holds this run before it can start: another run's gate holds its
-   * item (`automation`, `run` and `step` name that gate).
+   * item (`automation`, `run` and `step` name that gate). In a checkout the
+   * run owns, a person's session open there (`session`, its id) holds it
+   * between steps (slice 3-B).
    */
-  waitingFor?: { gate?: { automation: string; run: string; step: string } };
+  waitingFor?: { gate?: { automation: string; run: string; step: string }; session?: string };
   /** Times the run started again by itself (the entry's `on_failure`). */
   retried?: number;
   /** When the entry's own declared retry runs: a wait on the run, since it can come before any step ran. */

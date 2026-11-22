@@ -1,5 +1,6 @@
 import {
   isItemCheckout,
+  isRunOwnedCheckout,
   PR_ITEM_NEEDS_PRS,
   type Automation,
   type RunRecord,
@@ -48,9 +49,12 @@ export interface CheckoutPort {
  * for an event entry, a poll with `item:` and `on: manual` with
  * `applies_to:`, each without `scope:` (`resolve` refuses `scope:` on items
  * that have a repository, and requires it on items that have none); `scope`
- * for everything else. What its agents are checked for at apply.
+ * for everything else. An entry with `checkout: { repo, branch }` is
+ * `run-owned` before any of these, whatever its trigger (slice 3-B). What
+ * its agents are checked for at apply.
  */
 export function entryCheckoutKind(automation: Automation): CheckoutKind {
+  if (isRunOwnedCheckout(automation.checkout)) return 'run-owned';
   if (automation.scope) return 'scope';
   const { trigger } = automation;
   if (trigger.kind === 'event') return 'item';
@@ -65,9 +69,12 @@ export function entryCheckoutKind(automation: Automation): CheckoutKind {
  * `head` (only an item's preparation records one), or its entry names no
  * scope and the run has a work item (what `startStepsRun` works in an item's
  * checkout for). A definition that says `scope` never outvotes the others:
- * any doubt reads as `item`, the stricter.
+ * any doubt reads as `item`, the stricter. Before them all, a run whose
+ * record or definition says `run-owned` is (slice 3-B): its checkout also
+ * records a `head`, which is not an item's.
  */
 export function runCheckoutKind(run: RunRecord, definition: RunDefinition): CheckoutKind {
+  if (run.checkout?.kind === 'run-owned' || definition.checkout === 'run-owned') return 'run-owned';
   if (definition.checkout === 'item') return 'item';
   if (run.checkout?.head !== undefined) return 'item';
   if (!definition.automation.scope && itemRefOf(run) !== undefined) return 'item';

@@ -156,7 +156,7 @@ export interface ToolsPort {
  * `scope`, one of the workspace's own folders. What a host compiles an
  * agent's servers for.
  */
-export type CheckoutKind = 'item' | 'scope';
+export type CheckoutKind = 'item' | 'scope' | 'run-owned';
 
 /** A request to start one agent run's session. */
 export interface AgentLaunchRequest {

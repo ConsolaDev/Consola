@@ -708,3 +708,68 @@ describe('stepsResolvedBody with environments (slice 3-B, only added)', () => {
     );
   });
 });
+
+describe('the records of a run-owned checkout (slice 3-B)', () => {
+  const SAMPLE_RUN_3B: RunRecord = {
+    id: 'r1',
+    runner: 'local',
+    source: 'personal',
+    automationId: 'ui-bug-to-pr',
+    actionName: 'steps',
+    actionVersion: 'v1',
+    mode: 'auto',
+    trigger: { kind: 'manual', at: '2026-11-22T09:59:00.000Z', by: 'person' },
+    status: 'running',
+    attribution: { automationId: 'ui-bug-to-pr', actionName: 'steps', triggerKind: 'manual' },
+    createdAt: '2026-11-22T09:59:00.000Z',
+    updatedAt: '2026-11-22T10:00:00.000Z',
+  };
+  it('a run-owned record round-trips, and slice 1 records read as before', () => {
+    const T0 = '2026-11-22T09:00:00.000Z';
+    const run: RunRecord = {
+      ...SAMPLE_RUN_3B,
+      checkout: {
+        cwd: '/w/catalog-portal-run-3f2a91c0',
+        scopeId: 's1',
+        kind: 'run-owned',
+        repo: 'sprocket/catalog-portal',
+        branch: 'fix/SHOP-42',
+        base: 'b',
+        head: 'h',
+        byPerson: [
+          { session: 's1', before: 'h', after: 'i', files: 1, flagged: ['.claude/x'], at: T0 },
+        ],
+        lastHolder: 's1',
+        removed: {
+          commit: 'h',
+          keepRef: 'refs/consola/worktrees/catalog-portal-run-3f2a91c0',
+          at: T0,
+        },
+      },
+      waitingFor: { session: 's1' },
+      steps: [
+        {
+          id: 'fix',
+          kind: 'agent',
+          status: 'completed',
+          attempt: 1,
+          tools: 'write',
+          checkout: { before: 'b', after: 'h', files: 2, flagged: [] },
+          environment: {
+            name: 'sandboxed',
+            isolation: 'sandbox',
+            cliVersion: '2.1.330',
+            passed: ['CI'],
+            missing: ['NPM_TOKEN'],
+          },
+        },
+      ],
+    };
+    expect(JSON.parse(JSON.stringify(run))).toEqual(run);
+    const slice1: RunRecord = {
+      ...SAMPLE_RUN_3B,
+      checkout: { cwd: '/w/catalog-portal-pr-51', scopeId: 's1', head: 'abc' },
+    };
+    expect(JSON.parse(JSON.stringify(slice1))).toEqual(slice1);
+  });
+});
