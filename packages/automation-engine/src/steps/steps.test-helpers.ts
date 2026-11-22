@@ -213,8 +213,14 @@ export interface StepsWorld {
   watchers: Map<string, () => void>;
   /** ws-1's paths the adapter would find linking outside the folder (`FactoryFiles.outside`); none by default. */
   outsidePaths: string[];
-  /** The host's harness records, as `listHarnesses` lists them. Default: none. */
-  harnessRecords: Array<{ id: string; name: string; enabled: boolean; archived: boolean }>;
+  /** The host's harness records, as `listHarnesses` lists them, each with the servers its last probe listed. Default: none. */
+  harnessRecords: Array<{
+    id: string;
+    name: string;
+    enabled: boolean;
+    archived: boolean;
+    servers?: string[];
+  }>;
   /** Each workspace's latest Inbox snapshot, as `inboxSnapshot` returns it. */
   inbox: Map<string, ItemSnapshot>;
   /** Sessions a pane has a live terminal for: a person opened them. */

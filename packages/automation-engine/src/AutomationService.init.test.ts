@@ -12,16 +12,22 @@ import {
 
 /*
  * The `init` check: a step's turn printed its `system/init`, and every server
- * its agent grants must be there and connected. No agent grants a server
- * until slice 2-C, so `requiredServers` is mocked here: it reads a holder
- * each test sets, `[]` (what 2-A really returns) unless the test says.
+ * its agent grants must be there and connected. 2-A's cases ran before any
+ * agent could name a server, so `requiredServers` is mocked here: it reads a
+ * holder those cases set, and, while the holder is empty, falls through to
+ * the real function, which 2-C's cases meet through an agent file naming
+ * the server.
  */
 
 const required = vi.hoisted(() => ({ servers: [] as Array<{ name: string }> }));
-vi.mock('./steps/turnReport', async (original) => ({
-  ...(await original<typeof import('./steps/turnReport')>()),
-  requiredServers: () => required.servers,
-}));
+vi.mock('./steps/turnReport', async (original) => {
+  const real = await original<typeof import('./steps/turnReport')>();
+  return {
+    ...real,
+    requiredServers: (...args: Parameters<typeof real.requiredServers>) =>
+      required.servers.length > 0 ? required.servers : real.requiredServers(...args),
+  };
+});
 beforeEach(() => {
   required.servers = [];
 });
@@ -314,5 +320,118 @@ describe('a step turn’s init, with a server granted', () => {
     h.world.setOutputs('session-2', { mood: 'calm' });
     await h.world.endTurn('session-2', { exitCode: 0, report: { ...turnReport({}), init } });
     expect(h.store.get(run.id)?.steps?.[0]).toMatchObject({ status: 'completed', attempt: 2 });
+  });
+});
+
+describe("a step turn's init, against its agent's servers (2-C)", () => {
+  const INVESTIGATE = file(
+    entry(
+      'investigate-alerts',
+      DAILY_AUTO,
+      "- id: look\n  agent: investigator\n  prompt: Look at the night's alerts.",
+      '- id: tell\n  prompt: Tell the team what the night held.',
+    ),
+  );
+  const INVESTIGATOR =
+    "---\nharness: stub-work\nmcpServers: [grafana]\n---\nYou look into the night's alerts.\n";
+  const NOT_LOADED =
+    '`grafana` was not loaded: it was removed from Work stub, or it is blocked by its URL.';
+  const NEEDS_AUTH =
+    '`grafana` was not connected (needs-auth). Sign in to it in Work stub (run `claude`, then /mcp), then retry this step.';
+
+  /** The investigation's run, its look step's turn running in session-1; the real `requiredServers` decides. */
+  async function investigating() {
+    const h = await stepsHarness({
+      yaml: INVESTIGATE,
+      files: { 'agents/investigator.md': INVESTIGATOR },
+      agentHarnesses: { 'stub-work': { name: 'Work stub', problem: null } },
+      // The default harness has another name, so words naming it would be wrong.
+      harness: { name: 'Claude', problem: null },
+    });
+    const asked = (await h.service.trigger(WORKSPACE_ID, 'investigate-alerts'))!;
+    await h.service.approve(asked.id);
+    await h.flush();
+    expect(h.world.launches).toHaveLength(1);
+    return { h, run: asked };
+  }
+  const stepsOf = (h: StepsHarness, runId: string) => h.store.get(runId)?.steps;
+
+  it("an init without the agent's server stops the turn; the step fails naming the agent's harness", async () => {
+    const { h, run } = await investigating();
+    h.service.turnStarted('session-1', { servers: [{ name: 'consola', status: 'connected' }] });
+    expect(h.world.stops).toEqual([{ sessionId: 'session-1', reason: STOPPED }]);
+    await h.world.endTurn('session-1', {
+      exitCode: 0,
+      stopped: STOPPED,
+      report: turnReport({ noResult: true }),
+    });
+    expect(h.store.get(run.id)?.status).toBe('failed');
+    expect(stepsOf(h, run.id)).toMatchObject([
+      { id: 'look', status: 'failed', error: NOT_LOADED },
+      { id: 'tell', status: 'not-run' },
+    ]);
+  });
+
+  it('a server that needs a sign-in fails with the hint, in the words of its harness', async () => {
+    const { h, run } = await investigating();
+    h.service.turnStarted('session-1', {
+      servers: [{ name: 'grafana', status: 'needs-auth' }],
+      signInHint: HINT,
+    });
+    await h.world.endTurn('session-1', { exitCode: 0, stopped: STOPPED, report: turnReport({}) });
+    expect(stepsOf(h, run.id)?.[0]).toMatchObject({ status: 'failed', error: NEEDS_AUTH });
+  });
+
+  it('pending is not connected', async () => {
+    const { h, run } = await investigating();
+    h.service.turnStarted('session-1', { servers: [{ name: 'grafana', status: 'pending' }] });
+    await h.world.endTurn('session-1', { exitCode: 0, stopped: STOPPED, report: turnReport({}) });
+    expect(stepsOf(h, run.id)?.[0].error).toBe(
+      '`grafana` was not connected (pending). Sign in to it in Work stub, then retry this step.',
+    );
+  });
+
+  it("an init only the turn's report carries fails at its end, in the same words", async () => {
+    const { h, run } = await investigating();
+    await h.world.endTurn('session-1', {
+      exitCode: 0,
+      report: { ...turnReport({}), init: { servers: [{ name: 'consola', status: 'connected' }] } },
+    });
+    expect(stepsOf(h, run.id)).toMatchObject([
+      { id: 'look', status: 'failed', error: NOT_LOADED },
+      { id: 'tell', status: 'not-run' },
+    ]);
+  });
+
+  it('a turn that never said which servers it loaded fails at its end', async () => {
+    const { h, run } = await investigating();
+    await h.world.endTurn('session-1', { exitCode: 0, report: turnReport({}) });
+    expect(stepsOf(h, run.id)).toMatchObject([
+      {
+        id: 'look',
+        status: 'failed',
+        error: 'Its turn never said which servers it loaded, so it may have run without `grafana`.',
+      },
+      { id: 'tell', status: 'not-run' },
+    ]);
+  });
+
+  it('with the server connected, the step goes on', async () => {
+    const { h, run } = await investigating();
+    const init = { servers: [{ name: 'grafana', status: 'connected' }] };
+    h.service.turnStarted('session-1', init);
+    expect(h.world.stops).toEqual([]);
+    await h.world.endTurn('session-1', { exitCode: 0, report: { ...turnReport({}), init } });
+    expect(stepsOf(h, run.id)?.[0].status).toBe('completed');
+  });
+
+  it("asking for the harness's name compiles nothing and probes nothing", async () => {
+    const { h } = await investigating();
+    const before = h.world.harnessQueries.length;
+    h.service.turnStarted('session-1', { servers: [] });
+    const asked = h.world.harnessQueries.slice(before);
+    expect(asked).toEqual([
+      { harnessId: 'stub-work', mcpServers: [], skills: [], checkout: 'scope' },
+    ]);
   });
 });

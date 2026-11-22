@@ -160,6 +160,7 @@ import {
   reminderCap,
   reportedFailure,
   requiredServers,
+  stepHarnessQuery,
   runCostOf,
   turnFailure,
   uncheckedInitProblem,
@@ -331,10 +332,17 @@ export interface AutomationServiceDeps {
   agentHarness(workspaceId: string, agent?: AgentHarnessQuery): AgentHarnessAnswer;
   /**
    * The host's harnesses, by id: what an agent writing automations is told
-   * an agent file's `harness:` may name (only the enabled, unarchived ones).
-   * Absent, it is told none.
+   * an agent file's `harness:` may name (only the enabled, unarchived ones),
+   * each with the MCP servers its CLI last said it has (`servers`, absent
+   * until it has been asked; listing them never asks). Absent, it is told none.
    */
-  listHarnesses?(): Array<{ id: string; name: string; enabled: boolean; archived: boolean }>;
+  listHarnesses?(): Array<{
+    id: string;
+    name: string;
+    enabled: boolean;
+    archived: boolean;
+    servers?: string[];
+  }>;
   /** End a running unattended turn the way Ctrl+C does. False when none is running. */
   stopAgent(session: SessionView, reason: string): boolean;
   /** Agent sessions automations may have working at once, across every workspace. */
@@ -1318,7 +1326,11 @@ export class AutomationService {
       })),
       harnesses: (this.deps.listHarnesses?.() ?? [])
         .filter((harness) => harness.enabled && !harness.archived)
-        .map((harness) => ({ id: harness.id, name: harness.name })),
+        .map((harness) => ({
+          id: harness.id,
+          name: harness.name,
+          ...(harness.servers !== undefined ? { servers: [...harness.servers] } : {}),
+        })),
       tools: this.deps.registry.list().filter((tool) => tool.automatable),
       actions: workspace?.actions ?? [],
       scopes: workspace?.scopes ?? [],
@@ -1539,12 +1551,26 @@ export class AutomationService {
     }
     const loaded = this.definitionOf(run);
     if (!('definition' in loaded)) return;
-    const harness = this.deps.agentHarness(run.attribution.workspaceId ?? '').name;
-    const problem = initProblem(requiredServers(loaded.definition, record.id), init, harness);
+    const required = requiredServers(loaded.definition, record.id);
+    if (required.length === 0) return;
+    const harness = this.stepHarnessName(run, loaded.definition, record.id);
+    const problem = initProblem(required, init, harness);
     if (!problem) return;
     this.initFailures.set(sessionId, problem);
     const session = this.sessionNamed(run, sessionId);
     if (session) this.deps.stopAgent(session, 'a server it needs was not connected');
+  }
+
+  /**
+   * The display name of the harness a step ran on: its agent's (from its
+   * definition snapshot, asked with nothing to compile, so it starts no
+   * probe), else the workspace's default. What the `init` check's words name.
+   */
+  private stepHarnessName(run: RunRecord, definition: RunDefinition, stepId: string): string {
+    return this.deps.agentHarness(
+      run.attribution.workspaceId ?? '',
+      stepHarnessQuery(definition, stepId),
+    ).name;
   }
 
   /**
@@ -3852,11 +3878,11 @@ export class AutomationService {
     const required = 'definition' in loaded ? requiredServers(loaded.definition, record.id) : [];
     const initFailure =
       this.initFailures.get(sessionId) ??
-      (required.length > 0 && report?.init
+      ('definition' in loaded && required.length > 0 && report?.init
         ? (initProblem(
             required,
             report.init,
-            this.deps.agentHarness(run.attribution.workspaceId ?? '').name,
+            this.stepHarnessName(run, loaded.definition, record.id),
           ) ?? undefined)
         : undefined);
     this.initFailures.delete(sessionId);

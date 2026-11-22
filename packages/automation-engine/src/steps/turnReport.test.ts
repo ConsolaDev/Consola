@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { parseFactorySpec, type StepRun, type StepsAutomation } from '@consola/factory-spec';
 import type { TurnOutcome, TurnReportView, TurnResultView } from '../views';
-import type { RunDefinition } from './definition';
+import type { AgentRequirements, RunDefinition } from './definition';
 import {
   ERROR_LINE_MAX,
   initProblem,
@@ -9,6 +9,7 @@ import {
   reportedFailure,
   requiredServers,
   runCostOf,
+  stepHarnessQuery,
   turnFailure,
   withTurnRecorded,
 } from './turnReport';
@@ -219,7 +220,7 @@ describe('reminderCap', () => {
 });
 
 describe('requiredServers', () => {
-  it('is empty until agents grant servers', () => {
+  it('is empty for a step with no agent', () => {
     const automation = parseFactorySpec(`version: 1
 automations:
   - name: nightly
@@ -231,6 +232,73 @@ automations:
 `).automations[0] as StepsAutomation;
     const definition: RunDefinition = { automation, version: 'v', actions: {} };
     expect(requiredServers(definition, 'research')).toEqual([]);
+  });
+
+  /** A schedule whose `investigate` step runs as the investigator, its servers as given; `tell` names no agent. */
+  const withAgent = (
+    mcpServers: AgentRequirements['mcpServers'],
+    agent: Partial<AgentRequirements> = {},
+  ): RunDefinition => {
+    const automation = parseFactorySpec(`version: 1
+automations:
+  - name: investigate-alerts
+    on: { cron: "0 9 * * 1-5" }
+    scope: api
+    steps:
+      - id: investigate
+        prompt: Look at the night's alerts.
+      - id: tell
+        prompt: Tell the team.
+`).automations[0] as StepsAutomation;
+    return {
+      automation,
+      version: 'v',
+      actions: {},
+      agents: {
+        investigate: {
+          name: 'investigator',
+          hash: 'a'.repeat(64),
+          harnessId: 'stub-work',
+          model: 'haiku',
+          body: 'You investigate.\n',
+          mcpServers,
+          skills: ['incident-triage'],
+          ...agent,
+        },
+      },
+    };
+  };
+
+  it("is the step's agent's servers, each once, in its order, narrowing dropped (2-C)", () => {
+    const definition = withAgent([
+      { name: 'claude.ai Coralogix' },
+      { name: 'grafana', tools: ['query_logs'] },
+      { name: 'claude.ai Coralogix' },
+    ]);
+    expect(requiredServers(definition, 'investigate')).toEqual([
+      { name: 'claude.ai Coralogix' },
+      { name: 'grafana' },
+    ]);
+    expect(requiredServers(definition, 'tell')).toEqual([]);
+    expect(requiredServers(withAgent([]), 'investigate')).toEqual([]);
+  });
+
+  it("stepHarnessQuery names the agent's harness and nothing to compile (2-C)", () => {
+    const definition = withAgent([{ name: 'grafana', tools: ['query_logs'] }]);
+    expect(stepHarnessQuery(definition, 'investigate')).toEqual({
+      harnessId: 'stub-work',
+      mcpServers: [],
+      skills: [],
+      checkout: 'scope',
+    });
+    const { harnessId: _harnessId, ...onDefault } = definition.agents!.investigate;
+    const bare = stepHarnessQuery(
+      { ...definition, agents: { investigate: onDefault } },
+      'investigate',
+    );
+    expect(bare).toEqual({ mcpServers: [], skills: [], checkout: 'scope' });
+    expect(Object.prototype.hasOwnProperty.call(bare, 'harnessId')).toBe(false);
+    expect(stepHarnessQuery(definition, 'tell')).toBeUndefined();
   });
 });
 

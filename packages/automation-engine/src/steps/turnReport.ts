@@ -1,4 +1,5 @@
 import type { StepRun } from '@consola/factory-spec';
+import type { AgentHarnessQuery } from '../ports';
 import type { TurnInitView, TurnOutcome, TurnReportView, TurnResultView } from '../views';
 import type { RunDefinition } from './definition';
 
@@ -105,14 +106,37 @@ export function reminderCap(missing: { outputs: string[]; artifacts: string[] })
 }
 
 /**
- * The servers a step's agent grants, which its turn's `init` must show
- * connected. None until agents name servers (slice 2-C).
+ * The servers a step's agent names, each once, in its order: what its turn's
+ * `init` must show connected. A narrowing is the host's to enforce; the
+ * server itself must be there. None for a step with no agent.
  */
 export function requiredServers(
-  _definition: RunDefinition,
-  _stepId: string,
+  definition: RunDefinition,
+  stepId: string,
 ): Array<{ name: string }> {
-  return [];
+  const names: string[] = [];
+  for (const server of definition.agents?.[stepId]?.mcpServers ?? [])
+    if (!names.includes(server.name)) names.push(server.name);
+  return names.map((name) => ({ name }));
+}
+
+/**
+ * The harness a step's agent runs on, as a query naming no server and no
+ * skill, so the host compiles nothing and probes nothing: what the `init`
+ * check's words name. Undefined for a step with no agent (the default's).
+ */
+export function stepHarnessQuery(
+  definition: RunDefinition,
+  stepId: string,
+): AgentHarnessQuery | undefined {
+  const agent = definition.agents?.[stepId];
+  if (!agent) return undefined;
+  return {
+    ...(agent.harnessId !== undefined ? { harnessId: agent.harnessId } : {}),
+    mcpServers: [],
+    skills: [],
+    checkout: 'scope',
+  };
 }
 
 /**

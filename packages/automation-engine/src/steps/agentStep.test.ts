@@ -569,6 +569,20 @@ describe('agentStepLaunch with an agent', () => {
     });
   });
 
+  it("the prompt's header names the agent's servers and skills (2-C)", () => {
+    const named = {
+      ...INVESTIGATOR,
+      mcpServers: [{ name: 'notion' }, { name: 'grafana', tools: ['query_logs'] }],
+      skills: ['incident-triage'],
+    };
+    const { prompt } = requestOf(
+      definitionOf('        agent: investigator\n', { investigate: named }),
+    );
+    expect(prompt).toContain(
+      'output and artifact tools), the MCP servers notion and grafana (query_logs), and the skill consola-step:incident-triage, and nothing else: no shell, no network.',
+    );
+  });
+
   it("an agent and a prompt: the prompt is this step's", () => {
     const { prompt } = requestOf(
       definitionOf('        agent: investigator\n        prompt: Look at the night.\n'),

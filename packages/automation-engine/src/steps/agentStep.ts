@@ -242,7 +242,16 @@ export function agentStepLaunch(input: {
     index: index + 1,
     count: steps.length,
     body,
-    ...(agent ? { agent: { name: agent.name, body: agent.body } } : {}),
+    ...(agent
+      ? {
+          agent: {
+            name: agent.name,
+            body: agent.body,
+            mcpServers: agent.mcpServers,
+            skills: agent.skills,
+          },
+        }
+      : {}),
     ...(source && item
       ? { item: { header: source.describeItemHeader(item), fence: source.fenceItem(item, polled) } }
       : {}),

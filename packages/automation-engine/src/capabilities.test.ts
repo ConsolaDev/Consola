@@ -18,7 +18,7 @@ import {
 } from './capabilities';
 import { defineTool } from './tools.test-helpers';
 import { sourcesHarness } from './sources/sources.test-helpers';
-import { stepsHarness, WORKSPACE_ID } from './steps/steps.test-helpers';
+import { skillFilesOf, stepsHarness, WORKSPACE_ID } from './steps/steps.test-helpers';
 
 const indent = (text: string, by: string) =>
   text
@@ -266,9 +266,17 @@ describe('what an agent writing agent files and automation files is told', () =>
   const ENVELOPE = 'version: 1\nautomations: []\n';
 
   it('every agent example parses with its folder and resolves', async () => {
-    expect(AGENT_EXAMPLES.map((example) => example.title)).toEqual(['An agent on a schedule']);
+    expect(AGENT_EXAMPLES.map((example) => example.title)).toEqual([
+      'An agent on a schedule',
+      'An investigator with a connector and a skill',
+    ]);
     for (const example of AGENT_EXAMPLES) {
-      const read = parseFactory(factoryFilesOf({ 'factory.yml': ENVELOPE, ...example.files }));
+      const read = parseFactory(
+        factoryFilesOf(
+          { 'factory.yml': ENVELOPE, ...example.files },
+          skillFilesOf(new Map(Object.entries(example.files))),
+        ),
+      );
       expect(read.issues, example.title).toEqual([]);
       expect(read.notices, example.title).toEqual([]);
       expect(read.automations.length, example.title).toBeGreaterThan(0);
@@ -278,7 +286,11 @@ describe('what an agent writing agent files and automation files is told', () =>
         expect(grammar().grammar, file).toContain(`${file}:\n\n${text}`);
 
       // Resolved on a workspace whose host answers every harness clean.
-      const h = await stepsHarness({ yaml: ENVELOPE, files: { ...example.files } });
+      const h = await stepsHarness({
+        yaml: ENVELOPE,
+        files: { ...example.files },
+        agentHarnesses: { 'claude-work': { name: 'Claude work', problem: null } },
+      });
       const listed = h.service.list(WORKSPACE_ID);
       expect(listed.map((view) => view.name)).toEqual(
         read.automations.map((automation) => automation.name),
@@ -286,6 +298,27 @@ describe('what an agent writing agent files and automation files is told', () =>
       for (const view of listed) expect(view.problem, view.name).toBeUndefined();
       expect(h.service.snapshot(WORKSPACE_ID).issues).toEqual([]);
     }
+  });
+
+  it('the investigator example names a connector, a narrowed server and a skill, on a keyed poll in a scope (2-C)', () => {
+    const example = AGENT_EXAMPLES.find(
+      (candidate) => candidate.title === 'An investigator with a connector and a skill',
+    )!;
+    const read = parseFactory(
+      factoryFilesOf(
+        { 'factory.yml': ENVELOPE, ...example.files },
+        skillFilesOf(new Map(Object.entries(example.files))),
+      ),
+    );
+    expect(read.agents.investigator).toMatchObject({
+      harness: 'claude-work',
+      mcpServers: [{ name: 'claude.ai Coralogix' }, { name: 'grafana', tools: ['query_logs'] }],
+      skills: ['incident-triage'],
+    });
+    expect(Object.keys(read.skills)).toEqual(['incident-triage']);
+    const [automation] = read.automations;
+    expect(automation).toMatchObject({ name: 'investigate-alerts', scope: expect.any(String) });
+    expect(automation.trigger).toMatchObject({ kind: 'poll', key: expect.anything() });
   });
 
   it("tells an agent the workspace's agents and harnesses", async () => {
@@ -360,9 +393,57 @@ describe('what an agent writing agent files and automation files is told', () =>
     expect(text).toContain(
       'A file whose first line is --- begins with its frontmatter, so a body that should open with a Markdown rule (---) needs frontmatter first, even an empty one: a line ---, then a line ---.',
     );
+  });
+
+  it("teaches an agent's servers and skills, and no longer says they arrive later (2-C)", () => {
+    const text = grammar().grammar;
+    // 2-B's sentence, which said they do not apply yet (and which no file may hold now: review S10).
+    expect(text).not.toContain('arrive with the next update');
     expect(text).toContain(
-      'Servers and skills for agents arrive with the next update: an agent file that names mcpServers or skills does not apply yet.',
+      "On a step that works in someone else's checkout (a pull request or issue), only claude.ai connectors are offered.",
     );
+    expect(text).toContain(
+      'Naming a server grants every tool it has, writing ones included; narrow it to named tools with - <server>: [<tool>, …].',
+    );
+  });
+
+  it("tells an agent each harness's servers, once its CLI has been asked (2-C)", async () => {
+    const told = describeCapabilities({
+      filePath: '/f/factory.yml',
+      fileExists: true,
+      tools: [],
+      actions: [],
+      scopes: [],
+      taken: [],
+      boundConnection: null,
+      harness: { name: 'Claude', problem: null },
+      harnesses: [
+        { id: 'claude', name: 'Claude' },
+        { id: 'claude-work', name: 'Claude work', servers: ['notion', 'claude.ai Coralogix'] },
+      ],
+    });
+    expect(told.harnesses).toEqual([
+      { id: 'claude', name: 'Claude' },
+      { id: 'claude-work', name: 'Claude work', servers: ['notion', 'claude.ai Coralogix'] },
+    ]);
+    expect(Object.prototype.hasOwnProperty.call(told.harnesses[0], 'servers')).toBe(false);
+
+    // A workspace's: the host's records, with the names its last settled probe listed.
+    const h = await stepsHarness({ yaml: 'version: 1\nautomations: []\n' });
+    h.world.harnessRecords = [
+      { id: 'claude', name: 'Claude', enabled: true, archived: false },
+      {
+        id: 'claude-work',
+        name: 'Claude work',
+        enabled: true,
+        archived: false,
+        servers: ['claude.ai Coralogix', 'grafana'],
+      },
+    ];
+    expect(h.service.capabilities(WORKSPACE_ID).harnesses).toEqual([
+      { id: 'claude', name: 'Claude' },
+      { id: 'claude-work', name: 'Claude work', servers: ['claude.ai Coralogix', 'grafana'] },
+    ]);
   });
 
   it('teaches the folder, agent files, automation files and skills', () => {

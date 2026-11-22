@@ -73,8 +73,12 @@ export interface AutomationCapabilities {
   harness: { name: string; canRunAgents: boolean; problem?: string; stepsProblem?: string };
   /** The folder's agents, as last read: what a step's `agent:` may name. */
   agents: AgentCapability[];
-  /** The harnesses an agent file's `harness:` may name: enabled and not archived, by id. */
-  harnesses: Array<{ id: string; name: string }>;
+  /**
+   * The harnesses an agent file's `harness:` may name: enabled and not
+   * archived, by id, each with the MCP servers its CLI last said it has
+   * (absent until Consola has asked it).
+   */
+  harnesses: Array<{ id: string; name: string; servers?: string[] }>;
   readOnlyLimits: string;
 }
 
@@ -96,8 +100,8 @@ export interface CapabilitiesInput {
   harness: { name: string; problem: string | null; stepProblem?: string | null };
   /** The folder's valid agents; absent, none. */
   agents?: AgentCapability[];
-  /** The harnesses an agent may name, enabled and not archived; absent, none. */
-  harnesses?: Array<{ id: string; name: string }>;
+  /** The harnesses an agent may name, enabled and not archived, with their servers' names when known; absent, none. */
+  harnesses?: Array<{ id: string; name: string; servers?: string[] }>;
   /** The factory folder; absent, `filePath`'s folder. */
   folderPath?: string;
 }
@@ -200,6 +204,41 @@ steps:
 `,
     },
   },
+  {
+    title: 'An investigator with a connector and a skill',
+    files: {
+      'agents/investigator.md': `---
+description: Looks into a new alert and says where to start.
+harness: claude-work
+model: haiku
+max_turns: 30
+mcpServers:
+  - claude.ai Coralogix
+  - grafana: [query_logs]
+skills: [incident-triage]
+---
+You look into alerts for the api team: what fired, what it shares with earlier alerts, and where to look first.
+Follow the incident-triage checklist, read logs with the tools you were given, and change nothing.
+`,
+      'skills/incident-triage/SKILL.md': `---
+name: incident-triage
+description: The api team's checklist for a new alert.
+---
+1. Read the alert and the service it names.
+2. Look for the same alert in the last week.
+3. Say what changed just before it fired.
+`,
+      'automations/investigate-alerts.yaml': `on:
+  poll: { every: 30m, run: ./list-alerts, key: .id }
+scope: api
+mode: confirm
+steps:
+  - id: investigate
+    agent: investigator
+    prompt: Look into the alert described below, and say where to start.
+`,
+    },
+  },
 ];
 
 /** What a `run:` step runs as, and what that means for a pull request's code. */
@@ -226,9 +265,11 @@ const AGENT_EDIT_ASKS_AGAIN =
 const FRONTMATTER_FIRST =
   'A file whose first line is --- begins with its frontmatter, so a body that should open with a Markdown rule (---) needs frontmatter first, even an empty one: a line ---, then a line ---.';
 
-/** 2-B's refusal of an agent's servers and skills, as the host words it. */
-const SERVERS_LATER =
-  'Servers and skills for agents arrive with the next update: an agent file that names mcpServers or skills does not apply yet.';
+/** What naming a server grants, and where its name comes from. */
+const SERVER_RULES =
+  "On a step that works in someone else's checkout (a pull request or issue), only claude.ai connectors are offered. " +
+  'Naming a server grants every tool it has, writing ones included; narrow it to named tools with - <server>: [<tool>, …]. ' +
+  "harnesses lists each harness's servers by name, once Consola has asked its CLI.";
 
 const FOLDER_PROSE = `The factory folder. A workspace's automations live in its factory folder (folder.path): factory.yml, automations/<name>.yaml (one automation per file), agents/<name>.md (an agent a step runs as) and skills/<name>/SKILL.md (a skill an agent names). A file's name is its name: ${AUTOMATION_NAME_PATTERN.source}, so agents/investigator.md is the agent investigator. Any other file in automations/, agents/ or skills/ is an issue (dotfiles, and what an editor or the OS leaves beside a file, such as x.md~, #x.md#, x.orig or Thumbs.db, are passed over), and so is a file (or one of those folders) that is a link leading outside the folder: Consola reads only files inside it. environments/, connections/ and evals/ are read from later slices: their files have no effect yet. The folder applies as a unit: while any file has a problem, the version that last applied keeps running, and an automation removed from the files stops at once.
 
@@ -239,7 +280,7 @@ Agent files. agents/<name>.md is optional YAML frontmatter between two --- lines
 - max_turns: 1 to 500, the default turn cap of every step that uses the agent; a step's own max_turns overrides it.
 - tools: read-only, the only value until write steps.
 - mcpServers: names of servers the harness's CLI already has, each optionally narrowed to its tools (- notion, or - grafana: [query_logs]), at most ${MAX_AGENT_SERVERS}. skills: folder names in skills/, at most ${MAX_AGENT_SKILLS}. An agent that names either names its harness too.
-${SERVERS_LATER}
+${SERVER_RULES}
 Refused, with a reason: name: (the file's name is the agent's), hooks, permissionMode, allowed-tools and allowedTools (Consola compiles an agent's permissions from tools, mcpServers and skills), environment and secrets (later slices), and any other key.
 A step runs as an agent with agent: <name>, the agent's file name without .md. Alone, the agent's body is the step's instructions; beside prompt: or action:, the body comes first and the step's own instruction after it. The step's session runs on the agent's harness, with its model. An entry whose step names no agent file, or one with problems of its own, does not run. agent:, skills: and mcpServers: never go on an entry, and a step names skills and servers only through its agent.
 
@@ -400,7 +441,11 @@ export function describeCapabilities(input: CapabilitiesInput): AutomationCapabi
       mcpServers: [...agent.mcpServers],
       skills: [...agent.skills],
     })),
-    harnesses: (input.harnesses ?? []).map((harness) => ({ id: harness.id, name: harness.name })),
+    harnesses: (input.harnesses ?? []).map((harness) => ({
+      id: harness.id,
+      name: harness.name,
+      ...(harness.servers !== undefined ? { servers: [...harness.servers] } : {}),
+    })),
     readOnlyLimits: READ_ONLY_LIMITS,
   };
 }
