@@ -320,8 +320,9 @@
 
 /* The top of a session's pane. Everything on it changes with the session.
    When it runs out of room, the session's name (and its scope) give way
-   first, down to their minimum; only then the snooze chip's words. The
-   counts, the refresh and the controls never do. */
+   first, down to their minimum; only then the snooze chip's words and a
+   folder outside git's path. The counts, the refresh and the controls never
+   do. */
 .workspace-view-header {
   display: flex;
   flex: none;
@@ -568,6 +569,16 @@
   align-items: center;
   gap: var(--space-2);
   flex: 1 0 auto;
+}
+
+/* A folder outside git prints its path, which gives way once the name is
+   down to its minimum: it is cut with an ellipsis (`.workspace-view-path`),
+   so the controls after it stay on screen. Only this container shrinks: one
+   holding just the counts and the refresh would be squeezed under the
+   controls, which would take their clicks. */
+.path-display-container[data-path] {
+  flex-shrink: 1;
+  min-width: 0;
 }
 
 .path-display-text {

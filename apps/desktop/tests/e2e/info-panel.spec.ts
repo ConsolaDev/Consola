@@ -200,19 +200,63 @@ test.describe('info panel', () => {
   const uncommitted = () =>
     infoSection(page, 'Branch').getByRole('button', { name: /^Uncommitted, .+\. Open Changes$/ });
   /**
-   * The session header's buttons that something else is drawn over at their
-   * centre, by name: none, when each takes its own click.
+   * The session header's buttons out of reach, by name: not wholly inside
+   * the window, or with something else drawn over their centre. None, when
+   * each is on screen and takes its own click.
    */
   const coveredHeaderControls = () =>
     page.locator('.workspace-view-header').evaluate((row) =>
       [...row.querySelectorAll('button')]
         .filter((button) => {
           const box = button.getBoundingClientRect();
+          if (box.width === 0 || box.left < 0 || box.right > window.innerWidth) return true;
           const hit = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
           return !hit || !button.contains(hit);
         })
         .map((button) => button.getAttribute('aria-label') ?? button.textContent),
     );
+  /** Gives the window this content width, as a person narrowing it would. */
+  const windowWidth = async (width: number) => {
+    const appWindow = await app.browserWindow(page);
+    await appWindow.evaluate(
+      (browserWindow, size) => browserWindow.setContentSize(size, 700),
+      width,
+    );
+    await expect.poll(() => page.evaluate(() => window.innerWidth)).toBe(width);
+  };
+  /** Adds a session to Sprocket, in `cwd`, once the app is up. */
+  const addSession = (name: string, instanceId: string, cwd: string) =>
+    page.evaluate(
+      async ({ name, instanceId, cwd }) => {
+        const { workspaces } = await window.workspaceAPI.getSnapshot();
+        const workspace = workspaces.find((candidate) => candidate.name === 'Sprocket');
+        if (!workspace) throw new Error('No Sprocket workspace');
+        await window.workspaceAPI.createSession(workspace.id, {
+          name,
+          nameIsUserSet: true,
+          workspaceId: workspace.id,
+          instanceId,
+          harnessId: 'info-panel-stub',
+          scopeId: workspace.scopes[0].id,
+          cwd,
+        });
+      },
+      { name, instanceId, cwd },
+    );
+  /** Copies land in a stand-in for the clipboard, never the person's own. */
+  const standInClipboard = () =>
+    page.evaluate(() => {
+      const copied: string[] = [];
+      (window as unknown as { __copied: string[] }).__copied = copied;
+      Object.defineProperty(navigator.clipboard, 'writeText', {
+        configurable: true,
+        value: async (text: string) => {
+          copied.push(text);
+        },
+      });
+    });
+  const copiedPaths = () =>
+    page.evaluate(() => (window as unknown as { __copied: string[] }).__copied);
   /** The branch against its base, a plain fact. */
   const baseRow = (ref: string) =>
     infoSection(page, 'Branch')
@@ -423,24 +467,22 @@ test.describe('info panel', () => {
     await expect(checkoutCardTitle()).toHaveText('Worktree');
     await expect(checkoutCard()).toContainText('docs/readme');
     await expect(checkoutCardHint()).toHaveText('Click to copy the folder path');
-    // The copy lands in a stand-in for the clipboard, never the person's own.
-    await page.evaluate(() => {
-      const copied: string[] = [];
-      (window as unknown as { __copied: string[] }).__copied = copied;
-      Object.defineProperty(navigator.clipboard, 'writeText', {
-        configurable: true,
-        value: async (text: string) => {
-          copied.push(text);
-        },
-      });
-    });
+    await standInClipboard();
     await folderRow('Worktree').click();
     // The click closes the card; it opens again to say so, for 1.5 s.
     await expect(checkoutCardHint()).toHaveText('Copied the folder path', { timeout: 1_000 });
-    expect(
-      await page.evaluate(() => (window as unknown as { __copied: string[] }).__copied),
-    ).toEqual([docs]);
+    expect(await copiedPaths()).toEqual([docs]);
     await expect(checkoutCardHint()).toHaveText('Click to copy the folder path');
+
+    // Copied again, then straight to another session: its folder was not
+    // copied. Read at once, while B's "Copied" would still stand (1.5 s).
+    await folderRow('Worktree').click();
+    await expect(checkoutCardHint()).toHaveText('Copied the folder path', { timeout: 1_000 });
+    await openSession('Paginate the catalog search');
+    await folderRow('Main checkout').hover();
+    await expect(checkoutCardTitle()).toHaveText('Main checkout');
+    expect(await checkoutCardHint().textContent()).toBe('Click to copy the folder path');
+    expect(await copiedPaths()).toEqual([docs, docs]);
 
     // A folder outside git has no card: its native title explains the copy.
     await openSession('Review notes');
@@ -572,6 +614,71 @@ test.describe('info panel', () => {
     await expect(header.getByRole('button', { name: 'Wake', exact: true })).toBeVisible();
     await expect(header.getByRole('button', { name: /^(Show|Hide) side panel/ })).toBeVisible();
     expect(await coveredHeaderControls()).toEqual([]);
+  });
+
+  test('down to an 800px window, every header control is in reach, and a folder outside git cuts its path', async () => {
+    // A folder outside git whose path is longer than a narrow header holds.
+    const minutes = path.join(
+      root,
+      'notes',
+      'meeting-minutes-for-the-catalog-portal-search-pagination-review-with-ellen-and-mateo',
+    );
+    fs.mkdirSync(minutes, { recursive: true });
+    await addSession('Read the pagination review minutes', 'info-e', minutes);
+    await windowWidth(800);
+    const header = page.locator('.workspace-view-header');
+    const controls = header.locator('.side-panel-controls');
+
+    // A checkout: its counts and refresh, then the controls, all in reach.
+    await openSession('Paginate the catalog search');
+    await expect(uncommitted()).toContainText('1 file');
+    await expect(header.locator('.git-stats-count')).toHaveText('1 file');
+    await expect(header.getByRole('button', { name: 'Refresh git status' })).toBeVisible();
+    expect(await coveredHeaderControls()).toEqual([]);
+
+    // A folder outside git prints its path, cut with an ellipsis before the
+    // controls, which stay in reach.
+    await openSession('Read the pagination review minutes');
+    await expect(folderRow('Folder')).toBeVisible();
+    const folder = header.locator('.workspace-view-path');
+    await expect(folder).toContainText('meeting-minutes');
+    expect(await folder.evaluate((text) => text.scrollWidth > text.clientWidth)).toBe(true);
+    const folderBox = await folder.boundingBox();
+    const controlsBox = await controls.boundingBox();
+    if (!folderBox || !controlsBox) throw new Error('The header draws no folder or no controls');
+    expect(folderBox.x + folderBox.width).toBeLessThanOrEqual(controlsBox.x);
+    expect(await coveredHeaderControls()).toEqual([]);
+  });
+
+  test('a session in a folder below its checkout’s top: the card names that folder, and Uncommitted waits for git', async () => {
+    // Git status is read only at a repository's top, so nobody has counted
+    // this folder's changes.
+    const src = path.join(repo, 'src');
+    await addSession('Tidy the search module', 'info-f', src);
+    await openSession('Paginate the catalog search');
+    await expect(uncommitted()).toContainText('1 file');
+
+    await openSession('Tidy the search module');
+    await expect(branchRow('feat/search-pagination')).toBeVisible();
+    // This folder's own read has landed: it says no repository, so the
+    // header has no refresh, and Uncommitted is not drawn, never `None`.
+    await expect(page.getByRole('button', { name: 'Refresh git status' })).toHaveCount(0);
+    await expect(
+      infoSection(page, 'Branch').getByRole('button', { name: /^Uncommitted/ }),
+    ).toHaveCount(0);
+
+    // The card's Folder is the session's own, the path the row copies, not
+    // the checkout's top.
+    await standInClipboard();
+    await folderRow('Main checkout').hover();
+    await expect(checkoutCardTitle()).toHaveText('Main checkout');
+    const cardFolder = page.locator(
+      '.checkout-tooltip > .checkout-tooltip-facts > dd:nth-of-type(2) > .checkout-tooltip-value',
+    );
+    await expect(cardFolder).toHaveText(src);
+    await folderRow('Main checkout').click();
+    await expect(checkoutCardHint()).toHaveText('Copied the folder path', { timeout: 1_000 });
+    expect(await copiedPaths()).toEqual([src]);
   });
 
   test("a linked session's pull request, at a glance", async () => {

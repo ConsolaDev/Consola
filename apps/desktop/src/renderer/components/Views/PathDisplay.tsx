@@ -47,8 +47,10 @@ export function PathDisplay({ path, className, showPath = true }: PathDisplayPro
     }
   };
 
+  // Marked when it prints the folder, which then gives way to the controls
+  // after it (see the stylesheet).
   return (
-    <div className="path-display-container">
+    <div className="path-display-container" data-path={showPath || undefined}>
       {showPath && (
         <Tooltip.Provider delayDuration={300}>
           <Tooltip.Root>
