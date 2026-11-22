@@ -56,6 +56,7 @@ describe('openFactoryFile', () => {
     const { all, execFile, reveal } = deps('darwin');
     await openFactoryFile(folder, file, relative, all);
     expect(execFile).toHaveBeenCalledWith('/usr/bin/open', ['-t', file]);
+    expect(reveal).not.toHaveBeenCalled();
   });
 
   it.each(['linux', 'win32'] as const)(
@@ -82,6 +83,7 @@ describe('openFactoryFile', () => {
     const { all, execFile, reveal } = deps('darwin');
     await openFactoryFile(folder, link, 'agents/second.md', all);
     expect(execFile).toHaveBeenCalledWith('/usr/bin/open', ['-t', target]);
+    expect(reveal).not.toHaveBeenCalled();
   });
 
   it('opens a file of a folder that is itself reached through a link', async () => {
@@ -96,6 +98,7 @@ describe('openFactoryFile', () => {
       all,
     );
     expect(execFile).toHaveBeenCalledWith('/usr/bin/open', ['-t', file]);
+    expect(reveal).not.toHaveBeenCalled();
   });
 
   it.each([
