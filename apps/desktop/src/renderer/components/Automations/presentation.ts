@@ -202,7 +202,8 @@ export const CHECKOUT_WAIT = "waiting for this item's checkout";
 /**
  * Where a `steps:` run is, in the words a row shows in place of `runAbout`:
  * "waiting for you at decide" at a gate, "retrying fix at 10:42" out a
- * retry, "round 2 of 3 · review" inside a loop, "running · publish",
+ * step's retry, "retrying the run at 10:42" out the entry's (it waits at no
+ * step, and may wait before any ran), "round 2 of 3 · review" inside a loop, "running · publish",
  * "waiting for a slot before publish", "failed at publish" ("failed before
  * publish" when it failed between steps, and the engine names the step it
  * did not reach), or that it waits for its item's checkout (for another
@@ -212,6 +213,8 @@ export const CHECKOUT_WAIT = "waiting for this item's checkout";
 export function stepWords(run: RunListEntry): string | null {
   if (run.status === 'queued' && run.summary === CHECKOUT_WAIT)
     return waitingForWords(run) ?? CHECKOUT_WAIT;
+  if (run.status === 'waiting' && run.retryAt !== undefined && run.step?.status !== 'waiting')
+    return `retrying the run at ${clockTime(run.retryAt)}`;
   const step = run.step;
   if (!step) return null;
   if (run.status === 'waiting' && step.gate) return `waiting for you at ${step.id}`;

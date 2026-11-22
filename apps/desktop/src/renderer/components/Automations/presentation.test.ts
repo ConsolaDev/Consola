@@ -1726,6 +1726,32 @@ describe('a parked run in the lists', () => {
       },
       `retrying fix at ${clock(RETRY_AT)}`,
     ],
+    // The entry's own retry (3-A code review M1): the run waits, at the step it failed at or before any.
+    [
+      {
+        status: 'waiting',
+        retryAt: RETRY_AT,
+        step: { id: 'look', status: 'failed', index: 1, count: 2, kind: 'agent' },
+      },
+      `retrying the run at ${clock(RETRY_AT)}`,
+    ],
+    [{ status: 'waiting', retryAt: RETRY_AT }, `retrying the run at ${clock(RETRY_AT)}`],
+    // A step that waits is what the run waits on, whatever time an older record left on the run.
+    [
+      {
+        status: 'waiting',
+        retryAt: '2026-11-12T23:00:00.000Z',
+        step: {
+          id: 'fix',
+          status: 'waiting',
+          index: 2,
+          count: 4,
+          kind: 'agent',
+          retryAt: RETRY_AT,
+        },
+      },
+      `retrying fix at ${clock(RETRY_AT)}`,
+    ],
   ])('words a list row %#', (entry, words) => {
     expect(stepWords(run(entry as Partial<RunListEntry>))).toBe(words);
   });
