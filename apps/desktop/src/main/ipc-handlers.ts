@@ -2398,14 +2398,13 @@ export function setupIpcHandlers(): boolean {
         throw new Error(`Not a file of this factory: \`${String(file)}\`.`);
       }
       const filePath = await automations.factoryFilePath(workspaceId, file);
-      // Only a regular file inside the folder, and as text: never what a link points at.
+      // Only the factory's own files, links resolved, and only as text: never the default handler.
       await openFactoryFile(workspaceDataDir(workspaceId), filePath, file ?? 'factory.yml', {
         platform: process.platform,
         execFile: (program, args) =>
           new Promise<void>((resolve, reject) =>
             execFile(program, args, (error) => (error ? reject(error) : resolve())),
           ),
-        openPath: (target) => shell.openPath(target),
       });
     },
   );

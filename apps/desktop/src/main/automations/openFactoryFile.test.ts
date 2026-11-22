@@ -7,8 +7,10 @@ import { openFactoryFile, type OpenFactoryFileDeps } from './openFactoryFile';
 /*
  * Open on a factory file hands a path to the OS. A file of the folder can be
  * a link (kept with dotfiles), and from slice 6 the folder holds other
- * people's files, so a click must never launch what a link points at: only a
- * regular file inside the folder opens, and on macOS it opens as text.
+ * people's files, so a click must never launch anything: only one of the
+ * factory's own files (what its reader reads), a regular file inside the
+ * folder once every link is resolved, opens, and only as text, on macOS.
+ * Nothing ever goes to the OS default handler.
  */
 
 let base: string;
@@ -17,50 +19,57 @@ let folder: string;
 beforeEach(() => {
   base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'consola-open-factory-')));
   folder = path.join(base, 'workspaces', 'ws-1');
-  fs.mkdirSync(path.join(folder, 'agents'), { recursive: true });
-  fs.mkdirSync(path.join(folder, 'automations'));
+  for (const sub of ['agents', 'automations', 'skills/triage', 'runs/r1', '.git'])
+    fs.mkdirSync(path.join(folder, sub), { recursive: true });
 });
 
 afterEach(() => {
   fs.rmSync(base, { recursive: true, force: true });
 });
 
-function deps(platform: NodeJS.Platform = 'darwin', failure = '') {
+function deps(platform: NodeJS.Platform = 'darwin') {
   const execFile = vi.fn(async (_file: string, _args: string[]) => {});
-  const openPath = vi.fn(async (_path: string) => failure);
-  const all: OpenFactoryFileDeps = { platform, execFile, openPath };
-  return { all, execFile, openPath };
+  const all: OpenFactoryFileDeps = { platform, execFile };
+  return { all, execFile };
 }
 
-const write = (relative: string, text = 'You review.\n') => {
+const write = (relative: string, text = 'You review.\n', mode = 0o644) => {
   const file = path.join(folder, relative);
-  fs.writeFileSync(file, text);
+  fs.writeFileSync(file, text, { mode });
   return file;
 };
 
+const OUTSIDE =
+  "leads outside this factory's folder; Open shows only the factory's own files: factory.yml, automations/<name>.yaml, agents/<name>.md and skills/<name>/SKILL.md.";
+const NOT_OWN =
+  "Open shows only the factory's own files: factory.yml, automations/<name>.yaml, agents/<name>.md and skills/<name>/SKILL.md.";
+
 describe('openFactoryFile', () => {
-  it('opens a regular file of the folder as text on macOS, never through its default handler', async () => {
-    const file = write('agents/reviewer.md');
-    const { all, execFile, openPath } = deps('darwin');
-    await openFactoryFile(folder, file, 'agents/reviewer.md', all);
+  it.each([
+    'factory.yml',
+    'automations/catalog-review.yaml',
+    'agents/reviewer.md',
+    'skills/triage/SKILL.md',
+  ])('opens %s as text on macOS: `open -t`, through execFile', async (relative) => {
+    const file = write(relative);
+    const { all, execFile } = deps('darwin');
+    await openFactoryFile(folder, file, relative, all);
     expect(execFile).toHaveBeenCalledWith('open', ['-t', file]);
-    expect(openPath).not.toHaveBeenCalled();
   });
 
-  it('elsewhere opens it with the OS opener, and says why that failed', async () => {
-    const file = write('automations/catalog-review.yaml', 'on: { cron: "0 7 * * 1-5" }\n');
-    const { all, execFile, openPath } = deps('linux');
-    await openFactoryFile(folder, file, 'automations/catalog-review.yaml', all);
-    expect(openPath).toHaveBeenCalledWith(file);
-    expect(execFile).not.toHaveBeenCalled();
+  it.each(['linux', 'win32'] as const)(
+    'on %s opens nothing, and gives the path to open in an editor',
+    async (platform) => {
+      const file = write('agents/reviewer.md');
+      const { all, execFile } = deps(platform);
+      await expect(openFactoryFile(folder, file, 'agents/reviewer.md', all)).rejects.toThrow(
+        `Open it in your editor: ${file}`,
+      );
+      expect(execFile).not.toHaveBeenCalled();
+    },
+  );
 
-    const failing = deps('linux', 'No application knows how to open it.');
-    await expect(
-      openFactoryFile(folder, file, 'automations/catalog-review.yaml', failing.all),
-    ).rejects.toThrow('No application knows how to open it.');
-  });
-
-  it('opens the real file a link inside the folder points at', async () => {
+  it("opens the real file a link points at when that is one of the factory's own", async () => {
     const target = write('agents/reviewer.md');
     const link = path.join(folder, 'agents', 'second.md');
     fs.symlinkSync(target, link);
@@ -92,12 +101,11 @@ describe('openFactoryFile', () => {
     const link = path.join(folder, 'agents', 'reviewer.md');
     fs.symlinkSync(outside, link);
     for (const platform of ['darwin', 'linux', 'win32'] as const) {
-      const { all, execFile, openPath } = deps(platform);
+      const { all, execFile } = deps(platform);
       await expect(openFactoryFile(folder, link, 'agents/reviewer.md', all)).rejects.toThrow(
-        "Not opened: `agents/reviewer.md` leads outside this factory's folder; Open shows only the folder's own files.",
+        `Not opened: \`agents/reviewer.md\` ${OUTSIDE}`,
       );
       expect(execFile).not.toHaveBeenCalled();
-      expect(openPath).not.toHaveBeenCalled();
     }
   });
 
@@ -106,29 +114,56 @@ describe('openFactoryFile', () => {
     fs.mkdirSync(path.join(app, 'Contents'), { recursive: true });
     const link = path.join(folder, 'agents', 'reviewer.md');
     fs.symlinkSync(app, link);
-    const { all, execFile, openPath } = deps('darwin');
+    const { all, execFile } = deps('darwin');
     await expect(openFactoryFile(folder, link, 'agents/reviewer.md', all)).rejects.toThrow(
-      "Not opened: `agents/reviewer.md` leads outside this factory's folder",
+      `Not opened: \`agents/reviewer.md\` ${OUTSIDE}`,
     );
     expect(execFile).not.toHaveBeenCalled();
-    expect(openPath).not.toHaveBeenCalled();
   });
 
-  it('refuses what is not a regular file, inside the folder too', async () => {
-    const dir = path.join(folder, 'agents', 'reviewer.md');
-    fs.mkdirSync(dir);
-    for (const platform of ['darwin', 'linux'] as const) {
-      const { all, execFile, openPath } = deps(platform);
-      await expect(openFactoryFile(folder, dir, 'agents/reviewer.md', all)).rejects.toThrow(
-        "Not opened: `agents/reviewer.md` is not a regular file; Open shows only the folder's own text files.",
+  it.each([
+    ['a script in the run folders', 'runs/r1/evil.command'],
+    ['a terminal file in agents/', 'agents/evil.terminal'],
+    ['a web location', 'automations/evil.webloc'],
+    ['a dotfile', 'agents/.reviewer.md'],
+    ["git's own files", '.git/config'],
+    ['a yml automation file the reader does not read', 'automations/catalog-review.yml'],
+    ["a skill's other file", 'skills/triage/run.sh'],
+  ])(
+    "refuses a link inside the folder to %s, which is not one of the factory's own",
+    async (_what, relative) => {
+      const target = write(relative, '#!/bin/sh\necho owned\n', 0o755);
+      const link = path.join(folder, 'agents', 'reviewer.md');
+      fs.symlinkSync(target, link);
+      const { all, execFile } = deps('darwin');
+      await expect(openFactoryFile(folder, link, 'agents/reviewer.md', all)).rejects.toThrow(
+        `Not opened: \`agents/reviewer.md\` leads to \`${relative}\`. ${NOT_OWN}`,
       );
       expect(execFile).not.toHaveBeenCalled();
-      expect(openPath).not.toHaveBeenCalled();
-    }
+    },
+  );
+
+  it("refuses a file in the folder named as none of the factory's own, link or not", async () => {
+    const file = write('agents/evil.command', '#!/bin/sh\necho owned\n', 0o755);
+    const { all, execFile } = deps('darwin');
+    await expect(openFactoryFile(folder, file, 'agents/evil.command', all)).rejects.toThrow(
+      `Not opened: \`agents/evil.command\` leads to \`agents/evil.command\`. ${NOT_OWN}`,
+    );
+    expect(execFile).not.toHaveBeenCalled();
+  });
+
+  it('refuses what is not a regular file, at one of the factory paths too', async () => {
+    const dir = path.join(folder, 'agents', 'reviewer.md');
+    fs.mkdirSync(dir);
+    const { all, execFile } = deps('darwin');
+    await expect(openFactoryFile(folder, dir, 'agents/reviewer.md', all)).rejects.toThrow(
+      "Not opened: `agents/reviewer.md` is not a regular file; Open shows only the folder's own text files.",
+    );
+    expect(execFile).not.toHaveBeenCalled();
   });
 
   it('says a file that is gone, or a link whose target is gone, is not there', async () => {
-    const { all, execFile, openPath } = deps('darwin');
+    const { all, execFile } = deps('darwin');
     await expect(
       openFactoryFile(folder, path.join(folder, 'agents', 'gone.md'), 'agents/gone.md', all),
     ).rejects.toThrow('That file is not there any more.');
@@ -138,7 +173,6 @@ describe('openFactoryFile', () => {
       'That file is not there any more.',
     );
     expect(execFile).not.toHaveBeenCalled();
-    expect(openPath).not.toHaveBeenCalled();
   });
 
   it('refuses a path outside the folder that is not a link at all', async () => {
@@ -146,7 +180,7 @@ describe('openFactoryFile', () => {
     fs.writeFileSync(outside, 'x\n');
     const { all, execFile } = deps('darwin');
     await expect(openFactoryFile(folder, outside, 'agents/elsewhere.md', all)).rejects.toThrow(
-      "leads outside this factory's folder",
+      `Not opened: \`agents/elsewhere.md\` ${OUTSIDE}`,
     );
     expect(execFile).not.toHaveBeenCalled();
   });
