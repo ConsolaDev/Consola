@@ -309,6 +309,41 @@ describe('a person answers a gate', () => {
     expect(h.store.get(asked.id)?.approvedAt).toBe(approvedAt);
   });
 
+  it("an agent's run, once a person approves it, waits at its gate for a person like any (3-A code review M9)", async () => {
+    const h = await stepsHarness({ yaml: GATED_ENTRY });
+    acceptEvery(h, GATED_ENTRY);
+    const asked = (await h.service.trigger(WORKSPACE_ID, 'gated', { sessionId: 's-9' }))!;
+    // An agent asked: a person approves this run first, accepted entry or not (slice 1, 2026-11-21).
+    expect(asked).toMatchObject({
+      status: 'needs-approval',
+      trigger: { by: 'agent', actorId: 's-9' },
+    });
+    await h.service.approve(asked.id);
+    await h.flush();
+    expect(h.store.get(asked.id)?.status).toBe('running');
+    await h.world.commands[0].end();
+    await endAgent(h, asked.id, 'review', { verdict: 'approve' });
+    expect(h.store.get(asked.id)?.status).toBe('waiting');
+    expect(byId(stepsOf(h, asked.id), 'decide')).toMatchObject({
+      status: 'waiting',
+      gate: { askedAt: expect.any(String) },
+    });
+    // The person is told, and nothing goes on until they answer.
+    expect(gateNotices(h)).toHaveLength(1);
+    h.advance(10 * 60_000);
+    await h.tick();
+    expect(h.store.get(asked.id)?.status).toBe('waiting');
+    expect(h.world.commands).toHaveLength(1);
+    h.service.answerGate(asked.id, 'decide', 'approve');
+    await h.flush();
+    expect(byId(stepsOf(h, asked.id), 'decide').gate).toMatchObject({
+      decision: 'approve',
+      by: 'person',
+    });
+    await h.world.commands.at(-1)!.end();
+    expect(h.store.get(asked.id)?.status).toBe('completed');
+  });
+
   it('refuses a second answer (Review Focus 4)', async () => {
     const h = await stepsHarness({ yaml: GATED_ENTRY });
     const run = await reachDecide(h);
