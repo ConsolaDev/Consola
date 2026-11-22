@@ -34,7 +34,8 @@ export function InfoSection({ id, title, actions, children }: InfoSectionProps) 
             id={headingId}
             className="info-section-toggle"
             aria-expanded={open}
-            aria-controls={bodyId}
+            // Folded, the body is not rendered, so it names nothing.
+            aria-controls={open ? bodyId : undefined}
             onClick={() => toggleInfoSection(id)}
           >
             <ChevronRight size={12} className="info-section-chevron" aria-hidden="true" />

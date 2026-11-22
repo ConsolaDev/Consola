@@ -433,10 +433,16 @@ test.describe('info panel', () => {
       infoSection(page, 'Environment').getByRole('button', { name: 'Environment', exact: true });
     await expect(heading()).toHaveAttribute('aria-expanded', 'true');
     await expect(folderRow('Main checkout')).toBeVisible();
+    // Open, the heading names the body it folds, which is there.
+    const body = await heading().getAttribute('aria-controls');
+    expect(body).toBeTruthy();
+    await expect(page.locator(`[id="${body}"]`)).toHaveCount(1);
 
     await heading().click();
     await expect(heading()).toHaveAttribute('aria-expanded', 'false');
     await expect(infoSection(page, 'Environment').locator('.info-row')).toHaveCount(0);
+    // Folded, the body is not drawn, so the heading names nothing.
+    await expect(heading()).not.toHaveAttribute('aria-controls');
 
     await page.getByRole('button', { name: 'Hide info panel', exact: true }).click();
     await expect(infoPanel(page)).toHaveCount(0);
