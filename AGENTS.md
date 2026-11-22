@@ -39,6 +39,14 @@ leave the running app alone, because every restart pulls its window to the
 front. E2E runs themselves are already hidden and unfocusable
 (`src/main/test-mode.ts`); set `CONSOLA_E2E_HEADED=1` to watch them.
 
+No desktop unit test can find or start your own agent CLI: vitest's
+`setupFiles` (`src/main/drivers/realCliIsolation.setup.ts`, which needs
+`pool: 'forks'`) gives each test process an empty home and config dirs, a
+plain login shell and a PATH without `claude`, `codex` or `agy`. Where one is
+installed in `/opt/homebrew/bin` or `/usr/local/bin`, or sits on the login
+shell's PATH (`/etc/paths`, `/etc/paths.d`, `/etc/profile`), no home or PATH
+hides it, so the suite refuses to run and names the file to move.
+
 All commands above run from the repository root. The pnpm workspace contains
 `apps/desktop` (`consola`), `apps/website` (`@consola/website`),
 `apps/cloud-global` (`@consola/cloud-global`), `apps/cloud-region`
