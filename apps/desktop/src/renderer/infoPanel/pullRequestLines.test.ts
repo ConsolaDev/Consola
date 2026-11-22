@@ -19,8 +19,11 @@ import {
   titleLabel,
 } from './pullRequestLines';
 
-const checks = (...states: string[]): WorkItemDetails['checks'] =>
-  states.map((state, index) => ({ name: `check-${index}`, state, url: '' }));
+/** An open pull request's checks, in these states. */
+const checks = (...states: string[]): Pick<WorkItemDetails, 'checks' | 'state'> => ({
+  state: 'open',
+  checks: states.map((state, index) => ({ name: `check-${index}`, state, url: '' })),
+});
 
 const person = (login: string): WorkItemPerson => ({
   login,
@@ -47,7 +50,26 @@ describe('checksLine', () => {
       reveal: 'merge',
     });
     expect(checksLine(checks('SUCCESS'))).toEqual({ text: '1 check passed', reveal: 'merge' });
-    expect(checksLine([])).toBeNull();
+    expect(checksLine(checks())).toBeNull();
+  });
+
+  it('a merged or closed pull request’s checks open the tab only: the pane draws no merge card', () => {
+    for (const state of ['merged', 'closed']) {
+      expect(checksLine({ ...checks('FAILURE', 'SUCCESS'), state })).toEqual({
+        text: '1 check failing',
+        value: '1 ✓',
+        tone: 'error',
+      });
+      expect(checksLine({ ...checks('IN_PROGRESS'), state })).toEqual({
+        text: 'Checks running',
+        value: '0 ✓',
+      });
+      expect(checksLine({ ...checks('SUCCESS', 'SKIPPED'), state })).toEqual({
+        text: '1 check passed',
+        value: '1 skipped',
+      });
+      expect(checksLine({ ...checks('SKIPPED'), state })).toEqual({ text: '1 check skipped' });
+    }
   });
 
   it('a skipped check is no failure, nothing still running, and never counted as passed', () => {

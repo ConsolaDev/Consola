@@ -809,6 +809,7 @@ export function installMock() {
       fileExists: false,
       automations: [],
       issues: [],
+      notices: [],
       runs: [],
       hasOlder: false,
       queue: {},
@@ -890,6 +891,7 @@ export function installMock() {
     approve: automationsUnavailable,
     dismiss: automationsUnavailable,
     openFile: automationsUnavailable,
+    recheck: automationsUnavailable,
     addAssignedReviews: automationsUnavailable,
     getRun: async () => null,
     readConversation: async () => ({ readable: false }),
@@ -905,7 +907,16 @@ export function installMock() {
     startAuthoring: automationsUnavailable,
     acknowledge: async () => {},
     getEntry: async () => null,
+    getEntryAgents: async () => null,
     onChanged: () => () => {},
+  };
+  // "Open in" offers two apps, with no icons, and opens nothing.
+  const openInAPI: Window['openInAPI'] = {
+    list: async () => [
+      { id: 'vscode', label: 'VS Code', kind: 'app' },
+      { id: 'finder', label: 'Finder', kind: 'file-manager' },
+    ],
+    open: async () => ({ ok: true }),
   };
   const browserAPI = browserMock({
     snapshots: browserEvents,
@@ -929,6 +940,7 @@ export function installMock() {
     conductorAPI,
     automationsAPI,
     browserAPI,
+    openInAPI,
   };
   Object.assign(window, bridge);
   // Sample repository links are illustrative; do not take visitors to invented PRs.

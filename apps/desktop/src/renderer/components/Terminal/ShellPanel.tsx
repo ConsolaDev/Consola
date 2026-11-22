@@ -2,6 +2,7 @@ import { isShellShortcut } from '../../utils/shellShortcut';
 import { isBrowserShortcut } from '../../utils/platform';
 import { isSidePanelShortcut } from '../../utils/sidePanelShortcut';
 import { isInfoPanelShortcut } from '../../utils/infoPanelShortcut';
+import { isOpenInShortcut } from '../../utils/openInShortcut';
 import { useEffect, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
@@ -102,7 +103,8 @@ export function ShellPanel({
         isShellShortcut(event) ||
         isBrowserShortcut(event) ||
         isSidePanelShortcut(event) ||
-        isInfoPanelShortcut(event)
+        isInfoPanelShortcut(event) ||
+        isOpenInShortcut(event)
       ) {
         event.preventDefault();
         return false;

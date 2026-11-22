@@ -1,29 +1,117 @@
-import type { Me, MeState, Org } from '../domain/me';
+import createClient, { type Client } from 'openapi-fetch';
+import type { paths } from '../domain/apiContract';
+import type { MeState } from '../domain/me';
+import {
+  type CreateWorkspaceAnswer,
+  isWorkspaceProblem,
+  type NewWorkspace,
+  type SwitchWorkspaceAnswer,
+  type WorkspacesState,
+} from '../domain/workspace';
+
+/*
+ * Every call here answers in domain types, and in each only a 401 means signed out: a failed
+ * fetch, a status or a body the call does not expect, or a body that is not JSON is
+ * `unavailable`, so a service that is down never looks like a signed-out person. A call that
+ * changes something sends JSON from the page's own origin, which the browser names in `Origin`,
+ * as the API requires.
+ *
+ * The client is typed by the API's contract (`domain/apiContract.ts`), so a path, a body or an
+ * answer the API does not have fails the typecheck. The checks below are for what the types
+ * cannot see: an answer from something that is not the API (a proxy's error page, say), or from
+ * a newer API than this page was built against.
+ */
+
+/** A client of cloud-global's API, typed by its contract: every path, body and answer. */
+export type Api = Client<paths>;
 
 /**
- * Who is signed in. Only a 401 means signed out and only a 403 means not a member: a failed
- * fetch, a 5xx from the service or the proxy, or a body that is not JSON is `unavailable`, so a
- * service that is down never looks like a signed-out person.
+ * The API's client. The page and the API share one origin, through the dev server's /api proxy,
+ * so its paths are relative. A test passes its own `fetch` and an absolute `baseUrl`, since Node
+ * has no page to resolve a relative address against.
  */
-export async function loadMe(fetchFn: typeof fetch = fetch): Promise<MeState> {
+export function createApi(options: { fetch?: typeof fetch; baseUrl?: string } = {}): Api {
+  return createClient<paths>({
+    baseUrl: options.baseUrl ?? '',
+    fetch: options.fetch,
+    credentials: 'same-origin',
+  });
+}
+
+const api = createApi();
+
+const UNAVAILABLE = { kind: 'unavailable' } as const;
+
+/** Who is signed in, and the workspace their session has active. */
+export async function loadMe(client: Api = api): Promise<MeState> {
   try {
-    const response = await fetchFn('/api/me', { credentials: 'same-origin' });
+    const { data, response } = await client.GET('/api/me');
     if (response.status === 401) return { kind: 'signed-out' };
-    if (response.status === 403) return { kind: 'not-member' };
-    if (!response.ok) return { kind: 'unavailable' };
-    return { kind: 'signed-in', me: (await response.json()) as Me };
+    if (!response.ok || data === undefined) return UNAVAILABLE;
+    return { kind: 'signed-in', me: data };
   } catch {
-    return { kind: 'unavailable' };
+    return UNAVAILABLE;
   }
 }
 
-/** The deployment's organisation, or null when the service does not answer. */
-export async function loadOrg(fetchFn: typeof fetch = fetch): Promise<Org | null> {
+/** The person's workspaces, in the order they joined. */
+export async function loadWorkspaces(client: Api = api): Promise<WorkspacesState> {
   try {
-    const response = await fetchFn('/api/org');
-    if (!response.ok) return null;
-    return (await response.json()) as Org;
+    const { data, response } = await client.GET('/api/workspaces');
+    if (response.status === 401) return { kind: 'signed-out' };
+    if (response.status !== 200 || !Array.isArray(data?.workspaces)) return UNAVAILABLE;
+    return { kind: 'listed', workspaces: data.workspaces };
   } catch {
-    return null;
+    return UNAVAILABLE;
+  }
+}
+
+/**
+ * Makes a workspace, which the person's session then opens. The server checks the request
+ * again: a problem it names that the page does not know is dropped, and `invalid` with none
+ * left still means it refused.
+ */
+export async function createWorkspace(
+  workspace: NewWorkspace,
+  client: Api = api,
+): Promise<CreateWorkspaceAnswer> {
+  try {
+    const { name, slug, region } = workspace;
+    const { data, error, response } = await client.POST('/api/workspaces', {
+      body: { name, slug, region },
+    });
+    if (response.status === 401) return { kind: 'signed-out' };
+    if (response.status === 201 && data) return { kind: 'created', workspace: data };
+    if (response.status === 409 && error?.error === 'slug_taken') return { kind: 'slug-taken' };
+    if (
+      response.status === 400 &&
+      error?.error === 'invalid_workspace' &&
+      Array.isArray(error.problems)
+    ) {
+      return { kind: 'invalid', problems: error.problems.filter(isWorkspaceProblem) };
+    }
+    return UNAVAILABLE;
+  } catch {
+    return UNAVAILABLE;
+  }
+}
+
+/** Makes one of the person's workspaces their session's active one. */
+export async function switchWorkspace(
+  workspaceId: string,
+  client: Api = api,
+): Promise<SwitchWorkspaceAnswer> {
+  try {
+    const { data, error, response } = await client.PUT('/api/me/workspace', {
+      body: { workspaceId },
+    });
+    if (response.status === 401) return { kind: 'signed-out' };
+    if (response.status === 200 && data) return { kind: 'switched', workspace: data };
+    if (response.status === 404 && error?.error === 'workspace_not_found') {
+      return { kind: 'not-found' };
+    }
+    return UNAVAILABLE;
+  } catch {
+    return UNAVAILABLE;
   }
 }

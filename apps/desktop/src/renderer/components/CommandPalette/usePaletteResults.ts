@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { LocalServer } from '../../../shared/browser';
+import type { OpenInTarget } from '../../../shared/openIn';
 import { browserBridge } from '../../services/browserBridge';
 import { activityOf } from '../../../shared/attention';
 import { checkoutPathForSession } from '../../../shared/workspace';
@@ -12,6 +13,7 @@ import { useGitStatusStore } from '../../stores/gitStatusStore';
 import { useInfoPanelShown } from '../../stores/infoPanelRoomStore';
 import { isSelectableHarness, useHarnessStore } from '../../stores/harnessStore';
 import { useNavigationStore } from '../../stores/navigationStore';
+import { loadOpenInTargets, useOpenInFavourite, useOpenInStore } from '../../stores/openInStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useSidePanelStore } from '../../stores/sidePanelStore';
 import { useTerminalStore } from '../../stores/terminalStore';
@@ -79,6 +81,25 @@ function useLocalServers(open: boolean, sessionId: string | undefined): LocalSer
 
 const NO_SERVERS: LocalServer[] = [];
 
+/**
+ * The apps a session's folder can be opened in, and the favourite's id: what
+ * main last listed, asked again each time the palette opens with a session
+ * active, as the info panel's menu asks when it opens.
+ */
+function useOpenInTargets(
+  open: boolean,
+  sessionId: string | undefined,
+): { targets: readonly OpenInTarget[]; favouriteId: string | undefined } {
+  const targets = useOpenInStore((state) => state.targets) ?? NO_TARGETS;
+  const favourite = useOpenInFavourite();
+  useEffect(() => {
+    if (open && sessionId) void loadOpenInTargets();
+  }, [open, sessionId]);
+  return { targets, favouriteId: favourite?.id };
+}
+
+const NO_TARGETS: OpenInTarget[] = [];
+
 /** Live snapshot of everything the palette can act on. */
 export function usePaletteContext(open: boolean): PaletteContext {
   const workspaces = useWorkspaceStore((state) => state.workspaces);
@@ -97,6 +118,10 @@ export function usePaletteContext(open: boolean): PaletteContext {
   const isInfoPanelVisible = useInfoPanelShown();
   const { openSettings } = useSettings();
   const localServers = useLocalServers(open, activeSessionId ?? undefined);
+  const { targets: openInTargets, favouriteId: openInFavouriteId } = useOpenInTargets(
+    open,
+    activeSessionId ?? undefined,
+  );
 
   const activeWorkspace = useMemo(
     () => workspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? null,
@@ -183,6 +208,8 @@ export function usePaletteContext(open: boolean): PaletteContext {
       isOverlayOpen,
       terminalFontSize,
       localServers,
+      openInTargets,
+      openInFavouriteId,
       openSettings,
     }),
     [
@@ -203,6 +230,8 @@ export function usePaletteContext(open: boolean): PaletteContext {
       isOverlayOpen,
       terminalFontSize,
       localServers,
+      openInTargets,
+      openInFavouriteId,
       openSettings,
     ],
   );

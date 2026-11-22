@@ -107,6 +107,13 @@ interface SettingsState {
   infoSectionOpen: Record<string, boolean>;
   /** Fold an open section or open a folded one. */
   toggleInfoSection: (id: string) => void;
+  /**
+   * The app the person last opened a session's folder in from "Open in"
+   * (main's id for it), which the button and ⌘O then use: null before any
+   * pick. One no longer installed reads as Finder (`favouriteTarget`).
+   */
+  openInFavourite: string | null;
+  setOpenInFavourite: (id: string) => void;
   setTheme: (theme: ThemeMode) => void;
   /** Step to the next theme: light -> dark -> system -> light. */
   cycleTheme: () => void;
@@ -188,6 +195,8 @@ export const useSettingsStore = create<SettingsState>()(
             [id]: !isInfoSectionOpen(state.infoSectionOpen, id),
           },
         })),
+      openInFavourite: null,
+      setOpenInFavourite: (openInFavourite) => set({ openInFavourite }),
       setTheme: (theme) => set({ theme }),
       // Lives in the store so the keyboard shortcut and the command palette
       // can never disagree about what "next theme" means.
@@ -229,6 +238,7 @@ export const useSettingsStore = create<SettingsState>()(
         inboxFilters: state.inboxFilters,
         sidebarShelfOpen: state.sidebarShelfOpen,
         infoSectionOpen: state.infoSectionOpen,
+        openInFavourite: state.openInFavourite,
       }),
       // A persisted size from an older build (or a hand-edited value) still has
       // to land inside the bounds the terminal can actually lay out, and a
@@ -255,6 +265,10 @@ export const useSettingsStore = create<SettingsState>()(
           inboxFilters: sanitizeInboxFilters(saved?.inboxFilters),
           sidebarShelfOpen: sanitizeShelfOpen(saved?.sidebarShelfOpen),
           infoSectionOpen: sanitizeShelfOpen(saved?.infoSectionOpen),
+          openInFavourite:
+            typeof saved?.openInFavourite === 'string' && saved.openInFavourite
+              ? saved.openInFavourite
+              : null,
         };
       },
     },

@@ -2,8 +2,10 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Workspace, WorkspaceProvider } from '../../shared/workspace';
 import type { BranchIdentity } from '../gitBranch';
 import {
+  ASK_SLACK_MS,
   BRANCH_LOOKUP_TTL_MS,
   BranchPullRequestFinder,
+  type BranchPullRequestFinderDeps,
   pickPullRequest,
 } from './BranchPullRequestFinder';
 import type { GitProviderDriver } from './GitProviderDriver';
@@ -39,6 +41,7 @@ function setup(
     provider?: WorkspaceProvider | undefined;
     identities?: Record<string, BranchIdentity | null>;
     driver?: Partial<GitProviderDriver>;
+    resolveDriver?: BranchPullRequestFinderDeps['resolveDriver'];
   } = {},
 ) {
   let clock = 1_000_000;
@@ -66,7 +69,7 @@ function setup(
   );
   const finder = new BranchPullRequestFinder({
     getWorkspace: (id) => (id === 'ws' ? workspace : undefined),
-    resolveDriver: () => driver,
+    resolveDriver: options.resolveDriver ?? (() => driver),
     composeEnv,
     readIdentity,
     now: () => clock,
@@ -76,6 +79,7 @@ function setup(
     workspace,
     driver,
     composeEnv,
+    readIdentity,
     lookupPullRequests: driver.lookupPullRequests as ReturnType<typeof answering>,
     advance: (ms: number) => {
       clock += ms;
@@ -197,6 +201,27 @@ describe('BranchPullRequestFinder', () => {
     expect(composeEnv).not.toHaveBeenCalled();
   });
 
+  it('answers none without asking for a provider this build does not know', async () => {
+    const { finder, composeEnv, lookupPullRequests } = setup({
+      resolveDriver: (id) => {
+        throw new Error(`Unknown provider: ${id}`);
+      },
+    });
+    await expect(finder.find('ws', DIR)).resolves.toEqual({ kind: 'none', branch: BRANCH });
+    expect(composeEnv).not.toHaveBeenCalled();
+    expect(lookupPullRequests).not.toHaveBeenCalled();
+  });
+
+  it('answers failed, not none, when the provider gives no answer for the branch', async () => {
+    const lookupPullRequests = vi.fn(async (): Promise<PullRequestLookup[]> => []);
+    const { finder } = setup({ driver: { lookupPullRequests } });
+    await expect(finder.find('ws', DIR)).resolves.toEqual({
+      kind: 'failed',
+      branch: BRANCH,
+      error: 'The provider gave no answer for this branch.',
+    });
+  });
+
   it('answers none without asking for a workspace it does not know', async () => {
     const { finder, lookupPullRequests } = setup();
     await expect(finder.find('elsewhere', DIR)).resolves.toEqual({ kind: 'none', branch: null });
@@ -236,7 +261,7 @@ describe('BranchPullRequestFinder', () => {
   it('asks again once the answer is old, or when forced', async () => {
     const { finder, lookupPullRequests, advance } = setup();
     await finder.find('ws', DIR);
-    advance(BRANCH_LOOKUP_TTL_MS - 1);
+    advance(BRANCH_LOOKUP_TTL_MS - ASK_SLACK_MS - 1);
     await finder.find('ws', DIR);
     expect(lookupPullRequests).toHaveBeenCalledTimes(1);
     advance(2);
@@ -244,6 +269,46 @@ describe('BranchPullRequestFinder', () => {
     expect(lookupPullRequests).toHaveBeenCalledTimes(2);
     await finder.find('ws', DIR, { force: true });
     expect(lookupPullRequests).toHaveBeenCalledTimes(3);
+  });
+
+  it('dates an answer from when it was asked, so a slow one is old one interval (less the slack) after the ask', async () => {
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const lookupPullRequests = vi.fn(async (queries: PullRequestQuery[]) => {
+      await held;
+      return queries.map((query) => ({ query, pullRequests: [pr(51, 'open')] }));
+    });
+    const { finder, advance } = setup({ driver: { lookupPullRequests } });
+    const first = finder.find('ws', DIR);
+    await vi.waitFor(() => expect(lookupPullRequests).toHaveBeenCalled());
+    // The provider takes half a minute to answer.
+    advance(30_000);
+    release();
+    await expect(first).resolves.toMatchObject({ kind: 'found' });
+
+    advance(BRANCH_LOOKUP_TTL_MS - ASK_SLACK_MS - 30_000 - 1);
+    await finder.find('ws', DIR);
+    expect(lookupPullRequests).toHaveBeenCalledTimes(1);
+    advance(1);
+    await finder.find('ws', DIR);
+    expect(lookupPullRequests).toHaveBeenCalledTimes(2);
+  });
+
+  it('asks again when a caller asks one interval after its last ask began, though reading the branch held that ask back', async () => {
+    const { finder, readIdentity, lookupPullRequests, advance } = setup();
+    // The first find reads the branch for 50 ms (its `ssh -G`); the next
+    // one reads it from memory, at once.
+    readIdentity.mockImplementationOnce(async () => {
+      advance(50);
+      return IDENTITY;
+    });
+    await finder.find('ws', DIR);
+    // The renderer asks again one interval after it first asked.
+    advance(BRANCH_LOOKUP_TTL_MS - 50);
+    await finder.find('ws', DIR);
+    expect(lookupPullRequests).toHaveBeenCalledTimes(2);
   });
 
   it('shares one request between callers that ask at once', async () => {
@@ -289,6 +354,31 @@ describe('BranchPullRequestFinder', () => {
     await unsigned.finder.find('ws', DIR);
     expect(unsigned.composeEnv).toHaveBeenCalledTimes(1);
     expect(unsigned.lookupPullRequests).not.toHaveBeenCalled();
+  });
+
+  it('lets an answer go once it is old, so a clock set back does not bring it back', async () => {
+    const BILLING = '/repos/billing';
+    const { finder, lookupPullRequests, advance } = setup({
+      identities: {
+        [BILLING]: {
+          branch: 'feat/invoices',
+          remoteBranch: 'feat/invoices',
+          originUrl: 'https://github.com/sprocket/billing.git',
+        },
+      },
+    });
+    await finder.find('ws', DIR);
+    advance(BRANCH_LOOKUP_TTL_MS);
+    // Any find lets go of the answers no find would serve again.
+    await finder.find('ws', BILLING);
+    advance(-BRANCH_LOOKUP_TTL_MS);
+    await finder.find('ws', DIR);
+    const catalog = { repo: 'sprocket/catalog-portal', headBranch: BRANCH };
+    expect(lookupPullRequests.mock.calls.map(([queries]) => queries)).toEqual([
+      [catalog],
+      [{ repo: 'sprocket/billing', headBranch: 'feat/invoices' }],
+      [catalog],
+    ]);
   });
 
   it('keeps accounts apart', async () => {

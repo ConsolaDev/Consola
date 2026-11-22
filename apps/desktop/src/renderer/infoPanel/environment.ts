@@ -37,26 +37,44 @@ export function folderLine(
 }
 
 /**
+ * What the CLI said about itself (the capabilities cache's answer), with what
+ * the harness launched as when it said it (`launchSignature`).
+ */
+export interface CapabilitiesAnswer {
+  signature?: string;
+  account?: HarnessCapabilityAccount;
+  models?: readonly HarnessModel[];
+}
+
+/**
  * The harness row: the driver and the harness's name, the account it is
- * signed in as, and the session's model. Each is the CLI's own word where it
- * has one: the account it reported signed in (the capabilities cache), else
- * the one read from its config folder; the model by the name the CLI lists it
- * under, else the id said the way a person says it.
+ * signed in as, and the session's model. The CLI's answer counts only when it
+ * is for the harness as it launches now (its `signature` is `signature`): an
+ * edited harness is another install, maybe another account. Then it decides
+ * the account: signed in, the email it gave, else the account read from the
+ * config folder; signed out, none. With no such answer, or one that says
+ * nothing of the account, the account read from the config folder. The model
+ * is named as that answer lists it, else the id said the way a person says it.
  */
 export function harnessLine(input: {
   driverLabel: string;
   harnessName?: string;
-  capabilityAccount?: HarnessCapabilityAccount;
+  /** What the harness launches as now. */
+  signature?: string;
+  answer?: CapabilitiesAnswer;
   healthAccount?: HarnessAccount;
   model?: string;
-  models?: readonly HarnessModel[];
 }): { label: string; account?: string; model?: string } {
-  const { driverLabel, harnessName, capabilityAccount, healthAccount, model, models } = input;
-  const account = capabilityAccount?.signedIn
-    ? capabilityAccount.emailAddress
-    : (healthAccount?.emailAddress ?? healthAccount?.displayName);
+  const { driverLabel, harnessName, signature, answer, healthAccount, model } = input;
+  const current =
+    answer?.signature !== undefined && answer.signature === signature ? answer : undefined;
+  const onDisk = healthAccount?.emailAddress ?? healthAccount?.displayName;
+  const said = current?.account;
+  const account =
+    said === undefined ? onDisk : said.signedIn ? (said.emailAddress ?? onDisk) : undefined;
   const modelName = model
-    ? (models?.find((candidate) => candidate.value === model)?.displayName ?? shortModelName(model))
+    ? (current?.models?.find((candidate) => candidate.value === model)?.displayName ??
+      shortModelName(model))
     : undefined;
   return {
     label: harnessName ? `${driverLabel} · ${harnessName}` : driverLabel,

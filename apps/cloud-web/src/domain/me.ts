@@ -1,13 +1,9 @@
-export type Org = { name: string; slug: string };
+import type { components } from './apiContract';
 
-export type Me = {
-  user: { id: string; name: string; email: string; image: string | null };
-  organization: { id: string; name: string; slug: string };
-  role: string;
-};
+/** Who is signed in, and the workspace their session has active, if any. */
+export type Me = components['schemas']['Me'];
 
 export type MeState =
   | { kind: 'signed-in'; me: Me }
   | { kind: 'signed-out' }
-  | { kind: 'not-member' }
   | { kind: 'unavailable' };

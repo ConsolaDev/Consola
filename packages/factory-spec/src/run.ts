@@ -8,10 +8,13 @@ import type { Automation, AutomationMode } from './schema';
  * document:
  * https://linear.app/consola/document/north-star-factories-the-earlier-direction-11a3fbefdb39),
  * as much of it as a local run has. Same field names and status words, so
- * the cloud runner's rows and these list side by side later. Not recorded yet,
- * and why: `cost` (a tool run spends no tokens; an agent run's tokens are its
- * session's), `environment` (the workspace scope is in `attribution` until
- * environments exist locally), `orgId` (personal automations have no org).
+ * the cloud runner's rows and these list side by side later. An agent step's
+ * cost is the CLI's own estimate, recorded per turn (`StepRun.turn`) and
+ * summed on the run (`costUsd`); a legacy agent run's and a tool run's are
+ * not recorded (a tool run spends no tokens; a legacy run's tokens are its
+ * session's). Not recorded yet, and why: `environment` (the workspace scope
+ * is in `attribution` until environments exist locally), `orgId` (personal
+ * automations have no org).
  */
 export type RunStatus =
   | 'queued'
@@ -60,6 +63,18 @@ export interface StepRun {
   sessionId?: string;
   conversation?: { harnessId: string; id: string; cwd?: string };
   reminded?: boolean;
+  /** The model the CLI reported in its turn's `system/init`, the latest turn's. */
+  model?: string;
+  /** The agent file's name (`agents/<name>.md`), when the step named one. */
+  agent?: string;
+  /**
+   * The latest attempt's turns, summed: its first turn, a resume, its
+   * reminder. `costUsd` is the CLI's estimate, present only when a turn
+   * reported one (a reported 0 is 0); `turns` the turns it took; `maxTurns`
+   * the step's own cap, when it has one; `deniedTools` the tools a turn was
+   * refused, distinct, in first-seen order.
+   */
+  turn?: { costUsd?: number; turns?: number; maxTurns?: number; deniedTools?: string[] };
   command?: {
     envNames: string[];
     intentAt?: string;
@@ -69,8 +84,18 @@ export interface StepRun {
     stderrBytes?: number;
     truncated?: boolean;
   };
-  /** Earlier executions of this step, oldest first. */
-  previous?: Array<{ attempt: number; status: StepRunStatus; error?: string; finishedAt?: string }>;
+  /**
+   * Earlier executions of this step, oldest first; `costUsd` and `turns` are
+   * that attempt's `turn.costUsd` and `turn.turns`, when it reported them.
+   */
+  previous?: Array<{
+    attempt: number;
+    status: StepRunStatus;
+    error?: string;
+    finishedAt?: string;
+    costUsd?: number;
+    turns?: number;
+  }>;
 }
 
 export type RunSource = 'org' | 'repo' | 'personal' | 'manual';
@@ -164,6 +189,8 @@ export interface RunRecord {
   /** Where an item run worked; `head` is the commit it checked out. */
   checkout?: { cwd: string; scopeId?: string; head?: string };
   error?: string;
+  /** Every attempt of every step, summed; the CLI's estimate. Absent while none reported one. */
+  costUsd?: number;
   attribution: {
     automationId: string;
     actionName: string;
@@ -190,10 +217,10 @@ export const TERMINAL_RUN_STATUSES: readonly RunStatus[] = ['completed', 'failed
  * `applies_to`. Not a cron schedule or a poll's `every`, which say when
  * rather than what, and not the workspace, which is where the file lives rather than something it says.
  *
- * A `steps:` entry is covered whole: prompts, action names, commands, env
- * templates, `if`, outputs, artifacts, reads, timeouts and `dry_run`. Its
- * `resolvedBody` is `stableStringify({ <stepId>: <body> })` over the actions
- * its steps name.
+ * A `steps:` entry is covered whole: prompts, action names, agent names,
+ * commands, env templates, `if`, outputs, artifacts, reads, timeouts and
+ * `dry_run`. Its `resolvedBody` is `stepsResolvedBody`'s: the bodies of the
+ * actions its steps name and, when a step names one, its agents' hashes.
  *
  * `resolvedBody` is what the runner resolved the target to — an action's
  * prompt, which lives in the workspace's settings rather than the file — so
@@ -234,6 +261,24 @@ export function automationVersion(
     resolvedBody,
   });
   return createHash('sha256').update(canonical).digest('hex').slice(0, 16);
+}
+
+/**
+ * A steps entry's `resolvedBody`: today's `stableStringify({ <stepId>: <action body> })`, or undefined, when no step
+ * names an agent; `stableStringify({ actions, agents: { <agent>: <agentHash> } })` when one does (`actions` absent
+ * when none is used). Every runner hashes an entry through this.
+ *
+ * So an entry no step of which names an agent (every slice-1 entry) hashes byte for byte as before, and an agent
+ * file, a skill it names or a server it names changes the version of exactly the entries that use that agent.
+ */
+export function stepsResolvedBody(
+  actionBodies: Readonly<Record<string, string>>,
+  agentHashes: Readonly<Record<string, string>>,
+): string | undefined {
+  const actions = Object.keys(actionBodies).length > 0 ? actionBodies : undefined;
+  if (Object.keys(agentHashes).length === 0)
+    return actions === undefined ? undefined : stableStringify(actions);
+  return stableStringify({ actions, agents: agentHashes });
 }
 
 /** JSON with sorted keys and undefined dropped, so equal definitions hash equal. */

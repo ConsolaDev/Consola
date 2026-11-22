@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { AttentionSignal } from '../attention/hookSignals';
 import { ClaudeDriver } from './ClaudeDriver';
-import { claudeHookSettings, parseClaudeHookEvent } from './claudeHooks';
+import { claudeSettings, parseClaudeHookEvent } from './claudeHooks';
 
 const URL = 'http://127.0.0.1:5555/attention/' + 'a'.repeat(48);
 const driver = new ClaudeDriver();
@@ -183,7 +183,7 @@ describe('a turn that ends on an error', () => {
 
 describe('hook registration', () => {
   it('registers an http handler on loopback for the three events', () => {
-    const settings = JSON.parse(claudeHookSettings(URL));
+    const settings = JSON.parse(claudeSettings({ attentionUrl: URL })!);
     expect(Object.keys(settings.hooks).sort()).toEqual([
       'Notification',
       'PermissionRequest',
@@ -202,7 +202,7 @@ describe('hook registration', () => {
   });
 
   it('is purely additive: only a hooks block, nothing that disables or replaces the user’s settings', () => {
-    const settings = JSON.parse(claudeHookSettings(URL));
+    const settings = JSON.parse(claudeSettings({ attentionUrl: URL })!);
     expect(Object.keys(settings)).toEqual(['hooks']);
     expect(JSON.stringify(settings)).not.toMatch(
       /disableAllHooks|allowManagedHooksOnly|permissions|env/,
@@ -220,7 +220,7 @@ describe('hook registration', () => {
       '--mcp-config',
       '/tmp/c.json',
       '--settings',
-      claudeHookSettings(URL),
+      claudeSettings({ attentionUrl: URL }),
       '--verbose',
       '--model',
       'opus',
@@ -248,5 +248,36 @@ describe('hook registration', () => {
     expect(args).toContain('--settings');
     expect(args.indexOf('--settings')).toBeLessThan(args.indexOf('--tools'));
     expect(args.slice(-3)).toEqual(['--restricted', '--', 'hi']);
+  });
+});
+
+describe('claudeSettings', () => {
+  const ALLOWED = [{ serverName: 'consola' }, { serverUrl: 'https://mcp.coralogix.example/mcp' }];
+
+  it('with hooks alone, holds only them', () => {
+    const parsed = JSON.parse(claudeSettings({ attentionUrl: URL }) ?? 'null') as Record<
+      string,
+      unknown
+    >;
+    expect(Object.keys(parsed)).toEqual(['hooks']);
+    expect(Object.keys(parsed.hooks as object)).toContain('PermissionRequest');
+  });
+
+  it('with both, holds the hooks first, then the allow-list, in one value', () => {
+    const both = claudeSettings({ attentionUrl: URL, allowedMcpServers: ALLOWED });
+    const parsed = JSON.parse(both ?? 'null') as Record<string, unknown>;
+    expect(Object.keys(parsed)).toEqual(['hooks', 'allowedMcpServers']);
+    expect(parsed.hooks).toEqual(JSON.parse(claudeSettings({ attentionUrl: URL })!).hooks);
+    expect(parsed.allowedMcpServers).toEqual(ALLOWED);
+  });
+
+  it('with the allow-list alone, holds only it', () => {
+    expect(JSON.parse(claudeSettings({ allowedMcpServers: ALLOWED }) ?? 'null')).toEqual({
+      allowedMcpServers: ALLOWED,
+    });
+  });
+
+  it('with neither, is no value at all', () => {
+    expect(claudeSettings({})).toBeNull();
   });
 });

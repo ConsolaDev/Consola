@@ -8,6 +8,7 @@ import type {
 } from '../../shared/worktreeCleanup';
 import type { AppUpdateAPI } from '../../shared/appUpdates';
 import type { BrowserAPI, TerminalLinkRule } from '../../shared/browser';
+import type { OpenInAPI } from '../../shared/openIn';
 import type { AttentionChange, AttentionState } from '../../shared/attention';
 import type {
   BatchResult,
@@ -139,5 +140,6 @@ declare global {
     worktreeCleanupAPI: WorktreeCleanupAPI;
     usageLimitsAPI?: UsageLimitsAPI;
     gitAPI: GitAPI;
+    openInAPI: OpenInAPI;
   }
 }

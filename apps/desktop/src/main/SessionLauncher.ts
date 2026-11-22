@@ -83,8 +83,59 @@ export type LaunchSessionFields = NewSessionFields & {
 /** What one spawn of a recorded session is asked to do. */
 export type SpawnFields = Pick<
   TerminalServiceOptions,
-  'resume' | 'initialPrompt' | 'unattended' | 'forkFrom' | 'launchNotice'
+  'resume' | 'initialPrompt' | 'unattended' | 'forkFrom' | 'launchNotice' | 'turnMaxTurns'
 >;
+
+/**
+ * Whether a session's unattended turns report (Call 2): an automation
+ * step's do. The one rule, for every launch path.
+ */
+export function reportTurnsFor(session: Pick<Session, 'automation'>): boolean {
+  return session.automation?.step !== undefined;
+}
+
+/**
+ * What every launch takes from a session's record, never from a window:
+ * whether its unattended turns report, and its turn cap and its agent's
+ * grants, each only when the record has them. No record (a terminal
+ * nothing names): nothing reports.
+ */
+export function recordLaunchFields(
+  session: Pick<Session, 'automation' | 'maxTurns' | 'grants'> | undefined,
+): Pick<TerminalServiceOptions, 'reportTurns' | 'maxTurns' | 'grants'> {
+  if (!session) return { reportTurns: false };
+  return {
+    reportTurns: reportTurnsFor(session),
+    ...(session.maxTurns !== undefined ? { maxTurns: session.maxTurns } : {}),
+    ...(session.grants !== undefined ? { grants: session.grants } : {}),
+  };
+}
+
+/**
+ * For an automation's session, what its record says it launches on: its
+ * model and its harness's launch fields, every key present so a spread
+ * replaces whatever a window sent; {} for any other session. A step's reopen
+ * then runs on its agent's harness and model, whatever the window holds.
+ */
+export function automationRecordLaunch(
+  record: Pick<Session, 'automation' | 'model' | 'harnessId'> | undefined,
+  harnesses: readonly Harness[],
+): Partial<
+  Pick<
+    TerminalServiceOptions,
+    'model' | 'driverId' | 'binaryOverride' | 'configDirOverride' | 'extraArgs'
+  >
+> {
+  if (!record?.automation) return {};
+  const fields = launchFieldsFor(harnesses.find((candidate) => candidate.id === record.harnessId));
+  return {
+    model: record.model,
+    driverId: fields.driverId,
+    binaryOverride: fields.binaryOverride,
+    configDirOverride: fields.configDirOverride,
+    extraArgs: fields.extraArgs,
+  };
+}
 
 /**
  * Makes a session's checkout exist before it spawns: a worktree a cleanup
@@ -177,11 +228,14 @@ export class SessionLauncher {
    * Only a read-only session — an unattended turn skips the CLI's trust
    * prompt — and only one with no terminal yet: once the person opened it,
    * it is theirs, and a second process on one conversation would fork it.
+   * `maxTurns` caps this turn alone (a step's reminder, cut off by the quit);
+   * the record's cap stays for every later launch.
    */
   public async resumeUnattended(
     workspaceId: string,
     sessionId: string,
     prompt: string,
+    options: { maxTurns?: number } = {},
   ): Promise<void> {
     const workspace = this.workspaces.getAll().find((candidate) => candidate.id === workspaceId);
     const session = workspace?.sessions.find((candidate) => candidate.id === sessionId);
@@ -198,7 +252,13 @@ export class SessionLauncher {
       workspace,
       session,
       cwd,
-      { resume: true, initialPrompt: prompt, unattended: true, launchNotice: notice },
+      {
+        resume: true,
+        initialPrompt: prompt,
+        unattended: true,
+        launchNotice: notice,
+        ...(options.maxTurns !== undefined ? { turnMaxTurns: options.maxTurns } : {}),
+      },
       opened,
     );
   }
@@ -218,6 +278,7 @@ export class SessionLauncher {
     workspaceId: string,
     sessionId: string,
     prompt: string,
+    options: { maxTurns?: number } = {},
   ): Promise<void> {
     const workspace = this.workspaces.getAll().find((candidate) => candidate.id === workspaceId);
     const session = workspace?.sessions.find((candidate) => candidate.id === sessionId);
@@ -240,7 +301,12 @@ export class SessionLauncher {
         .find((candidate) => candidate.id === session.harnessId);
       const policyProblem = toolPolicyProblem(launchFieldsFor(harness), session.toolPolicy);
       if (policyProblem) throw new Error(policyProblem);
-      this.terminals.relaunch(session.instanceId, { cwd, prompt, unattended: true });
+      this.terminals.relaunch(session.instanceId, {
+        cwd,
+        prompt,
+        unattended: true,
+        ...(options.maxTurns !== undefined ? { maxTurns: options.maxTurns } : {}),
+      });
       return;
     }
     // Checked again after the await inside: a pane may have mounted meanwhile.
@@ -248,7 +314,13 @@ export class SessionLauncher {
       workspace,
       session,
       cwd,
-      { resume: true, initialPrompt: prompt, unattended: true },
+      {
+        resume: true,
+        initialPrompt: prompt,
+        unattended: true,
+        // This turn's own cap; the record's stays for every later launch.
+        ...(options.maxTurns !== undefined ? { turnMaxTurns: options.maxTurns } : {}),
+      },
       opened,
     );
   }
@@ -452,6 +524,8 @@ export class SessionLauncher {
       providerAccountLogin: workspace.provider?.accountLogin,
       mcpConfigPath,
       toolPolicy: session.toolPolicy,
+      // Whether its unattended turns report, and its cap: the record's.
+      ...recordLaunchFields(session),
       opening: openingFor(session),
       ...launchFieldsFor(harness),
     });

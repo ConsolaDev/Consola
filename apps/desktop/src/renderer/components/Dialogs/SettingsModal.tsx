@@ -2,6 +2,7 @@ import { useId, type ReactNode } from 'react';
 import { AppUpdatesSection } from '../AppUpdates';
 import { SHELL_SHORTCUT_LABEL } from '../../utils/shellShortcut';
 import { INFO_PANEL_SHORTCUT_LABEL } from '../../utils/infoPanelShortcut';
+import { OPEN_IN_SHORTCUT_LABEL } from '../../utils/openInShortcut';
 import { SIDE_PANEL_SHORTCUT_LABEL } from '../../utils/sidePanelShortcut';
 import * as Dialog from '@radix-ui/react-dialog';
 import {
@@ -406,6 +407,7 @@ function ShortcutsSection() {
     { label: 'Terminal tab', key: SHELL_SHORTCUT_LABEL },
     { label: 'Show or hide the side panel', key: SIDE_PANEL_SHORTCUT_LABEL },
     { label: 'Show or hide the info panel', key: INFO_PANEL_SHORTCUT_LABEL },
+    { label: 'Open the session’s folder in the app last picked', key: OPEN_IN_SHORTCUT_LABEL },
     { label: 'Open settings', key: `${mod},` },
     { label: 'Cycle theme', key: isMac ? '⇧⌘T' : 'Ctrl+Shift+T' },
     { label: 'Rename session', key: 'F2' },

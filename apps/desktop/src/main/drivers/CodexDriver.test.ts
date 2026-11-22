@@ -364,6 +364,16 @@ describe('Codex harness', () => {
   });
 });
 
+describe('which drivers run agent steps', () => {
+  it("Codex says why it runs none yet, in the spec's words; Antigravity and Claude have no such sentence", () => {
+    expect(new CodexDriver().agentRefusal).toBe(
+      'Steps on Codex arrive later; they need a Codex harness with a home of its own.',
+    );
+    expect(getDriver('antigravity').agentRefusal).toBeUndefined();
+    expect(getDriver('claude').agentRefusal).toBeUndefined();
+  });
+});
+
 describe('Codex preparation failures', () => {
   it.each([
     ['invalid', 'Invalid response'],

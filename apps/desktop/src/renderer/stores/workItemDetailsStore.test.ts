@@ -222,6 +222,25 @@ describe('workItemDetailsStore', () => {
     expect(getDetails).toHaveBeenCalledTimes(7);
   });
 
+  it('a re-check read ends the mergeability poll it finds pending', async () => {
+    // Watched a second before its details go stale: the re-check is due
+    // before the poll their unknown mergeability asks for.
+    getDetails.mockResolvedValueOnce(details({ mergeState: 'UNKNOWN' }));
+    await load(target);
+    vi.advanceTimersByTime(DETAILS_REFRESH_MS - 1_000);
+    watch();
+    const recheck = deferred();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(getDetails).toHaveBeenCalledTimes(2);
+
+    // The poll would fall due while the re-check runs. The re-check's own
+    // answer plans what follows, and GitHub has worked mergeability out.
+    await vi.advanceTimersByTimeAsync(MERGE_STATE_POLL_MS);
+    recheck.answer(details({ mergeState: 'BLOCKED' }));
+    await vi.advanceTimersByTimeAsync(MERGE_STATE_POLL_MS);
+    expect(getDetails).toHaveBeenCalledTimes(2);
+  });
+
   it('a quiet read neither shows loading nor records its failure; a loud one does, and keeps the last details', async () => {
     await load(target);
     const last = entry().details;
@@ -253,6 +272,69 @@ describe('workItemDetailsStore', () => {
     expect(healed.errorAt).toBeUndefined();
   });
 
+  it('a failed read is as fresh as an answer: a watch within the interval after it reads nothing, Retry reads at once', async () => {
+    getDetails.mockRejectedValue(new Error('rate limited'));
+    const first = watch();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(getDetails).toHaveBeenCalledTimes(1);
+    expect(entry().error).toBe('rate limited');
+    first();
+
+    // The pane shown again two minutes later.
+    vi.advanceTimersByTime(2 * MINUTE);
+    const again = watch();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(getDetails).toHaveBeenCalledTimes(1);
+    again();
+
+    // The person's Retry.
+    await load(target, { force: true });
+    expect(getDetails).toHaveBeenCalledTimes(2);
+
+    // An interval after that failure, a watch reads.
+    vi.advanceTimersByTime(DETAILS_REFRESH_MS - 1);
+    const early = watch();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(getDetails).toHaveBeenCalledTimes(2);
+    early();
+    vi.advanceTimersByTime(1);
+    watch();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(getDetails).toHaveBeenCalledTimes(3);
+  });
+
+  it('a quiet failure counts too, though it says nothing', async () => {
+    await load(target);
+    vi.advanceTimersByTime(DETAILS_REFRESH_MS);
+    getDetails.mockRejectedValueOnce(new Error('rate limited'));
+    const first = watch();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(getDetails).toHaveBeenCalledTimes(2);
+    expect(entry().error).toBeUndefined();
+    first();
+
+    vi.advanceTimersByTime(MINUTE);
+    watch();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(getDetails).toHaveBeenCalledTimes(2);
+  });
+
+  it("the store's own re-check waits an interval after a failure, not after the last answer", async () => {
+    watch();
+    await vi.advanceTimersByTimeAsync(MINUTE);
+    expect(getDetails).toHaveBeenCalledTimes(1);
+
+    // A Refresh a minute after the first read fails.
+    getDetails.mockRejectedValueOnce(new Error('rate limited'));
+    await load(target, { force: true });
+    expect(getDetails).toHaveBeenCalledTimes(2);
+
+    await vi.advanceTimersByTimeAsync(DETAILS_REFRESH_MS - 1_000);
+    expect(getDetails).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(getDetails).toHaveBeenCalledTimes(3);
+  });
+
   it('keeps the details of at most 20 unwatched items, dropping the least recently read', async () => {
     const item = (number: number): DetailsTarget => ({ ...target, ref: { ...ref, number } });
     const has = (number: number) =>
@@ -269,6 +351,30 @@ describe('workItemDetailsStore', () => {
     for (let number = 3; number <= 22; number++) expect(has(number)).toBe(true);
     expect(has(1)).toBe(true);
     expect(Object.keys(useWorkItemDetailsStore.getState().entries)).toHaveLength(21);
+  });
+
+  it('a failed read counts as a read when the least recently read are dropped, so its failure stays fresh', async () => {
+    const item = (number: number): DetailsTarget => ({ ...target, ref: { ...ref, number } });
+    const has = (number: number) =>
+      useWorkItemDetailsStore.getState().entries[detailsKey(item(number))]?.details !== undefined;
+    for (let number = 1; number <= 20; number++) {
+      vi.advanceTimersByTime(1_000);
+      await load(item(number));
+    }
+    // The oldest answer is read again, and that read fails.
+    vi.advanceTimersByTime(1_000);
+    getDetails.mockRejectedValueOnce(new Error('rate limited'));
+    await load(item(1), { force: true });
+    vi.advanceTimersByTime(1_000);
+    await load(item(21));
+    expect(has(1)).toBe(true);
+    expect(has(2)).toBe(false);
+
+    // Its failure still counts: shown again within the interval, it is not read.
+    const reads = getDetails.mock.calls.length;
+    watch(item(1));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(getDetails).toHaveBeenCalledTimes(reads);
   });
 
   it('never drops an item whose read is running, nor one still watched', async () => {
@@ -300,6 +406,38 @@ describe('workItemDetailsStore', () => {
     release();
     expect(has(3)).toBe(false);
     expect(has(5)).toBe(true);
+  });
+
+  it('a failed forced read answers with its failure, though the cache then drops the item', async () => {
+    const item = (number: number): DetailsTarget => ({ ...target, ref: { ...ref, number } });
+    for (let number = 1; number <= 20; number++) {
+      vi.advanceTimersByTime(1_000);
+      await load(item(number));
+    }
+    // A read that ends is the newest read, so the cache drops another item
+    // first, unless every other one it could drop is being read: here, the
+    // person's Refresh of the first item, with every other one read again...
+    const refresh = deferred();
+    const refreshed = load(item(1), { force: true });
+    for (let number = 2; number <= 20; number++) {
+      deferred();
+      void load(item(number), { force: true });
+    }
+    // ...and a 21st item's first read landing with a forced read queued
+    // behind it, so the store holds one item past its cap until a read ends.
+    const first = deferred();
+    deferred();
+    void load(item(21));
+    void load(item(21), { force: true });
+    first.answer(details());
+    await vi.advanceTimersByTimeAsync(0);
+
+    refresh.fail(
+      new Error("Error invoking remote method 'inbox:get-details': Error: rate limited"),
+    );
+    const answer = await refreshed;
+    expect(answer).toMatchObject({ loading: false, error: 'rate limited', details: details() });
+    expect(useWorkItemDetailsStore.getState().entries[detailsKey(item(1))]).toBeUndefined();
   });
 
   it('a forced read updates what every viewer shows', async () => {

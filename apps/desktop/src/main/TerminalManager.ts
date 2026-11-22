@@ -10,7 +10,7 @@ import { IPC_CHANNELS } from '../shared/constants';
 import type { HarnessDriverId, TerminalSnapshot, TerminalStatusSnapshot } from '../shared/types';
 import type { TerminalStatus } from '../shared/terminalStatus';
 import type { AttentionEndpoint } from './attention/AttentionEndpoint';
-import { getDriver } from './drivers';
+import { getDriver, type TurnInit } from './drivers';
 
 /**
  * How long a terminal's output gathers before it crosses to its window.
@@ -52,6 +52,7 @@ export class TerminalManager {
   >();
   private readonly exitListeners = new Set<(instanceId: string, info: TerminalExitInfo) => void>();
   private readonly limitNoticeListeners = new Set<(instanceId: string, showing: boolean) => void>();
+  private readonly turnInitListeners = new Set<(instanceId: string, init: TurnInit) => void>();
 
   /**
    * Hear every status transition, after the broadcast. Many listeners may
@@ -91,6 +92,18 @@ export class TerminalManager {
     this.limitNoticeListeners.add(listener);
     return () => {
       this.limitNoticeListeners.delete(listener);
+    };
+  }
+
+  /**
+   * Hear a reporting turn's `init` as its stream says it: the model it runs
+   * and the servers it loaded, while the turn is still running, so whoever
+   * checks them can stop it at once. Returns the unsubscribe.
+   */
+  public addTurnInitListener(listener: (instanceId: string, init: TurnInit) => void): () => void {
+    this.turnInitListeners.add(listener);
+    return () => {
+      this.turnInitListeners.delete(listener);
     };
   }
 
@@ -356,10 +369,17 @@ export class TerminalManager {
       this.notify(this.limitNoticeListeners, (listener) => listener(instanceId, showing));
     });
 
+    terminal.on('turn-init', (init: TurnInit) => {
+      this.notify(this.turnInitListeners, (listener) => listener(instanceId, init));
+    });
+
     terminal.on('exit', (info: TerminalExitInfo) => {
       // The pane shows the last thing the CLI printed before it says it exited.
       this.flushOutput(instanceId);
-      this.broadcast(IPC_CHANNELS.TERMINAL_EXIT, { instanceId, ...info });
+      // A reporting turn's report stays in main: the windows read only the
+      // instance, and the CLI's own objects and kept lines are not theirs.
+      const { report: _report, ...shown } = info;
+      this.broadcast(IPC_CHANNELS.TERMINAL_EXIT, { instanceId, ...shown });
       this.notify(this.exitListeners, (listener) => listener(instanceId, info));
     });
 

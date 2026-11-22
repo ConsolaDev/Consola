@@ -39,13 +39,22 @@ leave the running app alone, because every restart pulls its window to the
 front. E2E runs themselves are already hidden and unfocusable
 (`src/main/test-mode.ts`); set `CONSOLA_E2E_HEADED=1` to watch them.
 
+No desktop unit test can find or start your own agent CLI: vitest's
+`setupFiles` (`src/main/drivers/realCliIsolation.setup.ts`, which needs
+`pool: 'forks'`) gives each test process an empty home and config dirs, a
+plain login shell and a PATH without `claude`, `codex` or `agy`. Where one is
+installed in `/opt/homebrew/bin` or `/usr/local/bin`, or sits on the login
+shell's PATH (`/etc/paths`, `/etc/paths.d`, `/etc/profile`), no home or PATH
+hides it, so the suite refuses to run and names the file to move.
+
 All commands above run from the repository root. The pnpm workspace contains
 `apps/desktop` (`consola`), `apps/website` (`@consola/website`),
 `apps/cloud-global` (`@consola/cloud-global`), `apps/cloud-region`
 (`@consola/cloud-region`), `apps/cloud-web` (`@consola/cloud-web`),
 `packages/factory-spec` (`@consola/factory-spec`, MIT),
-`packages/automation-engine` (`@consola/automation-engine`) and
-`packages/sandbox` (`@consola/sandbox`). Turborepo
+`packages/automation-engine` (`@consola/automation-engine`),
+`packages/sandbox` (`@consola/sandbox`) and `packages/cloud-contract`
+(`@consola/cloud-contract`). Turborepo
 orchestrates builds, tests, and typechecking. Paths below beginning with `src/`,
 `scripts/`, or `dist/` are relative to `apps/desktop`. Use
 `pnpm --filter consola exec <tool>` for app-specific tools.
@@ -59,6 +68,16 @@ Node 26 ships without corepack, so `vercel.json`
 runs pnpm through `npx pnpm@<version>`: keep that version equal to
 `packageManager`. Electron bundles its own Node, so none of this changes the
 app's runtime.
+
+`.env` files are gitignored, so a new git worktree has none, and an app that
+needs one (`apps/cloud-global/.env`, say) will not start there. `pnpm install`
+fixes that: its `postinstall` (`tools/link-worktree-env.mjs`) links every
+`.env` and `.env.*` the main checkout has, at the root or in a package's
+folder, into the worktree, as symbolic links to the main checkout's files. It
+never replaces a file that is there, links only what git ignores, and does
+nothing in the main checkout, in a plain clone (CI) or outside git. Run it by
+hand with `pnpm link-env`. A relative `pglite:` `DATABASE_URL` then gives each
+worktree a database of its own.
 
 ### CI
 
@@ -151,28 +170,44 @@ packages' tests use. Before changing it, or adding a provider, read
 
 `apps/cloud-global` (`@consola/cloud-global`, Hono, Better Auth, Drizzle on
 PGlite or Postgres) and `apps/cloud-web` (`@consola/cloud-web`, Vite and React)
-are the company layer's first piece: Google sign-in and the deployment's one
-organisation. `cloud-global` is the control plane's global part, which every
-region shares. Every workspace has a region (`eu` or `us`), picked when it is
-made and never changed. What `cloud-global` may store is the always-global
-list in its `AGENTS.md`, pinned by a test; anything else belongs in a regional
-cell. `apps/cloud-region` (`@consola/cloud-region`, Hono, Drizzle on PGlite or
+are the company layer's first piece: Google sign-in and workspaces people make,
+belong to several of and switch between. `cloud-global` is the control plane's
+global part, which every region shares. Every workspace has a region (`eu` or
+`us`), picked when it is made and never changed. What `cloud-global` may store
+is the always-global list in its `AGENTS.md`, pinned by a test; anything else
+belongs in a regional cell. `apps/cloud-region` (`@consola/cloud-region`, Hono, Drizzle on PGlite or
 Postgres) is the regional cell: one copy per region, configured with its
 region, holding what a workspace has there that is not global. It holds no
 accounts (people are referenced by their global id), and every table carries
-the workspace id. Nothing in `apps/desktop` depends on the cloud apps, and none
-imports from the desktop, the website, another app or `packages/*`. Setup is in
+the workspace id. It trusts only `cloud-global`'s token: every request but its
+health check and the outbox's deliveries (signed with the same key) carries a
+cell token, checked with `cloud-global`'s public keys,
+and the person, workspace and role come from that token alone, never from the
+request. Nothing in `apps/desktop` depends on the cloud apps, and none
+imports from the desktop, the website, another app or `packages/*`, with one
+exception: `cloud-global` and `cloud-region` both import
+`packages/cloud-contract` (`@consola/cloud-contract`), what the two agree on:
+the regions, the workspace roles, the claims of the token `cloud-global` mints
+for a cell, the outbox messages it sends one and how it delivers them. It does
+no I/O, so any layer of either app may import it; before changing it, read
+`packages/cloud-contract/AGENTS.md`. Setup is in
 `apps/cloud-global/README.md` and `apps/cloud-region/README.md`. Before
 changing a cloud app, read its own `AGENTS.md` (`apps/cloud-global/AGENTS.md`,
 `apps/cloud-region/AGENTS.md`, `apps/cloud-web/AGENTS.md`): it holds the layer
 rules and the dependency rule that keeps them apart.
 
+`cloud-global`'s API is declared in Zod (`adapters/http/contract.ts`), and
+`openapi.json` is generated from it. The web app's types are generated from
+that file, which it reads and never imports, so CI checks `cloud-web` with
+every change to `cloud-global` (`.github/scripts/ci-scope.mjs`).
+
 The browser talks only to the web app's origin. Vite proxies `/api` to the API,
 so the session cookie is first-party and the API needs no CORS. Better Auth
 owns sign-in and sessions, and its tables are generated
-(`pnpm --filter @consola/cloud-global auth:generate`), never hand-edited. Every
-table that holds company data carries `organization_id`, and a person reaches
-it through `member`.
+(`pnpm --filter @consola/cloud-global auth:generate`), never hand-edited.
+Workspaces are Consola's own routes (`/api/workspaces`), with every route of
+Better Auth's organisation plugin closed. Every table that holds company data
+carries `organization_id`, and a person reaches it through `member`.
 
 `mayJoin` (`apps/cloud-global/src/domain/joinRule.ts`) is checked before an account
 is created and before every new session. It is open for now (any Google
@@ -532,16 +567,34 @@ panel it is view state, kept in the renderer.
   (`openKind`, or `reveal` for a place inside the tab's view, such as the
   pane's merge card, which the view acts on once per `revealRequest.seq`);
   the Folder row copies its path, and its card, on hover or focus, explains
-  the checkout (a worktree's branch, folder and main checkout). Nothing in
+  the checkout (its branch, the session's folder (the path the row copies)
+  and a worktree's main checkout). Under it, "Open in" opens that folder in
+  the app last picked (`settingsStore.openInFavourite`, else the file
+  manager, Finder on a Mac), as ⌘O
+  (Ctrl+Alt+O elsewhere: a bare Ctrl+O is the terminal's) does from
+  anywhere in a session pane; its chevron lists the apps main found
+  (`main/openIn/`, one table), and a pick there or in the palette becomes
+  the favourite. Main opens only an app it found, on the real path an
+  absolute one leads to (links and `..` followed), which must be a folder
+  and not an app's bundle, with argument lists; a test run records instead
+  of opening. No folder (a removed worktree), no button. Nothing in
   the panel navigates or takes the keyboard, on mount or otherwise.
   Visibility rides with the layout (`sidePanelStore.infoVisible`,
   written only under the remember setting, shown when absent); folds sit in
   `settingsStore.infoSectionOpen` and are always kept. While the side panel
-  is open on a session pane narrower than `INFO_PANEL_ROOM_PX` (1010px: 60
-  columns of conversation beside both panels), the panel steps aside
+  is open on a session pane narrower than `INFO_PANEL_ROOM_PX` (1026px: 60
+  columns of conversation beside both panels and their two separators,
+  `PANEL_SEPARATOR_PX`), the panel steps aside
   (`infoPanelShown`, `infoPanel/stepAside.ts`) without writing `infoVisible`,
   everything that asks whether it shows reads that answer, and its toggle
-  shows it anyway until the side panel hides or the pane has room. A folded section
+  shows it anyway until the side panel hides or the pane has room. While all
+  three show on a pane with that room, the conversation's `minSize` is those
+  60 columns (`CONVERSATION_ROOM_PX`, `conversationKeepsRoom`), else 20%: the
+  panels give way before it, and a split saved while the person kept the
+  panel on a narrow pane never restores it narrower on a pane that holds
+  them. That leans on react-resizable-panels, which re-registers a Panel
+  whose `minSize` changes and re-validates its remembered layout, and a saved
+  one as it restores. A folded section
   renders neither its rows nor its heading's actions (`InfoSection`), so
   whatever they read never starts. Showing, hiding or resizing the panel
   only resizes the conversation, which stays `ContentView`'s first child.
@@ -550,26 +603,29 @@ panel it is view state, kept in the renderer.
   panel share its entries (`detailsKey`: workspace, account, item). It reads
   only for an active viewer (`watch`, through `useWorkItemDetails`), one
   read per item at a time, at most once per `INBOX_REFRESH_INTERVAL_MS`
-  unless forced by the person's Refresh or Retry or the re-read after a
-  write. A forced load never takes the answer of a read already in flight,
-  which may predate the write, unless a loud forced load started that read;
-  it waits, then gets one more. The store's own reads (a watch's first load,
-  the re-check once an entry goes stale) are quiet once the entry holds
-  details, so the pane's editors never lock under the person's typing. The
-  mergeability poll is its own: a few quiet reads while `mergeState` is
-  `UNKNOWN`, only while watched (`MERGE_STATE_POLLS`). At most
-  `MAX_UNWATCHED_DETAILS` (20) entries nobody watches keep their details,
-  the least recently read dropped first. A folded section, a hidden panel, a
-  tab behind another and the mark read nothing: `useDetailsEntry` reads the
-  cache and never watches.
+  (a failed read counts as one, quiet or loud) unless forced by the person's
+  Refresh or Retry or the re-read after a write. A forced load never takes
+  the answer of a read already in flight, which may predate the write,
+  unless a loud forced load started that read; it waits, then gets one more.
+  The store's own reads (a watch's first load, the re-check once an entry
+  goes stale) are quiet once the entry holds details, so the pane's editors
+  never lock under the person's typing. The mergeability poll is its own: a
+  few quiet reads while `mergeState` is `UNKNOWN`, only while watched
+  (`MERGE_STATE_POLLS`). At most `MAX_UNWATCHED_DETAILS` (20) entries nobody
+  watches keep their details, the least recently read dropped first. A
+  folded section, a hidden panel, a tab behind another and the mark read
+  nothing: `useDetailsEntry` reads the cache and never watches.
 - **A branch's pull request is found in main** (`BranchPullRequestFinder`),
   for a session linked to none. Main reads the branch from the folder
   (`readBranchIdentity`), so the renderer never sends one; origin is mapped
   by the driver's `repoOfRemote`, and `lookupPullRequests` is asked once per
   provider, account, repo and the branch's name on the remote per interval
-  (`BRANCH_LOOKUP_TTL_MS`), a failure kept as long as an answer, sooner only
-  for Retry or Refresh. It is asked only while someone looks: the info panel
-  shown with Pull request open, or the Pull request tab in front
+  (`BRANCH_LOOKUP_TTL_MS`, counted from the ask, not the answer, less a
+  few seconds' slack, `ASK_SLACK_MS`, so the renderer's re-ask one interval
+  on is not served the old answer), a failure kept as long as an answer,
+  sooner only for Retry or Refresh. It is asked
+  only while someone looks: the info panel shown with Pull request open, or
+  the Pull request tab in front
   (`useBranchPullRequestLookup`, from `ContentView`). It is never written to
   the record; Link writes `workItem`. Every answer names the branch it was
   read for and counts only while the checkout is on it
@@ -578,17 +634,24 @@ panel it is view state, kept in the renderer.
   never ends a lookup (one more is asked), a failed lookup keeps a pull
   request already found for the same branch, and an answer that read no
   branch keeps the asked branch's answer, or fails it so Retry is offered.
-- **Branch facts never fetch** (`readBranchFacts`, with
-  `GIT_NO_LAZY_FETCH=1`, a 10 s timeout and argument lists): every count is
-  against what the clone already has, and what git cannot answer is a line
-  not drawn, never a throw. "vs" compares with the session's pull request's
-  base when its details are cached, else `origin/HEAD`, never a guessed
-  `main`. They are read while the Branch section is open and again after
-  each git status refresh of that checkout (`gitStatusStore.refreshedAt`);
+- **Branch facts never fetch**, on git 2.44 and later (`readBranchFacts`,
+  through `readGit`: `GIT_NO_LAZY_FETCH=1`, which an older git ignores, so a
+  partial clone's diff there fetches what it lacks; `GIT_TERMINAL_PROMPT=0`,
+  a 10 s timeout and argument lists): every count is against what the clone
+  already has, and what git cannot answer is a line not drawn, never a throw.
+  "vs" compares with the session's pull request's base when its details are
+  cached, else `origin/HEAD`, never a guessed `main`. They are read while the
+  Branch section is open and again after each git status refresh of that
+  checkout (`gitStatusStore.refreshedAt`);
   a load during a read gets one more read after it (`branchFactsStore`), so
-  a commit made mid-read is counted. Uncommitted reads the stats of its own
-  checkout (`statsFor`, `statsRoot`), never the last checkout's during a
-  session switch.
+  a commit made mid-read is counted. Uncommitted, like the header's counts,
+  reads the stats git gave for its own checkout (`statsFor`, `statsRoot`),
+  never the last checkout's during a session switch, and says `None` only
+  when git did (`uncommittedFor`): while git reads its checkout for the
+  first time the row stays with no value, so the rows below do not jump;
+  with no read of it under way and none landed (a folder below its
+  repository's top, whose status is never read), or where git said no
+  repository, the row is not drawn.
 - **A kind's mark has a tone** (`agent` or `alert`), and every mark takes
   the same three places (`markPlaces`): its header shortcut; its tab in a
   group on screen, drawn there only while behind another tab, since in
@@ -823,6 +886,71 @@ a quit mid-command is known after a restart. Such a command is never re-run
 automatically: the restart fails it as interrupted, and Retry warns before it
 runs again.
 
+### A Step's Turn Reports Itself
+
+A step's unattended turns run with `--output-format stream-json`: the driver's
+reader parses it (`createTurnReader`) and `TerminalService` shows Consola's
+lines instead (notice, tool calls, non-JSON lines, summary), so never read such
+a turn from its pane. A non-JSON line loses every escape and control character
+and is marked as the CLI's (`formatCliLine`), so it can neither repaint the
+pane nor pass for Consola's dim lines. Only Ctrl+C reaches the CLI (the PTY
+echoes other keys into the stream), what Consola quotes of the report goes
+through `oneLine`, and the report stays in main. The engine decides failure,
+cost and the reminder's cap from `TurnReportView` (`steps/turnReport.ts`). It
+checks the servers an agent grants against the turn's `init` as it is printed
+and again at the turn's end, so a turn whose `init` never arrived never
+completes a step that grants one. A cap counts one launch's turns: a resume
+after a quit runs under the step's `max_turns` again, a reminder cut off by a
+quit under the reminder's own cap. Attention never reads the
+pane's prose: `working` is the turn's own status, a question comes from hooks
+and non-JSON lines, a limit from `StopFailure` and the stream (OR'd into
+`limit-notice`). The reopen is a plain resume: no stream-json, no `--max-turns`.
+Extra args setting `--output-format`, `--input-format` or `--max-turns` refuse
+steps. Rerun `scripts/claude-steps-canary.mjs` after every CLI upgrade.
+
+### The Factory Folder Applies as a Unit
+
+A workspace's factory is its folder (`factory.yml`, `automations/`, `agents/`,
+`skills/`), polled by `FactoryFolder` (engine `node/`) and parsed only by
+`parseFactory`, which resolves references across files (`parseFactorySpec`
+reads a lone `factory.yml` and refuses `agent:`). `decideApply` decides what
+runs: from the first clean read on, any issue, or a changed entry whose agent's
+harness the host refuses, keeps the last applied version running (per folder in
+`<userData>/factory-applied/`, read once per workspace; the entry as written
+shows it). A removal always applies, recomputed at each read; machine state is
+a per-entry problem, never a rollback; a folder never applied cleanly applies
+entry by entry. A step's agent travels in `RunDefinition.agents`: the host
+launches on its harness with `--model`, refuses one gone since apply, and a
+reopen takes both from the record. New entries go to `factory.yml`, a replace
+where the entry lives; an agent's servers and skills are its driver's to
+compile (below); Open shows only the folder's own files, as text. Canary rows
+16–19: `--model`.
+
+### An Agent's Servers and Skills Are Compiled by Its Driver
+
+An agent's `mcpServers:` and `skills:` reach a step only as its driver compiles
+them (`compileAgent`, pure) or refuses them in words. A harness's servers are
+asked of its CLI (Claude: `mcp_status`, from home), never read from its files,
+and cached per launch identity (`McpServersCache`, main); a failure stays until
+**Check again**, on every entry it stopped. On someone else's pull request or
+issue (an `item` checkout) only claude.ai connectors: the person's own server
+could start, or run its sign-in helper, in the author's checkout. Claude's
+grants: one `--settings` (hooks, `allowedMcpServers`: stdio by name, remote by
+URL), strict dropped only for a connector, narrowed `--allowedTools`, a plugin
+dir in the attempt's folder (`--add-dir`, `Skill`, a deny rule per other skill
+the CLI lists, asked each launch where the session runs). `Session.grants` (not
+in `allowedSessionUpdates`) replays them every launch; skills are copied at
+fire, re-hashed at launch and in the plugin built from them, and a reopen
+loads that plugin only while it still holds them; `init` must show each
+granted server connected, and no server but those and Consola's own. A
+step's session keeps its harness while its run is open (provenance and run
+record, not `attention.holds()`), then loses its grants. "Reads text other
+people wrote" marks runs that carry an item. A card names a whole server's
+tools: Allow from the last answer, a run's approval from its definition,
+which keeps the answer the run was made with (`knownTools`, never a grant).
+Both show each skill's `SKILL.md` as what they accept holds it: Allow the
+version's, a run's approval its own copy's. Canary rows 20–28.
+
 ### Harnesses Are Launch Descriptions
 
 A harness is one configured agent CLI: a binary path, a config directory, and
@@ -1052,6 +1180,7 @@ All channel names are defined in `src/shared/constants.ts`. Key patterns:
 - `git:*` - Git status and commit message generation
 - `dialog:*` - Native dialogs
 - `app:*` - The machine Consola runs on: its name (`app:get-computer-name`), read once per run
+- `open-in:*` - "Open in" a session's folder: the apps main found (`open-in:list`), and opening one (`open-in:open`), which main checks first
 - `worktree-cleanup:*` - Cleanup preview, "Clean up now", history, and a deleted session's outcome
 - `browser:*` - In-app browser tabs, page actions and snapshots; every id is checked against the sender's workspace
 

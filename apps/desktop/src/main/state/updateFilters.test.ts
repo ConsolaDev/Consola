@@ -348,6 +348,25 @@ describe('allowedSessionUpdates', () => {
     expect(result.name).toBe('Legit rename');
   });
 
+  it("drops a step's grants", () => {
+    // What a step's agent was granted is compiled by main at launch and
+    // replayed on every launch: no window may write or widen it.
+    const grants = {
+      driverId: 'claude',
+      servers: [{ name: 'grafana' }],
+      skills: [],
+      strict: true,
+      allowedTools: ['mcp__grafana__*'],
+    };
+    expect(allowedSessionUpdates({ grants } as unknown as SessionUpdates)).toEqual({});
+  });
+
+  it('drops maxTurns', () => {
+    // A step's turn cap, from its file, is replayed on every unattended
+    // launch: like the tool policy, fixed for the session's life.
+    expect(allowedSessionUpdates({ maxTurns: 9 } as unknown as SessionUpdates)).toEqual({});
+  });
+
   it('drops every field that names the session or its terminal, and the retired lastActiveAt', () => {
     const payload = {
       id: 'attacker-controlled',

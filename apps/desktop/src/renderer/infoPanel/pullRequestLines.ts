@@ -64,28 +64,33 @@ export type ReviewerRing = 'approved' | 'changes-requested' | 'waiting';
  * beside a failure or a run, and the skipped beside a pass. A skipped,
  * neutral or stale check never counts as passed, as in the pane's own
  * `2 passed · 1 skipped`.
+ *
+ * The line reveals the merge card, where the pane lists the checks, only
+ * for an open pull request: the pane draws that card for nothing else, so a
+ * merged or closed one's line opens the tab only, as its title does.
  */
-export function checksLine(checks: WorkItemDetails['checks']): InfoLine | null {
-  const summary = summarizeChecks(checks);
+export function checksLine(details: Pick<WorkItemDetails, 'checks' | 'state'>): InfoLine | null {
+  const summary = summarizeChecks(details.checks);
   if (summary.total === 0) return null;
+  const reveal = details.state === 'open' ? { reveal: 'merge' as const } : {};
   const passed = `${summary.passing} ✓`;
   if (summary.failing > 0) {
     return {
       text: `${plural(summary.failing, 'check', 'checks')} failing`,
       value: passed,
       tone: 'error',
-      reveal: 'merge',
+      ...reveal,
     };
   }
-  if (summary.pending > 0) return { text: 'Checks running', value: passed, reveal: 'merge' };
+  if (summary.pending > 0) return { text: 'Checks running', value: passed, ...reveal };
   if (summary.passing > 0) {
     return {
       text: `${plural(summary.passing, 'check', 'checks')} passed`,
       ...(summary.skipped > 0 ? { value: `${summary.skipped} skipped` } : {}),
-      reveal: 'merge',
+      ...reveal,
     };
   }
-  return { text: `${plural(summary.skipped, 'check', 'checks')} skipped`, reveal: 'merge' };
+  return { text: `${plural(summary.skipped, 'check', 'checks')} skipped`, ...reveal };
 }
 
 /**

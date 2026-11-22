@@ -9,24 +9,41 @@
  * (`sidePanelStore.infoVisible`) is never written by this, so nothing is
  * saved: a relaunch at a wide window shows the panel as before.
  *
+ * While all three are on screen on a pane with that room, the conversation's
+ * 60 columns are its floor (`conversationKeepsRoom`): the panels give way
+ * before it does, and a split saved while the person kept the panel on a
+ * narrow pane, with the conversation down to 20%, never restores that narrow
+ * on a pane that holds the 60 columns.
+ *
  * The rule reads the pane's width only, never the conversation's. The panels
  * inside the pane do not change its width, so showing or hiding the info
  * panel cannot flip the rule back.
  */
 
-/** About 60 columns of the conversation's terminal at its default font size. */
+/**
+ * About 60 columns of the conversation's terminal at its default font size:
+ * its `minSize` in `ContentView` while it keeps room beside both panels.
+ */
 export const CONVERSATION_ROOM_PX = 480;
 /** The info panel's `defaultSize` in `ContentView`. */
 export const INFO_PANEL_DEFAULT_PX = 250;
 /** The side panel's `minSize` in `ContentView`. */
 export const SIDE_PANEL_MIN_PX = 280;
 /**
+ * The width of each separator between the session pane's panels: the
+ * `.resize-handle` rule in `components/Views/styles.css`, which must move
+ * with it. The panels' sizes are shares of what the separators leave.
+ */
+export const PANEL_SEPARATOR_PX = 8;
+/**
  * The narrowest session pane that holds all three: 60 columns of
  * conversation beside the info panel at its default width and the side panel
- * at its narrowest, 480 + 250 + 280 = 1010px. Narrower, with the side panel
- * open, the info panel steps aside.
+ * at its narrowest, with the two separators between them,
+ * 480 + 250 + 280 + 2 × 8 = 1026px. Narrower, with the side panel open, the
+ * info panel steps aside.
  */
-export const INFO_PANEL_ROOM_PX = CONVERSATION_ROOM_PX + INFO_PANEL_DEFAULT_PX + SIDE_PANEL_MIN_PX;
+export const INFO_PANEL_ROOM_PX =
+  CONVERSATION_ROOM_PX + INFO_PANEL_DEFAULT_PX + SIDE_PANEL_MIN_PX + 2 * PANEL_SEPARATOR_PX;
 
 export interface InfoPanelRoom {
   /** Whether the person wants the info panel: `sidePanelStore.infoVisible`. */
@@ -57,6 +74,17 @@ export function crowded({
  */
 export function infoPanelShown(room: InfoPanelRoom): boolean {
   return room.infoVisible && (room.keptByPerson || !crowded(room));
+}
+
+/**
+ * Whether the conversation keeps 60 columns (`CONVERSATION_ROOM_PX` as its
+ * `minSize`): while the info panel and the side panel are both on screen on
+ * a pane that holds all three. Otherwise its floor is 20% of the pane, as
+ * while the person keeps the info panel on a narrow pane, where 60 columns
+ * would leave the two panels too little.
+ */
+export function conversationKeepsRoom(room: InfoPanelRoom): boolean {
+  return infoPanelShown(room) && room.sidePanelVisible && !crowded(room);
 }
 
 /**

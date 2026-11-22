@@ -5,12 +5,16 @@ import {
   checksSentence,
   commentAge,
   diffBlocks,
+  errorAfterRead,
+  failureShownAtMount,
   fileStatus,
   isFailingCheck,
+  isNewReadFailure,
   itemStatus,
   mergeGate,
   mergeStateMeta,
   parsePatch,
+  readFailureMessage,
   reviewMeta,
   reviewVerb,
   sortChecks,
@@ -146,6 +150,49 @@ describe('conversation', () => {
     expect(commentAge('2026-08-01T09:00:00Z', now)).toMatch(/Aug/);
     expect(commentAge('', now)).toBe('');
     expect(commentAge('not a date', now)).toBe('');
+  });
+});
+
+describe('the head on reads', () => {
+  const said = { message: readFailureMessage('rate limited'), at: 100 };
+  const writeError = 'GitHub rejected this action: repository rules are not satisfied.';
+
+  it('says a failed read in its own words', () => {
+    expect(readFailureMessage('rate limited')).toBe('Could not refresh details: rate limited');
+  });
+
+  it('takes back the read failure it said once a later read succeeds, and not before', () => {
+    expect(errorAfterRead(said.message, said, 150)).toBe('');
+    expect(errorAfterRead(said.message, said, 100)).toBe(said.message);
+    expect(errorAfterRead(said.message, said, 50)).toBe(said.message);
+  });
+
+  it('a pane mounting on a held failure says it only when it has no details to show', () => {
+    const says = (entry: Parameters<typeof failureShownAtMount>[0]) =>
+      isNewReadFailure(entry?.errorAt, failureShownAtMount(entry));
+    // Its first read failed, and the item is opened again within the
+    // interval, so nothing reads: the failure is all the pane has to say.
+    expect(says({ errorAt: 100 })).toBe(true);
+    // With details to show, a failure from before it mounted is old news.
+    expect(says({ details: {}, errorAt: 100 })).toBe(false);
+    // No failure held, nothing to say.
+    expect(says({ details: {} })).toBe(false);
+    expect(says({})).toBe(false);
+    expect(says(undefined)).toBe(false);
+  });
+
+  it('a failure is news once, and a newer one is news again', () => {
+    expect(isNewReadFailure(100, undefined)).toBe(true);
+    expect(isNewReadFailure(100, 100)).toBe(false);
+    expect(isNewReadFailure(200, 100)).toBe(true);
+    expect(isNewReadFailure(undefined, 100)).toBe(false);
+  });
+
+  it('keeps whatever it says instead: a write’s error, or nothing once dismissed', () => {
+    expect(errorAfterRead(writeError, said, 150)).toBe(writeError);
+    expect(errorAfterRead('', said, 150)).toBe('');
+    // No read failure said, none to take back.
+    expect(errorAfterRead(writeError, null, 150)).toBe(writeError);
   });
 });
 

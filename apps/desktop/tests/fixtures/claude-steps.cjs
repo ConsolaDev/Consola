@@ -6,8 +6,10 @@
 // runner's own Node on this file with every argument.
 //
 //   --version            prints `2.0.0 (Claude Code)` (the health probe); logs nothing
-//   --input-format …     exits 1: the capabilities probe is refused, so it
-//                        neither counts as a launch nor waits out its timeout
+//   --input-format …     the control protocol (below) when STUB_CLAUDE_MCP or
+//                        STUB_CLAUDE_COMMANDS is set; else exits 1: the capabilities
+//                        probe is refused, so it neither counts as a launch nor waits
+//                        out its timeout
 //   anything else        appends `<cwd> :: <argv>` to STUB_CLAUDE_LOG (newlines
 //                        flattened), then:
 //   -p (print mode)      reads `--mcp-config <path>`, spawns its `mcpServers.consola`
@@ -28,6 +30,10 @@
 //                        --session-id, else --resume): the prompt (after `--`), then
 //                        `FINDINGS: done`. Then it prints `FINDINGS: done` and exits 0.
 //                        Its last log line is `END <id> exit <code>`: the turn is over.
+//   -p --output-format stream-json
+//                        the same turn, reported as the real CLI reports a step's turn
+//                        (below). Without that flag nothing of this changes, so every
+//                        caller that passes none behaves exactly as before.
 //   otherwise            shows an empty composer (`❯ `) and sleeps; with STUB_CLAUDE_CALLS
 //                        (below) it first makes those calls, as an agent in a session would.
 //
@@ -36,7 +42,28 @@
 // logged as `TOOL <name> ERROR <first line>`; a server that cannot be reached
 // as `MCP <what went wrong>`. The remaining calls are still made, then the
 // turn writes no findings, prints nothing to stdout, says so on stderr, and
-// exits 1. A launch that plans no call (neither file usable) is not a failure.
+// exits 1 (in stream-json the result says so instead, below). A launch that
+// plans no call (neither file usable) is not a failure.
+//
+// Stream-json (print mode with `--output-format stream-json`), one JSON line each:
+//   first, before any hold or gate, `system`/`init`: `session_id`, `model`
+//   (STUB_CLAUDE_MODEL, else `claude-stub-1`), `mcp_servers` (`consola`, connected,
+//   then the STUB_CLAUDE_MCP servers that load, below, each with its knob status),
+//   `tools` (`Read`, `Grep`, `Glob`, `Skill` when `--tools` lists it, then
+//   `mcp__<server>__<tool>` for each loaded server's tools, both names with every
+//   character outside [A-Za-z0-9_-] as `_`) and, with `--plugin-dir`, `skills` (its
+//   `consola-step:<n>`); then the hooks STUB_CLAUDE_HOOKS_FILE names, but StopFailure; then
+//   STUB_CLAUDE_HOLD; then the turn as above, with an `assistant` event holding one
+//   `tool_use` named `mcp__consola__<tool>` before each tool it calls; then
+//   STUB_CLAUDE_LIMIT's event, STUB_CLAUDE_STDERR's line and the StopFailure hook; last,
+//   `result`, its first key `duration_api_ms` as the real CLI's: `subtype`
+//   (STUB_CLAUDE_SUBTYPE, else `success`); `is_error` when that is not `success`, the
+//   limit is set or a call failed; `num_turns` (STUB_CLAUDE_TURNS, else 3);
+//   `total_cost_usd` (STUB_CLAUDE_COST, else 0.0123); `result`, the limit's text, else
+//   the failed call's line, else `FINDINGS: done`, and absent for `error_max_turns`;
+//   `permission_denials` (STUB_CLAUDE_DENIED). It exits 1 when `is_error`, else 0. The
+//   transcript and the `END` line are written as in text mode. A knob below that is
+//   only for stream-json does nothing in text mode, and none logs a line unless set.
 //
 // Env knobs:
 //   STUB_CLAUDE_LOG=path        the launch and tool log above
@@ -59,6 +86,67 @@
 //                               ERROR <first line>` for a failed one), then shows the composer.
 //                               Once per file: it writes `<path>.done` after, and a relaunch that
 //                               finds it makes none.
+//   Only in stream-json:
+//   STUB_CLAUDE_MODEL=name      `init`'s model; default `claude-stub-1`
+//   STUB_CLAUDE_COST=usd        the result's `total_cost_usd`; default 0.0123. A comma list
+//                               (`0.0015,0.003`) gives the n-th turn of a conversation its n-th
+//                               value, the last once it runs out, counted by the `END <id>`
+//                               lines in STUB_CLAUDE_LOG: the real CLI reports a resumed
+//                               turn's cost as the conversation's running total
+//   STUB_CLAUDE_TURNS=n         the result's `num_turns`; default 3. A comma list as above
+//   STUB_CLAUDE_SUBTYPE=name    the result's `subtype`; default `success`. Anything else is
+//                               `is_error`; `error_max_turns` has no `result` text
+//   STUB_CLAUDE_HOOKS_FILE=path read at each launch when the file exists: a JSON list of
+//                               `"<event>"` or `"<event>:<detail>"`, each POSTed as JSON
+//                               (`{ hook_event_name, session_id }`, plus `error: <detail>` for
+//                               StopFailure, `notification_type: <detail>` for Notification, and
+//                               `tool_name: 'Read'`, `tool_input: { file_path: 'src/catalog.ts' }`
+//                               for PermissionRequest) to the first `url` in `--settings`' hooks,
+//                               in order, logging `HOOK <event> <status>` (`HOOK <event> ERROR
+//                               <why>` when the post fails, `HOOK <event> no url` without one).
+//                               StopFailure is posted just before the result, the rest right
+//                               after `init`.
+//   STUB_CLAUDE_HOLD=path       after `init` and the early hooks, waits for this file, logging
+//                               `HOLD waiting`, then `HOLD open`, or `HOLD timed out` and exits 1
+//                               after 60 s, before any tool call. A test holds a turn open with it.
+//   STUB_CLAUDE_STDERR=text     one line on stderr before the result
+//   STUB_CLAUDE_LIMIT=1         an `assistant` event with `"error":"rate_limit"` and the text
+//                               `You've hit your limit · resets 3pm (Europe/Madrid)` before the
+//                               result, and that text as the result's
+//   STUB_CLAUDE_DENIED=a,b      each name as a `permission_denials` entry, `{ tool_name,
+//                               tool_use_id: 'toolu_denied_<n>', tool_input: {} }`, in order
+//
+// The servers a profile has, and which of them a launch loads (stream-json and the
+// control protocol alike, read again by every process):
+//   STUB_CLAUDE_MCP=path        a JSON array of `{ name, scope: 'dynamic' | 'claudeai',
+//                               type: 'stdio' | 'http' | 'claudeai-proxy', url?, status,
+//                               tools?: string[] }`: a `dynamic` one is a user server, in the
+//                               account file, so it loads only when a `--mcp-config` value (the
+//                               flag takes every value up to the next flag; the first is
+//                               Consola's) ends `/.claude.json`; a `claudeai` one is a
+//                               connector, which loads unless `--strict-mcp-config`. Then, when
+//                               `--settings` holds `allowedMcpServers`, a `stdio` server stays
+//                               only by its `serverName`, and only when that name is all
+//                               [A-Za-z0-9_-] (the real CLI blocks any other, canary row 22);
+//                               an `http` or `claudeai-proxy` one only by its `serverUrl`, or
+//                               by `serverName` while the list has no `serverUrl` entry (spike
+//                               Q1f7). The ones it drops are named on stderr as the real CLI
+//                               names them: `Warning: MCP server blocked by enterprise policy:
+//                               <name>` (`servers`, comma-joined, for several).
+//
+// The control protocol (`--input-format stream-json`, only with STUB_CLAUDE_MCP or
+// STUB_CLAUDE_COMMANDS set): it reads `control_request` lines and answers each with a
+// `control_response`, logging `CONTROL <subtype> in <cwd> with <argv>` (newlines
+// flattened; no ` :: `, so a launch filter skips it), and exits once stdin ends:
+//   initialize                  `{ commands, agents: [], models: opus and haiku }`, `commands`
+//                               being STUB_CLAUDE_COMMANDS' names (`a,b`), then `consola-step:<n>`
+//                               for each `<--plugin-dir>/skills/<n>/SKILL.md`
+//   mcp_status                  `{ mcpServers: [{ name, status, scope, config: { type, url? },
+//                               tools?: [{ name }] }] }` for the STUB_CLAUDE_MCP servers that
+//                               load, none when it is unset, and an error, `STUB_CLAUDE_MCP names
+//                               no file`, while its file does not exist (a probe that fails until
+//                               a test writes it)
+//   anything else               an error at once, `the stub does not answer <subtype>`
 'use strict';
 const fs = require('node:fs');
 const path = require('node:path');
@@ -70,6 +158,10 @@ const PROTOCOL_VERSION = '2025-06-18';
 const REQUEST_TIMEOUT_MS = 20_000;
 /** How long a resumed turn waits for STUB_CLAUDE_RESUME_GATE before failing: under the 60 s a test waits for its run. */
 const GATE_TIMEOUT_MS = 30_000;
+/** How long a turn waits for STUB_CLAUDE_HOLD before failing. */
+const HOLD_TIMEOUT_MS = 60_000;
+/** What the CLI says when a turn stops on a usage limit. */
+const LIMIT_TEXT = "You've hit your limit · resets 3pm (Europe/Madrid)";
 
 const args = process.argv.slice(2);
 const dashes = args.indexOf('--');
@@ -86,6 +178,99 @@ function flagValue(name) {
   const at = flags.indexOf(name);
   return at === -1 ? undefined : flags[at + 1];
 }
+
+/** Every value after `name`, up to the next flag: `--mcp-config` takes several. */
+function flagValues(name) {
+  const at = flags.indexOf(name);
+  if (at === -1) return [];
+  const values = [];
+  for (const value of flags.slice(at + 1)) {
+    if (value.startsWith('--')) break;
+    values.push(value);
+  }
+  return values;
+}
+
+/** A server's or tool's name as Claude writes it in a tool's name. */
+function flattened(name) {
+  return name.replace(/[^A-Za-z0-9_-]/g, '_');
+}
+
+/** The only names `allowedMcpServers` keeps a stdio server by (canary row 22). */
+const KEPT_BY_NAME = /^[A-Za-z0-9_-]+$/;
+
+/**
+ * STUB_CLAUDE_MCP's servers as this launch loads them: `{ kept, blocked }`, or
+ * `{ missing: true }` while the knob names a file that is not there.
+ */
+function loadedServers() {
+  const file = process.env.STUB_CLAUDE_MCP;
+  if (!file) return { kept: [], blocked: [] };
+  if (!fs.existsSync(file)) return { missing: true, kept: [], blocked: [] };
+  const servers = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const strict = flags.includes('--strict-mcp-config');
+  const accountFile = flagValues('--mcp-config').some((value) => value.endsWith('/.claude.json'));
+  const loads = servers.filter((server) =>
+    server.scope === 'claudeai' ? !strict : server.scope === 'dynamic' && accountFile,
+  );
+  const settings = flagValue('--settings');
+  const allowed = settings ? JSON.parse(settings).allowedMcpServers : undefined;
+  if (!Array.isArray(allowed)) return { kept: loads, blocked: [] };
+  const anyUrl = allowed.some((entry) => typeof entry.serverUrl === 'string');
+  const byName = (name) => allowed.some((entry) => entry.serverName === name);
+  const keeps = (server) =>
+    server.type === 'stdio'
+      ? KEPT_BY_NAME.test(server.name) && byName(server.name)
+      : allowed.some((entry) => entry.serverUrl === server.url) || (!anyUrl && byName(server.name));
+  return { kept: loads.filter(keeps), blocked: loads.filter((server) => !keeps(server)) };
+}
+
+/** How the real CLI names the servers its allow-list dropped, on stderr. */
+function warnBlocked(blocked) {
+  if (blocked.length === 0) return;
+  const names = blocked.map((server) => server.name).join(', ');
+  const noun = blocked.length === 1 ? 'server' : 'servers';
+  process.stderr.write(`Warning: MCP ${noun} blocked by enterprise policy: ${names}\n`);
+}
+
+/** `consola-step:<n>` for each `<--plugin-dir>/skills/<n>/SKILL.md`; none without the flag. */
+function pluginSkills() {
+  const dir = flagValue('--plugin-dir');
+  if (!dir) return [];
+  const skills = path.join(dir, 'skills');
+  if (!fs.existsSync(skills)) return [];
+  return fs
+    .readdirSync(skills)
+    .sort()
+    .filter((name) => fs.existsSync(path.join(skills, name, 'SKILL.md')))
+    .map((name) => `consola-step:${name}`);
+}
+
+/** Print mode reporting its turn as the real CLI's stream-json. */
+const STREAM_JSON = flagValue('--output-format') === 'stream-json';
+/** The conversation this launch speaks in. */
+const SESSION_ID = flagValue('--session-id') ?? flagValue('--resume');
+
+/** The first call that failed, logged as it was: a stream-json turn's result says it. */
+let failure = null;
+
+/** Logs a line that fails the turn, remembering the first. */
+function logFailure(line) {
+  log(line);
+  failure ??= line;
+}
+
+/** One stream-json event, on its own line. */
+function emit(event) {
+  if (STREAM_JSON) process.stdout.write(JSON.stringify(event) + '\n');
+}
+
+/** Writes `text`, resolving once it is handed over, so what follows comes after it. */
+function writeOut(stream, text) {
+  return new Promise((resolve) => stream.write(text, resolve));
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** A file's text, or null when the knob is unset or the file is absent. */
 function readKnob(name) {
@@ -191,12 +376,12 @@ function plannedCalls() {
 async function withConsola(use) {
   const configPath = flagValue('--mcp-config');
   if (!configPath) {
-    log('MCP no --mcp-config');
+    logFailure('MCP no --mcp-config');
     return false;
   }
   const server = JSON.parse(fs.readFileSync(configPath, 'utf8')).mcpServers?.consola;
   if (!server) {
-    log(`MCP no mcpServers.consola in ${configPath}`);
+    logFailure(`MCP no mcpServers.consola in ${configPath}`);
     return false;
   }
   const client = connect(server);
@@ -204,15 +389,34 @@ async function withConsola(use) {
     await client.initialize();
     return await use(client);
   } catch (error) {
-    log(`MCP ${firstLine(error.message)}`);
+    logFailure(`MCP ${firstLine(error.message)}`);
     return false;
   } finally {
     client.close();
   }
 }
 
+let toolUses = 0;
+
 /** One call: its text and whether it failed (an `isError` answer or a rejected call). */
 async function call(client, name, toolArgs) {
+  // How the real CLI's stream shows a call it is about to make.
+  emit({
+    type: 'assistant',
+    message: {
+      role: 'assistant',
+      type: 'message',
+      content: [
+        {
+          type: 'tool_use',
+          id: `toolu_stub_${++toolUses}`,
+          name: `mcp__consola__${name}`,
+          input: toolArgs,
+        },
+      ],
+    },
+    session_id: SESSION_ID,
+  });
   try {
     const result = await client.callTool(name, toolArgs);
     const text = (result?.content ?? []).find((part) => part.type === 'text')?.text ?? '';
@@ -228,8 +432,11 @@ async function callTools(client, calls) {
   let ok = true;
   for (const [name, toolArgs] of calls) {
     const { text, failed } = await call(client, name, toolArgs);
-    if (failed) ok = false;
-    log(`TOOL ${name} ${failed ? 'ERROR ' : ''}${firstLine(text)}`);
+    const line = `TOOL ${name} ${failed ? 'ERROR ' : ''}${firstLine(text)}`;
+    if (failed) {
+      ok = false;
+      logFailure(line);
+    } else log(line);
   }
   return ok;
 }
@@ -267,8 +474,111 @@ async function passGate() {
   return true;
 }
 
+/** The hooks STUB_CLAUDE_HOOKS_FILE names, as `[event, detail]`; none when it is unset or absent. */
+function plannedHooks() {
+  const text = readKnob('STUB_CLAUDE_HOOKS_FILE');
+  if (text === null) return [];
+  return JSON.parse(text).map((entry) => {
+    const at = entry.indexOf(':');
+    return at === -1 ? [entry, undefined] : [entry.slice(0, at), entry.slice(at + 1)];
+  });
+}
+
+/** The first `url` among `--settings`' hook handlers, where Consola's endpoint listens. */
+function hookUrl() {
+  const settings = flagValue('--settings');
+  if (!settings) return undefined;
+  for (const groups of Object.values(JSON.parse(settings).hooks ?? {})) {
+    for (const group of groups) {
+      for (const handler of group.hooks ?? []) if (handler.url) return handler.url;
+    }
+  }
+  return undefined;
+}
+
+/** Posts one hook as Claude's http hook would, logging `HOOK <event> <status>`. */
+async function postHook([event, detail]) {
+  const url = hookUrl();
+  if (!url) {
+    log(`HOOK ${event} no url`);
+    return;
+  }
+  const body = { hook_event_name: event, session_id: SESSION_ID };
+  if (event === 'StopFailure' && detail !== undefined) body.error = detail;
+  if (event === 'Notification' && detail !== undefined) body.notification_type = detail;
+  if (event === 'PermissionRequest') {
+    body.tool_name = 'Read';
+    body.tool_input = { file_path: 'src/catalog.ts' };
+  }
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+    await response.arrayBuffer();
+    log(`HOOK ${event} ${response.status}`);
+  } catch (error) {
+    log(`HOOK ${event} ERROR ${firstLine(error.message)}`);
+  }
+}
+
+/** STUB_CLAUDE_HOLD: waits for its file, so a test can look at a turn mid-way; false when it never came. */
+async function hold() {
+  const file = process.env.STUB_CLAUDE_HOLD;
+  if (!file) return true;
+  log('HOLD waiting');
+  const until = Date.now() + HOLD_TIMEOUT_MS;
+  while (!fs.existsSync(file)) {
+    if (Date.now() > until) {
+      log('HOLD timed out');
+      return false;
+    }
+    await sleep(50);
+  }
+  log('HOLD open');
+  return true;
+}
+
+/** STUB_CLAUDE_DENIED's names, as the result's `permission_denials`. */
+function permissionDenials() {
+  return (process.env.STUB_CLAUDE_DENIED ?? '')
+    .split(',')
+    .map((name) => name.trim())
+    .filter(Boolean)
+    .map((name, index) => ({
+      tool_name: name,
+      tool_use_id: `toolu_denied_${index + 1}`,
+      tool_input: {},
+    }));
+}
+
+/** How many turns of this conversation ended before this one: its `END <id>` lines in the log. */
+function turnsBefore() {
+  const file = process.env.STUB_CLAUDE_LOG;
+  if (!file || !fs.existsSync(file)) return 0;
+  const ended = `END ${SESSION_ID} `;
+  return fs
+    .readFileSync(file, 'utf8')
+    .split('\n')
+    .filter((line) => line.startsWith(ended)).length;
+}
+
+/**
+ * A number knob, or its default when unset. A comma list gives the n-th turn
+ * of a conversation its n-th value (`turnsBefore`), and the last once the
+ * list runs out.
+ */
+function numberKnob(name, fallback) {
+  const value = process.env[name];
+  if (!value) return fallback;
+  const values = value.split(',');
+  return Number(values[Math.min(turnsBefore(), values.length - 1)]);
+}
+
 async function printTurn() {
-  const id = flagValue('--session-id') ?? flagValue('--resume');
+  const id = SESSION_ID;
   // The last line a turn logs, so a test can tell it is over.
   const end = (code, stream, text) => {
     log(`END ${id} exit ${code}`);
@@ -281,7 +591,38 @@ async function printTurn() {
   // the records from its start, and a second-truncated stamp would fall before it.
   const record = (type, content) =>
     JSON.stringify({ type, timestamp: new Date().toISOString(), message: { role: type, content } });
+  const findings = () =>
+    fs.appendFileSync(
+      transcript,
+      record('assistant', [{ type: 'text', text: 'FINDINGS: done' }]) + '\n',
+    );
   fs.appendFileSync(transcript, record('user', prompt) + '\n');
+  const hooks = STREAM_JSON ? plannedHooks() : [];
+  if (STREAM_JSON) {
+    const { kept, blocked } = loadedServers();
+    warnBlocked(blocked);
+    const skillTool = (flagValue('--tools') ?? '').split(',').includes('Skill') ? ['Skill'] : [];
+    const serverTools = kept.flatMap((server) =>
+      (server.tools ?? []).map((tool) => `mcp__${flattened(server.name)}__${flattened(tool)}`),
+    );
+    emit({
+      type: 'system',
+      subtype: 'init',
+      session_id: id,
+      model: process.env.STUB_CLAUDE_MODEL || 'claude-stub-1',
+      mcp_servers: [
+        { name: 'consola', status: 'connected' },
+        ...kept.map((server) => ({ name: server.name, status: server.status })),
+      ],
+      tools: ['Read', 'Grep', 'Glob', ...skillTool, ...serverTools],
+      ...(flagValue('--plugin-dir') === undefined ? {} : { skills: pluginSkills() }),
+    });
+    for (const hook of hooks) if (hook[0] !== 'StopFailure') await postHook(hook);
+    if (!(await hold())) {
+      end(1, process.stderr, 'stub claude: STUB_CLAUDE_HOLD never appeared\n');
+      return;
+    }
+  }
   if (!(await passGate())) {
     end(1, process.stderr, 'stub claude: STUB_CLAUDE_RESUME_GATE never opened\n');
     return;
@@ -293,22 +634,68 @@ async function printTurn() {
     (await withConsola(
       async (client) => (await readDocuments(client, reads)) && callTools(client, calls),
     ));
-  if (!ok) {
-    // A turn whose tool failed is a failed turn: no findings, a non-zero exit.
-    end(1, process.stderr, 'stub claude: a step tool call failed (see STUB_CLAUDE_LOG)\n');
+  if (!STREAM_JSON) {
+    if (!ok) {
+      // A turn whose tool failed is a failed turn: no findings, a non-zero exit.
+      end(1, process.stderr, 'stub claude: a step tool call failed (see STUB_CLAUDE_LOG)\n');
+      return;
+    }
+    findings();
+    end(0, process.stdout, 'FINDINGS: done\n');
     return;
   }
-  fs.appendFileSync(
-    transcript,
-    record('assistant', [{ type: 'text', text: 'FINDINGS: done' }]) + '\n',
+  const limit = process.env.STUB_CLAUDE_LIMIT === '1';
+  const subtype = process.env.STUB_CLAUDE_SUBTYPE || 'success';
+  const isError = subtype !== 'success' || limit || !ok;
+  if (limit) {
+    emit({
+      type: 'assistant',
+      message: {
+        role: 'assistant',
+        type: 'message',
+        content: [{ type: 'text', text: LIMIT_TEXT }],
+      },
+      session_id: id,
+      error: 'rate_limit',
+      is_api_error_message: true,
+    });
+  }
+  if (process.env.STUB_CLAUDE_STDERR)
+    await writeOut(process.stderr, `${process.env.STUB_CLAUDE_STDERR}\n`);
+  for (const hook of hooks) if (hook[0] === 'StopFailure') await postHook(hook);
+  const text =
+    subtype === 'error_max_turns'
+      ? undefined
+      : limit
+        ? LIMIT_TEXT
+        : !ok
+          ? (failure ?? 'a step tool call failed')
+          : 'FINDINGS: done';
+  // As in text mode: only a turn that finished leaves its findings in the transcript.
+  if (!isError) findings();
+  end(
+    isError ? 1 : 0,
+    process.stdout,
+    JSON.stringify({
+      duration_api_ms: 0,
+      type: 'result',
+      subtype,
+      is_error: isError,
+      num_turns: numberKnob('STUB_CLAUDE_TURNS', 3),
+      total_cost_usd: numberKnob('STUB_CLAUDE_COST', 0.0123),
+      ...(text === undefined ? {} : { result: text }),
+      permission_denials: permissionDenials(),
+      api_error_status: null,
+      session_id: id,
+    }) + '\n',
   );
-  end(0, process.stdout, 'FINDINGS: done\n');
 }
 
 if (flags.includes('--version')) {
   process.stdout.write('2.0.0 (Claude Code)\n');
 } else if (flags.includes('--input-format')) {
-  process.exitCode = 1;
+  if (process.env.STUB_CLAUDE_MCP || process.env.STUB_CLAUDE_COMMANDS) control();
+  else process.exitCode = 1;
 } else {
   log(`${process.cwd()} :: ${args.join(' ')}`);
   if (flags.includes('-p')) {
@@ -334,4 +721,69 @@ async function interactive() {
     await withConsola((client) => callTools(client, calls));
   }
   process.stdout.write('❯ ');
+}
+
+/** One control request's answer: `{ response }`, or `{ error }`. */
+function answer(subtype) {
+  if (subtype === 'initialize') {
+    const commands = (process.env.STUB_CLAUDE_COMMANDS ?? '')
+      .split(',')
+      .map((name) => name.trim())
+      .filter(Boolean);
+    return {
+      response: {
+        commands: [...commands, ...pluginSkills()].map((name) => ({ name })),
+        agents: [],
+        models: [
+          { value: 'opus', displayName: 'Opus' },
+          { value: 'haiku', displayName: 'Haiku' },
+        ],
+      },
+    };
+  }
+  if (subtype === 'mcp_status') {
+    const { missing, kept } = loadedServers();
+    if (missing) return { error: 'STUB_CLAUDE_MCP names no file' };
+    return {
+      response: {
+        mcpServers: kept.map((server) => ({
+          name: server.name,
+          status: server.status,
+          scope: server.scope,
+          config: { type: server.type, ...(server.url === undefined ? {} : { url: server.url }) },
+          ...(server.tools === undefined ? {} : { tools: server.tools.map((name) => ({ name })) }),
+        })),
+      },
+    };
+  }
+  return { error: `the stub does not answer ${subtype}` };
+}
+
+/** The control protocol: each `control_request` answered in turn; done once stdin ends. */
+function control() {
+  warnBlocked(loadedServers().blocked);
+  let writes = Promise.resolve();
+  readline
+    .createInterface({ input: process.stdin })
+    .on('line', (line) => {
+      let message;
+      try {
+        message = JSON.parse(line);
+      } catch {
+        return;
+      }
+      if (message?.type !== 'control_request') return;
+      const subtype = message.request?.subtype;
+      log(`CONTROL ${subtype} in ${process.cwd()} with ${args.join(' ')}`);
+      const { response, error } = answer(subtype);
+      const reply =
+        error === undefined
+          ? { subtype: 'success', request_id: message.request_id, response }
+          : { subtype: 'error', request_id: message.request_id, error };
+      const text = `${JSON.stringify({ type: 'control_response', response: reply })}\n`;
+      writes = writes.then(() => writeOut(process.stdout, text));
+    })
+    .on('close', () => {
+      writes.then(() => process.exit(0));
+    });
 }

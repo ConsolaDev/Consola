@@ -14,6 +14,21 @@ import { type SidePanelLayout, visibleGroups } from './layout';
 /** Which dot draws a mark: the accent one for an agent's use, the red one for something wrong. */
 export type MarkTone = 'agent' | 'alert';
 
+/**
+ * The dots a button draws for the marks it carries, one attribute per tone.
+ * A shortcut or a tab holds one kind, so at most one; the side panel toggle
+ * can carry both.
+ */
+export function markDots(marks: readonly { tone: MarkTone }[]): {
+  'data-agent-dot'?: true;
+  'data-alert-dot'?: true;
+} {
+  return {
+    'data-agent-dot': marks.some((mark) => mark.tone === 'agent') || undefined,
+    'data-alert-dot': marks.some((mark) => mark.tone === 'alert') || undefined,
+  };
+}
+
 export interface MarkPlaces {
   shortcut: boolean;
   tab: boolean;

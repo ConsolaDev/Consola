@@ -1,6 +1,7 @@
 import { type RefObject, useLayoutEffect } from 'react';
 import { create } from 'zustand';
 import {
+  conversationKeepsRoom,
   infoPanelShown,
   keepAfter,
   toggledInfoPanel,
@@ -52,18 +53,28 @@ export function infoPanelShownNow(): boolean {
   return infoPanelShown(roomNow());
 }
 
-/** Whether the info panel is on screen; renders again only when that changes. */
-export function useInfoPanelShown(): boolean {
+/** One answer about the room; renders again only when the answer changes, never per resize. */
+function useRoomAnswer(answer: (room: InfoPanelRoom) => boolean): boolean {
   const infoVisible = useSidePanelStore((state) => state.infoVisible);
   const sidePanelVisible = useSidePanelStore((state) => state.layout.visible);
   return useInfoPanelRoomStore((state) =>
-    infoPanelShown({
+    answer({
       infoVisible,
       sidePanelVisible,
       contentWidth: state.contentWidth,
       keptByPerson: state.keptByPerson,
     }),
   );
+}
+
+/** Whether the info panel is on screen; renders again only when that changes. */
+export function useInfoPanelShown(): boolean {
+  return useRoomAnswer(infoPanelShown);
+}
+
+/** Whether the conversation keeps 60 columns beside both panels (`conversationKeepsRoom`). */
+export function useConversationKeepsRoom(): boolean {
+  return useRoomAnswer(conversationKeepsRoom);
 }
 
 /**

@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { isBuiltin } from 'node:module';
 import { dirname, join, posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -12,7 +12,8 @@ import { describe, expect, it } from 'vitest';
  * them together. `config.ts` is shared configuration that any adapter may read. `domain` and
  * `application` also reach no global that touches the machine (`process`, `fetch`, timers).
  * Test files are exempt from the layer rules, since they wire real pieces together the way the
- * ring does.
+ * ring does. Of the workspace's packages, only the contract `cloud-global` shares with the cells
+ * may be imported.
  */
 
 const SRC = dirname(fileURLToPath(import.meta.url));
@@ -47,7 +48,13 @@ const MACHINE_GLOBALS = [
   'global',
 ];
 
-const ADAPTERS = ['adapters/persistence', 'adapters/auth', 'adapters/http'];
+const ADAPTERS = [
+  'adapters/persistence',
+  'adapters/auth',
+  'adapters/http',
+  'adapters/cellToken',
+  'adapters/outbox',
+];
 const RING = ['compose', 'main', 'startupError'];
 
 const LAYERS: Layer[] = [
@@ -66,21 +73,55 @@ const LAYERS: Layer[] = [
   {
     at: 'adapters/persistence',
     reaches: ['domain', 'application', 'adapters/persistence', 'config'],
-    refuses: ['hono', '@hono/*', 'better-auth', '@better-auth/*'],
+    refuses: ['hono', '@hono/*', 'better-auth', '@better-auth/*', 'jose'],
     noGlobals: [],
   },
   {
     // No database library either: its hooks call use cases, and the stores run the queries.
     at: 'adapters/auth',
     reaches: ['domain', 'application', 'adapters/auth', 'adapters/persistence', 'config'],
-    refuses: ['hono', '@hono/*', 'drizzle-orm', '@electric-sql/pglite', 'pg'],
+    refuses: ['hono', '@hono/*', 'drizzle-orm', '@electric-sql/pglite', 'pg', 'jose'],
     noGlobals: [],
   },
   {
     // Not `adapters/auth` either: that would bring Better Auth in through the side door.
     at: 'adapters/http',
     reaches: ['domain', 'application', 'adapters/http', 'config'],
-    refuses: ['better-auth', '@better-auth/*', 'drizzle-orm', '@electric-sql/pglite', 'pg'],
+    refuses: ['better-auth', '@better-auth/*', 'drizzle-orm', '@electric-sql/pglite', 'pg', 'jose'],
+    noGlobals: [],
+  },
+  {
+    // Signing the cell token, with `jose`: the only place that holds the private key, and the
+    // only one that imports `jose`.
+    at: 'adapters/cellToken',
+    reaches: ['domain', 'application', 'adapters/cellToken', 'config'],
+    refuses: [
+      'hono',
+      '@hono/*',
+      'better-auth',
+      '@better-auth/*',
+      'drizzle-orm',
+      '@electric-sql/pglite',
+      'pg',
+    ],
+    noGlobals: [],
+  },
+  {
+    // Delivering the outbox: the worker's timers and the request to a cell, with `fetch`. It is
+    // handed the store and the signer as ports, so no library: never the database, which the
+    // store queries, nor `jose`, since only `adapters/cellToken` holds the key.
+    at: 'adapters/outbox',
+    reaches: ['domain', 'application', 'adapters/outbox', 'config'],
+    refuses: [
+      'hono',
+      '@hono/*',
+      'better-auth',
+      '@better-auth/*',
+      'drizzle-orm',
+      '@electric-sql/pglite',
+      'pg',
+      'jose',
+    ],
     noGlobals: [],
   },
   // A pure parser of the environment, so it reaches no other file and no I/O.
@@ -94,8 +135,19 @@ const LAYERS: Layer[] = [
   })),
 ];
 
-/** What every file, tests included, may never import: another app or a workspace package. */
-const NEVER = ['@consola/*'];
+/**
+ * The one workspace package any file may import, from any layer: the contract `cloud-global`
+ * shares with the cells (`packages/cloud-contract`). It does no I/O, which its own boundary test
+ * proves, so `domain` and `application` may import it, and it is the only package they may. Only
+ * its entry point counts: a path inside it is refused like any other workspace package.
+ */
+const CLOUD_CONTRACT = '@consola/cloud-contract';
+
+/**
+ * What every file, tests included, may never import: another app or a workspace package but the
+ * contract (`consola` is the desktop app's name).
+ */
+const NEVER = ['@consola/*', 'consola'];
 
 const SOURCE_EXTENSION = /\.(?:[cm]?[jt]s|tsx)$/;
 const isTestFile = (file: string): boolean => /\.test\.(?:[cm]?[jt]s|tsx)$/.test(file);
@@ -266,6 +318,7 @@ function violationsOf(file: string, source: string): string[] {
       const reached = layerOf(target);
       return !reached || !own?.reaches.includes(reached.at);
     }
+    if (specifier === CLOUD_CONTRACT) return false;
     if (NEVER.some((pattern) => matches(pattern, specifier))) return true;
     if (test) return false;
     return own?.refuses.some((pattern) => matches(pattern, specifier)) ?? false;
@@ -279,6 +332,17 @@ function violationsOf(file: string, source: string): string[] {
       ? []
       : [...new Set(referencesOf(source, file).filter((name) => own.noGlobals.includes(name)))];
   return [...imports, ...globals.map((name) => `${file} uses ${name}`)];
+}
+
+/** The name of every package in the workspace: each folder in `apps/` and `packages/`. */
+function workspacePackages(): string[] {
+  const root = join(SRC, '..', '..', '..');
+  return ['apps', 'packages'].flatMap((group) =>
+    readdirSync(join(root, group), { withFileTypes: true })
+      .map((entry) => join(root, group, entry.name, 'package.json'))
+      .filter((manifest) => existsSync(manifest))
+      .map((manifest) => (JSON.parse(readFileSync(manifest, 'utf8')) as { name: string }).name),
+  );
 }
 
 /** Every source file under `src/`, relative to it. */
@@ -359,6 +423,40 @@ describe('the dependency rule', () => {
     ['adapters/http/x.ts', '../persistence/database.js', false],
     ['adapters/http/x.ts', '../auth/betterAuth.js', false],
     ['adapters/http/x.ts', '../../main.js', false],
+    ['adapters/http/x.ts', 'jose', false],
+    ['adapters/http/x.ts', '../cellToken/cellTokenSigner.js', false],
+    ['adapters/persistence/x.ts', 'jose', false],
+    ['adapters/auth/x.ts', 'jose', false],
+    ['adapters/cellToken/x.ts', 'jose', true],
+    ['adapters/cellToken/x.ts', 'node:crypto', true],
+    ['adapters/cellToken/x.ts', '../../config.js', true],
+    ['adapters/cellToken/x.ts', '../../application/ports.js', true],
+    ['adapters/cellToken/x.ts', 'hono', false],
+    ['adapters/cellToken/x.ts', 'better-auth', false],
+    ['adapters/cellToken/x.ts', 'drizzle-orm', false],
+    ['adapters/cellToken/x.ts', 'pg', false],
+    ['adapters/cellToken/x.ts', '../persistence/database.js', false],
+    ['adapters/cellToken/x.ts', '../http/app.js', false],
+    ['adapters/cellToken/x.ts', '../../compose.js', false],
+    ['adapters/cellToken/x.ts', '@consola/cloud-contract', true],
+    ['adapters/outbox/x.ts', '../../application/outbox.js', true],
+    ['adapters/outbox/x.ts', '../../config.js', true],
+    ['adapters/outbox/x.ts', '@consola/cloud-contract', true],
+    ['adapters/outbox/x.ts', 'jose', false],
+    ['adapters/outbox/x.ts', 'drizzle-orm', false],
+    ['adapters/outbox/x.ts', 'pg', false],
+    ['adapters/outbox/x.ts', 'hono', false],
+    ['adapters/outbox/x.ts', 'better-auth', false],
+    ['adapters/outbox/x.ts', '../persistence/outboxStore.js', false],
+    ['adapters/outbox/x.ts', '../cellToken/cellTokenSigner.js', false],
+    ['adapters/outbox/x.ts', '../../compose.js', false],
+    ['adapters/persistence/x.ts', '../outbox/outboxWorker.js', false],
+    ['adapters/http/x.ts', '../outbox/outboxWorker.js', false],
+    ['compose.ts', './adapters/outbox/outboxWorker.js', true],
+    ['main.ts', './adapters/outbox/outboxWorker.js', true],
+    ['domain/x.ts', 'jose', false],
+    ['application/x.ts', 'jose', false],
+    ['compose.ts', './adapters/cellToken/cellTokenSigner.js', true],
     ['config.ts', 'zod', true],
     ['config.ts', 'node:fs', false],
     ['config.ts', './domain/organization.js', false],
@@ -368,10 +466,36 @@ describe('the dependency rule', () => {
     ['domain/x.ts', './y.test.js', false],
     ['domain/x.test.ts', '../adapters/http/app.js', true],
     ['x.test.ts', '../../desktop/src/x.js', false],
+    ['domain/x.ts', '@consola/cloud-contract', true],
+    ['application/x.ts', '@consola/cloud-contract', true],
+    ['adapters/persistence/x.ts', '@consola/cloud-contract', true],
+    ['adapters/auth/x.ts', '@consola/cloud-contract', true],
+    ['adapters/http/x.ts', '@consola/cloud-contract', true],
+    ['config.ts', '@consola/cloud-contract', true],
+    ['compose.ts', '@consola/cloud-contract', true],
+    ['x.test.ts', '@consola/cloud-contract', true],
+    ['domain/x.ts', '@consola/cloud-contract/dist/region.js', false],
+    ['compose.ts', '@consola/cloud-contracts', false],
+    ['domain/x.ts', '../../../../packages/cloud-contract/src/region.js', false],
+    ['compose.ts', 'consola', false],
   ])('%s importing %s is allowed: %s', (file, specifier, allowed) => {
     expect(violationsOf(file, `import x from '${specifier}';`)).toEqual(
       allowed ? [] : [`${file} imports ${specifier}`],
     );
+  });
+
+  it('the checker refuses every workspace package but the contract, wherever it is imported', () => {
+    const packages = workspacePackages();
+    expect(packages).toContain(CLOUD_CONTRACT);
+    expect(packages).toContain('@consola/cloud-global');
+    expect(packages.length).toBeGreaterThan(5);
+    // The ring refuses no package of its own and tests are exempt from the layer rules, so only
+    // NEVER stands between them and a workspace package.
+    for (const file of ['compose.ts', 'adapters/http/x.ts', 'domain/x.ts', 'x.test.ts']) {
+      for (const name of packages.filter((p) => p !== CLOUD_CONTRACT)) {
+        expect(violationsOf(file, `import x from '${name}';`)).toEqual([`${file} imports ${name}`]);
+      }
+    }
   });
 
   it('the checker reports a global that reaches the machine', () => {

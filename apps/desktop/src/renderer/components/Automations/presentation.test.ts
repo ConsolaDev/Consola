@@ -54,6 +54,9 @@ import {
   runsByDay,
   statusCountsInWords,
   yamlTokens,
+  issuesByFile,
+  issuesTitle,
+  noticesLine,
   type RunListFilter,
   type YamlToken,
 } from './presentation';
@@ -96,6 +99,7 @@ function snapshot(
     fileExists: true,
     automations,
     issues: [],
+    notices: [],
     runs,
     hasOlder: false,
     queue: {},
@@ -1482,5 +1486,74 @@ describe('runAgainTarget', () => {
       },
     });
     expect(runAgainTarget(old as RunRecord)).toBeNull();
+  });
+});
+
+describe('issuesByFile', () => {
+  it('groups by file in first-seen order, issues in theirs, a file-less one under factory.yml', () => {
+    const a = { message: 'a', path: 'tools', line: 4, file: 'agents/reviewer.md' };
+    const b = { message: 'b', path: 'mode', line: 3, file: 'automations/catalog-review.yaml' };
+    const c = { message: 'c', path: 'model', line: 5, file: 'agents/reviewer.md' };
+    const d = { message: 'd', path: 'automations[0].mode', line: 6 };
+    const e = { message: 'e', path: '', file: 'factory.yml' };
+    expect(issuesByFile([a, b, c, d, e])).toEqual([
+      { file: 'agents/reviewer.md', issues: [a, c] },
+      { file: 'automations/catalog-review.yaml', issues: [b] },
+      { file: 'factory.yml', issues: [d, e] },
+    ]);
+    expect(issuesByFile([])).toEqual([]);
+  });
+});
+
+describe('issuesTitle', () => {
+  const view = { name: 'catalog-review' } as AutomationsSnapshot['automations'][number];
+  it('says the factory did not load when nothing is listed', () => {
+    expect(issuesTitle(snapshot([]))).toBe('The factory did not load');
+  });
+
+  it('says some entries did not load when others are listed', () => {
+    expect(issuesTitle(snapshot([], [view]))).toBe('Some entries did not load');
+  });
+
+  it('says what keeps the changes from applying while the folder does not apply', () => {
+    const standing = {
+      message:
+        "Your changes didn't apply: 1 problem in agents/reviewer.md. The version from 08:00 keeps running.",
+      appliedAt: '2026-11-12T08:00:00.000Z',
+      removed: [],
+    };
+    expect(issuesTitle({ ...snapshot([], [view]), standing })).toBe(
+      'What keeps your changes from applying',
+    );
+    expect(issuesTitle({ ...snapshot([]), standing })).toBe(
+      'What keeps your changes from applying',
+    );
+  });
+});
+
+describe('noticesLine', () => {
+  it('is null with none', () => {
+    expect(noticesLine([])).toBeNull();
+  });
+
+  it('holds every notice in one line, each after its place', () => {
+    const line = noticesLine([
+      {
+        message:
+          '`environments/` is read from slice 3 (write steps); its files have no effect yet.',
+      },
+      {
+        message: '`opus-x` is not among the models Claude work lists.',
+        file: 'agents/reviewer.md',
+        line: 3,
+      },
+      { message: 'Something about a file.', file: 'agents/noter.md' },
+    ]);
+    expect(line).toBe(
+      '`environments/` is read from slice 3 (write steps); its files have no effect yet. ' +
+        'agents/reviewer.md:3: `opus-x` is not among the models Claude work lists. ' +
+        'agents/noter.md: Something about a file.',
+    );
+    expect(line).not.toContain('\n');
   });
 });

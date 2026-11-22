@@ -18,6 +18,7 @@ import {
   type ExpressionScope,
 } from './expression';
 import { parseDurationMs } from './duration';
+import { AUTOMATION_NAME_PATTERN } from './names';
 import type { OutputType } from './outputs';
 import type { Trigger } from './schema';
 import { hasTemplateBraces, parseTemplate, templatePaths, type TemplatePath } from './template';
@@ -112,6 +113,8 @@ export const DEFAULT_STRING_MAX = 1000;
 export const STRING_MAX_CEILING = 4000;
 export const DEFAULT_COMMAND_TIMEOUT_MS = 600_000;
 export const MAX_COMMAND_TIMEOUT_MS = 3_600_000;
+/** The most turns `max_turns` may allow an agent step's turn. */
+export const MAX_TURNS_LIMIT = 500;
 
 interface StepCommon {
   id: string;
@@ -124,10 +127,14 @@ export interface AgentStep extends StepCommon {
   kind: 'agent';
   prompt?: string;
   action?: string;
+  /** The agent it runs as (`agents/<name>.md`), present only when the file writes one. */
+  agent?: string;
   outputs: Record<string, OutputType>;
   artifacts: string[];
   reads: string[];
   handover: 'required' | 'optional';
+  /** Its turn's cap (`max_turns`), present only when the file writes one. */
+  maxTurns?: number;
 }
 
 export interface CommandStep extends StepCommon {
@@ -148,10 +155,6 @@ export type Step = AgentStep | CommandStep;
  * the step it guards.
  */
 export const LATER_KEYS: Readonly<Record<string, string>> = {
-  agent: 'agents as files',
-  skills: 'agents as files',
-  mcpServers: 'agents as files',
-  max_turns: 'agents as files',
   gate: 'write steps',
   repeat: 'write steps',
   on_exhausted: 'write steps',
@@ -175,10 +178,14 @@ export function laterKeyMessage(key: string): string {
 }
 
 const COMMON_KEYS = ['id', 'if'];
-const AGENT_KEYS = ['prompt', 'action', 'outputs', 'artifacts', 'reads'];
+const AGENT_KEYS = ['prompt', 'action', 'agent', 'outputs', 'artifacts', 'reads', 'max_turns'];
 const COMMAND_KEYS = ['run', 'env', 'outputs', 'timeout', 'dry_run'];
 const ALL_KEYS = new Set([...COMMON_KEYS, ...AGENT_KEYS, ...COMMAND_KEYS]);
+/** Exclusive: a step names one thing to do. `agent:` goes with `prompt:` or `action:`, or alone. */
 const ONE_OF = ['prompt', 'action', 'run'] as const;
+/** Skills and servers are an agent's, named in its file; on a step they say where they go. */
+const STEP_SKILLS_AND_SERVERS =
+  'Name skills and servers in an agent file (`agents/<name>.md`), then set `agent:` on this step.';
 
 /** Outputs and artifacts share a namespace; these two names are taken before either is declared. */
 const RESERVED_OUTPUT_NAMES = ['handover', 'output'];
@@ -392,7 +399,7 @@ function checkTemplate(text: string, path: Array<string | number>, fail: Fail): 
 function parseStep(raw: unknown, index: number, fail: Fail): Step | null {
   const failAt: Fail = (message, path = []) => fail(message, [index, ...path]);
   if (!isRecord(raw)) {
-    failAt('Expected a step: a mapping with one of `prompt`, `action` or `run`.');
+    failAt('Expected a step: a mapping with one of `prompt`, `action`, `agent` or `run`.');
     return null;
   }
   let ok = true;
@@ -406,21 +413,23 @@ function parseStep(raw: unknown, index: number, fail: Fail): Step | null {
     if (ALL_KEYS.has(key)) continue;
     if (key === 'inputs')
       bad('`inputs` is not a step key: use `reads` to name what an earlier step wrote.', [key]);
+    else if (key === 'skills' || key === 'mcpServers') bad(STEP_SKILLS_AND_SERVERS, [key]);
     else if (Object.prototype.hasOwnProperty.call(LATER_KEYS, key))
       bad(laterKeyMessage(key), [key]);
     else bad(`Unrecognized key in a step: ${key}.`, [key]);
   }
 
   const present = ONE_OF.filter((key) => key in raw);
-  if (present.length !== 1) {
+  if (present.length > 1 || (present.length === 0 && !('agent' in raw))) {
     bad(
       present.length === 0
-        ? 'A step has one of `prompt`, `action` or `run`.'
+        ? 'A step has one of `prompt`, `action`, `agent` or `run`.'
         : `A step names one thing to do; got ${present.join(' and ')}.`,
     );
     return null;
   }
-  const [kind] = present;
+  // An agent step's instruction: its prompt, its action, or none (the agent's body alone).
+  const kind: 'prompt' | 'action' | 'run' | 'agent' = present.length > 0 ? present[0] : 'agent';
 
   // Id.
   let id = `step-${index + 1}`;
@@ -488,7 +497,9 @@ function parseStep(raw: unknown, index: number, fail: Fail): Step | null {
       bad(
         key === 'artifacts'
           ? "Artifacts are an agent step's documents: a command writes no artifacts; it passes data on as outputs, or `outputs: { from: stdout, format: json }`."
-          : `\`${key}\` is for an agent step; a command takes what it needs through \`env\`.`,
+          : key === 'max_turns' || key === 'agent'
+            ? 'A command runs no agent; `agent:` and `max_turns` are for agent steps.'
+            : `\`${key}\` is for an agent step; a command takes what it needs through \`env\`.`,
         [key],
       );
     }
@@ -553,16 +564,33 @@ function parseStep(raw: unknown, index: number, fail: Fail): Step | null {
   for (const key of ['env', 'timeout', 'dry_run'].filter((key) => key in raw)) {
     bad(`\`${key}\` is for a command (\`run:\`); an agent step does not take it.`, [key]);
   }
-  const text = raw[kind];
-  if (typeof text !== 'string' || !text.trim()) {
-    bad(
-      kind === 'action'
-        ? 'Expected an action name, e.g. `action: Review`.'
-        : 'Expected the prompt to send.',
-      [kind],
-    );
-  } else if (kind === 'prompt') {
-    checkTemplate(text, ['prompt'], (message, path) => bad(message, path));
+  // A step with `agent:` and neither `prompt:` nor `action:` runs on the agent's body alone.
+  const text = kind === 'agent' ? undefined : raw[kind];
+  if (kind !== 'agent') {
+    if (typeof text !== 'string' || !text.trim()) {
+      bad(
+        kind === 'action'
+          ? 'Expected an action name, e.g. `action: Review`.'
+          : 'Expected the prompt to send.',
+        [kind],
+      );
+    } else if (kind === 'prompt') {
+      checkTemplate(text, ['prompt'], (message, path) => bad(message, path));
+    }
+  }
+
+  // Only when written, so a step without one parses, and hashes, as it did before the key existed.
+  let agent: string | undefined;
+  if ('agent' in raw) {
+    const given = raw.agent;
+    if (typeof given === 'string' && AUTOMATION_NAME_PATTERN.test(given)) agent = given;
+    else if (typeof given === 'string' && /[/@]/.test(given))
+      bad('Pinned references arrive with shared factories.', ['agent']);
+    else
+      bad(
+        "Expected `agent` to be an agent's name, its file agents/<name>.md without `.md`: e.g. `agent: investigator`.",
+        ['agent'],
+      );
   }
 
   let handover: 'required' | 'optional' = 'optional';
@@ -622,17 +650,41 @@ function parseStep(raw: unknown, index: number, fail: Fail): Step | null {
     }
   }
 
-  if (!ok || typeof text !== 'string') return null;
+  // Only when written, so a step without one parses, and hashes, as it did before the key existed.
+  let maxTurns: number | undefined;
+  if ('max_turns' in raw) {
+    const given = raw.max_turns;
+    if (
+      typeof given === 'number' &&
+      Number.isInteger(given) &&
+      given >= 1 &&
+      given <= MAX_TURNS_LIMIT
+    ) {
+      maxTurns = given;
+    } else {
+      bad(`Expected \`max_turns\` to be a whole number from 1 to ${MAX_TURNS_LIMIT}.`, [
+        'max_turns',
+      ]);
+    }
+  }
+
+  if (!ok || (kind !== 'agent' && typeof text !== 'string')) return null;
   return {
     id,
     named,
     ...(condition !== undefined ? { if: condition } : {}),
     kind: 'agent',
-    ...(kind === 'prompt' ? { prompt: text } : { action: text.trim() }),
+    ...(typeof text !== 'string'
+      ? {}
+      : kind === 'prompt'
+        ? { prompt: text }
+        : { action: text.trim() }),
+    ...(agent !== undefined ? { agent } : {}),
     outputs,
     artifacts,
     reads,
     handover,
+    ...(maxTurns !== undefined ? { maxTurns } : {}),
   };
 }
 

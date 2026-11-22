@@ -71,6 +71,24 @@ const ALWAYS_GLOBAL: Record<string, { holds: string; columns: string[] }> = {
       'inviter_id',
     ],
   },
+  outbox_message: {
+    holds:
+      "The outbox: each change a workspace's cell must hear about, as workspace ids, its region, person ids and roles, and how its delivery went",
+    columns: [
+      'organization_id',
+      'sequence',
+      'region',
+      'change_type',
+      'person_id',
+      'role',
+      'created_at',
+      'attempts',
+      'last_attempt_at',
+      'last_error',
+      'next_attempt_at',
+      'delivered_at',
+    ],
+  },
 };
 
 const WHERE_THE_LIST_IS =

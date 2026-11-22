@@ -119,4 +119,32 @@ describe('HarnessCapabilitiesCache', () => {
 
     expect(probe).toHaveBeenCalledTimes(2);
   });
+
+  it('peek answers only what has settled, and starts nothing', async () => {
+    let release: (value: HarnessCapabilities) => void = () => {};
+    const probe = vi.fn(() => new Promise<HarnessCapabilities>((resolve) => (release = resolve)));
+    const cache = new HarnessCapabilitiesCache();
+    const driver = fakeDriver(probe);
+
+    expect(cache.peek(driver, config())).toBeUndefined();
+    expect(probe).not.toHaveBeenCalled();
+    const pending = cache.get(driver, config());
+    expect(cache.peek(driver, config())).toBeUndefined();
+    release(EMPTY);
+    const answer = await pending;
+    expect(cache.peek(driver, config())).toEqual(answer);
+    expect(cache.peek(driver, config())).toEqual({ supported: true, ...EMPTY });
+    // Keyed by what the harness launches as: another config dir has no answer.
+    expect(cache.peek(driver, config({ configDir: '/home/alice/.claude-work' }))).toBeUndefined();
+    expect(probe).toHaveBeenCalledTimes(1);
+  });
+
+  it('peek has no answer after a failed probe', async () => {
+    const cache = new HarnessCapabilitiesCache();
+    const driver = fakeDriver(async () => {
+      throw new Error('mid-upgrade');
+    });
+    await cache.get(driver, config());
+    expect(cache.peek(driver, config())).toBeUndefined();
+  });
 });

@@ -23,7 +23,8 @@
 }
 
 .automations-error,
-.automations-issues {
+.automations-issues,
+.automations-standing {
   padding: var(--space-2) var(--space-3);
   border: 1px solid var(--color-error);
   border-radius: var(--radius-md);
@@ -49,6 +50,48 @@
 .automations-line {
   margin-right: var(--space-1);
   color: var(--color-text-tertiary);
+}
+
+/* The folder does not apply: the last applied version runs, and Check again re-reads it. */
+.automations-standing {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.automations-standing > svg {
+  flex-shrink: 0;
+  margin-top: 3px;
+  color: var(--color-error);
+}
+
+.automations-standing-text {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+/* The issue list by file: each file's name, its Open, then its issues. */
+.automations-issues-file {
+  margin-top: var(--space-2);
+}
+
+.automations-issues-file-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.automations-issues-file-head .automations-link-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.automations-notices {
+  overflow-wrap: anywhere;
 }
 
 .automations-card-actions {
@@ -2055,6 +2098,14 @@
   font-size: 13px;
 }
 
+/* An agent step's agent, harness and model under its title: the node's secondary text. */
+.automations-node-agent {
+  margin-top: 2px;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  overflow-wrap: anywhere;
+}
+
 .automations-node .automations-node-code {
   align-self: flex-start;
   padding: 1px 6px;
@@ -3949,6 +4000,14 @@
   white-space: pre-wrap;
 }
 
+/* An agent's own description, as its file writes it, under its name. */
+.automations-approval-description {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-tertiary);
+  overflow-wrap: anywhere;
+}
+
 /* The edge into a step says when it runs: its if:, as written. */
 .automations-pipeline-gated {
   --edge: 120px;
@@ -4068,6 +4127,31 @@
 .automations-allow-note {
   font-size: var(--font-size-sm);
   color: var(--color-text-tertiary);
+}
+
+/* Each agent the entry runs as, with its body at the version Allow accepts: read before allowing. */
+.automations-allow-agents {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.automations-allow-agent {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.automations-allow-agent > .automations-allow-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
 }
 
 .automations-allow-actions {

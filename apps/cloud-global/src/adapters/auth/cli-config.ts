@@ -13,7 +13,8 @@ const placeholder: CloudConfig = {
   publicUrl: 'http://localhost:5175',
   port: 3100,
   google: { clientId: 'placeholder', clientSecret: 'placeholder' },
-  organization: { name: 'Sprocket', slug: 'sprocket' },
+  cellTokenPrivateKey: { kty: 'OKP', crv: 'Ed25519', x: 'placeholder', d: 'placeholder' },
+  cellUrls: {},
 };
 
 const { db } = openDatabase(placeholder.databaseUrl);
@@ -22,7 +23,7 @@ const stores = createDrizzleStores(db);
 export const auth = createAuth({
   db,
   config: placeholder,
-  organizationId: 'placeholder',
   people: stores.people,
   memberships: stores.memberships,
+  sessions: stores.sessions,
 });

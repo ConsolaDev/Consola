@@ -1,4 +1,5 @@
 import type { Me } from '../domain/me';
+import { regionName, roleName } from '../domain/workspace';
 
 function initials(name: string): string {
   const letters = name
@@ -9,8 +10,21 @@ function initials(name: string): string {
   return letters.join('') || '?';
 }
 
-export function ProfileCard({ me }: { me: Me }) {
-  const { user, organization, role } = me;
+/**
+ * Who is signed in, and their part in the workspace open. `hasWorkspaces` says whether a
+ * person with none open is in any, so the card never says "not in a workspace" to a member.
+ * `withWorkspace` false leaves the workspace line out, for a page that already says it.
+ */
+export function ProfileCard({
+  me,
+  hasWorkspaces,
+  withWorkspace = true,
+}: {
+  me: Me;
+  hasWorkspaces: boolean;
+  withWorkspace?: boolean;
+}) {
+  const { user, workspace } = me;
   return (
     <section className="card profile">
       {user.image ? (
@@ -22,9 +36,14 @@ export function ProfileCard({ me }: { me: Me }) {
       )}
       <h1 className="heading">{user.name}</h1>
       <p className="muted">{user.email}</p>
-      <p>
-        {role === 'owner' ? 'Owner' : 'Member'} of {organization.name}
-      </p>
+      {!withWorkspace ? null : workspace ? (
+        <p>
+          {roleName(workspace.role)} of {workspace.name}{' '}
+          <span className="muted">· {regionName(workspace.region)} region</span>
+        </p>
+      ) : (
+        <p>{hasWorkspaces ? 'No workspace is open.' : 'You’re not in a workspace yet.'}</p>
+      )}
     </section>
   );
 }

@@ -1094,7 +1094,9 @@ test('a linked session shows its item pane beside the terminal, and Fix pastes i
     });
 
     // The Inbox's pane shares the tab's read: what was read moments ago is
-    // shown again without asking, until the person refreshes it.
+    // shown again without asking, until the person refreshes it. The cached
+    // details draw at once, before any read the pane might start could be
+    // logged, so the count is taken after a moment for one to show.
     expect(detailReadsOf(51)).toBe(1);
     const inboxPane = await openPaneFor51(page);
     await expect(inboxPane.getByRole('heading', { name: 'Extract billing client' })).toBeVisible();
@@ -1103,14 +1105,18 @@ test('a linked session shows its item pane beside the terminal, and Fix pastes i
         .getByRole('region', { name: 'Remote item details' })
         .getByText('regression coverage', { exact: true }),
     ).toBeVisible();
+    await page.waitForTimeout(1000);
     expect(detailReadsOf(51)).toBe(1);
     const refreshInInbox = inboxPane.getByRole('button', { name: 'Refresh details' });
     await refreshInInbox.click();
     await expect.poll(() => detailReadsOf(51)).toBe(2);
     await expect(refreshInInbox).toBeEnabled();
-    // Back by the pane's own row: under the Inbox, the sidebar lists no sessions.
+    // Back by the pane's own row: under the Inbox, the sidebar lists no
+    // sessions. The tab's pane shows the Inbox's read, and asks nothing.
     await inboxPane.getByRole('button', { name: 'Open PR #51 · Fix CI' }).click();
     await expect(pane.getByRole('heading', { name: 'Extract billing client' })).toBeVisible();
+    await page.waitForTimeout(1000);
+    expect(detailReadsOf(51)).toBe(2);
 
     // Once seen, the pane stays mounted behind another tab, keeping what it holds.
     await page.getByRole('button', { name: 'Changes', exact: true }).click();

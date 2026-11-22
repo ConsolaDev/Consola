@@ -74,7 +74,11 @@ function session(fields: Partial<Session> = {}): Session {
 
 /** Everything a switch touches, recorded in the order it happened. */
 function setup(
-  options: { session?: Partial<Session>; terminal?: { refusal: string | null } | null } = {},
+  options: {
+    session?: Partial<Session>;
+    terminal?: { refusal: string | null } | null;
+    runIsOpen?: (runId: string) => boolean;
+  } = {},
 ) {
   const calls: string[] = [];
   const workspace: Workspace = {
@@ -157,6 +161,7 @@ function setup(
     driverFor: (id) => ((id ?? 'claude') === 'codex' ? codex : claude) as unknown as HarnessDriver,
     newConversationId: () => 'new-id',
     now: () => new Date('2026-11-17T21:00:00Z'),
+    ...(options.runIsOpen ? { runIsOpen: options.runIsOpen } : {}),
   };
   return {
     switcher: new HarnessSwitcher(deps),
@@ -493,5 +498,83 @@ describe('HarnessSwitcher.switch', () => {
     await vi.waitFor(() => expect(release).toBeDefined());
     release();
     await first;
+  });
+});
+
+describe("HarnessSwitcher and a step's session", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  const GRANTS = {
+    driverId: 'claude' as const,
+    servers: [{ name: 'grafana' }],
+    skills: [],
+    allowedMcpServers: [{ serverName: 'consola' }, { serverName: 'grafana' }],
+    strict: true,
+    allowedTools: ['mcp__grafana__*'],
+  };
+  const STEP_SESSION: Partial<Session> = {
+    toolPolicy: 'read-only',
+    automation: { name: 'investigate-alerts', runId: 'r1', step: { id: 'look', attempt: 1 } },
+    grants: GRANTS,
+  };
+  const OPEN =
+    "This step's session stays on its agent's harness while its run is open. Switch it once the run has ended.";
+
+  it('refuses while its run is open, and writes nothing', async () => {
+    for (const fields of [STEP_SESSION, { ...STEP_SESSION, grants: undefined }]) {
+      const { switcher, deps, switchRecord, calls } = setup({
+        session: fields,
+        runIsOpen: (id) => id === 'r1',
+      });
+      expect(
+        switcher.preview('w', 'session-1').map((preview) => (preview.ok ? 'ok' : preview.reason)),
+      ).toEqual([OPEN, OPEN]);
+      await expect(switcher.switch('w', 'session-1', 'work')).rejects.toThrow(OPEN);
+      expect(switchRecord).not.toHaveBeenCalled();
+      expect(deps.terminals.switchHarness).not.toHaveBeenCalled();
+      expect(calls).toEqual([]);
+    }
+  });
+
+  it('once its run has ended, switches, drops the grants and says so', async () => {
+    const { switcher, deps, workspace } = setup({ session: STEP_SESSION, runIsOpen: () => false });
+    const { session: switched } = await switcher.switch('w', 'session-1', 'work');
+    expect(switched).not.toHaveProperty('grants');
+    expect(workspace.sessions[0]).not.toHaveProperty('grants');
+    expect(workspace.sessions[0]).toMatchObject({ toolPolicy: 'read-only', harnessId: 'work' });
+    const change = vi.mocked(deps.terminals.switchHarness).mock.calls[0][1];
+    expect(
+      change.notice.endsWith(
+        " Its agent's servers and skills stayed with Claude - Personal: on Claude - Work it has neither.",
+      ),
+    ).toBe(true);
+  });
+
+  it('a switch of a session with no grants says nothing of them', async () => {
+    const { switcher, deps } = setup({
+      session: { ...STEP_SESSION, grants: undefined },
+      runIsOpen: () => false,
+    });
+    await switcher.switch('w', 'session-1', 'work');
+    const change = vi.mocked(deps.terminals.switchHarness).mock.calls[0][1];
+    expect(change.notice).not.toContain('servers and skills');
+  });
+
+  it("a legacy run's session, a hand-made one, or no way to ask, switch as before", async () => {
+    const legacy = setup({
+      session: { toolPolicy: 'read-only', automation: { name: 'nightly', runId: 'r1' } },
+      runIsOpen: () => true,
+    });
+    await expect(legacy.switcher.switch('w', 'session-1', 'work')).resolves.toMatchObject({
+      mode: 'native',
+    });
+    const handMade = setup({ runIsOpen: () => true });
+    await expect(handMade.switcher.switch('w', 'session-1', 'work')).resolves.toMatchObject({
+      mode: 'native',
+    });
+    const unasked = setup({ session: STEP_SESSION });
+    await expect(unasked.switcher.switch('w', 'session-1', 'work')).resolves.toMatchObject({
+      mode: 'native',
+    });
   });
 });

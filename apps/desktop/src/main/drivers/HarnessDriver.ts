@@ -1,5 +1,6 @@
 import * as os from 'node:os';
 import * as path from 'node:path';
+import type { AgentGrants } from '../../shared/agentGrants';
 import type { ConversationRecord, ConversationWindow } from '../../shared/conversation';
 import type {
   HarnessCapabilities,
@@ -69,6 +70,21 @@ export interface HarnessDriver {
    */
   toolPolicyProblem(config: HarnessConfig, policy: SessionToolPolicy | undefined): string | null;
 
+  /**
+   * Why this harness's extra args would override what a step's reporting
+   * turn is launched with; null when they would not. A driver that offers
+   * `createTurnReader` and compiles flags into a step's turn says so here,
+   * and `buildSessionArgs` refuses such a turn in the same words.
+   * `compiled.model`: the turn sets a model (its agent's), so the driver's
+   * model flag is one of those flags; a turn without one compiles none.
+   * `compiled.servers`: its agent names servers, so the driver's flags that
+   * load them are compiled too.
+   */
+  stepTurnProblem?(
+    config: HarnessConfig,
+    compiled?: { model?: boolean; servers?: boolean },
+  ): string | null;
+
   /** Deliver the opening prompt through argv instead of waiting on the TUI. */
   readonly initialPromptViaArgs?: boolean;
 
@@ -77,6 +93,12 @@ export interface HarnessDriver {
 
   /** Observe one PTY's output to persist native conversation switches. */
   createOutputObserver?(config: HarnessConfig, sessionId: string): (data: string) => void;
+
+  /**
+   * A reader for one unattended turn launched with `SessionLaunch.reportTurn`.
+   * Absent: the driver cannot report turns.
+   */
+  createTurnReader?(): TurnReader;
 
   /**
    * The folder a running session's process says it works in, read from
@@ -181,6 +203,34 @@ export interface HarnessDriver {
   probeCapabilities?(config: HarnessConfig): Promise<HarnessCapabilities>;
 
   /**
+   * The MCP servers this harness's CLI would offer a step, asked of the
+   * CLI, never read from its files. Throws when the CLI cannot be asked.
+   * Absent: it grants no servers.
+   */
+  probeMcpServers?(config: HarnessConfig): Promise<McpServerReport[]>;
+
+  /**
+   * Pure: whether a step may run this agent here, and its grants; a
+   * refusal says why, in words. Absent: every agent naming servers or
+   * skills is refused.
+   */
+  compileAgent?(input: CompileAgentInput): CompiledAgent;
+
+  /** Why this driver's harnesses run no agent steps yet, said after its read-only refusal. */
+  readonly agentRefusal?: string;
+
+  /**
+   * Make what `grants` name exist, from the run's skills copy
+   * (`skillsDir`): for Claude, the step's plugin dir. Before the first
+   * launch of an attempt; a later launch finds it there, or launches
+   * without its skills.
+   */
+  stageSkills?(grants: AgentGrants, skillsDir: string): Promise<void>;
+
+  /** A line for the pane before this launch, or null. */
+  launchNotice?(launch: SessionLaunch): string | null;
+
+  /**
    * How this CLI reports, on its own initiative, that it needs the person.
    *
    * Optional: a CLI with nothing like hooks omits it and its sessions stay
@@ -198,6 +248,66 @@ export interface HarnessDriver {
    */
   readonly usageLimits?: UsageLimitReporting;
 }
+
+/**
+ * Where a step's run works: the item's own checkout (someone else's code)
+ * or a scope folder (the person's). The same union as the engine's
+ * `CheckoutKind`: the host hands one to the other, so the compiler keeps
+ * them equal, and this contract imports nothing from the engine.
+ */
+export type CheckoutKind = 'item' | 'scope';
+
+/** One MCP server as a harness's CLI reports it: what a step could be granted. */
+export interface McpServerReport {
+  /** As the CLI names it, exactly: an agent names it the same way. */
+  name: string;
+  /** Where it comes from: the person's own file, a claude.ai connector, a plugin, or anything else. */
+  source: 'user' | 'connector' | 'plugin' | 'other';
+  transport: 'stdio' | 'http' | 'sse' | 'claudeai-proxy' | 'other';
+  /** A remote server's or connector's address, as the CLI reported it. */
+  url?: string;
+  /** Its tools' names, when the CLI listed them (a connected server). */
+  tools?: string[];
+  status: string;
+  /** Where this CLI signs in to it, in the driver's words. */
+  signInHint?: string;
+}
+
+/**
+ * What a step's agent asks of a driver: the driver's own view, not the
+ * engine's snapshot (`steps/definition.ts`), which a desktop file that needs
+ * both imports under another name.
+ */
+export interface AgentRequirements {
+  tools: 'read-only';
+  /** As the agent names them, each optionally narrowed to its tools. */
+  mcpServers: Array<{ name: string; tools?: string[] }>;
+  /** Folder names in the factory's skills/. */
+  skills: string[];
+}
+
+/** What `compileAgent` compiles from. */
+export interface CompileAgentInput {
+  config: HarnessConfig;
+  /** The harness's display name, which every refusal names. */
+  harnessName: string;
+  agent: AgentRequirements;
+  checkout: CheckoutKind;
+  /** The harness's servers, as its CLI last reported them. */
+  servers: readonly McpServerReport[];
+  /** Where the plugin dir will be built; absent at apply. */
+  pluginDir?: string;
+  /**
+   * With `pluginDir`: each skill's `skillHash` as the run's definition holds
+   * it, which the plugin is built, and every later launch checked, against.
+   */
+  skillHashes?: Readonly<Record<string, string>>;
+}
+
+/** The grants an agent compiles to, with what the person should know of them; or why not. */
+export type CompiledAgent =
+  | { ok: true; grants: AgentGrants; warnings: string[] }
+  | { ok: false; problem: string };
 
 /** A driver's attention-reporting capability: where its CLI is told to post, and what the posts mean. */
 export interface AttentionHooks {
@@ -220,6 +330,65 @@ export interface UsageLimitReporting {
    * and the session is limited only when a used-up window binds it.
    */
   showsLimitNotice?(visibleText: string): boolean;
+}
+
+/**
+ * A reporting turn's first word about itself: the model it runs and every
+ * MCP server it loaded, with how each connected. `raw` is the CLI's own
+ * object, for `turn.json`.
+ */
+export interface TurnInit {
+  model?: string;
+  servers: Array<{ name: string; status: string }>;
+  /** Where this CLI signs in to a server, in the driver's words. */
+  signInHint?: string;
+  raw: unknown;
+}
+
+/**
+ * A reporting turn's last word about itself. `text` and a string
+ * `apiErrorStatus` are the CLI's text as `oneLine` shapes it; `raw` is the
+ * CLI's own object, whole, for `turn.json`.
+ */
+export interface TurnResult {
+  subtype: string;
+  isError: boolean;
+  /** The CLI's estimate, as it printed it: for a resumed turn, the conversation's so far. */
+  costUsd?: number;
+  turns?: number;
+  text?: string;
+  apiErrorStatus?: string | number;
+  /** The tools it was refused, distinct, in the order they were first refused. */
+  deniedTools: string[];
+  raw: unknown;
+}
+
+/** One thing a reporting turn's stream said that the pane or the launcher acts on. */
+export type TurnEvent =
+  | { kind: 'init'; init: TurnInit }
+  | { kind: 'tool'; name: string }
+  | { kind: 'line'; text: string };
+
+/** What a reporting turn said about itself, read whole at its exit. */
+export interface TurnReport {
+  init?: TurnInit;
+  result?: TurnResult;
+  /** The lines that were not JSON, cleaned: the last ones. */
+  otherLines: string[];
+  /** Whether the stream said the turn stopped on a usage limit. A hint, as a notice on screen is. */
+  limitNotice: boolean;
+  /** The cap the turn launched with: the launcher's to add, never the reader's. */
+  maxTurns?: number;
+}
+
+/** One reporting turn's stream, read as it arrives. */
+export interface TurnReader {
+  /** One raw PTY chunk; the events of every line it completed, in order. */
+  push(chunk: string): TurnEvent[];
+  /** Whether the stream has said this turn stopped on a usage limit, so far. */
+  readonly limitNotice: boolean;
+  /** At exit: the events of a last line with no newline, and the report (`maxTurns` is the launcher's to add). */
+  end(): { events: TurnEvent[]; report: TurnReport };
 }
 
 /**
@@ -265,6 +434,19 @@ export interface SessionLaunch {
    * session launched without it is simply not reporting.
    */
   attentionUrl?: string;
+  /**
+   * Run this unattended turn with the CLI's structured report, which
+   * `createTurnReader` reads. Ignored on an interactive launch.
+   */
+  reportTurn?: boolean;
+  /** The most turns this launch may take. Ignored on an interactive launch. */
+  maxTurns?: number;
+  /**
+   * What a step's agent was granted, compiled by this driver when the
+   * attempt launched; replayed on every launch, interactive ones included.
+   * A driver refuses grants it did not compile.
+   */
+  grants?: AgentGrants;
 }
 
 /**

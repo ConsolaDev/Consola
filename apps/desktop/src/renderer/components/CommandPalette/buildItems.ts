@@ -1,5 +1,6 @@
 import {
   Boxes,
+  FolderOpen,
   FolderPlus,
   GitCommit,
   Globe,
@@ -17,6 +18,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import type { LocalServer } from '../../../shared/browser';
+import type { OpenInTarget } from '../../../shared/openIn';
 import type { GitFileStatus } from '../../types/electron';
 import type { SettingsSection } from '../Dialogs/settingsSections';
 import type { Harness } from '../../stores/harnessStore';
@@ -27,6 +29,7 @@ import { useGitStatusStore } from '../../stores/gitStatusStore';
 import { useHarnessStore } from '../../stores/harnessStore';
 import { toggleInfoPanel } from '../../stores/infoPanelRoomStore';
 import { useNavigationStore } from '../../stores/navigationStore';
+import { pickOpenIn } from '../../stores/openInStore';
 import { useSidePanelStore } from '../../stores/sidePanelStore';
 import { TAB_KINDS, type TabKindId } from '../../sidePanel/tabKinds';
 import {
@@ -41,6 +44,7 @@ import { createQuickSession, openNewSessionDialog } from '../../utils/sessionAct
 import { workspaceStatusFor, type AttentionMap } from '../../utils/sessionStatus';
 import { isMac, WORKING_SHELF_SHORTCUT_LABEL } from '../../utils/platform';
 import { INFO_PANEL_SHORTCUT_LABEL } from '../../utils/infoPanelShortcut';
+import { OPEN_IN_SHORTCUT_LABEL } from '../../utils/openInShortcut';
 import { SIDE_PANEL_SHORTCUT_LABEL } from '../../utils/sidePanelShortcut';
 import type {
   PaletteMode,
@@ -97,6 +101,10 @@ export interface PaletteContext {
   terminalFontSize: number;
   /** Servers running from the active session's folder, read when the palette opened. */
   localServers: LocalServer[];
+  /** The apps a folder can be opened in, as main last listed them; asked again when the palette opens. */
+  openInTargets: readonly OpenInTarget[];
+  /** The app ⌘O opens in (`favouriteTarget`), whose row carries the chord. */
+  openInFavouriteId: string | undefined;
   openSettings: (section?: SettingsSection) => void;
 }
 
@@ -300,6 +308,24 @@ export function buildActionItems(ctx: PaletteContext): ActionPaletteItem[] {
       shortcutHint: kind.chord,
       run: () => useSidePanelStore.getState().openKind(kind.id),
     });
+  }
+
+  // One row per app the session's folder can be opened in, as the info
+  // panel's "Open in" menu lists them; choosing one makes it the favourite,
+  // as picking it there does. No folder, no rows: a removed worktree has none.
+  const folder = activeGitRoot(ctx);
+  if (activeSession && !ctx.isOverlayOpen && folder) {
+    for (const target of ctx.openInTargets) {
+      items.push({
+        kind: 'action',
+        section: 'actions',
+        id: `action.open-in.${target.id}`,
+        label: `Open folder in ${target.label}`,
+        icon: FolderOpen,
+        ...(target.id === ctx.openInFavouriteId ? { shortcutHint: OPEN_IN_SHORTCUT_LABEL } : {}),
+        run: () => pickOpenIn(target, folder),
+      });
+    }
   }
 
   items.push({

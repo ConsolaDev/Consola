@@ -24,6 +24,7 @@ import {
   insertionIndex,
 } from '../../sidePanel/dropTarget';
 import { NEW_TAB, type GroupPosition, type TabGroupNode, type TabId } from '../../sidePanel/layout';
+import { markDots } from '../../sidePanel/marks';
 import { tabKind, type TabFacts } from '../../sidePanel/tabKinds';
 import { useSidePanelStore } from '../../stores/sidePanelStore';
 import { dragPointer } from './dragPointer';
@@ -34,7 +35,7 @@ import {
   keyboardToConversation,
 } from './keyboardAfterClose';
 import { TabMenu } from './TabMenu';
-import { markDots, useTabMark } from './tabMarks';
+import { useTabMark } from './tabMarks';
 
 /** Each tab list is named by where its group sits, so two groups' lists can be told apart. */
 const TAB_LIST_NAMES: Record<GroupPosition, string> = {

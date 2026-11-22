@@ -7,12 +7,14 @@ import {
   INFO_PANEL_SHORTCUT_LABELS,
   isCommandPaletteShortcut,
   isInfoPanelShortcut,
+  isOpenInShortcut,
   isShellShortcut,
   isSidebarShortcut,
   isSidePanelShortcut,
   matchBrowserFocusedShortcut,
   matchScopeShortcut,
   matchWorkspaceShortcut,
+  OPEN_IN_SHORTCUT_LABELS,
   SIDE_PANEL_SHORTCUT_LABELS,
   type KeyChord,
 } from './shortcuts';
@@ -186,6 +188,51 @@ describe('info panel chord', () => {
   });
 });
 
+describe('open-in chord', () => {
+  // Elsewhere a bare Ctrl+letter is the terminal's (Claude Code's and nano's
+  // Ctrl+O among them), so the chord takes Alt there, matched on the physical
+  // key as the info panel's is.
+  const other = (mods: Partial<KeyChord> = {}) => ctrl('o', { alt: true, code: 'KeyO', ...mods });
+
+  it('is Cmd+O on macOS and Ctrl+Alt+O elsewhere', () => {
+    expect(isOpenInShortcut(cmd('o'), 'mac')).toBe(true);
+    expect(isOpenInShortcut(other(), 'other')).toBe(true);
+    // A layout where Alt changes the letter still has the key.
+    expect(isOpenInShortcut(other({ key: 'ø' }), 'other')).toBe(true);
+  });
+
+  it('leaves a bare Ctrl+O to the terminal off macOS', () => {
+    expect(isOpenInShortcut(ctrl('o', { code: 'KeyO' }), 'other')).toBe(false);
+  });
+
+  it('leaves Shift+Cmd+O to the Files scope of the palette, and is never with Shift', () => {
+    expect(isOpenInShortcut(cmd('O', { shift: true }), 'mac')).toBe(false);
+    expect(isOpenInShortcut(other({ shift: true }), 'other')).toBe(false);
+    expect(matchScopeShortcut(cmd('O', { shift: true }), 'mac')).toBe('files');
+  });
+
+  it('is not with Alt on macOS, the other platform’s chord, or both modifiers at once', () => {
+    expect(isOpenInShortcut(cmd('o', { alt: true }), 'mac')).toBe(false);
+    expect(isOpenInShortcut(ctrl('o'), 'mac')).toBe(false);
+    expect(isOpenInShortcut(other(), 'mac')).toBe(false);
+    expect(isOpenInShortcut(cmd('o'), 'other')).toBe(false);
+    expect(isOpenInShortcut(cmd('o', { ctrl: true }), 'mac')).toBe(false);
+    expect(isOpenInShortcut(other({ meta: true }), 'other')).toBe(false);
+  });
+
+  it('is not while composing, nor another key', () => {
+    expect(isOpenInShortcut(cmd('o', { isComposing: true }), 'mac')).toBe(false);
+    expect(isOpenInShortcut(other({ isComposing: true }), 'other')).toBe(false);
+    expect(isOpenInShortcut(cmd('p'), 'mac')).toBe(false);
+    expect(isOpenInShortcut(other({ code: 'KeyP' }), 'other')).toBe(false);
+  });
+
+  it('is labelled for each platform', () => {
+    expect(OPEN_IN_SHORTCUT_LABELS.mac).toBe('⌘O');
+    expect(OPEN_IN_SHORTCUT_LABELS.other).toBe('Ctrl+Alt+O');
+  });
+});
+
 describe('close chord', () => {
   it('is Cmd+W on macOS', () => {
     expect(isCloseShortcut(cmd('w'), 'mac')).toBe(true);
@@ -255,6 +302,21 @@ describe('forwardedShortcutFor', () => {
     });
     expect(forwardedShortcutFor(ctrl('j', { alt: true, code: 'KeyJ' }), 'other')).toEqual({
       kind: 'info-panel',
+    });
+    expect(forwardedShortcutFor(cmd('o'), 'mac')).toEqual({ kind: 'open-in' });
+    expect(forwardedShortcutFor(ctrl('o', { alt: true, code: 'KeyO' }), 'other')).toEqual({
+      kind: 'open-in',
+    });
+  });
+
+  it('leaves a bare Ctrl+O to the page off macOS', () => {
+    expect(forwardedShortcutFor(ctrl('o', { code: 'KeyO' }), 'other')).toBeNull();
+  });
+
+  it('forwards Shift+Cmd+O as the Files scope, not as the open-in chord', () => {
+    expect(forwardedShortcutFor(cmd('O', { shift: true }), 'mac')).toEqual({
+      kind: 'scoped-palette',
+      scope: 'files',
     });
   });
 

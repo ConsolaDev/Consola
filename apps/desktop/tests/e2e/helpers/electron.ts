@@ -2,12 +2,20 @@ import { _electron as electron, type ElectronApplication, type Page } from '@pla
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { BUILT_IN_HARNESS_ID } from '../../../src/shared/constants';
+import { createBuiltInHarness, type Harness } from '../../../src/shared/harness';
 
 export interface LaunchOptions {
   /** Profile directory. Defaults to a fresh temp dir, so runs cannot collide. */
   userDataDir?: string;
   /** Extra environment for the app process (stub gh, worktree root, ...). */
   env?: Record<string, string>;
+  /**
+   * Every launch is this spec's own stub: closing the app fails when any
+   * launch got the stand-in for the ambient CLI instead (a harness that names
+   * no binary). Without it, only a refused launch fails the spec.
+   */
+  strictLaunches?: boolean;
 }
 
 /** The chord for a new window, matching useKeyboardShortcuts on this platform. */
@@ -39,10 +47,78 @@ export function removeProfile(userDataDir: string): void {
   }
 }
 
+/**
+ * Stands in for `claude` on the built-in harness. The health check gets a
+ * version, and the capabilities handshake and print mode (`-p`) are refused,
+ * so neither waits out a timeout; a session's pane gets a line and waits.
+ */
+const STUB_CLAUDE = [
+  '#!/bin/sh',
+  'case " $* " in',
+  `  *" --version "*) printf '2.1.0 (Claude Code)\\n'; exit 0 ;;`,
+  '  *" --input-format "* | *" -p "*) exit 1 ;;',
+  'esac',
+  `printf 'Agent ready\\n'`,
+  'exec sleep 300',
+  '',
+].join('\n');
+
+/**
+ * Keeps a launch off the person's own Claude: no spec reads their config
+ * (`~/.claude.json`, `~/.claude`, or the `CLAUDE_CONFIG_DIR` the runner was
+ * started with) or runs their `claude`.
+ *
+ * A Claude harness that pins no folder reads the ambient `CLAUDE_CONFIG_DIR`,
+ * so that is a folder of the profile's, returned for the app's environment.
+ * Main otherwise takes its ambient environment from the login shell, whose
+ * rc file may export the person's own; in a test run main keeps the launch's
+ * value over it (`keepLaunchClaudeConfigDir`, `main/test-mode.ts`).
+ * The built-in harness pins nothing as seeded, and would also run whatever
+ * `claude` the login shell's PATH finds, so its record is pinned to that
+ * folder and to a stub, in `harnesses.json` before main loads it. A spec that
+ * seeds the built-in record keeps every field it set; one whose file is not
+ * JSON keeps it as it is.
+ */
+function isolateClaude(userDataDir: string): string {
+  const home = path.join(userDataDir, 'claude');
+  const configDir = path.join(home, 'config');
+  fs.mkdirSync(configDir, { recursive: true });
+  const binaryPath = path.join(home, 'claude');
+  fs.writeFileSync(binaryPath, STUB_CLAUDE, { mode: 0o755 });
+
+  // Where main keeps its state (main/index.ts adds the " Test" suffix).
+  const effective = `${userDataDir} Test`;
+  const file = path.join(effective, 'harnesses.json');
+  let harnesses: Harness[] = [];
+  if (fs.existsSync(file)) {
+    try {
+      const stored = JSON.parse(fs.readFileSync(file, 'utf8')) as { harnesses?: unknown };
+      if (!Array.isArray(stored.harnesses)) return configDir;
+      harnesses = stored.harnesses as Harness[];
+    } catch {
+      return configDir;
+    }
+  }
+  const builtIn = harnesses.find((harness) => harness.id === BUILT_IN_HARNESS_ID);
+  const pinned: Harness = {
+    ...(builtIn ?? createBuiltInHarness()),
+    binaryPath: builtIn?.binaryPath || binaryPath,
+    configDir: builtIn?.configDir || configDir,
+  };
+  // First when it was missing, where main's own `withBuiltIn` would put it.
+  const next = builtIn
+    ? harnesses.map((harness) => (harness === builtIn ? pinned : harness))
+    : [pinned, ...harnesses];
+  fs.mkdirSync(effective, { recursive: true });
+  fs.writeFileSync(file, JSON.stringify({ version: 1, harnesses: next }));
+  return configDir;
+}
+
 export async function launchElectron(
   options: LaunchOptions = {},
 ): Promise<{ app: ElectronApplication; page: Page; userDataDir: string }> {
   const userDataDir = options.userDataDir ?? createProfileDir();
+  const claudeConfigDir = isolateClaude(userDataDir);
 
   const app = await electron.launch({
     args: [
@@ -54,12 +130,69 @@ export async function launchElectron(
     env: {
       ...process.env,
       NODE_ENV: 'test',
+      CLAUDE_CONFIG_DIR: claudeConfigDir,
+      // Wherever a harness names no binary of its own, this runs instead of
+      // the person's real CLI (`drivers/testLaunchGuard.ts`).
+      CONSOLA_TEST_AMBIENT_CLI: ambientStandIn(),
       ...(options.env ?? {}),
     },
   });
 
+  failOnStrayLaunches(app, options.strictLaunches === true);
   const page = await app.firstWindow();
   await page.waitForLoadState('domcontentloaded');
 
   return { app, page, userDataDir };
+}
+
+/**
+ * The stand-in for the ambient CLI: `tests/fixtures/ambient-cli.cjs`, through
+ * a wrapper that runs it with the test runner's own Node, since a login PATH
+ * may have none. Written once per run, beside the profiles.
+ */
+function ambientStandIn(): string {
+  const wrapper = path.join(os.tmpdir(), `consola-e2e-ambient-cli-${process.pid}.sh`);
+  if (!fs.existsSync(wrapper)) {
+    const fixture = path.resolve(__dirname, '../../fixtures/ambient-cli.cjs');
+    fs.writeFileSync(wrapper, `#!/bin/sh\nexec '${process.execPath}' '${fixture}' "$@"\n`, {
+      mode: 0o755,
+    });
+  }
+  return wrapper;
+}
+
+/**
+ * What the app's launches reached that was not the test's own stub: `refused`,
+ * which ran nothing (a bare or relative binary, or the ambient CLI with no
+ * stand-in), and `ambient`, launches of the stand-in for a harness that names
+ * no binary. Main records both (`drivers/testLaunchGuard.ts`).
+ */
+export async function strayLaunches(
+  app: ElectronApplication,
+): Promise<{ refused: string[]; ambient: string[] }> {
+  return app.evaluate(() => {
+    const exposed = (
+      globalThis as { __consolaTest?: { launches?: { refused: string[]; ambient: string[] } } }
+    ).__consolaTest?.launches;
+    return { refused: [...(exposed?.refused ?? [])], ambient: [...(exposed?.ambient ?? [])] };
+  });
+}
+
+/**
+ * Every spec fails on a refused launch, and a strict one on any launch of the
+ * ambient stand-in, whether or not what it waited for noticed: closing the
+ * app reads them first, and throws when there are any (review S4).
+ */
+function failOnStrayLaunches(app: ElectronApplication, strict: boolean): void {
+  const close = app.close.bind(app);
+  app.close = async () => {
+    const stray = await strayLaunches(app).catch(() => ({ refused: [], ambient: [] }));
+    await close();
+    const failing = [...stray.refused, ...(strict ? stray.ambient : [])];
+    if (failing.length > 0) {
+      throw new Error(
+        `The app launched a CLI that is not this test's own stub:\n${failing.join('\n')}`,
+      );
+    }
+  };
 }

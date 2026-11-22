@@ -33,6 +33,9 @@ export type {
   RunListPage,
   AgentRunPreview,
   AutomationsSnapshot,
+  FactoryStanding,
+  EntryAgentView,
+  EntryAgentsView,
   ItemRef,
   InboxItemView,
   ItemSnapshot,
@@ -40,6 +43,11 @@ export type {
   ScopeView,
   SessionView,
   WorkspaceView,
+  TurnInitView,
+  TurnResultView,
+  TurnReportView,
+  TurnOutcome,
+  StepTurnFile,
 } from './views';
 export {
   RunStore,
@@ -52,15 +60,21 @@ export type { RunHistory } from './ports';
 export { recoverAfterRestart, isEngineRun, INTERRUPTED_COMMAND } from './steps/recover';
 export type {
   StateFile,
-  LoadedFactoryFile,
-  FactoryFileHandle,
+  FactoryFolderRead,
+  FactoryFolderHandle,
+  AppliedFactory,
+  AppliedFactoryStore,
+  AppliedSkill,
   EngineToolCaller,
   EngineToolScope,
   EngineToolContext,
   EngineToolResult,
   EngineTool,
   ToolsPort,
+  CheckoutKind,
   AgentLaunchRequest,
+  AgentHarnessQuery,
+  AgentHarnessAnswer,
   LaunchedSession,
   RunFolderPort,
   WorkItemPort,
@@ -75,6 +89,7 @@ export {
   REMINDER_PREFIX,
   type StepPromptInput,
 } from './steps/stepPrompt';
+export { CONSOLA_SERVER_NAME } from './steps/turnReport';
 export {
   StepIO,
   stepToolSpecs,
@@ -86,6 +101,8 @@ export {
 } from './steps/stepTools';
 export {
   MAX_ARTIFACT_BYTES,
+  agentRequirements,
+  type AgentRequirements,
   type CommandFile,
   type LogTail,
   type RunDefinition,
@@ -93,6 +110,7 @@ export {
   type StepsRunPreview,
 } from './steps/definition';
 export type { CheckoutRequest, PreparedCheckout, CheckoutPort } from './steps/checkout';
+export { entryCheckoutKind, entryReadsItems, runCheckoutKind } from './steps/checkout';
 export {
   LOG_CAP_BYTES,
   OUTPUT_FILE_CAP_BYTES,
@@ -154,7 +172,9 @@ export {
 export { pollSource } from './sources/pollSource';
 export { resolvePrevious, previousDocument, NO_EARLIER_RUN } from './sources/previous';
 export {
+  AGENT_EXAMPLES,
   describeCapabilities,
+  type AgentCapability,
   type AutomationCapabilities,
   type CapabilitiesInput,
 } from './capabilities';

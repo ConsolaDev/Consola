@@ -19,6 +19,8 @@ import {
   sessionRecord,
   toInboxItemView,
   toItemSnapshot,
+  toTurnInitView,
+  toTurnReportView,
   toWorkItemRef,
   toWorkspaceView,
 } from './engineViews';
@@ -293,5 +295,85 @@ describe('parity: the engine copies equal their desktop originals', () => {
 
   it('CONSOLA_NAMESPACE is the same constant', () => {
     expect(ENGINE_NAMESPACE).toBe(CONSOLA_NAMESPACE);
+  });
+});
+
+describe('turn views', () => {
+  it('toTurnReportView moves the CLI objects aside', () => {
+    const init = { type: 'system', subtype: 'init' };
+    const result = { type: 'result', total_cost_usd: 0.0123 };
+    expect(
+      toTurnReportView({
+        init: {
+          model: 'claude-stub-1',
+          servers: [],
+          signInHint: 'run `claude`, then /mcp',
+          raw: init,
+        },
+        result: {
+          subtype: 'success',
+          isError: false,
+          costUsd: 0.0123,
+          turns: 3,
+          deniedTools: [],
+          raw: result,
+        },
+        otherLines: ['Warning: x'],
+        limitNotice: false,
+        maxTurns: 6,
+      }),
+    ).toEqual({
+      init: { model: 'claude-stub-1', servers: [], signInHint: 'run `claude`, then /mcp' },
+      result: { subtype: 'success', isError: false, costUsd: 0.0123, turns: 3, deniedTools: [] },
+      otherLines: ['Warning: x'],
+      maxTurns: 6,
+      raw: { init, result },
+    });
+  });
+
+  it('a report with neither keeps raw empty, and its limit notice stays in main', () => {
+    // The terminal raises `limit-notice` from it; the engine has no use for it.
+    const view = toTurnReportView({ otherLines: [], limitNotice: true });
+    expect(view).toEqual({ otherLines: [], raw: {} });
+    expect(Object.prototype.hasOwnProperty.call(view, 'maxTurns')).toBe(false);
+  });
+
+  it('keeps every field the CLI reported, and invents none', () => {
+    const view = toTurnReportView({
+      init: { servers: [{ name: 'consola', status: 'failed' }], raw: {} },
+      result: {
+        subtype: 'error_during_execution',
+        isError: true,
+        text: 'It broke',
+        apiErrorStatus: 529,
+        deniedTools: ['Bash', 'Write'],
+        raw: {},
+      },
+      otherLines: [],
+      limitNotice: false,
+    });
+    expect(view.init).toEqual({ servers: [{ name: 'consola', status: 'failed' }] });
+    expect(view.result).toEqual({
+      subtype: 'error_during_execution',
+      isError: true,
+      text: 'It broke',
+      apiErrorStatus: 529,
+      deniedTools: ['Bash', 'Write'],
+    });
+  });
+
+  it('toTurnInitView drops raw', () => {
+    expect(
+      toTurnInitView({
+        model: 'claude-stub-1',
+        servers: [{ name: 'consola', status: 'connected' }],
+        signInHint: 'run `claude`, then /mcp',
+        raw: { type: 'system' },
+      }),
+    ).toEqual({
+      model: 'claude-stub-1',
+      servers: [{ name: 'consola', status: 'connected' }],
+      signInHint: 'run `claude`, then /mcp',
+    });
   });
 });

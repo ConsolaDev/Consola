@@ -29,6 +29,7 @@ function snap(filePath: string): AutomationsSnapshot {
     fileExists: true,
     automations: [],
     issues: [],
+    notices: [],
     runs: [],
     hasOlder: false,
     queue: {},
