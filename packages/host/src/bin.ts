@@ -42,6 +42,14 @@ import * as ThreadRuntime from './runtime/threadRuntime.ts';
 export const DEFAULT_PORT = 7420;
 /** Only this machine, unless the caller asks for more: the host never binds wider by itself. */
 export const DEFAULT_BIND = '127.0.0.1';
+
+/**
+ * Whether `bind` names this machine's loopback only: `localhost`, `::1` or an address in
+ * `127.0.0.0/8`. A `--dev` host lets anyone holding the pass it prints in, so it listens nowhere
+ * else.
+ */
+export const isLoopback = (bind: string): boolean =>
+  bind === 'localhost' || bind === '::1' || /^127(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/.test(bind);
 /** Spec §8.2: a session stops after ten minutes without a turn or a connected client. */
 export const DEFAULT_IDLE_MINUTES = 10;
 /** The session a `--dev` host serves when no `--session-id` is given. */
@@ -155,6 +163,11 @@ export const parseSessionArgs = (
     }
     const bind = values.bind ?? DEFAULT_BIND;
     if (bind === '') return yield* refuse('--bind must name an address.');
+    if (dev && !isLoopback(bind)) {
+      return yield* refuse(
+        `--dev listens only on loopback (127.0.0.1, ::1 or localhost), not on ${bind}.`,
+      );
+    }
     const idleMinutes = Number(values['idle-minutes'] ?? DEFAULT_IDLE_MINUTES);
     if (!Number.isFinite(idleMinutes) || idleMinutes <= 0) {
       return yield* refuse('--idle-minutes must be a number of minutes above 0.');

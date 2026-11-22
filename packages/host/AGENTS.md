@@ -617,7 +617,8 @@ session's thread (`ThreadRuntime.open`), then listens (`listenHost`), so
   written, and one pass signed with it: `sub` `dev`, `ws` `local` (names no
   person or workspace has), `sid` the session id, `iat` now, `exp` twelve hours
   later. `--pass-public-key` is ignored and `--session-id` defaults to
-  `dev-session`. Without `--dev`, `--pass-public-key` is required.
+  `dev-session`. It listens on loopback only: `--dev` with a `--bind` other than
+  `localhost`, `::1` or a `127.0.0.0/8` address is a start failure (`isLoopback`). Without `--dev`, `--pass-public-key` is required.
 - **State.** t3's state and settings live in `--state-dir`
   (`<dir>/userdata/settings.json`), or in a temporary folder removed at exit.
   The tests pass one whose settings turn update checks off, so a host they

@@ -489,6 +489,11 @@ describe('consola-host session', () => {
       /consola-host: --pass-public-key is required without --dev\./,
     ],
     [
+      '--dev on an address that is not loopback',
+      ['--dev', '--bind', '0.0.0.0'],
+      /consola-host: --dev listens only on loopback \(127\.0\.0\.1, ::1 or localhost\), not on 0\.0\.0\.0\./,
+    ],
+    [
       'a key that is not an Ed25519 public key',
       ['--pass-public-key', 'NOT_A_PEM'],
       /consola-host: The pass public key is not an Ed25519 public key in SPKI PEM form\./,
@@ -577,6 +582,10 @@ describe('parseSessionArgs', () => {
     });
   });
 
+  it.each(['127.0.0.1', '127.1.2.3', '::1', 'localhost'])('--dev may bind loopback %s', (bind) => {
+    expect(parse([...required, '--dev', '--bind', bind])).toMatchObject({ bind });
+  });
+
   it('resolves --cwd against the working folder', () => {
     expect(parse(['session', '--dev', '--harness', 'pi', '--cwd', 'acme']).spec.cwd).toBe(
       join(process.cwd(), 'acme'),
@@ -599,6 +608,14 @@ describe('parseSessionArgs', () => {
     ['no idle minutes', [...required, '--idle-minutes', '0'], /--idle-minutes/],
     ['idle minutes that are not a number', [...required, '--idle-minutes', 'x'], /--idle-minutes/],
     ['an empty bind address', [...required, '--bind', ''], /--bind/],
+    ['--dev on every address', [...required, '--dev', '--bind', '0.0.0.0'], /--dev listens only/],
+    ['--dev on every IPv6 address', [...required, '--dev', '--bind', '::'], /--dev listens only/],
+    [
+      '--dev on a LAN address',
+      [...required, '--dev', '--bind', '192.168.1.20'],
+      /--dev listens only/,
+    ],
+    ['--dev on a name', [...required, '--dev', '--bind', 'acme.example'], /--dev listens only/],
   ])('refuses %s', (_case, argv, message) => {
     const error = refusal(argv);
     expect(error).toBeInstanceOf(UsageError);
