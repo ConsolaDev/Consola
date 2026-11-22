@@ -1,5 +1,13 @@
 {
   "version": "7",
   "dialect": "postgresql",
-  "entries": []
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1795361667961,
+      "tag": "0000_workspace_copy",
+      "breakpoints": true
+    }
+  ]
 }
