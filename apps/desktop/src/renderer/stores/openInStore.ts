@@ -70,9 +70,18 @@ export function pickOpenIn(target: OpenInTarget, folder: string): Promise<void> 
   return openFolderIn(target, folder);
 }
 
-/** Opens `folder` in the favourite, asking main for the list first when there is none yet. */
+/**
+ * Opens `folder` in the favourite, asking main for the list first when it
+ * has none, the empty one a failed ask leaves included. With still none to
+ * open in, it says so.
+ */
 export async function openFolderInFavourite(folder: string): Promise<void> {
-  const targets = useOpenInStore.getState().targets ?? (await loadOpenInTargets());
+  const listed = useOpenInStore.getState().targets;
+  const targets = listed?.length ? listed : await loadOpenInTargets();
   const target = favouriteTarget(targets, useSettingsStore.getState().openInFavourite);
-  if (target) await openFolderIn(target, folder);
+  if (!target) {
+    showToast("Couldn't open the folder: Consola could not list the apps to open it in.");
+    return;
+  }
+  await openFolderIn(target, folder);
 }

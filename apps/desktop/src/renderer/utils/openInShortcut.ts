@@ -4,7 +4,7 @@ import { isOpenInShortcut as isOpenIn, OPEN_IN_SHORTCUT_LABELS } from '../../sha
 export const OPEN_IN_SHORTCUT_LABEL = OPEN_IN_SHORTCUT_LABELS[PLATFORM];
 
 /** The chord as `aria-keyshortcuts` spells it. */
-export const OPEN_IN_ARIA_KEYSHORTCUTS = PLATFORM === 'mac' ? 'Meta+O' : 'Control+O';
+export const OPEN_IN_ARIA_KEYSHORTCUTS = PLATFORM === 'mac' ? 'Meta+O' : 'Control+Alt+O';
 
 /** Opens the session's folder in the favourite app (`openFolderOnScreen`). */
 export function isOpenInShortcut(event: KeyboardEvent): boolean {

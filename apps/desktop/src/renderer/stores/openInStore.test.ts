@@ -86,6 +86,26 @@ describe('openFolderInFavourite', () => {
     expect(toasts()).toEqual([`${FOLDER} does not exist.`]);
   });
 
+  it('asks for the list again after one that failed, and says so when it fails again', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    bridge.list.mockRejectedValueOnce(new Error('main went away'));
+    await loadOpenInTargets();
+    expect(useOpenInStore.getState().targets).toEqual([]);
+
+    await openFolderInFavourite(FOLDER);
+    expect(bridge.list).toHaveBeenCalledTimes(2);
+    expect(bridge.open).toHaveBeenCalledWith({ targetId: 'finder', path: FOLDER });
+
+    useOpenInStore.setState({ targets: [] });
+    bridge.list.mockRejectedValueOnce(new Error('main went away'));
+    await openFolderInFavourite(FOLDER);
+    expect(bridge.open).toHaveBeenCalledTimes(1);
+    expect(toasts()).toEqual([
+      "Couldn't open the folder: Consola could not list the apps to open it in.",
+    ]);
+    warn.mockRestore();
+  });
+
   it('says so too when main could not be asked', async () => {
     bridge.open.mockRejectedValueOnce(new Error('Refused open-in:open'));
     await openFolderInFavourite(FOLDER);

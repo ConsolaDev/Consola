@@ -2,7 +2,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { OpenInService, type OpenInServiceDeps } from './OpenInService';
+import { ICON_READ_TIMEOUT_MS, OpenInService, type OpenInServiceDeps } from './OpenInService';
 import { FINDER_PATH, type DetectedTarget } from './targets';
 
 const VS_CODE: DetectedTarget = {
@@ -105,6 +105,47 @@ describe('OpenInService.list', () => {
       { id: 'finder', label: 'Finder', kind: 'file-manager' },
     ]);
     expect(readIcon.mock.calls.filter(([appPath]) => appPath === VS_CODE.appPath)).toHaveLength(1);
+    // A read that failed is not kept: the next list tries again.
+    expect(readIcon.mock.calls.filter(([appPath]) => appPath === FINDER_PATH)).toHaveLength(2);
+  });
+
+  it('lists an app whose icon never comes without one, in time, and tries it again next list', async () => {
+    vi.useFakeTimers();
+    try {
+      const readIcon = vi.fn((appPath: string) =>
+        appPath === FINDER_PATH
+          ? new Promise<string>(() => {})
+          : Promise.resolve('data:image/png;base64,code'),
+      );
+      const { openIn } = service({ readIcon });
+      const answer = openIn.list();
+      await vi.advanceTimersByTimeAsync(ICON_READ_TIMEOUT_MS);
+      expect(await answer).toEqual([
+        { id: 'vscode', label: 'VS Code', kind: 'app', icon: 'data:image/png;base64,code' },
+        { id: 'finder', label: 'Finder', kind: 'file-manager' },
+      ]);
+      const again = openIn.list();
+      await vi.advanceTimersByTimeAsync(ICON_READ_TIMEOUT_MS);
+      await again;
+      expect(readIcon.mock.calls.filter(([appPath]) => appPath === FINDER_PATH)).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('answers what it had, or nothing, when looking for apps fails, and never throws', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const detect = vi
+      .fn<OpenInServiceDeps['detect']>()
+      .mockRejectedValueOnce(new Error('disk gone'))
+      .mockResolvedValueOnce([VS_CODE, FINDER])
+      .mockRejectedValue(new Error('disk gone'));
+    const { openIn } = service({ detect });
+    expect(await openIn.list()).toEqual([]);
+    expect((await openIn.list()).map((target) => target.id)).toEqual(['vscode', 'finder']);
+    await settle();
+    expect((await openIn.list()).map((target) => target.id)).toEqual(['vscode', 'finder']);
+    warn.mockRestore();
   });
 
   it('reads no icon for a file manager with no bundle', async () => {
@@ -200,6 +241,46 @@ describe('OpenInService.open', () => {
     expect(launch).not.toHaveBeenCalled();
   });
 
+  it('refuses a bundle reached by another spelling of its path, or through a link', async () => {
+    const { openIn, launch } = service();
+    const bundle = path.join(root, 'Calculator.app');
+    fs.mkdirSync(path.join(bundle, 'Contents'), { recursive: true });
+    const link = path.join(root, 'calculator');
+    fs.symlinkSync(bundle, link);
+    for (const spelling of [`${bundle}/.`, path.join(bundle, 'Contents') + '/..', link]) {
+      expect(await openIn.open({ targetId: 'finder', path: spelling })).toEqual({
+        ok: false,
+        error: `${spelling} is an app, not a folder.`,
+      });
+    }
+    expect(launch).not.toHaveBeenCalled();
+  });
+
+  it('opens a folder reached through a link at its real path', async () => {
+    const { openIn, launch } = service();
+    const link = path.join(root, 'portal');
+    fs.symlinkSync(folder, link);
+    expect(await openIn.open({ targetId: 'vscode', path: link })).toEqual({ ok: true });
+    expect(launch).toHaveBeenCalledWith(VS_CODE, folder);
+  });
+
+  it('says a folder it may not read cannot be read, rather than that it is not there', async () => {
+    const { openIn, launch } = service();
+    const locked = path.join(root, 'locked');
+    fs.mkdirSync(path.join(locked, 'inside'), { recursive: true });
+    fs.chmodSync(locked, 0o000);
+    try {
+      const inside = path.join(locked, 'inside');
+      expect(await openIn.open({ targetId: 'vscode', path: inside })).toEqual({
+        ok: false,
+        error: `${inside} cannot be read.`,
+      });
+    } finally {
+      fs.chmodSync(locked, 0o755);
+    }
+    expect(launch).not.toHaveBeenCalled();
+  });
+
   it('refuses a request that is not one', async () => {
     const { openIn, launch } = service();
     for (const request of [null, 'vscode', { targetId: 'vscode' }, { targetId: 7, path: folder }]) {
@@ -209,6 +290,21 @@ describe('OpenInService.open', () => {
       });
     }
     expect(launch).not.toHaveBeenCalled();
+  });
+
+  it('answers a sentence, never a throw, when looking for apps or launching throws', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const lost = service({ detect: async () => Promise.reject(new Error('disk gone')) });
+    expect(await lost.openIn.open({ targetId: 'vscode', path: folder })).toEqual({
+      ok: false,
+      error: 'Consola found no app “vscode” on this computer.',
+    });
+    const thrown = service({ launch: async () => Promise.reject(new Error('spawn EAGAIN')) });
+    expect(await thrown.openIn.open({ targetId: 'vscode', path: folder })).toEqual({
+      ok: false,
+      error: "Couldn't open the folder in VS Code: spawn EAGAIN",
+    });
+    warn.mockRestore();
   });
 
   it('says why the app did not open', async () => {

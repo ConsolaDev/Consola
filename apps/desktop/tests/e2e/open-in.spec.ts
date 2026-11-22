@@ -151,7 +151,11 @@ test.describe('open in', () => {
     await chevron().click();
     await expect(menu().getByRole('menuitem')).toHaveText(['VS Code', 'IntelliJ IDEA', 'Finder⌘O']);
     await expect(menuItem('Finder')).toHaveAttribute('aria-keyshortcuts', 'Meta+O');
-    await expect(menuItem('VS Code').locator('img')).toHaveAttribute('src', /^data:image\//);
+    // An icon for each: the app's own, or the folder drawn when Quick Look
+    // gives none, which for this spec's empty bundles depends on the machine.
+    for (const label of ['VS Code', 'IntelliJ IDEA', 'Finder']) {
+      await expect(menuItem(label).locator('.info-open-in-icon > :is(img, svg)')).toHaveCount(1);
+    }
     // Closed, it hands the keyboard back to the chevron.
     await page.keyboard.press('Escape');
     await expect(menu()).toHaveCount(0);
@@ -267,8 +271,19 @@ test.describe('open in', () => {
     ).toBeVisible();
     await expect(environment().locator('.info-open-in')).toHaveCount(0);
     await openChord();
-    // Given time to arrive, nothing was opened.
-    await page.waitForTimeout(500);
-    expect(await launches()).toEqual([]);
+
+    // ⌘O back in a session with a folder: had the press above opened
+    // anything, it would be recorded before this one, so the recorder
+    // holding this one alone says it did not, with no fixed wait.
+    await openSession('Paginate the catalog search');
+    await expect(openButton('VS Code')).toBeVisible();
+    await openChord();
+    await expect.poll(launches).toEqual([
+      {
+        targetId: 'vscode',
+        appPath: path.join(applications, 'Visual Studio Code.app'),
+        folder: catalog,
+      },
+    ]);
   });
 });

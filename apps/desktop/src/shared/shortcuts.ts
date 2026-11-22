@@ -168,22 +168,21 @@ export const INFO_PANEL_SHORTCUT_LABELS: Record<ShortcutPlatform, string> = {
 /**
  * Opens the session's folder in the app the person last picked from the
  * info panel's "Open in" (`renderer/utils/openInActions`): Cmd+O on macOS,
- * Ctrl+O elsewhere. Never with Shift, which is the palette's Files scope,
- * nor with Alt.
+ * Ctrl+Alt+O elsewhere. A bare Ctrl+O there is the terminal's (Claude Code
+ * and nano use it), so the chord takes Alt, matched on the physical key as
+ * the info panel's is, since Alt can change the letter. Never with Shift:
+ * Shift+Cmd+O is the palette's Files scope.
  */
 export function isOpenInShortcut(chord: KeyChord, platform: ShortcutPlatform): boolean {
-  return (
-    hasPrimary(chord, platform) &&
-    !chord.alt &&
-    !chord.shift &&
-    !chord.isComposing &&
-    chord.key.toLowerCase() === 'o'
-  );
+  if (!hasPrimary(chord, platform) || chord.shift || chord.isComposing) return false;
+  return platform === 'mac'
+    ? !chord.alt && chord.key.toLowerCase() === 'o'
+    : chord.alt && chord.code === 'KeyO';
 }
 
 export const OPEN_IN_SHORTCUT_LABELS: Record<ShortcutPlatform, string> = {
   mac: '⌘O',
-  other: 'Ctrl+O',
+  other: 'Ctrl+Alt+O',
 };
 
 /**

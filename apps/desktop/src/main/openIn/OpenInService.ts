@@ -4,6 +4,9 @@ import type { OpenInResult, OpenInTarget } from '../../shared/openIn';
 import type { Launcher } from './launchers';
 import type { DetectedTarget } from './targets';
 
+/** How long the list waits for an app's icon before it lists the app without one. */
+export const ICON_READ_TIMEOUT_MS = 2_000;
+
 export interface OpenInServiceDeps {
   /** The apps on this computer, the file manager last (`detectTargets`). */
   detect(): Promise<DetectedTarget[]>;
@@ -18,26 +21,28 @@ export interface OpenInServiceDeps {
  * What is installed is found once and kept for the run; each later `list`
  * answers from that at once and looks again behind the answer, so an app
  * installed or removed since shows the next time the menu opens. An app's
- * icon is read once per bundle.
+ * icon is kept once read; one that fails, or takes longer than
+ * `ICON_READ_TIMEOUT_MS`, leaves the app without one this time and is read
+ * again at the next list.
  *
- * `open` acts only on what it can check itself: an app it found, and an
- * absolute path that is a folder now, and not an app's bundle (Finder would
- * launch it). Everything it refuses, and every
- * failure to open, comes back as a sentence; nothing throws.
+ * `open` acts only on what it can check itself: an app it found, and a
+ * folder, checked where its absolute path really leads (links and `..`
+ * followed) and handed on as that real path, which is not an app's bundle
+ * (Finder would launch it). Everything it refuses, and every failure to
+ * open, comes back as a sentence; neither `list` nor `open` throws.
  */
 export class OpenInService {
   private found: DetectedTarget[] | undefined;
   private looking: Promise<DetectedTarget[]> | undefined;
-  private readonly icons = new Map<string, Promise<string | undefined>>();
+  private readonly icons = new Map<string, string>();
+  private readonly reading = new Map<string, Promise<string | undefined>>();
 
   constructor(private readonly deps: OpenInServiceDeps) {}
 
   async list(): Promise<OpenInTarget[]> {
     const known = this.found;
     if (!known) return this.withIcons(await this.look());
-    this.look().catch((error: unknown) => {
-      console.warn('Open in: looking for apps again failed:', error);
-    });
+    void this.look();
     return this.withIcons(known);
   }
 
@@ -55,27 +60,45 @@ export class OpenInService {
     if (!path.isAbsolute(folder)) {
       return { ok: false, error: `“${folder}” is not a full path to a folder.` };
     }
-    const stat = await fs.promises.stat(folder).catch(() => null);
-    if (!stat) return { ok: false, error: `${folder} does not exist.` };
+    let real: string;
+    let stat: fs.Stats;
+    try {
+      real = await fs.promises.realpath(folder);
+      stat = await fs.promises.stat(real);
+    } catch (error) {
+      return { ok: false, error: unreachable(folder, error) };
+    }
     if (!stat.isDirectory()) return { ok: false, error: `${folder} is not a folder.` };
     // A bundle is a folder on disk, but the file manager would launch it.
-    if (path.extname(path.basename(folder)).toLowerCase() === '.app') {
+    if (path.extname(real).toLowerCase() === '.app') {
       return { ok: false, error: `${folder} is an app, not a folder.` };
     }
-    const failure = await this.deps.launch(target, folder);
+    const failure = await this.deps
+      .launch(target, real)
+      .catch((error: unknown) => (error instanceof Error ? error.message : String(error)));
     return failure
       ? { ok: false, error: `Couldn't open the folder in ${target.label}: ${failure}` }
       : { ok: true };
   }
 
-  /** Looks for the apps, once at a time for every caller, and keeps what it found. */
+  /**
+   * Looks for the apps, once at a time for every caller, and keeps what it
+   * found. A look that fails keeps what was found before, or answers none,
+   * so the next one tries again.
+   */
   private look(): Promise<DetectedTarget[]> {
     this.looking ??= this.deps
       .detect()
-      .then((found) => {
-        this.found = found;
-        return found;
-      })
+      .then(
+        (found) => {
+          this.found = found;
+          return found;
+        },
+        (error: unknown) => {
+          console.warn('Open in: looking for apps failed:', error);
+          return this.found ?? [];
+        },
+      )
       .finally(() => {
         this.looking = undefined;
       });
@@ -91,14 +114,44 @@ export class OpenInService {
     );
   }
 
-  private iconOf(appPath: string): Promise<string | undefined> {
-    let icon = this.icons.get(appPath);
-    if (!icon) {
-      icon = this.deps.readIcon(appPath).catch(() => undefined);
-      this.icons.set(appPath, icon);
+  /** The icon kept, else one read now, once at a time per bundle and in time; never throws. */
+  private async iconOf(appPath: string): Promise<string | undefined> {
+    const kept = this.icons.get(appPath);
+    if (kept) return kept;
+    let read = this.reading.get(appPath);
+    if (!read) {
+      read = inTime(this.deps.readIcon(appPath), ICON_READ_TIMEOUT_MS)
+        .then(
+          (icon) => {
+            if (icon) this.icons.set(appPath, icon);
+            return icon;
+          },
+          () => undefined,
+        )
+        .finally(() => {
+          this.reading.delete(appPath);
+        });
+      this.reading.set(appPath, read);
     }
-    return icon;
+    return read;
   }
+}
+
+/** `work`'s answer, or undefined once `ms` have passed without one. */
+function inTime<T>(work: Promise<T>, ms: number): Promise<T | undefined> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<undefined>((resolve) => {
+    timer = setTimeout(() => resolve(undefined), ms);
+  });
+  return Promise.race([work, late]).finally(() => clearTimeout(timer));
+}
+
+/** Why a folder could not be reached: not there, or not readable by this user. */
+function unreachable(folder: string, error: unknown): string {
+  const code = (error as NodeJS.ErrnoException | undefined)?.code;
+  return code === 'EACCES' || code === 'EPERM'
+    ? `${folder} cannot be read.`
+    : `${folder} does not exist.`;
 }
 
 function isRequest(value: unknown): value is { targetId: string; path: string } {

@@ -485,11 +485,13 @@ panel it is view state, kept in the renderer.
   the checkout (its branch, the session's folder (the path the row copies)
   and a worktree's main checkout). Under it, "Open in" opens that folder in
   the app last picked (`settingsStore.openInFavourite`, else Finder), as ⌘O
-  does from anywhere in a session pane; its chevron lists the apps main
-  found (`main/openIn/`, one table), and a pick there or in the palette
-  becomes the favourite. Main opens only an app it found, on an absolute
-  path that is a folder and not an app's bundle, with argument lists; a
-  test run records instead of opening. No folder (a removed worktree), no button. Nothing in
+  (Ctrl+Alt+O elsewhere: a bare Ctrl+O is the terminal's) does from
+  anywhere in a session pane; its chevron lists the apps main found
+  (`main/openIn/`, one table), and a pick there or in the palette becomes
+  the favourite. Main opens only an app it found, on the real path an
+  absolute one leads to (links and `..` followed), which must be a folder
+  and not an app's bundle, with argument lists; a test run records instead
+  of opening. No folder (a removed worktree), no button. Nothing in
   the panel navigates or takes the keyboard, on mount or otherwise.
   Visibility rides with the layout (`sidePanelStore.infoVisible`,
   written only under the remember setting, shown when absent); folds sit in
