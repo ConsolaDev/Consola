@@ -1,0 +1,7 @@
+{
+  "extends": "../../vendor/t3code/tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["node"]
+  },
+  "include": ["src"]
+}

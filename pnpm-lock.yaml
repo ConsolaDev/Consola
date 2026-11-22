@@ -495,6 +495,22 @@ importers:
         specifier: ^4.1.12
         version: 4.1.12(@types/node@20.19.31)(vite@7.3.8(@types/node@20.19.31)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1))
 
+  packages/host:
+    dependencies:
+      '@t3tools/contracts':
+        specifier: workspace:*
+        version: link:../../vendor/t3code/packages/contracts
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 24.12.4
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+      vite-plus:
+        specifier: 'catalog:'
+        version: 1.4.0(@types/node@24.12.4)(@vitest/ui@5.0.5(vitest@5.0.5))(esbuild@0.28.2)(jiti@2.7.0)(playwright@1.62.1)(tsx@4.23.15)(typescript@5.9.3)(yaml@2.9.1)
+
   vendor/t3code:
     devDependencies:
       '@effect/tsgo':
@@ -8786,7 +8802,7 @@ snapshots:
   '@jridgewell/trace-mapping@0.3.31':
     dependencies:
       '@jridgewell/resolve-uri': 3.1.2
-      '@jridgewell/sourcemap-codec': 1.5.5
+      '@jridgewell/sourcemap-codec': 1.6.0
 
   '@malept/cross-spawn-promise@2.0.0':
     dependencies:
