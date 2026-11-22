@@ -467,7 +467,7 @@ export const OpenCodeDriver: ProviderDriver<
     );
 
     const legacyUsageLimits = readOpenCodeGoUsageLimits({
-      enabled: effectiveConfig.enabled,
+      enabled: false,
       serverUrl: effectiveConfig.serverUrl,
       environment: processEnv,
     }).pipe(

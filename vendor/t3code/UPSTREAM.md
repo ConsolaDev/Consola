@@ -1436,9 +1436,12 @@ mode (`devUrl`).
 | File | Change | Why |
 |---|---|---|
 | `packages/*/package.json` (all 33) | Adds the line `"license": "MIT",` after `"private": true,` | t3 leaves `license` unset. Consola's rule is that every `package.json` names its licence, and a copied package keeps t3's MIT. Nothing else in the files changes. |
+| `packages/provider-opencode/src/server/driver.ts` line 470 | `enabled: effectiveConfig.enabled,` → `enabled: false,` in the `readOpenCodeGoUsageLimits` call | Consola never reads a CLI's credentials. That call reads the person's OpenCode Go API key from OpenCode's `auth.json` and from its `opencode.db` `credential` table (opened directly with `node:sqlite`, so no file system or HTTP client a host provides can stop it) and sends it to `opencode.ai`. With `enabled: false` the driver never makes it; OpenCode 2's server still reports usage it can read itself. No setting or injected service turns it off (`@consola/host`'s `AGENTS.md`, "The host never reads a CLI's login"). |
+| `packages/provider-opencode/package.json` | `test` runs `--config ./vitest.config.ts` instead of `../../vite.config.ts` | So the five driver tests of that read are skipped (`NOT_RUN_HERE` in Consola's `packages/provider-opencode/vitest.config.ts`, the shared config plus a `testNamePattern`, as `apps/server/vitest.config.ts` does). The tests of `readOpenCodeGoUsageLimits` itself (`status.test.ts`) still run. |
 
 No other copied file differs from `d51d8c47`, the lifted files in
-`apps/server/` included (its `tsconfig.json` too). `apps/server/package.json`
+`apps/server/` included (its `tsconfig.json` too).
+`packages/provider-opencode/vitest.config.ts` is Consola's file, not t3's. `apps/server/package.json`
 is Consola's, not t3's, though it keeps t3's name, `t3`.
 
 ## Consola's side
