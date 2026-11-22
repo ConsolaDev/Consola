@@ -1,7 +1,7 @@
 import { createPrivateKey, type KeyObject, sign } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { z } from 'zod';
-import type { GitHubApp } from '../../application/ports.js';
+import type { GitHubApp, GitHubTokenMinter, MintAnswer } from '../../application/ports.js';
 import type {
   GitHubInstallation,
   GitHubRepository,
@@ -96,6 +96,18 @@ const MEMBERSHIP = z.object({ state: z.string(), role: z.string() });
 
 const INSTALLATION_TOKEN = z.object({ token: z.string().min(1), expires_at: z.string() });
 
+/**
+ * GitHub's answer to a narrowed mint. The repositories and permissions are what GitHub says the
+ * token carries, read for the caller to check against what it asked: one missing reads as none,
+ * so a token GitHub did not narrow is never taken for one it did.
+ */
+const NARROWED_TOKEN = z.object({
+  token: z.string().min(1),
+  expires_at: z.string(),
+  permissions: z.record(z.string(), z.string()).optional(),
+  repositories: z.array(z.object({ id: z.number().int(), full_name: z.string() })).optional(),
+});
+
 /** A call GitHub did not answer as it says it does. */
 class Unanswered extends Error {}
 
@@ -113,8 +125,10 @@ class Refused extends Error {
  * Consola's GitHub App over GitHub's REST API, with `fetch`. It signs its own app token (an
  * RS256 JWT whose issuer is the client ID) for each call that needs one. A person's token, from
  * the callback's code, is used for one list and then revoked. Installation tokens, asked only
- * for metadata read, are kept in memory until five minutes before they expire. No token, code
- * or secret is ever logged: a failure logs the call and GitHub's status.
+ * for metadata read, are kept in memory until five minutes before they expire. A token minted
+ * for a caller (`mintToken`), narrowed to its repositories and permissions, is a new one each
+ * time, never kept, and never the one the repositories are listed with. No token, code or
+ * secret is ever logged: a failure logs the call and GitHub's status.
  */
 export function createGitHubApp(deps: {
   config: GitHubAppConfig;
@@ -122,7 +136,7 @@ export function createGitHubApp(deps: {
   fetch?: Fetch;
   now?: () => number;
   log?: (line: string) => void;
-}): GitHubApp {
+}): GitHubApp & GitHubTokenMinter {
   const { config, privateKey } = deps;
   const call: Fetch = deps.fetch ?? ((input, init) => fetch(input, init));
   const now = deps.now ?? Date.now;
@@ -259,7 +273,83 @@ export function createGitHubApp(deps: {
     return token;
   }
 
+  /** Revokes an installation token with the token itself. It never throws. */
+  async function revokeInstallationToken(token: string) {
+    try {
+      const response = await request('revoking a narrowed token', `${API}/installation/token`, {
+        method: 'DELETE',
+        token,
+      });
+      if (response.status !== 204) {
+        log(`GitHub did not revoke a narrowed token (HTTP ${response.status}).`);
+      }
+    } catch {
+      // Logged by `request`; the token expires on its own within the hour.
+    }
+  }
+
+  async function mintToken(
+    installationId: number,
+    scope: Parameters<GitHubTokenMinter['mintToken']>[1],
+  ): Promise<MintAnswer> {
+    const what = `a narrowed token for installation ${installationId}`;
+    let response: Response;
+    try {
+      response = await request(what, `${API}/app/installations/${installationId}/access_tokens`, {
+        method: 'POST',
+        token: appToken(),
+        body: { repository_ids: scope.repositoryIds, permissions: scope.permissions },
+      });
+    } catch (error) {
+      if (error instanceof Unanswered) return { kind: 'unavailable' };
+      throw error;
+    }
+    // Uninstalled is 404; suspended is 403.
+    if (response.status === 404 || response.status === 403) return { kind: 'gone' };
+    // A repository the installation does not cover, or a permission it was not granted.
+    if (response.status === 422) {
+      log(`GitHub refused ${what} (HTTP 422).`);
+      return { kind: 'refused' };
+    }
+    if (response.status !== 201) {
+      log(`GitHub refused ${what} (HTTP ${response.status}).`);
+      return { kind: 'unavailable' };
+    }
+
+    let body: unknown;
+    try {
+      body = await response.json();
+    } catch {
+      body = undefined;
+    }
+    const parsed = NARROWED_TOKEN.safeParse(body);
+    if (!parsed.success) {
+      log(`GitHub answered ${what} with a body Consola does not know (HTTP 201).`);
+      // A token in an answer that does not read is never left live.
+      const token = (body as { token?: unknown } | undefined)?.token;
+      if (typeof token === 'string' && token !== '') await revokeInstallationToken(token);
+      return { kind: 'unavailable' };
+    }
+    const { token, expires_at, permissions, repositories } = parsed.data;
+    const expiresAt = Date.parse(expires_at);
+    if (!Number.isFinite(expiresAt)) {
+      log(`GitHub answered ${what} with no time it expires.`);
+      await revokeInstallationToken(token);
+      return { kind: 'unavailable' };
+    }
+    return {
+      kind: 'minted',
+      token,
+      expiresAt: new Date(expiresAt),
+      repositories: (repositories ?? []).map(({ id, full_name }) => ({ id, fullName: full_name })),
+      permissions: permissions ?? {},
+    };
+  }
+
   return {
+    mintToken,
+    revokeToken: revokeInstallationToken,
+
     installUrl(state) {
       return `${WEB}/apps/${config.slug}/installations/new?state=${encodeURIComponent(state)}`;
     },

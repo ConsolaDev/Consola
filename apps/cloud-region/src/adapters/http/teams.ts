@@ -81,6 +81,8 @@ export function teamRoutes(app: OpenAPIHono<CellEnv>, teams: TeamStore): void {
         return c.json(TEAM_NOT_FOUND, 404);
       case 'first-team':
         return c.json({ error: 'first_team' } as const, 409);
+      case 'owns-factories':
+        return c.json({ error: 'owns_factories' } as const, 409);
       case 'workspace-pending':
         return c.json(WORKSPACE_PENDING, 409);
     }

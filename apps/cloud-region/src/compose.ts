@@ -39,6 +39,7 @@ export function composeCell(deps: {
     workspaceCopies: stores.workspaceCopies,
     gitHubEvents: stores.gitHubEvents,
     teams: stores.teams,
+    factories: stores.factories,
     clock: systemClock,
   });
   return { app };

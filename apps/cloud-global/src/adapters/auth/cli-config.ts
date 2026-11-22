@@ -15,6 +15,7 @@ const placeholder: CloudConfig = {
   google: { clientId: 'placeholder', clientSecret: 'placeholder' },
   cellTokenPrivateKey: { kty: 'OKP', crv: 'Ed25519', x: 'placeholder', d: 'placeholder' },
   cellUrls: {},
+  cellPublicKeys: {},
   github: null,
   githubWebhookSecret: null,
 };

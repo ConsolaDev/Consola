@@ -5,6 +5,7 @@ import { describeMe } from '../../application/me.js';
 import type {
   Clock,
   DeliveryVerifier,
+  FactoryStore,
   GitHubEventStore,
   HealthProbe,
   TeamStore,
@@ -14,6 +15,7 @@ import type {
 import type { Region } from '../../domain/region.js';
 import { type CellEnv, requireCaller } from './caller.js';
 import { getHealth, getMe } from './contract.js';
+import { factoryRoutes } from './factories.js';
 import { gitHubEventRoutes } from './gitHubEvents.js';
 import { outboxRoutes } from './outbox.js';
 import { teamRoutes } from './teams.js';
@@ -58,6 +60,7 @@ export function createApp(deps: {
   workspaceCopies: WorkspaceCopies;
   gitHubEvents: GitHubEventStore;
   teams: TeamStore;
+  factories: FactoryStore;
   clock: Clock;
   report?: (line: string) => void;
 }): OpenAPIHono<CellEnv> {
@@ -70,6 +73,7 @@ export function createApp(deps: {
     workspaceCopies,
     gitHubEvents,
     teams,
+    factories,
     clock,
   } = deps;
   const report = deps.report ?? ((line: string) => console.error(line));
@@ -111,6 +115,7 @@ export function createApp(deps: {
   app.openapi(getMe, (c) => c.json(describeMe(c.var.caller), 200));
 
   teamRoutes(app, teams);
+  factoryRoutes(app, teams, factories);
 
   return app;
 }

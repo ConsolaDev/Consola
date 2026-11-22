@@ -25,6 +25,9 @@ once so that neither keeps its own copy:
   signed body, its size and what each answer means
   (`GITHUB_EVENT_DELIVERY_PATH`, `GITHUB_EVENT_TYPE`, `GITHUB_EVENT_ANSWER`,
   `GITHUB_EVENT_DELIVERY_MAX_BYTES`).
+- a cell's signed request to `cloud-global` for a GitHub token
+  (`GitHubTokenRequest`, `gitHubTokenRequest`, `readGitHubTokenRequest`,
+  `GITHUB_TOKEN_PURPOSES`), the one thing a cell sends `cloud-global`.
 
 It holds no signing, no verifying and no delivery. Minting and signing the
 token are `cloud-global`'s (issue 5.3), checking its signature and its region
@@ -33,7 +36,9 @@ delivers it are `cloud-global`'s (6.1); checking a delivery's signature,
 applying its message, and checking its region and its order are the cell's
 (6.2). Receiving GitHub's webhooks, checking GitHub's signature and passing
 each event on, signed, are `cloud-global`'s; checking an event's signature
-and its region and recording it once are the cell's (14.2).
+and its region and recording it once are the cell's (14.2). Signing a
+request for a GitHub token is the cell's (9.4); checking it, and minting,
+are `cloud-global`'s (14.3).
 
 Only the two cloud apps import it, from any of their layers, `domain` and
 `application` included. It is AGPL-3.0-only, because only Consola's own apps
@@ -64,9 +69,10 @@ like the apps' own boundary tests.
 ## Reading what the other side sent
 
 Everything that crosses between the apps is read with its reader:
-`readCellTokenClaims(payload, nowSeconds)` for a token's claims and
-`readOutboxMessage(value)` for a message and `readGitHubEventMessage(value)`
-for an event, each once its signature is checked, and
+`readCellTokenClaims(payload, nowSeconds)` for a token's claims,
+`readOutboxMessage(value)` for a message, `readGitHubEventMessage(value)`
+for an event and `readGitHubTokenRequest(payload, nowSeconds)` for a cell's
+request, each once its signature is checked, and
 `readOutOfOrderAnswer(value)` for a cell's `outOfOrder` answer. Each
 returns `{ ok: true, value }` or `{ ok: false, reason }`, and never throws on
 what it reads.
@@ -195,6 +201,42 @@ keeps it in the workspace's region.
   waits for its answer, and keeps nothing to try again with. A 2xx is the
   cell's confirmation, and anything else makes `cloud-global` answer GitHub
   with a failure, so GitHub's own Redeliver sends it again.
+
+### A cell's request for a GitHub token
+
+**Proposed** (14.3, CON-71), not yet confirmed. `cloud-global` holds the
+GitHub App's key and mints; the cell holds the work a token is for, and asks.
+
+- **The request** is `GitHubTokenRequest`: `aud` (always
+  `GITHUB_TOKEN_REQUEST_AUDIENCE`, `consola-global`), `workspaceId`,
+  `installationId`, `purpose` (one of `GITHUB_TOKEN_PURPOSES`: `review-run`,
+  `factory-pull`, `factory-save`), `repositoryIds` (GitHub's ids, which a
+  rename keeps), `iat` and `exp`. It names no permissions: `cloud-global`
+  gives each purpose fixed ones, and the request cannot widen them. Build it
+  with `gitHubTokenRequest`, which throws on what the reader would refuse.
+- **The workspace is the one the cell serves**: the `ws` of the caller's cell
+  token, or the workspace of the factory or run the cell holds, never one a
+  request to the cell names. `cloud-global` checks it holds the installation
+  and is in the signing cell's region.
+- **Signed by the cell, with a key of its own**: the request's JSON as the
+  payload of a compact JWS, with `alg` `CELL_TOKEN_ALGORITHM`, the cell's
+  key's `kid` (its JWK thumbprint) and `typ` `GITHUB_TOKEN_REQUEST_TYPE` in
+  the protected header. `cloud-global` holds each region's public key in its
+  configuration (`CELL_PUBLIC_KEY_<REGION>`), never its private half, so the
+  key that checks a request says which cell sent it. Nothing `cloud-global`
+  signs passes for one: its key is no cell's, a cell token names another
+  `aud`, and an outbox message or a GitHub event another `typ` and no `aud`.
+- **A minute at most** (`GITHUB_TOKEN_REQUEST_LIFETIME_SECONDS`): a cell signs
+  one for each request it sends. The reader refuses one that lives longer,
+  one signed in the future and one that has expired, each allowing
+  `CLOCK_SKEW_SECONDS`.
+- **The reader checks the shape only.** How many repositories a purpose may
+  name, and that none is named twice, are `cloud-global`'s rules, which name
+  each problem.
+- **Where it goes** is `cloud-global`'s API, `POST /api/github/tokens`
+  `{ request }`, declared in its OpenAPI contract with every answer, so a
+  cell's client is generated from `apps/cloud-global/openapi.json` like any
+  other.
 
 ## Changing the contract
 

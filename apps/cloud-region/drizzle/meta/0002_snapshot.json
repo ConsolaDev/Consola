@@ -1,45 +1,54 @@
 {
-  "id": "a82b4e47-a3da-4ed9-944b-d39b6accc5ba",
+  "id": "e09f4761-e7a0-4d49-a31d-2b1dd771dddc",
   "prevId": "53eee132-8c6e-4a1d-bd9e-a0d664ae423a",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
-    "public.github_event": {
-      "name": "github_event",
+    "public.factory": {
+      "name": "factory",
       "schema": "",
       "columns": {
+        "factory_id": {
+          "name": "factory_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()::text"
+        },
         "workspace_id": {
           "name": "workspace_id",
           "type": "text",
           "primaryKey": false,
           "notNull": true
         },
-        "delivery_id": {
-          "name": "delivery_id",
+        "team_id": {
+          "name": "team_id",
           "type": "text",
           "primaryKey": false,
           "notNull": true
         },
-        "event": {
-          "name": "event",
+        "name": {
+          "name": "name",
           "type": "text",
           "primaryKey": false,
           "notNull": true
         },
-        "installation_id": {
-          "name": "installation_id",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "payload": {
-          "name": "payload",
+        "source": {
+          "name": "source",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "default": "'stored'"
         },
-        "received_at": {
-          "name": "received_at",
+        "latest_version": {
+          "name": "latest_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "created_at": {
+          "name": "created_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": true,
@@ -47,8 +56,8 @@
         }
       },
       "indexes": {
-        "github_event_received_idx": {
-          "name": "github_event_received_idx",
+        "factory_name_unique": {
+          "name": "factory_name_unique",
           "columns": [
             {
               "expression": "workspace_id",
@@ -57,33 +66,160 @@
               "nulls": "last"
             },
             {
-              "expression": "received_at",
-              "isExpression": false,
+              "expression": "lower(\"name\")",
               "asc": true,
+              "isExpression": true,
               "nulls": "last"
             }
           ],
-          "isUnique": false,
+          "isUnique": true,
           "concurrently": false,
           "method": "btree",
           "with": {}
         }
       },
       "foreignKeys": {
-        "github_event_workspace_id_workspace_workspace_id_fk": {
-          "name": "github_event_workspace_id_workspace_workspace_id_fk",
-          "tableFrom": "github_event",
+        "factory_workspace_id_workspace_workspace_id_fk": {
+          "name": "factory_workspace_id_workspace_workspace_id_fk",
+          "tableFrom": "factory",
           "tableTo": "workspace",
           "columnsFrom": ["workspace_id"],
           "columnsTo": ["workspace_id"],
           "onDelete": "no action",
           "onUpdate": "no action"
+        },
+        "factory_team_fk": {
+          "name": "factory_team_fk",
+          "tableFrom": "factory",
+          "tableTo": "team",
+          "columnsFrom": ["workspace_id", "team_id"],
+          "columnsTo": ["workspace_id", "team_id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "factory_workspace_id_factory_id_unique": {
+          "name": "factory_workspace_id_factory_id_unique",
+          "nullsNotDistinct": false,
+          "columns": ["workspace_id", "factory_id"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.factory_file": {
+      "name": "factory_file",
+      "schema": "",
+      "columns": {
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "factory_id": {
+          "name": "factory_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "path": {
+          "name": "path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "content": {
+          "name": "content",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "factory_file_version_fk": {
+          "name": "factory_file_version_fk",
+          "tableFrom": "factory_file",
+          "tableTo": "factory_version",
+          "columnsFrom": ["workspace_id", "factory_id", "version"],
+          "columnsTo": ["workspace_id", "factory_id", "version"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {
-        "github_event_workspace_id_delivery_id_pk": {
-          "name": "github_event_workspace_id_delivery_id_pk",
-          "columns": ["workspace_id", "delivery_id"]
+        "factory_file_workspace_id_factory_id_version_path_pk": {
+          "name": "factory_file_workspace_id_factory_id_version_path_pk",
+          "columns": ["workspace_id", "factory_id", "version", "path"]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.factory_version": {
+      "name": "factory_version",
+      "schema": "",
+      "columns": {
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "factory_id": {
+          "name": "factory_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "saved_by_person_id": {
+          "name": "saved_by_person_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "saved_at": {
+          "name": "saved_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "factory_version_factory_fk": {
+          "name": "factory_version_factory_fk",
+          "tableFrom": "factory_version",
+          "tableTo": "factory",
+          "columnsFrom": ["workspace_id", "factory_id"],
+          "columnsTo": ["workspace_id", "factory_id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "factory_version_workspace_id_factory_id_version_pk": {
+          "name": "factory_version_workspace_id_factory_id_version_pk",
+          "columns": ["workspace_id", "factory_id", "version"]
         }
       },
       "uniqueConstraints": {},

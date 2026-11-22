@@ -13,6 +13,7 @@ import type {
   InstallerFacts,
   InstallState,
 } from '../domain/connections.js';
+import type { GitHubPermissions, TokenMint } from '../domain/gitHubTokens.js';
 import type { MyWorkspace, NewWorkspace, Workspace, WorkspaceMember } from '../domain/workspace.js';
 
 // What the use cases need from the world outside, each implemented by an adapter.
@@ -212,6 +213,74 @@ export type GitHubApp = {
     | { kind: 'gone' }
     | { kind: 'unavailable' }
   >;
+};
+
+/**
+ * The record of every GitHub token minted (14.3), and what a mint must know of the workspace
+ * first.
+ */
+export type TokenMintStore = {
+  /**
+   * The workspace's region, when the workspace holds the installation. Null when it does not:
+   * another workspace's installation, one nobody holds, or a workspace that is not there.
+   */
+  holding(ids: { workspaceId: string; installationId: number }): Promise<{ region: Region } | null>;
+  /** Records a mint. It throws when it cannot, and then the token is never handed out. */
+  record(mint: TokenMint): Promise<void>;
+  /** The workspace's mints, oldest first. */
+  mintsOf(workspaceId: string): Promise<TokenMint[]>;
+};
+
+/**
+ * Checks what a cell signed, with the public key configured for each region's cell. The key that
+ * checks a request says which cell sent it.
+ */
+export type CellRequestVerifier = {
+  /**
+   * A cell's request for a GitHub token (`GITHUB_TOKEN_REQUEST_TYPE`): its payload, not yet read,
+   * and the region of the cell whose key signed it. `unsigned` when no cell's key checks it: not
+   * a compact JWS, another algorithm or `typ`, no `kid`, a key no cell has, or a signature that
+   * does not check.
+   */
+  verifyTokenRequest(
+    signed: string,
+  ): Promise<{ kind: 'signed'; region: Region; payload: unknown } | { kind: 'unsigned' }>;
+};
+
+/** What GitHub answered a mint. */
+export type MintAnswer =
+  /**
+   * GitHub minted a token: it, when it expires, and the repositories and permissions GitHub says
+   * it carries, which are checked against what was asked before it is handed out.
+   */
+  | {
+      kind: 'minted';
+      token: string;
+      expiresAt: Date;
+      repositories: { id: number; fullName: string }[];
+      permissions: Record<string, string>;
+    }
+  /** GitHub no longer has the installation: uninstalled, or suspended. */
+  | { kind: 'gone' }
+  /**
+   * GitHub refused the scope: a repository the installation does not cover, or a permission the
+   * app or the installation was not granted.
+   */
+  | { kind: 'refused' }
+  | { kind: 'unavailable' };
+
+/** Mints installation tokens from Consola's GitHub App, each narrowed to what it is asked for. */
+export type GitHubTokenMinter = {
+  /**
+   * A new installation token for exactly these repositories and permissions: never kept, never
+   * reused, and never logged.
+   */
+  mintToken(
+    installationId: number,
+    scope: { repositoryIds: number[]; permissions: GitHubPermissions },
+  ): Promise<MintAnswer>;
+  /** Revokes a token that is not handed out after all. It never throws; GitHub's own expiry follows. */
+  revokeToken(token: string): Promise<void>;
 };
 
 // GitHub's webhooks (14.2): checked here, then passed on to the workspace's cell, which keeps

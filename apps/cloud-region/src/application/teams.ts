@@ -117,9 +117,11 @@ export type TeamDeletion =
   | Refusal
   | { kind: 'not-found' }
   /** The workspace's first team, which is never deleted. */
-  | { kind: 'first-team' };
+  | { kind: 'first-team' }
+  /** A team that owns a factory, which is not deleted while it does. */
+  | { kind: 'owns-factories' };
 
-/** Deletes a team of the caller's workspace, unless it is the first team. */
+/** Deletes a team of the caller's workspace, unless it is the first team or owns a factory. */
 export async function deleteTeam(
   teams: TeamStore,
   caller: Caller,

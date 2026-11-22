@@ -25,6 +25,18 @@ export {
   readGitHubEventMessage,
 } from './gitHubEvent.js';
 export {
+  GITHUB_TOKEN_PURPOSES,
+  GITHUB_TOKEN_REQUEST_AUDIENCE,
+  GITHUB_TOKEN_REQUEST_LIFETIME_SECONDS,
+  GITHUB_TOKEN_REQUEST_TYPE,
+  type GitHubTokenAsk,
+  type GitHubTokenPurpose,
+  type GitHubTokenRequest,
+  gitHubTokenRequest,
+  isGitHubTokenPurpose,
+  readGitHubTokenRequest,
+} from './gitHubTokenRequest.js';
+export {
   FIRST_SEQUENCE,
   isWorkspaceChangeType,
   type OutboxMessage,

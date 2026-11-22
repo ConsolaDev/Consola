@@ -15,6 +15,7 @@ const config: CloudConfig = {
     d: 'sprocket-test-cell-key-private-part',
   },
   cellUrls: {},
+  cellPublicKeys: {},
   github: {
     clientId: 'Iv23liSprocketTest',
     clientSecret: 'sprocket-test-github-client-secret',

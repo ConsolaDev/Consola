@@ -1,7 +1,7 @@
 import { generateKeyPairSync } from 'node:crypto';
 import { REGIONS } from '@consola/cloud-contract';
 import { describe, expect, it } from 'vitest';
-import { ConfigError, cellUrlVariable, loadConfig } from './config.js';
+import { ConfigError, cellKeyVariable, cellUrlVariable, loadConfig } from './config.js';
 
 // A key made for this run only, never one written down.
 const cellKey = generateKeyPairSync('ed25519').privateKey.export({ format: 'jwk' }) as {
@@ -40,6 +40,7 @@ describe('loadConfig', () => {
       google: { clientId: 'id.apps.googleusercontent.com', clientSecret: 's' },
       cellTokenPrivateKey: { kty: 'OKP', crv: 'Ed25519', x: cellKey.x, d: cellKey.d },
       cellUrls: {},
+      cellPublicKeys: {},
       github: null,
       githubWebhookSecret: null,
     });
@@ -244,5 +245,89 @@ describe('loadConfig', () => {
     if (value) expect(failure.message).not.toContain(value);
     expect(failure.message).not.toContain(cellKey.d);
     expect(failure.message).not.toContain(cellKey.d.slice(1, 20));
+  });
+
+  describe("each region's cell's public key", () => {
+    // Keys made for this run only. Each cell signs its requests with its own.
+    const publicOf = () => {
+      const { x } = generateKeyPairSync('ed25519').publicKey.export({ format: 'jwk' });
+      return { kty: 'OKP', crv: 'Ed25519', x: x as string };
+    };
+    const euCell = publicOf();
+    const usCell = publicOf();
+
+    it('names one variable for every region the contract lists', () => {
+      expect(REGIONS.map(cellKeyVariable)).toEqual(['CELL_PUBLIC_KEY_EU', 'CELL_PUBLIC_KEY_US']);
+    });
+
+    it("reads each region's, keeping only what checks a signature", () => {
+      const withMore = { ...usCell, kid: 'sprocket-us', alg: 'EdDSA', use: 'sig' };
+      expect(
+        loadConfig({
+          ...valid,
+          CELL_PUBLIC_KEY_EU: JSON.stringify(euCell),
+          CELL_PUBLIC_KEY_US: JSON.stringify(withMore),
+        }).cellPublicKeys,
+      ).toEqual({ eu: euCell, us: usCell });
+    });
+
+    it('leaves out a region whose key is unset or empty, so its cell can ask for nothing', () => {
+      expect(
+        loadConfig({ ...valid, CELL_PUBLIC_KEY_EU: JSON.stringify(euCell), CELL_PUBLIC_KEY_US: '' })
+          .cellPublicKeys,
+      ).toEqual({ eu: euCell });
+    });
+
+    it.each([
+      ['not JSON', 'x=abc', /JSON Web Key on one line/],
+      ['not an object', JSON.stringify([euCell]), /JSON Web Key on one line/],
+      ['another curve', JSON.stringify({ ...euCell, crv: 'Ed448' }), /Ed25519/],
+      ['a short `x`', JSON.stringify({ ...euCell, x: euCell.x.slice(1) }), /32 bytes/],
+      ['no `x`', JSON.stringify({ kty: 'OKP', crv: 'Ed25519' }), /32 bytes/],
+    ])('refuses a key that is %s', (_what, value, problem) => {
+      const failure = failureOf({ ...valid, CELL_PUBLIC_KEY_EU: value });
+      expect(failure.problems).toEqual([expect.stringMatching(/^CELL_PUBLIC_KEY_EU: /)]);
+      expect(failure.problems[0]).toMatch(problem);
+    });
+
+    it("refuses a cell's private key, and never echoes it", () => {
+      const pair = generateKeyPairSync('ed25519').privateKey.export({ format: 'jwk' });
+      const failure = failureOf({ ...valid, CELL_PUBLIC_KEY_US: JSON.stringify(pair) });
+      expect(failure.problems).toEqual([
+        expect.stringMatching(/^CELL_PUBLIC_KEY_US: .*private part \(`d`\)/),
+      ]);
+      expect(failure.message).not.toContain(pair.d as string);
+    });
+
+    it('refuses one key for two cells: each signs with its own', () => {
+      const failure = failureOf({
+        ...valid,
+        CELL_PUBLIC_KEY_EU: JSON.stringify(euCell),
+        CELL_PUBLIC_KEY_US: JSON.stringify(euCell),
+      });
+      expect(failure.problems).toEqual([
+        'CELL_PUBLIC_KEY_US: is the key CELL_PUBLIC_KEY_EU names; each cell signs with a key of its own',
+      ]);
+    });
+
+    it("refuses cloud-global's own cell token key, so nothing it signs can pass for a cell's", () => {
+      const own = { kty: 'OKP', crv: 'Ed25519', x: cellKey.x };
+      const failure = failureOf({ ...valid, CELL_PUBLIC_KEY_EU: JSON.stringify(own) });
+      expect(failure.problems).toEqual([
+        "CELL_PUBLIC_KEY_EU: is the public half of CELL_TOKEN_PRIVATE_KEY, cloud-global's own key; a cell signs with a key of its own",
+      ]);
+    });
+
+    it('names a bad key beside every other problem', () => {
+      const failure = failureOf({
+        ...valid,
+        BETTER_AUTH_SECRET: 'short',
+        CELL_PUBLIC_KEY_EU: 'nope',
+      });
+      expect(failure.problems).toEqual([
+        expect.stringMatching(/^BETTER_AUTH_SECRET: /),
+        expect.stringMatching(/^CELL_PUBLIC_KEY_EU: /),
+      ]);
+    });
   });
 });

@@ -12,12 +12,14 @@ export { isSandboxError, SandboxError, type SandboxErrorCode } from './domain/er
 export type { Command, CommandResult, CreateSandboxOptions, ExposedPort } from './domain/sandbox';
 export type {
   ProviderCommand,
+  ProviderKeepAlive,
   ProviderPausing,
   ProviderSandbox,
   ProviderSnapshots,
   SandboxProvider,
 } from './application/ports';
 export {
+  type KeepAlive,
   type Pausing,
   type RunningCommand,
   requireCapability,
