@@ -4,7 +4,11 @@ import { asc, eq, sql } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { type Database, migrateDatabase, openDatabase } from './database.js';
 import { schema } from './schema.js';
-import { type WorkspaceChangeToWrite, writeWorkspaceChange } from './workspaceChanges.js';
+import {
+  type MemberChange,
+  type WorkspaceChangeToWrite,
+  writeWorkspaceChange,
+} from './workspaceChanges.js';
 
 let db: Database;
 let close: () => Promise<void>;
@@ -245,7 +249,7 @@ describe('a change and its message commit together or not at all', () => {
     expect(await db.select().from(schema.organization)).toEqual([]);
   });
 
-  it.each<[string, WorkspaceChangeToWrite['change']]>([
+  it.each<[string, MemberChange]>([
     ['adding a member', { type: 'member.added', personId: 'person-lee', role: 'member' }],
     ['changing a role', { type: 'member.role-changed', personId: 'person-dana', role: 'admin' }],
     ['removing a member', { type: 'member.removed', personId: 'person-dana' }],
@@ -258,7 +262,7 @@ describe('a change and its message commit together or not at all', () => {
     expect(await messagesOf(acme)).toHaveLength(2);
   });
 
-  it.each<[string, WorkspaceChangeToWrite['change']]>([
+  it.each<[string, MemberChange]>([
     ['adding a member', { type: 'member.added', personId: 'person-lee', role: 'member' }],
     ['changing a role', { type: 'member.role-changed', personId: 'person-dana', role: 'admin' }],
     ['removing a member', { type: 'member.removed', personId: 'person-dana' }],
