@@ -69,11 +69,6 @@ export function claudeSettings(input: {
   });
 }
 
-/** The `--settings` JSON that registers the hooks, posting to `url`. */
-export function claudeHookSettings(url: string): string {
-  return claudeSettings({ attentionUrl: url })!;
-}
-
 function asRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)

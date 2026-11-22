@@ -12,7 +12,7 @@ import {
   probeClaudeMcpServers,
 } from '../drivers/claudeAgent';
 import { INITIALIZE, requestControl } from '../drivers/claudeCapabilities';
-import { claudeHookSettings, claudeSettings } from '../drivers/claudeHooks';
+import { claudeSettings } from '../drivers/claudeHooks';
 import { CLAUDE_SIGN_IN_HINT } from '../drivers/claudeTurnReader';
 
 /*
@@ -284,7 +284,7 @@ describe('the stub claude in stream-json', { timeout: 30_000 }, () => {
     );
     const log = path.join(dir, 'claude.log');
     const { stdout, code } = await run(
-      ['--settings', claudeHookSettings(url)],
+      ['--settings', claudeSettings({ attentionUrl: url })!],
       { STUB_CLAUDE_HOOKS_FILE: hooks, STUB_CLAUDE_LOG: log },
       dir,
     );

@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { buildTextGenerationArgs, ClaudeDriver } from './ClaudeDriver';
-import { claudeHookSettings } from './claudeHooks';
+import { claudeSettings } from './claudeHooks';
 import type { ClaudeAgentGrants } from '../../shared/agentGrants';
 import type { HarnessConfig, SessionLaunch } from './HarnessDriver';
 import { stepTurnProblem } from './index';
@@ -21,7 +21,7 @@ const config: HarnessConfig = { extraArgs: ['--verbose'] };
 describe('reporting step turns', () => {
   const bare: HarnessConfig = { extraArgs: [] };
   const URL = 'http://127.0.0.1:1/attention/t';
-  const HOOKS = claudeHookSettings(URL);
+  const HOOKS = claudeSettings({ attentionUrl: URL })!;
   // READ_ONLY_ARGS as it is at the cut, written out rather than read from the driver.
   const READ_ONLY = [
     '--strict-mcp-config',
@@ -720,7 +720,7 @@ describe("an agent's grants on a launch", () => {
     'mcp__consola__consola_read_artifact',
     'mcp__consola__consola_list_artifacts',
   ];
-  const HOOKS = JSON.parse(claudeHookSettings(URL)).hooks as unknown;
+  const HOOKS = JSON.parse(claudeSettings({ attentionUrl: URL })!).hooks as unknown;
   const settings = (allowedMcpServers: unknown[], hooks = true) =>
     JSON.stringify({ ...(hooks ? { hooks: HOOKS } : {}), allowedMcpServers });
   const turn: SessionLaunch = {
@@ -781,7 +781,7 @@ describe("an agent's grants on a launch", () => {
       '--mcp-config',
       '/m/consola.json',
       '--settings',
-      claudeHookSettings(URL),
+      claudeSettings({ attentionUrl: URL }),
       '--output-format',
       'stream-json',
       '--verbose',
@@ -1030,7 +1030,7 @@ setTimeout(() => {}, 10000);`,
         '--mcp-config',
         '/m/consola.json',
         '--settings',
-        claudeHookSettings(URL),
+        claudeSettings({ attentionUrl: URL }),
         '--output-format',
         'stream-json',
         '--verbose',
