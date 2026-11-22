@@ -1,6 +1,12 @@
 import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { CloudSessionPorts, Offer, RunnerChannel } from '../../application/ports.js';
+import { applyRunnerUpdate } from '../../application/cloudSessions.js';
+import type {
+  CloudSessionPorts,
+  Offer,
+  PassSigner,
+  RunnerChannel,
+} from '../../application/ports.js';
 import type { Caller } from '../../domain/caller.js';
 import { type Database, migrateDatabase, openDatabase } from '../persistence/database.js';
 import { createCloudSessionStore } from '../persistence/cloudSessions.js';
@@ -23,7 +29,10 @@ const offer: Offer = {
   harnesses: ['claude'],
 };
 
-function build(connected: Offer | null = offer) {
+/** Signs nothing: the pass is a stand-in the test can find in what the route answers. */
+const passes: PassSigner = { sign: async (claims) => `pass-for-${claims.sid}-until-${claims.exp}` };
+
+function build(connected: Offer | null = offer, passSigner: PassSigner | null = passes) {
   let next = 0;
   const channel: RunnerChannel = {
     connected: () => connected,
@@ -35,6 +44,7 @@ function build(connected: Offer | null = offer) {
     runners: channel,
     ids: { newId: () => `session-${++next}` },
     clock: { nowSeconds: () => 1000 },
+    passes: passSigner,
   };
   // The caller is whoever the test says, standing in for `requireCaller`.
   const app = new Hono<CellEnv>();
@@ -46,6 +56,7 @@ function build(connected: Offer | null = offer) {
   app.route('/', cloudSessionRoutes(ports));
   return {
     app,
+    ports,
     channel,
     as: (personId: string, workspaceId = 'acme') => (who = { personId, workspaceId }),
   };
@@ -186,5 +197,59 @@ describe('POST /api/cloud-sessions/:id/stop', () => {
     const response = await post(gone.app, '/api/cloud-sessions/session-1/stop');
     expect(response.status).toBe(202);
     expect(await response.json()).toMatchObject({ status: 'stopped' });
+  });
+});
+
+describe('POST /api/cloud-sessions/:id/pass', () => {
+  async function running(built = build()) {
+    await post(built.app, '/api/cloud-sessions', valid);
+    await applyRunnerUpdate(
+      built.ports,
+      { workspaceId: 'acme', runnerId: 'runner-1' },
+      {
+        type: 'session.update',
+        sessionId: 'session-1',
+        status: 'running',
+        hostUrl: 'https://3000-abc.e2b.example',
+      },
+    );
+    return built;
+  }
+
+  it('is 200 with exactly the pass, the host and when it expires, never stored', async () => {
+    const { app } = await running();
+    const response = await post(app, '/api/cloud-sessions/session-1/pass');
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(await response.json()).toEqual({
+      pass: 'pass-for-session-1-until-1300',
+      hostUrl: 'https://3000-abc.e2b.example',
+      expiresAt: 1300,
+    });
+  });
+
+  it('is 404 not_found, never stored, for a session not running or not the caller’s', async () => {
+    const built = build();
+    await post(built.app, '/api/cloud-sessions', valid);
+    const starting = await post(built.app, '/api/cloud-sessions/session-1/pass');
+    expect(starting.status).toBe(404);
+    expect(starting.headers.get('cache-control')).toBe('no-store');
+    expect(await starting.json()).toEqual({ error: 'not_found' });
+
+    const { app, as } = await running(build());
+    as('person-2');
+    expect((await post(app, '/api/cloud-sessions/session-1/pass')).status).toBe(404);
+    as('person-1');
+    const unknown = await post(app, '/api/cloud-sessions/nope/pass');
+    expect(unknown.status).toBe(404);
+    expect(unknown.headers.get('cache-control')).toBe('no-store');
+  });
+
+  it('is 503 no_runner when the cell has no pass key', async () => {
+    const { app } = await running(build(offer, null));
+    const response = await post(app, '/api/cloud-sessions/session-1/pass');
+    expect(response.status).toBe(503);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(await response.json()).toEqual({ error: 'no_runner' });
   });
 });

@@ -1,7 +1,7 @@
 // What the use cases need from the world outside, each implemented by an adapter.
 
-import type { Harness, Repository } from '@consola/runner-protocol';
-import type { CloudSession, CloudSessionStatus } from '../domain/cloudSession.js';
+import type { Harness, PassClaims, Repository } from '@consola/runner-protocol';
+import type { CloudSession, CloudSessionStatus, RunnerIdentity } from '../domain/cloudSession.js';
 import type { CopyChange } from '../domain/workspaceCopy.js';
 
 export type HealthProbe = {
@@ -77,6 +77,8 @@ export type WorkspaceCopies = {
   applyAfter(step: CopyStep): Promise<'applied' | 'moved'>;
 };
 
+export type { RunnerIdentity };
+
 /** What a connected runner offers a workspace: where it can start a session, and with what. */
 export type Offer = {
   runnerId: string;
@@ -116,6 +118,8 @@ export type CloudSessionStore = {
   findOwn(workspaceId: string, personId: string, sessionId: string): Promise<CloudSession | null>;
   /** The person's sessions in the workspace, newest first. */
   listOwn(workspaceId: string, personId: string): Promise<CloudSession[]>;
+  /** The runner's sessions in its workspace that have not ended: `starting` or `running`. */
+  listLive(runner: RunnerIdentity): Promise<CloudSession[]>;
   /**
    * Applies `changes` only if the row still has the status `expected`: a compare-and-set, so a
    * late update never overwrites an end. True when it applied.
@@ -132,10 +136,24 @@ export type Ids = {
   newId(): string;
 };
 
+/**
+ * Signs session passes with the cell's own key (`PASS_PRIVATE_KEY`), whose public half each
+ * session's host is handed in `session.start`.
+ */
+export type PassSigner = {
+  /** The pass for `claims`: a compact JWS, EdDSA, with `typ` `PASS_TYPE`. */
+  sign(claims: PassClaims): Promise<string>;
+};
+
 /** Everything the cloud session use cases need. */
 export type CloudSessionPorts = {
   sessions: CloudSessionStore;
   runners: RunnerChannel;
   ids: Ids;
   clock: Clock;
+  /** Null when the cell has no pass key: then it has no runner either, and issues no pass. */
+  passes: PassSigner | null;
 };
+
+/** What a runner's messages need: the sessions, and the time. */
+export type RunnerUpdatePorts = Pick<CloudSessionPorts, 'sessions' | 'clock'>;

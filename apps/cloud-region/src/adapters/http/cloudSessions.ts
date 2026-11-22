@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import {
   getSession,
+  issuePass,
   listSessions,
   readStartRequest,
   sessionOptions,
@@ -13,6 +14,8 @@ import type { CellEnv } from './caller.js';
 /**
  * The cloud session routes, mounted behind `requireCaller`. Each hands its use case the caller
  * and never a workspace or a person from the request; the only body is `{ repository, harness }`.
+ * A pass is a credential, so no answer of its route is kept by a cache (`no-store`), and nothing
+ * here logs it.
  */
 export function cloudSessionRoutes(ports: CloudSessionPorts): Hono<CellEnv> {
   const routes = new Hono<CellEnv>();
@@ -51,6 +54,19 @@ export function cloudSessionRoutes(ports: CloudSessionPorts): Hono<CellEnv> {
     const answer = await stopSession(ports, c.var.caller, c.req.param('id'));
     if (answer.kind === 'not_found') return c.json({ error: 'not_found' }, 404);
     return c.json(answer.session, 202);
+  });
+
+  routes.post('/api/cloud-sessions/:id/pass', async (c) => {
+    c.header('Cache-Control', 'no-store');
+    const answer = await issuePass(ports, c.var.caller, c.req.param('id'));
+    switch (answer.kind) {
+      case 'ok':
+        return c.json({ pass: answer.pass, hostUrl: answer.hostUrl, expiresAt: answer.expiresAt });
+      case 'not_found':
+        return c.json({ error: 'not_found' }, 404);
+      case 'no_runner':
+        return c.json({ error: 'no_runner' }, 503);
+    }
   });
 
   return routes;

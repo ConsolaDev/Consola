@@ -7,6 +7,7 @@ const config: CellConfig = {
   region: 'eu',
   port: 3101,
   cloudGlobalUrl: 'http://127.0.0.1:3100',
+  runner: null,
 };
 
 describe('describeStartupFailure', () => {
@@ -45,6 +46,23 @@ describe('describeStartupFailure', () => {
     );
     expect(describeStartupFailure(failure, config)).toBe(
       'could not use <hidden> (password <hidden>, decoded <hidden>)',
+    );
+  });
+
+  it("never shows the runner's secret or the pass key's private part", () => {
+    const secret = 'sprocket-runner-secret-0123456789abcdef';
+    const d = 'private-part-of-the-pass-key-0123456789abc';
+    const withRunner: CellConfig = {
+      ...config,
+      runner: {
+        secret,
+        workspaceId: 'acme',
+        passPrivateKey: { kty: 'OKP', crv: 'Ed25519', x: 'public-part', d },
+      },
+    };
+    const failure = new Error(`refused ${secret} with {"d":"${d}"}`);
+    expect(describeStartupFailure(failure, withRunner)).toBe(
+      'refused <hidden> with {"d":"<hidden>"}',
     );
   });
 

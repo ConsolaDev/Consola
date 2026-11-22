@@ -101,11 +101,12 @@ const LAYERS: Layer[] = [
     refuses: [ANY_PACKAGE],
     noGlobals: [],
   },
-  // The runners' channel: no database, no HTTP framework, no token library.
+  // The runners' channel and their socket, a route of its own (`hono`, `@hono/node-ws`): no
+  // database, and no token library, since the pass is signed in `adapters/token`.
   {
     at: 'adapters/runner',
     reaches: ['domain', 'application', 'adapters/runner', 'config'],
-    refuses: [...DATABASE_LIBRARIES, ...HTTP_LIBRARIES, ...TOKEN_LIBRARIES],
+    refuses: [...DATABASE_LIBRARIES, ...TOKEN_LIBRARIES],
     noGlobals: [],
   },
   // A pure parser of the environment: no I/O, and nothing but `domain`, whose region it checks.
@@ -454,10 +455,31 @@ describe('the dependency rule', () => {
     ['domain/x.ts', '../../../../packages/runner-protocol/src/messages.js', false],
     ['compose.ts', '@consola/runner-protocols', false],
     ['adapters/runner/x.ts', '../../application/ports.js', true],
-    ['adapters/runner/x.ts', 'hono', false],
+    // The runner's socket is a route of its own, so the HTTP framework and its WebSocket.
+    ['adapters/runner/x.ts', 'hono', true],
+    ['adapters/runner/x.ts', 'hono/ws', true],
+    ['adapters/runner/x.ts', '@hono/node-ws', true],
+    ['adapters/runner/x.ts', '../../config.js', true],
+    ['adapters/runner/x.ts', 'node:crypto', true],
     ['adapters/runner/x.ts', 'drizzle-orm', false],
+    ['adapters/runner/x.ts', '@electric-sql/pglite', false],
     ['adapters/runner/x.ts', 'jose', false],
     ['adapters/runner/x.ts', '../http/app.js', false],
+    ['adapters/runner/x.ts', '../token/passSigner.js', false],
+    ['adapters/runner/x.ts', '../persistence/cloudSessions.js', false],
+    ['adapters/runner/x.ts', '../../compose.js', false],
+    // The pass is signed with jose, so its signer sits beside the cell token check.
+    ['adapters/token/passSigner.ts', 'jose', true],
+    ['adapters/token/passSigner.ts', '@consola/runner-protocol', true],
+    ['adapters/token/passSigner.ts', '../../config.js', true],
+    ['adapters/token/passSigner.ts', '@hono/node-ws', false],
+    ['adapters/token/passSigner.ts', '../runner/runnerSocket.js', false],
+    ['adapters/http/x.ts', '@hono/node-ws', true],
+    ['adapters/http/x.ts', '../runner/runnerSocket.js', false],
+    ['adapters/http/x.ts', '../token/passSigner.js', false],
+    ['adapters/persistence/x.ts', '@hono/node-ws', false],
+    ['compose.ts', './adapters/runner/runnerSocket.js', true],
+    ['compose.ts', './adapters/token/passSigner.js', true],
     ['adapters/http/x.ts', '../runner/noRunner.js', false],
     ['adapters/persistence/x.ts', 'node:crypto', true],
     ['domain/x.ts', '@consola/cloud-contract/dist/region.js', false],

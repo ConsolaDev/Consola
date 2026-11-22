@@ -1,4 +1,9 @@
-import type { SessionUpdate } from '@consola/runner-protocol';
+import {
+  PASS_AUDIENCE,
+  PASS_MAX_LIFETIME_SECONDS,
+  type PassClaims,
+  type SessionUpdate,
+} from '@consola/runner-protocol';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type Database, migrateDatabase, openDatabase } from '../adapters/persistence/database.js';
 import { createCloudSessionStore } from '../adapters/persistence/cloudSessions.js';
@@ -6,12 +11,20 @@ import type { Caller } from '../domain/caller.js';
 import {
   applyRunnerUpdate,
   getSession,
+  issuePass,
   listSessions,
   sessionOptions,
   startSession,
   stopSession,
 } from './cloudSessions.js';
-import type { CloudSessionPorts, Offer, RunnerChannel } from './ports.js';
+import type {
+  CloudSessionPorts,
+  CloudSessionStore,
+  Offer,
+  PassSigner,
+  RunnerChannel,
+  RunnerIdentity,
+} from './ports.js';
 
 let db: Database;
 let close: () => Promise<void>;
@@ -33,9 +46,15 @@ const offer: Offer = {
   harnesses: ['claude'],
 };
 
+/** The runner `offer` names, serving `acme`. */
+const RUNNER: RunnerIdentity = { workspaceId: 'acme', runnerId: 'runner-1' };
+
+/** Signs nothing: a pass here is its claims, as JSON, so a test can read what was signed. */
+const passSigner: PassSigner = { sign: async (claims) => `pass:${JSON.stringify(claims)}` };
+
 type Fake = { ports: CloudSessionPorts; channel: RunnerChannel; now: { value: number } };
 
-function setup(connected: Offer | null = offer): Fake {
+function setup(connected: Offer | null = offer, passes: PassSigner | null = passSigner): Fake {
   const now = { value: 1000 };
   let next = 0;
   const channel: RunnerChannel = {
@@ -48,6 +67,7 @@ function setup(connected: Offer | null = offer): Fake {
     runners: channel,
     ids: { newId: () => `session-${++next}` },
     clock: { nowSeconds: () => now.value },
+    passes,
   };
   return { ports, channel, now };
 }
@@ -189,7 +209,7 @@ describe('stopSession', () => {
   it('marks the session stopped and tells its connected runner', async () => {
     const { ports, channel, now } = setup();
     await startSession(ports, caller(), request);
-    await applyRunnerUpdate(ports, 'runner-1', {
+    await applyRunnerUpdate(ports, RUNNER, {
       type: 'session.update',
       sessionId: 'session-1',
       status: 'running',
@@ -282,7 +302,7 @@ describe('applyRunnerUpdate', () => {
 
   it('stores a title', async () => {
     const { ports } = await started();
-    await applyRunnerUpdate(ports, 'runner-1', update({ title: 'Fix the cart total' }));
+    await applyRunnerUpdate(ports, RUNNER, update({ title: 'Fix the cart total' }));
     expect(await ports.sessions.find('session-1')).toMatchObject({
       title: 'Fix the cart total',
       status: 'starting',
@@ -293,7 +313,7 @@ describe('applyRunnerUpdate', () => {
     const { ports } = await started();
     await applyRunnerUpdate(
       ports,
-      'runner-1',
+      RUNNER,
       update({ status: 'running', hostUrl: 'https://3000-abc.e2b.example' }),
     );
     expect(await ports.sessions.find('session-1')).toMatchObject({
@@ -306,7 +326,7 @@ describe('applyRunnerUpdate', () => {
   it("keeps a runner's failure message in error, with no cell code", async () => {
     const { ports, now } = await started();
     now.value = 1200;
-    await applyRunnerUpdate(ports, 'runner-1', update({ status: 'failed', error: 'clone-failed' }));
+    await applyRunnerUpdate(ports, RUNNER, update({ status: 'failed', error: 'clone-failed' }));
     expect(await ports.sessions.find('session-1')).toMatchObject({
       status: 'failed',
       error: 'clone-failed',
@@ -315,11 +335,86 @@ describe('applyRunnerUpdate', () => {
     });
   });
 
+  it('gives a failure the runner left unexplained the cell code runner_failed', async () => {
+    const { ports, now } = await started();
+    now.value = 1300;
+    await applyRunnerUpdate(ports, RUNNER, update({ status: 'failed' }));
+    expect(await ports.sessions.find('session-1')).toMatchObject({
+      status: 'failed',
+      error: null,
+      errorCode: 'runner_failed',
+      endedAt: 1300,
+    });
+  });
+
+  it('keeps a title when another change moves the status first', async () => {
+    const { ports } = await started();
+    // The first compare-and-set loses: just before it, the row moves to running.
+    const real = ports.sessions;
+    let raced = false;
+    const racing: CloudSessionStore = {
+      ...real,
+      async update(sessionId, expected, changes) {
+        if (!raced) {
+          raced = true;
+          await real.update(sessionId, 'starting', { status: 'running' });
+        }
+        return real.update(sessionId, expected, changes);
+      },
+    };
+    await applyRunnerUpdate(
+      { ...ports, sessions: racing },
+      RUNNER,
+      update({ title: 'Fix the cart total', hostUrl: 'https://3000-abc.e2b.example' }),
+    );
+    expect(await real.find('session-1')).toMatchObject({
+      status: 'running',
+      title: 'Fix the cart total',
+      hostUrl: 'https://3000-abc.e2b.example',
+    });
+  });
+
+  it('drops a title once the row it was for has ended, and never reopens it', async () => {
+    const { ports } = await started();
+    const real = ports.sessions;
+    let raced = false;
+    const racing: CloudSessionStore = {
+      ...real,
+      async update(sessionId, expected, changes) {
+        if (!raced) {
+          raced = true;
+          await real.update(sessionId, 'starting', { status: 'stopped', endedAt: 1100 });
+        }
+        return real.update(sessionId, expected, changes);
+      },
+    };
+    await applyRunnerUpdate({ ...ports, sessions: racing }, RUNNER, update({ title: 'late' }));
+    expect(await real.find('session-1')).toMatchObject({
+      status: 'stopped',
+      endedAt: 1100,
+      title: null,
+    });
+  });
+
+  it("ignores an update from a runner of the row's id that serves another workspace", async () => {
+    const { ports } = await started();
+    await applyRunnerUpdate(
+      ports,
+      { workspaceId: 'globex', runnerId: 'runner-1' },
+      update({ status: 'running', hostUrl: 'https://evil.example', title: 'x' }),
+    );
+    expect(await ports.sessions.find('session-1')).toMatchObject({
+      status: 'starting',
+      hostUrl: null,
+      title: null,
+    });
+  });
+
   it('ignores an update from a runner other than the row’s', async () => {
     const { ports } = await started();
     await applyRunnerUpdate(
       ports,
-      'runner-2',
+      { workspaceId: 'acme', runnerId: 'runner-2' },
       update({ status: 'running', hostUrl: 'https://evil.example', title: 'x' }),
     );
     expect(await ports.sessions.find('session-1')).toMatchObject({
@@ -335,7 +430,7 @@ describe('applyRunnerUpdate', () => {
     const before = await ports.sessions.find('session-1');
     await applyRunnerUpdate(
       ports,
-      'runner-1',
+      RUNNER,
       update({ status: 'failed', error: 'late', title: 'late', hostUrl: 'https://late.example' }),
     );
     expect(await ports.sessions.find('session-1')).toEqual(before);
@@ -344,7 +439,77 @@ describe('applyRunnerUpdate', () => {
   it('ignores a session it does not know', async () => {
     const { ports } = await started();
     await expect(
-      applyRunnerUpdate(ports, 'runner-1', update({ sessionId: 'nope', status: 'running' })),
+      applyRunnerUpdate(ports, RUNNER, update({ sessionId: 'nope', status: 'running' })),
     ).resolves.toBeUndefined();
+  });
+});
+
+describe('issuePass', () => {
+  async function running(fake: Fake = setup()) {
+    await startSession(fake.ports, caller(), request);
+    await applyRunnerUpdate(fake.ports, RUNNER, {
+      type: 'session.update',
+      sessionId: 'session-1',
+      status: 'running',
+      hostUrl: 'https://3000-abc.e2b.example',
+    });
+    return fake;
+  }
+
+  const claimsOf = (pass: string): PassClaims => JSON.parse(pass.slice('pass:'.length));
+
+  it("signs a pass for the caller's own running session, for the longest a pass may live", async () => {
+    const { ports, now } = await running();
+    now.value = 5000;
+    const answer = await issuePass(ports, caller(), 'session-1');
+    if (answer.kind !== 'ok') throw new Error(`expected a pass, got ${answer.kind}`);
+    expect(answer.hostUrl).toBe('https://3000-abc.e2b.example');
+    expect(claimsOf(answer.pass)).toEqual({
+      aud: PASS_AUDIENCE,
+      sub: 'person-1',
+      ws: 'acme',
+      sid: 'session-1',
+      iat: 5000,
+      exp: 5000 + PASS_MAX_LIFETIME_SECONDS,
+    });
+    expect(answer.expiresAt).toBe(5000 + PASS_MAX_LIFETIME_SECONDS);
+    expect(PASS_MAX_LIFETIME_SECONDS).toBe(300);
+  });
+
+  it('is not_found for a session that is not running yet', async () => {
+    const { ports } = setup();
+    await startSession(ports, caller(), request);
+    expect(await issuePass(ports, caller(), 'session-1')).toEqual({ kind: 'not_found' });
+  });
+
+  it('is not_found for an ended session', async () => {
+    const { ports } = await running();
+    await stopSession(ports, caller(), 'session-1');
+    expect(await issuePass(ports, caller(), 'session-1')).toEqual({ kind: 'not_found' });
+  });
+
+  it("is not_found for another person's session, another workspace's, or an unknown id", async () => {
+    const { ports } = await running();
+    expect(await issuePass(ports, caller('person-2'), 'session-1')).toEqual({ kind: 'not_found' });
+    expect(await issuePass(ports, caller('person-1', 'globex'), 'session-1')).toEqual({
+      kind: 'not_found',
+    });
+    expect(await issuePass(ports, caller(), 'nope')).toEqual({ kind: 'not_found' });
+  });
+
+  it('is not_found for a running session whose host has no address yet', async () => {
+    const { ports } = setup();
+    await startSession(ports, caller(), request);
+    await applyRunnerUpdate(ports, RUNNER, {
+      type: 'session.update',
+      sessionId: 'session-1',
+      status: 'running',
+    });
+    expect(await issuePass(ports, caller(), 'session-1')).toEqual({ kind: 'not_found' });
+  });
+
+  it('is no_runner when the cell has no pass key', async () => {
+    const { ports } = await running(setup(offer, null));
+    expect(await issuePass(ports, caller(), 'session-1')).toEqual({ kind: 'no_runner' });
   });
 });

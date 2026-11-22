@@ -1,5 +1,7 @@
+import { generateKeyPairSync } from 'node:crypto';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { serve } from '@hono/node-server';
 import {
   CELL_TOKEN_ALGORITHM,
   CELL_TOKEN_KEYS_PATH,
@@ -15,12 +17,21 @@ import {
   WORKSPACE_ROLES,
   type WorkspaceChange,
 } from '@consola/cloud-contract';
+import {
+  type CellMessage,
+  PASS_AUDIENCE,
+  PASS_MAX_LIFETIME_SECONDS,
+  PASS_TYPE,
+  readCellMessage,
+  readPassClaims,
+} from '@consola/runner-protocol';
 import { asc, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import {
   type CompactJWSHeaderParameters,
   CompactSign,
   calculateJwkThumbprint,
+  compactVerify,
   createLocalJWKSet,
   exportJWK,
   exportSPKI,
@@ -28,8 +39,10 @@ import {
   type JSONWebKeySet,
   type JWK,
   type JWTHeaderParameters,
+  importJWK,
   SignJWT,
 } from 'jose';
+import WebSocket from 'ws';
 import {
   afterEach,
   beforeAll,
@@ -53,6 +66,8 @@ const config: CellConfig = {
   // Never fetched here: every cell below is handed a key set of its own, but the ones in "the
   // keys", which start a cloud-global of their own.
   cloudGlobalUrl: 'http://127.0.0.1:3100',
+  // No runner: the cell starts without one, and "a runner and its passes" sets one.
+  runner: null,
 };
 
 // Tokens are minted here the way cloud-global mints them (the contract's claims, signed with
@@ -126,8 +141,20 @@ async function openCell(cellConfig: CellConfig, keys: 'local' | 'remote' = 'loca
   await migrateDatabase(opened.db);
   // Built the way main.ts builds it, but for the key set a test hands it.
   const cellTokenKeys = keys === 'local' ? createLocalJWKSet(published) : undefined;
-  const { app } = composeCell({ db: opened.db, config: cellConfig, cellTokenKeys });
-  return { app, db: opened.db, close: () => opened.close() };
+  const { app, injectWebSocket, closeRunnerSockets } = await composeCell({
+    db: opened.db,
+    config: cellConfig,
+    cellTokenKeys,
+  });
+  return {
+    app,
+    injectWebSocket,
+    db: opened.db,
+    close: async () => {
+      closeRunnerSockets();
+      await opened.close();
+    },
+  };
 }
 
 beforeEach(async () => {
@@ -438,12 +465,15 @@ describe('the keys', () => {
 
 /**
  * The routes that answer without a cell token, and what each answers a bare request: the health
- * check, and the outbox's deliveries, which carry a signature instead (a bare one has none, and
- * no body, so it is unreadable). Nothing else is open.
+ * check, the outbox's deliveries, which carry a signature instead (a bare one has none, and no
+ * body, so it is unreadable), and the runner's socket, which carries the runner's secret instead.
+ * Nothing else is open.
  */
 const OPEN_ROUTES: Record<string, number> = {
   'GET /api/health': 200,
   [`POST ${OUTBOX_DELIVERY_PATH}`]: OUTBOX_ANSWER.unreadable,
+  // The runner's socket, behind its shared secret instead, which a bare request does not carry.
+  'GET /api/runner': 401,
 };
 
 describe('every route', () => {
@@ -904,5 +934,218 @@ describe('cloud sessions, with no runner connected (until the runner socket exis
   it('needs a token', async () => {
     expect((await app.request('/api/cloud-sessions')).status).toBe(401);
     expect((await app.request('/api/cloud-sessions', { method: 'POST' })).status).toBe(401);
+  });
+});
+
+describe('a runner and its passes', () => {
+  // Stand-ins, never real credentials.
+  const RUNNER_SECRET = 'sprocket-runner-secret-0123456789abcdef';
+  const passJwk = generateKeyPairSync('ed25519').privateKey.export({ format: 'jwk' }) as Record<
+    string,
+    unknown
+  >;
+  const runnerConfig: CellConfig = {
+    ...config,
+    runner: { secret: RUNNER_SECRET, workspaceId: 'acme', passPrivateKey: passJwk },
+  };
+
+  /** Every line the cell writes to the console while a test runs. */
+  function captureLogs(): () => string {
+    const spies = (['log', 'error', 'warn', 'info', 'debug'] as const).map((level) =>
+      vi.spyOn(console, level).mockImplementation(() => {}),
+    );
+    return () => spies.flatMap((spy) => spy.mock.calls.flat().map(String)).join('\n');
+  }
+
+  const held = (id: string, status: 'starting' | 'running', personId = 'person-1') => ({
+    id,
+    workspaceId: 'acme',
+    personId,
+    repository: 'sprocket/catalog-portal',
+    harness: 'claude',
+    status,
+    title: null,
+    hostUrl: status === 'running' ? 'https://3000-sandbox.e2b.example' : null,
+    error: null,
+    errorCode: null,
+    runnerId: 'runner-1',
+    createdAt: nowSeconds(),
+    endedAt: null,
+  });
+
+  it('refuses a cell that has a runner but a pass key that is no Ed25519 key, at compose', async () => {
+    const opened = openDatabase('pglite:memory');
+    const x25519 = generateKeyPairSync('x25519').privateKey.export({ format: 'jwk' });
+    await expect(
+      composeCell({
+        db: opened.db,
+        config: { ...runnerConfig, runner: { ...runnerConfig.runner!, passPrivateKey: x25519 } },
+        cellTokenKeys: createLocalJWKSet(published),
+      }),
+    ).rejects.toThrow(/^The configuration is not valid:\n {2}- PASS_PRIVATE_KEY: /);
+    await opened.close();
+  });
+
+  it("signs a pass for the caller's running session, which the derived key verifies", async () => {
+    const logs = captureLogs();
+    const cell = await openCell(runnerConfig);
+    await cell.db.insert(cloudSessions).values(held('session-1', 'running'));
+
+    const response = await cell.app.request('/api/cloud-sessions/session-1/pass', {
+      method: 'POST',
+      headers: bearer(await mint()),
+    });
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    const body = (await response.json()) as { pass: string; hostUrl: string; expiresAt: number };
+    expect(Object.keys(body).sort()).toEqual(['expiresAt', 'hostUrl', 'pass']);
+    expect(body.hostUrl).toBe('https://3000-sandbox.e2b.example');
+    expect(Number.isInteger(body.expiresAt)).toBe(true);
+
+    // EdDSA only, against the public half of PASS_PRIVATE_KEY, as the session's host checks it.
+    const publicKey = await importJWK(
+      { kty: 'OKP', crv: 'Ed25519', x: passJwk.x as string },
+      'EdDSA',
+    );
+    const verified = await compactVerify(body.pass, publicKey, { algorithms: ['EdDSA'] });
+    expect(verified.protectedHeader).toEqual({ alg: 'EdDSA', typ: PASS_TYPE });
+    const claims = readPassClaims(JSON.parse(new TextDecoder().decode(verified.payload)));
+    if (!claims.ok) throw new Error(claims.reason);
+    expect(claims.value).toMatchObject({
+      aud: PASS_AUDIENCE,
+      sub: 'person-1',
+      ws: 'acme',
+      sid: 'session-1',
+    });
+    expect(claims.value.exp - claims.value.iat).toBe(PASS_MAX_LIFETIME_SECONDS);
+    expect(body.expiresAt).toBe(claims.value.exp);
+
+    // Nothing the cell logged holds the pass or the key that signs it.
+    expect(logs()).not.toContain(body.pass);
+    expect(logs()).not.toContain(String(passJwk.d));
+    await cell.close();
+  });
+
+  it("is 404 not_found for a starting session, another person's, or an unknown id", async () => {
+    const logs = captureLogs();
+    const cell = await openCell(runnerConfig);
+    await cell.db
+      .insert(cloudSessions)
+      .values([held('session-1', 'starting'), held('session-2', 'running', 'person-2')]);
+    const token = await mint();
+
+    for (const id of ['session-1', 'session-2', 'nope']) {
+      const response = await cell.app.request(`/api/cloud-sessions/${id}/pass`, {
+        method: 'POST',
+        headers: bearer(token),
+      });
+      expect([id, response.status]).toEqual([id, 404]);
+      expect(response.headers.get('cache-control')).toBe('no-store');
+      expect(await response.json()).toEqual({ error: 'not_found' });
+    }
+    expect(logs()).not.toContain(String(passJwk.d));
+    await cell.close();
+  });
+
+  it('is 503 no_runner on a cell with no runner, and so no pass key', async () => {
+    await db.insert(cloudSessions).values(held('session-1', 'running'));
+    const response = await app.request('/api/cloud-sessions/session-1/pass', {
+      method: 'POST',
+      headers: bearer(await mint()),
+    });
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: 'no_runner' });
+  });
+
+  it("starts a session on the runner's socket, wired as main.ts wires it", async () => {
+    const logs = captureLogs();
+    const cell = await openCell(runnerConfig);
+    const server = await new Promise<ReturnType<typeof serve>>((resolve) => {
+      const started = serve({ fetch: cell.app.fetch, hostname: '127.0.0.1', port: 0 }, () =>
+        resolve(started),
+      );
+      cell.injectWebSocket(started);
+    });
+    const port = (server.address() as AddressInfo).port;
+
+    // A bare upgrade, and one with a cell token in place of the secret, are refused.
+    for (const headers of [{}, bearer(await mint())]) {
+      const refused = new WebSocket(`ws://127.0.0.1:${port}/api/runner`, { headers });
+      // Ending a refused socket, still connecting, is an error the test expects.
+      refused.on('error', () => {});
+      const status = await new Promise<number>((resolve) =>
+        refused.once('unexpected-response', (_request, response) =>
+          resolve(response.statusCode ?? 0),
+        ),
+      );
+      expect(status).toBe(401);
+      refused.terminate();
+    }
+
+    const received: CellMessage[] = [];
+    const socket = new WebSocket(`ws://127.0.0.1:${port}/api/runner`, {
+      headers: { authorization: `Bearer ${RUNNER_SECRET}` },
+    });
+    socket.on('message', (data) => {
+      const read = readCellMessage(JSON.parse(String(data)));
+      if (read.ok) received.push(read.value);
+    });
+    await new Promise((resolve) => socket.once('open', resolve));
+    socket.send(
+      JSON.stringify({
+        type: 'hello',
+        runnerId: 'runner-1',
+        repositories: ['sprocket/catalog-portal'],
+        harnesses: ['claude'],
+        runningSessionIds: [],
+        endedSessions: [],
+      }),
+    );
+    const token = await mint();
+    await vi.waitFor(async () => {
+      const options = await cell.app.request('/api/cloud-sessions/options', {
+        headers: bearer(token),
+      });
+      expect(options.status).toBe(200);
+    });
+
+    const started = await cell.app.request('/api/cloud-sessions', {
+      method: 'POST',
+      headers: { ...bearer(token), 'content-type': 'application/json' },
+      body: JSON.stringify({ repository: 'sprocket/catalog-portal', harness: 'claude' }),
+    });
+    expect(started.status).toBe(201);
+    const session = (await started.json()) as { id: string; status: string };
+    expect(session.status).toBe('starting');
+    await vi.waitFor(() => expect(received).toHaveLength(1));
+    expect(received[0]).toMatchObject({
+      type: 'session.start',
+      sessionId: session.id,
+      workspaceId: 'acme',
+      passPublicKeyPem: expect.stringMatching(/^-----BEGIN PUBLIC KEY-----/),
+    });
+
+    // The runner reports the session running, and its person gets a pass for it.
+    socket.send(
+      JSON.stringify({
+        type: 'session.update',
+        sessionId: session.id,
+        status: 'running',
+        hostUrl: 'https://3000-sandbox.e2b.example',
+      }),
+    );
+    await vi.waitFor(async () => {
+      const pass = await cell.app.request(`/api/cloud-sessions/${session.id}/pass`, {
+        method: 'POST',
+        headers: bearer(token),
+      });
+      expect(pass.status).toBe(200);
+    });
+
+    expect(logs()).not.toContain(RUNNER_SECRET);
+    expect(logs()).not.toContain(String(passJwk.d));
+    socket.terminate();
+    await cell.close();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
   });
 });

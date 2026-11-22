@@ -23,6 +23,7 @@ describe('loadConfig', () => {
       region: 'eu',
       port: 3101,
       cloudGlobalUrl: 'http://127.0.0.1:3100',
+      runner: null,
     });
   });
 
@@ -106,5 +107,74 @@ describe('loadConfig', () => {
       expect(failure.problems.some((p) => p.startsWith(`${name}:`))).toBe(true);
       expect(failure.message).toContain(name);
     }
+  });
+});
+
+// Stand-ins, never real credentials: a runner secret and a pass key's JWK on one line.
+const SECRET = 'sprocket-runner-secret-0123456789abcdef';
+const JWK = { kty: 'OKP', crv: 'Ed25519', x: 'x-of-the-key', d: 'd-of-the-key' };
+const runner = {
+  RUNNER_SECRET: SECRET,
+  RUNNER_WORKSPACE_ID: 'acme',
+  PASS_PRIVATE_KEY: JSON.stringify(JWK),
+};
+
+describe('loadConfig, the runner and its passes', () => {
+  it('has no runner when none of its three settings is set, or each is empty', () => {
+    expect(loadConfig(valid).runner).toBeNull();
+    expect(
+      loadConfig({ ...valid, RUNNER_SECRET: '', RUNNER_WORKSPACE_ID: '', PASS_PRIVATE_KEY: '' })
+        .runner,
+    ).toBeNull();
+  });
+
+  it('reads all three together, the key as the JSON object it holds', () => {
+    expect(loadConfig({ ...valid, ...runner }).runner).toEqual({
+      secret: SECRET,
+      workspaceId: 'acme',
+      passPrivateKey: JWK,
+    });
+  });
+
+  it.each([['RUNNER_SECRET'], ['RUNNER_WORKSPACE_ID'], ['PASS_PRIVATE_KEY']] as const)(
+    'refuses the other two without %s, so no session starts without a key',
+    (left) => {
+      for (const unset of [undefined, '']) {
+        const failure = failureOf({ ...valid, ...runner, [left]: unset });
+        expect(failure.problems).toEqual([expect.stringMatching(new RegExp(`^${left}: `))]);
+        expect(failure.message).not.toContain(SECRET);
+        expect(failure.message).not.toContain('d-of-the-key');
+      }
+    },
+  );
+
+  it('refuses one of the three alone, naming the two it needs', () => {
+    const failure = failureOf({ ...valid, RUNNER_SECRET: SECRET });
+    expect(failure.problems).toEqual([
+      expect.stringMatching(/^RUNNER_WORKSPACE_ID: /),
+      expect.stringMatching(/^PASS_PRIVATE_KEY: /),
+    ]);
+    expect(failure.message).not.toContain(SECRET);
+  });
+
+  it.each([
+    ['shorter than 32 characters', 'short-secret'],
+    ['with a space', 'sprocket runner secret 0123456789abcdef'],
+    ['with a character no header carries', 'sprocket-runner-secret-0123456789abcdéf'],
+  ])('refuses a RUNNER_SECRET %s, never quoting it', (_what, secret) => {
+    const failure = failureOf({ ...valid, ...runner, RUNNER_SECRET: secret });
+    expect(failure.problems).toEqual([expect.stringMatching(/^RUNNER_SECRET: /)]);
+    expect(failure.message).not.toContain(secret);
+  });
+
+  it.each([
+    ['not JSON', '{"kty":"OKP","d":"d-of-the-key"'],
+    ['a JSON list', JSON.stringify([JWK])],
+    ['a JSON string', JSON.stringify('d-of-the-key')],
+    ['JSON null', 'null'],
+  ])('refuses a PASS_PRIVATE_KEY that is %s, never quoting it', (_what, key) => {
+    const failure = failureOf({ ...valid, ...runner, PASS_PRIVATE_KEY: key });
+    expect(failure.problems).toEqual([expect.stringMatching(/^PASS_PRIVATE_KEY: /)]);
+    expect(failure.message).not.toContain('d-of-the-key');
   });
 });

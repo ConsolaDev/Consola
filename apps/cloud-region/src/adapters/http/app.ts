@@ -18,11 +18,13 @@ import { outboxRoutes } from './outbox.js';
  * The cell's HTTP API, every route under `/api`. Each route asks a use case and maps its answer
  * to a status and a body.
  *
- * Two routes answer without a cell token: `GET /api/health`, for whatever probes cells, and
+ * Three routes answer without a cell token: `GET /api/health`, for whatever probes cells,
  * `POST OUTBOX_DELIVERY_PATH`, where `cloud-global` delivers its outbox, each delivery signed
- * with the cell token's key. Every other request, an unknown path included, must carry a token
- * (`requireCaller`), so a route added below the check gets the caller and nothing else, and none
- * takes a workspace id from the request. `report` hears what the cell logs about deliveries.
+ * with the cell token's key, and `GET /api/runner`, the runner's socket, behind the runner's own
+ * secret (`runner`, built by `adapters/runner` and handed over by `compose.ts`). Every other
+ * request, an unknown path included, must carry a token (`requireCaller`), so a route added below
+ * the check gets the caller and nothing else, and none takes a workspace id from the request.
+ * `report` hears what the cell logs about deliveries.
  */
 export function createApp(deps: {
   region: Region;
@@ -32,6 +34,8 @@ export function createApp(deps: {
   workspaceCopies: WorkspaceCopies;
   clock: Clock;
   cloudSessions: CloudSessionPorts;
+  /** The runner's socket route, which checks the runner's secret itself. */
+  runner: Hono;
   report?: (line: string) => void;
 }): Hono {
   const { region, health, tokens, deliveries, workspaceCopies, clock, cloudSessions } = deps;
@@ -47,6 +51,9 @@ export function createApp(deps: {
 
   // No token, since no person sends it: its signature is checked instead (`outboxRoutes`).
   app.route('/', outboxRoutes({ region, deliveries, workspaceCopies, report }));
+
+  // No token either: a runner is no person, and presents its secret instead.
+  app.route('/', deps.runner);
 
   // Everything registered from here on is behind the check.
   const cell = app.use('*', requireCaller({ region, tokens, clock }));

@@ -1,14 +1,25 @@
-import type { SessionUpdate } from '@consola/runner-protocol';
+import {
+  PASS_MAX_LIFETIME_SECONDS,
+  passClaims,
+  type SessionUpdate,
+} from '@consola/runner-protocol';
 import type { Caller } from '../domain/caller.js';
 import {
+  belongsToRunner,
   CELL_FAILURE_CODES,
   type CloudSession,
   isEnded,
   readStartRequest,
+  runnerFailure,
   type StartRequest,
   transition,
 } from '../domain/cloudSession.js';
-import type { CloudSessionPorts } from './ports.js';
+import type {
+  CloudSessionChanges,
+  CloudSessionPorts,
+  RunnerIdentity,
+  RunnerUpdatePorts,
+} from './ports.js';
 
 export { readStartRequest };
 
@@ -133,29 +144,81 @@ export async function stopSession(
 }
 
 /**
- * Applies what a runner said of a session. It counts only from the runner the row names, and
- * never changes an ended row. A runner's failure keeps its own message in `error`; a title and a
- * host address are stored as given.
+ * A row's status moves at most twice (`starting` to `running`, then to an end), and an ended row
+ * is left alone. So an update that loses its compare-and-set to another change finds, by its
+ * third look, either a row it can change or one that has ended.
  */
-export async function applyRunnerUpdate(
-  ports: CloudSessionPorts,
-  runnerId: string,
-  update: SessionUpdate,
-): Promise<void> {
-  const session = await ports.sessions.find(update.sessionId);
-  if (!session || session.runnerId !== runnerId || isEnded(session.status)) return;
+const UPDATE_ATTEMPTS = 3;
 
-  const moved = update.status
-    ? transition(session, update.status, ports.clock.nowSeconds())
-    : session;
-  const changes: Parameters<typeof ports.sessions.update>[2] = {};
+/** What an update changes on a live row: its status, as `nextStatus` allows, and what it says. */
+function changesOf(session: CloudSession, update: SessionUpdate, now: number): CloudSessionChanges {
+  const moved = update.status ? transition(session, update.status, now) : session;
+  const changes: CloudSessionChanges = {};
   if (moved.status !== session.status) {
     changes.status = moved.status;
     changes.endedAt = moved.endedAt;
-    if (moved.status === 'failed') changes.error = update.error ?? null;
+    if (moved.status === 'failed') Object.assign(changes, runnerFailure(update.error));
   }
   if (update.title !== undefined) changes.title = update.title;
   if (update.hostUrl !== undefined) changes.hostUrl = update.hostUrl;
-  if (Object.keys(changes).length === 0) return;
-  await ports.sessions.update(session.id, session.status, changes);
+  return changes;
+}
+
+/**
+ * Applies what a runner said of a session. It counts only from the runner the row names, in the
+ * workspace that runner serves, and never changes an ended row. A runner's failure keeps its own
+ * message in `error`, or gets the cell's `runner_failed` when it gave none; a title and a host
+ * address are stored as given. The write is a compare-and-set on the status it read, so a late
+ * update never overwrites an end. One that loses to another change (a person's stop, the start
+ * failing) reads the row again and tries once more, so a title or an address is not lost to a
+ * status that moved meanwhile, and is dropped only once the row has ended.
+ */
+export async function applyRunnerUpdate(
+  ports: RunnerUpdatePorts,
+  runner: RunnerIdentity,
+  update: SessionUpdate,
+): Promise<void> {
+  for (let attempt = 0; attempt < UPDATE_ATTEMPTS; attempt += 1) {
+    const session = await ports.sessions.find(update.sessionId);
+    if (!session || !belongsToRunner(session, runner) || isEnded(session.status)) return;
+    const changes = changesOf(session, update, ports.clock.nowSeconds());
+    if (Object.keys(changes).length === 0) return;
+    if (await ports.sessions.update(session.id, session.status, changes)) return;
+  }
+}
+
+/** A pass lives as long as a pass may, five minutes; the page asks for another when it needs one. */
+export const PASS_LIFETIME_SECONDS = PASS_MAX_LIFETIME_SECONDS;
+
+export type PassAnswer =
+  | { kind: 'ok'; pass: string; hostUrl: string; expiresAt: number }
+  | { kind: 'not_found' | 'no_runner' };
+
+/**
+ * A pass for the caller's own running session, which its host checks before it serves them: the
+ * protocol's claims for the caller and the session (`passClaims`), for `PASS_LIFETIME_SECONDS`.
+ * `expiresAt` is the pass's `exp`, in whole seconds. Anything else is `not_found`, as if it did
+ * not exist: a session still starting or ended, a running one whose host has no address yet,
+ * another person's or another workspace's, or an id the cell does not hold. A cell with no pass
+ * key issues none (`no_runner`: such a cell has no runner either).
+ */
+export async function issuePass(
+  ports: CloudSessionPorts,
+  caller: Caller,
+  sessionId: string,
+): Promise<PassAnswer> {
+  const session = await ports.sessions.findOwn(caller.workspaceId, caller.personId, sessionId);
+  if (session?.status !== 'running' || session.hostUrl === null) {
+    return { kind: 'not_found' };
+  }
+  if (!ports.passes) return { kind: 'no_runner' };
+  const claims = passClaims({
+    personId: caller.personId,
+    workspaceId: caller.workspaceId,
+    sessionId: session.id,
+    issuedAt: ports.clock.nowSeconds(),
+    lifetimeSeconds: PASS_LIFETIME_SECONDS,
+  });
+  const pass = await ports.passes.sign(claims);
+  return { kind: 'ok', pass, hostUrl: session.hostUrl, expiresAt: claims.exp };
 }

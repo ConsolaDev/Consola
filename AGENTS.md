@@ -187,11 +187,17 @@ belongs in a regional cell. `apps/cloud-region` (`@consola/cloud-region`, Hono, 
 Postgres) is the regional cell: one copy per region, configured with its
 region, holding what a workspace has there that is not global. It holds no
 accounts (people are referenced by their global id), and every table carries
-the workspace id. It trusts only `cloud-global`'s token: every request but its
-health check and the outbox's deliveries (signed with the same key) carries a
-cell token, checked with `cloud-global`'s public keys,
+the workspace id. It trusts `cloud-global`'s token: every request but its
+health check, the outbox's deliveries (signed with the same key) and the
+runner's socket carries a cell token, checked with `cloud-global`'s public keys,
 and the person, workspace and role come from that token alone, never from the
-request. Nothing in `apps/desktop` depends on the cloud apps, and none
+request. The runner's socket (`GET /api/runner`) is the one other trust root,
+for the POC until runners are enrolled: a shared secret (`RUNNER_SECRET`),
+compared in constant time, that admits one runner for one workspace and no
+person. The cell signs each session's pass with a key of its own
+(`PASS_PRIVATE_KEY`), never `cloud-global`'s, and in the cell only
+`adapters/token` imports `jose`; the runner's socket (`adapters/runner`) may
+use `hono` and `@hono/node-ws`. Nothing in `apps/desktop` depends on the cloud apps, and none
 imports from the desktop, the website, another app or `packages/*`, with these
 exceptions: `cloud-global` and `cloud-region` both import
 `packages/cloud-contract` (`@consola/cloud-contract`), what the two agree on:

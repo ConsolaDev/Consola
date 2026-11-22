@@ -26,11 +26,15 @@ region (`REGION`, `eu` or `us`) and given a database of its own, never
   (decided 2026-11-22), Consola hosts the runners and keeps what a workspace
   makes, such as its factory files and runs, so that content lives here, in
   the workspace's region.
-- **The cell trusts only `cloud-global`'s token.** Every request but
-  `GET /api/health` and the outbox's deliveries (`POST /api/outbox`, signed
-  with the same key) carries a cell token `cloud-global` minted, and the cell
-  learns who is asking, in which workspace, from that token and nothing else
-  (below, "Who is asking").
+- **The cell trusts `cloud-global`'s token, and one runner's secret.** Every
+  request but `GET /api/health`, the outbox's deliveries (`POST /api/outbox`,
+  signed with the same key) and the runner's socket (`GET /api/runner`)
+  carries a cell token `cloud-global` minted, and the cell learns who is
+  asking, in which workspace, from that token and nothing else (below, "Who is
+  asking"). The runner's secret (`RUNNER_SECRET`) is a second trust root,
+  sanctioned for the POC by the spec (§8.3) until runners are enrolled
+  (epic 13): it is compared in constant time, admits no person, and serves one
+  workspace (`RUNNER_WORKSPACE_ID`) alone (below, "The runner's socket").
 
 The cell listens on `127.0.0.1:3101` by default, beside `cloud-global`'s 3100.
 `PORT` moves it, so two cells (`eu` and `us`) can run on one machine.
@@ -81,13 +85,15 @@ header.
   (`c.var.caller`, typed by `CellEnv`): the person's global id, the
   workspace's id, the role and the region, no more. Only `admitClaims` makes a
   `Caller` (a type-only brand keeps a hand-written one from type-checking).
-- **Open routes.** Two routes answer without a token: `GET /api/health`, for
-  whatever probes cells, and `POST /api/outbox`, where `cloud-global`
-  delivers its outbox, each delivery signed instead (below, "The outbox").
-  `createApp` registers both before `requireCaller`, and every route after, so
-  an unknown path is 401 before it is 404, and any other method on
-  `/api/outbox` needs a token. A new open route needs a reason as good, and
-  the HTTP suite's "every route" test has to name it (`OPEN_ROUTES`).
+- **Open routes.** Three routes answer without a token: `GET /api/health`,
+  for whatever probes cells; `POST /api/outbox`, where `cloud-global`
+  delivers its outbox, each delivery signed instead (below, "The outbox");
+  and `GET /api/runner`, the runner's socket, which checks the runner's
+  secret instead (below, "The runner's socket"). `createApp` registers all
+  three before `requireCaller`, and every route after, so an unknown path is
+  401 before it is 404, and any other method on `/api/outbox` needs a token.
+  A new open route needs a reason as good, and the HTTP suite's "every route"
+  test has to name it (`OPEN_ROUTES`).
 - **A workspace's rows.** A route never takes a workspace id from the request
   (path, query, body or header). A use case that reads or writes a
   workspace's rows takes the `Caller` and scopes every query by its
@@ -162,12 +168,13 @@ The service is built in rings, and imports point inward only.
   workspace's copy applies its messages in (`workspaceCopy.ts`). It is plain
   TypeScript, with no I/O, and no package but the two contracts (below).
 - `src/application/` holds the use cases (`checkHealth`, `authenticate`,
-  `describeMe`, `receiveDelivery`, and the cloud sessions' `sessionOptions`,
-  `startSession`, `listSessions`, `getSession`, `stopSession` and
-  `applyRunnerUpdate`) and, in `ports.ts`, the stores, probes,
-  the `TokenVerifier`, the `DeliveryVerifier`, the `WorkspaceCopies`, the
-  `CloudSessionStore`, the `RunnerChannel`, `Ids` and the `Clock` they need. A use case is a plain function that takes its ports
-  first.
+  `describeMe`, `receiveDelivery`, the cloud sessions' `sessionOptions`,
+  `startSession`, `listSessions`, `getSession`, `stopSession`,
+  `applyRunnerUpdate` and `issuePass`, and a runner's `runnerConnected`, in
+  `runners.ts`) and, in `ports.ts`, the stores, probes, the `TokenVerifier`,
+  the `DeliveryVerifier`, the `WorkspaceCopies`, the `CloudSessionStore`, the
+  `RunnerChannel`, the `PassSigner`, `Ids` and the `Clock` they need. A use
+  case is a plain function that takes its ports first.
 - `src/adapters/` implements the ports with a library, one folder each:
   - `persistence/` is Drizzle on PGlite or Postgres: the database
     (`database.ts`), the tables (`tables.ts`, re-exported as `schema` by
@@ -176,12 +183,15 @@ The service is built in rings, and imports point inward only.
     (`caller.ts`) and the outbox's route (`outbox.ts`). Each route asks a use
     case and maps its answer to a status and a body;
   - `token/` is jose: the `TokenVerifier` and where its keys come from
-    (`cellTokens.ts`), and the `DeliveryVerifier`, on the same keys
-    (`outboxDeliveries.ts`);
+    (`cellTokens.ts`), the `DeliveryVerifier`, on the same keys
+    (`outboxDeliveries.ts`), and the `PassSigner`, on the cell's own pass key,
+    with the public half it derives (`passSigner.ts`);
   - `clock/` is the machine's clock, the `Clock`;
   - `runner/` is the `RunnerChannel`, how the cell reaches a workspace's
-    runner. Until the runner's socket exists, `noRunner` answers that none is
-    connected. It imports no database library, HTTP framework or `jose`.
+    runner: the runner's socket, a route of its own on `@hono/node-ws`
+    (`runnerSocket.ts`), which calls `runnerConnected` and
+    `applyRunnerUpdate` itself. With no runner configured, its channel is
+    `noRunner`, which answers that none is connected.
 - The composition ring wires them together. `src/compose.ts` is the one place
   adapters are built and handed the ports they need (`composeCell`), and the
   place startup steps go. Adapters call use cases themselves; what they never
@@ -207,10 +217,13 @@ The service is built in rings, and imports point inward only.
   - `adapters/http` never imports a database library (`drizzle-orm`,
     `@electric-sql/pglite`, `pg`) or `jose`;
   - `adapters/persistence` never imports `hono` or `jose`;
-  - `adapters/token` is the one place `jose` is imported, and never imports
-    `hono` or a database library;
+  - `adapters/token` is the one place `jose` is imported, the pass signer
+    (`passSigner.ts`) included, and never imports `hono` or a database
+    library;
   - `adapters/clock` imports no package;
-  - `adapters/runner` never imports a database library, `hono` or `jose`.
+  - `adapters/runner` may import `hono` and `@hono/*` (`@hono/node-ws`), since
+    the runner's socket is a route, and never a database library or `jose`:
+    it is handed the pass key's public half as a string, and never signs.
 - No file, tests included, imports another app, Better Auth
   (`better-auth`, `@better-auth/*`) or a workspace package (`@consola/*`, or
   `consola`, the desktop), with two exceptions, the contracts the cell shares
@@ -255,26 +268,32 @@ or stop to the runner through the `RunnerChannel` port.
 
 - **Routes** (`adapters/http/cloudSessions.ts`, behind `requireCaller`):
   `GET /api/cloud-sessions/options`, `POST /api/cloud-sessions`,
-  `GET /api/cloud-sessions`, `GET /api/cloud-sessions/:id` and
-  `POST /api/cloud-sessions/:id/stop` (202). They answer codes: `no_runner`
-  (503), `repository_not_offered`, `harness_not_offered` and `invalid_request`
-  (400), `not_found` (404). The body is exactly `{ repository, harness }`.
+  `GET /api/cloud-sessions`, `GET /api/cloud-sessions/:id`,
+  `POST /api/cloud-sessions/:id/stop` (202) and
+  `POST /api/cloud-sessions/:id/pass` (below, "Passes"). They answer codes:
+  `no_runner` (503), `repository_not_offered`, `harness_not_offered` and
+  `invalid_request` (400), `not_found` (404). The body is exactly
+  `{ repository, harness }`.
 - **Whose.** A session is visible only to the person who started it, in the
   workspace of their token: another person's, or another workspace's, is
   `not_found`, never 403.
 - **No runner, nothing recorded.** A start is checked against the runner's
-  offer before any row is written, and before anything is sent. Until Task 3's
-  socket, `composeCell` passes `noRunner`, so every start is 503.
+  offer before any row is written, and before anything is sent. With no
+  runner configured, or none connected, every start is 503.
 - **Statuses** (`nextStatus`): `starting` goes to `running` or `failed`, and
   `running` to `stopped` or `failed`. An ended session never moves again, and
   an ended row ignores every update. A person's stop is the one other way to
-  end: it takes a `starting` or `running` row to `stopped`.
+  end: it takes a `starting` or `running` row to `stopped`. So does an end a
+  runner's `hello` reports for a session that ended while its socket was down
+  (`endReported`), `starting` included, since the `running` before it may have
+  been lost with the socket.
 - **A failure's two sources, kept apart.** `error` is the message a runner
   reported (the provider's or the start script's), shown as it came.
   `errorCode` is a code the cell decided itself (`CELL_FAILURE_CODES`:
-  `runner_restarted`, `runner_unreachable`), which `cloud-web` words. A failed
-  row has one of them, never both, so a runner can never forge a code by
-  naming one in its message, and the web never shows a code as text.
+  `runner_restarted`, `runner_unreachable`, and `runner_failed` for a failure
+  a runner reported without a message, `runnerFailure`), which `cloud-web`
+  words. A failed row has exactly one of them, so a runner can never forge a
+  code by naming one in its message, and the web never shows a code as text.
 - **Stop never waits for the runner.** A person can always end their session:
   the row becomes `stopped` at once, and the runner is told only when it is the
   session's own runner and connected. A runner that is away or cannot be told
@@ -282,8 +301,79 @@ or stop to the runner through the `RunnerChannel` port.
   session ended and gets a `session.stop` for it. The runner therefore never
   keeps a sandbox for a session the cell considers ended.
 - **Updates from a runner** (`applyRunnerUpdate`) count only from the runner
-  the row names, and are compare-and-set on the row's status, so a late update
-  never overwrites an end.
+  the row names, in the workspace that runner serves (`belongsToRunner`:
+  runners name themselves, so an id alone could be another workspace's
+  runner's), and are compare-and-set on the row's status, so a late update
+  never overwrites an end. One that loses to another change reads the row
+  again, up to three looks (a status moves at most twice), so a title or a
+  host address is never lost to a status that moved meanwhile, and is dropped
+  only once the row has ended.
+- **Passes** (`POST /api/cloud-sessions/:id/pass`, `issuePass`) answer
+  `{ pass, hostUrl, expiresAt }` for the caller's own `running` session whose
+  host has reported its address; anything else is 404 `not_found`, and a cell
+  with no pass key is 503 `no_runner`. Every answer is
+  `Cache-Control: no-store`. The pass is a compact JWS, EdDSA, `typ`
+  `PASS_TYPE`, over the protocol's `passClaims` (`aud` `PASS_AUDIENCE`, `sub`
+  the person, `ws`, `sid`, `iat`, `exp`), for `PASS_LIFETIME_SECONDS` (the
+  protocol's cap, 300 s); `expiresAt` is its `exp`, in whole seconds. It is
+  signed with `PASS_PRIVATE_KEY`, the cell's own Ed25519 key, never
+  `cloud-global`'s, and each session's host is handed the public half, as an
+  SPKI PEM derived from it (`adapters/token/passSigner.ts`), in
+  `session.start`.
+
+## The runner's socket
+
+A workspace's runner (`consola-host runner`) connects out to its cell, so the
+cell never has to reach it (`adapters/runner/runnerSocket.ts`). Read
+`packages/runner-protocol/AGENTS.md` first: the messages are its.
+
+- **Configuration.** `RUNNER_SECRET`, `RUNNER_WORKSPACE_ID` and
+  `PASS_PRIVATE_KEY` go together: all three, or none, or the cell refuses to
+  start, naming each one missing. With none, every runner is refused and the
+  session routes answer 503 `no_runner`. `config.ts` checks that the secret is
+  at least 32 printable characters with no space, and that the key is a JSON
+  object; `createPassSigner` refuses one that is not an Ed25519 private key,
+  as a `ConfigError`, when `composeCell` (async for this) imports it. No
+  problem quotes either value, and `describeStartupFailure` hides both.
+- **The secret.** `GET /api/runner` with `Authorization: Bearer
+  <RUNNER_SECRET>`. It is compared as SHA-256 hashes with `timingSafeEqual`,
+  so neither its contents nor its length shows in how long a refusal takes.
+  Anything else (no header, another scheme, a wrong secret, or none
+  configured) is 401 `{"error":"runner_refused"}` before the upgrade, and a
+  request with the secret that is no upgrade is 426. The secret is never
+  logged, nor what a refused request presented.
+- **The upgrade.** `@hono/node-ws`'s `createNodeWebSocket` is built on the
+  socket's own routes, so every upgrade the server sees goes to them and
+  only them; `main.ts` calls `injectWebSocket(server)`, and closes every
+  runner's socket (`closeRunnerSockets`, 1001) before the server, which
+  would otherwise wait on them.
+- **Frames.** A runner's frame may be at most `RUNNER_FRAME_LIMIT_BYTES`
+  (64 KiB, ws's `maxPayload`); a larger one closes the socket with 1009
+  before it is read. A frame that is not text, not JSON or not a message
+  `readRunnerMessage` reads is logged with the reader's reason alone, never
+  the frame, and dropped, and the socket stays open.
+- **One runner per workspace.** The runner serves `RUNNER_WORKSPACE_ID`,
+  whatever its `hello` calls it. A socket's messages are handled one at a
+  time, in order. A second socket's `hello` replaces the first, which is
+  closed with `RUNNER_SOCKET_CLOSE.replaced` (4000); an update on a socket
+  that no longer serves, or before its `hello`, and a second `hello` on one
+  socket, are logged and dropped. `connected` names a socket's offer only once
+  its `hello` is judged, so no person's start lands among the sessions it
+  judges, and `null` again once it closes. A `hello` that cannot be judged
+  (the database down) closes the socket with 1011, and the runner's next
+  `hello` is judged instead.
+- **`hello`** (`runnerConnected`, `application/runners.ts`), in Task 1's
+  order: each `endedSessions` entry keeps its real end; every other
+  `starting` or `running` row of that runner, in its workspace, that
+  `runningSessionIds` does not list becomes `failed` with
+  `runner_restarted`; and every listed id the cell holds as ended, does not
+  know, or holds as another runner's, gets a `session.stop`. An id in both
+  lists is ended, and so is stopped (ended wins); an id listed twice counts
+  once. Rows of another runner or workspace are never changed.
+- **The channel.** `startSession` sends `session.start` with the pass key's
+  public half, and `stopSession` a `session.stop`, only on the open socket of
+  the runner named, for its workspace; otherwise each rejects, and the use
+  cases already answer that.
 
 ## Adding a feature
 
@@ -306,6 +396,12 @@ cases are tested on a migrated `pglite:memory` database through the real
 Drizzle stores: the database is never mocked. `src/app.test.ts` is the HTTP
 suite, end to end. It builds the cell through `compose.ts` (`composeCell`), as
 `main.ts` does, so it tests the wiring that runs.
+
+The runner's socket is tested on a real server on port 0 (`@hono/node-server`
+and `injectWebSocket`), with `ws` as the runner (a dev dependency: Node's own
+`WebSocket` sends no `Authorization`), and the HTTP suite connects one the way
+`main.ts` wires it. Every one of those tests checks that nothing logged holds
+the runner's secret or the pass key.
 
 No test needs `cloud-global` running. A test makes an Ed25519 key pair, signs
 tokens with jose's `SignJWT` over the contract's `cellTokenClaims` and outbox

@@ -1,4 +1,10 @@
-import { type Harness, isHarness, isRepository, type Repository } from '@consola/runner-protocol';
+import {
+  type EndedStatus,
+  type Harness,
+  isHarness,
+  isRepository,
+  type Repository,
+} from '@consola/runner-protocol';
 
 /** Where a cloud session is in its life. `stopped` and `failed` are ends. */
 export const CLOUD_SESSION_STATUSES = ['starting', 'running', 'stopped', 'failed'] as const;
@@ -14,6 +20,8 @@ export const CELL_FAILURE_CODES = {
   runnerRestarted: 'runner_restarted',
   /** The cell could not hand the start to the runner. */
   runnerUnreachable: 'runner_unreachable',
+  /** The runner reported a failure without a message of its own. */
+  runnerFailed: 'runner_failed',
 } as const;
 export type CellFailureCode = (typeof CELL_FAILURE_CODES)[keyof typeof CELL_FAILURE_CODES];
 
@@ -46,6 +54,23 @@ export type CloudSession = {
 export const isEnded = (status: CloudSessionStatus): boolean =>
   status === 'stopped' || status === 'failed';
 
+/** The statuses of a session that has not ended. */
+export const LIVE_STATUSES = [
+  'starting',
+  'running',
+] as const satisfies readonly CloudSessionStatus[];
+
+/**
+ * Who a runner is: the workspace its secret serves, and the id it calls itself in `hello`. A
+ * runner picks its own id, so two workspaces' runners may share one: the workspace tells them
+ * apart.
+ */
+export type RunnerIdentity = { workspaceId: string; runnerId: string };
+
+/** Whether the row is that runner's: the runner it names, in the workspace the runner serves. */
+export const belongsToRunner = (session: CloudSession, runner: RunnerIdentity): boolean =>
+  session.workspaceId === runner.workspaceId && session.runnerId === runner.runnerId;
+
 /**
  * The status after an update names `update`: `starting` goes to `running` or `failed`, `running`
  * to `stopped` or `failed`. Anything else, an ended session included, stays as it is.
@@ -68,6 +93,27 @@ export function transition(
   const status = nextStatus(session.status, update);
   if (status === session.status) return session;
   return { ...session, status, endedAt: isEnded(status) ? now : null };
+}
+
+/**
+ * The status after a runner's `hello` reported how a session ended while its socket was down: a
+ * live session takes that end, `starting` included, since the `running` before it may have been
+ * lost with the socket. An ended session keeps its own end.
+ */
+export function endReported(current: CloudSessionStatus, end: EndedStatus): CloudSessionStatus {
+  return isEnded(current) ? current : end;
+}
+
+/**
+ * How a failure a runner reported is kept: its own message in `error`, or, when it gave none,
+ * the cell's `runner_failed`. So a failed row always carries one of the two, and never both.
+ */
+export function runnerFailure(
+  error: string | undefined,
+): Pick<CloudSession, 'error' | 'errorCode'> {
+  return error === undefined
+    ? { error: null, errorCode: CELL_FAILURE_CODES.runnerFailed }
+    : { error, errorCode: null };
 }
 
 /** What a person asks for when they start a session. */

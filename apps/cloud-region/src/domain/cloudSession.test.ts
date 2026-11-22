@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
+  belongsToRunner,
   type CloudSession,
   type CloudSessionStatus,
+  endReported,
   nextStatus,
   readStartRequest,
+  runnerFailure,
   transition,
 } from './cloudSession.js';
 
@@ -64,6 +67,42 @@ describe('transition', () => {
     const ended = { ...session('stopped'), endedAt: 150 };
     expect(transition(ended, 'failed', 999)).toEqual(ended);
     expect(transition(ended, 'running', 999)).toEqual(ended);
+  });
+});
+
+describe('endReported', () => {
+  it.each([
+    // A live session takes the end a runner reported, `starting` included: its `running` may have
+    // been lost while the runner's socket was down.
+    ['starting', 'stopped', 'stopped'],
+    ['starting', 'failed', 'failed'],
+    ['running', 'stopped', 'stopped'],
+    ['running', 'failed', 'failed'],
+    // An ended session keeps its own end.
+    ['stopped', 'failed', 'stopped'],
+    ['failed', 'stopped', 'failed'],
+  ] as const)('%s reported %s is %s', (current, reported, expected) => {
+    expect(endReported(current, reported)).toBe(expected);
+  });
+});
+
+describe('runnerFailure', () => {
+  it("keeps the runner's message, with no cell code", () => {
+    expect(runnerFailure('clone-failed')).toEqual({ error: 'clone-failed', errorCode: null });
+  });
+
+  it("gives a failure the runner left unexplained the cell's code, so it is never neither", () => {
+    expect(runnerFailure(undefined)).toEqual({ error: null, errorCode: 'runner_failed' });
+  });
+});
+
+describe('belongsToRunner', () => {
+  it('is true only for the runner the row names, in its workspace', () => {
+    const row = session('running');
+    expect(belongsToRunner(row, { workspaceId: 'acme', runnerId: 'runner-1' })).toBe(true);
+    expect(belongsToRunner(row, { workspaceId: 'acme', runnerId: 'runner-2' })).toBe(false);
+    // Runners name themselves, so one id can serve two workspaces: the workspace decides too.
+    expect(belongsToRunner(row, { workspaceId: 'globex', runnerId: 'runner-1' })).toBe(false);
   });
 });
 
