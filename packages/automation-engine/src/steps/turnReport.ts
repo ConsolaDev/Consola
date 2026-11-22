@@ -59,10 +59,12 @@ function resultFailure(result: TurnResultView): string {
  * What it quotes is the CLI's own: a result's text, else the last line it
  * printed outside its JSON, never Consola's lines in the pane (`lastLine`).
  * A failed `init` check comes before all of these, in its own words; the
- * caller applies it.
+ * caller applies it. A `reminder` at its cap says so: that cap is the
+ * reminder's own, not the one the file sets.
  */
 export function reportedFailure(
   outcome: TurnOutcome & { report: TurnReportView },
+  { reminder = false }: { reminder?: boolean } = {},
 ): { error: string; atTurnLimit: boolean } | null {
   const failed = (error: string) => ({ error, atTurnLimit: false });
   if (outcome.stopped)
@@ -70,11 +72,12 @@ export function reportedFailure(
   const { report, exitCode } = outcome;
   const { result } = report;
   if (result?.subtype === 'error_max_turns') {
+    const who = reminder ? 'Its reminder' : 'It';
     return {
       error:
         report.maxTurns === undefined
-          ? 'It hit its turn limit before finishing.'
-          : `It hit its limit of ${report.maxTurns} turns before finishing.`,
+          ? `${who} hit its turn limit before finishing.`
+          : `${who} hit its limit of ${report.maxTurns} turns before finishing.`,
       atTurnLimit: true,
     };
   }

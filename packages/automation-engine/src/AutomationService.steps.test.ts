@@ -2792,6 +2792,22 @@ describe('the reminder turn', () => {
     expect(both.world.reminderCaps).toEqual([5]);
   });
 
+  it('that hits its own cap fails in the reminder’s words, not as the step’s limit', async () => {
+    const h = await accepted(file(NIGHTLY));
+    const run = (await h.service.trigger(WORKSPACE_ID, 'nightly'))!;
+    await h.flush();
+    await h.world.endTurn('session-1', { exitCode: 0, report: turnReport({ turns: 2 }) });
+    expect(h.world.reminderCaps).toEqual([3]);
+    await h.world.endTurn('session-1', {
+      exitCode: 1,
+      report: turnReport({ maxTurns: 3, subtype: 'error_max_turns', isError: true, turns: 3 }),
+    });
+    expect(h.store.get(run.id)?.steps?.[0]).toMatchObject({
+      status: 'failed',
+      error: 'Its reminder hit its limit of 3 turns before finishing.',
+    });
+  });
+
   it('a quit during it resumes it under its own cap, and a quit in the first turn under the record’s', async () => {
     let h = await accepted(file(NIGHTLY));
     await h.service.trigger(WORKSPACE_ID, 'nightly');

@@ -169,6 +169,28 @@ describe('reportedFailure', () => {
   ])('%s', (_name, outcome, expected) => {
     expect(reportedFailure(outcome)).toEqual(expected);
   });
+
+  it('a reminder that hit its own cap says so, not the step’s limit', () => {
+    const atCap = (maxTurns?: number) => ({
+      exitCode: 1,
+      report: report({
+        ...(maxTurns !== undefined ? { maxTurns } : {}),
+        result: result({ subtype: 'error_max_turns', isError: true }),
+      }),
+    });
+    expect(reportedFailure(atCap(3), { reminder: true })).toEqual({
+      error: 'Its reminder hit its limit of 3 turns before finishing.',
+      atTurnLimit: true,
+    });
+    expect(reportedFailure(atCap(), { reminder: true })).toEqual({
+      error: 'Its reminder hit its turn limit before finishing.',
+      atTurnLimit: true,
+    });
+    // The first turn keeps the step's words.
+    expect(reportedFailure(atCap(6), { reminder: false })?.error).toBe(
+      'It hit its limit of 6 turns before finishing.',
+    );
+  });
 });
 
 describe('turnFailure keeps its words', () => {

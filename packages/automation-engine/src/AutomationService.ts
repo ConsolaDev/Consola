@@ -3496,7 +3496,8 @@ export class AutomationService {
     }
     let failed: { error: string; atTurnLimit: boolean } | null;
     if (initFailure !== undefined) failed = { error: initFailure, atTurnLimit: false };
-    else if (report) failed = reportedFailure({ ...outcome, report });
+    else if (report)
+      failed = reportedFailure({ ...outcome, report }, { reminder: record.reminded === true });
     else {
       const error = turnFailure(outcome);
       failed = error ? { error, atTurnLimit: false } : null;
