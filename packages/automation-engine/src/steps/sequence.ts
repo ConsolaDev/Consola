@@ -8,6 +8,8 @@ import {
   parseReadRef,
   templatePaths,
   type ExprValue,
+  type PathExpr,
+  type RepeatStep,
   type Step,
   type StepEntry,
   type StepRun,
@@ -43,6 +45,8 @@ export type Advance =
   | { kind: 'start'; stepId: string; lane: Lane; updates: StepUpdate[] }
   /** Park at a gate: the run waits for a person, holding no slot. */
   | { kind: 'ask'; stepId: string; updates: StepUpdate[] }
+  /** Begin round `round` of a loop (`withRound`); its steps' turns follow. */
+  | { kind: 'round'; blockId: string; round: number; updates: StepUpdate[] }
   | { kind: 'complete'; summary: string; updates: StepUpdate[] }
   | { kind: 'fail'; stepId: string; error: string; updates: StepUpdate[]; overBudget?: true };
 
@@ -116,7 +120,7 @@ interface Reference {
  * run's document is read, or absent, when the step runs.
  */
 function dependenciesOf(
-  step: Step,
+  step: StepEntry,
   condition: Expr | undefined,
 ): { conditions: Reference[]; reads: Reference[]; templates: Reference[]; item: string[] } {
   const conditions: Reference[] = [];
@@ -135,14 +139,17 @@ function dependenciesOf(
       if (ref && !ref.previous) reads.push({ path: entry, step: ref.step });
     }
   }
+  // A loop's own row reads only its `if:`; `until` is read once its round is over, never waited on.
   const texts =
-    step.kind === 'gate'
-      ? [step.ask]
-      : step.kind === 'agent'
-        ? step.prompt === undefined
-          ? []
-          : [step.prompt]
-        : Object.values(step.env);
+    step.kind === 'repeat'
+      ? []
+      : step.kind === 'gate'
+        ? [step.ask]
+        : step.kind === 'agent'
+          ? step.prompt === undefined
+            ? []
+            : [step.prompt]
+          : Object.values(step.env);
   const templates: Reference[] = [];
   for (const text of texts) {
     for (const path of templatePaths(text)) {
@@ -204,7 +211,7 @@ function untypedItemSkip(
   }
 }
 
-/** Where a step stands in a run: a leaf's row, a loop's own, or a row waiting for a person or a retry. */
+/** Work under way: a leaf's row in line or running (a loop's own `running` row is not). */
 const ACTIVE: readonly StepRunStatus[] = ['queued', 'running'];
 
 /**
@@ -218,7 +225,15 @@ const ACTIVE: readonly StepRunStatus[] = ['queued', 'running'];
  * it would have asked, and the walk goes on). A completed step with
  * `then: stop` ends the run: every later row it had not reached `not-run`.
  * With a `budget`, a run that spent it fails at the boundary before its next
- * start or gate, naming spent and budget (`overBudget`).
+ * start, gate or round, naming spent and budget (`overBudget`).
+ *
+ * A loop's row begins its rounds (`round`); in a round its steps take their
+ * turns as leaves; once a round is over `until` decides over the latest
+ * records (a path with no value is not met): met, the loop is done and the
+ * walk goes on; not met, the next round; out of rounds, its `on_exhausted`
+ * (fail, go on, or a gate). A dry run's loop whose `until` waits only on
+ * steps it left unrun ends there, `reported` (Call 10). A step failing in a
+ * loop fails the loop's row with it.
  */
 export function advanceSteps(input: {
   steps: readonly StepEntry[];
@@ -239,34 +254,54 @@ export function advanceSteps(input: {
   )
     return { kind: 'wait' };
 
-  const failed = input.records.find((record) => record.status === 'failed');
+  const flat = flatSteps(entries);
+  /** The loop a leaf is inside, when it is. */
+  const blockOf = (stepId: string): RepeatStep | undefined =>
+    flat.find(({ step }) => step.id === stepId)?.block;
+  /** A failed leaf fails the loop it is inside with it (the loop's row has no error of its own). */
+  const failsBlock = (stepId: string, records: StepRun[]): StepUpdate[] => {
+    const block = blockOf(stepId);
+    const row = block && records.find((record) => record.id === block.id);
+    return row && row.status === 'running' ? [{ id: block.id, status: 'failed' }] : [];
+  };
+
+  // A failed leaf before the failed row of the loop it is in: the row the run failed at.
+  const failed =
+    input.records.find((record) => record.status === 'failed' && record.kind !== 'repeat') ??
+    input.records.find((record) => record.status === 'failed');
   if (failed) {
     return {
       kind: 'fail',
       stepId: failed.id,
       error: failed.error ?? 'failed',
-      updates: notRunAfter(entries, input.records, failed.id),
+      updates: [
+        ...failsBlock(failed.id, input.records),
+        ...notRunAfter(entries, input.records, failed.id),
+      ],
     };
   }
 
   const stopped = stopAfter(entries, input.records);
   if (stopped) return stopped;
 
-  const steps = leafSteps(entries);
   // Updates made in this call are visible to the steps after them.
   const now = new Map(input.records.map((record) => [record.id, { ...record }]));
   const updates: StepUpdate[] = [];
-  const settled = () => flatSteps(entries).flatMap(({ step }) => now.get(step.id) ?? []);
+  const settled = () => flat.flatMap(({ step }) => now.get(step.id) ?? []);
   const spent = budget !== undefined && budget.spent >= budget.usd;
+  const update = (row: StepRun, change: StepUpdate): void => {
+    Object.assign(row, change);
+    updates.push(change);
+  };
 
-  for (const step of steps) {
-    const mine = now.get(step.id);
-    if (mine?.status !== 'pending') continue;
-
-    const skip = (reason: string): void => {
-      mine.status = 'skipped';
-      mine.skipped = reason;
-      updates.push({ id: step.id, status: 'skipped', skipped: reason });
+  /**
+   * Whether a step's or a loop's `if:` lets it run: `go`, or it was skipped
+   * (`skipped`, its update written), or the run fails (an Advance).
+   */
+  const admit = (step: StepEntry, row: StepRun): 'go' | 'skipped' | Advance => {
+    const skip = (reason: string): 'skipped' => {
+      update(row, { id: step.id, status: 'skipped', skipped: reason });
+      return 'skipped';
     };
     let condition: Expr | undefined;
     if (step.if !== undefined) {
@@ -283,42 +318,31 @@ export function advanceSteps(input: {
     );
     if (missed) {
       const producer = now.get(missed.step);
-      skip(
+      return skip(
         dryRun && leftUnrunByDryRun(producer)
           ? dryRunReason(missed.step)
           : noValue(missed.path, missed.step, producer),
       );
-      continue;
     }
     const absentCondition = deps.conditions.find(
       (ref) => recorded(now.get(ref.step), ref.name ?? '', false) === undefined,
     );
-    if (absentCondition) {
-      skip(noValue(absentCondition.path, absentCondition.step, now.get(absentCondition.step)));
-      continue;
-    }
+    if (absentCondition)
+      return skip(
+        noValue(absentCondition.path, absentCondition.step, now.get(absentCondition.step)),
+      );
 
     if (condition) {
       const untyped = untypedItem ? untypedItemSkip(condition, itemValue) : undefined;
-      if (untyped) {
-        skip(untyped);
-        continue;
-      }
-      const verdict = evaluateExpression(condition, (path) =>
-        path.kind === 'output'
-          ? recorded(now.get(path.step), path.output, false)
-          : itemValue?.(path.field),
-      );
+      if (untyped) return skip(untyped);
+      const verdict = evaluateExpression(condition, pathValue);
       if (!verdict.ok) {
         return failStep(
           step.id,
           `${verdict.missing.text} has no value: this run has no such item field`,
         );
       }
-      if (!verdict.value) {
-        skip(`if: ${step.if} is false`);
-        continue;
-      }
+      if (!verdict.value) return skip(`if: ${step.if} is false`);
     }
 
     const lacking = deps.templates.find(
@@ -326,40 +350,140 @@ export function advanceSteps(input: {
     );
     if (lacking) {
       const producer = now.get(lacking.step);
-      if (dryRun && leftUnrunByDryRun(producer)) {
-        skip(dryRunReason(lacking.step));
-        continue;
-      }
+      if (dryRun && leftUnrunByDryRun(producer)) return skip(dryRunReason(lacking.step));
       return failStep(step.id, noValue(lacking.path, lacking.step, producer));
     }
     const itemMissing = deps.item.find((field) => itemValue?.(field) === undefined);
-    if (itemMissing !== undefined) {
+    if (itemMissing !== undefined)
       return failStep(step.id, `item.${itemMissing} has no value: this run has no such item field`);
-    }
+    return 'go';
+  };
 
+  /** A pending leaf's turn: skipped or reported (null: the walk goes on), or the run's next move. */
+  const leaf = (step: Step): Advance | null => {
+    const row = now.get(step.id);
+    if (row?.status !== 'pending') return null;
+    const admitted = admit(step, row);
+    if (admitted === 'skipped') return null;
+    if (admitted !== 'go') return admitted;
     if (step.kind === 'gate' && dryRun) {
       // A dry run asks no one: it says what it would have asked, and a step reading the decision skips.
-      const note = `Would have asked: ${step.ask}`;
-      mine.status = 'reported';
-      mine.note = note;
-      updates.push({ id: step.id, status: 'reported', note });
-      continue;
+      update(row, { id: step.id, status: 'reported', note: `Would have asked: ${step.ask}` });
+      return null;
     }
     // The boundary: nothing starts, and no one is asked, once the run spent its budget.
     if (budget && spent) return failStep(step.id, overBudgetError(budget.spent, budget.usd), true);
     if (step.kind === 'gate') return { kind: 'ask', stepId: step.id, updates };
     return { kind: 'start', stepId: step.id, lane: laneOf(step), updates };
+  };
+
+  /** A loop's turn: its first round, its steps' turns in the round, then `until` and what comes after it. */
+  const loop = (block: RepeatStep): Advance | null => {
+    const row = now.get(block.id);
+    if (row?.status === 'pending') {
+      const admitted = admit(block, row);
+      if (admitted === 'skipped') {
+        for (const inner of block.steps) {
+          const innerRow = now.get(inner.id);
+          if (innerRow)
+            update(innerRow, {
+              id: inner.id,
+              status: 'skipped',
+              skipped: `the loop \`${block.id}\` was skipped`,
+            });
+        }
+        return null;
+      }
+      if (admitted !== 'go') return admitted;
+      if (budget && spent)
+        return failStep(block.id, overBudgetError(budget.spent, budget.usd), true);
+      return { kind: 'round', blockId: block.id, round: 1, updates };
+    }
+    // Ended (completed, skipped, reported or failed): passed over, its steps with it.
+    if (row?.status !== 'running') return null;
+
+    for (const inner of block.steps) {
+      const next = leaf(inner);
+      if (next) return next;
+    }
+
+    // The round is over: `until`, over the latest records. A path with no value is not met.
+    const k = row.round ?? 1;
+    const parsed = parseExpression(block.until);
+    if (!parsed.ok)
+      return failStep(block.id, `until: ${block.until} could not be read: ${parsed.problem}`);
+    const verdict = evaluateExpression(parsed.expr, pathValue);
+    if (verdict.ok && verdict.value) {
+      update(row, { id: block.id, status: 'completed', note: `clean after round ${k}` });
+      return null;
+    }
+    // Call 10: a dry run cannot get what `until` waits on from a step it left unrun, so its loop ends here.
+    if (dryRun) {
+      const valueless = expressionPaths(parsed.expr).filter(
+        (path) =>
+          path.kind === 'output' && recorded(now.get(path.step), path.output, false) === undefined,
+      );
+      if (
+        valueless.length > 0 &&
+        valueless.every((path) => path.kind === 'output' && leftUnrunByDryRun(now.get(path.step)))
+      ) {
+        update(row, {
+          id: block.id,
+          status: 'reported',
+          note: `a real run would repeat until ${block.until}`,
+        });
+        return null;
+      }
+    }
+    if (k < block.max) {
+      if (budget && spent)
+        return failStep(block.id, overBudgetError(budget.spent, budget.usd), true);
+      return { kind: 'round', blockId: block.id, round: k + 1, updates };
+    }
+    // Out of rounds: `on_exhausted`.
+    const exhausted = block.onExhausted ?? 'fail';
+    if (exhausted === 'fail') return failStep(block.id, `${block.id}: not clean after ${k} rounds`);
+    if (exhausted === 'continue') {
+      update(row, { id: block.id, status: 'completed', note: `stopped after ${k} rounds` });
+      return null;
+    }
+    if (dryRun) {
+      update(row, {
+        id: block.id,
+        status: 'reported',
+        note: `Would have asked after ${k} rounds: ${exhausted.ask}`,
+      });
+      return null;
+    }
+    if (budget && spent) return failStep(block.id, overBudgetError(budget.spent, budget.usd), true);
+    return { kind: 'ask', stepId: block.id, updates };
+  };
+
+  for (const entry of entries) {
+    const next = entry.kind === 'repeat' ? loop(entry) : leaf(entry);
+    if (next) return next;
   }
 
   return { kind: 'complete', summary: runSummary(entries, settled()), updates };
 
+  function pathValue(path: PathExpr): ExprValue | undefined {
+    return path.kind === 'output'
+      ? recorded(now.get(path.step), path.output, false)
+      : itemValue?.(path.field);
+  }
+
   function failStep(stepId: string, error: string, overBudget?: true): Advance {
-    const later = notRunAfter(entries, settled(), stepId);
+    const rows = settled();
     return {
       kind: 'fail',
       stepId,
       error,
-      updates: [...updates, { id: stepId, status: 'failed', error }, ...later],
+      updates: [
+        ...updates,
+        { id: stepId, status: 'failed', error },
+        ...failsBlock(stepId, rows),
+        ...notRunAfter(entries, rows, stepId),
+      ],
       ...(overBudget ? { overBudget } : {}),
     };
   }
@@ -371,12 +495,13 @@ const OPEN: readonly StepRunStatus[] = ['pending', 'queued'];
 /**
  * `then: stop`: the first completed step that says it, with a row after it
  * the run has not reached, ends the run completed, those rows `not-run`,
- * each saying why. A skipped or failed step stops nothing.
+ * each saying why, and the loop it is inside, still in its round,
+ * `completed`, saying in which round. A skipped or failed step stops nothing.
  */
 function stopAfter(entries: readonly StepEntry[], records: StepRun[]): Advance | null {
   const flat = flatSteps(entries);
   const byId = new Map(records.map((record) => [record.id, record]));
-  for (const [index, { step }] of flat.entries()) {
+  for (const [index, { step, block }] of flat.entries()) {
     if (step.kind === 'repeat' || step.stop !== true) continue;
     if (byId.get(step.id)?.status !== 'completed') continue;
     const note = `the run stopped after \`${step.id}\``;
@@ -385,10 +510,21 @@ function stopAfter(entries: readonly StepEntry[], records: StepRun[]): Advance |
       .filter(({ step: after }) => OPEN.includes(byId.get(after.id)?.status as StepRunStatus))
       .map(({ step: after }): StepUpdate => ({ id: after.id, status: 'not-run', note }));
     if (later.length === 0) continue;
+    const loopRow = block && byId.get(block.id);
+    const closesLoop: StepUpdate[] =
+      block && loopRow?.status === 'running'
+        ? [
+            {
+              id: block.id,
+              status: 'completed',
+              note: `the run stopped after \`${step.id}\` in round ${loopRow.round ?? 1}`,
+            },
+          ]
+        : [];
     return {
       kind: 'complete',
       summary: `${runSummary(entries, records)}; stopped after ${step.id}`,
-      updates: later,
+      updates: [...closesLoop, ...later],
     };
   }
   return null;

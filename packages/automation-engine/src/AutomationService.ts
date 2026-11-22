@@ -3476,8 +3476,9 @@ export class AutomationService {
       ...stepItemOf(run, itemOf),
     });
     if (next.kind === 'wait') return;
-    // `flowNotYet` keeps every entry with a gate from running until gates run (slice 3, Call 2): never silently.
+    // `flowNotYet` keeps every entry with a gate or a loop from running until they run (slice 3, Call 2): never silently.
     if (next.kind === 'ask') throw new Error('a gate is not run yet');
+    if (next.kind === 'round') throw new Error('a loop is not run yet');
     const stopping = this.stopRequested.delete(runId);
     // A stopped run never completes by skips: when every step left would skip, the one it would look at next fails,
     // never started. With none left, its steps all ended on their own before the stop could reach them: it

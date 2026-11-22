@@ -4,7 +4,10 @@ import {
   type AgentStep,
   type CommandStep,
   type GateStep,
+  type OnExhausted,
+  type RepeatStep,
   type Step,
+  type StepEntry,
   type StepRun,
   type StepRunStatus,
 } from '@consola/factory-spec';
@@ -17,7 +20,7 @@ import {
   usdWords,
   type Advance,
 } from './sequence';
-import { withGateAnswered, withGateAsked } from './stepRecords';
+import { stepRecordsOf, withGateAnswered, withGateAsked, withRound, withStep } from './stepRecords';
 
 const fresh: CommandStep = {
   kind: 'run',
@@ -1103,5 +1106,519 @@ describe('runSummary, with gates', () => {
       (row) => (row.id === 'decide' ? { ...row, status: 'reported' as const } : row),
     );
     expect(runSummary(GATED, rows)).toBe('fresh → review (approve); decide would have run');
+  });
+});
+
+// --- slice 3: loops (Task 8) ----------------------------------------------------
+
+const reviewRound: AgentStep = {
+  ...review,
+  if: undefined,
+  prompt: 'Review it.',
+  outputs: { findings: { type: 'integer' } },
+};
+const address: AgentStep = {
+  ...review,
+  id: 'address',
+  if: 'steps.review.findings > 0',
+  prompt: 'Address it.',
+  outputs: { fixed: { type: 'boolean' } },
+};
+/** `polish`: up to three rounds of `review` then `address`, until no findings are left. */
+const POLISH: RepeatStep = {
+  kind: 'repeat',
+  id: 'polish',
+  named: true,
+  max: 3,
+  until: 'steps.review.findings == 0',
+  steps: [reviewRound, address],
+};
+const pr: CommandStep = { ...publish, id: 'pr', env: {} };
+const POLISH_ENTRY: StepEntry[] = [POLISH, pr];
+
+/** POLISH_ENTRY with `polish` changed. */
+const withLoop = (patch: Partial<RepeatStep>, after: Step[] = [pr]): StepEntry[] => [
+  { ...POLISH, ...patch },
+  ...after,
+];
+const withExhausted = (onExhausted: OnExhausted | undefined): StepEntry[] =>
+  withLoop(onExhausted === undefined ? {} : { onExhausted });
+
+/**
+ * POLISH_ENTRY's records after `k` rounds: each round's steps completed (or as `statuses` says, in round
+ * `k`), round `k`'s outputs as `outputs` says, and its loop row still `running`, as the sequencer finds it.
+ */
+function round(
+  k: number,
+  outputs: Record<string, StepRun['outputs']> = {},
+  statuses: Record<string, StepRunStatus> = {},
+  entries: StepEntry[] = POLISH_ENTRY,
+): StepRun[] {
+  const block = entries.find((entry): entry is RepeatStep => entry.kind === 'repeat')!;
+  let rows = stepRecordsOf(entries);
+  for (const id of entries.filter((entry) => entry.kind !== 'repeat').map((entry) => entry.id)) {
+    if (entries.findIndex((entry) => entry.id === id) < entries.indexOf(block))
+      rows = withStep(rows, id, { status: 'completed', outputs: outputs[id] ?? {} });
+  }
+  for (let at = 1; at <= k; at++) {
+    rows = withRound(rows, block, at, T0);
+    for (const inner of block.steps) {
+      const last = at === k;
+      rows = withStep(rows, inner.id, {
+        status: (last ? statuses[inner.id] : undefined) ?? 'completed',
+        outputs: last ? (outputs[inner.id] ?? {}) : { findings: 1 },
+      });
+    }
+  }
+  return rows;
+}
+const updatesOf = (next: Advance) => (next.kind === 'wait' ? [] : next.updates);
+
+describe('advanceSteps: loops', () => {
+  it('starts round 1, then the first inner step', () => {
+    expect(
+      advanceSteps({ steps: POLISH_ENTRY, records: stepRecordsOf(POLISH_ENTRY), dryRun: false }),
+    ).toEqual({ kind: 'round', blockId: 'polish', round: 1, updates: [] });
+    expect(
+      advanceSteps({
+        steps: POLISH_ENTRY,
+        records: withRound(stepRecordsOf(POLISH_ENTRY), POLISH, 1, T0),
+        dryRun: false,
+      }),
+    ).toMatchObject({ kind: 'start', stepId: 'review', lane: 'agent' });
+  });
+
+  it('is clean after round 1 when until holds, and goes on', () => {
+    const next = advanceSteps({
+      steps: POLISH_ENTRY,
+      records: round(1, { review: { findings: 0 } }, { address: 'skipped' }),
+      dryRun: false,
+    });
+    expect(next).toMatchObject({ kind: 'start', stepId: 'pr' });
+    expect(updatesOf(next)).toEqual([
+      { id: 'polish', status: 'completed', note: 'clean after round 1' },
+    ]);
+  });
+
+  it('runs a round in order: a skipped inner step, then until', () => {
+    const records = withStep(withRound(stepRecordsOf(POLISH_ENTRY), POLISH, 1, T0), 'review', {
+      status: 'completed',
+      outputs: { findings: 0 },
+    });
+    const next = advanceSteps({ steps: POLISH_ENTRY, records, dryRun: false });
+    expect(next).toMatchObject({ kind: 'start', stepId: 'pr' });
+    expect(updatesOf(next)).toEqual([
+      { id: 'address', status: 'skipped', skipped: 'if: steps.review.findings > 0 is false' },
+      { id: 'polish', status: 'completed', note: 'clean after round 1' },
+    ]);
+  });
+
+  it('starts round 2 when until does not hold', () => {
+    expect(
+      advanceSteps({
+        steps: POLISH_ENTRY,
+        records: round(1, { review: { findings: 1 } }),
+        dryRun: false,
+      }),
+    ).toEqual({ kind: 'round', blockId: 'polish', round: 2, updates: [] });
+  });
+
+  it('is clean after round 3, its last, when until holds then (review M10)', () => {
+    const next = advanceSteps({
+      steps: POLISH_ENTRY,
+      records: round(3, { review: { findings: 0 } }, { address: 'skipped' }),
+      dryRun: false,
+    });
+    expect(next).toMatchObject({ kind: 'start', stepId: 'pr' });
+    expect(updatesOf(next)).toEqual([
+      { id: 'polish', status: 'completed', note: 'clean after round 3' },
+    ]);
+  });
+
+  it('reads a skipped until path as not met', () => {
+    const entries = withLoop({ until: 'steps.address.fixed == true' });
+    const records = round(1, { review: { findings: 0 } }, { address: 'skipped' }, entries);
+    expect(advanceSteps({ steps: entries, records, dryRun: false })).toEqual({
+      kind: 'round',
+      blockId: 'polish',
+      round: 2,
+      updates: [],
+    });
+  });
+
+  it.each<[OnExhausted | undefined, Partial<Advance>]>([
+    [undefined, { kind: 'fail', stepId: 'polish', error: 'polish: not clean after 3 rounds' }],
+    ['fail', { kind: 'fail', stepId: 'polish', error: 'polish: not clean after 3 rounds' }],
+    ['continue', { kind: 'start', stepId: 'pr' }],
+    [
+      { ask: 'Open it anyway?', show: [] },
+      { kind: 'ask', stepId: 'polish' },
+    ],
+  ])('on_exhausted %j after round 3', (onExhausted, expected) => {
+    expect(
+      advanceSteps({
+        steps: withExhausted(onExhausted),
+        records: round(3, { review: { findings: 2 } }, {}, withExhausted(onExhausted)),
+        dryRun: false,
+      }),
+    ).toMatchObject(expected);
+  });
+
+  it("words each exhaustion's updates", () => {
+    const failed = advanceSteps({
+      steps: POLISH_ENTRY,
+      records: round(3, { review: { findings: 2 } }),
+      dryRun: false,
+    });
+    expect(updatesOf(failed)).toEqual([
+      { id: 'polish', status: 'failed', error: 'polish: not clean after 3 rounds' },
+      { id: 'pr', status: 'not-run' },
+    ]);
+    const going = advanceSteps({
+      steps: withExhausted('continue'),
+      records: round(3, { review: { findings: 2 } }, {}, withExhausted('continue')),
+      dryRun: false,
+    });
+    expect(updatesOf(going)).toEqual([
+      { id: 'polish', status: 'completed', note: 'stopped after 3 rounds' },
+    ]);
+    const asking = advanceSteps({
+      steps: withExhausted({ ask: 'Open it anyway?', show: [] }),
+      records: round(
+        3,
+        { review: { findings: 2 } },
+        {},
+        withExhausted({ ask: 'Open it anyway?', show: [] }),
+      ),
+      dryRun: false,
+    });
+    expect(asking).toEqual({ kind: 'ask', stepId: 'polish', updates: [] });
+  });
+
+  it('runs a fourth round only when a retry gave it one, and is exhausted again after it', () => {
+    const records = round(4, { review: { findings: 2 } });
+    expect(advanceSteps({ steps: POLISH_ENTRY, records, dryRun: false })).toMatchObject({
+      kind: 'fail',
+      stepId: 'polish',
+      error: 'polish: not clean after 4 rounds',
+    });
+  });
+
+  it('skips the whole loop when its if: is false', () => {
+    const entries: StepEntry[] = [
+      { ...triage },
+      { ...POLISH, if: "steps.triage.kind == 'bug'" },
+      pr,
+    ];
+    const records = withStep(stepRecordsOf(entries), 'triage', {
+      status: 'completed',
+      outputs: { kind: 'feature' },
+    });
+    const next = advanceSteps({ steps: entries, records, dryRun: false });
+    expect(next).toMatchObject({ kind: 'start', stepId: 'pr' });
+    expect(updatesOf(next)).toEqual([
+      { id: 'polish', status: 'skipped', skipped: "if: steps.triage.kind == 'bug' is false" },
+      { id: 'review', status: 'skipped', skipped: 'the loop `polish` was skipped' },
+      { id: 'address', status: 'skipped', skipped: 'the loop `polish` was skipped' },
+    ]);
+  });
+
+  it('starts the loop when its if: holds, and skips it when what its if: reads was skipped', () => {
+    const entries: StepEntry[] = [
+      { ...triage },
+      { ...POLISH, if: "steps.triage.kind == 'bug'" },
+      pr,
+    ];
+    const bug = withStep(stepRecordsOf(entries), 'triage', {
+      status: 'completed',
+      outputs: { kind: 'bug' },
+    });
+    expect(advanceSteps({ steps: entries, records: bug, dryRun: false })).toEqual({
+      kind: 'round',
+      blockId: 'polish',
+      round: 1,
+      updates: [],
+    });
+    const skipped = withStep(stepRecordsOf(entries), 'triage', { status: 'skipped', skipped: 'x' });
+    expect(updatesOf(advanceSteps({ steps: entries, records: skipped, dryRun: false }))[0]).toEqual(
+      {
+        id: 'polish',
+        status: 'skipped',
+        skipped: 'steps.triage.kind has no value: triage was skipped',
+      },
+    );
+  });
+
+  it('a later step reads the latest round', () => {
+    const entries = withLoop({}, [{ ...pr, if: 'steps.review.findings == 0' }]);
+    const records = round(2, { review: { findings: 0 } }, { address: 'skipped' }, entries);
+    expect(advanceSteps({ steps: entries, records, dryRun: false })).toMatchObject({
+      kind: 'start',
+      stepId: 'pr',
+    });
+  });
+
+  it('passes over a loop that ended, whatever way it ended', () => {
+    for (const status of ['completed', 'skipped', 'reported'] as const) {
+      const records = withStep(round(2, { review: { findings: 1 } }), 'polish', { status });
+      expect(advanceSteps({ steps: POLISH_ENTRY, records, dryRun: false })).toMatchObject({
+        kind: 'start',
+        stepId: 'pr',
+      });
+    }
+  });
+
+  it('reports an exhaustion gate in a dry run and goes on after the block', () => {
+    const entries = withExhausted({ ask: 'Open it anyway?', show: [] });
+    const next = advanceSteps({
+      steps: entries,
+      records: round(3, { review: { findings: 2 } }, {}, entries),
+      dryRun: true,
+    });
+    expect(next).toMatchObject({ kind: 'start', stepId: 'pr' });
+    expect(updatesOf(next)).toEqual([
+      {
+        id: 'polish',
+        status: 'reported',
+        note: 'Would have asked after 3 rounds: Open it anyway?',
+      },
+    ]);
+  });
+
+  it('ends a dry run loop whose until waits on a reported command (Call 10)', () => {
+    const check: CommandStep = {
+      ...publish,
+      id: 'check',
+      env: {},
+      outputs: { clean: { type: 'boolean' } },
+    };
+    const entries = withLoop({ until: 'steps.check.clean == true', steps: [reviewRound, check] });
+    const records = withStep(
+      withStep(withRound(stepRecordsOf(entries), entries[0] as RepeatStep, 1, T0), 'review', {
+        status: 'completed',
+        outputs: { findings: 1 },
+      }),
+      'check',
+      { status: 'reported' },
+    );
+    const next = advanceSteps({ steps: entries, records, dryRun: true });
+    expect(next).toMatchObject({ kind: 'start', stepId: 'pr' });
+    expect(updatesOf(next)).toEqual([
+      {
+        id: 'polish',
+        status: 'reported',
+        note: 'a real run would repeat until steps.check.clean == true',
+      },
+    ]);
+    // Outside a dry run the same record is no value: round 2.
+    expect(advanceSteps({ steps: entries, records, dryRun: false })).toMatchObject({
+      kind: 'round',
+      round: 2,
+    });
+  });
+
+  it('runs a dry run loop on, round after round, while until has its values and is not met', () => {
+    expect(
+      advanceSteps({
+        steps: POLISH_ENTRY,
+        records: round(1, { review: { findings: 1 } }),
+        dryRun: true,
+      }),
+    ).toMatchObject({ kind: 'round', round: 2 });
+  });
+
+  it('fails the run and its loop when an inner step fails', () => {
+    const records = withStep(round(2, { review: { findings: 1 } }), 'address', {
+      status: 'failed',
+      error: 'exit 1',
+    });
+    expect(advanceSteps({ steps: POLISH_ENTRY, records, dryRun: false })).toEqual({
+      kind: 'fail',
+      stepId: 'address',
+      error: 'exit 1',
+      updates: [
+        { id: 'polish', status: 'failed' },
+        { id: 'pr', status: 'not-run' },
+      ],
+    });
+  });
+
+  it('names the failed step, not its loop row, once both failed, and fails the row no second time', () => {
+    const records = withStep(
+      withStep(round(2, { review: { findings: 1 } }), 'address', {
+        status: 'failed',
+        error: 'exit 1',
+      }),
+      'polish',
+      { status: 'failed' },
+    );
+    expect(advanceSteps({ steps: POLISH_ENTRY, records, dryRun: false })).toEqual({
+      kind: 'fail',
+      stepId: 'address',
+      error: 'exit 1',
+      updates: [{ id: 'pr', status: 'not-run' }],
+    });
+  });
+
+  it('runs a dry run loop on when what until waits on was skipped by its own if:, not left unrun', () => {
+    const entries = withLoop({ until: 'steps.address.fixed == true' });
+    const records = round(1, { review: { findings: 0 } }, { address: 'skipped' }, entries);
+    expect(advanceSteps({ steps: entries, records, dryRun: true })).toMatchObject({
+      kind: 'round',
+      round: 2,
+    });
+  });
+
+  it('fails the loop with a step that cannot start inside it', () => {
+    const lacking: AgentStep = {
+      ...address,
+      if: undefined,
+      prompt: 'Fix {{steps.review.handover}}',
+    };
+    const entries = withLoop({ steps: [reviewRound, lacking] });
+    const records = withStep(
+      withRound(stepRecordsOf(entries), entries[0] as RepeatStep, 1, T0),
+      'review',
+      {
+        status: 'completed',
+        outputs: { findings: 1 },
+      },
+    );
+    expect(advanceSteps({ steps: entries, records, dryRun: false })).toEqual({
+      kind: 'fail',
+      stepId: 'address',
+      error: 'steps.review.handover has no value: review completed without it',
+      updates: [
+        {
+          id: 'address',
+          status: 'failed',
+          error: 'steps.review.handover has no value: review completed without it',
+        },
+        { id: 'polish', status: 'failed' },
+        { id: 'pr', status: 'not-run' },
+      ],
+    });
+  });
+
+  it('checks the budget before a round', () => {
+    expect(
+      advanceSteps({
+        steps: POLISH_ENTRY,
+        records: round(1, { review: { findings: 1 } }),
+        dryRun: false,
+        budget: { usd: 1, spent: 1.2 },
+      }),
+    ).toEqual({
+      kind: 'fail',
+      stepId: 'polish',
+      error: 'over its budget: $1.20 spent of $1.00',
+      overBudget: true,
+      updates: [
+        { id: 'polish', status: 'failed', error: 'over its budget: $1.20 spent of $1.00' },
+        { id: 'pr', status: 'not-run' },
+      ],
+    });
+    // Before round 1, and before an exhaustion gate, too.
+    expect(
+      advanceSteps({
+        steps: POLISH_ENTRY,
+        records: stepRecordsOf(POLISH_ENTRY),
+        dryRun: false,
+        budget: { usd: 1, spent: 1 },
+      }),
+    ).toMatchObject({ kind: 'fail', stepId: 'polish', overBudget: true });
+    const asking = withExhausted({ ask: 'Open it anyway?', show: [] });
+    expect(
+      advanceSteps({
+        steps: asking,
+        records: round(3, { review: { findings: 2 } }, {}, asking),
+        dryRun: false,
+        budget: { usd: 1, spent: 1 },
+      }),
+    ).toMatchObject({ kind: 'fail', stepId: 'polish', overBudget: true });
+  });
+
+  it('stops the loop with then: stop inside it', () => {
+    const entries = withLoop({ steps: [reviewRound, { ...address, stop: true }] });
+    const records = round(1, { review: { findings: 1 } }, {}, entries);
+    expect(advanceSteps({ steps: entries, records, dryRun: false })).toEqual({
+      kind: 'complete',
+      summary: 'review → address; stopped after address',
+      updates: [
+        { id: 'polish', status: 'completed', note: 'the run stopped after `address` in round 1' },
+        { id: 'pr', status: 'not-run', note: 'the run stopped after `address`' },
+      ],
+    });
+  });
+
+  it('stops the rest of its round too', () => {
+    const entries = withLoop({ steps: [{ ...reviewRound, stop: true }, address] });
+    const records = withStep(
+      withRound(stepRecordsOf(entries), entries[0] as RepeatStep, 2, T0),
+      'review',
+      {
+        status: 'completed',
+        outputs: { findings: 1 },
+      },
+    );
+    expect(updatesOf(advanceSteps({ steps: entries, records, dryRun: false }))).toEqual([
+      { id: 'polish', status: 'completed', note: 'the run stopped after `review` in round 2' },
+      { id: 'address', status: 'not-run', note: 'the run stopped after `review`' },
+      { id: 'pr', status: 'not-run', note: 'the run stopped after `review`' },
+    ]);
+  });
+
+  it('parks at a gate inside a loop as at any gate', () => {
+    const ask: GateStep = { kind: 'gate', id: 'ask-first', named: true, ask: 'Go on?', show: [] };
+    const entries = withLoop({ steps: [ask, reviewRound] });
+    expect(
+      advanceSteps({
+        steps: entries,
+        records: withRound(stepRecordsOf(entries), entries[0] as RepeatStep, 1, T0),
+        dryRun: false,
+      }),
+    ).toEqual({ kind: 'ask', stepId: 'ask-first', updates: [] });
+  });
+
+  it("reads the run's item in until, and an item field with no value is not met", () => {
+    const entries = withLoop({ until: 'item.number > 50' });
+    const records = round(1, { review: { findings: 1 } }, {}, entries);
+    expect(
+      advanceSteps({
+        steps: entries,
+        records,
+        dryRun: false,
+        itemValue: (field) => (field === 'number' ? 51 : undefined),
+      }),
+    ).toMatchObject({ kind: 'start', stepId: 'pr' });
+    expect(
+      advanceSteps({ steps: entries, records, dryRun: false, itemValue: () => undefined }),
+    ).toMatchObject({
+      kind: 'round',
+      round: 2,
+    });
+  });
+
+  it('fails at a loop whose until cannot be read, which only a hand-built entry has', () => {
+    const entries = withLoop({ until: 'steps.review.findings ==' });
+    expect(
+      advanceSteps({
+        steps: entries,
+        records: round(1, { review: { findings: 1 } }, {}, entries),
+        dryRun: false,
+      }),
+    ).toMatchObject({
+      kind: 'fail',
+      stepId: 'polish',
+      error: expect.stringMatching(/^until: steps\.review\.findings == could not be read: /),
+    });
+  });
+
+  it('marks what a failed loop row did not reach, and the steps after it, not-run', () => {
+    expect(notRunAfter(POLISH_ENTRY, stepRecordsOf(POLISH_ENTRY), 'polish')).toEqual([
+      { id: 'review', status: 'not-run' },
+      { id: 'address', status: 'not-run' },
+      { id: 'pr', status: 'not-run' },
+    ]);
   });
 });
