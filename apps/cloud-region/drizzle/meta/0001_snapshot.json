@@ -1,21 +1,21 @@
 {
-  "id": "79355394-0b1e-4328-8ba7-1720e235c975",
+  "id": "53eee132-8c6e-4a1d-bd9e-a0d664ae423a",
   "prevId": "db874d70-17c4-4a0d-b107-278fd4e0cda8",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
-    "public.cloud_session": {
-      "name": "cloud_session",
+    "public.team_member": {
+      "name": "team_member",
       "schema": "",
       "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
         "workspace_id": {
           "name": "workspace_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "team_id": {
+          "name": "team_id",
           "type": "text",
           "primaryKey": false,
           "notNull": true
@@ -26,70 +26,87 @@
           "primaryKey": false,
           "notNull": true
         },
-        "repository": {
-          "name": "repository",
+        "added_at": {
+          "name": "added_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "team_member_team_fk": {
+          "name": "team_member_team_fk",
+          "tableFrom": "team_member",
+          "tableTo": "team",
+          "columnsFrom": ["workspace_id", "team_id"],
+          "columnsTo": ["workspace_id", "team_id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "team_member_workspace_member_fk": {
+          "name": "team_member_workspace_member_fk",
+          "tableFrom": "team_member",
+          "tableTo": "workspace_member",
+          "columnsFrom": ["workspace_id", "person_id"],
+          "columnsTo": ["workspace_id", "person_id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "team_member_team_id_person_id_pk": {
+          "name": "team_member_team_id_person_id_pk",
+          "columns": ["team_id", "person_id"]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.team": {
+      "name": "team",
+      "schema": "",
+      "columns": {
+        "team_id": {
+          "name": "team_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()::text"
+        },
+        "workspace_id": {
+          "name": "workspace_id",
           "type": "text",
           "primaryKey": false,
           "notNull": true
         },
-        "harness": {
-          "name": "harness",
+        "name": {
+          "name": "name",
           "type": "text",
           "primaryKey": false,
           "notNull": true
         },
-        "status": {
-          "name": "status",
-          "type": "text",
+        "is_first": {
+          "name": "is_first",
+          "type": "boolean",
           "primaryKey": false,
-          "notNull": true
-        },
-        "title": {
-          "name": "title",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "host_url": {
-          "name": "host_url",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "error": {
-          "name": "error",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "error_code": {
-          "name": "error_code",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "runner_id": {
-          "name": "runner_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "default": false
         },
         "created_at": {
           "name": "created_at",
-          "type": "bigint",
+          "type": "timestamp with time zone",
           "primaryKey": false,
-          "notNull": true
-        },
-        "ended_at": {
-          "name": "ended_at",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": false
+          "notNull": true,
+          "default": "now()"
         }
       },
       "indexes": {
-        "cloud_session_owner": {
-          "name": "cloud_session_owner",
+        "team_name_unique": {
+          "name": "team_name_unique",
           "columns": [
             {
               "expression": "workspace_id",
@@ -98,27 +115,53 @@
               "nulls": "last"
             },
             {
-              "expression": "person_id",
-              "isExpression": false,
+              "expression": "lower(\"name\")",
               "asc": true,
+              "isExpression": true,
               "nulls": "last"
-            },
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "team_first_unique": {
+          "name": "team_first_unique",
+          "columns": [
             {
-              "expression": "created_at",
+              "expression": "workspace_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
             }
           ],
-          "isUnique": false,
+          "isUnique": true,
+          "where": "\"team\".\"is_first\"",
           "concurrently": false,
           "method": "btree",
           "with": {}
         }
       },
-      "foreignKeys": {},
+      "foreignKeys": {
+        "team_workspace_id_workspace_workspace_id_fk": {
+          "name": "team_workspace_id_workspace_workspace_id_fk",
+          "tableFrom": "team",
+          "tableTo": "workspace",
+          "columnsFrom": ["workspace_id"],
+          "columnsTo": ["workspace_id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
+      "uniqueConstraints": {
+        "team_workspace_id_team_id_unique": {
+          "name": "team_workspace_id_team_id_unique",
+          "nullsNotDistinct": false,
+          "columns": ["workspace_id", "team_id"]
+        }
+      },
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false

@@ -6,13 +6,28 @@
   "license": "AGPL-3.0-only",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./e2b": {
+      "types": "./dist/e2b.d.ts",
+      "default": "./dist/e2b.js"
+    },
+    "./package.json": "./package.json"
+  },
   "files": [
     "dist"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
+    "template:build": "tsc -p tsconfig.build.json && node scripts/build-template.mjs",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "e2b": "2.64.0"
   },
   "devDependencies": {
     "@types/node": "^20.11.19",

@@ -7,6 +7,9 @@ import { z } from 'zod';
  */
 export type Ed25519PrivateJwk = { kty: 'OKP'; crv: 'Ed25519'; x: string; d: string };
 
+/** An Ed25519 public key as a JSON Web Key (RFC 8037): `x` is the key, 32 bytes in base64url. */
+export type Ed25519PublicJwk = { kty: 'OKP'; crv: 'Ed25519'; x: string };
+
 /**
  * Consola's GitHub App: its client ID (which also names the app in the tokens it signs, as
  * GitHub recommends), its client secret, the slug in its public address, and where its private
@@ -35,13 +38,29 @@ export type CloudConfig = {
    * outbox messages until one is set.
    */
   cellUrls: Partial<Record<Region, string>>;
+  /**
+   * The public key each region's cell signs its requests to `cloud-global` with (a request for a
+   * GitHub token), from `CELL_PUBLIC_KEY_<REGION>`. A region with none can ask for nothing.
+   */
+  cellPublicKeys: Partial<Record<Region, Ed25519PublicJwk>>;
   /** Null when none of its settings is set: then nothing can be connected to GitHub. */
   github: GitHubAppConfig | null;
+  /**
+   * The secret GitHub signs the app's webhook deliveries with (`X-Hub-Signature-256`), the same
+   * value as in the app's webhook settings. Null when unset: then every delivery is refused. It
+   * is never logged.
+   */
+  githubWebhookSecret: string | null;
 };
 
 /** The variable that names a region's cell: `CELL_URL_EU` for `eu`. */
 export function cellUrlVariable(region: Region): string {
   return `CELL_URL_${region.toUpperCase()}`;
+}
+
+/** The variable that holds a region's cell's public key: `CELL_PUBLIC_KEY_EU` for `eu`. */
+export function cellKeyVariable(region: Region): string {
+  return `CELL_PUBLIC_KEY_${region.toUpperCase()}`;
 }
 
 export class ConfigError extends Error {
@@ -116,6 +135,79 @@ function readPrivateJwk(
   return { ok: true, key: { kty: 'OKP', crv: 'Ed25519', x, d } };
 }
 
+const A_PUBLIC_KEY = "must be the cell's public key, a JSON Web Key on one line";
+
+/**
+ * A cell's configured public key, as a JWK of exactly `kty`, `crv` and `x`, or what is wrong with
+ * it. One with a private part (`d`) is refused: that half belongs in the cell alone, and no
+ * problem quotes it.
+ */
+function readPublicJwk(
+  value: string,
+): { ok: true; key: Ed25519PublicJwk } | { ok: false; problem: string } {
+  let jwk: unknown;
+  try {
+    jwk = JSON.parse(value);
+  } catch {
+    jwk = undefined;
+  }
+  if (!isRecord(jwk)) return { ok: false, problem: A_PUBLIC_KEY };
+  if (jwk.kty !== 'OKP' || jwk.crv !== 'Ed25519') {
+    return { ok: false, problem: 'must be an Ed25519 key (`kty` OKP, `crv` Ed25519)' };
+  }
+  if (jwk.d !== undefined) {
+    return {
+      ok: false,
+      problem:
+        "must be only the cell's public key, and this one has its private part (`d`), which belongs in the cell alone",
+    };
+  }
+  if (typeof jwk.x !== 'string' || !KEY_BYTES.test(jwk.x)) {
+    return { ok: false, problem: '`x` must be 32 bytes in base64url' };
+  }
+  return { ok: true, key: { kty: 'OKP', crv: 'Ed25519', x: jwk.x } };
+}
+
+/**
+ * Each region's cell's public key, from `CELL_PUBLIC_KEY_<REGION>`, each optional (an empty one is
+ * unset), or every problem with them. No two cells share a key, and none is `cloud-global`'s own
+ * (`ownX`, the cell token key's public half), so nothing `cloud-global` signs can pass for a
+ * cell's request.
+ */
+function readCellPublicKeys(
+  env: Record<string, string | undefined>,
+  ownX: string | undefined,
+):
+  | { ok: true; keys: Partial<Record<Region, Ed25519PublicJwk>> }
+  | { ok: false; problems: string[] } {
+  const keys: Partial<Record<Region, Ed25519PublicJwk>> = {};
+  const problems: string[] = [];
+  const holders = new Map<string, string>();
+  for (const region of REGIONS) {
+    const name = cellKeyVariable(region);
+    const value = env[name]?.trim() ?? '';
+    if (value === '') continue;
+    const read = readPublicJwk(value);
+    if (!read.ok) {
+      problems.push(`${name}: ${read.problem}`);
+      continue;
+    }
+    const { x } = read.key;
+    const holder = holders.get(x);
+    if (holder !== undefined) {
+      problems.push(`${name}: is the key ${holder} names; each cell signs with a key of its own`);
+    } else if (x === ownX) {
+      problems.push(
+        `${name}: is the public half of CELL_TOKEN_PRIVATE_KEY, cloud-global's own key; a cell signs with a key of its own`,
+      );
+    } else {
+      holders.set(x, name);
+      keys[region] = read.key;
+    }
+  }
+  return problems.length > 0 ? { ok: false, problems } : { ok: true, keys };
+}
+
 const rawEnv = z.object({
   DATABASE_URL: required('a database URL').refine(
     (value) => DATABASE_SCHEMES.some((scheme) => value.startsWith(scheme)),
@@ -171,6 +263,26 @@ const GITHUB_SETTINGS = [
   'GITHUB_APP_PRIVATE_KEY_PATH',
 ] as const;
 
+/** The shortest webhook secret taken: `openssl rand -hex 32` makes one of 64 characters. */
+const WEBHOOK_SECRET_MIN = 32;
+
+/**
+ * The webhook secret, null when unset or empty, or what is wrong with it, never quoting it. It
+ * is taken exactly as written, since GitHub signs with it byte for byte.
+ */
+function readWebhookSecret(
+  value: string | undefined,
+): { ok: true; secret: string | null } | { ok: false; problem: string } {
+  if (value === undefined || value === '') return { ok: true, secret: null };
+  if (value.length < WEBHOOK_SECRET_MIN) {
+    return {
+      ok: false,
+      problem: `GITHUB_WEBHOOK_SECRET: must be at least ${WEBHOOK_SECRET_MIN} characters (make one with \`openssl rand -hex 32\`, and set the same value in the GitHub App's webhook settings)`,
+    };
+  }
+  return { ok: true, secret: value };
+}
+
 /** Lowercase letters and digits, with single dashes between: how GitHub spells an app's slug. */
 const GITHUB_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
@@ -216,7 +328,12 @@ export function loadConfig(env: Record<string, string | undefined>): CloudConfig
   const result = rawEnv.safeParse(input);
   const cellResult = cellEnv.safeParse(input);
   const github = readGitHubApp(env);
-  if (!result.success || !cellResult.success || !github.ok) {
+  const webhookSecret = readWebhookSecret(env.GITHUB_WEBHOOK_SECRET);
+  const cellKeys = readCellPublicKeys(
+    env,
+    result.success ? result.data.CELL_TOKEN_PRIVATE_KEY.x : undefined,
+  );
+  if (!result.success || !cellResult.success || !github.ok || !cellKeys.ok || !webhookSecret.ok) {
     const issues = [
       ...(result.success ? [] : result.error.issues),
       ...(cellResult.success ? [] : cellResult.error.issues),
@@ -224,6 +341,8 @@ export function loadConfig(env: Record<string, string | undefined>): CloudConfig
     throw new ConfigError([
       ...issues.map((issue) => `${String(issue.path[0])}: ${issue.message}`),
       ...(github.ok ? [] : github.problems),
+      ...(cellKeys.ok ? [] : cellKeys.problems),
+      ...(webhookSecret.ok ? [] : [webhookSecret.problem]),
     ]);
   }
   const parsed = result.data;
@@ -240,6 +359,8 @@ export function loadConfig(env: Record<string, string | undefined>): CloudConfig
     google: { clientId: parsed.GOOGLE_CLIENT_ID, clientSecret: parsed.GOOGLE_CLIENT_SECRET },
     cellTokenPrivateKey: parsed.CELL_TOKEN_PRIVATE_KEY,
     cellUrls: cells,
+    cellPublicKeys: cellKeys.keys,
     github: github.app,
+    githubWebhookSecret: webhookSecret.secret,
   };
 }

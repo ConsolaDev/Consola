@@ -8,6 +8,11 @@ import {
   CELL_TOKEN_LIFETIME_SECONDS,
   type CellTokenGrant,
   cellTokenClaims,
+  GITHUB_EVENT_ANSWER,
+  GITHUB_EVENT_DELIVERY_MEDIA_TYPE,
+  GITHUB_EVENT_DELIVERY_PATH,
+  GITHUB_EVENT_TYPE,
+  type GitHubEventMessage,
   OUTBOX_ANSWER,
   OUTBOX_DELIVERY_MEDIA_TYPE,
   OUTBOX_DELIVERY_PATH,
@@ -53,11 +58,34 @@ import {
   type MockInstance,
   vi,
 } from 'vitest';
+import type { ZodType } from 'zod';
 import type { CellEnv } from './adapters/http/caller.js';
+import {
+  deleteTeam,
+  deleteTeamMember,
+  getFactory,
+  getFactoryVersion,
+  listFactories,
+  listTeams,
+  patchFactory,
+  patchTeam,
+  postFactory,
+  postFactoryVersion,
+  postGitHubEventDelivery,
+  postTeam,
+  putTeamMember,
+  type ROUTES,
+} from './adapters/http/contract.js';
 import { type Database, migrateDatabase, openDatabase } from './adapters/persistence/database.js';
-import { cloudSessions, workspaceMembers, workspaces } from './adapters/persistence/tables.js';
+import {
+  cloudSessions,
+  gitHubEvents,
+  workspaceMembers,
+  workspaces,
+} from './adapters/persistence/tables.js';
 import { composeCell } from './compose.js';
 import { type CellConfig, loadConfig } from './config.js';
+import { FIRST_TEAM_NAME } from './domain/team.js';
 
 /** `vi.waitFor` with a timeout in line with the suite's own, so a loaded machine does not flake. */
 const waitFor = <T>(callback: () => T | Promise<T>) =>
@@ -136,7 +164,8 @@ const base64url = (value: unknown) => Buffer.from(JSON.stringify(value)).toStrin
 
 const bearer = (token: string) => ({ authorization: `Bearer ${token}` });
 
-let app: Hono;
+type CellApp = Awaited<ReturnType<typeof composeCell>>['app'];
+let app: CellApp;
 let db: Database;
 let closeDatabase: () => Promise<void>;
 
@@ -469,13 +498,14 @@ describe('the keys', () => {
 
 /**
  * The routes that answer without a cell token, and what each answers a bare request: the health
- * check, the outbox's deliveries, which carry a signature instead (a bare one has none, and no
- * body, so it is unreadable), and the runner's socket, which carries the runner's secret instead.
- * Nothing else is open.
+ * check, the outbox's deliveries and the GitHub events cloud-global passes on, which carry a
+ * signature instead (a bare one has none, and no body, so it is unreadable), and the runner's
+ * socket, which carries the runner's secret instead. Nothing else is open.
  */
 const OPEN_ROUTES: Record<string, number> = {
   'GET /api/health': 200,
   [`POST ${OUTBOX_DELIVERY_PATH}`]: OUTBOX_ANSWER.unreadable,
+  [`POST ${GITHUB_EVENT_DELIVERY_PATH}`]: GITHUB_EVENT_ANSWER.unreadable,
   // The runner's socket, behind its shared secret instead, which a bare request does not carry.
   'GET /api/runner': 401,
 };
@@ -483,8 +513,12 @@ const OPEN_ROUTES: Record<string, number> = {
 describe('every route', () => {
   it('but the open ones refuses a request without a token', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
-    // Every route Hono holds but the check itself, which it lists as `ALL /*`.
-    const routes = app.routes.filter((route) => !(route.method === 'ALL' && route.path === '/*'));
+    // Every route Hono holds but the check itself, which it lists as `ALL /*`: each once, though
+    // Hono lists a route once per handler in its chain (its middleware and validators too).
+    const listed = app.routes.filter((route) => !(route.method === 'ALL' && route.path === '/*'));
+    const routes = [
+      ...new Map(listed.map((route) => [`${route.method} ${route.path}`, route])).values(),
+    ];
     expect(routes.length).toBeGreaterThan(2);
     for (const { method, path } of routes) {
       const response = await app.request(path.replace(/:[^/]+/g, 'x'), {
@@ -498,11 +532,13 @@ describe('every route', () => {
     expect(Object.keys(OPEN_ROUTES).filter((route) => !held.has(route))).toEqual([]);
   });
 
-  it('opens the outbox path to deliveries alone: any other method needs a token', async () => {
-    for (const method of ['GET', 'PUT', 'PATCH', 'DELETE']) {
-      const response = await app.request(OUTBOX_DELIVERY_PATH, { method });
-      expect([method, response.status]).toEqual([method, 401]);
-      expect(await response.json()).toEqual({ error: 'token_required' });
+  it('opens the delivery paths to deliveries alone: any other method needs a token', async () => {
+    for (const path of [OUTBOX_DELIVERY_PATH, GITHUB_EVENT_DELIVERY_PATH]) {
+      for (const method of ['GET', 'PUT', 'PATCH', 'DELETE']) {
+        const response = await app.request(path, { method });
+        expect([path, method, response.status]).toEqual([path, method, 401]);
+        expect(await response.json()).toEqual({ error: 'token_required' });
+      }
     }
   });
 
@@ -592,7 +628,7 @@ function signDelivery(
 /** POSTs `body` to the outbox route of `cell` (this test's cell unless given), as cloud-global does. */
 function postDelivery(
   body: string,
-  options: { contentType?: string | null; cell?: Hono; headers?: Record<string, string> } = {},
+  options: { contentType?: string | null; cell?: CellApp; headers?: Record<string, string> } = {},
 ) {
   const { contentType = OUTBOX_DELIVERY_MEDIA_TYPE, cell = app } = options;
   const headers: Record<string, string> = { ...options.headers };
@@ -885,6 +921,857 @@ describe('the outbox and the keys', () => {
   });
 });
 
+type ContractRoute = (typeof ROUTES)[number];
+type DeclaredAnswer = { content?: Record<string, { schema: ZodType }> };
+
+/**
+ * The body of `response`, read with the schema `route` declares for its status: a status the
+ * contract does not name, or a body with a field its strict schema does not, fails the test.
+ */
+async function answerOf(route: ContractRoute, response: Response): Promise<unknown> {
+  const declared = (route.responses as Record<number, DeclaredAnswer>)[response.status];
+  expect(declared, `${route.method} ${route.path} declares ${response.status}`).toBeDefined();
+  const schema = declared?.content?.['application/json']?.schema;
+  if (!schema) {
+    expect(await response.text()).toBe('');
+    return undefined;
+  }
+  return schema.parse(await response.json());
+}
+
+/** Asks `route` at `path` with a token for `who`, and reads its answer by the contract. */
+async function ask(
+  route: ContractRoute,
+  path: string,
+  who: Partial<CellTokenGrant>,
+  init: { body?: unknown; headers?: Record<string, string> } = {},
+) {
+  const headers: Record<string, string> = { ...bearer(await mint(who)), ...init.headers };
+  let body: string | undefined;
+  if (init.body !== undefined) {
+    body = typeof init.body === 'string' ? init.body : JSON.stringify(init.body);
+    headers['content-type'] ??= 'application/json';
+  }
+  const response = await app.request(path, { method: route.method.toUpperCase(), headers, body });
+  return { status: response.status, body: await answerOf(route, response) };
+}
+
+const owner = { personId: 'person-dana', role: 'owner' } as const;
+const admin = { personId: 'person-eli', role: 'admin' } as const;
+const member = { personId: 'person-fay', role: 'member' } as const;
+
+/** Acme, delivered by the outbox as cloud-global would: Dana owns it, Eli admins it, Fay joined. */
+async function acmeWithMembers() {
+  for (const message of [
+    created(),
+    added(2, owner.personId, owner.role),
+    added(3, admin.personId, admin.role),
+    added(4, member.personId, member.role),
+  ]) {
+    expect((await deliver(message)).status).toBe(200);
+  }
+}
+
+type TeamBody = { id: string; name: string; first: boolean; memberIds: string[] };
+
+async function teamsSeenBy(who: Partial<CellTokenGrant>) {
+  const answer = await ask(listTeams, '/api/teams', who);
+  expect(answer.status).toBe(200);
+  return answer.body as { teams: TeamBody[]; canManage: boolean };
+}
+
+async function makeTeam(name: string) {
+  const answer = await ask(postTeam, '/api/teams', owner, { body: { name } });
+  expect(answer.status).toBe(201);
+  return answer.body as TeamBody;
+}
+
+describe('teams', () => {
+  beforeEach(() => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  it('start as one, the first team, which everyone who joins the workspace is in', async () => {
+    await acmeWithMembers();
+    expect(await teamsSeenBy(owner)).toEqual({
+      teams: [
+        {
+          id: expect.any(String),
+          name: FIRST_TEAM_NAME,
+          first: true,
+          memberIds: [owner.personId, admin.personId, member.personId],
+        },
+      ],
+      canManage: true,
+    });
+  });
+
+  it('are pending while the cell does not hold the workspace', async () => {
+    const answer = await ask(listTeams, '/api/teams', owner);
+    expect(answer).toEqual({ status: 409, body: { error: 'workspace_pending' } });
+  });
+
+  it('are made, renamed and deleted by owners and admins', async () => {
+    await acmeWithMembers();
+    const platform = await makeTeam('Platform');
+    expect(platform).toEqual({
+      id: expect.any(String),
+      name: 'Platform',
+      first: false,
+      memberIds: [],
+    });
+
+    const renamed = await ask(patchTeam, `/api/teams/${platform.id}`, admin, {
+      body: { name: 'Apps' },
+    });
+    expect(renamed).toEqual({ status: 200, body: { ...platform, name: 'Apps' } });
+
+    expect(await ask(deleteTeam, `/api/teams/${platform.id}`, admin)).toEqual({
+      status: 204,
+      body: undefined,
+    });
+    expect((await teamsSeenBy(owner)).teams.map((team) => team.name)).toEqual([FIRST_TEAM_NAME]);
+  });
+
+  it('keep their names unique in the workspace, whatever their case', async () => {
+    await acmeWithMembers();
+    const platform = await makeTeam('Platform');
+    await makeTeam('Apps');
+    expect(await ask(postTeam, '/api/teams', owner, { body: { name: 'PLATFORM' } })).toEqual({
+      status: 409,
+      body: { error: 'name_taken' },
+    });
+    expect(
+      await ask(patchTeam, `/api/teams/${platform.id}`, owner, { body: { name: 'apps' } }),
+    ).toEqual({ status: 409, body: { error: 'name_taken' } });
+  });
+
+  it('keep the first team: it can be renamed, never deleted', async () => {
+    await acmeWithMembers();
+    const [first] = (await teamsSeenBy(owner)).teams;
+    const path = `/api/teams/${first?.id}`;
+    expect(await ask(deleteTeam, path, owner)).toEqual({
+      status: 409,
+      body: { error: 'first_team' },
+    });
+    expect((await ask(patchTeam, path, owner, { body: { name: 'Everyone' } })).body).toMatchObject({
+      name: 'Everyone',
+      first: true,
+    });
+  });
+
+  it('name every problem with a name, and refuse a body that is not one', async () => {
+    await acmeWithMembers();
+    expect(await ask(postTeam, '/api/teams', owner, { body: { name: '  ' } })).toEqual({
+      status: 400,
+      body: { error: 'invalid_team', problems: ['name_missing'] },
+    });
+    expect(
+      await ask(postTeam, '/api/teams', owner, { body: { name: `${'a'.repeat(65)}\n` } }),
+    ).toEqual({ status: 400, body: { error: 'invalid_team', problems: ['name_too_long'] } });
+    for (const body of [{}, { name: 7 }, [], 'not json']) {
+      expect(await ask(postTeam, '/api/teams', owner, { body })).toEqual({
+        status: 400,
+        body: { error: 'invalid_request' },
+      });
+    }
+    expect(
+      await ask(postTeam, '/api/teams', owner, {
+        body: JSON.stringify({ name: 'Platform' }),
+        headers: { 'content-type': 'text/plain' },
+      }),
+    ).toEqual({ status: 415, body: { error: 'unsupported_media_type' } });
+  });
+
+  it('show a member only the teams they are in, with no way to change them', async () => {
+    await acmeWithMembers();
+    const platform = await makeTeam('Platform');
+    const seen = await teamsSeenBy(member);
+    expect(seen.canManage).toBe(false);
+    expect(seen.teams.map((team) => team.name)).toEqual([FIRST_TEAM_NAME]);
+
+    const refused = { status: 403, body: { error: 'not_allowed' } };
+    const path = `/api/teams/${platform.id}`;
+    expect(await ask(postTeam, '/api/teams', member, { body: { name: 'Mine' } })).toEqual(refused);
+    expect(await ask(patchTeam, path, member, { body: { name: 'Mine' } })).toEqual(refused);
+    expect(await ask(deleteTeam, path, member)).toEqual(refused);
+    expect(await ask(putTeamMember, `${path}/members/${member.personId}`, member)).toEqual(refused);
+    expect(await ask(deleteTeamMember, `${path}/members/${owner.personId}`, member)).toEqual(
+      refused,
+    );
+  });
+
+  it('refuse an admin demoted since their token was minted, as soon as the outbox says so', async () => {
+    await acmeWithMembers();
+    expect((await ask(postTeam, '/api/teams', admin, { body: { name: 'Apps' } })).status).toBe(201);
+    const demoted = outboxMessage(5, {
+      type: 'member.role-changed',
+      personId: admin.personId,
+      role: 'member',
+    });
+    expect((await deliver(demoted)).status).toBe(200);
+    // The same token, still in date, still saying admin.
+    expect(await ask(postTeam, '/api/teams', admin, { body: { name: 'Design' } })).toEqual({
+      status: 403,
+      body: { error: 'not_allowed' },
+    });
+    expect((await teamsSeenBy(admin)).canManage).toBe(false);
+  });
+
+  it("take only the workspace's members, and let them go", async () => {
+    await acmeWithMembers();
+    const platform = await makeTeam('Platform');
+    const members = `/api/teams/${platform.id}/members`;
+
+    expect(await ask(putTeamMember, `${members}/person-gus`, owner)).toEqual({
+      status: 409,
+      body: { error: 'not_a_workspace_member' },
+    });
+    expect(await ask(putTeamMember, `${members}/${member.personId}`, owner)).toEqual({
+      status: 200,
+      body: { ...platform, memberIds: [member.personId] },
+    });
+    // Twice changes nothing.
+    expect((await ask(putTeamMember, `${members}/${member.personId}`, owner)).body).toEqual({
+      ...platform,
+      memberIds: [member.personId],
+    });
+    expect(await ask(deleteTeamMember, `${members}/${member.personId}`, owner)).toEqual({
+      status: 200,
+      body: platform,
+    });
+  });
+
+  it('lose a member who leaves the workspace, from every team, as the outbox says so', async () => {
+    await acmeWithMembers();
+    const platform = await makeTeam('Platform');
+    await ask(putTeamMember, `/api/teams/${platform.id}/members/${member.personId}`, owner);
+
+    const removed = outboxMessage(5, { type: 'member.removed', personId: member.personId });
+    expect((await deliver(removed)).status).toBe(200);
+    expect((await teamsSeenBy(owner)).teams.map((team) => team.memberIds)).toEqual([
+      [owner.personId, admin.personId],
+      [],
+    ]);
+  });
+
+  it("of another workspace are none of the caller's: not found, never changed", async () => {
+    await acmeWithMembers();
+    const platform = await makeTeam('Platform');
+    // Sprocket, where Dana is an owner too.
+    for (const message of [
+      created({ workspaceId: 'sprocket' }),
+      outboxMessage(2, { type: 'member.added', ...owner }, { workspaceId: 'sprocket' }),
+    ]) {
+      expect((await deliver(message)).status).toBe(200);
+    }
+    const stranger = { ...owner, workspaceId: 'sprocket' };
+    const path = `/api/teams/${platform.id}`;
+    const notFound = { status: 404, body: { error: 'team_not_found' } };
+
+    expect(await ask(patchTeam, path, stranger, { body: { name: 'Mine' } })).toEqual(notFound);
+    expect(await ask(deleteTeam, path, stranger)).toEqual(notFound);
+    expect(await ask(putTeamMember, `${path}/members/${owner.personId}`, stranger)).toEqual(
+      notFound,
+    );
+    expect((await teamsSeenBy(stranger)).teams.map((team) => team.name)).toEqual([FIRST_TEAM_NAME]);
+    expect((await teamsSeenBy(owner)).teams.map((team) => team.name)).toEqual([
+      FIRST_TEAM_NAME,
+      'Platform',
+    ]);
+  });
+});
+
+type FactoryBody = {
+  id: string;
+  name: string;
+  teamId: string;
+  source: { kind: 'stored' };
+  latestVersion: number;
+  updatedAt: string;
+};
+type FileBody = { path: string; content: string };
+
+async function makeFactory(name: string, teamId: string, who: Partial<CellTokenGrant> = owner) {
+  const answer = await ask(postFactory, '/api/factories', who, { body: { name, teamId } });
+  expect(answer.status).toBe(201);
+  return answer.body as FactoryBody;
+}
+
+async function factoriesSeenBy(who: Partial<CellTokenGrant>) {
+  const answer = await ask(listFactories, '/api/factories', who);
+  expect(answer.status).toBe(200);
+  return (answer.body as { factories: FactoryBody[] }).factories.map((factory) => factory.name);
+}
+
+const saveFiles = (
+  factoryId: string,
+  who: Partial<CellTokenGrant>,
+  body: { baseVersion: number; files: FileBody[] },
+) => ask(postFactoryVersion, `/api/factories/${factoryId}/versions`, who, { body });
+
+const REVIEWER = '---\ndescription: Reviews pull requests.\n---\nYou review pull requests.\n';
+const FILES: FileBody[] = [
+  { path: 'factory.yml', content: 'version: 1\nautomations:\n' },
+  { path: 'agents/reviewer.md', content: REVIEWER },
+];
+
+describe('factories', () => {
+  beforeEach(() => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  /** Acme's first team, which everyone is in. */
+  async function general() {
+    const [first] = (await teamsSeenBy(owner)).teams;
+    if (!first) throw new Error('Acme has no first team');
+    return first;
+  }
+
+  it('are made blank, naming the team that owns them, and read with their latest version', async () => {
+    await acmeWithMembers();
+    const team = await general();
+    const deploys = await makeFactory('Deploys', team.id);
+    expect(deploys).toEqual({
+      id: expect.any(String),
+      name: 'Deploys',
+      teamId: team.id,
+      source: { kind: 'stored' },
+      latestVersion: 1,
+      updatedAt: expect.any(String),
+    });
+    expect(await ask(getFactory, `/api/factories/${deploys.id}`, member)).toEqual({
+      status: 200,
+      body: {
+        factory: deploys,
+        version: {
+          factoryId: deploys.id,
+          version: 1,
+          savedAt: deploys.updatedAt,
+          savedBy: owner.personId,
+          files: [],
+        },
+      },
+    });
+  });
+
+  it('save files as a new version, read the latest, and keep every earlier one', async () => {
+    await acmeWithMembers();
+    const deploys = await makeFactory('Deploys', (await general()).id);
+
+    const saved = await saveFiles(deploys.id, member, { baseVersion: 1, files: FILES });
+    expect(saved).toEqual({
+      status: 201,
+      body: {
+        version: {
+          factoryId: deploys.id,
+          version: 2,
+          savedAt: expect.any(String),
+          savedBy: member.personId,
+          files: [FILES[1], FILES[0]],
+        },
+        notices: [],
+      },
+    });
+
+    const latest = await ask(getFactory, `/api/factories/${deploys.id}`, admin);
+    expect(latest.body).toMatchObject({
+      factory: { latestVersion: 2 },
+      version: { version: 2, files: [FILES[1], FILES[0]] },
+    });
+    const versions = `/api/factories/${deploys.id}/versions`;
+    expect((await ask(getFactoryVersion, `${versions}/1`, admin)).body).toMatchObject({
+      version: 1,
+      files: [],
+    });
+    expect((await ask(getFactoryVersion, `${versions}/2`, admin)).body).toEqual(
+      (saved.body as { version: unknown }).version,
+    );
+    expect(await ask(getFactoryVersion, `${versions}/3`, admin)).toEqual({
+      status: 404,
+      body: { error: 'version_not_found' },
+    });
+    for (const version of ['0', 'latest', '1.5', '01']) {
+      expect(await ask(getFactoryVersion, `${versions}/${version}`, admin)).toEqual({
+        status: 400,
+        body: { error: 'invalid_request' },
+      });
+    }
+  });
+
+  it('refuse files that fail the factory schema, with the errors, and save nothing', async () => {
+    await acmeWithMembers();
+    const deploys = await makeFactory('Deploys', (await general()).id);
+    const answer = await saveFiles(deploys.id, owner, {
+      baseVersion: 1,
+      files: [
+        { path: 'factory.yml', content: 'version: 1\nautomations:\n  - name: x\n    bogus: 1\n' },
+        { path: 'agents/reviewer.md', content: '---\ncolour: blue\n---\nYou review.\n' },
+        { path: 'notes.txt', content: 'Remember the milk.' },
+      ],
+    });
+    expect(answer.status).toBe(400);
+    const { error, issues } = answer.body as {
+      error: string;
+      issues: { file?: string; line?: number; message: string }[];
+    };
+    expect(error).toBe('invalid_files');
+    expect(issues).toContainEqual(
+      expect.objectContaining({
+        file: 'factory.yml',
+        line: 4,
+        message: 'Unrecognized key: "bogus"',
+      }),
+    );
+    expect(issues).toContainEqual(
+      expect.objectContaining({
+        file: 'agents/reviewer.md',
+        line: 2,
+        message: 'Unrecognized key in an agent file: `colour`.',
+      }),
+    );
+    expect(issues).toContainEqual(expect.objectContaining({ file: 'notes.txt' }));
+    expect((await ask(getFactory, `/api/factories/${deploys.id}`, owner)).body).toMatchObject({
+      factory: { latestVersion: 1 },
+    });
+  });
+
+  it('are hidden from a member outside their team, and seen by an admin', async () => {
+    await acmeWithMembers();
+    const platform = await makeTeam('Platform');
+    const deploys = await makeFactory('Deploys', platform.id);
+    await makeFactory('Reviews', (await general()).id);
+
+    expect(await factoriesSeenBy(member)).toEqual(['Reviews']);
+    const notFound = { status: 404, body: { error: 'factory_not_found' } };
+    expect(await ask(getFactory, `/api/factories/${deploys.id}`, member)).toEqual(notFound);
+    expect(await ask(getFactoryVersion, `/api/factories/${deploys.id}/versions/1`, member)).toEqual(
+      notFound,
+    );
+    expect(await saveFiles(deploys.id, member, { baseVersion: 1, files: FILES })).toEqual(notFound);
+
+    expect(await factoriesSeenBy(admin)).toEqual(['Deploys', 'Reviews']);
+    expect((await ask(getFactory, `/api/factories/${deploys.id}`, admin)).status).toBe(200);
+
+    // Once in Platform, the member sees its factory.
+    await ask(putTeamMember, `/api/teams/${platform.id}/members/${member.personId}`, owner);
+    expect(await factoriesSeenBy(member)).toEqual(['Deploys', 'Reviews']);
+  });
+
+  it('are made only for a team the caller sees, with a name unique in the workspace', async () => {
+    await acmeWithMembers();
+    const platform = await makeTeam('Platform');
+    const teamNotFound = { status: 404, body: { error: 'team_not_found' } };
+    expect(
+      await ask(postFactory, '/api/factories', member, {
+        body: { name: 'Mine', teamId: platform.id },
+      }),
+    ).toEqual(teamNotFound);
+    expect(
+      await ask(postFactory, '/api/factories', owner, {
+        body: { name: 'Mine', teamId: 'no-such-team' },
+      }),
+    ).toEqual(teamNotFound);
+
+    const team = await general();
+    await makeFactory('Deploys', team.id, member);
+    expect(
+      await ask(postFactory, '/api/factories', admin, {
+        body: { name: 'DEPLOYS', teamId: team.id },
+      }),
+    ).toEqual({ status: 409, body: { error: 'name_taken' } });
+    expect(
+      await ask(postFactory, '/api/factories', admin, { body: { name: ' ', teamId: team.id } }),
+    ).toEqual({ status: 400, body: { error: 'invalid_factory', problems: ['name_missing'] } });
+    for (const body of [{ name: 'Mine' }, { name: 7, teamId: team.id }, 'not json']) {
+      expect(await ask(postFactory, '/api/factories', owner, { body })).toEqual({
+        status: 400,
+        body: { error: 'invalid_request' },
+      });
+    }
+  });
+
+  it('are renamed and moved by whoever sees them, to a team they see', async () => {
+    await acmeWithMembers();
+    const team = await general();
+    const platform = await makeTeam('Platform');
+    const deploys = await makeFactory('Deploys', team.id);
+    const path = `/api/factories/${deploys.id}`;
+
+    // The member, in General alone, renames it.
+    expect(await ask(patchFactory, path, member, { body: { name: ' Ship it ' } })).toEqual({
+      status: 200,
+      body: { ...deploys, name: 'Ship it' },
+    });
+    // An admin, in General alone too, moves it to Platform and renames it, in one change.
+    expect(
+      await ask(patchFactory, path, admin, {
+        body: { name: 'Platform deploys', teamId: platform.id },
+      }),
+    ).toEqual({
+      status: 200,
+      body: { ...deploys, name: 'Platform deploys', teamId: platform.id },
+    });
+    expect((await ask(getFactory, path, owner)).body).toMatchObject({
+      factory: { name: 'Platform deploys', teamId: platform.id, latestVersion: 1 },
+      version: { version: 1, files: [] },
+    });
+    // Platform owns it now, and General owns nothing.
+    expect(await ask(deleteTeam, `/api/teams/${platform.id}`, owner)).toEqual({
+      status: 409,
+      body: { error: 'owns_factories' },
+    });
+  });
+
+  it('are renamed or moved by a member only while theirs, and only to a team they are in', async () => {
+    await acmeWithMembers();
+    const team = await general();
+    const platform = await makeTeam('Platform');
+    const deploys = await makeFactory('Deploys', platform.id);
+    const reviews = await makeFactory('Reviews', team.id);
+    const factoryNotFound = { status: 404, body: { error: 'factory_not_found' } };
+    const teamNotFound = { status: 404, body: { error: 'team_not_found' } };
+
+    // Platform's factory is not the member's: not found, renamed or moved.
+    for (const body of [{ name: 'Mine' }, { teamId: team.id }]) {
+      expect(await ask(patchFactory, `/api/factories/${deploys.id}`, member, { body })).toEqual(
+        factoryNotFound,
+      );
+    }
+    // General's is, but Platform is no team of theirs to move it to.
+    const path = `/api/factories/${reviews.id}`;
+    expect(await ask(patchFactory, path, member, { body: { teamId: platform.id } })).toEqual(
+      teamNotFound,
+    );
+    expect(
+      await ask(patchFactory, path, member, { body: { name: 'Mine', teamId: platform.id } }),
+    ).toEqual(teamNotFound);
+    expect(await ask(patchFactory, path, owner, { body: { teamId: 'no-such-team' } })).toEqual(
+      teamNotFound,
+    );
+    expect((await ask(getFactory, path, owner)).body).toMatchObject({ factory: reviews });
+
+    // Once in Platform, they may move it there.
+    await ask(putTeamMember, `/api/teams/${platform.id}/members/${member.personId}`, owner);
+    expect(await ask(patchFactory, path, member, { body: { teamId: platform.id } })).toEqual({
+      status: 200,
+      body: { ...reviews, teamId: platform.id },
+    });
+  });
+
+  it('keep their names unique when renamed, and refuse a change that is none', async () => {
+    await acmeWithMembers();
+    const team = await general();
+    const deploys = await makeFactory('Deploys', team.id);
+    await makeFactory('Reviews', team.id);
+    const path = `/api/factories/${deploys.id}`;
+
+    expect(await ask(patchFactory, path, owner, { body: { name: 'REVIEWS' } })).toEqual({
+      status: 409,
+      body: { error: 'name_taken' },
+    });
+    expect((await ask(patchFactory, path, owner, { body: { name: 'deploys' } })).status).toBe(200);
+    expect(await ask(patchFactory, path, owner, { body: { name: ' ' } })).toEqual({
+      status: 400,
+      body: { error: 'invalid_factory', problems: ['name_missing'] },
+    });
+    for (const body of [{}, { name: 7 }, { teamId: null }, { colour: 'blue' }, [], 'not json']) {
+      expect(await ask(patchFactory, path, owner, { body })).toEqual({
+        status: 400,
+        body: { error: 'invalid_request' },
+      });
+    }
+    expect(
+      await ask(patchFactory, path, owner, {
+        body: JSON.stringify({ name: 'Ship' }),
+        headers: { 'content-type': 'text/plain' },
+      }),
+    ).toEqual({ status: 415, body: { error: 'unsupported_media_type' } });
+  });
+
+  it('refuse a save from a version that is no longer the latest, naming the latest', async () => {
+    await acmeWithMembers();
+    const deploys = await makeFactory('Deploys', (await general()).id);
+    expect((await saveFiles(deploys.id, owner, { baseVersion: 1, files: FILES })).status).toBe(201);
+    for (const baseVersion of [1, 3, -1, 2 ** 40]) {
+      expect(await saveFiles(deploys.id, admin, { baseVersion, files: [] })).toEqual({
+        status: 409,
+        body: { error: 'version_moved', latestVersion: 2 },
+      });
+    }
+  });
+
+  it('refuse a body that is not files, or larger than any factory', async () => {
+    await acmeWithMembers();
+    const deploys = await makeFactory('Deploys', (await general()).id);
+    const path = `/api/factories/${deploys.id}/versions`;
+    for (const body of [{ files: [] }, { baseVersion: 1, files: [{ path: 'x' }] }, 'not json']) {
+      expect(await ask(postFactoryVersion, path, owner, { body })).toEqual({
+        status: 400,
+        body: { error: 'invalid_request' },
+      });
+    }
+    expect(
+      await ask(postFactoryVersion, path, owner, {
+        body: JSON.stringify({ baseVersion: 1, files: [] }),
+        headers: { 'content-type': 'text/plain' },
+      }),
+    ).toEqual({ status: 415, body: { error: 'unsupported_media_type' } });
+
+    const huge = 'a'.repeat(17 * 1024 * 1024);
+    expect(
+      await ask(postFactoryVersion, path, owner, {
+        body: { baseVersion: 1, files: [{ path: 'agents/huge.md', content: huge }] },
+      }),
+    ).toEqual({ status: 413, body: { error: 'too_large' } });
+  });
+
+  it('are pending while the cell does not hold the workspace', async () => {
+    const pending = { status: 409, body: { error: 'workspace_pending' } };
+    expect(await ask(listFactories, '/api/factories', owner)).toEqual(pending);
+    expect(await ask(getFactory, '/api/factories/x', owner)).toEqual(pending);
+    expect(
+      await ask(postFactory, '/api/factories', owner, { body: { name: 'Mine', teamId: 'x' } }),
+    ).toEqual(pending);
+    expect(await ask(patchFactory, '/api/factories/x', owner, { body: { name: 'Mine' } })).toEqual(
+      pending,
+    );
+  });
+
+  it("of another workspace are none of the caller's: not found, never saved", async () => {
+    await acmeWithMembers();
+    const deploys = await makeFactory('Deploys', (await general()).id);
+    for (const message of [
+      created({ workspaceId: 'sprocket' }),
+      outboxMessage(2, { type: 'member.added', ...owner }, { workspaceId: 'sprocket' }),
+    ]) {
+      expect((await deliver(message)).status).toBe(200);
+    }
+    const stranger = { ...owner, workspaceId: 'sprocket' };
+    const notFound = { status: 404, body: { error: 'factory_not_found' } };
+    expect(await factoriesSeenBy(stranger)).toEqual([]);
+    expect(await ask(getFactory, `/api/factories/${deploys.id}`, stranger)).toEqual(notFound);
+    expect(await saveFiles(deploys.id, stranger, { baseVersion: 1, files: [] })).toEqual(notFound);
+    expect(
+      await ask(patchFactory, `/api/factories/${deploys.id}`, stranger, { body: { name: 'Mine' } }),
+    ).toEqual(notFound);
+    expect((await ask(getFactory, `/api/factories/${deploys.id}`, owner)).body).toMatchObject({
+      factory: deploys,
+    });
+  });
+
+  it('keep the team that owns them: it is not deleted', async () => {
+    await acmeWithMembers();
+    const platform = await makeTeam('Platform');
+    await makeFactory('Deploys', platform.id);
+    expect(await ask(deleteTeam, `/api/teams/${platform.id}`, owner)).toEqual({
+      status: 409,
+      body: { error: 'owns_factories' },
+    });
+  });
+});
+
+// GitHub's events are signed here the way cloud-global signs them: the event's JSON as the
+// payload of a compact JWS, with the cell token's key, its kid and the event's typ.
+
+/** Acme (EU) hears of a pull request opened in the `sprocket` organisation's repository. */
+const pullRequestOpened = (overrides: Partial<GitHubEventMessage> = {}): GitHubEventMessage => ({
+  workspaceId: 'acme',
+  region: 'eu',
+  deliveryId: '72d3162e-cc78-11e3-81ab-4c9367dc0958',
+  event: 'pull_request',
+  installationId: 41,
+  payload: {
+    action: 'opened',
+    number: 7,
+    pull_request: { title: 'Price the catalog in euros', body: 'Customers in Lyon asked.' },
+    repository: { full_name: 'sprocket/catalog-portal', private: true },
+    installation: { id: 41 },
+  },
+  ...overrides,
+});
+
+const signEvent = (
+  event: unknown,
+  key: SigningKey = cloudGlobal,
+  header: Partial<CompactJWSHeaderParameters> = {},
+) => signDelivery(event, key, { typ: GITHUB_EVENT_TYPE, ...header });
+
+/** POSTs `body` to the GitHub events route of `cell` (this test's cell unless given). */
+function postEvent(
+  body: string,
+  options: { contentType?: string | null; cell?: CellApp; headers?: Record<string, string> } = {},
+) {
+  const { contentType = GITHUB_EVENT_DELIVERY_MEDIA_TYPE, cell = app } = options;
+  const headers: Record<string, string> = { ...options.headers };
+  if (contentType !== null) headers['content-type'] = contentType;
+  return cell.request(GITHUB_EVENT_DELIVERY_PATH, { method: 'POST', body, headers });
+}
+
+/** Signs `event` as cloud-global does and passes it on, reading the answer by the contract. */
+async function passOn(event: unknown, options: Parameters<typeof postEvent>[1] = {}) {
+  const response = await postEvent(await signEvent(event), options);
+  return { status: response.status, body: await answerOf(postGitHubEventDelivery, response) };
+}
+
+const recordedEvents = () =>
+  db
+    .select()
+    .from(gitHubEvents)
+    .orderBy(asc(gitHubEvents.workspaceId), asc(gitHubEvents.deliveryId));
+
+describe('POST /api/github/events', () => {
+  let logged: MockInstance<typeof console.error>;
+  beforeEach(() => {
+    logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  it("records a pull request opened in the workspace's repository, as GitHub sent it", async () => {
+    expect((await deliver(created())).status).toBe(200);
+    const event = pullRequestOpened();
+    expect(await passOn(event)).toEqual({ status: 201, body: { recorded: true } });
+
+    const rows = await recordedEvents();
+    expect(rows.map(({ receivedAt: _at, ...row }) => row)).toEqual([
+      {
+        workspaceId: 'acme',
+        deliveryId: event.deliveryId,
+        event: 'pull_request',
+        installationId: 41,
+        payload: JSON.stringify(event.payload),
+      },
+    ]);
+    // Ids and names reach the log, never what the event says.
+    expect(logged.mock.calls.flat().join('\n')).not.toContain('Lyon');
+  });
+
+  it('records a delivery once, however often it arrives, at once or later', async () => {
+    expect((await deliver(created())).status).toBe(200);
+    const delivery = await signEvent(pullRequestOpened());
+    const statuses = await Promise.all(
+      Array.from({ length: 4 }, async () => (await postEvent(delivery)).status),
+    );
+    expect(statuses.sort()).toEqual([200, 200, 200, 201]);
+    // A replay with another payload under the same delivery id changes nothing either.
+    const replay = pullRequestOpened({ payload: { action: 'closed', installation: { id: 41 } } });
+    expect(await passOn(replay)).toEqual({ status: 200, body: { recorded: true } });
+    const rows = await recordedEvents();
+    expect(rows).toHaveLength(1);
+    expect(JSON.parse(rows[0]?.payload ?? '{}')).toMatchObject({ action: 'opened' });
+  });
+
+  it('needs no cell token, and reads none it is sent', async () => {
+    expect((await deliver(created())).status).toBe(200);
+    expect(await passOn(pullRequestOpened(), { headers: bearer('forged') })).toEqual({
+      status: 201,
+      body: { recorded: true },
+    });
+  });
+
+  it('refuses an event for a workspace it does not hold yet with 409, recording nothing', async () => {
+    expect(await passOn(pullRequestOpened())).toEqual({
+      status: GITHUB_EVENT_ANSWER.workspacePending,
+      body: { error: 'workspacePending' },
+    });
+    expect(await recordedEvents()).toEqual([]);
+    expect(logged).toHaveBeenCalledWith(
+      'The cell refused GitHub delivery 72d3162e-cc78-11e3-81ab-4c9367dc0958 (pull_request) for workspace acme: it does not hold the workspace yet.',
+    );
+  });
+
+  it("refuses an event for another region's workspace with 421", async () => {
+    const event = pullRequestOpened({ workspaceId: 'sprocket', region: 'us' });
+    expect(await passOn(event)).toEqual({
+      status: GITHUB_EVENT_ANSWER.otherRegion,
+      body: { error: 'otherRegion', region: 'eu' },
+    });
+    expect(await recordedEvents()).toEqual([]);
+  });
+
+  it("is the other cell's to record", async () => {
+    const us = await openCell({ ...config, region: 'us' });
+    const sprocket = { workspaceId: 'sprocket', region: 'us' } as const;
+    const opened = await postDelivery(await signDelivery(created(sprocket)), { cell: us.app });
+    expect(opened.status).toBe(200);
+    expect(await passOn(pullRequestOpened(sprocket), { cell: us.app })).toEqual({
+      status: 201,
+      body: { recorded: true },
+    });
+    await us.close();
+  });
+
+  it.each<[string, () => Promise<string>]>([
+    ['an outbox message', () => signDelivery(pullRequestOpened())],
+    ['a cell token', () => mint()],
+    [
+      'one signed by a key cloud-global does not publish',
+      () => signEvent(pullRequestOpened(), stranger),
+    ],
+    [
+      'one whose payload was changed after signing',
+      async () => {
+        const [header, , signature] = (await signEvent(pullRequestOpened())).split('.');
+        const changed = pullRequestOpened({ workspaceId: 'sprocket' });
+        return [header, base64url(changed), signature].join('.');
+      },
+    ],
+    ['the event, unsigned', async () => JSON.stringify(pullRequestOpened())],
+  ])('refuses %s with 401, recording nothing', async (_what, delivery) => {
+    expect((await deliver(created())).status).toBe(200);
+    const response = await postEvent(await delivery());
+    expect(response.status).toBe(GITHUB_EVENT_ANSWER.unsigned);
+    expect(await answerOf(postGitHubEventDelivery, response)).toEqual({ error: 'unsigned' });
+    expect(await recordedEvents()).toEqual([]);
+    expect(logged).toHaveBeenCalledWith(
+      expect.stringMatching(/^The cell refused a GitHub event: it is not signed by cloud-global/),
+    );
+  });
+
+  it('refuses an event sent to the outbox, which takes messages alone', async () => {
+    const response = await postDelivery(await signEvent(pullRequestOpened()));
+    expect(response.status).toBe(OUTBOX_ANSWER.unsigned);
+  });
+
+  it('refuses a body not sent as application/jose with 400, before reading it', async () => {
+    const delivery = await signEvent(pullRequestOpened());
+    for (const contentType of ['application/json', null]) {
+      const response = await postEvent(delivery, { contentType });
+      expect(response.status).toBe(GITHUB_EVENT_ANSWER.unreadable);
+      expect(await answerOf(postGitHubEventDelivery, response)).toEqual({ error: 'unreadable' });
+    }
+    expect(logged).toHaveBeenCalledWith(
+      'The cell refused a GitHub event: it was not sent as application/jose.',
+    );
+  });
+
+  it('refuses a signed event the contract does not read with 400, logging why but not the body', async () => {
+    const elsewhere = pullRequestOpened({
+      payload: { action: 'opened', body: 'Customers in Lyon asked.', installation: { id: 42 } },
+    });
+    const response = await postEvent(await signEvent(elsewhere));
+    expect(response.status).toBe(GITHUB_EVENT_ANSWER.unreadable);
+    expect(await answerOf(postGitHubEventDelivery, response)).toEqual({ error: 'unreadable' });
+    expect(logged).toHaveBeenLastCalledWith(
+      'The cell refused a GitHub event: its message does not read (`payload.installation.id` is not `installationId`).',
+    );
+    expect(logged.mock.calls.flat().join('\n')).not.toContain('Lyon');
+  });
+
+  it('answers 503 when the database does not, recording nothing', async () => {
+    expect((await deliver(created())).status).toBe(200);
+    const delivery = await signEvent(pullRequestOpened());
+    await closeDatabase();
+    const response = await postEvent(delivery);
+    expect(response.status).toBe(GITHUB_EVENT_ANSWER.unavailable);
+    expect(await answerOf(postGitHubEventDelivery, response)).toEqual({ error: 'unavailable' });
+    expect(logged).toHaveBeenCalledWith(
+      expect.stringMatching(
+        /^The cell could not record GitHub delivery 72d3162e-cc78-11e3-81ab-4c9367dc0958 \(pull_request\) for workspace acme: /,
+      ),
+    );
+  });
+});
+
 describe('a delivery sent as a cell token', () => {
   it('is no token: /api/me refuses it', async () => {
     const delivery = await signDelivery(created());
@@ -894,11 +1781,12 @@ describe('a delivery sent as a cell token', () => {
   });
 
   it('is no token even when its payload holds good cell token claims', async () => {
-    // Signed with cloud-global's key and the outbox's typ: the typ alone refuses it.
-    const delivery = await signDelivery(claims());
-    const response = await app.request('/api/me', { headers: bearer(delivery) });
-    expect(response.status).toBe(401);
-    expect(await response.json()).toEqual({ error: 'invalid_token' });
+    // Signed with cloud-global's key and a delivery's typ: the typ alone refuses it.
+    for (const delivery of [await signDelivery(claims()), await signEvent(claims())]) {
+      const response = await app.request('/api/me', { headers: bearer(delivery) });
+      expect(response.status).toBe(401);
+      expect(await response.json()).toEqual({ error: 'invalid_token' });
+    }
   });
 });
 

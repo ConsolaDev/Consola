@@ -1,7 +1,10 @@
 // What the use cases need from the world outside, each implemented by an adapter.
 
+import type { GitHubEventMessage, WorkspaceRole } from '@consola/cloud-contract';
 import type { Harness, PassClaims, Repository } from '@consola/runner-protocol';
 import type { CloudSession, CloudSessionStatus, RunnerIdentity } from '../domain/cloudSession.js';
+import type { Factory, FactoryChange, FactoryFile, FactoryVersion } from '../domain/factory.js';
+import type { Team } from '../domain/team.js';
 import type { CopyChange } from '../domain/workspaceCopy.js';
 
 export type HealthProbe = {
@@ -33,9 +36,9 @@ export type Clock = {
   nowSeconds(): number;
 };
 
-/** What checking an outbox delivery's signature found. */
+/** What checking the signature of a delivery from `cloud-global` (a message, an event) found. */
 export type DeliveryCheck =
-  /** Signed by one of `cloud-global`'s keys, as an outbox message: its payload, still unread. */
+  /** Signed by one of `cloud-global`'s keys, with the verifier's `typ`: its payload, unread. */
   | { kind: 'verified'; payload: Uint8Array }
   /** Not a delivery `cloud-global` signed. `reason` says why, for the log, never the body. */
   | { kind: 'unsigned'; reason: string }
@@ -45,8 +48,9 @@ export type DeliveryCheck =
 export type DeliveryVerifier = {
   /**
    * Checks a delivery's body, a compact JWS, with `cloud-global`'s public keys: the key its
-   * header names by `kid`, `CELL_TOKEN_ALGORITHM` alone, and `typ` `OUTBOX_MESSAGE_TYPE`. It
-   * never throws, and never lets a delivery through when the keys cannot be had.
+   * header names by `kid`, `CELL_TOKEN_ALGORITHM` alone, and the one `typ` the verifier takes
+   * (`OUTBOX_MESSAGE_TYPE` for the outbox, `GITHUB_EVENT_TYPE` for GitHub's events). It never
+   * throws, and never lets a delivery through when the keys cannot be had.
    */
   verify(delivery: string): Promise<DeliveryCheck>;
 };
@@ -75,6 +79,110 @@ export type WorkspaceCopies = {
    * `moved`, with nothing changed. Throws when the database does not answer.
    */
   applyAfter(step: CopyStep): Promise<'applied' | 'moved'>;
+};
+
+/** The GitHub events `cloud-global` passed on, each kept for its workspace. */
+export type GitHubEventStore = {
+  /**
+   * Records the event for its workspace, unless the cell already has one with its delivery id
+   * there (`recorded-before`, and nothing changes) or holds nothing of the workspace yet
+   * (`workspace-pending`, its `workspace.created` not applied). Throws when the database does
+   * not answer.
+   */
+  record(event: GitHubEventMessage): Promise<'recorded' | 'recorded-before' | 'workspace-pending'>;
+};
+
+/**
+ * A workspace's teams. Every call is scoped by the workspace's id, and a team of another
+ * workspace is one the store does not have (`not-found`). Every call throws when the database
+ * does not answer.
+ */
+export type TeamStore = {
+  /** Whether the cell holds the workspace's copy yet: whether its `workspace.created` is applied. */
+  holdsWorkspace(workspaceId: string): Promise<boolean>;
+  /** The person's role in the workspace as the cell's copy holds it, or null when not a member. */
+  roleInCopy(workspaceId: string, personId: string): Promise<WorkspaceRole | null>;
+  /** The workspace's teams: its first team first, then the others by name, whatever their case. */
+  list(workspaceId: string): Promise<Team[]>;
+  /** Makes a team with no members. `name-taken` when another team has the name, in any case. */
+  create(workspaceId: string, name: string): Promise<Team | 'name-taken'>;
+  rename(
+    workspaceId: string,
+    teamId: string,
+    name: string,
+  ): Promise<Team | 'not-found' | 'name-taken'>;
+  /**
+   * Deletes a team and every place in it, unless it is the first team or owns a factory, which
+   * stay.
+   */
+  remove(
+    workspaceId: string,
+    teamId: string,
+  ): Promise<'removed' | 'not-found' | 'first-team' | 'owns-factories'>;
+  /**
+   * Makes the person a member of the team, if they are a member of the workspace in the cell's
+   * copy (`not-a-member` when not). A person already in it stays as they are.
+   */
+  addMember(
+    workspaceId: string,
+    teamId: string,
+    personId: string,
+  ): Promise<Team | 'not-found' | 'not-a-member'>;
+  /** Takes the person out of the team. Someone not in it changes nothing. */
+  removeMember(workspaceId: string, teamId: string, personId: string): Promise<Team | 'not-found'>;
+};
+
+/** What saving a factory's files found. */
+export type FactorySave =
+  | { kind: 'saved'; version: FactoryVersion }
+  | { kind: 'not-found' }
+  /** The factory's latest version is no longer the one the files were saved from. */
+  | { kind: 'moved'; latestVersion: number };
+
+/**
+ * A workspace's factories and the versions of their files. Every call is scoped by the
+ * workspace's id, and a factory of another workspace is one the store does not have. Every call
+ * throws when the database does not answer.
+ */
+export type FactoryStore = {
+  /** The workspace's factories, by name whatever its case. */
+  list(workspaceId: string): Promise<Factory[]>;
+  /** One factory, or null when the workspace has no factory with that id. */
+  get(workspaceId: string, factoryId: string): Promise<Factory | null>;
+  /**
+   * Makes a factory owned by the team, its files stored here, with a first version that holds no
+   * files, saved by `personId`. `name-taken` when another factory of the workspace has the name,
+   * in any case; `team-not-found` when the workspace has no such team.
+   */
+  create(
+    workspaceId: string,
+    input: { name: string; teamId: string; personId: string },
+  ): Promise<Factory | 'name-taken' | 'team-not-found'>;
+  /**
+   * Renames the factory, moves it to another team of the workspace, or both, in one statement:
+   * all of it or none. What `change` leaves out stays; its versions stay as they are.
+   * `not-found` when the workspace has no such factory, `name-taken` when another of its
+   * factories has the name, in any case, and `team-not-found` when it has no such team. A team
+   * being deleted at the same moment is one or the other: the move finds it gone, or the delete
+   * finds it owns the factory.
+   */
+  change(
+    workspaceId: string,
+    factoryId: string,
+    change: FactoryChange,
+  ): Promise<Factory | 'not-found' | 'name-taken' | 'team-not-found'>;
+  /** One version of a factory's files, its files by path, or null when there is no such version. */
+  version(workspaceId: string, factoryId: string, version: number): Promise<FactoryVersion | null>;
+  /**
+   * Saves `files` as the factory's next version, saved by `personId`, if its latest version is
+   * still `baseVersion`: a compare-and-set, so of two saves from one version only the first
+   * lands, and the other is `moved`, with nothing changed.
+   */
+  save(
+    workspaceId: string,
+    factoryId: string,
+    input: { baseVersion: number; files: readonly FactoryFile[]; personId: string },
+  ): Promise<FactorySave>;
 };
 
 export type { RunnerIdentity };

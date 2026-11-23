@@ -1,5 +1,6 @@
 import type {
   ProviderCommand,
+  ProviderKeepAlive,
   ProviderPausing,
   ProviderSandbox,
   ProviderSnapshots,
@@ -16,6 +17,9 @@ import { resolvePath } from './paths';
  * A test drives what a command prints and when it ends through its program, and reads back what
  * was asked of the fake through `sandboxes`. `POSIX_PROGRAMS` holds stand-ins for the few
  * POSIX tools the contract runs.
+ *
+ * It keeps no real clock. Its time passes only when a test says so (`elapse`), which is when
+ * a sandbox's lifetime runs out.
  *
  * It is more forgiving than a real sandbox in one way to know: folders exist only as the paths
  * of the files in them, so a command's `cwd` is never checked, where a real provider fails a
@@ -84,6 +88,13 @@ export interface FakeSandboxRecord {
   /** The variables it was created with. */
   readonly env: Readonly<Record<string, string>>;
   readonly state: 'running' | 'paused' | 'stopped';
+  /** The lifetime it was created with, in seconds, or null for none (no limit). */
+  readonly lifetimeSeconds: number | null;
+  /**
+   * The seconds left before its lifetime runs out on the fake's clock, as created or as last
+   * renewed: null for no limit, 0 once it has run out.
+   */
+  readonly remainingSeconds: number | null;
   /** Every command started in it, oldest first. */
   readonly commands: readonly FakeCommandRecord[];
   /** Every port exposed in it, in the order first asked for. */
@@ -107,6 +118,7 @@ export interface FakeCommandRecord {
 export class FakeProvider implements SandboxProvider {
   readonly pausing?: ProviderPausing;
   readonly snapshots?: ProviderSnapshots;
+  readonly keepAlive?: ProviderKeepAlive;
 
   private readonly records: FakeSandbox[] = [];
   private readonly templates = new Map<string, FileStore>();
@@ -114,6 +126,8 @@ export class FakeProvider implements SandboxProvider {
   private readonly failCreate: FakeProviderOptions['failCreate'];
   private snapshotCount = 0;
   private readonly snapshotNames = new Set<string>();
+  /** The fake's clock, in seconds. It moves only by `elapse`. */
+  private clock = 0;
 
   constructor(options: FakeProviderOptions = {}) {
     for (const [name, template] of Object.entries(options.templates ?? { base: {} })) {
@@ -170,11 +184,39 @@ export class FakeProvider implements SandboxProvider {
         },
       };
     }
+    if (capabilities.has('keepAlive')) {
+      this.keepAlive = {
+        renew: async (sandboxId, lifetimeSeconds) => {
+          const sandbox = this.existing(sandboxId);
+          if (sandbox.state !== 'running') {
+            throw new SandboxError('not-running', `Fake sandbox ${sandboxId} is ${sandbox.state}.`);
+          }
+          sandbox.deadline = this.clock + lifetimeSeconds;
+        },
+      };
+    }
   }
 
   /** Every sandbox this fake has made, oldest first, as each is now. */
   get sandboxes(): readonly FakeSandboxRecord[] {
     return this.records;
+  }
+
+  /**
+   * Lets `seconds` pass on the fake's clock, the only way its time moves. A running sandbox
+   * whose lifetime runs out stops, its commands ended, as a real provider stops it. A paused one
+   * does not age.
+   */
+  elapse(seconds: number): void {
+    if (typeof seconds !== 'number' || !Number.isFinite(seconds) || seconds < 0) {
+      throw new SandboxError('invalid', `The fake cannot let ${String(seconds)} seconds pass.`);
+    }
+    this.clock += seconds;
+    for (const sandbox of this.records) {
+      if (sandbox.deadline === null) continue;
+      if (sandbox.state === 'paused') sandbox.deadline += seconds;
+      else if (sandbox.state === 'running' && sandbox.deadline <= this.clock) sandbox.halt();
+    }
   }
 
   async create(options: CreateSandboxOptions): Promise<ProviderSandbox> {
@@ -189,9 +231,27 @@ export class FakeProvider implements SandboxProvider {
       options.template,
       { ...options.env },
       template.copy(),
+      options.lifetimeSeconds ?? null,
+      () => this.clock,
     );
     this.records.push(sandbox);
     return this.handle(sandbox);
+  }
+
+  async attach(sandboxId: string): Promise<ProviderSandbox> {
+    const sandbox = this.records.find((record) => record.id === sandboxId);
+    if (!sandbox || sandbox.state === 'stopped') {
+      throw new SandboxError('not-found', `There is no sandbox ${sandboxId} to attach to.`);
+    }
+    if (sandbox.state === 'paused') {
+      throw new SandboxError('not-running', `Fake sandbox ${sandboxId} is paused.`);
+    }
+    return this.handle(sandbox);
+  }
+
+  async stop(sandboxId: string): Promise<void> {
+    const sandbox = this.records.find((record) => record.id === sandboxId);
+    if (sandbox && sandbox.state !== 'stopped') sandbox.halt();
   }
 
   private existing(sandboxId: string): FakeSandbox {
@@ -228,9 +288,7 @@ export class FakeProvider implements SandboxProvider {
         return `https://${port}-${sandbox.id}.fake-sandbox.test`;
       },
       stop: async () => {
-        if (sandbox.state === 'stopped') return;
-        sandbox.state = 'stopped';
-        sandbox.endCommands();
+        if (sandbox.state !== 'stopped') sandbox.halt();
       },
     };
   }
@@ -346,14 +404,29 @@ class FakeSandbox implements FakeSandboxRecord {
   readonly commands: FakeCommand[] = [];
   readonly exposedPorts: number[] = [];
   readonly files: FakeFiles;
+  /** When its lifetime runs out on the fake's clock, or null for no limit. */
+  deadline: number | null;
 
   constructor(
     readonly id: string,
     readonly template: string,
     readonly env: Readonly<Record<string, string>>,
     readonly store: FileStore,
+    readonly lifetimeSeconds: number | null,
+    private readonly clock: () => number,
   ) {
     this.files = store.at(FAKE_DEFAULT_CWD);
+    this.deadline = lifetimeSeconds === null ? null : clock() + lifetimeSeconds;
+  }
+
+  get remainingSeconds(): number | null {
+    return this.deadline === null ? null : Math.max(0, this.deadline - this.clock());
+  }
+
+  /** Stops it, from whichever handle or reason, and ends what it runs. */
+  halt(): void {
+    this.state = 'stopped';
+    this.endCommands();
   }
 
   /** Kills every command still running, as stopping or pausing a real sandbox does. */

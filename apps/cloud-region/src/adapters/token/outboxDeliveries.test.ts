@@ -1,6 +1,7 @@
 import {
   CELL_TOKEN_ALGORITHM,
   cellTokenClaims,
+  GITHUB_EVENT_TYPE,
   OUTBOX_MESSAGE_TYPE,
   type OutboxMessage,
 } from '@consola/cloud-contract';
@@ -186,6 +187,25 @@ describe('createJoseDeliveryVerifier', () => {
       expect(check.kind).toBe('unsigned');
     }
     expect(keys).not.toHaveBeenCalled();
+  });
+
+  it('takes only the typ it is made for, so an outbox message and a GitHub event never pass for one another', async () => {
+    const keys = createLocalJWKSet(published);
+    const outbox = createJoseDeliveryVerifier(keys, () => {});
+    const events = createJoseDeliveryVerifier(keys, () => {}, GITHUB_EVENT_TYPE);
+    const asMessage = await signDelivery();
+    const asEvent = await signDelivery(message, cloudGlobal, { typ: GITHUB_EVENT_TYPE });
+
+    expect((await outbox.verify(asMessage)).kind).toBe('verified');
+    expect((await events.verify(asEvent)).kind).toBe('verified');
+    expect(await outbox.verify(asEvent)).toEqual({
+      kind: 'unsigned',
+      reason: `its typ is not ${OUTBOX_MESSAGE_TYPE}`,
+    });
+    expect(await events.verify(asMessage)).toEqual({
+      kind: 'unsigned',
+      reason: `its typ is not ${GITHUB_EVENT_TYPE}`,
+    });
   });
 
   it('refuses every delivery while the key set fails, reporting why but never the delivery', async () => {

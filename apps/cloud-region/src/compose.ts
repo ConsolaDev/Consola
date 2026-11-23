@@ -1,5 +1,7 @@
-import type { Hono } from 'hono';
+import { GITHUB_EVENT_TYPE } from '@consola/cloud-contract';
+import type { OpenAPIHono } from '@hono/zod-openapi';
 import { systemClock } from './adapters/clock/systemClock.js';
+import type { CellEnv } from './adapters/http/caller.js';
 import { createApp } from './adapters/http/app.js';
 import type { Database } from './adapters/persistence/database.js';
 import { randomIds } from './adapters/persistence/cloudSessions.js';
@@ -16,7 +18,7 @@ import type { CellConfig } from './config.js';
 
 /** The cell, assembled. */
 export type Cell = {
-  app: Hono;
+  app: OpenAPIHono<CellEnv>;
   /** Hands the server's WebSocket upgrades to the runner's socket. `main.ts` calls it once. */
   injectWebSocket: RunnerSocket['injectWebSocket'];
   /** Closes every runner's socket, so a server that is closing is not held open by one. */
@@ -28,7 +30,7 @@ export type Cell = {
  * `main.ts` serves what this returns, and the HTTP tests build through it too, so they test the
  * wiring that runs.
  *
- * The cell checks tokens and outbox deliveries with `cloud-global`'s keys, fetched from
+ * The cell checks tokens, outbox deliveries and GitHub events with `cloud-global`'s keys, fetched from
  * `config.cloudGlobalUrl`: one key set for both, so it is fetched and kept once. Only a test
  * passes `cellTokenKeys`, a key set of its own, so it needs no `cloud-global` running.
  *
@@ -62,7 +64,11 @@ export async function composeCell(deps: {
     health: stores.health,
     tokens: createJoseTokenVerifier(keys),
     deliveries: createJoseDeliveryVerifier(keys),
+    events: createJoseDeliveryVerifier(keys, console.error, GITHUB_EVENT_TYPE),
     workspaceCopies: stores.workspaceCopies,
+    gitHubEvents: stores.gitHubEvents,
+    teams: stores.teams,
+    factories: stores.factories,
     clock: systemClock,
     cloudSessions: {
       sessions: stores.cloudSessions,

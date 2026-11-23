@@ -5,6 +5,7 @@ import type {
   OutboxStore,
   PeopleStore,
   SessionStore,
+  TokenMintStore,
   WorkspaceStore,
 } from '../../application/ports.js';
 import type { Database } from './database.js';
@@ -14,6 +15,7 @@ import { createMembershipStore } from './membershipStore.js';
 import { createOutboxStore } from './outboxStore.js';
 import { createPeopleStore } from './peopleStore.js';
 import { createSessionStore } from './sessionStore.js';
+import { createTokenMintStore } from './tokenMintStore.js';
 import { createWorkspaceStore } from './workspaceStore.js';
 
 /**
@@ -30,6 +32,7 @@ export function createDrizzleStores(
   people: PeopleStore;
   outbox: OutboxStore;
   installations: InstallationStore;
+  tokenMints: TokenMintStore;
   health: HealthProbe;
 } {
   return {
@@ -39,6 +42,7 @@ export function createDrizzleStores(
     people: createPeopleStore(db),
     outbox: createOutboxStore(db),
     installations: createInstallationStore(db),
+    tokenMints: createTokenMintStore(db),
     health: createHealthProbe(db),
   };
 }

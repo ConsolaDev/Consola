@@ -40,18 +40,27 @@ export function App() {
     setCreating(false);
   }, [load]);
 
-  // The dashboard needs the page's width; sign-in, the create form and the notices stay narrow.
-  const dashboard = page?.me.kind === 'signed-in' && page.me.me.workspace !== null && !creating;
+  // The dashboard has the whole window; sign-in, the create form and the notices stay narrow.
+  if (page?.me.kind === 'signed-in' && page.me.me.workspace && !creating) {
+    return (
+      <Dashboard
+        me={page.me.me}
+        workspace={page.me.me.workspace}
+        workspaces={page.workspaces.kind === 'listed' ? page.workspaces.workspaces : null}
+        onSwitched={load}
+        onCreate={() => setCreating(true)}
+      />
+    );
+  }
 
   return (
     <div className="page">
-      <main className={dashboard ? 'main wide' : 'main'}>
+      <main className="main">
         {page &&
           (page.me.kind === 'signed-in' ? (
             <SignedIn
               me={page.me.me}
               workspaces={page.workspaces.kind === 'listed' ? page.workspaces.workspaces : null}
-              creating={creating}
               onCreate={() => setCreating(true)}
               onCancel={() => setCreating(false)}
               onCreated={afterCreate}
@@ -74,15 +83,14 @@ export function App() {
 }
 
 /**
- * The page for someone signed in. A person with a workspace open sees it in the topbar's
- * switcher and its dashboard below; one with none open sees their profile and the create form,
- * which a person with a workspace reaches from the switcher. `workspaces` is null when they
- * could not be listed.
+ * The narrow page for someone signed in with no dashboard showing: one with no workspace open
+ * sees their profile and the create form, and one with a workspace who chose "Create
+ * workspace…" sees the form alone, with Cancel back to the dashboard. `workspaces` is null when
+ * they could not be listed.
  */
 function SignedIn({
   me,
   workspaces,
-  creating,
   onCreate,
   onCancel,
   onCreated,
@@ -90,19 +98,17 @@ function SignedIn({
 }: {
   me: Me;
   workspaces: MyWorkspace[] | null;
-  creating: boolean;
   onCreate: () => void;
   onCancel: () => void;
   onCreated: () => Promise<void>;
   onSwitched: () => Promise<void>;
 }) {
   const hasWorkspaces = me.workspace !== null || (workspaces?.length ?? 0) > 0;
-  const showForm = me.workspace === null || creating;
 
   return (
     <>
       <header className="topbar">
-        <span className="brand">Consola Cloud</span>
+        <span className="brand-name">Consola Cloud</span>
         {hasWorkspaces && (
           <>
             <span className="crumb" aria-hidden="true">
@@ -118,15 +124,12 @@ function SignedIn({
         )}
         <SignOutButton className="link-button" />
       </header>
-      {me.workspace && !creating && <Dashboard me={me} workspace={me.workspace} />}
       {!me.workspace && <ProfileCard me={me} hasWorkspaces={hasWorkspaces} />}
-      {showForm && (
-        <CreateWorkspaceCard
-          first={!hasWorkspaces}
-          onCreated={onCreated}
-          onCancel={me.workspace ? onCancel : undefined}
-        />
-      )}
+      <CreateWorkspaceCard
+        first={!hasWorkspaces}
+        onCreated={onCreated}
+        onCancel={me.workspace ? onCancel : undefined}
+      />
     </>
   );
 }
