@@ -418,6 +418,7 @@ describe("checking, committing and resetting a run's checkout (Task 11)", () => 
         ['core.fsmonitor', 'false'],
         ['commit.gpgsign', 'false'],
         ['core.untrackedCache', 'false'],
+        ['core.attributesFile', '/dev/null'],
       ]),
     );
   });
@@ -669,7 +670,9 @@ describe("checking, committing and resetting a run's checkout (Task 11)", () => 
     writeFile(dir, '.gitattributes', '* filter=mark\n');
     writeFile(dir, 'a.txt', 'x');
     vi.stubEnv('GIT_CONFIG_GLOBAL', globalWithFilter);
-    // The person's own git runs it: the marker is real.
+    // The person's own git runs it, but for the git folder's own attributes (put back after): the marker is real.
+    const attributes = path.join(gitDir, 'info/attributes');
+    fs.rmSync(attributes);
     execFileSync(
       'git',
       ['-c', 'core.hooksPath=/dev/null', 'hash-object', '--path=a.txt', path.join(dir, 'a.txt')],
@@ -680,6 +683,7 @@ describe("checking, committing and resetting a run's checkout (Task 11)", () => 
     );
     expect(fs.existsSync(marker)).toBe(true);
     fs.rmSync(marker);
+    fs.writeFileSync(attributes, '* -filter\n');
     expect(await settleRunClone(REQ)).toMatchObject({ ok: true });
     expect(fs.existsSync(marker)).toBe(false);
   });
@@ -692,12 +696,15 @@ describe("checking, committing and resetting a run's checkout (Task 11)", () => 
     writeFile(dir, 'a.txt', 'x');
     delete process.env.GIT_CONFIG_NOSYSTEM;
     vi.stubEnv('GIT_CONFIG_SYSTEM', systemWithFilter);
+    const attributes = path.join(gitDir, 'info/attributes');
+    fs.rmSync(attributes);
     execFileSync('git', ['hash-object', '--path=a.txt', path.join(dir, 'a.txt')], {
       cwd: dir,
       env: { ...process.env, GIT_DIR: gitDir, GIT_WORK_TREE: dir },
     });
     expect(fs.existsSync(marker)).toBe(true);
     fs.rmSync(marker);
+    fs.writeFileSync(attributes, '* -filter\n');
     expect(await settleRunClone(REQ)).toMatchObject({ ok: true });
     expect(fs.existsSync(marker)).toBe(false);
   });
@@ -716,9 +723,100 @@ describe("checking, committing and resetting a run's checkout (Task 11)", () => 
     expect(fs.existsSync(marker)).toBe(true);
     fs.rmSync(marker);
     writeFile(dir, 'src/app.ts', 'x');
-    expect(await settleRunClone(REQ)).toMatchObject({ ok: true, files: 1 });
+    // The changed config itself stops the settle (the commit review); each setting also holds on its own.
+    expect(await settleRunClone(REQ)).toEqual({
+      ok: false,
+      error:
+        "the step changed this checkout's git folder (`config` changed), so Consola will not commit in it",
+    });
+    await runCloneGit(dir, ['status', '--porcelain']);
+    await runCloneGit(dir, ['add', '-A']);
+    await runCloneGit(dir, ['commit', '-q', '--no-verify', '-m', 'x']);
     expect(fs.existsSync(marker)).toBe(false);
   });
+
+  it("makes the git folder's attributes and records its config and attributes beside it (the commit review)", () => {
+    expect(fs.readFileSync(path.join(gitDir, 'info/attributes'), 'utf8')).toBe('* -filter\n');
+    const record = JSON.parse(fs.readFileSync(`${gitDir}.consola.json`, 'utf8'));
+    expect(Object.keys(record).sort()).toEqual(['attributes', 'config']);
+    expect(record.config).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it.each<[string, () => void, string]>([
+    [
+      'a key added to its config',
+      () => git(tmp, 'config', '--file', path.join(gitDir, 'config'), 'core.editor', 'vi'),
+      '`config` changed',
+    ],
+    [
+      'its attributes rewritten',
+      () => fs.writeFileSync(path.join(gitDir, 'info/attributes'), '* filter=mark\n'),
+      '`info/attributes` changed',
+    ],
+    [
+      'its attributes removed',
+      () => fs.rmSync(path.join(gitDir, 'info/attributes')),
+      '`info/attributes` changed',
+    ],
+    [
+      'its record removed',
+      () => fs.rmSync(`${gitDir}.consola.json`),
+      'the record of its `config` is missing',
+    ],
+  ])('%s fails the next boundary, with nothing else changed', async (_what, change, what) => {
+    change();
+    expect(gitFolderProblem(dir)).toBe(what);
+    expect(
+      await settleBetweenSteps({ dir, branch: BRANCH, base, before: base, message: 'x' }),
+    ).toEqual({
+      ok: false,
+      error: `the step changed this checkout's git folder (${what}), so Consola will not commit in it`,
+    });
+  });
+
+  it("a filter the git folder's config names never runs for Consola's git, even called directly: its attributes beat the tree's", async () => {
+    const marker = path.join(tmp, 'filter-ran');
+    git(
+      tmp,
+      'config',
+      '--file',
+      path.join(gitDir, 'config'),
+      'filter.mark.clean',
+      `touch '${marker}'; cat`,
+    );
+    writeFile(dir, '.gitattributes', '* filter=mark\n');
+    writeFile(dir, 'a.txt', 'x');
+    await runCloneGit(dir, ['add', '-A']);
+    expect(fs.existsSync(marker)).toBe(false);
+    // Without the git folder's attributes, the same add runs it: the row's marker is real.
+    fs.rmSync(path.join(gitDir, 'info/attributes'));
+    writeFile(dir, 'b.txt', 'y');
+    await runCloneGit(dir, ['add', '-A']);
+    expect(fs.existsSync(marker)).toBe(true);
+  });
+
+  it.each<[string, Record<string, string>]>([
+    [
+      'GIT_CONFIG_COUNT',
+      { GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'filter.mark.clean', GIT_CONFIG_VALUE_0: 'MARK' },
+    ],
+    ['GIT_CONFIG_PARAMETERS', { GIT_CONFIG_PARAMETERS: "'filter.mark.clean'='MARK'" }],
+  ])(
+    "a filter the login environment passes (%s) never reaches Consola's git",
+    async (_what, passed) => {
+      const marker = path.join(tmp, 'passed-ran');
+      for (const [name, value] of Object.entries(passed))
+        vi.stubEnv(name, value.replace('MARK', `touch '${marker}'; cat`));
+      fs.rmSync(path.join(gitDir, 'info/attributes'));
+      const env = runCloneGitEnv(dir, process.env);
+      expect(env.GIT_CONFIG_PARAMETERS).toBeUndefined();
+      expect(Object.values(env)).not.toContain(`touch '${marker}'; cat`);
+      writeFile(dir, '.gitattributes', '* filter=mark\n');
+      writeFile(dir, 'a.txt', 'x');
+      await runCloneGit(dir, ['add', '-A']);
+      expect(fs.existsSync(marker)).toBe(false);
+    },
+  );
 
   it("writes to the run clone's git folder leave the person's clone byte-identical", async () => {
     const before = hashTree(path.join(source, '.git'));

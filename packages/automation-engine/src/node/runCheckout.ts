@@ -1,4 +1,5 @@
 import { execFile, execFileSync, spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { withoutGitHooks, withoutRepositoryOverrides } from '../gitEnv';
@@ -64,7 +65,45 @@ const HARDENED: ReadonlyArray<[string, string]> = [
   ['core.untrackedCache', 'false'],
   // A borrowed (`--shared`) clone is never repacked behind Consola's back.
   ['gc.auto', '0'],
+  // No attributes file but the repository's and the git folder's own `info/attributes`.
+  ['core.attributesFile', '/dev/null'],
 ];
+
+/**
+ * The git folder's own attributes, which beat every `.gitattributes` in the
+ * tree: no filter runs for any git in the run's clone (a filter is a
+ * command a `.gitattributes` a step wrote could select). Diff drivers need
+ * no line here: Consola's diffs pass `--no-ext-diff --no-textconv`.
+ */
+const GIT_FOLDER_ATTRIBUTES = '* -filter\n';
+
+/** Where Consola records what the git folder's `config` and `info/attributes` were when it made them: beside the folder, never in it. */
+const recordFor = (gitDir: string) => `${gitDir}.consola.json`;
+
+const sha256 = (file: string): string | null =>
+  fs.existsSync(file) ? createHash('sha256').update(fs.readFileSync(file)).digest('hex') : null;
+
+/** The hashes `gitFolderProblem` compares against, of the files Consola wrote last. */
+function writeGitFolderRecord(gitDir: string): void {
+  const record = {
+    config: sha256(path.join(gitDir, 'config')),
+    attributes: sha256(path.join(gitDir, 'info', 'attributes')),
+  };
+  fs.writeFileSync(recordFor(gitDir), `${JSON.stringify(record)}\n`);
+}
+
+/** `env` without any config a login environment passes on git's command line (`GIT_CONFIG_PARAMETERS`, `GIT_CONFIG_COUNT`). */
+function withoutPassedConfig(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const clean = { ...env };
+  for (const name of Object.keys(clean))
+    if (
+      name === 'GIT_CONFIG_PARAMETERS' ||
+      name === 'GIT_CONFIG_COUNT' ||
+      /^GIT_CONFIG_(KEY|VALUE)_\d+$/.test(name)
+    )
+      delete clean[name];
+  return clean;
+}
 
 /**
  * Call 9's environment for every git Consola runs for the run clone at
@@ -79,7 +118,7 @@ const HARDENED: ReadonlyArray<[string, string]> = [
 export function runCloneGitEnv(dir: string, base: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const gitDir = runCloneGitDirFor(dir);
   const env: NodeJS.ProcessEnv = {
-    ...plainGit(base),
+    ...plainGit(withoutPassedConfig(base)),
     GIT_DIR: gitDir,
     GIT_WORK_TREE: dir,
     GIT_COMMON_DIR: gitDir,
@@ -206,6 +245,9 @@ export async function makeRunClone(input: {
     stage = 'exclude';
     fs.mkdirSync(path.join(gitDir, 'info'), { recursive: true });
     fs.appendFileSync(path.join(gitDir, 'info', 'exclude'), '.consola-cache/\n');
+    fs.writeFileSync(path.join(gitDir, 'info', 'attributes'), GIT_FOLDER_ATTRIBUTES);
+    // Last: what the folder's config and attributes are, now that Consola wrote them both.
+    writeGitFolderRecord(gitDir);
     return { base };
   } catch (error) {
     // What it made goes: a folder it created, or what it put in an empty one it was given.
@@ -218,6 +260,7 @@ export async function makeRunClone(input: {
         for (const entry of fs.readdirSync(target))
           fs.rmSync(path.join(target, entry), { recursive: true, force: true });
     }
+    fs.rmSync(recordFor(gitDir), { force: true });
     throw error instanceof RunCheckoutError ? error : new RunCheckoutError(stage, describe(error));
   }
 }
@@ -331,6 +374,16 @@ export function gitFolderProblem(dir: string): string | null {
   const alternates = path.join(gitDir, 'objects', 'info', 'alternates');
   const written = fs.existsSync(alternates) ? fs.readFileSync(alternates, 'utf8').trim() : '';
   if (written !== recordedAlternates(gitDir)) return '`objects/info/alternates` changed';
+  // Its config and attributes, as Consola last wrote them (the commit review): only a `host` step can change them.
+  let record: { config?: unknown; attributes?: unknown };
+  try {
+    record = JSON.parse(fs.readFileSync(recordFor(gitDir), 'utf8'));
+  } catch {
+    return 'the record of its `config` is missing';
+  }
+  if (record.config !== sha256(path.join(gitDir, 'config'))) return '`config` changed';
+  if (record.attributes !== sha256(path.join(gitDir, 'info', 'attributes')))
+    return '`info/attributes` changed';
   return null;
 }
 
