@@ -1,6 +1,5 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { KEYCHAIN_SENTENCE, KEYCHAIN_SIGN_INS_SENTENCE } from '@consola/automation-engine';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
@@ -13,6 +12,12 @@ import { WritesBlock } from './WritesBlock';
  * are main's (`describeWrites`, tested in the engine); this pins that the
  * block shows every one of them, in order, and that both cards show it.
  */
+
+// The engine's words, as text: the renderer imports the engine for its types only (`automationEngine.boundary.test.ts`).
+const KEYCHAIN_SIGN_INS_SENTENCE =
+  'Your keychain is another matter: Git, `gh` and Claude usually keep their sign-ins there.';
+const KEYCHAIN_SENTENCE =
+  'Its shell can ask macOS for your keychain items through `security` (macOS may or may not ask you first).';
 
 const WRITES: WriteBlocks = {
   checkout:
