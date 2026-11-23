@@ -188,6 +188,13 @@ jobs:
         with:
           persist-credentials: false
       - uses: ./.github/actions/setup
+      # The tests run @consola/host's replay host and import its testing
+      # modules, which load the host's workspace dependencies
+      # (@consola/runner-protocol, @consola/sandbox) from their built dist/.
+      # This job runs each step with pnpm, not Turborepo, so nothing builds
+      # them otherwise.
+      - name: Build the host's dependencies
+        run: pnpm exec turbo run build --filter=@consola/host^...
       - name: Typecheck
         run: pnpm --filter @consola/agent-ui typecheck
       - name: Install Chromium

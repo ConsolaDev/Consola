@@ -629,6 +629,11 @@ pnpm --filter @consola/agent-ui check:css   # the built stylesheet (build first)
 pnpm --filter @consola/agent-ui test:dist   # the built library in a page (build first)
 ```
 
+The tests and the typecheck load `@consola/host`'s testing modules and run its replay host, which
+reach the host's own workspace dependencies (`@consola/runner-protocol`, `@consola/sandbox`)
+through their built `dist/`. A fresh checkout has none, so build them once first:
+`pnpm exec turbo run build --filter=@consola/host^...` (CI's `Agent UI` job does).
+
 The browser tests run in Vitest's browser mode (Playwright, Chromium; `pnpm --filter
 @consola/agent-ui exec playwright install chromium` once). A global setup
 (`src/testing/hostSession.ts`) starts `@consola/host`'s replay entry
