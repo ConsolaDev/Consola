@@ -3,7 +3,12 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CommandSpec, RunningCommand } from '../ports';
+import { execFileSync } from 'node:child_process';
+import { isStepsEntry, parseFactorySpec, type RunRecord } from '@consola/factory-spec';
 import { describeFailure, layerCommandEnv } from '../steps/commandIO';
+import { prepareCommand } from '../steps/commandStep';
+import { makeRunClone } from './runCheckout';
+import { RunFolder } from './runFolder';
 import { startCommand } from './runCommand';
 
 const BASE: NodeJS.ProcessEnv = { PATH: process.env.PATH ?? '/usr/bin:/bin' };
@@ -479,3 +484,142 @@ describe.skipIf(process.platform === 'win32')('startCommand', () => {
     },
   );
 });
+
+describe.skipIf(process.platform === 'win32')(
+  "a command in a run's own checkout, against real git (slice 3-B Task 15, review NB1)",
+  () => {
+    let tmp: string;
+    let remote: string;
+    let source: string;
+    let dir: string;
+    const git = (cwd: string, ...args: string[]): string =>
+      execFileSync('git', args, { cwd, encoding: 'utf8', env: process.env }).trim();
+
+    beforeEach(() => {
+      tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'consola-run-owned-command-')));
+      // The person's own git configuration stays out (as node/runCheckout.test.ts keeps it out).
+      fs.writeFileSync(path.join(tmp, 'gitconfig'), '');
+      vi.stubEnv('GIT_CONFIG_GLOBAL', path.join(tmp, 'gitconfig'));
+      vi.stubEnv('GIT_CONFIG_NOSYSTEM', '1');
+      remote = path.join(tmp, 'remote.git');
+      source = path.join(tmp, 'catalog-portal');
+      git(tmp, 'init', '-q', '--bare', '-b', 'main', remote);
+      git(tmp, 'clone', '-q', remote, source);
+      git(source, 'config', 'user.name', 'alice');
+      git(source, 'config', 'user.email', 'alice@sprocket.example');
+      fs.writeFileSync(path.join(source, 'README.md'), 'catalog-portal\n');
+      git(source, 'add', '-A');
+      git(source, 'commit', '-q', '-m', 'first');
+      git(source, 'push', '-q', 'origin', 'HEAD:main');
+      fs.mkdirSync(path.join(tmp, 'worktrees'));
+      dir = path.join(tmp, 'worktrees', 'catalog-portal-run-3f2a91c0');
+    });
+
+    afterEach(() => {
+      vi.unstubAllEnvs();
+      fs.rmSync(tmp, { recursive: true, force: true });
+    });
+
+    /** `script` in `cwd` as a step's command runs, with `variables` (Consola's) in its environment. */
+    async function runShell(cwd: string, variables: Record<string, string>, script: string) {
+      const logs = path.join(tmp, 'logs');
+      const running = startCommand({
+        command: script,
+        cwd,
+        env: layerCommandEnv(
+          {
+            PATH: process.env.PATH ?? '/usr/bin:/bin',
+            GIT_CONFIG_GLOBAL: path.join(tmp, 'gitconfig'),
+            GIT_CONFIG_NOSYSTEM: '1',
+          },
+          {},
+          variables,
+        ),
+        timeoutMs: 20_000,
+        stdoutPath: path.join(logs, 'stdout.log'),
+        stderrPath: path.join(logs, 'stderr.log'),
+        secrets: [],
+        killGraceMs: 200,
+      });
+      const result = await running.result;
+      return {
+        exitCode: result.exitCode,
+        stdout: fs.readFileSync(path.join(logs, 'stdout.log'), 'utf8'),
+        stderr: fs.readFileSync(path.join(logs, 'stderr.log'), 'utf8'),
+      };
+    }
+
+    it('can clone, and its git in another repository answers for that one', async () => {
+      const { base } = await makeRunClone({
+        source,
+        dir,
+        branch: 'fix/SHOP-42',
+        runId: '3f2a91c0aa',
+        fetchEnv: process.env,
+      });
+      const parsed = parseFactorySpec(`version: 1
+repos: [sprocket/catalog-portal]
+automations:
+  - name: write
+    on: manual
+    checkout: { repo: sprocket/catalog-portal, branch: "fix/{{run.id}}" }
+    steps:
+      - id: pr
+        run: ./pr.sh
+`).automations[0];
+      if (!parsed || !isStepsEntry(parsed)) throw new Error('the entry does not parse');
+      const at = '2026-11-15T10:00:00.000Z';
+      const run: RunRecord = {
+        id: '3f2a91c0aa',
+        runner: 'local',
+        source: 'personal',
+        automationId: 'write',
+        actionName: 'steps',
+        actionVersion: 'v1',
+        mode: 'auto',
+        trigger: { kind: 'manual', at },
+        status: 'running',
+        steps: [{ id: 'pr', kind: 'run', status: 'queued', attempt: 1 }],
+        checkout: {
+          cwd: dir,
+          scopeId: 'scope-portal',
+          kind: 'run-owned',
+          repo: 'sprocket/catalog-portal',
+          branch: 'fix/SHOP-42',
+          base,
+          head: base,
+        },
+        attribution: {
+          automationId: 'write',
+          actionName: 'steps',
+          triggerKind: 'manual',
+          workspaceId: 'ws-1',
+        },
+        createdAt: at,
+        updatedAt: at,
+      };
+      const prepared = prepareCommand({
+        run,
+        definition: { automation: parsed, version: 'v1', actions: {} },
+        stepId: 'pr',
+        cwd: dir,
+        workspaceId: 'ws-1',
+        folder: new RunFolder((workspaceId) => path.join(tmp, 'runs', workspaceId)),
+        source: undefined,
+        polled: undefined,
+        previous: undefined,
+      });
+      if (!prepared.ok) throw new Error(prepared.error);
+      const r = await runShell(
+        dir,
+        prepared.command.variables,
+        `git clone -q ${remote} "$PWD/.consola-cache/c" && git -C ${source} rev-parse --abbrev-ref HEAD && git rev-parse --abbrev-ref HEAD`,
+      );
+      expect(r.stderr).toBe('');
+      expect(r.exitCode).toBe(0);
+      // The other repository its own; the checkout's through its pointer.
+      expect(r.stdout.trim().split('\n')).toEqual(['main', 'fix/SHOP-42']);
+      expect(fs.existsSync(path.join(dir, '.consola-cache', 'c', 'README.md'))).toBe(true);
+    });
+  },
+);

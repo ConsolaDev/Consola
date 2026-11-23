@@ -5,6 +5,8 @@ import {
   parseFactory,
   parseFactorySpec,
 } from '@consola/factory-spec';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { fileVersion } from './factory/apply';
 import { inboxItem } from './inboxItems.test-helpers';
@@ -1248,6 +1250,156 @@ describe("a person's session in a run's checkout holds the run, and what it leav
     await stepCommands(h)[0].end({ result: { exitCode: 0 } });
     expect(runOf(h, run.id).status).toBe('completed');
     expect(h.service.continuationRefusal(run.id, 'fix')).toBeNull();
+  });
+});
+
+describe("what later steps read of a run's checkout (Task 15)", () => {
+  const MATERIAL_BYTES = 256 * 1024;
+  const DIFF = 'diff --git a/x b/x\n+fixed\n';
+  /** `fix` writes, `review` (read-only) reads the branch's changes, then `pr` a command. */
+  const REVIEW_ENTRY = file(
+    `  - name: write\n    on: manual\n    mode: auto\n${owned('fix/{{run.id}}')}${steps('- id: fix\n  agent: fixer\n  prompt: Fix it.', '- id: review\n  agent: reader\n  prompt: Review it.\n  reads: [checkout.changes]', '- id: pr\n  run: "true"')}`,
+  );
+  /** `fix` writes, a gate shows the branch's changes, then `pr` a command. */
+  const GATED_SHOW = file(
+    `  - name: write\n    on: manual\n    mode: auto\n${owned('fix/{{run.id}}')}${steps('- id: fix\n  agent: fixer\n  prompt: Fix it.', '- id: ok\n  gate: { ask: Push it?, show: [checkout.changes] }', '- id: pr\n  run: "true"')}`,
+  );
+  const READER = { ...WRITER, 'agents/reader.md': 'Read it.\n' };
+  const reads = (h: StepsHarness) => h.world.runCheckouts.materialReads;
+  const fileIn = (h: StepsHarness, runId: string, step: string, name: string) =>
+    path.join(h.folder.attemptDir(WORKSPACE_ID, runId, step, 1), name);
+
+  it("an agent step gets the repository's CLAUDE.md at base, and nothing when there is none", async () => {
+    const h = await writing(WRITE_ENTRY);
+    h.world.runCheckouts.claudeMd = '# rules\n';
+    const run = await runNow(h, 'write');
+    expect(reads(h)).toEqual([
+      {
+        showAt: {
+          dir: ownedDir(h, run.id),
+          commit: 'b0',
+          path: 'CLAUDE.md',
+          maxBytes: 1024 * 1024,
+        },
+      },
+    ]);
+    expect(fs.readFileSync(fileIn(h, run.id, 'fix', 'CLAUDE.md'), 'utf8')).toBe('# rules\n');
+    // A write agent's session says what it is (Call 17): `fixer` writes on `sandbox`, with no network.
+    expect(h.world.launches[0].prompt).toContain(
+      'This session writes files and runs commands: it can change the files in this checkout and run commands in a shell that can write only this checkout and reach no network',
+    );
+    expect(h.world.launches[0].prompt).toContain(
+      '  - checkout.claude-md (CLAUDE.md at b0, the commit this run cut from, 8 B)',
+    );
+    // A step that does not declare `checkout.changes` is handed none.
+    expect(h.world.launches[0].prompt).not.toContain('checkout.changes');
+    expect(fs.existsSync(fileIn(h, run.id, 'fix', 'checkout-changes.patch'))).toBe(false);
+
+    const none = await writing(WRITE_ENTRY);
+    const other = await runNow(none, 'write');
+    expect(none.world.launches[0].prompt).not.toContain('checkout.claude-md');
+    expect(fs.existsSync(fileIn(none, other.id, 'fix', 'CLAUDE.md'))).toBe(false);
+  });
+
+  it('a CLAUDE.md over 256 KB is cut there, saying how much more there is', async () => {
+    const h = await writing(WRITE_ENTRY);
+    h.world.runCheckouts.claudeMd = 'x'.repeat(MATERIAL_BYTES + 40 * 1024);
+    const run = await runNow(h, 'write');
+    const attached = fs.readFileSync(fileIn(h, run.id, 'fix', 'CLAUDE.md'), 'utf8');
+    expect(attached).toBe(`${'x'.repeat(MATERIAL_BYTES)}\n[cut here: the rest is 40 KB more]`);
+  });
+
+  it('a read-only agent step in a run-owned checkout reads the changes it declares, at the head it starts from', async () => {
+    const h = await writing(REVIEW_ENTRY, {}, READER);
+    h.world.runCheckouts.changesText = DIFF;
+    const run = await runNow(h, 'write');
+    await h.world.endTurn('session-1', { exitCode: 0 });
+    expect(stepOf(h, run.id, 'review').status).toBe('running');
+    expect(reads(h)).toContainEqual({
+      changes: { dir: ownedDir(h, run.id), base: 'b0', head: 'c1', maxBytes: MATERIAL_BYTES },
+    });
+    expect(fs.readFileSync(fileIn(h, run.id, 'review', 'checkout-changes.patch'), 'utf8')).toBe(
+      DIFF,
+    );
+    expect(h.world.launches[1].prompt).toContain(
+      `  - checkout.changes (changes on fix/${run.id.slice(0, 8)} since b0, 26 B)`,
+    );
+  });
+
+  it('a diff over 256 KB is cut there, saying how much more there is', async () => {
+    const h = await writing(REVIEW_ENTRY, {}, READER);
+    h.world.runCheckouts.changesText = 'y'.repeat(MATERIAL_BYTES + 10 * 1024);
+    const run = await runNow(h, 'write');
+    await h.world.endTurn('session-1', { exitCode: 0 });
+    expect(fs.readFileSync(fileIn(h, run.id, 'review', 'checkout-changes.patch'), 'utf8')).toBe(
+      `${'y'.repeat(MATERIAL_BYTES)}\n[cut here: the rest is 10 KB more]`,
+    );
+  });
+
+  it('a command gets the changes from base to the head it starts at as a file', async () => {
+    const h = await writing(WRITE_ENTRY);
+    h.world.runCheckouts.changesText = DIFF;
+    const run = await runNow(h, 'write');
+    await h.world.endTurn('session-1', { exitCode: 0 });
+    expect(reads(h)).toContainEqual({
+      changes: { dir: ownedDir(h, run.id), base: 'b0', head: 'c1', maxBytes: MATERIAL_BYTES },
+    });
+    const env = stepCommands(h)[0].spec.env;
+    expect(env.CONSOLA_CHANGES_FILE).toBe(fileIn(h, run.id, 'pr', 'checkout-changes.patch'));
+    expect(fs.readFileSync(env.CONSOLA_CHANGES_FILE!, 'utf8')).toBe(DIFF);
+    expect(env).toMatchObject({ CONSOLA_BRANCH: `fix/${run.id.slice(0, 8)}`, CONSOLA_BASE: 'b0' });
+  });
+
+  it('a gate shows the branch diff at the head it parked on', async () => {
+    const h = await writing(GATED_SHOW);
+    h.world.runCheckouts.changesText = DIFF;
+    const run = await runNow(h, 'write');
+    await h.world.endTurn('session-1', { exitCode: 0 });
+    expect(runOf(h, run.id).status).toBe('waiting');
+    expect(reads(h)).toContainEqual({
+      changes: { dir: ownedDir(h, run.id), base: 'b0', head: 'c1', maxBytes: MATERIAL_BYTES },
+    });
+    expect(h.service.gateOf(run.id, 'ok')!.material).toEqual([
+      {
+        step: 'checkout',
+        name: 'changes',
+        label: `changes on fix/${run.id.slice(0, 8)} since b0`,
+        text: DIFF,
+        truncated: false,
+      },
+    ]);
+  });
+
+  it('a run that ends while its checkout is read starts nothing there', async () => {
+    const h = await writing(REVIEW_ENTRY, {}, READER);
+    const run = await runNow(h, 'write');
+    let release!: () => void;
+    h.world.runCheckouts.materialGate = new Promise<void>((resolve) => (release = resolve));
+    await h.world.endTurn('session-1', { exitCode: 0 });
+    expect(stepOf(h, run.id, 'review').status).toBe('queued');
+    h.service.stop(run.id);
+    await h.flush();
+    h.world.runCheckouts.materialGate = undefined;
+    release();
+    await h.flush();
+    expect(h.world.launches).toHaveLength(1);
+    expect(runOf(h, run.id).status).toBe('failed');
+  });
+
+  it('a checkout that cannot be read fails the step before it starts, saying so', async () => {
+    const h = await writing(REVIEW_ENTRY, {}, READER);
+    const run = await runNow(h, 'write');
+    h.world.runCheckouts.changesText = DIFF;
+    const port = h.world.runCheckouts;
+    port.materialReads.push = () => {
+      throw new Error('git diff: bad object c1');
+    };
+    await h.world.endTurn('session-1', { exitCode: 0 });
+    expect(h.world.launches).toHaveLength(1);
+    expect(stepOf(h, run.id, 'review')).toMatchObject({
+      status: 'failed',
+      error: "Consola couldn't read this run's checkout for review: git diff: bad object c1",
+    });
   });
 });
 

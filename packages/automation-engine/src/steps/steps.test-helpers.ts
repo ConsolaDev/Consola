@@ -310,10 +310,20 @@ export interface StepsWorld {
    * (review NB1), so a row that pins `calls` stays as written; the base a
    * `make` answers; what the next `make` throws; the answers `settle`,
    * `settleBetween` and `showAt` give, in order (each then its default).
+   * What a step reads of the checkout (`changes`, and `showAt` of the
+   * repository's `CLAUDE.md`) is recorded apart too (`materialReads`,
+   * slice 3-B Task 15), so the rows that pin `calls` stay as written.
    */
   runCheckouts: {
     calls: RunCheckoutCall[];
     folderChecks: string[];
+    materialReads: RunCheckoutCall[];
+    /** What `changes` answers: this text, whole. Default: empty. */
+    changesText: string;
+    /** What `showAt` of `CLAUDE.md` answers: this text, or missing when unset. */
+    claudeMd?: string;
+    /** Every material read (`changes`, `showAt` of `CLAUDE.md`) waits for this while it is set, after recording the call. */
+    materialGate?: Promise<void>;
     base: string;
     makeFails?: unknown;
     /** Every `make` waits for this while it is set, after recording the call. */
@@ -525,6 +535,8 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
     runCheckouts: {
       calls: [],
       folderChecks: [],
+      materialReads: [],
+      changesText: '',
       base: 'b0',
       settleAnswers: [],
       betweenAnswers: [],
@@ -929,10 +941,22 @@ function fakeRunCheckout(world: StepsWorld): RunCheckoutPort {
       });
     },
     changes: async (dir, base, head, maxBytes) => {
-      runCheckouts.calls.push({ changes: { dir, base, head, maxBytes } });
-      return { text: '', truncated: false, bytes: 0 };
+      runCheckouts.materialReads.push({ changes: { dir, base, head, maxBytes } });
+      if (runCheckouts.materialGate) await runCheckouts.materialGate;
+      const bytes = Buffer.byteLength(runCheckouts.changesText);
+      const text = Buffer.from(runCheckouts.changesText).subarray(0, maxBytes).toString('utf8');
+      return { text, truncated: bytes > maxBytes, bytes };
     },
     showAt: async (dir, commit, path, maxBytes) => {
+      if (path === 'CLAUDE.md') {
+        runCheckouts.materialReads.push({ showAt: { dir, commit, path, maxBytes } });
+        if (runCheckouts.materialGate) await runCheckouts.materialGate;
+        const text = runCheckouts.claudeMd;
+        if (text === undefined) return { ok: false, reason: 'missing' };
+        return Buffer.byteLength(text) > maxBytes
+          ? { ok: false, reason: 'too-large' }
+          : { ok: true, text };
+      }
       runCheckouts.calls.push({ showAt: { dir, commit, path, maxBytes } });
       return runCheckouts.showAnswers.shift() ?? { ok: false, reason: 'missing' };
     },

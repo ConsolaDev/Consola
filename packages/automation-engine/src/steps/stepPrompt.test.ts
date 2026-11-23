@@ -311,6 +311,89 @@ describe('renderStepPrompt with an agent', () => {
   });
 });
 
+describe('renderStepPrompt by policy (slice 3-B, Call 17)', () => {
+  const TOOLS =
+    'use Consola’s tools (work_item_context, list_inbox, and this step’s output and artifact tools)';
+  const headerOf = (fields: Partial<StepPromptInput>) =>
+    renderStepPrompt(input(fields)).split('\n\n')[0];
+
+  it.each([
+    ['read-only', 'This session is read-only'],
+    ['edit', 'This session writes files: it can change the files in this checkout'],
+    ['write', 'This session writes files and runs commands'],
+  ] as const)('the header says what a %s session is', (policy, words) =>
+    expect(renderStepPrompt(input({ policy }))).toContain(words),
+  );
+
+  it('a read-only policy renders the header with none, byte for byte', () => {
+    expect(renderStepPrompt(input({ policy: 'read-only' }))).toBe(renderStepPrompt(input()));
+  });
+
+  it("an edit step's header: its checkout's files and Consola's tools, no shell, no network, and Consola commits", () => {
+    expect(headerOf({ policy: 'edit' })).toContain(
+      `This session writes files: it can change the files in this checkout and ${TOOLS}, and nothing else: no shell, no network. Consola commits what you leave when you finish. Nobody is watching while you work.`,
+    );
+  });
+
+  it("a sandboxed write step's header names its reach, and that its git cannot write (the re-check's Minor)", () => {
+    const header = headerOf({
+      policy: 'write',
+      environment: { isolation: 'sandbox', network: ['registry.npmjs.org'] },
+    });
+    expect(header).toContain('can write only this checkout and reach only registry.npmjs.org');
+    expect(header).toContain(
+      'in which git can read this checkout but not change it (`add`, `commit`, `stash`, `checkout` and `restore` are refused)',
+    );
+    expect(header).toContain(
+      `This session writes files and runs commands: it can change the files in this checkout and run commands in a shell that can write only this checkout and reach only registry.npmjs.org, and in which git can read this checkout but not change it (\`add\`, \`commit\`, \`stash\`, \`checkout\` and \`restore\` are refused), and ${TOOLS}. Consola commits what you leave when you finish; do not commit or push. Nobody is watching while you work.`,
+    );
+  });
+
+  it('a sandboxed write step with no hosts reaches no network; several are listed', () => {
+    expect(
+      headerOf({ policy: 'write', environment: { isolation: 'sandbox', network: [] } }),
+    ).toContain('a shell that can write only this checkout and reach no network, and in which git');
+    expect(
+      headerOf({
+        policy: 'write',
+        environment: { isolation: 'sandbox', network: ['registry.npmjs.org', '*.github.com'] },
+      }),
+    ).toContain('reach only registry.npmjs.org and *.github.com, and in which git');
+  });
+
+  it('a write step on host says its shell runs as the person, a convention', () => {
+    expect(
+      headerOf({ policy: 'write', environment: { isolation: 'host', network: [] } }),
+    ).toContain(
+      `run commands in a shell that runs as the person, a convention, and ${TOOLS}. Consola commits what you leave when you finish; do not commit or push.`,
+    );
+  });
+
+  it("lists a run's own checkout's material by its labels, with sizes", () => {
+    const rendered = renderStepPrompt(
+      input({
+        reads: [
+          {
+            ref: 'checkout.changes',
+            step: 'checkout',
+            bytes: 2048,
+            label: 'changes on fix/SHOP-42 since b0b0b0b',
+          },
+          {
+            ref: 'checkout.claude-md',
+            step: 'checkout',
+            bytes: 900,
+            label: 'CLAUDE.md at b0b0b0b, the commit this run cut from',
+          },
+        ],
+      }),
+    );
+    expect(rendered).toContain(
+      '  - checkout.changes (changes on fix/SHOP-42 since b0b0b0b, 2.0 KB)\n  - checkout.claude-md (CLAUDE.md at b0b0b0b, the commit this run cut from, 900 B)',
+    );
+  });
+});
+
 describe('reminderPrompt', () => {
   it('names what is missing and the tool that sets it', () => {
     expect(reminderPrompt({ outputs: ['verdict'], artifacts: [] })).toBe(

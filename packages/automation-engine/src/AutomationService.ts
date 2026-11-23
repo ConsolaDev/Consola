@@ -148,6 +148,7 @@ import { AUTOMATION_TEMPLATES, coversAssignedReviews, GITHUB, templateViews } fr
 import {
   actionTypeRefusal,
   agentStepLaunch,
+  type CheckoutMaterial,
   endedWithout,
   itemRefOf,
   stepCap,
@@ -214,8 +215,15 @@ import {
 } from './steps/definition';
 import { isEngineRun, isStepsRun } from './steps/recover';
 import {
+  CHECKOUT_FILES,
+  CHECKOUT_MATERIAL_BYTES,
+  CHECKOUT_REFS,
+  changesLabel,
+  checkoutReadProblem,
+  claudeMdLabel,
   commitMessage,
   CONTINUE_AFTER_RUN,
+  materialText,
   folderChangedMessage,
   leftoverProblem,
   makeFailedMessage,
@@ -4402,7 +4410,105 @@ export class AutomationService {
     this.admitted.delete(runId);
     this.broadcastRun(runId);
     this.noticeGate(this.deps.store.get(runId)!);
+    void this.writeGateChanges(runId, stepId);
     void this.pump();
+  }
+
+  /**
+   * A gate that shows a run's own checkout's changes (slice 3-B Task 15):
+   * the diff from its base to the head it parked on, written into the
+   * gate's folder for its card (`gateChangesOf`), cut at 256 KB. One that
+   * cannot be read says why there, in its place: the person never answers
+   * a gate that silently shows less than it names.
+   */
+  private async writeGateChanges(runId: string, stepId: string): Promise<void> {
+    const run = this.deps.store.get(runId);
+    const record = run?.steps?.find((step) => step.id === stepId);
+    if (!run || !record) return;
+    const loaded = this.definitionOf(run);
+    if (!('definition' in loaded)) return;
+    const shows = gateMaterialRefs(
+      loaded.definition.automation.steps,
+      run.steps ?? [],
+      stepId,
+    ).some((ref) => `${ref.step}.${ref.name}` === CHECKOUT_REFS.changes);
+    const owned = this.ownedCheckout(run);
+    if (!shows || !owned || 'problem' in owned) return;
+    const dir = this.deps.runFolder.attemptDir(
+      run.attribution.workspaceId ?? '',
+      run.id,
+      stepId,
+      record.attempt,
+    );
+    let text: string;
+    try {
+      const changes = await owned.port.changes(
+        owned.dir,
+        owned.base,
+        owned.head,
+        CHECKOUT_MATERIAL_BYTES,
+      );
+      text = materialText(changes.text, changes.bytes);
+    } catch (error) {
+      text = `Consola couldn't read this run's changes: ${describeError(error)}`;
+    }
+    try {
+      this.deps.runFolder.writeMaterial(dir, CHECKOUT_FILES.changes, text);
+      this.broadcastRun(runId);
+    } catch (error) {
+      console.error(`Run ${runId} could not keep the changes ${stepId} shows.`, error);
+    }
+  }
+
+  /**
+   * What an agent step is handed of its run's own checkout (slice 3-B Task
+   * 15), written into its attempt's folder before it launches: the branch's
+   * changes from its base to the head it starts at, when it declares
+   * `checkout.changes`, and the repository's `CLAUDE.md` at the base, when
+   * there is one (a file of at most 1 MB). Each cut at 256 KB. Throws what
+   * could not be read.
+   */
+  private async writeCheckoutMaterial(
+    run: RunRecord,
+    definition: RunDefinition,
+    stepId: string,
+    attempt: number,
+  ): Promise<CheckoutMaterial> {
+    const owned = this.ownedCheckout(run);
+    if (!owned || 'problem' in owned) return {};
+    const dir = this.deps.runFolder.attemptDir(
+      run.attribution.workspaceId ?? '',
+      run.id,
+      stepId,
+      attempt,
+    );
+    const step = leafSteps(definition.automation.steps).find(
+      (candidate) => candidate.id === stepId,
+    );
+    const material: CheckoutMaterial = {};
+    if (step?.kind === 'agent' && step.reads.includes(CHECKOUT_REFS.changes)) {
+      const changes = await owned.port.changes(
+        owned.dir,
+        owned.base,
+        owned.head,
+        CHECKOUT_MATERIAL_BYTES,
+      );
+      const text = materialText(changes.text, changes.bytes);
+      this.deps.runFolder.writeMaterial(dir, CHECKOUT_FILES.changes, text);
+      material.changes = { bytes: utf8Bytes(text), label: changesLabel(owned.branch, owned.base) };
+    }
+    const shown = await owned.port.showAt(
+      owned.dir,
+      owned.base,
+      CHECKOUT_FILES.claudeMd,
+      MAX_PATH_ARTIFACT_BYTES,
+    );
+    if (shown.ok) {
+      const text = materialText(shown.text);
+      this.deps.runFolder.writeMaterial(dir, CHECKOUT_FILES.claudeMd, text);
+      material.claudeMd = { bytes: utf8Bytes(text), label: claudeMdLabel(owned.base) };
+    }
+    return material;
   }
 
   /** A run waiting at a gate tells the person: `<automation> is waiting for you`, and the question, filled in. */
@@ -4486,6 +4592,11 @@ export class AutomationService {
     const record = records.find((candidate) => candidate.id === stepId);
     if (!offer || !record?.gate) return null;
     const material = gateMaterialRefs(entries, records, stepId).flatMap((ref) => {
+      // A run's own checkout's changes (slice 3-B Task 15): written into the gate's folder as it parked.
+      if (`${ref.step}.${ref.name}` === CHECKOUT_REFS.changes) {
+        const shown = this.gateChangesOf(workspaceId, run, record);
+        return shown ? [{ ...ref, ...shown }] : [];
+      }
       const attempt = records.find((candidate) => candidate.id === ref.step)?.attempt;
       const read = attempt === undefined ? null : this.materialOf(workspaceId, runId, ref, attempt);
       return read ? [{ ...ref, label: `${ref.step}.${ref.name}`, ...read }] : [];
@@ -4526,6 +4637,29 @@ export class AutomationService {
   }
 
   /**
+   * A run's own checkout's changes as its gate shows them (slice 3-B Task
+   * 15): what Consola wrote into the gate's folder when the run parked
+   * there, at the head it parked on, labelled `changes on <branch> since
+   * <base>`; marked `truncated` when it was cut. Null before it is written.
+   */
+  private gateChangesOf(
+    workspaceId: string,
+    run: RunRecord,
+    record: StepRun,
+  ): { label: string; text: string; truncated: boolean } | null {
+    const { branch, base } = run.checkout ?? {};
+    if (run.checkout?.kind !== 'run-owned' || !branch || !base) return null;
+    const file = `${this.deps.runFolder.attemptDir(workspaceId, run.id, record.id, record.attempt)}/${CHECKOUT_FILES.changes}`;
+    const text = this.deps.runFolder.readText(file, CHECKOUT_MATERIAL_BYTES + 1024);
+    if (text === null) return null;
+    return {
+      label: changesLabel(branch, base),
+      text,
+      truncated: /\n\[cut here: the rest is \d+ KB more\]$/.test(text),
+    };
+  }
+
+  /**
    * One document a gate shows, from its step's attempt: whole, as a step
    * writes at most `MAX_ARTIFACT_BYTES`; one larger (put there by hand)
    * shows its last `MAX_ARTIFACT_BYTES`, marked `truncated`. Null when it
@@ -4560,7 +4694,7 @@ export class AutomationService {
    * also what holds its slot. A folder that is gone fails the step.
    */
   private async startAgentStep(runId: string, stepId: string): Promise<void> {
-    const run = this.deps.store.get(runId)!;
+    let run = this.deps.store.get(runId)!;
     const loaded = this.definitionOf(run);
     if ('problem' in loaded) {
       this.failRun(runId, loaded.problem);
@@ -4576,6 +4710,25 @@ export class AutomationService {
         this.settleStep(runId, stepId, { status: 'reported' }, { also: { note: report } });
         return;
       }
+    }
+    // A run's own checkout (slice 3-B Task 15): what the step reads of it goes into its attempt's folder first.
+    let material: CheckoutMaterial | undefined;
+    if (run.checkout?.kind === 'run-owned') {
+      const queued = this.stepsOf(runId).find((step) => step.id === stepId);
+      if (!queued) return;
+      try {
+        material = await this.writeCheckoutMaterial(run, loaded.definition, stepId, queued.attempt);
+      } catch (error) {
+        if (this.stepWaiting(runId, stepId, queued.attempt))
+          this.settleStep(runId, stepId, {
+            status: 'failed',
+            error: checkoutReadProblem(stepId, error),
+          });
+        return;
+      }
+      // Its run may have ended while that was read, or Consola quit: nothing started.
+      if (!this.started || !this.stepWaiting(runId, stepId, queued.attempt)) return;
+      run = this.deps.store.get(runId)!;
     }
     const { cwd, scopeId } = run.checkout ?? {};
     if (!cwd || !scopeId) {
@@ -4612,6 +4765,7 @@ export class AutomationService {
       ...itemOf,
       previous: run.previous,
       folder: this.deps.runFolder,
+      ...(material ? { checkoutMaterial: material } : {}),
     });
     if (!launch.ok) {
       this.settleStep(runId, stepId, { status: 'failed', error: launch.error });
@@ -4882,6 +5036,30 @@ export class AutomationService {
         this.settleStep(runId, stepId, { status: 'failed', error: why });
       }
       return;
+    }
+    // A run's own checkout (slice 3-B Task 15): the branch's changes, `CONSOLA_CHANGES_FILE`, written before it spawns.
+    const owner = run.checkout?.kind === 'run-owned' ? this.ownedCheckout(run) : null;
+    if (owner && !('problem' in owner)) {
+      try {
+        const changes = await owner.port.changes(
+          owner.dir,
+          owner.base,
+          owner.head,
+          CHECKOUT_MATERIAL_BYTES,
+        );
+        this.deps.runFolder.writeMaterial(
+          command.dir,
+          CHECKOUT_FILES.changes,
+          materialText(changes.text, changes.bytes),
+        );
+      } catch (error) {
+        if (this.stepWaiting(runId, stepId, command.attempt))
+          this.settleStep(runId, stepId, {
+            status: 'failed',
+            error: checkoutReadProblem(stepId, error),
+          });
+        return;
+      }
     }
     // Its run may have ended while that was borrowed, or Consola quit:
     // nothing ran, and with no intent recorded the next start runs it.

@@ -44,7 +44,8 @@ export interface StepPromptInput {
    * `previous` one why it is absent ("was not written in the earlier run").
    */
   reads: Array<
-    | { ref: string; step: string; bytes: number; previous?: true }
+    /** `label`: what a run's own checkout's material is (slice 3-B), said in place of its step. */
+    | { ref: string; step: string; bytes: number; previous?: true; label?: string }
     | { ref: string; step: string; previous: true; absent: string }
   >;
   /** It reads `previous`, and this run has no earlier one: says so after the inputs. */
@@ -52,9 +53,42 @@ export interface StepPromptInput {
   outputs: Record<string, OutputType>;
   artifacts: string[];
   handover: 'required' | 'optional';
+  /**
+   * What the session may change (slice 3-B, Call 17): absent or `read-only`,
+   * the header every earlier slice renders, byte for byte; `edit` and
+   * `write` say what a write step's session is.
+   */
+  policy?: 'read-only' | 'edit' | 'write';
+  /** A `write` step's environment: where its shell may write and what it may reach. */
+  environment?: { isolation: 'host' | 'sandbox'; network: readonly string[] };
 }
 
 const RUN_ID_LENGTH = 8;
+
+/**
+ * What the header says a session may do (Call 17), given Consola's tools as
+ * the header lists them (`tools`). Under `sandbox` the git folder is outside
+ * what the shell may write, so git can read the checkout but not change it,
+ * and the header says so, or the agent spends turns finding out.
+ */
+function sessionSentence(
+  policy: StepPromptInput['policy'],
+  environment: StepPromptInput['environment'],
+  tools: string,
+): string {
+  if (policy === 'edit')
+    return `This session writes files: it can change the files in this checkout and use ${tools}, and nothing else: no shell, no network. Consola commits what you leave when you finish. `;
+  if (policy === 'write') {
+    const shell =
+      environment?.isolation === 'sandbox'
+        ? `can write only this checkout and reach ${
+            environment.network.length > 0 ? `only ${joinList(environment.network)}` : 'no network'
+          }, and in which git can read this checkout but not change it (\`add\`, \`commit\`, \`stash\`, \`checkout\` and \`restore\` are refused)`
+        : 'runs as the person, a convention';
+    return `This session writes files and runs commands: it can change the files in this checkout and run commands in a shell that ${shell}, and use ${tools}. Consola commits what you leave when you finish; do not commit or push. `;
+  }
+  return `This session is read-only: it can read the files in this folder and use ${tools}, and nothing else: no shell, no network. `;
+}
 
 /** KB with one decimal at 1024 bytes each; under one KB, whole bytes ("900 B"). */
 export function describeSize(bytes: number): string {
@@ -105,14 +139,16 @@ export function renderStepPrompt(input: StepPromptInput): string {
     outputs,
     artifacts,
     handover,
+    policy,
+    environment,
   } = input;
   // An item run works in the item's own worktree, unless its items have no repository (a poll with `key:`): then in its scope.
   const place = scope ? `, in ${scope}` : item ? ', in a dedicated git worktree for it' : '';
   const where = `${item ? `, for ${item.header}` : ''}${place}`;
+  const tools = `Consola’s tools (work_item_context, list_inbox, and this step’s output and artifact tools)${agentGrants(agent)}`;
   const header =
     `[Consola] Step "${step.id}" (${index} of ${count}) of the automation "${automation}" (run ${runId.slice(0, RUN_ID_LENGTH)})${where}. ` +
-    'This session is read-only: it can read the files in this folder and use Consola’s tools ' +
-    `(work_item_context, list_inbox, and this step’s output and artifact tools)${agentGrants(agent)}, and nothing else: no shell, no network. ` +
+    sessionSentence(policy, environment, tools) +
     'Nobody is watching while you work.';
 
   // Without an agent, the body follows the header as it always has; with one, the agent says who and the body what.
@@ -132,7 +168,7 @@ export function renderStepPrompt(input: StepPromptInput): string {
         ...reads.map((read) =>
           'absent' in read
             ? `  - ${read.ref} — ${read.absent}`
-            : `  - ${read.ref} (from step "${read.step}"${read.previous ? ` ${OF_EARLIER_RUN}` : ''}, ${describeSize(read.bytes)})`,
+            : `  - ${read.ref} (${read.label ?? `from step "${read.step}"${read.previous ? ` ${OF_EARLIER_RUN}` : ''}`}, ${describeSize(read.bytes)})`,
         ),
         'Read them with consola_read_artifact.',
       ].join('\n'),

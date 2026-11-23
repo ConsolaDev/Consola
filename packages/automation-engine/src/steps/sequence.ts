@@ -1,4 +1,5 @@
 import {
+  CHECKOUT_CHANGES_REF,
   evaluateExpression,
   type Expr,
   expressionPaths,
@@ -134,6 +135,8 @@ function dependenciesOf(
   const reads: Reference[] = [];
   if (step.kind === 'agent') {
     for (const entry of step.reads) {
+      // A run's own checkout's changes are no step's document (slice 3-B): nothing to wait for.
+      if (entry === CHECKOUT_CHANGES_REF) continue;
       const ref = parseReadRef(entry);
       // Validation kept only entries of either shape; one that is neither names no step of this run.
       if (ref && !ref.previous) reads.push({ path: entry, step: ref.step });

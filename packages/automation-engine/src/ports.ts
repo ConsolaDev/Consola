@@ -360,6 +360,8 @@ export interface RunFolderPort {
     name: string,
   ): string | null;
   writeJson(dir: string, file: 'command.json' | 'outputs.json', value: unknown): void;
+  /** Atomic: what a step reads of its run's own checkout, in its attempt's folder (slice 3-B Task 15). */
+  writeMaterial(dir: string, file: 'checkout-changes.patch' | 'CLAUDE.md', text: string): void;
   /** Atomic: `runs/<run>/<step>/<attempt>/turn.json` gains `turn` at the end of its `turns`. */
   appendTurn(
     workspaceId: string,

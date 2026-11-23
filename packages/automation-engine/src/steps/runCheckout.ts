@@ -232,6 +232,57 @@ export function sessionHoldsRetry(session: string): string {
   return `\`${session}\` is open in this run's checkout; close it, then retry`;
 }
 
+/**
+ * What a step reads of its run's own checkout (slice 3-B Task 15): the
+ * branch's changes since its base, when it declares them, and the
+ * repository's `CLAUDE.md` at that base, always. Neither is a step's
+ * document: Consola writes each into the reading step's (or gate's)
+ * attempt folder, as `CHECKOUT_FILES` names it, right before it starts.
+ */
+export const CHECKOUT_REFS = {
+  changes: 'checkout.changes',
+  claudeMd: 'checkout.claude-md',
+} as const;
+export const CHECKOUT_FILES = {
+  changes: 'checkout-changes.patch',
+  claudeMd: 'CLAUDE.md',
+} as const;
+/** How much of either a step is handed: the cap of a step's own document. */
+export const CHECKOUT_MATERIAL_BYTES = 256 * 1024;
+
+/** `changes on <branch> since <base, 7>`: what `checkout.changes` is, in a prompt and on its fence. */
+export function changesLabel(branch: string, base: string): string {
+  return `changes on ${branch} since ${base.slice(0, 7)}`;
+}
+
+/** `CLAUDE.md at <base, 7>, the commit this run cut from`. */
+export function claudeMdLabel(base: string): string {
+  return `CLAUDE.md at ${base.slice(0, 7)}, the commit this run cut from`;
+}
+
+/**
+ * The text a step is handed: whole when it fits `CHECKOUT_MATERIAL_BYTES`,
+ * else cut there on a character's edge, with the line
+ * `[cut here: the rest is <n> KB more]` (`bytes` its whole size, when the
+ * reader already cut `text`).
+ */
+export function materialText(text: string, bytes = new TextEncoder().encode(text).length): string {
+  const encoded = new TextEncoder().encode(text);
+  if (bytes <= CHECKOUT_MATERIAL_BYTES && encoded.length <= CHECKOUT_MATERIAL_BYTES) return text;
+  let cut = Math.min(encoded.length, CHECKOUT_MATERIAL_BYTES);
+  // Back off to the start of a character, so the text never ends in half of one.
+  while (cut > 0 && cut < encoded.length && (encoded[cut] & 0xc0) === 0x80) cut -= 1;
+  const kept = new TextDecoder().decode(encoded.subarray(0, cut));
+  const rest = Math.ceil((bytes - cut) / 1024);
+  return `${kept}\n[cut here: the rest is ${rest} KB more]`;
+}
+
+/** Why a step did not start: what it reads of its run's checkout could not be read. */
+export function checkoutReadProblem(step: string, error: unknown): string {
+  const why = (error instanceof Error ? error.message : String(error)).replace(/\.$/, '');
+  return `Consola couldn't read this run's checkout for ${step}: ${why}`;
+}
+
 /** What a step's session says while its run is open (spec *A full-tools continuation*). */
 export const CONTINUE_AFTER_RUN = 'Continue with full tools after the run ends';
 

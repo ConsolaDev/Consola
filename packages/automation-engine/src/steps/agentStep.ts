@@ -14,6 +14,7 @@ import { fillActionPlaceholders } from '../support';
 import type { ItemRef } from '../views';
 import { describeReason } from './commandStep';
 import type { RunDefinition } from './definition';
+import { CHECKOUT_REFS } from './runCheckout';
 import { joinNames } from './sequence';
 import { renderStepPrompt, type StepPromptInput } from './stepPrompt';
 
@@ -67,10 +68,16 @@ function readsOf(
   step: AgentStep,
   records: StepRun[],
   earlier: { folder: RunFolderPort; workspaceId: string; previous: { runId: string } | undefined },
+  material: CheckoutMaterial | undefined,
 ): Pick<StepPromptInput, 'reads' | 'noEarlierRun'> {
   const reads: StepPromptInput['reads'] = [];
   let readsPrevious = false;
   for (const entry of step.reads) {
+    // A run's own checkout's changes (slice 3-B): written for this attempt, by its label.
+    if (entry === CHECKOUT_REFS.changes) {
+      if (material?.changes) reads.push({ ref: entry, step: 'checkout', ...material.changes });
+      continue;
+    }
     const ref = parseReadRef(entry);
     if (!ref) continue;
     if (ref.previous) {
@@ -104,7 +111,21 @@ function readsOf(
       ?.artifacts?.find((artifact) => artifact.name === ref.name);
     if (written) reads.push({ ref: entry, step: ref.step, bytes: written.bytes });
   }
+  // The repository's instructions at the run's base, whatever the step declares (slice 3-B).
+  if (material?.claudeMd)
+    reads.push({ ref: CHECKOUT_REFS.claudeMd, step: 'checkout', ...material.claudeMd });
   return { reads, ...(readsPrevious && !earlier.previous ? { noEarlierRun: true as const } : {}) };
+}
+
+/**
+ * What Consola wrote of a run's own checkout into the step's attempt folder
+ * before it starts (slice 3-B Task 15), by size and label: the branch's
+ * changes, when the step declares them, and the repository's `CLAUDE.md` at
+ * its base, when there is one.
+ */
+export interface CheckoutMaterial {
+  changes?: { bytes: number; label: string };
+  claudeMd?: { bytes: number; label: string };
 }
 
 /**
@@ -190,6 +211,8 @@ export function agentStepLaunch(input: {
   polled: Record<string, unknown> | undefined;
   previous: { runId: string } | undefined;
   folder: RunFolderPort;
+  /** In a run's own checkout: what the step is handed of it (slice 3-B). */
+  checkoutMaterial?: CheckoutMaterial;
 }): AgentStepLaunch {
   const { workspaceId, run, definition, stepId, checkout, source, polled, previous, folder } =
     input;
@@ -233,7 +256,12 @@ export function agentStepLaunch(input: {
 
   let reads: ReturnType<typeof readsOf>;
   try {
-    reads = readsOf(step, run.steps ?? [], { folder, workspaceId, previous });
+    reads = readsOf(
+      step,
+      run.steps ?? [],
+      { folder, workspaceId, previous },
+      input.checkoutMaterial,
+    );
   } catch (error) {
     return {
       ok: false,
@@ -265,6 +293,16 @@ export function agentStepLaunch(input: {
     outputs: step.outputs,
     artifacts: step.artifacts,
     handover: step.handover,
+    // A write agent's session says what it may change (slice 3-B, Call 17).
+    ...(agent?.tools !== undefined ? { policy: agent.tools } : {}),
+    ...(agent?.environment
+      ? {
+          environment: {
+            isolation: agent.environment.isolation,
+            network: agent.environment.network,
+          },
+        }
+      : {}),
   });
   const name = `${item ? item.title : automation} · ${step.id}`;
   const firstAgentStep = steps.find((candidate) => candidate.kind === 'agent')?.id === step.id;
