@@ -7,6 +7,7 @@ import type {
   StepRunStatus,
 } from '@consola/factory-spec';
 import type { RunFilter } from './runFilter';
+import type { SecretBindingView } from './secrets/secretsView';
 
 /** One automation from a workspace's factory folder, as the app shows it. */
 export interface AutomationView {
@@ -73,6 +74,8 @@ export interface AutomationView {
    * action, scope or event, or arguments the tool rejects.
    */
   problem?: string;
+  /** The names its problem says are not bound: its row offers Bind…. */
+  unbound?: string[];
   /**
    * Its problem came from asking a harness's CLI about servers (a probe
    * that failed, or a server refused against its answer): Check again asks
@@ -374,6 +377,8 @@ export interface AutomationsSnapshot {
   templates: TemplateView[];
   /** Present only while the folder does not apply: the last applied version keeps running. */
   standing?: FactoryStanding;
+  /** The factory's secrets, for the cards: names, where each is bound and goes; absent when it names none and binds none. */
+  secrets?: SecretBindingView[];
 }
 
 /** A PR or issue, named the way the engine needs it: the provider is an opaque id here. */

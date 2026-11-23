@@ -12,6 +12,7 @@ import {
   parseAutomationEntry,
   parseFactory,
   parseFactorySpec,
+  secretUsesOf,
   skillHash,
   stableStringify,
   STEP_ID_PATTERN,
@@ -212,6 +213,9 @@ import {
 } from './steps/stepRecords';
 import { NO_TURN_TO_STOP, stopAction, stoppedBefore } from './steps/stop';
 import { StepIO } from './steps/stepTools';
+import { PERSONAL_FACTORY, type SecretsPort } from './secrets/secretsPort';
+import { buildSecretsView, type SecretBindingView } from './secrets/secretsView';
+import { unboundOf } from './secrets/unbound';
 
 /**
  * The runner for personal automations: one `factory.yml` per workspace, whose
@@ -367,6 +371,8 @@ export interface AutomationServiceDeps {
    * token cannot be borrowed; a workspace with no bound account gets none.
    */
   commandEnv(workspaceId: string): Promise<{ env: NodeJS.ProcessEnv; secrets: string[] }>;
+  /** This runner's bindings; absent, an entry naming a secret cannot run. */
+  secrets?: SecretsPort;
   /** Commands automations may have running at once, across every workspace. */
   maxConcurrentCommands?: number;
 }
@@ -481,6 +487,8 @@ interface Resolved {
   event?: EventSource;
   /** Set when the entry parsed but cannot run: the reason it will not. */
   problem?: string;
+  /** Its problem is that these secrets are not bound (`withSecrets`): its row offers Bind…. */
+  unbound?: string[];
   /** Its problem came from asking a harness's CLI about servers: its row offers Check again. */
   recheck?: true;
   /** Its problem is that the CLI could not be asked at all: machine state, which refuses no save. */
@@ -712,6 +720,12 @@ export class AutomationService {
   private readonly allowsAnnounced = new Set<string>();
   /** Whether a version that needs Allow is announced when first seen: once start-up's first sync is done. */
   private announcingAllows = false;
+  /**
+   * Every entry told it needs secrets bound (`<key> <names>`), so none is told
+   * twice for the same names. In memory; recorded quietly at start-up, as
+   * `allowsAnnounced` is, so a launch does not repeat what the row says.
+   */
+  private readonly unboundAnnounced = new Set<string>();
   /**
    * Each poll entry's checks since start-up, by automation key: when the
    * next is due, the one running, what the last found. Memory only: a
@@ -1367,6 +1381,11 @@ export class AutomationService {
         stepProblem:
           this.harnessProblem(workspaceId) === null ? this.stepHarnessProblem(workspaceId) : null,
       },
+      // Names and flags only: where each is bound is the person's, never an agent's.
+      secrets: this.secretsView(workspaceId).map(({ name, binding }) => ({
+        name,
+        bound: binding !== undefined,
+      })),
     });
   }
 
@@ -2377,6 +2396,7 @@ export class AutomationService {
           ? { asksFirst: true }
           : {}),
         ...(entry.problem ? { problem: entry.problem } : {}),
+        ...(entry.unbound ? { unbound: [...entry.unbound] } : {}),
         ...(entry.recheck ? { recheck: true as const } : {}),
         ...(added
           ? {
@@ -2805,6 +2825,7 @@ export class AutomationService {
         if (run.attribution.workspaceId === workspaceId) queue[run.id] = index + 1;
       });
     }
+    const secrets = this.secretsView(workspaceId);
     return {
       filePath: factory.folder.filePath,
       fileExists: factory.read.exists,
@@ -2823,6 +2844,7 @@ export class AutomationService {
       suggestAssignedReviews: this.assignedReviewsSuggestion(workspaceId, factory),
       templates: this.templatesOf(workspaceId, factory),
       ...(factory.standing ? { standing: this.standingView(factory.standing) } : {}),
+      ...(secrets.length > 0 ? { secrets } : {}),
     };
   }
 
@@ -4543,6 +4565,7 @@ export class AutomationService {
     for (const entry of factory.resolved)
       for (const warning of entry.warnings ?? []) warnings.set(stableStringify(warning), warning);
     factory.warnings = [...warnings.values()];
+    factory.resolved = factory.resolved.map((entry) => this.withSecrets(entry));
   }
 
   /**
@@ -5467,6 +5490,66 @@ export class AutomationService {
   private broadcastRun(runId: string): void {
     const workspaceId = this.deps.store.get(runId)?.attribution.workspaceId;
     if (workspaceId) this.broadcast(workspaceId);
+  }
+
+  // --- secrets (5a-1): every hook above calls into this block ---
+
+  /**
+   * A resolved entry as its secrets leave it: one with no other problem that
+   * names a name this runner has not bound takes that problem, keeping its
+   * version, agents and skills and nothing that fires. Told once per entry
+   * and set of names, quietly during start-up.
+   */
+  private withSecrets(entry: Resolved): Resolved {
+    if (entry.problem) return entry;
+    const found = unboundOf(entry.automation, this.deps.secrets, entry.workspaceId);
+    if (!found) return entry;
+    const announced = `${automationKey(entry)} ${found.unbound.join(',')}`;
+    if (!this.unboundAnnounced.has(announced)) {
+      this.unboundAnnounced.add(announced);
+      if (this.announcingAllows) {
+        const name = entry.automation.name;
+        this.deps.notify({
+          title: `\`${name}\` ${found.problem}`,
+          body: "It won't run until then. Review it in Consola.",
+          workspaceId: entry.workspaceId,
+          automation: name,
+          needsApproval: false,
+        });
+      }
+    }
+    return {
+      workspaceId: entry.workspaceId,
+      automation: entry.automation,
+      version: entry.version,
+      problem: found.problem,
+      unbound: found.unbound,
+      ...(entry.agents ? { agents: entry.agents } : {}),
+      ...(entry.skills ? { skills: entry.skills } : {}),
+    };
+  }
+
+  /**
+   * The factory's secrets: every name its entries use or this runner has
+   * bound, where each is bound, where it goes, and whether that entry's
+   * current version is accepted. Names, labels and times: never a value.
+   */
+  public secretsView(workspaceId: string): SecretBindingView[] {
+    const resolved = this.factories.get(workspaceId)?.resolved ?? [];
+    const port = this.deps.secrets;
+    const accepted = new Map(
+      resolved.map((entry) => [
+        entry.automation.name,
+        this.deps.store.acceptedVersion(automationKey(entry)) === entry.version,
+      ]),
+    );
+    return buildSecretsView({
+      uses: resolved.flatMap((entry) => secretUsesOf(entry.automation)),
+      accepted: (automation) => accepted.get(automation) === true,
+      bound: port?.boundNames(workspaceId, PERSONAL_FACTORY) ?? new Set(),
+      describe: (name) => port?.describe(workspaceId, PERSONAL_FACTORY, name) ?? null,
+      fingerprint: (name) => port?.fingerprint(workspaceId, PERSONAL_FACTORY, name) ?? null,
+    });
   }
 
   private broadcast(workspaceId: string): void {

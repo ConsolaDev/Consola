@@ -31,6 +31,7 @@ import type {
 } from '../ports';
 import { RunStore, type AutomationStateFile } from '../RunStore';
 import { memoryHistory } from '../runHistory.test-helpers';
+import type { SecretBinding, SecretsPort } from '../secrets/secretsPort';
 import { StartedByHandError } from '../support';
 import { FakeToolRegistry, type TestTool } from '../tools.test-helpers';
 import type {
@@ -181,7 +182,32 @@ export interface StepsHarnessOptions {
   tools?: TestTool[];
   /** The host's work items. Default: a host that reads no work item URL. */
   workItems?: WorkItemPort;
+  /** This runner's secret bindings and values; `'none'` passes no port. Default: a port that binds nothing. */
+  secrets?: { bindings?: Record<string, FakeBinding>; values?: Record<string, string> } | 'none';
 }
+
+/** One name's binding on the fake port: its reference (its fingerprint), and how it reads on a card. */
+export interface FakeBinding {
+  ref: string;
+  kind?: SecretBinding['kind'];
+  label?: string;
+  changedAt?: string;
+}
+
+/** The fake secrets port's state: edit `bindings` or `values`, then `service.reload(ws)`, as a bind would. */
+export interface FakeSecrets {
+  bindings: Map<string, FakeBinding>;
+  values: Map<string, string>;
+  /** Every `resolve` asked for, in order: the names of each. */
+  resolved: string[][];
+  /** Every `resolve` waits for this while it is set, after recording the call. */
+  resolveGate?: Promise<void>;
+  /** Every `resolve` rejects with this while it is set, after recording the call (and waiting). */
+  resolveThrows?: unknown;
+}
+
+/** The desktop's words: where a person binds a name on this runner. */
+export const BIND_HINT = 'on this Mac (Settings › Secrets)';
 
 /** What the fake host holds and recorded. A test edits the first part to move the world, then resyncs. */
 export interface StepsWorld {
@@ -296,6 +322,8 @@ export interface StepsWorld {
   refreshes: string[];
   /** The workspace id of every snapshot broadcast, in order. */
   broadcasts: string[];
+  /** The runner's secrets: what is bound, the values, every read. */
+  secrets: FakeSecrets;
 }
 
 export interface StepsHarness {
@@ -472,6 +500,15 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
     stops: [],
     refreshes: [],
     broadcasts: [],
+    secrets: {
+      bindings: new Map(
+        Object.entries(options.secrets === 'none' ? {} : (options.secrets?.bindings ?? {})),
+      ),
+      values: new Map(
+        Object.entries(options.secrets === 'none' ? {} : (options.secrets?.values ?? {})),
+      ),
+      resolved: [],
+    },
   };
   const notices: AutomationNotice[] = [];
   // ws-1's factory folder, file by file; every other workspace's is empty.
@@ -619,6 +656,40 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
   const registry = new FakeToolRegistry();
   for (const tool of options.tools ?? []) registry.register(tool);
 
+  // The runner's bindings, by name, for ws-1's personal factory; every other workspace has none.
+  const bindingsOf = (workspaceId: string) =>
+    workspaceId === WORKSPACE_ID ? world.secrets.bindings : new Map<string, FakeBinding>();
+  const secretsPort: SecretsPort | undefined =
+    options.secrets === 'none'
+      ? undefined
+      : {
+          bindHint: BIND_HINT,
+          boundNames: (workspaceId) => new Set(bindingsOf(workspaceId).keys()),
+          describe: (workspaceId, _factory, name) => {
+            const binding = bindingsOf(workspaceId).get(name);
+            return binding
+              ? {
+                  kind: binding.kind ?? 'keychain',
+                  label: binding.label ?? `the keychain (${binding.ref})`,
+                  changedAt: binding.changedAt ?? '2026-11-16T08:00:00.000Z',
+                }
+              : null;
+          },
+          fingerprint: (workspaceId, _factory, name) =>
+            bindingsOf(workspaceId).get(name)?.ref ?? null,
+          resolve: async (_workspaceId, _factory, names) => {
+            world.secrets.resolved.push([...names]);
+            if (world.secrets.resolveGate) await world.secrets.resolveGate;
+            if (world.secrets.resolveThrows) throw world.secrets.resolveThrows;
+            const values: Record<string, string> = {};
+            for (const name of names) {
+              const value = world.secrets.values.get(name);
+              if (value !== undefined) values[name] = value;
+            }
+            return values;
+          },
+        };
+
   const deps = (store: RunStore): AutomationServiceDeps => ({
     folderFor,
     appliedStore,
@@ -748,6 +819,7 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
     },
     checkoutBusy: (dir) => world.busyFolders.has(dir),
     folderExists: (dir) => !world.goneFolders.has(dir),
+    ...(secretsPort ? { secrets: secretsPort } : {}),
   });
 
   const launch = async (): Promise<StepsHarness> => {

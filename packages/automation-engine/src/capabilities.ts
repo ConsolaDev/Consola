@@ -80,6 +80,8 @@ export interface AutomationCapabilities {
    */
   harnesses: Array<{ id: string; name: string; servers?: string[] }>;
   readOnlyLimits: string;
+  /** The workspace's secret names and whether this runner binds each: never where, never a value. */
+  secrets: Array<{ name: string; bound: boolean }>;
 }
 
 export interface CapabilitiesInput {
@@ -104,6 +106,8 @@ export interface CapabilitiesInput {
   harnesses?: Array<{ id: string; name: string; servers?: string[] }>;
   /** The factory folder; absent, `filePath`'s folder. */
   folderPath?: string;
+  /** The workspace's secret names and whether this runner binds each; absent, none. */
+  secrets?: Array<{ name: string; bound: boolean }>;
 }
 
 /** The item fields a prompt may template: the ones every connection gives and nobody else wrote. */
@@ -343,7 +347,24 @@ if: expr := or; or := and ("||" and)*; and := unary ("&&" unary)*; unary := "!" 
 
 ${EXAMPLES}`;
 
-const GRAMMAR = `${GRAMMAR_PROSE}\n\n${FOLDER_PROSE}`;
+/** A command that names the secret it needs. Not one of `GRAMMAR_EXAMPLES`: it runs only where its name is bound. */
+export const SECRETS_EXAMPLE = `- name: page-on-call
+  on: { cron: "0 9 * * 1-5" }
+  scope: api
+  mode: auto
+  steps:
+    - id: page
+      run: |
+        curl -fsS -X POST "$PAGER_URL" -H "Authorization: Token token=$PAGERDUTY_TOKEN" -d @page.json
+      env: { PAGER_URL: "https://events.pagerduty.com/v2/enqueue" }
+      secrets: [PAGERDUTY_TOKEN]`;
+
+/** What an agent is told of `secrets:`: where it goes, how a value arrives, who binds it. */
+export const SECRETS_GRAMMAR = `Secrets. secrets: [NAME, …] goes on a run: step, or in a poll: beside its run:, and names the secrets that command needs. Each value reaches that command only as its own environment variable, $NAME, never through {{ }}. A name follows env:'s rules (capital letters, digits and _), at most 64 characters and 20 per place; never CONSOLA_*, CLAUDE_CONFIG_DIR, GH_TOKEN, GH_HOST or a name env: refuses, and never also in the step's env:. An agent step, an agent file and an entry take none: Consola gives no secret's value to an agent. The file names a secret; the person binds each name to where its value lives in Settings › Secrets, never an agent. An entry whose names are not all bound does not run, and its problem says which. secrets in this answer lists the workspace's names and whether each is bound.
+
+${SECRETS_EXAMPLE}`;
+
+const GRAMMAR = `${GRAMMAR_PROSE}\n\n${FOLDER_PROSE}\n\n${SECRETS_GRAMMAR}`;
 
 const MODES: AutomationCapabilities['modes'] = [
   {
@@ -447,5 +468,6 @@ export function describeCapabilities(input: CapabilitiesInput): AutomationCapabi
       ...(harness.servers !== undefined ? { servers: [...harness.servers] } : {}),
     })),
     readOnlyLimits: READ_ONLY_LIMITS,
+    secrets: (input.secrets ?? []).map((secret) => ({ name: secret.name, bound: secret.bound })),
   };
 }

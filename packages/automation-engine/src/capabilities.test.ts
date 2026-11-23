@@ -14,6 +14,8 @@ import {
   AGENT_EXAMPLES,
   describeCapabilities,
   GRAMMAR_EXAMPLES,
+  SECRETS_EXAMPLE,
+  SECRETS_GRAMMAR,
   TRUSTED_ITEM_FIELDS,
 } from './capabilities';
 import { defineTool } from './tools.test-helpers';
@@ -475,5 +477,77 @@ describe('what an agent writing agent files and automation files is told', () =>
       'secrets (a secret given to an agent can reach its model, its transcript and its pane; a run: step names the secrets its command needs)',
     );
     expect(text).not.toContain('secrets (later slices)');
+  });
+});
+
+describe('what an agent writing an entry is told of secrets', () => {
+  it('teaches secrets: once, with an example that parses', () => {
+    const parsed = parseAutomationEntry(SECRETS_EXAMPLE);
+    if (!parsed.ok) throw new Error(parsed.issues[0].message);
+    expect(
+      parsed.automation.steps?.some(
+        (step) => step.kind === 'run' && step.secrets?.join() === 'PAGERDUTY_TOKEN',
+      ),
+    ).toBe(true);
+    const text = grammar().grammar;
+    expect(text.split(SECRETS_GRAMMAR)).toHaveLength(2);
+    expect(text.split(SECRETS_EXAMPLE)).toHaveLength(2);
+    for (const words of [
+      'secrets: [NAME, …]',
+      '$NAME',
+      'Settings › Secrets',
+      'CLAUDE_CONFIG_DIR',
+      'GH_TOKEN',
+      'at most 64 characters',
+      'an agent file and an entry take none',
+    ])
+      expect(SECRETS_GRAMMAR, words).toContain(words);
+    // What an agent is told never says where a value lives.
+    for (const where of ['keychain:', 'op://', 'env:<'])
+      expect(SECRETS_GRAMMAR, where).not.toContain(where);
+  });
+
+  it("echoes the workspace's names and whether each is bound", () => {
+    const told = describeCapabilities({
+      filePath: '/f/factory.yml',
+      fileExists: true,
+      tools: [],
+      actions: [],
+      scopes: [],
+      taken: [],
+      boundConnection: 'github',
+      harness: { name: 'Claude', problem: null },
+      secrets: [{ name: 'PAGER_TOKEN', bound: false }],
+    });
+    expect(told.secrets).toEqual([{ name: 'PAGER_TOKEN', bound: false }]);
+    expect(grammar().secrets).toEqual([]);
+    // Names and flags only, whatever a caller hands it.
+    const labelled = {
+      name: 'PAGER_TOKEN',
+      bound: true,
+      label: 'the keychain (consola/ws-1/personal · PAGER_TOKEN)',
+    };
+    const handed: Array<{ name: string; bound: boolean }> = [labelled];
+    expect(
+      describeCapabilities({
+        filePath: '/f/factory.yml',
+        fileExists: true,
+        tools: [],
+        actions: [],
+        scopes: [],
+        taken: [],
+        boundConnection: 'github',
+        harness: { name: 'Claude', problem: null },
+        secrets: handed,
+      }).secrets,
+    ).toEqual([{ name: 'PAGER_TOKEN', bound: true }]);
+  });
+
+  it('no longer lists secrets as arriving with connections as data', () => {
+    const line = grammar()
+      .grammar.split('\n')
+      .find((candidate) => candidate.startsWith('Not supported yet, refused with a reason:'))!;
+    expect(line).toContain('`uses`, `with` arrive with connections as data');
+    expect(line).not.toContain('`secrets`');
   });
 });

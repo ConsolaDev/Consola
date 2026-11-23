@@ -198,6 +198,8 @@ export {
   normalizeSecretValue,
 } from './secrets/values';
 export { readFailure, readSecrets, type SecretsRead } from './secrets/readSecrets';
+export { NO_SECRETS, unboundOf, unboundProblem } from './secrets/unbound';
+export { buildSecretsView, type SecretBindingView } from './secrets/secretsView';
 export * from './node';
 export {
   readCheckResult,
