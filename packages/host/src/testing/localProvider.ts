@@ -3,7 +3,9 @@
  * A `SandboxProvider` for tests only, whose sandboxes are this machine: a sandbox is a temporary
  * folder, and the session template's start command (`consola-session-start`) is a process of
  * `replaySession.ts`, the session command over a replayed Claude (the `simple` fixture), with the
- * sandbox's variables over the test machine's environment, so only fake CLIs are found. It reads
+ * sandbox's variables over the few a local process needs of the test machine's (`PATH`, its home,
+ * its temporary folder: `MACHINE_VARIABLES`), so only fake CLIs are found and none of the runner's
+ * own variables (its secret, its keys) reaches the sandbox, as none reaches a provider's. It reads
  * the session's id, pass key and idle minutes from the variables the runner gives a sandbox, as
  * the template's start script does, and listens on a free port of loopback, which `exposePort`
  * answers as `http://127.0.0.1:<port>`.
@@ -30,6 +32,40 @@ const REPLAY_SESSION = join(dirname(fileURLToPath(import.meta.url)), 'replaySess
 
 /** The replay's own arguments: the fixture, and the mode it was recorded in. */
 const REPLAY_FIXTURE = ['simple', 'full-access'];
+
+/**
+ * What a local process takes of the test machine's environment: where its programs, its home and
+ * its temporary files are, and nothing else. The runner's process holds its secret and every key;
+ * a sandbox gets only what the runner gives it (`sandboxEnvFor`), over these.
+ */
+export const MACHINE_VARIABLES: ReadonlyArray<string> = [
+  'PATH',
+  'HOME',
+  'USERPROFILE',
+  'XDG_CONFIG_HOME',
+  'XDG_DATA_HOME',
+  'XDG_STATE_HOME',
+  'XDG_CACHE_HOME',
+  'TMPDIR',
+  'TMP',
+  'TEMP',
+  'LANG',
+  'LC_ALL',
+  'TZ',
+];
+
+/** `MACHINE_VARIABLES` from `machine`, the sandbox's variables over them. */
+const localProcessEnv = (
+  machine: NodeJS.ProcessEnv,
+  sandbox: Readonly<Record<string, string>>,
+): Record<string, string> => {
+  const env: Record<string, string> = {};
+  for (const name of MACHINE_VARIABLES) {
+    const value = machine[name];
+    if (value !== undefined) env[name] = value;
+  }
+  return { ...env, ...sandbox };
+};
 
 /** What the provider started, for a test to check that nothing outlives its sandbox. */
 export type LocalSandboxRecord = {
@@ -105,13 +141,15 @@ class LocalSandbox implements ProviderSandbox {
 
   async start(command: Command): Promise<ProviderCommand> {
     this.ensureRunning();
-    const env = { ...process.env, ...this.env, ...command.env };
+    const env = localProcessEnv(process.env, { ...this.env, ...command.env });
     const isSessionStart =
       command.argv.length === SESSION_START_ARGV.length &&
       command.argv.every((arg, index) => arg === SESSION_START_ARGV[index]);
+    const isPrintenv = command.argv.length === 1 && command.argv[0] === 'printenv';
     const keyFile = this.pathOf('pass-public-key.pem');
     if (isSessionStart) writeFileSync(keyFile, env.CONSOLA_PASS_PUBLIC_KEY ?? '');
-    // Anything but the start script is not on this template, as in a shell: exit 127.
+    // `printenv` prints the command's variables, a line each, as a sandbox's would. Anything else
+    // but the start script is not on this template, as in a shell: exit 127.
     const argv = isSessionStart
       ? [
           REPLAY_SESSION,
@@ -128,10 +166,15 @@ class LocalSandbox implements ProviderSandbox {
           '--idle-minutes',
           env.CONSOLA_SESSION_IDLE_MINUTES ?? '10',
         ]
-      : [
-          '-e',
-          `process.stderr.write(${JSON.stringify(`${command.argv[0]}: not found\n`)}); process.exit(127)`,
-        ];
+      : isPrintenv
+        ? [
+            '-e',
+            'for (const [name, value] of Object.entries(process.env)) process.stdout.write(`${name}=${value}\\n`);',
+          ]
+        : [
+            '-e',
+            `process.stderr.write(${JSON.stringify(`${command.argv[0]}: not found\n`)}); process.exit(127)`,
+          ];
     const child = spawn(process.execPath, argv, {
       cwd: this.record.folder,
       env,

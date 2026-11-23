@@ -714,7 +714,12 @@ consola-host runner --cell-url <wss://…/api/runner, or ws: to loopback> --runn
   from a factory of the environment (`ProviderFor`). Production's
   (`productionProvider`) has none yet, so the shipped runner fails at start
   until Task 6 fills it with E2B; it never falls back to a fake. Tests run
-  `testing/replayRunner.ts`, the same command on `testing/localProvider.ts`.
+  `testing/replayRunner.ts`, the same command on `testing/localProvider.ts`,
+  whose sandboxes' processes get the sandbox's variables over only
+  `MACHINE_VARIABLES` of the test machine (`PATH`, the home and XDG folders,
+  the temporary folder, the locale), never the runner's own environment, so a
+  test can check what a sandbox was given (its `printenv`;
+  `localProvider.test.ts`).
 - **A session's sandbox** (`adapters/sandboxSessions.ts`). A `session.start`
   for a repository or harness the runner does not offer is `failed`, with no
   sandbox (`offerRefusal`). Otherwise the sandbox is created from the template
