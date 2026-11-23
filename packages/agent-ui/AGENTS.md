@@ -533,8 +533,14 @@ scoped to the chat (a `+` or `~` straight after the scope styles the chat's sibl
 fails) and in its layer but the guard's, the guard (the root's included) is whole, the floor is
 the layer's lowest sublayer, whole, and only rolls back, and nothing page-global is there beyond
 what "What is page-global" lists. The output must contain no `@cursor/sdk` and no
-`@anthropic-ai/claude-agent-sdk` (CI greps `dist/` for both); either would mean server code
-reached the browser bundle. `dist/` is large (t3's lazy office, PDF, HEIC and syntax-highlighting
+`@anthropic-ai/claude-agent-sdk`: the build fails on any import of either, subpaths included,
+and names the importing file (`serverSdkGuard`, `build/bundleGuards.ts`), and CI greps `dist/`
+for both as a second check. Either would mean server code reached the browser bundle.
+`dist/THIRD-PARTY-NOTICES` is written by the same build (`thirdPartyNotices`) from the modules it
+bundled, t3's workers' included: one entry per package with its licence, and the full text for
+the GPL family and OFL (`heic-to` is LGPL-3.0, `@betteroffice/fonts` OFL-1.1). The build fails on
+a bundled package with an unknown licence or with such a licence and no text, and `pnpm --filter
+@consola/agent-ui check:notices` (CI) checks the file as built. `dist/` is large (t3's lazy office, PDF, HEIC and syntax-highlighting
 workers and its translations), loaded only when used.
 
 ## The dev page

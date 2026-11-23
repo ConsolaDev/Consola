@@ -6,9 +6,13 @@ import react from '@vitejs/plugin-react';
 import { esmExternalRequirePlugin } from 'vite/rolldown/plugins';
 import { defineConfig, type Plugin } from 'vite-plus';
 import { playwright } from 'vite-plus/test/browser-playwright';
+import { serverSdkGuard, thirdPartyNotices } from './build/bundleGuards.ts';
 import { scopeCss } from './build/scopeCss.ts';
 import { T3_APP_VERSION } from './build/t3Version.ts';
 import { signPass } from './src/testing/passKeys.ts';
+
+/** The notices the build writes (`build/bundleGuards.ts`): the library's, and its workers'. */
+const notices = thirdPartyNotices();
 
 const here = (path: string) => fileURLToPath(new URL(path, import.meta.url));
 
@@ -124,6 +128,7 @@ export default defineConfig({
   css: {
     postcss: { plugins: [tailwindcss({ base: here('./src') }), scopeCss()] },
   },
+  worker: { plugins: () => [notices.workers] },
   build: {
     lib: {
       entry: here('./src/index.ts'),
@@ -136,7 +141,11 @@ export default defineConfig({
       // The plugin marks it external and turns the CommonJS dependencies' `require('react')`
       // (`use-sync-external-store`'s shim, …) into imports too: left as `require`, it throws
       // in a browser, which has none.
-      plugins: [esmExternalRequirePlugin({ external: [/^react($|\/)/, /^react-dom($|\/)/] })],
+      plugins: [
+        serverSdkGuard(),
+        esmExternalRequirePlugin({ external: [/^react($|\/)/, /^react-dom($|\/)/] }),
+        notices.main,
+      ],
       // Modules run in source order across the library's chunks. Without it a shared chunk runs
       // before the entry's own modules, t3's theme module among them, ahead of
       // `src/t3Document.ts`, which must run first (it keeps t3 from writing the page at import).
