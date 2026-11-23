@@ -447,21 +447,26 @@ export function reconnectDelayMs(failures: number, random: number): number {
   return Math.round(step * (0.5 + 0.5 * random));
 }
 
-/** How long a connection must stay open after an end went out on it for the end to count as heard. */
-export const END_CONFIRM_MS = 5_000;
 /** How many ends the runner holds for its next `hello`, at most. */
 export const MAX_ENDED_SESSIONS = 32;
 
-type HeldEnd = { end: EndedSession; sentOn: number | null; sentAt: number };
+/** A ping on the cell's socket follows an end, and goes at least this often. */
+export const HEARTBEAT_INTERVAL_MS = 25_000;
+/** How long a ping may go unanswered before the runner drops the socket and dials again. */
+export const PONG_TIMEOUT_MS = 10_000;
+
+/** `sentOn`: the connection it went out on, or null while held for the next `hello`. */
+type HeldEnd = { end: EndedSession; sentOn: number | null; ping: number };
 
 /**
  * The sessions that ended and the cell may not have heard of, for `hello`'s `endedSessions`
  * (Review Focus 5). An end is held from the moment it is known: while the socket is down it rides
- * in the next `hello`; once it went out on a connection, it is taken as heard when that
- * connection closes `END_CONFIRM_MS` or more after, and sent again in the next `hello` when it
- * closes sooner (the cell may never have read it; an end it already has changes nothing). One
- * end per session, the latest, and at most `MAX_ENDED_SESSIONS`: past it the oldest end already
- * sent goes first, else the oldest.
+ * in the next `hello`. Once it went out on a connection, a ping follows it, and the end is heard
+ * when that ping's pong comes back, since the cell reads a socket's frames in order. Should the
+ * connection close first, however long it was open, the end goes again in the next `hello` (an
+ * end the cell already has changes nothing): a socket that died without a close stays open for
+ * minutes, and everything written into it is lost. One end per session, the latest, and at most
+ * `MAX_ENDED_SESSIONS`: past it the oldest end already sent goes first, else the oldest.
  */
 export class EndedSessions {
   private held: HeldEnd[] = [];
@@ -473,7 +478,7 @@ export class EndedSessions {
   /** Holds `end`; answers the end it had to drop for room, if any. */
   add(end: EndedSession): EndedSession | null {
     this.held = this.held.filter((each) => each.end.sessionId !== end.sessionId);
-    this.held.push({ end, sentOn: null, sentAt: 0 });
+    this.held.push({ end, sentOn: null, ping: 0 });
     if (this.held.length <= MAX_ENDED_SESSIONS) return null;
     const sent = this.held.findIndex((each) => each.sentOn !== null);
     const [dropped] = this.held.splice(sent === -1 ? 0 : sent, 1);
@@ -485,21 +490,85 @@ export class EndedSessions {
     return this.held.filter((each) => each.sentOn === null).map((each) => each.end);
   }
 
-  /** The ends of `sessionIds` went out on `connection` at `nowMs`. */
-  sent(sessionIds: ReadonlyArray<string>, connection: number, nowMs: number): void {
+  /** The ends of `sessionIds` went out on `connection`, and its ping `ping` after them. */
+  sent(sessionIds: ReadonlyArray<string>, connection: number, ping: number): void {
     for (const each of this.held) {
       if (sessionIds.includes(each.end.sessionId)) {
         each.sentOn = connection;
-        each.sentAt = nowMs;
+        each.ping = ping;
       }
     }
   }
 
-  /** `connection` closed at `nowMs`: what it held long enough is heard, the rest goes again. */
-  closed(connection: number, nowMs: number): void {
-    this.held = this.held.filter(
-      (each) => each.sentOn !== connection || nowMs - each.sentAt < END_CONFIRM_MS,
-    );
+  /** `connection`'s ping `ping` was answered: every end that went out on it before is heard. */
+  heard(connection: number, ping: number): void {
+    this.held = this.held.filter((each) => each.sentOn !== connection || each.ping > ping);
+  }
+
+  /** `connection` closed: the ends it did not confirm go again. */
+  closed(connection: number): void {
     for (const each of this.held) if (each.sentOn === connection) each.sentOn = null;
+  }
+}
+
+/** How often a connection pings, and how long a ping may go unanswered. */
+export type HeartbeatTiming = { readonly intervalMs: number; readonly timeoutMs: number };
+
+export const HEARTBEAT: HeartbeatTiming = {
+  intervalMs: HEARTBEAT_INTERVAL_MS,
+  timeoutMs: PONG_TIMEOUT_MS,
+};
+
+/** What a connection's heartbeat does now: ping, drop the socket, or wait `ms` before asking. */
+export type HeartbeatStep =
+  | { readonly kind: 'ping' }
+  | { readonly kind: 'drop' }
+  | { readonly kind: 'wait'; readonly ms: number };
+
+/** A ping's payload: its number, in decimal, as `Pings.next` gives it. */
+const PING_PAYLOAD = /^[1-9][0-9]{0,14}$/;
+
+/**
+ * One connection's pings. Each carries its number (from 1), which its pong echoes, so a pong
+ * answers its ping and every ping before it. A ping goes `intervalMs` after the last one, and one
+ * unanswered for `timeoutMs` means the socket is dead though still open (a NAT that forgot it, a
+ * laptop that slept, a cell gone without a reset), which TCP notices only after many minutes.
+ */
+export class Pings {
+  private readonly timing: HeartbeatTiming;
+  private lastNumber = 0;
+  private lastAt: number;
+  /** The pings not answered yet, oldest first. */
+  private waiting: Array<{ readonly number: number; readonly at: number }> = [];
+
+  constructor(openedAtMs: number, timing: HeartbeatTiming) {
+    this.timing = timing;
+    this.lastAt = openedAtMs;
+  }
+
+  /** A ping goes at `nowMs`: answers the number it carries. */
+  next(nowMs: number): number {
+    this.lastNumber += 1;
+    this.lastAt = nowMs;
+    this.waiting.push({ number: this.lastNumber, at: nowMs });
+    return this.lastNumber;
+  }
+
+  /** A pong came with `payload`: the ping it answers, or null for none this connection awaits. */
+  answer(payload: string): number | null {
+    if (!PING_PAYLOAD.test(payload)) return null;
+    const answered = Number(payload);
+    if (!this.waiting.some((each) => each.number === answered)) return null;
+    this.waiting = this.waiting.filter((each) => each.number > answered);
+    return answered;
+  }
+
+  step(nowMs: number): HeartbeatStep {
+    const oldest = this.waiting[0];
+    if (oldest !== undefined && nowMs - oldest.at >= this.timing.timeoutMs) return { kind: 'drop' };
+    if (nowMs - this.lastAt >= this.timing.intervalMs) return { kind: 'ping' };
+    const pingIn = this.lastAt + this.timing.intervalMs - nowMs;
+    const dropIn = oldest === undefined ? pingIn : oldest.at + this.timing.timeoutMs - nowMs;
+    return { kind: 'wait', ms: Math.min(pingIn, dropIn) };
   }
 }

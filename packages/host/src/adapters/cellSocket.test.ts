@@ -27,6 +27,8 @@ type CellConnection = {
   readonly authorization: string | undefined;
   /** The next frame the runner sent on it, parsed; dies when none comes in time. */
   readonly next: Effect.Effect<Frame>;
+  /** The payload of the next ping the runner sent on it; dies when none comes in time. */
+  readonly pinged: Effect.Effect<string>;
   /** How the runner closed it, or the cell did. */
   readonly closed: Effect.Effect<number>;
 };
@@ -48,9 +50,13 @@ const timed = <A>(effect: Effect.Effect<A, Cause.Done>, what: string): Effect.Ef
     Effect.orDie,
   );
 
-/** A cell on a free port of 127.0.0.1 that accepts the runner, or answers its upgrade `refuse`. */
+/**
+ * A cell on a free port of 127.0.0.1 that accepts the runner, or answers its upgrade `refuse`.
+ * It answers the runner's pings, as `ws` does, unless `autoPong` is false: a socket that died
+ * without a close looks that way to the runner.
+ */
 const fakeCell = (
-  options: { readonly refuse?: number } = {},
+  options: { readonly refuse?: number; readonly autoPong?: boolean } = {},
 ): Effect.Effect<FakeCell, never, Scope.Scope> =>
   Effect.gen(function* () {
     const connections = yield* Queue.unbounded<CellConnection, Cause.Done>();
@@ -60,6 +66,7 @@ const fakeCell = (
         const wss: WebSocketServer = new WebSocketServer({
           host: '127.0.0.1',
           port: 0,
+          autoPong: options.autoPong ?? true,
           verifyClient: (
             _info: { req: IncomingMessage },
             done: (ok: boolean, code?: number) => void,
@@ -80,13 +87,17 @@ const fakeCell = (
     server.on('connection', (socket, request) => {
       // @effect-diagnostics-next-line runEffectInsideEffect:off - a ws listener, outside any fiber.
       const frames = Effect.runSync(Queue.unbounded<Frame, Cause.Done>());
+      // @effect-diagnostics-next-line runEffectInsideEffect:off - a ws listener, outside any fiber.
+      const pings = Effect.runSync(Queue.unbounded<string, Cause.Done>());
       const closed = Deferred.makeUnsafe<number>();
       socket.on('message', (data) => Queue.offerUnsafe(frames, JSON.parse(String(data)) as Frame));
+      socket.on('ping', (data) => Queue.offerUnsafe(pings, data.toString('utf8')));
       socket.on('close', (code) => Deferred.doneUnsafe(closed, Effect.succeed(code)));
       Queue.offerUnsafe(connections, {
         socket,
         authorization: request.headers.authorization,
         next: timed(Queue.take(frames), 'frame from the runner'),
+        pinged: timed(Queue.take(pings), 'ping from the runner'),
         closed: Deferred.await(closed).pipe(
           Effect.timeoutOrElse({
             duration: WAIT,
@@ -117,6 +128,7 @@ const runnerOf = (
   cell: FakeCell,
   delayMs = 50,
   onMessage?: (message: CellMessage) => Effect.Effect<void>,
+  heartbeat?: { readonly intervalMs: number; readonly timeoutMs: number },
 ): Effect.Effect<Runner, never, Scope.Scope> =>
   Effect.gen(function* () {
     const received = yield* Queue.unbounded<CellMessage, Cause.Done>();
@@ -128,6 +140,7 @@ const runnerOf = (
         runnerId: 'runner-sprocket-1',
         offer: OFFER,
         reconnectDelay: () => delayMs,
+        ...(heartbeat === undefined ? {} : { heartbeat }),
         log: (message) => Effect.sync(() => logged.push(message)),
       }),
       (socket) => socket.close,
@@ -240,13 +253,45 @@ describe('makeCellSocket', () => {
       }),
     ));
 
-  it('says again in the next hello an end sent just before the socket dropped', () =>
+  it(
+    'says again in the next hello an end whose ping got no answer, however long the socket stayed open',
+    { timeout: 20_000 },
+    () =>
+      run(
+        Effect.gen(function* () {
+          const cell = yield* fakeCell({ autoPong: false });
+          const runner = yield* runnerOf(cell);
+          const first = yield* cell.next;
+          yield* first.next;
+          const stopped: SessionUpdate = {
+            type: 'session.update',
+            sessionId: 'session-acme-6',
+            status: 'stopped',
+          };
+          yield* runner.socket.send(stopped);
+          expect(yield* first.next).toEqual(stopped);
+          // A socket that died without a close stays open for minutes: no time open means heard.
+          yield* Effect.sleep(Duration.millis(5_500));
+          first.socket.terminate();
+          const second = yield* cell.next;
+          expect(yield* second.next).toMatchObject({
+            type: 'hello',
+            runningSessionIds: [],
+            endedSessions: [{ sessionId: 'session-acme-6', status: 'stopped' }],
+          });
+        }),
+      ),
+  );
+
+  it('does not say again an end the pong of its ping confirmed', () =>
     run(
       Effect.gen(function* () {
         const cell = yield* fakeCell();
         const runner = yield* runnerOf(cell);
         const first = yield* cell.next;
         yield* first.next;
+        // The ping after hello, then the one after the end; ws answers each as it reads it.
+        yield* first.pinged;
         const stopped: SessionUpdate = {
           type: 'session.update',
           sessionId: 'session-acme-6',
@@ -254,13 +299,32 @@ describe('makeCellSocket', () => {
         };
         yield* runner.socket.send(stopped);
         expect(yield* first.next).toEqual(stopped);
-        first.socket.terminate();
+        yield* first.pinged;
+        // A close goes after the pong on the wire, so the runner has the pong first.
+        first.socket.close(1012, 'the cell restarts');
         const second = yield* cell.next;
         expect(yield* second.next).toMatchObject({
           type: 'hello',
           runningSessionIds: [],
-          endedSessions: [{ sessionId: 'session-acme-6', status: 'stopped' }],
+          endedSessions: [],
         });
+      }),
+    ));
+
+  it('drops a socket whose cell stopped answering its pings, and dials again', () =>
+    run(
+      Effect.gen(function* () {
+        const cell = yield* fakeCell({ autoPong: false });
+        const runner = yield* runnerOf(cell, 20, undefined, { intervalMs: 100, timeoutMs: 200 });
+        const first = yield* cell.next;
+        expect(yield* first.next).toMatchObject({ type: 'hello' });
+        expect(yield* first.pinged).toMatch(/^[1-9][0-9]*$/);
+        expect(yield* first.closed).toBe(1006);
+        const second = yield* cell.next;
+        expect(yield* second.next).toMatchObject({ type: 'hello' });
+        expect(runner.logged).toContain(
+          'the cell did not answer a ping within 0.2 s; the socket is dropped',
+        );
       }),
     ));
 

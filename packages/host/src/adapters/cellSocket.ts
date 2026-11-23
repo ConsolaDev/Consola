@@ -8,7 +8,11 @@
  *   ends the cell may not have heard (`EndedSessions`). Then each live session's state goes again
  *   (its address and title), since updates on a socket the cell replaced can be lost.
  * - An update while the socket is down is not queued: the state after the next `hello` says it.
- *   An end is held for that `hello` instead.
+ *   An end is held for that `hello` instead, and once it went out, until the pong of the ping that
+ *   followed it (`EndedSessions`).
+ * - A heartbeat: a ping at least every 25 s, and a socket whose ping goes unanswered for 10 s is
+ *   dropped and dialled again (`Pings`), so a socket that died without a close (a NAT that forgot
+ *   it, a laptop that slept) is not written into for the minutes TCP takes to notice.
  * - A socket that drops is dialled again after a jittered wait that doubles to 30 s
  *   (`reconnectDelayMs`), and starts over once a connection has held. A close with 4000 means
  *   another process with this runner's secret said hello: this one stops dialling, so two runners
@@ -33,6 +37,9 @@ import { type RawData, WebSocket } from 'ws';
 import {
   EndedSessions,
   endOf,
+  HEARTBEAT,
+  type HeartbeatTiming,
+  Pings,
   type RunnerOffer,
   reconnectDelayMs,
 } from '../core/runnerDecisions.ts';
@@ -63,6 +70,8 @@ export type CellSocketOptions = {
   readonly log: (message: string) => Effect.Effect<void>;
   /** The wait before dialling again (`reconnectDelayMs` unless a test shortens it). */
   readonly reconnectDelay?: (failures: number, random: number) => number;
+  /** The heartbeat's timing (`HEARTBEAT` unless a test shortens it). */
+  readonly heartbeat?: HeartbeatTiming;
 };
 
 /** What the socket asks of the runner's sessions. */
@@ -87,6 +96,9 @@ export type CellSocket = {
 type SocketEvent =
   | { readonly type: 'open' }
   | { readonly type: 'message'; readonly text: string | null }
+  | { readonly type: 'pong'; readonly payload: string }
+  /** A ping went from elsewhere (after an end): the heartbeat looks at its deadline again. */
+  | { readonly type: 'pinged' }
   | { readonly type: 'error'; readonly message: string }
   | { readonly type: 'close'; readonly code: number; readonly reason: string };
 
@@ -97,9 +109,17 @@ type Closed = {
   readonly opened: boolean;
   readonly heldMs: number;
   readonly error: string | null;
+  /** Why the runner dropped it, when it did (a ping not answered). */
+  readonly dropped: string | null;
 };
 
-type Open = { readonly ws: WebSocket; readonly id: number; helloSent: boolean };
+type Open = {
+  readonly ws: WebSocket;
+  readonly id: number;
+  readonly events: Queue.Queue<SocketEvent>;
+  readonly pings: Pings;
+  helloSent: boolean;
+};
 
 const encode = (message: RunnerHello | SessionUpdate): string => JSON.stringify(message);
 
@@ -124,6 +144,15 @@ export const makeCellSocket = (options: CellSocketOptions): Effect.Effect<CellSo
     const replacedSignal = yield* Deferred.make<boolean>();
     const stopped = yield* Deferred.make<boolean>();
     const delayOf = options.reconnectDelay ?? reconnectDelayMs;
+    const heartbeat = options.heartbeat ?? HEARTBEAT;
+
+    /** Pings `open` now, after what was just sent on it: answers the ping's number. */
+    const ping = (open: Open, nowMs: number): number => {
+      const number = open.pings.next(nowMs);
+      open.ws.ping(String(number));
+      Queue.offerUnsafe(open.events, { type: 'pinged' });
+      return number;
+    };
     /** The socket greeted, once its `hello` went. */
     let current: Open | null = null;
     /** The latest socket, in whatever state: closing ends it. */
@@ -160,10 +189,10 @@ export const makeCellSocket = (options: CellSocketOptions): Effect.Effect<CellSo
           };
         }
         open.ws.send(encode(hello));
-        ends.sent([...ended], open.id, nowMs);
         for (const state of live.states) {
           if (!ended.has(state.sessionId)) open.ws.send(encode(state));
         }
+        ends.sent([...ended], open.id, ping(open, nowMs));
         open.helloSent = true;
         return { running: hello.runningSessionIds.length, ended: endedSessions.length };
       });
@@ -195,6 +224,9 @@ export const makeCellSocket = (options: CellSocketOptions): Effect.Effect<CellSo
           socket.on('message', (data, isBinary) =>
             Queue.offerUnsafe(events, { type: 'message', text: isBinary ? null : textOf(data) }),
           );
+          socket.on('pong', (data) =>
+            Queue.offerUnsafe(events, { type: 'pong', payload: data.toString('utf8') }),
+          );
           socket.on('error', (error) =>
             Queue.offerUnsafe(events, { type: 'error', message: error.message }),
           );
@@ -206,27 +238,57 @@ export const makeCellSocket = (options: CellSocketOptions): Effect.Effect<CellSo
         });
         let openedAt: number | null = null;
         let error: string | null = null;
+        let dropped: string | null = null;
+        /** This connection once open; its heartbeat runs until it closes or is dropped. */
+        let open: Open | null = null;
         while (true) {
-          const event = yield* Queue.take(events);
+          let event: SocketEvent | null;
+          if (open === null || dropped !== null) {
+            event = yield* Queue.take(events);
+          } else {
+            const nowMs = yield* Clock.currentTimeMillis;
+            const step = open.pings.step(nowMs);
+            if (step.kind === 'drop') {
+              dropped = `the cell did not answer a ping within ${heartbeat.timeoutMs / 1000} s`;
+              yield* options.log(`${dropped}; the socket is dropped`);
+              ws.terminate();
+              continue;
+            }
+            if (step.kind === 'ping') {
+              ping(open, nowMs);
+              continue;
+            }
+            event = yield* Queue.take(events).pipe(
+              Effect.timeoutOrElse({
+                duration: Duration.millis(step.ms),
+                orElse: () => Effect.succeed(null),
+              }),
+            );
+          }
+          if (event === null || event.type === 'pinged') continue;
           if (event.type === 'open') {
             openedAt = yield* Clock.currentTimeMillis;
-            const open: Open = { ws, id, helloSent: false };
+            open = { ws, id, events, pings: new Pings(openedAt, heartbeat), helloSent: false };
             current = open;
             yield* sayHello(open, handlers);
           } else if (event.type === 'message') {
             yield* onFrame(event.text, handlers);
+          } else if (event.type === 'pong') {
+            const answered = open?.pings.answer(event.payload) ?? null;
+            if (answered !== null) ends.heard(id, answered);
           } else if (event.type === 'error') {
             error = event.message;
           } else {
             const nowMs = yield* Clock.currentTimeMillis;
             if (current?.id === id) current = null;
-            ends.closed(id, nowMs);
+            ends.closed(id);
             return {
               code: event.code,
               reason: event.reason,
               opened: openedAt !== null,
               heldMs: openedAt === null ? 0 : nowMs - openedAt,
               error,
+              dropped,
             };
           }
         }
@@ -239,10 +301,9 @@ export const makeCellSocket = (options: CellSocketOptions): Effect.Effect<CellSo
           const closed = yield* connectOnce(handlers).pipe(
             // A failure of the runner's own while connected must not end the dialling for good.
             Effect.catchDefect((defect) =>
-              Effect.gen(function* () {
-                const nowMs = yield* Clock.currentTimeMillis;
+              Effect.sync(() => {
                 latest?.terminate();
-                if (current !== null) ends.closed(current.id, nowMs);
+                if (current !== null) ends.closed(current.id);
                 current = null;
                 const lost: Closed = {
                   code: 1006,
@@ -250,6 +311,7 @@ export const makeCellSocket = (options: CellSocketOptions): Effect.Effect<CellSo
                   opened: false,
                   heldMs: 0,
                   error: defect instanceof Error ? defect.message : String(defect),
+                  dropped: null,
                 };
                 return lost;
               }),
@@ -265,9 +327,12 @@ export const makeCellSocket = (options: CellSocketOptions): Effect.Effect<CellSo
           }
           failures = closed.heldMs >= Duration.toMillis(HOLDS_AFTER) ? 0 : failures + 1;
           const delayMs = delayOf(failures, yield* Random.next);
-          const why = closed.opened
-            ? `the cell closed the socket (${closed.code}${closed.reason === '' ? '' : `: ${closed.reason}`})`
-            : `cannot reach the cell (${closed.error ?? `closed ${closed.code}`})`;
+          const why =
+            closed.dropped !== null
+              ? `dropped the socket (${closed.dropped})`
+              : closed.opened
+                ? `the cell closed the socket (${closed.code}${closed.reason === '' ? '' : `: ${closed.reason}`})`
+                : `cannot reach the cell (${closed.error ?? `closed ${closed.code}`})`;
           yield* options.log(`${why}; dialling again in ${delayMs} ms`);
           yield* Effect.sleep(Duration.millis(delayMs));
         }
@@ -282,7 +347,7 @@ export const makeCellSocket = (options: CellSocketOptions): Effect.Effect<CellSo
           const open = current;
           if (open?.helloSent === true && open.ws.readyState === WebSocket.OPEN) {
             open.ws.send(encode(update));
-            if (end !== null) ends.sent([update.sessionId], open.id, nowMs);
+            if (end !== null) ends.sent([update.sessionId], open.id, ping(open, nowMs));
           }
           return lost;
         });

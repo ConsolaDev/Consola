@@ -2,7 +2,6 @@ import type { SessionStart } from '@consola/runner-protocol';
 import { describe, expect, it } from 'vite-plus/test';
 import {
   cellUrlProblem,
-  END_CONFIRM_MS,
   EndedSessions,
   HostLineBuffer,
   harnessesFromEnv,
@@ -10,6 +9,7 @@ import {
   MAX_ERROR_LENGTH,
   MAX_LINE_LENGTH,
   offerRefusal,
+  Pings,
   RECONNECT_CAP_MS,
   readRepositories,
   reconnectDelayMs,
@@ -530,29 +530,33 @@ describe('EndedSessions', () => {
     ]);
   });
 
-  it('takes an end as received once its connection held for the confirm time', () => {
+  it('takes an end as heard once the pong of the ping that followed it comes back', () => {
     const ends = new EndedSessions();
     ends.add(stopped('a'));
-    ends.sent(['a'], 1, 1_000);
+    ends.sent(['a'], 1, 3);
     expect(ends.forHello()).toEqual([]);
-    ends.closed(1, 1_000 + END_CONFIRM_MS);
-    expect(ends.forHello()).toEqual([]);
+    ends.heard(1, 2);
+    expect(ends.size).toBe(1);
+    ends.heard(1, 3);
     expect(ends.size).toBe(0);
+    ends.closed(1);
+    expect(ends.forHello()).toEqual([]);
   });
 
-  it('sends an end again when its connection closed too soon after it went out', () => {
+  it('sends an end again when its connection closed before its ping was answered, however long it was open', () => {
     const ends = new EndedSessions();
     ends.add(stopped('a'));
-    ends.sent(['a'], 1, 1_000);
-    ends.closed(1, 1_000 + END_CONFIRM_MS - 1);
+    ends.sent(['a'], 1, 1);
+    ends.closed(1);
     expect(ends.forHello()).toEqual([stopped('a')]);
   });
 
   it('leaves alone ends sent on another connection', () => {
     const ends = new EndedSessions();
     ends.add(stopped('a'));
-    ends.sent(['a'], 2, 1_000);
-    ends.closed(1, 1_001);
+    ends.sent(['a'], 2, 1);
+    ends.heard(1, 5);
+    ends.closed(1);
     expect(ends.forHello()).toEqual([]);
     expect(ends.size).toBe(1);
   });
@@ -571,4 +575,54 @@ describe('EndedSessions', () => {
     expect(held).toHaveLength(MAX_ENDED_SESSIONS);
     expect(held[0]?.sessionId).toBe('s-1');
   });
+});
+
+describe('Pings', () => {
+  const timing = { intervalMs: 100, timeoutMs: 50 };
+
+  it('numbers its pings from 1, and pings again an interval after the last', () => {
+    const pings = new Pings(0, timing);
+    expect(pings.step(0)).toEqual({ kind: 'wait', ms: 100 });
+    expect(pings.step(100)).toEqual({ kind: 'ping' });
+    expect(pings.next(100)).toBe(1);
+    expect(pings.answer('1')).toBe(1);
+    expect(pings.step(150)).toEqual({ kind: 'wait', ms: 50 });
+    expect(pings.next(200)).toBe(2);
+  });
+
+  it('drops the socket once a ping has gone unanswered for the timeout', () => {
+    const pings = new Pings(0, timing);
+    pings.next(0);
+    expect(pings.step(49)).toEqual({ kind: 'wait', ms: 1 });
+    expect(pings.step(50)).toEqual({ kind: 'drop' });
+  });
+
+  it('counts the timeout from the oldest ping not answered', () => {
+    const pings = new Pings(0, timing);
+    pings.next(0);
+    pings.next(40);
+    expect(pings.answer('1')).toBe(1);
+    expect(pings.step(60)).toEqual({ kind: 'wait', ms: 30 });
+    expect(pings.step(90)).toEqual({ kind: 'drop' });
+  });
+
+  it('takes an answer to a ping as answering every ping before it', () => {
+    const pings = new Pings(0, timing);
+    pings.next(0);
+    pings.next(10);
+    expect(pings.answer('2')).toBe(2);
+    expect(pings.answer('1')).toBeNull();
+    expect(pings.step(60)).toEqual({ kind: 'wait', ms: 50 });
+  });
+
+  it.each(['', '0', '01', '3', '1.0', ' 1', 'x', '9'.repeat(20)])(
+    'ignores a pong carrying %j, which names no ping it is waiting on',
+    (payload) => {
+      const pings = new Pings(0, timing);
+      pings.next(0);
+      pings.next(1);
+      expect(pings.answer(payload)).toBeNull();
+      expect(pings.step(50)).toEqual({ kind: 'drop' });
+    },
+  );
 });

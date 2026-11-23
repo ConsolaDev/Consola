@@ -761,8 +761,10 @@ consola-host runner --cell-url <wss://…/api/runner, or ws: to loopback> --runn
   `runningSessionIds`, and `endedSessions`), then every live session's state
   again (`running`, its address and title), since the cell may drop updates
   that went on a socket it replaced. An update while the socket is down is not
-  queued; an end is held for the next `hello` (`EndedSessions`), and goes again
-  when the connection it went on closed within `END_CONFIRM_MS` (5 s) of it; an
+  queued; an end is held for the next `hello` (`EndedSessions`). Once it went
+  out, a ping follows it, and it is heard only when that ping's pong comes back
+  (the cell reads a socket's frames in order); should the connection close
+  first, however long it was open, the end goes again in the next `hello`. An
   id is never listed as running and ended at once. A `hello` over the cell's
   64 KiB frame limit sends its ends without their messages. A drop is dialled again
   after a jittered wait doubling to 30 s (`reconnectDelayMs`), starting over
@@ -773,7 +775,12 @@ consola-host runner --cell-url <wss://…/api/runner, or ws: to loopback> --runn
   each other in a loop. Frames over 64 KiB close the socket (1009); a frame
   `readCellMessage` refuses is logged with its reason and dropped. A failure of
   the runner's own while connected ends that connection, never the dialling.
-  There is no heartbeat yet, on either side.
+  **The heartbeat** (`Pings`): a ping at least every `HEARTBEAT_INTERVAL_MS`
+  (25 s), each carrying its number, which the pong echoes; a ping unanswered
+  for `PONG_TIMEOUT_MS` (10 s) drops the socket (`terminate`) and dials again,
+  so a socket that died without a close (a NAT that forgot it, a laptop that
+  slept, a cell gone without a reset) is not written into for the minutes TCP
+  takes to notice. The cell answers pings as `ws` does by default.
 - **Secrets.** It never logs its environment. Its log lines (stderr, `consola-host
   runner: …`) and every update are scrubbed of the runner secret, the git token
   and the API keys (`scrubSecrets`, as they are and URL-encoded), errors and
