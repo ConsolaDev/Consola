@@ -95,10 +95,16 @@ workspace package gets its own job without the workflow naming it, except
 under `vendor/`: the copied t3code packages are checked together, with their
 own scripts, in the `vendor` job. `@consola/agent-ui` has a job of its own,
 like the website, for its browser tests and the checks of its built library.
-The script also holds three rules the package graph cannot see:
+The script also holds four rules the package graph cannot see:
 
 - A change to the desktop checks the website too, because the site's demo
   imports the desktop's renderer by path, not as a dependency.
+- A change to the desktop's or cloud-web's CSS that `@consola/agent-ui`'s
+  page tests read as files (`src/testing/embeddingPages.ts`: the desktop's
+  `global.css` and theme tokens, cloud-web's `ui/styles.css`, and the Radix
+  Themes stylesheet its `package.json` or the lockfile installs) checks
+  agent-ui too. `ci-scope.test.mjs` fails when that module reads a file the
+  rule does not name.
 - A change to CI itself, the root `package.json`, `pnpm-workspace.yaml`,
   `turbo.json` or `patches/` checks everything.
 - A push to main checks everything.

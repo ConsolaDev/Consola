@@ -2,7 +2,11 @@
  * t3's connection runtime as `AgentChat` uses it: its services, an effect run against them, and
  * the stores where t3 keeps what it knows of a host (`src/storedSessions.ts` clears them).
  */
-import { CredentialStore, type EnvironmentRegistry } from '@t3tools/client-runtime/connection';
+import {
+  BearerConnectionCredential,
+  CredentialStore,
+  type EnvironmentRegistry,
+} from '@t3tools/client-runtime/connection';
 import { Persistence } from '@t3tools/client-runtime/platform';
 import { EnvironmentId } from '@t3tools/contracts';
 import * as Cause from 'effect/Cause';
@@ -60,4 +64,16 @@ export const forgetStoredSession = Effect.fn('forgetStoredSession')(function* (s
   yield* credentials.remove(connectionIdFor(sessionId));
   yield* cache.clear(environmentId);
   yield* ownedData.clear(environmentId);
+});
+
+/**
+ * Puts a session's pass back in t3's credential store. t3 deletes it when a registration is
+ * removed, and another window that still shows the session needs it (`AgentChat.tsx`).
+ */
+export const restoreStoredPass = Effect.fn('restoreStoredPass')(function* (
+  sessionId: string,
+  token: string,
+) {
+  const credentials = yield* CredentialStore.ConnectionCredentialStore;
+  yield* credentials.put(connectionIdFor(sessionId), new BearerConnectionCredential({ token }));
 });

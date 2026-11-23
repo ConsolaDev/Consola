@@ -166,8 +166,9 @@ export default async function setup(project: TestProject) {
       throw new Error(`A CLI ran outside the tests' machine: ${JSON.stringify(escaped)}`);
     }
   };
-  const pass = signPass(keys.privateKeyFile, SESSION_ID, PASS_LIFETIME_SECONDS);
+  let pass: string;
   try {
+    pass = signPass(keys.privateKeyFile, SESSION_ID, PASS_LIFETIME_SECONDS);
     await withTimeout(
       Promise.race([
         started,

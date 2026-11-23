@@ -6,9 +6,13 @@ import react from '@vitejs/plugin-react';
 import { esmExternalRequirePlugin } from 'vite/rolldown/plugins';
 import { defineConfig, type Plugin } from 'vite-plus';
 import { playwright } from 'vite-plus/test/browser-playwright';
+import { serverSdkGuard, thirdPartyNotices, workerPlugins } from './build/bundleGuards.ts';
 import { scopeCss } from './build/scopeCss.ts';
 import { T3_APP_VERSION } from './build/t3Version.ts';
 import { signPass } from './src/testing/passKeys.ts';
+
+/** The notices the build writes (`build/bundleGuards.ts`): the library's, and its workers'. */
+const notices = thirdPartyNotices();
 
 const here = (path: string) => fileURLToPath(new URL(path, import.meta.url));
 
@@ -55,12 +59,14 @@ const withheldDeviceModels = (): Plugin => ({
   },
 });
 
-/** The address of every WebSocket the tests' page opened since `watchSockets` was first called. */
+/** The address of every WebSocket the tests' page opened since `watchSockets` first saw each page. */
 const openedSockets: string[] = [];
-let watchingSockets = false;
+/** The pages already watched: one listener each, whichever page a test file's browser hands over. */
+const watchedPages = new WeakSet<object>();
 /** What the page said in its console, and every request it made that failed, once watched. */
 const pageNoise: string[] = [];
-let watchingNoise = false;
+/** The pages `watchPageNoise` already listens to, one set of listeners each, as `watchedPages`. */
+const noisyPagesWatched = new WeakSet<object>();
 
 /** The parts of Playwright's page `watchPageNoise` listens to. */
 type NoisyPage = {
@@ -107,8 +113,8 @@ const browser = () => ({
     }: {
       page: { on(event: 'websocket', listener: (socket: { url(): string }) => void): void };
     }) => {
-      if (watchingSockets) return;
-      watchingSockets = true;
+      if (watchedPages.has(page)) return;
+      watchedPages.add(page);
       page.on('websocket', (socket) => openedSockets.push(socket.url()));
     },
     /** Every address `watchSockets` recorded. */
@@ -120,8 +126,8 @@ const browser = () => ({
      * Playwright sees them, which no spy on `console` does. Each console entry is its first line.
      */
     watchPageNoise: ({ page }: { page: NoisyPage }) => {
-      if (watchingNoise) return;
-      watchingNoise = true;
+      if (noisyPagesWatched.has(page)) return;
+      noisyPagesWatched.add(page);
       page.on('console', (message) => {
         // Effect's logger prints its warnings and errors with `console.log`, as `… WARN (#n): …`.
         const effectLevel = /^\[[\d:.]+\] (WARN|ERROR|FATAL) /.test(message.text());
@@ -143,7 +149,10 @@ const browser = () => ({
 });
 
 export default defineConfig({
-  plugins: [withheldDeviceModels(), react({ compiler: true })],
+  // The SDK guard is a top-level plugin with `enforce: 'pre'`, so it is asked about every import
+  // before Vite's resolver: a plugin in `build.rolldownOptions.plugins` runs after it, and is never
+  // asked about an import Vite resolved (`build/bundleGuards.test.ts` builds through this config).
+  plugins: [serverSdkGuard(), withheldDeviceModels(), react({ compiler: true })],
   define: Object.fromEntries(
     Object.entries(T3_ENV).map(([name, value]) => [
       `import.meta.env.${name}`,
@@ -166,6 +175,7 @@ export default defineConfig({
   css: {
     postcss: { plugins: [tailwindcss({ base: here('./src') }), scopeCss()] },
   },
+  worker: { plugins: () => workerPlugins(notices) },
   build: {
     lib: {
       entry: here('./src/index.ts'),
@@ -178,7 +188,10 @@ export default defineConfig({
       // The plugin marks it external and turns the CommonJS dependencies' `require('react')`
       // (`use-sync-external-store`'s shim, …) into imports too: left as `require`, it throws
       // in a browser, which has none.
-      plugins: [esmExternalRequirePlugin({ external: [/^react($|\/)/, /^react-dom($|\/)/] })],
+      plugins: [
+        esmExternalRequirePlugin({ external: [/^react($|\/)/, /^react-dom($|\/)/] }),
+        notices.main,
+      ],
       // Modules run in source order across the library's chunks. Without it a shared chunk runs
       // before the entry's own modules, t3's theme module among them, ahead of
       // `src/t3Document.ts`, which must run first (it keeps t3 from writing the page at import).
