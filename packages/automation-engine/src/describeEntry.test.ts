@@ -19,6 +19,7 @@ import {
   describeWrites,
   FILE_TOOL_LINKS_HEDGE,
   KEYCHAIN_SENTENCE,
+  KEYCHAIN_SIGN_INS_SENTENCE,
   type WriteVersions,
 } from './describeEntry';
 import { agentRequirements } from './steps/definition';
@@ -584,7 +585,8 @@ automations:
     "Can change files only in this run's checkout of sprocket/catalog-portal, on `fix/<ticket>`, and in the temporary folder all your sandboxed Claude shells share.",
     'Can reach only registry.npmjs.org from its shell; its connectors: none.',
     'Gets CI from your environment and no token Consola holds.',
-    "Its shell cannot read your SSH, cloud or Git credentials, other Claude profiles or Consola's data; its file tools read only this run's checkout.",
+    "Its shell cannot read the credential files in your home folder (SSH, cloud, `gh`, npm, Git's), your harnesses' profiles, each agent CLI's default profile or Consola's data; its file tools read only this run's checkout.",
+    'Your keychain is another matter: Git, `gh` and Claude usually keep their sign-ins there.',
     'Its shell can ask macOS for your keychain items through `security` (macOS may or may not ask you first).',
     'Its shell can read other files on this Mac, and send them to the hosts above, to its connectors, or into the branch a later step pushes.',
     '`git clone` and `git init` do not work in its shell.',
@@ -609,6 +611,16 @@ automations:
     });
   });
 
+  it('never says the shell cannot read sign-ins the keychain holds, nor profiles no harness names (3-B code review F1)', () => {
+    const { automation, agents } = parsed(ENTRY_41, AGENTS_41);
+    const [sentence] = describeWrites(automation, agents, V)!.agents[0].sentences;
+    expect(sentence).not.toMatch(/Git credentials|other Claude profiles|cannot read your keychain/);
+    expect(sentence).toContain(`${KEYCHAIN_SIGN_INS_SENTENCE} ${KEYCHAIN_SENTENCE}`);
+    expect(KEYCHAIN_SIGN_INS_SENTENCE).toBe(
+      'Your keychain is another matter: Git, `gh` and Claude usually keep their sign-ins there.',
+    );
+  });
+
   it('never says the sandbox keeps the keychain from its shell (canary row 49)', () => {
     const { automation, agents } = parsed(ENTRY_41, AGENTS_41);
     const said = JSON.stringify(describeWrites(automation, agents, V));
@@ -625,7 +637,7 @@ automations:
     expect(FILE_TOOL_LINKS_HEDGE).toBe(HEDGE);
     const unchecked = { ...V, fileToolLinksChecked: false };
     expect(describeWrites(automation, agents, unchecked)!.agents[0].sentences[0]).toContain(
-      `Consola's data; its file tools read only this run's checkout. ${HEDGE} Its shell can ask macOS`,
+      `Consola's data; its file tools read only this run's checkout. ${HEDGE} Your keychain`,
     );
     for (const isolation of ['host', 'sandbox'] as const)
       expect(

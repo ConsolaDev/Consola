@@ -143,6 +143,11 @@ export const CREDENTIAL_PATHS = [
   '.pypirc',
   '.git-credentials',
   '.config/git/credentials',
+  // Each agent CLI's default profile, whatever the harness records name (the 3-B code review's F1):
+  // Claude's, Codex's, Gemini's and Antigravity's (`~/.gemini`).
+  '.claude',
+  '.codex',
+  '.gemini',
 ];
 
 /**

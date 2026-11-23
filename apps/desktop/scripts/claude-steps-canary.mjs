@@ -3489,6 +3489,10 @@ function fakeHome(base) {
       `["${DUMMY_SECRET}"]\n`,
     ),
     write(path.join(h, '.claude-ambient', 'projects', 'p.jsonl'), `{"secret":"${DUMMY_SECRET}"}\n`),
+    // Each agent CLI's default profile, denied whatever the harness records name (the 3-B code review's F1).
+    write(path.join(h, '.claude', 'projects', 'p.jsonl'), `{"secret":"${DUMMY_SECRET}"}\n`),
+    write(path.join(h, '.codex', 'auth.json'), `{"token":"${DUMMY_SECRET}"}\n`),
+    write(path.join(h, '.gemini', 'oauth_creds.json'), `{"token":"${DUMMY_SECRET}"}\n`),
   ];
   return { h, run, others };
 }

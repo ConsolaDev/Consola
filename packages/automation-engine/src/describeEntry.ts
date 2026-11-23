@@ -336,6 +336,14 @@ function branchWords(template: string): string {
 
 const joined = (names: readonly string[]) => names.join(', ');
 
+/**
+ * What the keychain holds (the 3-B code review's F1): the deny list keeps
+ * the shell from credential *files*, but on a Mac Git's osxkeychain helper,
+ * `gh` and Claude keep their sign-ins as keychain items, which the shell can
+ * ask for (`KEYCHAIN_SENTENCE`).
+ */
+export const KEYCHAIN_SIGN_INS_SENTENCE =
+  'Your keychain is another matter: Git, `gh` and Claude usually keep their sign-ins there.';
 /** The keychain, as canary row 49 found it (`KEYCHAIN_SERVICE_BLOCKED = false`): the sandbox does not hold it. */
 export const KEYCHAIN_SENTENCE =
   'Its shell can ask macOS for your keychain items through `security` (macOS may or may not ask you first).';
@@ -444,8 +452,10 @@ function writeSentences(
       `Can change files only in ${where}, and in the temporary folder all your sandboxed Claude shells share.`,
       `Can reach ${reach} from its shell; its connectors: ${connectors}.`,
       gets,
-      `Its shell cannot read your SSH, cloud or Git credentials, other Claude profiles or Consola's data${fileTools}.`,
+      // Only what the deny list holds (`denyReadList`): files, never the keychain's items (F1).
+      `Its shell cannot read the credential files in your home folder (SSH, cloud, \`gh\`, npm, Git's), your harnesses' profiles, each agent CLI's default profile or Consola's data${fileTools}.`,
       ...linkHedge,
+      KEYCHAIN_SIGN_INS_SENTENCE,
       KEYCHAIN_SENTENCE,
       `Its shell can read other files on this Mac, and send them ${sendsTo}.`,
       GIT_CLONE_SENTENCE,

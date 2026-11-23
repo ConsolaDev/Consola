@@ -891,8 +891,11 @@ step shows no live attention); the session's policy and grants are immutable
 and replayed on every launch. A sandboxed session gets `sandboxSessionEnv`'s
 allow-list, and no session with a policy gets the bound account's token
 (`borrowProviderToken`). The shell may not read `denyReadList`: the credential
-folders, Consola's data (`userData`, the factory root) and every harness's
-effective profile. `sandbox` is refused on a harness whose own or managed
+files and folders, each agent CLI's default profile (`~/.claude`, `~/.codex`,
+`~/.gemini`), Consola's data (`userData`, the factory root) and every
+harness's effective profile. Those are files: Git's osxkeychain helper, `gh`
+and Claude keep their sign-ins in the keychain, which the shell still reaches
+(row 49), and the card says so (`KEYCHAIN_SIGN_INS_SENTENCE`). `sandbox` is refused on a harness whose own or managed
 settings set `sandbox` (`sandboxSettingsProblem`), and off macOS. It is
 checked by `scripts/claude-steps-canary.mjs` rows 29–50 on a CLI version
 change, never at run time.

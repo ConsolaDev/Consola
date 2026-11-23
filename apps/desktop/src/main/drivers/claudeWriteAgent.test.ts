@@ -27,15 +27,18 @@ describe("a write agent's deny list (Call 21)", () => {
       factoryRoot: '/h/.consola/workspaces',
       profiles: ['/h/.claude-work', '/h/.claude-work', '/h/.claude'],
     });
+    // Unique: `/h/.claude` is both a harness's profile here and Claude's default (F1).
     expect(list).toEqual(
       [
-        ...CREDENTIAL_PATHS.map((rest) => `/h/${rest}`),
-        '/h/.consola/workspaces',
-        '/h/Library/Application Support/Consola',
-        '/h/Library/Application Support/Consola Dev',
-        '/h/Library/Application Support/Consola Test',
-        '/h/.claude-work',
-        '/h/.claude',
+        ...new Set([
+          ...CREDENTIAL_PATHS.map((rest) => `/h/${rest}`),
+          '/h/.consola/workspaces',
+          '/h/Library/Application Support/Consola',
+          '/h/Library/Application Support/Consola Dev',
+          '/h/Library/Application Support/Consola Test',
+          '/h/.claude-work',
+          '/h/.claude',
+        ]),
       ].sort(),
     );
     expect(
@@ -46,6 +49,23 @@ describe("a write agent's deny list (Call 21)", () => {
           p.startsWith('/h/.consola/run-git'),
       ),
     ).toBe(false);
+  });
+
+  it("denies every agent CLI's default profile and gh's folder, whatever the harness records name (3-B code review F1)", () => {
+    const list = denyReadList({
+      home: '/h',
+      userData: '/h/Library/Application Support/Consola',
+      factoryRoot: '/h/.consola/workspaces',
+      profiles: ['/h/.claude-work'],
+    });
+    for (const folder of [
+      '/h/.claude',
+      '/h/.codex',
+      '/h/.gemini',
+      '/h/.config/gh',
+      '/h/.claude.json',
+    ])
+      expect(list).toContain(folder);
   });
 
   it('names each entry through its real path where it exists', () => {

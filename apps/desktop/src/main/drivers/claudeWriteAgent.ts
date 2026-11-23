@@ -79,10 +79,13 @@ export const KEYCHAIN_SERVICE_BLOCKED = false;
 
 /**
  * The credential files and folders, under the home folder, that a `sandbox`
- * shell may not read (Call 21's fixed list; the canary's `CREDENTIAL_PATHS`).
- * `Library/Keychains` keeps the keychain files from being read or copied
- * whole; it does not keep the shell from asking the keychain service for an
- * item (`KEYCHAIN_SERVICE_BLOCKED`, row 49).
+ * shell may not read (Call 21's fixed list; the canary's `CREDENTIAL_PATHS`),
+ * and each agent CLI's default profile. `Library/Keychains` keeps the
+ * keychain files from being read or copied whole; it does not keep the shell
+ * from asking the keychain service for an item (`KEYCHAIN_SERVICE_BLOCKED`,
+ * row 49), which is where Git's osxkeychain helper, `gh` and Claude keep
+ * their sign-ins. Denying a profile folder leaves the agent running: row 46
+ * denied its own profile and another (2.1.330).
  */
 export const CREDENTIAL_PATHS = [
   'Library/Keychains',
@@ -101,6 +104,11 @@ export const CREDENTIAL_PATHS = [
   '.pypirc',
   '.git-credentials',
   '.config/git/credentials',
+  // Each agent CLI's default profile, whatever the harness records name (the 3-B code review's F1):
+  // Claude's, Codex's, Gemini's and Antigravity's (`~/.gemini`).
+  '.claude',
+  '.codex',
+  '.gemini',
 ] as const;
 
 /** Electron's `userData` with the suffixes a dev and a test run add (`index.ts`' `PROFILE_SUFFIX`). */
