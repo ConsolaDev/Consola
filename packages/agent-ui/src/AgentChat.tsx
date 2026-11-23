@@ -481,7 +481,8 @@ export function AgentChat(props: AgentChatProps): JSX.Element {
   const root = useRef<HTMLDivElement>(null);
   const dark = useChatDark(root);
   useMarkedPortals(dark);
-  useEffect(copyInjectedStyles, []);
+  // Before the first paint, so the composer never shows a frame without its editor styles.
+  useLayoutEffect(copyInjectedStyles, []);
   return (
     <div ref={root} className="consola-agent-ui">
       <div className={dark ? 'consola-agent-ui-theme dark' : 'consola-agent-ui-theme'}>

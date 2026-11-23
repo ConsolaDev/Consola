@@ -9,9 +9,13 @@
  * The guard rolls such CSS back inside the chat, as it does any unlayered rule of the page's
  * (AGENTS.md, "The page's CSS"). So while a chat is mounted, each gets a copy in the chat's layer,
  * right after it, whose rules then apply inside the chat as the original's do everywhere else.
- * Outside the chat the original outranks its copy, which says the same, so the page sees no
- * change. The copy leaves out `!important`: an important declaration outranks the guard, so the
- * original's still applies, and a copy of it in a layer would outrank the page's own.
+ * The copy's rules are nested in `INSIDE_CHAT`, so they match only inside the chat and its
+ * popups, with the original's specificity: outside, a page that rolls its own unlayered rules
+ * back (`revert-layer`) would otherwise fall to the copy. Nesting rather than `@scope`, which
+ * would do the same but reached Firefox only in 146 (nesting in 117). The copy leaves out
+ * `!important`: an important declaration outranks the guard, so the original's still applies,
+ * and a copy of it in a layer would outrank the page's own. A copy holds no `@keyframes` (a
+ * nested one is dropped); the original's are the page's, and name the same animations.
  */
 export const INJECTED_STYLES =
   'style[data-tiptap-style], style#legend-list-scrollbar-axis-hidden-style';
@@ -23,8 +27,11 @@ const copies = new Map<HTMLStyleElement, HTMLStyleElement>();
 let chats = 0;
 let observer: MutationObserver | undefined;
 
+/** Inside the chat or one of its popups (`build/scopeCss.ts` `INSIDE`). */
+export const INSIDE_CHAT = ':where(.consola-agent-ui, .consola-agent-ui-portal)';
+
 const layered = (css: string) =>
-  `@layer consola-agent-ui {\n${css.replace(/!\s*important/gi, '')}\n}`;
+  `@layer consola-agent-ui {\n${INSIDE_CHAT} {\n${css.replace(/!\s*important/gi, '')}\n}\n}`;
 
 /** Copies each injected style that has none, follows a changed one, and drops a removed one's. */
 const sync = () => {
