@@ -57,4 +57,20 @@ describe("main's wiring of write steps", () => {
       shell.indexOf('ensureCheckout'),
     );
   });
+
+  it("asks a step's run before its full-tools continuation, and moves an item's out of the automation checkout (Task 20)", () => {
+    const wired = between('launcher.continuation = {', '\n  };');
+    expect(wired).toMatch(
+      /\n {4}refusal: \(runId, stepId\) => automations\.continuationRefusal\(runId, stepId\),\n/,
+    );
+    expect(wired).toMatch(
+      /\n {4}checkoutOf: \(runId\) => runStore\.get\(runId\)\?\.checkout \?\? null,\n/,
+    );
+    expect(wired).toMatch(/worktrees\.continuationWorktreePathFor\(item, source\.id\)/);
+    expect(wired).toMatch(/await worktrees\.addContinuationWorktree\(clone, dir, commit\);/);
+    // Wired before the fork's handler is.
+    expect(ipc.indexOf('launcher.continuation = {')).toBeLessThan(
+      ipc.indexOf('IPC_CHANNELS.WORKSPACE_SESSION_FORK,'),
+    );
+  });
 });

@@ -147,6 +147,7 @@ export type {
 } from './steps/runCheckout';
 export {
   commitMessage,
+  CONTINUE_AFTER_RUN,
   FLAGGED_FILE_NAMES,
   FLAGGED_FOLDER_NAMES,
   flaggedPaths,

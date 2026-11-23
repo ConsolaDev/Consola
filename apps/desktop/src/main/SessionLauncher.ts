@@ -1,4 +1,5 @@
 import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { SessionOpenedError } from '@consola/automation-engine';
 import { launchFieldsFor, type Harness } from '../shared/harness';
 import type { ActionConversation } from '../shared/workItemActions';
@@ -158,6 +159,25 @@ export type PrepareCheckout = (
 /** A harness record's launch fields; shared with the renderer so both resolve one config directory. */
 export { launchFieldsFor };
 
+/**
+ * What a step's full-tools continuation asks of its run (slice 3-B Task
+ * 20, *A full-tools continuation of a step's session*), set at wiring time.
+ */
+export interface StepContinuation {
+  /** Why the step's session cannot be continued yet (`AutomationService.continuationRefusal`); null when it can. */
+  refusal(runId: string, stepId: string): string | null;
+  /** The run's checkout as its record names it; null when history has no such run. */
+  checkoutOf(
+    runId: string,
+  ): { kind?: 'item' | 'scope' | 'run-owned'; cwd: string; head?: string } | null;
+  /**
+   * A worktree of its own for the continuation, at `commit` (the one the
+   * step read), made from the person's clone of the session's item; its
+   * folder. `WorktreeService.addContinuationWorktree`.
+   */
+  continuationFolder(workspace: Workspace, source: Session, commit: string): Promise<string>;
+}
+
 export class SessionLauncher {
   /**
    * The Consola MCP endpoint every session gets, set at wiring time
@@ -167,6 +187,9 @@ export class SessionLauncher {
 
   /** Set at wiring time; optional so unit tests need no rebuilder. */
   public prepareCheckout?: PrepareCheckout;
+
+  /** Set at wiring time; optional so unit tests need no runner. */
+  public continuation?: StepContinuation;
 
   constructor(
     private readonly workspaces: SessionRecordStore,
@@ -416,6 +439,14 @@ export class SessionLauncher {
    * The fork stays on the source's harness, because the transcript lives in
    * that harness's config directory and only a CLI reading it can fork it;
    * a driver that cannot fork refuses when the tab starts.
+   *
+   * A step's session (slice 3-B Task 20): refused while its run is open,
+   * since its checkout and its branch are the run's. A step that worked in
+   * its run's own checkout continues there. One that read an item's
+   * automation checkout continues in a worktree of its own at the commit
+   * the step read, forked from its conversation there (canary row 41: a
+   * fork works across folders): a full-tools session launched in the
+   * automation checkout would keep every later run from moving it.
    */
   public async forkWithFullTools(workspaceId: string, sessionId: string): Promise<Session> {
     const source = this.workspaces
@@ -424,9 +455,13 @@ export class SessionLauncher {
       ?.sessions.find((candidate) => candidate.id === sessionId);
     if (!source) throw new Error(`No session ${sessionId} in workspace ${workspaceId}.`);
     if (!source.hasStarted) throw new Error('There is no conversation to continue yet.');
-    // The fork runs in the source's folder, which a cleanup rule may have removed.
     const workspace = this.workspaces.getAll().find((candidate) => candidate.id === workspaceId);
-    if (workspace && source.removedWorktree) await this.prepareCheckout?.(workspace, source);
+    const elsewhere = workspace ? await this.continuationCwd(workspace, source) : undefined;
+    // The fork runs in the source's folder, which a cleanup rule may have removed.
+    if (elsewhere === undefined && workspace && source.removedWorktree) {
+      await this.prepareCheckout?.(workspace, source);
+    }
+    const cwd = elsewhere ?? source.cwd;
     return this.launchSession(workspaceId, {
       name: `${source.name} (full tools)`,
       workspaceId,
@@ -435,12 +470,38 @@ export class SessionLauncher {
       model: source.model,
       scopeId: source.scopeId,
       kind: 'interactive',
-      ...(source.cwd !== undefined ? { cwd: source.cwd } : {}),
+      ...(cwd !== undefined ? { cwd } : {}),
       ...(source.groupId !== undefined ? { groupId: source.groupId } : {}),
       ...(source.workItem ? { workItem: source.workItem } : {}),
       ...(source.workItemAction !== undefined ? { workItemAction: source.workItemAction } : {}),
       forkFrom: source.claudeSessionId,
     });
+  }
+
+  /**
+   * For a step's session, where its continuation runs when that is not its
+   * own folder: a worktree of its own when the step read an item's
+   * automation checkout. Throws while the step's run is open; undefined to
+   * fork in place (any other session, a run's own checkout).
+   */
+  private async continuationCwd(
+    workspace: Workspace,
+    source: Session,
+  ): Promise<string | undefined> {
+    const step = source.automation?.step;
+    if (!source.automation || !step || !this.continuation) return undefined;
+    const refusal = this.continuation.refusal(source.automation.runId, step.id);
+    if (refusal) throw new Error(refusal);
+    const checkout = this.continuation.checkoutOf(source.automation.runId);
+    if (!checkout || checkout.kind === 'run-owned' || checkout.head === undefined) return undefined;
+    if (
+      !source.workItem ||
+      !source.cwd ||
+      path.resolve(source.cwd) !== path.resolve(checkout.cwd)
+    ) {
+      return undefined;
+    }
+    return this.continuation.continuationFolder(workspace, source, checkout.head);
   }
 
   /**

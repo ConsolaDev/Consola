@@ -23,6 +23,11 @@ interface TerminalPanelProps {
    * continues in a fork of their own.
    */
   policy?: { line: string; readOnly: boolean };
+  /**
+   * Why **Continue with full tools** is off: a step's session while its run
+   * is open (`continuationBlock`, slice 3-B). Absent when it may continue.
+   */
+  continueBlock?: string;
   cwd: string;
   /** Session ID Consola assigned to this tab. */
   claudeSessionId: string;
@@ -45,6 +50,7 @@ export function TerminalPanel({
   workspaceId,
   sessionId,
   policy,
+  continueBlock,
   cwd,
   claudeSessionId,
   resume,
@@ -131,9 +137,12 @@ export function TerminalPanel({
               type="button"
               className="terminal-fork-button"
               onClick={handleFork}
-              // Mid-turn, the conversation is not all written yet.
-              disabled={forking || (isBusy && !hasExited)}
-              title="Continue this conversation in a new session of your own, with your usual tools"
+              // Mid-turn, the conversation is not all written yet; a step's run still owns its checkout.
+              disabled={forking || (isBusy && !hasExited) || continueBlock !== undefined}
+              title={
+                continueBlock ??
+                'Continue this conversation in a new session of your own, with your usual tools'
+              }
             >
               <Unlock size={13} />
               <span>Continue with full tools</span>

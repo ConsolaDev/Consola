@@ -385,6 +385,64 @@ export class WorktreeService {
   }
 
   /**
+   * Where a full-tools continuation of a step that read an item's
+   * automation checkout runs (slice 3-B Task 20): a worktree of its own,
+   * `<repo>-<type>-<n>-continue-<session id, 8>`, so the automation checkout
+   * is never held by a full-tools session, which would keep every later run
+   * from moving it to the item's head.
+   */
+  public continuationWorktreePathFor(workItem: WorkItemRef, sessionId: string): string {
+    return path.join(this.root, `${worktreeDirName(workItem)}-continue-${sessionId.slice(0, 8)}`);
+  }
+
+  /**
+   * A continuation's worktree (slice 3-B Task 20): `git worktree add
+   * --detach <dir> <commit>` from the person's clone, with git hooks off (a
+   * checkout's own `post-checkout` would run). One already there is kept as
+   * it is when it is this clone's worktree (a second continuation of the same
+   * step), refused when it is anything else. Under the folder's lock, and
+   * marked prepared: it counts as in use until the session naming it exists.
+   */
+  public addContinuationWorktree(clonePath: string, dir: string, commit: string): Promise<void> {
+    return this.lock.run(dir, async () => {
+      if (!this.isDirectChildOfRoot(dir, (target) => path.resolve(target))) {
+        throw new Error(`Refusing to make ${dir}: it is not under Consola's worktree folder.`);
+      }
+      const env = withoutGitHooks(withoutRepositoryOverrides(process.env));
+      if (await lstatOrNull(dir)) {
+        const [actual, expected] = await Promise.all([
+          this.git(dir, ['rev-parse', '--path-format=absolute', '--git-common-dir'], env),
+          this.git(clonePath, ['rev-parse', '--path-format=absolute', '--git-common-dir'], env),
+        ]);
+        if (
+          actual.code !== 0 ||
+          expected.code !== 0 ||
+          actual.stdout.trim() !== expected.stdout.trim() ||
+          !(await lstatOrNull(path.join(dir, '.git')))?.isFile()
+        ) {
+          throw new Error(
+            `${dir} exists but is not a worktree of ${clonePath}, so Consola left it alone.`,
+          );
+        }
+        this.lock.markPrepared(dir);
+        return;
+      }
+      await fs.promises.mkdir(this.root, { recursive: true });
+      const added = await this.git(clonePath, ['worktree', 'add', '--detach', dir, commit], env);
+      if (added.code !== 0) {
+        throw new Error(added.stderr.trim() || `git worktree add ${dir} failed.`);
+      }
+      const head = await this.git(dir, ['rev-parse', 'HEAD'], env);
+      if (head.stdout.trim() !== commit) {
+        throw new Error(
+          `${dir} came out at ${head.stdout.trim().slice(0, 7)}, not ${commit.slice(0, 7)}.`,
+        );
+      }
+      this.lock.markPrepared(dir);
+    });
+  }
+
+  /**
    * Bring an item's automation checkout to the item's head, making it first
    * when it is missing, and say which commit that is.
    *

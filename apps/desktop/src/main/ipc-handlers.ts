@@ -2697,6 +2697,25 @@ export function setupIpcHandlers(): boolean {
     fanOut({ workspaces, launcher }, intent),
   );
 
+  // A step's continuation asks its run first (slice 3-B Task 20): never while the run is
+  // open, and never in an item's automation checkout, which a run must still be able to move.
+  launcher.continuation = {
+    refusal: (runId, stepId) => automations.continuationRefusal(runId, stepId),
+    checkoutOf: (runId) => runStore.get(runId)?.checkout ?? null,
+    continuationFolder: async (workspace, source, commit) => {
+      const item = source.workItem;
+      const clone = item ? worktrees.resolveRepo(workspace, item.repo) : null;
+      if (!item || !clone) {
+        throw new Error(
+          'Consola could not find the clone this step read, so it has nowhere to continue.',
+        );
+      }
+      const dir = worktrees.continuationWorktreePathFor(item, source.id);
+      await worktrees.addContinuationWorktree(clone, dir, commit);
+      return dir;
+    },
+  };
+
   // A read-only session's restriction is never lifted in place: the person
   // continues its conversation in a fork of their own.
   ipcMain.handle(
