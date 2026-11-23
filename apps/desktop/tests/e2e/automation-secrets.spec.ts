@@ -737,7 +737,7 @@ test('Refused at their lines: an agent file, an entry, a GH_TOKEN and a template
   }
 });
 
-test('A bindings file that does not read: every name is unbound, the tab says why, and a fix shows at the next look', async () => {
+test('A bindings file that does not read: no name reads as bound, the tab says why, and a fix shows at the next look', async () => {
   test.setTimeout(120_000);
   const BROKEN = 'not json {';
   const secrets = await setUpSecrets([PAGE_ON_CALL], {
