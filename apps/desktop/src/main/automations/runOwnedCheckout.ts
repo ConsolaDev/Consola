@@ -131,7 +131,7 @@ export function runOwnedCheckoutPort(deps: RunOwnedCheckoutDeps): RunCheckoutPor
     return held ? { sessionId: held.id, name: held.name } : null;
   };
 
-  /** F7: a session launched in `dir` with full tools, running or not (`launchedWithFullTools`, by real-looking path). */
+  /** F7: a session launched in `dir` with full tools, running or not (`launchedWithFullTools`, both paths resolved). */
   const fullToolsSession = (dir: string) => {
     const target = path.resolve(dir);
     const launched = deps
