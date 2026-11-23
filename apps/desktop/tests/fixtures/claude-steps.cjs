@@ -91,6 +91,28 @@
 //                               ERROR <first line>` for a failed one), then shows the composer.
 //                               Once per file: it writes `<path>.done` after, and a relaunch that
 //                               finds it makes none.
+//   STUB_CLAUDE_ENV_LOG=path    every launch appends `ENV <session id> :: <every variable name,
+//                               sorted, joined by spaces>`: names only, never a value; by session,
+//                               since every step of a run that owns its checkout shares one cwd.
+// A step that writes (slice 3-B). Each of these acts only on a launch whose `--tools` holds
+// `Write`, and counts only those (review S6: a read-only step launches in the same checkout):
+//   STUB_CLAUDE_WRITES=path     a JSON array, one entry per print-mode Write launch in order (n from
+//                               `<path>.n`, absent 0; past the end, the last), each `{ files?: {
+//                               <path in the cwd>: <text> } }`: writes each file under its cwd and
+//                               logs `WROTE <paths joined ,>`. It never commits: under a sandbox an
+//                               agent cannot, and Consola commits every step (review S1).
+//   STUB_CLAUDE_WRITES_OPEN=path  the same for an interactive Write launch (no -p), counted in
+//                               `<path>.n` of its own, which then shows the composer and stays open
+//                               until `<path>.close` exists, logging `OPEN waiting`, then `OPEN
+//                               closed`, and exits 0: a person's session in the checkout.
+//   STUB_CLAUDE_LEAVE_PROCESS=path  the first print-mode Write launch while `<path>.done` is absent
+//                               starts `sleep 300` in its cwd, in the launch's own process group (not
+//                               detached: a shell's background job; it ignores the terminal's hangup,
+//                               so only a signal ends it), writes its pid to `<path>`, then creates
+//                               `<path>.done` (review M13: the condition and the marker are one path).
+//   STUB_CLAUDE_MOVE_HEAD=1     a print-mode Write launch runs `git checkout -q --detach` in its cwd
+//                               before it ends (no git variable reaches a step: its git finds the
+//                               folder through the checkout's pointer), logging `HEAD detached`.
 //   Only in stream-json:
 //   STUB_CLAUDE_MODEL=name      `init`'s model; default `claude-stub-1`
 //   STUB_CLAUDE_COST=usd        the result's `total_cost_usd`; default 0.0123. A comma list
@@ -156,7 +178,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const readline = require('node:readline');
-const { spawn } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 
 const PROTOCOL_VERSION = '2025-06-18';
 /** Long enough for a loaded machine; short of the test's own timeouts. */
@@ -249,6 +271,83 @@ function pluginSkills() {
     .sort()
     .filter((name) => fs.existsSync(path.join(skills, name, 'SKILL.md')))
     .map((name) => `consola-step:${name}`);
+}
+
+/** A launch that may write files: its `--tools` holds `Write` (slice 3-B). Only these take a write knob's entry. */
+const WRITES = (flagValue('--tools') ?? '').split(',').includes('Write');
+
+/** `<file>.n`'s count (absent 0), moved on to n + 1. */
+function nextCount(file) {
+  const counter = `${file}.n`;
+  const n = fs.existsSync(counter) ? Number(fs.readFileSync(counter, 'utf8')) || 0 : 0;
+  fs.writeFileSync(counter, String(n + 1));
+  return n;
+}
+
+/**
+ * A write knob's entry for this launch (`STUB_CLAUDE_WRITES` or
+ * `STUB_CLAUDE_WRITES_OPEN`): each of its files written under the cwd,
+ * logged as `WROTE <paths>`. Nothing for an unset knob, a missing file, or
+ * one that holds no list. Commits nothing.
+ */
+function writeFiles(name) {
+  const text = readKnob(name);
+  if (text === null) return;
+  let entries;
+  try {
+    entries = JSON.parse(text);
+  } catch {
+    return;
+  }
+  if (!Array.isArray(entries) || entries.length === 0) return;
+  const entry = entries[Math.min(nextCount(process.env[name]), entries.length - 1)] ?? {};
+  const paths = Object.keys(entry.files ?? {});
+  for (const relative of paths) {
+    const file = path.join(process.cwd(), relative);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, entry.files[relative]);
+  }
+  if (paths.length > 0) log(`WROTE ${paths.join(',')}`);
+}
+
+/**
+ * STUB_CLAUDE_LEAVE_PROCESS: once, a `sleep 300` left in the cwd, in this
+ * launch's process group, as a shell's background job is. It ignores the
+ * terminal's hangup (the step's terminal closes when its CLI exits), so
+ * only a signal ends it: what Consola ends after the step.
+ */
+function leaveProcess() {
+  const file = process.env.STUB_CLAUDE_LEAVE_PROCESS;
+  if (!file || fs.existsSync(`${file}.done`)) return;
+  const child = spawn('/bin/sh', ['-c', 'trap "" HUP; exec sleep 300'], {
+    cwd: process.cwd(),
+    stdio: 'ignore',
+  });
+  child.unref();
+  fs.writeFileSync(file, String(child.pid));
+  fs.writeFileSync(`${file}.done`, '');
+  log(`LEFT ${child.pid}`);
+}
+
+/** STUB_CLAUDE_MOVE_HEAD=1: `HEAD` detached in the cwd, by the checkout's own git. */
+function moveHead() {
+  if (process.env.STUB_CLAUDE_MOVE_HEAD !== '1') return;
+  const moved = spawnSync('git', ['checkout', '-q', '--detach'], {
+    cwd: process.cwd(),
+    encoding: 'utf8',
+  });
+  log(moved.status === 0 ? 'HEAD detached' : `HEAD ERROR ${firstLine(moved.stderr.trim())}`);
+}
+
+/** STUB_CLAUDE_ENV_LOG: this launch's variable names, sorted, never a value. */
+function logEnvironment() {
+  const file = process.env.STUB_CLAUDE_ENV_LOG;
+  if (!file) return;
+  const names = Object.keys(process.env).sort().join(' ');
+  fs.appendFileSync(
+    file,
+    `ENV ${flagValue('--session-id') ?? flagValue('--resume')} :: ${names}\n`,
+  );
 }
 
 /** Print mode reporting its turn as the real CLI's stream-json. */
@@ -606,6 +705,7 @@ async function printTurn() {
   const id = SESSION_ID;
   // The last line a turn logs, so a test can tell it is over.
   const end = (code, stream, text) => {
+    if (WRITES) moveHead();
     log(`END ${id} exit ${code}`);
     stream.write(text, () => process.exit(code));
   };
@@ -622,6 +722,11 @@ async function printTurn() {
       record('assistant', [{ type: 'text', text: 'FINDINGS: done' }]) + '\n',
     );
   fs.appendFileSync(transcript, record('user', prompt) + '\n');
+  // A write step's work, before anything else, so a held turn has already written (slice 3-B).
+  if (WRITES) {
+    writeFiles('STUB_CLAUDE_WRITES');
+    leaveProcess();
+  }
   const hooks = STREAM_JSON ? plannedHooks() : [];
   if (STREAM_JSON) {
     const { kept, blocked } = loadedServers();
@@ -723,6 +828,7 @@ if (flags.includes('--version')) {
   else process.exitCode = 1;
 } else {
   log(`${process.cwd()} :: ${args.join(' ')}`);
+  logEnvironment();
   if (flags.includes('-p')) {
     printTurn().catch((error) => {
       log(`STUB ${firstLine(error.stack ?? error.message)}`);
@@ -737,8 +843,14 @@ if (flags.includes('--version')) {
   }
 }
 
-/** An interactive launch: STUB_CLAUDE_CALLS' calls once, then an empty composer. */
+/**
+ * An interactive launch: STUB_CLAUDE_CALLS' calls once, then an empty
+ * composer. A Write launch with STUB_CLAUDE_WRITES_OPEN writes its entry
+ * first and, once the composer shows, waits for `<path>.close`, then exits.
+ */
 async function interactive() {
+  const open = WRITES ? process.env.STUB_CLAUDE_WRITES_OPEN : undefined;
+  if (open) writeFiles('STUB_CLAUDE_WRITES_OPEN');
   const file = process.env.STUB_CLAUDE_CALLS;
   if (file && fs.existsSync(file) && !fs.existsSync(`${file}.done`)) {
     const calls = JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -746,6 +858,11 @@ async function interactive() {
     await withConsola((client) => callTools(client, calls));
   }
   process.stdout.write('❯ ');
+  if (!open) return;
+  log('OPEN waiting');
+  while (!fs.existsSync(`${open}.close`)) await sleep(100);
+  log('OPEN closed');
+  process.exit(0);
 }
 
 /** One control request's answer: `{ response }`, or `{ error }`. */
