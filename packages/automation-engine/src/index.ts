@@ -165,6 +165,7 @@ export {
   RunCheckoutError,
   runOwnedDirName,
   sessionHoldsRetry,
+  fullToolsHoldRetry,
 } from './steps/runCheckout';
 export {
   LOG_CAP_BYTES,

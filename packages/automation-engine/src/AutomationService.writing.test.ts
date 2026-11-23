@@ -1183,6 +1183,34 @@ describe("a person's session in a run's checkout holds the run, and what it leav
     },
   );
 
+  it.each([
+    ['a manual run', WRITE_ENTRY],
+    ['a pull request', PR_WRITE],
+  ])(
+    "a person's Retry is refused once a full-tools session was launched in the run's checkout, running or not, on %s, and nothing is reset (3-B code review F7)",
+    async (_, yaml) => {
+      const h = await writing(yaml);
+      let run: { id: string };
+      if (yaml === PR_WRITE) {
+        await h.poll([]);
+        await h.poll([inboxItem({ repo: REPO, number: 51 })]);
+        [run] = h.store.runs();
+      } else run = await runNow(h, 'write');
+      await h.world.endTurn('session-1', { exitCode: 1 });
+      expect(runOf(h, run.id).status).toBe('failed');
+      // The person continued `fix` with full tools in the run's checkout, then closed that session.
+      h.world.fullTools.set(ownedDir(h, run.id), { sessionId: 'fork-1', name: 'fix (full tools)' });
+      const done = h.world.runCheckouts.calls.length;
+      await expect(h.service.retry(run.id)).rejects.toThrow(
+        "A full-tools session was launched in this run's checkout (“fix (full tools)”), so Consola will not reset it. Delete that session, then retry.",
+      );
+      expect(callNames(h, done)).toEqual([]);
+      expect(runOf(h, run.id).status).toBe('failed');
+      h.world.fullTools.clear();
+      await expect(h.service.retry(run.id)).resolves.toMatchObject({ status: 'running' });
+    },
+  );
+
   it("a loop's round is one boundary with its first step, checked once, and each later round's again", async () => {
     const LOOP_WRITE = file(
       `  - name: write\n    on: manual\n    mode: auto\n${owned('fix/{{run.id}}')}${steps('- id: polish\n  repeat: { max: 2, until: steps.fix.done }\n  steps:\n    - id: fix\n      agent: fixer\n      prompt: Fix it.\n      outputs: { done: boolean }')}`,

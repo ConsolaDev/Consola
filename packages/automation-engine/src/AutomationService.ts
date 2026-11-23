@@ -238,6 +238,7 @@ import {
   personsCommitMessage,
   type RunCheckoutPort,
   sessionHoldsRetry,
+  fullToolsHoldRetry,
   type SettleResult,
 } from './steps/runCheckout';
 import { advanceSteps, type Advance, type Lane, type StepUpdate } from './steps/sequence';
@@ -3035,6 +3036,12 @@ export class AutomationService {
       : undefined;
     // A run that owns its checkout keeps it; one whose checkout was never made makes it now (slice 3-B).
     const workItem = loaded.definition.automation.scope || owned ? undefined : itemRefOf(run);
+    // Claude trusts a run's own checkout for a full-tools session launched there, running or not: nothing
+    // resets it or runs a step in it again (F7), before anything is rebuilt, ended or reset.
+    if (owned && run.checkout?.kind === 'run-owned' && this.deps.runCheckout) {
+      const fullTools = this.deps.runCheckout.fullToolsSession(run.checkout.cwd);
+      if (fullTools) throw new Error(fullToolsHoldRetry(fullTools.name));
+    }
     // A run's own checkout that cleanup removed comes back first, at the commit it recorded, never anew (Task 19).
     if (
       owned &&

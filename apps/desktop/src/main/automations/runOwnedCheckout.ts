@@ -17,8 +17,9 @@ import {
   type SettleResult,
   type StepProcesses,
 } from '@consola/automation-engine';
-import type { Workspace } from '../../shared/workspace';
+import type { Session, Workspace } from '../../shared/workspace';
 import { ProcessCwdIndex, type ProcessSnapshot } from '../worktreeCleanup/ProcessCwdIndex';
+import { launchedWithFullTools } from './launchAgentRun';
 
 /** What the desktop's run-owned checkout port is built from (slice 3-B Task 18, Calls 1, 8, 12). */
 export interface RunOwnedCheckoutDeps {
@@ -40,13 +41,14 @@ export interface RunOwnedCheckoutDeps {
   identify(pid: number): { pgid: number; started: string } | null;
   /** Every live Consola terminal: agent CLIs (excluded with their descendants) and shells (excluded alone). */
   liveTerminals(): { agents: number[]; shells: number[] };
-  /** Every session of every workspace, with whether its CLI is running. */
+  /** Every session of every workspace, with whether its CLI is running and its tool policy (absent: full tools). */
   sessions(): Array<{
     id: string;
     name: string;
     cwd?: string;
     agentCwd?: string;
     running: boolean;
+    toolPolicy?: Session['toolPolicy'];
   }>;
   /** `process.kill`: a negative pid is a group. Throws `ESRCH` for one that is gone. */
   kill(pid: number, signal: NodeJS.Signals | 0): void;
@@ -127,6 +129,22 @@ export function runOwnedCheckoutPort(deps: RunOwnedCheckoutDeps): RunCheckoutPor
             (session.agentCwd !== undefined && path.resolve(session.agentCwd) === target)),
       );
     return held ? { sessionId: held.id, name: held.name } : null;
+  };
+
+  /** F7: a session launched in `dir` with full tools, running or not (`launchedWithFullTools`, by real-looking path). */
+  const fullToolsSession = (dir: string) => {
+    const target = path.resolve(dir);
+    const launched = deps
+      .sessions()
+      .find(
+        (session) =>
+          session.cwd !== undefined &&
+          launchedWithFullTools(
+            { cwd: path.resolve(session.cwd), toolPolicy: session.toolPolicy },
+            target,
+          ),
+      );
+    return launched ? { sessionId: launched.id, name: launched.name } : null;
   };
 
   /**
@@ -211,6 +229,7 @@ export function runOwnedCheckoutPort(deps: RunOwnedCheckoutDeps): RunCheckoutPor
     },
 
     holder,
+    fullToolsSession,
 
     // Task 19: back at the commit the removal recorded, from the person's clone, keeping its keep-ref (review NB2).
     restore: (dir) =>

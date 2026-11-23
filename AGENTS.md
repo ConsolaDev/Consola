@@ -927,6 +927,9 @@ another; a process an agent backgrounds is in neither (row 48), so it is found
 by its working directory, and any process outside Consola's sessions left in
 the checkout fails the step. A step's full-tools continuation waits for its
 run to end, and an item step's forks into `<repo>-<type>-<n>-continue-<8>`.
+Once a full-tools session was launched in a run's own checkout, running or
+not, Retry refuses until that session is deleted (`fullToolsSession`):
+Claude trusts the folder for it, as slice 1's rule for an item's checkout.
 Rerun the canary's rows 29–50 after every CLI upgrade, and record the version
 in `SANDBOX_CHECKED_ON_CLAUDE`.
 

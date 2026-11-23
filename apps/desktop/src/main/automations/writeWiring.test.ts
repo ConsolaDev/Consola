@@ -82,6 +82,13 @@ describe("main's wiring of write steps", () => {
     );
   });
 
+  it("gives the run's checkout port each session's tool policy, so Retry knows a full-tools fork (3-B code review F7)", () => {
+    const mapped = between('const runCheckout = runOwnedCheckoutPort({', 'kill: (pid, signal)');
+    expect(mapped).toMatch(
+      /\n {8}\.\.\.\(session\.toolPolicy !== undefined \? \{ toolPolicy: session\.toolPolicy \} : \{\}\),\n/,
+    );
+  });
+
   it("passes the approval card the canary's three verdicts, its CLI's version, and a run definition's writes (Task 21)", () => {
     const deps = between('new AutomationService({', '\n  });');
     expect(deps).toMatch(/\n {4}sandboxCheckedOn: SANDBOX_CHECKED_ON_CLAUDE,\n/);

@@ -105,6 +105,13 @@ export interface RunCheckoutPort {
   /** Call 12: the first session whose `cwd` or `agentCwd` is `dir` and whose CLI is running, else null. */
   holder(dir: string): { sessionId: string; name: string } | null;
   /**
+   * The 3-B code review's F7: the first session launched in `dir` with full
+   * tools, running or not, else null. Claude trusts the folder for it, so a
+   * Retry never resets the folder or runs a step there (slice 1's rule for
+   * an item's automation checkout, `worktreeHeld`).
+   */
+  fullToolsSession(dir: string): { sessionId: string; name: string } | null;
+  /**
    * Task 19 (Call 10): put back a run's checkout that cleanup removed, as it
    * was made, at the commit the removal recorded (a session's
    * `removedWorktree`, else the run's `checkout.removed`); never anew at a
@@ -232,6 +239,11 @@ export function commitMessage(
  */
 export function personsCommitMessage(session: string | undefined, automation: string): string {
   return `changes by ${session ?? 'a session'} during ${automation}`;
+}
+
+/** A person's Retry of a run whose own checkout a full-tools session was launched in (F7), in slice 1's words. */
+export function fullToolsHoldRetry(session: string): string {
+  return `A full-tools session was launched in this run's checkout (“${session}”), so Consola will not reset it. Delete that session, then retry.`;
 }
 
 /** A person's Retry of a run whose own checkout a session holds (spec *A retry is a boundary too*). */

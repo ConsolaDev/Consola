@@ -2289,6 +2289,7 @@ export function setupIpcHandlers(): boolean {
         name: session.name,
         ...(session.cwd !== undefined ? { cwd: session.cwd } : {}),
         ...(session.agentCwd !== undefined ? { agentCwd: session.agentCwd } : {}),
+        ...(session.toolPolicy !== undefined ? { toolPolicy: session.toolPolicy } : {}),
         running: isRunning(session),
       })),
     kill: (pid, signal) => process.kill(pid, signal),

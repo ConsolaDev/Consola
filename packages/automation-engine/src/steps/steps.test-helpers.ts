@@ -357,6 +357,8 @@ export interface StepsWorld {
   processes: { end: StepProcesses; gate?: Promise<void> };
   /** The session the port's `holder` names for a folder, by folder. */
   holders: Map<string, { sessionId: string; name: string }>;
+  /** The full-tools session the port's `fullToolsSession` names for a folder, by folder (F7). */
+  fullTools: Map<string, { sessionId: string; name: string }>;
   /** What the port's `folderProblem` answers. Default: none. */
   folderProblem: (dir: string) => string | null;
   /** Whether a repository is cloned in a workspace, as `repoCloned` answers. Default: yes. */
@@ -559,6 +561,7 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
     },
     processes: { end: { kind: 'clear' } },
     holders: new Map(),
+    fullTools: new Map(),
     folderProblem: () => null,
     repoCloned: () => true,
     async endTurn(sessionId, outcome = { exitCode: 0 }) {
@@ -986,6 +989,7 @@ function fakeRunCheckout(world: StepsWorld): RunCheckoutPort {
       return world.processes.end;
     },
     holder: (dir) => world.holders.get(dir) ?? null,
+    fullToolsSession: (dir) => world.fullTools.get(dir) ?? null,
     restore: async (dir) => {
       runCheckouts.calls.push({ restore: dir });
       if (runCheckouts.restoreFails) throw runCheckouts.restoreFails;

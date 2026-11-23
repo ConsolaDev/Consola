@@ -271,6 +271,22 @@ describe('the desktop’s run-owned checkout port (slice 3-B Task 18)', () => {
     expect(runOwnedCheckoutPort(deps({ sessions: () => [sessions[0]] })).holder(dir)).toBeNull();
   });
 
+  it('names a session launched in the folder with full tools, running or not, and never one with a policy (3-B code review F7)', () => {
+    const sessions = [
+      { id: 's-fix', name: 'fix', cwd: dir, running: false, toolPolicy: 'write' as const },
+      { id: 's-elsewhere', name: 'other', cwd: source, running: true },
+      { id: 's-moved', name: 'moved in', agentCwd: dir, running: true },
+      { id: 's-fork', name: 'fix (full tools)', cwd: `${dir}/`, running: false },
+    ];
+    expect(runOwnedCheckoutPort(deps({ sessions: () => sessions })).fullToolsSession(dir)).toEqual({
+      sessionId: 's-fork',
+      name: 'fix (full tools)',
+    });
+    expect(
+      runOwnedCheckoutPort(deps({ sessions: () => sessions.slice(0, 3) })).fullToolsSession(dir),
+    ).toBeNull();
+  });
+
   it('never settles past a holder or a live process: a step’s settle and a boundary each refuse first, committing nothing', async () => {
     fs.writeFileSync(path.join(dir, 'fix.txt'), 'fixed\n');
     fs.mkdirSync(path.join(tmp, 'attempt'));
