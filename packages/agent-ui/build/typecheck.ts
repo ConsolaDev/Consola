@@ -4,7 +4,7 @@
  *
  * - t3's checker (`effect-tsgo`, as t3 runs it) over the browser program (`tsconfig.json`) and the
  *   Node one (`tsconfig.node.json`). It fails on every error but the four below, and on any of
- *   the four that no longer appears, so the list stays exact.
+ *   the four that no longer appears (compared by count, so a second identical error fails), so the list stays exact.
  * - An embedding app's program (`test-consumer/`), with TypeScript's own `tsc`, as cloud-web and
  *   the desktop check theirs. It imports the package by name, so it reads what `package.json`'s
  *   `exports` publish. It fails on any error at all, and on any file it reads that is neither its
@@ -20,6 +20,7 @@
 import { spawnSync } from 'node:child_process';
 import { isAbsolute, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { compareErrors } from './errorCounts.ts';
 
 const KNOWN_ERRORS = [
   "src/t3/components/settings/ScheduledTasksSettings.tsx: TS7031: Binding element '_closed' implicitly has an 'any' type.",
@@ -52,8 +53,8 @@ const check = (command: string, args: string[]): { errors: string[]; lines: stri
 const t3Errors = (project: string) => check('effect-tsgo', ['tsrs', '--noEmit', '-p', project]);
 
 const found = [...t3Errors('tsconfig.json').errors, ...t3Errors('tsconfig.node.json').errors];
-const unexpected = found.filter((error) => !KNOWN_ERRORS.includes(error));
-const gone = KNOWN_ERRORS.filter((error) => !found.includes(error));
+// By count: a second identical error is a new one (`errorCounts.ts`).
+const { unexpected, gone } = compareErrors(found, KNOWN_ERRORS);
 
 const consumer = check('tsc', [
   '--noEmit',
