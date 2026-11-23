@@ -13,3 +13,9 @@ export {
 export { AppliedFactoryFiles } from './appliedFactory';
 export { RunFolder } from './runFolder';
 export { startCommand, COMMAND_SHELL, KILL_GRACE_MS } from './runCommand';
+export {
+  readKeychainItem,
+  readOnePasswordField,
+  SECRET_READ_TIMEOUT_MS,
+  SecretReaderFailure,
+} from './secretReaders';
