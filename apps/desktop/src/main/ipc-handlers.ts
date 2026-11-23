@@ -38,7 +38,7 @@ import { registerBrowserHandlers } from './browser/browserIpc';
 import { onGuestAttached } from './browser/guestPolicy';
 import { placePopupTab } from './browser/popupPolicy';
 import { installPopupPolicy } from './browser/popupWindows';
-import { exposeToTests, isBackgroundTest } from './test-mode';
+import { exposeToTests, isBackgroundTest, isTest } from './test-mode';
 import { forwardGuestShortcuts } from './browser/guestShortcuts';
 import {
   clearBrowsingData,
@@ -2126,6 +2126,9 @@ export function setupIpcHandlers(): boolean {
   });
   // The tools themselves, for an end-to-end test to put on a server of its own.
   exposeToTests('browserTools', sessionBrowserTools);
+  // Every automation notice, as `notify` below said it: what an end-to-end test cannot see on screen.
+  const automationNotices: Array<{ title: string; body: string }> = [];
+  exposeToTests('automationNotices', automationNotices);
 
   // Every session's private MCP endpoint (see SessionMcpHost): the Consola
   // tools for all, plus the group tools for conductors and the browser tools
@@ -2305,6 +2308,8 @@ export function setupIpcHandlers(): boolean {
     now: () => new Date(),
     newId: () => randomUUID(),
     notify: (notice) => {
+      // An end-to-end test reads what was said (`__consolaTest.automationNotices`); nothing else does.
+      if (isTest) automationNotices.push({ title: notice.title, body: notice.body });
       if (!Notification.isSupported()) return;
       const notification = new Notification({ title: notice.title, body: notice.body });
       // Lands on what the notice is about: the session a run started, the

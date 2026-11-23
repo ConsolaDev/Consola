@@ -230,6 +230,7 @@ export { pollSource } from './sources/pollSource';
 export { resolvePrevious, previousDocument, NO_EARLIER_RUN } from './sources/previous';
 export {
   AGENT_EXAMPLES,
+  GRAMMAR_EXAMPLES,
   describeCapabilities,
   type AgentCapability,
   type AutomationCapabilities,

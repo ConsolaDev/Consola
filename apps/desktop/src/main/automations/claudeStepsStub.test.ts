@@ -428,6 +428,14 @@ describe('the stub claude in stream-json', { timeout: 30_000 }, () => {
       launch('r4', { STUB_CLAUDE_OUTPUTS_SEQ: sequence, STUB_CLAUDE_OUTPUTS: outputs }),
     ).toEqual(set(1));
     expect(launch('r5', { STUB_CLAUDE_OUTPUTS: outputs })).toEqual(set(7));
+    // A `null` entry sets nothing, and still moves the count on (a write step between two that set outputs).
+    fs.writeFileSync(sequence, JSON.stringify([null, { findings: 2 }]));
+    fs.rmSync(`${sequence}.n`);
+    expect(
+      launch('r7', { STUB_CLAUDE_OUTPUTS_SEQ: sequence, STUB_CLAUDE_OUTPUTS: outputs }),
+    ).toEqual([]);
+    expect(launch('r8', { STUB_CLAUDE_OUTPUTS_SEQ: sequence })).toEqual(set(2));
+    fs.writeFileSync(sequence, JSON.stringify([{ findings: 1 }, { findings: 0 }]));
     // A sequence file that is not there sets what STUB_CLAUDE_OUTPUTS says.
     expect(
       launch('r6', {
@@ -957,6 +965,29 @@ describe('the stub claude in a write step', { timeout: 30_000 }, () => {
     expect((await launch(dir, 'address', WRITE_TOOLS, quiet)).status).toBe(0);
     expect(fs.readFileSync(path.join(dir, 'src', 'app.ts'), 'utf8')).toBe('fixed twice');
     expect(fs.readFileSync(`${writes}.n`, 'utf8')).toBe('2');
+  });
+
+  it('STUB_CLAUDE_HOLD_WRITE holds a Write launch only, after its files are written', async () => {
+    const dir = repo();
+    const knobs = scratch();
+    const log = path.join(knobs, 'claude.log');
+    const gate = path.join(knobs, 'hold');
+    const writes = path.join(knobs, 'writes.json');
+    fs.writeFileSync(writes, JSON.stringify([{ files: { 'src/app.ts': 'fixed' } }]));
+    const env = { STUB_CLAUDE_LOG: log, STUB_CLAUDE_HOLD_WRITE: gate, STUB_CLAUDE_WRITES: writes };
+    // A read-only launch passes straight through.
+    expect((await launch(dir, 'triage', [...READ_TOOLS, ...REPORT], env)).status).toBe(0);
+    expect(readLog(log)).not.toContain('HOLD waiting');
+    const held = launch(dir, 'fix', [...WRITE_TOOLS, ...REPORT], env);
+    const deadline = Date.now() + 20_000;
+    while (!readLog(log).includes('HOLD waiting') && Date.now() < deadline)
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    // Held, with its files already written.
+    expect(fs.readFileSync(path.join(dir, 'src', 'app.ts'), 'utf8')).toBe('fixed');
+    expect(readLog(log).some((line) => line.startsWith('END fix '))).toBe(false);
+    fs.writeFileSync(gate, '');
+    expect((await held).status).toBe(0);
+    expect(readLog(log)).toContain('HOLD open');
   });
 
   it('STUB_CLAUDE_MOVE_HEAD detaches HEAD after a Write launch only', async () => {

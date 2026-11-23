@@ -73,7 +73,8 @@
 //                               (n from `<path>.n`, absent 0; past the end, the last) as
 //                               STUB_CLAUDE_OUTPUTS would, and writes n + 1 to `<path>.n`, so
 //                               each loop round (a new session) gets its own. It beats
-//                               STUB_CLAUDE_OUTPUTS while its file exists.
+//                               STUB_CLAUDE_OUTPUTS while its file exists. A `null` entry
+//                               sets nothing (a step that declares no outputs, in the same run).
 //   STUB_CLAUDE_RESUME_GATE=path  a resumed print turn (`--resume`, the reminder) waits
 //                               until this file exists before it reads the two files
 //                               above, so a test can change them between turns without
@@ -110,6 +111,9 @@
 //                               detached: a shell's background job; it ignores the terminal's hangup,
 //                               so only a signal ends it), writes its pid to `<path>`, then creates
 //                               `<path>.done` (review M13: the condition and the marker are one path).
+//   STUB_CLAUDE_HOLD_WRITE=path  STUB_CLAUDE_HOLD (below) for a Write launch only, after its
+//                               STUB_CLAUDE_WRITES files are written: a read-only step in the same
+//                               run passes, so a test can quit while a write step holds.
 //   STUB_CLAUDE_MOVE_HEAD=1     a print-mode Write launch runs `git checkout -q --detach` in its cwd
 //                               before it ends (no git variable reaches a step: its git finds the
 //                               folder through the checkout's pointer), logging `HEAD detached`.
@@ -489,7 +493,9 @@ function nextInSequence(text) {
   const counter = `${process.env.STUB_CLAUDE_OUTPUTS_SEQ}.n`;
   const n = fs.existsSync(counter) ? Number(fs.readFileSync(counter, 'utf8')) || 0 : 0;
   fs.writeFileSync(counter, String(n + 1));
-  return JSON.stringify(entries[Math.min(n, entries.length - 1)]);
+  const entry = entries[Math.min(n, entries.length - 1)];
+  // A `null` entry is a launch that sets nothing: a step that declares no outputs has no tool for them.
+  return entry === null ? null : JSON.stringify(entry);
 }
 
 /**
@@ -648,9 +654,14 @@ async function postHook([event, detail]) {
   }
 }
 
-/** STUB_CLAUDE_HOLD: waits for its file, so a test can look at a turn mid-way; false when it never came. */
+/**
+ * STUB_CLAUDE_HOLD (any launch), else STUB_CLAUDE_HOLD_WRITE (a Write launch
+ * only): waits for its file, so a test can look at a turn mid-way; false
+ * when it never came.
+ */
 async function hold() {
-  const file = process.env.STUB_CLAUDE_HOLD;
+  const file =
+    process.env.STUB_CLAUDE_HOLD || (WRITES ? process.env.STUB_CLAUDE_HOLD_WRITE : undefined);
   if (!file) return true;
   log('HOLD waiting');
   const until = Date.now() + HOLD_TIMEOUT_MS;
