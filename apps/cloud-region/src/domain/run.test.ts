@@ -457,6 +457,11 @@ steps:
       timeoutMs: null,
       file: 'automations/review-prs.yaml',
       version: 4,
+      range: null,
+    });
+    expect(stepDefinitionOf(automation, 'review', 4, { start: 2, end: 10 })?.range).toEqual({
+      start: 2,
+      end: 10,
     });
   });
 

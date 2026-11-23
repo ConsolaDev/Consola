@@ -1,5 +1,6 @@
 import type { WorkspaceRole } from '@consola/cloud-contract';
 import type { Caller } from '../domain/caller.js';
+import type { Automation } from '@consola/factory-spec';
 import { automationsOf, type Factory, factoriesSeenBy } from '../domain/factory.js';
 import {
   checkRun,
@@ -12,10 +13,18 @@ import {
   type RunSummary,
   type RunTrigger,
   type RunWrite,
-  type StepDefinition,
   type StepSummary,
   stepDefinitionOf,
 } from '../domain/run.js';
+import {
+  type ApprovalChoice,
+  type ApprovalRun,
+  approvalOf,
+  DECISION_OF,
+  judgeAnswer,
+  type RunApproval,
+} from '../domain/runApproval.js';
+import { type RunSource, sourceOf } from '../domain/runSource.js';
 import { actingRole, type Team, teamsSeenBy } from '../domain/team.js';
 import type {
   FactoryStore,
@@ -161,41 +170,86 @@ export async function listRuns(
 }
 
 export type RunRead =
-  | ({ kind: 'found' } & Omit<RunFound, 'steps'> & { steps: StepSummary[] })
+  | ({ kind: 'found' } & Omit<RunFound, 'steps'> & {
+        steps: StepSummary[];
+        source: RunSource | null;
+        approval: RunApproval | null;
+      })
   | Pending
   | { kind: 'not-found' };
 
+/** A run the caller sees, with its factory as they see it now, or why there is none for them. */
+type Seen = { found: RunFound; factory: Factory; team: Team };
+
 /**
- * What each of an automation run's steps was asked, by step id: its definition in the factory
- * version the run executed. None for a request (its orchestrator's step is no automation's), nor
- * when the version holds no such automation (a run recorded against files it did not come from),
- * and a step the automation does not define has none.
+ * The run, if the caller sees it: its factory is one they see. Its factory's owning team is the
+ * one that may answer its approval.
  */
-async function definitionsOf(
+async function seenRun(
+  teams: TeamStore,
+  factories: FactoryStore,
+  runs: RunStore,
+  caller: Caller,
+  runId: string,
+): Promise<Seen | null> {
+  const found = await runs.get(caller.workspaceId, runId);
+  if (!found) return null;
+  const seen = await seenBy(teams, factories, caller);
+  const factory = seen.factories.find((candidate) => candidate.id === found.run.factory.id);
+  const team = factory && seen.teams.find((candidate) => candidate.id === factory.teamId);
+  return factory && team ? { found, factory, team } : null;
+}
+
+/**
+ * The automation an automation run ran, as the factory version it executed defines it, and the
+ * file behind it; null for a request (its orchestrator has no file in the cell yet), and when the
+ * version does not define the automation (a run recorded against files it did not come from).
+ */
+async function automationOf(
   factories: FactoryStore,
   workspaceId: string,
-  run: RunFound['run'],
-): Promise<Map<string, StepDefinition>> {
-  const definitions = new Map<string, StepDefinition>();
-  if (run.automation === null) return definitions;
+  seen: Seen,
+): Promise<{ automation: Automation; file: ReturnType<typeof sourceOf> } | null> {
+  const { run } = seen.found;
+  if (run.automation === null) return null;
   const version = await factories.version(workspaceId, run.factory.id, run.factory.version);
   const automation = version
     ? automationsOf(version.files).find((candidate) => candidate.name === run.automation)
     : undefined;
-  for (const step of automation?.steps ?? []) {
-    const definition = stepDefinitionOf(
-      automation as NonNullable<typeof automation>,
-      step.id,
-      run.factory.version,
-    );
-    if (definition) definitions.set(step.id, definition);
-  }
-  return definitions;
+  if (!version || !automation) return null;
+  const file = sourceOf(automation, version.files, version.version, seen.factory.latestVersion);
+  return { automation, file };
 }
 
+/** The run's approval, as `approvalOf` words it, with the answer its version has. */
+async function approvalFor(
+  runs: RunStore,
+  workspaceId: string,
+  seen: Seen,
+  automation: Automation | null,
+  personId: string,
+): Promise<RunApproval | null> {
+  const { run } = seen.found;
+  return approvalOf({
+    run: approvalRunOf(run),
+    automation,
+    team: seen.team,
+    personId,
+    answer: await runs.answerOf(workspaceId, run.id, run.factory.version),
+  });
+}
+
+const approvalRunOf = (run: RunSummary): ApprovalRun => ({
+  kind: run.kind,
+  status: run.status,
+  automation: run.automation,
+  version: run.factory.version,
+});
+
 /**
- * One run the caller sees, with its steps, each with what it was asked, and a request's facts
- * and the runs it started.
+ * One run the caller sees, with its steps, each with what it was asked and its lines in the file
+ * behind the run, that file, its approval while it waits for one or once it is answered, and a
+ * request's facts and the runs it started.
  */
 export async function readRun(
   teams: TeamStore,
@@ -206,18 +260,83 @@ export async function readRun(
 ): Promise<RunRead> {
   const { workspaceId } = caller;
   if (!(await teams.holdsWorkspace(workspaceId))) return WORKSPACE_PENDING;
-  const found = await runs.get(workspaceId, runId);
-  if (!found) return { kind: 'not-found' };
-  const seen = await seenBy(teams, factories, caller);
-  if (!seen.factories.some((factory) => factory.id === found.run.factory.id)) {
-    return { kind: 'not-found' };
-  }
-  const definitions = await definitionsOf(factories, workspaceId, found.run);
+  const seen = await seenRun(teams, factories, runs, caller, runId);
+  if (!seen) return { kind: 'not-found' };
+  const { found } = seen;
+  const read = await automationOf(factories, workspaceId, seen);
   const steps = found.steps.map((step) => ({
     ...step,
-    definition: definitions.get(step.id) ?? null,
+    definition: read
+      ? stepDefinitionOf(
+          read.automation,
+          step.id,
+          found.run.factory.version,
+          read.file?.stepLines.get(step.id) ?? null,
+        )
+      : null,
   }));
-  return { kind: 'found', ...found, steps };
+  return {
+    kind: 'found',
+    ...found,
+    steps,
+    source: read?.file?.source ?? null,
+    approval: await approvalFor(runs, workspaceId, seen, read?.automation ?? null, caller.personId),
+  };
+}
+
+export type ApprovalAnswering =
+  | { kind: 'answered'; approval: RunApproval }
+  | Pending
+  | { kind: 'not-found' }
+  /** The caller sees the run, but is not on its factory's owning team. */
+  | { kind: 'not-allowed' }
+  /** The run is not waiting for approval. */
+  | { kind: 'not-waiting' }
+  /** The version the caller answers is not the run's. */
+  | { kind: 'version-moved' }
+  /** The run's version has an answer: the first one stands. */
+  | { kind: 'already-answered' };
+
+/**
+ * Records the caller's answer to a run waiting for approval, at the version they were shown.
+ * Anyone on the run's factory's owning team may answer (`mayAnswer`), and the first answer for a
+ * version stands. The cell records it and does not change the run: its runner acts on it.
+ *
+ * In the order it checks: whether the cell holds the workspace, whether the caller sees the run
+ * (`not-found`, so a member of another team learns nothing), whether they are on its team, then
+ * `judgeAnswer`'s waiting and version, then the store's first answer.
+ */
+export async function answerRunApproval(
+  teams: TeamStore,
+  factories: FactoryStore,
+  runs: RunStore,
+  caller: Caller,
+  runId: string,
+  input: { decision: ApprovalChoice; version: number },
+): Promise<ApprovalAnswering> {
+  const { workspaceId, personId } = caller;
+  if (!(await teams.holdsWorkspace(workspaceId))) return WORKSPACE_PENDING;
+  const seen = await seenRun(teams, factories, runs, caller, runId);
+  if (!seen) return { kind: 'not-found' };
+  const judged = judgeAnswer(approvalRunOf(seen.found.run), seen.team, personId, input.version);
+  if (judged !== 'allowed') return { kind: judged };
+
+  const answer = await runs.answer(workspaceId, runId, {
+    version: input.version,
+    decision: DECISION_OF[input.decision],
+    personId,
+  });
+  if (typeof answer === 'string') return { kind: answer };
+  const read = await automationOf(factories, workspaceId, seen);
+  const approval = approvalOf({
+    run: approvalRunOf(seen.found.run),
+    automation: read?.automation ?? null,
+    team: seen.team,
+    personId,
+    answer,
+  });
+  if (!approval) throw new Error(`run ${runId} was answered but asks for no approval`);
+  return { kind: 'answered', approval };
 }
 
 export type RunRecordAnswer =

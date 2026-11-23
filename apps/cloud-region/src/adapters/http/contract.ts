@@ -5,6 +5,7 @@ import {
   OUTBOX_DELIVERY_PATH,
   WORKSPACE_ROLES,
 } from '@consola/cloud-contract';
+import { AUTOMATION_MODES } from '@consola/factory-spec';
 import { createRoute, z } from '@hono/zod-openapi';
 import {
   FACTORY_BYTES_MAX,
@@ -25,6 +26,7 @@ import {
   TITLE_MAX,
   WAITING_ON,
 } from '../../domain/run.js';
+import { APPROVAL_DECISIONS } from '../../domain/runApproval.js';
 import { TEAM_NAME_MAX, TEAM_PROBLEMS } from '../../domain/team.js';
 
 /**
@@ -807,6 +809,10 @@ export const RunSummary = z
   })
   .openapi('RunSummary');
 
+export const LineRange = z
+  .strictObject({ start: z.number().int(), end: z.number().int() })
+  .openapi('LineRange', { description: 'Lines of a file, from 1, both ends included.' });
+
 export const StepDefinition = z
   .strictObject({
     kind: z.enum(['agent', 'run']),
@@ -832,6 +838,9 @@ export const StepDefinition = z
     timeoutMs: z.number().int().nullable().openapi({ description: "A command's time limit." }),
     file: z.string().openapi({ description: 'The file it is written in, in the factory.' }),
     version: z.number().int().openapi({ description: 'The factory version it was read from.' }),
+    range: z.union([LineRange, z.null()]).openapi({
+      description: "The step's lines in its run's `source.text`; null when they are not known.",
+    }),
   })
   .openapi('StepDefinition', {
     description:
@@ -914,6 +923,73 @@ export const StepSummary = z
 
 const Spend = z.strictObject({ usd: z.number(), runs: z.number().int() });
 
+export const RunSource = z
+  .strictObject({
+    path: z.string().openapi({
+      description:
+        'The file the automation is written in: `automations/<name>.yaml`, or `factory.yml`.',
+    }),
+    version: z.number().int().openapi({ description: 'The factory version the run executed.' }),
+    latestVersion: z.number().int().openapi({ description: "The factory's latest version now." }),
+    text: z.string().openapi({ description: 'The whole file, at that version.' }),
+    // The automation's own lines in it: the whole file for `automations/<name>.yaml`.
+    range: LineRange,
+    trigger: z.strictObject({
+      kind: RunTrigger,
+      detail: z.string().nullable().openapi({
+        description: "The cron schedule, the event(s), or the poll's check, as written.",
+      }),
+    }),
+    mode: z.enum(AUTOMATION_MODES),
+    appliesTo: z
+      .array(z.enum(ITEM_KINDS))
+      .openapi({ description: 'Which items a run on demand takes; empty when none.' }),
+  })
+  .openapi('RunSource', {
+    description:
+      "The file behind an automation run, at the factory version it executed, and the automation's own lines in it (`range`: the whole file for `automations/<name>.yaml`). Null for a request (its orchestrator has no file in the cell yet), and when that version does not define the automation.",
+  });
+
+export const RunApproval = z
+  .strictObject({
+    version: z
+      .number()
+      .int()
+      .openapi({ description: "The version an answer applies to: the run's factory version." }),
+    reason: z.string().openapi({ description: 'Why it asks, in one plain sentence.' }),
+    team: z
+      .strictObject({ id: z.string(), name: z.string() })
+      .openapi({ description: "Who may answer: anyone on the factory's owning team." }),
+    mayAnswer: z.boolean().openapi({ description: 'Whether the caller is on that team.' }),
+    will: z
+      .strictObject({
+        commands: z.array(z.strictObject({ step: z.string(), command: z.string() })),
+        agents: z.array(
+          z.strictObject({
+            step: z.string(),
+            agent: z.string().nullable(),
+            prompt: z.string().nullable(),
+          }),
+        ),
+      })
+      .openapi({
+        description:
+          'What approving lets run, as the definition writes it: each command and each agent step. Empty for a request.',
+      }),
+    answer: z
+      .strictObject({
+        decision: z.enum(APPROVAL_DECISIONS),
+        by: z.string().openapi({ description: 'The global id of the person who answered.' }),
+        at: z.string().openapi({ description: 'When, as an ISO 8601 time.' }),
+      })
+      .nullable()
+      .openapi({ description: 'The answer for this version: the first one given.' }),
+  })
+  .openapi('RunApproval', {
+    description:
+      "A run's request to be approved: present while the run needs approval, and once answered. The cell records the answer; the run's runner acts on it.",
+  });
+
 export const RunDetail = z
   .strictObject({
     run: RunSummary,
@@ -948,6 +1024,8 @@ export const RunDetail = z
       description:
         "The cloud session holding the orchestrator's conversation, once there is one. Always null for now.",
     }),
+    source: z.union([RunSource, z.null()]),
+    approval: z.union([RunApproval, z.null()]),
   })
   .openapi('RunDetail');
 
@@ -1059,6 +1137,50 @@ export const getRun = createRoute({
   },
 });
 
+export const ApprovalAnswer = z
+  .object({ decision: z.enum(['approve', 'dismiss']), version: z.number().int() })
+  .openapi('ApprovalAnswer', {
+    description:
+      "Approve or dismiss a run waiting for approval, at the version the caller was shown: the run's factory version.",
+  });
+
+export const postRunApproval = createRoute({
+  method: 'post',
+  path: '/api/runs/{runId}/approval',
+  summary: 'Approve or dismiss a run that waits for approval',
+  description:
+    "Anyone on the run's factory's owning team may answer, whatever their workspace role, and the first answer for a version is the one kept. The cell records it and does not change the run: its runner acts on it.",
+  request: { params: z.object({ runId: RunId }), ...body(ApprovalAnswer) },
+  responses: {
+    201: json(RunApproval, 'The answer is recorded.'),
+    400: json(failure('invalid_request'), 'The body is not what the route takes.'),
+    403: json(
+      failure('not_allowed'),
+      "The caller sees the run, but is not on its factory's owning team.",
+    ),
+    404: json(
+      failure('run_not_found'),
+      'The workspace has no run with that id that the caller sees.',
+    ),
+    409: {
+      content: {
+        'application/json': {
+          schema: z.union([
+            failure('not_waiting'),
+            failure('already_answered'),
+            failure('version_moved'),
+            failure('workspace_pending'),
+          ]),
+        },
+      },
+      description:
+        "The run is not waiting for approval (`not_waiting`), this version was answered already (`already_answered`: the first answer stands), the version is not the run's (`version_moved`), or the cell does not hold the workspace yet (`workspace_pending`).",
+    },
+    415: unsupportedMediaType,
+    ...tokenFailures,
+  },
+});
+
 /** Every route in the contract, in the order `app.ts` registers them. */
 export const ROUTES = [
   getHealth,
@@ -1079,4 +1201,5 @@ export const ROUTES = [
   postFactoryVersion,
   listRuns,
   getRun,
+  postRunApproval,
 ];

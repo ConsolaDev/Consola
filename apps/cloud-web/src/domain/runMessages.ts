@@ -61,12 +61,11 @@ export function questionOpenWords(until: string): string {
   return `The orchestrator asked a question. It waits for an answer until ${clockTime(until)}; the question and your answer will show here once its conversation does.`;
 }
 
-/** An automation run that waits for someone to approve it, which this page cannot do yet. */
-export const APPROVAL_ELSEWHERE_WORDS =
-  'This run waits for someone to approve it. Runs can’t be approved from the web yet; that comes with their controls.';
-
 /** An automation that started no steps yet. */
 export const NO_STEPS_WORDS = 'No steps have started yet.';
+
+/** A request's Automations tab, before its orchestrator started any. */
+export const NO_AUTOMATIONS_STARTED = 'The orchestrator hasn’t started any automations yet.';
 
 /** A request that started no automations yet. */
 export const NO_CHILDREN_WORDS = 'None started yet.';

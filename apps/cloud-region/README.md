@@ -139,8 +139,9 @@ file (400 `invalid_files`), and when `baseVersion` is no longer the latest
 
 ## Runs
 
-What each factory's runners ran, read only: no route writes a run (a runner
-will record them; until then, the demo seed below does). A **request** is a
+What each factory's runners ran. No route writes a run (a runner will record
+them; until then, the demo seed below does): a person only answers one that
+waits for approval. A **request** is a
 run a person starts with text, whose orchestrator starts automation runs of
 its own; those are listed under it, not on their own. Who sees a run follows
 its factory, as factories do.
@@ -148,7 +149,8 @@ its factory, as factories do.
 | Route | Does |
 | --- | --- |
 | `GET /api/runs` | the top-level runs the caller sees, newest first, with the counts per phase and what the filters offer; filters `phase` and `trigger` (repeatable), `factoryId`, `teamId`, `automation`, `mine`, `q`; pages by `cursor` and `limit` |
-| `GET /api/runs/{runId}` | one run: its steps, a request's text and facts and the runs it started, a run's request |
+| `GET /api/runs/{runId}` | one run: its steps, the file behind it, its approval, a request's text and facts and the runs it started, a run's request |
+| `POST /api/runs/{runId}/approval` `{"decision","version"}` | approve or dismiss a run waiting for approval: anyone on its factory's team; the first answer stands, and the run is left to its runner |
 
 To see the pages with something in them, seed demo runs into every workspace
 the cell holds, with the cell stopped (PGlite takes one process per folder):
@@ -161,7 +163,7 @@ It writes only to a local PGlite folder (`DATABASE_URL=pglite:<folder>`) and
 refuses while a cell answers on `PORT`. Each team gets a demo factory
 (`Demo · <team>`), and its runs cover every status, a request with several
 runs, background runs and each member's own. Seeding again refreshes the same
-runs. The table is `run`.
+runs. The tables are `run` and `run_approval`.
 
 By default the data is PGlite (Postgres in-process) in
 `apps/cloud-region/.data/cell-eu-db`. Deleting that folder resets it.

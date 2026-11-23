@@ -60,6 +60,7 @@ steps:
   {
     path: 'automations/review-prs.yaml',
     content: `on: { github: pull_request.opened }
+mode: confirm
 steps:
   - id: review
     agent: reviewer
@@ -113,6 +114,7 @@ steps:
     path: 'automations/deploy.yaml',
     content: `on: { manual: {} }
 scope: storefront
+mode: confirm
 steps:
   - id: deploy
     run: pnpm deploy --env production
@@ -695,9 +697,13 @@ function mainPlans(people: readonly (string | null)[]): Plan[] {
       stand: { done: 0, status: 'running' },
       retried: 'review',
     }),
+    // Both reasons a run asks: an automation that asks every time (review-prs, `confirm`), and
+    // one whose version was not approved to run on its own (nightly-build, `auto`). Neither is
+    // answered, so a person can try it.
     child('review-approval', 'review-prs', 'needs-approval', 25, {
       item: pr(493, 'Bump the analytics script'),
     }),
+    child('nightly-approval', 'nightly-build', 'needs-approval', 35),
     child('review-gate', 'review-prs', 'waiting', 50, {
       waitingOn: 'person',
       item: pr(491, 'Refactor the cart service'),

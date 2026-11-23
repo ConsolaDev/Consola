@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { NO_FILTERS, togglePhase } from '../domain/runFilters';
-import { currentRunsHash, onRunsAddressChange, showRunsFilters } from './runsAddress';
+import { currentRunsHash, onRunsAddressChange, showRunPlace, showRunsFilters } from './runsAddress';
 
 /** The tests run in Node, so the page's `window` is a stand-in with just what the module reads. */
 function pageAt(hash: string) {
@@ -57,5 +57,23 @@ describe('onRunsAddressChange', () => {
     expect(listener).toHaveBeenCalledTimes(1);
     stop();
     expect(heard.size).toBe(0);
+  });
+});
+
+describe('showRunPlace', () => {
+  it('puts the view and the step in the address in place of its entry, and tells listeners', () => {
+    const { replaceState } = pageAt('#/runs/run-1');
+    const listener = vi.fn();
+    const stop = onRunsAddressChange(listener);
+    showRunPlace('run-1', { view: 'file', step: 'build', run: null });
+    expect(replaceState).toHaveBeenCalledWith(
+      { kept: true },
+      '',
+      '/?tab=1#/runs/run-1?view=file&step=build',
+    );
+    expect(listener).toHaveBeenCalledTimes(1);
+    showRunPlace('run-1', { view: 'file', step: 'build', run: null });
+    expect(listener).toHaveBeenCalledTimes(1);
+    stop();
   });
 });

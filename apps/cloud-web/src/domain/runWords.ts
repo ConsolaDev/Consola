@@ -1,12 +1,13 @@
-import type {
-  Phase,
-  RunDetail,
-  RunItem,
-  RunStatus,
-  RunSummary,
-  RunTrigger,
-  StepStatus,
-  StepSummary,
+import {
+  isLive,
+  type Phase,
+  type RunDetail,
+  type RunItem,
+  type RunStatus,
+  type RunSummary,
+  type RunTrigger,
+  type StepStatus,
+  type StepSummary,
 } from './runs';
 
 /**
@@ -310,4 +311,33 @@ export function questionWords(
   now: number,
 ): string {
   return `Asked ${agoInWords(question.at, now)}, open until ${clockTime(question.until)}`;
+}
+
+/**
+ * Where an automation a request started is, in a line: the step it is on (`Step 2 of 4 ·
+ * report`), what it waits for, or how it ended (its error or summary, else its status).
+ */
+export function childStateWords(run: RunSummary): string {
+  if (isLive(run)) {
+    if (run.phase === 'active' && run.progress && run.progress.current !== null) {
+      const at = Math.min(run.progress.done + 1, run.progress.total);
+      return `Step ${at} of ${run.progress.total} · ${run.progress.current}`;
+    }
+    return statusWords(run);
+  }
+  const ended = (run.error ?? run.summary)?.split('\n').find((line) => line.trim() !== '');
+  return ended?.trim() ?? statusWords(run);
+}
+
+/** When an automation started, how long it worked and what it cost: `5m ago · 1m 2s · $0.12`. */
+export function childFactsWords(run: RunSummary, now: number): string {
+  const worked = workedFor(run, now);
+  const cost = costInWords(run.costUsd);
+  return [
+    agoInWords(run.startedAt ?? run.createdAt, now),
+    worked !== null ? durationInWords(worked) : null,
+    cost,
+  ]
+    .filter((part): part is string => Boolean(part))
+    .join(' · ');
 }

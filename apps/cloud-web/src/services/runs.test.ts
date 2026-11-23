@@ -7,7 +7,7 @@ import {
   withAutomation,
   withSearch,
 } from '../domain/runFilters';
-import type { RunDetail, RunList, RunSummary } from '../domain/runs';
+import type { RunApproval, RunDetail, RunList, RunSummary } from '../domain/runs';
 import { createApi } from './api';
 import { createRunsService, queryOf } from './runs';
 
@@ -64,10 +64,21 @@ const detail: RunDetail = {
   },
   children: [],
   conversation: null,
+  source: null,
+  approval: null,
+};
+
+const approval: RunApproval = {
+  version: 2,
+  reason: 'review asks before every run.',
+  team: { id: 't-1', name: 'Core' },
+  mayAnswer: true,
+  will: { commands: [{ step: 'build', command: 'pnpm build' }], agents: [] },
+  answer: { decision: 'approved', by: 'p-ada', at: '2026-11-23T10:05:00.000Z' },
 };
 
 type Answer = { status: number; body?: unknown };
-type Seen = { method: string; url: string; authorization: string | null };
+type Seen = { method: string; url: string; authorization: string | null; body: string };
 
 const json = ({ status, body }: Answer) =>
   new Response(body === undefined ? null : JSON.stringify(body), {
@@ -86,17 +97,18 @@ function harness(options: {
 }) {
   const seen: Seen[] = [];
   let minted = 0;
-  const record = (request: Request): Seen => {
+  const record = async (request: Request): Promise<Seen> => {
     const entry = {
       method: request.method,
       url: request.url,
       authorization: request.headers.get('authorization'),
+      body: await request.clone().text(),
     };
     seen.push(entry);
     return entry;
   };
   const globalFetch = async (request: Request) => {
-    const entry = record(request);
+    const entry = await record(request);
     const route = `${entry.method} ${new URL(entry.url).pathname}`;
     const answer = options.global?.[route];
     if (answer) return json(answer);
@@ -118,7 +130,7 @@ function harness(options: {
     return json({ status: 404, body: { error: 'not_found' } });
   };
   const cellFetch = async (request: Request) => {
-    const entry = record(request);
+    const entry = await record(request);
     const route = `${entry.method} ${new URL(entry.url).pathname}`;
     const answer = options.cell?.[route];
     if (!answer) return json({ status: 404, body: { error: 'not_found' } });
@@ -282,5 +294,59 @@ describe('loadMembers', () => {
       },
     });
     expect(await service.loadMembers(ACME)).toEqual({ kind: 'switched' });
+  });
+});
+
+describe('approveRun', () => {
+  const route = 'POST /cell/eu/api/runs/run-1/approval';
+
+  it('sends the decision and the version, and answers with the approval the cell recorded', async () => {
+    const { service, seen } = harness({ cell: { [route]: { status: 201, body: approval } } });
+    expect(await service.approveRun(ACME, 'run-1', { decision: 'approve', version: 2 })).toEqual({
+      kind: 'answered',
+      approval,
+    });
+    const sent = seen.find((entry) => entry.url.endsWith('/approval'));
+    expect(sent?.authorization).toBe('Bearer token-1');
+    expect(JSON.parse(sent?.body ?? '')).toEqual({ decision: 'approve', version: 2 });
+  });
+
+  it('says every refusal the cell gives', async () => {
+    const cases: [number, string, string][] = [
+      [400, 'invalid_request', 'invalid'],
+      [403, 'not_allowed', 'not-allowed'],
+      [404, 'run_not_found', 'not-found'],
+      [409, 'not_waiting', 'not-waiting'],
+      [409, 'already_answered', 'already-answered'],
+      [409, 'version_moved', 'version-moved'],
+      [409, 'workspace_pending', 'pending'],
+    ];
+    for (const [status, error, kind] of cases) {
+      const { service } = harness({ cell: { [route]: { status, body: { error } } } });
+      expect(await service.approveRun(ACME, 'run-1', { decision: 'dismiss', version: 2 })).toEqual({
+        kind,
+      });
+    }
+  });
+
+  it('is unavailable for an answer it does not expect', async () => {
+    const odd = harness({ cell: { [route]: { status: 201, body: { ok: true } } } });
+    expect(
+      await odd.service.approveRun(ACME, 'run-1', { decision: 'approve', version: 2 }),
+    ).toEqual({
+      kind: 'unavailable',
+    });
+    const other = harness({ cell: { [route]: { status: 409, body: { error: 'something_new' } } } });
+    expect(
+      await other.service.approveRun(ACME, 'run-1', { decision: 'approve', version: 2 }),
+    ).toEqual({ kind: 'unavailable' });
+  });
+
+  it('is switched when the session has another workspace open, and sends nothing to a cell', async () => {
+    const { service, seen } = harness({ workspaceId: 'ws-other' });
+    expect(await service.approveRun(ACME, 'run-1', { decision: 'approve', version: 2 })).toEqual({
+      kind: 'switched',
+    });
+    expect(seen.some((entry) => entry.url.includes('/cell/'))).toBe(false);
   });
 });

@@ -1,7 +1,18 @@
-import { ChevronRight, CircleX, MessagesSquare } from 'lucide-react';
-import { type ReactNode, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { ChevronRight, CircleX, FileCode, ListTree, MessagesSquare } from 'lucide-react';
+import {
+  type KeyboardEvent,
+  type ReactNode,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import { rangeWords } from '../domain/runFile';
 import { AGENT_CONVERSATION_LATER_WORDS, NO_STEPS_WORDS } from '../domain/runMessages';
 import type { RunDetail, StepSummary } from '../domain/runs';
+import type { TracePlace, TraceView } from '../domain/runsRoute';
 import { stepKindWords, stepLook } from '../domain/runWords';
 import {
   agentFile,
@@ -31,6 +42,8 @@ import {
   type StepTone,
   turnLine,
 } from '../domain/stepTrace';
+import { RunFileView } from './RunFileView';
+import { revealElement } from './reveal';
 import { StatusGlyph } from './RunStatusIcon';
 import './StepTrace.css';
 
@@ -42,14 +55,42 @@ import './StepTrace.css';
  * finishes; their own choice wins over that. A failed run says first where it broke, and that
  * step's name takes them to it.
  *
+ * When the cell holds the file the run executed (`source`), Steps and File are two views of one
+ * run, a tablist at the trace's head, and the address keeps which is shown and the step chosen
+ * (`place`, written through `onPlace`). They are linked: "View in file" on a step shows its lines
+ * and lights them once; a step's lines in the file choose it, and Show in steps takes the person
+ * back to it there. An address that names a step arrives at it once, in either view.
+ *
  * Everything a step carries is someone's text (a prompt, a command, what it printed, an error):
  * it is shown as text, and its output is cleaned of the terminal's codes (`cleanOutput`).
  */
-export function StepTrace({ detail, now }: { detail: RunDetail; now: number }) {
-  const { run, steps } = detail;
+export function StepTrace({
+  detail,
+  now,
+  place,
+  onPlace,
+  nested = false,
+}: {
+  detail: RunDetail;
+  now: number;
+  place: TracePlace;
+  onPlace: (place: TracePlace) => void;
+  /** Inside another page's part (a request's automations): its heading a level down. */
+  nested?: boolean;
+}) {
+  const { run, steps, source } = detail;
+  const Heading = nested ? 'h3' : 'h2';
   const ids = useId();
   const over = runIsOver(run.phase);
   const rows = useRef(new Map<string, HTMLLIElement>());
+  const view: TraceView = source ? place.view : 'steps';
+  const selected = steps.some((step) => step.id === place.step) ? place.step : null;
+  const fileSteps = useMemo(
+    () => steps.map((step) => ({ id: step.id, range: step.definition?.range ?? null })),
+    [steps],
+  );
+  const [fileReveal, setFileReveal] = useState<{ step: string; seq: number } | null>(null);
+  const reveals = useRef(0);
 
   // The person's own choice per step wins; else a step is open once it has failed, run or waited.
   const [chosen, setChosen] = useState<Record<string, boolean>>({});
@@ -62,53 +103,133 @@ export function StepTrace({ detail, now }: { detail: RunDetail; now: number }) {
     chosen[stepId] ?? (opened.has(stepId) || arriving.includes(stepId));
   const allOpen = steps.length > 0 && steps.every((step) => isOpen(step.id));
 
+  /** Opens a step in the steps, scrolls to it and lights it once. */
   const showStep = (stepId: string) => {
+    onPlace({ view: 'steps', step: stepId });
     setChosen((current) => ({ ...current, [stepId]: true }));
-    requestAnimationFrame(() => reveal(rows.current.get(stepId)));
+    requestAnimationFrame(() => revealElement(rows.current.get(stepId)));
   };
+
+  /** Shows a step's lines in the file, scrolled to and lit once. */
+  const viewInFile = (stepId: string) => {
+    onPlace({ view: 'file', step: stepId });
+    setFileReveal({ step: stepId, seq: ++reveals.current });
+  };
+
+  // An address that names a step arrives at it once, in the view it names.
+  const arrived = useRef(false);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: once, as the run first shows; the step and view are the address's at that moment.
+  useEffect(() => {
+    if (arrived.current) return;
+    arrived.current = true;
+    if (!selected) return;
+    if (view === 'file') setFileReveal({ step: selected, seq: ++reveals.current });
+    else showStep(selected);
+  }, []);
+
+  const tabs: { view: TraceView; label: string; icon: ReactNode }[] = [
+    { view: 'steps', label: 'Steps', icon: <ListTree size={13} aria-hidden="true" /> },
+    { view: 'file', label: 'File', icon: <FileCode size={13} aria-hidden="true" /> },
+  ];
+  const tabId = (of: TraceView) => `${ids}-tab-${of}`;
+  const panelId = (of: TraceView) => `${ids}-panel-${of}`;
+  const onTabKey = (event: KeyboardEvent<HTMLButtonElement>) => {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+    event.preventDefault();
+    const next: TraceView = view === 'steps' ? 'file' : 'steps';
+    onPlace({ view: next, step: selected });
+    requestAnimationFrame(() => document.getElementById(tabId(next))?.focus());
+  };
+
+  const list =
+    steps.length === 0 ? (
+      <p className="trace-quiet">{NO_STEPS_WORDS}</p>
+    ) : (
+      <ol className="trace-list" aria-label="Steps of this run">
+        {steps.map((step) => (
+          <StepRow
+            key={step.id}
+            rowRef={(element) => {
+              if (element) rows.current.set(step.id, element);
+              else rows.current.delete(step.id);
+            }}
+            detail={detail}
+            step={step}
+            now={now}
+            open={isOpen(step.id)}
+            onToggle={() => {
+              const opening = !isOpen(step.id);
+              setChosen((current) => ({ ...current, [step.id]: opening }));
+              if (opening) onPlace({ view: 'steps', step: step.id });
+            }}
+            onViewInFile={source && step.definition?.range ? () => viewInFile(step.id) : null}
+          />
+        ))}
+      </ol>
+    );
 
   return (
     <>
       {run.phase === 'failed' && <FailureNote detail={detail} onShow={showStep} />}
       <section className="trace" aria-labelledby={`${ids}-steps`}>
         <div className="trace-head">
-          <h2 id={`${ids}-steps`} className="trace-title">
+          <Heading id={`${ids}-steps`} className="trace-title">
             Steps
             {steps.length > 0 && <span className="trace-counts">{stepCounts(steps, over)}</span>}
-          </h2>
-          {steps.length > 1 && (
-            <button
-              type="button"
-              className="trace-all"
-              onClick={() =>
-                setChosen(Object.fromEntries(steps.map((step) => [step.id, !allOpen])))
-              }
-            >
-              {allOpen ? 'Collapse all' : 'Expand all'}
-            </button>
-          )}
-        </div>
-        {steps.length === 0 ? (
-          <p className="trace-quiet">{NO_STEPS_WORDS}</p>
-        ) : (
-          <ol className="trace-list" aria-label="Steps of this run">
-            {steps.map((step) => (
-              <StepRow
-                key={step.id}
-                rowRef={(element) => {
-                  if (element) rows.current.set(step.id, element);
-                  else rows.current.delete(step.id);
-                }}
-                detail={detail}
-                step={step}
-                now={now}
-                open={isOpen(step.id)}
-                onToggle={() =>
-                  setChosen((current) => ({ ...current, [step.id]: !isOpen(step.id) }))
+          </Heading>
+          <div className="trace-tools">
+            {source && (
+              <div className="trace-tabs" role="tablist" aria-label="Show the steps or the file">
+                {tabs.map((tab) => (
+                  <button
+                    key={tab.view}
+                    type="button"
+                    role="tab"
+                    id={tabId(tab.view)}
+                    className="trace-tab"
+                    aria-selected={view === tab.view}
+                    // Only the view shown has its panel on the page.
+                    aria-controls={view === tab.view ? panelId(tab.view) : undefined}
+                    tabIndex={view === tab.view ? 0 : -1}
+                    onKeyDown={onTabKey}
+                    onClick={() => onPlace({ view: tab.view, step: selected })}
+                  >
+                    {tab.icon}
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+            )}
+            {view === 'steps' && steps.length > 1 && (
+              <button
+                type="button"
+                className="trace-all"
+                onClick={() =>
+                  setChosen(Object.fromEntries(steps.map((step) => [step.id, !allOpen])))
                 }
-              />
-            ))}
-          </ol>
+              >
+                {allOpen ? 'Collapse all' : 'Expand all'}
+              </button>
+            )}
+          </div>
+        </div>
+        {!source ? (
+          list
+        ) : view === 'steps' ? (
+          <div role="tabpanel" id={panelId('steps')} aria-labelledby={tabId('steps')}>
+            {list}
+          </div>
+        ) : (
+          <RunFileView
+            id={panelId('file')}
+            labelledBy={tabId('file')}
+            source={source}
+            steps={fileSteps}
+            selected={selected}
+            reveal={fileReveal}
+            onSelect={(stepId) => onPlace({ view: 'file', step: stepId })}
+            onShowInSteps={showStep}
+          />
         )}
       </section>
     </>
@@ -126,6 +247,7 @@ function StepRow({
   now,
   open,
   onToggle,
+  onViewInFile,
 }: {
   rowRef: (element: HTMLLIElement | null) => void;
   detail: RunDetail;
@@ -133,6 +255,8 @@ function StepRow({
   now: number;
   open: boolean;
   onToggle: () => void;
+  /** Shows the step's lines in the run's file; null when its lines are not known. */
+  onViewInFile: (() => void) | null;
 }) {
   const bodyId = useId();
   const tone = stepTone(step.status, runIsOver(detail.run.phase));
@@ -183,6 +307,14 @@ function StepRow({
         {open && (
           <div id={bodyId} className="trace-body">
             <StepDetail detail={detail} step={step} tone={tone} />
+            {onViewInFile && step.definition?.range && (
+              <div className="trace-body-foot">
+                <button type="button" className="trace-link" onClick={onViewInFile}>
+                  <FileCode size={13} aria-hidden="true" />
+                  View in file · {rangeWords(step.definition.range)}
+                </button>
+              </div>
+            )}
           </div>
         )}
       </section>
@@ -615,18 +747,4 @@ function Ids({ ids }: { ids: string[] }) {
       ))}
     </>
   );
-}
-
-/** Scrolls a step's row into view, moves the keyboard to it and lights it once, where the note pointed. */
-function reveal(element: HTMLLIElement | undefined): void {
-  if (!element) return;
-  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  element.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
-  element.focus({ preventScroll: true });
-  element.removeAttribute('data-flash');
-  void element.offsetWidth;
-  element.setAttribute('data-flash', '');
-  element.addEventListener('animationend', () => element.removeAttribute('data-flash'), {
-    once: true,
-  });
 }

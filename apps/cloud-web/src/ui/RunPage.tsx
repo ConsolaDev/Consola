@@ -9,12 +9,14 @@ import {
   runPollDelay,
   safeItemUrl,
 } from '../domain/runs';
-import { hashOfRun } from '../domain/runsRoute';
+import { hashOfRun, type RunPlace } from '../domain/runsRoute';
 import { itemLabel, itemNoun, lookOf, statusWords } from '../domain/runWords';
 import type { WorkspaceMember } from '../domain/teams';
 import type { MyWorkspace } from '../domain/workspace';
 import { readRunPagePrefs, type RunPagePrefs, writeRunPagePrefs } from '../services/runPagePrefs';
 import { runsService } from '../services/runs';
+import { showRunPlace } from '../services/runsAddress';
+import { ApprovalCard } from './ApprovalCard';
 import { type RunInfoSectionId, RunInfoPanel } from './RunInfoPanel';
 import { RequestPane, StepsPane } from './RunPanes';
 import { StatusGlyph } from './RunStatusIcon';
@@ -38,11 +40,17 @@ type PageView =
 export function RunPage({
   workspace,
   runId,
+  place,
+  meId,
   members,
   listHash,
 }: {
   workspace: MyWorkspace;
   runId: string;
+  /** Where on the page the address says: steps or file, and the step chosen. */
+  place: RunPlace;
+  /** The person's global id, to say "you" of their own answers. */
+  meId: string;
   members: WorkspaceMember[] | null;
   listHash: string;
 }) {
@@ -53,7 +61,12 @@ export function RunPage({
   const detail = view.kind === 'shown' ? view.detail : null;
   const live = detail ? runPollDelay(detail) !== null : false;
   const now = useNow(live ? 1_000 : 30_000);
-  const latestVersion = useLatestVersion(workspace.id, detail?.run.factory.id ?? null);
+  // The file's own answer says the latest version; a run without one asks the list's facets.
+  const askedLatest = useLatestVersion(
+    workspace.id,
+    detail && !detail.source ? detail.run.factory.id : null,
+  );
+  const latestVersion = detail?.source?.latestVersion ?? askedLatest;
 
   const readNow = usePoll(`${workspace.id} ${runId}`, async (current) => {
     const answer = await runsService.loadRun(workspace, runId);
@@ -83,8 +96,29 @@ export function RunPage({
       folded: isOpen(id) ? [...prefs.folded, id] : prefs.folded.filter((folded) => folded !== id),
     });
 
+  // An automation the request started, to open in its Automations tab and take the person to:
+  // the one the address names as the page opens, then each the info panel points at.
+  const [childReveal, setChildReveal] = useState<{ run: string; seq: number } | null>(() =>
+    place.view === 'automations' && place.run ? { run: place.run, seq: 1 } : null,
+  );
+  const showChild = (childId: string) => {
+    showRunPlace(runId, { view: 'automations', step: null, run: childId });
+    setChildReveal((last) => ({ run: childId, seq: (last?.seq ?? 0) + 1 }));
+  };
+
   const run = detail?.run ?? null;
   const itemUrl = run?.item ? safeItemUrl(run.item.url) : null;
+  const approval = detail?.approval ? (
+    <ApprovalCard
+      approval={detail.approval}
+      runId={runId}
+      workspace={workspace}
+      meId={meId}
+      members={members}
+      now={now}
+      onAnswered={readNow}
+    />
+  ) : null;
   const look = run ? lookOf(run) : null;
 
   return (
@@ -185,15 +219,31 @@ export function RunPage({
               </p>
             )}
             {view.detail.request ? (
-              <RequestPane detail={view.detail} members={members} now={now} />
+              <RequestPane
+                detail={view.detail}
+                workspace={workspace}
+                members={members}
+                now={now}
+                place={place}
+                onPlace={(next) => showRunPlace(runId, next)}
+                reveal={childReveal}
+                lead={approval}
+              />
             ) : (
-              <StepsPane detail={view.detail} now={now} />
+              <StepsPane
+                detail={view.detail}
+                now={now}
+                place={place}
+                onPlace={(next) => showRunPlace(runId, next)}
+                lead={approval}
+              />
             )}
           </section>
           {prefs.infoPanel && (
             <div className="run-info">
               <RunInfoPanel
                 detail={view.detail}
+                onShowChild={showChild}
                 members={members}
                 latestVersion={latestVersion}
                 now={now}

@@ -1870,6 +1870,161 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/runs/{runId}/approval": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve or dismiss a run that waits for approval
+         * @description Anyone on the run's factory's owning team may answer, whatever their workspace role, and the first answer for a version is the one kept. The cell records it and does not change the run: its runner acts on it.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    runId: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ApprovalAnswer"];
+                };
+            };
+            responses: {
+                /** @description The answer is recorded. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["RunApproval"];
+                    };
+                };
+                /** @description The body is not what the route takes. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "invalid_request";
+                        };
+                    };
+                };
+                /** @description No bearer token (`token_required`), or one the cell does not accept (`invalid_token`): malformed, forged, expired, or signed by a key cloud-global does not publish. A new token is the fix. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "token_required";
+                        } | {
+                            /** @enum {string} */
+                            error: "invalid_token";
+                        };
+                    };
+                };
+                /** @description The caller sees the run, but is not on its factory's owning team. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "not_allowed";
+                        };
+                    };
+                };
+                /** @description The workspace has no run with that id that the caller sees. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "run_not_found";
+                        };
+                    };
+                };
+                /** @description The run is not waiting for approval (`not_waiting`), this version was answered already (`already_answered`: the first answer stands), the version is not the run's (`version_moved`), or the cell does not hold the workspace yet (`workspace_pending`). */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "not_waiting";
+                        } | {
+                            /** @enum {string} */
+                            error: "already_answered";
+                        } | {
+                            /** @enum {string} */
+                            error: "version_moved";
+                        } | {
+                            /** @enum {string} */
+                            error: "workspace_pending";
+                        };
+                    };
+                };
+                /** @description The body is not JSON (`Content-Type: application/json`). */
+                415: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "unsupported_media_type";
+                        };
+                    };
+                };
+                /** @description A good token for a workspace in another region: the cell that answered names its own. The workspace's own cell is the fix. */
+                421: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "wrong_region";
+                            /** @enum {string} */
+                            region: "eu" | "us";
+                        };
+                    };
+                };
+                /** @description The cell cannot get cloud-global's keys just now, so it checks no token. */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "token_check_unavailable";
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/runs/{runId}": {
         parameters: {
             query?: never;
@@ -2241,6 +2396,47 @@ export interface components {
             failed: number;
             stopped: number;
         };
+        /** @description A run's request to be approved: present while the run needs approval, and once answered. The cell records the answer; the run's runner acts on it. */
+        RunApproval: {
+            /** @description The version an answer applies to: the run's factory version. */
+            version: number;
+            /** @description Why it asks, in one plain sentence. */
+            reason: string;
+            /** @description Who may answer: anyone on the factory's owning team. */
+            team: {
+                id: string;
+                name: string;
+            };
+            /** @description Whether the caller is on that team. */
+            mayAnswer: boolean;
+            /** @description What approving lets run, as the definition writes it: each command and each agent step. Empty for a request. */
+            will: {
+                commands: {
+                    step: string;
+                    command: string;
+                }[];
+                agents: {
+                    step: string;
+                    agent: string | null;
+                    prompt: string | null;
+                }[];
+            };
+            /** @description The answer for this version: the first one given. */
+            answer: {
+                /** @enum {string} */
+                decision: "approved" | "dismissed";
+                /** @description The global id of the person who answered. */
+                by: string;
+                /** @description When, as an ISO 8601 time. */
+                at: string;
+            } | null;
+        };
+        /** @description Approve or dismiss a run waiting for approval, at the version the caller was shown: the run's factory version. */
+        ApprovalAnswer: {
+            /** @enum {string} */
+            decision: "approve" | "dismiss";
+            version: number;
+        };
         RunDetail: {
             run: components["schemas"]["RunSummary"];
             /** @description The request that started it, which whoever sees the run sees. */
@@ -2275,6 +2471,8 @@ export interface components {
             conversation: {
                 sessionId: string;
             } | null;
+            source: components["schemas"]["RunSource"] | null;
+            approval: components["schemas"]["RunApproval"] | null;
         };
         StepSummary: {
             /** @description The step's id in its automation, or `orchestrator`. */
@@ -2378,6 +2576,34 @@ export interface components {
             file: string;
             /** @description The factory version it was read from. */
             version: number;
+            /** @description The step's lines in its run's `source.text`; null when they are not known. */
+            range: components["schemas"]["LineRange"] | null;
+        };
+        /** @description Lines of a file, from 1, both ends included. */
+        LineRange: {
+            start: number;
+            end: number;
+        };
+        /** @description The file behind an automation run, at the factory version it executed, and the automation's own lines in it (`range`: the whole file for `automations/<name>.yaml`). Null for a request (its orchestrator has no file in the cell yet), and when that version does not define the automation. */
+        RunSource: {
+            /** @description The file the automation is written in: `automations/<name>.yaml`, or `factory.yml`. */
+            path: string;
+            /** @description The factory version the run executed. */
+            version: number;
+            /** @description The factory's latest version now. */
+            latestVersion: number;
+            /** @description The whole file, at that version. */
+            text: string;
+            range: components["schemas"]["LineRange"];
+            trigger: {
+                kind: components["schemas"]["RunTrigger"];
+                /** @description The cron schedule, the event(s), or the poll's check, as written. */
+                detail: string | null;
+            };
+            /** @enum {string} */
+            mode: "auto" | "confirm" | "notify";
+            /** @description Which items a run on demand takes; empty when none. */
+            appliesTo: ("pr" | "issue")[];
         };
     };
     responses: never;

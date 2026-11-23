@@ -420,6 +420,39 @@ describe('the run store', () => {
     expect((await runs.get('acme', 'older'))?.steps).toEqual([step('plan', 'completed')]);
   });
 
+  it("keeps the first answer to a run's approval at a version, and changes nothing else", async () => {
+    await record(automationRun('deploy', { status: 'needs-approval', startedAt: null }));
+    expect(await runs.answerOf('acme', 'deploy', 1)).toBeNull();
+
+    const first = await runs.answer('acme', 'deploy', {
+      version: 1,
+      decision: 'approved',
+      personId: 'person-fay',
+    });
+    expect(first).toEqual({ decision: 'approved', by: 'person-fay', at: expect.any(String) });
+    expect(
+      await runs.answer('acme', 'deploy', {
+        version: 1,
+        decision: 'dismissed',
+        personId: 'person-dana',
+      }),
+    ).toBe('already-answered');
+    expect(await runs.answerOf('acme', 'deploy', 1)).toEqual(first);
+    // Another version is another question.
+    expect(await runs.answerOf('acme', 'deploy', 2)).toBeNull();
+    // The run is the runner's: an answer changes none of it.
+    expect((await runs.get('acme', 'deploy'))?.run.status).toBe('needs-approval');
+  });
+
+  it("answers no run the workspace does not hold, another workspace's included", async () => {
+    const answer = { version: 1, decision: 'approved' as const, personId: 'person-fay' };
+    expect(await runs.answer('acme', 'nothing', answer)).toBe('not-found');
+    const globex = await workspaceWithFactory('globex');
+    await record({ ...automationRun('theirs'), factoryId: globex.id }, 'globex');
+    expect(await runs.answer('acme', 'theirs', answer)).toBe('not-found');
+    expect(await runs.answerOf('acme', 'theirs', 1)).toBeNull();
+  });
+
   it("refuses a row that breaks the domain's rules, should one get past checkRun", async () => {
     const checked = checkRun(automationRun('raw'));
     if (!checked.ok) throw new Error('not a run');

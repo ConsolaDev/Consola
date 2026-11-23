@@ -78,6 +78,7 @@ export function InfoRow({
   tone,
   href,
   external = false,
+  onFollow,
 }: {
   icon?: ReactNode;
   /** What the row is about; cut with an ellipsis when it does not fit. */
@@ -88,6 +89,11 @@ export function InfoRow({
   tone?: 'muted' | 'error' | 'warning';
   href?: string;
   external?: boolean;
+  /**
+   * What a plain click on a link row does instead of following it, on this page: a click with a
+   * modifier (a new tab, a new window) still follows `href`.
+   */
+  onFollow?: () => void;
 }) {
   const content = (
     <>
@@ -116,6 +122,12 @@ export function InfoRow({
         title={title}
         href={href}
         {...(external ? { target: '_blank', rel: 'noreferrer noopener' } : {})}
+        onClick={(event) => {
+          if (!onFollow || event.button !== 0) return;
+          if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+          event.preventDefault();
+          onFollow();
+        }}
       >
         {content}
       </a>

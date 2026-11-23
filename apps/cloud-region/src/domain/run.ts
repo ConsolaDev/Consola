@@ -2,6 +2,7 @@ import {
   AUTOMATION_NAME_PATTERN,
   type Automation,
   describeOutputType,
+  type LineRange,
   type RunStatus as EngineRunStatus,
   type StepRunStatus,
 } from '@consola/factory-spec';
@@ -211,7 +212,11 @@ export type StepDefinition = {
   readonly file: string;
   /** The factory version it was read from. */
   readonly version: number;
+  /** Its lines in the file its automation is written in, when they are known. */
+  readonly range: LineRange | null;
 };
+
+export type { LineRange };
 
 /** One step of a run, as a run's page shows it: as recorded, with what it was asked. */
 export type StepSummary = StepRecord & { readonly definition: StepDefinition | null };
@@ -224,6 +229,7 @@ export function stepDefinitionOf(
   automation: Automation,
   stepId: string,
   version: number,
+  range: LineRange | null = null,
 ): StepDefinition | null {
   const step = automation.steps?.find((candidate) => candidate.id === stepId);
   if (!step) return null;
@@ -231,7 +237,13 @@ export function stepDefinitionOf(
     name,
     type: describeOutputType(type),
   }));
-  const common = { if: step.if ?? null, outputs, file: automation.file ?? 'factory.yml', version };
+  const common = {
+    if: step.if ?? null,
+    outputs,
+    file: automation.file ?? 'factory.yml',
+    version,
+    range,
+  };
   if (step.kind === 'agent') {
     return {
       kind: 'agent',

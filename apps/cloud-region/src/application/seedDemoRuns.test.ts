@@ -250,3 +250,27 @@ describe("seedDemoRuns' steps", () => {
     expect((await factories.get('acme', made.id))?.latestVersion).toBe(3);
   });
 });
+
+describe("seedDemoRuns' approvals", () => {
+  it('leaves every run waiting for approval unanswered, asking for both reasons', async () => {
+    await acme();
+    await seedDemoRuns({ teams, factories, runs }, 'acme', NOW);
+    const dana = caller('person-dana', 'owner');
+    const waiting = (await listed(dana, { phases: ['needs-you'], limit: 100 })).runs.filter(
+      (run) => run.status === 'needs-approval',
+    );
+    const reasons = new Set<string>();
+    for (const run of waiting) {
+      const read = await readRun(teams, factories, runs, dana, run.id);
+      if (read.kind !== 'found') throw new Error(`not found: ${read.kind}`);
+      expect([run.id, read.approval?.answer]).toEqual([run.id, null]);
+      if (read.approval) reasons.add(read.approval.reason);
+    }
+    expect([...reasons]).toEqual(
+      expect.arrayContaining([
+        'review-prs asks before every run.',
+        "Version 2 of nightly-build hasn't been approved to run on its own yet.",
+      ]),
+    );
+  });
+});

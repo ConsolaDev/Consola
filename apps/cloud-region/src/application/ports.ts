@@ -12,6 +12,7 @@ import type {
   RunTrigger,
   StepRecord,
 } from '../domain/run.js';
+import type { ApprovalDecision, RunAnswer } from '../domain/runApproval.js';
 import type { Team } from '../domain/team.js';
 import type { CopyChange } from '../domain/workspaceCopy.js';
 
@@ -263,4 +264,16 @@ export type RunStore = {
   ): Promise<{ factoryId: string; name: string }[]>;
   /** One run, or null when the workspace has none with that id. */
   get(workspaceId: string, runId: string): Promise<RunFound | null>;
+  /** The answer given to a run's request to be approved at `version`, or null while none was. */
+  answerOf(workspaceId: string, runId: string, version: number): Promise<RunAnswer | null>;
+  /**
+   * Records `personId`'s answer to a run's request to be approved at `version`, unless that
+   * version has one: the first answer stands (`already-answered`), and nothing changes. The run
+   * itself is not changed. `not-found` when the workspace has no such run.
+   */
+  answer(
+    workspaceId: string,
+    runId: string,
+    answer: { version: number; decision: ApprovalDecision; personId: string },
+  ): Promise<RunAnswer | 'already-answered' | 'not-found'>;
 };
