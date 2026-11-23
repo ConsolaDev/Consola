@@ -200,6 +200,37 @@ describe('layerCommandEnv', () => {
     });
   });
 
+  it("drops a login environment's git folder variables: a command after a write step pushes the run's own clone, never another (3-B code review F5)", () => {
+    const env = layerCommandEnv(
+      {
+        PATH: '/bin',
+        GIT_DIR: '/h/other/.git',
+        GIT_WORK_TREE: '/h/other',
+        GIT_INDEX_FILE: '/h/other/.git/index',
+        GIT_COMMON_DIR: '/h/other/.git',
+        GIT_OBJECT_DIRECTORY: '/h/other/.git/objects',
+        GIT_ALTERNATE_OBJECT_DIRECTORIES: '/h/other/.git/objects',
+        GIT_AUTHOR_NAME: 'alice',
+      },
+      {},
+      { CONSOLA_BRANCH: 'fix/SHOP-42' },
+    );
+    for (const name of [
+      'GIT_DIR',
+      'GIT_WORK_TREE',
+      'GIT_INDEX_FILE',
+      'GIT_COMMON_DIR',
+      'GIT_OBJECT_DIRECTORY',
+      'GIT_ALTERNATE_OBJECT_DIRECTORIES',
+    ])
+      expect(env, name).not.toHaveProperty(name);
+    expect(env).toMatchObject({
+      PATH: '/bin',
+      GIT_AUTHOR_NAME: 'alice',
+      CONSOLA_BRANCH: 'fix/SHOP-42',
+    });
+  });
+
   it('keeps git hooks off whatever env: says', () => {
     const env = layerCommandEnv(
       {},
