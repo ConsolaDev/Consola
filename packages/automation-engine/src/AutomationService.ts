@@ -6846,7 +6846,8 @@ export class AutomationService {
               : `Couldn't reach \`${server}\`: ${maskSecrets(connected.reason, read.masks).trim().replace(/\.$/, '')}.`,
           };
         } else {
-          const tools = connected.session.tools.map((tool) => tool.name);
+          // Masked, as every string a check or a call takes from the server (review M5).
+          const tools = connected.session.tools.map((tool) => maskSecrets(tool.name, read.masks));
           const steps = checkServerVerdicts(calls, connected.session);
           const { survivors } = await connected.session.close();
           if (spawned) this.serverGroups.remove(spawned);

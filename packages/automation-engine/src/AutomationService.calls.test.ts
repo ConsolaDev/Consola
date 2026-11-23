@@ -2384,3 +2384,28 @@ describe('a late answer for a group an earlier start left (review M3)', () => {
     });
   });
 });
+
+/*
+ * Review M5: Check server masks the tool names it lists, as every other
+ * string a check or a call takes from the server.
+ */
+describe("Check server's tool names (review M5)", () => {
+  it('masks a value the server names a tool with', async () => {
+    const h = await harness({
+      mcp: { servers: { slack: slack({ tools: [CHAT_POST, { name: `echo_${BOT_VALUE}` }] }) } },
+    });
+    const view = await h.service.checkServer(
+      WORKSPACE_ID,
+      'brief',
+      'slack',
+      h.service.entryAgents(WORKSPACE_ID, 'brief')!.version,
+    );
+    expect(view.tools).toEqual(['chat_post_message', 'echo_***']);
+    const shown = JSON.stringify([
+      view,
+      h.service.list(WORKSPACE_ID),
+      h.service.snapshot(WORKSPACE_ID),
+    ]);
+    for (const form of maskFormsOf(BOT_VALUE)) expect(shown).not.toContain(form);
+  });
+});
