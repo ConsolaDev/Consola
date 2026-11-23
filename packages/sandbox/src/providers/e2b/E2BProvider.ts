@@ -66,6 +66,9 @@ export class E2BProvider implements SandboxProvider {
         ...(lifetimeSeconds !== undefined && { timeoutMs: lifetimeSeconds * 1_000 }),
         // E2B kills on timeout today; saying so keeps it that way if its default changes.
         lifecycle: { onTimeout: 'kill' },
+        // An exposed port is reached with no credential of E2B's: its default now asks every
+        // request for a traffic token in a header, which a browser's WebSocket cannot send.
+        network: { allowPublicTraffic: true },
       });
     } catch (error) {
       throw this.fail(error);

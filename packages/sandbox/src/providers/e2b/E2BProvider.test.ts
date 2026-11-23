@@ -145,7 +145,7 @@ describe('E2BProvider', () => {
     }
   });
 
-  it("creates a sandbox with its variables, and its lifetime as E2B's timeout, killed when it runs out", async () => {
+  it("creates a sandbox with its variables, its lifetime as E2B's timeout, killed when it runs out, and its ports open to whoever has their address", async () => {
     const { api, provider } = stubbed();
     const handle = await provider.create({
       template: 'consola-session',
@@ -161,9 +161,10 @@ describe('E2BProvider', () => {
           envs: { CONSOLA_HARNESS: 'claude' },
           timeoutMs: 900_000,
           lifecycle: { onTimeout: 'kill' },
+          network: { allowPublicTraffic: true },
         },
       ],
-      ['base', { lifecycle: { onTimeout: 'kill' } }],
+      ['base', { lifecycle: { onTimeout: 'kill' }, network: { allowPublicTraffic: true } }],
     ]);
   });
 

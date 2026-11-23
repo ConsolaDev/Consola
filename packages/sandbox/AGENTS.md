@@ -165,7 +165,9 @@ its top (`LAYERS`), so a new folder is added there first.
      `provider` error with the provider's own words. Never put a key or a
      token in a message;
    - `exposePort` returns an http or https address: the same one each time
-     for a port, a different one for each port and each sandbox.
+     for a port, a different one for each port and each sandbox, that a
+     client (a browser's WebSocket included) reaches with no credential of
+     the provider's. Whatever listens there guards itself.
    - a lifetime is a hard maximum: the provider stops the sandbox once it
      runs out, and `attach` never lengthens it (an SDK whose "connect"
      extends a timeout, as E2B's does, needs telling not to);
@@ -211,6 +213,12 @@ reruns the live contract.
   `getInfo` first (a paused sandbox is refused, never resumed), then
   connects with a one-second timeout: E2B's connect only ever lengthens a
   timeout, and without one it applies its five-minute default.
+- **Ports.** Sandboxes are created with `network: { allowPublicTraffic:
+  true }`, so an exposed port's address is reached with no E2B credential.
+  E2B's default asks every request to it for a traffic token in a header
+  (`e2b-traffic-access-token`, else `403`), which a browser cannot add to a
+  WebSocket. What listens on the port guards itself (a session's host takes
+  only a pass, then a ticket: `packages/host/AGENTS.md`).
 - **Errors.** A missing file or template is `not-found`; a sandbox E2B says
   is gone is `not-running` to a handle and `not-found` to `attach`; an id
   E2B calls invalid (400) is `not-found` to `attach` and nothing to stop.

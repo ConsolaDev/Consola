@@ -8,7 +8,7 @@ import { Sandbox, type SandboxOpts } from 'e2b';
 export interface E2BApi {
   create(
     template: string,
-    options: Pick<SandboxOpts, 'envs' | 'timeoutMs' | 'lifecycle'>,
+    options: Pick<SandboxOpts, 'envs' | 'timeoutMs' | 'lifecycle' | 'network'>,
   ): Promise<E2BSandbox>;
   /** `timeoutMs` as E2B's connect takes it: it only ever lengthens a running sandbox's life. */
   connect(sandboxId: string, options: { timeoutMs: number }): Promise<E2BSandbox>;
