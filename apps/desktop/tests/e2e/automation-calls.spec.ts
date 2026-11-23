@@ -906,3 +906,53 @@ ${written.slice(written.indexOf('automations:\n'))}  - name: entry-uses
     await calls.close();
   }
 });
+
+test("A poll entry's Allow card names its call and its server, and nothing starts before Allow", async () => {
+  test.setTimeout(120_000);
+  const calls = await setUpCalls();
+  try {
+    await openAutomations(calls.page);
+    // The briefing's server, and an entry whose check would fire a call to it (review M6).
+    const [servers] = calls.factoryText().split('automations:\n');
+    calls.writeFactory(`${servers}automations:
+  - name: watch-posts
+    on:
+      poll:
+        every: 1h
+        run: printf '[]'
+        key: .id
+    scope: catalog-portal
+    mode: auto
+    steps:
+      - id: post
+        uses: slack#chat_post_message
+        with: { channel: C0SUPPORT1, text: "Something new." }
+        outputs: { ts: string }
+`);
+    await calls.bind('SLACK_BOT_TOKEN', 'STUB_SLACK_TOKEN');
+    const row = rowOf(calls.page, 'watch-posts');
+    await expect(row).toContainText('Needs your OK', { timeout: 15_000 });
+    await row.getByRole('button', { name: 'watch-posts', exact: true }).click();
+    const card = sidePanel(calls.page).getByRole('region', { name: 'Allow watch-posts' });
+    await expect(card).toBeVisible();
+    // Its call, as the version Allow accepts holds it: the ref and each argument with its trust.
+    const toolCalls = card.getByRole('region', { name: 'Tool calls', exact: true });
+    await expect(
+      toolCalls.getByText('Calls `slack#chat_post_message`', { exact: true }),
+    ).toBeVisible();
+    await expect(
+      toolCalls.getByText('`channel` = C0SUPPORT1 (literal)', { exact: true }),
+    ).toBeVisible();
+    // Its server once: what it starts, as you, with what, and its literal env: (review S1).
+    const server = toolCalls.getByRole('region', { name: 'Servers', exact: true });
+    await expect(server.getByText(serverLine(calls), { exact: true })).toBeVisible();
+    await expect(server.getByText(ENV_LINE, { exact: true })).toBeVisible();
+    await expect(server.getByText(STARTED, { exact: true })).toBeVisible();
+    await expect(card.getByRole('button', { name: 'Allow', exact: true })).toBeVisible();
+    // Showing the card started nothing: no check, no server.
+    expect(fs.existsSync(calls.files.log)).toBe(false);
+    expect((await calls.snapshot()).runs).toEqual([]);
+  } finally {
+    await calls.close();
+  }
+});
