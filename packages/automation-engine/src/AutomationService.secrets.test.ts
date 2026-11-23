@@ -558,6 +558,17 @@ describe("a value's printed forms", () => {
     });
   });
 
+  it('leave nothing of a $CONSOLA_OUTPUT too big to read and mask', async () => {
+    const h = await accepted(NOTED);
+    const runId = await runNow(h, 'noted');
+    await h.world.commands[0].end({ outputs: `note=${firstLine}\n${'x'.repeat(70 * 1024)}\n` });
+    expect(stepOf(h, runId, 'page')).toMatchObject({
+      status: 'failed',
+      error: expect.stringContaining('Could not read its $CONSOLA_OUTPUT ('),
+    });
+    expect(fs.readFileSync(attemptFile(h, runId, 'page', 'outputs.env'), 'utf8')).toBe('');
+  });
+
   it('leave a $CONSOLA_OUTPUT with nothing to mask as the command wrote it', async () => {
     const h = await accepted(NOTED);
     const writeText = vi.spyOn(h.folder, 'writeText');
