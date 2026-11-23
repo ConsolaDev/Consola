@@ -25,6 +25,11 @@ const packageJson = JSON.parse(
 };
 const DEPENDENCIES = Object.keys(packageJson.dependencies ?? {});
 const DEV_DEPENDENCIES = Object.keys(packageJson.devDependencies ?? {});
+/**
+ * Dependencies only the Node adapters may load, tests there included: the MCP
+ * SDK speaks to processes and sockets, so the core never imports it (review M3).
+ */
+const NODE_ONLY_DEPENDENCIES = ['@modelcontextprotocol/sdk'];
 
 const BUILTINS = new Set(builtinModules);
 const IO_MODULES = new Set([
@@ -222,6 +227,8 @@ function boundaryProblems(file: string, specifiers: string[]): string[] {
 
     if (!allowed.includes(packageName(specifier))) {
       problems.push(`${file}: '${specifier}' is not a dependency of this package`);
+    } else if (!inNode && NODE_ONLY_DEPENDENCIES.includes(packageName(specifier))) {
+      problems.push(`${file}: '${specifier}' may be imported only under src/node/`);
     }
   }
   return problems;
@@ -543,6 +550,28 @@ describe('the checker', () => {
 
   it('judges only the entry point by its shape', () => {
     expect(entryProblems('src/x.ts', 'const a = 1;')).toEqual([]);
+  });
+
+  it.each([
+    ['in core', 'src/x.ts', '@modelcontextprotocol/sdk'],
+    ['as a subpath in core', 'src/x.ts', '@modelcontextprotocol/sdk/client/index.js'],
+    ['in a core test', 'src/x.test.ts', '@modelcontextprotocol/sdk'],
+    ['as a subpath in a core test', 'src/x.test.ts', '@modelcontextprotocol/sdk/client/index.js'],
+  ])('refuses the MCP SDK %s', (_name, file, specifier) => {
+    for (const { source } of SPELLINGS) {
+      expect(boundaryProblems(file, importsOf(source(specifier)))).toEqual([
+        `${file}: '${specifier}' may be imported only under src/node/`,
+      ]);
+    }
+  });
+
+  it.each([
+    ['src/node/x.ts', '@modelcontextprotocol/sdk'],
+    ['src/node/x.ts', '@modelcontextprotocol/sdk/client/index.js'],
+    ['src/node/x.test.ts', '@modelcontextprotocol/sdk/server/mcp.js'],
+    ['src/node/x.test-helpers.ts', '@modelcontextprotocol/sdk/server/stdio.js'],
+  ])('allows the MCP SDK in %s', (file, specifier) => {
+    expect(boundaryProblems(file, importsOf(esm(specifier)))).toEqual([]);
   });
 
   it.each(cases)('$name', ({ file, source, problems }) => {

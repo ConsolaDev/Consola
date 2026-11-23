@@ -39,7 +39,7 @@ const CONTROLS = /[\x00-\x08\x0b-\x1f\x7f]/g;
  * of what it has seen, the longest secret's length less one byte, until the
  * next chunk shows whether a secret continues there, or the stream ends.
  */
-class Masker {
+export class Masker {
   private readonly secrets: Buffer[];
   private readonly longest: number;
   private pending = EMPTY;
