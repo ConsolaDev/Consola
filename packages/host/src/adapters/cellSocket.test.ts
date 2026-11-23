@@ -389,7 +389,16 @@ describe('makeCellSocket', () => {
       Effect.gen(function* () {
         const cell = yield* fakeCell({ refuse: 401 });
         const runner = yield* runnerOf(cell, 20);
-        yield* Effect.sleep(Duration.millis(600));
+        // Polled, not a fixed sleep: each dial is a TCP handshake and a 401, slow on a loaded
+        // machine.
+        yield* Effect.gen(function* () {
+          while (cell.attempts() < 3) yield* Effect.sleep(Duration.millis(20));
+        }).pipe(
+          Effect.timeoutOrElse({
+            duration: WAIT,
+            orElse: () => Effect.die(new Error(`only ${cell.attempts()} dials in time`)),
+          }),
+        );
         expect(cell.attempts()).toBeGreaterThanOrEqual(3);
         expect(runner.logged.some((line) => line.includes('401'))).toBe(true);
         expect(runner.logged.join('\n')).not.toContain(SECRET);
