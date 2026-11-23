@@ -1555,6 +1555,12 @@ export class AutomationService {
         name,
         bound: binding !== undefined,
       })),
+      // The folder's valid servers as last read, by name and transport: what a `uses:` step may name.
+      servers: Object.values(parse.servers).map((server) => ({
+        name: server.name,
+        transport: server.transport,
+        ...(server.description !== undefined ? { description: server.description } : {}),
+      })),
     });
   }
 

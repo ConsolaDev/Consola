@@ -17,7 +17,11 @@ import {
   GRAMMAR_EXAMPLES,
   SECRETS_EXAMPLE,
   SECRETS_GRAMMAR,
+  SERVERS_EXAMPLE,
+  SERVERS_GRAMMAR,
   TRUSTED_ITEM_FIELDS,
+  USES_EXAMPLE,
+  USES_GRAMMAR,
 } from './capabilities';
 import { defineTool } from './tools.test-helpers';
 import { sourcesHarness } from './sources/sources.test-helpers';
@@ -562,3 +566,147 @@ describe('what an agent writing an entry is told of secrets', () => {
     expect(line).toContain('`wait`, `concurrency` arrive with waiting runs');
   });
 });
+
+describe('what an agent writing automations is told of servers and calls (5a-2 Task 10)', () => {
+  it('teaches mcpServers: with a factory.yml that parses with no issue and no notice', () => {
+    const read = parseFactory(factoryFilesOf({ 'factory.yml': SERVERS_EXAMPLE }));
+    expect(read.issues).toEqual([]);
+    expect(read.notices).toEqual([]);
+    expect(Object.keys(read.servers)).toEqual(['slack', 'tracker']);
+    expect(read.servers.slack.transport).toBe('stdio');
+    expect(read.servers.tracker.transport).toBe('http');
+  });
+
+  it('teaches uses: with an entry that parses and resolves against those servers', async () => {
+    const parsed = parseAutomationEntry(USES_EXAMPLE);
+    if (!parsed.ok) throw new Error(parsed.issues[0].message);
+    expect(parsed.automation.steps?.map((step) => step.kind)).toEqual(['run', 'uses']);
+    const h = await stepsHarness({
+      yaml: SERVERS_EXAMPLE.replace(
+        'automations: []',
+        `automations:\n${indent(USES_EXAMPLE, '  ')}\n`,
+      ),
+      secrets: {
+        bindings: { SLACK_BOT_TOKEN: { ref: 'keychain:slack' } },
+        values: { SLACK_BOT_TOKEN: 'stub-slack-secret-9c1e' },
+      },
+    });
+    const [listed] = h.service.list(WORKSPACE_ID);
+    expect(listed.name).toBe('post-shipped');
+    expect(listed.problem).toBeUndefined();
+  });
+
+  it('holds both paragraphs and both examples, once each', () => {
+    const text = grammar().grammar;
+    for (const part of [SERVERS_GRAMMAR, USES_GRAMMAR, SERVERS_EXAMPLE, USES_EXAMPLE])
+      expect(text.split(part)).toHaveLength(2);
+    for (const words of [
+      'consola is reserved',
+      'at most 20',
+      'never a relative one',
+      'headersHelper',
+      'type: sse',
+      'cwd',
+      'oauth',
+      'in an empty folder, as the person',
+      'Pin a launched package',
+      'ask again',
+      'consola_save_automation writes entries, not mcpServers:',
+      "An agent file's mcpServers: names its harness's servers, not these.",
+    ])
+      expect(SERVERS_GRAMMAR, words).toContain(words);
+    for (const words of [
+      'uses: <server>#<tool>',
+      'Consola reads none of it',
+      'Never .file',
+      '{{secrets.X}}',
+      'keeps the path',
+      'default 60s, at most 10m',
+      'unless dry_run: run',
+      'is never repeated by Consola',
+      'prompt or selector takes only trusted values',
+      'run: { tool: consola#<tool>, with: … } keeps working',
+    ])
+      expect(USES_GRAMMAR, words).toContain(words);
+    expect(text).toContain('connections/ once connection manifests arrive');
+    expect(text).not.toContain('environments/, connections/ and evals/ are read from later slices');
+  });
+
+  it("echoes the factory's servers by name and transport, none when absent", () => {
+    const told = (servers?: CapabilitiesServers) =>
+      describeCapabilities({
+        filePath: '/f/factory.yml',
+        fileExists: true,
+        tools: [],
+        actions: [],
+        scopes: [],
+        taken: [],
+        boundConnection: 'github',
+        harness: { name: 'Claude', problem: null },
+        ...(servers ? { servers } : {}),
+      }).servers;
+    expect(told([{ name: 'slack', transport: 'stdio' }])).toEqual([
+      { name: 'slack', transport: 'stdio' },
+    ]);
+    expect(told()).toEqual([]);
+    // Names, transports and descriptions only, whatever a caller hands it.
+    const handed = [
+      { name: 'tracker', transport: 'http' as const, url: 'https://x', headers: { a: 'b' } },
+    ];
+    expect(told(handed)).toEqual([{ name: 'tracker', transport: 'http' }]);
+  });
+
+  it('gives each tool argument its role, a selector when its tool gives none', () => {
+    const tools = describeCapabilities({
+      filePath: '/f/factory.yml',
+      fileExists: true,
+      tools: [
+        { ...CLEAN_UP, roles: { pr_states: 'selector' } },
+        {
+          name: 'start_chat',
+          description: 'Start a chat.',
+          input: { prompt: z.string(), channel: z.string(), note: z.string() },
+          roles: { prompt: 'prompt', channel: 'data' },
+        },
+      ],
+      actions: [],
+      scopes: [],
+      taken: [],
+      boundConnection: 'github',
+      harness: { name: 'Claude', problem: null },
+    }).targets.tools;
+    expect(tools[0].arguments).toEqual([{ name: 'pr_states', description: '', role: 'selector' }]);
+    expect(tools[1].arguments.map(({ name, role }) => [name, role])).toEqual([
+      ['prompt', 'prompt'],
+      ['channel', 'data'],
+      ['note', 'selector'],
+    ]);
+  });
+
+  it("tells an agent the workspace's servers through the service, and none of their values", async () => {
+    const h = await stepsHarness({
+      yaml: SERVERS_EXAMPLE,
+      secrets: {
+        bindings: {
+          SLACK_BOT_TOKEN: {
+            ref: 'keychain:slack',
+            label: 'the keychain (consola/ws-1/personal · SLACK_BOT_TOKEN)',
+          },
+        },
+      },
+    });
+    const told = h.service.capabilities(WORKSPACE_ID);
+    expect(told.servers).toEqual([
+      { name: 'slack', transport: 'stdio', description: "Posts to the team's Slack as its bot." },
+      { name: 'tracker', transport: 'http' },
+    ]);
+    const text = JSON.stringify(told);
+    const grammarText = told.grammar;
+    // The grammar's own example names T0SPROCKET and the header's shape; nothing else in the answer does.
+    const rest = text.split(JSON.stringify(grammarText).slice(1, -1)).join('');
+    for (const value of ['T0SPROCKET', 'Bearer', 'keychain:slack', 'the keychain (consola'])
+      expect(rest, value).not.toContain(value);
+  });
+});
+
+type CapabilitiesServers = NonNullable<Parameters<typeof describeCapabilities>[0]['servers']>;

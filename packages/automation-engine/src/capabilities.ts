@@ -1,5 +1,5 @@
 import { CONSOLA_NAMESPACE } from './support';
-import type { EngineTool } from './ports';
+import type { ArgumentRole, EngineTool } from './ports';
 import {
   AUTOMATION_NAME_PATTERN,
   ENV_PREFIX_EXCEPTIONS,
@@ -52,11 +52,15 @@ export interface AutomationCapabilities {
     connections: Array<ConnectionCatalogEntry & { bound: boolean }>;
   };
   targets: {
-    /** The tools an automation may name, with what each argument means. */
+    /**
+     * The tools an automation may name, with what each argument means and does: a `prompt` is sent to a
+     * session, a `selector` chooses what the tool acts on (both take only trusted values in a `uses:` step),
+     * `data` is plain data.
+     */
     tools: Array<{
       ref: string;
       description: string;
-      arguments: Array<{ name: string; description: string }>;
+      arguments: Array<{ name: string; description: string; role: ArgumentRole }>;
     }>;
     /** The workspace's actions, by name, and the items each applies to. */
     actions: Array<{ name: string; appliesTo: Array<'pr' | 'issue'> }>;
@@ -83,13 +87,15 @@ export interface AutomationCapabilities {
   readOnlyLimits: string;
   /** The workspace's secret names and whether this runner binds each: never where, never a value. */
   secrets: Array<{ name: string; bound: boolean }>;
+  /** The factory's servers a `uses:` step may name: by name and transport, never an `env:` value or a header. */
+  servers: Array<{ name: string; transport: 'stdio' | 'http'; description?: string }>;
 }
 
 export interface CapabilitiesInput {
   filePath: string;
   fileExists: boolean;
-  /** The registry's automatable tools. */
-  tools: Array<Pick<EngineTool, 'name' | 'description' | 'input'>>;
+  /** The registry's automatable tools; an argument its tool gives no role is a `selector` (Call 5). */
+  tools: Array<Pick<EngineTool, 'name' | 'description' | 'input' | 'roles'>>;
   actions: Array<{ name: string; appliesTo: Array<'pr' | 'issue'> }>;
   scopes: Array<{ name: string; path: string }>;
   taken: string[];
@@ -109,6 +115,8 @@ export interface CapabilitiesInput {
   folderPath?: string;
   /** The workspace's secret names and whether this runner binds each; absent, none. */
   secrets?: Array<{ name: string; bound: boolean }>;
+  /** The factory's valid servers, by name and transport; absent, none. */
+  servers?: Array<{ name: string; transport: 'stdio' | 'http'; description?: string }>;
 }
 
 /** The item fields a prompt may template: the ones every connection gives and nobody else wrote (factory-spec's list). */
@@ -276,7 +284,7 @@ const SERVER_RULES =
   'Naming a server grants every tool it has, writing ones included; narrow it to named tools with - <server>: [<tool>, …]. ' +
   "harnesses lists each harness's servers by name, once Consola has asked its CLI.";
 
-const FOLDER_PROSE = `The factory folder. A workspace's automations live in its factory folder (folder.path): factory.yml, automations/<name>.yaml (one automation per file), agents/<name>.md (an agent a step runs as) and skills/<name>/SKILL.md (a skill an agent names). A file's name is its name: ${AUTOMATION_NAME_PATTERN.source}, so agents/investigator.md is the agent investigator. Any other file in automations/, agents/ or skills/ is an issue (dotfiles, and what an editor or the OS leaves beside a file, such as x.md~, #x.md#, x.orig or Thumbs.db, are passed over), and so is a file (or one of those folders) that is a link leading outside the folder: Consola reads only files inside it. environments/, connections/ and evals/ are read from later slices: their files have no effect yet. The folder applies as a unit: while any file has a problem, the version that last applied keeps running, and an automation removed from the files stops at once.
+const FOLDER_PROSE = `The factory folder. A workspace's automations live in its factory folder (folder.path): factory.yml, automations/<name>.yaml (one automation per file), agents/<name>.md (an agent a step runs as) and skills/<name>/SKILL.md (a skill an agent names). A file's name is its name: ${AUTOMATION_NAME_PATTERN.source}, so agents/investigator.md is the agent investigator. Any other file in automations/, agents/ or skills/ is an issue (dotfiles, and what an editor or the OS leaves beside a file, such as x.md~, #x.md#, x.orig or Thumbs.db, are passed over), and so is a file (or one of those folders) that is a link leading outside the folder: Consola reads only files inside it. environments/ and evals/ are read from later slices, and connections/ once connection manifests arrive: their files have no effect yet. The folder applies as a unit: while any file has a problem, the version that last applied keeps running, and an automation removed from the files stops at once.
 
 Agent files. agents/<name>.md is optional YAML frontmatter between two --- lines, then the agent's standing instructions: its body, at least one line that is not blank, at most 64 KB, with no {{ }} (an agent is the same for every step that uses it: put item values in the step's prompt:). ${FRONTMATTER_FIRST} Keys, each optional:
 - description: one line of at most 200 characters, for the person. It, a server's name and the model are visible text: letters, numbers, punctuation, symbols and plain spaces (no line or paragraph separators, combining marks, invisible fillers or format characters).
@@ -328,7 +336,7 @@ on: manual runs only when a person, or an agent, starts it. Add applies_to: [pr]
 
 Previous. In an entry that runs on an item, previous.<step>.<artifact> is what the last run of this automation on the same item wrote: previous.review.handover is that run's review. It works in reads: and env: only, never in a prompt or if:: it is material, not a value to branch on. It is empty on the first run, so write the prompt to cope: it should say what to do when there is no earlier document.
 
-Steps. Each step has one of prompt:, action:, agent: <name> or run:; an agent: may also stand beside a prompt: or an action: (see Agent files). A prompt:, action: or agent: step is a new read-only, unattended agent session, on its agent's harness or else the default one; a run: step is a shell command. Keys:
+Steps. Each step has one of prompt:, action:, agent: <name>, run: or uses: (see Calls); an agent: may also stand beside a prompt: or an action: (see Agent files). A prompt:, action: or agent: step is a new read-only, unattended agent session, on its agent's harness or else the default one; a run: step is a shell command. Keys:
 - id: ^[a-z][a-z0-9-]{0,31}$, unique, optional (an unnamed step is step-<n> and cannot be referenced; step-<n> and previous are refused as ids).
 - if: an expression; the step runs when it is true.
 - prompt: instructions. action: one of the workspace's actions, which must apply to the item; its body is filled as an action's is, and {{ }} does not apply to it.
@@ -342,7 +350,7 @@ Not supported yet, refused with a reason: ${REFUSED_KEYS}. A step has no inputs:
 
 A run: step reads outputs from the file named by $CONSOLA_OUTPUT, one key=value line each: echo "needed=true" >> "$CONSOLA_OUTPUT". Set every declared output or the step fails; at most ${OUTPUT_FILE_CAP_BYTES / 1024} KB; no key<<EOF form. It runs as ${RUN_AS}
 
-Values: {{ }} works only in prompt: and env:, never in run:. Move {{item.url}} into env: and write "$PR" in the command; shape gh output with --jq. A path is item.<field>, steps.<id>.<output or artifact> (its content), or steps.<id>.<artifact>.file (an absolute path, for big documents). Prompts take trusted values only: item.${TRUSTED_ITEM_FIELDS.join(', ')} and enum, integer, number and boolean outputs; not item.title, item.author, string outputs or artifacts (text someone else wrote: use reads:). env: takes any path. A handover is required only when a later step reads it (reads: or env:).
+Values: {{ }} works only in prompt: and env:, never in run: (and in a call's with:, see Calls). Move {{item.url}} into env: and write "$PR" in the command; shape gh output with --jq. A path is item.<field>, steps.<id>.<output or artifact> (its content), or steps.<id>.<artifact>.file (an absolute path, for big documents). Prompts take trusted values only: item.${TRUSTED_ITEM_FIELDS.join(', ')} and enum, integer, number and boolean outputs; not item.title, item.author, string outputs or artifacts (text someone else wrote: use reads:). env: takes any path. A handover is required only when a later step reads it (reads: or env:).
 
 if: expr := or; or := and ("||" and)*; and := unary ("&&" unary)*; unary := "!" unary | compare; compare := primary (("=="|"!="|"<"|"<="|">"|">=") primary)?; primary := path | 'text' | "text" | number | true | false | "(" expr ")"; path := steps.<id>.<output> | item.<field>. Write it as a YAML string of at most 500 characters (a bare if: true is refused). Types: == and != need matching types and an enum is a string whose literal must be one of its values; < <= > >= take numbers; && || ! take booleans; a boolean output alone works (if: steps.x.blocking). It reads outputs of earlier, named steps only, never an artifact (branch on an output). A step whose if: reads a step that did not complete is skipped.
 
@@ -365,7 +373,56 @@ export const SECRETS_GRAMMAR = `Secrets. secrets: [NAME, …] goes on a run: ste
 
 ${SECRETS_EXAMPLE}`;
 
-const GRAMMAR = `${GRAMMAR_PROSE}\n\n${FOLDER_PROSE}\n\n${SECRETS_GRAMMAR}`;
+/** A factory.yml defining the servers a `uses:` step calls: one Consola starts, one it calls. Parsed by a test with no issue or notice. */
+export const SERVERS_EXAMPLE = `version: 1
+mcpServers:
+  slack:
+    description: Posts to the team's Slack as its bot.
+    command: npx
+    args: [-y, "@sprocket/slack-mcp@1.4.2"]
+    env: { SLACK_TEAM_ID: T0SPROCKET }
+    secrets: [SLACK_BOT_TOKEN]
+  tracker:
+    url: https://mcp.tracker.sprocket.example/mcp
+    headers: { Authorization: "Bearer \${TRACKER_TOKEN}" }
+    secrets: [TRACKER_TOKEN]
+automations: []`;
+
+/** What an agent is told of `mcpServers:` in factory.yml: the servers the engine itself calls. */
+export const SERVERS_GRAMMAR = `Servers. mcpServers: at the top of factory.yml defines the MCP servers a uses: step calls, by name (lowercase letters, digits and dashes, starting with a letter; consola is reserved for Consola's own tools; at most 20). servers in this answer lists them by name and transport. A server is one of:
+- a server Consola starts (stdio): command, a program on the runner's PATH or an absolute path, never a relative one; args, literal text (never \${…} or {{ }}: an argument is visible to every process on the machine), at most 50; env:, literal values under env:'s rules; secrets:, names whose values reach the server as its environment.
+- a server Consola calls (Streamable HTTP): url, https://…, or http:// on 127.0.0.1, localhost or [::1] only, with no \${…} in it; headers:, literal values, where \${NAME} inside a value names one of its secrets:.
+description: one line, shown on the card. type: stdio or http, when written, must match command or url.
+Refused, each with its reason: headersHelper (a command Consola would run to make headers), type: sse or any other transport, cwd (Consola decides where a server starts), oauth and auth (no sign-in for the engine yet: put a token in secrets:), timeout (set it on the step that calls it), and a credential written into the file. A server starts only for a call, in an empty folder, as the person, with their files and network, and is stopped after. Pin a launched package's version (npx -y <package>@<version>): an unpinned one runs the newest version at every call, and gets a warning. Editing a server makes every automation that calls it ask again before its next unattended run. consola_save_automation writes entries, not mcpServers:: write factory.yml's top level with your file tools, and the version guards what you wrote. An agent file's mcpServers: names its harness's servers, not these.
+
+${SERVERS_EXAMPLE}`;
+
+/** A steps entry calling a factory server's tool after a command: what `USES_GRAMMAR` teaches. Not one of `GRAMMAR_EXAMPLES`: it needs `SERVERS_EXAMPLE`'s factory.yml. */
+export const USES_EXAMPLE = `- name: post-shipped
+  on: { cron: "0 8 * * 1" }
+  scope: api
+  mode: confirm
+  steps:
+    - id: shipped
+      run: gh pr list --state merged --limit 20
+      outputs: { from: stdout, format: text }
+      dry_run: run
+    - id: post
+      uses: slack#chat_post_message
+      with: { channel: C0SUPPORT1, text: "Shipped last week: {{steps.shipped.output}}" }
+      outputs: { ts: string }`;
+
+/** What an agent is told of a `uses:` step: one tool call, with no agent. */
+export const USES_GRAMMAR = `Calls. uses: <server>#<tool> is a step that calls one tool itself, with no agent and no shell: a server under mcpServers:, or consola for Consola's own tools. It takes none of prompt:, action:, agent:, run:, env:, secrets:, artifacts: or reads:; its keys are id:, if:, uses:, with:, outputs:, timeout: and dry_run:.
+- with: the tool's arguments, any YAML. A string may hold {{ path }}, any path env: takes, untrusted ones included: Consola reads none of it, so a value someone else wrote reaches the tool as it is, and an argument named like query, sql, command, url, path or prompt given one gets a notice. Never .file, a {{ }} in an argument's name, or {{secrets.X}} (a tool's credentials belong to its server's secrets:). A string that is exactly one {{ path }} keeps the path's type: a number output arrives as a number.
+- outputs: the result's own top-level fields, by name and type ({ ts: string }); the whole result is the step's output artifact (steps.<id>.output).
+- timeout: the whole call, default 60s, at most 10m.
+- dry_run: in a dry run (notify) the call is reported, not made, unless dry_run: run.
+A call that was sent and may have happened (it timed out, it was stopped, the server closed the connection, its result reported an error) is never repeated by Consola: the step fails, and a person retries it. uses: consola#<tool> calls one of targets.tools in process; an argument whose role is prompt or selector takes only trusted values, and a tool that changes things cannot have dry_run: run. run: { tool: consola#<tool>, with: … } keeps working as it does.
+
+${USES_EXAMPLE}`;
+
+const GRAMMAR = `${GRAMMAR_PROSE}\n\n${FOLDER_PROSE}\n\n${SECRETS_GRAMMAR}\n\n${SERVERS_GRAMMAR}\n\n${USES_GRAMMAR}`;
 
 const MODES: AutomationCapabilities['modes'] = [
   {
@@ -440,6 +497,11 @@ export function describeCapabilities(input: CapabilitiesInput): AutomationCapabi
         arguments: Object.entries(tool.input).map(([name, schema]) => ({
           name,
           description: (schema as { description?: string }).description ?? '',
+          // An argument its tool gives no role is a selector, so it takes only trusted values (Call 5).
+          role:
+            (tool.roles && Object.prototype.hasOwnProperty.call(tool.roles, name)
+              ? tool.roles[name]
+              : undefined) ?? 'selector',
         })),
       })),
       actions: input.actions.map((action) => ({
@@ -470,5 +532,11 @@ export function describeCapabilities(input: CapabilitiesInput): AutomationCapabi
     })),
     readOnlyLimits: READ_ONLY_LIMITS,
     secrets: (input.secrets ?? []).map((secret) => ({ name: secret.name, bound: secret.bound })),
+    // Names, transports and descriptions only: never an `env:` value or a header.
+    servers: (input.servers ?? []).map((server) => ({
+      name: server.name,
+      transport: server.transport,
+      ...(server.description !== undefined ? { description: server.description } : {}),
+    })),
   };
 }

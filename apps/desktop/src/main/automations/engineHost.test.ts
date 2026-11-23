@@ -198,6 +198,8 @@ describe("the runner against Consola's real tools", () => {
     expect(cleanup?.arguments).toContainEqual({
       name: 'pr_states',
       description: expect.stringMatching(/stale/),
+      // It chooses what the tool acts on: given no role before 5a-2 Task 13, read as one (Call 5).
+      role: 'selector',
     });
     // Only what an automation may name.
     expect(capabilities.targets.tools.map((tool) => tool.ref)).not.toContain(
