@@ -13,6 +13,8 @@
     "test": "vp test run"
   },
   "dependencies": {
+    "@consola/runner-protocol": "workspace:*",
+    "@consola/sandbox": "workspace:*",
     "@effect/platform-node": "catalog:",
     "@t3tools/contracts": "workspace:*",
     "@t3tools/provider-acp-registry": "workspace:*",
@@ -26,12 +28,14 @@
     "@t3tools/source-control-core": "workspace:*",
     "effect": "catalog:",
     "jose": "6.2.10",
-    "t3": "workspace:*"
+    "t3": "workspace:*",
+    "ws": "8.23.0"
   },
   "devDependencies": {
     "@t3tools/client-runtime": "workspace:*",
     "@t3tools/provider-testing": "workspace:*",
     "@types/node": "catalog:",
+    "@types/ws": "8.18.2",
     "typescript": "^5.9.3",
     "vite-plus": "catalog:"
   }

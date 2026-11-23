@@ -1009,6 +1009,12 @@ importers:
 
   packages/host:
     dependencies:
+      '@consola/runner-protocol':
+        specifier: workspace:*
+        version: link:../runner-protocol
+      '@consola/sandbox':
+        specifier: workspace:*
+        version: link:../sandbox
       '@effect/platform-node':
         specifier: 'catalog:'
         version: 4.1.5(effect@4.1.5)(redis@6.3.1)
@@ -1051,6 +1057,9 @@ importers:
       t3:
         specifier: workspace:*
         version: link:../../vendor/t3code/apps/server
+      ws:
+        specifier: 8.23.0
+        version: 8.23.0
     devDependencies:
       '@t3tools/client-runtime':
         specifier: workspace:*
@@ -1061,6 +1070,9 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 24.12.4
+      '@types/ws':
+        specifier: 8.18.2
+        version: 8.18.2
       typescript:
         specifier: ^5.9.3
         version: 5.9.3

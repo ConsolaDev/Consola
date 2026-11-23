@@ -18,7 +18,10 @@ Imports point inward only; `src/boundary.test.ts` fails on any that does not.
   turn, nothing done for the idle minutes) and `SessionSpec`. No
   `node:` builtin, no `effect/process`, `ws` or `jose`, and no global that
   touches the machine (`process`, `fetch`, `WebSocket`, timers). It may name the
-  vendored `@t3tools/contracts`.
+  vendored `@t3tools/contracts` and `@consola/runner-protocol` (below). The
+  runner's decisions live here too (`runnerDecisions.ts`, "The `runner`
+  command"), and the host's stdout lines (`hostLine.ts`: `HostLine` and its
+  reader).
 - `src/runtime/` holds Effect services over the vendored t3 packages. It may
   import them (by package name, or `t3/<path>.ts` for a lifted server file) and
   `core/`, never `adapters/`.
@@ -47,8 +50,17 @@ Imports point inward only; `src/boundary.test.ts` fails on any that does not.
   `pnpm --filter @consola/agent-ui test` after changing any of these.
 
 To add a ring, add a row to `LAYERS` and a case to the table in
-`boundary.test.ts`. Test files are exempt from the layer rules, but never import
-another `@consola/*` package: the host stands alone.
+`boundary.test.ts`. Test files are exempt from the layer rules.
+
+No file imports another `@consola/*` package, tests included, but two, each by
+its own name and never a path inside it (`@consola/sandbox/dist/index.js` is
+refused): `@consola/runner-protocol` (MIT), what a runner and its cell say to
+each other, which does no I/O, so every ring may name it; and
+`@consola/sandbox`, the interface the runner starts sandboxes through, in
+`adapters`, `testing` and `bin.ts` only, never `core` or `runtime`. A test file
+takes the list of the module it sits beside (`adapters/x.test.ts`
+`adapters`'s, `bin.test.ts` `bin`'s). Each is its layer's `consola` list in
+`LAYERS`, with a case in the table for every ring.
 
 ## Vendored t3 code is imported, never copied
 

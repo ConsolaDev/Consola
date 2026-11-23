@@ -41,6 +41,13 @@ type Layer = {
   /** Globals it may not refer to. */
   noGlobals: string[];
   /**
+   * The Consola packages it may import, each by its exact name (never a path inside it), though
+   * `NEVER` refuses every other: the contracts the host speaks and the interface it runs sandboxes
+   * through. A test file takes the list of the module it sits beside (`adapters/x.test.ts`,
+   * `adapters`'s).
+   */
+  consola: string[];
+  /**
    * Whether it may use a test seam (a name ending in `ForTests`) as tests do: only for a ring
    * that nothing but tests reaches, so a seam it uses still never reaches the host's own code.
    */
@@ -61,6 +68,13 @@ const MACHINE_GLOBALS = [
   'global',
 ];
 
+/**
+ * What a runner and its cell say to each other (MIT). It does no I/O, so every ring may name it.
+ */
+const RUNNER_PROTOCOL = '@consola/runner-protocol';
+/** The sandbox interface (`sandboxesFrom`) and its fake: the outer rings run sandboxes with it. */
+const SANDBOX = '@consola/sandbox';
+
 const LAYERS: Layer[] = [
   {
     // Pure decisions. The vendored contracts are types and schemas, so they may be named
@@ -69,6 +83,8 @@ const LAYERS: Layer[] = [
     reaches: ['core'],
     refuses: [NODE_BUILTINS, 'effect/process', 'ws', 'jose'],
     noGlobals: MACHINE_GLOBALS,
+    // The protocol's types and readers, never the sandboxes: starting one is the adapters'.
+    consola: [RUNNER_PROTOCOL],
   },
   {
     // Effect services over the vendored packages. Free to use them and `core`, never the
@@ -77,12 +93,14 @@ const LAYERS: Layer[] = [
     reaches: ['core', 'runtime'],
     refuses: [TEST_KITS],
     noGlobals: [],
+    consola: [RUNNER_PROTOCOL],
   },
   {
     at: 'adapters',
     reaches: ['core', 'runtime', 'adapters'],
     refuses: [TEST_KITS],
     noGlobals: [],
+    consola: [RUNNER_PROTOCOL, SANDBOX],
   },
   {
     // What tests share (an isolated machine, fake CLIs, the command over a replay). No other ring
@@ -93,6 +111,7 @@ const LAYERS: Layer[] = [
     refuses: [],
     noGlobals: [],
     testSeams: true,
+    consola: [RUNNER_PROTOCOL, SANDBOX],
   },
   // The one wiring file, where everything meets.
   {
@@ -100,10 +119,14 @@ const LAYERS: Layer[] = [
     reaches: ['core', 'runtime', 'adapters'],
     refuses: [TEST_KITS],
     noGlobals: [],
+    consola: [RUNNER_PROTOCOL, SANDBOX],
   },
 ];
 
-/** What every file, tests included, may never import: another Consola package or an app. */
+/**
+ * What every file, tests included, may never import: another Consola package or an app, but the
+ * ones its layer names in `consola`.
+ */
 const NEVER = ['@consola/*'];
 
 const SOURCE_EXTENSION = /\.(?:[cm]?[jt]s|tsx)$/;
@@ -321,6 +344,15 @@ function layerOf(path: string): Layer | null {
 }
 
 /**
+ * The Consola packages `file` may import: its layer's, or, for a test, the layer of the module it
+ * sits beside (`bin.test.ts` is `bin`'s; `boundary.test.ts` beside no module takes none).
+ */
+function consolaAllowedIn(file: string): string[] {
+  const module = file.replace(SOURCE_EXTENSION, '').replace(/\.test$/, '');
+  return layerOf(module)?.consola ?? [];
+}
+
+/**
  * Every way one file breaks the rule, as `<file> imports <specifier>`, `<file> uses <global>`
  * (or `<file> is in no layer`). `file` is relative to `src/`; nothing is read from disk, so a
  * test can feed it any source.
@@ -340,7 +372,12 @@ function violationsOf(file: string, source: string): string[] {
       const reached = layerOf(target);
       return !reached || !own?.reaches.includes(reached.at);
     }
-    if (NEVER.some((pattern) => matches(pattern, specifier))) return true;
+    if (
+      NEVER.some((pattern) => matches(pattern, specifier)) &&
+      !consolaAllowedIn(file).includes(specifier)
+    ) {
+      return true;
+    }
     if (test) return false;
     return own?.refuses.some((pattern) => matches(pattern, specifier)) ?? false;
   };
@@ -458,6 +495,36 @@ describe('the dependency rule', () => {
     ['adapters/x.ts', '@consola/automation-engine', false],
     ['core/x.test.ts', '../adapters/ws.ts', true],
     ['x.test.ts', '@consola/factory-spec', false],
+    // The two Consola packages the host builds on: the runner protocol in every ring, the
+    // sandbox interface outside `core` and `runtime`, each by its own name only.
+    ['core/x.ts', '@consola/runner-protocol', true],
+    ['runtime/x.ts', '@consola/runner-protocol', true],
+    ['adapters/x.ts', '@consola/runner-protocol', true],
+    ['testing/x.ts', '@consola/runner-protocol', true],
+    ['bin.ts', '@consola/runner-protocol', true],
+    ['adapters/x.ts', '@consola/sandbox', true],
+    ['testing/x.ts', '@consola/sandbox', true],
+    ['bin.ts', '@consola/sandbox', true],
+    ['core/x.ts', '@consola/sandbox', false],
+    ['runtime/x.ts', '@consola/sandbox', false],
+    ['core/x.test.ts', '@consola/runner-protocol', true],
+    ['adapters/x.test.ts', '@consola/sandbox', true],
+    ['bin.test.ts', '@consola/sandbox', true],
+    ['core/x.test.ts', '@consola/sandbox', false],
+    ['x.test.ts', '@consola/runner-protocol', false],
+    ...[
+      'core/x.ts',
+      'runtime/x.ts',
+      'adapters/x.ts',
+      'testing/x.ts',
+      'bin.ts',
+      'bin.test.ts',
+    ].flatMap((file) =>
+      ['@consola/agent-ui', '@consola/cloud-contract', '@consola/sandbox/dist/index.js'].map(
+        (specifier): [string, string, boolean] => [file, specifier, false],
+      ),
+    ),
+    ['adapters/x.ts', '@consola/runner-protocol/dist/index.js', false],
   ])('%s importing %s is allowed: %s', (file, specifier, allowed) => {
     expect(violationsOf(file, `import x from '${specifier}';`)).toEqual(
       allowed ? [] : [`${file} imports ${specifier}`],
