@@ -210,6 +210,42 @@ describe('layerCommandEnv', () => {
     expect(env.GIT_CONFIG_KEY_0).toBe('core.hooksPath');
     expect(env.GIT_CONFIG_VALUE_0).toBe('/dev/null');
   });
+
+  it("layers a step's secrets after its env: and before Consola's variables", () => {
+    const base = { PATH: '/bin', X: 'base', PAGER_TOKEN: 'from-the-login-shell' };
+    const env = layerCommandEnv(
+      base,
+      { E: 'env', PAGER_TOKEN: 'from-env' },
+      { CONSOLA_RUN_ID: 'r' },
+      { PAGER_TOKEN: 'v' },
+    );
+    expect(env).toMatchObject({
+      PATH: '/bin',
+      X: 'base',
+      E: 'env',
+      PAGER_TOKEN: 'v',
+      CONSOLA_RUN_ID: 'r',
+    });
+    expect(Object.keys(env).slice(0, 5)).toEqual([
+      'PATH',
+      'X',
+      'PAGER_TOKEN',
+      'E',
+      'CONSOLA_RUN_ID',
+    ]);
+    expect(env.GIT_CONFIG_KEY_0).toBe('core.hooksPath');
+    // A secret can never be named like Consola's variables: they win either way.
+    expect(
+      layerCommandEnv({}, {}, { CONSOLA_RUN_ID: 'r' }, { CONSOLA_RUN_ID: 'x' }).CONSOLA_RUN_ID,
+    ).toBe('r');
+    // Without secrets, exactly today's object.
+    expect(layerCommandEnv(base, { E: 'env' }, { CONSOLA_RUN_ID: 'r' })).toEqual(
+      layerCommandEnv(base, { E: 'env' }, { CONSOLA_RUN_ID: 'r' }, {}),
+    );
+    expect(layerCommandEnv(base, { E: 'env' }, { CONSOLA_RUN_ID: 'r' }).PAGER_TOKEN).toBe(
+      'from-the-login-shell',
+    );
+  });
 });
 
 describe('describeFailure', () => {

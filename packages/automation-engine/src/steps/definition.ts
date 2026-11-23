@@ -139,6 +139,8 @@ export interface CommandFile {
   cwd: string;
   command: string;
   env: Array<{ name: string; template: string; value: string }>;
+  /** The secrets it was given, by name, and where each was bound when it ran: never a value. */
+  secrets?: Array<{ name: string; bound?: string }>;
 }
 
 /** One step's latest attempt, as the run folder holds it. Tails are the last 64 KB. */

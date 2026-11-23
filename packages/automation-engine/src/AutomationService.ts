@@ -12,6 +12,7 @@ import {
   parseAutomationEntry,
   parseFactory,
   parseFactorySpec,
+  secretNamesOf,
   secretUsesOf,
   skillHash,
   stableStringify,
@@ -213,6 +214,8 @@ import {
 } from './steps/stepRecords';
 import { NO_TURN_TO_STOP, stopAction, stoppedBefore } from './steps/stop';
 import { StepIO } from './steps/stepTools';
+import { readSecrets } from './secrets/readSecrets';
+import { RunSecrets } from './secrets/runSecrets';
 import { PERSONAL_FACTORY, type SecretsPort } from './secrets/secretsPort';
 import { buildSecretsView, type SecretBindingView } from './secrets/secretsView';
 import { unboundOf } from './secrets/unbound';
@@ -695,6 +698,8 @@ export class AutomationService {
   private readonly admitted = new Map<string, Lane>();
   /** Each run's command now running, from its spawn until its step settles: what a stop or a quit reaches. */
   private readonly runningCommands = new Map<string, RunningCommand>();
+  /** Each working run's secret values, read before the step that needs them: memory only, dropped as it stops working. */
+  private readonly runSecrets = new RunSecrets();
   /** Commands a quit let go of: whatever they report afterwards is dropped, so their steps keep their intent. */
   private readonly abandoned = new WeakSet<RunningCommand>();
   /**
@@ -813,6 +818,7 @@ export class AutomationService {
       running.stop();
     }
     this.runningCommands.clear();
+    this.runSecrets.dropAll();
     for (const check of this.checkCommands.values()) check.stop();
     this.checkCommands.clear();
     this.checks.clear();
@@ -851,6 +857,8 @@ export class AutomationService {
         }
         // Its record goes with the workspace: a command it was running has nowhere to report, so it ends.
         if (run.attribution.workspaceId === workspaceId) this.runningCommands.get(run.id)?.stop();
+        // And with no status change to drop them, its secrets go here (review S6).
+        if (run.attribution.workspaceId === workspaceId) this.runSecrets.drop(run.id);
       }
       // A workspace whose file checks has check logs, whether or not a run ever came of them.
       const hasFolders =
@@ -2595,7 +2603,7 @@ export class AutomationService {
   private readCommandFile(file: string): CommandFile | undefined {
     const text = this.deps.runFolder.readText(file, LOG_CAP_BYTES);
     if (text === null) return undefined;
-    const { cwd, command, env } = JSON.parse(text) as Partial<CommandFile>;
+    const { cwd, command, env, secrets } = JSON.parse(text) as Partial<CommandFile>;
     if (typeof cwd !== 'string' || typeof command !== 'string' || !Array.isArray(env)) {
       throw new Error('command.json is not a command file.');
     }
@@ -2607,6 +2615,14 @@ export class AutomationService {
         template: String(row?.template),
         value: String(row?.value),
       })),
+      ...(Array.isArray(secrets)
+        ? {
+            secrets: secrets.map((row) => ({
+              name: String(row?.name),
+              ...(typeof row?.bound === 'string' ? { bound: row.bound } : {}),
+            })),
+          }
+        : {}),
     };
   }
 
@@ -2925,6 +2941,7 @@ export class AutomationService {
       // Only a restart leaves a queued step naming a session: it is picked up there, or runs again.
       if (this.stepsOf(run.id).find((step) => step.id === stepId)?.sessionId)
         await this.resumeStep(run.id, stepId);
+      else if (!this.secretsReady(run, stepId)) return;
       else if (lane === 'agent') await this.startAgentStep(run.id, stepId);
       else await this.startCommandStep(run.id, stepId);
       return;
@@ -3816,9 +3833,9 @@ export class AutomationService {
       return;
     }
 
-    let base: { env: NodeJS.ProcessEnv; secrets: string[] };
+    let base: Awaited<ReturnType<AutomationService['commandEnvFor']>>;
     try {
-      base = await this.deps.commandEnv(workspaceId);
+      base = await this.commandEnvFor(runId, workspaceId, command);
     } catch (error) {
       if (this.stepWaiting(runId, stepId, command.attempt)) {
         const why = `Its environment could not be prepared (${describeReason(error)}); nothing ran.`;
@@ -3830,7 +3847,7 @@ export class AutomationService {
     // nothing ran, and with no intent recorded the next start runs it.
     if (!this.started || !this.stepWaiting(runId, stepId, command.attempt)) return;
     const refused =
-      writeCommandFile(this.deps.runFolder, command, base.secrets) ??
+      writeCommandFile(this.deps.runFolder, command, base.secrets, base.labels) ??
       createOutputFile(this.deps.runFolder, command);
     if (refused) {
       this.settleStep(runId, stepId, {
@@ -3844,7 +3861,7 @@ export class AutomationService {
     const envNames = command.values.map((value) => value.name);
     try {
       this.deps.store.updateDurably(runId, {
-        steps: withCommandIntent(this.stepsOf(runId), stepId, now, envNames),
+        steps: withCommandIntent(this.stepsOf(runId), stepId, now, envNames, command.step.secrets),
         updatedAt: now,
       });
     } catch (error) {
@@ -5488,7 +5505,10 @@ export class AutomationService {
   }
 
   private broadcastRun(runId: string): void {
-    const workspaceId = this.deps.store.get(runId)?.attribution.workspaceId;
+    const run = this.deps.store.get(runId);
+    // A run holds its secrets only while it works: an end, a stop or a park lets them go (Call 2).
+    if (run?.status !== 'running') this.runSecrets.drop(runId);
+    const workspaceId = run?.attribution.workspaceId;
     if (workspaceId) this.broadcast(workspaceId);
   }
 
@@ -5526,6 +5546,72 @@ export class AutomationService {
       unbound: found.unbound,
       ...(entry.agents ? { agents: entry.agents } : {}),
       ...(entry.skills ? { skills: entry.skills } : {}),
+    };
+  }
+
+  /**
+   * Whether a queued step that is about to start has its run's secrets
+   * (review B1: asked only of a step that starts, never before a resume).
+   * Held, or none to read: yes. Otherwise one read of every name the run
+   * will use starts, not awaited, and the step stays queued until it lands:
+   * success pumps again, failure fails the step before it starts.
+   */
+  private secretsReady(run: RunRecord, stepId: string): boolean {
+    // Before anything is loaded, so a pump pass while a read waits reads no file (review M9).
+    if (this.runSecrets.held(run.id)) return true;
+    if (this.runSecrets.reading(run.id)) return false;
+    const loaded = this.definitionOf(run);
+    // Its step's own start fails the run, as it does today.
+    if ('problem' in loaded) return true;
+    const names = secretNamesOf(loaded.definition.automation, {
+      runOnly: true,
+      dryRun: run.dryRun === true,
+    });
+    if (names.length === 0) return true;
+    const workspaceId = run.attribution.workspaceId!;
+    const attempt = this.stepsOf(run.id).find((step) => step.id === stepId)?.attempt ?? 1;
+    this.runSecrets.read(
+      run.id,
+      () => readSecrets(this.deps.secrets, workspaceId, names),
+      (outcome) => {
+        if (outcome.ok) void this.pump();
+        else if (this.stepWaiting(run.id, stepId, attempt))
+          this.settleStep(run.id, stepId, {
+            status: 'failed',
+            error: `${outcome.error}. Nothing ran.`,
+          });
+      },
+    );
+    return false;
+  }
+
+  /**
+   * What a command starts from: the host's base, every mask of its run's
+   * values on its list (its login environment may hold an `env:` binding's
+   * variable), and its own names' values and labels. Throws when a name it
+   * needs was not read.
+   */
+  private async commandEnvFor(
+    runId: string,
+    workspaceId: string,
+    command: PreparedCommand,
+  ): Promise<{
+    env: NodeJS.ProcessEnv;
+    secrets: string[];
+    values: Record<string, string>;
+    labels: Record<string, string>;
+  }> {
+    const base = await this.deps.commandEnv(workspaceId);
+    // Asked after the borrow, so values let go of while it was borrowed are missed here, not handed out.
+    const names = command.step.secrets ?? [];
+    const held = this.runSecrets.held(runId);
+    if (names.some((name) => held?.values[name] === undefined))
+      throw new Error('its secrets were not read before it started');
+    return {
+      env: base.env,
+      secrets: [...base.secrets, ...(held?.masks ?? [])],
+      values: Object.fromEntries(names.map((name) => [name, held!.values[name]])),
+      labels: Object.fromEntries(names.map((name) => [name, held!.labels[name]])),
     };
   }
 

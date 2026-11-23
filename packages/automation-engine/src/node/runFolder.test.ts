@@ -199,6 +199,7 @@ describe('RunFolder', () => {
       (p) => folder.ensureEmptyFile(p),
       (p) => folder.exists(p),
       (p) => folder.writeJson(p, 'command.json', {}),
+      (p) => folder.writeText(p, 'x'),
     ];
     for (const call of calls) {
       for (const bad of outside) expect(() => call(bad), bad).toThrow();
@@ -210,6 +211,15 @@ describe('RunFolder', () => {
     expect(folder.tail(inside)).not.toBeNull();
     expect(folder.readText(inside, 10)).toBe('');
     folder.writeJson(path.dirname(inside), 'command.json', {});
+  });
+
+  it("replaces a file's text inside runs/, whole", () => {
+    const file = path.join(folder.attemptDir('ws', 'r1', 'page', 1), 'outputs.env');
+    folder.ensureEmptyFile(file);
+    fs.writeFileSync(file, 'note=stub-pager-secret\n');
+    folder.writeText(file, 'note=***\n');
+    expect(fs.readFileSync(file, 'utf8')).toBe('note=***\n');
+    expect(fs.readdirSync(path.dirname(file)).filter((name) => name.endsWith('.tmp'))).toEqual([]);
   });
 
   it('leaves nothing half-written when a write fails', () => {

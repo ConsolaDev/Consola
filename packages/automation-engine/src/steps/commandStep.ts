@@ -272,16 +272,28 @@ export function writeCommandFile(
   folder: RunFolderPort,
   command: PreparedCommand,
   secrets: readonly string[],
+  labels?: Readonly<Record<string, string>>,
 ): string | null {
   const env = command.values.map((value) => ({
     ...value,
     value: maskSecrets(value.value, secrets),
   }));
+  // Its secrets by name, and where each was bound when it ran (Call 9): only when it names any.
+  const named = command.step.secrets ?? [];
   try {
     folder.writeJson(command.dir, 'command.json', {
       cwd: command.cwd,
       command: command.step.run,
       env,
+      ...(named.length > 0
+        ? {
+            secrets: named.map((name) => ({
+              name,
+              secret: true,
+              ...(labels?.[name] ? { bound: labels[name] } : {}),
+            })),
+          }
+        : {}),
     });
     return null;
   } catch (error) {
@@ -299,16 +311,16 @@ export function createOutputFile(folder: RunFolderPort, command: PreparedCommand
   }
 }
 
-/** What the executor is handed: the base environment, then the rendered `env:`, then Consola's variables, hooks off. */
+/** What the executor is handed: the base environment, the rendered `env:`, the step's secrets, then Consola's variables, hooks off. */
 export function commandSpec(
   command: PreparedCommand,
-  base: { env: NodeJS.ProcessEnv; secrets: string[] },
+  base: { env: NodeJS.ProcessEnv; secrets: string[]; values?: Record<string, string> },
 ): CommandSpec {
   const rendered = Object.fromEntries(command.values.map(({ name, value }) => [name, value]));
   return {
     command: command.step.run,
     cwd: command.cwd,
-    env: layerCommandEnv(base.env, rendered, command.variables),
+    env: layerCommandEnv(base.env, rendered, command.variables, base.values),
     timeoutMs: command.step.timeoutMs,
     stdoutPath: command.files.stdout,
     stderrPath: command.files.stderr,
@@ -322,9 +334,15 @@ export function withCommandIntent(
   stepId: string,
   nowIso: string,
   envNames: string[],
+  secretNames?: readonly string[],
 ): StepRun[] {
   return withStep(withAttemptStarted(records, stepId, nowIso), stepId, {
-    command: { envNames, intentAt: nowIso },
+    command: {
+      envNames,
+      // By name, never a value; only when it names any (Call 10).
+      ...(secretNames && secretNames.length > 0 ? { secretNames: [...secretNames] } : {}),
+      intentAt: nowIso,
+    },
   });
 }
 
@@ -425,18 +443,15 @@ export function commandOutcome(input: {
     changes: recorded,
   });
 
+  // First, whatever the exit: the file is Consola's, by its name and place, so it is left masked (review S9).
+  const written = readOutputFileMasked(folder, command, secrets);
   // A timeout or a stop ends it, whatever the shell's exit says.
   if (result.exitCode !== 0 || result.timedOut || result.stopped)
     return fail(describeFailure(result, command.step.timeoutMs));
-  let written: string | null;
-  try {
-    written = folder.readText(command.files.output, OUTPUT_FILE_CAP_BYTES + 1);
-  } catch (error) {
-    return fail(`Could not read its $CONSOLA_OUTPUT (${describeReason(error)}).`);
-  }
+  if ('error' in written) return fail(written.error);
   // Masked before it is read, so no output it keeps (nor any line a problem repeats) can carry the token.
   const parsed = parseOutputFile(
-    maskSecrets(written ?? '', secrets),
+    maskSecrets(written.text ?? '', secrets),
     command.step.outputs,
     secrets,
   );
@@ -456,6 +471,42 @@ export function commandOutcome(input: {
     return fail(`Could not write its outputs: ${describeReason(error)}.`);
   }
   return { end: { status: 'completed' }, changes };
+}
+
+/**
+ * Reads the command's `$CONSOLA_OUTPUT` once and leaves it masked on disk:
+ * rewritten when masking changes it, emptied when it cannot be read and
+ * `secrets` is not empty. `text` is the masked text (null: no file); `error`
+ * is the read failure or a failed rewrite.
+ */
+export function readOutputFileMasked(
+  folder: RunFolderPort,
+  command: PreparedCommand,
+  secrets: readonly string[],
+): { text: string | null } | { error: string } {
+  let written: string | null;
+  try {
+    written = folder.readText(command.files.output, OUTPUT_FILE_CAP_BYTES + 1);
+  } catch (error) {
+    // What Consola will not read, it cannot mask: it keeps none of it.
+    if (secrets.length > 0) {
+      try {
+        folder.ensureEmptyFile(command.files.output);
+      } catch {
+        // The read's own failure is the one worth reporting.
+      }
+    }
+    return { error: `Could not read its $CONSOLA_OUTPUT (${describeReason(error)}).` };
+  }
+  if (written === null) return { text: null };
+  const masked = maskSecrets(written, secrets);
+  if (masked === written) return { text: written };
+  try {
+    folder.writeText(command.files.output, masked);
+  } catch (error) {
+    return { error: `Could not mask its $CONSOLA_OUTPUT (${describeReason(error)}).` };
+  }
+  return { text: masked };
 }
 
 /** The step's command record for a command that never started: no intent left on it, since nothing ran. */

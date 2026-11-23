@@ -413,6 +413,10 @@ export class RunFolder implements RunFolderPort {
     fs.writeFileSync(file, '');
   }
 
+  public writeText(file: string, text: string): void {
+    writeAtomically(this.confine(file), text);
+  }
+
   public exists(file: string): boolean {
     return fs.existsSync(this.confine(file));
   }

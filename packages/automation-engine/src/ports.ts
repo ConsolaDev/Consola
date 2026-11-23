@@ -362,6 +362,8 @@ export interface RunFolderPort {
   readText(file: string, maxBytes: number): string | null;
   /** Creates the file (and its folder) empty, or truncates it. */
   ensureEmptyFile(file: string): void;
+  /** Replaces `file`'s text, written atomically, as `writeJson` writes; confined to `runs/` like every path-taking method. */
+  writeText(file: string, text: string): void;
   exists(file: string): boolean;
   /** Removes every `runs/<id>` not in `keep`. */
   sweep(workspaceId: string, keep: ReadonlySet<string>): void;

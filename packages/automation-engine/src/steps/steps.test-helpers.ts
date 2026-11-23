@@ -200,6 +200,8 @@ export interface FakeSecrets {
   values: Map<string, string>;
   /** Every `resolve` asked for, in order: the names of each. */
   resolved: string[][];
+  /** How many launches the world had recorded at each `resolve`, in the same order. */
+  resolvedAt: number[];
   /** Every `resolve` waits for this while it is set, after recording the call. */
   resolveGate?: Promise<void>;
   /** Every `resolve` rejects with this while it is set, after recording the call (and waiting). */
@@ -508,6 +510,7 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
         Object.entries(options.secrets === 'none' ? {} : (options.secrets?.values ?? {})),
       ),
       resolved: [],
+      resolvedAt: [],
     },
   };
   const notices: AutomationNotice[] = [];
@@ -679,6 +682,7 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
             bindingsOf(workspaceId).get(name)?.ref ?? null,
           resolve: async (_workspaceId, _factory, names) => {
             world.secrets.resolved.push([...names]);
+            world.secrets.resolvedAt.push(world.launches.length);
             if (world.secrets.resolveGate) await world.secrets.resolveGate;
             if (world.secrets.resolveThrows) throw world.secrets.resolveThrows;
             const values: Record<string, string> = {};

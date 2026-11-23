@@ -28,13 +28,18 @@ export function maskSecrets(text: string, secrets: readonly string[]): string {
     .reduce((masked, secret) => masked.split(secret).join('***'), text);
 }
 
-/** The environment a command runs with, in the spec's order: base (login env + token), rendered env:, Consola's variables, then git hooks off. */
+/**
+ * The environment a command runs with, in the spec's order: base (login env
+ * + token), rendered env:, the step's own secrets, Consola's variables, then
+ * git hooks off.
+ */
 export function layerCommandEnv(
   base: NodeJS.ProcessEnv,
   rendered: Record<string, string>,
   consola: Record<string, string>,
+  secrets: Record<string, string> = {},
 ): NodeJS.ProcessEnv {
-  return withoutGitHooks({ ...base, ...rendered, ...consola });
+  return withoutGitHooks({ ...base, ...rendered, ...secrets, ...consola });
 }
 
 export function utf8Bytes(text: string): number {

@@ -200,6 +200,7 @@ export {
 export { readFailure, readSecrets, type SecretsRead } from './secrets/readSecrets';
 export { NO_SECRETS, unboundOf, unboundProblem } from './secrets/unbound';
 export { buildSecretsView, type SecretBindingView } from './secrets/secretsView';
+export { RunSecrets, type HeldSecrets } from './secrets/runSecrets';
 export * from './node';
 export {
   readCheckResult,
