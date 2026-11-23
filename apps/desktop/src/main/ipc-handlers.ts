@@ -151,7 +151,6 @@ import {
   AutomationService,
   FactoryFolder,
   OPEN_STATUSES,
-  PERSONAL_FACTORY,
   readKeychainItem,
   readOnePasswordField,
   RunFolder,
@@ -184,9 +183,9 @@ import {
 } from '../shared/workItems';
 import { JsonStateFile } from './state/JsonStateFile';
 import { BindingsStore, type SecretBindingsFile } from './secrets/BindingsStore';
-import { asSecretReferenceInput, bindSecret, desktopSecretsPort } from './secrets/desktopSecrets';
+import { desktopSecretsPort } from './secrets/desktopSecrets';
 import { secretPrograms } from './secrets/programs';
-import type { SecretsList } from '../shared/secrets';
+import { registerSecretsIpc, removeSecretsIpc } from './secrets/secretsIpc';
 import { WorkspaceService, type WorkspaceStateFile } from './state/WorkspaceService';
 import { HarnessService, type HarnessStateFile } from './state/HarnessService';
 import {
@@ -2281,10 +2280,6 @@ export function setupIpcHandlers(): boolean {
   void automations.start().catch((error) => console.error('Automations failed to start.', error));
   // A workspace's file is read from when it appears, and let go when it is deleted.
   workspaces.onChange(() => void automations.syncWorkspaces());
-  // A deleted workspace's bindings go with it; nothing in the keychain or 1Password is touched.
-  workspaces.onChange(() =>
-    bindings.keepWorkspaces(new Set(workspaces.getAll().map((workspace) => workspace.id))),
-  );
   // An edited harness re-resolves the entries that run on it.
   harnesses.onChange(() => void automations.syncWorkspaces());
   // A laptop asleep at 09:00 wakes into a due run: check right away rather
@@ -2322,49 +2317,8 @@ export function setupIpcHandlers(): boolean {
       return automations.allow(workspaceId, name, version);
     },
   );
-  // Settings › Secrets, the person's only: no tool an agent can call reaches
-  // these (allowBoundary.test.ts). Names, references and words; never a value.
-  const secretsWorkspace = (workspaceId: unknown): string => {
-    if (
-      typeof workspaceId !== 'string' ||
-      !workspaces.getAll().some((workspace) => workspace.id === workspaceId)
-    )
-      throw new Error('Unknown workspace.');
-    return workspaceId;
-  };
-  ipcMain.handle(
-    IPC_CHANNELS.SECRETS_LIST,
-    async (_event, workspaceId: unknown): Promise<SecretsList> => {
-      const id = secretsWorkspace(workspaceId);
-      // A file that did not read is read again each time the tab opens; once it
-      // does, every workspace re-resolves, so its rows say so too (review S4).
-      if (bindings.retry()) {
-        for (const workspace of workspaces.getAll()) await automations.reload(workspace.id);
-      }
-      return {
-        ...(bindings.problem ? { problem: bindings.problem } : {}),
-        secrets: automations.secretsView(id),
-      };
-    },
-  );
-  ipcMain.handle(
-    IPC_CHANNELS.SECRETS_BIND,
-    async (_event, workspaceId: unknown, name: unknown, reference: unknown) => {
-      const id = secretsWorkspace(workspaceId);
-      if (typeof name !== 'string') throw new Error('Secret name required.');
-      await bindSecret(secretDeps, id, name, asSecretReferenceInput(reference));
-      await automations.reload(id);
-    },
-  );
-  ipcMain.handle(
-    IPC_CHANNELS.SECRETS_UNBIND,
-    async (_event, workspaceId: unknown, name: unknown) => {
-      const id = secretsWorkspace(workspaceId);
-      if (typeof name !== 'string') throw new Error('Secret name required.');
-      bindings.unbind(id, PERSONAL_FACTORY, name);
-      await automations.reload(id);
-    },
-  );
+  // Settings › Secrets, the person's only, and a deleted workspace's bindings going with it.
+  registerSecretsIpc({ ipc: ipcMain, workspaces, bindings, automations, secretDeps });
   ipcMain.handle(
     IPC_CHANNELS.AUTOMATIONS_LIST_RUN_TARGETS,
     (_event, workspaceId: unknown, name: unknown) => {
@@ -3282,9 +3236,7 @@ export function cleanupIpcHandlers(): void {
   ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_GET_SNAPSHOT);
   ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_RUN_NOW);
   ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_ALLOW);
-  ipcMain.removeHandler(IPC_CHANNELS.SECRETS_LIST);
-  ipcMain.removeHandler(IPC_CHANNELS.SECRETS_BIND);
-  ipcMain.removeHandler(IPC_CHANNELS.SECRETS_UNBIND);
+  removeSecretsIpc(ipcMain);
   ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_LIST_RUN_TARGETS);
   ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_APPROVE);
   ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_DISMISS);

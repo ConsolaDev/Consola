@@ -203,6 +203,37 @@ describe('readKeychainItem', () => {
   it('waits 30 seconds by default', () => {
     expect(SECRET_READ_TIMEOUT_MS).toBe(30_000);
   });
+
+  it('hands the program the environment it is given, and nothing of its own (review M5)', async () => {
+    // 1Password's `op` finds its session in the login environment it is handed.
+    vi.stubEnv('CONSOLA_STUB_READER_OWN', 'stub-reader-own-env');
+    try {
+      const program = fake(
+        'fake-security',
+        `printf '%s|%s' "$CONSOLA_STUB_READER_GIVEN" "\${CONSOLA_STUB_READER_OWN:-none}"`,
+      );
+      const env = { ...ENV, CONSOLA_STUB_READER_GIVEN: 'stub-reader-given-env' };
+      await expect(readKeychainItem({ program, env, service: 's', account: 'a' })).resolves.toBe(
+        'stub-reader-given-env|none',
+      );
+      await expect(readOnePasswordField({ program, env, reference: 'op://v/i/f' })).resolves.toBe(
+        'stub-reader-given-env|none',
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('gives the program no stdin to wait on (review M5)', async () => {
+    // A program that reads its stdin to the end prints at once; given a pipe nobody closes, it would wait out the timeout.
+    const program = fake(
+      'fake-security',
+      "/bin/cat > /dev/null\nprintf '%s' 'stub-no-stdin-secret-1'",
+    );
+    await expect(
+      readKeychainItem({ program, env: ENV, service: 's', account: 'a', timeoutMs: 3_000 }),
+    ).resolves.toBe('stub-no-stdin-secret-1');
+  });
 });
 
 describe('readOnePasswordField', () => {
