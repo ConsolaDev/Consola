@@ -44,6 +44,12 @@ export const EXIT_LINE_GRACE = Duration.seconds(30);
 /** How long the runner waits for a command to end once it has stopped its sandbox. */
 const STOPPED_COMMAND_WAIT = Duration.seconds(10);
 
+/**
+ * How long a sandbox's `stop` may take before the runner goes on without it, so that a provider
+ * that hangs never keeps a session's end from being said.
+ */
+export const SANDBOX_STOP_TIMEOUT = Duration.seconds(30);
+
 export type SandboxSessionsOptions = {
   readonly sandboxes: Sandboxes;
   /** What the runner offers; a start for anything else is failed with no sandbox. */
@@ -58,6 +64,8 @@ export type SandboxSessionsOptions = {
   readonly maxLifetime: Duration.Input;
   /** `EXIT_LINE_GRACE` unless a test shortens it. */
   readonly exitLineGrace?: Duration.Input;
+  /** `SANDBOX_STOP_TIMEOUT` unless a test shortens it. */
+  readonly stopTimeout?: Duration.Input;
   /** Where every update goes: the cell's socket. Each is scrubbed of the secrets first. */
   readonly report: (update: SessionUpdate) => Effect.Effect<void>;
   /** A line for the runner's own log. Scrubbed of the secrets, and never the environment. */
@@ -115,6 +123,8 @@ type Held = {
   /** Done once the session's end is said and its sandbox stopped. */
   readonly done: Deferred.Deferred<boolean>;
   sandbox: Sandbox | null;
+  /** Its sandbox's stop was asked for: it is asked once. */
+  stopAsked: boolean;
   /** Its end was said: nothing more is. */
   ended: boolean;
   ready: boolean;
@@ -135,6 +145,7 @@ export const makeSandboxSessions = (
     /** Set once `stopAll` began: a start after it would make a sandbox nothing stops. */
     let stopping = false;
     const exitLineGrace = options.exitLineGrace ?? EXIT_LINE_GRACE;
+    const stopTimeout = options.stopTimeout ?? SANDBOX_STOP_TIMEOUT;
     const log = (message: string) => options.log(scrubSecrets(message, options.secretValues));
 
     /**
@@ -164,12 +175,28 @@ export const makeSandboxSessions = (
         error,
       });
 
-    const stopSandbox = (session: Held): Effect.Effect<void> => {
+    /**
+     * Stops the session's sandbox, asked once. A stop that fails, or does not return within
+     * `stopTimeout`, is logged and the session goes on to say its end. Answers whether it stopped.
+     */
+    const stopSandbox = (session: Held): Effect.Effect<boolean> => {
       const sandbox = session.sandbox;
-      if (sandbox === null) return Effect.void;
+      if (sandbox === null || session.stopAsked) return Effect.succeed(false);
+      session.stopAsked = true;
+      const { sessionId } = session.start;
       return attempt(() => sandbox.stop()).pipe(
+        Effect.as(true),
+        Effect.timeoutOrElse({
+          duration: stopTimeout,
+          orElse: () =>
+            log(
+              `session ${sessionId}: its sandbox did not stop within ${Duration.toSeconds(stopTimeout)} s; the runner goes on without it`,
+            ).pipe(Effect.as(false)),
+        }),
         Effect.catchTag('SandboxCallFailed', (error) =>
-          log(`session ${session.start.sessionId}: its sandbox did not stop: ${error.problem}`),
+          log(`session ${sessionId}: its sandbox did not stop: ${error.problem}`).pipe(
+            Effect.as(false),
+          ),
         ),
       );
     };
@@ -310,15 +337,17 @@ export const makeSandboxSessions = (
         let exitCode = outcome.exitCode;
         if (outcome.stop !== null) {
           yield* log(`session ${sessionId}: stopping its sandbox (${outcome.stop.kind})`);
-          yield* stopSandbox(session);
-          exitCode = yield* attempt(() => command.wait()).pipe(
-            Effect.map((result) => result.exitCode),
-            Effect.timeoutOrElse({
-              duration: STOPPED_COMMAND_WAIT,
-              orElse: () => Effect.succeed(null),
-            }),
-            Effect.catchTag('SandboxCallFailed', () => Effect.succeed(null)),
-          );
+          // A sandbox that did not stop may run its command on: its end is not waited for.
+          exitCode = (yield* stopSandbox(session))
+            ? yield* attempt(() => command.wait()).pipe(
+                Effect.map((result) => result.exitCode),
+                Effect.timeoutOrElse({
+                  duration: STOPPED_COMMAND_WAIT,
+                  orElse: () => Effect.succeed(null),
+                }),
+                Effect.catchTag('SandboxCallFailed', () => Effect.succeed(null)),
+              )
+            : null;
         }
 
         // All of the command's output has arrived by now: read the rest, then say the end.
@@ -347,7 +376,8 @@ export const makeSandboxSessions = (
         ),
         Effect.ensuring(
           Effect.gen(function* () {
-            // An end is always said, and the sandbox always stopped, whatever happened above.
+            // An end is always said, and the sandbox's stop always asked for, whatever happened
+            // above (unless it was asked for already).
             yield* failedWith(session, COULD_NOT_RUN);
             yield* stopSandbox(session);
             held.delete(sessionId);
@@ -397,6 +427,7 @@ export const makeSandboxSessions = (
           stopSignal: yield* Deferred.make<StopReason>(),
           done: yield* Deferred.make<boolean>(),
           sandbox: null,
+          stopAsked: false,
           ended: false,
           ready: false,
           ending: false,

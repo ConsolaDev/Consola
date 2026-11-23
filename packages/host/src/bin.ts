@@ -30,6 +30,7 @@ import { parseArgs } from 'node:util';
 import * as NodeRuntime from '@effect/platform-node/NodeRuntime';
 import * as Cause from 'effect/Cause';
 import * as Clock from 'effect/Clock';
+import * as Context from 'effect/Context';
 import * as Duration from 'effect/Duration';
 import * as Effect from 'effect/Effect';
 import * as Exit from 'effect/Exit';
@@ -508,11 +509,21 @@ export type ProviderFor = (env: RunnerEnv) => SandboxProvider | null;
 export const productionProvider: ProviderFor = () => null;
 
 /**
+ * What the program does as it begins to stop, whatever stops it (a signal, a replacement, a
+ * failure). Under `runHostProcess` it arms the forced exit, `SHUTDOWN_GRACE` later, so stopping
+ * that hangs (a sandbox's provider, say) cannot keep the process alive; anywhere else (a test
+ * running the program in its own process) it does nothing.
+ */
+export const HostStopping = Context.Reference<Effect.Effect<void>>('@consola/host/HostStopping', {
+  defaultValue: () => Effect.void,
+});
+
+/**
  * Runs the runner until it is stopped: its sessions (`makeSandboxSessions`) and its socket to the
  * cell (`makeCellSocket`), the cell's messages handed to the sessions. On SIGTERM, or once another
  * runner replaced it, every sandbox is stopped and its end told to the cell while the socket is
- * still open; then the socket closes. It logs to stderr, scrubbed of its secrets, and never its
- * environment; stdout stays empty.
+ * still open; then the socket closes. However it stops, `HostStopping` comes first. It logs to
+ * stderr, scrubbed of its secrets, and never its environment; stdout stays empty.
  */
 export const runRunner = (
   args: RunnerArgs,
@@ -547,6 +558,10 @@ export const runRunner = (
       // Every sandbox first, its end said on the open socket; the socket last.
       ({ socket, sessions }) => sessions.stopAll.pipe(Effect.andThen(socket.close)),
     );
+    // Added last, so the first to run as the scope closes: the forced exit is armed before any
+    // sandbox is asked to stop, on a replacement or a failure as on a signal.
+    const stopping = yield* HostStopping;
+    yield* Effect.addFinalizer(() => stopping);
     yield* log(
       `runner ${args.runnerId} offers ${args.offer.repositories.join(', ')} with ${args.offer.harnesses.join(', ')}; dialling ${args.cellUrl}`,
     );
@@ -608,16 +623,20 @@ const describeFailure = (cause: Cause.Cause<unknown>): string => {
 
 /**
  * Runs `program` as the host's process. Every Effect log goes to stderr. SIGTERM and SIGINT
- * interrupt it, which stops everything it started; then the process exits 0 (1, with a message,
- * if stopping takes longer than `SHUTDOWN_GRACE`). It exits 0 when `program` ends, and 1 with
- * a message on stderr when it fails.
+ * interrupt it, which stops everything it started; then the process exits 0. It exits 0 when
+ * `program` ends, and 1 with a message on stderr when it fails. Stopping, from a signal or once
+ * `program` says it began to stop (`HostStopping`), may take `SHUTDOWN_GRACE`: past it the process
+ * exits 1, saying the session (or runner) did not stop in time.
  */
 export const runHostProcess = <E>(
   program: Effect.Effect<void, E>,
   what: 'session' | 'runner' = 'session',
 ): void => {
+  let armed = false;
   // The process exits from `teardown` either way, so this timer never keeps it alive.
-  const onSignal = () => {
+  const armForcedExit = () => {
+    if (armed) return;
+    armed = true;
     Effect.runFork(
       Effect.sleep(SHUTDOWN_GRACE).pipe(
         Effect.andThen(
@@ -630,18 +649,26 @@ export const runHostProcess = <E>(
       ),
     );
   };
-  process.once('SIGTERM', onSignal);
-  process.once('SIGINT', onSignal);
-  NodeRuntime.runMain(program.pipe(Effect.provideService(Logger.LogToStderr, true)), {
-    disableErrorReporting: true,
-    teardown: (exit) => {
-      if (Exit.isSuccess(exit) || Cause.hasInterruptsOnly(exit.cause)) {
-        process.exit(0);
-        return;
-      }
-      process.stderr.write(`consola-host: ${describeFailure(exit.cause)}\n`, () => process.exit(1));
+  process.once('SIGTERM', armForcedExit);
+  process.once('SIGINT', armForcedExit);
+  NodeRuntime.runMain(
+    program.pipe(
+      Effect.provideService(Logger.LogToStderr, true),
+      Effect.provideService(HostStopping, Effect.sync(armForcedExit)),
+    ),
+    {
+      disableErrorReporting: true,
+      teardown: (exit) => {
+        if (Exit.isSuccess(exit) || Cause.hasInterruptsOnly(exit.cause)) {
+          process.exit(0);
+          return;
+        }
+        process.stderr.write(`consola-host: ${describeFailure(exit.cause)}\n`, () =>
+          process.exit(1),
+        );
+      },
     },
-  });
+  );
 };
 
 if (import.meta.main) {

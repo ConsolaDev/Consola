@@ -73,6 +73,7 @@ const harness = Effect.fn('harness')(function* (
     readonly provider?: (fake: FakeProvider) => SandboxProvider;
     readonly maxLifetime?: Duration.Input;
     readonly exitLineGrace?: Duration.Input;
+    readonly stopTimeout?: Duration.Input;
     readonly offer?: { readonly repositories: string[]; readonly harnesses: Harness[] };
   } = {},
 ) {
@@ -88,6 +89,7 @@ const harness = Effect.fn('harness')(function* (
     idleMinutes: 10,
     maxLifetime: options.maxLifetime ?? Duration.hours(8),
     exitLineGrace: options.exitLineGrace ?? Duration.seconds(30),
+    ...(options.stopTimeout === undefined ? {} : { stopTimeout: options.stopTimeout }),
     report: (update) =>
       Effect.sync(() => {
         sent.push(update);
@@ -533,6 +535,44 @@ describe('makeSandboxSessions', () => {
         expect(finalsOf(h.sent, 'session-acme-11')).toHaveLength(1);
       }),
     ));
+
+  it.each([
+    ["the cell's stop", (sessions: SandboxSessions) => sessions.stop('session-acme-19')],
+    ['the runner stopping', (sessions: SandboxSessions) => sessions.stopAll],
+  ])(
+    "says the session's end on %s when its sandbox's stop never returns, once the stop times out",
+    (_case, stopping) =>
+      run(
+        Effect.gen(function* () {
+          const h = yield* harness({
+            stopTimeout: Duration.millis(200),
+            fake: { programs: { 'consola-session-start': readyUntilStopped() } },
+            provider: (fake) => ({
+              create: async (options) => {
+                const sandbox = await fake.create(options);
+                return { ...sandbox, stop: () => new Promise<void>(() => undefined) };
+              },
+            }),
+          });
+          yield* h.sessions.start(startOf('session-acme-19'));
+          expect(yield* h.next).toMatchObject({ status: 'running' });
+          yield* stopping(h.sessions).pipe(
+            Effect.timeoutOrElse({
+              duration: ENDED_TIMEOUT,
+              orElse: () =>
+                Effect.die(new Error(`the stop never returned; logged ${h.logged.join(' | ')}`)),
+            }),
+          );
+          expect(finalsOf(h.sent, 'session-acme-19')).toEqual([
+            { type: 'session.update', sessionId: 'session-acme-19', status: 'stopped' },
+          ]);
+          expect(h.logged).toContain(
+            'session session-acme-19: its sandbox did not stop within 0.2 s; the runner goes on without it',
+          );
+          expect((yield* h.sessions.live).sessionIds).toEqual([]);
+        }),
+      ),
+  );
 
   it("stops a sandbox on the cell's stop before its host is ready, and says stopped", () =>
     run(

@@ -40,8 +40,18 @@ export type LocalSandboxRecord = {
   stopped: boolean;
 };
 
+export type LocalProviderOptions = {
+  /** Every sandbox's `stop` never returns and stops nothing, as a provider that hangs would. */
+  readonly stopHangsForTests?: boolean;
+};
+
 export class LocalProvider implements SandboxProvider {
   readonly sandboxes: LocalSandboxRecord[] = [];
+  private readonly options: LocalProviderOptions;
+
+  constructor(options: LocalProviderOptions = {}) {
+    this.options = options;
+  }
 
   async create(options: CreateSandboxOptions): Promise<ProviderSandbox> {
     if (options.template !== SESSION_TEMPLATE) {
@@ -54,7 +64,7 @@ export class LocalProvider implements SandboxProvider {
       stopped: false,
     };
     this.sandboxes.push(record);
-    return new LocalSandbox(record, { ...options.env });
+    return new LocalSandbox(record, { ...options.env }, this.options.stopHangsForTests === true);
   }
 }
 
@@ -70,11 +80,17 @@ class LocalSandbox implements ProviderSandbox {
   private readonly record: LocalSandboxRecord;
   private readonly env: Readonly<Record<string, string>>;
   private readonly running = new Set<Running>();
+  private readonly stopHangs: boolean;
 
-  constructor(record: LocalSandboxRecord, env: Readonly<Record<string, string>>) {
+  constructor(
+    record: LocalSandboxRecord,
+    env: Readonly<Record<string, string>>,
+    stopHangs: boolean,
+  ) {
     this.id = record.id;
     this.record = record;
     this.env = env;
+    this.stopHangs = stopHangs;
   }
 
   private ensureRunning(): void {
@@ -173,6 +189,7 @@ class LocalSandbox implements ProviderSandbox {
   }
 
   async stop(): Promise<void> {
+    if (this.stopHangs) return new Promise<void>(() => undefined);
     if (this.record.stopped) return;
     this.record.stopped = true;
     // The session host stops on SIGTERM within its own grace, as a sandbox's would be stopped.
