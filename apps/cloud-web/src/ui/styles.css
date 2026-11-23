@@ -30,6 +30,9 @@
   --cyan-muted: rgba(0, 194, 255, 0.25);
   --cyan-glow: rgba(0, 194, 255, 0.45);
   --danger: #d44c47;
+  /* The desktop's status colours: done, and waiting for a person (the only yellow). */
+  --success: rgb(68, 131, 97);
+  --warning: rgb(203, 145, 47);
 
   /* The desktop's type (`styles/themes/tokens.css`), by the same names: 14px for what a page
      says and for every field and button, 12px for what supports it, 11px only for uppercase
@@ -80,6 +83,8 @@
     --cyan-muted: rgba(25, 170, 216, 0.25);
     --cyan-glow: rgba(25, 170, 216, 0.55);
     --danger: #eb5757;
+    --success: rgb(77, 171, 117);
+    --warning: rgb(223, 171, 77);
   }
 }
 
@@ -831,6 +836,13 @@ button.factory-row-toggle:hover {
 
 .content > .footer {
   padding-block: 0 20px;
+}
+
+/* A wide section (`Section.layout`) has the whole space beside the sidebar and lays itself out. */
+.content-inner[data-layout="wide"] {
+  max-width: none;
+  padding: 0;
+  gap: 0;
 }
 
 /* A group of a section, as Connections draws one: a quiet label over a bordered list. */

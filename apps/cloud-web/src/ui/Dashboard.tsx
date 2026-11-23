@@ -140,7 +140,7 @@ export function Dashboard({
         </div>
       </aside>
       <div className="content">
-        <main className="content-inner">
+        <main className="content-inner" data-layout={openFactory ? undefined : section.layout}>
           {openFactory ? (
             <FactoryView
               key={`${workspace.id} ${openFactory.factoryId}`}

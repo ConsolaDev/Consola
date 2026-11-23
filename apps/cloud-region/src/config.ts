@@ -198,3 +198,19 @@ export function loadConfig(env: Record<string, string | undefined>): CellConfig 
         : null,
   };
 }
+
+/**
+ * Why the demo seed (`src/seed.ts`) may not write to the database `databaseUrl` names, or null
+ * when it may: only a PGlite folder on this machine, never Postgres (even on localhost, which may
+ * be a tunnel to a shared one), and never memory, which the seed's process would take with it.
+ */
+export function seedRefusal(databaseUrl: string): string | null {
+  if (!databaseUrl.startsWith('pglite:')) {
+    return 'The demo seed writes only to a local PGlite folder (DATABASE_URL=pglite:<folder>), never to Postgres.';
+  }
+  const location = databaseUrl.slice('pglite:'.length);
+  if (location === '' || location === 'memory') {
+    return 'The demo seed needs a PGlite folder (DATABASE_URL=pglite:<folder>): a database in memory ends with the seed.';
+  }
+  return null;
+}

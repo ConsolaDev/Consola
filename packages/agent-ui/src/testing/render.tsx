@@ -9,9 +9,13 @@ declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean | undefined;
 }
 
-/** What `hostSession.ts` provides (Vitest's provided values are untyped here). */
-const provided = (): ProvidedHost =>
-  (inject as unknown as (key: string) => ProvidedHost)(HOST_SESSION_KEY);
+/**
+ * What `hostSession.ts` provides (Vitest's provided values are untyped here), or `undefined` in a
+ * project that starts no host: the built library's (`dist`), whose test imports this module for
+ * its page helpers only.
+ */
+const provided = (): ProvidedHost | undefined =>
+  (inject as unknown as (key: string) => ProvidedHost | undefined)(HOST_SESSION_KEY);
 
 /** The command `vite.config.ts` defines: a pass signed with the key the host trusts. */
 type PassCommands = {
@@ -27,7 +31,9 @@ let testPass: string | undefined;
  * long the run takes: a test runs for at most `testTimeout` (`vite.config.ts`, a minute).
  */
 beforeEach(async () => {
-  const { passKeyFile, sessionId, passLifetimeSeconds } = provided();
+  const replayHost = provided();
+  if (replayHost === undefined) return;
+  const { passKeyFile, sessionId, passLifetimeSeconds } = replayHost;
   const { signHostPass } = server.commands as unknown as PassCommands;
   testPass = await signHostPass(passKeyFile, sessionId, passLifetimeSeconds);
 });
@@ -37,10 +43,14 @@ afterEach(() => {
 
 /** The replay host `hostSession.ts` started, with the running test's own pass. */
 export const host = (): HostSession => {
+  const replayHost = provided();
+  if (replayHost === undefined) {
+    throw new Error("host() needs the browser project's replay host (src/testing/hostSession.ts).");
+  }
   if (testPass === undefined) {
     throw new Error('host() is called inside a test: its pass is signed as the test starts.');
   }
-  return { ...provided(), pass: testPass };
+  return { ...replayHost, pass: testPass };
 };
 
 /**

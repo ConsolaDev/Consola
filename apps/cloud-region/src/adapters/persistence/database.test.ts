@@ -37,9 +37,10 @@ describe('the database', () => {
       db,
       sql`select table_name from information_schema.tables where table_schema = 'public'`,
     );
-    // The tables of the last two migrations: the factories', then GitHub's events.
+    // The tables of the last three migrations: the runs', their approvals', then the cloud
+    // sessions'.
     expect(tables.map((row) => row.table_name)).toEqual(
-      expect.arrayContaining(['factory', 'factory_version', 'github_event']),
+      expect.arrayContaining(['run', 'run_approval', 'cloud_session']),
     );
     await close();
   });

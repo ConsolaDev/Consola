@@ -342,6 +342,122 @@ and the routes in `adapters/http/factories.ts`.
   `team_not_found`), or the delete finds it owns the factory. Deleting a
   factory comes later.
 
+## Runs
+
+A workspace's runs live in its cell, beside its factories: what each
+factory's runners ran, for the web's Runs pages (project "15 · Runs in
+Consola"). The model is the orchestrator spec's (slice 6b, "A request is a
+run"): a **request** is a run whose one step is its factory's orchestrator,
+started by a person with text, and the automation runs it starts are its
+**children**, each with a `parent` link set when it is made and never
+changed; every other run is a top-level automation run. The rules are in
+`domain/run.ts`, the use cases in `application/runs.ts`, the store in
+`adapters/persistence/runs.ts` and the routes in `adapters/http/runs.ts`.
+
+- **One table**, `run`, keyed by `workspace_id` and the runner's `run_id`. A
+  run points at the version of its factory it ran (`run_factory_version_fk`),
+  and a child at its request through the request's factory too
+  (`run_parent_fk`, on `run_factory_run_unique`), so a child is always of
+  its request's factory and whoever sees the child sees the request. The
+  item, the steps and a request's facts are `jsonb`; a request's text, which
+  only its page reads, is `request_text`. Times are `timestamptz(3)`, the
+  runner's own, so a cursor holding one finds it again. Check constraints
+  hold the domain's rules on the row as a backstop.
+- **No route writes a run.** A runner records each through the store's
+  `record` (`recordRun`), and the cell stores it only once `checkRun` finds
+  nothing wrong with it: a status, trigger or step it knows, `waitingOn`
+  exactly while `waiting`, an automation exactly for an automation run and a
+  request's facts exactly for a request, a parent only on an automation run
+  (`manual`, started by no person), an item only at an https address, times
+  it can store, and no NUL or lone surrogate anywhere (`jsonb` refuses
+  `\u0000` too). A record older than the one held (`updated_at`) changes
+  nothing (`stale`, a compare-and-set in the upsert), and a run's factory,
+  kind and parent never change (`identity-changed`). Today the tests and the
+  seed call it; the runner's connection (CON-94) will.
+- **Title and phase are stored**, so the list searches, filters and counts
+  by them. The title (`titleOf`) is a request's item's title, else its
+  text's first line; an automation run's item's title, else its
+  automation's name; one line of at most `TITLE_MAX` characters. The phase
+  (`phaseOf`) groups the nine statuses into five (`PHASES`). A request rolls
+  its children up (`requestPhase`): while its own phase is `active` and one
+  of its runs needs someone, it needs someone too; an ended request keeps
+  its phase. Recording a child holds its request's row (`for update`) and
+  rolls it up again in the same transaction, so two of its runs recorded at
+  once roll it up one after the other. A request's child counts and an
+  automation run's progress are worked out on read (`childCountsOf`,
+  `progressOf`).
+- **Who sees a run** follows its factory (`factoriesSeenBy`, on
+  `teamsSeenBy` and `actingRole`), by the factory's team now, read by a
+  join, never stored on the run: owners and admins see every run, a member
+  the runs of their teams' factories. A run the caller does not see is never
+  listed, counted or offered as a facet, and its id is 404 `run_not_found`.
+  The use case hands the store the factories the caller sees, narrowed by
+  the query's `factoryId` and `teamId`, and the store reads no other.
+- **The list** (`GET /api/runs`) holds top-level runs only, newest first
+  (`created_at`, then `run_id`), a page at a time: `nextCursor` is
+  base64url of the last run's `[createdAt, id]` (`encodeCursor`), and a
+  cursor the cell did not hand out is 400. `phase` and `trigger` may be
+  given once or repeated (`several`, a `z.preprocess` to an array, since
+  Hono reads a value given once as a string). `automation` keeps that
+  automation's runs and the requests that started one; `q` matches the
+  title or the automation's name in any case, its `%`, `_` and `\` matched
+  as themselves. `counts` are under every filter but `phase`, `cursor` and
+  `limit`; `facets` are what the caller sees, whatever the filters. A run's
+  page (`GET /api/runs/{runId}`) adds its steps, a request's facts and text
+  and its runs in the order it started them, and a run's request.
+  `conversation` is null until cloud sessions (CON-91).
+- **A step says what it was asked, did and produced**, as the desktop's
+  trace does. What it did is what its runner records: the engine's
+  `StepRun` fields (outputs, artifacts, turn, command, earlier attempts,
+  reminded) and the end of what it printed (`output`: at most
+  `OUTPUT_TAIL_MAX`, 16 KiB, of each of stdout and stderr, cut at whole lines
+  by `tailOf`; `checkRun` refuses a longer one). What it was asked is not
+  stored: `readRun` reads it from the factory version the run executed
+  (`automationsOf`, then `stepDefinitionOf`), wherever the automation is
+  written, so it is what that version said, never the latest. It is null for
+  a request's orchestrator step, an automation the version does not define,
+  and a step it does not. A step stored before these fields existed reads as
+  having none (`stepRecordOf`).
+- **The file behind a run** (`source`, `sourceOf` in `domain/runSource.ts`)
+  is read the same way: the file the automation is written in at the run's
+  version, whole, with the automation's own lines (`automationLines`, from
+  `@consola/factory-spec`: the whole file for `automations/<name>.yaml`, its
+  entry for `factory.yml`), how it starts, its mode and what it applies to,
+  and the factory's latest version beside it. Each step's definition carries
+  its lines in that file (`range`). Null for a request, and when the version
+  does not define the automation.
+- **Approving a run** (`POST /api/runs/{runId}/approval`,
+  `domain/runApproval.ts`) is the cell's first route through which a person
+  writes a row about a run. A run waiting for approval (`needs-approval`)
+  says why (`approvalReason`: its automation asks every time, its version
+  was not approved to run on its own, or its orchestrator's was not), what
+  approving lets run (`willRun`) and who may answer: anyone on its factory's
+  owning team, literally the team's members whatever their workspace role
+  (decided 2026-11-23), so an owner who sees every run answers only those of
+  the teams they are in (`mayAnswer`). The checks run in the route's order:
+  the body, the workspace held, the run seen (404 `run_not_found`, so a
+  member of another team learns nothing), on the team (403 `not_allowed`),
+  waiting (409 `not_waiting`), the version answered being the run's (409
+  `version_moved`), then the insert (409 `already_answered`: the first
+  answer for a version stands). The answer is a row of `run_approval`, keyed
+  by run and version, and the cell **never changes the run** for it: the
+  runner is the authority on a run, and acts on the answer once runners
+  exist (epic 21, CON-94). A run shows its approval while it waits and once
+  its version is answered.
+- **The demo seed** (`pnpm --filter @consola/cloud-region db:seed`,
+  `src/seed.ts`, then `seedDemoRuns`) writes demo runs for every workspace
+  the cell holds: a demo factory per team (`Demo · <team>`, each automation
+  in a file of its own, saved as a new version whenever its files differ
+  from `DEMO_FACTORY_FILES`), and runs in every status, a request with
+  several runs, background runs and each member's own. Its steps print,
+  exit, take turns, produce outputs and documents, retry and are refused a
+  tool, as a runner's would. Ids are fixed (`demo-…`) and times counted back
+  from now, so seeding again refreshes the same runs. It refuses any
+  database but a PGlite folder (`seedRefusal`, in `config.ts`), and refuses
+  while anything answers on the configuration's `PORT`, since PGlite takes
+  one process per folder: stop the cell first. It is never reachable over
+  HTTP.
+
 ## The API's contract
 
 Every route is declared in `adapters/http/contract.ts` with
@@ -356,7 +472,7 @@ built the way `cloud-global`'s contract is
   The one strict request body is a cloud session's start (`NewCloudSession`),
   because its rule is exactly `{ repository, harness }` (`readStartRequest`),
   so the schema is no stricter than the rule. The HTTP suite reads every
-  teams, factories and cloud sessions answer with the schema its route
+  teams, factories, runs and cloud sessions answer with the schema its route
   declares for its status (`answerOf`), and so does the cloud sessions'
   route test, so an undeclared status or a field the contract does not name
   fails a test.
@@ -393,21 +509,21 @@ The service is built in rings, and imports point inward only.
 - `src/domain/` holds the rules and the types they speak of, such as the
   regions (`region.ts`, which takes them from the contract), the order a
   workspace's copy applies its messages in (`workspaceCopy.ts`), teams
-  (`team.ts`), factories (`factory.ts`) and cloud sessions
+  (`team.ts`), factories (`factory.ts`), runs (`run.ts`) and cloud sessions
   (`cloudSession.ts`). It is plain TypeScript, with no I/O, and no package but
   the shared ones (below).
 - `src/application/` holds the use cases (`checkHealth`, `authenticate`,
   `describeMe`, `receiveDelivery`, `receiveGitHubEvent`, the teams' in
-  `teams.ts`, the factories' in `factories.ts`, the cloud sessions'
-  `sessionOptions`, `startSession`, `listSessions`, `getSession`,
-  `stopSession`, `applyRunnerUpdate` and `issuePass`, and a runner's
-  `runnerConnected`, in `runners.ts`) and, in `ports.ts`, the stores, probes,
-  the `TokenVerifier`, the `DeliveryVerifier`, the `WorkspaceCopies`, the
-  `GitHubEventStore`, the `TeamStore`, the `FactoryStore`, the
-  `CloudSessionStore`, the `RunnerChannel`, the `PassSigner`, `Ids` and the
-  `Clock` they need. `signedPayload.ts` reads a signed delivery's JSON for
-  both delivery use cases. A use case is a plain function that takes its
-  ports first.
+  `teams.ts`, the factories' in `factories.ts`, the runs' in `runs.ts`,
+  `seedDemoRuns`, the cloud sessions' `sessionOptions`, `startSession`,
+  `listSessions`, `getSession`, `stopSession`, `applyRunnerUpdate` and
+  `issuePass`, and a runner's `runnerConnected`, in `runners.ts`) and, in
+  `ports.ts`, the stores, probes, the `TokenVerifier`, the
+  `DeliveryVerifier`, the `WorkspaceCopies`, the `GitHubEventStore`, the
+  `TeamStore`, the `FactoryStore`, the `RunStore`, the `CloudSessionStore`,
+  the `RunnerChannel`, the `PassSigner`, `Ids` and the `Clock` they need.
+  `signedPayload.ts` reads a signed delivery's JSON for both delivery use
+  cases. A use case is a plain function that takes its ports first.
 - `src/adapters/` implements the ports with a library, one folder each:
   - `persistence/` is Drizzle on PGlite or Postgres: the database
     (`database.ts`), the tables (`tables.ts`, re-exported as `schema` by
@@ -415,9 +531,9 @@ The service is built in rings, and imports point inward only.
   - `http/` is the contract (`contract.ts`), the Hono routes (`app.ts`), the
     token check in front of them (`caller.ts`), the outbox's route
     (`outbox.ts`), GitHub's events' (`gitHubEvents.ts`), the teams'
-    (`teams.ts`), the factories' (`factories.ts`) and the cloud sessions'
-    (`cloudSessions.ts`). Each route asks a use case and maps its answer to a
-    status and a body;
+    (`teams.ts`), the factories' (`factories.ts`), the runs' (`runs.ts`) and
+    the cloud sessions' (`cloudSessions.ts`). Each route asks a use case and
+    maps its answer to a status and a body;
   - `token/` is jose: the `TokenVerifier` and where its keys come from
     (`cellTokens.ts`), the `DeliveryVerifier`, on the same keys, for the
     outbox and for GitHub's events (`outboxDeliveries.ts`), and the
@@ -434,7 +550,8 @@ The service is built in rings, and imports point inward only.
   place startup steps go. Adapters call use cases themselves; what they never
   do is build another adapter. `src/main.ts` loads the environment, opens and
   migrates the database, calls `compose.ts` and serves, and
-  `src/startupError.ts` words a failure to start.
+  `src/startupError.ts` words a failure to start. `src/seed.ts`, the demo
+  seed's entry (above, "Runs"), is in the ring too.
 - `src/config.ts` parses the environment. It is shared configuration that any
   adapter may read, so it stays a pure parser with no I/O. It may import
   `domain`, whose list of regions it checks `REGION` against (`cloud-global`'s
@@ -677,9 +794,10 @@ transaction at a time, so the compare-and-set is also tested directly
 which give the workspaces already held their first team
 (`migrations.test.ts` runs it over a database migrated to `0000` only);
 `0002_factories` adds the factories' tables, all generated,
-`0003_github_event` GitHub's events, and `0004_cloud_session` the cloud
-sessions. `cloud_session` has no foreign key to `workspace`, so a session
-does not wait for the outbox.
+`0003_github_event` GitHub's events, `0004_runs` the runs,
+`0005_run_approval` the answers to runs waiting for approval, and
+`0006_cloud_session` the cloud sessions. `cloud_session` has no foreign key
+to `workspace`, so a session does not wait for the outbox.
 Postgres cuts a name at 63 characters, and drizzle's names for a composite
 foreign key run past that, so such a key is named in `tables.ts`.
 
