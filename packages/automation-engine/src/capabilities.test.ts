@@ -498,6 +498,8 @@ describe('what an agent writing an entry is told of secrets', () => {
       'Settings › Secrets',
       'CLAUDE_CONFIG_DIR',
       'GH_TOKEN',
+      'GITHUB_TOKEN',
+      'GITHUB_ENTERPRISE_TOKEN',
       'at most 64 characters',
       'an agent file and an entry take none',
     ])

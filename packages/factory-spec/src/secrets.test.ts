@@ -73,6 +73,15 @@ describe('secretNameProblem', () => {
     expect(secretNameProblem('GH_HOST')).toBe(IDENTITY);
   });
 
+  it("refuses gh's fallbacks too, which it reads when GH_TOKEN is unset (review M2)", () => {
+    expect(secretNameProblem('GITHUB_TOKEN')).toBe(IDENTITY);
+    expect(secretNameProblem('GITHUB_ENTERPRISE_TOKEN')).toBe(IDENTITY);
+    // GH_ENTERPRISE_TOKEN was already refused, by env:'s GH_* prefix.
+    expect(secretNameProblem('GH_ENTERPRISE_TOKEN')).toMatch(/^`GH_ENTERPRISE_TOKEN` is refused/);
+    // Only those: a name that merely starts alike is a name.
+    expect(secretNameProblem('GITHUB_APP_ID')).toBeNull();
+  });
+
   it("keeps CLAUDE_CONFIG_DIR the harness's", () => {
     expect(secretNameProblem('CLAUDE_CONFIG_DIR')).toBe(
       "`CLAUDE_CONFIG_DIR` is the harness's own; a secret can't set it.",

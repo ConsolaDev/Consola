@@ -35,8 +35,18 @@ export function secretTemplateReason(name?: string): string {
   return `${problem[0].toUpperCase()}${problem.slice(1)}.`;
 }
 
-/** gh's identity: a command acts as the workspace's bound account (decision 37). */
-const GH_IDENTITY_NAMES: readonly string[] = ['GH_TOKEN', 'GH_HOST'];
+/**
+ * gh's identity: a command acts as the workspace's bound account (decision
+ * 37). gh also reads `GITHUB_TOKEN` and `GITHUB_ENTERPRISE_TOKEN` when its own
+ * are unset (a workspace with no bound account), so those are refused too
+ * (review M2); `GH_ENTERPRISE_TOKEN` already is, by `env:`'s `GH_` prefix.
+ */
+const GH_IDENTITY_NAMES: readonly string[] = [
+  'GH_TOKEN',
+  'GH_HOST',
+  'GITHUB_TOKEN',
+  'GITHUB_ENTERPRISE_TOKEN',
+];
 const GH_IDENTITY =
   "Commands act as the workspace's bound GitHub account, whose token Consola puts in `GH_TOKEN` (decision 37). To act as another account, bind it to the workspace.";
 
