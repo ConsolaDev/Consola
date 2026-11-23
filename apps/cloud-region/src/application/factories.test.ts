@@ -6,6 +6,7 @@ import { admitClaims, type Caller } from '../domain/caller.js';
 import type { Factory, FactoryFile } from '../domain/factory.js';
 import type { Team } from '../domain/team.js';
 import {
+  changeFactory,
   createFactory,
   listFactories,
   readFactory,
@@ -145,6 +146,172 @@ describe('createFactory', () => {
     expect(
       await createFactory(teams, factories, dana(), { name: 'Deploys', teamId: 'general' }),
     ).toEqual({ kind: 'workspace-pending' });
+  });
+});
+
+describe('changeFactory', () => {
+  it('renames a factory, trimmed, leaving its team, versions and when it was saved', async () => {
+    const { platform } = await acme();
+    const deploys = await made(fay(), 'Deploys', platform.id);
+    await saveFactoryFiles(teams, factories, fay(), deploys.id, { baseVersion: 1, files: FILES });
+    const [saved] = await factories.list('acme');
+
+    const answer = await changeFactory(teams, factories, fay(), deploys.id, { name: ' Ship it ' });
+    expect(answer).toEqual({ kind: 'changed', factory: { ...saved, name: 'Ship it' } });
+    expect((await factories.version('acme', deploys.id, 2))?.files).toHaveLength(2);
+  });
+
+  it('takes a new case of its own name, and refuses another factory’s', async () => {
+    const { general } = await acme();
+    const deploys = await made(dana(), 'Deploys', general.id);
+    await made(dana(), 'Reviews', general.id);
+    expect(
+      await changeFactory(teams, factories, dana(), deploys.id, { name: 'DEPLOYS' }),
+    ).toMatchObject({ kind: 'changed', factory: { name: 'DEPLOYS' } });
+    expect(await changeFactory(teams, factories, dana(), deploys.id, { name: 'reviews' })).toEqual({
+      kind: 'name-taken',
+    });
+  });
+
+  it('names every problem with a name before anything is read', async () => {
+    expect(await changeFactory(teams, factories, dana(), 'x', { name: '\t' })).toEqual({
+      kind: 'invalid',
+      problems: ['name_missing'],
+    });
+    expect(
+      await changeFactory(teams, factories, dana(), 'x', { name: `${'a'.repeat(65)}\u0007` }),
+    ).toEqual({ kind: 'invalid', problems: ['name_too_long', 'name_invalid'] });
+  });
+
+  it('moves a factory to another team, renaming it in the same change when asked', async () => {
+    const { general, platform } = await acme();
+    const deploys = await made(dana(), 'Deploys', general.id);
+    expect(
+      await changeFactory(teams, factories, eli(), deploys.id, {
+        name: 'Platform deploys',
+        teamId: platform.id,
+      }),
+    ).toEqual({
+      kind: 'changed',
+      factory: { ...deploys, name: 'Platform deploys', teamId: platform.id },
+    });
+    // Gus is not in Platform, so the factory is gone from his sight.
+    expect(await readFactory(teams, factories, gus(), deploys.id)).toEqual({ kind: 'not-found' });
+  });
+
+  it('lets a member move a factory of their team only to a team they are in', async () => {
+    const { general, platform } = await acme();
+    const design = await teams.create('acme', 'Design');
+    if (design === 'name-taken') throw new Error('Design was taken');
+    const deploys = await made(fay(), 'Deploys', platform.id);
+
+    // Fay is in General and Platform, not Design.
+    expect(await changeFactory(teams, factories, fay(), deploys.id, { teamId: design.id })).toEqual(
+      { kind: 'team-not-found' },
+    );
+    expect(
+      await changeFactory(teams, factories, fay(), deploys.id, {
+        name: 'Elsewhere',
+        teamId: design.id,
+      }),
+    ).toEqual({ kind: 'team-not-found' });
+    expect(await factories.get('acme', deploys.id)).toEqual(deploys);
+    expect(
+      await changeFactory(teams, factories, fay(), deploys.id, { teamId: general.id }),
+    ).toMatchObject({ kind: 'changed', factory: { teamId: general.id } });
+  });
+
+  it('keeps a factory from a member outside its team: not found, renamed or moved', async () => {
+    const { general, platform } = await acme();
+    const deploys = await made(fay(), 'Deploys', platform.id);
+    // Gus is in General alone.
+    for (const change of [{ name: 'Mine' }, { teamId: general.id }]) {
+      expect(await changeFactory(teams, factories, gus(), deploys.id, change)).toEqual({
+        kind: 'not-found',
+      });
+    }
+    expect(await factories.get('acme', deploys.id)).toEqual(deploys);
+  });
+
+  it('lets an admin in no team but General move any factory to any team', async () => {
+    const { general, platform } = await acme();
+    const deploys = await made(fay(), 'Deploys', platform.id);
+    const design = await teams.create('acme', 'Design');
+    if (design === 'name-taken') throw new Error('Design was taken');
+    expect(
+      await changeFactory(teams, factories, eli(), deploys.id, { teamId: design.id }),
+    ).toMatchObject({ kind: 'changed', factory: { teamId: design.id } });
+    expect(
+      await changeFactory(teams, factories, eli(), deploys.id, { teamId: general.id }),
+    ).toMatchObject({ kind: 'changed', factory: { teamId: general.id } });
+  });
+
+  it('follows the copy: an admin demoted since their token was minted moves as a member', async () => {
+    const { general, platform } = await acme();
+    const deploys = await made(dana(), 'Deploys', general.id);
+    await apply({ kind: 'put-member', personId: 'person-eli', role: 'member' });
+    // The same token, still saying admin; Eli is in General alone.
+    expect(
+      await changeFactory(teams, factories, eli(), deploys.id, { teamId: platform.id }),
+    ).toEqual({ kind: 'team-not-found' });
+    expect(
+      await changeFactory(teams, factories, eli(), deploys.id, { name: 'Still mine' }),
+    ).toMatchObject({ kind: 'changed' });
+  });
+
+  it('finds no team that is gone, or another workspace’s, to move to', async () => {
+    const { general } = await acme();
+    const deploys = await made(dana(), 'Deploys', general.id);
+    const gone = await teams.create('acme', 'Gone');
+    if (gone === 'name-taken') throw new Error('Gone was taken');
+    expect(await teams.remove('acme', gone.id)).toBe('removed');
+    expect(await changeFactory(teams, factories, dana(), deploys.id, { teamId: gone.id })).toEqual({
+      kind: 'team-not-found',
+    });
+    expect(
+      await changeFactory(teams, factories, dana(), deploys.id, { teamId: 'no-such-team' }),
+    ).toEqual({ kind: 'team-not-found' });
+  });
+
+  it('changes nothing for a change that names neither, answering the factory', async () => {
+    const { general } = await acme();
+    const deploys = await made(dana(), 'Deploys', general.id);
+    expect(await changeFactory(teams, factories, gus(), deploys.id, {})).toEqual({
+      kind: 'changed',
+      factory: deploys,
+    });
+  });
+
+  it('shows nothing to someone the copy does not hold, and nothing of another workspace', async () => {
+    const { general } = await acme();
+    const deploys = await made(dana(), 'Deploys', general.id);
+    const stranger = caller('person-hal', 'owner');
+    expect(await changeFactory(teams, factories, stranger, deploys.id, { name: 'Mine' })).toEqual({
+      kind: 'not-found',
+    });
+    await workspaceCopies.applyAfter({
+      workspaceId: 'sprocket',
+      sequence: 1,
+      after: null,
+      change: { kind: 'open-workspace' },
+    });
+    await workspaceCopies.applyAfter({
+      workspaceId: 'sprocket',
+      sequence: 2,
+      after: 1,
+      change: { kind: 'put-member', personId: 'person-dana', role: 'owner' },
+    });
+    const sprocketOwner = caller('person-dana', 'owner', 'sprocket');
+    expect(
+      await changeFactory(teams, factories, sprocketOwner, deploys.id, { name: 'Mine' }),
+    ).toEqual({ kind: 'not-found' });
+    expect(await factories.get('acme', deploys.id)).toEqual(deploys);
+  });
+
+  it('is pending while the cell does not hold the workspace', async () => {
+    expect(await changeFactory(teams, factories, dana(), 'x', { name: 'Deploys' })).toEqual({
+      kind: 'workspace-pending',
+    });
   });
 });
 

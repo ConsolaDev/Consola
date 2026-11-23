@@ -170,6 +170,103 @@ describe('the factory store', () => {
     expect(await factories.get('acme', deploys.id)).toMatchObject({ latestVersion: 1 });
   });
 
+  it('renames a factory and moves it to another team in one change, keeping its versions', async () => {
+    const general = await workspace('acme');
+    const platform = await teams.create('acme', 'Platform');
+    if (platform === 'name-taken') throw new Error('Platform was taken');
+    const deploys = await made('acme', 'Deploys', general.id);
+    const files = [{ path: 'agents/a.md', content: 'A' }];
+    await factories.save('acme', deploys.id, { baseVersion: 1, personId: 'p', files });
+    const saved = await factories.get('acme', deploys.id);
+
+    expect(await factories.change('acme', deploys.id, { name: 'deploys' })).toEqual({
+      ...saved,
+      name: 'deploys',
+    });
+    expect(await factories.change('acme', deploys.id, { teamId: platform.id })).toEqual({
+      ...saved,
+      name: 'deploys',
+      teamId: platform.id,
+    });
+    expect(
+      await factories.change('acme', deploys.id, { name: 'Ship', teamId: general.id }),
+    ).toEqual({ ...saved, name: 'Ship', teamId: general.id });
+    expect(await factories.change('acme', deploys.id, {})).toEqual({
+      ...saved,
+      name: 'Ship',
+      teamId: general.id,
+    });
+    expect((await factories.version('acme', deploys.id, 2))?.files).toEqual(files);
+  });
+
+  it('changes nothing of a change it refuses: neither its name nor its team', async () => {
+    const general = await workspace('acme');
+    const sprocket = await workspace('sprocket');
+    const deploys = await made('acme', 'Deploys', general.id);
+    await made('acme', 'Reviews', general.id);
+    const platform = await teams.create('acme', 'Platform');
+    if (platform === 'name-taken') throw new Error('Platform was taken');
+
+    expect(
+      await factories.change('acme', deploys.id, { name: 'REVIEWS', teamId: platform.id }),
+    ).toBe('name-taken');
+    for (const teamId of [sprocket.id, 'no-such-team']) {
+      expect(await factories.change('acme', deploys.id, { name: 'Ship', teamId })).toBe(
+        'team-not-found',
+      );
+    }
+    expect(await factories.get('acme', deploys.id)).toEqual(deploys);
+  });
+
+  it("has none of another workspace's factories to change", async () => {
+    const general = await workspace('acme');
+    const sprocket = await workspace('sprocket');
+    const deploys = await made('acme', 'Deploys', general.id);
+    expect(await factories.change('sprocket', deploys.id, { name: 'Mine' })).toBe('not-found');
+    expect(await factories.change('sprocket', deploys.id, { teamId: sprocket.id })).toBe(
+      'not-found',
+    );
+    expect(await factories.change('sprocket', deploys.id, {})).toBe('not-found');
+    expect(await factories.get('acme', deploys.id)).toEqual(deploys);
+  });
+
+  it('moves the hold on deletion with the factory: its new team stays, its old one may go', async () => {
+    const general = await workspace('acme');
+    const platform = await teams.create('acme', 'Platform');
+    const apps = await teams.create('acme', 'Apps');
+    if (platform === 'name-taken' || apps === 'name-taken') throw new Error('a name was taken');
+    const deploys = await made('acme', 'Deploys', platform.id);
+    await factories.change('acme', deploys.id, { teamId: apps.id });
+    expect(await teams.remove('acme', apps.id)).toBe('owns-factories');
+    expect(await teams.remove('acme', platform.id)).toBe('removed');
+    // A team already gone is no team to move to.
+    expect(await factories.change('acme', deploys.id, { teamId: platform.id })).toBe(
+      'team-not-found',
+    );
+    expect((await teams.list('acme')).map((team) => team.id)).toEqual([general.id, apps.id]);
+  });
+
+  it('never leaves a factory on a deleted team, when a move and the delete come at once', async () => {
+    await workspace('acme');
+    const platform = await teams.create('acme', 'Platform');
+    const apps = await teams.create('acme', 'Apps');
+    if (platform === 'name-taken' || apps === 'name-taken') throw new Error('a name was taken');
+    const deploys = await made('acme', 'Deploys', platform.id);
+    const [moved, removed] = await Promise.all([
+      factories.change('acme', deploys.id, { teamId: apps.id }),
+      teams.remove('acme', apps.id),
+    ]);
+    // One wins: the move, and the delete finds the team owns it; or the delete, and the move
+    // finds no team. PGlite runs one transaction at a time, so this pins the answers; on
+    // Postgres the foreign key's lock on the team's row is what orders the two.
+    expect([
+      [{ ...deploys, teamId: apps.id }, 'owns-factories'],
+      ['team-not-found', 'removed'],
+    ]).toContainEqual([moved, removed]);
+    const now = await factories.get('acme', deploys.id);
+    expect((await teams.list('acme')).map((team) => team.id)).toContain(now?.teamId);
+  });
+
   it('keeps a team that owns a factory: the team is not deleted', async () => {
     const general = await workspace('acme');
     const platform = await teams.create('acme', 'Platform');

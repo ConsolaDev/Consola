@@ -1,7 +1,7 @@
 // What the use cases need from the world outside, each implemented by an adapter.
 
 import type { WorkspaceRole } from '@consola/cloud-contract';
-import type { Factory, FactoryFile, FactoryVersion } from '../domain/factory.js';
+import type { Factory, FactoryChange, FactoryFile, FactoryVersion } from '../domain/factory.js';
 import type { Team } from '../domain/team.js';
 import type { CopyChange } from '../domain/workspaceCopy.js';
 
@@ -144,6 +144,19 @@ export type FactoryStore = {
     workspaceId: string,
     input: { name: string; teamId: string; personId: string },
   ): Promise<Factory | 'name-taken' | 'team-not-found'>;
+  /**
+   * Renames the factory, moves it to another team of the workspace, or both, in one statement:
+   * all of it or none. What `change` leaves out stays; its versions stay as they are.
+   * `not-found` when the workspace has no such factory, `name-taken` when another of its
+   * factories has the name, in any case, and `team-not-found` when it has no such team. A team
+   * being deleted at the same moment is one or the other: the move finds it gone, or the delete
+   * finds it owns the factory.
+   */
+  change(
+    workspaceId: string,
+    factoryId: string,
+    change: FactoryChange,
+  ): Promise<Factory | 'not-found' | 'name-taken' | 'team-not-found'>;
   /** One version of a factory's files, its files by path, or null when there is no such version. */
   version(workspaceId: string, factoryId: string, version: number): Promise<FactoryVersion | null>;
   /**
