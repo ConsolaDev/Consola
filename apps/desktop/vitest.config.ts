@@ -4,6 +4,9 @@ import { defineConfig } from 'vitest/config';
 // Deliberately not extending vite.config.ts: that config roots itself at
 // src/renderer, which would make main-process and shared tests invisible.
 export default defineConfig({
+  // A component's JSX as the renderer builds it (`tsconfig.renderer.json`'s `react-jsx`), for the few
+  // tests that render one to markup (`WritesBlock.test.ts`).
+  esbuild: { jsx: 'automatic' },
   resolve: {
     // Tests read the workspace packages from source, so `pnpm test` works on a
     // fresh clone without building them first. The app itself loads its dist.

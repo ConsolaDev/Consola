@@ -28,6 +28,7 @@ export {
   describeWrites,
   GIT_CLONE_SENTENCE,
   KEYCHAIN_SENTENCE,
+  KEYCHAIN_SIGN_INS_SENTENCE,
   NO_LIVE_ATTENTION_SENTENCE,
   type WriteVersions,
 } from './describeEntry';

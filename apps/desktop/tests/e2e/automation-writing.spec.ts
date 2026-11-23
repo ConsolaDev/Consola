@@ -1,5 +1,9 @@
 import { expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test';
-import { GRAMMAR_EXAMPLES } from '@consola/automation-engine';
+import {
+  GRAMMAR_EXAMPLES,
+  KEYCHAIN_SENTENCE,
+  KEYCHAIN_SIGN_INS_SENTENCE,
+} from '@consola/automation-engine';
 import type { RunRecord, StepRun } from '@consola/factory-spec';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
@@ -445,10 +449,23 @@ async function allow(writing: Writing): Promise<void> {
     .toBeUndefined();
   await row.getByRole('button', { name: AUTOMATION, exact: true }).click();
   const panel = sidePanel(writing.page);
-  await panel
-    .getByRole('region', { name: `Allow ${AUTOMATION}` })
-    .getByRole('button', { name: 'Allow', exact: true })
-    .click();
+  const card = panel.getByRole('region', { name: `Allow ${AUTOMATION}` });
+  // What the person reads before Allow (the 3-B code review's F9): the write agent, how it is held, the keychain, the commands after it.
+  const writes = card.getByRole('group', { name: 'What it can change' });
+  await expect(writes.locator('.automations-approval-writes-checkout')).toHaveText(
+    `Cuts \`fix/<ticket>\` from ${REPO}'s default branch, in a checkout of its own. Nothing else is written.`,
+  );
+  await expect(writes.locator('.automations-approval-writes-head')).toHaveText([
+    /^ui-bugfixer · claude-work · sonnet · writes files and runs commands · environment sandboxed \(sandbox, enforced on this Mac\) · checked on Claude /,
+  ]);
+  await expect(writes.locator('.automations-approval-writes-sentence')).toContainText(
+    `${KEYCHAIN_SIGN_INS_SENTENCE} ${KEYCHAIN_SENTENCE}`,
+  );
+  await expect(writes.locator('.automations-approval-writes-command')).toHaveText([
+    '`pr` · on host, after ui-bugfixer: runs code an agent changed, as you, with your logins.',
+    '`ticket` · on host, after ui-bugfixer: runs code an agent changed, as you, with your logins.',
+  ]);
+  await card.getByRole('button', { name: 'Allow', exact: true }).click();
   await expect
     .poll(async () => (await viewOf(writing))?.check?.lastAt, { timeout: 30_000 })
     .toBeTruthy();
