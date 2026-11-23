@@ -414,6 +414,78 @@ describe('stepsResolvedBody', () => {
   });
 });
 
+describe('stepsResolvedBody with servers (5a-2)', () => {
+  it('is exactly today’s result when no server is used', () => {
+    expect(stepsResolvedBody({}, {}, { servers: {} })).toBe(stepsResolvedBody({}, {}));
+    expect(stepsResolvedBody({}, {}, undefined)).toBe(stepsResolvedBody({}, {}));
+    expect(stepsResolvedBody({}, {}, { servers: {} })).toBeUndefined();
+    expect(stepsResolvedBody({ a: 'body' }, {}, { servers: {} })).toBe(
+      stepsResolvedBody({ a: 'body' }, {}),
+    );
+    expect(stepsResolvedBody({ a: 'body' }, { x: 'h' }, { servers: {} })).toBe(
+      stepsResolvedBody({ a: 'body' }, { x: 'h' }),
+    );
+  });
+
+  it('holds a server’s hash under servers, each key only when used', () => {
+    expect(stepsResolvedBody({}, {}, { servers: { slack: 'aaaa' } })).toBe(
+      '{"servers":{"slack":"aaaa"}}',
+    );
+    expect(stepsResolvedBody({ review: 'R' }, {}, { servers: { slack: 'aaaa' } })).toBe(
+      '{"actions":{"review":"R"},"servers":{"slack":"aaaa"}}',
+    );
+  });
+
+  it('pins the shape with actions, agents and servers (the merge adds environments)', () => {
+    expect(
+      stepsResolvedBody(
+        { review: 'R' },
+        { briefer: 'h1' },
+        { servers: { tracker: 'bbbb', slack: 'aaaa' } },
+      ),
+    ).toBe(
+      '{"actions":{"review":"R"},"agents":{"briefer":"h1"},"servers":{"slack":"aaaa","tracker":"bbbb"}}',
+    );
+  });
+
+  it('takes the servers in an options object, never as a third record', () => {
+    // Compiled, never called: the typecheck fails on an unused `@ts-expect-error` if either compiles.
+    const typeOnly = (serverHashes: Readonly<Record<string, string>>) => [
+      // @ts-expect-error a record in the third slot is slice 3's environments' type: it must not compile.
+      stepsResolvedBody({}, {}, serverHashes),
+      // @ts-expect-error an options object without `servers` is no options object.
+      stepsResolvedBody({}, {}, {}),
+    ];
+    expect(typeof typeOnly).toBe('function');
+  });
+});
+
+describe('the version of an entry with a uses: step', () => {
+  const versionOf = (step: string) => {
+    const parsed = parseAutomationEntry(
+      `- name: brief\n  on: { cron: "0 9 * * 1-5" }\n  scope: ops\n  steps:\n    - id: post\n${step
+        .split('\n')
+        .map((line) => `      ${line}`)
+        .join('\n')}`,
+    );
+    if (!parsed.ok) throw new Error(JSON.stringify(parsed.issues));
+    return automationVersion(parsed.automation);
+  };
+  const BASE = 'uses: slack#chat_post_message\nwith: { channel: C0SUPPORT1 }';
+
+  it('moves with the tool, an argument, the timeout, the outputs and dry_run', () => {
+    const version = versionOf(BASE);
+    expect(versionOf(BASE)).toBe(version);
+    expect(versionOf('uses: slack#chat_post\nwith: { channel: C0SUPPORT1 }')).not.toBe(version);
+    expect(versionOf('uses: slack#chat_post_message\nwith: { channel: C0SUPPORT2 }')).not.toBe(
+      version,
+    );
+    expect(versionOf(`${BASE}\ntimeout: 30s`)).not.toBe(version);
+    expect(versionOf(`${BASE}\noutputs: { ts: string }`)).not.toBe(version);
+    expect(versionOf(`${BASE}\ndry_run: run`)).not.toBe(version);
+  });
+});
+
 describe('the version with agents', () => {
   const text = (path: string, content: string): SkillFileEntry => ({
     path,

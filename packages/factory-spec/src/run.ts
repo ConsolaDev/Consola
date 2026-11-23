@@ -284,20 +284,26 @@ export function automationVersion(
 
 /**
  * A steps entry's `resolvedBody`: today's `stableStringify({ <stepId>: <action body> })`, or undefined, when no step
- * names an agent; `stableStringify({ actions, agents: { <agent>: <agentHash> } })` when one does (`actions` absent
- * when none is used). Every runner hashes an entry through this.
+ * names an agent or calls a factory server; `stableStringify({ actions, agents: { <agent>: <agentHash> }, servers:
+ * { <server>: <serverHash> } })` when one does, each key present only when non-empty: a shape no entry without an
+ * agent or a server can have (an action map's values are strings). Every runner hashes an entry through this.
  *
- * So an entry no step of which names an agent (every slice-1 entry) hashes byte for byte as before, and an agent
- * file, a skill it names or a server it names changes the version of exactly the entries that use that agent.
+ * So an entry no step of which names an agent or calls a server (every slice-1 entry) hashes byte for byte as
+ * before, and an agent file, a skill it names, a server it names, or a server definition a call uses changes the
+ * version of exactly the entries that use it. The servers ride in an options object, never a third positional
+ * record: slice 3's third parameter is a record of the same type (5a-2's Call 13).
  */
 export function stepsResolvedBody(
   actionBodies: Readonly<Record<string, string>>,
   agentHashes: Readonly<Record<string, string>>,
+  options?: { servers: Readonly<Record<string, string>> },
 ): string | undefined {
   const actions = Object.keys(actionBodies).length > 0 ? actionBodies : undefined;
-  if (Object.keys(agentHashes).length === 0)
+  const agents = Object.keys(agentHashes).length > 0 ? agentHashes : undefined;
+  const servers = options && Object.keys(options.servers).length > 0 ? options.servers : undefined;
+  if (agents === undefined && servers === undefined)
     return actions === undefined ? undefined : stableStringify(actions);
-  return stableStringify({ actions, agents: agentHashes });
+  return stableStringify({ actions, agents, servers });
 }
 
 /** JSON with sorted keys and undefined dropped, so equal definitions hash equal. */
