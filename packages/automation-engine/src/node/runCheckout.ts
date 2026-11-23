@@ -568,7 +568,9 @@ const WALK_CUT_SHORT =
  * repository inside the checkout (any entry named `.git`, case aside, below
  * its root, whose config would run in any git started there). The walk
  * follows no link and is bounded, as cleanup's is: cut short it fails as
- * unknown (fail closed). Null when neither.
+ * unknown (fail closed). It reads each folder asynchronously, so a large
+ * checkout never holds Electron's main process for the whole walk (the 3-B
+ * code review's F4). Null when none of these.
  */
 export async function treeProblem(
   dir: string,
@@ -593,7 +595,10 @@ export async function treeProblem(
     visited += 1;
     if (visited > limits.directories || Date.now() - started >= limits.deadlineMs)
       return WALK_CUT_SHORT;
-    for (const entry of fs.readdirSync(path.join(dir, relative), { withFileTypes: true })) {
+    // A folder at a time, off the main thread: Electron's main process serves its windows between reads (F4).
+    for (const entry of await fs.promises.readdir(path.join(dir, relative), {
+      withFileTypes: true,
+    })) {
       const inside = relative === '' ? entry.name : `${relative}/${entry.name}`;
       if (entry.name.toLowerCase() === '.git' && relative !== '')
         return `\`${step}\` left a repository inside the checkout (\`${inside}\`); Consola commits only the checkout's own files`;
