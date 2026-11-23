@@ -27,15 +27,21 @@ Imports point inward only; `src/boundary.test.ts` fails on any that does not.
   `core/`, never `adapters/`.
 - `src/adapters/` is everything that touches the outside: the WebSocket server,
   verifying a pass's signature, the dev pass (`devPass.ts`), the lines on
-  stdout (`stdoutEvents.ts`). It may import `core/` and `runtime/`.
+  stdout (`stdoutEvents.ts`), and the runner's sandboxes (`sandboxSessions.ts`)
+  and its socket to the cell (`cellSocket.ts`). It may import `core/` and
+  `runtime/`.
 - `src/bin.ts` is the only wiring: it parses the command line, builds the
-  adapters and hands them the runtime (`consola-host session`, below).
+  adapters and hands them the runtime (`consola-host session`, below), or a
+  sandbox provider (`consola-host runner`, below).
 - `src/testing/` is what tests share: `machine.ts` (a machine of a test's own,
   with fake CLIs), `setup.ts` (Vitest's setup file, which isolates the whole
   test process; "Tests" below), `replay.ts` (sessions whose Claude driver
   replays one of t3's recorded fixtures), `t3Client.ts` (t3's RPC client,
-  connected as `@t3tools/client-runtime` connects it) and `replaySession.ts`
-  (the session command over a replay, which `bin.test.ts` starts with node).
+  connected as `@t3tools/client-runtime` connects it), `replaySession.ts`
+  (the session command over a replay, which `bin.test.ts` starts with node),
+  `localProvider.ts` (a `SandboxProvider` whose sandboxes are a temporary
+  folder and a `replaySession.ts` process, its ports `http://127.0.0.1:<port>`)
+  and `replayRunner.ts` (the runner command over it).
   No other ring reaches it, so only `*.test.ts` files, `vite.config.ts` and a
   test's `node` use it; it may use the test runner, t3's test kits and test
   seams, and reach `bin.ts` to run its command.
@@ -676,6 +682,99 @@ the real bin for `ready`, `dev-pass`, a socket that takes the pass, SIGTERM
 with no process left (a fake `claude` that stays running, as the capabilities
 probe's would), the cell's key, the idle exit, and the start failures. Each
 asserts that every stdout line is a `HostLine`.
+
+## The `runner` command
+
+`consola-host runner` is the host's other role: a workspace's runner. It dials
+its regional cell (`apps/cloud-region/AGENTS.md`, "The runner's socket") and
+runs each session the cell asks for in a sandbox of its own, through
+`@consola/sandbox`, where the template's start script clones the repository and
+runs `consola-host session`. The messages are `@consola/runner-protocol`'s; read
+its `AGENTS.md` first.
+
+```
+consola-host runner --cell-url <wss://…/api/runner, or ws: to loopback> --runner-id <id>
+  [--idle-minutes <n, default 10; the session hosts'>] [--max-session-minutes <n, default 480>]
+```
+
+- **Environment.** `CONSOLA_RUNNER_SECRET` (sent only in the socket's upgrade,
+  as `Authorization: Bearer`; printable characters with no space),
+  `CONSOLA_RUNNER_REPOSITORIES` (the repositories it offers, `owner/name`,
+  comma-separated), `GIT_TOKEN` (optional, for the clone), and the API keys,
+  each offering its harness (`harnessesFromEnv`): `ANTHROPIC_API_KEY` claude,
+  `OPENAI_API_KEY` codex. The E2B provider (Task 6) adds `E2B_API_KEY`.
+- **Start failures** follow the session command's: `consola-host: …` on stderr,
+  exit 1, nothing on stdout. A bad flag (with the usage), a `--cell-url` that is
+  not `wss:` or is `ws:` to a host that is not loopback, or carries user info
+  (`cellUrlProblem`), no secret, a repository `isRepository` refuses, no API key
+  (no harness to offer), and no sandbox provider. No message quotes a secret.
+- **The provider.** `runnerCommand(argv, env, providerFor)` takes the provider
+  from a factory of the environment (`ProviderFor`). Production's
+  (`productionProvider`) has none yet, so the shipped runner fails at start
+  until Task 6 fills it with E2B; it never falls back to a fake. Tests run
+  `testing/replayRunner.ts`, the same command on `testing/localProvider.ts`.
+- **A session's sandbox** (`adapters/sandboxSessions.ts`). A `session.start`
+  for a repository or harness the runner does not offer is `failed`, with no
+  sandbox (`offerRefusal`). Otherwise the sandbox is created from the template
+  `consola-session` with `CONSOLA_SESSION_ID`, `CONSOLA_HARNESS`,
+  `CONSOLA_REPOSITORY`, `CONSOLA_PASS_PUBLIC_KEY`,
+  `CONSOLA_SESSION_IDLE_MINUTES`, `GIT_TOKEN` and the API key of that harness
+  alone (`sandboxEnvFor`), and runs `consola-session-start`, its output only
+  listened to (`keepOutput: false`). A second start for a session held is
+  ignored.
+- **What a line becomes** (`readSessionLine`, `updateForLine`; stdout arrives in
+  chunks, `HostLineBuffer` makes them lines). `ready` exposes the port it names
+  (never a fixed 7420) and says `{ status: 'running', hostUrl }` with the
+  provider's address, once it is an origin the cell takes (`isHostUrl`); an
+  address that cannot be had fails the session and stops its sandbox. `title`
+  says the title. The start script's `clone-failed` says `failed` with its
+  message. `status`, `dev-pass`, the host's `exit` and anything unreadable say
+  nothing.
+- **What an end becomes** (`updateForExit`), said once, the cell's stop always
+  `stopped`. Before `ready`, any end the cell did not ask for is `failed` (the
+  cell keeps a starting session starting on a `stopped`), with the last line on
+  stderr for a non-zero exit. After it, the host's own exit (its `exit` line) and
+  the runner's stop are `stopped`; a non-zero exit is `failed` with the last line
+  on stderr; a signal from elsewhere is `failed` ("The session's sandbox
+  ended."), and so is exit 0 with no `exit` line, since the host ends that way
+  only when something in the sandbox stopped it. A provider's failure (quota, a
+  missing template's `not-found`) is `failed` with its message.
+- **Backstops.** The sandbox is stopped whenever its session ends, and the
+  runner stops it itself on the cell's `session.stop`, `EXIT_LINE_GRACE` (30 s,
+  over the host's 15 s shutdown grace) after the host's `exit` line, at the
+  lifetime cap (`--max-session-minutes`), and on SIGTERM or SIGINT, when it stops
+  every sandbox and says each end while the socket is still open, then closes
+  the socket (1001) and exits 0 (1, with a message, past 15 s).
+- **The socket** (`adapters/cellSocket.ts`, on `ws`: Node's own WebSocket cannot
+  portably send `Authorization`). Each connection opens with `hello` (the offer,
+  `runningSessionIds`, and `endedSessions`), then every live session's state
+  again (`running`, its address and title), since the cell may drop updates
+  that went on a socket it replaced. An update while the socket is down is not
+  queued; an end is held for the next `hello` (`EndedSessions`), and goes again
+  when the connection it went on closed within `END_CONFIRM_MS` (5 s) of it; an
+  id is never listed as running and ended at once. A drop is dialled again
+  after a jittered wait doubling to 30 s (`reconnectDelayMs`), starting over
+  once a connection has held 10 s. A close with 4000 means another process with
+  this secret said hello and replaced this one: it stops its sandboxes, stops
+  dialling and exits 1, so two runners sharing a secret never take the socket
+  from each other in a loop. Frames over 64 KiB close the socket (1009); a frame
+  `readCellMessage` refuses is logged with its reason and dropped. There is no
+  heartbeat yet, on either side.
+- **Secrets.** It never logs its environment. Its log lines (stderr, `consola-host
+  runner: …`) and every update are scrubbed of the runner secret, the git token
+  and the API keys (`scrubSecrets`, as they are and URL-encoded), errors and
+  titles before they are bounded to 1000 characters (`scrubUpdate`), and a
+  command's stderr as it arrives, before its tail is cut (`StderrTail` holds back
+  what may start a secret split across chunks). `hostUrl` is the provider's
+  address, checked as an origin, never the sandbox's text. Stdout stays empty.
+
+`bin.test.ts` runs `testing/replayRunner.ts` under the test's machine against a
+cell of its own (a `ws` server on loopback): the secret in the upgrade, `hello`,
+a `session.start` with a real key, `running` at `http://127.0.0.1:<port>` where
+the replayed host answers, then SIGTERM: `stopped`, the socket closed with 1001,
+exit 0, no process left, and no secret on stderr. It runs the real bin for each
+start failure. `sandboxSessions.test.ts` drives the sessions over the fake
+provider, and `cellSocket.test.ts` the socket against a `ws` server.
 
 ## Running it
 

@@ -8,6 +8,12 @@
  *     --pass-public-key <PEM file> | --dev
  *     [--idle-minutes <n, default 10>] [--state-dir <dir>]
  *
+ * `consola-host runner` (below, and `AGENTS.md`): connects to a regional cell and runs each
+ * session it is asked for in a sandbox of its own, where the session command runs.
+ *
+ *   consola-host runner --cell-url <wss://…/api/runner> --runner-id <id>
+ *     [--idle-minutes <n, default 10>] [--max-session-minutes <n, default 480>]
+ *
  * It prints JSON lines on stdout and nothing else (`HostLine`, `adapters/stdoutEvents.ts`): Track
  * B's runner starts it in a sandbox and reads them. t3's logs and every error go to stderr. It
  * exits 0 after `{"type":"exit","reason":"idle"}`, or on SIGTERM or SIGINT once the session has
@@ -31,11 +37,23 @@ import * as Fiber from 'effect/Fiber';
 import type * as Layer from 'effect/Layer';
 import * as Logger from 'effect/Logger';
 import * as Schema from 'effect/Schema';
+import { type SandboxProvider, sandboxesFrom } from '@consola/sandbox';
+import { makeCellSocket } from './adapters/cellSocket.ts';
 import { type DevAccess, makeDevAccess } from './adapters/devPass.ts';
 import { PassKeyInvalid, parsePassKey } from './adapters/passVerifier.ts';
 import { type HostListening, listenHost } from './adapters/rpcServer.ts';
+import { makeSandboxSessions } from './adapters/sandboxSessions.ts';
 import { reportSession, sessionStatusOf, writeHostLine } from './adapters/stdoutEvents.ts';
 import { isIdle } from './core/idle.ts';
+import {
+  cellUrlProblem,
+  HARNESS_API_KEYS,
+  harnessesFromEnv,
+  type RunnerOffer,
+  readRepositories,
+  type SandboxSecrets,
+  scrubSecrets,
+} from './core/runnerDecisions.ts';
 import type { SessionSpec } from './core/sessionSpec.ts';
 import * as ThreadRuntime from './runtime/threadRuntime.ts';
 
@@ -52,6 +70,9 @@ export const isLoopback = (bind: string): boolean =>
   bind === 'localhost' || bind === '::1' || /^127(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/.test(bind);
 /** Spec §8.2: a session stops after ten minutes without a turn or a connected client. */
 export const DEFAULT_IDLE_MINUTES = 10;
+/** The longest a runner lets a session's sandbox run, whatever it does: eight hours. */
+export const DEFAULT_MAX_SESSION_MINUTES = 480;
+
 /** The session a `--dev` host serves when no `--session-id` is given. */
 export const DEV_SESSION_ID = 'dev-session';
 
@@ -70,7 +91,13 @@ const USAGE = `Usage:
     [--idle-minutes <n, default ${DEFAULT_IDLE_MINUTES}>] [--state-dir <dir, default a temporary one>]
 
   --dev makes a key pair in memory, ignores --pass-public-key, defaults --session-id to
-  ${DEV_SESSION_ID}, and prints a pass for the session after "ready".`;
+  ${DEV_SESSION_ID}, and prints a pass for the session after "ready".
+
+  consola-host runner --cell-url <wss://…/api/runner, or ws: to loopback> --runner-id <id>
+    [--idle-minutes <n, default ${DEFAULT_IDLE_MINUTES}>] [--max-session-minutes <n, default ${DEFAULT_MAX_SESSION_MINUTES}>]
+
+  It reads CONSOLA_RUNNER_SECRET, CONSOLA_RUNNER_REPOSITORIES (owner/name, comma-separated),
+  GIT_TOKEN, ANTHROPIC_API_KEY (offers claude) and OPENAI_API_KEY (offers codex).`;
 
 /** The command line did not say what to run. `problem` names what is wrong, never a secret. */
 export class UsageError extends Schema.TaggedError<UsageError>()('UsageError', {
@@ -139,8 +166,8 @@ export const parseSessionArgs = (
     if (command !== 'session') {
       return yield* refuse(
         command === undefined
-          ? 'Name the command: consola-host session.'
-          : `Unknown command ${command}; the command is session.`,
+          ? 'Name the command: consola-host session, or consola-host runner.'
+          : `Unknown command ${command}; the command is session or runner.`,
       );
     }
     if (extra.length > 0) return yield* refuse(`Unexpected argument ${extra.join(' ')}.`);
@@ -344,14 +371,238 @@ export const sessionCommand = (
   UsageError | StartFailed | PassKeyInvalid | ThreadRuntime.ThreadRuntimeError
 > => parseSessionArgs(argv).pipe(Effect.flatMap((args) => runSession(args, runtimeFor)));
 
-/** How long the session may take to stop after a signal before the host gives up on it. */
+/** What `consola-host runner` was asked to run: its flags, and what it read of its environment. */
+export type RunnerArgs = {
+  /** The cell's runner socket, checked by `cellUrlProblem`. */
+  readonly cellUrl: string;
+  readonly runnerId: string;
+  /** `CONSOLA_RUNNER_SECRET`, sent in the socket's upgrade only. */
+  readonly secret: string;
+  /** The repositories it offers and the harnesses its API keys offer. */
+  readonly offer: RunnerOffer;
+  /** What a sandbox is given: the git token and its harness's key. */
+  readonly secrets: SandboxSecrets;
+  /** Every secret it holds, taken out of whatever it reports or logs. */
+  readonly secretValues: ReadonlyArray<string>;
+  /** A session host's idle minutes. */
+  readonly idleMinutes: number;
+  /** The lifetime cap of a session's sandbox, in minutes. */
+  readonly maxSessionMinutes: number;
+};
+
+/** The runner's environment, as `process.env` holds it. */
+export type RunnerEnv = Readonly<Record<string, string | undefined>>;
+
+/** Printable ASCII with no space, as the cell asks of `RUNNER_SECRET`: it goes in a header. */
+const isHeaderSafe = (value: string): boolean => /^[\x21-\x7e]+$/.test(value);
+
+const positiveMinutes = (value: string | undefined, fallback: number): number | null => {
+  const minutes = Number(value ?? fallback);
+  return Number.isFinite(minutes) && minutes > 0 ? minutes : null;
+};
+
+/**
+ * Reads `runner`, its flags (`argv` without node and the script) and its environment. A flag that
+ * is wrong is a `UsageError`; a variable that is missing or wrong a `StartFailed`. Neither ever
+ * quotes a secret.
+ */
+export const parseRunnerArgs = (
+  argv: ReadonlyArray<string>,
+  env: RunnerEnv,
+): Effect.Effect<RunnerArgs, UsageError | StartFailed> =>
+  Effect.gen(function* () {
+    const refuse = (problem: string) => Effect.fail(new UsageError({ problem }));
+    const startFails = (problem: string) => Effect.fail(new StartFailed({ problem }));
+    const parsed = yield* Effect.try({
+      try: () =>
+        parseArgs({
+          args: [...argv],
+          strict: true,
+          allowPositionals: true,
+          options: {
+            'cell-url': { type: 'string' },
+            'runner-id': { type: 'string' },
+            'idle-minutes': { type: 'string' },
+            'max-session-minutes': { type: 'string' },
+          },
+        }),
+      catch: (error) =>
+        new UsageError({ problem: error instanceof Error ? error.message : String(error) }),
+    });
+    const [command, ...extra] = parsed.positionals;
+    if (command !== 'runner') return yield* refuse('The command is runner.');
+    if (extra.length > 0) return yield* refuse(`Unexpected argument ${extra.join(' ')}.`);
+    const values = parsed.values;
+    const cellUrl = values['cell-url'];
+    if (cellUrl === undefined || cellUrl === '') return yield* refuse('--cell-url is required.');
+    const urlProblem = cellUrlProblem(cellUrl);
+    if (urlProblem !== null) return yield* refuse(urlProblem);
+    const runnerId = values['runner-id'];
+    if (runnerId === undefined || runnerId === '') return yield* refuse('--runner-id is required.');
+    const idleMinutes = positiveMinutes(values['idle-minutes'], DEFAULT_IDLE_MINUTES);
+    if (idleMinutes === null) {
+      return yield* refuse('--idle-minutes must be a number of minutes above 0.');
+    }
+    const maxSessionMinutes = positiveMinutes(
+      values['max-session-minutes'],
+      DEFAULT_MAX_SESSION_MINUTES,
+    );
+    if (maxSessionMinutes === null) {
+      return yield* refuse('--max-session-minutes must be a number of minutes above 0.');
+    }
+
+    const secret = env.CONSOLA_RUNNER_SECRET ?? '';
+    if (secret === '') {
+      return yield* startFails(
+        'CONSOLA_RUNNER_SECRET is not set: the runner connects to its cell with it.',
+      );
+    }
+    if (!isHeaderSafe(secret)) {
+      return yield* startFails('CONSOLA_RUNNER_SECRET must be printable characters with no space.');
+    }
+    const repositories = readRepositories(env.CONSOLA_RUNNER_REPOSITORIES);
+    if (!repositories.ok) return yield* startFails(repositories.problem);
+    const harnesses = harnessesFromEnv(env);
+    if (harnesses.length === 0) {
+      return yield* startFails(
+        `The runner offers no harness: set ${HARNESS_API_KEYS.claude} (claude) or ${HARNESS_API_KEYS.codex} (codex).`,
+      );
+    }
+    const gitToken = env.GIT_TOKEN === '' ? undefined : env.GIT_TOKEN;
+    const apiKeys = {
+      ...(env.ANTHROPIC_API_KEY ? { claude: env.ANTHROPIC_API_KEY } : {}),
+      ...(env.OPENAI_API_KEY ? { codex: env.OPENAI_API_KEY } : {}),
+    };
+    const args: RunnerArgs = {
+      cellUrl,
+      runnerId,
+      secret,
+      offer: { repositories: repositories.repositories, harnesses },
+      secrets: { gitToken, apiKeys },
+      secretValues: [secret, gitToken, ...Object.values(apiKeys)].filter(
+        (value): value is string => value !== undefined && value !== '',
+      ),
+      idleMinutes,
+      maxSessionMinutes,
+    };
+    return args;
+  });
+
+/** Another runner with this one's secret said hello to the cell, which closed this one's socket. */
+export class RunnerReplaced extends Schema.TaggedError<RunnerReplaced>()('RunnerReplaced', {
+  problem: Schema.String,
+}) {
+  override get message(): string {
+    return this.problem;
+  }
+}
+
+/**
+ * The sandbox provider a runner starts its sessions on, from its environment, or null when none
+ * is configured. Production has none until the E2B provider (Task 6): a runner with none fails at
+ * start, and never falls back to a fake.
+ */
+export type ProviderFor = (env: RunnerEnv) => SandboxProvider | null;
+
+/** Production's providers: none yet (Task 6 adds E2B, from `E2B_API_KEY`). */
+export const productionProvider: ProviderFor = () => null;
+
+/**
+ * Runs the runner until it is stopped: its sessions (`makeSandboxSessions`) and its socket to the
+ * cell (`makeCellSocket`), the cell's messages handed to the sessions. On SIGTERM, or once another
+ * runner replaced it, every sandbox is stopped and its end told to the cell while the socket is
+ * still open; then the socket closes. It logs to stderr, scrubbed of its secrets, and never its
+ * environment; stdout stays empty.
+ */
+export const runRunner = (
+  args: RunnerArgs,
+  provider: SandboxProvider,
+): Effect.Effect<void, RunnerReplaced> =>
+  Effect.gen(function* () {
+    const log = (message: string) =>
+      Effect.sync(() => {
+        process.stderr.write(`consola-host runner: ${scrubSecrets(message, args.secretValues)}\n`);
+      });
+    const { socket, sessions } = yield* Effect.acquireRelease(
+      Effect.gen(function* () {
+        const socket = yield* makeCellSocket({
+          url: args.cellUrl,
+          secret: args.secret,
+          runnerId: args.runnerId,
+          offer: args.offer,
+          log,
+        });
+        const sessions = yield* makeSandboxSessions({
+          sandboxes: sandboxesFrom(provider),
+          offer: args.offer,
+          secrets: args.secrets,
+          secretValues: args.secretValues,
+          idleMinutes: args.idleMinutes,
+          maxLifetime: Duration.minutes(args.maxSessionMinutes),
+          report: socket.send,
+          log,
+        });
+        return { socket, sessions };
+      }),
+      // Every sandbox first, its end said on the open socket; the socket last.
+      ({ socket, sessions }) => sessions.stopAll.pipe(Effect.andThen(socket.close)),
+    );
+    yield* log(
+      `runner ${args.runnerId} offers ${args.offer.repositories.join(', ')} with ${args.offer.harnesses.join(', ')}; dialling ${args.cellUrl}`,
+    );
+    yield* socket.connect({
+      live: sessions.liveNow,
+      onMessage: (message) =>
+        message.type === 'session.start'
+          ? sessions.start(message)
+          : // A stop waits for the sandbox; the socket's next message does not.
+            sessions.stop(message.sessionId).pipe(Effect.forkDetach, Effect.asVoid),
+    });
+    yield* socket.replaced;
+    return yield* new RunnerReplaced({
+      problem:
+        'Another runner connected to the cell with this secret and replaced this one, which has stopped its sandboxes. Run one runner per secret.',
+    });
+  }).pipe(Effect.scoped);
+
+/**
+ * `consola-host runner …`: `argv` and `env` read, a provider from `providerFor`, then the runner
+ * run on it. No provider is a start failure.
+ */
+export const runnerCommand = (
+  argv: ReadonlyArray<string>,
+  env: RunnerEnv,
+  providerFor: ProviderFor,
+): Effect.Effect<void, UsageError | StartFailed | RunnerReplaced> =>
+  Effect.gen(function* () {
+    const args = yield* parseRunnerArgs(argv, env);
+    const provider = providerFor(env);
+    if (provider === null) {
+      return yield* new StartFailed({
+        problem:
+          'No sandbox provider is configured, so the runner has nowhere to start sessions (the E2B provider is not there yet).',
+      });
+    }
+    return yield* runRunner(args, provider);
+  });
+
+/** Whether `argv` asks for the runner rather than a session: its command comes first. */
+export const isRunnerCommand = (argv: ReadonlyArray<string>): boolean => argv[0] === 'runner';
+
+/** How long the session (or the runner) may take to stop after a signal before the host gives up. */
 const SHUTDOWN_GRACE = Duration.seconds(15);
 
 /** What stderr says when the host stops on a failure. */
 const describeFailure = (cause: Cause.Cause<unknown>): string => {
   const error = Cause.squash(cause);
   if (Schema.is(UsageError)(error)) return `${error.message}\n\n${USAGE}`;
-  if (Schema.is(StartFailed)(error) || Schema.is(PassKeyInvalid)(error)) return error.message;
+  if (
+    Schema.is(StartFailed)(error) ||
+    Schema.is(PassKeyInvalid)(error) ||
+    Schema.is(RunnerReplaced)(error)
+  ) {
+    return error.message;
+  }
   return Cause.pretty(cause);
 };
 
@@ -361,14 +612,17 @@ const describeFailure = (cause: Cause.Cause<unknown>): string => {
  * if stopping takes longer than `SHUTDOWN_GRACE`). It exits 0 when `program` ends, and 1 with
  * a message on stderr when it fails.
  */
-export const runHostProcess = <E>(program: Effect.Effect<void, E>): void => {
+export const runHostProcess = <E>(
+  program: Effect.Effect<void, E>,
+  what: 'session' | 'runner' = 'session',
+): void => {
   // The process exits from `teardown` either way, so this timer never keeps it alive.
   const onSignal = () => {
     Effect.runFork(
       Effect.sleep(SHUTDOWN_GRACE).pipe(
         Effect.andThen(
           Effect.sync(() =>
-            process.stderr.write('consola-host: the session did not stop in time.\n', () =>
+            process.stderr.write(`consola-host: the ${what} did not stop in time.\n`, () =>
               process.exit(1),
             ),
           ),
@@ -391,5 +645,10 @@ export const runHostProcess = <E>(program: Effect.Effect<void, E>): void => {
 };
 
 if (import.meta.main) {
-  runHostProcess(sessionCommand(process.argv.slice(2), ThreadRuntime.layer));
+  const argv = process.argv.slice(2);
+  if (isRunnerCommand(argv)) {
+    runHostProcess(runnerCommand(argv, process.env, productionProvider), 'runner');
+  } else {
+    runHostProcess(sessionCommand(argv, ThreadRuntime.layer));
+  }
 }
