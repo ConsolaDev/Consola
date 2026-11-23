@@ -139,8 +139,10 @@ pieces:
   removes nothing; see "What t3 keeps in the browser" for how such passes are found.
 - **t3's client does the rest**, unchanged: it reads the host's descriptor, asks for a socket
   ticket with the pass as bearer token, opens `ws(s)://<host>/ws?wsTicket=…`, and reads the
-  session's scopes. The host answers those calls as t3's server does (`packages/host`'s
-  `AGENTS.md`, "Before the socket"); the pass is the only credential. No t3 sign-in, pairing or
+  session's scopes, then its shell (the thread list, which holds the session's thread alone)
+  and, for a thread it opens cold after its first socket dropped, the thread's bounded snapshot.
+  The host answers those calls as t3's server does (`packages/host`'s `AGENTS.md`, "Before the
+  socket" and "The shell"); the pass is the only credential. No t3 sign-in, pairing or
   environment picker is mounted.
 - **The environment and the thread are the session**: both ids are `sessionId`.
 - **A new session on a mounted chat starts it again.** `AgentChat` keys its session's part
@@ -212,10 +214,9 @@ pieces:
   - keeps it in IndexedDB (its catalog, above) while the host is registered;
   - sends it as `Authorization: Bearer <pass>` on the HTTP calls before the socket (the ticket
     and the session);
-  - opens the socket at `ws(s)://<host>/ws?wsTicket=<pass>`: the host issues the pass itself as
-    t3's ticket, so the pass is in the socket's URL, which the browser's developer tools show
-    (the host redacts it from its own logs and traces). A ticket distinct from the pass is a
-    Track B decision (`packages/host`'s `AGENTS.md`, "Before the socket").
+  - opens the socket at `ws(s)://<host>/ws?wsTicket=<ticket>`, with the ticket the host issued
+    for the pass: random, used once, good for 30 seconds, and never the pass, so the pass is in
+    no URL (`packages/host`'s `AGENTS.md`, "The pass first, then a ticket").
 
   It never reaches `localStorage` or the page's history from `AgentChat`. The dev page reads it
   from its address (`?pass=`) and takes it out at once (`dev/DevPage.tsx`, `history.replaceState`),
@@ -628,13 +629,29 @@ pnpm --filter @consola/agent-ui check:css   # the built stylesheet (build first)
 pnpm --filter @consola/agent-ui test:dist   # the built library in a page (build first)
 ```
 
+The tests and the typecheck load `@consola/host`'s testing modules and run its replay host, which
+reach the host's own workspace dependencies (`@consola/runner-protocol`, `@consola/sandbox`)
+through their built `dist/`. A fresh checkout has none, so build them once first:
+`pnpm exec turbo run build --filter=@consola/host^...` (CI's `Agent UI` job does).
+
 The browser tests run in Vitest's browser mode (Playwright, Chromium; `pnpm --filter
 @consola/agent-ui exec playwright install chromium` once). A global setup
 (`src/testing/hostSession.ts`) starts `@consola/host`'s replay entry
 (`src/testing/replaySession.ts`, t3's recorded Claude `simple` fixture) trusting a key pair made
-for the run (`src/testing/passKeys.ts`, so a test can ask for a pass of any lifetime with the
-`signHostPass` command; `watchSockets` and `openedSockets` record the sockets the page opens),
-and sends the fixture's message through t3's RPC client, on a machine of its own: a temporary
-home, no CLI or API-key variable, fake CLIs on the `PATH`; teardown fails the run if any CLI
-call saw another home or a config folder. Each browser test file deletes t3's IndexedDB first,
-so what it shows comes from the host. Files run one at a time.
+for the run (`src/testing/passKeys.ts`, which signs passes as the cell does, in the runner
+protocol's shape; `watchSockets` and `openedSockets` record the sockets the page opens), and
+sends the fixture's message through t3's RPC client, on a machine of its own: a temporary home,
+no CLI or API-key variable, fake CLIs on the `PATH`; teardown fails the run if any CLI call saw
+another home or a config folder. A pass lives five minutes at most (the protocol's
+`PASS_MAX_LIFETIME_SECONDS`), and a run on a loaded machine can take longer, so no pass is
+shared across tests: each test is handed one of its own, signed as it starts (`host().pass`,
+`src/testing/render.tsx`), and can ask for others, of any lifetime up to that cap, with the
+`signHostPass` command. Each browser test file deletes t3's IndexedDB first, so what it shows
+comes from the host. Files run one at a time. `watchPageNoise` and `takePageNoise` record what
+the page's console says at warning level or above and every response of 400 or more;
+`AgentChat.console.browser.test.tsx` expects none from mount until the thread shows. t3's client
+makes each socket with the page's `WebSocket` (Effect's `layerWebSocketConstructorGlobal`), so a
+test can stand one in for it: `AgentChat.droppedOpen.browser.test.tsx` drops the first socket as
+it asks for the thread. (Playwright's `routeWebSocket` cannot: it is an init script, which never
+reaches the test's frame, already loaded.) `watchSockets` and `watchPageNoise` listen once to
+each page Playwright hands them.

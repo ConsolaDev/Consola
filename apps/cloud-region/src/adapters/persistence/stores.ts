@@ -1,4 +1,5 @@
 import type {
+  CloudSessionStore,
   FactoryStore,
   GitHubEventStore,
   HealthProbe,
@@ -6,6 +7,7 @@ import type {
   TeamStore,
   WorkspaceCopies,
 } from '../../application/ports.js';
+import { createCloudSessionStore } from './cloudSessions.js';
 import type { Database } from './database.js';
 import { createFactoryStore } from './factories.js';
 import { createGitHubEventStore } from './gitHubEvents.js';
@@ -22,6 +24,7 @@ export function createDrizzleStores(db: Database): {
   factories: FactoryStore;
   gitHubEvents: GitHubEventStore;
   runs: RunStore;
+  cloudSessions: CloudSessionStore;
 } {
   return {
     health: createHealthProbe(db),
@@ -30,5 +33,6 @@ export function createDrizzleStores(db: Database): {
     factories: createFactoryStore(db),
     gitHubEvents: createGitHubEventStore(db),
     runs: createRunStore(db),
+    cloudSessions: createCloudSessionStore(db),
   };
 }

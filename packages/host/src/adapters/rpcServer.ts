@@ -68,10 +68,13 @@ import {
 import { rpcInitialItems } from 't3/rpcInitialItems.ts';
 import { redactServerSettingsForClient } from 't3/serverSettings.ts';
 import { withOutputWindow } from 't3/terminal/OutputProtocol.ts';
-import { passCloseCode } from '../core/pass.ts';
+import { isLoopback } from '../core/bind.ts';
+import type { PassLifetime } from '../core/pass.ts';
 import type { ThreadHandle } from '../runtime/threadRuntime.ts';
 import { serveHostHttp } from './hostHttp.ts';
+import { subscribeHostShell } from './hostShell.ts';
 import { type PassKey, type PassKeyInvalid, parsePassKey, verifyPassWith } from './passVerifier.ts';
+import { makeSocketTickets, type SocketTickets } from './socketTickets.ts';
 
 /**
  * The methods of t3's `WsRpcGroup` this host serves; it answers every other with
@@ -82,6 +85,9 @@ import { type PassKey, type PassKeyInvalid, parsePassKey, verifyPassWith } from 
  *   `orchestration.subscribeCommandOutput`: the thread, its commands (`decideCommand` offers
  *   four) and its command rows' live output (client-runtime `state/threads.ts`,
  *   `state/orchestration.ts`).
+ * - `orchestration.subscribeShell`: the thread list's shell, which client-runtime follows for
+ *   every environment it connects (`state/shell.ts`) and the chat reads the thread's title and
+ *   status from: the session's project and thread alone (`hostShell.ts`).
  * - `subscribeServerConfig`: client-runtime's session (`rpc/session.ts`) subscribes as it
  *   connects and is ready only once its first snapshot arrives; it carries the provider list the
  *   composer's model picker reads.
@@ -94,6 +100,7 @@ export const SERVED_METHODS = [
   ORCHESTRATION_V2_WS_METHODS.subscribeThread,
   ORCHESTRATION_V2_WS_METHODS.dispatchCommand,
   ORCHESTRATION_V2_WS_METHODS.subscribeCommandOutput,
+  ORCHESTRATION_V2_WS_METHODS.subscribeShell,
   WS_METHODS.subscribeServerConfig,
   WS_METHODS.serverProbe,
   WS_METHODS.serverRefreshProviders,
@@ -141,22 +148,30 @@ export interface HostServerOptions {
   readonly sessionId: string;
   /** The cell's Ed25519 public key, as an SPKI PEM, that every pass is signed by. */
   readonly publicKeyPem: string;
+  /**
+   * A `--dev` host (`bin.ts`): its key pair is its own, and it takes the long pass it signed with
+   * it (`PassLifetime` `dev`). Only on loopback: `listenHost` refuses one bound anywhere else.
+   */
+  readonly dev?: boolean;
   readonly runtime: ThreadHandle;
 }
 
 /** The path t3's client connects to (`connection/resolver.ts`, t3's `ws.ts` route). */
 const WS_PATH = '/ws';
-/** The query parameter a pass travels in. */
+/**
+ * Where a client might put a pass. The socket takes none (a ticket alone opens it), but the name
+ * is redacted wherever the server shows a URL, so a client that sends one leaves it in no log.
+ */
 const PASS_QUERY_PARAM = 'pass';
 /**
  * Where t3's client puts the ticket it was issued (`authorization/remote.ts`
- * `resolveRemoteWebSocketConnectionUrl`). The host's ticket is the pass (`hostHttp.ts`).
+ * `resolveRemoteWebSocketConnectionUrl`): one of the host's own (`socketTickets.ts`).
  */
 const WS_TICKET_QUERY_PARAM = 'wsTicket';
 /**
  * The query parameters Effect redacts wherever it shows a URL the server is handling (a request's
- * inspection, a logger's or a tracer's URL): Effect's own list, which a custom list replaces, and
- * the pass.
+ * inspection, a logger's or a tracer's URL): Effect's own list, which a custom list replaces, a
+ * pass and the ticket.
  */
 export const HOST_REDACTED_URL_PARAMS: ReadonlyArray<string | RegExp> = [
   ...UrlParams.CurrentRedactedNames.defaultValue(),
@@ -173,10 +188,8 @@ const PROVIDER_STATUS_DEBOUNCE = Duration.millis(200);
 /** How long a refused socket is given to answer its close frame. */
 const CLOSE_HANDSHAKE_TIMEOUT = Duration.seconds(5);
 
-const CLOSE_REASONS = {
-  4401: 'A valid session pass is required.',
-  4403: 'This pass opens another session.',
-} as const;
+/** Why a socket is refused: no ticket, or one the host did not issue, used, or expired. */
+const TICKET_REFUSED_REASON = 'A valid socket ticket is required.';
 /** Why a connection the pass let in is closed (`4401`) at the pass's `exp`. */
 const PASS_EXPIRED_REASON = 'The session pass has expired.';
 
@@ -245,18 +258,35 @@ const platformArch = (): ExecutionEnvironmentDescriptor['platform']['arch'] =>
   process.arch === 'arm64' || process.arch === 'x64' ? process.arch : 'other';
 
 /**
+ * What the descriptor says for `serverVersion` on a host that names none: t3's schema needs a
+ * value, and t3's client reads it only to show it and to tell one host's builds apart (whether it
+ * can talk to a host is the orchestration protocol's to say).
+ */
+export const GENERIC_SERVER_VERSION = 'unknown';
+
+/**
  * The host as a t3 environment: one per session, so the session id is its environment id (the
  * id a client checks the config against). It advertises no optional capability but the one every
  * protocol-2 server sends: what it does not serve, t3's UI does not offer.
+ *
+ * Anyone who reaches the port reads it, before any pass (`/.well-known/t3/environment`), so a host
+ * bound past loopback (a sandbox's, its port public) names no operating system, architecture or
+ * version to scan for: `unknown`, `other` and `GENERIC_SERVER_VERSION`. On loopback, or as a
+ * `--dev` host, it names its own. The config a pass holder reads carries the same environment.
  */
-const hostEnvironment = (sessionId: string): ExecutionEnvironmentDescriptor => ({
-  environmentId: EnvironmentId.make(sessionId),
-  label: 'Consola host',
-  platform: { os: platformOs(), arch: platformArch() },
-  serverVersion: T3_SERVER_VERSION,
-  orchestrationProtocolVersion: ORCHESTRATION_PROTOCOL_VERSION,
-  capabilities: { repositoryIdentity: false, inlineMessageContext: true },
-});
+export const hostEnvironment = (
+  options: Pick<HostServerOptions, 'sessionId' | 'host' | 'dev'>,
+): ExecutionEnvironmentDescriptor => {
+  const named = options.dev === true || isLoopback(options.host);
+  return {
+    environmentId: EnvironmentId.make(options.sessionId),
+    label: 'Consola host',
+    platform: named ? { os: platformOs(), arch: platformArch() } : { os: 'unknown', arch: 'other' },
+    serverVersion: named ? T3_SERVER_VERSION : GENERIC_SERVER_VERSION,
+    orchestrationProtocolVersion: ORCHESTRATION_PROTOCOL_VERSION,
+    capabilities: { repositoryIdentity: false, inlineMessageContext: true },
+  };
+};
 
 /**
  * t3's `withoutWorkspaceSnapshots` (`ws.ts:484-502`), less its on-demand machine-catalog branches:
@@ -269,7 +299,7 @@ const withoutWorkspaceSnapshots = (providers: ReadonlyArray<ServerProvider>): Se
  * t3's `withProviderStatusDeltas` (`ws.ts:504-525`, reproduced): provider changes as deltas from
  * the list this client last received.
  */
-const withProviderStatusDeltas =
+export const withProviderStatusDeltas =
   (sent: ReadonlyArray<ServerProvider>) =>
   <E, R>(updates: Stream.Stream<ServerConfigStreamEvent, E, R>) =>
     updates.pipe(
@@ -308,7 +338,7 @@ const layerHandlers = (
       const { runtime, sessionId } = options;
       const threadId = ThreadId.make(sessionId);
       const { server } = runtime;
-      const environment = hostEnvironment(sessionId);
+      const environment = hostEnvironment(options);
 
       const loadServerConfig = Effect.fn('host.loadServerConfig')(function* (
         workspaceSnapshotsOnDemand: boolean,
@@ -333,6 +363,11 @@ const layerHandlers = (
           },
           settings,
           threadResumeCompletionMarker: true,
+          // t3's client opens a thread cold over the socket alone, the first time, from a server
+          // that says it pages snapshots (client-runtime `state/threads.ts`, `socketOnly`); a
+          // later cold open asks the HTTP route for a bounded one (`hostHttp.ts`). Either way the
+          // host's snapshot is the whole thread: a window with no older history to page.
+          threadSnapshotPagination: true,
           serverTime: DateTime.formatIso(yield* DateTime.now),
         };
         return config;
@@ -491,6 +526,8 @@ const layerHandlers = (
                   message: `This host serves one thread, not ${input.threadId}.`,
                 }),
               ),
+        // t3's `ws.ts` `subscribeOrchestrationV2Shell`, for the session's thread alone.
+        [ORCHESTRATION_V2_WS_METHODS.subscribeShell]: (input) => subscribeHostShell(runtime, input),
         [WS_METHODS.serverProbe]: () => Effect.succeed({}),
         // t3's `ws.ts` handler, less what the host does not compose: keybindings, environment
         // themes, usage-limit sources, network discovery and on-demand machine catalogs.
@@ -616,19 +653,17 @@ const hasCompatibleOrchestrationProtocol = (url: URL) =>
   String(ORCHESTRATION_PROTOCOL_VERSION);
 
 /**
- * Refuses a connection: a WebSocket is upgraded and closed with `code`, so a browser can read
- * why (it sees no HTTP status); anything else gets the matching HTTP status.
+ * Refuses a connection: a WebSocket is upgraded and closed with `4401`, so a browser can read why
+ * (it sees no HTTP status); anything else gets a `401`.
  */
 const refuseConnection = Effect.fn('host.refuseConnection')(
-  function* (code: 4401 | 4403) {
+  function* () {
     const request = yield* HttpServerRequest.HttpServerRequest;
     const upgraded = yield* Effect.exit(request.upgrade);
-    if (Exit.isFailure(upgraded)) {
-      return HttpServerResponse.empty({ status: code === 4403 ? 403 : 401 });
-    }
+    if (Exit.isFailure(upgraded)) return HttpServerResponse.empty({ status: 401 });
     const reader = yield* upgraded.value.reader;
     const writer = yield* upgraded.value.writer;
-    yield* writer.write(new Socket.CloseEvent(code, CLOSE_REASONS[code]));
+    yield* writer.write(new Socket.CloseEvent(4401, TICKET_REFUSED_REASON));
     // The close handshake ends when the client's close frame ends the reader.
     yield* Effect.forever(reader.pull).pipe(
       Effect.ignore,
@@ -687,66 +722,68 @@ const serveRpc = Effect.fn('host.serveRpc')(function* (
 }, Effect.provide(RpcSerialization.layerJson));
 
 /**
- * Every request: `GET /ws` with a pass for this session becomes an RPC connection; the pass is
- * verified before anything else is answered, and is never logged. The calls t3's client makes
- * before the socket (the descriptor, a ticket, the session) are `hostHttp.ts`'s.
+ * Every request: `GET /ws` with a ticket the host issued becomes an RPC connection; the ticket is
+ * taken before anything else is answered. The calls t3's client makes before the socket (the
+ * descriptor, a ticket for its pass, the session) are `hostHttp.ts`'s, where the pass is
+ * verified; neither is ever logged.
  */
 const app = Effect.fn('host.app')(function* (
   options: HostServerOptions,
   key: PassKey,
+  tickets: SocketTickets,
   connections: { open: number },
 ) {
   const request = yield* HttpServerRequest.HttpServerRequest;
-  const url = new URL(request.url, 'http://consola-host.invalid');
+  // A request line no URL can be made of (`GET http://[ HTTP/1.1`) is the client's error.
+  const url = URL.parse(request.url, 'http://consola-host.invalid');
+  if (url === null) return HttpServerResponse.empty({ status: 400 });
+  const lifetime: PassLifetime = options.dev === true ? 'dev' : 'cell';
   // Everything but the socket: t3's calls before it, and a CORS-readable `404` for the rest.
   if (url.pathname !== WS_PATH) {
     return yield* serveHostHttp(
       {
-        environment: hostEnvironment(options.sessionId),
+        environment: hostEnvironment(options),
         auth: HOST_AUTH,
         verify: (pass) =>
           Effect.flatMap(Clock.currentTimeMillis, (nowMs) =>
-            verifyPassWith(pass, key, options.sessionId, Math.floor(nowMs / 1000)),
+            verifyPassWith(pass, key, options.sessionId, Math.floor(nowMs / 1000), lifetime),
           ),
+        issueTicket: (claims) =>
+          Effect.map(Clock.currentTimeMillis, (nowMs) => tickets.issue(claims.exp, nowMs)),
+        runtime: options.runtime,
       },
-      url.pathname,
+      url,
     );
   }
-  if (request.method !== 'GET' || url.pathname !== WS_PATH) {
-    return HttpServerResponse.empty({ status: 404 });
-  }
-  const nowSeconds = Math.floor((yield* Clock.currentTimeMillis) / 1000);
-  // A pass in `pass`, or the ticket t3's client was issued for it, which is the pass.
-  const pass =
-    url.searchParams.get(PASS_QUERY_PARAM) ?? url.searchParams.get(WS_TICKET_QUERY_PARAM) ?? '';
-  return yield* verifyPassWith(pass, key, options.sessionId, nowSeconds).pipe(
-    Effect.matchEffect({
-      onFailure: (rejected) => refuseConnection(passCloseCode(rejected.reason)),
-      onSuccess: (claims) =>
-        hasCompatibleOrchestrationProtocol(url)
-          ? // A connection counts from the moment it is let in until its socket closes.
-            Effect.acquireUseRelease(
-              Effect.sync(() => {
-                connections.open += 1;
-              }),
-              () => serveRpc(options, url, claims.exp),
-              () =>
-                Effect.sync(() => {
-                  connections.open -= 1;
-                }),
-            )
-          : Effect.succeed(
-              HttpServerResponse.jsonUnsafe(
-                {
-                  code: 'orchestration_protocol_incompatible',
-                  message: `Update this client to one that supports orchestration protocol ${ORCHESTRATION_PROTOCOL_VERSION}.`,
-                  orchestrationProtocolVersion: ORCHESTRATION_PROTOCOL_VERSION,
-                },
-                { status: 426 },
-              ),
-            ),
-    }),
+  if (request.method !== 'GET') return HttpServerResponse.empty({ status: 404 });
+  // The socket opens with a ticket alone, used once (`socketTickets.ts`); never with a pass.
+  const redeemed = tickets.redeem(
+    url.searchParams.get(WS_TICKET_QUERY_PARAM) ?? '',
+    yield* Clock.currentTimeMillis,
   );
+  if (redeemed === null) return yield* refuseConnection();
+  return yield* hasCompatibleOrchestrationProtocol(url)
+    ? // A connection counts from the moment it is let in until its socket closes.
+      Effect.acquireUseRelease(
+        Effect.sync(() => {
+          connections.open += 1;
+        }),
+        () => serveRpc(options, url, redeemed.passExpiresAtSeconds),
+        () =>
+          Effect.sync(() => {
+            connections.open -= 1;
+          }),
+      )
+    : Effect.succeed(
+        HttpServerResponse.jsonUnsafe(
+          {
+            code: 'orchestration_protocol_incompatible',
+            message: `Update this client to one that supports orchestration protocol ${ORCHESTRATION_PROTOCOL_VERSION}.`,
+            orchestrationProtocolVersion: ORCHESTRATION_PROTOCOL_VERSION,
+          },
+          { status: 426 },
+        ),
+      );
 });
 
 /**
@@ -760,6 +797,12 @@ export const listenHost = (
   options: HostServerOptions,
 ): Effect.Effect<HostListening, HostListenError | PassKeyInvalid, Scope.Scope> =>
   Effect.gen(function* () {
+    // A dev host's long pass never reaches a public address (`bin.ts` refuses the flags first).
+    if (options.dev === true && !isLoopback(options.host)) {
+      return yield* Effect.die(
+        new Error(`A --dev host listens only on loopback, not on ${options.host}.`),
+      );
+    }
     // The key is parsed once, before the port is bound: a key that does not parse fails the
     // start, rather than refusing every pass as it arrives.
     const key = yield* parsePassKey(options.publicKeyPem);
@@ -773,10 +816,12 @@ export const listenHost = (
       websocket: { clientTracking: false },
     }).pipe(Effect.mapError((cause) => new HostListenError({ cause })));
     const connections = { open: 0 };
-    // No request span: one would record the request's URL, and the pass travels in it. Every
-    // request runs with the pass among the redacted query parameters, so nothing that shows its
-    // URL shows the pass.
-    yield* server.serve(app(options, key, connections)).pipe(
+    const tickets = makeSocketTickets();
+    // No request span: one would record the request's URL, and the socket's ticket travels in
+    // it (`wsTicket`). Every request runs with the ticket, and the pass a client might still put
+    // there (refused), among the redacted query parameters, so nothing that shows a URL shows
+    // either.
+    yield* server.serve(app(options, key, tickets, connections)).pipe(
       Effect.provideService(HttpMiddleware.TracerDisabledWhen, () => true),
       Effect.provideService(UrlParams.CurrentRedactedNames, HOST_REDACTED_URL_PARAMS),
     );

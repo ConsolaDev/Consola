@@ -43,6 +43,13 @@
       "when": 1795421616017,
       "tag": "0005_run_approval",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1795444204237,
+      "tag": "0006_cloud_session",
+      "breakpoints": true
     }
   ]
 }

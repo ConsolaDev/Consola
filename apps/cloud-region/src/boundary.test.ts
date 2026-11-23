@@ -13,8 +13,9 @@ import { describe, expect, it } from 'vitest';
  * `application` also reach no global that touches the machine (`process`, `fetch`, timers).
  * Test files are exempt from the layer rules, since they wire real pieces together the way the
  * ring does. The cell holds no accounts, so no file, tests included, imports Better Auth. Of the
- * workspace's packages, only the contract the cell shares with `cloud-global` and the factory
- * schema every runner shares may be imported.
+ * workspace's packages, only the two contracts may be imported, the one the cell shares with
+ * `cloud-global` and the one it shares with its runners, and the factory schema every runner
+ * shares.
  */
 
 const SRC = dirname(fileURLToPath(import.meta.url));
@@ -54,7 +55,13 @@ const HTTP_LIBRARIES = ['hono', '@hono/*'];
 /** What checks a cell token's signature, which only `adapters/token` may hold. */
 const TOKEN_LIBRARIES = ['jose'];
 
-const ADAPTERS = ['adapters/persistence', 'adapters/http', 'adapters/token', 'adapters/clock'];
+const ADAPTERS = [
+  'adapters/persistence',
+  'adapters/http',
+  'adapters/token',
+  'adapters/clock',
+  'adapters/runner',
+];
 const RING = ['compose', 'main', 'startupError', 'seed'];
 
 const LAYERS: Layer[] = [
@@ -95,6 +102,14 @@ const LAYERS: Layer[] = [
     refuses: [ANY_PACKAGE],
     noGlobals: [],
   },
+  // The runners' channel and their socket, a route of its own (`hono`, `@hono/node-ws`): no
+  // database, and no token library, since the pass is signed in `adapters/token`.
+  {
+    at: 'adapters/runner',
+    reaches: ['domain', 'application', 'adapters/runner', 'config'],
+    refuses: [...DATABASE_LIBRARIES, ...TOKEN_LIBRARIES],
+    noGlobals: [],
+  },
   // A pure parser of the environment: no I/O, and nothing but `domain`, whose region it checks.
   { at: 'config', reaches: ['domain'], refuses: [NODE_BUILTINS], noGlobals: [] },
   // The composition ring, where everything meets.
@@ -107,22 +122,25 @@ const LAYERS: Layer[] = [
 ];
 
 /**
- * A workspace package any file may import, from any layer: the contract the cell shares with
- * `cloud-global` (`packages/cloud-contract`). It does no I/O, which its own boundary test proves,
- * so `domain` and `application` may import it; it and `FACTORY_SPEC` are the only packages they
- * may. Only its entry point counts: a path inside it is refused like any other workspace package.
+ * The two contracts any file may import, from any layer. `@consola/cloud-contract`
+ * (`packages/cloud-contract`) is what the cell shares with `cloud-global`, and
+ * `@consola/runner-protocol` (`packages/runner-protocol`) is what it says to its runners and they
+ * to it. Each does no I/O, which its own boundary test proves, so `domain` and `application` may
+ * import them; they and `FACTORY_SPEC` are the only packages they may. Only an entry point
+ * counts: a path inside one is refused like any other workspace package.
  */
 const CLOUD_CONTRACT = '@consola/cloud-contract';
+const RUNNER_PROTOCOL = '@consola/runner-protocol';
 
 /**
  * The factory files' schema and parser every runner shares (`packages/factory-spec`, MIT), with
  * which the cell checks the factory files it stores. It reads texts handed to it and does no I/O,
- * so it is allowed where the contract is, on the same terms: any layer, its entry point alone.
+ * so it is allowed where the contracts are, on the same terms: any layer, its entry point alone.
  */
 const FACTORY_SPEC = '@consola/factory-spec';
 
 /** The workspace packages any file may import, from any layer, by their entry point alone. */
-const SHARED_PACKAGES = [CLOUD_CONTRACT, FACTORY_SPEC];
+const SHARED_PACKAGES = [CLOUD_CONTRACT, RUNNER_PROTOCOL, FACTORY_SPEC];
 
 /**
  * What every file, tests included, may never import: another app or a workspace package but the
@@ -435,6 +453,45 @@ describe('the dependency rule', () => {
     ['config.ts', '@consola/cloud-contract', true],
     ['compose.ts', '@consola/cloud-contract', true],
     ['x.test.ts', '@consola/cloud-contract', true],
+    ['domain/x.ts', '@consola/runner-protocol', true],
+    ['application/x.ts', '@consola/runner-protocol', true],
+    ['adapters/persistence/x.ts', '@consola/runner-protocol', true],
+    ['adapters/http/x.ts', '@consola/runner-protocol', true],
+    ['adapters/runner/x.ts', '@consola/runner-protocol', true],
+    ['config.ts', '@consola/runner-protocol', true],
+    ['compose.ts', '@consola/runner-protocol', true],
+    ['x.test.ts', '@consola/runner-protocol', true],
+    ['domain/x.ts', '@consola/runner-protocol/dist/messages.js', false],
+    ['domain/x.ts', '../../../../packages/runner-protocol/src/messages.js', false],
+    ['compose.ts', '@consola/runner-protocols', false],
+    ['adapters/runner/x.ts', '../../application/ports.js', true],
+    // The runner's socket is a route of its own, so the HTTP framework and its WebSocket.
+    ['adapters/runner/x.ts', 'hono', true],
+    ['adapters/runner/x.ts', 'hono/ws', true],
+    ['adapters/runner/x.ts', '@hono/node-ws', true],
+    ['adapters/runner/x.ts', '../../config.js', true],
+    ['adapters/runner/x.ts', 'node:crypto', true],
+    ['adapters/runner/x.ts', 'drizzle-orm', false],
+    ['adapters/runner/x.ts', '@electric-sql/pglite', false],
+    ['adapters/runner/x.ts', 'jose', false],
+    ['adapters/runner/x.ts', '../http/app.js', false],
+    ['adapters/runner/x.ts', '../token/passSigner.js', false],
+    ['adapters/runner/x.ts', '../persistence/cloudSessions.js', false],
+    ['adapters/runner/x.ts', '../../compose.js', false],
+    // The pass is signed with jose, so its signer sits beside the cell token check.
+    ['adapters/token/passSigner.ts', 'jose', true],
+    ['adapters/token/passSigner.ts', '@consola/runner-protocol', true],
+    ['adapters/token/passSigner.ts', '../../config.js', true],
+    ['adapters/token/passSigner.ts', '@hono/node-ws', false],
+    ['adapters/token/passSigner.ts', '../runner/runnerSocket.js', false],
+    ['adapters/http/x.ts', '@hono/node-ws', true],
+    ['adapters/http/x.ts', '../runner/runnerSocket.js', false],
+    ['adapters/http/x.ts', '../token/passSigner.js', false],
+    ['adapters/persistence/x.ts', '@hono/node-ws', false],
+    ['compose.ts', './adapters/runner/runnerSocket.js', true],
+    ['compose.ts', './adapters/token/passSigner.js', true],
+    ['adapters/http/x.ts', '../runner/noRunner.js', false],
+    ['adapters/persistence/x.ts', 'node:crypto', true],
     ['domain/x.ts', '@consola/cloud-contract/dist/region.js', false],
     ['compose.ts', '@consola/cloud-contracts', false],
     ['domain/x.ts', '../../../../packages/cloud-contract/src/region.js', false],
@@ -454,6 +511,7 @@ describe('the dependency rule', () => {
   it('the checker refuses every workspace package but the shared ones, wherever it is imported', () => {
     const packages = workspacePackages();
     expect(packages).toContain(CLOUD_CONTRACT);
+    expect(packages).toContain(RUNNER_PROTOCOL);
     expect(packages).toContain(FACTORY_SPEC);
     expect(packages).toContain('@consola/cloud-region');
     expect(packages.length).toBeGreaterThan(5);

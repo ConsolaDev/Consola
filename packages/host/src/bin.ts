@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 // @effect-diagnostics nodeBuiltinImport:off - The wiring reads the command line, the key file and the folders it is given.
 /**
  * `consola-host session`: runs one Consola session's thread and serves it to t3's chat UI.
@@ -8,13 +7,19 @@
  *     --pass-public-key <PEM file> | --dev
  *     [--idle-minutes <n, default 10>] [--state-dir <dir>]
  *
+ * `consola-host runner` (below, and `AGENTS.md`): connects to a regional cell and runs each
+ * session it is asked for in a sandbox of its own, where the session command runs.
+ *
+ *   consola-host runner --cell-url <wss://…/api/runner> --runner-id <id>
+ *     [--idle-minutes <n, default 10>] [--max-session-minutes <n, default 480>]
+ *
  * It prints JSON lines on stdout and nothing else (`HostLine`, `adapters/stdoutEvents.ts`): Track
  * B's runner starts it in a sandbox and reads them. t3's logs and every error go to stderr. It
  * exits 0 after `{"type":"exit","reason":"idle"}`, or on SIGTERM or SIGINT once the session has
  * stopped; 1, with a message on stderr and nothing on stdout, when it cannot start.
  *
- * This is the host's only wiring: `runSession` takes the runtime as a parameter, and the entry at
- * the bottom passes the production one. A test entry (`testing/replaySession.ts`) runs the same
+ * This is the host's only wiring: `runSession` takes the runtime as a parameter, and `main`
+ * (which the bin, `main.ts`, calls) passes the production one. A test entry (`testing/replaySession.ts`) runs the same
  * command over a replaying runtime; nothing here can reach a test seam.
  */
 import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
@@ -24,6 +29,7 @@ import { parseArgs } from 'node:util';
 import * as NodeRuntime from '@effect/platform-node/NodeRuntime';
 import * as Cause from 'effect/Cause';
 import * as Clock from 'effect/Clock';
+import * as Context from 'effect/Context';
 import * as Duration from 'effect/Duration';
 import * as Effect from 'effect/Effect';
 import * as Exit from 'effect/Exit';
@@ -31,11 +37,25 @@ import * as Fiber from 'effect/Fiber';
 import type * as Layer from 'effect/Layer';
 import * as Logger from 'effect/Logger';
 import * as Schema from 'effect/Schema';
+import { type SandboxProvider, sandboxesFrom } from '@consola/sandbox';
+import { makeCellSocket } from './adapters/cellSocket.ts';
 import { type DevAccess, makeDevAccess } from './adapters/devPass.ts';
 import { PassKeyInvalid, parsePassKey } from './adapters/passVerifier.ts';
 import { type HostListening, listenHost } from './adapters/rpcServer.ts';
+import { makeSandboxSessions } from './adapters/sandboxSessions.ts';
 import { reportSession, sessionStatusOf, writeHostLine } from './adapters/stdoutEvents.ts';
+import { isLoopback } from './core/bind.ts';
 import { isIdle } from './core/idle.ts';
+import {
+  cellUrlProblem,
+  HARNESS_API_KEYS,
+  harnessesFromEnv,
+  type RunnerOffer,
+  readRepositories,
+  type SandboxSecrets,
+  scrubSecrets,
+  secretValuesOf,
+} from './core/runnerDecisions.ts';
 import type { SessionSpec } from './core/sessionSpec.ts';
 import * as ThreadRuntime from './runtime/threadRuntime.ts';
 
@@ -43,15 +63,11 @@ export const DEFAULT_PORT = 7420;
 /** Only this machine, unless the caller asks for more: the host never binds wider by itself. */
 export const DEFAULT_BIND = '127.0.0.1';
 
-/**
- * Whether `bind` names this machine's loopback only: `localhost`, `::1` or an address in
- * `127.0.0.0/8`. A `--dev` host lets anyone holding the pass it prints in, so it listens nowhere
- * else.
- */
-export const isLoopback = (bind: string): boolean =>
-  bind === 'localhost' || bind === '::1' || /^127(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/.test(bind);
 /** Spec §8.2: a session stops after ten minutes without a turn or a connected client. */
 export const DEFAULT_IDLE_MINUTES = 10;
+/** The longest a runner lets a session's sandbox run, whatever it does: eight hours. */
+export const DEFAULT_MAX_SESSION_MINUTES = 480;
+
 /** The session a `--dev` host serves when no `--session-id` is given. */
 export const DEV_SESSION_ID = 'dev-session';
 
@@ -70,7 +86,13 @@ const USAGE = `Usage:
     [--idle-minutes <n, default ${DEFAULT_IDLE_MINUTES}>] [--state-dir <dir, default a temporary one>]
 
   --dev makes a key pair in memory, ignores --pass-public-key, defaults --session-id to
-  ${DEV_SESSION_ID}, and prints a pass for the session after "ready".`;
+  ${DEV_SESSION_ID}, and prints a pass for the session after "ready".
+
+  consola-host runner --cell-url <wss://…/api/runner, or ws: to loopback> --runner-id <id>
+    [--idle-minutes <n, default ${DEFAULT_IDLE_MINUTES}>] [--max-session-minutes <n, default ${DEFAULT_MAX_SESSION_MINUTES}>]
+
+  It reads CONSOLA_RUNNER_SECRET, CONSOLA_RUNNER_REPOSITORIES (owner/name, comma-separated),
+  GIT_TOKEN, ANTHROPIC_API_KEY (offers claude) and OPENAI_API_KEY (offers codex).`;
 
 /** The command line did not say what to run. `problem` names what is wrong, never a secret. */
 export class UsageError extends Schema.TaggedError<UsageError>()('UsageError', {
@@ -139,8 +161,8 @@ export const parseSessionArgs = (
     if (command !== 'session') {
       return yield* refuse(
         command === undefined
-          ? 'Name the command: consola-host session.'
-          : `Unknown command ${command}; the command is session.`,
+          ? 'Name the command: consola-host session, or consola-host runner.'
+          : `Unknown command ${command}; the command is session or runner.`,
       );
     }
     if (extra.length > 0) return yield* refuse(`Unexpected argument ${extra.join(' ')}.`);
@@ -243,7 +265,7 @@ export const folderWarning = (cwd: string): string =>
   `refs (refs/t3/orchestration-v2/checkpoints) and objects into its git repository.`;
 
 /** A state folder of the session's own, removed when the session stops. */
-const temporaryStateDir = Effect.acquireRelease(
+export const temporaryStateDir = Effect.acquireRelease(
   Effect.sync(() => mkdtempSync(join(tmpdir(), 'consola-host-state-'))),
   (stateDir) => Effect.sync(() => rmSync(stateDir, { recursive: true, force: true })),
 );
@@ -279,6 +301,22 @@ const untilIdle = (
     }
   });
 
+/**
+ * What the program does as it begins to stop, whatever stops it (a signal, a replacement, a
+ * failure). Under `runHostProcess` it arms the forced exit, `SHUTDOWN_GRACE` later, so stopping
+ * that hangs (a sandbox's provider, say) cannot keep the process alive; anywhere else (a test
+ * running the program in its own process) it does nothing.
+ */
+export const HostStopping = Context.Reference<Effect.Effect<void>>('@consola/host/HostStopping', {
+  defaultValue: () => Effect.void,
+});
+
+/** Arms what the program does as it begins to stop (`HostStopping`). */
+const beginStopping = Effect.gen(function* () {
+  const stopping = yield* HostStopping;
+  yield* stopping;
+});
+
 /** Builds the session's runtime over its state folder: `ThreadRuntime.layer` in production. */
 export type RuntimeFor = (
   options: ThreadRuntime.ThreadRuntimeOptions,
@@ -288,12 +326,15 @@ export type RuntimeFor = (
  * Runs one session until it is idle: opens its thread on `runtimeFor`'s runtime, serves it, prints
  * `ready` (and, with `--dev`, the pass), then `title` and `status` lines as they change, and
  * `exit` when it is idle. Everything it starts (the server, the thread, the provider session and
- * the CLI it runs) stops when it returns or is interrupted.
+ * the CLI it runs) stops when it returns or is interrupted, `HostStopping` first.
  */
 export const runSession = (
   args: SessionArgs,
   runtimeFor: RuntimeFor,
-): Effect.Effect<void, StartFailed | PassKeyInvalid | ThreadRuntime.ThreadRuntimeError> =>
+): Effect.Effect<
+  void,
+  StartFailed | PassKeyInvalid | ThreadRuntime.ThreadRuntimeError | ThreadRuntime.ThreadStreamEnded
+> =>
   Effect.gen(function* () {
     const cellKey =
       args.access.type === 'key' ? yield* readPassKey(args.access.publicKeyFile) : null;
@@ -310,6 +351,7 @@ export const runSession = (
       host: args.bind,
       sessionId: args.spec.sessionId,
       publicKeyPem: access.publicKeyPem,
+      dev: access.devPass !== null,
       runtime: handle,
     }).pipe(
       Effect.catchTag('HostListenError', (error) =>
@@ -321,6 +363,8 @@ export const runSession = (
       ),
     );
 
+    // What `ready` says, read before it is written: a retitle after it is the report's to say.
+    const said = { status: 'idle' as const, title: handle.snapshot().thread.title };
     yield* writeHostLine({ type: 'ready', port: listening.port });
     if (access.devPass !== null) {
       yield* writeHostLine({
@@ -329,11 +373,17 @@ export const runSession = (
         expiresInSeconds: access.devPass.expiresInSeconds,
       });
     }
-    const reporting = yield* reportSession(handle, writeHostLine).pipe(Effect.forkScoped);
-    yield* untilIdle(handle, listening, args.idleMinutes);
+    const reporting = yield* reportSession(handle, writeHostLine, said).pipe(Effect.forkScoped);
+    // Idle, or a thread whose snapshot would go stale (`ended`): the session fails, exit 1.
+    yield* Effect.raceFirst(untilIdle(handle, listening, args.idleMinutes), handle.ended);
     yield* Fiber.interrupt(reporting);
     yield* writeHostLine({ type: 'exit', reason: 'idle' });
-  }).pipe(Effect.scoped);
+  }).pipe(
+    // However the session ends (idle, a failure, a signal), the forced exit is armed before
+    // anything it started is closed, so a stop that hangs cannot keep the process alive.
+    Effect.onExit(() => beginStopping),
+    Effect.scoped,
+  );
 
 /** `consola-host session …`: `argv` parsed, then the session run over `runtimeFor`. */
 export const sessionCommand = (
@@ -341,34 +391,273 @@ export const sessionCommand = (
   runtimeFor: RuntimeFor,
 ): Effect.Effect<
   void,
-  UsageError | StartFailed | PassKeyInvalid | ThreadRuntime.ThreadRuntimeError
+  | UsageError
+  | StartFailed
+  | PassKeyInvalid
+  | ThreadRuntime.ThreadRuntimeError
+  | ThreadRuntime.ThreadStreamEnded
 > => parseSessionArgs(argv).pipe(Effect.flatMap((args) => runSession(args, runtimeFor)));
 
-/** How long the session may take to stop after a signal before the host gives up on it. */
+/** What `consola-host runner` was asked to run: its flags, and what it read of its environment. */
+export type RunnerArgs = {
+  /** The cell's runner socket, checked by `cellUrlProblem`. */
+  readonly cellUrl: string;
+  readonly runnerId: string;
+  /** `CONSOLA_RUNNER_SECRET`, sent in the socket's upgrade only. */
+  readonly secret: string;
+  /** The repositories it offers and the harnesses its API keys offer. */
+  readonly offer: RunnerOffer;
+  /** What a sandbox is given: the git token and its harness's key. */
+  readonly secrets: SandboxSecrets;
+  /** The values of `RUNNER_SECRET_VARIABLES`, taken out of whatever it reports or logs. */
+  readonly secretValues: ReadonlyArray<string>;
+  /** A session host's idle minutes. */
+  readonly idleMinutes: number;
+  /** The lifetime cap of a session's sandbox, in minutes. */
+  readonly maxSessionMinutes: number;
+};
+
+/** The runner's environment, as `process.env` holds it. */
+export type RunnerEnv = Readonly<Record<string, string | undefined>>;
+
+/** Printable ASCII with no space, as the cell asks of `RUNNER_SECRET`: it goes in a header. */
+const isHeaderSafe = (value: string): boolean => /^[\x21-\x7e]+$/.test(value);
+
+const positiveMinutes = (value: string | undefined, fallback: number): number | null => {
+  const minutes = Number(value ?? fallback);
+  return Number.isFinite(minutes) && minutes > 0 ? minutes : null;
+};
+
+/**
+ * Reads `runner`, its flags (`argv` without node and the script) and its environment. A flag that
+ * is wrong is a `UsageError`; a variable that is missing or wrong a `StartFailed`. Neither ever
+ * quotes a secret.
+ */
+export const parseRunnerArgs = (
+  argv: ReadonlyArray<string>,
+  env: RunnerEnv,
+): Effect.Effect<RunnerArgs, UsageError | StartFailed> =>
+  Effect.gen(function* () {
+    const refuse = (problem: string) => Effect.fail(new UsageError({ problem }));
+    const startFails = (problem: string) => Effect.fail(new StartFailed({ problem }));
+    const parsed = yield* Effect.try({
+      try: () =>
+        parseArgs({
+          args: [...argv],
+          strict: true,
+          allowPositionals: true,
+          options: {
+            'cell-url': { type: 'string' },
+            'runner-id': { type: 'string' },
+            'idle-minutes': { type: 'string' },
+            'max-session-minutes': { type: 'string' },
+          },
+        }),
+      catch: (error) =>
+        new UsageError({ problem: error instanceof Error ? error.message : String(error) }),
+    });
+    const [command, ...extra] = parsed.positionals;
+    if (command !== 'runner') return yield* refuse('The command is runner.');
+    if (extra.length > 0) return yield* refuse(`Unexpected argument ${extra.join(' ')}.`);
+    const values = parsed.values;
+    const cellUrl = values['cell-url'];
+    if (cellUrl === undefined || cellUrl === '') return yield* refuse('--cell-url is required.');
+    const urlProblem = cellUrlProblem(cellUrl);
+    if (urlProblem !== null) return yield* refuse(urlProblem);
+    const runnerId = values['runner-id'];
+    if (runnerId === undefined || runnerId === '') return yield* refuse('--runner-id is required.');
+    const idleMinutes = positiveMinutes(values['idle-minutes'], DEFAULT_IDLE_MINUTES);
+    if (idleMinutes === null) {
+      return yield* refuse('--idle-minutes must be a number of minutes above 0.');
+    }
+    const maxSessionMinutes = positiveMinutes(
+      values['max-session-minutes'],
+      DEFAULT_MAX_SESSION_MINUTES,
+    );
+    if (maxSessionMinutes === null) {
+      return yield* refuse('--max-session-minutes must be a number of minutes above 0.');
+    }
+
+    const secret = env.CONSOLA_RUNNER_SECRET ?? '';
+    if (secret === '') {
+      return yield* startFails(
+        'CONSOLA_RUNNER_SECRET is not set: the runner connects to its cell with it.',
+      );
+    }
+    if (!isHeaderSafe(secret)) {
+      return yield* startFails('CONSOLA_RUNNER_SECRET must be printable characters with no space.');
+    }
+    const repositories = readRepositories(env.CONSOLA_RUNNER_REPOSITORIES);
+    if (!repositories.ok) return yield* startFails(repositories.problem);
+    const harnesses = harnessesFromEnv(env);
+    if (harnesses.length === 0) {
+      return yield* startFails(
+        `The runner offers no harness: set ${HARNESS_API_KEYS.claude} (claude) or ${HARNESS_API_KEYS.codex} (codex).`,
+      );
+    }
+    const gitToken = env.GIT_TOKEN === '' ? undefined : env.GIT_TOKEN;
+    const apiKeys = {
+      ...(env.ANTHROPIC_API_KEY ? { claude: env.ANTHROPIC_API_KEY } : {}),
+      ...(env.OPENAI_API_KEY ? { codex: env.OPENAI_API_KEY } : {}),
+    };
+    const args: RunnerArgs = {
+      cellUrl,
+      runnerId,
+      secret,
+      offer: { repositories: repositories.repositories, harnesses },
+      secrets: { gitToken, apiKeys },
+      secretValues: secretValuesOf(env),
+      idleMinutes,
+      maxSessionMinutes,
+    };
+    return args;
+  });
+
+/** Another runner with this one's secret said hello to the cell, which closed this one's socket. */
+export class RunnerReplaced extends Schema.TaggedError<RunnerReplaced>()('RunnerReplaced', {
+  problem: Schema.String,
+}) {
+  override get message(): string {
+    return this.problem;
+  }
+}
+
+/**
+ * The sandbox provider a runner starts its sessions on, from its environment, or null when none
+ * is configured. Production has none yet: the runner does not wire E2B (`@consola/sandbox/e2b`, from
+ * `E2B_API_KEY`) until the session template lands (CON-93). A runner with none fails at start, and
+ * never falls back to a fake.
+ */
+export type ProviderFor = (env: RunnerEnv) => SandboxProvider | null;
+
+/** Production's providers: none yet (E2B, from `E2B_API_KEY`, is wired with CON-93). */
+export const productionProvider: ProviderFor = () => null;
+
+/**
+ * Runs the runner until it is stopped: its sessions (`makeSandboxSessions`) and its socket to the
+ * cell (`makeCellSocket`), the cell's messages handed to the sessions. On SIGTERM, or once another
+ * runner replaced it, every sandbox is stopped and its end told to the cell while the socket is
+ * still open; then the socket closes. However it stops, `HostStopping` comes first. It logs to
+ * stderr, scrubbed of its secrets, and never its environment; stdout stays empty.
+ */
+export const runRunner = (
+  args: RunnerArgs,
+  provider: SandboxProvider,
+): Effect.Effect<void, RunnerReplaced> =>
+  Effect.gen(function* () {
+    const log = (message: string) =>
+      Effect.sync(() => {
+        process.stderr.write(`consola-host runner: ${scrubSecrets(message, args.secretValues)}\n`);
+      });
+    const { socket, sessions } = yield* Effect.acquireRelease(
+      Effect.gen(function* () {
+        const socket = yield* makeCellSocket({
+          url: args.cellUrl,
+          secret: args.secret,
+          runnerId: args.runnerId,
+          offer: args.offer,
+          log,
+        });
+        const sessions = yield* makeSandboxSessions({
+          sandboxes: sandboxesFrom(provider),
+          offer: args.offer,
+          secrets: args.secrets,
+          secretValues: args.secretValues,
+          idleMinutes: args.idleMinutes,
+          maxLifetime: Duration.minutes(args.maxSessionMinutes),
+          report: socket.send,
+          log,
+        });
+        return { socket, sessions };
+      }),
+      // Every sandbox first, its end said on the open socket; the socket last.
+      ({ socket, sessions }) => sessions.stopAll.pipe(Effect.andThen(socket.close)),
+    );
+    // Added last, so the first to run as the scope closes: the forced exit is armed before any
+    // sandbox is asked to stop, on a replacement or a failure as on a signal.
+    const stopping = yield* HostStopping;
+    yield* Effect.addFinalizer(() => stopping);
+    yield* log(
+      `runner ${args.runnerId} offers ${args.offer.repositories.join(', ')} with ${args.offer.harnesses.join(', ')}; dialling ${args.cellUrl}`,
+    );
+    yield* socket.connect({
+      live: sessions.liveNow,
+      onMessage: (message) =>
+        message.type === 'session.start'
+          ? sessions.start(message)
+          : // A stop waits for the sandbox; the socket's next message does not.
+            sessions.stop(message.sessionId).pipe(Effect.forkDetach, Effect.asVoid),
+    });
+    yield* socket.replaced;
+    return yield* new RunnerReplaced({
+      problem:
+        'Another runner connected to the cell with this secret and replaced this one, which has stopped its sandboxes. Run one runner per secret.',
+    });
+  }).pipe(Effect.scoped);
+
+/**
+ * `consola-host runner …`: `argv` and `env` read, a provider from `providerFor`, then the runner
+ * run on it. No provider is a start failure.
+ */
+export const runnerCommand = (
+  argv: ReadonlyArray<string>,
+  env: RunnerEnv,
+  providerFor: ProviderFor,
+): Effect.Effect<void, UsageError | StartFailed | RunnerReplaced> =>
+  Effect.gen(function* () {
+    const args = yield* parseRunnerArgs(argv, env);
+    const provider = providerFor(env);
+    if (provider === null) {
+      return yield* new StartFailed({
+        problem:
+          'No sandbox provider is configured, so the runner has nowhere to start sessions (this runner does not wire E2B yet).',
+      });
+    }
+    return yield* runRunner(args, provider);
+  });
+
+/** Whether `argv` asks for the runner rather than a session: its command comes first. */
+export const isRunnerCommand = (argv: ReadonlyArray<string>): boolean => argv[0] === 'runner';
+
+/** How long the session (or the runner) may take to stop after a signal before the host gives up. */
 const SHUTDOWN_GRACE = Duration.seconds(15);
 
 /** What stderr says when the host stops on a failure. */
 const describeFailure = (cause: Cause.Cause<unknown>): string => {
   const error = Cause.squash(cause);
   if (Schema.is(UsageError)(error)) return `${error.message}\n\n${USAGE}`;
-  if (Schema.is(StartFailed)(error) || Schema.is(PassKeyInvalid)(error)) return error.message;
+  if (
+    Schema.is(StartFailed)(error) ||
+    Schema.is(PassKeyInvalid)(error) ||
+    Schema.is(RunnerReplaced)(error) ||
+    Schema.is(ThreadRuntime.ThreadStreamEnded)(error)
+  ) {
+    return error.message;
+  }
   return Cause.pretty(cause);
 };
 
 /**
  * Runs `program` as the host's process. Every Effect log goes to stderr. SIGTERM and SIGINT
- * interrupt it, which stops everything it started; then the process exits 0 (1, with a message,
- * if stopping takes longer than `SHUTDOWN_GRACE`). It exits 0 when `program` ends, and 1 with
- * a message on stderr when it fails.
+ * interrupt it, which stops everything it started; then the process exits 0. It exits 0 when
+ * `program` ends, and 1 with a message on stderr when it fails. Stopping, from a signal or once
+ * `program` says it began to stop (`HostStopping`), may take `SHUTDOWN_GRACE`: past it the process
+ * exits 1, saying the session (or runner) did not stop in time.
  */
-export const runHostProcess = <E>(program: Effect.Effect<void, E>): void => {
+export const runHostProcess = <E>(
+  program: Effect.Effect<void, E>,
+  what: 'session' | 'runner' = 'session',
+): void => {
+  let armed = false;
   // The process exits from `teardown` either way, so this timer never keeps it alive.
-  const onSignal = () => {
+  const armForcedExit = () => {
+    if (armed) return;
+    armed = true;
     Effect.runFork(
       Effect.sleep(SHUTDOWN_GRACE).pipe(
         Effect.andThen(
           Effect.sync(() =>
-            process.stderr.write('consola-host: the session did not stop in time.\n', () =>
+            process.stderr.write(`consola-host: the ${what} did not stop in time.\n`, () =>
               process.exit(1),
             ),
           ),
@@ -376,20 +665,37 @@ export const runHostProcess = <E>(program: Effect.Effect<void, E>): void => {
       ),
     );
   };
-  process.once('SIGTERM', onSignal);
-  process.once('SIGINT', onSignal);
-  NodeRuntime.runMain(program.pipe(Effect.provideService(Logger.LogToStderr, true)), {
-    disableErrorReporting: true,
-    teardown: (exit) => {
-      if (Exit.isSuccess(exit) || Cause.hasInterruptsOnly(exit.cause)) {
-        process.exit(0);
-        return;
-      }
-      process.stderr.write(`consola-host: ${describeFailure(exit.cause)}\n`, () => process.exit(1));
+  process.once('SIGTERM', armForcedExit);
+  process.once('SIGINT', armForcedExit);
+  NodeRuntime.runMain(
+    program.pipe(
+      Effect.provideService(Logger.LogToStderr, true),
+      Effect.provideService(HostStopping, Effect.sync(armForcedExit)),
+    ),
+    {
+      disableErrorReporting: true,
+      teardown: (exit) => {
+        if (Exit.isSuccess(exit) || Cause.hasInterruptsOnly(exit.cause)) {
+          process.exit(0);
+          return;
+        }
+        process.stderr.write(`consola-host: ${describeFailure(exit.cause)}\n`, () =>
+          process.exit(1),
+        );
+      },
     },
-  });
+  );
 };
 
-if (import.meta.main) {
-  runHostProcess(sessionCommand(process.argv.slice(2), ThreadRuntime.layer));
-}
+/**
+ * The host's process for `argv`: the runner, or a session on the production runtime. `main.ts`,
+ * the bin, calls it once it has loaded this module, its early signal handlers swapped for
+ * `runHostProcess`'s.
+ */
+export const main = (argv: ReadonlyArray<string>): void => {
+  if (isRunnerCommand(argv)) {
+    runHostProcess(runnerCommand(argv, process.env, productionProvider), 'runner');
+  } else {
+    runHostProcess(sessionCommand(argv, ThreadRuntime.layer));
+  }
+};

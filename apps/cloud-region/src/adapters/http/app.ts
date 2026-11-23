@@ -1,9 +1,11 @@
 import { OpenAPIHono } from '@hono/zod-openapi';
+import type { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { checkHealth } from '../../application/health.js';
 import { describeMe } from '../../application/me.js';
 import type {
   Clock,
+  CloudSessionPorts,
   DeliveryVerifier,
   FactoryStore,
   GitHubEventStore,
@@ -15,6 +17,7 @@ import type {
 } from '../../application/ports.js';
 import type { Region } from '../../domain/region.js';
 import { type CellEnv, requireCaller } from './caller.js';
+import { cloudSessionRoutes } from './cloudSessions.js';
 import { getHealth, getMe } from './contract.js';
 import { factoryRoutes } from './factories.js';
 import { gitHubEventRoutes } from './gitHubEvents.js';
@@ -44,7 +47,9 @@ const DOCUMENT = {
  * Three routes answer without a cell token: `GET /api/health`, for whatever probes cells,
  * `POST OUTBOX_DELIVERY_PATH`, where `cloud-global` delivers its outbox, and
  * `POST GITHUB_EVENT_DELIVERY_PATH`, where it passes on GitHub's webhook events, each delivery
- * signed with the cell token's key. Every other request, an unknown path included, must carry a token
+ * signed with the cell token's key. `GET /api/runner`, the runner's socket, answers without one
+ * too, behind the runner's own secret (`runner`, built by `adapters/runner` and handed over by
+ * `compose.ts`). Every other request, an unknown path included, must carry a token
  * (`requireCaller`), so a route added below the check gets the caller and nothing else, and none
  * takes a workspace id from the request. `report` hears what the cell logs about deliveries.
  *
@@ -65,6 +70,9 @@ export function createApp(deps: {
   factories: FactoryStore;
   runs: RunStore;
   clock: Clock;
+  cloudSessions: CloudSessionPorts;
+  /** The runner's socket route, which checks the runner's secret itself. */
+  runner: Hono;
   report?: (line: string) => void;
 }): OpenAPIHono<CellEnv> {
   const {
@@ -79,10 +87,48 @@ export function createApp(deps: {
     factories,
     runs,
     clock,
+    cloudSessions,
   } = deps;
   const report = deps.report ?? ((line: string) => console.error(line));
-  // A body of the wrong shape is 400 `invalid_request`, never the validator's own answer, which
-  // is not in the contract.
+  const app = createRouter();
+
+  // Open, for whatever probes cells. The region says which cell answered, so whatever routes to
+  // cells can check it reached the one it meant. It says nothing a workspace holds.
+  app.openapi(getHealth, async (c) => {
+    if (await checkHealth(health)) return c.json({ ok: true, region } as const, 200);
+    return c.json({ ok: false, region } as const, 503);
+  });
+
+  // No token, since no person sends it: its signature is checked instead (`outboxRoutes`).
+  app.route('/', outboxRoutes({ region, deliveries, workspaceCopies, report }));
+  app.route('/', gitHubEventRoutes({ region, events, gitHubEvents, report }));
+
+  // No token either: a runner is no person, and presents its secret instead.
+  app.route('/', deps.runner);
+
+  // Everything registered from here on is behind the check.
+  app.use('*', requireCaller({ region, tokens, clock }));
+
+  // Who is asking, as this cell sees them.
+  app.openapi(getMe, (c) => c.json(describeMe(c.var.caller), 200));
+
+  teamRoutes(app, teams);
+  factoryRoutes(app, teams, factories);
+  runRoutes(app, teams, factories, runs);
+
+  cloudSessionRoutes(app, cloudSessions);
+
+  return app;
+}
+
+/**
+ * An empty `OpenAPIHono` that answers a request's body as every route of the cell does: one of
+ * the wrong shape is 400 `invalid_request`, never the validator's own answer, which is not in the
+ * contract; one that is not JSON 400 too, and one without a JSON content type 415
+ * `unsupported_media_type`. `createApp` builds on it, and so does a test that mounts one set of
+ * routes alone.
+ */
+export function createRouter(): OpenAPIHono<CellEnv> {
   const app = new OpenAPIHono<CellEnv>({
     defaultHook: (result, c) =>
       result.success ? undefined : c.json({ error: 'invalid_request' } as const, 400),
@@ -100,28 +146,6 @@ export function createApp(deps: {
     console.error(error);
     return c.text('Internal Server Error', 500);
   });
-
-  // Open, for whatever probes cells. The region says which cell answered, so whatever routes to
-  // cells can check it reached the one it meant. It says nothing a workspace holds.
-  app.openapi(getHealth, async (c) => {
-    if (await checkHealth(health)) return c.json({ ok: true, region } as const, 200);
-    return c.json({ ok: false, region } as const, 503);
-  });
-
-  // No token, since no person sends it: its signature is checked instead (`outboxRoutes`).
-  app.route('/', outboxRoutes({ region, deliveries, workspaceCopies, report }));
-  app.route('/', gitHubEventRoutes({ region, events, gitHubEvents, report }));
-
-  // Everything registered from here on is behind the check.
-  app.use('*', requireCaller({ region, tokens, clock }));
-
-  // Who is asking, as this cell sees them.
-  app.openapi(getMe, (c) => c.json(describeMe(c.var.caller), 200));
-
-  teamRoutes(app, teams);
-  factoryRoutes(app, teams, factories);
-  runRoutes(app, teams, factories, runs);
-
   return app;
 }
 

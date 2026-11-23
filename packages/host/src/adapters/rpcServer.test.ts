@@ -1,14 +1,22 @@
 // @effect-diagnostics nodeBuiltinImport:off - Each test makes its own pass keys with node:crypto.
 import { generateKeyPairSync, type KeyObject } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { connect } from 'node:net';
 import {
   CommandId,
   type ModelSelection,
+  ORCHESTRATION_PROTOCOL_HEADER,
+  ORCHESTRATION_PROTOCOL_VERSION_TEXT,
   ORCHESTRATION_V2_WS_METHODS,
   type OrchestrationV2Command,
+  type OrchestrationV2ShellStreamItem,
+  type OrchestrationV2SubscribeShellInput,
   type OrchestrationV2ThreadStreamItem,
+  ProviderInstanceId,
   RunId,
+  serverProviderDeltas,
   ThreadId,
+  TurnItemId,
   WS_METHODS,
 } from '@t3tools/contracts';
 import * as Cause from 'effect/Cause';
@@ -16,8 +24,9 @@ import * as Clock from 'effect/Clock';
 import * as Duration from 'effect/Duration';
 import * as Effect from 'effect/Effect';
 import * as Exit from 'effect/Exit';
+import * as Option from 'effect/Option';
 import * as Queue from 'effect/Queue';
-import type * as Scope from 'effect/Scope';
+import * as Scope from 'effect/Scope';
 import * as Tracer from 'effect/Tracer';
 import * as Stream from 'effect/Stream';
 import * as FetchHttpClient from 'effect/http/FetchHttpClient';
@@ -30,6 +39,12 @@ import {
   resolveRemoteWebSocketConnectionUrl,
 } from '@t3tools/client-runtime/authorization';
 import { fetchRemoteEnvironmentDescriptor } from '@t3tools/client-runtime/environment';
+import {
+  executeEnvironmentHttpRequest,
+  makeEnvironmentHttpApiGroupClient,
+} from '@t3tools/client-runtime/rpc';
+import { boundedSnapshotProjection } from '@t3tools/shared/orchestrationV2BoundedSnapshot';
+import { PASS_AUDIENCE, PASS_MAX_LIFETIME_SECONDS, PASS_TYPE } from '@consola/runner-protocol';
 import { decodeJwt, SignJWT } from 'jose';
 import { userFacingDispatchErrorMessage } from 't3/orchestration-v2/UserFacingErrors.ts';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vite-plus/test';
@@ -40,6 +55,7 @@ import { isolateMachine } from '../testing/machine.ts';
 import {
   loadReplay,
   REPLAY_TIMEOUT_MS,
+  REPLAY_TITLE,
   replayClaudeDriver,
   sendMessage,
   sessionSpec,
@@ -47,16 +63,28 @@ import {
   waitForSnapshot,
   withState,
 } from '../testing/replay.ts';
-import { connectT3Client, hostSocketUrl, type T3Client } from '../testing/t3Client.ts';
+import { signCellPass } from '../testing/cellPass.ts';
+import {
+  askHostTicket,
+  connectHost,
+  connectT3Client,
+  hostSocketUrl,
+  issueHostTicket,
+  type T3Client,
+} from '../testing/t3Client.ts';
 import { SOCKET_FRAME_PARTS_QUERY_PARAM } from '@t3tools/shared/socketFrameParts';
 import { HOST_SCOPES } from './hostHttp.ts';
 import { PassKeyInvalid } from './passVerifier.ts';
+import { TICKET_LIFETIME_MS } from './socketTickets.ts';
 import {
   HOST_REDACTED_URL_PARAMS,
   listenHost,
   NOT_OFFERED_BY_HOST,
   SERVED_METHODS,
+  GENERIC_SERVER_VERSION,
+  hostEnvironment,
   T3_SERVER_VERSION,
+  withProviderStatusDeltas,
 } from './rpcServer.ts';
 
 /** Every test runs on a machine of its own, with fake CLIs (`../testing/machine.ts`). */
@@ -100,19 +128,34 @@ const makeKeys = (): Keys => {
   return { publicKeyPem: publicKey.export({ type: 'spki', format: 'pem' }).toString(), privateKey };
 };
 
-/** A pass for `sessionId`, valid for ten minutes (or `lifetimeSeconds`), as the cell signs one. */
-const signPass = Effect.fn('signPass')(function* (
-  keys: Keys,
-  sessionId: string,
-  lifetimeSeconds = 600,
-) {
+/** A pass for `sessionId` as the cell signs one, for the protocol's longest (or `lifetimeSeconds`). */
+const signPass = (keys: Keys, sessionId: string, lifetimeSeconds?: number) =>
+  signCellPass(keys.privateKey, sessionId, lifetimeSeconds);
+
+/**
+ * Passes signed by the cell's key that break the protocol's contract one way each: another
+ * audience, no `typ`, and a lifetime one second over `PASS_MAX_LIFETIME_SECONDS`.
+ */
+const offContractPasses = Effect.fn('offContractPasses')(function* (keys: Keys, sessionId: string) {
   const now = Math.floor((yield* Clock.currentTimeMillis) / 1000);
-  return yield* Effect.promise(() =>
-    new SignJWT({ sub: 'person-acme-1', ws: 'workspace-sprocket', sid: sessionId })
-      .setProtectedHeader({ alg: 'EdDSA', typ: 'JWT' })
+  const claims = {
+    aud: PASS_AUDIENCE,
+    sub: 'person-acme-1',
+    ws: 'workspace-sprocket',
+    sid: sessionId,
+  };
+  const sign = (payload: Record<string, unknown>, typ: string | null, lifetime: number) =>
+    new SignJWT(payload)
+      .setProtectedHeader(typ === null ? { alg: 'EdDSA' } : { alg: 'EdDSA', typ })
       .setIssuedAt(now)
-      .setExpirationTime(now + lifetimeSeconds)
-      .sign(keys.privateKey),
+      .setExpirationTime(now + lifetime)
+      .sign(keys.privateKey);
+  return yield* Effect.promise(() =>
+    Promise.all([
+      sign({ ...claims, aud: 'consola-cell' }, PASS_TYPE, 60),
+      sign(claims, null, 60),
+      sign(claims, PASS_TYPE, PASS_MAX_LIFETIME_SECONDS + 1),
+    ]),
   );
 });
 
@@ -137,6 +180,21 @@ const openedSocketAt = Effect.fn('openedSocketAt')(function* (url: string) {
   const closedAt = yield* Clock.currentTimeMillis;
   return { openedAt, closedAt, code: event.code, reason: event.reason };
 });
+
+/** The status line a host on this machine answers `requestLine` with, sent as it is. */
+const statusLineFor = (port: number, requestLine: string) =>
+  Effect.callback<string>((resume) => {
+    const socket = connect(port, '127.0.0.1', () => {
+      socket.write(`${requestLine}\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n`);
+    });
+    let answer = '';
+    socket.setEncoding('utf8');
+    socket.on('data', (chunk: string) => {
+      answer += chunk;
+    });
+    socket.on('close', () => resume(Effect.succeed(answer.split('\r\n')[0] ?? '')));
+    socket.on('error', (error) => resume(Effect.die(error)));
+  });
 
 /** The close code a plain WebSocket at `url` ends with. */
 const closeCodeAt = (url: string) =>
@@ -195,7 +253,7 @@ const withServedReplay = <A, E>(
           : listening.pipe(Effect.withTracer(tracer));
         const connect = (given?: string) =>
           (given === undefined ? signPass(keys, spec.sessionId) : Effect.succeed(given)).pipe(
-            Effect.flatMap((pass) => connectT3Client(hostSocketUrl(port, pass))),
+            Effect.flatMap((pass) => connectHost(port, pass)),
           );
         return yield* body({
           spec,
@@ -344,6 +402,156 @@ describe('serveHost', () => {
     }
   });
 
+  it.each(['0.0.0.0', '::', '10.0.0.5', 'sandbox.sprocket.test'])(
+    'names no platform or version in its unauthenticated descriptor when bound to %s',
+    (host) => {
+      const environment = hostEnvironment({ sessionId: 'session-sprocket-env', host });
+      expect(environment.platform).toEqual({ os: 'unknown', arch: 'other' });
+      expect(environment.serverVersion).toBe(GENERIC_SERVER_VERSION);
+      expect(environment.serverVersion).not.toBe(T3_SERVER_VERSION);
+      // What a client needs is still there.
+      expect(environment).toMatchObject({
+        environmentId: 'session-sprocket-env',
+        label: 'Consola host',
+        orchestrationProtocolVersion: 2,
+      });
+    },
+  );
+
+  it.each([
+    ['a loopback bind', { host: '127.0.0.1' }],
+    ['localhost', { host: 'localhost' }],
+    ['a dev host', { host: '127.0.0.1', dev: true }],
+  ])('names its platform and t3 version on %s', (_name, bind) => {
+    const environment = hostEnvironment({ sessionId: 'session-sprocket-env', ...bind });
+    expect(environment.serverVersion).toBe(T3_SERVER_VERSION);
+    expect(environment.platform.os).toBe(
+      process.platform === 'darwin'
+        ? 'darwin'
+        : process.platform === 'linux'
+          ? 'linux'
+          : environment.platform.os,
+    );
+    expect(environment.platform.arch).toBe(
+      process.arch === 'arm64' || process.arch === 'x64' ? process.arch : 'other',
+    );
+  });
+
+  it('refuses to listen as a dev host anywhere but loopback, so its long pass stays on this machine', async () => {
+    const exit = await listenHost({
+      port: 0,
+      host: '0.0.0.0',
+      sessionId: 'session-sprocket-dev',
+      publicKeyPem: makeKeys().publicKeyPem,
+      dev: true,
+      // Never reached: the address is checked before anything is served.
+      runtime: {} as ThreadHandle,
+    }).pipe(Effect.scoped, Effect.runPromiseExit);
+    expect(Exit.isFailure(exit) && Cause.hasDies(exit.cause)).toBe(true);
+    expect(Cause.pretty(Exit.isFailure(exit) ? exit.cause : Cause.empty)).toContain(
+      'A --dev host listens only on loopback, not on 0.0.0.0.',
+    );
+  });
+
+  it(
+    "refuses another thread and another folder with t3's own errors, and sends provider changes as deltas",
+    () =>
+      withServedReplay('simple', ({ spec, handle, prompt, connect }) =>
+        Effect.gen(function* () {
+          const { client, initialConfig } = yield* connect();
+          const other = ThreadId.make('session-sprocket-other');
+          const subscribed = yield* client[ORCHESTRATION_V2_WS_METHODS.subscribeThread]({
+            threadId: other,
+          }).pipe(Stream.runHead, Effect.flip);
+          expect(subscribed).toMatchObject({ _tag: 'OrchestrationV2GetThreadProjectionError' });
+          const dispatched = yield* client[ORCHESTRATION_V2_WS_METHODS.dispatchCommand]({
+            type: 'run.interrupt',
+            commandId: CommandId.make(`command:${spec.sessionId}:interrupt-other`),
+            threadId: other,
+            runId: RunId.make('run:sprocket:other'),
+          }).pipe(Effect.flip);
+          expect(dispatched).toMatchObject({ _tag: 'OrchestrationV2DispatchCommandError' });
+          const output = yield* client[ORCHESTRATION_V2_WS_METHODS.subscribeCommandOutput]({
+            threadId: other,
+            itemId: TurnItemId.make('item:sprocket:other'),
+          }).pipe(Stream.runHead, Effect.flip);
+          expect(output).toMatchObject({ _tag: 'OrchestrationV2CommandOutputError' });
+          const elsewhere = yield* client[WS_METHODS.serverRefreshProviders]({
+            instanceId: ProviderInstanceId.make('claudeAgent'),
+            cwd: '/srv/sprocket/elsewhere',
+          }).pipe(Effect.flip);
+          expect(elsewhere).toMatchObject({ _tag: 'ProviderSetupError', operation: 'refresh' });
+
+          // t3's `withProviderStatusDeltas`: a snapshot passes, provider lists become deltas
+          // from the list the client last received.
+          const providers = initialConfig.providers;
+          const changed = providers.map((provider) => ({
+            ...provider,
+            enabled: !provider.enabled,
+          }));
+          const sent = yield* Stream.make({
+            version: 1 as const,
+            type: 'providerStatuses' as const,
+            payload: { providers: changed },
+          }).pipe(withProviderStatusDeltas(providers), Stream.runCollect);
+          expect(Array.from(sent)).toEqual([
+            {
+              version: 1,
+              type: 'providerStatusDeltas',
+              payload: { providers: serverProviderDeltas(providers, changed) },
+            },
+          ]);
+          yield* runTheTurn(handle, prompt);
+        }),
+      ),
+    REPLAY_TIMEOUT_MS,
+  );
+
+  it(
+    'closes, with a client still connected, as soon as its scope closes',
+    () =>
+      withServedReplay('simple', ({ spec, handle, keys, prompt }) =>
+        Effect.gen(function* () {
+          const scope = yield* Scope.make();
+          const { port, connectedClients } = yield* listenHost({
+            port: 0,
+            host: '127.0.0.1',
+            sessionId: spec.sessionId,
+            publicKeyPem: keys.publicKeyPem,
+            runtime: handle,
+          }).pipe(Scope.provide(scope));
+          // The client lives on past the server's scope.
+          yield* signPass(keys, spec.sessionId).pipe(
+            Effect.flatMap((pass) => connectHost(port, pass)),
+          );
+          expect(connectedClients()).toBe(1);
+          yield* Scope.close(scope, Exit.void).pipe(
+            Effect.timeoutOrElse({
+              duration: Duration.seconds(10),
+              orElse: () =>
+                Effect.die(new Error('the server did not close with a client connected')),
+            }),
+          );
+          expect(yield* closeCodeAt(hostSocketUrl(port))).toBe(1006);
+          yield* runTheTurn(handle, prompt);
+        }),
+      ),
+    REPLAY_TIMEOUT_MS,
+  );
+
+  it(
+    'answers 400 to a request whose target is no URL, and 404 to any method on the socket but GET',
+    () =>
+      withServedReplay('simple', ({ handle, prompt, port }) =>
+        Effect.gen(function* () {
+          expect(yield* statusLineFor(port, 'GET // HTTP/1.1')).toBe('HTTP/1.1 400 Bad Request');
+          expect(yield* statusLineFor(port, 'POST /ws HTTP/1.1')).toBe('HTTP/1.1 404 Not Found');
+          yield* runTheTurn(handle, prompt);
+        }),
+      ),
+    REPLAY_TIMEOUT_MS,
+  );
+
   it(
     'answers a command t3 refuses with t3’s own words, in message and detail, as t3’s server does',
     () =>
@@ -386,23 +594,54 @@ describe('serveHost', () => {
   );
 
   it(
-    'refuses a connection without a valid pass: none or another key closes 4401, another session 4403',
+    'opens the socket with a ticket alone, once: none, a forged one, a used one or a pass closes 4401',
     () =>
-      withServedReplay('simple', ({ spec, handle, keys, port, prompt, connect }) =>
+      withServedReplay('simple', ({ spec, handle, port, prompt, connect, signPass }) =>
         Effect.gen(function* () {
+          const pass = yield* signPass();
           expect(yield* closeCodeAt(hostSocketUrl(port))).toBe(4401);
-          const foreign = yield* signPass(makeKeys(), spec.sessionId);
-          expect(yield* closeCodeAt(hostSocketUrl(port, foreign))).toBe(4401);
-          const otherSession = yield* signPass(keys, 'session-sprocket-other');
-          expect(yield* closeCodeAt(hostSocketUrl(port, otherSession))).toBe(4403);
+          expect(yield* closeCodeAt(hostSocketUrl(port, 'a-ticket-nobody-issued'))).toBe(4401);
+          // A valid pass is no ticket, in the ticket's place or in a `pass` of its own.
+          expect(yield* closeCodeAt(hostSocketUrl(port, pass))).toBe(4401);
+          const withPass = new URL(hostSocketUrl(port));
+          withPass.searchParams.set('pass', pass);
+          expect(yield* closeCodeAt(withPass.toString())).toBe(4401);
 
-          // A valid pass is served, and its config names the session and t3's providers.
+          // A ticket is not the pass, and opens one socket once.
+          const ticket = yield* issueHostTicket(port, pass);
+          expect(ticket).not.toBe(pass);
+          expect(ticket).not.toContain(pass.split('.')[1] ?? pass);
+          yield* Effect.scoped(connectT3Client(hostSocketUrl(port, ticket)));
+          expect(yield* closeCodeAt(hostSocketUrl(port, ticket))).toBe(4401);
+
+          // A pass is served through its ticket, and its config names the session and t3's
+          // providers.
           const { initialConfig } = yield* connect();
           expect(initialConfig.environment.environmentId).toBe(spec.sessionId);
+          // A cold thread opens over the socket first, so t3's client asks no HTTP route for it.
+          expect(initialConfig.threadSnapshotPagination).toBe(true);
           // The session's provider, and no other (the composition hydrates its driver alone).
           expect(initialConfig.providers.map((provider) => provider.instanceId)).toEqual([
             'claudeAgent',
           ]);
+          yield* runTheTurn(handle, prompt);
+        }),
+      ),
+    REPLAY_TIMEOUT_MS,
+  );
+
+  it(
+    "issues no ticket for a pass it refuses: another key's, another session's, none",
+    () =>
+      withServedReplay('simple', ({ spec, handle, keys, port, prompt }) =>
+        Effect.gen(function* () {
+          const foreign = yield* signPass(makeKeys(), spec.sessionId);
+          const otherSession = yield* signPass(keys, 'session-sprocket-other');
+          for (const refused of [foreign, otherSession, '']) {
+            const answer = yield* askHostTicket(port, refused);
+            expect(answer.status).toBe(401);
+            expect(answer.body).not.toContain('ticket"');
+          }
           yield* runTheTurn(handle, prompt);
         }),
       ),
@@ -441,19 +680,23 @@ describe('serveHost', () => {
     () =>
       withServedReplay('simple', ({ spec, handle, prompt, keys, port, connectedClients }) =>
         Effect.gen(function* () {
-          const unframed = (pass: string) => {
-            const url = new URL(hostSocketUrl(port, pass));
+          const unframed = (ticket: string) => {
+            const url = new URL(hostSocketUrl(port, ticket));
             url.searchParams.delete(SOCKET_FRAME_PARTS_QUERY_PARAM);
             return url.toString();
           };
-          // Two to three seconds left: the socket opens, is served, and is closed at the pass's exp.
+          const ticketFor = (pass: string) => issueHostTicket(port, pass);
+          // Two to three seconds left: the socket opens, is served, and is closed at the exp of
+          // the pass its ticket was issued for.
           const [framed, plain] = yield* Effect.all(
             [
               signPass(keys, spec.sessionId, 3).pipe(
-                Effect.flatMap((pass) => openedSocketAt(hostSocketUrl(port, pass))),
+                Effect.flatMap(ticketFor),
+                Effect.flatMap((ticket) => openedSocketAt(hostSocketUrl(port, ticket))),
               ),
               signPass(keys, spec.sessionId, 3).pipe(
-                Effect.flatMap((pass) => openedSocketAt(unframed(pass))),
+                Effect.flatMap(ticketFor),
+                Effect.flatMap((ticket) => openedSocketAt(unframed(ticket))),
               ),
             ],
             { concurrency: 'unbounded' },
@@ -473,13 +716,18 @@ describe('serveHost', () => {
     REPLAY_TIMEOUT_MS,
   );
 
-  it('redacts the pass wherever Effect shows a URL it serves, as well as its own list', () => {
-    const url = 'ws://127.0.0.1:7420/ws?protocol=2&pass=eyJ.sprocket.sig&Signature=s3';
+  it('redacts a pass and the ticket wherever Effect shows a URL it serves, as well as its own list', () => {
+    const url =
+      'ws://127.0.0.1:7420/ws?protocol=2&pass=eyJ.sprocket.sig&wsTicket=t-sprocket&Signature=s3';
     expect(UrlParams.redactUrl(url, HOST_REDACTED_URL_PARAMS)).toBe(
-      'ws://127.0.0.1:7420/ws?protocol=2&pass=REDACTED&Signature=REDACTED',
+      'ws://127.0.0.1:7420/ws?protocol=2&pass=REDACTED&wsTicket=REDACTED&Signature=REDACTED',
     );
     expect(HOST_REDACTED_URL_PARAMS).toEqual(
-      expect.arrayContaining([...UrlParams.CurrentRedactedNames.defaultValue(), 'pass']),
+      expect.arrayContaining([
+        ...UrlParams.CurrentRedactedNames.defaultValue(),
+        'pass',
+        'wsTicket',
+      ]),
     );
   });
 
@@ -615,7 +863,7 @@ describe('serveHost', () => {
   );
 
   it(
-    'answers a method it does not serve with NotOfferedByHost: orchestration.getTurnDiff, subscribeShell',
+    'answers a method it does not serve with NotOfferedByHost: orchestration.getTurnDiff, subscribeDeviceState',
     () =>
       withServedReplay('simple', ({ spec, handle, prompt, connect }) =>
         Effect.gen(function* () {
@@ -639,11 +887,11 @@ describe('serveHost', () => {
             toTurnCount: 1,
           }).pipe(Effect.exit);
           notOffered(diff, ORCHESTRATION_V2_WS_METHODS.getTurnDiff);
-          const shell = yield* client[ORCHESTRATION_V2_WS_METHODS.subscribeShell]({}).pipe(
+          const device = yield* client[WS_METHODS.subscribeDeviceState]({}).pipe(
             Stream.runDrain,
             Effect.exit,
           );
-          notOffered(shell, ORCHESTRATION_V2_WS_METHODS.subscribeShell);
+          notOffered(device, WS_METHODS.subscribeDeviceState);
           // The connection still serves after a refused call.
           expect(yield* client[WS_METHODS.serverProbe]({})).toEqual({});
           yield* runTheTurn(handle, prompt);
@@ -662,7 +910,7 @@ describe("before the socket: what t3's client-runtime asks over HTTP", () => {
     );
 
   it(
-    'answers the descriptor, a ticket that is the pass, and the session it opens; the ticket opens the socket',
+    'answers the descriptor, a ticket that is not the pass, and the session it opens; the ticket opens the socket once',
     () =>
       withServedReplay('simple', ({ spec, handle, prompt, port, signPass: passForSession }) =>
         Effect.gen(function* () {
@@ -677,11 +925,17 @@ describe("before the socket: what t3's client-runtime asks over HTTP", () => {
             orchestrationProtocolVersion: 2,
           });
 
+          const askedAt = yield* Clock.currentTimeMillis;
           const ticket = yield* asT3Client(
             issueRemoteWebSocketTicket({ httpBaseUrl, bearerToken: pass, use: 'rpc' }),
           );
-          expect(Redacted.value(ticket.ticket)).toBe(pass);
-          expect(ticket.expiresAt.epochMilliseconds).toBe(expiresAtMs);
+          // Random, short-lived, and never the pass, which travels in the header alone.
+          expect(Redacted.value(ticket.ticket)).not.toBe(pass);
+          expect(Redacted.value(ticket.ticket)).toMatch(/^[A-Za-z0-9_-]{43}$/);
+          expect(ticket.expiresAt.epochMilliseconds).toBeLessThanOrEqual(
+            Math.min(expiresAtMs, (yield* Clock.currentTimeMillis) + TICKET_LIFETIME_MS),
+          );
+          expect(ticket.expiresAt.epochMilliseconds).toBeGreaterThan(askedAt);
 
           const session = yield* asT3Client(
             fetchRemoteSessionState({ httpBaseUrl, bearerToken: pass }),
@@ -705,12 +959,17 @@ describe("before the socket: what t3's client-runtime asks over HTTP", () => {
               }),
             ),
           );
-          expect(socketUrl.searchParams.get('wsTicket')).toBe(pass);
+          const socketTicket = socketUrl.searchParams.get('wsTicket') ?? '';
+          expect(socketTicket).not.toBe(pass);
+          expect(socketTicket).not.toBe(Redacted.value(ticket.ticket));
+          expect(socketUrl.toString()).not.toContain(pass);
           const withFlags = new URL(hostSocketUrl(port));
           for (const [name, value] of socketUrl.searchParams)
             withFlags.searchParams.set(name, value);
           const { initialConfig } = yield* connectT3Client(withFlags.toString());
           expect(initialConfig.environment.environmentId).toBe(spec.sessionId);
+          // Used once: the same URL opens nothing again.
+          expect(yield* closeCodeAt(withFlags.toString())).toBe(4401);
           yield* runTheTurn(handle, prompt);
         }),
       ),
@@ -720,7 +979,7 @@ describe("before the socket: what t3's client-runtime asks over HTTP", () => {
   it(
     'refuses a pass as t3 refuses a bearer token (401, invalid) and reads no session from it',
     () =>
-      withServedReplay('simple', ({ handle, prompt, keys, port }) =>
+      withServedReplay('simple', ({ spec, handle, prompt, keys, port }) =>
         Effect.gen(function* () {
           const httpBaseUrl = `http://127.0.0.1:${port}`;
           const ticketFor = (bearerToken: string) =>
@@ -741,6 +1000,14 @@ describe("before the socket: what t3's client-runtime asks over HTTP", () => {
             _tag: 'EnvironmentAuthInvalidError',
             reason: 'invalid_credential',
           });
+          // A pass is the protocol's alone: another audience, no type, or a lifetime over the cap
+          // is no pass, whatever key signed it.
+          for (const offContract of yield* offContractPasses(keys, spec.sessionId)) {
+            expect(yield* ticketFor(offContract)).toMatchObject({
+              _tag: 'EnvironmentAuthInvalidError',
+              reason: 'invalid_credential',
+            });
+          }
           for (const refused of ['not-a-pass', anotherSessions]) {
             const session = yield* asT3Client(
               fetchRemoteSessionState({ httpBaseUrl, bearerToken: refused }),
@@ -776,15 +1043,263 @@ describe("before the socket: what t3's client-runtime asks over HTTP", () => {
           expect(preflight.status).toBeLessThan(300);
           expect(preflight.headers.get('access-control-allow-origin')).toBe('*');
           expect(preflight.headers.get('access-control-allow-headers')).toContain('authorization');
-          const elsewhere = await loopbackFetch(
-            `http://127.0.0.1:${port}/api/orchestration/shell`,
-            {
-              headers: { origin },
-            },
-          );
+          const elsewhere = await loopbackFetch(`http://127.0.0.1:${port}/api/projects`, {
+            headers: { origin },
+          });
           expect(elsewhere.status).toBe(404);
           expect(elsewhere.headers.get('access-control-allow-origin')).toBe('*');
         }).pipe(Effect.andThen(runTheTurn(handle, prompt))),
+      ),
+    REPLAY_TIMEOUT_MS,
+  );
+});
+
+describe("the shell and a cold thread: what t3's client reads once connected", () => {
+  /** t3's own calls (`@t3tools/client-runtime`), over an HTTP client that reaches loopback only. */
+  const asT3Client = <A, E>(effect: Effect.Effect<A, E, HttpClient.HttpClient>) =>
+    effect.pipe(
+      Effect.provide(FetchHttpClient.layer),
+      Effect.provideService(FetchHttpClient.Fetch, loopbackFetch as typeof globalThis.fetch),
+    );
+
+  /**
+   * t3's orchestration reads over HTTP as its client makes them (`state/shellSnapshotHttp.ts`,
+   * `state/boundedThreadSnapshotHttp.ts`): t3's client for its `EnvironmentHttpApi` contract,
+   * which decodes each answer by the endpoint's schemas, with the bearer header and t3's
+   * orchestration protocol header, its errors read as t3's client reads them. (Those two modules'
+   * own package entries reach browser-only code the host's checker refuses.)
+   */
+  const orchestrationRead = <A, E>(
+    port: number,
+    pass: string,
+    read: (
+      client: Effect.Success<ReturnType<typeof makeEnvironmentHttpApiGroupClient<'orchestration'>>>,
+      headers: { readonly authorization?: string; readonly [ORCHESTRATION_PROTOCOL_HEADER]: '2' },
+    ) => Effect.Effect<A, E>,
+  ) =>
+    asT3Client(
+      Effect.gen(function* () {
+        const httpBaseUrl = `http://127.0.0.1:${port}`;
+        const client = yield* makeEnvironmentHttpApiGroupClient(httpBaseUrl, 'orchestration');
+        return yield* executeEnvironmentHttpRequest(
+          httpBaseUrl,
+          20_000,
+          read(client, {
+            ...(pass === '' ? {} : { authorization: `Bearer ${pass}` }),
+            [ORCHESTRATION_PROTOCOL_HEADER]: ORCHESTRATION_PROTOCOL_VERSION_TEXT,
+          }),
+        );
+      }),
+    );
+
+  type ShellItem = OrchestrationV2ShellStreamItem;
+  type ShellRowUpdate = Extract<ShellItem, { readonly kind: 'thread.updated' }>;
+
+  /** Subscribes `client` to the shell; its items queue up as they arrive. */
+  const subscribeShell = Effect.fn('subscribeShell')(function* (
+    { client }: T3Client,
+    input: OrchestrationV2SubscribeShellInput,
+  ) {
+    const items = yield* Queue.unbounded<ShellItem>();
+    yield* client[ORCHESTRATION_V2_WS_METHODS.subscribeShell](input).pipe(
+      Stream.runForEach((item) => Queue.offer(items, item)),
+      Effect.forkScoped,
+    );
+    return items;
+  });
+
+  const takeShell = (items: Queue.Queue<ShellItem>) =>
+    Queue.take(items).pipe(Effect.timeout(Duration.seconds(30)), Effect.orDie);
+
+  /** Nothing more arrives on `items` for a moment. */
+  const nothingMore = (items: Queue.Queue<ShellItem>) =>
+    Queue.take(items).pipe(Effect.timeoutOption(Duration.millis(500)), Effect.map(Option.isNone));
+
+  it(
+    "serves the shell as t3's client loads it: the session's thread and project alone, behind the pass and t3's protocol header",
+    () =>
+      withServedReplay('simple', ({ spec, handle, prompt, port, keys, signPass: passForSession }) =>
+        Effect.gen(function* () {
+          const pass = yield* passForSession();
+          const load = (bearer: string, resumeFrom?: number) =>
+            orchestrationRead(port, bearer, (client, headers) =>
+              client.shellSnapshot({
+                headers,
+                query: resumeFrom === undefined ? {} : { resumeFrom: String(resumeFrom) },
+              }),
+            );
+
+          const answer = yield* load(pass);
+          if ('resumable' in answer) return yield* Effect.die(new Error('A snapshot was due.'));
+          // The session's thread, as its projection names it, and its project: nothing else.
+          expect(answer.threads.map((thread) => thread.id)).toEqual([spec.sessionId]);
+          expect(answer.threads[0]?.title).toBe(handle.snapshot().thread.title);
+          expect(answer.archivedThreads).toEqual([]);
+          expect(answer.projects.map((project) => project.workspaceRoot)).toEqual([spec.cwd]);
+          expect(answer.snapshotSequence).toBe(handle.snapshotSequence());
+          expect(answer.projectIdentities).toEqual(expect.any(String));
+
+          // Rows held at a cursor the socket can resume from are kept; one past the thread's
+          // last event (another host's) is answered with the shell.
+          expect(yield* load(pass, answer.snapshotSequence)).toEqual({ resumable: true });
+          expect(yield* load(pass, answer.snapshotSequence + 1_000)).toMatchObject({
+            threads: [expect.objectContaining({ id: spec.sessionId })],
+          });
+
+          // A refused pass is t3's 401, as at the ticket.
+          expect(yield* load('').pipe(Effect.flip)).toMatchObject({
+            _tag: 'EnvironmentAuthInvalidError',
+            reason: 'missing_credential',
+          });
+          const anotherSessions = yield* signPass(keys, 'session-sprocket-another');
+          expect(yield* load(anotherSessions).pipe(Effect.flip)).toMatchObject({
+            _tag: 'EnvironmentAuthInvalidError',
+            reason: 'invalid_credential',
+          });
+          // t3's endpoints declare its orchestration protocol header: without it, an empty 400.
+          const unversioned = yield* Effect.promise(() =>
+            loopbackFetch(`http://127.0.0.1:${port}/api/orchestration/shell`, {
+              headers: { authorization: `Bearer ${pass}` },
+            }),
+          );
+          expect(unversioned.status).toBe(400);
+          yield* runTheTurn(handle, prompt);
+        }),
+      ),
+    REPLAY_TIMEOUT_MS,
+  );
+
+  it(
+    'follows the thread over the socket: a snapshot, the marker, then its row after its events, with the title and status the thread has',
+    () =>
+      withServedReplay('simple', ({ spec, handle, prompt, connect }) =>
+        Effect.gen(function* () {
+          const t3 = yield* connect();
+          const items = yield* subscribeShell(t3, { requestCompletionMarker: true });
+          const first = yield* takeShell(items);
+          if (first.kind !== 'snapshot') return yield* Effect.die(new Error(first.kind));
+          expect(first.snapshot.threads.map((thread) => thread.id)).toEqual([spec.sessionId]);
+          expect(first.snapshot.threads[0]?.title).toBe(handle.snapshot().thread.title);
+          expect(first.snapshot.projects.map((project) => project.workspaceRoot)).toEqual([
+            spec.cwd,
+          ]);
+          expect(yield* takeShell(items)).toEqual({ kind: 'synchronized' });
+
+          // The turn retitles the thread (its first message, then the generated title) and runs
+          // it to its end; the shell sends the row after each batch of its events.
+          yield* runTheTurn(handle, prompt);
+          yield* waitForSnapshot(handle, (current) => current.thread.title === REPLAY_TITLE);
+          const updates: ShellRowUpdate[] = [];
+          let latest = first.snapshot.threads[0];
+          while (latest?.title !== REPLAY_TITLE || latest.status !== 'completed') {
+            const item = yield* takeShell(items);
+            if (item.kind !== 'thread.updated') return yield* Effect.die(new Error(item.kind));
+            updates.push(item);
+            latest = item.thread;
+          }
+          expect(updates.every((update) => update.thread.id === spec.sessionId)).toBe(true);
+          expect(updates.every((update) => update.location === 'active')).toBe(true);
+          const sequences = updates.map((update) => update.sequence);
+          expect(sequences[0]).toBeGreaterThan(first.snapshot.snapshotSequence);
+          expect(sequences).toEqual([...sequences].sort((left, right) => left - right));
+          expect(new Set(sequences).size).toBe(sequences.length);
+          // What the shell said last is what the thread is: its row in t3's store, its
+          // projection's title, and the status of its last run.
+          const now = yield* handle.shell.thread;
+          expect({ title: latest.title, status: latest.status }).toEqual({
+            title: now?.title,
+            status: now?.status,
+          });
+          expect(latest.title).toBe(handle.snapshot().thread.title);
+          expect(handle.snapshot().runs.at(-1)?.status).toBe('completed');
+
+          // A cursor at the thread's last event: nothing to replay, then the marker.
+          const highWater = handle.snapshotSequence();
+          const caughtUp = yield* subscribeShell(t3, {
+            afterSequence: highWater,
+            requestCompletionMarker: true,
+          });
+          expect(yield* takeShell(caughtUp)).toEqual({ kind: 'synchronized' });
+          expect(yield* nothingMore(caughtUp)).toBe(true);
+          // A cursor behind it: the row as it is now, at the last event, then the marker.
+          const behind = yield* subscribeShell(t3, {
+            afterSequence: first.snapshot.snapshotSequence,
+            requestCompletionMarker: true,
+          });
+          expect(yield* takeShell(behind)).toEqual({
+            kind: 'thread.updated',
+            sequence: highWater,
+            location: 'active',
+            thread: expect.objectContaining({ id: spec.sessionId, title: REPLAY_TITLE }),
+          });
+          expect(yield* takeShell(behind)).toEqual({ kind: 'synchronized' });
+          // A cursor past it (another host's): `snapshot-required` for a client that loads the
+          // shell over HTTP instead, else the snapshot.
+          const past = { afterSequence: highWater + 1_000, requestCompletionMarker: true } as const;
+          const fallback = yield* subscribeShell(t3, { ...past, httpSnapshotFallback: true });
+          expect(yield* takeShell(fallback)).toEqual({ kind: 'snapshot-required' });
+          const resent = yield* subscribeShell(t3, past);
+          expect(yield* takeShell(resent)).toMatchObject({
+            kind: 'snapshot',
+            snapshot: { snapshotSequence: highWater, threads: [{ id: spec.sessionId }] },
+          });
+          expect(yield* takeShell(resent)).toEqual({ kind: 'synchronized' });
+        }),
+      ),
+    REPLAY_TIMEOUT_MS,
+  );
+
+  it(
+    "answers a cold thread's bounded snapshot as one window of the whole thread, and another thread as not there",
+    () =>
+      withServedReplay('simple', ({ spec, handle, prompt, port, signPass: passForSession }) =>
+        Effect.gen(function* () {
+          yield* runTheTurn(handle, prompt);
+          const pass = yield* passForSession();
+          // With the flags t3's client sends, and its projection restored as the client restores it.
+          const load = (bearer: string, threadId: string) =>
+            orchestrationRead(port, bearer, (client, headers) =>
+              client.threadBoundedSnapshot({
+                headers,
+                params: { threadId: ThreadId.make(threadId) },
+                query: {
+                  compactTurnItems: '1',
+                  dedupeBodies: '1',
+                  compactIds: '1',
+                  deferWork: '1',
+                },
+              }),
+            ).pipe(
+              Effect.map((snapshot) => ({
+                ...snapshot,
+                projection: boundedSnapshotProjection(snapshot),
+              })),
+            );
+
+          const bounded = yield* load(pass, spec.sessionId);
+          expect(bounded.snapshotSequence).toBe(handle.snapshotSequence());
+          // Nothing older to page: the window is the whole thread.
+          expect(bounded.historyCursor).toBeNull();
+          expect(bounded.hasMoreHistory).toBe(false);
+          const ids = (items: ReadonlyArray<{ readonly id: string }>) =>
+            items.map((item) => item.id).sort();
+          expect(ids(bounded.projection.turnItems)).toEqual(ids(handle.snapshot().turnItems));
+          expect(
+            bounded.projection.turnItems.some(
+              (item) =>
+                item.type === 'assistant_message' && item.text.includes('fixture simple ok'),
+            ),
+          ).toBe(true);
+
+          expect(yield* load(pass, 'session-sprocket-another').pipe(Effect.flip)).toMatchObject({
+            _tag: 'EnvironmentResourceNotFoundError',
+            reason: 'thread_not_found',
+          });
+          expect(yield* load('not-a-pass', spec.sessionId).pipe(Effect.flip)).toMatchObject({
+            _tag: 'EnvironmentAuthInvalidError',
+            reason: 'invalid_credential',
+          });
+        }),
       ),
     REPLAY_TIMEOUT_MS,
   );

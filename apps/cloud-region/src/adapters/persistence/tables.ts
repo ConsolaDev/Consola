@@ -23,6 +23,7 @@ import {
   unique,
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
+import type { CellFailureCode, CloudSessionStatus } from '../../domain/cloudSession.js';
 import type { FactorySource } from '../../domain/factory.js';
 import { APPROVAL_DECISIONS, type ApprovalDecision } from '../../domain/runApproval.js';
 import {
@@ -353,4 +354,29 @@ export const runApprovals = pgTable(
     }).onDelete('cascade'),
     check('run_approval_decision_check', oneOf(table.decision, APPROVAL_DECISIONS)),
   ],
+);
+
+/**
+ * A person's cloud session. No foreign key to `workspace`: a session is the workspace's whatever
+ * the outbox has delivered yet. `error` is a message a runner reported and `error_code` a code the
+ * cell decided (`CELL_FAILURE_CODES`); a failure has one of them.
+ */
+export const cloudSessions = pgTable(
+  'cloud_session',
+  {
+    id: text('id').primaryKey(),
+    workspaceId: text('workspace_id').notNull(),
+    personId: text('person_id').notNull(),
+    repository: text('repository').notNull(),
+    harness: text('harness').notNull(),
+    status: text('status').$type<CloudSessionStatus>().notNull(),
+    title: text('title'),
+    hostUrl: text('host_url'),
+    error: text('error'),
+    errorCode: text('error_code').$type<CellFailureCode>(),
+    runnerId: text('runner_id').notNull(),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    endedAt: bigint('ended_at', { mode: 'number' }),
+  },
+  (table) => [index('cloud_session_owner').on(table.workspaceId, table.personId, table.createdAt)],
 );

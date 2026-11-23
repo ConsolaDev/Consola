@@ -1,6 +1,22 @@
 import { z } from 'zod';
 import { isRegion, REGIONS, type Region } from './domain/region.js';
 
+/**
+ * The workspace's runner and the key its sessions' passes are signed with: the POC's stand-in for
+ * enrolling runners (epic 13). Neither the secret nor the key is ever logged.
+ */
+export type RunnerConfig = {
+  /** `RUNNER_SECRET`: what the runner presents to open its socket. */
+  secret: string;
+  /** `RUNNER_WORKSPACE_ID`: the one workspace the runner serves. */
+  workspaceId: string;
+  /**
+   * `PASS_PRIVATE_KEY`, the JSON object it holds. This parser checks no more than that, since it
+   * may use no cryptography; `adapters/token` refuses one that is not an Ed25519 private key.
+   */
+  passPrivateKey: Record<string, unknown>;
+};
+
 export type CellConfig = {
   databaseUrl: string;
   /** The region this copy of the cell serves. Each region runs a copy of its own. */
@@ -11,6 +27,8 @@ export type CellConfig = {
    * there (`CELL_TOKEN_KEYS_PATH`), and trusts no other.
    */
   cloudGlobalUrl: string;
+  /** Null when none of the runner's settings is set: then no runner connects, nor session starts. */
+  runner: RunnerConfig | null;
 };
 
 /** Beside `cloud-global`'s 3100. A second cell on the same machine sets `PORT`. */
@@ -56,6 +74,40 @@ function cloudGlobalUrlProblem(value: string): string | null {
   return null;
 }
 
+/** The runner's three settings, which go together: a runner needs the key, and the key a runner. */
+const RUNNER_SETTINGS = ['RUNNER_SECRET', 'RUNNER_WORKSPACE_ID', 'PASS_PRIVATE_KEY'] as const;
+type RunnerSetting = (typeof RUNNER_SETTINGS)[number];
+
+/** As long as `BETTER_AUTH_SECRET` must be: the secret is all that admits a runner. */
+const MIN_RUNNER_SECRET_LENGTH = 32;
+const MAKE_A_SECRET = '`openssl rand -base64 32` makes one';
+const MAKE_A_PASS_KEY = '`pnpm --filter @consola/cloud-region pass-key:generate` makes one';
+/** What a header carries: printable ASCII and no space, since `Bearer <secret>` splits on one. */
+const HEADER_SAFE = /^[\x21-\x7e]+$/;
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+/** The JSON object `value` holds, or null. Never `JSON.parse`'s own words, which quote it. */
+function jsonObjectOf(value: string): Record<string, unknown> | null {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return isRecord(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+/** One problem for each runner setting missing beside one that is set; none when all or none are. */
+function runnerSettingProblems(values: Record<RunnerSetting, string | undefined>): string[] {
+  const set = RUNNER_SETTINGS.filter((name) => values[name] !== undefined);
+  if (set.length === 0 || set.length === RUNNER_SETTINGS.length) return [];
+  const given = `${set.join(' and ')} ${set.length === 1 ? 'is' : 'are'} set`;
+  return RUNNER_SETTINGS.filter((name) => values[name] === undefined).map(
+    (name) => `${name}: is required when ${given}: a runner needs all three, or none`,
+  );
+}
+
 const required = (what: string) =>
   z.string({ error: `${what} is required` }).min(1, `${what} is required`);
 
@@ -82,28 +134,68 @@ const rawEnv = z.object({
     })
     .transform((value) => new URL(value).origin)
     .optional(),
+  // No message below quotes the value: these are a secret and a private key.
+  RUNNER_SECRET: z
+    .string()
+    .min(MIN_RUNNER_SECRET_LENGTH, `must be at least 32 characters (${MAKE_A_SECRET})`)
+    .regex(
+      HEADER_SAFE,
+      'must be printable ASCII with no spaces, since a runner sends it in a header',
+    )
+    .optional(),
+  RUNNER_WORKSPACE_ID: z.string().optional(),
+  PASS_PRIVATE_KEY: z
+    .string()
+    .transform((value, context) => {
+      const key = jsonObjectOf(value);
+      if (key) return key;
+      context.addIssue({
+        code: 'custom',
+        message: `must be a JSON Web Key on one line (${MAKE_A_PASS_KEY})`,
+      });
+      return z.NEVER;
+    })
+    .optional(),
 });
 
 /** An optional variable set to nothing counts as unset. */
 const unsetWhenEmpty = (value: string | undefined) => (value === '' ? undefined : value);
 
 export function loadConfig(env: Record<string, string | undefined>): CellConfig {
+  const runnerValues = {
+    RUNNER_SECRET: unsetWhenEmpty(env.RUNNER_SECRET),
+    RUNNER_WORKSPACE_ID: unsetWhenEmpty(env.RUNNER_WORKSPACE_ID),
+    PASS_PRIVATE_KEY: unsetWhenEmpty(env.PASS_PRIVATE_KEY),
+  };
   const result = rawEnv.safeParse({
     ...env,
     PORT: unsetWhenEmpty(env.PORT),
     CLOUD_GLOBAL_URL: unsetWhenEmpty(env.CLOUD_GLOBAL_URL),
+    ...runnerValues,
   });
-  if (!result.success) {
-    throw new ConfigError(
-      result.error.issues.map((issue) => `${String(issue.path[0])}: ${issue.message}`),
-    );
+  const missing = runnerSettingProblems(runnerValues);
+  if (!result.success || missing.length > 0) {
+    const issues = result.success ? [] : result.error.issues;
+    throw new ConfigError([
+      ...issues.map((issue) => `${String(issue.path[0])}: ${issue.message}`),
+      ...missing,
+    ]);
   }
   const parsed = result.data;
+  const {
+    RUNNER_SECRET: secret,
+    RUNNER_WORKSPACE_ID: workspaceId,
+    PASS_PRIVATE_KEY: passPrivateKey,
+  } = parsed;
   return {
     databaseUrl: parsed.DATABASE_URL,
     region: parsed.REGION as Region,
     port: parsed.PORT ?? DEFAULT_PORT,
     cloudGlobalUrl: parsed.CLOUD_GLOBAL_URL ?? DEFAULT_CLOUD_GLOBAL_URL,
+    runner:
+      secret !== undefined && workspaceId !== undefined && passPrivateKey !== undefined
+        ? { secret, workspaceId, passPrivateKey }
+        : null,
   };
 }
 

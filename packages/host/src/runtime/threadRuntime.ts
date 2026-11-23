@@ -8,16 +8,21 @@ import {
   ProjectId,
   type OrchestrationV2CommandOutputError,
   type OrchestrationV2CommandOutputFrame,
+  type OrchestrationV2ShellSnapshot,
+  type OrchestrationV2ThreadShell,
   type RuntimeMode,
   ThreadId,
   type TurnItemId,
 } from '@t3tools/contracts';
 import type { AnyProviderDriver } from '@t3tools/provider-core/server/driver';
+import * as Cause from 'effect/Cause';
 import * as Clock from 'effect/Clock';
 import * as Context from 'effect/Context';
+import * as Deferred from 'effect/Deferred';
 import * as Effect from 'effect/Effect';
 import * as Layer from 'effect/Layer';
 import * as Logger from 'effect/Logger';
+import * as Option from 'effect/Option';
 import * as Schema from 'effect/Schema';
 import type * as Scope from 'effect/Scope';
 import * as Semaphore from 'effect/Semaphore';
@@ -26,6 +31,7 @@ import * as SubscriptionRef from 'effect/SubscriptionRef';
 import * as ServerConfig from 't3/config.ts';
 import * as CommandOutputHub from 't3/orchestration-v2/CommandOutputHub.ts';
 import * as Orchestrator from 't3/orchestration-v2/Orchestrator.ts';
+import { ORCHESTRATION_V2_PROJECTION_SCHEMA_VERSION } from 't3/orchestration-v2/ProjectionStore.ts';
 import * as ProjectService from 't3/project/ProjectService.ts';
 import * as ProviderRegistry from 't3/provider/ProviderRegistry.ts';
 import * as ServerSettings from 't3/serverSettings.ts';
@@ -84,8 +90,16 @@ export type ThreadHandle = {
   ): Stream.Stream<OrchestrationV2CommandOutputFrame, OrchestrationV2CommandOutputError>;
   /** What t3's server-config and provider RPCs read: `ThreadServerView`. */
   readonly server: ThreadServerView;
+  /** The thread list's rows for the session, as t3's shell routes read them: `ThreadShellView`. */
+  readonly shell: ThreadShellView;
   /** When the thread last did anything: a stored event or a dispatch, in epoch milliseconds. */
   lastActivityMs(): number;
+  /**
+   * Fails once the stream that keeps `snapshot()` current ends (t3's `streamStoredEvents`, which
+   * runs as long as the orchestration does): from then on the snapshot, the status and the title
+   * would go stale, so the session must stop. Never succeeds; closing the scope ends it quietly.
+   */
+  readonly ended: Effect.Effect<never, ThreadStreamEnded>;
 };
 
 /**
@@ -109,16 +123,41 @@ export type ThreadServerView = {
   readonly logsDir: string;
 };
 
+/**
+ * The session's rows of t3's shell (the thread list t3's client keeps beside a thread), read from
+ * the store the thread's projection is read from, so a row says what the thread does. The shell
+ * holds the session's project and its thread, and no other: no subagent's, no archived one.
+ */
+export type ThreadShellView = {
+  /**
+   * The shell now, at `snapshotSequence()` read before its rows, so each row holds at least every
+   * event through that sequence (t3's `loadSubscriberShellSnapshot`, for one thread).
+   */
+  readonly snapshot: Effect.Effect<OrchestrationV2ShellSnapshot, ThreadRuntimeError>;
+  /** The thread's row now (t3's `getThreadShell`), `null` when t3 has none. */
+  readonly thread: Effect.Effect<OrchestrationV2ThreadShell | null, ThreadRuntimeError>;
+};
+
 export class ThreadRuntimeError extends Schema.TaggedError<ThreadRuntimeError>()(
   'ThreadRuntimeError',
   {
     sessionId: Schema.String,
-    operation: Schema.Literals(['open', 'dispatch', 'events']),
+    operation: Schema.Literals(['open', 'dispatch', 'events', 'read its shell']),
     cause: Schema.Defect(),
   },
 ) {
   override get message(): string {
     return `Session ${this.sessionId} failed to ${this.operation}.`;
+  }
+}
+
+/** The stream that keeps a session's snapshot current ended (`ThreadHandle.ended`). */
+export class ThreadStreamEnded extends Schema.TaggedError<ThreadStreamEnded>()(
+  'ThreadStreamEnded',
+  { sessionId: Schema.String },
+) {
+  override get message(): string {
+    return `Session ${this.sessionId} stopped: its thread's event stream ended, so what it shows would go stale.`;
   }
 }
 
@@ -148,6 +187,11 @@ export interface ThreadRuntimeTestSeam {
   readonly drivers?: ReadonlyArray<AnyProviderDriver<HostDriversEnv>>;
   /** The mode a replayed fixture was recorded in, in place of `HOST_RUNTIME_MODE`. */
   readonly runtimeMode?: RuntimeMode;
+  /**
+   * The stream that keeps the snapshot current ends after this many stored events, as if t3's
+   * `streamStoredEvents` had ended (`ThreadHandle.ended`).
+   */
+  readonly endEventsAfter?: number;
 }
 
 /**
@@ -167,14 +211,16 @@ export class ThreadRuntime extends Context.Service<
 
 /**
  * Each `open` builds t3's production orchestration (`layerOrchestration`) for the session's
- * harness in the caller's scope, points t3's thread titles at the session's provider, files the
- * session's folder as its project, and creates its thread. Closing the scope stops the provider
- * session and drops the thread. t3's logs go to stderr.
+ * harness in the caller's scope (the open's, never the layer's: `Layer.succeed` holds no
+ * resource), points t3's thread titles at the session's provider, files the session's folder as
+ * its project, and creates its thread. Closing that scope stops the provider session, the stream
+ * that keeps the snapshot current and the thread (t3's in-memory store). t3's logs go to stderr.
  */
 const make = (
   options: ThreadRuntimeOptions,
   runtimeMode: RuntimeMode,
   orchestration: typeof layerOrchestration,
+  endEventsAfter?: number,
 ) =>
   Layer.succeed(
     ThreadRuntime,
@@ -256,8 +302,15 @@ const make = (
         );
 
         // Every stored event refreshes the snapshot, so a request waits there with no one
-        // watching. `streamStoredEvents` is the unbounded subscription t3 gives its workers.
-        yield* orchestrator.streamStoredEvents.pipe(
+        // watching. `streamStoredEvents` is the unbounded subscription t3 gives its workers: it
+        // ends only with the orchestration, so its end, or its failure, ends the session
+        // (`ended`). Its interruption, as the scope closes, is the session's own stop, and quiet.
+        const streamEnded = yield* Deferred.make<never, ThreadStreamEnded>();
+        const storedEvents =
+          endEventsAfter === undefined
+            ? orchestrator.streamStoredEvents
+            : orchestrator.streamStoredEvents.pipe(Stream.take(endEventsAfter));
+        yield* storedEvents.pipe(
           Stream.filter((stored) => stored.sequence > current.snapshotSequence),
           Stream.runForEachArray(() =>
             refresh.pipe(
@@ -266,10 +319,36 @@ const make = (
               ),
             ),
           ),
-          Effect.catchCause((cause) => Effect.logError('Session event stream ended.', cause)),
+          Effect.catchCauseIf(
+            (cause) => !Cause.hasInterruptsOnly(cause),
+            (cause) => Effect.logError('Session event stream failed.', cause),
+          ),
+          Effect.andThen(Deferred.fail(streamEnded, new ThreadStreamEnded({ sessionId }))),
           toStderr,
           Effect.forkScoped,
         );
+
+        const threadShell = orchestrator
+          .getThreadShell(threadId)
+          .pipe(Effect.mapError(failed('read its shell')));
+        const shell: ThreadShellView = {
+          snapshot: Effect.gen(function* () {
+            const snapshotSequence = current.snapshotSequence;
+            const thread = yield* threadShell;
+            const project = yield* projects
+              .getShell(projectId)
+              .pipe(Effect.mapError(failed('read its shell')));
+            const snapshot: OrchestrationV2ShellSnapshot = {
+              schemaVersion: ORCHESTRATION_V2_PROJECTION_SCHEMA_VERSION,
+              snapshotSequence,
+              projects: Option.toArray(project),
+              threads: thread === null || thread.archivedAt !== null ? [] : [thread],
+              archivedThreads: [],
+            };
+            return snapshot;
+          }),
+          thread: threadShell,
+        };
 
         const handle: ThreadHandle = {
           snapshot: () => current.projection,
@@ -300,7 +379,9 @@ const make = (
             keybindingsConfigPath: config.keybindingsConfigPath,
             logsDir: config.logsDir,
           },
+          shell,
           lastActivityMs: () => lastActivity,
+          ended: Deferred.await(streamEnded),
         };
         return handle;
       }),
@@ -309,7 +390,9 @@ const make = (
 
 /**
  * The host's thread runtime: each session on its harness's guarded driver alone, every thread in
- * `HOST_RUNTIME_MODE`.
+ * `HOST_RUNTIME_MODE`. The layer holds nothing of its own, so providing it starts nothing and
+ * building it twice costs nothing: each `open` builds its session's orchestration in the scope of
+ * whoever calls it (`runSession`'s), and closing that scope, not the layer's, stops the session.
  */
 export const layer = (options: ThreadRuntimeOptions): Layer.Layer<ThreadRuntime> =>
   make(options, HOST_RUNTIME_MODE, layerOrchestration);
@@ -323,9 +406,13 @@ export const layerForTests = (
   options: ThreadRuntimeOptions,
   seam: ThreadRuntimeTestSeam,
 ): Layer.Layer<ThreadRuntime> =>
-  make(options, seam.runtimeMode ?? HOST_RUNTIME_MODE, (orchestrationOptions) =>
-    layerOrchestrationForTests(
-      orchestrationOptions,
-      seam.drivers ?? [hostDriverFor(orchestrationOptions.harness)],
-    ),
+  make(
+    options,
+    seam.runtimeMode ?? HOST_RUNTIME_MODE,
+    (orchestrationOptions) =>
+      layerOrchestrationForTests(
+        orchestrationOptions,
+        seam.drivers ?? [hostDriverFor(orchestrationOptions.harness)],
+      ),
+    seam.endEventsAfter,
   );

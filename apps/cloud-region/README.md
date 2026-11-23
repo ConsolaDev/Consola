@@ -8,11 +8,13 @@ cloud sessions need. Accounts are not here: they are global, in
 
 Today the cell keeps a copy of each workspace in its region and its members
 (ids and roles only), from `cloud-global`'s outbox, the workspace's teams, its
-factories with their files, versioned, the runs of those factories, and the
-GitHub events `cloud-global` passes on for it. It answers a health route to
-anyone, takes the outbox's and the GitHub events' signed deliveries, and
-answers everything else only with a cell token `cloud-global` minted. Every
-route is in `openapi.json`, generated from the routes themselves.
+factories with their files, versioned, the runs of those factories, the GitHub
+events `cloud-global` passes on for it, and a person's cloud sessions, which a
+workspace's runner runs in sandboxes. It answers a health route to anyone,
+takes the outbox's and the GitHub events' signed deliveries and the runner's
+socket (behind the runner's secret), and answers everything else only with a
+cell token `cloud-global` minted. Every route is in `openapi.json`, generated
+from the routes themselves, but the runner's socket, a WebSocket upgrade.
 
 ## Run
 
@@ -168,17 +170,50 @@ runs. The tables are `run` and `run_approval`.
 By default the data is PGlite (Postgres in-process) in
 `apps/cloud-region/.data/cell-eu-db`. Deleting that folder resets it.
 
+## The runner and session passes
+
+A workspace's runner (`consola-host runner`) connects out to the cell, and the
+cell hands it the cloud sessions people start. For the proof of concept one
+runner serves one workspace, admitted by a shared secret; enrolling runners
+comes later. Three variables in `.env`, all three or none:
+
+| Variable | What it is |
+| --- | --- |
+| `RUNNER_SECRET` | What the runner presents, at least 32 printable characters with no spaces: `openssl rand -base64 32`. The runner's `CONSOLA_RUNNER_SECRET` holds the same value. |
+| `RUNNER_WORKSPACE_ID` | The one workspace the runner serves, by its id in `cloud-global`. |
+| `PASS_PRIVATE_KEY` | The cell's own Ed25519 private key, as a JSON Web Key on one line, which signs session passes: `pnpm --filter @consola/cloud-region pass-key:generate`. Never `cloud-global`'s key. |
+
+With none set, the cell starts as before: no runner can connect, and starting
+a session answers 503 `no_runner`. With some but not all, or a key that is no
+Ed25519 private key, the cell refuses to start, naming each problem. Neither
+the secret nor the key is ever logged.
+
+The runner opens a WebSocket at `GET /api/runner` with
+`Authorization: Bearer <RUNNER_SECRET>`; anything else is 401 before the
+upgrade. A frame may be at most 64 KiB. Each `session.start` the cell sends
+carries the public half of the pass key, which the session's host checks
+passes with.
+
+A person asks for a pass to their own running session with
+`POST /api/cloud-sessions/<id>/pass` and their cell token, and gets
+`{ "pass": "…", "hostUrl": "https://…", "expiresAt": <seconds> }`, never
+cached (`Cache-Control: no-store`). The pass lasts five minutes; the page asks
+for another. Any session that is not theirs, or not running, is 404.
+
 ## The shared packages
 
-The cell imports two of the workspace's packages from their builds:
+The cell imports three of the workspace's packages from their builds:
 `@consola/cloud-contract` (`packages/cloud-contract`), what `cloud-global` and
-the cells agree on, and `@consola/factory-spec` (`packages/factory-spec`), the
-factory files' schema. `pnpm dev:cloud-region` and `pnpm test` build them
-first. A `pnpm --filter @consola/cloud-region …` command does not, so build
-them before the first such command, and again after changing one:
+the cells agree on, `@consola/runner-protocol` (`packages/runner-protocol`),
+what the cell and its runners say to each other, and `@consola/factory-spec`
+(`packages/factory-spec`), the factory files' schema. `pnpm dev:cloud-region`
+and `pnpm test` build them first. A `pnpm --filter @consola/cloud-region …`
+command does not, so build them before the first such command, and again
+after changing one:
 
 ```bash
 pnpm --filter @consola/cloud-contract build
+pnpm --filter @consola/runner-protocol build
 pnpm --filter @consola/factory-spec build
 ```
 

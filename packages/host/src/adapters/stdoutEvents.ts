@@ -2,40 +2,11 @@ import type { OrchestrationV2ThreadProjection } from '@t3tools/contracts';
 import * as Effect from 'effect/Effect';
 import * as Stream from 'effect/Stream';
 import { isActiveRun } from 't3/orchestration-v2/CommandPolicy.ts';
+import type { HostLine, SessionStatus } from '../core/hostLine.ts';
 import type { ThreadHandle } from '../runtime/threadRuntime.ts';
 
-/**
- * What the session is doing, as whoever started the host shows it: `waiting` while a runtime
- * request (an approval or a question) waits on the person, `working` while a run is active, and
- * `idle` otherwise.
- */
-export type SessionStatus = 'working' | 'waiting' | 'idle';
-
-/**
- * One line of the host's stdout, which carries these and nothing else: it is how Track B's
- * runner (or a person running the host) learns what the host is doing. t3's logs go to stderr.
- *
- * - `ready`: the host serves the session at `port` (the one it got, for `--port 0`). It is idle,
- *   and the thread has its first title.
- * - `dev-pass`: with `--dev` only, right after `ready`: a pass for the session.
- * - `title`, `status`: the thread's title or the session's status changed.
- * - `exit`: the host is stopping by itself (`idle`); the process exits 0 once it has stopped.
- */
-export type HostLine =
-  | { readonly type: 'ready'; readonly port: number }
-  | { readonly type: 'dev-pass'; readonly pass: string; readonly expiresInSeconds: number }
-  | { readonly type: 'title'; readonly title: string }
-  | { readonly type: 'status'; readonly status: SessionStatus }
-  | { readonly type: 'exit'; readonly reason: 'idle' };
-
-/** Every `type` a `HostLine` has: the runner may refuse any other. */
-export const HOST_LINE_TYPES: ReadonlyArray<HostLine['type']> = [
-  'ready',
-  'dev-pass',
-  'title',
-  'status',
-  'exit',
-];
+// The lines' types live in `core/`, where the runner's decisions read them; they are said here.
+export { HOST_LINE_TYPES, type HostLine, type SessionStatus } from '../core/hostLine.ts';
 
 /** A `HostLine` as printed: one JSON object on one line. */
 export const encodeHostLine = (line: HostLine): string => `${JSON.stringify(line)}\n`;
@@ -62,18 +33,23 @@ export function sessionStatusOf(
   return 'idle';
 }
 
+/** What the runner was last told of the session: `ready` says idle and the thread's title. */
+export type SaidOfSession = { readonly status: SessionStatus; readonly title: string };
+
 /**
- * Follows the thread's projection (`handle.snapshots()`) and writes a `status` line when the
- * session's status changes and a `title` line when t3 retitles the thread, each only on a change
- * from what was last said: `ready` said idle and the thread's title when this starts.
+ * Follows the thread's projection (`handle.snapshots()`, which starts with the current one) and
+ * writes a `status` line when the session's status changes and a `title` line when t3 retitles
+ * the thread, each only on a change from what was last said, starting from `said`: what `ready`
+ * said, read before it was written, so a change in between is said too.
  */
 export const reportSession = (
   handle: ThreadHandle,
   write: (line: HostLine) => Effect.Effect<void>,
+  said: SaidOfSession,
 ): Effect.Effect<void> =>
   Effect.gen(function* () {
-    let status: SessionStatus = 'idle';
-    let title = handle.snapshot().thread.title;
+    let status: SessionStatus = said.status;
+    let title = said.title;
     yield* handle.snapshots().pipe(
       Stream.runForEach((projection) =>
         Effect.gen(function* () {

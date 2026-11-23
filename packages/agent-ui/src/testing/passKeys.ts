@@ -3,11 +3,13 @@
 /**
  * The browser tests' stand-in for the cell (Node only): an Ed25519 key pair made for the run, the
  * replay host started with its public key (`hostSession.ts`), and passes signed with its private
- * key, as the cell signs them (an EdDSA compact JWS of `sub`, `ws`, `sid`, `iat`, `exp`;
- * `@consola/host`'s `src/core/pass.ts`). A test asks for one through the `signHostPass` browser
- * command (`vite.config.ts`). No key is committed.
+ * key, as the cell signs them (an EdDSA compact JWS, `typ` `PASS_TYPE`, of the protocol's claims,
+ * `passClaims`: `aud`, `sub`, `ws`, `sid`, `iat`, `exp`, living `PASS_MAX_LIFETIME_SECONDS` at
+ * most; `@consola/host`'s `src/core/pass.ts`). A test asks for one through the `signHostPass`
+ * browser command (`vite.config.ts`). No key is committed.
  */
 import { createPrivateKey, generateKeyPairSync, sign } from 'node:crypto';
+import { PASS_TYPE, passClaims } from '@consola/host/src/testing/cellPass.ts';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -34,23 +36,24 @@ export const writePassKeys = (dir: string): PassKeyFiles => {
 
 const base64url = (value: string | Buffer) => Buffer.from(value).toString('base64url');
 
-/** A pass for `sessionId` that expires `lifetimeSeconds` from now. */
+/**
+ * A pass for `sessionId` that expires `lifetimeSeconds` from now (at most the protocol's cap:
+ * `passClaims` throws over it).
+ */
 export const signPass = (
   privateKeyFile: string,
   sessionId: string,
   lifetimeSeconds: number,
 ): string => {
-  const now = Math.floor(Date.now() / 1000);
-  const header = base64url(JSON.stringify({ alg: 'EdDSA', typ: 'JWT' }));
-  const payload = base64url(
-    JSON.stringify({
-      sub: 'person-acme-1',
-      ws: 'workspace-sprocket',
-      sid: sessionId,
-      iat: now,
-      exp: now + lifetimeSeconds,
-    }),
-  );
+  const claims = passClaims({
+    personId: 'person-acme-1',
+    workspaceId: 'workspace-sprocket',
+    sessionId,
+    issuedAt: Math.floor(Date.now() / 1000),
+    lifetimeSeconds,
+  });
+  const header = base64url(JSON.stringify({ alg: 'EdDSA', typ: PASS_TYPE }));
+  const payload = base64url(JSON.stringify(claims));
   const key = createPrivateKey(readFileSync(privateKeyFile));
   const signature = sign(null, Buffer.from(`${header}.${payload}`), key);
   return `${header}.${payload}.${base64url(signature)}`;

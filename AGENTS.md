@@ -56,7 +56,8 @@ All commands above run from the repository root. The pnpm workspace contains
 `packages/factory-spec` (`@consola/factory-spec`, MIT),
 `packages/automation-engine` (`@consola/automation-engine`),
 `packages/sandbox` (`@consola/sandbox`), `packages/cloud-contract`
-(`@consola/cloud-contract`), `packages/host` (`@consola/host`, AGPL),
+(`@consola/cloud-contract`), `packages/runner-protocol`
+(`@consola/runner-protocol`, MIT), `packages/host` (`@consola/host`, AGPL),
 `packages/agent-ui` (`@consola/agent-ui`, MIT) and the copied t3code packages
 under `vendor/t3code/` ("Vendored t3code", below). Turborepo orchestrates
 builds, tests, and typechecking; the root runs leave `vendor/` out. Paths below
@@ -197,13 +198,19 @@ belongs in a regional cell. `apps/cloud-region` (`@consola/cloud-region`, Hono, 
 Postgres) is the regional cell: one copy per region, configured with its
 region, holding what a workspace has there that is not global. It holds no
 accounts (people are referenced by their global id), and every table carries
-the workspace id. It trusts only `cloud-global`'s token: every request but its
-health check, the outbox's deliveries and the GitHub webhook events
-`cloud-global` passes on (both signed with the same key) carries a cell token,
-checked with `cloud-global`'s public keys,
+the workspace id. It trusts `cloud-global`'s token: every request but its
+health check, the runner's socket, the outbox's deliveries and the GitHub
+webhook events `cloud-global` passes on (those two signed with the same key)
+carries a cell token, checked with `cloud-global`'s public keys,
 and the person, workspace and role come from that token alone, never from the
-request. Nothing in `apps/desktop` depends on the cloud apps, and none
-imports from the desktop, the website, another app or `packages/*`, with two
+request. The runner's socket (`GET /api/runner`) is the one other trust root,
+for the POC until runners are enrolled: a shared secret (`RUNNER_SECRET`),
+compared in constant time, that admits one runner for one workspace and no
+person. The cell signs each session's pass with a key of its own
+(`PASS_PRIVATE_KEY`), never `cloud-global`'s, and in the cell only
+`adapters/token` imports `jose`; the runner's socket (`adapters/runner`) may
+use `hono` and `@hono/node-ws`. Nothing in `apps/desktop` depends on the cloud apps, and none
+imports from the desktop, the website, another app or `packages/*`, with three
 exceptions. `cloud-global` and `cloud-region` both import
 `packages/cloud-contract` (`@consola/cloud-contract`), what the two agree on:
 the regions, the workspace roles, the claims of the token `cloud-global` mints
@@ -211,7 +218,12 @@ for a cell, the outbox messages it sends one and how it delivers them, the
 GitHub events it passes on, and a cell's signed request for a GitHub token. It
 does
 no I/O, so any layer of either app may import it; before changing it, read
-`packages/cloud-contract/AGENTS.md`. And `cloud-region` imports
+`packages/cloud-contract/AGENTS.md`. `cloud-region` also imports
+`packages/runner-protocol` (`@consola/runner-protocol`, MIT), what a cell and
+its runners say to each other: the runner socket's messages, the readers of a
+repository and a harness, and the session pass's claims. It also does no I/O,
+so any layer of the cell may import it; before changing it, read
+`packages/runner-protocol/AGENTS.md`. And `cloud-region` imports
 `packages/factory-spec` (`@consola/factory-spec`), the factory files' schema
 every runner shares, to check the factory files it stores; it does no I/O
 either, so any layer of the cell may import it. Setup is in
@@ -271,7 +283,9 @@ round). The web app's footer links to the source of the commit it runs
 them. A change that cannot be avoided, every file copied and every re-sync are recorded in
 `vendor/t3code/UPSTREAM.md`, in the same commit. Two Consola packages build on it:
 `packages/host` (`@consola/host`, AGPL), which runs t3's orchestration for one session and
-serves t3's RPC behind a session pass, and `packages/agent-ui` (`@consola/agent-ui`, MIT),
+serves t3's RPC behind a session pass, and in its runner role (`consola-host runner`) starts
+sessions in sandboxes through `@consola/sandbox`, speaking `@consola/runner-protocol` to its
+cell (the only two Consola packages it imports), and `packages/agent-ui` (`@consola/agent-ui`, MIT),
 t3's chat view behind `AgentChat`. Read each one's `AGENTS.md` before changing it. The
 copied packages' own checks are not part of `pnpm test` or `pnpm typecheck`: run
 `pnpm run test:vendor` and `pnpm run typecheck:vendor` (CI's `vendor` job, on Linux, where a
@@ -1252,7 +1266,8 @@ Consola is AGPL-3.0-only (`LICENSE`), and every `package.json` says so. Three
 rules follow:
 
 - **Packages other people build against are MIT.** Plugin API types
-  (`@consola/plugin-types`), the `factory-spec` schema, integration manifest
+  (`@consola/plugin-types`), the `factory-spec` schema, the runner protocol
+  (`@consola/runner-protocol`), integration manifest
   formats: anything a third party compiles against gets its own MIT `LICENSE`
   and `"license": "MIT"`, so plugin and integration authors choose their own
   license. Such a package must not import from `apps/*` — that would pull

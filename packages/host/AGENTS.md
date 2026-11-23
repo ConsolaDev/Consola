@@ -13,26 +13,42 @@ Consola session and serves t3's chat RPC to a browser.
 Imports point inward only; `src/boundary.test.ts` fails on any that does not.
 
 - `src/core/` holds the pure decisions and the types they speak of: which
-  commands are offered (`decideCommand`), whether a session pass's claims hold
-  (`checkPassClaims`), when the host is idle (`isIdle`: no client, no running
+  commands are offered (`decideCommand`), what a session pass is and whether its
+  claims hold (`readPass`, `checkPassClaims`), which addresses are loopback
+  (`isLoopback`), when the host is idle (`isIdle`: no client, no running
   turn, nothing done for the idle minutes) and `SessionSpec`. No
   `node:` builtin, no `effect/process`, `ws` or `jose`, and no global that
   touches the machine (`process`, `fetch`, `WebSocket`, timers). It may name the
-  vendored `@t3tools/contracts`.
+  vendored `@t3tools/contracts` and `@consola/runner-protocol` (below). The
+  runner's decisions live here too (`runnerDecisions.ts`, "The `runner`
+  command"), and the host's stdout lines (`hostLine.ts`: `HostLine` and its
+  reader).
 - `src/runtime/` holds Effect services over the vendored t3 packages. It may
   import them (by package name, or `t3/<path>.ts` for a lifted server file) and
   `core/`, never `adapters/`.
 - `src/adapters/` is everything that touches the outside: the WebSocket server,
-  verifying a pass's signature, the dev pass (`devPass.ts`), the lines on
-  stdout (`stdoutEvents.ts`). It may import `core/` and `runtime/`.
+  verifying a pass's signature, the socket's tickets (`socketTickets.ts`), the
+  dev pass (`devPass.ts`), the lines on
+  stdout (`stdoutEvents.ts`), and the runner's sandboxes (`sandboxSessions.ts`)
+  and its socket to the cell (`cellSocket.ts`). It may import `core/` and
+  `runtime/`.
+- `src/main.ts` is the bin: it listens for SIGTERM and SIGINT, then imports
+  `bin.ts` and calls its `main` ("Signals", below). It imports no package and
+  nothing else (its `LAYERS` row reaches `bin` alone), so its listeners are
+  there before anything loads.
 - `src/bin.ts` is the only wiring: it parses the command line, builds the
-  adapters and hands them the runtime (`consola-host session`, below).
+  adapters and hands them the runtime (`consola-host session`, below), or a
+  sandbox provider (`consola-host runner`, below).
 - `src/testing/` is what tests share: `machine.ts` (a machine of a test's own,
   with fake CLIs), `setup.ts` (Vitest's setup file, which isolates the whole
   test process; "Tests" below), `replay.ts` (sessions whose Claude driver
   replays one of t3's recorded fixtures), `t3Client.ts` (t3's RPC client,
-  connected as `@t3tools/client-runtime` connects it) and `replaySession.ts`
-  (the session command over a replay, which `bin.test.ts` starts with node).
+  connected as `@t3tools/client-runtime` connects it), `replaySession.ts`
+  (the session command over a replay, which `bin.test.ts` starts with node),
+  `cellPass.ts` (a pass signed as the cell's `passSigner` signs one),
+  `localProvider.ts` (a `SandboxProvider` whose sandboxes are a temporary
+  folder and a `replaySession.ts` process, its ports `http://127.0.0.1:<port>`)
+  and `replayRunner.ts` (the runner command over it).
   No other ring reaches it, so only `*.test.ts` files, `vite.config.ts` and a
   test's `node` use it; it may use the test runner, t3's test kits and test
   seams, and reach `bin.ts` to run its command.
@@ -40,15 +56,27 @@ Imports point inward only; `src/boundary.test.ts` fails on any that does not.
   `@consola/agent-ui`'s browser tests use it too, by path, so a change here can
   break them: their global setup (`packages/agent-ui/src/testing/hostSession.ts`)
   imports `machine.ts` (`writeFakeClis`, `readCalls`, `cliVariablesIn`,
-  `homeVariables`, `pathWith`) and spawns `replaySession.ts` with node, passing
+  `homeVariables`, `pathWith`) and `cellPass.ts` (`PASS_MAX_LIFETIME_SECONDS`;
+  its `passKeys.ts`, and through it its `vite.config.ts`, sign passes with
+  `cellPass.ts`), and spawns `replaySession.ts` with node, passing
   `simple full-access session --pass-public-key … --session-id … --harness claude
-  --port 0`; its `sendFixtureMessage.ts` imports `t3Client.ts` (`hostSocketUrl`,
-  `connectT3Client`) and `replay.ts` (`loadReplay`, `sendMessage`). Run
+  --port 0`; its `sendFixtureMessage.ts` imports `t3Client.ts` (`connectHost`:
+  a ticket for the pass, then the socket) and `replay.ts` (`loadReplay`,
+  `sendMessage`). Run
   `pnpm --filter @consola/agent-ui test` after changing any of these.
 
 To add a ring, add a row to `LAYERS` and a case to the table in
-`boundary.test.ts`. Test files are exempt from the layer rules, but never import
-another `@consola/*` package: the host stands alone.
+`boundary.test.ts`. Test files are exempt from the layer rules.
+
+No file imports another `@consola/*` package, tests included, but two, each by
+its own name and never a path inside it (`@consola/sandbox/dist/index.js` is
+refused): `@consola/runner-protocol` (MIT), what a runner and its cell say to
+each other, which does no I/O, so every ring may name it; and
+`@consola/sandbox`, the interface the runner starts sandboxes through, in
+`adapters`, `testing` and `bin.ts` only, never `core` or `runtime`. A test file
+takes the list of the module it sits beside (`adapters/x.test.ts`
+`adapters`'s, `bin.test.ts` `bin`'s). Each is its layer's `consola` list in
+`LAYERS`, with a case in the table for every ring.
 
 ## Vendored t3 code is imported, never copied
 
@@ -117,7 +145,14 @@ type ThreadHandle = {
   ): Effect<{ sequence: number }, NotOfferedError | ThreadRuntimeError>;
   commandOutput(itemId: TurnItemId): Stream<OrchestrationV2CommandOutputFrame, OrchestrationV2CommandOutputError>;
   server: ThreadServerView; // what the server-config and provider RPCs read
+  shell: ThreadShellView; // the session's rows of t3's shell, for the shell routes
   lastActivityMs(): number;
+  ended: Effect<never, ThreadStreamEnded>; // fails once snapshot() would stop following the thread
+};
+
+type ThreadShellView = {
+  snapshot: Effect<OrchestrationV2ShellSnapshot, ThreadRuntimeError>; // its project and thread, now
+  thread: Effect<OrchestrationV2ThreadShell | null, ThreadRuntimeError>; // t3's getThreadShell
 };
 
 type ThreadServerView = {
@@ -146,11 +181,24 @@ type ThreadServerView = {
   accepted is not run again (t3 answers its first sequence).
 - `commandOutput(itemId)` is t3's `CommandOutputHub.subscribe` for one of the
   thread's command rows: the hub its provider sessions write to.
+- `ended` fails with `ThreadStreamEnded` once the stream that keeps
+  `snapshot()` current (t3's `streamStoredEvents`, which runs as long as the
+  orchestration does) ends or fails: from then on the snapshot, and the status
+  and title the host prints from it, would go stale. The session command then
+  stops with exit 1 (below). Its interruption as the scope closes is the
+  session's own stop, and logs nothing. `layerForTests`'s `endEventsAfter`
+  ends it early, for the tests.
 - `server` hands out the services of the composition t3's `ws.ts` builds its
   server config and provider list from, so nothing served is made up: t3's
   `ProviderRegistry` (one snapshot per provider instance, its changes and
   refreshes), its settings and their changes, the session's folder and t3's
   config paths.
+- `shell` reads the session's rows of t3's shell (the thread list t3's client
+  keeps beside a thread) from the store the projection is read from: the
+  thread's row (t3's `getThreadShell`) and its project's (`ProjectService`
+  `getShell`). `snapshot` holds those two and nothing else (no subagent's row,
+  no archived one), at `snapshotSequence()` read before them, so each row holds
+  at least every event through that sequence.
 
 ## The WebSocket server
 
@@ -159,7 +207,7 @@ type ThreadServerView = {
 one RPC server per connection, as t3's `ws.ts` runs it. `listenHost(options)`
 listens in the caller's scope and answers the port (`0` asks for an ephemeral
 one) and `connectedClients()`, the connections open now (each counts from the
-moment its pass lets it in until its socket closes; a refused one never
+moment its ticket lets it in until its socket closes; a refused one never
 counts); `serveHost` is `listenHost` then never. `host` is the caller's: the
 server adds no default bind address. `ws.ts` itself is not lifted; the
 handlers are host glue that calls the helpers `ws.ts` calls
@@ -171,31 +219,48 @@ handlers are host glue that calls the helpers `ws.ts` calls
   problem, never the key). Every connection's pass is verified against that
   parsed key, so a misconfigured key stops the host instead of refusing
   everyone in silence.
-- **The pass first.** `GET /ws` is the socket, and the three calls t3's
-  client makes before it are answered over HTTP (`hostHttp.ts`, below); any
-  other method or path gets a `404` before the pass is looked at. A
-  connection's `pass` query parameter, or `wsTicket` (the ticket t3's client
-  was issued, which is the pass), is verified (`verifyPassWith`) before
-  anything else is answered:
+- **The pass first, then a ticket.** `GET /ws` is the socket, and the three
+  calls t3's client makes before it, and the two orchestration reads it makes
+  once connected, are answered over HTTP (`hostHttp.ts`, below); any other
+  method or path gets a `404` before anything is looked at, and a request
+  whose target no URL can be made of (`GET // HTTP/1.1`) a `400`.
+  The pass travels only in the `Authorization: Bearer` header of those calls,
+  where it is verified (`verifyPassWith`) before anything else is answered:
   a compact JWS signed with EdDSA by the cell's key (jose, `algorithms:
-  ['EdDSA']`, so `none`, HMAC and every other algorithm are refused), whose
-  payload decodes as a pass's claims; then `checkPassClaims` judges them. A
-  refused WebSocket is upgraded and closed with `passCloseCode`: `4403` for a
-  pass signed by the cell's key that names another session (`sid` is checked
-  first, so that pass may also have expired), `4401` for every other refusal
-  (missing, invalid, expired, not yet valid). The pass and its claims are
-  never logged, and `PassRejected` carries the reason only. No tracer sees it
-  either: the server makes no HTTP request span
-  (`HttpMiddleware.TracerDisabledWhen`), which would record the URL the pass
-  travels in, and the RPC server traces nothing (`disableTracing`). Every
-  request also runs with `pass` among effect's redacted query parameters
-  (`HOST_REDACTED_URL_PARAMS`, effect's own `UrlParams.CurrentRedactedNames`
-  plus `pass` and `wsTicket`), so whatever shows a URL the server handles
-  redacts it. Then,
-  as t3, a client must speak orchestration protocol 2 (`426` otherwise).
-- **The pass bounds the connection.** A socket a pass let in is closed with
-  `4401` (`The session pass has expired.`) at that pass's `exp`, as a new
-  connection with it would be refused then (`serveRpc`: a timer forked in the
+  ['EdDSA']`, so `none`, HMAC and every other algorithm are refused), that
+  `readPass` takes for a pass: its header's `typ` is `PASS_TYPE` and its
+  payload the protocol's claims, read by `@consola/runner-protocol`'s
+  `readPassClaims` (`aud` `PASS_AUDIENCE`, the fields it names and no other,
+  a lifetime of `PASS_MAX_LIFETIME_SECONDS`, 300 s, or less). So a pass is
+  exactly what the cell's `passSigner` signs (`passVerifier.test.ts` signs one
+  with `passClaims` and that header), and another audience, no `typ`, or a
+  longer life is `invalid`. Then `checkPassClaims` judges the time and the
+  session: `exp <= now` is expired, 60 s of clock skew for `iat` only, `sid`
+  first. A `--dev` host alone takes its own longer pass (`PassLifetime`
+  `dev`, below).
+
+  The socket opens with a **ticket** alone (`wsTicket`, where t3's client puts
+  the one it was issued), never with a pass (`socketTickets.ts`). A ticket is
+  32 random bytes the host issued for a pass it just verified, held in memory
+  only, good for one socket once, for `TICKET_LIFETIME_MS` (30 s) or until its
+  pass expires if that comes first; the host holds `MAX_TICKETS` (64) at most,
+  dropping the oldest. No ticket, one it never issued, one used already or
+  expired, and a pass in a ticket's place or in a `pass` parameter are all
+  refused alike: the WebSocket is upgraded and closed with `4401` (`A valid
+  socket ticket is required.`). So what a socket's URL carries, which a
+  browser's developer tools and a proxy's logs show, opens nothing once used
+  or a moment old. The pass and its claims are never logged, and
+  `PassRejected` carries the reason only. No tracer sees either: the server
+  makes no HTTP request span (`HttpMiddleware.TracerDisabledWhen`), which
+  would record a request's URL, and the RPC server traces nothing
+  (`disableTracing`). Every request also runs with `pass` and `wsTicket` among
+  effect's redacted query parameters (`HOST_REDACTED_URL_PARAMS`, effect's own
+  `UrlParams.CurrentRedactedNames` plus those two), so whatever shows a URL
+  the server handles redacts them. Then, as t3, a client must speak
+  orchestration protocol 2 (`426` otherwise).
+- **The pass bounds the connection.** A socket a ticket let in is closed with
+  `4401` (`The session pass has expired.`) at the `exp` of the pass the ticket
+  was issued for, as a ticket for that pass would be refused then (`serveRpc`: a timer forked in the
   connection's scope, so a socket that closes first cancels it). t3's client
   then asks for a ticket with the expired pass, is refused (`401`), and stops
   (blocked, `authentication`), which is where `@consola/agent-ui` calls
@@ -204,7 +269,9 @@ handlers are host glue that calls the helpers `ws.ts` calls
   connection it let in with 4401 when its pass expires").
 - **What is served** is `SERVED_METHODS`, the one list, with why each is
   there: `orchestration.subscribeThread`, `orchestration.dispatchCommand` and
-  `orchestration.subscribeCommandOutput` (the thread), `subscribeServerConfig`
+  `orchestration.subscribeCommandOutput` (the thread),
+  `orchestration.subscribeShell` (the thread list's shell, "The shell" below),
+  `subscribeServerConfig`
   (client-runtime's session is ready only once its first snapshot arrives; it
   carries the provider list), `server.probe` (the session's liveness check)
   and `server.refreshProviders` (the composer's model picker and its folder
@@ -235,17 +302,21 @@ handlers are host glue that calls the helpers `ws.ts` calls
   desktop's secondary backend (`connection/resolver.ts` → `authorizeBearer`):
   it reads the environment's descriptor, asks for a socket ticket with its
   bearer token, opens the socket with that ticket, and once connected reads
-  its session's scopes. The host answers each as t3's handler does, with t3's
-  schemas, and the pass is the bearer token, so it stays the only credential:
+  its session's scopes (it asks for a new ticket for every connection it
+  opens). The host answers each as t3's handler does, with t3's schemas, and
+  the pass is the bearer token, the only credential the host takes:
   - `GET /.well-known/t3/environment`: the descriptor (the config's
-    environment, above), unauthenticated as in t3. It names the session id,
-    `Consola host`, the platform and t3's server version.
+    environment, above), unauthenticated as in t3. It names the session id
+    and `Consola host`. Since anyone who reaches the port reads it, a host
+    bound past loopback (a sandbox's public port) names no platform or
+    version: `os` `unknown`, `arch` `other`, `serverVersion` `unknown`
+    (`GENERIC_SERVER_VERSION`; t3's client only shows it, and whether it can
+    talk to a host is the orchestration protocol's to say). On loopback or
+    with `--dev` it names its own and t3's server version (`hostEnvironment`).
+    The config a pass holder reads carries the same environment.
   - `POST /api/auth/websocket-ticket/rpc` with `Authorization: Bearer <pass>`:
-    `{ ticket, expiresAt }`, the ticket being the pass itself (the host keeps
-    no sessions to mint one from), expiring with it. The socket verifies it
-    again. So the pass travels in the socket's URL (`wsTicket`), where a
-    browser's developer tools show it; a ticket distinct from the pass
-    (short-lived, used once) is a Track B decision.
+    `{ ticket, expiresAt }`, a new ticket (above), `expiresAt` its own end.
+    The pass never reaches the socket's URL.
   - `GET /api/auth/session` with the same header: `authenticated: true`, the
     host's auth descriptor, `HOST_SCOPES` (`orchestration:read` and
     `orchestration:operate`, all it serves, so t3's UI offers nothing more),
@@ -259,21 +330,74 @@ handlers are host glue that calls the helpers `ws.ts` calls
   - Every answer, a `404` included, carries t3's browser API CORS headers
     (`HttpMiddleware.cors` with the lifted `t3/httpCors.ts` lists: any origin,
     no cookies), so a page on another origin can make these calls and read a
-    `404` (t3's HTTP snapshot loaders, `/api/orchestration/shell` and
-    `…/threads/:id/bounded`, then fall back to the socket, as against an older
-    t3 server).
+    `404`.
+  - **Once connected**, t3's client reads two orchestration routes over HTTP
+    (t3's `orchestration-v2/http.ts`). The host answers them with the same
+    pass in the same header (a refused one is the `401` above), then checks
+    t3's orchestration protocol header, which t3's endpoints declare
+    (`x-t3-orchestration-protocol: 2`; without it an empty `400`, as t3's
+    schema answers a header it refuses):
+    - `GET /api/orchestration/shell`: the session's shell ("The shell",
+      below) as t3's `OrchestrationV2ShellHttpSnapshot`, or
+      `{ resumable: true }` for a `resumeFrom` cursor the socket can resume
+      from. t3's client loads it for every environment it connects and then
+      follows it over the socket (`state/shell.ts`); no t3 option skips it.
+    - `GET /api/orchestration/threads/:threadId/bounded`: the session's thread
+      as one window that holds all of it (`historyCursor: null`,
+      `hasMoreHistory: false`: t3's bounded history windows are left out, so
+      there is nothing older to page), shaped by t3's
+      `boundedSnapshotResponseFields` as the client's flags ask
+      (`compactTurnItems`, `dedupeBodies`, `compactIds`; `deferWork` defers
+      nothing). The config says `threadSnapshotPagination: true`, so t3's
+      client opens a cold thread over the socket alone the first time
+      (`state/threads.ts`, `socketOnly`); a later cold open, after a failure
+      or a first session that dropped before its data arrived, asks this
+      route. Another thread id is t3's `404` `EnvironmentResourceNotFoundError`
+      (`thread_not_found`), which t3's client reads as a thread that is not
+      there.
+
+    Every other route t3's contract names (a thread's full snapshot, its
+    transcript and history pages, the project list) is a `404`: the chat
+    `@consola/agent-ui` mounts asks none of them of this host.
+    `AgentChat.console.browser.test.tsx` and
+    `AgentChat.droppedOpen.browser.test.tsx` there record every response of
+    400 or more and everything the page's console says at warning level or
+    above (Playwright's console, Effect's warnings), from mount until the
+    thread shows, a dropped first socket included, and find nothing.
   - A failure of the host's own while answering (not a refused pass, which is
     an answer) is logged to stderr, the request's pass taken out of it, and
     answered `500` (`hostHttp.test.ts`).
+- **The shell** (`src/adapters/hostShell.ts`): t3's
+  `subscribeOrchestrationV2Shell` (`ws.ts`) and its HTTP snapshot, from the
+  handle's `shell`, composed with the lifted `ShellStream.ts` helpers for one
+  thread. It lists the session's thread and its project and nothing else: an
+  empty shell would tell t3's chat the thread is not there, and another row
+  would be a thread the host does not serve. With no cursor it sends the
+  snapshot, the completion marker the client asks for, then the thread's row
+  after each batch of its stored events (`events(snapshotSequence)`, gathered
+  for up to 50 ms as t3's `toShellStream` gathers them, an unchanged row not
+  sent again within t3's window, the tail buffered by t3's budget). A cursor
+  at or behind the thread's last event resumes (`canResumeShell`, which the
+  HTTP route's `resumeFrom` asks too): the row as it is now if anything
+  followed the cursor, the marker, then the same updates. A cursor past it
+  (another host's) is `snapshot-required` for a client that asked for that
+  (`httpSnapshotFallback`), else the snapshot. Once its row is listed, t3's
+  chat reads the thread's title and status from it (`ChatView`'s
+  `serverThread`) rather than from the projection, so the row is read from
+  the store the projection is read from and sent again after every event of
+  the thread: what the chat shows follows the thread (`rpcServer.test.ts`
+  "follows the thread over the socket", `@consola/agent-ui`'s
+  `AgentChat.console.browser.test.tsx`). Left out, as the host offers none of
+  them: repository identities and their enrichment refreshes, idle subagents
+  and older settled threads (`omitIdleSubagents`, `omitOlderSettled`, which
+  t3's client sends only to a server that advertises them), and the archive.
 - **Methods the chat calls and the host refuses.** Running t3's copied chat
-  (`@consola/agent-ui`) against a replay host, the chat calls three methods
-  beyond `SERVED_METHODS`: `orchestration.subscribeShell` (the thread list's
-  shell; the chat has a shell-less path and renders the thread from its
-  projection), `subscribeDeviceState` (the phone preview) and
-  `subscribeProjectClones` (project clones). Each stays refused: the chat
-  shows the thread, its composer and its model without them, and the latter
-  two are parts of t3 the plan leaves out. Sending from the composer is not
-  yet exercised against the host by a test.
+  (`@consola/agent-ui`) against a replay host, the chat calls two methods
+  beyond `SERVED_METHODS`: `subscribeDeviceState` (the phone preview) and
+  `subscribeProjectClones` (project clones). Both stay refused: the chat
+  shows the thread, its composer and its model without them, and both are
+  parts of t3 the plan leaves out. Sending from the composer is not yet
+  exercised against the host by a test.
 - **No client tracking in `ws`.** The HTTP server makes its `ws`
   WebSocketServer at the first upgrade and closes it with the scope, before
   its own finalizer closes the sockets; with `ws`'s client tracking that close
@@ -592,8 +716,8 @@ refuses them anywhere else.
 
 ## The `session` command
 
-`src/bin.ts` is the package's `consola-host` bin, run by Node 26 straight from
-source (type stripping; no build step):
+`src/main.ts` is the package's `consola-host` bin (it loads `src/bin.ts`), run by
+Node 26 straight from source (type stripping; no build step):
 
 ```
 consola-host session --session-id <id> --harness <claude|codex|opencode|pi|acp> --cwd <dir>
@@ -602,7 +726,7 @@ consola-host session --session-id <id> --harness <claude|codex|opencode|pi|acp> 
   [--idle-minutes <n, default 10; fractions allowed>] [--state-dir <dir>]
 ```
 
-Track B's runner starts it in a sandbox and reads its stdout. It opens the
+The runner role (`consola-host runner`) starts it in a sandbox and reads its stdout. It opens the
 session's thread (`ThreadRuntime.open`), then listens (`listenHost`), so
 `ready` means a client can connect now.
 
@@ -623,55 +747,245 @@ session's thread (`ThreadRuntime.open`), then listens (`listenHost`), so
   `runtimeRequests[].status`) is `waiting`, an active run (t3's own
   `isActiveRun`) is `working`, anything else `idle`; the title is the
   projection's `thread.title`. A line is printed only on a change from what was
-  last said, and `ready` says idle and the thread's first title. t3 titles a
+  last said, and `ready` says idle and the thread's first title, read before
+  `ready` is written (`reportSession`'s `said`), so a retitle in between is
+  said too. t3 titles a
   thread twice on its first message, from the message's title seed and then
   with its generated title, so both are lines.
 - **Idle exit.** Each second the host asks `isIdle` with the server's
   `connectedClients()`, whether a turn runs (`working`), and the last activity:
   the thread's (`lastActivityMs`) or the last moment a client was connected,
   whichever is later; becoming ready counts as activity. When it holds, the
-  host prints `exit`, closes the session and exits 0. A pending approval or
+  host prints `exit`, closes the session and exits 0. Closing has the
+  shutdown's grace too: however a session ends (idle, a failure, a signal),
+  `runSession` arms the forced exit (`HostStopping`) before anything it
+  started is closed, so a stop that hangs (a provider session's, say) ends in
+  exit 1 and `consola-host: the session did not stop in time.` 15 seconds
+  later, within the runner's `EXIT_LINE_GRACE` (30 s from the `exit` line;
+  `bin.test.ts`, with `CONSOLA_TEST_SESSION_STOP=hangs`, which
+  `testing/replaySession.ts` reads). A pending approval or
   question (`waiting`) does not hold it: with no page connected and no turn
   running, the host exits once the idle minutes pass, and the request, the
   thread and its history (t3's in-memory SQLite) go with it.
 - **Signals.** SIGTERM and SIGINT interrupt the program: its scope closes (the
   server, the thread, the provider session and the CLI it runs), then the
-  process exits 0 (1, with a message, if that takes over 15 seconds).
+  process exits 0 (1, with a message, if that takes over 15 seconds). That
+  holds from the first moment: loading the program takes seconds, and the bin
+  (`main.ts`) listens for both before it loads anything, so a signal that
+  comes meanwhile never ends the process by the signal. Node hands it over
+  when its event loop next turns: while loading, nothing has started and the
+  process exits 0; after, the program's handlers have it, as above
+  (`bin.test.ts` signals a host 400 ms after spawning it, before `ready`, and
+  sees exit 0). The host's bundle for the session template (CON-93) keeps
+  this entry.
+- **A stale thread ends the session.** Should the thread's event stream end
+  (`ThreadHandle.ended`), the host stops as from a failure: its scope closes
+  under the grace, and it exits 1 with `consola-host: Session <id> stopped:
+  its thread's event stream ended, so what it shows would go stale.` as the
+  last line on stderr, which the runner reports as the session's `failed`
+  error (`bin.test.ts`, with `CONSOLA_TEST_EVENT_STREAM=ends`).
 - **Start failures** (a bad flag, a key file that cannot be read or is not an
   Ed25519 public key, `--cwd` not a folder, a port taken): a message on stderr
   (`consola-host: …`, with the usage for a bad flag), exit 1, nothing on
   stdout. The key is read and checked before any CLI starts.
 - **`--dev`** stands in for the cell: an Ed25519 key pair made in memory
   (`adapters/devPass.ts`), whose private key is never returned, printed or
-  written, and one pass signed with it: `sub` `dev`, `ws` `local` (names no
+  written, and one pass signed with it as the cell signs one (EdDSA, `typ`
+  `PASS_TYPE`, `aud` `PASS_AUDIENCE`): `sub` `dev`, `ws` `local` (names no
   person or workspace has), `sid` the session id, `iat` now, `exp` twelve hours
-  later. `--pass-public-key` is ignored and `--session-id` defaults to
-  `dev-session`. It listens on loopback only: `--dev` with a `--bind` other than
-  `localhost`, `::1` or a `127.0.0.0/8` address is a start failure (`isLoopback`). Without `--dev`, `--pass-public-key` is required.
+  later (`DEV_PASS_SECONDS`). `--pass-public-key` is ignored and `--session-id`
+  defaults to `dev-session`. It listens on loopback only: `--dev` with a
+  `--bind` other than `localhost`, `::1` or a `127.0.0.0/8` address is a start
+  failure (`isLoopback`, `core/bind.ts`), and `listenHost` refuses a `dev`
+  host bound anywhere else too. Without `--dev`, `--pass-public-key` is
+  required.
+
+  **Why a dev pass outlives the cap.** A cell's pass lives five minutes at
+  most, and the cell signs a new one when the page asks (`onPassExpired`). The
+  dev page has no cell to ask, so a five-minute dev pass would need a renewal
+  path of its own: an endpoint on the host that signs passes, which is a new
+  way in. So `--dev` is exempt from the lifetime cap and from nothing else: its
+  pass carries the cell's `typ` and `aud`, is read by the protocol's rules but
+  the cap (`readPass` with `PassLifetime` `dev`, held to `DEV_PASS_SECONDS`),
+  and is taken only by the host that made the key, on loopback. A host started
+  with `--pass-public-key` takes the protocol's lifetime and no other, whatever
+  a pass says.
 - **State.** t3's state and settings live in `--state-dir`
   (`<dir>/userdata/settings.json`), or in a temporary folder removed at exit.
   The tests pass one whose settings turn update checks off, so a host they
   start asks no one online.
 
-`runSession(args, runtimeFor)` takes the runtime as a parameter; the entry at
-the bottom of `bin.ts` passes `ThreadRuntime.layer`. `testing/replaySession.ts`
+`runSession(args, runtimeFor)` takes the runtime as a parameter; `main`
+(which `main.ts` calls) passes `ThreadRuntime.layer`. `testing/replaySession.ts`
 runs the same `sessionCommand` and `runHostProcess` over `layerForTests` with
 the Claude replay driver, checking out the fixture's workspace as `--cwd`.
 `bin.test.ts` starts both with node under the test's machine (fake CLIs on the
 PATH, the test's home): the replay through a whole turn (`ready`, `dev-pass`, a
-message sent with the pass, `status` and `title` lines, exit 0 on SIGTERM), and
-the real bin for `ready`, `dev-pass`, a socket that takes the pass, SIGTERM
+message sent through a ticket for the pass, `status` and `title` lines, exit 0 on SIGTERM), and
+the real bin for `ready`, `dev-pass`, a socket opened with a ticket for the pass, SIGTERM
 with no process left (a fake `claude` that stays running, as the capabilities
 probe's would), the cell's key, the idle exit, and the start failures. Each
 asserts that every stdout line is a `HostLine`.
+
+## The `runner` command
+
+`consola-host runner` is the host's other role: a workspace's runner. It dials
+its regional cell (`apps/cloud-region/AGENTS.md`, "The runner's socket") and
+runs each session the cell asks for in a sandbox of its own, through
+`@consola/sandbox`, where the template's start script clones the repository and
+runs `consola-host session`. The messages are `@consola/runner-protocol`'s; read
+its `AGENTS.md` first.
+
+```
+consola-host runner --cell-url <wss://…/api/runner, or ws: to loopback> --runner-id <id>
+  [--idle-minutes <n, default 10; the session hosts'>] [--max-session-minutes <n, default 480>]
+```
+
+- **Environment.** `CONSOLA_RUNNER_SECRET` (sent only in the socket's upgrade,
+  as `Authorization: Bearer`; printable characters with no space),
+  `CONSOLA_RUNNER_REPOSITORIES` (the repositories it offers, `owner/name`,
+  comma-separated), `GIT_TOKEN` (optional, for the clone), and the API keys,
+  each offering its harness (`harnessesFromEnv`): `ANTHROPIC_API_KEY` claude,
+  `OPENAI_API_KEY` codex. Wiring E2B (`@consola/sandbox/e2b`, CON-93) adds
+  `E2B_API_KEY`, to `RUNNER_SECRET_VARIABLES` too (below).
+- **Start failures** follow the session command's: `consola-host: …` on stderr,
+  exit 1, nothing on stdout. A bad flag (with the usage), a `--cell-url` that is
+  not `wss:` or is `ws:` to a host that is not loopback, or carries user info,
+  a query or a fragment (it is logged; `cellUrlProblem`), no secret, a
+  repository `isRepository` refuses, no API key (no harness to offer), and no
+  sandbox provider. No message quotes a secret.
+- **The provider.** `runnerCommand(argv, env, providerFor)` takes the provider
+  from a factory of the environment (`ProviderFor`). Production's
+  (`productionProvider`) has none yet, so the shipped runner fails at start
+  until it wires E2B (`@consola/sandbox/e2b`, CON-93); it never falls back to a fake. Tests run
+  `testing/replayRunner.ts`, the same command on `testing/localProvider.ts`,
+  whose sandboxes' processes get the sandbox's variables over only
+  `MACHINE_VARIABLES` of the test machine (`PATH`, the home and XDG folders,
+  the temporary folder, the locale), never the runner's own environment, so a
+  test can check what a sandbox was given (its `printenv`;
+  `localProvider.test.ts`).
+- **A session's sandbox** (`adapters/sandboxSessions.ts`). A `session.start`
+  for a repository or harness the runner does not offer is `failed`, with no
+  sandbox (`offerRefusal`). Otherwise the sandbox is created from the template
+  `consola-session` with `CONSOLA_SESSION_ID`, `CONSOLA_HARNESS`,
+  `CONSOLA_REPOSITORY`, `CONSOLA_PASS_PUBLIC_KEY`,
+  `CONSOLA_SESSION_IDLE_MINUTES`, `GIT_TOKEN` and the API key of that harness
+  alone (`sandboxEnvFor`), and runs `consola-session-start`, its output only
+  listened to (`keepOutput: false`). A second start for a session held is
+  ignored; a start once the runner is stopping is `failed`, with no sandbox,
+  since nothing would stop it.
+- **What a line becomes** (`readSessionLine`, `updateForLine`; stdout arrives in
+  chunks, `HostLineBuffer` makes them lines). `ready` exposes the port it names
+  (never a fixed 7420) and says `{ status: 'running', hostUrl }` with the
+  provider's address, once it is an origin the cell takes (`isHostUrl`); an
+  address that cannot be had fails the session and stops its sandbox. `title`
+  says the title. The start script's `clone-failed` says `failed` with its
+  message, and is read only before `ready` (the script prints it before the
+  host runs). `status`, `dev-pass`, the host's `exit` and anything unreadable
+  say nothing. Once a session's end is said, a later `ready` exposes nothing.
+- **What an end becomes** (`updateForExit`), said once, the cell's stop always
+  `stopped`. Before `ready`, any end the cell did not ask for is `failed` (the
+  cell keeps a starting session starting on a `stopped`), with the last line on
+  stderr for a non-zero exit. After it, the host's own exit (its `exit` line) and
+  the runner's stop are `stopped`; a non-zero exit is `failed` with the last line
+  on stderr; a signal from elsewhere is `failed` ("The session's sandbox
+  ended."), and so is exit 0 with no `exit` line, since the host ends that way
+  only when something in the sandbox stopped it. A provider's failure (quota, a
+  missing template's `not-found`) is `failed` with its message.
+- **Backstops.** The sandbox is stopped whenever its session ends: when its
+  command ends, and at once when the session fails while its command runs on
+  (a failed clone, a port that cannot be exposed), since an ended session is
+  in no `hello` and the cell could never ask for that stop. The
+  runner also stops it on the cell's `session.stop`, `EXIT_LINE_GRACE` (30 s,
+  over the host's 15 s shutdown grace) after the host's `exit` line, at the
+  lifetime cap (`--max-session-minutes`), and on SIGTERM or SIGINT, when it says
+  each session's end while the socket is still open, then stops every sandbox,
+  then closes the socket (1001) and exits 0. A sandbox's stop is asked once per
+  session, and a stop that fails is asked again (`STOP_ATTEMPTS`, 3, after
+  0.5 s then 1 s), each failure logged with its reason; all of it within
+  `SANDBOX_STOP_TIMEOUT` (30 s) while running. Once the runner begins to stop,
+  a deadline is set `SHUTDOWN_STOP_TIMEOUT` (10 s) from that moment, and every
+  sandbox's stop and every wait for a stopped sandbox's command (otherwise up
+  to 10 s, `STOPPED_COMMAND_WAIT`) ends by it, however late it began: a stop
+  that begins 1 s into the shutdown gets the 9 s left. That leaves the
+  socket's close its 3 s inside the 15 s grace. Past either bound, it is
+  logged and the session's end is said anyway.
+- **A provider's calls are bounded.** `create`, `start` and `exposePort` (E2B
+  makes network calls for each) fail the session past `SANDBOX_CALL_TIMEOUT`
+  (60 s): `The sandbox was not made within 60 s.`, `… did not start the
+  session …`, `… did not expose the session's port …`, and the sandbox, if
+  there is one, is stopped. A provider cannot be told to give up a call, so a
+  sandbox made after its create timed out is stopped as it arrives (logged).
+  These bounds are not the shutdown's: a call still pending when the runner
+  stops can outlast the grace, and the forced exit is what ends that.
+- **The forced exit.** However the runner begins to stop (a signal, a
+  replacement, a failure), it first arms it (`HostStopping`, which
+  `runHostProcess` provides), the backstop should stopping still hang: past
+  15 s it exits 1, saying "the runner did not stop in time" (`bin.test.ts`,
+  a sandbox whose create never returns: `CONSOLA_TEST_SANDBOX_CREATE=hangs`,
+  `LocalProvider`'s `createHangsForTests`).
+- **The socket** (`adapters/cellSocket.ts`, on `ws`: Node's own WebSocket cannot
+  portably send `Authorization`). Each connection opens with `hello` (the offer,
+  `runningSessionIds`, and `endedSessions`), then every live session's state
+  again (`running`, its address and title), since the cell may drop updates
+  that went on a socket it replaced. An update while the socket is down is not
+  queued; an end is held for the next `hello` (`EndedSessions`). Once it went
+  out, a ping follows it, and it is heard only when that ping's pong comes back
+  (the cell reads a socket's frames in order); should the connection close
+  first, however long it was open, the end goes again in the next `hello`. An
+  id is never listed as running and ended at once. A `hello` over the cell's
+  64 KiB frame limit sends its ends without their messages. A drop is dialled again
+  after a jittered wait doubling to 30 s (`reconnectDelayMs`), starting over
+  once a connection has held 10 s. A close with 4000 means another process with
+  this secret said hello and replaced this one: it stops its sandboxes (as at
+  SIGTERM, within the shutdown's bound), stops dialling and exits 1 saying so,
+  so two runners sharing a secret never take the socket from each other in a
+  loop. Frames over 64 KiB close the socket (1009); a frame
+  `readCellMessage` refuses is logged with its reason and dropped. A failure of
+  the runner's own while connected ends that connection, never the dialling.
+  **The heartbeat** (`Pings`): a ping at least every `HEARTBEAT_INTERVAL_MS`
+  (25 s), each carrying its number, which the pong echoes; a ping unanswered
+  for `PONG_TIMEOUT_MS` (10 s) drops the socket (`terminate`) and dials again,
+  so a socket that died without a close (a NAT that forgot it, a laptop that
+  slept, a cell gone without a reset) is not written into for the minutes TCP
+  takes to notice. The cell answers pings as `ws` does by default.
+- **Secrets.** It never logs its environment. Its secret variables are one
+  list, `RUNNER_SECRET_VARIABLES` (`core/runnerDecisions.ts`): the runner
+  secret, the git token and each harness's API key; wiring E2B adds `E2B_API_KEY`
+  there, and `bin.test.ts` fails on a secret-named variable the host's source
+  reads that the list lacks. Its log lines (stderr, `consola-host runner: …`)
+  and every update are scrubbed of those variables' values (`secretValuesOf`,
+  `scrubSecrets`, as they are and URL-encoded), errors and
+  titles before they are bounded to 1000 characters (`scrubUpdate`), and a
+  command's stderr as it arrives, before its tail is cut (`StderrTail` holds back
+  what may start a secret split across chunks). `hostUrl` is the provider's
+  address, checked as an origin, never the sandbox's text. Stdout stays empty.
+
+`bin.test.ts` runs `testing/replayRunner.ts` under the test's machine against a
+cell of its own (a `ws` server on loopback): the secret in the upgrade, `hello`,
+a `session.start` with a real key, `running` at `http://127.0.0.1:<port>` where
+the replayed host answers, then SIGTERM: `stopped`, the socket closed with 1001,
+exit 0, no process left, and no secret on stderr. With
+`CONSOLA_TEST_SANDBOX_STOP=hangs` (`LocalProvider`'s `stopHangsForTests`) no
+sandbox's stop returns: SIGTERM still says `stopped` and exits 0, and a
+replacement (4000) exits 1 saying why, both within the grace. With
+`CONSOLA_TEST_SANDBOX_CREATE=hangs` no create returns: SIGTERM exits 1 past
+the grace, saying the runner did not stop in time.
+It runs the real bin for each start failure. `sandboxSessions.test.ts` drives the sessions over the fake
+provider, and `cellSocket.test.ts` the socket against a `ws` server.
 
 ## Running it
 
 ```bash
 pnpm --filter @consola/host test        # vp test run (Vite+), config in vite.config.ts
 pnpm --filter @consola/host typecheck   # effect-tsgo, hoisted by publicHoistPattern
-node packages/host/src/bin.ts session --dev --harness claude --cwd <folder>   # from the repo root
+node packages/host/src/main.ts session --dev --harness claude --cwd <folder>   # from the repo root
 ```
+
+The host loads its two Consola dependencies, `@consola/runner-protocol` and `@consola/sandbox`,
+from their built `dist/`, which a fresh checkout does not have. Build them once first, and after
+changing either: `pnpm exec turbo run build --filter=@consola/host^...` (the package's own
+`test` and `typecheck` through Turborepo do it for you, as `pnpm test` does).
 
 ### Running it with the chat
 
@@ -679,7 +993,7 @@ node packages/host/src/bin.ts session --dev --harness claude --cwd <folder>   # 
 the person's own signed-in `claude`. Two commands, from the repository root, in two terminals:
 
 ```bash
-node packages/host/src/bin.ts session --dev --session-id demo-1 --harness claude --cwd <folder>
+node packages/host/src/main.ts session --dev --session-id demo-1 --harness claude --cwd <folder>
 pnpm --filter @consola/agent-ui dev      # http://localhost:5176
 ```
 

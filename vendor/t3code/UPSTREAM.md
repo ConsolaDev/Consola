@@ -1435,8 +1435,11 @@ against the host's copies (lines at `d51d8c47`):
 
 The handlers themselves follow these `ws.ts` handlers, written as host glue
 over the helpers above (re-read them on a re-sync too):
-`subscribeOrchestrationV2Thread` (914-1140), `loadServerConfig` (1832-1925),
-`orchestration.dispatchCommand` (2005-2059), `orchestration.subscribeThread`
+`subscribeOrchestrationV2Thread` (914-1140), `subscribeOrchestrationV2Shell`
+(1147-1436, for one thread: `packages/host/src/adapters/hostShell.ts`, over the
+lifted `orchestration-v2/ShellStream.ts`), `loadServerConfig` (1832-1925),
+`orchestration.dispatchCommand` (2005-2059), `orchestration.subscribeShell`
+(2339-2340), `orchestration.subscribeThread`
 (2341-2347), `orchestration.subscribeCommandOutput` (2348-2353),
 `server.probe` (2391), `server.refreshProviders` (2499-2580),
 `subscribeServerConfig` (3423-3579) and the `/ws` route (3697-3851).
@@ -1460,10 +1463,21 @@ any origin, no credentials) and `layerServerEnvironmentHttpApi` `"descriptor"`
 `issueWebSocketTicket` (1503-1524). The responses and the refusal are t3's
 schemas from `@t3tools/contracts` (`ExecutionEnvironmentDescriptor`,
 `AuthWebSocketTicketResult`, `AuthSessionState` with `authScopeResponse`,
-`EnvironmentAuthInvalidError`). Where the host differs: the ticket is the pass
-itself (the host keeps no sessions), a pass for another session is
-`invalid_credential` (t3's ticket call declares no other refusal), and only the
-`rpc` ticket path is served.
+`EnvironmentAuthInvalidError`). Where the host differs: the ticket is the host's
+own, random, in memory and good for one socket once
+(`packages/host/src/adapters/socketTickets.ts`; the host keeps no sessions), a
+pass for another session is `invalid_credential` (t3's ticket call declares no
+other refusal), and only the `rpc` ticket path is served.
+
+Its two orchestration reads follow `orchestration-v2/http.ts`'s handlers (re-read
+them on a re-sync too): `loadShellSnapshot` (83-103), `answerShellSnapshot`
+(105-120) and `"shellSnapshot"` (185-197), for the session's shell alone; and
+`"threadBoundedSnapshot"` (238-263), for the session's thread as one window that
+holds all of it (no `getThreadSnapshotWindow` and no
+`buildBoundedThreadProjection`: the host pages no history), shaped by the lifted
+`ThreadStream.ts` `boundedSnapshotResponseFields`. The answers are t3's schemas
+(`OrchestrationV2ShellHttpSnapshot`, `OrchestrationV2ShellResumable`,
+`OrchestrationV2ThreadBoundedSnapshot`, `EnvironmentResourceNotFoundError`).
 
 ### Known runtime gaps
 

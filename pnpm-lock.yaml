@@ -372,12 +372,18 @@ importers:
       '@consola/factory-spec':
         specifier: workspace:*
         version: link:../../packages/factory-spec
+      '@consola/runner-protocol':
+        specifier: workspace:*
+        version: link:../../packages/runner-protocol
       '@electric-sql/pglite':
         specifier: ^0.5.17
         version: 0.5.17
       '@hono/node-server':
         specifier: ^2.1.11
         version: 2.1.11(hono@4.13.19)
+      '@hono/node-ws':
+        specifier: ^1.3.2
+        version: 1.3.2(@hono/node-server@2.1.11(hono@4.13.19))(hono@4.13.19)
       '@hono/zod-openapi':
         specifier: ^1.6.3
         version: 1.6.3(hono@4.13.19)(zod@4.6.7)
@@ -403,6 +409,9 @@ importers:
       '@types/pg':
         specifier: ^8.23.1
         version: 8.23.1
+      '@types/ws':
+        specifier: ^8.18.2
+        version: 8.18.2
       drizzle-kit:
         specifier: ^0.31.11
         version: 0.31.11
@@ -415,6 +424,9 @@ importers:
       vitest:
         specifier: ^4.1.12
         version: 4.1.12(@types/node@20.19.31)(vite@7.3.8(@types/node@20.19.31)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1))
+      ws:
+        specifier: ^8.23.0
+        version: 8.23.0
 
   apps/cloud-web:
     dependencies:
@@ -1009,6 +1021,12 @@ importers:
 
   packages/host:
     dependencies:
+      '@consola/runner-protocol':
+        specifier: workspace:*
+        version: link:../runner-protocol
+      '@consola/sandbox':
+        specifier: workspace:*
+        version: link:../sandbox
       '@effect/platform-node':
         specifier: 'catalog:'
         version: 4.1.5(effect@4.1.5)(redis@6.3.1)
@@ -1051,6 +1069,9 @@ importers:
       t3:
         specifier: workspace:*
         version: link:../../vendor/t3code/apps/server
+      ws:
+        specifier: 8.23.0
+        version: 8.23.0
     devDependencies:
       '@t3tools/client-runtime':
         specifier: workspace:*
@@ -1061,12 +1082,27 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 24.12.4
+      '@types/ws':
+        specifier: 8.18.2
+        version: 8.18.2
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
       vite-plus:
         specifier: 'catalog:'
         version: 1.4.0(@types/node@24.12.4)(@vitest/browser-playwright@5.0.5)(@vitest/browser-preview@5.0.5)(@vitest/ui@5.0.5)(esbuild@0.28.2)(jiti@2.7.0)(playwright@1.62.1)(tsx@4.23.15)(typescript@5.9.3)(vite@7.3.8(@types/node@24.12.4)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1))(vitest@5.0.5)(yaml@2.9.1)
+
+  packages/runner-protocol:
+    devDependencies:
+      '@types/node':
+        specifier: ^20.11.19
+        version: 20.19.31
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.12
+        version: 4.1.12(@types/node@20.19.31)(vite@7.3.8(@types/node@20.19.31)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1))
 
   packages/sandbox:
     dependencies:
@@ -3680,6 +3716,13 @@ packages:
     resolution: {integrity: sha512-jdf7FHh6A1lzjpHHQUgxsg2GeER2vMetnAOfeActzcoli6jamlK+NAwL6Dsr5Fl3BS3tYUQzCdtZjU8Qxv7bEA==}
     engines: {node: '>=20'}
     peerDependencies:
+      hono: 4.13.18
+
+  '@hono/node-ws@1.3.2':
+    resolution: {integrity: sha512-+AmbA68lcspwOTzqTTZlehv0uT5Uc0CPKzTjEOa57LFDz2uyj77Tof1DKu1Eiri2WO1ig4WA1vayExdYDtu5Lg==}
+    engines: {node: '>=18.14.1'}
+    peerDependencies:
+      '@hono/node-server': ^2.1.6
       hono: 4.13.18
 
   '@hono/zod-openapi@1.6.3':
@@ -10600,6 +10643,15 @@ snapshots:
     dependencies:
       hono: 4.13.18
 
+  '@hono/node-ws@1.3.2(@hono/node-server@2.1.11(hono@4.13.19))(hono@4.13.19)':
+    dependencies:
+      '@hono/node-server': 2.1.11(hono@4.13.19)
+      hono: 4.13.19
+      ws: 8.23.0
+    transitivePeerDependencies:
+      - bufferutil
+      - utf-8-validate
+
   '@hono/zod-openapi@1.6.3(hono@4.13.19)(zod@4.6.7)':
     dependencies:
       '@asteasolutions/zod-to-openapi': 9.1.0(zod@4.6.7)
@@ -12526,7 +12578,7 @@ snapshots:
 
   '@types/ws@8.18.2':
     dependencies:
-      '@types/node': 24.12.4
+      '@types/node': 20.19.31
 
   '@types/yauzl@3.4.0':
     dependencies:

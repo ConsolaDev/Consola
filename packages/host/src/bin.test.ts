@@ -1,25 +1,56 @@
 // @effect-diagnostics nodeBuiltinImport:off - It starts the host with node and reads what it prints.
 import { type ChildProcess, execFileSync, spawn } from 'node:child_process';
 import { generateKeyPairSync, type KeyObject } from 'node:crypto';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { createServer, type Server } from 'node:net';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
+import { get } from 'node:http';
+import { type AddressInfo, createServer, type Server } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ORCHESTRATION_V2_WS_METHODS } from '@t3tools/contracts';
+import { CommandId, ORCHESTRATION_V2_WS_METHODS, ThreadId } from '@t3tools/contracts';
 import type * as Cause from 'effect/Cause';
 import * as Clock from 'effect/Clock';
 import * as Duration from 'effect/Duration';
 import * as Effect from 'effect/Effect';
+import * as Option from 'effect/Option';
 import * as Queue from 'effect/Queue';
-import { decodeJwt, SignJWT } from 'jose';
+import * as Stream from 'effect/Stream';
+import { decodeJwt } from 'jose';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
+import { type WebSocket, WebSocketServer } from 'ws';
 import { DEV_PASS_SECONDS } from './adapters/devPass.ts';
 import { HOST_LINE_TYPES } from './adapters/stdoutEvents.ts';
-import { DEV_SESSION_ID, folderWarning, parseSessionArgs, UsageError } from './bin.ts';
+import {
+  DEFAULT_MAX_SESSION_MINUTES,
+  DEV_SESSION_ID,
+  folderWarning,
+  isRunnerCommand,
+  parseRunnerArgs,
+  parseSessionArgs,
+  StartFailed,
+  temporaryStateDir,
+  UsageError,
+} from './bin.ts';
+import {
+  HARNESS_API_KEYS,
+  REDACTED,
+  RUNNER_SECRET_VARIABLES,
+  scrubSecrets,
+} from './core/runnerDecisions.ts';
 import { isolateMachine } from './testing/machine.ts';
 import { loadReplay, REPLAY_TITLE, sendMessage } from './testing/replay.ts';
-import { connectT3Client, hostSocketUrl } from './testing/t3Client.ts';
+import { signCellPass } from './testing/cellPass.ts';
+import { connectHost } from './testing/t3Client.ts';
 
 /**
  * Each test runs on a machine of its own (`./testing/machine.ts`): a temporary home, no CLI config
@@ -29,11 +60,18 @@ import { connectT3Client, hostSocketUrl } from './testing/t3Client.ts';
 const machine = isolateMachine();
 
 const SRC = dirname(fileURLToPath(import.meta.url));
-/** The command as Track B's runner starts it. */
-const BIN = join(SRC, 'bin.ts');
+/** The command as Track B's runner starts it: the package's bin. */
+const BIN = join(SRC, 'main.ts');
 /** The same command, its Claude driver replaying one of t3's fixtures (test-only). */
 const REPLAY_ENTRY = join(SRC, 'testing', 'replaySession.ts');
+/** The runner, its sandboxes local processes of `replaySession.ts` (test-only). */
+const REPLAY_RUNNER = join(SRC, 'testing', 'replayRunner.ts');
 
+/**
+ * How long after spawning a test signals a host it means to catch loading: past Node's own start
+ * (tens of milliseconds), well before the program it loads has (seconds; `main.ts`).
+ */
+const EARLY_SIGNAL_MS = 400;
 /** Starting node, loading t3 and hydrating its drivers takes seconds; under load, more. */
 const LINE_TIMEOUT = Duration.seconds(60);
 const TEST_TIMEOUT_MS = 150_000;
@@ -242,17 +280,8 @@ const takenPort = Effect.acquireRelease(
   }),
 );
 
-/** A pass for `sessionId` signed with `privateKey`, valid for ten minutes, as the cell signs one. */
-const signPass = Effect.fn('signPass')(function* (privateKey: KeyObject, sessionId: string) {
-  const now = Math.floor((yield* Clock.currentTimeMillis) / 1000);
-  return yield* Effect.promise(() =>
-    new SignJWT({ sub: 'person-acme-1', ws: 'workspace-sprocket', sid: sessionId })
-      .setProtectedHeader({ alg: 'EdDSA', typ: 'JWT' })
-      .setIssuedAt(now)
-      .setExpirationTime(now + 600)
-      .sign(privateKey),
-  );
-});
+/** A pass for `sessionId` signed with `privateKey` as the cell signs one. */
+const signPass = (privateKey: KeyObject, sessionId: string) => signCellPass(privateKey, sessionId);
 
 describe('consola-host session', () => {
   it(
@@ -287,7 +316,7 @@ describe('consola-host session', () => {
         expect(claims).toMatchObject({ sub: 'dev', ws: 'local', sid: sessionId });
         expect((claims.exp ?? 0) - (claims.iat ?? 0)).toBe(DEV_PASS_SECONDS);
 
-        const { client } = yield* connectT3Client(hostSocketUrl(ready.port as number, pass));
+        const { client } = yield* connectHost(ready.port as number, pass);
         const spec = { sessionId, harness: 'claude', cwd: '' } as const;
         yield* client[ORCHESTRATION_V2_WS_METHODS.dispatchCommand](
           sendMessage(spec, text, variant.modelSelection),
@@ -314,6 +343,178 @@ describe('consola-host session', () => {
         host.signal('SIGTERM');
         expect(yield* host.exited).toEqual({ code: 0, signal: null });
         expectOnlyHostLines(host.printed);
+      }).pipe(Effect.scoped, Effect.runPromise),
+    TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'stays up while a turn runs with no client connected, past its idle minutes',
+    () =>
+      Effect.gen(function* () {
+        const { variant, text } = yield* loadReplay('turn_interrupt');
+        const sessionId = 'session-sprocket-turn';
+        const host = yield* startHost(REPLAY_ENTRY, [
+          'turn_interrupt',
+          'full-access',
+          'session',
+          '--dev',
+          '--session-id',
+          sessionId,
+          '--harness',
+          'claude',
+          '--port',
+          '0',
+          // Three seconds with no client and no turn.
+          '--idle-minutes',
+          '0.05',
+        ]);
+        const ready = yield* host.next;
+        const devPass = yield* host.next;
+        // The fixture's turn runs until it is interrupted; the client that started it goes.
+        yield* Effect.scoped(
+          Effect.gen(function* () {
+            const { client } = yield* connectHost(ready.port as number, devPass.pass as string);
+            yield* client[ORCHESTRATION_V2_WS_METHODS.dispatchCommand](
+              sendMessage({ sessionId, harness: 'claude', cwd: '' }, text, variant.modelSelection),
+            );
+          }),
+        );
+        yield* waitFor(
+          () => host.printed.some((line) => line === '{"type":"status","status":"working"}'),
+          'the turn to run',
+        );
+        // Over twice the idle minutes with no client: the running turn keeps the host up.
+        yield* Effect.sleep(Duration.seconds(7));
+        expect(typesOf(host.printed)).not.toContain('exit');
+
+        // Interrupted, the turn ends, and the host is idle again: it exits on its own.
+        yield* Effect.scoped(
+          Effect.gen(function* () {
+            const { client } = yield* connectHost(ready.port as number, devPass.pass as string);
+            const first = yield* client[ORCHESTRATION_V2_WS_METHODS.subscribeThread]({
+              threadId: ThreadId.make(sessionId),
+            }).pipe(Stream.runHead);
+            const runId =
+              Option.isSome(first) && first.value.kind === 'snapshot'
+                ? first.value.projection.runs[0]?.id
+                : undefined;
+            if (runId === undefined) return yield* Effect.die(new Error('no run to interrupt'));
+            yield* client[ORCHESTRATION_V2_WS_METHODS.dispatchCommand]({
+              type: 'run.interrupt',
+              commandId: CommandId.make(`command:${sessionId}:interrupt-1`),
+              threadId: ThreadId.make(sessionId),
+              runId,
+            });
+          }),
+        );
+        expect(yield* host.exited).toEqual({ code: 0, signal: null });
+        expect(typesOf(host.printed).at(-1)).toBe('exit');
+        expectOnlyHostLines(host.printed);
+      }).pipe(Effect.scoped, Effect.runPromise),
+    TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "exits 1 with a message when the stream that keeps the thread's snapshot current ends",
+    () =>
+      Effect.gen(function* () {
+        const sessionId = 'session-sprocket-stream';
+        const host = yield* startHost(
+          REPLAY_ENTRY,
+          [
+            'simple',
+            'full-access',
+            'session',
+            '--dev',
+            '--session-id',
+            sessionId,
+            '--harness',
+            'claude',
+            '--port',
+            '0',
+          ],
+          { CONSOLA_TEST_EVENT_STREAM: 'ends' },
+        );
+        expect(yield* host.next).toMatchObject({ type: 'ready' });
+        expect(yield* host.exited).toEqual({ code: 1, signal: null });
+        // The last line on stderr says why: the runner reports it as the session's error.
+        const lines = host.stderr().trimEnd().split('\n');
+        expect(lines.at(-1)).toBe(
+          `consola-host: Session ${sessionId} stopped: its thread's event stream ended, so what it shows would go stale.`,
+        );
+        expect(typesOf(host.printed)).not.toContain('exit');
+        expectOnlyHostLines(host.printed);
+      }).pipe(Effect.scoped, Effect.runPromise),
+    TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'exits 1, saying so, when its stop after an idle exit hangs past the grace',
+    () =>
+      Effect.gen(function* () {
+        const host = yield* startHost(
+          REPLAY_ENTRY,
+          [
+            'simple',
+            'full-access',
+            'session',
+            '--dev',
+            '--harness',
+            'claude',
+            '--port',
+            '0',
+            // Three seconds with no client and no turn.
+            '--idle-minutes',
+            '0.05',
+          ],
+          { CONSOLA_TEST_SESSION_STOP: 'hangs' },
+        );
+        expect(yield* host.next).toMatchObject({ type: 'ready' });
+        expect(yield* host.next).toMatchObject({ type: 'dev-pass' });
+        expect(yield* host.next).toEqual({ type: 'exit', reason: 'idle' });
+        const exitedAt = yield* Clock.currentTimeMillis;
+        const exited = yield* host.exited.pipe(
+          Effect.timeoutOrElse({
+            duration: Duration.seconds(40),
+            orElse: () =>
+              Effect.die(
+                new Error(`the host never exited; stderr:\n${host.stderr().slice(-2000)}`),
+              ),
+          }),
+        );
+        expect(exited).toEqual({ code: 1, signal: null });
+        expect(host.stderr()).toContain('consola-host: the session did not stop in time.');
+        // The grace counts from the exit line, not from something later.
+        const tookMs = (yield* Clock.currentTimeMillis) - exitedAt;
+        expect(tookMs).toBeGreaterThan(14_000);
+        expect(tookMs).toBeLessThan(25_000);
+        expectOnlyHostLines(host.printed);
+      }).pipe(Effect.scoped, Effect.runPromise),
+    TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'exits 0, not by the signal, on a SIGTERM that comes while it is still loading, before ready',
+    () =>
+      Effect.gen(function* () {
+        const cwd = yield* tempFolder('consola-host-bin-acme-');
+        const host = yield* startHost(BIN, [
+          'session',
+          '--dev',
+          '--harness',
+          'claude',
+          '--cwd',
+          cwd,
+          '--port',
+          '0',
+        ]);
+        // Node runs the entry within this, and loading the program it imports takes seconds.
+        yield* Effect.sleep(Duration.millis(EARLY_SIGNAL_MS));
+        host.signal('SIGTERM');
+        expect(yield* host.exited).toEqual({ code: 0, signal: null });
+        // Stopped before it was ready: nothing on stdout, and no failure on stderr.
+        expect(host.printed).toEqual([]);
+        expect(host.stderr()).not.toMatch(/did not stop in time|Error/);
       }).pipe(Effect.scoped, Effect.runPromise),
     TEST_TIMEOUT_MS,
   );
@@ -367,7 +568,7 @@ describe('consola-host session', () => {
         expect(claims.iat).toBeLessThanOrEqual(readyAt);
 
         // t3's own client is let in and gets its first config snapshot.
-        const connected = yield* connectT3Client(hostSocketUrl(ready.port as number, pass));
+        const connected = yield* connectHost(ready.port as number, pass);
         expect(connected.initialConfig.environment.environmentId).toBe(DEV_SESSION_ID);
 
         yield* waitFor(() => readPids(pids).length > 0, 'the long-lived claude to start');
@@ -427,7 +628,7 @@ describe('consola-host session', () => {
         // A connected client holds the host past its idle time.
         yield* Effect.scoped(
           Effect.gen(function* () {
-            yield* connectT3Client(hostSocketUrl(ready.port as number, pass));
+            yield* connectHost(ready.port as number, pass);
             yield* Effect.sleep(Duration.millis(idleMinutes * 60_000 + 3_000));
             expect(typesOf(host.printed)).toEqual(['ready']);
           }),
@@ -521,6 +722,21 @@ describe('consola-host session', () => {
       }).pipe(Effect.scoped, Effect.runPromise),
     TEST_TIMEOUT_MS,
   );
+});
+
+describe('temporaryStateDir', () => {
+  it('is a folder of its own while the session runs, and is gone once it stops', () =>
+    Effect.gen(function* () {
+      const stateDir = yield* Effect.scoped(
+        Effect.gen(function* () {
+          const made = yield* temporaryStateDir;
+          expect(statSync(made).isDirectory()).toBe(true);
+          writeFileSync(join(made, 'left-behind.json'), '{}');
+          return made;
+        }),
+      );
+      expect(existsSync(stateDir)).toBe(false);
+    }).pipe(Effect.runPromise));
 });
 
 describe('parseSessionArgs', () => {
@@ -620,5 +836,456 @@ describe('parseSessionArgs', () => {
     const error = refusal(argv);
     expect(error).toBeInstanceOf(UsageError);
     expect(error.message).toMatch(message);
+  });
+});
+
+/** The runner's secrets, as the tests give them: none may show on its stderr or stdout. */
+const RUNNER_SECRET = 'runner-secret-sprocket-0123456789abcdef';
+const RUNNER_GIT_TOKEN = 'ghp_sprocketRunnerToken0123456789';
+const RUNNER_ANTHROPIC_KEY = 'sk-ant-sprocket-runner-0123456789';
+const RUNNER_SECRETS = [RUNNER_SECRET, RUNNER_GIT_TOKEN, RUNNER_ANTHROPIC_KEY];
+const RUNNER_ENV: NodeJS.ProcessEnv = {
+  CONSOLA_RUNNER_SECRET: RUNNER_SECRET,
+  CONSOLA_RUNNER_REPOSITORIES: 'sprocket/catalog-portal',
+  GIT_TOKEN: RUNNER_GIT_TOKEN,
+  ANTHROPIC_API_KEY: RUNNER_ANTHROPIC_KEY,
+};
+
+type Frame = Record<string, unknown>;
+
+/** A cell's runner socket on a free port of loopback, which hands the test what the runner says. */
+const fakeRunnerCell = Effect.gen(function* () {
+  const frames = yield* Queue.unbounded<Frame, Cause.Done>();
+  const server = yield* Effect.acquireRelease(
+    Effect.callback<WebSocketServer>((resume) => {
+      const wss: WebSocketServer = new WebSocketServer({
+        host: '127.0.0.1',
+        port: 0,
+        path: '/api/runner',
+      });
+      wss.on('listening', () => resume(Effect.succeed(wss)));
+    }),
+    (wss) =>
+      Effect.callback<void>((resume) => {
+        for (const client of wss.clients) client.terminate();
+        wss.close(() => resume(Effect.void));
+      }),
+  );
+  const sockets: WebSocket[] = [];
+  const authorizations: string[] = [];
+  const closes: number[] = [];
+  server.on('connection', (socket, request) => {
+    sockets.push(socket);
+    authorizations.push(request.headers.authorization ?? '');
+    socket.on('message', (data) => Queue.offerUnsafe(frames, JSON.parse(String(data)) as Frame));
+    socket.on('close', (code) => closes.push(code));
+  });
+  const { port } = server.address() as AddressInfo;
+  return {
+    url: `ws://127.0.0.1:${port}/api/runner`,
+    next: Queue.take(frames).pipe(
+      Effect.timeoutOrElse({
+        duration: LINE_TIMEOUT,
+        orElse: () => Effect.die(new Error('no frame from the runner in time')),
+      }),
+      Effect.orDie,
+    ),
+    send: (message: unknown) => sockets.at(-1)?.send(JSON.stringify(message)),
+    close: (code: number, reason: string) => sockets.at(-1)?.close(code, reason),
+    authorizations,
+    closes,
+  };
+});
+
+/** The status of `GET <url>`, or the error's code when nothing answers. */
+const statusOf = (url: string) =>
+  Effect.callback<number | string>((resume) => {
+    get(url, (response) => {
+      response.resume();
+      resume(Effect.succeed(response.statusCode ?? 0));
+    }).on('error', (error: NodeJS.ErrnoException) => resume(Effect.succeed(error.code ?? 'error')));
+  });
+
+describe('consola-host runner', () => {
+  it(
+    "runs a session in a local sandbox: hello, running at the host's address, then on SIGTERM stopped, exit 0 and nothing left",
+    () =>
+      Effect.gen(function* () {
+        const cell = yield* fakeRunnerCell;
+        const runner = yield* startHost(
+          REPLAY_RUNNER,
+          [
+            'runner',
+            '--cell-url',
+            cell.url,
+            '--runner-id',
+            'runner-sprocket-1',
+            '--idle-minutes',
+            '5',
+          ],
+          RUNNER_ENV,
+        );
+        expect(yield* cell.next).toEqual({
+          type: 'hello',
+          runnerId: 'runner-sprocket-1',
+          repositories: ['sprocket/catalog-portal'],
+          harnesses: ['claude'],
+          runningSessionIds: [],
+          endedSessions: [],
+        });
+        expect(cell.authorizations).toEqual([`Bearer ${RUNNER_SECRET}`]);
+
+        const { publicKey } = generateKeyPairSync('ed25519');
+        const sessionId = 'session-sprocket-runner-1';
+        cell.send({
+          type: 'session.start',
+          sessionId,
+          workspaceId: 'workspace-sprocket',
+          repository: 'sprocket/catalog-portal',
+          harness: 'claude',
+          passPublicKeyPem: publicKey.export({ type: 'spki', format: 'pem' }).toString(),
+        });
+        const running = yield* cell.next;
+        expect(running).toMatchObject({ type: 'session.update', sessionId, status: 'running' });
+        const hostUrl = String(running.hostUrl);
+        expect(hostUrl).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
+        // The session's host listens where the runner said: t3's environment descriptor answers.
+        expect(yield* statusOf(`${hostUrl}/.well-known/t3/environment`)).toBe(200);
+        const inSandbox = descendantsOf(runner.pid);
+        expect(inSandbox.length).toBeGreaterThan(0);
+
+        runner.signal('SIGTERM');
+        expect(yield* cell.next).toEqual({ type: 'session.update', sessionId, status: 'stopped' });
+        expect(yield* runner.exited).toEqual({ code: 0, signal: null });
+        yield* waitFor(() => inSandbox.every((pid) => !isAlive(pid)), 'no process left');
+        yield* waitFor(() => cell.closes.length > 0, 'the socket closed');
+        expect(cell.closes).toEqual([1001]);
+        expect(runner.printed).toEqual([]);
+        for (const secret of RUNNER_SECRETS) expect(runner.stderr()).not.toContain(secret);
+      }).pipe(Effect.scoped, Effect.runPromise),
+    TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'stops, and exits 1 saying why, once another runner with its secret replaced it (4000)',
+    () =>
+      Effect.gen(function* () {
+        const cell = yield* fakeRunnerCell;
+        const runner = yield* startHost(
+          REPLAY_RUNNER,
+          ['runner', '--cell-url', cell.url, '--runner-id', 'runner-sprocket-1'],
+          RUNNER_ENV,
+        );
+        expect(yield* cell.next).toMatchObject({ type: 'hello' });
+        cell.close(4000, 'another socket of the runner said hello');
+        expect(yield* runner.exited).toEqual({ code: 1, signal: null });
+        expect(runner.stderr()).toMatch(/consola-host: Another runner connected to the cell/);
+        expect(cell.authorizations).toHaveLength(1);
+        for (const secret of RUNNER_SECRETS) expect(runner.stderr()).not.toContain(secret);
+      }).pipe(Effect.scoped, Effect.runPromise),
+    TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "says the session's end on SIGTERM and exits 0 within its 15 s grace, though a sandbox never stops",
+    () =>
+      Effect.gen(function* () {
+        const cell = yield* fakeRunnerCell;
+        const runner = yield* startHost(
+          REPLAY_RUNNER,
+          ['runner', '--cell-url', cell.url, '--runner-id', 'runner-sprocket-1'],
+          { ...RUNNER_ENV, CONSOLA_TEST_SANDBOX_STOP: 'hangs' },
+        );
+        expect(yield* cell.next).toMatchObject({ type: 'hello' });
+        const { publicKey } = generateKeyPairSync('ed25519');
+        const sessionId = 'session-sprocket-runner-3';
+        cell.send({
+          type: 'session.start',
+          sessionId,
+          workspaceId: 'workspace-sprocket',
+          repository: 'sprocket/catalog-portal',
+          harness: 'claude',
+          passPublicKeyPem: publicKey.export({ type: 'spki', format: 'pem' }).toString(),
+        });
+        expect(yield* cell.next).toMatchObject({ sessionId, status: 'running' });
+        // Its sandbox never stops, so the test ends what ran in it.
+        const inSandbox = descendantsOf(runner.pid);
+        yield* Effect.addFinalizer(() =>
+          Effect.sync(() => {
+            for (const pid of inSandbox) if (isAlive(pid)) process.kill(pid, 'SIGKILL');
+          }),
+        );
+
+        const signalledAt = yield* Clock.currentTimeMillis;
+        runner.signal('SIGTERM');
+        expect(yield* cell.next).toEqual({ type: 'session.update', sessionId, status: 'stopped' });
+        const exited = yield* runner.exited.pipe(
+          Effect.timeoutOrElse({
+            duration: Duration.seconds(40),
+            orElse: () =>
+              Effect.die(new Error(`the runner did not exit; stderr:\n${runner.stderr()}`)),
+          }),
+        );
+        const tookMs = (yield* Clock.currentTimeMillis) - signalledAt;
+        expect(exited).toEqual({ code: 0, signal: null });
+        expect(tookMs).toBeLessThan(15_000);
+        expect(runner.stderr()).not.toMatch(/did not stop in time/);
+        yield* waitFor(() => cell.closes.length > 0, 'the socket closed');
+        expect(cell.closes).toEqual([1001]);
+        expect(runner.printed).toEqual([]);
+        for (const secret of RUNNER_SECRETS) expect(runner.stderr()).not.toContain(secret);
+      }).pipe(Effect.scoped, Effect.runPromise),
+    TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'exits 1 past its 15 s grace, saying so, when a sandbox it asked for is never made',
+    () =>
+      Effect.gen(function* () {
+        const cell = yield* fakeRunnerCell;
+        const runner = yield* startHost(
+          REPLAY_RUNNER,
+          ['runner', '--cell-url', cell.url, '--runner-id', 'runner-sprocket-1'],
+          { ...RUNNER_ENV, CONSOLA_TEST_SANDBOX_CREATE: 'hangs' },
+        );
+        expect(yield* cell.next).toMatchObject({ type: 'hello' });
+        const { publicKey } = generateKeyPairSync('ed25519');
+        const sessionId = 'session-sprocket-runner-3';
+        cell.send({
+          type: 'session.start',
+          sessionId,
+          workspaceId: 'workspace-sprocket',
+          repository: 'sprocket/catalog-portal',
+          harness: 'claude',
+          passPublicKeyPem: publicKey.export({ type: 'spki', format: 'pem' }).toString(),
+        });
+        yield* waitFor(
+          () => runner.stderr().includes(`session ${sessionId}: starting`),
+          'the runner to start making the sandbox',
+        );
+
+        // Its create outlasts the grace (it is bounded by the 60 s a provider's call gets), so
+        // only the forced exit ends the process.
+        const signalledAt = yield* Clock.currentTimeMillis;
+        runner.signal('SIGTERM');
+        const exited = yield* runner.exited.pipe(
+          Effect.timeoutOrElse({
+            duration: Duration.seconds(40),
+            orElse: () =>
+              Effect.die(new Error(`the runner did not exit; stderr:\n${runner.stderr()}`)),
+          }),
+        );
+        const tookMs = (yield* Clock.currentTimeMillis) - signalledAt;
+        expect(exited).toEqual({ code: 1, signal: null });
+        expect(runner.stderr()).toContain('consola-host: the runner did not stop in time.');
+        expect(tookMs).toBeGreaterThan(14_000);
+        expect(tookMs).toBeLessThan(25_000);
+        expect(runner.printed).toEqual([]);
+        for (const secret of RUNNER_SECRETS) expect(runner.stderr()).not.toContain(secret);
+      }).pipe(Effect.scoped, Effect.runPromise),
+    TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'exits 1 saying why within its 15 s grace once replaced (4000), though a sandbox never stops',
+    () =>
+      Effect.gen(function* () {
+        const cell = yield* fakeRunnerCell;
+        const runner = yield* startHost(
+          REPLAY_RUNNER,
+          ['runner', '--cell-url', cell.url, '--runner-id', 'runner-sprocket-1'],
+          { ...RUNNER_ENV, CONSOLA_TEST_SANDBOX_STOP: 'hangs' },
+        );
+        expect(yield* cell.next).toMatchObject({ type: 'hello' });
+        const { publicKey } = generateKeyPairSync('ed25519');
+        const sessionId = 'session-sprocket-runner-2';
+        cell.send({
+          type: 'session.start',
+          sessionId,
+          workspaceId: 'workspace-sprocket',
+          repository: 'sprocket/catalog-portal',
+          harness: 'claude',
+          passPublicKeyPem: publicKey.export({ type: 'spki', format: 'pem' }).toString(),
+        });
+        expect(yield* cell.next).toMatchObject({ sessionId, status: 'running' });
+        // Its sandbox never stops, so the test ends what ran in it.
+        const inSandbox = descendantsOf(runner.pid);
+        yield* Effect.addFinalizer(() =>
+          Effect.sync(() => {
+            for (const pid of inSandbox) if (isAlive(pid)) process.kill(pid, 'SIGKILL');
+          }),
+        );
+
+        const replacedAt = yield* Clock.currentTimeMillis;
+        cell.close(4000, 'another socket of the runner said hello');
+        const exited = yield* runner.exited.pipe(
+          Effect.timeoutOrElse({
+            duration: Duration.seconds(40),
+            orElse: () =>
+              Effect.die(new Error(`the runner did not exit; stderr:\n${runner.stderr()}`)),
+          }),
+        );
+        const tookMs = (yield* Clock.currentTimeMillis) - replacedAt;
+        expect(exited).toEqual({ code: 1, signal: null });
+        expect(runner.stderr()).toMatch(/consola-host: Another runner connected to the cell/);
+        // Its stop bounded by the shutdown's 10 s, not the 30 s a stop gets while running.
+        expect(tookMs).toBeLessThan(15_000);
+        expect(runner.stderr()).not.toMatch(/did not stop in time/);
+        expect(runner.printed).toEqual([]);
+        for (const secret of RUNNER_SECRETS) expect(runner.stderr()).not.toContain(secret);
+      }).pipe(Effect.scoped, Effect.runPromise),
+    TEST_TIMEOUT_MS,
+  );
+
+  it.each<[string, string[], NodeJS.ProcessEnv, RegExp]>([
+    [
+      'no secret',
+      [],
+      { CONSOLA_RUNNER_SECRET: '' },
+      /consola-host: CONSOLA_RUNNER_SECRET is not set/,
+    ],
+    [
+      'a repository that is not owner/name',
+      [],
+      { CONSOLA_RUNNER_REPOSITORIES: 'sprocket/catalog-portal,sprocket/..' },
+      /consola-host: CONSOLA_RUNNER_REPOSITORIES holds sprocket\/\.\., which is not a repository/,
+    ],
+    [
+      'ws: to a host that is not loopback',
+      ['--cell-url', 'ws://eu.cells.sprocket.test/api/runner'],
+      {},
+      /consola-host: --cell-url may use ws: only to this machine's loopback/,
+    ],
+    [
+      'no API key, so no harness to offer',
+      [],
+      { ANTHROPIC_API_KEY: '', OPENAI_API_KEY: '' },
+      /consola-host: The runner offers no harness/,
+    ],
+    ['no sandbox provider to run on', [], {}, /consola-host: No sandbox provider is configured/],
+  ])(
+    'refuses to start on %s: a message on stderr, exit 1, nothing on stdout, no secret said',
+    (_case, extra, env, message) =>
+      Effect.gen(function* () {
+        const args = [
+          'runner',
+          ...(extra.includes('--cell-url') ? [] : ['--cell-url', 'ws://127.0.0.1:9/api/runner']),
+          '--runner-id',
+          'runner-sprocket-1',
+          ...extra,
+        ];
+        const runner = yield* startHost(BIN, args, { ...RUNNER_ENV, ...env });
+        expect(yield* runner.exited).toEqual({ code: 1, signal: null });
+        expect(runner.printed).toEqual([]);
+        expect(runner.stderr()).toMatch(message);
+        for (const secret of RUNNER_SECRETS) expect(runner.stderr()).not.toContain(secret);
+      }).pipe(Effect.scoped, Effect.runPromise),
+    TEST_TIMEOUT_MS,
+  );
+});
+
+describe('parseRunnerArgs', () => {
+  const flags = [
+    'runner',
+    '--cell-url',
+    'wss://eu.cells.sprocket.test/api/runner',
+    '--runner-id',
+    'r-1',
+  ];
+  const parse = (argv: ReadonlyArray<string>, env: NodeJS.ProcessEnv = RUNNER_ENV) =>
+    Effect.runSync(parseRunnerArgs(argv, env));
+  const refusal = (argv: ReadonlyArray<string>, env: NodeJS.ProcessEnv = RUNNER_ENV) =>
+    Effect.runSync(Effect.flip(parseRunnerArgs(argv, env)));
+
+  it('reads its flags and environment, with ten idle minutes and an eight-hour cap by default', () => {
+    expect(parse(flags)).toEqual({
+      cellUrl: 'wss://eu.cells.sprocket.test/api/runner',
+      runnerId: 'r-1',
+      secret: RUNNER_SECRET,
+      offer: { repositories: ['sprocket/catalog-portal'], harnesses: ['claude'] },
+      secrets: { gitToken: RUNNER_GIT_TOKEN, apiKeys: { claude: RUNNER_ANTHROPIC_KEY } },
+      secretValues: [RUNNER_SECRET, RUNNER_GIT_TOKEN, RUNNER_ANTHROPIC_KEY],
+      idleMinutes: 10,
+      maxSessionMinutes: DEFAULT_MAX_SESSION_MINUTES,
+    });
+    expect(DEFAULT_MAX_SESSION_MINUTES).toBe(480);
+  });
+
+  it('takes its minutes, both harnesses, and no git token', () => {
+    const args = parse([...flags, '--idle-minutes', '2.5', '--max-session-minutes', '30'], {
+      ...RUNNER_ENV,
+      GIT_TOKEN: '',
+      OPENAI_API_KEY: 'sk-openai-sprocket',
+    });
+    expect(args.idleMinutes).toBe(2.5);
+    expect(args.maxSessionMinutes).toBe(30);
+    expect(args.offer.harnesses).toEqual(['claude', 'codex']);
+    expect(args.secrets.gitToken).toBeUndefined();
+    expect(args.secretValues).not.toContain('');
+  });
+
+  it('takes the value of every variable in RUNNER_SECRET_VARIABLES out of what it says', () => {
+    const values = Object.fromEntries(
+      RUNNER_SECRET_VARIABLES.map((name) => [name, `sprocket-${name.toLowerCase()}-0123456789`]),
+    );
+    const args = parse(flags, { ...RUNNER_ENV, ...values });
+    for (const [name, value] of Object.entries(values)) {
+      expect(args.secretValues, name).toContain(value);
+      expect(scrubSecrets(`${name}=${value}`, args.secretValues)).toBe(`${name}=${REDACTED}`);
+    }
+  });
+
+  it('lists in RUNNER_SECRET_VARIABLES every secret variable the host reads', () => {
+    // Every `env.NAME` (or `env['NAME']`) in the host's own source, the harnesses' keys too.
+    const read = new Set<string>(Object.values(HARNESS_API_KEYS));
+    for (const file of readdirSync(SRC, { recursive: true, encoding: 'utf8' })) {
+      if (!file.endsWith('.ts') || file.endsWith('.test.ts') || file.startsWith('testing'))
+        continue;
+      const source = readFileSync(join(SRC, file), 'utf8');
+      for (const match of source.matchAll(/\benv(?:\.|\[['"])([A-Z][A-Z0-9_]*)/g)) {
+        if (match[1] !== undefined) read.add(match[1]);
+      }
+    }
+    const secretNamed = [...read].filter(
+      (name) => /(SECRET|TOKEN|_KEY)$/.test(name) && !name.includes('PUBLIC'),
+    );
+    expect(secretNamed).toEqual(expect.arrayContaining(['CONSOLA_RUNNER_SECRET', 'GIT_TOKEN']));
+    for (const name of secretNamed) expect(RUNNER_SECRET_VARIABLES).toContain(name);
+  });
+
+  it('is the command when runner comes first', () => {
+    expect(isRunnerCommand(flags)).toBe(true);
+    expect(isRunnerCommand(['session', '--dev'])).toBe(false);
+  });
+
+  it.each([
+    ['no --cell-url', ['runner', '--runner-id', 'r-1'], /--cell-url is required/],
+    ['no --runner-id', flags.slice(0, 3), /--runner-id is required/],
+    [
+      'an http address',
+      ['runner', '--cell-url', 'https://eu.cells.sprocket.test', '--runner-id', 'r-1'],
+      /wss:/,
+    ],
+    [
+      'credentials in the address',
+      ['runner', '--cell-url', 'wss://r:s3cret@eu.cells.sprocket.test', '--runner-id', 'r-1'],
+      /credentials/,
+    ],
+    ['an unknown flag', [...flags, '--verbose'], /--verbose/],
+    ['an extra argument', [...flags, 'sprocket'], /sprocket/],
+    ['no idle minutes', [...flags, '--idle-minutes', '0'], /--idle-minutes/],
+    ['no lifetime', [...flags, '--max-session-minutes', 'x'], /--max-session-minutes/],
+  ])('refuses %s as usage', (_case, argv, message) => {
+    const error = refusal(argv);
+    expect(error).toBeInstanceOf(UsageError);
+    expect(error.message).toMatch(message);
+    expect(error.message).not.toContain('s3cret');
+  });
+
+  it('refuses a secret with a space, without quoting it', () => {
+    const error = refusal(flags, { ...RUNNER_ENV, CONSOLA_RUNNER_SECRET: 'sprocket secret 01' });
+    expect(error).toBeInstanceOf(StartFailed);
+    expect(error.message).toMatch(/printable characters with no space/);
+    expect(error.message).not.toContain('sprocket secret');
   });
 });

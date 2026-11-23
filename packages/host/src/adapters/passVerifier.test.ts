@@ -3,9 +3,15 @@ import { generateKeyPairSync } from 'node:crypto';
 import * as Effect from 'effect/Effect';
 import * as Exit from 'effect/Exit';
 import * as Option from 'effect/Option';
+import {
+  PASS_AUDIENCE,
+  PASS_MAX_LIFETIME_SECONDS,
+  PASS_TYPE,
+  passClaims,
+} from '@consola/runner-protocol';
 import { SignJWT } from 'jose';
 import { describe, expect, it } from 'vite-plus/test';
-import type { PassClaims } from '../core/pass.ts';
+import { DEV_PASS_SECONDS, type PassClaims } from '../core/pass.ts';
 import { PassRejected, verifyPass } from './passVerifier.ts';
 
 /** An Ed25519 key pair made for the test; no key is ever committed. */
@@ -17,16 +23,24 @@ const makeKeys = () => {
 const SESSION = 'session-sprocket-pass';
 const NOW = 1_800_000_000;
 const claims = (overrides: Partial<PassClaims> = {}): PassClaims => ({
+  aud: PASS_AUDIENCE,
   sub: 'person-acme-1',
   ws: 'workspace-sprocket',
   sid: SESSION,
   iat: NOW - 10,
-  exp: NOW + 600,
+  exp: NOW + 290,
   ...overrides,
 });
 
-const sign = (keys: ReturnType<typeof makeKeys>, payload: Record<string, unknown>) =>
-  new SignJWT(payload).setProtectedHeader({ alg: 'EdDSA', typ: 'JWT' }).sign(keys.privateKey);
+/** Signed as the cell's `passSigner` signs a pass: EdDSA, `typ` `PASS_TYPE` (`typ`, or none). */
+const sign = (
+  keys: ReturnType<typeof makeKeys>,
+  payload: Record<string, unknown>,
+  typ: string | null = PASS_TYPE,
+) =>
+  new SignJWT(payload)
+    .setProtectedHeader(typ === null ? { alg: 'EdDSA' } : { alg: 'EdDSA', typ })
+    .sign(keys.privateKey);
 
 const base64url = (value: unknown) => Buffer.from(JSON.stringify(value)).toString('base64url');
 
@@ -45,6 +59,41 @@ describe('verifyPass', () => {
     const token = await sign(keys, claims());
     const verified = await Effect.runPromise(verifyPass(token, keys.publicKeyPem, SESSION, NOW));
     expect(verified).toEqual(claims());
+  });
+
+  it("accepts a pass as the cell's passSigner signs one: the protocol's claims, its type, its longest lifetime", async () => {
+    const cells = passClaims({
+      personId: 'person-acme-1',
+      workspaceId: 'workspace-sprocket',
+      sessionId: SESSION,
+      issuedAt: NOW - 10,
+      lifetimeSeconds: PASS_MAX_LIFETIME_SECONDS,
+    });
+    const token = await sign(keys, { ...cells });
+    expect(await Effect.runPromise(verifyPass(token, keys.publicKeyPem, SESSION, NOW))).toEqual(
+      cells,
+    );
+  });
+
+  it('refuses another audience, a missing or other type, and a lifetime over the cap', async () => {
+    expect(
+      await refusal(await sign(keys, { ...claims(), aud: 'consola-cell' }), keys.publicKeyPem),
+    ).toBe('invalid');
+    const { aud: _aud, ...withoutAudience } = claims();
+    expect(await refusal(await sign(keys, withoutAudience), keys.publicKeyPem)).toBe('invalid');
+    expect(await refusal(await sign(keys, claims(), null), keys.publicKeyPem)).toBe('invalid');
+    expect(await refusal(await sign(keys, claims(), 'JWT'), keys.publicKeyPem)).toBe('invalid');
+    const long = claims({ exp: NOW - 10 + PASS_MAX_LIFETIME_SECONDS + 1 });
+    expect(await refusal(await sign(keys, long), keys.publicKeyPem)).toBe('invalid');
+  });
+
+  it("takes a dev host's own long pass only when told it is a dev host's", async () => {
+    const dev = claims({ iat: NOW - 10, exp: NOW - 10 + DEV_PASS_SECONDS });
+    const token = await sign(keys, dev);
+    expect(await refusal(token, keys.publicKeyPem)).toBe('invalid');
+    expect(
+      await Effect.runPromise(verifyPass(token, keys.publicKeyPem, SESSION, NOW, 'dev')),
+    ).toEqual(dev);
   });
 
   it('refuses a missing pass', async () => {
@@ -85,7 +134,7 @@ describe('verifyPass', () => {
     expect(await refusal(other, keys.publicKeyPem)).toBe('wrong-session');
     const expired = await sign(keys, claims({ exp: NOW }));
     expect(await refusal(expired, keys.publicKeyPem)).toBe('expired');
-    const early = await sign(keys, claims({ iat: NOW + 3600 }));
+    const early = await sign(keys, claims({ iat: NOW + 3600, exp: NOW + 3600 + 290 }));
     expect(await refusal(early, keys.publicKeyPem)).toBe('not-yet-valid');
   });
 

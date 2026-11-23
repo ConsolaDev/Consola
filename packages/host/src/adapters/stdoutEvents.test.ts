@@ -2,8 +2,10 @@ import { CommandId, type RuntimeMode, ThreadId } from '@t3tools/contracts';
 import * as Duration from 'effect/Duration';
 import * as Effect from 'effect/Effect';
 import type * as Scope from 'effect/Scope';
+import * as Stream from 'effect/Stream';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vite-plus/test';
 import type { SessionSpec } from '../core/sessionSpec.ts';
+import type { ThreadHandle } from '../runtime/threadRuntime.ts';
 import * as ThreadRuntime from '../runtime/threadRuntime.ts';
 import { isolateMachine } from '../testing/machine.ts';
 import {
@@ -67,7 +69,8 @@ const withReportedReplay = <A, E>(
         const spec = sessionSpec(name, cwd, variant.modelSelection);
         const handle = yield* (yield* ThreadRuntime.ThreadRuntime).open(spec);
         const lines: HostLine[] = [];
-        yield* reportSession(handle, (line) => Effect.sync(() => lines.push(line))).pipe(
+        const said = { status: 'idle' as const, title: handle.snapshot().thread.title };
+        yield* reportSession(handle, (line) => Effect.sync(() => lines.push(line)), said).pipe(
           Effect.forkScoped,
         );
         const send = handle.dispatch(sendMessage(spec, text, variant.modelSelection));
@@ -119,7 +122,28 @@ describe('the host lines', () => {
   });
 });
 
+/** Just what `reportSession` reads of a projection: its title, runs and runtime requests. */
+const projectionTitled = (title: string) =>
+  ({ thread: { title }, runs: [], runtimeRequests: [] }) as unknown as ReturnType<
+    ThreadHandle['snapshot']
+  >;
+
 describe('reportSession', () => {
+  it('says a title that changed after ready was said, whenever it starts following', () =>
+    Effect.gen(function* () {
+      // `ready` said the thread's first title; by the time the report starts, t3 retitled it.
+      const handle = {
+        snapshot: () => projectionTitled('Sprocket catalog'),
+        snapshots: () => Stream.make(projectionTitled('Sprocket catalog')),
+      } as unknown as ThreadHandle;
+      const lines: HostLine[] = [];
+      yield* reportSession(handle, (line) => Effect.sync(() => lines.push(line)), {
+        status: 'idle',
+        title: 'New thread',
+      });
+      expect(lines).toEqual([{ type: 'title', title: 'Sprocket catalog' }]);
+    }).pipe(Effect.runPromise));
+
   it(
     'tool_call_denied_write: working, then waiting on the approval, then idle once answered; and the titles',
     () =>

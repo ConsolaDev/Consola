@@ -29,13 +29,19 @@ function secretsOf(config: CellConfig): string[] {
   } catch {
     // A pglite: address has no password.
   }
+  if (config.runner) {
+    secrets.push(config.runner.secret);
+    // The pass key's private part, however the rest of the key is written out.
+    const { d } = config.runner.passPrivateKey;
+    if (typeof d === 'string') secrets.push(d);
+  }
   // Longest first, so a secret inside another is hidden by the longer one.
   return secrets.filter((secret) => secret !== '').sort((a, b) => b.length - a.length);
 }
 
 /**
  * One plain line for a failure while the cell starts: the error's own words, never the database
- * address or its password.
+ * address or its password, the runner's secret or the pass key.
  */
 export function describeStartupFailure(error: unknown, config: CellConfig): string {
   const message =

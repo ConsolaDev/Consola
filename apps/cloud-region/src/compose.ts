@@ -4,14 +4,26 @@ import { systemClock } from './adapters/clock/systemClock.js';
 import type { CellEnv } from './adapters/http/caller.js';
 import { createApp } from './adapters/http/app.js';
 import type { Database } from './adapters/persistence/database.js';
+import { randomIds } from './adapters/persistence/cloudSessions.js';
 import { createDrizzleStores } from './adapters/persistence/stores.js';
+import { createRunnerSocket, type RunnerSocket } from './adapters/runner/runnerSocket.js';
 import {
   type CellTokenKeys,
   cloudGlobalKeys,
   createJoseTokenVerifier,
 } from './adapters/token/cellTokens.js';
 import { createJoseDeliveryVerifier } from './adapters/token/outboxDeliveries.js';
+import { createPassSigner } from './adapters/token/passSigner.js';
 import type { CellConfig } from './config.js';
+
+/** The cell, assembled. */
+export type Cell = {
+  app: OpenAPIHono<CellEnv>;
+  /** Hands the server's WebSocket upgrades to the runner's socket. `main.ts` calls it once. */
+  injectWebSocket: RunnerSocket['injectWebSocket'];
+  /** Closes every runner's socket, so a server that is closing is not held open by one. */
+  closeRunnerSockets: () => void;
+};
 
 /**
  * The cell, assembled: the one place adapters are built and handed the ports they need.
@@ -21,15 +33,32 @@ import type { CellConfig } from './config.js';
  * The cell checks tokens, outbox deliveries and GitHub events with `cloud-global`'s keys, fetched from
  * `config.cloudGlobalUrl`: one key set for both, so it is fetched and kept once. Only a test
  * passes `cellTokenKeys`, a key set of its own, so it needs no `cloud-global` running.
+ *
+ * With a runner configured, the pass key is imported first (a key that is not an Ed25519 private
+ * key fails here, as a `ConfigError`), and its public half goes to the runner's socket, which
+ * sends it in every `session.start`. With none, the socket refuses every runner and no session
+ * starts.
  */
-export function composeCell(deps: {
+export async function composeCell(deps: {
   db: Database;
   config: CellConfig;
   cellTokenKeys?: CellTokenKeys;
-}): { app: OpenAPIHono<CellEnv> } {
+}): Promise<Cell> {
   const { db, config } = deps;
   const stores = createDrizzleStores(db);
   const keys = deps.cellTokenKeys ?? cloudGlobalKeys(config.cloudGlobalUrl);
+  const passKey = config.runner ? await createPassSigner(config.runner.passPrivateKey) : null;
+  const runner = createRunnerSocket({
+    settings:
+      config.runner && passKey
+        ? {
+            secret: config.runner.secret,
+            workspaceId: config.runner.workspaceId,
+            passPublicKeyPem: passKey.publicKeyPem,
+          }
+        : null,
+    ports: { sessions: stores.cloudSessions, clock: systemClock },
+  });
   const app = createApp({
     region: config.region,
     health: stores.health,
@@ -42,6 +71,18 @@ export function composeCell(deps: {
     factories: stores.factories,
     runs: stores.runs,
     clock: systemClock,
+    cloudSessions: {
+      sessions: stores.cloudSessions,
+      runners: runner.channel,
+      ids: randomIds,
+      clock: systemClock,
+      passes: passKey?.signer ?? null,
+    },
+    runner: runner.routes,
   });
-  return { app };
+  return {
+    app,
+    injectWebSocket: runner.injectWebSocket,
+    closeRunnerSockets: runner.closeAll,
+  };
 }
