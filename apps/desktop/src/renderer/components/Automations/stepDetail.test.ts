@@ -391,6 +391,57 @@ describe('stepSummary', () => {
   });
 });
 
+describe('stepSummary of a call (5a-2)', () => {
+  const REF = 'slack#chat_post_message';
+  const call = (overrides: Partial<StepRun>) => step({ id: 'post', kind: 'uses', ...overrides });
+
+  it('says it is calling, called, or would have called its tool', () => {
+    expect(stepSummary(call({ status: 'running' }), run({ status: 'running' }), REF)).toBe(
+      'Calling `slack#chat_post_message`',
+    );
+    expect(stepSummary(call({ status: 'reported' }), run(), REF)).toBe(
+      'Would have called `slack#chat_post_message`',
+    );
+    expect(
+      stepSummary(
+        call({ outputs: { ts: '1700000000.0001' }, artifacts: [{ name: 'output', bytes: 2365 }] }),
+        run(),
+        REF,
+      ),
+    ).toBe(
+      'Called `slack#chat_post_message` · set ts = 1700000000.0001 · kept its result as output (2.3 KB)',
+    );
+    expect(stepSummary(call({}), run(), REF)).toBe('Called `slack#chat_post_message`');
+  });
+
+  it('says what a call left without its ref, as a command would', () => {
+    expect(stepSummary(call({ status: 'running' }), run({ status: 'running' }))).toBeNull();
+    expect(stepSummary(call({ status: 'reported' }), run())).toBe('A dry run: it was not run');
+    expect(stepSummary(call({ outputs: { ts: 'x' } }), run())).toBe('Set ts = x');
+  });
+
+  it('gives a failed call its error word for word, and leaves a command as it was', () => {
+    expect(
+      stepSummary(
+        call({
+          status: 'failed',
+          error: "Couldn't reach `slack`: spawn npx ENOENT. Nothing was sent.",
+        }),
+        run({ status: 'failed' }),
+        REF,
+      ),
+    ).toBe("Couldn't reach `slack`: spawn npx ENOENT. Nothing was sent.");
+    expect(stepSummary(step({ id: 'size', outputs: { files: 6 } }), run(), REF)).toBe(
+      'Set files = 6',
+    );
+    expect(stepSummary(step({ status: 'running' }), run({ status: 'running' }), REF)).toBeNull();
+  });
+
+  it('says what a call’s output artifact is for', () => {
+    expect(artifactNote('output', 'uses')).toBe('its result, kept for the steps after it');
+  });
+});
+
 describe('failureWords', () => {
   it('reads an exit code and the last stderr line out of a command failure', () => {
     expect(failureWords('exit 3: touch ~/.ok first')).toEqual({

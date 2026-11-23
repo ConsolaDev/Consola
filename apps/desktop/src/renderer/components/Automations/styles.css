@@ -4294,3 +4294,20 @@
   align-items: center;
   gap: var(--space-1);
 }
+
+/* A call's arguments: one line each, as written and as sent, with its trust; a long value folds. */
+.automations-call-args {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--font-size-md);
+  line-height: var(--line-height-normal);
+  overflow-wrap: anywhere;
+}
+
+.automations-call-arg {
+  white-space: pre-wrap;
+}

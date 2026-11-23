@@ -324,6 +324,7 @@ export function formatBytes(bytes: number): string {
 export function artifactNote(name: string, kind: StepRun['kind']): string | null {
   if (name === 'handover') return 'what it handed to the steps after it';
   if (name === 'output' && kind === 'run') return 'its stdout, kept for the steps after it';
+  if (name === 'output' && kind === 'uses') return 'its result, kept for the steps after it';
   return null;
 }
 
@@ -331,11 +332,16 @@ export function artifactNote(name: string, kind: StepRun['kind']): string | null
  * What a step did, in one line under its name: the outputs it set and what
  * it wrote, or what it printed; the error, word for word, when it failed;
  * why it did not run. Null where the row's outcome already says it all.
+ * A call names its tool (`ref`, `<server>#<tool>` from the run's
+ * definition) while it calls, once it called and under a dry run; without
+ * it, a call reads as a command's outputs do.
  */
 export function stepSummary(
   step: StepRun,
   run: Pick<RunRecord, 'status' | 'steps'>,
+  ref?: string,
 ): string | null {
+  const call = step.kind === 'uses' && ref !== undefined ? `\`${ref}\`` : null;
   const tone = stepTone(step.status, runIsOver(run.status));
   switch (tone) {
     case 'failed':
@@ -347,14 +353,15 @@ export function stepSummary(
     case 'not-run':
       return notRunReason(run);
     case 'reported':
-      return 'A dry run: it was not run';
+      return call ? `Would have called ${call}` : 'A dry run: it was not run';
     case 'running':
+      if (call) return `Calling ${call}`;
       return step.kind === 'agent' ? 'Working in a read-only session' : null;
     case 'waiting':
     case 'pending':
       return null;
     case 'passed': {
-      const parts: string[] = [];
+      const parts: string[] = call ? [`Called ${call}`] : [];
       const outputs = Object.entries(step.outputs ?? {});
       if (outputs.length > 0)
         parts.push(
@@ -365,6 +372,8 @@ export function stepSummary(
         if (artifact.name === 'handover') parts.push(`wrote its handover (${size})`);
         else if (artifact.name === 'output' && step.kind === 'run')
           parts.push(`kept its stdout as output (${size})`);
+        else if (artifact.name === 'output' && step.kind === 'uses')
+          parts.push(`kept its result as output (${size})`);
         else parts.push(`wrote ${artifact.name} (${size})`);
       }
       if (parts.length === 0 && step.kind === 'run') {

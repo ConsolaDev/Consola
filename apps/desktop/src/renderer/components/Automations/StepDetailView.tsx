@@ -11,6 +11,7 @@ import { automationsBridge } from '../../services/automationsBridge';
 import { ipcErrorMessage } from '../../utils/ipcErrorMessage';
 import { activateSession } from '../../utils/sessionActions';
 import { MarkdownRenderer } from '../Markdown';
+import { CallDetail, WouldCall } from './CallDetail';
 import { RunSteps, useRunConversation } from './ConversationView';
 import { useNow } from './parts';
 import {
@@ -72,8 +73,8 @@ export function StepDetail({
 }) {
   const [detail, setDetail] = useState<Read<StepDetailData | null>>({ state: 'loading' });
   const requests = useRef(0);
-  // A command's logs grow while it runs: read them again until it ends.
-  const following = step.kind === 'run' && step.status === 'running';
+  // A command's logs, and a call's server log and answer, grow while it runs: read them again until it ends.
+  const following = (step.kind === 'run' || step.kind === 'uses') && step.status === 'running';
   const tick = useNow(following ? LOG_FOLLOW_MS : null);
   const beat = following ? tick.getTime() : 0;
 
@@ -110,7 +111,7 @@ export function StepDetail({
           Could not read this step: {detail.reason}
         </p>
       )}
-      {tone === 'reported' && (
+      {tone === 'reported' && record.kind !== 'uses' && (
         <div className="automations-trace-note">
           <h4 className="automations-trace-note-title">Would have run</h4>
           <p className="automations-hint">
@@ -133,6 +134,8 @@ export function StepDetail({
         {(ran || tone === 'reported') &&
           (record.kind === 'agent' ? (
             <AgentFacts workspace={workspace} run={run} step={record} detail={ready} />
+          ) : record.kind === 'uses' ? (
+            <CallDetail step={record} detail={ready} loaded={detail.state === 'ready'} />
           ) : (
             <CommandFacts
               run={run}
@@ -220,9 +223,9 @@ function NotRunFacts({
   );
 }
 
-/** What a step that did not run would have run: its command and variables as written, or its prompt. */
+/** What a step that did not run would have run: its command and variables as written, its call, or its prompt. */
 function WouldRun({ definition }: { definition: Definition }) {
-  if (definition.kind === 'uses') return null;
+  if (definition.kind === 'uses') return <WouldCall definition={definition} />;
   if (definition.kind === 'run') {
     const env = Object.entries(definition.env);
     return (

@@ -12,6 +12,7 @@ import {
   Inbox,
   LoaderCircle,
   MousePointerClick,
+  Plug,
   ScanSearch,
   Wrench,
   Zap,
@@ -22,6 +23,7 @@ import { automationsBridge } from '../../services/automationsBridge';
 import { useAutomationsStore } from '../../stores/automationsStore';
 import { ipcErrorMessage } from '../../utils/ipcErrorMessage';
 import { agentStepFoot, nodeGrantsLine } from './agentGrantWords';
+import { stepKindLabel } from './callWords';
 import { openFileWords, RUNNING_VERSION_NOTE, triggerNodeWords } from './checkWords';
 import {
   approvalStep,
@@ -209,8 +211,8 @@ export function PipelineGraph({
       <PipelineNode
         key={`step:${entry.id}`}
         state={pathLit && index === 0 ? targetState : undefined}
-        icon={entry.kind === 'agent' ? Bot : Wrench}
-        kicker={entry.kind === 'agent' ? 'Agent step' : 'Command'}
+        icon={entry.kind === 'agent' ? Bot : entry.kind === 'uses' ? Plug : Wrench}
+        kicker={entry.kind === 'agent' ? 'Agent step' : stepKindLabel(entry.kind)}
         title={entry.kind === 'agent' ? entry.summary : <code>{entry.summary}</code>}
         subtitle={
           entry.agent !== undefined && entry.agent !== entry.summary ? entry.agent : undefined

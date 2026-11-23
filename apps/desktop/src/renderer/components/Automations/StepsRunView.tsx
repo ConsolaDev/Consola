@@ -17,6 +17,8 @@ import type { AutomationView, RunListEntry, RunRecord, StepRun } from '../../../
 import type { Workspace } from '../../../shared/workspace';
 import { automationsBridge } from '../../services/automationsBridge';
 import { useAutomationsStore } from '../../stores/automationsStore';
+import { useCallRefs } from './CallDetail';
+import { stepKindLabel } from './callWords';
 import { RunAgainButton, useIntent } from './parts';
 import { StepDetail } from './StepDetailView';
 import { StepsApprovalCard } from './StepsApprovalCard';
@@ -99,6 +101,11 @@ export function StepsRunView({
   if (openedNow !== opened) setOpened(openedNow);
   const isOpen = (stepId: string) => chosen[stepId] ?? openedNow.has(stepId);
   const allOpen = steps.length > 0 && steps.every((step) => isOpen(step.id));
+  // What each call's row names: its tool, from the run's own definition.
+  const callRefs = useCallRefs(
+    run.id,
+    steps.some((step) => step.kind === 'uses'),
+  );
 
   const retryTarget = runRetryTarget(run);
   // A command that may have done its work (Consola quit on it, or it was stopped, timed out or killed) asks first.
@@ -251,6 +258,7 @@ export function StepsRunView({
                   workspace={workspace}
                   run={run}
                   step={step}
+                  callRef={callRefs[step.id]}
                   now={now}
                   open={isOpen(step.id)}
                   onToggle={() =>
@@ -281,6 +289,7 @@ function StepRow({
   workspace,
   run,
   step,
+  callRef,
   now,
   open,
   onToggle,
@@ -289,6 +298,8 @@ function StepRow({
   workspace: Workspace;
   run: RunRecord;
   step: StepRun;
+  /** A call's `<server>#<tool>`, once the run's definition is read. */
+  callRef: string | undefined;
   now: Date;
   open: boolean;
   onToggle: () => void;
@@ -296,7 +307,7 @@ function StepRow({
   const tone = stepTone(step.status, runIsOver(run.status));
   const ms = durationOf(step, now);
   const outcome = stepOutcome(tone, ms);
-  const summary = stepSummary(step, run);
+  const summary = stepSummary(step, run, callRef);
   const Icon = TONE_ICONS[tone];
   const bodyId = `${id}-body`;
   const ran = tone === 'passed' || tone === 'failed' || tone === 'running';
@@ -328,9 +339,7 @@ function StepRow({
           <span className="automations-trace-main">
             <span className="automations-trace-name">
               <span className="automations-trace-id">{step.id}</span>
-              <span className="automations-trace-kind">
-                {step.kind === 'agent' ? 'Agent' : 'Command'}
-              </span>
+              <span className="automations-trace-kind">{stepKindLabel(step.kind)}</span>
             </span>
             {summary && !open && <span className="automations-trace-summary">{summary}</span>}
           </span>
