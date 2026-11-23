@@ -1035,7 +1035,12 @@ whose check uses it baselines rather than firing every item.
   nothing. No test reads the person's keychain or 1Password.
 - **No IPC member carries a value**: `secrets:list` carries names, labels,
   times and uses, `secrets:bind` a reference. No agent binds, and no Consola
-  tool reads, writes or lists a value or a reference.
+  tool reads, writes or lists a value, a reference or a label. A failed read
+  is worded twice (`readSecrets`): the person's words say where the name is
+  bound and why; an agent's (`told`) say only which name and that it is
+  bound, since a label is a reference and a reason can name one. `list()`,
+  which `list_automations` returns whole, carries an agent's; only the
+  person's panel (`snapshot`) has the person's.
 
 ### Harnesses Are Launch Descriptions
 

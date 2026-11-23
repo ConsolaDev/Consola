@@ -63,6 +63,9 @@ const versionOf = (yaml: string) => automationVersion(only(yaml));
 
 const row = (h: Awaited<ReturnType<typeof stepsHarness>>, name = NAME) =>
   h.service.list(WORKSPACE_ID).find((view) => view.name === name)!;
+/** The row as the person's panel has it (the snapshot), where a failed read says where its name is bound. */
+const personRow = (h: Awaited<ReturnType<typeof stepsHarness>>, name = NAME) =>
+  h.service.snapshot(WORKSPACE_ID).automations.find((view) => view.name === name)!;
 
 describe('an entry whose secrets are not all bound', () => {
   it('says which, and why, on its row, and keeps its own version', async () => {
@@ -237,6 +240,59 @@ describe('an entry whose secrets are not all bound', () => {
         'consola/ws-1/personal',
         'op://',
         'keychain:',
+      ])
+        expect(text).not.toContain(where);
+  });
+
+  it('tells an agent no more once a check and a step failed to read, while the person sees where (review S1)', async () => {
+    const yaml = file(
+      `  - name: watch-tickets\n    on: { poll: { every: 30m, run: tracker list, key: .id, secrets: [TRACKER_TOKEN] } }\n    scope: api\n    mode: notify\n    steps:\n      - id: look\n        prompt: Look at it.\n`,
+      paging().split('automations:\n')[1],
+    );
+    const h = await stepsHarness({
+      yaml,
+      secrets: { bindings: { PAGER_TOKEN: PAGER_BINDING, TRACKER_TOKEN: TRACKER_BINDING } },
+    });
+    for (const automation of parseFactorySpec(yaml).automations)
+      h.store.accept(`${WORKSPACE_ID} ${automation.name}`, automationVersion(automation));
+    await h.service.reload(WORKSPACE_ID);
+    // A reason can name a reference too: an `env:` binding's variable.
+    h.world.secrets.resolveThrows = new SecretReadError(
+      'TRACKER_TOKEN',
+      'your login environment has no `STUB_TRACKER_TOKEN`',
+    );
+    await h.service.trigger(WORKSPACE_ID, 'watch-tickets');
+    await h.flush();
+    h.world.secrets.resolveThrows = new SecretReadError(
+      'PAGER_TOKEN',
+      'the keychain has no such item',
+    );
+    const run = (await h.service.trigger(WORKSPACE_ID, NAME))!;
+    await h.flush();
+    expect(h.store.get(run.id)!.steps![0]).toMatchObject({
+      status: 'failed',
+      error: `Couldn't read \`PAGER_TOKEN\` from ${PAGER_BINDING.label}: the keychain has no such item. Nothing ran.`,
+    });
+    expect(personRow(h, 'watch-tickets').check!.error).toBe(
+      `Couldn't read \`TRACKER_TOKEN\` from ${TRACKER_BINDING.label}: your login environment has no \`STUB_TRACKER_TOKEN\`; nothing ran.`,
+    );
+    expect(row(h, 'watch-tickets').check!.error).toBe(
+      `Couldn't read \`TRACKER_TOKEN\` from its binding ${BIND_HINT}; nothing ran.`,
+    );
+    const told = [
+      JSON.stringify(h.service.capabilities(WORKSPACE_ID)),
+      JSON.stringify(h.service.list(WORKSPACE_ID)),
+    ];
+    for (const text of told)
+      for (const where of [
+        PAGER_BINDING.label,
+        TRACKER_BINDING.label,
+        'consola/ws-1/personal',
+        'op://',
+        'keychain',
+        '1Password',
+        'STUB_TRACKER_TOKEN',
+        'no such item',
       ])
         expect(text).not.toContain(where);
   });
@@ -639,7 +695,11 @@ describe("a check's secrets", () => {
     h.service.allow(WORKSPACE_ID, TICKETS, row(h, TICKETS).version!);
     await h.flush();
     const error = `Couldn't read \`TRACKER_TOKEN\` from ${TRACKER_BINDING.label}: the keychain has no such item; nothing ran.`;
-    expect(checkView(h).error).toBe(error);
+    expect(personRow(h, TICKETS).check!.error).toBe(error);
+    // What `list_automations` hands an agent names the secret, never where it is bound (review S1).
+    expect(checkView(h).error).toBe(
+      `Couldn't read \`TRACKER_TOKEN\` from its binding ${BIND_HINT}; nothing ran.`,
+    );
     h.advance(2 * HOUR);
     await h.tick();
     expect(h.world.secrets.resolved).toHaveLength(2);

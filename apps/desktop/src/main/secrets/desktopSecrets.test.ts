@@ -278,6 +278,7 @@ describe('desktopSecretsPort', () => {
       ok: false,
       error:
         "Couldn't read `PAGER_TOKEN` from the keychain (consola/ws-1/personal · PAGER_TOKEN): the keychain has no such item",
+      told: "Couldn't read `PAGER_TOKEN` from its binding on this Mac (Settings › Secrets)",
     });
   });
 

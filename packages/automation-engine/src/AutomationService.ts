@@ -639,9 +639,16 @@ type RunItemOf =
 type CheckRunning = NonNullable<CheckState['running']>;
 
 /** How a check ended: with items, failed and why (masked), or dropped before it spawned, its entry no longer the one it was started for. */
+/**
+ * Who a view is for. Only the person's panel is told where a secret is
+ * bound; an agent, and anyone else, is told a name and whether it is bound.
+ */
+type Reader = 'person' | 'agent';
+
 type CheckEnd =
   | { ok: true; items: PolledItem[] }
-  | { ok: false; error: string }
+  /** `told`: what an agent is told instead of `error` (review S1). */
+  | { ok: false; error: string; told?: string }
   | { dropped: true };
 
 /**
@@ -2232,7 +2239,12 @@ export class AutomationService {
     }
     // Read for this check alone, before the entry is asked again: a rebinding meanwhile drops it unspawned.
     const secrets = await readSecrets(this.deps.secrets, workspaceId, trigger.secrets ?? []);
-    if (!secrets.ok) return { ok: false, error: `${secrets.error}; nothing ran.` };
+    if (!secrets.ok)
+      return {
+        ok: false,
+        error: `${secrets.error}; nothing ran.`,
+        told: `${secrets.told}; nothing ran.`,
+      };
     base = { env: base.env, secrets: [...base.secrets, ...secrets.masks] };
     if (!this.entryCheckedBy(entry, running)) return { dropped: true };
     const fail = (error: string): CheckEnd => ({
@@ -2327,7 +2339,7 @@ export class AutomationService {
       this.checks.set(key, afterSuccess(state, at));
       this.observeSource(entry, ended.items, at);
     } else {
-      this.checks.set(key, afterFailure(state, at, ended.error));
+      this.checks.set(key, afterFailure(state, at, ended.error, ended.told));
       if (state.failures === 0) {
         const name = entry.automation.name;
         this.deps.notify({
@@ -2373,8 +2385,17 @@ export class AutomationService {
     void this.pump();
   }
 
-  /** A workspace's automations as its panel and `list_automations` show them. */
+  /**
+   * A workspace's automations as `list_automations` shows them, or anyone
+   * else who is not the person: a failed check never says where its secret
+   * is bound (review S1). The person's panel has `snapshot`'s.
+   */
   public list(workspaceId: string): AutomationView[] {
+    return this.views(workspaceId, 'agent');
+  }
+
+  /** The automations as `reader` is told of them: only the person's panel (`snapshot`) asks as `person`. */
+  private views(workspaceId: string, reader: Reader): AutomationView[] {
     const now = this.deps.now();
     return (this.factories.get(workspaceId)?.resolved ?? []).map((entry) => {
       const { automation } = entry;
@@ -2397,7 +2418,7 @@ export class AutomationService {
         source: trigger.kind,
         onEvent: trigger.kind === 'event' || trigger.kind === 'poll',
         ...(takesItem ? { takesItem } : {}),
-        ...(trigger.kind === 'poll' ? { check: this.checkView(entry, trigger, now) } : {}),
+        ...(trigger.kind === 'poll' ? { check: this.checkView(entry, trigger, now, reader) } : {}),
         ...(this.needsAllow(entry) ? { needsAllow: true as const, version: entry.version } : {}),
         kind: describeKind(automation),
         runs: describeRun(automation),
@@ -2435,9 +2456,9 @@ export class AutomationService {
    * that counted went, and, while it checks and none is running, when the
    * next is due (now, for one that is).
    */
-  private checkView(entry: Resolved, trigger: PollTrigger, now: Date): CheckView {
+  private checkView(entry: Resolved, trigger: PollTrigger, now: Date, reader: Reader): CheckView {
     const state = this.checks.get(automationKey(entry));
-    const view = checkViewOf(trigger, state?.outcome);
+    const view = checkViewOf(trigger, state?.outcome, reader);
     if (this.mayCheck(entry) && !state?.running) {
       const due = nextCheckAt(state ?? { failures: 0 }, trigger.everyMs);
       view.nextAt = new Date(
@@ -2856,7 +2877,8 @@ export class AutomationService {
     return {
       filePath: factory.folder.filePath,
       fileExists: factory.read.exists,
-      automations: this.list(workspaceId),
+      // The person's panel: a failed check says where its secret is bound.
+      automations: this.views(workspaceId, 'person'),
       // While the folder does not apply, every reason it does not: a changed entry's harness too.
       issues: factory.standing ? factory.standing.decision.blocking : factory.read.parse.issues,
       notices: [...factory.read.parse.notices, ...factory.warnings],
@@ -5756,11 +5778,18 @@ function takesItemOf(entry: Resolved): AutomationView['takesItem'] {
  * field whose change fires an item again), and what its last check came to:
  * when it ended, and what it found or why it failed.
  */
-function checkViewOf(trigger: PollTrigger, outcome: CheckState['outcome']): CheckView {
+function checkViewOf(
+  trigger: PollTrigger,
+  outcome: CheckState['outcome'],
+  reader: Reader,
+): CheckView {
   const last: Partial<CheckView> = !outcome
     ? {}
     : 'error' in outcome
-      ? { lastAt: outcome.at, error: outcome.error }
+      ? {
+          lastAt: outcome.at,
+          error: reader === 'person' ? outcome.error : (outcome.told ?? outcome.error),
+        }
       : {
           lastAt: outcome.at,
           items: outcome.items,

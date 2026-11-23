@@ -32,10 +32,14 @@ export interface CheckState {
   lastEndedAt?: string;
   /** Failed checks in a row. */
   failures: number;
-  /** What the last check that counted came to: how many items, what fired, or why it failed. */
+  /**
+   * What the last check that counted came to: how many items, what fired, or
+   * why it failed; `told`, when present, is what an agent is told instead of
+   * `error`, which names where a secret is bound (review S1).
+   */
   outcome?:
     | { at: string; items: number; fired: number; skipped: number; baseline: boolean }
-    | { at: string; error: string };
+    | { at: string; error: string; told?: string };
   /**
    * The last successful result, kept in memory only, and the entry's version
    * it was taken at: one taken at another version says nothing about this
@@ -70,9 +74,19 @@ export function latestResult(
   return state?.result?.version === version ? state.result.items : undefined;
 }
 
-/** After a check that ended at `at` without one: one more failure in a row, and why. */
-export function afterFailure(state: CheckState, at: string, error: string): CheckState {
-  return { ...state, lastEndedAt: at, failures: state.failures + 1, outcome: { at, error } };
+/** After a check that ended at `at` without one: one more failure in a row, and why (and what an agent is told of it). */
+export function afterFailure(
+  state: CheckState,
+  at: string,
+  error: string,
+  told?: string,
+): CheckState {
+  return {
+    ...state,
+    lastEndedAt: at,
+    failures: state.failures + 1,
+    outcome: { at, error, ...(told !== undefined ? { told } : {}) },
+  };
 }
 
 /** Due at once, whenever the last check ended. What it found, and its run of failures, are kept. */

@@ -14,7 +14,11 @@ const B: SecretsRead = {
   masks: ['stub-pager-secret-b'],
   labels: { PAGER_TOKEN: 'the keychain (b)' },
 };
-const FAILED: SecretsRead = { ok: false, error: "Couldn't read `PAGER_TOKEN`: it is not bound" };
+const FAILED: SecretsRead = {
+  ok: false,
+  error: "Couldn't read `PAGER_TOKEN`: it is not bound",
+  told: "Couldn't read `PAGER_TOKEN`: it is not bound",
+};
 
 /** A read the test settles by hand. */
 function pending() {
@@ -70,6 +74,7 @@ describe('RunSecrets', () => {
     expect(onDone).toHaveBeenCalledWith({
       ok: false,
       error: "Couldn't read this run's secrets: the port broke",
+      told: "Couldn't read this run's secrets",
     });
   });
 

@@ -394,6 +394,18 @@ describe('save_automation and Allow', () => {
     };
     expect(pin).toBeTypeOf('function');
   });
+
+  it('types the control agents receive without the person’s views (review S1)', () => {
+    // Compiled, never run: the person's panel (`snapshot`) and the Secrets tab say where a
+    // secret is bound; an agent's `list` names it and says whether it is bound, never where.
+    const pin = (control: AutomationControl) => {
+      // @ts-expect-error The snapshot is the person's: adding it to AutomationControl breaks the typecheck here.
+      void control.snapshot;
+      // @ts-expect-error The Secrets tab's view is the person's too.
+      void control.secretsView;
+    };
+    expect(pin).toBeTypeOf('function');
+  });
 });
 
 describe('run_automation on an item', () => {

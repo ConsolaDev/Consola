@@ -64,7 +64,11 @@ export class RunSecrets {
       reading = Promise.reject(error);
     }
     reading.then(settle, (error: unknown) =>
-      settle({ ok: false, error: `Couldn't read this run's secrets: ${describeReason(error)}` }),
+      settle({
+        ok: false,
+        error: `Couldn't read this run's secrets: ${describeReason(error)}`,
+        told: "Couldn't read this run's secrets",
+      }),
     );
   }
 
