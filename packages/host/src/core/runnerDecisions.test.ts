@@ -15,6 +15,7 @@ import {
   reconnectDelayMs,
   SESSION_START_ARGV,
   SESSION_TEMPLATE,
+  STDERR_TAIL_LENGTH,
   StderrTail,
   sandboxEnvFor,
   scrubSecrets,
@@ -265,6 +266,17 @@ describe('updateForExit', () => {
   });
 });
 
+/** A token as GitHub writes them, and an API key: long enough that a piece of one gives it away. */
+const GIT_TOKEN = 'ghp_sprocketGitTokenAbCdEf0123456789';
+const API_KEY = 'sk-ant-api03-sprocketKeyZyXwVu9876543210';
+
+/** No piece of `secret` eight characters or longer is in `text`. */
+const expectNoPieceOf = (text: string, secret: string) => {
+  for (let start = 0; start + 8 <= secret.length; start += 1) {
+    expect(text).not.toContain(secret.slice(start, start + 8));
+  }
+};
+
 describe('StderrTail', () => {
   it('answers the last line that holds text', () => {
     const tail = new StderrTail();
@@ -288,6 +300,54 @@ describe('StderrTail', () => {
     const last = tail.lastLine() ?? '';
     expect(last.length).toBeLessThanOrEqual(MAX_ERROR_LENGTH);
     expect(last.startsWith('y')).toBe(true);
+  });
+
+  it('takes a secret out of the line', () => {
+    const tail = new StderrTail([GIT_TOKEN, API_KEY]);
+    tail.push(`fatal: Authentication failed (${GIT_TOKEN}, ${API_KEY})\n`);
+    expect(tail.lastLine()).toBe('fatal: Authentication failed ([redacted], [redacted])');
+  });
+
+  it('takes out a secret split across two chunks, wherever it is split', () => {
+    for (let at = 1; at < GIT_TOKEN.length; at += 1) {
+      const tail = new StderrTail([GIT_TOKEN]);
+      tail.push(`fatal: token ${GIT_TOKEN.slice(0, at)}`);
+      tail.push(`${GIT_TOKEN.slice(at)} refused\n`);
+      expect(tail.lastLine()).toBe('fatal: token [redacted] refused');
+    }
+  });
+
+  it('takes out a secret written one character at a time', () => {
+    const tail = new StderrTail([GIT_TOKEN]);
+    for (const character of `token=${GIT_TOKEN}\n`) tail.push(character);
+    expect(tail.lastLine()).toBe('token=[redacted]');
+  });
+
+  it('leaves no piece of a secret that straddles the start of the tail it keeps', () => {
+    for (const offset of [1, 8, GIT_TOKEN.length - 1]) {
+      const tail = new StderrTail([GIT_TOKEN]);
+      tail.push(`${GIT_TOKEN}${'y'.repeat(STDERR_TAIL_LENGTH - offset)}`);
+      tail.push('\n');
+      expectNoPieceOf(tail.lastLine() ?? '', GIT_TOKEN);
+    }
+  });
+
+  it('leaves no piece of a secret that straddles the length an error is cut to', () => {
+    for (const before of [MAX_ERROR_LENGTH - 8, MAX_ERROR_LENGTH - 1, MAX_ERROR_LENGTH - 20]) {
+      const tail = new StderrTail([GIT_TOKEN]);
+      tail.push(`${'e'.repeat(before)}${GIT_TOKEN} and more\n`);
+      const last = tail.lastLine() ?? '';
+      expect(last.length).toBeLessThanOrEqual(MAX_ERROR_LENGTH);
+      expectNoPieceOf(last, GIT_TOKEN);
+    }
+  });
+
+  it('leaves no piece of a secret the output ended part-way through', () => {
+    const tail = new StderrTail([GIT_TOKEN]);
+    tail.push(`fatal: token ${GIT_TOKEN.slice(0, 20)}`);
+    const last = tail.lastLine() ?? '';
+    expect(last.startsWith('fatal: token')).toBe(true);
+    expectNoPieceOf(last, GIT_TOKEN);
   });
 });
 
@@ -323,18 +383,54 @@ describe('scrubUpdate', () => {
         type: 'session.update',
         sessionId: ID,
         status: 'failed',
-        error: `clone failed with ghp_x ${'e'.repeat(MAX_ERROR_LENGTH * 2)}`,
+        error: `clone failed with ${GIT_TOKEN} ${'e'.repeat(MAX_ERROR_LENGTH * 2)}`,
       },
-      ['ghp_x'],
+      [GIT_TOKEN],
     );
-    expect(update.error).not.toContain('ghp_x');
+    expectNoPieceOf(update.error ?? '', GIT_TOKEN);
     expect(update.error?.length).toBeLessThanOrEqual(MAX_ERROR_LENGTH);
     expect(update.error?.startsWith('clone failed with [redacted]')).toBe(true);
   });
 
-  it('leaves an update with no error as it is', () => {
-    const update = { type: 'session.update' as const, sessionId: ID, title: 'ghp_x' };
-    expect(scrubUpdate(update, ['ghp_x'])).toEqual(update);
+  it('takes secrets out of the title: it is made from the conversation, which may hold one', () => {
+    expect(
+      scrubUpdate(
+        { type: 'session.update', sessionId: ID, title: `Use ${GIT_TOKEN} and ${API_KEY}` },
+        [GIT_TOKEN, API_KEY],
+      ),
+    ).toEqual({ type: 'session.update', sessionId: ID, title: 'Use [redacted] and [redacted]' });
+  });
+
+  it.each([
+    ['error', MAX_ERROR_LENGTH - 8],
+    ['error', MAX_ERROR_LENGTH - 1],
+    ['title', MAX_ERROR_LENGTH - 8],
+    ['title', MAX_ERROR_LENGTH - 1],
+  ] as const)(
+    'leaves no piece of a secret that straddles the length a %s is cut to (%i before it)',
+    (field, before) => {
+      const update = scrubUpdate(
+        {
+          type: 'session.update',
+          sessionId: ID,
+          [field]: `${'e'.repeat(before)}${GIT_TOKEN} tail`,
+        },
+        [GIT_TOKEN],
+      );
+      const said = update[field] ?? '';
+      expect(said.length).toBeLessThanOrEqual(MAX_ERROR_LENGTH);
+      expectNoPieceOf(said, GIT_TOKEN);
+    },
+  );
+
+  it('leaves an update with neither an error nor a title as it is', () => {
+    const update = {
+      type: 'session.update' as const,
+      sessionId: ID,
+      status: 'running' as const,
+      hostUrl: 'https://4100-sprocket.e2b.app',
+    };
+    expect(scrubUpdate(update, [GIT_TOKEN])).toEqual(update);
   });
 });
 

@@ -233,47 +233,115 @@ export function updateForExit(sessionId: string, end: SandboxEnd): SessionUpdate
   return failed(end.lastStderrLine ?? `The session's host exited with code ${end.exitCode}.`);
 }
 
-/** How much of a command's stderr the runner keeps, to say why it failed. */
-const STDERR_TAIL_LENGTH = 8 * 1024;
-
-/** The end of a command's stderr, bounded, for its last line. */
-export class StderrTail {
-  private tail = '';
-
-  push(chunk: string): void {
-    this.tail = `${this.tail}${chunk}`.slice(-STDERR_TAIL_LENGTH);
-  }
-
-  /** The last line that holds text, trimmed and bounded, or null when there is none. */
-  lastLine(): string | null {
-    const lines = this.tail
-      .split('\n')
-      .map((line) => line.trim())
-      .filter((line) => line !== '');
-    const last = lines.at(-1);
-    return last === undefined ? null : last.slice(0, MAX_ERROR_LENGTH);
-  }
-}
-
 /** What a secret becomes in text the runner sends or logs. */
 export const REDACTED = '[redacted]';
 
 /**
- * `text` with every secret taken out, as it is and URL-encoded (a token in an address git prints),
- * the longest first. Empty secrets are ignored.
+ * The shortest start of a secret taken out where text ends part-way through one. Shorter ones are
+ * left: any text may end in a few characters a secret starts with, and they give nothing away.
  */
-export function scrubSecrets(text: string, secrets: ReadonlyArray<string>): string {
+export const SECRET_FRAGMENT_MIN = 4;
+
+/** Every form of the secrets that is looked for: each as it is and URL-encoded, longest first. */
+const secretForms = (secrets: ReadonlyArray<string>): string[] => {
   const forms = new Set<string>();
   for (const secret of secrets) {
     if (secret === '') continue;
     forms.add(secret);
     forms.add(encodeURIComponent(secret));
   }
+  return [...forms].sort((a, b) => b.length - a.length);
+};
+
+const replaceForms = (text: string, forms: ReadonlyArray<string>): string => {
   let scrubbed = text;
-  for (const form of [...forms].sort((a, b) => b.length - a.length)) {
-    scrubbed = scrubbed.split(form).join(REDACTED);
-  }
+  for (const form of forms) scrubbed = scrubbed.split(form).join(REDACTED);
   return scrubbed;
+};
+
+/**
+ * `text` with every secret taken out, as it is and URL-encoded (a token in an address git prints),
+ * the longest first. Empty secrets are ignored. Scrub whole text, before it is cut: a cut can
+ * leave a piece of a secret that no longer matches it.
+ */
+export function scrubSecrets(text: string, secrets: ReadonlyArray<string>): string {
+  return replaceForms(text, secretForms(secrets));
+}
+
+/** `text` with the start of a secret it ends in (`SECRET_FRAGMENT_MIN` or more) redacted. */
+const withoutTrailingSecretStart = (text: string, forms: ReadonlyArray<string>): string => {
+  let longest = 0;
+  for (const form of forms) {
+    for (let length = Math.min(form.length - 1, text.length); length > longest; length -= 1) {
+      if (length >= SECRET_FRAGMENT_MIN && text.endsWith(form.slice(0, length))) {
+        longest = length;
+        break;
+      }
+    }
+  }
+  return longest === 0 ? text : `${text.slice(0, text.length - longest)}${REDACTED}`;
+};
+
+/** How much of a command's stderr the runner keeps, scrubbed, to say why it failed. */
+export const STDERR_TAIL_LENGTH = 8 * 1024;
+
+/**
+ * The end of a command's stderr, scrubbed of `secrets` as it arrives and only then bounded, for
+ * its last line. Output arrives in chunks that may split a secret, so the runner holds back,
+ * unscrubbed, the last characters that could be the start of one (fewer than the longest secret's
+ * length), and scrubs them with what follows: a secret is always scrubbed whole, before any cut.
+ * Output that ends part-way through a secret has that start redacted too.
+ */
+export class StderrTail {
+  private readonly forms: ReadonlyArray<string>;
+  /** How many characters at the end may still be the start of a secret. */
+  private readonly holdBack: number;
+  /** Scrubbed, at most `STDERR_TAIL_LENGTH`. */
+  private tail = '';
+  /** Unscrubbed: fewer characters than the longest secret, or a whole one at its end. */
+  private held = '';
+
+  constructor(secrets: ReadonlyArray<string> = []) {
+    this.forms = secretForms(secrets);
+    this.holdBack = Math.max(0, ...this.forms.map((form) => form.length - 1));
+  }
+
+  push(chunk: string): void {
+    const raw = `${this.held}${chunk}`;
+    let cut = Math.max(0, raw.length - this.holdBack);
+    // A secret that is whole and crosses the cut is scrubbed with what comes before it.
+    const found = this.forms.flatMap((form) => {
+      const at: Array<{ start: number; end: number }> = [];
+      for (let index = raw.indexOf(form); index !== -1; index = raw.indexOf(form, index + 1)) {
+        at.push({ start: index, end: index + form.length });
+      }
+      return at;
+    });
+    for (let moved = true; moved; ) {
+      moved = false;
+      for (const { start, end } of found) {
+        if (start < cut && end > cut) {
+          cut = end;
+          moved = true;
+        }
+      }
+    }
+    this.tail = `${this.tail}${replaceForms(raw.slice(0, cut), this.forms)}`.slice(
+      -STDERR_TAIL_LENGTH,
+    );
+    this.held = raw.slice(cut);
+  }
+
+  /** The last line that holds text, scrubbed, then trimmed and bounded, or null when there is none. */
+  lastLine(): string | null {
+    const held = withoutTrailingSecretStart(replaceForms(this.held, this.forms), this.forms);
+    const lines = `${this.tail}${held}`
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line !== '');
+    const last = lines.at(-1);
+    return last === undefined ? null : last.slice(0, MAX_ERROR_LENGTH);
+  }
 }
 
 /** The longest error, and title, the runner sends the cell, so a frame stays within the cell's limit. */
@@ -283,15 +351,21 @@ const bounded = (text: string): string =>
   text.length <= MAX_ERROR_LENGTH ? text : `${text.slice(0, MAX_ERROR_LENGTH - 1)}…`;
 
 /**
- * An update as the cell may hear it: its error with every secret taken out first, then bounded
- * (bounding first could leave half a secret), and its title bounded.
+ * An update as the cell may hear it. Its two free texts, the error and the title (made from the
+ * conversation, which may hold a token someone typed), have every secret taken out first, then
+ * are bounded: bounding first could leave a piece of a secret. `hostUrl` is the provider's
+ * address for a port, checked as an origin before it is sent, and the status is one of three
+ * words, so neither carries the sandbox's text.
  */
 export function scrubUpdate(update: SessionUpdate, secrets: ReadonlyArray<string>): SessionUpdate {
+  const forms = secretForms(secrets);
   const scrubbed: SessionUpdate = { ...update };
   if (update.error !== undefined) {
-    scrubbed.error = bounded(scrubSecrets(update.error, secrets)) || 'The session failed.';
+    scrubbed.error = bounded(replaceForms(update.error, forms)) || 'The session failed.';
   }
-  if (update.title !== undefined) scrubbed.title = bounded(update.title);
+  if (update.title !== undefined) {
+    scrubbed.title = bounded(replaceForms(update.title, forms)) || REDACTED;
+  }
   return scrubbed;
 }
 
