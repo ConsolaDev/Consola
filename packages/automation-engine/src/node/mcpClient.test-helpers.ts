@@ -1,6 +1,11 @@
 import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs';
+import * as http from 'node:http';
+import type { AddressInfo } from 'node:net';
 import * as path from 'node:path';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { z } from 'zod';
 
 /*
  * Scratch MCP servers for `mcpClient.test.ts` (rule 5a-servers): each is a
@@ -374,4 +379,155 @@ export function writePs(dir: string, options: { delaySeconds?: number; failTable
 /** A process's start time as `/bin/ps` prints it, as the adapter reads it. */
 export function lstartOf(pid: number): string {
   return execFileSync('/bin/ps', ['-o', 'lstart=', '-p', String(pid)], { encoding: 'utf8' }).trim();
+}
+
+/** One request a local HTTP server took: its method, path, JSON-RPC method, and header names. */
+export interface HttpRequestEvent {
+  event: 'request';
+  method: string;
+  path: string;
+  /** The JSON-RPC method a POST carried. */
+  rpc?: string;
+  /** Every header's name, lowercased, sorted. */
+  headers: string[];
+  /** The value of each header the test checks by value. */
+  values: Record<string, string>;
+}
+
+export type HttpEvent = HttpRequestEvent | { event: 'work-done' | 'start'; tool: string };
+
+export interface HttpServerOptions {
+  /**
+   * Destroys the socket after a call's work, before answering: `true` at once, before the answer's
+   * headers are written; `'mid-stream'` once its event stream has opened.
+   */
+  dropAfterWork?: true | 'mid-stream';
+  /** Answers every request with this, and nothing else. */
+  redirect?: { status: number; location?: string };
+  /** How it answers `initialize`: a JSON-RPC error with the timeout's code (`warming up`), never, or with 9 MiB. */
+  initialize?: 'error' | 'hang' | 'huge';
+}
+
+export interface StartedHttpServer {
+  /** `http://127.0.0.1:<port>/mcp` */
+  url: string;
+  origin: string;
+  events: HttpEvent[];
+  close(): Promise<void>;
+}
+
+const CHECKED_VALUES = ['accept-encoding', 'accept-language', 'sec-fetch-mode', 'user-agent'];
+
+/**
+ * A Streamable HTTP MCP server on 127.0.0.1 (rule 5a-servers), built on the
+ * SDK's `McpServer` and `StreamableHTTPServerTransport`, stateless (a server
+ * and a transport per request), logging every request and each tool's work.
+ */
+export async function startHttpServer(options: HttpServerOptions = {}): Promise<StartedHttpServer> {
+  const events: HttpEvent[] = [];
+  const server = http.createServer((req, res) => {
+    void (async () => {
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) chunks.push(chunk as Buffer);
+      const text = Buffer.concat(chunks).toString('utf8');
+      let body: unknown;
+      try {
+        body = text ? JSON.parse(text) : undefined;
+      } catch {
+        body = undefined;
+      }
+      const rpc =
+        body && typeof body === 'object' && 'method' in body
+          ? String((body as { method: unknown }).method)
+          : undefined;
+      const values: Record<string, string> = {};
+      for (const name of CHECKED_VALUES) {
+        const value = req.headers[name];
+        if (typeof value === 'string') values[name] = value;
+      }
+      for (const name of ['authorization', 'x-api-key'])
+        values[name] = name in req.headers ? 'present' : 'absent';
+      events.push({
+        event: 'request',
+        method: req.method ?? '',
+        path: req.url ?? '',
+        ...(rpc !== undefined ? { rpc } : {}),
+        headers: Object.keys(req.headers).sort(),
+        values,
+      });
+      if (options.redirect) {
+        res.writeHead(
+          options.redirect.status,
+          options.redirect.location !== undefined ? { location: options.redirect.location } : {},
+        );
+        res.end();
+        return;
+      }
+      if (rpc === 'initialize' && options.initialize === 'hang') return;
+      if (rpc === 'initialize' && options.initialize === 'error') {
+        const id = (body as { id: unknown }).id;
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(
+          JSON.stringify({ jsonrpc: '2.0', id, error: { code: -32001, message: 'warming up' } }),
+        );
+        return;
+      }
+      if (rpc === 'initialize' && options.initialize === 'huge') {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end('x'.repeat(9 * 1024 * 1024));
+        return;
+      }
+      const mcp = new McpServer({ name: 'tracker-scratch', version: '1.0.0' });
+      const posted = { ok: true, ts: '1700000000.000100' };
+      const answer = {
+        content: [{ type: 'text' as const, text: JSON.stringify(posted) }],
+        structuredContent: posted,
+      };
+      const outputSchema = { ok: z.boolean(), ts: z.string() };
+      mcp.registerTool(
+        'post',
+        { inputSchema: { channel: z.string().optional() }, outputSchema },
+        async () => {
+          events.push({ event: 'work-done', tool: 'post' });
+          if (options.dropAfterWork === 'mid-stream') {
+            await new Promise((resolve) => setTimeout(resolve, 300));
+            req.socket.destroy();
+          } else if (options.dropAfterWork) req.socket.destroy();
+          return answer;
+        },
+      );
+      mcp.registerTool('slow_post', { outputSchema }, async () => {
+        events.push({ event: 'start', tool: 'slow_post' });
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+        events.push({ event: 'work-done', tool: 'slow_post' });
+        return answer;
+      });
+      mcp.registerTool('huge', {}, async () => ({
+        content: [{ type: 'text' as const, text: 'x'.repeat(9 * 1024 * 1024) }],
+      }));
+      const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+      res.on('close', () => {
+        void transport.close();
+        void mcp.close();
+      });
+      await mcp.connect(transport);
+      await transport.handleRequest(req, res, body);
+    })().catch(() => {
+      if (!res.headersSent) res.writeHead(500);
+      res.end();
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address() as AddressInfo;
+  const origin = `http://127.0.0.1:${port}`;
+  return {
+    url: `${origin}/mcp`,
+    origin,
+    events,
+    close: () =>
+      new Promise<void>((resolve) => {
+        server.closeAllConnections();
+        server.close(() => resolve());
+      }),
+  };
 }

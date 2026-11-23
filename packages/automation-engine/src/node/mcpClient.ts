@@ -9,8 +9,9 @@ import { type ChildProcessWithoutNullStreams, execFile, spawn } from 'node:child
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { ReadBuffer, serializeMessage } from '@modelcontextprotocol/sdk/shared/stdio.js';
-import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
+import type { FetchLike, Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import {
   CallToolResultSchema,
   ErrorCode,
@@ -60,6 +61,8 @@ const GROUP_POLL_MS = 50;
 const EXIT_SETTLE_MS = 1_000;
 /** The most `tools/list` pages read. */
 const MAX_TOOL_PAGES = 10;
+/** How long an HTTP session's close waits for a notification still going out (a stop's cancel). */
+const NOTIFICATION_SETTLE_MS = 2_000;
 const LOG_CUT_LINE = Buffer.from('\n…\n');
 const EMPTY = Buffer.alloc(0);
 /** What a connect stopped part-way says; the engine words it its own way. */
@@ -486,32 +489,42 @@ function watchTraffic(transport: Transport): {
   begin(): CallWatch;
   /** The message of the last JSON-RPC error the server answered with, in its own words. */
   serverError(): string | undefined;
+  /** Whether the request sent with `id` has had no answer yet. */
+  awaiting(id: RequestId): boolean;
+  /** Resolves once every notification being sent has gone out, or after `ms`. */
+  notificationsSent(ms: number): Promise<void>;
 } {
   let current: CallWatch | undefined;
   let lastError: string | undefined;
+  const pending = new Set<RequestId>();
+  const notifying = new Set<Promise<void>>();
   const send = transport.send.bind(transport);
   transport.send = (message, options) => {
-    if (
-      current &&
-      current.id === undefined &&
-      isJSONRPCRequest(message) &&
-      message.method === 'tools/call'
-    )
-      current.id = message.id;
-    return send(message, options);
+    if (isJSONRPCRequest(message)) {
+      pending.add(message.id);
+      if (current && current.id === undefined && message.method === 'tools/call')
+        current.id = message.id;
+    }
+    const sent = send(message, options);
+    if (!('id' in message)) {
+      const settled = sent.then(
+        () => undefined,
+        () => undefined,
+      );
+      notifying.add(settled);
+      void settled.then(() => notifying.delete(settled));
+    }
+    return sent;
   };
   transport.onmessage = (message) => {
     if (isJSONRPCErrorResponse(message)) {
       lastError = message.error.message;
+      if (message.id !== undefined) pending.delete(message.id);
       if (current && current.id !== undefined && message.id === current.id)
         current.error = { code: message.error.code, message: message.error.message };
-    } else if (
-      isJSONRPCResultResponse(message) &&
-      current &&
-      current.id !== undefined &&
-      message.id === current.id
-    ) {
-      current.resulted = true;
+    } else if (isJSONRPCResultResponse(message)) {
+      pending.delete(message.id);
+      if (current && current.id !== undefined && message.id === current.id) current.resulted = true;
     }
   };
   return {
@@ -520,8 +533,13 @@ function watchTraffic(transport: Transport): {
       return current;
     },
     serverError: () => lastError,
+    awaiting: (id) => pending.has(id),
+    notificationsSent: (ms) =>
+      Promise.race([Promise.all([...notifying]).then(() => undefined), sleep(ms)]),
   };
 }
+
+type Watch = ReturnType<typeof watchTraffic>;
 
 /** An error the adapter makes when connecting's budget is spent between requests. */
 class BudgetSpent extends Error {}
@@ -642,12 +660,98 @@ async function callOver(input: {
   }
 }
 
+/** Starts the protocol over `transport` and lists the tools, both within the launch's budget from `started`. Throws what failed. */
+async function initializeAndList(
+  client: Client,
+  transport: Transport,
+  launch: McpServerLaunch,
+  started: number,
+  signal: AbortSignal,
+): Promise<McpToolInfo[]> {
+  const remaining = () => launch.timeoutMs - (Date.now() - started);
+  if (remaining() <= 0) throw new BudgetSpent();
+  await client.connect(transport, { timeout: remaining(), signal });
+  return listTools(client, remaining, signal);
+}
+
+/** Whether a connect failed on its budget: spent, or the SDK's own timeout, never a server's answer carrying the timeout's code. */
+function timedOut(error: unknown, serverError: string | undefined): boolean {
+  return (
+    error instanceof BudgetSpent ||
+    (error instanceof McpError &&
+      error.code === ErrorCode.RequestTimeout &&
+      serverError === undefined)
+  );
+}
+
+/**
+ * An abort's listener: a quit runs `quit` (stdio: the group's SIGTERM) at
+ * once, inside the listener, before anything is awaited (review S5); then,
+ * for any abort, the session closes on the next turn, after the SDK has sent
+ * `notifications/cancelled` in the same dispatch.
+ */
+function abortListener(
+  signal: AbortSignal,
+  session: () => McpSession | undefined,
+  quit?: () => void,
+): () => void {
+  return () => {
+    if (signal.reason === 'quit') quit?.();
+    const open = session();
+    if (open) setImmediate(() => void open.close());
+  };
+}
+
+/** The session every transport gives: `call` never rejects, and sends nothing once the session is closing. */
+function sessionOver(input: {
+  client: Client;
+  watch: Watch;
+  tools: McpToolInfo[];
+  launch: McpServerLaunch;
+  maxMessageBytes: number;
+  problem: () => TransportProblem | undefined;
+  onAbort: (signal: AbortSignal) => () => void;
+  closing: () => boolean;
+  close: () => Promise<{ survivors: number }>;
+}): McpSession {
+  const { launch } = input;
+  const validator = new AjvJsonSchemaValidator();
+  return {
+    tools: input.tools,
+    checkArguments: (tool, args, options) => checkArgumentsWith(validator, tool, args, options),
+    async call(tool, args, options) {
+      if (input.closing())
+        return { kind: 'unanswered', why: 'closed', detail: 'the session was closed' };
+      const onCallAbort = input.onAbort(options.signal);
+      if (options.signal !== launch.signal)
+        options.signal.addEventListener('abort', onCallAbort, { once: true });
+      try {
+        return await callOver({
+          client: input.client,
+          watch: input.watch,
+          problem: input.problem,
+          masks: launch.masks,
+          maxMessageBytes: input.maxMessageBytes,
+          tool,
+          args,
+          timeoutMs: options.timeoutMs,
+          signal: options.signal,
+        });
+      } finally {
+        options.signal.removeEventListener('abort', onCallAbort);
+      }
+    },
+    close: input.close,
+  };
+}
+
 interface ClientContext {
   baseEnv(): Promise<NodeJS.ProcessEnv>;
   workRoot: string;
   maxMessageBytes: number;
   processes: Processes;
   info: { name: string; version: string };
+  fetch: typeof fetch;
 }
 
 /** Starts a stdio server for one call: spawn, record, initialize, list. Never rejects. */
@@ -723,14 +827,7 @@ async function connectStdio(
     processes.signal(-pgid, 'SIGTERM');
   };
   let session: McpSession | undefined;
-  const onAbort = (signal: AbortSignal) => () => {
-    if (signal.reason === 'quit') quit();
-    // Any other abort lets the SDK send `notifications/cancelled` first, in the same dispatch.
-    if (session) {
-      const open = session;
-      setImmediate(() => void open.close());
-    }
-  };
+  const onAbort = (signal: AbortSignal) => abortListener(signal, () => session, quit);
   const onLaunchAbort = onAbort(launch.signal);
   launch.signal.addEventListener('abort', onLaunchAbort, { once: true });
 
@@ -773,13 +870,10 @@ async function connectStdio(
   }
   if (launch.signal.aborted) return refuse(STOPPED);
 
-  const remaining = () => launch.timeoutMs - (Date.now() - started);
   const link = following(launch.signal);
   let tools: McpToolInfo[];
   try {
-    if (remaining() <= 0) throw new BudgetSpent();
-    await client.connect(transport, { timeout: remaining(), signal: link.signal });
-    tools = await listTools(client, remaining, link.signal);
+    tools = await initializeAndList(client, transport, launch, started, link.signal);
   } catch (error) {
     link.letGo();
     if (launch.signal.aborted) return refuse(STOPPED);
@@ -792,12 +886,7 @@ async function connectStdio(
       return refuse(`it sent a message over ${sizeWords(context.maxMessageBytes)}`);
     // A server may answer with the timeout's own code: its answer is not a timeout.
     const serverError = watch.serverError();
-    const timedOut =
-      error instanceof BudgetSpent ||
-      (error instanceof McpError &&
-        error.code === ErrorCode.RequestTimeout &&
-        serverError === undefined);
-    if (timedOut) {
+    if (timedOut(error, serverError)) {
       const line = stderr.lastLine();
       return refuse(
         `it did not answer within ${formatDuration(launch.timeoutMs)}${line ? `: ${line}` : ''}`,
@@ -815,35 +904,196 @@ async function connectStdio(
   }
   link.letGo();
 
-  const validator = new AjvJsonSchemaValidator();
-  const open: McpSession = {
+  session = sessionOver({
+    client,
+    watch,
     tools,
-    checkArguments: (tool, args, options) => checkArgumentsWith(validator, tool, args, options),
-    async call(tool, args, options) {
-      if (ending) return { kind: 'unanswered', why: 'closed', detail: 'the session was closed' };
-      const onCallAbort = onAbort(options.signal);
-      if (options.signal !== launch.signal)
-        options.signal.addEventListener('abort', onCallAbort, { once: true });
-      try {
-        return await callOver({
-          client,
-          watch,
-          problem: () => transport.problem,
-          masks,
-          maxMessageBytes: context.maxMessageBytes,
-          tool,
-          args,
-          timeoutMs: options.timeoutMs,
-          signal: options.signal,
-        });
-      } finally {
-        options.signal.removeEventListener('abort', onCallAbort);
-      }
-    },
-    close: () => endAll(),
+    launch,
+    maxMessageBytes: context.maxMessageBytes,
+    problem: () => transport.problem,
+    onAbort,
+    closing: () => ending !== undefined,
+    close: endAll,
+  });
+  return { ok: true, session };
+}
+
+/** A redirect the adapter's own `fetch` refused: its message is the whole sentence (Call 20). */
+class RedirectRefused extends Error {}
+
+/** The redirect's sentence, naming the origin it pointed at when it named one. */
+function redirectSentence(location: string | null, from: string): string {
+  if (location !== null) {
+    try {
+      const origin = new URL(location, from).origin;
+      return `The server answered with a redirect to \`${origin}\`; Consola does not follow redirects. Point \`url\` at the final address.`;
+    } catch {
+      // A Location that is not a URL names nothing.
+    }
+  }
+  return 'The server answered with a redirect; Consola does not follow redirects. Point `url` at the final address.';
+}
+
+/** The id of the JSON-RPC request a POST carries, if it carries one. */
+function requestIdOf(body: unknown): RequestId | undefined {
+  if (typeof body !== 'string') return undefined;
+  try {
+    const message: unknown = JSON.parse(body);
+    return isJSONRPCRequest(message) ? message.id : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The HTTP transport's `fetch` (Call 20, review M2): every request goes out
+ * with `redirect: 'manual'`, and any 3xx is refused before the SDK sees it,
+ * since the SDK's own policy follows a same-origin redirect. Every body is
+ * read through a count that errors past the cap; a POST's body that breaks
+ * names the request it carried.
+ */
+function refusingFetch(
+  base: typeof fetch,
+  cap: number,
+  hooks: { broken(id: RequestId): void; tooLarge(): void },
+): FetchLike {
+  return async (url, init) => {
+    const response = await base(url, { ...init, redirect: 'manual' });
+    if (response.status >= 300 && response.status <= 399) {
+      await response.body?.cancel().catch(() => undefined);
+      throw new RedirectRefused(redirectSentence(response.headers.get('location'), String(url)));
+    }
+    if (!response.body) return response;
+    const carried = init?.method === 'POST' ? requestIdOf(init.body) : undefined;
+    const reader = response.body.getReader();
+    let seen = 0;
+    const counted = new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        let next: Awaited<ReturnType<typeof reader.read>>;
+        try {
+          next = await reader.read();
+        } catch (error) {
+          if (carried !== undefined) hooks.broken(carried);
+          controller.error(error);
+          return;
+        }
+        if (next.done) {
+          controller.close();
+          return;
+        }
+        seen += next.value.byteLength;
+        if (seen > cap) {
+          hooks.tooLarge();
+          void reader.cancel().catch(() => undefined);
+          controller.error(new Error(`its answer was over ${sizeWords(cap)}`));
+          return;
+        }
+        controller.enqueue(next.value);
+      },
+      cancel: (reason) => reader.cancel(reason),
+    });
+    return new Response(counted, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: response.headers,
+    });
   };
-  session = open;
-  return { ok: true, session: open };
+}
+
+/** Why a request failed, with what `fetch` gave as its cause (`fetch failed (ECONNREFUSED)`). */
+function failureWords(error: unknown): string {
+  const cause =
+    error instanceof Error ? (error as { cause?: { code?: unknown } }).cause : undefined;
+  const code = cause && typeof cause.code === 'string' ? cause.code : undefined;
+  return code ? `${messageOf(error)} (${code})` : messageOf(error);
+}
+
+/** Calls a Streamable HTTP server for one call: initialize, list. Never rejects. */
+async function connectHttp(
+  launch: Extract<McpServerLaunch, { transport: 'http' }>,
+  context: ClientContext,
+): Promise<McpConnectResult> {
+  const started = Date.now();
+  const masked = (text: string) => maskSecrets(text, launch.masks);
+  if (launch.signal.aborted) return { ok: false, reason: STOPPED };
+  let problem: TransportProblem | undefined;
+  const broken = new Set<RequestId>();
+  // Its rendered headers and nothing else of the machine's; never a redirect, never a resend.
+  const transport = new StreamableHTTPClientTransport(new URL(launch.url), {
+    requestInit: { headers: { ...launch.headers } },
+    fetch: refusingFetch(context.fetch, context.maxMessageBytes, {
+      broken: (id) => broken.add(id),
+      tooLarge: () => {
+        problem ??= { kind: 'too-large' };
+      },
+    }),
+    // A stream that breaks is never resumed, so nothing is asked of the server again (spike E9b).
+    reconnectionOptions: {
+      maxRetries: 0,
+      initialReconnectionDelay: 1_000,
+      maxReconnectionDelay: 1_000,
+      reconnectionDelayGrowFactor: 1,
+    },
+  });
+  const watch = watchTraffic(transport);
+  // An answer's body broke, or went past the cap, before its request was answered: that answer
+  // can no longer come, so the connection is closed, and the request ends with it rather than at
+  // its timeout. The SDK reports a broken stream only here (it resumes none, `maxRetries: 0`).
+  transport.onerror = () => {
+    if (problem?.kind === 'too-large' || [...broken].some((id) => watch.awaiting(id)))
+      void transport.close();
+  };
+  const client = new Client(context.info);
+  let session: McpSession | undefined;
+  const onAbort = (signal: AbortSignal) => abortListener(signal, () => session);
+  const onLaunchAbort = onAbort(launch.signal);
+  launch.signal.addEventListener('abort', onLaunchAbort, { once: true });
+  let ending: Promise<{ survivors: number }> | undefined;
+  const endAll = () => {
+    ending ??= (async () => {
+      launch.signal.removeEventListener('abort', onLaunchAbort);
+      // Over HTTP a stop's `notifications/cancelled` is a request of its own: it goes out before the connection closes.
+      await watch.notificationsSent(NOTIFICATION_SETTLE_MS);
+      await client.close().catch(() => undefined);
+      return { survivors: 0 };
+    })();
+    return ending;
+  };
+  const refuse = async (reason: string, whole?: true): Promise<McpConnectResult> => {
+    await endAll();
+    return { ok: false, reason: masked(reason), ...(whole ? { whole } : {}) };
+  };
+
+  const link = following(launch.signal);
+  let tools: McpToolInfo[];
+  try {
+    tools = await initializeAndList(client, transport, launch, started, link.signal);
+  } catch (error) {
+    link.letGo();
+    if (launch.signal.aborted) return refuse(STOPPED);
+    if (error instanceof RedirectRefused) return refuse(error.message, true);
+    if (problem?.kind === 'too-large')
+      return refuse(`it sent a message over ${sizeWords(context.maxMessageBytes)}`);
+    const serverError = watch.serverError();
+    if (timedOut(error, serverError))
+      return refuse(`it did not answer within ${formatDuration(launch.timeoutMs)}`);
+    if (serverError !== undefined) return refuse(`it answered with an error: ${serverError}`);
+    return refuse(clipText(failureWords(error), REASON_LINE_CHARS));
+  }
+  link.letGo();
+
+  session = sessionOver({
+    client,
+    watch,
+    tools,
+    launch,
+    maxMessageBytes: context.maxMessageBytes,
+    problem: () => problem,
+    onAbort,
+    closing: () => ending !== undefined,
+    close: endAll,
+  });
+  return { ok: true, session };
 }
 
 /** Removes the call folders a client made before (`call-*`), and nothing else. */
@@ -878,6 +1128,7 @@ export function nodeMcpClient(options: NodeMcpClientOptions): McpClientPort {
     maxMessageBytes: options.maxMessageBytes ?? MAX_MESSAGE_BYTES,
     processes,
     info: clientInfo(),
+    fetch: options.fetch ?? fetch,
   };
   emptyWorkRoot(options.workRoot);
   return {
@@ -889,10 +1140,7 @@ export function nodeMcpClient(options: NodeMcpClientOptions): McpClientPort {
             return { ok: false, reason: 'this runner cannot start stdio servers' };
           return await connectStdio(launch, context);
         }
-        return {
-          ok: false,
-          reason: 'this runner calls Streamable HTTP servers from the next change on',
-        };
+        return await connectHttp(launch, context);
       } catch (error) {
         return { ok: false, reason: maskSecrets(messageOf(error), launch.masks) };
       }

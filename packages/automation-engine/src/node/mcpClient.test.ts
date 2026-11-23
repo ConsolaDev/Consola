@@ -7,11 +7,15 @@ import type { McpServerLaunch, McpSession, ServerGroup } from '../ports';
 import { maskFormsOf } from '../secrets/values';
 import { type NodeMcpClientOptions, SERVER_LOG_CAP_BYTES, nodeMcpClient } from './mcpClient';
 import {
+  type HttpRequestEvent,
+  type HttpServerOptions,
   type ScratchBehaviour,
+  type StartedHttpServer,
   alive,
   eventsIn,
   lstartOf,
   namesTheRuntimeAdds,
+  startHttpServer,
   waitFor,
   writePs,
   writeScratchServer,
@@ -801,5 +805,272 @@ describe('checkArguments', () => {
     expect(session.checkArguments(broken, {})).toMatch(
       /^its input schema could not be read \(.+\)$/,
     );
+  });
+});
+
+/*
+ * Streamable HTTP (Task 12). Every URL this file names is `http://127.0.0.1:<port>`
+ * of a server a row started itself (rule 5a-servers); the last row checks it.
+ */
+describe('Streamable HTTP', () => {
+  type HttpLaunch = Extract<McpServerLaunch, { transport: 'http' }>;
+  const servers: StartedHttpServer[] = [];
+  afterEach(async () => {
+    for (const server of servers.splice(0)) await server.close();
+  });
+  async function started(options: HttpServerOptions = {}): Promise<StartedHttpServer> {
+    const server = await startHttpServer(options);
+    servers.push(server);
+    return server;
+  }
+  function httpLaunch(url: string, over: Partial<HttpLaunch> = {}): HttpLaunch {
+    return {
+      transport: 'http',
+      name: 'tracker',
+      masks: [],
+      timeoutMs: 10_000,
+      signal: new AbortController().signal,
+      url,
+      headers: {},
+      ...over,
+    };
+  }
+  const requests = (server: StartedHttpServer) =>
+    server.events.filter((event): event is HttpRequestEvent => event.event === 'request');
+  const worked = (server: StartedHttpServer) =>
+    server.events.filter((event) => event.event === 'work-done').length;
+  const rpcs = (server: StartedHttpServer, method: string) =>
+    requests(server).filter((request) => request.rpc === method).length;
+  const redirectTo = (origin: string) =>
+    `The server answered with a redirect to \`${origin}\`; Consola does not follow redirects. Point \`url\` at the final address.`;
+
+  /** What Node's `fetch` adds to every request by itself, each with its fixed value: nothing of the machine's. */
+  const FETCH_OWN: Record<string, string> = {
+    'accept-encoding': 'gzip, deflate',
+    'accept-language': '*',
+    'sec-fetch-mode': 'cors',
+    'user-agent': 'node',
+  };
+  const PROTOCOL_OWN = [
+    'accept',
+    'connection',
+    'content-length',
+    'content-type',
+    'host',
+    'mcp-protocol-version',
+    'mcp-session-id',
+    'user-agent',
+  ];
+
+  it("sends its headers on every request, and no other header but the protocol's and fetch's own (V8, E9)", async () => {
+    const server = await started();
+    const session = await connected(
+      httpLaunch(server.url, { headers: { Authorization: 'Bearer stub-tracker-secret-4d2a' } }),
+    );
+    expect(
+      await session.call(
+        'post',
+        { channel: 'C1' },
+        { timeoutMs: 10_000, signal: new AbortController().signal },
+      ),
+    ).toMatchObject({ kind: 'answered', isError: false, structuredContent: { ok: true } });
+    const seen = requests(server);
+    expect(seen.map((request) => request.rpc ?? request.method)).toEqual(
+      expect.arrayContaining([
+        'initialize',
+        'notifications/initialized',
+        'tools/list',
+        'tools/call',
+      ]),
+    );
+    for (const request of seen) {
+      expect(request.values.authorization).toBe('present');
+      for (const name of request.headers)
+        expect([...PROTOCOL_OWN, ...Object.keys(FETCH_OWN), 'authorization']).toContain(name);
+      for (const [name, value] of Object.entries(FETCH_OWN))
+        if (request.headers.includes(name)) expect(request.values[name]).toBe(value);
+    }
+  });
+
+  it.each([
+    ['before its answer began', true as const],
+    [
+      'in the middle of its event stream, at once rather than at its timeout',
+      'mid-stream' as const,
+    ],
+  ])(
+    'never sends a call again when the connection drops after its work, %s (E9b, V6)',
+    async (_when, dropAfterWork) => {
+      const server = await started({ dropAfterWork });
+      const asked = Date.now();
+      const session = await connected(httpLaunch(server.url));
+      expect(
+        await session.call(
+          'post',
+          { channel: 'C1' },
+          { timeoutMs: 10_000, signal: new AbortController().signal },
+        ),
+      ).toMatchObject({ kind: 'unanswered', why: 'closed' });
+      expect(Date.now() - asked).toBeLessThan(9_000);
+      expect(rpcs(server, 'tools/call')).toBe(1);
+      expect(worked(server)).toBe(1);
+    },
+    SLOW,
+  );
+
+  it('refuses a redirect to another origin, naming it, and the other origin hears nothing (V19, E16, review M2)', async () => {
+    const other = await started();
+    const redirector = await started({
+      redirect: { status: 307, location: `${other.origin}/mcp` },
+    });
+    expect(
+      await client().connect(
+        httpLaunch(redirector.url, { headers: { 'X-Api-Key': 'stub-key-6b1f' } }),
+      ),
+    ).toEqual({ ok: false, reason: redirectTo(other.origin), whole: true });
+    expect(requests(other)).toEqual([]);
+    expect(requests(redirector)).toHaveLength(1);
+  });
+
+  it('refuses a redirect within the same origin the same way', async () => {
+    const redirector = await started({ redirect: { status: 307, location: '/elsewhere/mcp' } });
+    expect(await client().connect(httpLaunch(redirector.url))).toEqual({
+      ok: false,
+      reason: redirectTo(redirector.origin),
+      whole: true,
+    });
+    expect(requests(redirector).map((request) => request.path)).toEqual(['/mcp']);
+  });
+
+  it('refuses a redirect that names no Location, naming no origin', async () => {
+    const redirector = await started({ redirect: { status: 307 } });
+    expect(await client().connect(httpLaunch(redirector.url))).toEqual({
+      ok: false,
+      reason:
+        'The server answered with a redirect; Consola does not follow redirects. Point `url` at the final address.',
+      whole: true,
+    });
+  });
+
+  it("finds Node's fetch answering a 307 as itself, Location readable, with redirect: 'manual' (Call 20)", async () => {
+    const other = await started();
+    const redirector = await started({
+      redirect: { status: 307, location: `${other.origin}/mcp` },
+    });
+    for (const method of ['POST', 'GET']) {
+      const response = await fetch(redirector.url, {
+        method,
+        redirect: 'manual',
+        ...(method === 'POST' ? { body: '{}' } : {}),
+      });
+      expect(response.status).toBe(307);
+      expect(response.type).toBe('basic');
+      expect(response.headers.get('location')).toBe(`${other.origin}/mcp`);
+    }
+    expect(requests(other)).toEqual([]);
+  });
+
+  it(
+    'fails a call whose answer is over 8 MB',
+    async () => {
+      const server = await started();
+      const session = await connected(httpLaunch(server.url));
+      const asked = Date.now();
+      expect(
+        await session.call('huge', {}, { timeoutMs: 10_000, signal: new AbortController().signal }),
+      ).toMatchObject({ kind: 'unanswered', why: 'too-large' });
+      // At once, not at the call's timeout: the connection closes once the count passes the cap.
+      expect(Date.now() - asked).toBeLessThan(9_000);
+    },
+    SLOW,
+  );
+
+  it(
+    'answers a timeout that may have landed',
+    async () => {
+      const server = await started();
+      const session = await connected(httpLaunch(server.url));
+      expect(
+        await session.call(
+          'slow_post',
+          {},
+          { timeoutMs: 300, signal: new AbortController().signal },
+        ),
+      ).toMatchObject({ kind: 'unanswered', why: 'timeout' });
+      await waitFor(() => worked(server) === 1, 5000, 'the work');
+    },
+    SLOW,
+  );
+
+  it(
+    'cancels a stopped call and answers stopped, not a timeout',
+    async () => {
+      const server = await started();
+      const session = await connected(httpLaunch(server.url));
+      const controller = new AbortController();
+      setTimeout(() => controller.abort('stop'), 100);
+      expect(
+        await session.call('slow_post', {}, { timeoutMs: 10_000, signal: controller.signal }),
+      ).toMatchObject({ kind: 'unanswered', why: 'stopped' });
+      await waitFor(() => rpcs(server, 'notifications/cancelled') === 1, 5000, 'the cancellation');
+      // The stop closed the session itself: nothing more is sent on it.
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(
+        await session.call('post', {}, { timeoutMs: 10_000, signal: new AbortController().signal }),
+      ).toMatchObject({ kind: 'unanswered', why: 'closed' });
+      expect(rpcs(server, 'tools/call')).toBe(1);
+    },
+    SLOW,
+  );
+
+  it("says a server answered initialize with an error, in the server's own words", async () => {
+    const server = await started({ initialize: 'error' });
+    expect(await client().connect(httpLaunch(server.url))).toEqual({
+      ok: false,
+      reason: 'it answered with an error: warming up',
+    });
+  });
+
+  it(
+    'says a server did not answer within its budget',
+    async () => {
+      const server = await started({ initialize: 'hang' });
+      expect(await client().connect(httpLaunch(server.url, { timeoutMs: 500 }))).toEqual({
+        ok: false,
+        reason: 'it did not answer within 500ms',
+      });
+    },
+    SLOW,
+  );
+
+  it(
+    'says a server sent a message over 8 MB while connecting',
+    async () => {
+      const server = await started({ initialize: 'huge' });
+      expect(await client().connect(httpLaunch(server.url))).toEqual({
+        ok: false,
+        reason: 'it sent a message over 8 MB',
+      });
+    },
+    SLOW,
+  );
+
+  it('says why fetch failed, with its cause', async () => {
+    const server = await startHttpServer();
+    const { url } = server;
+    await server.close();
+    expect(await client().connect(httpLaunch(url))).toEqual({
+      ok: false,
+      reason: 'fetch failed (ECONNREFUSED)',
+    });
+  });
+
+  it('names only servers a row started (rule 5a-servers)', () => {
+    // Every http(s) URL written in this file or its helpers is 127.0.0.1's.
+    for (const file of [__filename, path.join(__dirname, 'mcpClient.test-helpers.ts')]) {
+      const urls = fs.readFileSync(file, 'utf8').match(/\bhttps?:\/\/[^\s'"`)<>]*/g) ?? [];
+      expect(urls.length, file).toBeGreaterThan(0);
+      for (const url of urls) expect(url, file).toMatch(/^http:\/\/127\.0\.0\.1:/);
+    }
   });
 });
