@@ -3,8 +3,8 @@
  * (build/scopeCss.ts), so it styles only what `AgentChat` renders: `.consola-agent-ui`, and the
  * popups it opens (`.consola-agent-ui-portal`). t3's `:root`, `html` and `body` rules apply to
  * `.consola-agent-ui-theme`, the element inside the root that stands in for t3's document.
- * scopeCss then puts all of it in one cascade layer, `consola-agent-ui`, under the guard at the
- * end of this file (AGENTS.md, "The page's CSS").
+ * scopeCss then puts all of it in one cascade layer, `consola-agent-ui`, over the floor and under
+ * the guard at the end of this file (AGENTS.md, "The page's CSS").
  */
 @import "./t3/index.css";
 
@@ -153,6 +153,7 @@
     -webkit-locale: inherit;
     visibility: inherit;
     pointer-events: inherit;
+    /* biome-ignore lint/correctness/noUnknownProperty: CSS UI 4's `interactivity`, which Chromium has and Biome does not know yet */
     interactivity: inherit;
   }
 }
@@ -164,10 +165,12 @@
  * `* { margin: 0; padding: 0 }` would undo every spacing utility of t3's. It matches every element
  * of the chat and of its popups, with three IDs' weight (build/scopeCss.ts `GUARDED`), and rolls
  * every property back to the layers (`all` leaves out `direction` and `unicode-bidi`, so they are
- * named): whatever a page rule with fewer IDs says there, each property takes its value from this
- * stylesheet, or else from the floor above. The chat's root is the page's to place, so only what
- * keeps the chat in its box is guarded there: `contain: layout`, which places t3's fixed controls
- * in the chat, and its height.
+ * named). So whatever a page rule in no layer and with fewer IDs says there, each property takes
+ * its value from a page layer named after this stylesheet loaded, if one sets it; else from this
+ * stylesheet; else from the floor above, never from a page layer below. A page rule with three
+ * IDs or `!important` still wins (AGENTS.md, "What still reaches the chat"). The chat's root is
+ * the page's to place, so only what keeps the chat in its box is guarded there:
+ * `contain: layout`, which places t3's fixed controls in the chat, and its height.
  */
 :is(.consola-agent-ui *, .consola-agent-ui-portal, .consola-agent-ui-portal *):not(
   #consola-agent-ui-guard
