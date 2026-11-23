@@ -362,11 +362,20 @@ browser's own style (or, where the element's attributes style it, theirs).
   a fraction of a pixel wider than t3's own.
 - **Runtime-injected CSS.** The guard rolls back every unlayered rule inside the chat, the
   page's and also what t3's dependencies put in `<head>` as it runs: Tiptap's editor styles
-  (`style[data-tiptap-style]`: the composer's `white-space: break-spaces` and the rest), and
-  Legend List's hidden scrollbars (`#legend-list-scrollbar-axis-hidden-style`, added only for a
-  list that hides its scrollbar, which no list of t3's does today). So while a chat is mounted,
-  `src/injectedStyles.ts` copies each into the chat's layer, right after it, without its
-  `!important`s (an important declaration outranks the guard, so the original's still applies).
+  (`style[data-tiptap-style]`: the composer's `white-space: break-spaces` and the rest), Base
+  UI's hidden scrollbars (`.base-ui-disable-scrollbar`, a `style[data-precedence="base-ui:low"]`
+  React hoists when a scroll area or select list first renders: t3's markdown tables, dialogs,
+  comboboxes, autocompletes and the composer's select popups, which draw Base UI's thumb
+  instead of the native scrollbar), and Legend List's hidden scrollbars
+  (`#legend-list-scrollbar-axis-hidden-style`, added only for a list that hides its scrollbar,
+  which no list of t3's does today). So while a chat is mounted, `src/injectedStyles.ts` copies
+  each into the chat's layer, without its `!important`s (an important declaration outranks the
+  guard, so the original's still applies), with the original's `nonce` (a page's nonce-based
+  `style-src` then allows the copy as it allows the original). The copies go at the end of
+  `<head>`, never beside their original: React puts Base UI's first in `<head>`, and a copy
+  there would name the chat's layer before the page's own layers, which would put it below them
+  (a Tailwind 4 page's base and utilities would win inside the chat); at the end, the chat's own
+  stylesheet has named it already.
   Inside the chat the copy applies as the original does on t3's own page. Its rules are nested
   in `:where(.consola-agent-ui, .consola-agent-ui-portal)` (`INSIDE_CHAT`), so they keep the
   original's specificity and match nothing outside the chat, even where a page rolls its own
@@ -374,9 +383,11 @@ browser's own style (or, where the element's attributes style it, theirs).
   reached Firefox only in 146, nesting in 117. The copies are made in a layout effect, before
   the chat's first paint, and a `MutationObserver` on `<head>` copies a later injection before
   the next one (Tiptap's comes when the composer is created). They go when the last chat
-  unmounts (`src/injectedStyles.browser.test.tsx`: two chats, one unmounted at a time, a later
-  injection, a page's rollback outside). A new injector is not known until it is added to
-  `INJECTED_STYLES`; the bare-page test below notices one that styles what it renders.
+  unmounts (`src/injectedStyles.browser.test.tsx`: t3's own `ScrollArea` inside the chat hides
+  its scrollbars as outside it, under a page layer named first; two chats, one unmounted at a
+  time, a later injection and its nonce, a page's rollback outside). A new injector is not known
+  until it is added to `INJECTED_STYLES`; the bare-page test below notices one that styles what
+  it renders.
 - **Why not the alternatives.**
   - *Raising the scope's weight* (`.consola-agent-ui` instead of `:where(…)`) keeps t3's order,
     but does nothing against an unlayered page rule while t3's rules are layered.
@@ -487,8 +498,15 @@ after the chat shows its thread.
 
 **What still touches the page**, and why it is left:
 
-- `<head>` gains, while a chat is mounted, a layered copy of each stylesheet t3's dependencies
-  injected there (Tiptap's; "The page's CSS"). It styles nothing outside the chat.
+- `<head>` gains the stylesheets t3's dependencies inject there as the chat is used, unscoped
+  and in no layer, and they stay for the page's life, after the last chat unmounts too: Tiptap's
+  editor styles (`style[data-tiptap-style]`, when the first composer is created), which match
+  any `.ProseMirror` element of the page (and ProseMirror's other classes, `.ProseMirror-*`),
+  and Base UI's hidden scrollbars
+  (`style[data-href="base-ui-disable-scrollbar"]`, first in `<head>`, when the first scroll area
+  or select list renders), which match any `.base-ui-disable-scrollbar` element. No embedder of
+  Consola's has either. While a chat is mounted, `<head>` also ends with a layered copy of each
+  ("The page's CSS", runtime-injected CSS), which styles nothing outside the chat.
 - `<body>` gains children t3 puts there while the chat is used: Base UI's popup portals (marked
   as the chat's, above), the hidden sprite of file icons (`pierre-icons.ts`, when an icon
   renders), an `aria-live` region for t3's announcements (`lib/announce.ts`), and a probe span
