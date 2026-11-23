@@ -8,7 +8,14 @@ import type {
   StepRunStatus,
 } from '@consola/factory-spec';
 import type { RunFilter } from './runFilter';
+import type { ServerCheckView } from './servers/checkServer';
+import type { ServerFacts } from './servers/serverFacts';
 import type { CallView } from './steps/definition';
+
+/** A factory server an entry's calls use, as its page shows it: its facts, and how its last Check server went. */
+export interface ServerUseView extends ServerFacts {
+  lastCheck?: ServerCheckView;
+}
 import type { SecretBindingView } from './secrets/secretsView';
 
 /** One automation from a workspace's factory folder, as the app shows it. */
@@ -79,6 +86,8 @@ export interface AutomationView {
   problem?: string;
   /** The names its problem says are not bound: its row offers Bind…. */
   unbound?: string[];
+  /** The factory servers its calls use, for the page's Check server; absent when none. */
+  servers?: ServerUseView[];
   /**
    * Its problem came from asking a harness's CLI about servers (a probe
    * that failed, or a server refused against its answer): Check again asks

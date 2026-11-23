@@ -10,6 +10,14 @@ export function settleInterrupted(command: { exitCode?: number; signal?: string 
   return `Consola quit while recording this command's result (${how}). It ran; check what it did, then retry.`;
 }
 
+/** What a `uses:` step says when Consola quit between its intent and its answer. */
+export const INTERRUPTED_CALL =
+  'Interrupted: Consola quit while this call was in flight. It may or may not have happened; check, then retry.';
+
+/** What a `uses:` step says when Consola quit after its answer was recorded but before the step was settled. */
+export const CALL_SETTLE_INTERRUPTED =
+  "Consola quit while recording this call's result. It happened; check what it did, then retry.";
+
 /** A run the engine drives: an agent run, or a `steps:` run. */
 export function isEngineRun(run: RunRecord): boolean {
   const kind = (run.result as { kind?: unknown } | undefined)?.kind;
@@ -26,8 +34,8 @@ export function isStepsRun(run: RunRecord): boolean {
  * copy, or null when nothing changes. Pure; the caller records it.
  *
  * Read-only agent work goes back to the line, to resume in its session. A
- * command that declared intent and left no result is never re-run: it may have
- * posted, pushed or moved a ticket, so the run fails and says so.
+ * command or a call that declared intent and left no result is never re-run:
+ * it may have posted, pushed or moved a ticket, so the run fails and says so.
  */
 export function recoverAfterRestart(run: RunRecord, nowIso: string): RunRecord | null {
   if (run.status !== 'running') return null;
@@ -43,13 +51,19 @@ export function recoverAfterRestart(run: RunRecord, nowIso: string): RunRecord |
   }
   if (!run.steps) return { ...run, status: 'queued', updatedAt: nowIso };
 
-  // A command is never re-queued: with intent and no result it may have run;
-  // with a result it did, and only the status write was lost.
-  const cut = run.steps.findIndex(commandCutOff);
+  // A command or a call is never re-queued: with intent and no result it may
+  // have run; with a result it did, and only the status write was lost.
+  const cut = run.steps.findIndex((step) => commandCutOff(step) || callCutOff(step));
   if (cut >= 0) {
-    const error = commandResulted(run.steps[cut])
-      ? settleInterrupted(run.steps[cut].command!)
-      : INTERRUPTED_COMMAND;
+    const stopped = run.steps[cut];
+    const error =
+      stopped.kind === 'uses'
+        ? stopped.call?.resultAt
+          ? CALL_SETTLE_INTERRUPTED
+          : INTERRUPTED_CALL
+        : commandResulted(stopped)
+          ? settleInterrupted(stopped.command!)
+          : INTERRUPTED_COMMAND;
     const steps = run.steps.map((step, index): StepRun => {
       if (index === cut) return { ...step, status: 'failed', error, finishedAt: nowIso };
       if (index > cut && step.status === 'pending') return { ...step, status: 'not-run' };
@@ -59,8 +73,8 @@ export function recoverAfterRestart(run: RunRecord, nowIso: string): RunRecord |
     return { ...rest, steps, status: 'failed', error, updatedAt: nowIso, finishedAt: nowIso };
   }
 
-  // Anything else that was running (an agent step, or a command that never
-  // declared intent) goes back to the line; the run itself stays running.
+  // Anything else that was running (an agent step, or a command or a call
+  // that never declared intent) goes back to the line; the run itself stays running.
   if (!run.steps.some((step) => step.status === 'running')) return null;
   const steps = run.steps.map(
     (step): StepRun => (step.status === 'running' ? { ...step, status: 'queued' } : step),
@@ -79,4 +93,9 @@ function commandCutOff(step: StepRun): boolean {
     step.kind === 'run' &&
     (!!step.command?.intentAt || commandResulted(step))
   );
+}
+
+/** A `uses:` step that was running with its intent declared (an answer is never recorded without one), whether or not its answer was. */
+function callCutOff(step: StepRun): boolean {
+  return step.status === 'running' && step.kind === 'uses' && !!step.call?.intentAt;
 }

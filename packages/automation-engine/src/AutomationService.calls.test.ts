@@ -11,6 +11,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import type { EngineToolContext, McpCallOutcome } from './ports';
 import { maskFormsOf } from './secrets/values';
+import { CHECK_STALE } from './servers/checkServer';
+import { INTERRUPTED_CALL } from './steps/recover';
 import type { StepsRunPreview } from './steps/definition';
 import { defineTool, type TestTool } from './tools.test-helpers';
 import {
@@ -1766,5 +1768,272 @@ describe("a call's values go with its run (5a-2 Task 8)", () => {
     const held = (h.service as unknown as { runSecrets: { held(id: string): unknown } }).runSecrets;
     expect(held.held(run.id)).toBeUndefined();
     expect(h.world.mcp.closes).toHaveLength(h.world.mcp.launches.length);
+  });
+});
+
+/*
+ * Task 9: restarts, servers left running, and Check server.
+ */
+
+describe('a quit mid-call, then a start (5a-2 Task 9, Review Focus 4)', () => {
+  const inFlight = (fields: Partial<FakeServer> = {}) => {
+    const gate = held();
+    return slack({
+      answer: async () => {
+        await gate.promise;
+        return POSTED;
+      },
+      ...fields,
+    });
+  };
+
+  it('fails the step, ends the group it recorded, and never calls the tool again', async () => {
+    const { h, run } = await posting(inFlight());
+    expect(stepOf(h, run.id, 'post').call).toMatchObject({ server: GROUP });
+    const again = await h.relaunch();
+    await again.flush();
+    expect(stepOf(again, run.id, 'post')).toMatchObject({
+      status: 'failed',
+      error: INTERRUPTED_CALL,
+    });
+    expect(again.world.mcp.orphans).toEqual([GROUP]);
+    expect(stepOf(again, run.id, 'post').call?.server).toEqual({ ...GROUP, ended: true });
+    expect(again.world.mcp.launches).toHaveLength(1);
+    expect(again.world.mcp.calls).toHaveLength(1);
+  });
+
+  it('marks one that is gone ended, and leaves one it cannot tell about', async () => {
+    const gone = await posting(inFlight());
+    gone.h.world.mcp.orphanAnswer = 'gone';
+    const after = await gone.h.relaunch();
+    await after.flush();
+    expect(stepOf(after, gone.run.id, 'post').call?.server).toEqual({ ...GROUP, ended: true });
+
+    const unknown = { pgid: 4243, startedAt: '' };
+    const blind = await posting(inFlight({ group: unknown }));
+    blind.h.world.mcp.orphanAnswer = 'unknown';
+    const next = await blind.h.relaunch();
+    await next.flush();
+    expect(next.world.mcp.orphans).toEqual([unknown]);
+    expect(stepOf(next, blind.run.id, 'post').call?.server).toEqual(unknown);
+  });
+
+  it('a retry starts the server again, on a new attempt that shows nothing of the one before', async () => {
+    const { h, run } = await posting(inFlight());
+    const again = await h.relaunch();
+    await again.flush();
+    again.world.mcp.servers.set('slack', slack({ refuse: { reason: 'spawn npx ENOENT' } }));
+    await again.service.retry(run.id);
+    await again.flush();
+    const retried = stepOf(again, run.id, 'post');
+    expect(retried).toMatchObject({ attempt: 2, status: 'failed' });
+    expect(retried.error).toBe("Couldn't reach `slack`: spawn npx ENOENT. Nothing was sent.");
+    expect(retried.call?.intentAt).toBeUndefined();
+    expect(retried.call?.resultAt).toBeUndefined();
+    expect(retried.call?.server).toEqual({ ...GROUP, ended: true });
+    expect(again.world.mcp.launches).toHaveLength(2);
+  });
+
+  it('a retry whose connect spawns nothing keeps no group of the attempt before', async () => {
+    const { h, run } = await posting(inFlight());
+    const again = await h.relaunch();
+    await again.flush();
+    again.world.mcp.servers.set(
+      'slack',
+      slack({ group: undefined, refuse: { reason: 'spawn npx ENOENT' } }),
+    );
+    await again.service.retry(run.id);
+    await again.flush();
+    const retried = stepOf(again, run.id, 'post');
+    expect(retried.attempt).toBe(2);
+    expect(retried.call).toBeUndefined();
+  });
+
+  it('a quit while connecting aborts it with quit and records nothing more', async () => {
+    const connecting = held();
+    const h = await harness({ mcp: { servers: { slack: slack() } } });
+    h.world.mcp.connectGate = connecting.promise;
+    h.store.accept(`${WORKSPACE_ID} brief`, h.service.entryAgents(WORKSPACE_ID, 'brief')!.version);
+    await h.service.trigger(WORKSPACE_ID, 'brief');
+    await h.flush();
+    h.world.setOutputs('session-1', { verdict: 'post', note: 'n' });
+    await h.world.endTurn('session-1');
+    const lines = h.history.appends.length;
+    h.service.shutdown();
+    await h.flush();
+    expect(h.world.mcp.launches[0].signal.reason).toBe('quit');
+    expect(h.history.appends).toHaveLength(lines);
+    expect(h.world.mcp.calls).toEqual([]);
+  });
+});
+
+describe('Check server (5a-2 Task 9)', () => {
+  const versionOf = (h: StepsHarness, name = 'brief') =>
+    h.service.entryAgents(WORKSPACE_ID, name)!.version;
+  const TOOLS_LISTED = [CHAT_POST, { name: 'conversations_history' }];
+
+  it('starts the server once, lists its tools, calls none and accepts nothing', async () => {
+    const h = await harness({ mcp: { servers: { slack: slack({ tools: TOOLS_LISTED }) } } });
+    const view = await h.service.checkServer(WORKSPACE_ID, 'brief', 'slack', versionOf(h));
+    expect(view).toEqual({
+      server: 'slack',
+      at: h.now().toISOString(),
+      tools: ['chat_post_message', 'conversations_history'],
+      steps: [{ step: 'post', tool: 'chat_post_message', verdict: 'fits' }],
+    });
+    expect(h.world.mcp.launches).toHaveLength(1);
+    expect(h.world.mcp.launches[0]).toMatchObject({ name: 'slack', timeoutMs: 60_000 });
+    expect(h.world.mcp.calls).toEqual([]);
+    expect(h.world.mcp.closes).toEqual(['slack']);
+    expect(row(h).servers).toEqual([
+      expect.objectContaining({ name: 'slack', transport: 'stdio', lastCheck: view }),
+    ]);
+    expect(h.store.acceptedVersion(`${WORKSPACE_ID} brief`)).toBeUndefined();
+    expect(h.store.runs()).toEqual([]);
+    // Its group was in the ledger while it lived, and is gone once it was ended.
+    expect(h.world.serverGroups.stored?.groups).toEqual([]);
+  });
+
+  it('refuses a stale version, a server the entry does not use, and a second press', async () => {
+    const h = await harness({ mcp: { servers: { slack: slack() } } });
+    await expect(h.service.checkServer(WORKSPACE_ID, 'brief', 'slack', 'v-old')).rejects.toThrow(
+      CHECK_STALE,
+    );
+    await expect(
+      h.service.checkServer(WORKSPACE_ID, 'brief', 'tracker', versionOf(h)),
+    ).rejects.toThrow('`brief` does not use a server called `tracker`.');
+    expect(h.world.mcp.launches).toEqual([]);
+    const gate = held();
+    h.world.mcp.connectGate = gate.promise;
+    const first = h.service.checkServer(WORKSPACE_ID, 'brief', 'slack', versionOf(h));
+    await h.flush();
+    await expect(
+      h.service.checkServer(WORKSPACE_ID, 'brief', 'slack', versionOf(h)),
+    ).rejects.toThrow('`slack` is being checked already.');
+    gate.release();
+    await first;
+    expect(h.world.mcp.launches).toHaveLength(1);
+  });
+
+  it("refuses where the runner can't start the server, and an entry that cannot run", async () => {
+    const httpOnly = await harness({
+      mcp: { servers: { slack: slack() }, transports: ['http'] },
+    });
+    await expect(
+      httpOnly.service.checkServer(WORKSPACE_ID, 'brief', 'slack', versionOf(httpOnly)),
+    ).rejects.toThrow(
+      "brief cannot run: this runner can't start stdio servers, so `uses: slack#…` can't run here",
+    );
+    expect(httpOnly.world.mcp.launches).toEqual([]);
+    const unbound = await harness({ mcp: { servers: { slack: slack() } }, secrets: {} });
+    await expect(
+      unbound.service.checkServer(WORKSPACE_ID, 'brief', 'slack', versionOf(unbound)),
+    ).rejects.toThrow(`brief cannot run: needs \`SLACK_BOT_TOKEN\` bound ${BIND_HINT}`);
+    expect(row(unbound).servers).toBeUndefined();
+    expect(unbound.world.mcp.launches).toEqual([]);
+  });
+
+  it('says why when a secret does not read, and starts nothing', async () => {
+    const h = await harness({ mcp: { servers: { slack: slack() } } });
+    h.world.secrets.resolveThrows = new Error('the keychain is locked');
+    const view = await h.service.checkServer(WORKSPACE_ID, 'brief', 'slack', versionOf(h));
+    expect(view.problem).toBe("Couldn't read its secrets: the keychain is locked");
+    expect(h.world.mcp.launches).toEqual([]);
+  });
+
+  it("ends a refused server's group from the ledger, and says what it left running", async () => {
+    const refused = await harness({
+      mcp: { servers: { slack: slack({ refuse: { reason: 'it exited at once' } }) } },
+    });
+    const view = await refused.service.checkServer(
+      WORKSPACE_ID,
+      'brief',
+      'slack',
+      versionOf(refused),
+    );
+    expect(view).toEqual({
+      server: 'slack',
+      at: refused.now().toISOString(),
+      steps: [],
+      problem: "Couldn't reach `slack`: it exited at once.",
+    });
+    expect(refused.world.serverGroups.stored?.groups).toEqual([]);
+    const lingering = await harness({ mcp: { servers: { slack: slack({ survivors: 1 }) } } });
+    expect(
+      await lingering.service.checkServer(WORKSPACE_ID, 'brief', 'slack', versionOf(lingering)),
+    ).toMatchObject({ survivors: 1 });
+  });
+
+  it('gives connecting the largest timeout of its calls, at most 2 minutes', async () => {
+    const yaml = factory(
+      SLACK,
+      entry('brief', POST.replace('        outputs:', '        timeout: 10m\n        outputs:')),
+    );
+    const h = await harness({ yaml, mcp: { servers: { slack: slack() } } });
+    await h.service.checkServer(WORKSPACE_ID, 'brief', 'slack', versionOf(h));
+    expect(h.world.mcp.launches[0].timeoutMs).toBe(120_000);
+  });
+
+  it("says why when a header's secret holds a line break, and starts nothing", async () => {
+    const yaml = factory(
+      SLACK + TRACKER,
+      entry('track', call('file', 'tracker#create_issue', '{ title: Shipped }')),
+    );
+    const h = await harness({
+      yaml,
+      secrets: { ...BOUND, values: { ...BOUND.values, TRACKER_TOKEN: 'v\r\nX-Evil: 1' } },
+      mcp: { servers: { tracker: { tools: [{ name: 'create_issue' }] } } },
+    });
+    const view = await h.service.checkServer(
+      WORKSPACE_ID,
+      'track',
+      'tracker',
+      versionOf(h, 'track'),
+    );
+    expect(view.problem).toBe(
+      "Couldn't use `TRACKER_TOKEN` in a header: its value holds a line break. Nothing was sent.",
+    );
+    expect(h.world.mcp.launches).toEqual([]);
+  });
+
+  it('is offered in every mode', async () => {
+    for (const mode of ['confirm', 'notify'] as const) {
+      const yaml = factory(SLACK, entry('brief', POST, `    mode: ${mode}\n`));
+      const h = await harness({ yaml, mcp: { servers: { slack: slack() } } });
+      const view = await h.service.checkServer(WORKSPACE_ID, 'brief', 'slack', versionOf(h));
+      expect(view.steps).toEqual([{ step: 'post', tool: 'chat_post_message', verdict: 'fits' }]);
+    }
+  });
+
+  it('a check a quit cut off leaves its group in the ledger, and the next start ends it', async () => {
+    const h = await harness({ mcp: { servers: { slack: slack() } } });
+    const gate = held();
+    h.world.mcp.connectGate = gate.promise;
+    void h.service.checkServer(WORKSPACE_ID, 'brief', 'slack', versionOf(h));
+    await h.flush();
+    expect(h.world.serverGroups.stored?.groups).toEqual([
+      { ...GROUP, for: `${WORKSPACE_ID}/brief/slack`, at: h.now().toISOString() },
+    ]);
+    h.world.mcp.connectGate = undefined;
+    const again = await h.relaunch();
+    // The quit ended the check's server at once.
+    expect(h.world.mcp.launches[0].signal.reason).toBe('quit');
+    await again.flush();
+    expect(again.world.mcp.orphans).toEqual([GROUP]);
+    expect(again.world.serverGroups.stored?.groups).toEqual([]);
+    gate.release();
+  });
+
+  it('keeps a ledger entry the client could not tell about', async () => {
+    const h = await harness({ mcp: { servers: { slack: slack() } } });
+    h.world.serverGroups.stored = {
+      version: 1,
+      groups: [{ pgid: 4243, startedAt: '', for: `${WORKSPACE_ID}/brief/slack`, at: 'x' }],
+    };
+    h.world.mcp.orphanAnswer = 'unknown';
+    const again = await h.relaunch();
+    await again.flush();
+    expect(again.world.mcp.orphans).toEqual([{ pgid: 4243, startedAt: '' }]);
+    expect(again.world.serverGroups.stored?.groups).toHaveLength(1);
   });
 });

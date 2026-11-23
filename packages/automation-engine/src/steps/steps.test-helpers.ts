@@ -37,6 +37,7 @@ import type {
   WorkItemPort,
 } from '../ports';
 import { RunStore, type AutomationStateFile } from '../RunStore';
+import type { ServerGroupsFile } from '../servers/serverGroups';
 import { memoryHistory } from '../runHistory.test-helpers';
 import type { SecretBinding, SecretsPort } from '../secrets/secretsPort';
 import { StartedByHandError } from '../support';
@@ -398,6 +399,12 @@ export interface StepsWorld {
   secrets: FakeSecrets;
   /** The runner's MCP client: what it reaches, and every connect, call and close. */
   mcp: FakeMcp;
+  /** Check server's groups file (`mcp-server-groups.json`), in memory; it outlives `relaunch`. */
+  serverGroups: {
+    stored: ServerGroupsFile | null;
+    read(): ServerGroupsFile | null;
+    write(value: ServerGroupsFile): void;
+  };
 }
 
 export interface StepsHarness {
@@ -596,6 +603,17 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
       closes: [],
       orphans: [],
       orphanAnswer: 'ended',
+    },
+    serverGroups: {
+      stored: null,
+      read() {
+        return world.serverGroups.stored === null
+          ? null
+          : structuredClone(world.serverGroups.stored);
+      },
+      write(value) {
+        world.serverGroups.stored = structuredClone(value);
+      },
     },
   };
   const notices: AutomationNotice[] = [];
@@ -1004,6 +1022,7 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
     folderExists: (dir) => !world.goneFolders.has(dir),
     ...(secretsPort ? { secrets: secretsPort } : {}),
     ...(mcpPort ? { mcp: mcpPort } : {}),
+    serverGroups: world.serverGroups,
   });
 
   const launch = async (): Promise<StepsHarness> => {

@@ -105,6 +105,8 @@ import type {
   LaunchedSession,
   McpClientPort,
   RunFolderPort,
+  ServerGroup,
+  StateFile,
   WorkItemPort,
   RunningCommand,
   ToolsPort,
@@ -260,7 +262,15 @@ import { RunSecrets } from './secrets/runSecrets';
 import { PERSONAL_FACTORY, type SecretsPort } from './secrets/secretsPort';
 import { buildSecretsView, type SecretBindingView } from './secrets/secretsView';
 import { unboundOf } from './secrets/unbound';
+import {
+  CHECK_STALE,
+  checkNotUsed,
+  checkServerVerdicts,
+  checkUnderWay,
+  type ServerCheckView,
+} from './servers/checkServer';
 import { serverFactsOf } from './servers/serverFacts';
+import { ServerGroupLedger, type ServerGroupsFile } from './servers/serverGroups';
 
 /**
  * The runner for personal automations: one `factory.yml` per workspace, whose
@@ -420,6 +430,8 @@ export interface AutomationServiceDeps {
   secrets?: SecretsPort;
   /** This runner's MCP client; absent, an entry calling a factory server cannot run (`uses: consola#…` still can). */
   mcp?: McpClientPort;
+  /** Where Check server keeps the process groups it started until each is ended (`mcp-server-groups.json`). */
+  serverGroups?: StateFile<ServerGroupsFile>;
   /** Commands automations may have running at once, across every workspace. */
   maxConcurrentCommands?: number;
 }
@@ -785,6 +797,10 @@ export class AutomationService {
   private readonly runningCommands = new Map<string, RunningStep>();
   /** Each working run's secret values, read before the step that needs them: memory only, dropped as it stops working. */
   private readonly runSecrets = new RunSecrets();
+  /** Each entry's server's last Check server, by `<workspace> <automation> <server>`: memory only, gone at a restart. */
+  private readonly serverChecks = new Map<string, ServerCheckView>();
+  /** The checks under way, by the same key, and how each is aborted at a quit. */
+  private readonly checkingServers = new Map<string, AbortController>();
   /** Commands and calls a quit let go of: whatever they report afterwards is dropped, so their steps keep their intent. */
   private readonly abandoned = new WeakSet<RunningStep>();
   /**
@@ -829,7 +845,12 @@ export class AutomationService {
   /** Each running check's command, by automation key: what a quit, or deleting its workspace, stops. */
   private readonly checkCommands = new Map<string, RunningCommand>();
   private io: StepIO | undefined;
-  constructor(private readonly deps: AutomationServiceDeps) {}
+  /** The groups Check server started, until each is ended. */
+  private readonly serverGroups: ServerGroupLedger;
+
+  constructor(private readonly deps: AutomationServiceDeps) {
+    this.serverGroups = new ServerGroupLedger(deps.serverGroups);
+  }
 
   /** The step tools' logic, over these runs and their folders; the host mounts it on each step session's MCP server. */
   public stepIO(): StepIO {
@@ -852,6 +873,7 @@ export class AutomationService {
 
   public async start(): Promise<void> {
     this.emptyCutOffOutputs(this.deps.store.load(this.iso()));
+    this.endServersLeftRunning();
     this.sweepRunFolders();
     this.started = true;
     await this.syncWorkspaces();
@@ -934,6 +956,8 @@ export class AutomationService {
       running.stop();
     }
     this.runningCommands.clear();
+    // A check under way ends its server at once, as a call's does.
+    for (const check of this.checkingServers.values()) check.abort('quit');
     this.runSecrets.dropAll();
     for (const check of this.checkCommands.values()) check.stop();
     this.checkCommands.clear();
@@ -2566,6 +2590,7 @@ export class AutomationService {
         ...(entry.problem ? { problem: entry.problem } : {}),
         ...(entry.unbound ? { unbound: [...entry.unbound] } : {}),
         ...(entry.recheck ? { recheck: true as const } : {}),
+        ...this.serverUsesOf(entry),
         ...(added
           ? {
               addedBy: {
@@ -6625,6 +6650,172 @@ export class AutomationService {
       ...(result ? { result } : {}),
       ...(serverLog ? { serverLog } : {}),
     };
+  }
+
+  /** The factory servers an entry's calls use, each with its last check: what its page offers Check server on. */
+  private serverUsesOf(entry: Resolved): { servers?: AutomationView['servers'] } {
+    const servers = Object.values(entry.steps?.definition.servers ?? {});
+    if (servers.length === 0) return {};
+    return {
+      servers: servers.map((definition) => {
+        const lastCheck = this.serverChecks.get(
+          `${entry.workspaceId} ${entry.automation.name} ${definition.name}`,
+        );
+        return { ...serverFactsOf(definition), ...(lastCheck ? { lastCheck } : {}) };
+      }),
+    };
+  }
+
+  /**
+   * Every server group an earlier start left: a call's (on its step's
+   * record, not marked ended) and a check's (the ledger). Each is handed to
+   * the client to end, checking it is still that process, not awaited; one
+   * it ended or found gone is marked ended (the call) or forgotten (the
+   * ledger). One it could not tell about is left as it is. With no client,
+   * it is only logged.
+   */
+  private endServersLeftRunning(): void {
+    const recorded: Array<{ runId: string; stepId: string; group: ServerGroup }> = [];
+    for (const run of this.deps.store.runs())
+      for (const step of run.steps ?? []) {
+        const server = step.kind === 'uses' ? step.call?.server : undefined;
+        if (server && !server.ended)
+          recorded.push({
+            runId: run.id,
+            stepId: step.id,
+            group: { pgid: server.pgid, startedAt: server.startedAt },
+          });
+      }
+    const ledgered = this.serverGroups.all();
+    const mcp = this.deps.mcp;
+    if (!mcp) {
+      if (recorded.length + ledgered.length > 0)
+        console.error(
+          `${recorded.length + ledgered.length} MCP server group(s) an earlier start left could not be ended: this runner has no MCP client.`,
+        );
+      return;
+    }
+    const same = (a: ServerGroup, b: ServerGroup | undefined) =>
+      b !== undefined && a.pgid === b.pgid && a.startedAt === b.startedAt;
+    for (const { runId, stepId, group } of recorded) {
+      void mcp.endOrphan(group).then(
+        (answer) => {
+          if (answer === 'unknown') return;
+          const call = this.stepsOf(runId).find((step) => step.id === stepId)?.call;
+          if (!call?.server || !same(group, call.server)) return;
+          this.writeSteps(
+            runId,
+            withStep(this.stepsOf(runId), stepId, {
+              call: { ...call, server: { ...call.server, ended: true } },
+            }),
+          );
+        },
+        (error: unknown) => console.error(`Could not end run ${runId}'s server.`, error),
+      );
+    }
+    for (const group of ledgered) {
+      void mcp.endOrphan(group).then(
+        (answer) => {
+          if (answer !== 'unknown') this.serverGroups.remove(group);
+        },
+        (error: unknown) => console.error('Could not end a server Check server started.', error),
+      );
+    }
+  }
+
+  /**
+   * Check server: a person's press starts the entry's server once, at the
+   * version they looked at, in any mode, lists its tools, says whether each
+   * of the entry's calls to it names one and whether its literal `with:`
+   * values fit, and stops it. It calls no tool, accepts nothing and records
+   * no run; its group is in the ledger while it lives. One at a time per
+   * entry and server.
+   */
+  public async checkServer(
+    workspaceId: string,
+    name: string,
+    server: string,
+    version: string,
+  ): Promise<ServerCheckView> {
+    const factory = this.factoryOf(workspaceId);
+    const entry = factory.resolved.find((candidate) => candidate.automation.name === name);
+    if (!entry) throw new Error(`No automation named "${name}" in ${factory.folder.filePath}.`);
+    if (entry.problem) throw new Error(`${name} cannot run: ${entry.problem}`);
+    if (version !== entry.version) throw new Error(CHECK_STALE);
+    const definition = entry.steps?.definition;
+    const used =
+      definition?.servers && Object.prototype.hasOwnProperty.call(definition.servers, server)
+        ? definition.servers[server]
+        : undefined;
+    const mcp = this.deps.mcp;
+    if (!definition || !used || !mcp) throw new Error(checkNotUsed(name, server));
+    const key = `${workspaceId} ${name} ${server}`;
+    if (this.checkingServers.has(key)) throw new Error(checkUnderWay(server));
+    const controller = new AbortController();
+    this.checkingServers.set(key, controller);
+    const calls = definition.automation.steps.flatMap((step) =>
+      step.kind === 'uses' && step.server === server
+        ? [{ step: step.id, tool: step.tool, with: step.with, timeoutMs: step.timeoutMs }]
+        : [],
+    );
+    const at = this.iso();
+    let view: ServerCheckView;
+    try {
+      const read = await readSecrets(this.deps.secrets, workspaceId, used.secrets ?? []);
+      const launched = read.ok ? serverLaunchOf(used, read.values) : undefined;
+      if (!read.ok) view = { server, at, steps: [], problem: read.error };
+      else if (!launched?.ok) view = { server, at, steps: [], problem: launched!.error };
+      else {
+        let spawned: ServerGroup | undefined;
+        const connected = await mcp.connect({
+          ...launched.launch,
+          name: server,
+          masks: read.masks,
+          timeoutMs: Math.min(
+            Math.max(...calls.map((call) => call.timeoutMs)),
+            CONNECT_BUDGET_CAP_MS,
+          ),
+          signal: controller.signal,
+          onSpawned: (group) => {
+            spawned = { pgid: group.pgid, startedAt: group.startedAt };
+            this.serverGroups.add(spawned, `${workspaceId}/${name}/${server}`, this.iso());
+          },
+        });
+        if (!connected.ok) {
+          // A refused connect has ended what it spawned.
+          if (spawned) this.serverGroups.remove(spawned);
+          view = {
+            server,
+            at,
+            steps: [],
+            problem: connected.whole
+              ? maskSecrets(connected.reason, read.masks)
+              : `Couldn't reach \`${server}\`: ${maskSecrets(connected.reason, read.masks).trim().replace(/\.$/, '')}.`,
+          };
+        } else {
+          const tools = connected.session.tools.map((tool) => tool.name);
+          const steps = checkServerVerdicts(calls, connected.session);
+          const { survivors } = await connected.session.close();
+          if (spawned) this.serverGroups.remove(spawned);
+          view = {
+            server,
+            at,
+            tools,
+            steps: steps.map((step) =>
+              typeof step.verdict === 'object'
+                ? { ...step, verdict: { problem: maskSecrets(step.verdict.problem, read.masks) } }
+                : step,
+            ),
+            ...(survivors > 0 ? { survivors } : {}),
+          };
+        }
+      }
+    } finally {
+      this.checkingServers.delete(key);
+    }
+    this.serverChecks.set(key, view);
+    this.broadcast(workspaceId);
+    return view;
   }
 
   private broadcast(workspaceId: string): void {

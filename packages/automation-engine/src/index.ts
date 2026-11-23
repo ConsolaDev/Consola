@@ -16,6 +16,7 @@ export { describeSchedule } from './describeSchedule';
 export { describeEvery, describeRun, describeTriggerAsWritten } from './describeEntry';
 export type {
   AutomationView,
+  ServerUseView,
   CheckView,
   ItemTarget,
   ItemTargetRow,
@@ -57,7 +58,13 @@ export {
   type AutomationStateFile,
 } from './RunStore';
 export type { RunHistory } from './ports';
-export { recoverAfterRestart, isEngineRun, INTERRUPTED_COMMAND } from './steps/recover';
+export {
+  recoverAfterRestart,
+  isEngineRun,
+  INTERRUPTED_COMMAND,
+  INTERRUPTED_CALL,
+  CALL_SETTLE_INTERRUPTED,
+} from './steps/recover';
 export type {
   StateFile,
   FactoryFolderRead,
@@ -94,6 +101,8 @@ export type {
   McpClientPort,
 } from './ports';
 export { SERVER_ENV_ALLOW_LIST, serverFactsOf, type ServerFacts } from './servers/serverFacts';
+export { ServerGroupLedger, type ServerGroupsFile } from './servers/serverGroups';
+export { checkServerVerdicts, type ServerCheckView } from './servers/checkServer';
 export {
   renderStepPrompt,
   reminderPrompt,

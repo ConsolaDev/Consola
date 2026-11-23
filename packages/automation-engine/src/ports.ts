@@ -510,8 +510,15 @@ export type McpCallOutcome =
 
 export interface McpSession {
   readonly tools: readonly McpToolInfo[];
-  /** Whether `args` fit the tool's `inputSchema`: null, or which argument and why. */
-  checkArguments(tool: McpToolInfo, args: Readonly<Record<string, unknown>>): string | null;
+  /**
+   * Whether `args` fit the tool's `inputSchema`: null, or which argument and why. `partial`: the arguments
+   * left out are not missing (Check server leaves out what only a run renders).
+   */
+  checkArguments(
+    tool: McpToolInfo,
+    args: Readonly<Record<string, unknown>>,
+    options?: { partial?: true },
+  ): string | null;
   /** Never rejects; aborting `signal` sends `notifications/cancelled` and answers `stopped`. */
   call(
     tool: string,
