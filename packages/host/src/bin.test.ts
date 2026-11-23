@@ -952,6 +952,54 @@ describe('consola-host runner', () => {
   );
 
   it(
+    'exits 1 past its 15 s grace, saying so, when a sandbox it asked for is never made',
+    () =>
+      Effect.gen(function* () {
+        const cell = yield* fakeRunnerCell;
+        const runner = yield* startHost(
+          REPLAY_RUNNER,
+          ['runner', '--cell-url', cell.url, '--runner-id', 'runner-sprocket-1'],
+          { ...RUNNER_ENV, CONSOLA_TEST_SANDBOX_CREATE: 'hangs' },
+        );
+        expect(yield* cell.next).toMatchObject({ type: 'hello' });
+        const { publicKey } = generateKeyPairSync('ed25519');
+        const sessionId = 'session-sprocket-runner-3';
+        cell.send({
+          type: 'session.start',
+          sessionId,
+          workspaceId: 'workspace-sprocket',
+          repository: 'sprocket/catalog-portal',
+          harness: 'claude',
+          passPublicKeyPem: publicKey.export({ type: 'spki', format: 'pem' }).toString(),
+        });
+        yield* waitFor(
+          () => runner.stderr().includes(`session ${sessionId}: starting`),
+          'the runner to start making the sandbox',
+        );
+
+        // Its create outlasts the grace (it is bounded by the 60 s a provider's call gets), so
+        // only the forced exit ends the process.
+        const signalledAt = yield* Clock.currentTimeMillis;
+        runner.signal('SIGTERM');
+        const exited = yield* runner.exited.pipe(
+          Effect.timeoutOrElse({
+            duration: Duration.seconds(40),
+            orElse: () =>
+              Effect.die(new Error(`the runner did not exit; stderr:\n${runner.stderr()}`)),
+          }),
+        );
+        const tookMs = (yield* Clock.currentTimeMillis) - signalledAt;
+        expect(exited).toEqual({ code: 1, signal: null });
+        expect(runner.stderr()).toContain('consola-host: the runner did not stop in time.');
+        expect(tookMs).toBeGreaterThan(14_000);
+        expect(tookMs).toBeLessThan(25_000);
+        expect(runner.printed).toEqual([]);
+        for (const secret of RUNNER_SECRETS) expect(runner.stderr()).not.toContain(secret);
+      }).pipe(Effect.scoped, Effect.runPromise),
+    TEST_TIMEOUT_MS,
+  );
+
+  it(
     'exits 1 saying why within its 15 s grace once replaced (4000), though a sandbox never stops',
     () =>
       Effect.gen(function* () {

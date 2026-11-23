@@ -829,14 +829,27 @@ consola-host runner --cell-url <wss://…/api/runner, or ws: to loopback> --runn
   then closes the socket (1001) and exits 0. A sandbox's stop is asked once per
   session, and a stop that fails is asked again (`STOP_ATTEMPTS`, 3, after
   0.5 s then 1 s), each failure logged with its reason; all of it within
-  `SANDBOX_STOP_TIMEOUT` (30 s) while running, and within
-  `SHUTDOWN_STOP_TIMEOUT` (10 s) of the runner beginning to stop, which leaves
-  the socket's close its 3 s inside the 15 s grace. Past either, it is logged
-  and the session's end is said anyway. However the runner begins to stop (a
-  signal, a replacement, a failure), it first arms the forced exit
-  (`HostStopping`, which `runHostProcess` provides), the backstop should
-  stopping still hang: past 15 s it exits 1, saying "the runner did not stop
-  in time".
+  `SANDBOX_STOP_TIMEOUT` (30 s) while running. Once the runner begins to stop,
+  a deadline is set `SHUTDOWN_STOP_TIMEOUT` (10 s) from that moment, and every
+  sandbox's stop and every wait for a stopped sandbox's command (otherwise up
+  to 10 s, `STOPPED_COMMAND_WAIT`) ends by it, however late it began: a stop
+  that begins 1 s into the shutdown gets the 9 s left. That leaves the
+  socket's close its 3 s inside the 15 s grace. Past either bound, it is
+  logged and the session's end is said anyway.
+- **A provider's calls are bounded.** `create`, `start` and `exposePort` (E2B
+  makes network calls for each) fail the session past `SANDBOX_CALL_TIMEOUT`
+  (60 s): `The sandbox was not made within 60 s.`, `… did not start the
+  session …`, `… did not expose the session's port …`, and the sandbox, if
+  there is one, is stopped. A provider cannot be told to give up a call, so a
+  sandbox made after its create timed out is stopped as it arrives (logged).
+  These bounds are not the shutdown's: a call still pending when the runner
+  stops can outlast the grace, and the forced exit is what ends that.
+- **The forced exit.** However the runner begins to stop (a signal, a
+  replacement, a failure), it first arms it (`HostStopping`, which
+  `runHostProcess` provides), the backstop should stopping still hang: past
+  15 s it exits 1, saying "the runner did not stop in time" (`bin.test.ts`,
+  a sandbox whose create never returns: `CONSOLA_TEST_SANDBOX_CREATE=hangs`,
+  `LocalProvider`'s `createHangsForTests`).
 - **The socket** (`adapters/cellSocket.ts`, on `ws`: Node's own WebSocket cannot
   portably send `Authorization`). Each connection opens with `hello` (the offer,
   `runningSessionIds`, and `endedSessions`), then every live session's state
@@ -881,7 +894,9 @@ the replayed host answers, then SIGTERM: `stopped`, the socket closed with 1001,
 exit 0, no process left, and no secret on stderr. With
 `CONSOLA_TEST_SANDBOX_STOP=hangs` (`LocalProvider`'s `stopHangsForTests`) no
 sandbox's stop returns: SIGTERM still says `stopped` and exits 0, and a
-replacement (4000) exits 1 saying why, both within the grace.
+replacement (4000) exits 1 saying why, both within the grace. With
+`CONSOLA_TEST_SANDBOX_CREATE=hangs` no create returns: SIGTERM exits 1 past
+the grace, saying the runner did not stop in time.
 It runs the real bin for each start failure. `sandboxSessions.test.ts` drives the sessions over the fake
 provider, and `cellSocket.test.ts` the socket against a `ws` server.
 

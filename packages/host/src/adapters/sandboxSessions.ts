@@ -11,6 +11,7 @@
 import { isHostUrl, type SessionStart, type SessionUpdate } from '@consola/runner-protocol';
 import type { Sandbox, Sandboxes } from '@consola/sandbox';
 import type * as Cause from 'effect/Cause';
+import * as Clock from 'effect/Clock';
 import * as Deferred from 'effect/Deferred';
 import * as Duration from 'effect/Duration';
 import * as Effect from 'effect/Effect';
@@ -41,8 +42,18 @@ import {
  */
 export const EXIT_LINE_GRACE = Duration.seconds(30);
 
-/** How long the runner waits for a command to end once it has stopped its sandbox. */
+/**
+ * How long the runner waits for a command to end once it has stopped its sandbox, and no later
+ * than the shutdown's bound once the runner is stopping.
+ */
 const STOPPED_COMMAND_WAIT = Duration.seconds(10);
+
+/**
+ * How long a provider's call that makes or reaches a sandbox may take (`create`, `start`,
+ * `exposePort`; E2B's are network calls) before the session is failed. A provider's call cannot
+ * be cancelled: a sandbox made after its create timed out is stopped as it arrives.
+ */
+export const SANDBOX_CALL_TIMEOUT = Duration.seconds(60);
 
 /**
  * How long a sandbox's `stop` may take before the runner goes on without it, so that a provider
@@ -51,9 +62,10 @@ const STOPPED_COMMAND_WAIT = Duration.seconds(10);
 export const SANDBOX_STOP_TIMEOUT = Duration.seconds(30);
 
 /**
- * How long a sandbox's `stop` may take once the runner is stopping, counted from when it began:
- * under the host's 15 s shutdown grace (`runHostProcess`) less the 3 s the socket's close waits,
- * so the socket closes and the process exits on its own. Every end is said before this wait.
+ * How long, from the moment the runner began stopping, a sandbox's `stop` and the wait for its
+ * command may take, however late each of them begins: under the host's 15 s shutdown grace
+ * (`runHostProcess`) less the 3 s the socket's close waits, so the socket closes and the process
+ * exits on its own. Every end is said before this wait.
  */
 export const SHUTDOWN_STOP_TIMEOUT = Duration.seconds(10);
 
@@ -79,6 +91,8 @@ export type SandboxSessionsOptions = {
   readonly stopTimeout?: Duration.Input;
   /** `SHUTDOWN_STOP_TIMEOUT` unless a test shortens it. */
   readonly shutdownStopTimeout?: Duration.Input;
+  /** `SANDBOX_CALL_TIMEOUT` unless a test shortens it. */
+  readonly callTimeout?: Duration.Input;
   /** Where every update goes: the cell's socket. Each is scrubbed of the secrets first. */
   readonly report: (update: SessionUpdate) => Effect.Effect<void>;
   /** A line for the runner's own log. Scrubbed of the secrets, and never the environment. */
@@ -157,12 +171,51 @@ export const makeSandboxSessions = (
     const held = new Map<string, Held>();
     /** Set once `stopAll` began: a start after it would make a sandbox nothing stops. */
     let stopping = false;
-    /** Done once `stopAll` began: from then on every sandbox's stop is bounded by the shutdown's. */
-    const shuttingDown = Deferred.makeUnsafe<void>();
+    /**
+     * Set once `stopAll` began, to `shutdownStopTimeout` after that moment (epoch milliseconds):
+     * every sandbox's stop, and every wait for a command, ends by then.
+     */
+    const shutdownDeadline = Deferred.makeUnsafe<number>();
     const exitLineGrace = options.exitLineGrace ?? EXIT_LINE_GRACE;
     const stopTimeout = options.stopTimeout ?? SANDBOX_STOP_TIMEOUT;
     const shutdownStopTimeout = options.shutdownStopTimeout ?? SHUTDOWN_STOP_TIMEOUT;
+    const callTimeout = options.callTimeout ?? SANDBOX_CALL_TIMEOUT;
     const log = (message: string) => options.log(scrubSecrets(message, options.secretValues));
+
+    /** Returns at the shutdown's deadline, once the runner began stopping; never before. */
+    const untilShutdownDeadline = Deferred.await(shutdownDeadline).pipe(
+      Effect.flatMap((deadline) =>
+        Effect.flatMap(Clock.currentTimeMillis, (nowMs) =>
+          Effect.sleep(Duration.millis(Math.max(0, deadline - nowMs))),
+        ),
+      ),
+    );
+
+    /**
+     * A provider's call, failed with `problem` once it has taken `callTimeout`. The call itself
+     * runs on (a provider cannot be told to stop one), so what it answers late goes to `late`.
+     */
+    const withinCallTimeout = <A>(
+      call: () => Promise<A>,
+      problem: string,
+      late: (value: A) => Effect.Effect<void> = () => Effect.void,
+    ): Effect.Effect<A, SandboxCallFailed> =>
+      Effect.suspend(() => {
+        const pending = call();
+        return attempt(() => pending).pipe(
+          Effect.timeoutOrElse({
+            duration: callTimeout,
+            orElse: () =>
+              attempt(() => pending).pipe(
+                Effect.flatMap(late),
+                Effect.ignore,
+                Effect.forkDetach,
+                Effect.andThen(Effect.fail(new SandboxCallFailed({ problem }))),
+              ),
+          }),
+        );
+      });
+    const withinCallTimeoutText = `within ${Duration.toSeconds(callTimeout)} s`;
 
     /**
      * Says `update` to the cell, unless the session's end was said; an end is said once. An end
@@ -194,8 +247,9 @@ export const makeSandboxSessions = (
     /**
      * Stops the session's sandbox, once per session: a stop that fails is asked again, up to
      * `STOP_ATTEMPTS` times, each failure logged with its reason. All of it within `stopTimeout`,
-     * or `shutdownStopTimeout` from when the runner began stopping, whichever ends first; past it
-     * the session goes on to say its end. Answers whether the sandbox stopped.
+     * and by the shutdown's deadline (`shutdownStopTimeout` after the runner began stopping, so
+     * a stop that begins late gets what is left), whichever ends first; past it the session goes
+     * on to say its end. Answers whether the sandbox stopped.
      */
     const stopSandbox = (session: Held): Effect.Effect<boolean> => {
       const sandbox = session.sandbox;
@@ -222,8 +276,7 @@ export const makeSandboxSessions = (
         ).pipe(Effect.as(false));
       return Effect.raceFirst(
         asking,
-        Deferred.await(shuttingDown).pipe(
-          Effect.andThen(Effect.sleep(shutdownStopTimeout)),
+        untilShutdownDeadline.pipe(
           Effect.andThen(
             outOfTime(`within ${Duration.toSeconds(shutdownStopTimeout)} s of the runner stopping`),
           ),
@@ -246,7 +299,10 @@ export const makeSandboxSessions = (
           session.ending
             ? log(`session ${session.start.sessionId}: port ${port} not exposed: ${error}`)
             : Deferred.succeed(session.stopSignal, { kind: 'failed', error }).pipe(Effect.asVoid);
-        const exposed = yield* attempt(() => sandbox.exposePort(port)).pipe(
+        const exposed = yield* withinCallTimeout(
+          () => sandbox.exposePort(port),
+          `The sandbox did not expose the session's port ${withinCallTimeoutText}.`,
+        ).pipe(
           Effect.catchTag('SandboxCallFailed', (error) =>
             refuse(error.problem).pipe(Effect.as(null)),
           ),
@@ -320,11 +376,23 @@ export const makeSandboxSessions = (
           Effect.andThen(Deferred.succeed(session.stopSignal, { kind: 'lifetime' })),
           Effect.forkChild,
         );
-        const sandbox = yield* attempt(() =>
-          options.sandboxes.create({
-            template: SESSION_TEMPLATE,
-            env: sandboxEnvFor(session.start, options.secrets, options.idleMinutes),
-          }),
+        const sandbox = yield* withinCallTimeout(
+          () =>
+            options.sandboxes.create({
+              template: SESSION_TEMPLATE,
+              env: sandboxEnvFor(session.start, options.secrets, options.idleMinutes),
+            }),
+          `The sandbox was not made ${withinCallTimeoutText}.`,
+          // Made after all: nothing will use it, and nothing else would stop it.
+          (late) =>
+            log(
+              `session ${sessionId}: its sandbox was made after its create timed out; it is stopped`,
+            ).pipe(
+              Effect.andThen(attempt(() => late.stop())),
+              Effect.catchTag('SandboxCallFailed', (error) =>
+                log(`session ${sessionId}: that sandbox did not stop: ${error.problem}`),
+              ),
+            ),
         );
         session.sandbox = sandbox;
         yield* log(`session ${sessionId}: sandbox ${sandbox.id} created`);
@@ -348,15 +416,17 @@ export const makeSandboxSessions = (
 
         const chunks = yield* Queue.unbounded<string, Cause.Done>();
         const stderr = new StderrTail(options.secretValues);
-        const command = yield* attempt(() =>
-          sandbox.start({
-            argv: [...SESSION_START_ARGV],
-            keepOutput: false,
-            onStdout: (chunk) => {
-              Queue.offerUnsafe(chunks, chunk);
-            },
-            onStderr: (chunk) => stderr.push(chunk),
-          }),
+        const command = yield* withinCallTimeout(
+          () =>
+            sandbox.start({
+              argv: [...SESSION_START_ARGV],
+              keepOutput: false,
+              onStdout: (chunk) => {
+                Queue.offerUnsafe(chunks, chunk);
+              },
+              onStderr: (chunk) => stderr.push(chunk),
+            }),
+          `The sandbox did not start the session ${withinCallTimeoutText}.`,
         );
         const reading = yield* readLines(session, sandbox, chunks).pipe(Effect.forkChild);
 
@@ -394,13 +464,16 @@ export const makeSandboxSessions = (
           const stopped = yield* stopSandbox(session);
           exitCode =
             stopped && !session.ended
-              ? yield* attempt(() => command.wait()).pipe(
-                  Effect.map((result) => result.exitCode),
-                  Effect.timeoutOrElse({
-                    duration: STOPPED_COMMAND_WAIT,
-                    orElse: () => Effect.succeed(null),
-                  }),
-                  Effect.catchTag('SandboxCallFailed', () => Effect.succeed(null)),
+              ? yield* Effect.raceFirst(
+                  attempt(() => command.wait()).pipe(
+                    Effect.map((result): number | null => result.exitCode),
+                    Effect.timeoutOrElse({
+                      duration: STOPPED_COMMAND_WAIT,
+                      orElse: () => Effect.succeed(null),
+                    }),
+                    Effect.catchTag('SandboxCallFailed', () => Effect.succeed(null)),
+                  ),
+                  untilShutdownDeadline.pipe(Effect.as(null)),
                 )
               : null;
         }
@@ -504,7 +577,8 @@ export const makeSandboxSessions = (
       liveNow,
       stopAll: Effect.gen(function* () {
         stopping = true;
-        yield* Deferred.succeed(shuttingDown, undefined);
+        const nowMs = yield* Clock.currentTimeMillis;
+        yield* Deferred.succeed(shutdownDeadline, nowMs + Duration.toMillis(shutdownStopTimeout));
         const all = [...held.values()];
         yield* Effect.forEach(
           all,

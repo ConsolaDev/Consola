@@ -8,6 +8,7 @@ import {
   sandboxesFrom,
 } from '@consola/sandbox';
 import type * as Cause from 'effect/Cause';
+import * as Clock from 'effect/Clock';
 import * as Duration from 'effect/Duration';
 import * as Effect from 'effect/Effect';
 import * as Fiber from 'effect/Fiber';
@@ -37,6 +38,10 @@ const startOf = (
 });
 
 const line = (value: unknown): string => `${JSON.stringify(value)}\n`;
+
+/** Resolves after `duration`: a provider's call that takes its time. */
+const delay = (duration: Duration.Input): Promise<void> =>
+  Effect.runPromise(Effect.sleep(duration));
 
 /** A start script that says `ready` on `port` and runs until its sandbox stops. */
 const readyUntilStopped =
@@ -76,6 +81,7 @@ const harness = Effect.fn('harness')(function* (
     readonly exitLineGrace?: Duration.Input;
     readonly stopTimeout?: Duration.Input;
     readonly shutdownStopTimeout?: Duration.Input;
+    readonly callTimeout?: Duration.Input;
     readonly offer?: { readonly repositories: string[]; readonly harnesses: Harness[] };
   } = {},
 ) {
@@ -95,6 +101,7 @@ const harness = Effect.fn('harness')(function* (
     ...(options.shutdownStopTimeout === undefined
       ? {}
       : { shutdownStopTimeout: options.shutdownStopTimeout }),
+    ...(options.callTimeout === undefined ? {} : { callTimeout: options.callTimeout }),
     report: (update) =>
       Effect.sync(() => {
         sent.push(update);
@@ -613,6 +620,153 @@ describe('makeSandboxSessions', () => {
           'session session-acme-20: its sandbox did not stop within 0.3 s of the runner stopping; the runner goes on without it',
         );
         expect(finalsOf(h.sent, 'session-acme-20')).toHaveLength(1);
+      }),
+    ));
+
+  it.each<[string, (fake: FakeProvider) => SandboxProvider, RegExp]>([
+    [
+      'its sandbox is never made',
+      () => ({ create: () => new Promise(() => undefined) }),
+      /^The sandbox was not made within 0\.3 s\.$/,
+    ],
+    [
+      'its start command never starts',
+      (fake) => ({
+        create: async (options) => {
+          const sandbox = await fake.create(options);
+          return { ...sandbox, start: () => new Promise(() => undefined) };
+        },
+      }),
+      /^The sandbox did not start the session within 0\.3 s\.$/,
+    ],
+    [
+      'its port is never exposed',
+      (fake) => ({
+        create: async (options) => {
+          const sandbox = await fake.create(options);
+          return { ...sandbox, exposePort: () => new Promise(() => undefined) };
+        },
+      }),
+      /^The sandbox did not expose the session's port within 0\.3 s\.$/,
+    ],
+  ])('is failed, its sandbox stopped, when %s in time', (_name, provider, error) =>
+    run(
+      Effect.gen(function* () {
+        const h = yield* harness({
+          callTimeout: Duration.millis(300),
+          fake: { programs: { 'consola-session-start': readyUntilStopped() } },
+          provider,
+        });
+        yield* h.sessions.start(startOf('session-acme-30'));
+        const failed = yield* h.next;
+        expect(failed).toMatchObject({ sessionId: 'session-acme-30', status: 'failed' });
+        expect(failed.error).toMatch(error);
+        yield* h.untilEnded('session-acme-30');
+        expect(finalsOf(h.sent, 'session-acme-30')).toHaveLength(1);
+        for (const record of h.fake.sandboxes) expect(record.state).toBe('stopped');
+      }),
+    ),
+  );
+
+  it('stops a sandbox that is made after its create timed out', () =>
+    run(
+      Effect.gen(function* () {
+        let resolveCreate: (() => void) | undefined;
+        const h = yield* harness({
+          callTimeout: Duration.millis(200),
+          provider: (fake) => ({
+            create: (options) =>
+              new Promise((resolve) => {
+                resolveCreate = () => resolve(fake.create(options));
+              }),
+          }),
+        });
+        yield* h.sessions.start(startOf('session-acme-31'));
+        expect(yield* h.next).toMatchObject({ status: 'failed' });
+        resolveCreate?.();
+        yield* Effect.gen(function* () {
+          while (h.fake.sandboxes[0]?.state !== 'stopped') yield* Effect.sleep(Duration.millis(10));
+        }).pipe(Effect.timeout(Duration.seconds(4)), Effect.orDie);
+        expect(h.logged).toContain(
+          'session session-acme-31: its sandbox was made after its create timed out; it is stopped',
+        );
+      }),
+    ));
+
+  it('bounds a stop that begins after the runner began stopping by what is left of the shutdown', () =>
+    run(
+      Effect.gen(function* () {
+        const h = yield* harness({
+          shutdownStopTimeout: Duration.millis(1200),
+          fake: { programs: { 'consola-session-start': readyUntilStopped() } },
+          // Made a second after it was asked for, a sandbox whose stop never returns.
+          provider: (fake) => ({
+            create: async (options) => {
+              await delay(Duration.seconds(1));
+              const sandbox = await fake.create(options);
+              return { ...sandbox, stop: () => new Promise<void>(() => undefined) };
+            },
+          }),
+        });
+        yield* h.sessions.start(startOf('session-acme-32'));
+        const startedAt = yield* Clock.currentTimeMillis;
+        yield* h.sessions.stopAll.pipe(
+          Effect.timeoutOrElse({
+            duration: ENDED_TIMEOUT,
+            orElse: () =>
+              Effect.die(new Error(`stopAll never returned; logged ${h.logged.join(' | ')}`)),
+          }),
+        );
+        // Its stop began a second in, and got the 0.2 s the shutdown had left, not 1.2 s more.
+        const tookMs = (yield* Clock.currentTimeMillis) - startedAt;
+        expect(tookMs).toBeGreaterThanOrEqual(1100);
+        expect(tookMs).toBeLessThan(1900);
+        expect(h.logged).toContain(
+          'session session-acme-32: its sandbox did not stop within 1.2 s of the runner stopping; the runner goes on without it',
+        );
+        expect(finalsOf(h.sent, 'session-acme-32')).toHaveLength(1);
+      }),
+    ));
+
+  it("waits for a stopped sandbox's command no later than the shutdown's bound", () =>
+    run(
+      Effect.gen(function* () {
+        const h = yield* harness({
+          shutdownStopTimeout: Duration.millis(300),
+          fake: { programs: { 'consola-session-start': readyUntilStopped() } },
+          // The sandbox stops, but its command never says it ended.
+          provider: (fake) => ({
+            create: async (options) => {
+              const sandbox = await fake.create(options);
+              return {
+                ...sandbox,
+                start: async (command) => {
+                  const running = await sandbox.start(command);
+                  return { ...running, wait: () => new Promise(() => undefined) };
+                },
+              };
+            },
+          }),
+        });
+        yield* h.sessions.start(startOf('session-acme-33'));
+        expect(yield* h.next).toMatchObject({ status: 'running' });
+        // The cell's stop: the sandbox stops, then its command is waited for, up to 10 s.
+        const stopping = yield* h.sessions.stop('session-acme-33').pipe(Effect.forkChild);
+        yield* Effect.gen(function* () {
+          while (h.fake.sandboxes[0]?.state !== 'stopped') yield* Effect.sleep(Duration.millis(10));
+        }).pipe(Effect.timeout(Duration.seconds(4)), Effect.orDie);
+        // The runner stops meanwhile: that wait ends with the shutdown's 0.3 s.
+        yield* h.sessions.stopAll.pipe(
+          Effect.timeoutOrElse({
+            duration: Duration.seconds(3),
+            orElse: () =>
+              Effect.die(new Error(`stopAll waited on; logged ${h.logged.join(' | ')}`)),
+          }),
+        );
+        yield* Fiber.join(stopping);
+        expect(finalsOf(h.sent, 'session-acme-33')).toEqual([
+          { type: 'session.update', sessionId: 'session-acme-33', status: 'stopped' },
+        ]);
       }),
     ));
 

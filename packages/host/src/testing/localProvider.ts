@@ -79,6 +79,8 @@ export type LocalSandboxRecord = {
 export type LocalProviderOptions = {
   /** Every sandbox's `stop` never returns and stops nothing, as a provider that hangs would. */
   readonly stopHangsForTests?: boolean;
+  /** No sandbox's create ever returns, as a provider whose network call hangs. */
+  readonly createHangsForTests?: boolean;
 };
 
 export class LocalProvider implements SandboxProvider {
@@ -90,6 +92,7 @@ export class LocalProvider implements SandboxProvider {
   }
 
   async create(options: CreateSandboxOptions): Promise<ProviderSandbox> {
+    if (this.options.createHangsForTests === true) return new Promise(() => undefined);
     if (options.template !== SESSION_TEMPLATE) {
       throw new SandboxError('not-found', `There is no template named ${options.template}.`);
     }
