@@ -1061,3 +1061,119 @@
   font-size: var(--font-size-xs);
   color: var(--color-text-tertiary);
 }
+
+/* Settings › Secrets: one row per name, its binding beside it, its uses under it. */
+.ws-secret-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.ws-secret-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.ws-secret-name {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+}
+
+.ws-secret-binding {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.ws-secret-actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: var(--space-1);
+}
+
+.ws-secret-line,
+.ws-secret-uses {
+  margin: 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  overflow-wrap: anywhere;
+}
+
+.ws-secret-uses {
+  padding: 0;
+  list-style: none;
+}
+
+.ws-secret-same {
+  color: var(--color-warning, var(--color-text-secondary));
+}
+
+.ws-secret-problem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin: 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-error);
+}
+
+/* The Bind dialog: three kinds, their fields, and the keychain's Terminal command. */
+.ws-secret-dialog {
+  max-width: 480px;
+}
+
+.ws-secret-kinds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+.ws-secret-kind {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+}
+
+.ws-secret-input {
+  font-family: var(--font-mono);
+}
+
+.ws-secret-command {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.ws-secret-command-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.ws-secret-command-text {
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-1) var(--space-2);
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  overflow-wrap: anywhere;
+}

@@ -22,6 +22,7 @@ describe('the settings list', () => {
       'actions',
       'labels',
       'worktrees',
+      'secrets',
       'browser',
       'danger',
     ]);
@@ -46,6 +47,11 @@ describe('isWorkspaceSection', () => {
 describe('resolveSection', () => {
   it('shows a workspace section when a workspace is open', () => {
     expect(resolveSection('scopes', true)).toBe('scopes');
+  });
+
+  it('shows Secrets with a workspace open, and the default without one', () => {
+    expect(resolveSection('secrets', true)).toBe('secrets');
+    expect(resolveSection('secrets', false)).toBe(DEFAULT_SECTION);
   });
 
   it('falls back to Appearance for a workspace section with no workspace open', () => {
