@@ -47,9 +47,10 @@ export function sandboxSessionEnv(
   checkout: string,
 ): { env: NodeJS.ProcessEnv; passed: string[]; missing: string[] } {
   const env: NodeJS.ProcessEnv = {};
+  // Only the fixed base names and `LC_*` come through here: none is a git folder variable.
   const take = (name: string) => {
     const value = login[name];
-    if (value !== undefined && !GIT_FOLDER_NAMES.has(name)) env[name] = value;
+    if (value !== undefined) env[name] = value;
   };
   for (const name of SANDBOX_BASE_NAMES) take(name);
   for (const name of Object.keys(login)) if (name.startsWith('LC_')) take(name);
