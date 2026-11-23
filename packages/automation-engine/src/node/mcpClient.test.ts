@@ -465,6 +465,13 @@ describe('calls', () => {
     SLOW,
   );
 
+  it('declares no capabilities at initialize: `{}` (review M2)', async () => {
+    await connected(launchOf());
+    const initialize = events().filter((event) => event.event === 'initialize');
+    expect(initialize).toHaveLength(1);
+    expect(initialize[0].capabilities).toEqual({});
+  });
+
   it('declares no capabilities, so a server asking for sampling, elicitation or roots is refused (V20, review M1)', async () => {
     const session = await connected(launchOf());
     expect((await call(session, 'ask_client')).kind).toBe('answered');
@@ -861,6 +868,14 @@ describe('Streamable HTTP', () => {
     'mcp-session-id',
     'user-agent',
   ];
+
+  it('declares no capabilities at initialize: `{}` (review M2)', async () => {
+    const server = await started();
+    await connected(httpLaunch(server.url));
+    const initialize = requests(server).filter((request) => request.rpc === 'initialize');
+    expect(initialize).toHaveLength(1);
+    expect(initialize[0].capabilities).toEqual({});
+  });
 
   it("sends its headers on every request, and no other header but the protocol's and fetch's own (V8, E9)", async () => {
     const server = await started();

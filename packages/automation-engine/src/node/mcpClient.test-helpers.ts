@@ -211,7 +211,8 @@ function handle(message) {
   }
   switch (message.method) {
     case 'initialize':
-      log('initialize');
+      // What the client declared it can do: a server reads this to decide what to ask (review M2).
+      log('initialize', { capabilities: message.params && message.params.capabilities });
       if (BEHAVIOUR === 'hang') return;
       if (BEHAVIOUR === 'init_error') return fail(message.id, -32001, 'warming up');
       return answer(message.id, {
@@ -299,6 +300,8 @@ export function writeSdkServer(dir: string): string {
 /** One logged event. */
 export interface ScratchEvent {
   event: string;
+  /** `initialize`: the capabilities the client declared. */
+  capabilities?: unknown;
   tool?: string;
   pid?: number;
   code?: number | null;
@@ -392,6 +395,8 @@ export interface HttpRequestEvent {
   headers: string[];
   /** The value of each header the test checks by value. */
   values: Record<string, string>;
+  /** An `initialize`'s: the capabilities the client declared (review M2). */
+  capabilities?: unknown;
 }
 
 export type HttpEvent = HttpRequestEvent | { event: 'work-done' | 'start'; tool: string };
@@ -454,6 +459,9 @@ export async function startHttpServer(options: HttpServerOptions = {}): Promise<
         ...(rpc !== undefined ? { rpc } : {}),
         headers: Object.keys(req.headers).sort(),
         values,
+        ...(rpc === 'initialize'
+          ? { capabilities: (body as { params?: { capabilities?: unknown } }).params?.capabilities }
+          : {}),
       });
       if (options.redirect) {
         res.writeHead(
