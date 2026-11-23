@@ -1,0 +1,506 @@
+/* A run's page, laid out as the desktop lays out a session: its header (the desktop's
+   `.workspace-view-header`: "Runs / name" with the name in the accent, a status chip, 24px
+   controls at its end), then the main pane beside the info panel, which keeps its place while
+   the pane scrolls. A request's pane is a conversation's column; an automation run's is its
+   steps, hung from one thread. */
+
+.run-page {
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100vh - 44px);
+}
+
+.run-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 40px;
+  padding: 6px 16px;
+  box-sizing: border-box;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
+}
+
+/* The name gives way first, then the parent's; the way back and the status stay whole. */
+.run-crumbs {
+  display: flex;
+  flex: 1000 0 0%;
+  align-items: center;
+  min-width: 48px;
+  max-width: max-content;
+  margin: 0;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-medium);
+  white-space: nowrap;
+}
+
+.run-crumb {
+  flex: none;
+  color: var(--text-2);
+  text-decoration: none;
+}
+
+.run-crumb:hover {
+  color: var(--text);
+}
+
+.run-crumb:focus-visible {
+  border-radius: var(--radius-sm);
+  outline: 2px solid var(--cyan);
+  outline-offset: 2px;
+}
+
+.run-crumb-parent {
+  flex: 0 1 auto;
+  min-width: 3ch;
+  max-width: 32ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.run-crumb-sep {
+  flex: none;
+  margin: 0 8px;
+  color: var(--text-3);
+  font-weight: var(--font-weight-normal);
+}
+
+.run-crumb-name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--cyan-text);
+  text-overflow: ellipsis;
+}
+
+/* Where the run stands, as a chip tinted by its status. */
+.run-state {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 9px 0 5px;
+  box-sizing: border-box;
+  border-radius: 999px;
+  background: var(--hover);
+  color: var(--text-2);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  white-space: nowrap;
+}
+
+.run-state .run-status {
+  width: 16px;
+  height: 16px;
+}
+
+.run-state[data-look="running"] {
+  background: color-mix(in srgb, var(--cyan) 13%, transparent);
+}
+
+.run-state[data-look="needs-you"],
+.run-state[data-look="question"] {
+  background: color-mix(in srgb, var(--warning) 15%, transparent);
+  color: var(--text);
+}
+
+.run-state[data-look="completed"] {
+  background: color-mix(in srgb, var(--success) 13%, transparent);
+}
+
+.run-state[data-look="failed"] {
+  background: color-mix(in srgb, var(--danger) 13%, transparent);
+}
+
+.run-controls {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.run-controls-rule {
+  width: 1px;
+  height: 16px;
+  margin: 0 4px;
+  background: var(--line-strong);
+}
+
+.run-controls-rule:first-child {
+  display: none;
+}
+
+/* The desktop's header buttons: 24px, quiet until pointed at; a toggle on wears the accent. */
+.run-control {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+  transition:
+    background 100ms ease,
+    color 100ms ease;
+}
+
+.run-control:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.run-control[aria-pressed="true"] {
+  background: var(--active);
+  color: var(--cyan-text);
+}
+
+.run-control:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: -2px;
+}
+
+/* ---- The body: the pane, and the info panel beside it ---- */
+
+.run-body {
+  display: grid;
+  flex: 1;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.run-body[data-info] {
+  grid-template-columns: minmax(0, 1fr) 300px;
+}
+
+.run-pane {
+  min-width: 0;
+  padding: 28px clamp(16px, 4vw, 48px) 48px;
+}
+
+.run-info {
+  min-width: 0;
+  border-left: 1px solid var(--line);
+}
+
+.run-info > .info-panel {
+  position: sticky;
+  top: 40px;
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+}
+
+/* A status glyph in an info row's 16px icon column. */
+.run-status.run-status-small {
+  width: 16px;
+  height: 16px;
+}
+
+.run-info-code {
+  margin-left: 2px;
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+}
+
+/* A budget's meter, under its row, lined up with the row's label. It fills once, as it shows. */
+.run-budget {
+  display: flex;
+  flex-direction: column;
+}
+
+.run-meter {
+  display: block;
+  height: 3px;
+  margin: -1px 8px 6px 32px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--hover);
+}
+
+.run-meter-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--cyan);
+  transform-origin: left center;
+  animation: run-meter-fill 700ms 120ms var(--ease-out-quart) both;
+}
+
+.run-meter[data-level="near"] .run-meter-fill {
+  background: var(--warning);
+}
+
+.run-meter[data-level="over"] .run-meter-fill {
+  background: var(--danger);
+}
+
+@keyframes run-meter-fill {
+  from {
+    transform: scaleX(0);
+  }
+}
+
+/* ---- States ---- */
+
+.run-loading {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 32px clamp(16px, 4vw, 48px);
+}
+
+.run-loading-bar {
+  width: min(520px, 70%);
+  height: 12px;
+  border-radius: 6px;
+  background: var(--hover);
+}
+
+.run-loading-short {
+  width: min(320px, 45%);
+  opacity: 0.6;
+}
+
+.run-notice {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  box-sizing: border-box;
+  width: min(560px, calc(100% - 32px));
+  margin: 40px auto;
+  padding: 16px 18px;
+  border: 1px solid var(--gray-a5);
+  border-radius: var(--radius-group);
+  background: var(--gray-2);
+  font-size: var(--font-size-md);
+}
+
+.run-notice p {
+  margin: 0;
+}
+
+.run-notice-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.run-notice-actions .button {
+  text-decoration: none;
+}
+
+.run-stale {
+  max-width: 720px;
+  margin: 0 auto 12px;
+  color: var(--text-3);
+  font-size: var(--font-size-sm);
+}
+
+/* ---- A request: its conversation's column ---- */
+
+.run-conversation {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.run-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.run-message {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.run-message-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--font-size-md);
+}
+
+.run-message-who {
+  color: var(--text);
+  font-weight: var(--font-weight-semibold);
+}
+
+.run-message-when {
+  color: var(--text-3);
+  font-size: var(--font-size-sm);
+}
+
+/* The request as the person gave it: plain text, its lines kept, under the person who wrote it. */
+.run-message-text {
+  margin: 0 0 0 30px;
+  padding: 12px 14px;
+  border: 1px solid var(--gray-a5);
+  border-radius: var(--radius-group);
+  background: var(--gray-2);
+  color: var(--text);
+  font-size: var(--font-size-md);
+  line-height: var(--line-height-relaxed);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Where the conversation will go on: drawn as an outline of the space it will take. */
+.run-later {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  margin-left: 30px;
+  padding: 16px 18px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-group);
+  color: var(--text-3);
+}
+
+.run-later > svg {
+  margin-bottom: 4px;
+}
+
+.run-later-title {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+}
+
+.run-later-words {
+  max-width: 60ch;
+  margin: 0;
+  color: var(--text-2);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-normal);
+}
+
+/* Something that waits on a person: tinted with the one yellow. */
+.run-callout {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--warning) 35%, transparent);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--warning) 9%, transparent);
+  color: var(--text);
+  font-size: var(--font-size-md);
+  line-height: var(--line-height-normal);
+}
+
+.run-conversation > .run-callout {
+  margin-left: 30px;
+}
+
+.run-callout > svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--warning);
+}
+
+.run-callout p {
+  margin: 0;
+}
+
+/* How a run ended, in its own sentence. */
+.run-outcome {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  color: var(--text-2);
+  font-size: var(--font-size-md);
+  line-height: var(--line-height-normal);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.run-outcome[data-tone="error"] {
+  border-color: color-mix(in srgb, var(--danger) 35%, transparent);
+  background: color-mix(in srgb, var(--danger) 7%, transparent);
+  color: var(--text);
+}
+
+.run-conversation > .run-outcome {
+  margin-left: 30px;
+}
+
+/* ---- An automation run: its steps, on one thread ---- */
+
+.run-steps-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 820px;
+  margin: 0 auto;
+}
+
+/* Narrow: the panel moves above the pane, full width, and scrolls with it. */
+@media (max-width: 960px) {
+  /* The panel takes the height it needs and the pane the rest, never half the page each. */
+  .run-body[data-info] {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto 1fr;
+  }
+
+  .run-info {
+    order: -1;
+    border-bottom: 1px solid var(--line);
+    border-left: 0;
+  }
+
+  .run-info > .info-panel {
+    position: static;
+    max-height: none;
+  }
+}
+
+/* Narrower, the sidebar is a bar above the page, so the header no longer sticks under it. */
+@media (max-width: 760px) {
+  .run-header {
+    position: static;
+  }
+
+  .run-crumb-parent {
+    display: none;
+  }
+
+  .run-crumb-parent + .run-crumb-sep {
+    display: none;
+  }
+
+  .run-message-text,
+  .run-later,
+  .run-conversation > .run-callout,
+  .run-conversation > .run-outcome {
+    margin-left: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .run-meter-fill {
+    animation: none;
+  }
+
+  .run-control {
+    transition: none;
+  }
+}

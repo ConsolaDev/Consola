@@ -101,7 +101,7 @@ export function Dashboard({
         </div>
       </aside>
       <div className="content">
-        <main className="content-inner">
+        <main className="content-inner" data-layout={section.layout}>
           <View
             key={`${workspace.id} ${section.id}`}
             me={me}

@@ -30,6 +30,29 @@
   --cyan-muted: rgba(0, 194, 255, 0.25);
   --cyan-glow: rgba(0, 194, 255, 0.45);
   --danger: #d44c47;
+  /* The desktop's status colours: done, and waiting for a person (the only yellow). */
+  --success: rgb(68, 131, 97);
+  --warning: rgb(203, 145, 47);
+
+  /* The desktop's type (`styles/themes/tokens.css`), by the same names: 14px for what a page
+     says and for every field and button, 12px for what supports it, 11px only for uppercase
+     labels and the smallest metadata, and 16px or 18px for a page's title. Nothing is smaller. */
+  --font-size-xs: 11px;
+  --font-size-sm: 12px;
+  --font-size-md: 14px;
+  --font-size-lg: 16px;
+  --font-size-xl: 18px;
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --line-height-tight: 1.25;
+  --line-height-normal: 1.5;
+  --line-height-relaxed: 1.625;
+  /* The desktop sidebar's (`Sidebar/styles.css`): its rows a step under a page's text, their
+     metadata and group labels under that. Settings' list of pages runs at the same size. */
+  --sidebar-font-size: 13px;
+  --sidebar-font-size-small: var(--font-size-sm);
+  --sidebar-font-size-label: var(--font-size-xs);
 
   /* The desktop's radii: a row, a control, a menu; groups are rounder. */
   --radius-sm: 3px;
@@ -60,6 +83,8 @@
     --cyan-muted: rgba(25, 170, 216, 0.25);
     --cyan-glow: rgba(25, 170, 216, 0.55);
     --danger: #eb5757;
+    --success: rgb(77, 171, 117);
+    --warning: rgb(223, 171, 77);
   }
 }
 
@@ -68,6 +93,9 @@
 .radix-themes,
 .radix-themes:is(.dark, .dark-theme) {
   --default-font-family: var(--font-sans);
+  /* Radix's own root is 16px; the desktop's body, and this page's, is 14px. */
+  --default-font-size: var(--font-size-md);
+  --default-line-height: var(--line-height-normal);
   --code-font-family: var(--font-mono);
   --color-background: var(--bg);
   --color-panel-solid: var(--bg-pop);
@@ -78,8 +106,8 @@ body {
   background: var(--bg);
   color: var(--text);
   font-family: var(--font-sans);
-  font-size: 14px;
-  line-height: 1.5;
+  font-size: var(--font-size-md);
+  line-height: var(--line-height-normal);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -561,6 +589,13 @@ code {
 
 .content > .footer {
   padding-block: 0 20px;
+}
+
+/* A wide section (`Section.layout`) has the whole space beside the sidebar and lays itself out. */
+.content-inner[data-layout="wide"] {
+  max-width: none;
+  padding: 0;
+  gap: 0;
 }
 
 /* A group of a section, as Connections draws one: a quiet label over a bordered list. */

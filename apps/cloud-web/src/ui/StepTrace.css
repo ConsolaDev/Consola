@@ -1,0 +1,584 @@
+/* An automation run's trace, as the desktop draws it (`Automations/styles.css`, "The trace"):
+   the steps in one bordered list, one hairline apart, each a row of its status, its id (as the
+   file spells it, in the monospace), what it is and, in a line, what it did, with its time and
+   facts at the end. Open, the step's trace sits under its name in three parts (Asked, Doing or
+   Did, Produced), each a column of quiet labels beside their facts. Red marks only where the run
+   broke; cyan what works now. A step the failure note points at lights once. */
+
+.trace {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.trace-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+}
+
+.trace-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  margin: 0;
+  color: var(--text);
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+}
+
+.trace-counts {
+  color: var(--text-3);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-normal);
+  font-variant-numeric: tabular-nums;
+}
+
+.trace-all {
+  padding: 2px 6px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--font-size-md);
+  cursor: pointer;
+}
+
+.trace-all:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.trace-all:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: 1px;
+}
+
+/* ---- The steps ---- */
+
+.trace-list {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  list-style: none;
+}
+
+.trace-step + .trace-step {
+  border-top: 1px solid var(--line);
+}
+
+.trace-step:focus {
+  outline: none;
+}
+
+/* Where the failure note pointed: the row lights once as the eye lands on it. */
+.trace-step[data-flash] {
+  animation: trace-flash 1300ms var(--ease-out-quart);
+}
+
+@keyframes trace-flash {
+  from {
+    background: color-mix(in srgb, var(--cyan) 18%, transparent);
+  }
+}
+
+.trace-row {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto 14px;
+  align-items: start;
+  column-gap: 12px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.trace-row:hover {
+  background: var(--hover);
+}
+
+.trace-row:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: -2px;
+}
+
+.trace-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.trace-name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 8px;
+  min-width: 0;
+  line-height: 20px;
+}
+
+.trace-id {
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-medium);
+  font-variant-ligatures: none;
+  overflow-wrap: anywhere;
+}
+
+.trace-kind {
+  color: var(--text-3);
+  font-size: var(--font-size-sm);
+}
+
+/* Folded, a long line keeps to two; open, it is read whole in the trace below it. */
+.trace-summary {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--text-2);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-normal);
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+/* What a command printed last, as it printed it. */
+.trace-summary[data-printed] {
+  font-family: var(--font-mono);
+  font-variant-ligatures: none;
+}
+
+.trace-facts {
+  color: var(--text-3);
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
+  line-height: 20px;
+  white-space: nowrap;
+}
+
+.trace-chevron {
+  margin-top: 3px;
+  color: var(--text-3);
+  transition: transform 160ms var(--ease-out-quart);
+}
+
+.trace-step[data-open] .trace-chevron {
+  transform: rotate(90deg);
+}
+
+/* How it went: red where it broke, cyan while it works, quiet where it never ran. */
+.trace-step[data-tone="failed"] .trace-row {
+  background: color-mix(in srgb, var(--danger) 6%, transparent);
+}
+
+.trace-step[data-tone="failed"] .trace-row:hover {
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+}
+
+.trace-step[data-tone="failed"] .trace-summary {
+  color: var(--danger);
+  font-family: var(--font-mono);
+  font-variant-ligatures: none;
+}
+
+.trace-step[data-tone="running"] .trace-facts {
+  color: var(--cyan-text);
+}
+
+.trace-step:is([data-tone="skipped"], [data-tone="not-run"], [data-tone="pending"]) .trace-id {
+  color: var(--text-2);
+}
+
+.trace-step:is([data-tone="skipped"], [data-tone="not-run"]) .trace-summary {
+  color: var(--text-3);
+}
+
+/* ---- A step, open: its trace under its name ---- */
+
+.trace-body {
+  padding: 4px 12px 16px 44px;
+  animation: trace-open 220ms var(--ease-out-expo);
+}
+
+@keyframes trace-open {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+}
+
+.trace-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.trace-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.trace-group + .trace-group {
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.trace-group-title {
+  margin: 0;
+  color: var(--text-2);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+}
+
+.trace-facts-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+}
+
+/* A fact: a quiet label in one column, what it was beside it. */
+.trace-fact {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  align-items: baseline;
+  column-gap: 12px;
+}
+
+.trace-fact dt {
+  color: var(--text-3);
+  font-size: var(--font-size-sm);
+}
+
+.trace-fact dd {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+  margin: 0;
+}
+
+.trace-fact dd > * {
+  max-width: 100%;
+}
+
+.trace-fact dd > pre {
+  align-self: stretch;
+}
+
+.trace-text {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--font-size-md);
+  line-height: var(--line-height-normal);
+  overflow-wrap: anywhere;
+}
+
+.trace-text[data-tone="bad"],
+.trace-error {
+  color: var(--danger);
+}
+
+.trace-error {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  font-variant-ligatures: none;
+  white-space: pre-wrap;
+}
+
+.trace-quiet {
+  margin: 0;
+  color: var(--text-3);
+  font-size: var(--font-size-md);
+}
+
+.trace-note {
+  margin: 0;
+  color: var(--text-3);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-normal);
+  overflow-wrap: anywhere;
+}
+
+/* A name as the file spells it, in a sentence: marked as code, so `first` never reads as a word. */
+.trace-inline {
+  padding: 0 4px;
+  border-radius: var(--radius-sm);
+  background: var(--hover);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  font-variant-ligatures: none;
+}
+
+.trace-block {
+  padding: 2px 6px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* A prompt, a command and what it printed, verbatim: a quiet well, scrolled within itself. */
+.trace-quote,
+.trace-code,
+.trace-log {
+  max-height: 320px;
+  margin: 0;
+  padding: 8px 10px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--gray-2);
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* A prompt is prose with templates in it: read as prose. */
+.trace-quote {
+  font-family: var(--font-sans);
+  font-size: var(--font-size-md);
+  line-height: var(--line-height-normal);
+}
+
+.trace-code,
+.trace-log {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  font-variant-ligatures: none;
+  line-height: var(--line-height-normal);
+}
+
+.trace-log {
+  max-height: 280px;
+}
+
+/* What it wrote to stderr: the well's edge in the error's colour, all the way round. */
+.trace-log[data-stream="stderr"] {
+  border-color: color-mix(in srgb, var(--danger) 35%, var(--line));
+}
+
+.trace-model {
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+}
+
+/* The tools an agent's turns were refused, each a tag. */
+.trace-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.trace-tag {
+  padding: 1px 6px;
+  border: 1px solid color-mix(in srgb, var(--danger) 30%, var(--line));
+  border-radius: 4px;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+}
+
+/* Variables and outputs: `name = value`, the names in one column. */
+.trace-vars {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  row-gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.trace-vars > li {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.trace-var-name {
+  grid-column: 1;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  white-space: nowrap;
+}
+
+.trace-var-eq {
+  color: var(--text-3);
+  white-space: pre;
+}
+
+.trace-var-value {
+  grid-column: 2;
+  min-width: 0;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.trace-list-plain {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Where an agent step's conversation will go on, drawn as an outline of the space it will take. */
+.trace-later {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-md);
+  color: var(--text-3);
+}
+
+.trace-later > svg {
+  flex: none;
+}
+
+.trace-later p {
+  margin: 0;
+  color: var(--text-2);
+  font-size: var(--font-size-sm);
+}
+
+/* ---- What went wrong, above the trace ---- */
+
+.trace-failure {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 16px;
+  border: 1px solid color-mix(in srgb, var(--danger) 45%, transparent);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--danger) 6%, transparent);
+}
+
+.trace-failure > svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--danger);
+}
+
+.trace-failure-body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+
+.trace-failure-title {
+  color: var(--danger);
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+}
+
+.trace-failure-step {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-family: var(--font-mono);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--danger) 45%, transparent);
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.trace-failure-step:hover {
+  text-decoration-color: currentColor;
+}
+
+.trace-failure-step:focus-visible {
+  border-radius: 2px;
+  outline: 2px solid var(--cyan);
+  outline-offset: 2px;
+}
+
+.trace-failure-text {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--font-size-md);
+  line-height: var(--line-height-normal);
+}
+
+.trace-failure-quote {
+  align-self: stretch;
+  margin: 0;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  font-variant-ligatures: none;
+  line-height: var(--line-height-normal);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Narrow: a row's facts go under its name, and a fact's label above what it was. */
+@media (max-width: 620px) {
+  .trace-row {
+    grid-template-columns: 20px minmax(0, 1fr) 14px;
+  }
+
+  .trace-facts {
+    grid-row: 2;
+    grid-column: 2;
+    white-space: normal;
+  }
+
+  .trace-chevron {
+    grid-row: 1;
+    grid-column: 3;
+  }
+
+  .trace-body {
+    padding-left: 12px;
+  }
+
+  .trace-fact {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 2px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .trace-step[data-flash],
+  .trace-body {
+    animation: none;
+  }
+
+  .trace-chevron {
+    transition: none;
+  }
+}
