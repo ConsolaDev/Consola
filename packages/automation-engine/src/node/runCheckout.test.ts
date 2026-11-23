@@ -16,6 +16,8 @@ import {
   runCloneShowAt,
   settleBetweenSteps,
   settleRunClone,
+  stageByDescriptor,
+  stageChecked,
   treeProblem,
 } from './runCheckout';
 
@@ -1006,5 +1008,122 @@ describe("checking, committing and resetting a run's checkout (Task 11)", () => 
     const r = await settleBetweenSteps({ dir, branch: BRANCH, base, before: base, message: 'x' });
     expect(r).toEqual({ ok: true, after: run(dir, 'rev-parse', 'HEAD'), files: 1, flagged: [] });
     expect(run(dir, 'log', '-1', '--format=%s')).toBe('mine');
+  });
+});
+
+describe("staging what a step left by descriptor, never by path (the commit review: the check and git's read raced)", () => {
+  let gitDir: string;
+  const writeFile = (file: string, text: string) => {
+    fs.mkdirSync(path.dirname(path.join(dir, file)), { recursive: true });
+    fs.writeFileSync(path.join(dir, file), text);
+  };
+  const staged = () => run(dir, 'ls-files', '-s');
+
+  beforeEach(async () => {
+    await makeRunClone({ source, dir, branch: 'fix/a', runId: 'r', fetchEnv: process.env });
+    gitDir = runCloneGitDirFor(dir);
+  });
+
+  it('stages a changed, a new, an executable, a removed file and a link, each as it was read', async () => {
+    writeFile('NEWER.md', 'changed\n');
+    writeFile('src/new.ts', 'new\n');
+    writeFile('run.sh', '#!/bin/sh\n');
+    fs.chmodSync(path.join(dir, 'run.sh'), 0o755);
+    fs.rmSync(path.join(dir, 'README.md'));
+    fs.symlinkSync('src/new.ts', path.join(dir, 'link.ts'));
+    expect(
+      await stageByDescriptor(dir, 'fix', [
+        'NEWER.md',
+        'src/new.ts',
+        'run.sh',
+        'README.md',
+        'link.ts',
+      ]),
+    ).toBeNull();
+    const index = staged();
+    expect(index).toContain(
+      `100644 ${git(tmp, 'hash-object', path.join(dir, 'NEWER.md'))} 0\tNEWER.md`,
+    );
+    expect(index).toContain('\tsrc/new.ts');
+    expect(index).toMatch(/^100755 .*\trun\.sh$/m);
+    expect(index).toMatch(/^120000 .*\tlink\.ts$/m);
+    expect(index).not.toContain('\tREADME.md');
+    expect(run(dir, 'diff', '--cached', '--name-only').split('\n').sort()).toEqual(
+      ['NEWER.md', 'README.md', 'link.ts', 'run.sh', 'src/new.ts'].sort(),
+    );
+  });
+
+  it('a file that became a hard link after the check is refused, and no object holds what it links to', async () => {
+    const outside = path.join(tmp, 'outside-secret.txt');
+    fs.writeFileSync(outside, 'DUMMY-SECRET-9113');
+    fs.linkSync(outside, path.join(dir, 'late.txt'));
+    const before = staged();
+    expect(await stageByDescriptor(dir, 'fix', ['late.txt'])).toBe(
+      "`fix` left `late.txt` hard-linked to another file; Consola commits only the checkout's own files",
+    );
+    expect(() => run(dir, 'cat-file', '-e', git(tmp, 'hash-object', outside))).toThrow();
+    expect(staged()).toBe(before);
+  });
+
+  it('a file reached through a linked folder is refused, and nothing is read through it', async () => {
+    fs.mkdirSync(path.join(tmp, 'denied'));
+    fs.writeFileSync(path.join(tmp, 'denied/key'), 'DUMMY-SECRET-5520');
+    fs.symlinkSync(path.join(tmp, 'denied'), path.join(dir, 'docs'));
+    expect(await stageByDescriptor(dir, 'fix', ['docs/key'])).toBe(
+      "`fix` left `docs/key` behind a linked folder; Consola commits only the checkout's own files",
+    );
+    expect(() =>
+      run(dir, 'cat-file', '-e', git(tmp, 'hash-object', path.join(tmp, 'denied/key'))),
+    ).toThrow();
+  });
+
+  it('what is not a file, a link or gone is refused', async () => {
+    execFileSync('mkfifo', [path.join(dir, 'pipe')]);
+    expect(await stageByDescriptor(dir, 'fix', ['pipe'])).toBe(
+      "`fix` left `pipe`, which is not a file; Consola commits only the checkout's own files",
+    );
+  });
+
+  it('a refusal while staging puts the index back: nothing of what it staged before stays', async () => {
+    writeFile('a.txt', 'staged first\n');
+    const outside = path.join(tmp, 'outside.txt');
+    fs.writeFileSync(outside, 'x');
+    fs.linkSync(outside, path.join(dir, 'hl'));
+    expect(await stageChecked(dir, 'fix')).toBe(
+      "`fix` left `hl` hard-linked to another file; Consola commits only the checkout's own files",
+    );
+    expect(run(dir, 'diff', '--cached', '--name-only')).toBe('');
+  });
+
+  it('after staging, the tree is checked again: a repository that appeared is refused, the index put back', async () => {
+    writeFile('a.txt', 'x\n');
+    writeFile('sub/.git', 'gitdir: /tmp/x\n');
+    expect(await stageChecked(dir, 'fix')).toBe(
+      "`fix` left a repository inside the checkout (`sub/.git`); Consola commits only the checkout's own files",
+    );
+    expect(run(dir, 'diff', '--cached', '--name-only')).toBe('');
+  });
+
+  it("keeps the repository's own line-ending rules, as git add would", async () => {
+    writeFile('.gitattributes', '*.txt text eol=lf\n');
+    writeFile('crlf.txt', 'a\r\nb\r\n');
+    expect(await stageByDescriptor(dir, 'fix', ['.gitattributes', 'crlf.txt'])).toBeNull();
+    expect(run(dir, 'cat-file', '-p', ':crlf.txt')).toBe('a\nb');
+  });
+
+  it('settle commits through it', async () => {
+    writeFile('src/app.ts', 'fixed\n');
+    const result = await settleRunClone({
+      dir,
+      branch: 'fix/a',
+      base: run(dir, 'rev-parse', 'HEAD'),
+      before: run(dir, 'rev-parse', 'HEAD'),
+      commit: { message: 'm' },
+      attemptDir: path.join(tmp, 'attempt'),
+      step: 'fix',
+    });
+    expect(result).toMatchObject({ ok: true, files: 1 });
+    expect(run(dir, 'show', 'HEAD:src/app.ts')).toBe('fixed');
+    expect(fs.existsSync(`${gitDir}.consola.json`)).toBe(true);
   });
 });

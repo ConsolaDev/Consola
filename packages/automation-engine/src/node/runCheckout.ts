@@ -511,7 +511,8 @@ export async function settleRunClone(request: SettleRequest): Promise<SettleResu
       return { ok: true, after, files: names.length, flagged: flaggedPaths(names) };
     }
     if (commit) {
-      await runCloneGit(dir, ['add', '-A']);
+      const refused = await stageChecked(dir, step);
+      if (refused) return { ok: false, error: refused };
       if (!(await answers(dir, ['diff', '--cached', '--quiet'])))
         await runCloneGit(dir, ['commit', '-q', '--no-verify', '-m', commit.message]);
     } else {
@@ -540,6 +541,121 @@ export async function settleRunClone(request: SettleRequest): Promise<SettleResu
       error: `Consola couldn't settle \`${step}\`'s checkout: ${describe(error)}`,
     };
   }
+}
+
+/** git in the run clone with `input` on its stdin: its trimmed stdout. */
+function runCloneGitWithInput(dir: string, args: string[], input: Buffer): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = spawn('git', args, {
+      cwd: dir,
+      env: runCloneGitEnv(dir, process.env),
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (chunk: Buffer) => {
+      stdout += chunk.toString('utf8');
+    });
+    child.stderr.on('data', (chunk: Buffer) => {
+      stderr += chunk.toString('utf8');
+    });
+    child.once('error', reject);
+    child.once('close', (code) => {
+      if (code === 0) resolve(stdout.trim());
+      else reject(new Error(stderr.trim().split('\n').pop() || `git exited ${code}`));
+    });
+    child.stdin.end(input);
+  });
+}
+
+const notOwnFile = (who: string, file: string, why: string) =>
+  `\`${who}\` left \`${file}\`${why}; Consola commits only the checkout's own files`;
+
+/** The first folder on `file`'s way (inside `dir`) that is a link, or null. */
+function linkedFolderOn(dir: string, file: string): string | null {
+  const parts = file.split('/');
+  for (let i = 1; i < parts.length; i++) {
+    const folder = parts.slice(0, i).join('/');
+    if (fs.lstatSync(path.join(dir, folder), { throwIfNoEntry: false })?.isSymbolicLink())
+      return folder;
+  }
+  return null;
+}
+
+/**
+ * Stage `paths` (what `git status` lists) as Consola read them, never by
+ * letting git read them again by path (the commit review: a leftover still
+ * writing the checkout could swap a file for a hard link, or a folder for a
+ * link, between the check and git's read). Each regular file is opened
+ * `O_NOFOLLOW`, its descriptor's link count checked to be 1, its bytes read
+ * from that descriptor and the path checked to still be that file, then
+ * written as an object (`hash-object -w --stdin --path`, so the repository's
+ * line-ending rules apply as `git add`'s would, and no filter) and put in the
+ * index (`update-index --cacheinfo`); a link is staged as a link, a gone
+ * file removed; a path behind a linked folder, or that is no file, is
+ * refused. Null when all were staged; else why not, nothing more staged.
+ * Exported for its tests.
+ */
+export async function stageByDescriptor(
+  dir: string,
+  who: string,
+  paths: readonly string[],
+): Promise<string | null> {
+  for (const file of paths) {
+    if (linkedFolderOn(dir, file) !== null) return notOwnFile(who, file, ' behind a linked folder');
+    const full = path.join(dir, file);
+    const stat = fs.lstatSync(full, { throwIfNoEntry: false });
+    if (!stat) {
+      await runCloneGit(dir, ['update-index', '--force-remove', '--', file]);
+      continue;
+    }
+    if (stat.isSymbolicLink()) {
+      const object = await runCloneGitWithInput(
+        dir,
+        ['hash-object', '-w', '--stdin', '--no-filters'],
+        Buffer.from(fs.readlinkSync(full)),
+      );
+      await runCloneGit(dir, ['update-index', '--add', '--cacheinfo', `120000,${object},${file}`]);
+      continue;
+    }
+    if (!stat.isFile()) return notOwnFile(who, file, ', which is not a file');
+    const fd = fs.openSync(full, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+    let bytes: Buffer;
+    let mode: string;
+    try {
+      const opened = fs.fstatSync(fd);
+      if (!opened.isFile() || opened.nlink !== 1)
+        return notOwnFile(who, file, ' hard-linked to another file');
+      bytes = fs.readFileSync(fd);
+      const now = fs.lstatSync(full, { throwIfNoEntry: false });
+      // The path must still be the file read, reached by no linked folder.
+      if (!now || now.ino !== opened.ino || now.dev !== opened.dev || linkedFolderOn(dir, file))
+        return notOwnFile(who, file, ', which changed while Consola read it');
+      mode = (opened.mode & 0o111) !== 0 ? '100755' : '100644';
+    } finally {
+      fs.closeSync(fd);
+    }
+    // `--path`: the repository's own line-ending rules apply, as `git add`'s would; no filter can (the git folder's attributes).
+    const object = await runCloneGitWithInput(
+      dir,
+      ['hash-object', '-w', '--stdin', '--path', file],
+      bytes,
+    );
+    await runCloneGit(dir, ['update-index', '--add', '--cacheinfo', `${mode},${object},${file}`]);
+  }
+  return null;
+}
+
+/**
+ * Stage everything a step or a session left, by descriptor, then check the
+ * tree again before anything is committed (the commit review: what changed
+ * after the first check); a refusal puts the index back to `HEAD`.
+ */
+export async function stageChecked(dir: string, who: string): Promise<string | null> {
+  const refused =
+    (await stageByDescriptor(dir, who, await changedPaths(dir))) ?? (await treeProblem(dir, who));
+  if (refused) await runCloneGit(dir, ['reset', '-q']);
+  return refused;
 }
 
 function writePatch(attemptDir: string, patch: string): void {
@@ -576,7 +692,8 @@ export async function settleBetweenSteps(request: {
     const head = (await runCloneGit(dir, ['rev-parse', 'HEAD'])).trim();
     if (left.length === 0 && head === before) return null;
     if (left.length > 0) {
-      await runCloneGit(dir, ['add', '-A']);
+      const refused = await stageChecked(dir, request.session ?? 'a session');
+      if (refused) return { ok: false, error: refused };
       await runCloneGit(dir, ['commit', '-q', '--no-verify', '-m', message]);
     }
     const after = (await runCloneGit(dir, ['rev-parse', 'HEAD'])).trim();
