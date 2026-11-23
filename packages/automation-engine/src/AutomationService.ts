@@ -213,8 +213,18 @@ import {
   type StepsRunPreview,
 } from './steps/definition';
 import { isEngineRun, isStepsRun } from './steps/recover';
-import { writesNotYet } from './steps/writesLater';
-import { makeFailedMessage, NO_RUN_CHECKOUTS, type RunCheckoutPort } from './steps/runCheckout';
+import {
+  commitMessage,
+  folderChangedMessage,
+  leftoverProblem,
+  makeFailedMessage,
+  MAX_PATH_ARTIFACT_BYTES,
+  NO_RUN_CHECKOUTS,
+  noWriteAgents,
+  pathArtifactProblem,
+  type RunCheckoutPort,
+  type SettleResult,
+} from './steps/runCheckout';
 import { advanceSteps, type Advance, type Lane, type StepUpdate } from './steps/sequence';
 import {
   closeSteps,
@@ -396,6 +406,13 @@ export interface AutomationServiceDeps {
    * entry: it says so (`NO_RUN_CHECKOUTS`).
    */
   runCheckout?: RunCheckoutPort;
+  /**
+   * The host's launch holds an agent that writes (`tools: edit | write`) to
+   * its environment: its policy, sandbox and environment on every launch
+   * (slice 3-B, Call 2). A host that does not say so cannot run such an
+   * entry: it says so (`NO_WRITE_AGENTS`).
+   */
+  writeAgents?: true;
   /** Whether a session is running in `dir`, launched there or moved in since: a run on that checkout waits for it. */
   checkoutBusy(dir: string): boolean;
   /** Whether a step's working folder (its item's checkout, or its scope's folder) is still there. */
@@ -759,11 +776,14 @@ export class AutomationService {
   /** Commands a quit let go of: whatever they report afterwards is dropped, so their steps keep their intent. */
   private readonly abandoned = new WeakSet<RunningCommand>();
   /**
-   * Failed item runs whose retry is preparing their checkout: each claims its
-   * folder and item (`checkoutHeld`) until it is done, while the run itself
-   * stays as it was until the preparation succeeds.
+   * Failed item runs whose retry is preparing their checkout, and runs whose
+   * retry is resetting their own (slice 3-B): each claims its folder and
+   * item (`checkoutHeld`) until it is done, while the run itself stays as it
+   * was until the preparation succeeds.
    */
   private readonly retrying = new Map<string, { dir: string; itemKey?: string }>();
+  /** Runs whose write step's declared retry is resetting their own checkout (slice 3-B): one reset at a time each. */
+  private readonly resetting = new Set<string>();
   /**
    * A step turn whose `init` failed its check, by session: the engine's words
    * for why, which become the step's error when the turn it stopped ends.
@@ -2901,6 +2921,20 @@ export class AutomationService {
         void this.pump();
       }
     }
+    // A write step in a run's own checkout starts again from its `before`, once what it left is ended (slice 3-B).
+    const writer = owned && made === undefined ? writeStepToReset(run.steps ?? []) : undefined;
+    let resetTo: string | undefined;
+    if (writer) {
+      this.retrying.set(runId, { dir: run.checkout!.cwd });
+      try {
+        resetTo = await this.resetWriteStep(run, writer);
+        if (this.deps.store.get(runId)?.status !== 'failed')
+          throw new Error(`Run ${runId} changed while its checkout was reset; it was not retried.`);
+      } finally {
+        this.retrying.delete(runId);
+        void this.pump();
+      }
+    }
     if (workItem) {
       const workspaceId = run.attribution.workspaceId!;
       const itemKey = run.trigger.item?.key;
@@ -2959,6 +2993,7 @@ export class AutomationService {
           }
         : {}),
       ...(made ? { checkout: made } : {}),
+      ...(resetTo !== undefined ? { checkout: { ...current.checkout!, head: resetTo } } : {}),
     });
     this.broadcastRun(runId);
     this.advance(runId);
@@ -3817,6 +3852,194 @@ export class AutomationService {
   }
 
   /**
+   * A run's own checkout as the port works it (slice 3-B): null for a run
+   * whose checkout is an item's or a scope's; a problem when the host has no
+   * port, or the checkout was never made (neither reaches a step: resolving
+   * refuses the first, and no step starts before it is made).
+   */
+  private ownedCheckout(run: RunRecord): OwnedCheckout | { problem: string } | null {
+    const checkout = run.checkout;
+    if (checkout?.kind !== 'run-owned') return null;
+    const port = this.deps.runCheckout;
+    if (!port) return { problem: NO_RUN_CHECKOUTS };
+    const { cwd, branch, base, head } = checkout;
+    if (!cwd || !branch || !base || !head) return { problem: 'It has no working folder.' };
+    return { port, dir: cwd, branch, base, head };
+  }
+
+  /**
+   * What a step left in its run's own checkout, checked and committed by
+   * Consola (slice 3-B, *Commits, and the checks between steps*). First the
+   * step's own processes are ended (an agent's by its session; a command's
+   * group is its runner's); anything left there fails the step and nothing
+   * is settled, so Consola never commits while a process can still write.
+   * Then the port settles: an agent step's changes committed (`agent`), a
+   * command's checked with no commit (`command`), a failed attempt's kept as
+   * `changes.patch` with nothing committed (`failed`). An agent's or a
+   * command's that settled is recorded in one line: the step's `checkout`
+   * and the run's `head`, while the step still runs.
+   */
+  private async settleRunOwned(
+    run: RunRecord,
+    record: StepRun,
+    kind: 'agent' | 'command' | 'failed',
+  ): Promise<SettleResult> {
+    const owned = this.ownedCheckout(run);
+    if (!owned) return { ok: false, error: 'It has no working folder.' };
+    if ('problem' in owned) return { ok: false, error: owned.problem };
+    const { port, dir, branch, base, head } = owned;
+    // A command's row has no session: its group is its runner's.
+    const left = await port.endStepProcesses({
+      dir,
+      ...(record.sessionId ? { sessionId: record.sessionId } : {}),
+    });
+    const problem = leftoverProblem(left);
+    if (problem) return { ok: false, error: problem };
+    // Stopped, or Consola quit, while that was asked: the stop's end, or the next start, owns the step now.
+    if (!this.stepStillRunning(run.id, record.id, record.attempt))
+      return { ok: false, error: 'It ended before Consola checked its checkout.' };
+    const before = record.checkout?.before ?? head;
+    const settled = await port.settle({
+      dir,
+      branch,
+      base,
+      before,
+      step: record.id,
+      commit:
+        kind === 'agent'
+          ? {
+              message: commitMessage(
+                record.id,
+                record.attempt,
+                run.automationId,
+                run.trigger.item?.key ?? run.id.slice(0, 8),
+              ),
+            }
+          : null,
+      attemptDir: this.deps.runFolder.attemptDir(
+        run.attribution.workspaceId ?? '',
+        run.id,
+        record.id,
+        record.attempt,
+      ),
+      ...(kind === 'failed' ? { keepOnly: true } : {}),
+    });
+    if (!settled.ok || kind === 'failed') return settled;
+    if (!this.stepStillRunning(run.id, record.id, record.attempt)) return settled;
+    const current = this.deps.store.get(run.id)!;
+    this.deps.store.update(run.id, {
+      steps: withStep(this.stepsOf(run.id), record.id, {
+        checkout: { before, after: settled.after, files: settled.files, flagged: settled.flagged },
+      }),
+      checkout: { ...current.checkout!, head: settled.after },
+      updatedAt: this.iso(),
+    });
+    this.broadcastRun(run.id);
+    return settled;
+  }
+
+  /**
+   * A step's path artifacts, read at the commit it ended at (`after`), each
+   * path's placeholders rendered as a branch's: each a regular file of at
+   * most 1 MB, copied into the attempt's folder as the step's document, so
+   * `reads:` and `{{…file}}` find it as any other. `remind` names the
+   * missing ones while the step has had no reminder; once it has, a missing
+   * one fails it, and so does one that is not a file or is too large.
+   */
+  private async keepPathArtifacts(
+    run: RunRecord,
+    record: StepRun,
+    owned: OwnedCheckout,
+    after: string,
+    artifacts: ReadonlyArray<{ name: string; path: string }>,
+  ): Promise<{ ok: true } | { remind: Array<{ name: string; path: string }> } | { error: string }> {
+    const read: Array<{ name: string; text: string }> = [];
+    const missing: Array<{ name: string; path: string }> = [];
+    for (const artifact of artifacts) {
+      const path = renderBranch(artifact.path, {
+        itemKey: run.trigger.item?.key,
+        itemNumber: run.trigger.item?.number,
+        runId: run.id,
+      });
+      const shown = await owned.port.showAt(owned.dir, after, path, MAX_PATH_ARTIFACT_BYTES);
+      const rendered = { name: artifact.name, path };
+      if (shown.ok) {
+        if (utf8Bytes(shown.text) > MAX_ARTIFACT_BYTES)
+          return { error: pathArtifactProblem(rendered, record.id, 'over-document') };
+        read.push({ name: artifact.name, text: shown.text });
+      } else if (shown.reason === 'missing') missing.push(rendered);
+      else return { error: pathArtifactProblem(rendered, record.id, shown.reason) };
+    }
+    if (missing.length > 0)
+      return record.reminded
+        ? { error: pathArtifactProblem(missing[0], record.id, 'missing') }
+        : { remind: missing };
+    const workspaceId = run.attribution.workspaceId!;
+    const written = [
+      ...(this.stepsOf(run.id).find((step) => step.id === record.id)?.artifacts ?? []),
+    ];
+    for (const { name, text } of read) {
+      const { bytes } = this.deps.runFolder.writeArtifact(
+        workspaceId,
+        run.id,
+        record.id,
+        record.attempt,
+        name,
+        text,
+      );
+      const at = written.findIndex((artifact) => artifact.name === name);
+      if (at === -1) written.push({ name, bytes });
+      else written[at] = { name, bytes };
+    }
+    if (read.length > 0)
+      this.writeSteps(run.id, withStep(this.stepsOf(run.id), record.id, { artifacts: written }));
+    return { ok: true };
+  }
+
+  /**
+   * Before a write step in a run's own checkout runs again (a person's
+   * Retry, its declared retry): what its attempt left running is ended, and
+   * anything left there refuses the retry in its words; its changes are kept
+   * as that attempt's `changes.patch`; then the checkout goes back to the
+   * step's `before`, `HEAD` on the run's branch. A patch that cannot be kept
+   * stops nothing: it is the attempt's record, and the reset is what the
+   * next attempt starts from. Throws what refuses it.
+   */
+  private async resetWriteStep(run: RunRecord, record: StepRun): Promise<string> {
+    const owned = this.ownedCheckout(run);
+    const before = record.checkout?.before;
+    if (!owned || 'problem' in owned || before === undefined)
+      throw new Error(owned && 'problem' in owned ? owned.problem : 'It has no working folder.');
+    const { port, dir, branch, base } = owned;
+    const left = leftoverProblem(
+      await port.endStepProcesses({
+        dir,
+        ...(record.sessionId ? { sessionId: record.sessionId } : {}),
+      }),
+    );
+    if (left) throw new Error(left);
+    const kept = await port.settle({
+      dir,
+      branch,
+      base,
+      before,
+      step: record.id,
+      commit: null,
+      attemptDir: this.deps.runFolder.attemptDir(
+        run.attribution.workspaceId ?? '',
+        run.id,
+        record.id,
+        record.attempt,
+      ),
+      keepOnly: true,
+    });
+    if (!kept.ok)
+      console.warn(`Run ${run.id} kept no changes.patch for ${record.id}: ${kept.error}`);
+    await port.reset(dir, before, branch);
+    return before;
+  }
+
+  /**
    * After a run starts, or a step settles: apply what the sequencer says
    * from the record and the run's own definition, each change its own line,
    * then queue the next step for the pump to start, or end the run. A
@@ -4159,16 +4382,36 @@ export class AutomationService {
       this.settleStep(runId, stepId, { status: 'failed', error: launch.error });
       return;
     }
+    // A run's own checkout (slice 3-B): its git folder is checked before anything starts in it (Call 9).
+    const owned = this.ownedCheckout(run);
+    if (owned && 'problem' in owned) {
+      this.settleStep(runId, stepId, { status: 'failed', error: owned.problem });
+      return;
+    }
+    const changed = owned?.port.folderProblem(owned.dir);
+    if (changed) {
+      this.settleStep(runId, stepId, { status: 'failed', error: folderChangedMessage(changed) });
+      return;
+    }
     const { attempt } = launch.request.step!;
+    const tools = loaded.definition.agents?.[stepId]?.tools;
     // The running step now holds the slot its run was let in with.
     this.admitted.delete(runId);
     this.writeSteps(
       runId,
-      withAttemptStarted(
-        this.stepsOf(runId),
+      withStep(
+        withAttemptStarted(
+          this.stepsOf(runId),
+          stepId,
+          this.iso(),
+          loaded.definition.agents?.[stepId]?.name,
+        ),
         stepId,
-        this.iso(),
-        loaded.definition.agents?.[stepId]?.name,
+        {
+          // What a restart reads to fail it, and the commit Consola's checks start from (slice 3-B).
+          ...(tools !== undefined ? { tools } : {}),
+          ...(owned ? { checkout: { before: owned.head } } : {}),
+        },
       ),
     );
     this.broadcastRun(runId);
@@ -4402,6 +4645,18 @@ export class AutomationService {
     // Its run may have ended while that was borrowed, or Consola quit:
     // nothing ran, and with no intent recorded the next start runs it.
     if (!this.started || !this.stepWaiting(runId, stepId, command.attempt)) return;
+    // A run's own checkout (slice 3-B): its git folder is checked before anything starts in it (Call 9),
+    // with nothing awaited between the check and the spawn.
+    const owned = this.ownedCheckout(this.deps.store.get(runId)!);
+    if (owned && 'problem' in owned) {
+      this.settleStep(runId, stepId, { status: 'failed', error: owned.problem });
+      return;
+    }
+    const changed = owned?.port.folderProblem(owned.dir);
+    if (changed) {
+      this.settleStep(runId, stepId, { status: 'failed', error: folderChangedMessage(changed) });
+      return;
+    }
     const refused =
       writeCommandFile(this.deps.runFolder, command, base.secrets) ??
       createOutputFile(this.deps.runFolder, command);
@@ -4415,9 +4670,11 @@ export class AutomationService {
     const spec = commandSpec(command, base);
     const now = this.iso();
     const envNames = command.values.map((value) => value.name);
+    const intent = withCommandIntent(this.stepsOf(runId), stepId, now, envNames);
     try {
       this.deps.store.updateDurably(runId, {
-        steps: withCommandIntent(this.stepsOf(runId), stepId, now, envNames),
+        // The commit its checks start from, in a run's own checkout.
+        steps: owned ? withStep(intent, stepId, { checkout: { before: owned.head } }) : intent,
         updatedAt: now,
       });
     } catch (error) {
@@ -4500,6 +4757,13 @@ export class AutomationService {
         result: ended.result,
         secrets,
       });
+      // In a run's own checkout a command that succeeded is checked, not committed (slice 3-B).
+      if (outcome.end.status === 'completed' && this.ownedCheckout(this.deps.store.get(runId)!)) {
+        void this.settleOwnedCommand(command, outcome, running).catch((error: unknown) =>
+          this.stepSettleThrew(runId, record, error),
+        );
+        return;
+      }
       this.settleStep(runId, step.id, outcome.end, { also: outcome.changes });
     } catch (error) {
       console.error(`Run ${runId} could not record how its command ended.`, error);
@@ -4509,6 +4773,35 @@ export class AutomationService {
         console.error(`Run ${runId} could not be recorded as failed.`, failing);
       }
     }
+  }
+
+  /**
+   * A command that succeeded in a run's own checkout: once nothing is left
+   * in its process group (its runner ends it with the result), what it left
+   * is checked with no commit (`settleRunOwned`); a problem fails it, its
+   * result kept either way.
+   */
+  private async settleOwnedCommand(
+    command: PreparedCommand,
+    outcome: ReturnType<typeof commandOutcome>,
+    running?: RunningCommand,
+  ): Promise<void> {
+    const { runId, step, attempt } = command;
+    await running?.ended;
+    if (!this.stepStillRunning(runId, step.id, attempt)) return;
+    const record = this.stepsOf(runId).find((candidate) => candidate.id === step.id)!;
+    const settled = await this.settleRunOwned(this.deps.store.get(runId)!, record, 'command');
+    if (!this.stepStillRunning(runId, step.id, attempt)) return;
+    if (!settled.ok) {
+      this.settleStep(
+        runId,
+        step.id,
+        { status: 'failed', error: settled.error },
+        { also: outcome.changes },
+      );
+      return;
+    }
+    this.settleStep(runId, step.id, outcome.end, { also: outcome.changes });
   }
 
   /** Whether the run still has that step queued at that attempt: it may have ended while something was awaited. */
@@ -4580,10 +4873,49 @@ export class AutomationService {
     if (unchecked) failed = { error: unchecked, atTurnLimit: false };
     if (failed) {
       if (failed.atTurnLimit) this.keepOutputs(run, record.id);
+      if (this.ownedCheckout(run)) {
+        void this.failOwnedStep(run, record, failed.error);
+        return;
+      }
       this.settleStep(run.id, record.id, { status: 'failed', error: failed.error });
       return;
     }
-    this.stepTurnFinished(run, record, sessionId, loaded);
+    void this.stepTurnFinished(run, record, sessionId, loaded).catch((error: unknown) =>
+      this.stepSettleThrew(run.id, record, error),
+    );
+  }
+
+  /**
+   * An agent step in a run's own checkout failed: its changes are kept as
+   * its attempt's `changes.patch`, nothing committed, once what it left
+   * running is ended (`settleRunOwned`), then it fails with its own error.
+   * What could not be ended or kept is not its error: a retry asks again
+   * before anything runs (`resetWriteStep`), and refuses in those words.
+   */
+  private async failOwnedStep(run: RunRecord, record: StepRun, error: string): Promise<void> {
+    try {
+      await this.settleRunOwned(run, record, 'failed');
+    } catch (settling) {
+      console.error(`Run ${run.id} could not keep what ${record.id} left.`, settling);
+    }
+    if (this.stepStillRunning(run.id, record.id, record.attempt))
+      this.settleStep(run.id, record.id, { status: 'failed', error });
+  }
+
+  /** After something was awaited for a step: the service still runs, and the step's attempt is still running. */
+  private stepStillRunning(runId: string, stepId: string, attempt: number): boolean {
+    return this.started && this.stepRunning(runId, stepId, attempt);
+  }
+
+  /** Settling a step threw past every check: it fails in those words, as the run would. */
+  private stepSettleThrew(runId: string, record: StepRun, error: unknown): void {
+    console.error(`Run ${runId} could not settle ${record.id}.`, error);
+    try {
+      if (this.stepStillRunning(runId, record.id, record.attempt))
+        this.settleStep(runId, record.id, { status: 'failed', error: describeError(error) });
+    } catch (failing) {
+      console.error(`Run ${runId} could not be recorded as failed.`, failing);
+    }
   }
 
   /**
@@ -4655,22 +4987,37 @@ export class AutomationService {
 
   /**
    * A step's turn ended cleanly: it completes when nothing it declares is
-   * missing, is reminded once when something is, and fails after that.
+   * missing, is reminded once when something is, and fails after that. In a
+   * run's own checkout (slice 3-B) Consola checks and commits what it left
+   * first (`settleRunOwned`), then reads its path artifacts at that commit,
+   * a missing one getting the same one reminder; its outputs are written
+   * only once that commit is recorded.
    */
-  private stepTurnFinished(
+  private async stepTurnFinished(
     run: RunRecord,
     record: StepRun,
     sessionId: string,
     loaded: LoadedDefinition,
-  ): void {
+  ): Promise<void> {
     if ('problem' in loaded) {
       this.failRun(run.id, loaded.problem);
       return;
     }
+    const owned = this.ownedCheckout(run);
+    if (owned && 'problem' in owned) {
+      this.settleStep(run.id, record.id, { status: 'failed', error: owned.problem });
+      return;
+    }
+    // A path artifact is a file in the checkout, read once it is committed: not one of the documents the step tools hold.
+    const files = owned ? pathArtifactsOf(loaded.definition, record.id) : [];
     let without: string | null;
     let missing: { outputs: string[]; artifacts: string[] } | undefined;
     try {
-      missing = this.stepIO().missing(run.id, record.id);
+      const io = this.stepIO().missing(run.id, record.id);
+      missing = {
+        outputs: io.outputs,
+        artifacts: io.artifacts.filter((name) => !files.some((file) => file.name === name)),
+      };
       without = endedWithout(missing);
     } catch (error) {
       missing = undefined;
@@ -4681,8 +5028,36 @@ export class AutomationService {
         this.remindStep(run, record, sessionId, missing);
         return;
       }
+      if (owned) {
+        await this.failOwnedStep(run, record, without);
+        return;
+      }
       this.settleStep(run.id, record.id, { status: 'failed', error: without });
       return;
+    }
+    if (owned) {
+      const settled = await this.settleRunOwned(run, record, 'agent');
+      if (!this.stepStillRunning(run.id, record.id, record.attempt)) return;
+      if (!settled.ok) {
+        this.settleStep(run.id, record.id, { status: 'failed', error: settled.error });
+        return;
+      }
+      if (files.length > 0) {
+        const kept = await this.keepPathArtifacts(run, record, owned, settled.after, files);
+        if (!this.stepStillRunning(run.id, record.id, record.attempt)) return;
+        if ('remind' in kept) {
+          this.remindStep(run, record, sessionId, {
+            outputs: [],
+            artifacts: [],
+            files: kept.remind,
+          });
+          return;
+        }
+        if ('error' in kept) {
+          this.settleStep(run.id, record.id, { status: 'failed', error: kept.error });
+          return;
+        }
+      }
     }
     const workspaceId = run.attribution.workspaceId!;
     try {
@@ -4710,7 +5085,11 @@ export class AutomationService {
     run: RunRecord,
     record: StepRun,
     sessionId: string,
-    missing: { outputs: string[]; artifacts: string[] },
+    missing: {
+      outputs: string[];
+      artifacts: string[];
+      files?: Array<{ name: string; path: string }>;
+    },
   ): void {
     const session = this.sessionNamed(run, sessionId);
     if (!session) {
@@ -4912,6 +5291,11 @@ export class AutomationService {
           Date.parse(step.retryAt) <= now,
       );
       if (!due) continue;
+      // A write step in a run's own checkout is reset first (slice 3-B), as a person's Retry resets it.
+      if (run.checkout?.kind === 'run-owned' && isWriteStepToReset(due)) {
+        if (!this.resetting.has(run.id)) void this.resumeAfterReset(run.id, due.id);
+        continue;
+      }
       const at = this.iso();
       this.deps.store.update(run.id, {
         status: 'running',
@@ -4923,11 +5307,64 @@ export class AutomationService {
     }
   }
 
+  /**
+   * A write step's declared retry in a run's own checkout: its leftovers
+   * ended, its patch kept and the checkout put back to its `before`
+   * (`resetWriteStep`), then its next attempt as any due wait's, the run's
+   * head that `before`. What refuses the reset fails the run in its words,
+   * the step's own error kept: nothing runs again over what it left. A stop
+   * meanwhile ends the wait, and this does nothing more.
+   */
+  private async resumeAfterReset(runId: string, stepId: string): Promise<void> {
+    this.resetting.add(runId);
+    try {
+      const run = this.deps.store.get(runId)!;
+      const record = run.steps!.find((step) => step.id === stepId)!;
+      let before: string;
+      try {
+        before = await this.resetWriteStep(run, record);
+      } catch (error) {
+        const now = this.deps.store.get(runId);
+        if (!this.started || now?.status !== 'waiting') return;
+        const steps = now.steps!.map((step): StepRun => {
+          if (step.id !== stepId) return step;
+          const { retryAt: _retryAt, ...rest } = step;
+          return { ...rest, status: 'failed' };
+        });
+        this.finish(runId, 'failed', { error: describeError(error) }, [], steps);
+        this.notify(`${run.automationId} did not finish`, describeError(error), runId);
+        void this.pump();
+        return;
+      }
+      const now = this.deps.store.get(runId);
+      const waiting = now?.steps?.find((step) => step.id === stepId);
+      if (!this.started || now?.status !== 'waiting' || waiting?.status !== 'waiting') return;
+      const at = this.iso();
+      this.deps.store.update(runId, {
+        status: 'running',
+        steps: withRetryDue(now.steps ?? [], stepId, at),
+        checkout: { ...now.checkout!, head: before },
+        updatedAt: at,
+      });
+      this.broadcastRun(runId);
+      this.pickUp(this.deps.store.get(runId)!);
+    } catch (error) {
+      console.error(`Run ${runId} could not go on after its wait.`, error);
+    } finally {
+      this.resetting.delete(runId);
+    }
+  }
+
   /** The entry's declared retry: the run starts again from its first step (`resumeDueWaits`). */
   private restartRun(run: RunRecord): void {
     const loaded = this.definitionOf(run);
+    // A run that owns its checkout keeps its record (slice 3-B): `pickUp` makes it if it was never made.
     const workItem =
-      'definition' in loaded && !loaded.definition.automation.scope ? itemRefOf(run) : undefined;
+      'definition' in loaded &&
+      !loaded.definition.automation.scope &&
+      !isRunOwnedCheckout(loaded.definition.automation.checkout)
+        ? itemRefOf(run)
+        : undefined;
     const workspaceId = run.attribution.workspaceId ?? '';
     const dir = workItem
       ? (run.checkout?.cwd ?? this.deps.checkout.pathFor(workspaceId, workItem))
@@ -5694,10 +6131,10 @@ export class AutomationService {
     // A checkout the run owns needs a host that makes one (slice 3-B, Call 2).
     if (isRunOwnedCheckout(automation.checkout) && !this.deps.runCheckout)
       return unable(NO_RUN_CHECKOUTS, warnings);
-    // A write key the format accepts and the engine does not run yet stops the entry, in words
-    // (slice 3-B, Call 2): last, so every other problem the entry has is said first.
-    const writes = writesNotYet(automation, agents);
-    if (writes) return unable(writes, warnings);
+    // A write agent needs a host whose launch holds it to its environment (slice 3-B, Call 2):
+    // last, so every other problem the entry has is said first.
+    const writes = this.deps.writeAgents ? undefined : writeToolsOf(automation, agents);
+    if (writes) return unable(noWriteAgents(writes), warnings);
 
     // The bodies live in settings, not the file: editing one asks again. So
     // does editing an agent file a step names: its hash is in the version.
@@ -6450,6 +6887,56 @@ function isAgentRun(run: RunRecord): boolean {
 /** Whether a step's agent names an MCP server, which may post or change things (Call 8). */
 function agentNamesServer(definition: RunDefinition, stepId: string): boolean {
   return (definition.agents?.[stepId]?.mcpServers.length ?? 0) > 0;
+}
+
+/**
+ * A write step's attempt that a retry starts again from its `before`: an
+ * agent row whose agent writes (`tools`, written at its start) and that
+ * started in a run's own checkout (`checkout.before`).
+ */
+function isWriteStepToReset(record: StepRun): boolean {
+  return (
+    record.kind === 'agent' && record.tools !== undefined && record.checkout?.before !== undefined
+  );
+}
+
+/** The write step a person's Retry resets: the one the run failed at, a loop's step included. */
+function writeStepToReset(records: readonly StepRun[]): StepRun | undefined {
+  return records.find((record) => record.status === 'failed' && isWriteStepToReset(record));
+}
+
+/** A run's own checkout as the port works it (slice 3-B): made, with its branch, base and head. */
+interface OwnedCheckout {
+  port: RunCheckoutPort;
+  dir: string;
+  branch: string;
+  base: string;
+  head: string;
+}
+
+/**
+ * The `tools:` of the first leaf agent step (a loop's steps included) whose
+ * agent writes, `edit` or `write`; undefined when none does.
+ */
+function writeToolsOf(
+  automation: StepsAutomation,
+  agents: Readonly<Record<string, AgentDefinition>>,
+): 'edit' | 'write' | undefined {
+  for (const step of leafSteps(automation.steps)) {
+    if (step.kind !== 'agent' || step.agent === undefined) continue;
+    const tools = agents[step.agent]?.tools ?? 'read-only';
+    if (tools !== 'read-only') return tools;
+  }
+  return undefined;
+}
+
+/** A step's path artifacts (slice 3-B): the files it writes in its checkout, by name and path as the file says them. */
+function pathArtifactsOf(
+  definition: RunDefinition,
+  stepId: string,
+): Array<{ name: string; path: string }> {
+  const step = leafSteps(definition.automation.steps).find((candidate) => candidate.id === stepId);
+  return step?.kind === 'agent' ? (step.pathArtifacts ?? []) : [];
 }
 
 /** A write step's agent `tools` and its environment's isolation, as the definition keeps them; none for a read-only one. */

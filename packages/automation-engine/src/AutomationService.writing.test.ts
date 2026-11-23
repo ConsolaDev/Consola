@@ -1,6 +1,14 @@
-import { automationVersion, cleanBranchPart, parseFactorySpec } from '@consola/factory-spec';
+import {
+  automationVersion,
+  cleanBranchPart,
+  factoryFilesOf,
+  parseFactory,
+  parseFactorySpec,
+} from '@consola/factory-spec';
 import { describe, expect, it } from 'vitest';
+import { fileVersion } from './factory/apply';
 import { inboxItem } from './inboxItems.test-helpers';
+import { INTERRUPTED_WRITE } from './steps/recover';
 import { NO_RUN_CHECKOUTS, RunCheckoutError } from './steps/runCheckout';
 import {
   checkoutPathFor,
@@ -97,7 +105,8 @@ describe('a run that owns its checkout makes it before its first step (Task 12)'
       head: 'b0',
     });
     expect(stepCommands(h)[0].spec.cwd).toBe(runCheckoutPathFor(run.id, REPO));
-    expect(stepCommands(h)[0].spec.env.CONSOLA_CHECKOUT_HEAD).toBeUndefined();
+    // Its command reads the run's head, as an item run's does (Task 13).
+    expect(stepCommands(h)[0].spec.env.CONSOLA_CHECKOUT_HEAD).toBe('b0');
   });
 
   it('a poll item becomes its branch, cleaned', async () => {
@@ -204,7 +213,10 @@ describe('a run that owns its checkout makes it before its first step (Task 12)'
   });
 
   it("a retry of an agent step never prepares the item's checkout for a run that owns its own", async () => {
-    const yaml = EVENT_OWNED.replace('- id: check\n        run: "true"', '- id: look\n        prompt: Look at it.');
+    const yaml = EVENT_OWNED.replace(
+      '- id: check\n        run: "true"',
+      '- id: look\n        prompt: Look at it.',
+    );
     expect(yaml).toContain('prompt: Look at it.');
     const h = await harness(yaml);
     await h.poll([]);
@@ -308,5 +320,681 @@ describe('a run that owns its checkout makes it before its first step (Task 12)'
       head: 'b0',
     });
     expect(stepCommands(again)).toHaveLength(1);
+  });
+});
+
+/** A write agent on `sandbox`, and the environment it names. */
+const WRITER = {
+  'agents/fixer.md': '---\ntools: write\nenvironment: sandboxed\n---\nFix it.\n',
+  'environments/sandboxed.yaml': 'isolation: sandbox\n',
+};
+/** `on: manual`, its own checkout: `fix` runs the write agent, then `pr` a command. */
+const WRITE_ENTRY = file(
+  `  - name: write\n    on: manual\n    mode: auto\n${owned('fix/{{run.id}}')}${steps('- id: fix\n  agent: fixer\n  prompt: Fix it.', '- id: pr\n  run: "true"')}`,
+);
+/** A keyed poll: `fix` writes `notes` into the checkout at a path named by the item. */
+const POLL_WRITE = file(
+  `  - name: poll-write\n    on:\n      poll: { every: 5m, run: ./list, key: .key }\n    mode: auto\n${owned('fix/{{item.key}}')}${steps('- id: fix\n  agent: fixer\n  prompt: Fix it.\n  artifacts: [{ name: notes, path: "docs/fixes/{{item.key}}.md" }]', '- id: pr\n  run: "true"')}`,
+);
+
+/** The version the folder's files give an entry, agents and environments included: its resolved one, with no action bodies. */
+function versionOf(h: StepsHarness, name: string): string {
+  const parsed = parseFactory(factoryFilesOf(Object.fromEntries(h.texts())));
+  const entry = parsed.automations.find((automation) => automation.name === name)!;
+  return fileVersion(entry, parsed.agents, parsed.environments);
+}
+/** Accept every entry the service lists at that version, as a person approving each once would, and allow its checks. */
+function acceptListed(h: StepsHarness): void {
+  for (const view of h.service.list(WORKSPACE_ID)) {
+    h.store.accept(`${WORKSPACE_ID} ${view.name}`, versionOf(h, view.name));
+    if (view.needsAllow && view.version) h.service.allow(WORKSPACE_ID, view.name, view.version);
+  }
+}
+async function writing(
+  yaml: string,
+  options: StepsHarnessOptions = {},
+  files: Record<string, string> = WRITER,
+): Promise<StepsHarness> {
+  const h = await stepsHarness({ yaml, files, runCheckouts: true, ...options });
+  acceptListed(h);
+  await h.flush();
+  return h;
+}
+const stepOf = (h: StepsHarness, runId: string, id: string) =>
+  runOf(h, runId).steps!.find((step) => step.id === id)!;
+/** The name of each port call after the first `skip` (folder checks are kept apart). */
+const callNames = (h: StepsHarness, skip = 0) =>
+  h.world.runCheckouts.calls.slice(skip).map((call) => Object.keys(call)[0]);
+const settles = (h: StepsHarness) =>
+  h.world.runCheckouts.calls.flatMap((call) => ('settle' in call ? [call.settle] : []));
+const ownedDir = (h: StepsHarness, runId: string) => runOf(h, runId).checkout!.cwd;
+/** The session of the latest launch: a step's turn ends there. */
+const lastSession = (h: StepsHarness) => `session-${h.world.launches.length}`;
+
+describe("every step in a run's checkout ends with Consola's checks and commit (Task 13)", () => {
+  it("an agent step ends with Consola's commit, recorded on the step and the run, before the next step starts", async () => {
+    const h = await writing(WRITE_ENTRY);
+    const run = await runNow(h, 'write');
+    expect(h.world.launches).toHaveLength(1);
+    expect(stepOf(h, run.id, 'fix')).toMatchObject({
+      status: 'running',
+      tools: 'write',
+      checkout: { before: 'b0' },
+    });
+    await h.world.endTurn('session-1', { exitCode: 0 });
+    expect(callNames(h)).toEqual(['make', 'endStepProcesses', 'settle']);
+    expect(settles(h)[0]).toEqual({
+      dir: ownedDir(h, run.id),
+      branch: `fix/${run.id.slice(0, 8)}`,
+      base: 'b0',
+      before: 'b0',
+      step: 'fix',
+      commit: { message: `fix (attempt 1) of write on ${run.id.slice(0, 8)}` },
+      attemptDir: h.folder.attemptDir(WORKSPACE_ID, run.id, 'fix', 1),
+    });
+    expect(stepOf(h, run.id, 'fix')).toMatchObject({
+      status: 'completed',
+      tools: 'write',
+      checkout: { before: 'b0', after: 'c1', files: 2, flagged: [] },
+    });
+    expect(runOf(h, run.id).checkout!.head).toBe('c1');
+    // The next step starts only once the commit is recorded, and its command reads it.
+    expect(stepCommands(h)).toHaveLength(1);
+    expect(stepCommands(h)[0].spec.env.CONSOLA_CHECKOUT_HEAD).toBe('c1');
+  });
+
+  it("the step's own processes are ended, asked by its session; one that survives fails the step, and nothing is settled", async () => {
+    const h = await writing(WRITE_ENTRY);
+    h.world.processes.end = { kind: 'survivors', count: 1 };
+    const run = await runNow(h, 'write');
+    await h.world.endTurn('session-1', { exitCode: 0 });
+    const asked = h.world.runCheckouts.calls.find((call) => 'endStepProcesses' in call);
+    expect(asked).toEqual({
+      endStepProcesses: { dir: ownedDir(h, run.id), sessionId: 'session-1' },
+    });
+    expect(stepOf(h, run.id, 'fix')).toMatchObject({
+      status: 'failed',
+      error: 'a process the step started is still running in the checkout',
+    });
+    expect(stepOf(h, run.id, 'pr').status).toBe('not-run');
+    expect(settles(h)).toEqual([]);
+    expect(stepCommands(h)).toEqual([]);
+  });
+
+  it("a process outside Consola's sessions fails the step, naming it, and nothing settles (reviews B6, NS2)", async () => {
+    const h = await writing(WRITE_ENTRY);
+    h.world.processes.end = { kind: 'strangers', processes: [{ pid: 4242, command: 'node' }] };
+    const run = await runNow(h, 'write');
+    await h.world.endTurn('session-1', { exitCode: 0 });
+    expect(stepOf(h, run.id, 'fix').error).toBe(
+      "a process outside Consola's sessions is running in this run's checkout (node, pid 4242); end it, then retry",
+    );
+    expect(settles(h)).toEqual([]);
+  });
+
+  it('a process check that cannot be read fails the step, and nothing settles', async () => {
+    const h = await writing(WRITE_ENTRY);
+    h.world.processes.end = { kind: 'unknown', why: 'lsof: not found' };
+    const run = await runNow(h, 'write');
+    await h.world.endTurn('session-1', { exitCode: 0 });
+    expect(stepOf(h, run.id, 'fix').error).toBe(
+      "Consola couldn't check for processes left in the checkout: lsof: not found",
+    );
+    expect(settles(h)).toEqual([]);
+  });
+
+  it('the next spawn checks the git folder first: a changed one fails that step before it starts, and nothing is spawned (review NB1)', async () => {
+    const h = await writing(WRITE_ENTRY);
+    const run = await runNow(h, 'write');
+    // Rewritten after fix launched, before pr spawns.
+    h.world.folderProblem = () => ".git in the checkout is not Consola's pointer";
+    await h.world.endTurn('session-1', { exitCode: 0 });
+    expect(stepOf(h, run.id, 'pr')).toMatchObject({
+      status: 'failed',
+      error:
+        "the git folder of this run's checkout changed (.git in the checkout is not Consola's pointer), so Consola will not start anything in it",
+    });
+    expect(stepCommands(h)).toEqual([]);
+    // fix's launch, then pr's spawn.
+    expect(h.world.runCheckouts.folderChecks).toEqual([ownedDir(h, run.id), ownedDir(h, run.id)]);
+  });
+
+  it('an agent step whose git folder changed before it starts is never launched', async () => {
+    const h = await writing(WRITE_ENTRY);
+    h.world.folderProblem = () => '`config` changed';
+    const run = await runNow(h, 'write');
+    expect(h.world.launches).toEqual([]);
+    expect(stepOf(h, run.id, 'fix')).toMatchObject({
+      status: 'failed',
+      error:
+        "the git folder of this run's checkout changed (`config` changed), so Consola will not start anything in it",
+    });
+    expect(stepOf(h, run.id, 'fix').startedAt).toBeUndefined();
+    expect(runOf(h, run.id).status).toBe('failed');
+  });
+
+  it('a command step asks with no session, is checked and not committed, and its own commit moves the head', async () => {
+    const h = await writing(WRITE_ENTRY);
+    const run = await runNow(h, 'write');
+    await h.world.endTurn('session-1', { exitCode: 0 });
+    // While it runs, its row says the commit its checks start from.
+    expect(stepOf(h, run.id, 'pr')).toMatchObject({
+      status: 'running',
+      checkout: { before: 'c1' },
+    });
+    h.world.runCheckouts.settleAnswers = [{ ok: true, after: 'p1', files: 1, flagged: [] }];
+    await stepCommands(h)[0].end();
+    expect(h.world.runCheckouts.calls.slice(3)).toEqual([
+      { endStepProcesses: { dir: ownedDir(h, run.id) } },
+      {
+        settle: expect.objectContaining({ step: 'pr', before: 'c1', commit: null }),
+      },
+    ]);
+    expect(stepOf(h, run.id, 'pr')).toMatchObject({
+      status: 'completed',
+      checkout: { before: 'c1', after: 'p1', files: 1, flagged: [] },
+    });
+    expect(runOf(h, run.id)).toMatchObject({ status: 'completed', checkout: { head: 'p1' } });
+  });
+
+  it("a command that leaves files fails with the check's words", async () => {
+    const h = await writing(WRITE_ENTRY);
+    const run = await runNow(h, 'write');
+    await h.world.endTurn('session-1', { exitCode: 0 });
+    h.world.runCheckouts.settleAnswers = [{ ok: false, error: '`pr` left files changed: x' }];
+    await stepCommands(h)[0].end();
+    expect(stepOf(h, run.id, 'pr')).toMatchObject({
+      status: 'failed',
+      error: '`pr` left files changed: x',
+    });
+    expect(runOf(h, run.id).checkout!.head).toBe('c1');
+  });
+
+  it("a command's checks wait for its process group to end", async () => {
+    const h = await writing(WRITE_ENTRY);
+    let ended!: () => void;
+    h.world.commandGroupEnded = new Promise<void>((resolve) => (ended = resolve));
+    const run = await runNow(h, 'write');
+    await h.world.endTurn('session-1', { exitCode: 0 });
+    await stepCommands(h)[0].end();
+    expect(callNames(h, 3)).toEqual([]);
+    expect(stepOf(h, run.id, 'pr').status).toBe('running');
+    ended();
+    await h.flush();
+    expect(callNames(h, 3)).toEqual(['endStepProcesses', 'settle']);
+    expect(stepOf(h, run.id, 'pr').status).toBe('completed');
+  });
+
+  it('a failed settle fails the step with its words, and nothing after it runs', async () => {
+    const h = await writing(WRITE_ENTRY);
+    h.world.runCheckouts.settleAnswers = [
+      { ok: false, error: `the step moved \`HEAD\` off fix/x` },
+    ];
+    const run = await runNow(h, 'write');
+    await h.world.endTurn('session-1', { exitCode: 0 });
+    expect(stepOf(h, run.id, 'fix')).toMatchObject({
+      status: 'failed',
+      error: 'the step moved `HEAD` off fix/x',
+    });
+    expect(stepOf(h, run.id, 'pr').status).toBe('not-run');
+    expect(runOf(h, run.id).checkout!.head).toBe('b0');
+    expect(stepCommands(h)).toEqual([]);
+  });
+
+  it('a failed turn keeps its own error, and its changes are kept as a patch, nothing committed', async () => {
+    const h = await writing(WRITE_ENTRY);
+    const run = await runNow(h, 'write');
+    await h.world.endTurn('session-1', { exitCode: 1, lastLine: 'Rate limited.' });
+    expect(callNames(h)).toEqual(['make', 'endStepProcesses', 'settle']);
+    expect(settles(h)[0]).toMatchObject({ before: 'b0', commit: null, keepOnly: true });
+    expect(stepOf(h, run.id, 'fix')).toMatchObject({
+      status: 'failed',
+      error: 'It stopped before finishing (exit 1): Rate limited.',
+    });
+    expect(stepOf(h, run.id, 'fix').checkout).toEqual({ before: 'b0' });
+    expect(runOf(h, run.id).checkout!.head).toBe('b0');
+  });
+
+  it('a failed turn that left a process keeps the patch for its retry: nothing is settled', async () => {
+    const h = await writing(WRITE_ENTRY);
+    h.world.processes.end = { kind: 'survivors', count: 1 };
+    const run = await runNow(h, 'write');
+    await h.world.endTurn('session-1', { exitCode: 1, lastLine: 'Rate limited.' });
+    expect(settles(h)).toEqual([]);
+    expect(stepOf(h, run.id, 'fix').error).toBe(
+      'It stopped before finishing (exit 1): Rate limited.',
+    );
+  });
+
+  it('a path artifact is read at the commit the step ended at; missing, one reminder naming its path, then it is read', async () => {
+    const h = await writing(POLL_WRITE);
+    h.world.runCheckouts.showAnswers = [
+      { ok: false, reason: 'missing' },
+      { ok: true, text: '# notes' },
+    ];
+    await check(h, 'poll-write', []);
+    await check(h, 'poll-write', [{ key: 'SHOP-42' }]);
+    const [run] = h.store.runs().filter((candidate) => candidate.automationId === 'poll-write');
+    // `notes` is a file in the checkout: the step tools' missing documents do not hold the step before the commit.
+    await h.world.endTurn(lastSession(h), { exitCode: 0 });
+    expect(callNames(h)).toEqual(['make', 'endStepProcesses', 'settle', 'showAt']);
+    expect(h.world.reminders).toHaveLength(1);
+    expect(h.world.reminders[0].prompt).toContain(
+      'notes (the file docs/fixes/SHOP-42.md in this checkout)',
+    );
+    await h.world.endTurn(lastSession(h), { exitCode: 0 });
+    expect(
+      h.world.runCheckouts.calls.flatMap((call) => ('showAt' in call ? [call.showAt] : [])),
+    ).toEqual([
+      {
+        dir: ownedDir(h, run.id),
+        commit: 'c1',
+        path: 'docs/fixes/SHOP-42.md',
+        maxBytes: 1024 * 1024,
+      },
+      {
+        dir: ownedDir(h, run.id),
+        commit: 'c1',
+        path: 'docs/fixes/SHOP-42.md',
+        maxBytes: 1024 * 1024,
+      },
+    ]);
+    expect(h.service.readArtifact(run.id, { step: 'fix', name: 'notes' })?.content).toBe('# notes');
+    expect(stepOf(h, run.id, 'fix').status).toBe('completed');
+  });
+
+  it.each([
+    [
+      { ok: false as const, reason: 'missing' as const },
+      '`notes` (docs/fixes/SHOP-42.md) is not in the commit `fix` ended at',
+    ],
+    [
+      { ok: false as const, reason: 'not-a-file' as const },
+      '`docs/fixes/SHOP-42.md` is not a regular file',
+    ],
+    [
+      { ok: false as const, reason: 'too-large' as const },
+      '`docs/fixes/SHOP-42.md` is larger than 1 MB',
+    ],
+    [
+      { ok: true as const, text: 'x'.repeat(256 * 1024 + 1) },
+      '`docs/fixes/SHOP-42.md` is larger than 256 KB, the most Consola hands a later step',
+    ],
+  ])(
+    'a path artifact that is not there after its reminder fails the step: %o',
+    async (answer, error) => {
+      const h = await writing(POLL_WRITE);
+      h.world.runCheckouts.showAnswers = [{ ok: false, reason: 'missing' }, answer];
+      await check(h, 'poll-write', []);
+      await check(h, 'poll-write', [{ key: 'SHOP-42' }]);
+      const [run] = h.store.runs().filter((candidate) => candidate.automationId === 'poll-write');
+      await h.world.endTurn(lastSession(h), { exitCode: 0 });
+      await h.world.endTurn(lastSession(h), { exitCode: 0 });
+      expect(stepOf(h, run.id, 'fix')).toMatchObject({ status: 'failed', error });
+      expect(stepOf(h, run.id, 'pr').status).toBe('not-run');
+    },
+  );
+
+  it('a path artifact that is not a file fails at once, with no reminder', async () => {
+    const h = await writing(POLL_WRITE);
+    h.world.runCheckouts.showAnswers = [{ ok: false, reason: 'not-a-file' }];
+    await check(h, 'poll-write', []);
+    await check(h, 'poll-write', [{ key: 'SHOP-42' }]);
+    const [run] = h.store.runs().filter((candidate) => candidate.automationId === 'poll-write');
+    await h.world.endTurn(lastSession(h), { exitCode: 0 });
+    expect(h.world.reminders).toEqual([]);
+    expect(stepOf(h, run.id, 'fix').error).toBe('`docs/fixes/SHOP-42.md` is not a regular file');
+  });
+
+  it('Retry of a write step ends its leftovers, keeps its patch and starts from its before', async () => {
+    const h = await writing(WRITE_ENTRY);
+    const run = await runNow(h, 'write');
+    // fix's turn fails: its changes are kept as a patch, nothing committed, the run's head still fix's before.
+    await h.world.endTurn('session-1', { exitCode: 1, lastLine: 'Rate limited.' });
+    expect(runOf(h, run.id).status).toBe('failed');
+    const done = h.world.runCheckouts.calls.length;
+    await h.service.retry(run.id);
+    await h.flush();
+    expect(h.world.runCheckouts.calls.slice(done, done + 3)).toEqual([
+      { endStepProcesses: { dir: ownedDir(h, run.id), sessionId: 'session-1' } },
+      {
+        settle: expect.objectContaining({
+          step: 'fix',
+          before: 'b0',
+          commit: null,
+          keepOnly: true,
+          attemptDir: h.folder.attemptDir(WORKSPACE_ID, run.id, 'fix', 1),
+        }),
+      },
+      { reset: { dir: ownedDir(h, run.id), before: 'b0', branch: `fix/${run.id.slice(0, 8)}` } },
+    ]);
+    expect(stepOf(h, run.id, 'fix')).toMatchObject({ attempt: 2, status: 'running' });
+    expect(h.world.launches).toHaveLength(2);
+  });
+
+  it('Retry of a write step that committed puts the checkout and its head back to its before', async () => {
+    const h = await writing(POLL_WRITE);
+    // It commits (c1), then its path artifact is missing twice: it failed after its commit.
+    h.world.runCheckouts.showAnswers = [
+      { ok: false, reason: 'missing' },
+      { ok: false, reason: 'missing' },
+    ];
+    await check(h, 'poll-write', []);
+    await check(h, 'poll-write', [{ key: 'SHOP-42' }]);
+    const [run] = h.store.runs().filter((candidate) => candidate.automationId === 'poll-write');
+    await h.world.endTurn(lastSession(h), { exitCode: 0 });
+    await h.world.endTurn(lastSession(h), { exitCode: 0 });
+    expect(runOf(h, run.id)).toMatchObject({ status: 'failed', checkout: { head: 'c1' } });
+    await h.service.retry(run.id);
+    await h.flush();
+    expect(h.world.runCheckouts.calls).toContainEqual({
+      reset: { dir: ownedDir(h, run.id), before: 'b0', branch: 'fix/SHOP-42' },
+    });
+    expect(runOf(h, run.id).checkout!.head).toBe('b0');
+    expect(stepOf(h, run.id, 'fix').checkout).toEqual({ before: 'b0' });
+  });
+
+  it('Retry is refused while what the step left still runs, and the run stays as it was', async () => {
+    const h = await writing(WRITE_ENTRY);
+    const run = await runNow(h, 'write');
+    await h.world.endTurn('session-1', { exitCode: 1, lastLine: 'Rate limited.' });
+    h.world.processes.end = { kind: 'strangers', processes: [{ pid: 77, command: 'vite' }] };
+    const done = h.world.runCheckouts.calls.length;
+    await expect(h.service.retry(run.id)).rejects.toThrow(
+      "a process outside Consola's sessions is running in this run's checkout (vite, pid 77); end it, then retry",
+    );
+    expect(callNames(h, done)).toEqual(['endStepProcesses']);
+    expect(runOf(h, run.id).status).toBe('failed');
+    expect(stepOf(h, run.id, 'fix').attempt).toBe(1);
+  });
+
+  it('a write step interrupted by a quit is retried only once its leftovers are ended', async () => {
+    const h = await writing(WRITE_ENTRY);
+    const run = await runNow(h, 'write');
+    expect(stepOf(h, run.id, 'fix').status).toBe('running');
+    const again = await h.relaunch();
+    await again.flush();
+    expect(stepOf(again, run.id, 'fix')).toMatchObject({
+      status: 'failed',
+      error: INTERRUPTED_WRITE,
+    });
+    again.world.processes.end = { kind: 'survivors', count: 2 };
+    const done = again.world.runCheckouts.calls.length;
+    await expect(again.service.retry(run.id)).rejects.toThrow(
+      'a process the step started is still running in the checkout',
+    );
+    again.world.processes.end = { kind: 'clear' };
+    await again.service.retry(run.id);
+    await again.flush();
+    expect(callNames(again, done)).toEqual([
+      'endStepProcesses',
+      'endStepProcesses',
+      'settle',
+      'reset',
+    ]);
+    expect(stepOf(again, run.id, 'fix').attempt).toBe(2);
+  });
+
+  it('Retry of a command runs it in the checkout as it is: no reset, the git folder checked before it spawns', async () => {
+    const h = await writing(WRITE_ENTRY);
+    const run = await runNow(h, 'write');
+    await h.world.endTurn('session-1', { exitCode: 0 });
+    await stepCommands(h)[0].end({ result: { exitCode: 1 } });
+    expect(stepOf(h, run.id, 'pr').status).toBe('failed');
+    const done = h.world.runCheckouts.calls.length;
+    const checked = h.world.runCheckouts.folderChecks.length;
+    await h.service.retry(run.id);
+    await h.flush();
+    expect(callNames(h, done)).toEqual([]);
+    expect(h.world.runCheckouts.folderChecks.slice(checked)).toEqual([ownedDir(h, run.id)]);
+    expect(stepCommands(h)).toHaveLength(2);
+    expect(stepCommands(h)[1].spec.env.CONSOLA_CHECKOUT_HEAD).toBe('c1');
+    await stepCommands(h)[1].end();
+    expect(callNames(h, done)).toEqual(['endStepProcesses', 'settle']);
+  });
+
+  it('a declared retry of a write step ends its leftovers, keeps its patch and resets before its next attempt', async () => {
+    const yaml = WRITE_ENTRY.replace(
+      '  prompt: Fix it.',
+      '  prompt: Fix it.\n        on_failure: { retry: 1 }',
+    );
+    expect(yaml).toContain('on_failure: { retry: 1 }');
+    const h = await writing(
+      yaml,
+      {},
+      {
+        'agents/fixer.md': '---\ntools: edit\nenvironment: sandboxed\n---\nFix it.\n',
+        'environments/sandboxed.yaml': 'isolation: sandbox\n',
+      },
+    );
+    expect(problemOf(h, 'write')).toBeUndefined();
+    const run = await runNow(h, 'write');
+    await h.world.endTurn('session-1', { exitCode: 1, lastLine: 'Rate limited.' });
+    expect(runOf(h, run.id).status).toBe('waiting');
+    const done = h.world.runCheckouts.calls.length;
+    h.advance(60_000);
+    await h.tick();
+    expect(callNames(h, done)).toEqual(['endStepProcesses', 'settle', 'reset']);
+    expect(stepOf(h, run.id, 'fix')).toMatchObject({ attempt: 2, status: 'running' });
+    expect(h.world.launches).toHaveLength(2);
+  });
+
+  it('a declared retry of a write step that committed before it failed puts the head back to its before', async () => {
+    const yaml = POLL_WRITE.replace(
+      '  artifacts: [{ name: notes',
+      '  on_failure: { retry: 1 }\n        artifacts: [{ name: notes',
+    );
+    expect(yaml).toContain('on_failure: { retry: 1 }');
+    const h = await writing(
+      yaml,
+      {},
+      {
+        'agents/fixer.md': '---\ntools: edit\nenvironment: sandboxed\n---\nFix it.\n',
+        'environments/sandboxed.yaml': 'isolation: sandbox\n',
+      },
+    );
+    await check(h, 'poll-write', []);
+    await check(h, 'poll-write', [{ key: 'SHOP-42' }]);
+    const [run] = h.store.runs().filter((candidate) => candidate.automationId === 'poll-write');
+    // Committed (c1), then its path artifact is missing after its reminder.
+    await h.world.endTurn(lastSession(h), { exitCode: 0 });
+    await h.world.endTurn(lastSession(h), { exitCode: 0 });
+    expect(runOf(h, run.id)).toMatchObject({ status: 'waiting', checkout: { head: 'c1' } });
+    h.advance(60_000);
+    await h.tick();
+    expect(h.world.runCheckouts.calls).toContainEqual({
+      reset: { dir: ownedDir(h, run.id), before: 'b0', branch: 'fix/SHOP-42' },
+    });
+    expect(runOf(h, run.id).checkout!.head).toBe('b0');
+    expect(stepOf(h, run.id, 'fix')).toMatchObject({ attempt: 2, checkout: { before: 'b0' } });
+  });
+
+  it('a quit while a step is being checked records nothing more from the service that quit', async () => {
+    const h = await writing(WRITE_ENTRY);
+    let release!: () => void;
+    h.world.processes.gate = new Promise<void>((resolve) => (release = resolve));
+    const run = await runNow(h, 'write');
+    await h.world.endTurn('session-1', { exitCode: 0 });
+    expect(callNames(h)).toEqual(['make', 'endStepProcesses']);
+    const again = await h.relaunch();
+    await again.flush();
+    h.world.processes.gate = undefined;
+    release();
+    await again.flush();
+    expect(callNames(again)).toEqual(['make', 'endStepProcesses']);
+    expect(stepOf(again, run.id, 'fix')).toMatchObject({
+      status: 'failed',
+      error: INTERRUPTED_WRITE,
+    });
+  });
+
+  it('a declared retry whose leftovers still run fails the run instead, with their words', async () => {
+    const yaml = WRITE_ENTRY.replace(
+      '  prompt: Fix it.',
+      '  prompt: Fix it.\n        on_failure: { retry: 1 }',
+    );
+    const h = await writing(
+      yaml,
+      {},
+      {
+        'agents/fixer.md': '---\ntools: edit\nenvironment: sandboxed\n---\nFix it.\n',
+        'environments/sandboxed.yaml': 'isolation: sandbox\n',
+      },
+    );
+    const run = await runNow(h, 'write');
+    await h.world.endTurn('session-1', { exitCode: 1, lastLine: 'Rate limited.' });
+    h.world.processes.end = { kind: 'survivors', count: 1 };
+    h.advance(60_000);
+    await h.tick();
+    expect(runOf(h, run.id)).toMatchObject({
+      status: 'failed',
+      error: 'a process the step started is still running in the checkout',
+    });
+    expect(stepOf(h, run.id, 'fix')).toMatchObject({ status: 'failed', attempt: 1 });
+    expect(h.world.launches).toHaveLength(1);
+  });
+
+  it("the entry's declared retry of a run that owns its checkout keeps its record and makes nothing again", async () => {
+    const yaml = EVENT_OWNED.replace(
+      '    mode: auto\n',
+      '    mode: auto\n    on_failure: { retry: 1 }\n',
+    ).replace('- id: check\n        run: "true"', '- id: look\n        prompt: Look at it.');
+    expect(yaml).toContain('prompt: Look at it.');
+    const h = await writing(yaml);
+    await h.poll([]);
+    await h.poll([inboxItem({ repo: REPO, number: 51 })]);
+    const [run] = h.store.runs();
+    const made = runOf(h, run.id).checkout;
+    await h.world.endTurn('session-1', { exitCode: 1, lastLine: 'Rate limited.' });
+    expect(runOf(h, run.id).status).toBe('waiting');
+    h.advance(60_000);
+    await h.tick();
+    expect(runOf(h, run.id)).toMatchObject({ status: 'running', retried: 1 });
+    expect(runOf(h, run.id).checkout).toEqual({ ...made, head: made!.head });
+    expect(makes(h)).toHaveLength(1);
+    expect(h.world.launches).toHaveLength(2);
+  });
+});
+
+describe('a host says whether its launch holds a write agent (Call 2, Task 13)', () => {
+  const LOOP = file(
+    `  - name: loop\n    on: manual\n    mode: auto\n${owned('fix/{{run.id}}')}${steps('- id: polish\n  repeat: { max: 2, until: steps.fix.done }\n  steps:\n    - id: fix\n      agent: fixer\n      prompt: Fix it.\n      outputs: { done: boolean }')}`,
+  );
+
+  it.each(['edit', 'write'])(
+    'refuses an agent with tools: %s on a host with the port but no writeAgents, in a loop too',
+    async (tools) => {
+      const h = await stepsHarness({
+        yaml: LOOP,
+        files: {
+          'agents/fixer.md': `---\ntools: ${tools}\nenvironment: sandboxed\n---\nFix it.\n`,
+          'environments/sandboxed.yaml': 'isolation: sandbox\n',
+        },
+        runCheckouts: true,
+        writeAgents: false,
+      });
+      expect(problemOf(h, 'loop')).toBe(
+        `This runner can't hold an agent that writes to its environment, so \`tools: ${tools}\` can't run here.`,
+      );
+    },
+  );
+
+  it('says a checkout the run owns first, on a host with neither', async () => {
+    const h = await stepsHarness({ yaml: WRITE_ENTRY, files: WRITER });
+    expect(problemOf(h, 'write')).toBe(NO_RUN_CHECKOUTS);
+  });
+
+  it('runs a write agent once the host holds one, and a read-only agent on either host', async () => {
+    const both = await stepsHarness({ yaml: WRITE_ENTRY, files: WRITER, runCheckouts: true });
+    expect(problemOf(both, 'write')).toBeUndefined();
+    const readOnly = await stepsHarness({
+      yaml: WRITE_ENTRY,
+      files: { 'agents/fixer.md': '---\ntools: read-only\n---\nLook.\n' },
+      runCheckouts: true,
+      writeAgents: false,
+    });
+    expect(problemOf(readOnly, 'write')).toBeUndefined();
+  });
+});
+
+describe('what the version, a dry run and a retry make of a write agent (Tasks 6 and 9, owed to Task 13)', () => {
+  it("an environment edit moves the entry's resolved version, equal to the file's (E10)", async () => {
+    const h = await writing(WRITE_ENTRY);
+    // The version a run records is the one its entry resolved to.
+    const before = versionOf(h, 'write');
+    const first = await runNow(h, 'write');
+    expect(first.actionVersion).toBe(before);
+    await h.world.endTurn('session-1', { exitCode: 1 });
+    await h.writeFile(
+      'environments/sandboxed.yaml',
+      'isolation: sandbox\nnetwork: [registry.npmjs.org]\n',
+    );
+    const after = versionOf(h, 'write');
+    expect(after).not.toBe(before);
+    // A changed entry asks again, at its new version.
+    const second = await runNow(h, 'write');
+    expect(second).toMatchObject({ status: 'needs-approval', actionVersion: after });
+  });
+
+  it('a dry run reports a write step it does not run, and runs the rest', async () => {
+    const yaml = WRITE_ENTRY.replace('mode: auto', 'mode: notify').replace(
+      '- id: fix\n',
+      '- id: look\n        prompt: Look.\n      - id: fix\n',
+    );
+    expect(yaml).toContain('- id: look');
+    const h = await writing(yaml);
+    const run = await runNow(h, 'write');
+    expect(runOf(h, run.id).dryRun).toBe(true);
+    await h.world.endTurn('session-1', { exitCode: 0 });
+    expect(stepOf(h, run.id, 'fix')).toMatchObject({
+      status: 'reported',
+      note: 'Would have run fixer in sandboxed',
+    });
+    expect(h.world.launches).toHaveLength(1);
+  });
+
+  it('a notify entry whose only agent writes starts nothing in a dry run, so it does not ask first', async () => {
+    const onlyWrites = await stepsHarness({
+      yaml: WRITE_ENTRY.replace('mode: auto', 'mode: notify'),
+      files: WRITER,
+      runCheckouts: true,
+    });
+    expect(onlyWrites.service.list(WORKSPACE_ID)[0].asksFirst).toBeUndefined();
+    const alsoReads = await stepsHarness({
+      yaml: WRITE_ENTRY.replace('mode: auto', 'mode: notify').replace(
+        '- id: fix\n',
+        '- id: look\n        prompt: Look.\n      - id: fix\n',
+      ),
+      files: WRITER,
+      runCheckouts: true,
+    });
+    expect(alsoReads.service.list(WORKSPACE_ID)[0].asksFirst).toBe(true);
+  });
+
+  it('a write agent on host never retries by itself; on sandbox it waits out its retry', async () => {
+    const yaml = WRITE_ENTRY.replace(
+      '  prompt: Fix it.',
+      '  prompt: Fix it.\n        on_failure: { retry: 1 }',
+    );
+    const sandboxed = await writing(yaml);
+    const kept = await runNow(sandboxed, 'write');
+    await sandboxed.world.endTurn('session-1', { exitCode: 1, lastLine: 'Rate limited.' });
+    expect(runOf(sandboxed, kept.id).status).toBe('waiting');
+
+    // The format refuses a retry on `host`: the run's own definition is written as if a hand-built entry said so.
+    const host = await writing(yaml);
+    const run = await runNow(host, 'write');
+    const definition = host.folder.readDefinition(WORKSPACE_ID, run.id)!;
+    const fix = definition.agents!.fix;
+    host.folder.writeDefinition(WORKSPACE_ID, run.id, {
+      ...definition,
+      agents: {
+        ...definition.agents,
+        fix: { ...fix, environment: { ...fix.environment!, isolation: 'host' } },
+      },
+    });
+    await host.world.endTurn('session-1', { exitCode: 1, lastLine: 'Rate limited.' });
+    expect(runOf(host, run.id)).toMatchObject({ status: 'failed' });
+    expect(stepOf(host, run.id, 'fix').status).toBe('failed');
   });
 });

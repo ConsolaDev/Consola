@@ -195,6 +195,13 @@ export interface StepsHarnessOptions {
    * existing test runs without it.
    */
   runCheckouts?: boolean;
+  /**
+   * The host's launch holds an agent that writes to its environment (the
+   * service's `writeAgents`, slice 3-B Call 2). Default: as `runCheckouts`,
+   * so `{ runCheckouts: true, writeAgents: false }` is a host with the port
+   * that cannot launch a write agent.
+   */
+  writeAgents?: boolean;
 }
 
 /** One call the fake `RunCheckoutPort` was asked, by its name. */
@@ -317,8 +324,10 @@ export interface StepsWorld {
       { ok: true; text: string } | { ok: false; reason: 'missing' | 'not-a-file' | 'too-large' }
     >;
   };
-  /** What the port's `endStepProcesses` answers. Default: clear. */
-  processes: { end: StepProcesses };
+  /** While set, every command the engine starts says its process group ends when this resolves (`RunningCommand.ended`). */
+  commandGroupEnded?: Promise<void>;
+  /** What the port's `endStepProcesses` answers (default: clear), after `gate` while it is set. */
+  processes: { end: StepProcesses; gate?: Promise<void> };
   /** The session the port's `holder` names for a folder, by folder. */
   holders: Map<string, { sessionId: string; name: string }>;
   /** What the port's `folderProblem` answers. Default: none. */
@@ -677,6 +686,7 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
     return {
       pid: 4242,
       result,
+      ...(world.commandGroupEnded ? { ended: world.commandGroupEnded } : {}),
       stop: () => {
         command.stops++;
       },
@@ -821,6 +831,7 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
     checkoutBusy: (dir) => world.busyFolders.has(dir),
     folderExists: (dir) => !world.goneFolders.has(dir),
     ...(options.runCheckouts ? { runCheckout: fakeRunCheckout(world) } : {}),
+    ...((options.writeAgents ?? options.runCheckouts) ? { writeAgents: true as const } : {}),
   });
 
   const launch = async (): Promise<StepsHarness> => {
@@ -928,6 +939,7 @@ function fakeRunCheckout(world: StepsWorld): RunCheckoutPort {
     },
     endStepProcesses: async (request) => {
       runCheckouts.calls.push({ endStepProcesses: request });
+      if (world.processes.gate) await world.processes.gate;
       return world.processes.end;
     },
     holder: (dir) => world.holders.get(dir) ?? null,

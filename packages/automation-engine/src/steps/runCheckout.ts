@@ -114,6 +114,67 @@ export interface RunCheckoutPort {
 export const NO_RUN_CHECKOUTS =
   "This runner can't make a run's own checkout, so `checkout: { repo, branch }` can't run here.";
 
+/**
+ * The problem of an entry with a write agent on a host whose launch does not
+ * hold one to its environment (Call 2, the service's `writeAgents`), filled
+ * with the agent's value: `tools: <edit | write>`.
+ */
+export const NO_WRITE_AGENTS =
+  "This runner can't hold an agent that writes to its environment, so `tools: <edit | write>` can't run here.";
+
+/** `NO_WRITE_AGENTS` for one agent's `tools:`. */
+export function noWriteAgents(tools: 'edit' | 'write'): string {
+  return NO_WRITE_AGENTS.replace('<edit | write>', tools);
+}
+
+/**
+ * Why nothing starts in a run's checkout (Call 9, review NB1): its pointer or
+ * its git folder is not as Consola made them (`what`, the adapter's
+ * `gitFolderProblem`). Asked before every spawn there; the desktop's check
+ * before a session or a shell starts there says the same.
+ */
+export function folderChangedMessage(what: string): string {
+  return `the git folder of this run's checkout changed (${what}), so Consola will not start anything in it`;
+}
+
+/** What a step left running fails it with (Call 8); null when nothing was left. Nothing but the step's own is ever signalled. */
+export function leftoverProblem(left: StepProcesses): string | null {
+  switch (left.kind) {
+    case 'clear':
+      return null;
+    case 'survivors':
+      return 'a process the step started is still running in the checkout';
+    case 'strangers': {
+      const [first] = left.processes;
+      const named = first ? ` (${first.command}, pid ${first.pid})` : '';
+      return `a process outside Consola's sessions is running in this run's checkout${named}; end it, then retry`;
+    }
+    case 'unknown':
+      return `Consola couldn't check for processes left in the checkout: ${left.why.replace(/\.$/, '')}`;
+  }
+}
+
+/** The most a path artifact may be in the checkout (spec *Artifacts with a `path:`*). */
+export const MAX_PATH_ARTIFACT_BYTES = 1024 * 1024;
+
+/** Why a path artifact read at the commit its step ended at is not one, for the step's failure. */
+export function pathArtifactProblem(
+  artifact: { name: string; path: string },
+  step: string,
+  reason: 'missing' | 'not-a-file' | 'too-large' | 'over-document',
+): string {
+  switch (reason) {
+    case 'missing':
+      return `\`${artifact.name}\` (${artifact.path}) is not in the commit \`${step}\` ended at`;
+    case 'not-a-file':
+      return `\`${artifact.path}\` is not a regular file`;
+    case 'too-large':
+      return `\`${artifact.path}\` is larger than 1 MB`;
+    case 'over-document':
+      return `\`${artifact.path}\` is larger than 256 KB, the most Consola hands a later step`;
+  }
+}
+
 /** Why a run's checkout could not be made, as its run fails before its first step. */
 export function makeFailedMessage(repo: string, error: unknown): string {
   const stage = error instanceof RunCheckoutError ? error.stage : 'clone';

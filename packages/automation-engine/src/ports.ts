@@ -421,6 +421,13 @@ export interface RunningCommand {
    * Rejects only when the command never started: nothing ran.
    */
   readonly result: Promise<CommandResult>;
+  /**
+   * Resolves once nothing is left in the command's process group, which its
+   * result's end signals (SIGTERM, then SIGKILL after the grace): what a
+   * run's own checkout waits for before Consola checks it (slice 3-B, Call 8).
+   * Absent, a host has no group to wait for.
+   */
+  readonly ended?: Promise<void>;
   /** SIGTERM to the whole process group, SIGKILL after the grace. */
   stop(): void;
 }

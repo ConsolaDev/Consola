@@ -75,16 +75,15 @@ describe('a write agent whose environment a parse lost (slice 3-B)', () => {
     );
   });
 
-  it('with its environment the entry gets as far as the write keys the engine does not run yet', async () => {
-    // On a host that makes runs' own checkouts (slice 3-B Task 12), what is left is the write agent.
+  it('with its environment the entry runs on a host that holds a write agent', async () => {
+    // On a host that makes runs' own checkouts and holds write agents (slice 3-B Tasks 12, 13). The words of a
+    // host that holds neither are `AutomationService.writing.test.ts`'s.
     const h = await stepsHarness({
       files: WRITING,
       agentHarnesses: { 'claude-work': CLAUDE_WORK },
       runCheckouts: true,
     });
-    expect(h.service.list(WORKSPACE_ID)[0].problem).toBe(
-      '`tools: write` runs from the next update; this automation does not run yet.',
-    );
+    expect(h.service.list(WORKSPACE_ID)[0].problem).toBeUndefined();
   });
 
   it('asks the host about the agent with its tools and its environment, at apply and at resolve', async () => {

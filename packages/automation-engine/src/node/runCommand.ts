@@ -20,6 +20,9 @@ export const KILL_GRACE_MS = 10_000;
 const PIPE_GRACE_MS = 2000;
 /** How often, during the grace, the group is checked for anything left in it. */
 const GROUP_POLL_MS = 100;
+
+/** How long, after SIGKILL, `ended` waits for the group to be reaped before it resolves anyway. */
+const REAP_WAIT_MS = 2000;
 /** How much of stderr's end is kept, to find its last line. */
 const STDERR_TAIL_BYTES = 4096;
 /** The most of the last line of stderr a result keeps: it becomes the step's error. */
@@ -215,7 +218,8 @@ function launch(spec: CommandSpec) {
  * after the grace. The result comes from the shell's exit, not from its
  * pipes: if something it left running still holds them `pipeGraceMs` later,
  * the group is ended and the result resolves anyway. Whatever is left in the
- * group when the result settles is ended the same way.
+ * group when the result settles is ended the same way; `ended` resolves once
+ * nothing is (slice 3-B: Consola checks a run's own checkout only then).
  */
 export function startCommand(spec: CommandSpec): RunningCommand {
   let launched: ReturnType<typeof launch>;
@@ -225,7 +229,7 @@ export function startCommand(spec: CommandSpec): RunningCommand {
     const result = Promise.reject(error);
     // Its consumer still sees the rejection; awaiting it later is not an unhandled one.
     result.catch(() => undefined);
-    return { pid: undefined, result, stop() {} };
+    return { pid: undefined, result, ended: Promise.resolve(), stop() {} };
   }
   const { child, stdout, stderr } = launched;
   const pid = child.pid;
@@ -242,6 +246,12 @@ export function startCommand(spec: CommandSpec): RunningCommand {
   let killTimer: NodeJS.Timeout | undefined;
   let pollTimer: NodeJS.Timeout | undefined;
   let groupGone = false;
+  let markEnded!: () => void;
+  // Resolves once the group is found empty, or a while after SIGKILL whatever is left (`REAP_WAIT_MS`).
+  const ended = new Promise<void>((resolve) => {
+    markEnded = resolve;
+  });
+  if (pid === undefined) markEnded();
 
   const unwatch = (): void => {
     clearTimeout(killTimer);
@@ -259,6 +269,7 @@ export function startCommand(spec: CommandSpec): RunningCommand {
     } catch {
       groupGone = true;
       unwatch();
+      markEnded();
       return false;
     }
   };
@@ -272,6 +283,16 @@ export function startCommand(spec: CommandSpec): RunningCommand {
     killTimer = setTimeout(() => {
       signalGroup('SIGKILL');
       unwatch();
+      if (groupGone) return;
+      // Killed: `ended` waits for the group to be reaped, briefly, then resolves whatever is left.
+      const reapTimer = setInterval(() => signalGroup(0), GROUP_POLL_MS / 10);
+      const giveUp = setTimeout(markEnded, REAP_WAIT_MS);
+      void ended.then(() => {
+        clearInterval(reapTimer);
+        clearTimeout(giveUp);
+      });
+      reapTimer.unref();
+      giveUp.unref();
     }, killGraceMs);
     pollTimer = setInterval(() => signalGroup(0), GROUP_POLL_MS);
     killTimer.unref();
@@ -344,6 +365,7 @@ export function startCommand(spec: CommandSpec): RunningCommand {
   return {
     pid,
     result,
+    ended,
     stop() {
       if (settled) return;
       // After the shell exited, a stop only ends what it left holding the pipes.

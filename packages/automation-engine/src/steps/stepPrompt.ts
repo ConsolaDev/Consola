@@ -167,10 +167,16 @@ export function renderStepPrompt(input: StepPromptInput): string {
 export const REMINDER_PREFIX = 'You ended without: ';
 
 /** The fixed prompt of the one reminder turn, naming what the step left unset. */
-export function reminderPrompt(missing: { outputs: string[]; artifacts: string[] }): string {
+export function reminderPrompt(missing: {
+  outputs: string[];
+  artifacts: string[];
+  /** Path artifacts (slice 3-B): files the step writes in its checkout, not through a tool. */
+  files?: Array<{ name: string; path: string }>;
+}): string {
   const names = [
     ...missing.outputs.map((name) => `${name} (consola_set_outputs)`),
     ...missing.artifacts.map((name) => `${name} (consola_write_artifact)`),
+    ...(missing.files ?? []).map(({ name, path }) => `${name} (the file ${path} in this checkout)`),
   ];
   return `${REMINDER_PREFIX}${names.join(', ')}. Set ${names.length === 1 ? 'it' : 'them'} now; do nothing else.`;
 }

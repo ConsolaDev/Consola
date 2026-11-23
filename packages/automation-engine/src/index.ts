@@ -150,6 +150,11 @@ export {
   FLAGGED_FILE_NAMES,
   FLAGGED_FOLDER_NAMES,
   flaggedPaths,
+  folderChangedMessage,
+  leftoverProblem,
+  NO_RUN_CHECKOUTS,
+  NO_WRITE_AGENTS,
+  noWriteAgents,
   RunCheckoutError,
   runOwnedDirName,
 } from './steps/runCheckout';

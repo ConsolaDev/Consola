@@ -279,6 +279,43 @@ describe.skipIf(process.platform === 'win32')('startCommand', () => {
     expect(Date.now() - settledAt).toBeGreaterThanOrEqual(250);
   });
 
+  /** Whether any process of the group led by `pgid` is left. */
+  function groupAlive(pgid: number): boolean {
+    try {
+      process.kill(-pgid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  it('leaves no member of its process group running once it has ended (slice 3-B: a run checkout is checked after this)', async () => {
+    const running = start('sleep 30 >/dev/null 2>&1 & echo $! > pid; echo done');
+    expect((await running.result).exitCode).toBe(0);
+    await running.ended;
+    expect(groupAlive(running.pid!)).toBe(false);
+  });
+
+  it('ends only after a leftover that ignores SIGTERM is killed at the grace', async () => {
+    const running = start(
+      "(trap '' TERM; echo > ready; exec sleep 300) >/dev/null 2>&1 & echo $! > pid; until [ -f ready ]; do sleep 0.01; done",
+      { killGraceMs: 300 },
+    );
+    const began = Date.now();
+    await running.result;
+    const pid = await pidFile();
+    expect(alive(pid)).toBe(true);
+    await running.ended;
+    expect(groupAlive(running.pid!)).toBe(false);
+    expect(Date.now() - began).toBeGreaterThanOrEqual(250);
+  });
+
+  it('has ended at once when it never started', async () => {
+    const running = start('true', { cwd: path.join(dir, 'missing') });
+    await expect(running.result).rejects.toThrow();
+    await expect(running.ended).resolves.toBeUndefined();
+  });
+
   it('sends no SIGKILL once the group is gone', async () => {
     const kill = vi.spyOn(process, 'kill');
     try {

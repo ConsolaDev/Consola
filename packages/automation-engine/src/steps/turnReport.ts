@@ -101,8 +101,18 @@ export function reportedFailure(
 }
 
 /** The reminder turn's cap: 1, and 2 per missing item, an output set counting as one and each document as one. */
-export function reminderCap(missing: { outputs: string[]; artifacts: string[] }): number {
-  return 1 + 2 * ((missing.outputs.length > 0 ? 1 : 0) + missing.artifacts.length);
+export function reminderCap(missing: {
+  outputs: string[];
+  artifacts: string[];
+  files?: ReadonlyArray<unknown>;
+}): number {
+  return (
+    1 +
+    2 *
+      ((missing.outputs.length > 0 ? 1 : 0) +
+        missing.artifacts.length +
+        (missing.files?.length ?? 0))
+  );
 }
 
 /**

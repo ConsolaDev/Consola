@@ -61,7 +61,7 @@ export interface PreparedCommand {
   dir: string;
   files: { output: string; stdout: string; stderr: string };
   values: RenderedValue[];
-  /** `CONSOLA_OUTPUT`, `CONSOLA_RUN_ID`, `CONSOLA_STEP`, an item run's `CONSOLA_CHECKOUT_HEAD`, and a poll run's `CONSOLA_ITEM_FILE`. */
+  /** `CONSOLA_OUTPUT`, `CONSOLA_RUN_ID`, `CONSOLA_STEP`, an item run's or a run-owned run's `CONSOLA_CHECKOUT_HEAD`, and a poll run's `CONSOLA_ITEM_FILE`. */
   variables: Record<string, string>;
 }
 
@@ -228,7 +228,9 @@ export function prepareCommand(input: {
       stdout: inFolder(dir, 'stdout.log'),
       stderr: inFolder(dir, 'stderr.log'),
     };
-    const head = run.trigger.item ? run.checkout?.head : undefined;
+    // An item run's, and a run's own checkout's, which Consola commits after every step (slice 3-B).
+    const head =
+      run.trigger.item || run.checkout?.kind === 'run-owned' ? run.checkout?.head : undefined;
     // A poll entry's run on an item keeps the whole object its check printed beside its definition.
     const polledFile =
       definition.automation.trigger.kind === 'poll' && run.trigger.item
