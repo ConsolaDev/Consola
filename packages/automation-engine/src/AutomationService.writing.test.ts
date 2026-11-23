@@ -1602,3 +1602,65 @@ describe('a write step launches held to its environment (Task 18)', () => {
     expect(step.checkoutPath).toBe(ownedDir(h, run.id));
   });
 });
+
+describe("a run's own checkout that cleanup removed (Task 19)", () => {
+  async function failedRun() {
+    const h = await writing(WRITE_ENTRY);
+    const run = await runNow(h, 'write');
+    await h.world.endTurn('session-1', { exitCode: 1, lastLine: 'Rate limited.' });
+    expect(runOf(h, run.id).status).toBe('failed');
+    return { h, run };
+  }
+
+  it('a Retry rebuilds the folder first, at what was recorded, never making it anew (Review Focus 5)', async () => {
+    const { h, run } = await failedRun();
+    const dir = ownedDir(h, run.id);
+    h.world.goneFolders.add(dir);
+    const done = h.world.runCheckouts.calls.length;
+    await h.service.retry(run.id);
+    await h.flush();
+    const after = h.world.runCheckouts.calls.slice(done);
+    expect(after[0]).toEqual({ restore: dir });
+    expect(after.some((call) => 'make' in call)).toBe(false);
+    expect(after.some((call) => 'reset' in call)).toBe(true);
+    expect(stepOf(h, run.id, 'fix')).toMatchObject({ attempt: 2, status: 'running' });
+  });
+
+  it('a rebuild that fails refuses the Retry in words, and nothing is reset or started', async () => {
+    const { h, run } = await failedRun();
+    h.world.goneFolders.add(ownedDir(h, run.id));
+    h.world.runCheckouts.restoreFails = new Error(
+      'the commit it was on (3f2a91c) is no longer in the clone.',
+    );
+    const done = h.world.runCheckouts.calls.length;
+    await expect(h.service.retry(run.id)).rejects.toThrow(
+      "Couldn't rebuild this run's checkout of sprocket/catalog-portal: the commit it was on (3f2a91c) is no longer in the clone. Nothing was retried.",
+    );
+    expect(h.world.runCheckouts.calls.slice(done)).toEqual([{ restore: ownedDir(h, run.id) }]);
+    expect(h.world.launches).toHaveLength(1);
+    expect(runOf(h, run.id).status).toBe('failed');
+  });
+
+  it('a folder that is there is never rebuilt', async () => {
+    const { h, run } = await failedRun();
+    const done = h.world.runCheckouts.calls.length;
+    await h.service.retry(run.id);
+    await h.flush();
+    expect(h.world.runCheckouts.calls.slice(done).some((call) => 'restore' in call)).toBe(false);
+  });
+
+  it("records what cleanup removed of a run's own checkout, and clears it once rebuilt; nothing on another run's (review S3)", async () => {
+    const { h, run } = await failedRun();
+    const removed = {
+      commit: 'c1',
+      keepRef: 'refs/consola/worktrees/catalog-portal-run-x',
+      at: '2026-11-23T10:00:00.000Z',
+    };
+    h.service.recordCheckoutRemoved(run.id, removed);
+    expect(runOf(h, run.id).checkout).toMatchObject({ kind: 'run-owned', removed });
+    h.service.recordCheckoutRemoved(run.id, null);
+    expect(runOf(h, run.id).checkout).not.toHaveProperty('removed');
+    expect(runOf(h, run.id).checkout).toMatchObject({ kind: 'run-owned', base: 'b0' });
+    h.service.recordCheckoutRemoved('no-such-run', removed);
+  });
+});

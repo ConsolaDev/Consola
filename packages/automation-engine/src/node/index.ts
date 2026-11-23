@@ -14,8 +14,11 @@ export { AppliedFactoryFiles } from './appliedFactory';
 export { RunFolder } from './runFolder';
 export { startCommand, COMMAND_SHELL, KILL_GRACE_MS } from './runCommand';
 export {
+  deleteRunClone,
+  fetchKeepRef,
   gitFolderProblem,
   makeRunClone,
+  rebuildRunClone,
   resetRunClone,
   runCloneChanges,
   runCloneGitDirFor,

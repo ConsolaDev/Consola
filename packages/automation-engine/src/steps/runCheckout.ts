@@ -104,6 +104,13 @@ export interface RunCheckoutPort {
   endStepProcesses(request: { dir: string; sessionId?: string }): Promise<StepProcesses>;
   /** Call 12: the first session whose `cwd` or `agentCwd` is `dir` and whose CLI is running, else null. */
   holder(dir: string): { sessionId: string; name: string } | null;
+  /**
+   * Task 19 (Call 10): put back a run's checkout that cleanup removed, as it
+   * was made, at the commit the removal recorded (a session's
+   * `removedWorktree`, else the run's `checkout.removed`); never anew at a
+   * newer head. Throws in words when it cannot.
+   */
+  restore(dir: string): Promise<void>;
 }
 
 /**

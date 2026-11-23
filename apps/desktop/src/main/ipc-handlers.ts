@@ -2202,6 +2202,28 @@ export function setupIpcHandlers(): boolean {
         running: isRunning(session),
       })),
     kill: (pid, signal) => process.kill(pid, signal),
+    // Task 19: a removed run's checkout comes back from what its run recorded, never anew.
+    removedRecord: (dir) => {
+      const run = runStore
+        .runs()
+        .find(
+          (candidate) =>
+            candidate.checkout?.kind === 'run-owned' &&
+            path.resolve(candidate.checkout.cwd) === path.resolve(dir),
+        );
+      const checkout = run?.checkout;
+      const workspace = workspaces
+        .getAll()
+        .find((candidate) => candidate.id === run?.attribution.workspaceId);
+      if (!run || !checkout?.removed || !checkout.repo || !checkout.branch || !workspace)
+        return null;
+      const source = worktrees.resolveRepo(workspace, checkout.repo);
+      return source
+        ? { source, branch: checkout.branch, commit: checkout.removed.commit, runId: run.id }
+        : null;
+    },
+    rebuilt: (runId) => automations.recordCheckoutRemoved(runId, null),
+    underLock: (dir, work) => worktreePathLock.run(dir, work),
   });
   const automations = new AutomationService({
     folderFor: (workspaceId) => new FactoryFolder(workspaceDataDir(workspaceId)),

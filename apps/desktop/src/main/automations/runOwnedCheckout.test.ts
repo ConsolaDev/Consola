@@ -2,7 +2,12 @@ import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { runCloneGitDirFor, RunCheckoutError } from '@consola/automation-engine';
+import {
+  deleteRunClone,
+  fetchKeepRef,
+  runCloneGitDirFor,
+  RunCheckoutError,
+} from '@consola/automation-engine';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Workspace } from '../../shared/workspace';
 import { ProcessCwdIndex } from '../worktreeCleanup/ProcessCwdIndex';
@@ -54,6 +59,9 @@ function deps(over: Partial<RunOwnedCheckoutDeps> = {}): RunOwnedCheckoutDeps {
     sessions: () => [],
     kill: noSignals(),
     graceMs: 300,
+    removedRecord: () => null,
+    rebuilt: () => {},
+    underLock: (_dir, work) => work(),
     ...over,
   };
 }
@@ -320,5 +328,61 @@ describe('a session or shell in a run’s own checkout (slice 3-B Task 18, revie
     expect(
       runCheckoutSpawnRefusal({ cwd: path.join(root, 'catalog-portal-pr-7') }, root),
     ).toBeNull();
+  });
+});
+
+describe("a run's own checkout that cleanup removed, rebuilt for a Retry (slice 3-B Task 19)", () => {
+  it('comes back at the commit its run recorded, from the person’s clone, and the record is cleared', async () => {
+    fs.writeFileSync(path.join(dir, 'fix.txt'), 'fixed\n');
+    git(dir, 'add', '-A');
+    git(
+      dir,
+      '-c',
+      'user.name=alice',
+      '-c',
+      'user.email=alice@sprocket.example',
+      'commit',
+      '-q',
+      '-m',
+      'fix',
+    );
+    const head = git(dir, 'rev-parse', 'HEAD');
+    const keepRef = 'refs/consola/worktrees/catalog-portal-run-3f2a91c0';
+    await fetchKeepRef({ source, dir, branch: 'fix/SHOP-42', head, keepRef });
+    deleteRunClone(dir);
+    const rebuilt = vi.fn();
+    const locked: string[] = [];
+    const port = runOwnedCheckoutPort(
+      deps({
+        removedRecord: (at) =>
+          at === dir
+            ? { source, branch: 'fix/SHOP-42', commit: head, runId: '3f2a91c0aabbccdd' }
+            : null,
+        rebuilt,
+        underLock: (at, work) => {
+          locked.push(at);
+          return work();
+        },
+      }),
+    );
+    await port.restore(dir);
+    expect(git(dir, 'rev-parse', 'HEAD')).toBe(head);
+    expect(fs.readFileSync(path.join(dir, 'fix.txt'), 'utf8')).toBe('fixed\n');
+    expect(port.folderProblem(dir)).toBeNull();
+    expect(rebuilt).toHaveBeenCalledWith('3f2a91c0aabbccdd');
+    expect(locked).toEqual([dir]);
+    // The keep-ref stays while the rebuilt folder exists (review NB2).
+    expect(git(source, 'rev-parse', keepRef)).toBe(head);
+    // A folder that is there is left alone.
+    await port.restore(dir);
+    expect(rebuilt).toHaveBeenCalledTimes(1);
+  });
+
+  it('a folder that is gone with no record of its removal is refused, never made anew', async () => {
+    deleteRunClone(dir);
+    await expect(runOwnedCheckoutPort(deps()).restore(dir)).rejects.toThrow(
+      'is gone and nothing records how to rebuild it, so Consola will not make it anew',
+    );
+    expect(fs.existsSync(dir)).toBe(false);
   });
 });

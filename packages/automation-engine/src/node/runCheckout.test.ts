@@ -6,8 +6,11 @@ import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RunCheckoutError } from '../steps/runCheckout';
 import {
+  deleteRunClone,
+  fetchKeepRef,
   gitFolderProblem,
   makeRunClone,
+  rebuildRunClone,
   resetRunClone,
   runCloneChanges,
   runCloneGit,
@@ -1151,5 +1154,104 @@ describe("staging what a step left by descriptor, never by path (the commit revi
     expect(result).toMatchObject({ ok: true, files: 1 });
     expect(run(dir, 'show', 'HEAD:src/app.ts')).toBe('fixed');
     expect(fs.existsSync(`${gitDir}.consola.json`)).toBe(true);
+  });
+});
+
+describe("a removed run's checkout: its keep-ref, its folders, its rebuild (Task 19)", () => {
+  const KEEP = 'refs/consola/worktrees/catalog-portal-run-3f2a91c0';
+  let head: string;
+  beforeEach(async () => {
+    await makeRunClone({
+      source,
+      dir,
+      branch: 'fix/SHOP-42',
+      runId: '3f2a91c0aa',
+      fetchEnv: process.env,
+    });
+    fs.writeFileSync(path.join(dir, 'fix.txt'), 'fixed\n');
+    run(dir, 'add', '-A');
+    run(
+      dir,
+      '-c',
+      'user.name=alice',
+      '-c',
+      'user.email=alice@sprocket.example',
+      'commit',
+      '-q',
+      '-m',
+      'fix',
+    );
+    head = run(dir, 'rev-parse', 'HEAD');
+  });
+
+  it("fetches the branch into the person's clone as the keep-ref, never into the run clone (review S2)", async () => {
+    await fetchKeepRef({ source, dir, branch: 'fix/SHOP-42', head, keepRef: KEEP });
+    expect(git(source, 'rev-parse', KEEP)).toBe(head);
+    expect(() => run(dir, 'rev-parse', '--verify', '-q', KEEP)).toThrow();
+  });
+
+  it('removes nothing when the branch moved since Consola recorded its head (review S2)', async () => {
+    const before = run(dir, 'rev-parse', 'HEAD~1');
+    await expect(
+      fetchKeepRef({ source, dir, branch: 'fix/SHOP-42', head: before, keepRef: KEEP }),
+    ).rejects.toThrow(
+      "the run's branch is not at the commit Consola recorded; nothing was removed",
+    );
+    expect(() => git(source, 'rev-parse', '--verify', '-q', KEEP)).toThrow();
+    expect(fs.existsSync(dir)).toBe(true);
+  });
+
+  it('fetches nothing from a git folder that changed (Call 9)', async () => {
+    fs.writeFileSync(path.join(dir, '.git'), `gitdir: ${path.join(source, '.git')}\n`);
+    await expect(
+      fetchKeepRef({ source, dir, branch: 'fix/SHOP-42', head, keepRef: KEEP }),
+    ).rejects.toThrow(".git in the checkout is not Consola's pointer");
+    expect(() => git(source, 'rev-parse', '--verify', '-q', KEEP)).toThrow();
+  });
+
+  it("rebuilds it as it was made, at the recorded commit, from the person's clone alone; a gc there leaves it whole (review NB2)", async () => {
+    await fetchKeepRef({ source, dir, branch: 'fix/SHOP-42', head, keepRef: KEEP });
+    const gitDir = runCloneGitDirFor(dir);
+    deleteRunClone(dir);
+    expect([
+      fs.existsSync(dir),
+      fs.existsSync(gitDir),
+      fs.existsSync(`${gitDir}.consola.json`),
+    ]).toEqual([false, false, false]);
+    await rebuildRunClone({
+      source,
+      dir,
+      branch: 'fix/SHOP-42',
+      commit: head,
+      runId: '3f2a91c0aa',
+    });
+    expect(run(dir, 'rev-parse', 'HEAD')).toBe(head);
+    expect(run(dir, 'symbolic-ref', 'HEAD')).toBe('refs/heads/fix/SHOP-42');
+    expect(fs.readFileSync(path.join(dir, '.git'), 'utf8')).toBe(`gitdir: ${gitDir}\n`);
+    expect(git(dir, 'config', '--file', path.join(gitDir, 'config'), 'consola.run')).toBe(
+      '3f2a91c0aa',
+    );
+    expect(git(dir, 'config', '--file', path.join(gitDir, 'config'), 'consola.source')).toBe(
+      source,
+    );
+    expect(fs.readFileSync(path.join(gitDir, 'info', 'attributes'), 'utf8')).toBe('* -filter\n');
+    expect(fs.readFileSync(path.join(dir, 'fix.txt'), 'utf8')).toBe('fixed\n');
+    // As made: the folder Consola checks is the folder it wrote, record included.
+    expect(gitFolderProblem(dir)).toBeNull();
+    git(source, 'reflog', 'expire', '--expire=now', '--all');
+    git(source, 'gc', '-q', '--prune=now');
+    expect(() => run(dir, 'cat-file', '-e', head)).not.toThrow();
+    expect(run(dir, 'status', '--porcelain')).toBe('');
+  });
+
+  it('a rebuild without the keep-ref, after a gc, is refused, and leaves nothing behind', async () => {
+    const gitDir = runCloneGitDirFor(dir);
+    deleteRunClone(dir);
+    git(source, 'reflog', 'expire', '--expire=now', '--all');
+    git(source, 'gc', '-q', '--prune=now');
+    await expect(
+      rebuildRunClone({ source, dir, branch: 'fix/SHOP-42', commit: head, runId: '3f2a91c0aa' }),
+    ).rejects.toBeInstanceOf(RunCheckoutError);
+    expect([fs.existsSync(dir), fs.existsSync(gitDir)]).toEqual([false, false]);
   });
 });

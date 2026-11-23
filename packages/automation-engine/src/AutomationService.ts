@@ -2881,6 +2881,23 @@ export class AutomationService {
    * failed preparation throws and leaves the run as it was. A command runs
    * in the checkout as it is, with the `head` the run recorded.
    */
+  /**
+   * Task 19 (Call 10, review S3): the one writer of a run's
+   * `checkout.removed`. Cleanup records here what it removed of a run's
+   * own checkout (a run of only `run:` steps has no session to carry the
+   * record), and clears it, with `null`, once the folder is rebuilt.
+   */
+  public recordCheckoutRemoved(
+    runId: string,
+    removed: { commit: string; keepRef: string; at: string } | null,
+  ): void {
+    const run = this.deps.store.get(runId);
+    if (!run?.checkout || run.checkout.kind !== 'run-owned') return;
+    const { removed: _was, ...checkout } = run.checkout;
+    this.deps.store.update(runId, { checkout: removed ? { ...checkout, removed } : checkout });
+    this.broadcastRun(runId);
+  }
+
   public async retry(runId: string, stepId?: string): Promise<RunRecord> {
     const run = this.deps.store.get(runId);
     if (!run || !isStepsRun(run) || run.status !== 'failed')
@@ -2905,6 +2922,24 @@ export class AutomationService {
       : undefined;
     // A run that owns its checkout keeps it; one whose checkout was never made makes it now (slice 3-B).
     const workItem = loaded.definition.automation.scope || owned ? undefined : itemRefOf(run);
+    // A run's own checkout that cleanup removed comes back first, at the commit it recorded, never anew (Task 19).
+    if (
+      owned &&
+      run.checkout?.kind === 'run-owned' &&
+      run.checkout.base !== undefined &&
+      !this.deps.folderExists(run.checkout.cwd)
+    ) {
+      if (!this.deps.runCheckout) throw new Error(NO_RUN_CHECKOUTS);
+      try {
+        await this.deps.runCheckout.restore(run.checkout.cwd);
+      } catch (error) {
+        throw new Error(
+          `Couldn't rebuild this run's checkout of ${owned.repo}: ${describeError(error).replace(/\.$/, '')}. Nothing was retried.`,
+        );
+      }
+      if (this.deps.store.get(runId)?.status !== 'failed')
+        throw new Error(`Run ${runId} changed while its checkout was rebuilt; it was not retried.`);
+    }
     // A retry is a boundary too, whatever the item: a person's session open in the run's own checkout refuses it.
     const ownCheckout = owned ? this.ownedCheckout(run) : null;
     const held =

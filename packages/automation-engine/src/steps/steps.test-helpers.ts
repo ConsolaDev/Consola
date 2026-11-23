@@ -212,7 +212,8 @@ export type RunCheckoutCall =
   | { reset: { dir: string; before: string; branch?: string } }
   | { changes: { dir: string; base: string; head: string; maxBytes: number } }
   | { showAt: { dir: string; commit: string; path: string; maxBytes: number } }
-  | { endStepProcesses: { dir: string; sessionId?: string } };
+  | { endStepProcesses: { dir: string; sessionId?: string } }
+  | { restore: string };
 
 /** What the fake host holds and recorded. A test edits the first part to move the world, then resyncs. */
 export interface StepsWorld {
@@ -335,6 +336,8 @@ export interface StepsWorld {
     showAnswers: Array<
       { ok: true; text: string } | { ok: false; reason: 'missing' | 'not-a-file' | 'too-large' }
     >;
+    /** What the next `restore` throws; absent, it puts the folder back (out of `goneFolders`). */
+    restoreFails?: unknown;
   };
   /** While set, every command the engine starts says its process group ends when this resolves (`RunningCommand.ended`). */
   commandGroupEnded?: Promise<void>;
@@ -970,5 +973,10 @@ function fakeRunCheckout(world: StepsWorld): RunCheckoutPort {
       return world.processes.end;
     },
     holder: (dir) => world.holders.get(dir) ?? null,
+    restore: async (dir) => {
+      runCheckouts.calls.push({ restore: dir });
+      if (runCheckouts.restoreFails) throw runCheckouts.restoreFails;
+      world.goneFolders.delete(dir);
+    },
   };
 }

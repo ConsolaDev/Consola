@@ -163,6 +163,38 @@ export async function makeRunClone(input: {
   runId: string;
   fetchEnv: NodeJS.ProcessEnv;
 }): Promise<{ base: string }> {
+  return buildRunClone(input, { fetch: input.from });
+}
+
+/**
+ * Task 19 (plan Call 10): a removed run's checkout back as `makeRunClone`
+ * made it, both folders, the pointer, `origin`, the identity, the
+ * `consola.*` config, the exclude, the `* -filter` attributes and the
+ * folder's record (`writeGitFolderRecord`), with its branch at `commit`,
+ * which the keep-ref keeps in `source` (the `--shared` clone borrows it
+ * from there). No fetch: nothing newer than what was recorded comes back.
+ */
+export async function rebuildRunClone(input: {
+  source: string;
+  dir: string;
+  branch: string;
+  commit: string;
+  runId: string;
+}): Promise<void> {
+  await buildRunClone({ ...input, fetchEnv: process.env }, { commit: input.commit });
+}
+
+/** `makeRunClone` and `rebuildRunClone`'s one body: the branch from a fetch of `fetch` (absent, the default branch), or at `commit`. */
+async function buildRunClone(
+  input: {
+    source: string;
+    dir: string;
+    branch: string;
+    runId: string;
+    fetchEnv: NodeJS.ProcessEnv;
+  },
+  start: { fetch: string | undefined } | { commit: string },
+): Promise<{ base: string }> {
   const { dir, branch, runId, fetchEnv } = input;
   const gitDir = runCloneGitDirFor(dir);
   if (!absentOrEmpty(dir) || !absentOrEmpty(gitDir)) {
@@ -211,15 +243,21 @@ export async function makeRunClone(input: {
     await git(['remote', 'set-url', 'origin', url], local);
 
     stage = 'fetch';
-    let from = input.from;
-    if (from === undefined) {
-      const said = await git(['ls-remote', '--symref', 'origin', 'HEAD'], remote);
-      const match = /^ref: refs\/heads\/(\S+)\tHEAD$/m.exec(said);
-      if (!match) throw new Error("the remote didn't say its default branch");
-      from = match[1];
+    let base: string;
+    if ('commit' in start) {
+      // A rebuild: the recorded commit, from the person's clone through the alternates; never the remote.
+      base = await git(['rev-parse', '--verify', `${start.commit}^{commit}`], local);
+    } else {
+      let from = start.fetch;
+      if (from === undefined) {
+        const said = await git(['ls-remote', '--symref', 'origin', 'HEAD'], remote);
+        const match = /^ref: refs\/heads\/(\S+)\tHEAD$/m.exec(said);
+        if (!match) throw new Error("the remote didn't say its default branch");
+        from = match[1];
+      }
+      await git(['fetch', '--no-tags', 'origin', `refs/heads/${from}`], remote);
+      base = await git(['rev-parse', '--verify', 'FETCH_HEAD^{commit}'], local);
     }
-    await git(['fetch', '--no-tags', 'origin', `refs/heads/${from}`], remote);
-    const base = await git(['rev-parse', '--verify', 'FETCH_HEAD^{commit}'], local);
 
     // `switch -c` runs git's own check of the name (Call 7): a name it refuses fails here.
     stage = 'branch';
@@ -821,4 +859,59 @@ export async function runCloneShowAt(
   const size = Number((await runCloneGit(dir, ['cat-file', '-s', object])).trim());
   if (size > maxBytes) return { ok: false, reason: 'too-large' };
   return { ok: true, text: await runCloneGit(dir, ['cat-file', 'blob', object]) };
+}
+
+/**
+ * Task 19 (plan Call 10, review S2): before a run's checkout is removed, its
+ * branch is fetched into the person's clone as `keepRef`, so its commits
+ * outlive both folders there. The git folder is checked first; the fetch
+ * runs in the person's clone with hooks off, no global or system config and
+ * replace refs off, never with `runCloneGitEnv` (whose `GIT_DIR` would fetch
+ * into the run clone). It fetches the branch, not a bare commit; then the
+ * keep-ref must be `head`, the commit Consola recorded, else it is deleted
+ * and nothing is removed.
+ */
+export async function fetchKeepRef(input: {
+  source: string;
+  dir: string;
+  branch: string;
+  head: string;
+  keepRef: string;
+}): Promise<void> {
+  const { source, dir, branch, head, keepRef } = input;
+  const folder = gitFolderProblem(dir);
+  if (folder) throw new Error(changedFolder(folder));
+  if (!keepRef.startsWith('refs/consola/'))
+    throw new Error(`${keepRef} is not a ref Consola keeps`);
+  const env = {
+    ...plainGit(withoutPassedConfig(process.env)),
+    GIT_CONFIG_NOSYSTEM: '1',
+    GIT_CONFIG_GLOBAL: '/dev/null',
+    GIT_NO_REPLACE_OBJECTS: '1',
+    GIT_TERMINAL_PROMPT: '0',
+  };
+  const inSource = { cwd: source, env };
+  await git(
+    ['fetch', '--no-tags', '--quiet', runCloneGitDirFor(dir), `+refs/heads/${branch}:${keepRef}`],
+    inSource,
+  );
+  const kept = await git(['rev-parse', '--verify', `${keepRef}^{commit}`], inSource).catch(
+    () => '',
+  );
+  if (kept !== head) {
+    await git(['update-ref', '-d', keepRef], inSource).catch(() => {});
+    throw new Error("the run's branch is not at the commit Consola recorded; nothing was removed");
+  }
+}
+
+/**
+ * Both folders of a run's checkout, and the record beside its git folder,
+ * gone (plan Call 10: never `git worktree remove`, which refuses a clone).
+ * The caller has checked it is a run's own checkout; this checks nothing.
+ */
+export function deleteRunClone(dir: string): void {
+  const gitDir = runCloneGitDirFor(dir);
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.rmSync(gitDir, { recursive: true, force: true });
+  fs.rmSync(recordFor(gitDir), { force: true });
 }
