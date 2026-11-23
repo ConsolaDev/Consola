@@ -186,6 +186,7 @@ import { BindingsStore, type SecretBindingsFile } from './secrets/BindingsStore'
 import { desktopSecretsPort } from './secrets/desktopSecrets';
 import { secretPrograms } from './secrets/programs';
 import { registerSecretsIpc, removeSecretsIpc } from './secrets/secretsIpc';
+import { automationMcpDeps } from './engineServers/mcpWiring';
 import { WorkspaceService, type WorkspaceStateFile } from './state/WorkspaceService';
 import { HarnessService, type HarnessStateFile } from './state/HarnessService';
 import {
@@ -2260,6 +2261,14 @@ export function setupIpcHandlers(): boolean {
     commands: { start: startCommand },
     // The names a run or a check needs, read from where this Mac binds them.
     secrets: desktopSecrets,
+    // uses: steps' servers, started or called from main, and Check server's groups (5a-2).
+    ...automationMcpDeps({
+      userDataDir: app.getPath('userData'),
+      loginEnv: async () => {
+        await loginEnvRetry();
+        return { ...getLoginEnv() };
+      },
+    }),
     // What both start from: the login env, and the bound account's token, which their logs mask.
     commandEnv: async (workspaceId) => {
       const provider = workspaces
@@ -2315,6 +2324,23 @@ export function setupIpcHandlers(): boolean {
         throw new Error('Workspace, automation and version required.');
       }
       return automations.allow(workspaceId, name, version);
+    },
+  );
+  // Check server, the person's only (Call 12): no tool an agent can call reaches this.
+  ipcMain.handle(
+    IPC_CHANNELS.AUTOMATIONS_CHECK_SERVER,
+    (_event, workspaceId: unknown, name: unknown, server: unknown, version: unknown) => {
+      if (
+        typeof workspaceId !== 'string' ||
+        typeof name !== 'string' ||
+        typeof server !== 'string' ||
+        typeof version !== 'string'
+      ) {
+        throw new Error('Workspace, automation, server and version required.');
+      }
+      if (!workspaces.getAll().some((workspace) => workspace.id === workspaceId))
+        throw new Error(`Unknown workspace: ${workspaceId}`);
+      return automations.checkServer(workspaceId, name, server, version);
     },
   );
   // Settings › Secrets, the person's only, and a deleted workspace's bindings going with it.
@@ -3236,6 +3262,7 @@ export function cleanupIpcHandlers(): void {
   ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_GET_SNAPSHOT);
   ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_RUN_NOW);
   ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_ALLOW);
+  ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_CHECK_SERVER);
   removeSecretsIpc(ipcMain);
   ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_LIST_RUN_TARGETS);
   ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_APPROVE);

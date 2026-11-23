@@ -1,3 +1,4 @@
+import type { ArgumentRole } from '@consola/automation-engine';
 import { z } from 'zod';
 import type { Workspace } from '../../shared/workspace';
 
@@ -94,6 +95,14 @@ export interface ToolDefinition<Shape extends z.ZodRawShape = z.ZodRawShape> {
    * would let an automation start automations, are not.
    */
   automatable: boolean;
+  /**
+   * What each argument does (Call 5): `prompt` (sent to a session as if
+   * typed), `selector` (chooses what the tool acts on) or `data`. Required
+   * for every argument of an automatable tool, which the registry checks;
+   * keyed by the tool's own shape, so a misspelt name does not compile
+   * (review Minor 15). An automation's untrusted text may reach only `data`.
+   */
+  roles?: Readonly<Partial<Record<keyof Shape & string, ArgumentRole>>>;
   /** Never offered to a read-only session, even when it changes nothing. */
   fullToolsOnly?: boolean;
   /** What `run` would do, changing nothing. */
@@ -124,6 +133,17 @@ export class ToolRegistry {
       throw new Error(
         `Destructive tool ${tool.name} must offer a preview: a person approves an agent's call from it.`,
       );
+    }
+    // An automation's step may feed an argument text someone else wrote, so
+    // each must say whether it is sent as a prompt, chooses what is acted on,
+    // or is only data (the engine refuses untrusted values for the first two).
+    if (tool.automatable) {
+      for (const argument of Object.keys(tool.input)) {
+        if (!tool.roles?.[argument])
+          throw new Error(
+            `Automatable tool ${tool.name} must say what each argument does (prompt, selector or data): ${argument} has no role.`,
+          );
+      }
     }
     this.tools.set(tool.name, tool);
   }

@@ -902,6 +902,12 @@ export function installMock() {
     readStepLog: async () => null,
     readArtifact: async () => null,
     retry: automationsUnavailable,
+    checkServer: async (_workspaceId: string, _name: string, server: string) => ({
+      server,
+      at: new Date().toISOString(),
+      steps: [],
+      problem: 'The demo starts no servers.',
+    }),
     stop: async () => {},
     addTemplate: automationsUnavailable,
     startAuthoring: automationsUnavailable,

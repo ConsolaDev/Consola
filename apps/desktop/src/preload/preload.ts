@@ -703,6 +703,8 @@ contextBridge.exposeInMainWorld('automationsAPI', {
   readArtifact: (runId, ref) =>
     ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_READ_ARTIFACT, runId, ref),
   retry: (runId, stepId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_RETRY, runId, stepId),
+  checkServer: (workspaceId, name, server, version) =>
+    ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_CHECK_SERVER, workspaceId, name, server, version),
   stop: (runId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_STOP, runId),
   addTemplate: (workspaceId, templateId) =>
     ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_ADD_TEMPLATE, workspaceId, templateId),

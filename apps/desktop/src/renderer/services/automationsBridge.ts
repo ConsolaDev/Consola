@@ -10,6 +10,7 @@ import type {
   RunDefinition,
   RunListPage,
   RunRecord,
+  ServerCheckView,
   StepDetail,
 } from '../../shared/automations';
 import type { RunConversation } from '../../shared/conversation';
@@ -110,6 +111,15 @@ export const automationsBridge = {
   /** Retry a failed steps run from its failed step. */
   retry: async (runId: string, stepId?: string): Promise<RunRecord> =>
     (getAPI() ?? unavailable()).retry(runId, stepId),
+
+  /** Check server: start a factory server once, list its tools and stop it. The person's press only. */
+  checkServer: async (
+    workspaceId: string,
+    name: string,
+    server: string,
+    version: string,
+  ): Promise<ServerCheckView> =>
+    (getAPI() ?? unavailable()).checkServer(workspaceId, name, server, version),
 
   stop: async (runId: string): Promise<void> => (getAPI() ?? unavailable()).stop(runId),
 
