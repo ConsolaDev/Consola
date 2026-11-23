@@ -46,7 +46,15 @@ has as the template is built: the build's log prints every version (its last
 
 Node is unpacked whole into `/usr/local`, so its `LICENSE` and the licence
 notices inside the packages npm bundles (`lib/node_modules/npm/node_modules`)
-stay in the image.
+stay in the image. The base image has a Node of its own there (20.9.0, with
+npm 10, corepack and yarn), which is removed first: unpacked over it, Node 26
+would leave npm 10's files among npm 11's, and that npm fails to start
+(`Class extends value undefined is not a constructor or null`).
+
+Claude Code's npm package starts as a placeholder `claude`; its postinstall
+copies the native build for the platform over it. Node 26's npm runs no install
+script it is not told to allow, so the install names it
+(`--allow-scripts=@anthropic-ai/claude-code`), and only it.
 
 It writes no t3 settings (`settings.json` in the host's state folder): a
 provider's launch arguments there would override the host's approval mode
@@ -113,8 +121,8 @@ fff-node patch, and builds it with `@consola/sandbox/e2b`'s builder
 `E2B_API_KEY`, from the environment, or else from `packages/sandbox/.env`; it is
 never an argument and never printed. The build prints the template's id.
 
-**Template id:** not built yet. Record the id the build prints here, and only
-the id.
+**Template id:** `hklvun2u4kalsi5no0ym` (built 2026-11-23). Record the id the
+build prints here, and only the id.
 
 ## The sandbox's lifetime
 

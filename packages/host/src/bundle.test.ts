@@ -492,6 +492,26 @@ describe('the consola-session template', () => {
     expect(node).not.toContain('--exclude');
   });
 
+  it("removes the base image's own Node before unpacking Node 26 where it was", () => {
+    // e2bdev/base has Node 20 with npm 10 in /usr/local: unpacked over it, npm 10's files stay
+    // among npm 11's and npm fails to start.
+    const text = dockerfile();
+    const removal = /^RUN rm -rf \/usr\/local\/lib\/node_modules[^\n]*(?:\n [^\n]*)*/m.exec(text);
+    expect(removal?.[0]).toMatch(/\/usr\/local\/bin\/npm\b/);
+    expect(removal?.[0]).toMatch(/\/usr\/local\/bin\/corepack\b/);
+    expect(removal?.index ?? Number.POSITIVE_INFINITY).toBeLessThan(
+      text.indexOf('tar -xJf /tmp/node.tar.xz'),
+    );
+  });
+
+  it("allows Claude Code's postinstall, which puts its native build in place of a placeholder, and no other", () => {
+    const install = /^RUN npm install --global[^\n]*(?:\n [^\n]*)*/m.exec(dockerfile())?.[0] ?? '';
+    expect(install).toContain('@anthropic-ai/claude-code@');
+    expect([...install.matchAll(/--allow-scripts=(\S+)/g)].map((match) => match[1])).toEqual([
+      '@anthropic-ai/claude-code',
+    ]);
+  });
+
   it('pins a Claude Code no older than the one the bundled Agent SDK names, nor than any model t3 offers needs', () => {
     const claudeCode = /@anthropic-ai\/claude-code@(\d+\.\d+\.\d+)\s/.exec(dockerfile())?.[1];
     const server = join(PACKAGE, 'node_modules', 't3');

@@ -28,6 +28,14 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates curl git xz-utils \
  && rm -rf /var/lib/apt/lists/*
 
+# The base image's own Node goes first (20.9.0, with npm 10, corepack and yarn, in
+# /usr/local): Node 26 unpacked over it would leave npm 10's files among npm 11's,
+# and that npm fails to start ("Class extends value undefined").
+RUN rm -rf /usr/local/lib/node_modules /usr/local/include/node \
+      /usr/local/share/doc/node /usr/local/share/man/man1/node.1 \
+ && rm -f /usr/local/bin/node /usr/local/bin/nodejs /usr/local/bin/npm /usr/local/bin/npx \
+      /usr/local/bin/corepack /usr/local/bin/yarn /usr/local/bin/yarnpkg
+
 # Node 26.13.1, the official build, checked against its published SHA-256.
 # Unpacked whole: its licence and the notices of the packages npm bundles stay.
 RUN curl -fsSLo /tmp/node.tar.xz https://nodejs.org/dist/v26.13.1/node-v26.13.1-linux-x64.tar.xz \
@@ -46,7 +54,10 @@ RUN curl -fsSLo /tmp/gh.tar.gz https://github.com/cli/cli/releases/download/v2.1
 # The Claude Code CLI and the Codex CLI, from npm. Claude Code is newer than the
 # 2.1.321 the bundled Agent SDK names: the host gives the SDK this CLI's path, and
 # 2.1.330 is the one Consola's desktop checks (README.md, "Claude Code's version").
-RUN npm install --global --no-audit --no-fund @anthropic-ai/claude-code@2.1.330 @openai/codex@0.171.0 \
+# Claude Code's postinstall copies its native build over the placeholder its `claude`
+# starts as, and Node 26's npm runs no install script it is not told to allow.
+RUN npm install --global --no-audit --no-fund --allow-scripts=@anthropic-ai/claude-code \
+      @anthropic-ai/claude-code@2.1.330 @openai/codex@0.171.0 \
  && npm cache clean --force
 
 # The packages t3 requires at run time from beside the bundle (scripts/bundle.ts):

@@ -1101,8 +1101,9 @@ build it and its id), from a bundle rather than from source.
   0 on SIGTERM, it fails to start without the run-time packages, and its
   history worker reads a Claude conversation. They list what the bundle
   requires as it runs (above), check the Dockerfile's instructions, versions
-  and patch against the workspace's (Node unpacked whole, and a Claude Code no
-  older than the one the bundled SDK names, `sandbox-template/README.md`), and
+  and patch against the workspace's (Node unpacked whole, once the base
+  image's own Node is gone; Claude Code's postinstall allowed; and a Claude Code
+  no older than the one the bundled SDK names, `sandbox-template/README.md`), and
   run the start script under `sh` with stand-ins for `git`, `node` and
   `codex`.
 
