@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   isStepsEntry,
+  parseFactory,
   parseFactorySpec,
   type AgentStep,
   type Automation,
@@ -15,7 +16,11 @@ import {
   describeSteps,
   dryRunReports,
   dryRunStarts,
+  describeWrites,
+  KEYCHAIN_SENTENCE,
+  type WriteVersions,
 } from './describeEntry';
+import { agentRequirements } from './steps/definition';
 
 describe('describeEvery', () => {
   it.each([
@@ -489,5 +494,297 @@ describe('a dry run and a write step (slice 3-B)', () => {
     expect(dryRunReports(agentStep('look'), agents)).toBeNull();
     // Without the agents (every caller before write agents), as before.
     expect(dryRunStarts([agentStep('fix', 'fixer')])).toBe(true);
+  });
+});
+
+describe('describeWrites: what the approval card says a write agent can change, read, reach and run (slice 3-B Task 21)', () => {
+  const ENTRY_41 = `version: 1
+repos: [sprocket/catalog-portal]
+automations:
+  - name: ui-bug-to-pr
+    on: { github: pull_request.review_requested }
+    checkout: { repo: sprocket/catalog-portal, branch: "fix/{{item.key}}" }
+    steps:
+      - id: triage
+        agent: triager
+        prompt: "Triage {{item.key}}."
+        outputs: { kind: { enum: [bug, feature, unclear] } }
+      - id: not-ours
+        if: steps.triage.kind != 'bug'
+        run: acli jira workitem comment create --key "$KEY"
+        env: { KEY: "{{item.key}}" }
+        then: stop
+      - id: fix
+        agent: ui-bugfixer
+        prompt: "Fix {{item.key}}."
+      - id: polish
+        repeat: { max: 3, until: steps.review.findings == 0 }
+        on_exhausted: { gate: "Review still has findings after 3 rounds" }
+        steps:
+          - id: review
+            agent: pre-pr-reviewer
+            outputs: { findings: integer }
+          - id: address
+            if: steps.review.findings > 0
+            agent: ui-bugfixer
+            prompt: "Address the findings in the review handover."
+      - id: pr
+        run: git push -u origin HEAD
+      - id: ticket
+        run: acli jira workitem transition --key "$KEY" --status "In Review"
+        env: { KEY: "{{item.key}}" }
+`;
+  const agentFile = (front: string) => `---\n${front}---\nYou do the step.\n`;
+  const ENVIRONMENTS = {
+    sandboxed: 'isolation: sandbox\nnetwork: [registry.npmjs.org]\nenv: [CI]\n',
+    open: 'isolation: host\n',
+    closed: 'isolation: sandbox\n',
+  };
+  function parsed(factoryYml: string, agents: Record<string, string>) {
+    const result = parseFactory({
+      factoryYml,
+      automations: {},
+      agents,
+      skills: {},
+      environments: ENVIRONMENTS,
+      stray: [],
+      laterFolders: [],
+      unread: [],
+      outside: [],
+    });
+    if (result.issues.length > 0) throw new Error(JSON.stringify(result.issues));
+    const [automation] = result.automations;
+    if (!automation || !isStepsEntry(automation)) throw new Error('not a steps entry');
+    const requirements = Object.fromEntries(
+      Object.entries(result.agents).map(([name, agent]) => [
+        name,
+        agentRequirements(agent, result.environments),
+      ]),
+    );
+    return { automation, agents: requirements };
+  }
+  const AGENTS_41 = {
+    triager: agentFile('harness: claude-work\nmodel: haiku\n'),
+    'ui-bugfixer': agentFile(
+      'harness: claude-work\nmodel: sonnet\ntools: write\nenvironment: sandboxed\n',
+    ),
+    'pre-pr-reviewer': agentFile('harness: claude-work\nmodel: sonnet\n'),
+  };
+  const V: WriteVersions = {
+    checkedOn: '2.1.330',
+    running: { 'ui-bugfixer': '2.1.331' },
+    hostEditChecked: true,
+    fileToolsChecked: true,
+  };
+  const LINE = (id: string) =>
+    `\`${id}\` · on host, after ui-bugfixer: runs code an agent changed, as you, with your logins.`;
+  const SANDBOX_WRITE_41 = [
+    "Can change files only in this run's checkout of sprocket/catalog-portal, on `fix/<ticket>`, and in the temporary folder all your sandboxed Claude shells share.",
+    'Can reach only registry.npmjs.org from its shell; its connectors: none.',
+    'Gets CI from your environment and no token Consola holds.',
+    "Its shell cannot read your SSH, cloud or Git credentials, other Claude profiles or Consola's data; its file tools read only this run's checkout.",
+    'Its shell can ask macOS for your keychain items through `security` (macOS may or may not ask you first).',
+    'Its shell can read other files on this Mac, and send them to the hosts above, to its connectors, or into the branch a later step pushes.',
+    '`git clone` and `git init` do not work in its shell.',
+    'Consola shows no live attention for it while it runs: the sandbox keeps its hooks out.',
+  ].join(' ');
+
+  it("§4.1's card, exactly", () => {
+    const { automation, agents } = parsed(ENTRY_41, AGENTS_41);
+    expect(describeWrites(automation, agents, V)).toEqual({
+      checkout:
+        "Cuts `fix/<ticket>` from sprocket/catalog-portal's default branch, in a checkout of its own. Nothing else is written.",
+      agents: [
+        {
+          agent: 'ui-bugfixer',
+          head: 'ui-bugfixer · claude-work · sonnet · writes files and runs commands · environment sandboxed (sandbox, enforced on this Mac) · checked on Claude 2.1.330; this Mac runs 2.1.331',
+          sentences: [SANDBOX_WRITE_41],
+        },
+      ],
+      // Review S4: both run after the write steps, on host; `not-ours` runs before any.
+      commands: [LINE('pr'), LINE('ticket')],
+      variables: 'Passes from your environment: CI.',
+    });
+  });
+
+  it('never says the sandbox keeps the keychain from its shell (canary row 49)', () => {
+    const { automation, agents } = parsed(ENTRY_41, AGENTS_41);
+    const said = JSON.stringify(describeWrites(automation, agents, V));
+    expect(said).not.toMatch(/cannot read your keychain|not your keychain/);
+    expect(said).toContain(KEYCHAIN_SENTENCE);
+    expect(KEYCHAIN_SENTENCE).toBe(
+      'Its shell can ask macOS for your keychain items through `security` (macOS may or may not ask you first).',
+    );
+  });
+
+  it('until rows 44/45 pass, the card names the shell only (review B1)', () => {
+    const { automation, agents } = parsed(ENTRY_41, AGENTS_41);
+    expect(
+      describeWrites(automation, agents, { ...V, fileToolsChecked: false })!.agents[0].sentences[0],
+    ).toContain("Consola's data; its file tools were not checked against that list.");
+  });
+
+  /** An entry whose one step runs a `tools` agent on `isolation`, then a command. */
+  function blockFor(
+    tools: 'edit' | 'write',
+    isolation: 'host' | 'sandbox',
+    versions: Partial<WriteVersions> = {},
+  ) {
+    const yml = `version: 1
+repos: [sprocket/catalog-portal]
+automations:
+  - name: one
+    on: { github: pull_request.review_requested }
+    checkout: { repo: sprocket/catalog-portal, branch: "fix/{{item.number}}", from: release }
+    steps:
+      - id: change
+        agent: changer
+        prompt: Change it.
+`;
+    const env = isolation === 'host' ? 'open' : 'sandboxed';
+    const { automation, agents } = parsed(yml, {
+      changer: agentFile(`tools: ${tools}\nenvironment: ${env}\n`),
+    });
+    return describeWrites(automation, agents, { ...V, running: {}, ...versions })!;
+  }
+
+  it.each([
+    [
+      'write',
+      'host',
+      'Has a shell with your logins, your network and your files: it can change anything you can. Blocking `git push` and `gh` is a convention it can go around.',
+    ],
+    [
+      'edit',
+      'host',
+      "Changes files only in this run's checkout (no shell). Its file tools read only this run's checkout, by the same `--restricted` (seen with the sandbox on), and what it reads can end up in the branch a later step pushes. Its connectors: none.",
+    ],
+    [
+      'edit',
+      'sandbox',
+      "Changes files only in this run's checkout (no shell). Its file tools read only this run's checkout, and what it reads can end up in the branch a later step pushes. Its connectors: none.",
+    ],
+  ] as const)('a %s agent on %s says what it is', (tools, isolation, sentence) => {
+    expect(blockFor(tools, isolation).agents[0].sentences).toEqual([sentence]);
+  });
+
+  it('an edit agent says it has no shell, whatever its environment (review M3)', () => {
+    const named = { host: 'open', sandbox: 'sandboxed' } as const;
+    for (const isolation of ['host', 'sandbox'] as const) {
+      expect(blockFor('edit', isolation).agents[0].head).toContain(
+        `writes files · environment ${named[isolation]} (no shell; its files are confined by --restricted)`,
+      );
+    }
+    expect(blockFor('edit', 'sandbox').agents[0].head).not.toContain('checked on Claude');
+    // No shell, so no keychain, network or git sentence: those are a shell's.
+    expect(blockFor('edit', 'sandbox').agents[0].sentences[0]).not.toContain('keychain');
+  });
+
+  it('an edit agent on host keeps its hedge until canary row 30 passed', () => {
+    expect(blockFor('edit', 'host', { hostEditChecked: false }).agents[0].sentences[0]).toContain(
+      'that it can change nothing else is not yet checked on host',
+    );
+    expect(blockFor('edit', 'sandbox', { hostEditChecked: false }).agents[0].sentences[0]).toMatch(
+      /^Changes files only in this run's checkout \(no shell\)\./,
+    );
+    expect(blockFor('edit', 'host', { fileToolsChecked: false }).agents[0].sentences[0]).toContain(
+      'What its file tools can read outside the checkout was not checked',
+    );
+  });
+
+  it('a write agent on host has no sandbox line, and the run passes it your whole environment', () => {
+    const host = blockFor('write', 'host');
+    expect(host.agents[0].head).toBe(
+      'changer · default harness · default model · writes files and runs commands · environment open (host, a convention)',
+    );
+    expect(host).not.toHaveProperty('variables');
+    expect(host.checkout).toBe(
+      "Cuts `fix/<number>` from sprocket/catalog-portal's branch `release`, in a checkout of its own. Nothing else is written.",
+    );
+  });
+
+  it('a sandboxed write agent with no network and no variables says so', () => {
+    const yml = `version: 1
+repos: [sprocket/catalog-portal]
+automations:
+  - name: closed
+    on: { github: pull_request.review_requested }
+    checkout: { repo: sprocket/catalog-portal, branch: "fix/{{run.id}}" }
+    steps:
+      - id: change
+        agent: changer
+        prompt: Change it.
+`;
+    const { automation, agents } = parsed(yml, {
+      changer: agentFile(
+        'harness: claude-work\ntools: write\nenvironment: closed\nmcpServers: [claude.ai Linear]\n',
+      ),
+    });
+    const written = describeWrites(automation, agents, V)!;
+    expect(written.agents[0].sentences[0]).toContain(
+      'Can reach no network from its shell; its connectors: claude.ai Linear.',
+    );
+    expect(written.agents[0].sentences[0]).toContain(
+      'Gets nothing from your environment and no token Consola holds.',
+    );
+    expect(written.agents[0].sentences[0]).toContain(
+      'Its shell can read other files on this Mac, and send them to its connectors or into the branch a later step pushes.',
+    );
+    expect(written.variables).toBe('Passes nothing from your environment.');
+    expect(written.checkout).toContain('Cuts `fix/<run>`');
+  });
+
+  it("a command after a write step says it runs the agent's code as you; one inside its loop counts from round 1", () => {
+    const yml = `version: 1
+repos: [sprocket/catalog-portal]
+automations:
+  - name: tested
+    on: { github: pull_request.review_requested }
+    checkout: { repo: sprocket/catalog-portal, branch: "fix/{{item.key}}" }
+    steps:
+      - id: lint
+        run: npm run lint
+      - id: polish
+        repeat: { max: 2, until: steps.check.ok == true }
+        steps:
+          - id: test
+            run: npm test
+          - id: check
+            agent: ui-bugfixer
+            prompt: Fix what failed.
+            outputs: { ok: boolean }
+`;
+    const { automation, agents } = parsed(yml, { 'ui-bugfixer': AGENTS_41['ui-bugfixer'] });
+    // `test` runs before `check` in round 1 and after it in round 2; `lint` never after a write.
+    expect(describeWrites(automation, agents, V)!.commands).toEqual([LINE('test')]);
+  });
+
+  it('equal versions name only the checked one; an unknown one says so; none checked says so', () => {
+    const { automation, agents } = parsed(ENTRY_41, AGENTS_41);
+    const head = (versions: Partial<WriteVersions>) =>
+      describeWrites(automation, agents, { ...V, ...versions })!.agents[0].head;
+    expect(head({ running: { 'ui-bugfixer': '2.1.330' } })).toMatch(
+      /· checked on Claude 2\.1\.330$/,
+    );
+    expect(head({ running: {} })).toMatch(
+      /· checked on Claude 2\.1\.330; this Mac's version is not known$/,
+    );
+    expect(head({ checkedOn: null })).toMatch(/· not yet checked on any Claude version$/);
+  });
+
+  it('nothing for an entry with no write agent and no checkout of its own', () => {
+    const yml = `version: 1
+automations:
+  - name: read
+    on: { github: pull_request.review_requested }
+    checkout: { pr: item }
+    steps:
+      - id: review
+        agent: pre-pr-reviewer
+      - id: post
+        run: gh pr comment
+`;
+    const { automation, agents } = parsed(yml, { 'pre-pr-reviewer': AGENTS_41['pre-pr-reviewer'] });
+    expect(describeWrites(automation, agents, V)).toBeUndefined();
   });
 });

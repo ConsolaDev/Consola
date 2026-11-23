@@ -54,6 +54,7 @@ export type {
   LogTail,
   CommandFile,
   GateView,
+  WriteBlocks,
 } from '@consola/automation-engine';
 
 /** What a new automation's session starts from: one of the file's entries, or a template. */

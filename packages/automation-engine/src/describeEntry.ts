@@ -1,5 +1,6 @@
 import {
   flatSteps,
+  isRunOwnedCheckout,
   isStepsEntry,
   leafSteps,
   type AgentDefinition,
@@ -10,7 +11,8 @@ import {
   type StepsAutomation,
 } from '@consola/factory-spec';
 import { clipText } from './steps/commandIO';
-import type { AutomationView } from './views';
+import type { AgentRequirements } from './steps/definition';
+import type { AutomationView, WriteBlocks } from './views';
 
 /** The most of a command's first line a step's summary shows. */
 const COMMAND_SUMMARY_CHARS = 80;
@@ -277,4 +279,200 @@ export function describeTriggerAsWritten(automation: Automation): string {
   if (trigger.kind === 'event') return `${trigger.connection}: ${trigger.events.join(', ')}`;
   if (trigger.kind === 'poll') return `poll: every ${describeEvery(trigger.everyMs).short}`;
   return trigger.kind === 'manual' ? 'manual' : trigger.cron;
+}
+
+/** What the card's containment sentences rest on (slice 3-B, the canary's verdicts as the host has them). */
+export interface WriteVersions {
+  /** The Claude version every stop row of the canary passed on (`SANDBOX_CHECKED_ON_CLAUDE`); null when none. */
+  checkedOn: string | null;
+  /** By agent name, the version of Claude its harness runs here now, when known (its harness's answer, `AgentHarnessAnswer.cliVersion`). */
+  running: Readonly<Record<string, string>>;
+  /** Canary row 30's outside half: the file tools change only the checkout with the sandbox off (`HOST_EDIT_CHECKED`). */
+  hostEditChecked: boolean;
+  /** Canary row 44 (or 45): the file tools read only the checkout (`FILE_TOOLS_DENY_CHECKED`, by `--restricted`). */
+  fileToolsChecked: boolean;
+}
+
+/** A branch template as the card names it: each placeholder as the part it stands for. */
+function branchWords(template: string): string {
+  return template
+    .replace(/\{\{\s*item\.key\s*\}\}/g, '<ticket>')
+    .replace(/\{\{\s*item\.number\s*\}\}/g, '<number>')
+    .replace(/\{\{\s*run\.id\s*\}\}/g, '<run>');
+}
+
+const joined = (names: readonly string[]) => names.join(', ');
+
+/** The keychain, as canary row 49 found it (`KEYCHAIN_SERVICE_BLOCKED = false`): the sandbox does not hold it. */
+export const KEYCHAIN_SENTENCE =
+  'Its shell can ask macOS for your keychain items through `security` (macOS may or may not ask you first).';
+/** The conductor's ruling on canary row 37: the CLI refuses `.git/config` and `.git/hooks` in every folder its shell writes. */
+export const GIT_CLONE_SENTENCE = '`git clone` and `git init` do not work in its shell.';
+/** The conductor's ruling on canary row 39: no attention hooks under the sandbox. */
+export const NO_LIVE_ATTENTION_SENTENCE =
+  'Consola shows no live attention for it while it runs: the sandbox keeps its hooks out.';
+
+/** One write agent's head line: what it is, where it runs, and (sandboxed) on which Claude its sandbox was checked. */
+function writeHead(agent: AgentRequirements, versions: WriteVersions): string {
+  const environment = agent.environment;
+  const harness = agent.harnessId ?? 'default harness';
+  const does = agent.tools === 'write' ? 'writes files and runs commands' : 'writes files';
+  const bracket =
+    agent.tools === 'edit'
+      ? 'no shell; its files are confined by --restricted'
+      : environment?.isolation === 'sandbox'
+        ? 'sandbox, enforced on this Mac'
+        : 'host, a convention';
+  const head = `${agent.name} · ${harness} · ${agent.model ?? 'default model'} · ${does} · environment ${environment?.name ?? 'none'} (${bracket})`;
+  if (agent.tools !== 'write' || environment?.isolation !== 'sandbox') return head;
+  if (versions.checkedOn === null) return `${head} · not yet checked on any Claude version`;
+  const running = Object.prototype.hasOwnProperty.call(versions.running, agent.name)
+    ? versions.running[agent.name]
+    : undefined;
+  if (running === undefined)
+    return `${head} · checked on Claude ${versions.checkedOn}; this Mac's version is not known`;
+  return running === versions.checkedOn
+    ? `${head} · checked on Claude ${versions.checkedOn}`
+    : `${head} · checked on Claude ${versions.checkedOn}; this Mac runs ${running}`;
+}
+
+/**
+ * What one write agent can change, read, reach and run, in the containment
+ * table's words as the canary left them on its checked version (plan
+ * *What sandbox contains*; the canary's rows 30, 31, 34, 36, 37, 39, 44, 46,
+ * 49). Every file tool runs under `--restricted`, which keeps it to the
+ * checkout for writes and reads alike (rows 30, 31, 44: the CLI names
+ * `--restricted` as the reason); the sandbox wraps the shell only, and does
+ * not keep it from the keychain service (row 49).
+ */
+function writeSentences(
+  agent: AgentRequirements,
+  checkout: { repo: string; branch: string } | undefined,
+  versions: WriteVersions,
+): string[] {
+  const environment = agent.environment;
+  const connectors =
+    agent.mcpServers.length > 0 ? joined(agent.mcpServers.map((s) => s.name)) : 'none';
+  const sandbox = environment?.isolation === 'sandbox';
+  if (agent.tools === 'write' && !sandbox) {
+    return [
+      'Has a shell with your logins, your network and your files: it can change anything you can. Blocking `git push` and `gh` is a convention it can go around.',
+    ];
+  }
+  if (agent.tools === 'edit') {
+    const changes =
+      sandbox || versions.hostEditChecked
+        ? "Changes files only in this run's checkout (no shell)."
+        : "Changes files in this run's checkout (no shell); that it can change nothing else is not yet checked on host.";
+    const reads = !versions.fileToolsChecked
+      ? 'What its file tools can read outside the checkout was not checked'
+      : sandbox
+        ? "Its file tools read only this run's checkout"
+        : "Its file tools read only this run's checkout, by the same `--restricted` (seen with the sandbox on)";
+    return [
+      `${changes} ${reads}, and what it reads can end up in the branch a later step pushes. Its connectors: ${connectors}.`,
+    ];
+  }
+  const where = checkout
+    ? `this run's checkout of ${checkout.repo}, on \`${branchWords(checkout.branch)}\``
+    : "this run's checkout";
+  const network = environment?.network ?? [];
+  const reach = network.length > 0 ? `only ${joined(network)}` : 'no network';
+  const env = environment?.env ?? [];
+  const gets =
+    env.length > 0
+      ? `Gets ${joined(env)} from your environment and no token Consola holds.`
+      : 'Gets nothing from your environment and no token Consola holds.';
+  const fileTools = versions.fileToolsChecked
+    ? "; its file tools read only this run's checkout"
+    : '; its file tools were not checked against that list';
+  const sendsTo =
+    network.length > 0
+      ? 'to the hosts above, to its connectors, or into the branch a later step pushes'
+      : 'to its connectors or into the branch a later step pushes';
+  return [
+    [
+      `Can change files only in ${where}, and in the temporary folder all your sandboxed Claude shells share.`,
+      `Can reach ${reach} from its shell; its connectors: ${connectors}.`,
+      gets,
+      `Its shell cannot read your SSH, cloud or Git credentials, other Claude profiles or Consola's data${fileTools}.`,
+      KEYCHAIN_SENTENCE,
+      `Its shell can read other files on this Mac, and send them ${sendsTo}.`,
+      GIT_CLONE_SENTENCE,
+      NO_LIVE_ATTENTION_SENTENCE,
+    ].join(' '),
+  ];
+}
+
+/**
+ * What an entry writes, for its approval card (slice 3-B, spec *Isolation,
+ * honestly › What the approval card says*; plan Task 21): its own
+ * checkout's sentence, a block per write agent (in step order, each once),
+ * a line per command that runs after a write step (in record order, a
+ * command in a loop with a write step counting from its first round, since
+ * a later round runs it after that step), and what passes from the
+ * person's environment to its sandboxed agents. `agents` by name. Absent
+ * for an entry with no write agent and no checkout of its own.
+ */
+export function describeWrites(
+  automation: StepsAutomation,
+  agents: Readonly<Record<string, AgentRequirements>>,
+  versions: WriteVersions,
+): WriteBlocks | undefined {
+  const own = isRunOwnedCheckout(automation.checkout) ? automation.checkout : undefined;
+  const writerOf = (step: StepEntry): AgentRequirements | undefined => {
+    if (step.kind !== 'agent' || step.agent === undefined) return undefined;
+    if (!Object.prototype.hasOwnProperty.call(agents, step.agent)) return undefined;
+    const agent = agents[step.agent];
+    return agent.tools === 'edit' || agent.tools === 'write' ? agent : undefined;
+  };
+  const writers: AgentRequirements[] = [];
+  for (const step of leafSteps(automation.steps)) {
+    const writer = writerOf(step);
+    if (writer && !writers.some((known) => known.name === writer.name)) writers.push(writer);
+  }
+  if (writers.length === 0 && !own) return undefined;
+
+  const commands: string[] = [];
+  let lastWriter: string | undefined;
+  for (const { step } of flatSteps(automation.steps)) {
+    if (step.kind === 'repeat') {
+      // A later round runs the loop's every step after its write step.
+      const inLoop = step.steps.map(writerOf).filter((agent) => agent !== undefined);
+      if (lastWriter === undefined && inLoop.length > 0) lastWriter = inLoop[0].name;
+      continue;
+    }
+    const writer = writerOf(step);
+    if (writer) lastWriter = writer.name;
+    else if (step.kind === 'run' && lastWriter !== undefined) {
+      commands.push(
+        `\`${step.id}\` · on host, after ${lastWriter}: runs code an agent changed, as you, with your logins.`,
+      );
+    }
+  }
+
+  const sandboxed = writers.filter(
+    (agent) => agent.tools === 'write' && agent.environment?.isolation === 'sandbox',
+  );
+  const names = [...new Set(sandboxed.flatMap((agent) => agent.environment?.env ?? []))];
+  const checkout = own
+    ? `Cuts \`${branchWords(own.branch)}\` from ${own.repo}'s ${own.from !== undefined ? `branch \`${own.from}\`` : 'default branch'}, in a checkout of its own. Nothing else is written.`
+    : undefined;
+  return {
+    ...(checkout ? { checkout } : {}),
+    agents: writers.map((agent) => ({
+      agent: agent.name,
+      head: writeHead(agent, versions),
+      sentences: writeSentences(agent, own, versions),
+    })),
+    commands,
+    ...(sandboxed.length > 0
+      ? {
+          variables:
+            names.length > 0
+              ? `Passes from your environment: ${joined(names)}.`
+              : 'Passes nothing from your environment.',
+        }
+      : {}),
+  };
 }

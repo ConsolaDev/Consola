@@ -4082,6 +4082,25 @@
   overflow-wrap: anywhere;
 }
 
+/* What an entry writes (slice 3-B): its checkout, each write agent's head and sentences, each command after one. */
+.automations-approval-writes {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.automations-approval-writes > p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.automations-approval-writes-head {
+  margin-top: 4px;
+  color: var(--color-text-primary);
+}
+
 /* An agent's own description, as its file writes it, under its name. */
 .automations-approval-description {
   margin: 0;

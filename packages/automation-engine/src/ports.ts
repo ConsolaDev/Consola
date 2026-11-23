@@ -291,6 +291,12 @@ export interface AgentHarnessAnswer {
    * compiled or prompted from them.
    */
   knownTools?: Readonly<Record<string, readonly string[]>>;
+  /**
+   * The Claude version this harness's CLI said it is, when the host knows it
+   * without asking (slice 3-B Task 21): what the approval card names as
+   * "this Mac runs" beside the version the sandbox was checked on.
+   */
+  cliVersion?: string;
 }
 
 /**

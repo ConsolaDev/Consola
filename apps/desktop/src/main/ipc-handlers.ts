@@ -134,7 +134,9 @@ import {
   writeAgentHostNow,
   type WriteAgentHostDeps,
 } from './automations/agentHarness';
-import { HarnessVersions } from './drivers/harnessVersions';
+import { HarnessVersions, UNKNOWN_CLI_VERSION } from './drivers/harnessVersions';
+import { FILE_TOOLS_DENY_CHECKED, HOST_EDIT_CHECKED } from './drivers/claudeWriteAgent';
+import { SANDBOX_CHECKED_ON_CLAUDE } from '../shared/sandboxCheck';
 import { runCheckoutSpawnRefusal, runOwnedCheckoutPort } from './automations/runOwnedCheckout';
 import { scopeIdForPath } from './providers/launchWorkItem';
 import { McpServersCache } from './automations/mcpServersCache';
@@ -167,6 +169,7 @@ import {
   stepToolSpecs,
   workspaceDataDir,
   workspaceFactoryPath,
+  type AgentRequirements,
   type AutomationStateFile,
   type ListRunsQuery,
   type RunDefinitionView,
@@ -2195,6 +2198,23 @@ export function setupIpcHandlers(): boolean {
   const harnessVersions = new HarnessVersions((fields) =>
     getDriver(fields.driverId).probeHealth(toHarnessConfig(fields)),
   );
+  /** By agent name, the Claude version each write agent's harness runs here, as already read; starts nothing. */
+  const cliVersionsOf = (
+    workspaceId: string | undefined,
+    agents: Readonly<Record<string, AgentRequirements>> | undefined,
+  ): Record<string, string> => {
+    const workspace = workspaces.getAll().find((candidate) => candidate.id === workspaceId);
+    const known: Record<string, string> = {};
+    for (const agent of Object.values(agents ?? {})) {
+      if (agent.tools === undefined) continue;
+      const harness = harnesses
+        .getAll()
+        .find((candidate) => candidate.id === (agent.harnessId ?? workspace?.defaultHarnessId));
+      const version = harnessVersions.peek(launchFieldsFor(harness));
+      if (version !== undefined && version !== UNKNOWN_CLI_VERSION) known[agent.name] = version;
+    }
+    return known;
+  };
   const writeHostDeps: WriteAgentHostDeps = {
     harnesses: () => harnesses.getAll(),
     platform: process.platform,
@@ -2374,6 +2394,18 @@ export function setupIpcHandlers(): boolean {
         },
         // A write agent's machine, at apply: never waits for a CLI version (slice 3-B).
         host: (harness) => writeAgentHostNow(writeHostDeps, harness),
+        // Its CLI's version for the approval card (Task 21): asked once in the background, as
+        // its servers are, and the entries resolved again once it answers.
+        cliVersion: (harness) => {
+          const fields = launchFieldsFor(harness);
+          const known = harnessVersions.peek(fields);
+          if (known === undefined) {
+            void harnessVersions.get(fields).then((version) => {
+              if (version !== UNKNOWN_CLI_VERSION) void automationService?.syncWorkspaces();
+            });
+          }
+          return known;
+        },
       });
     },
     // What an agent writing automations may name in an agent file's `harness:`,
@@ -2395,6 +2427,10 @@ export function setupIpcHandlers(): boolean {
     // environment (Call 2): its compile (Task 17), its launch and its port (Task 18).
     runCheckout,
     writeAgents: true,
+    // What the approval card's containment sentences rest on: the canary's verdicts (Task 21).
+    sandboxCheckedOn: SANDBOX_CHECKED_ON_CLAUDE,
+    fileToolsChecked: FILE_TOOLS_DENY_CHECKED,
+    hostEditChecked: HOST_EDIT_CHECKED,
     folderExists: (dir) => fs.existsSync(dir),
     // run: steps and poll checks: spawned by the engine's own executor.
     commands: { start: startCommand },
@@ -2541,7 +2577,19 @@ export function setupIpcHandlers(): boolean {
     IPC_CHANNELS.AUTOMATIONS_GET_RUN_DEFINITION,
     (_event, runId: unknown): RunDefinitionView | null => {
       const definition = typeof runId === 'string' ? automations.getRunDefinition(runId) : null;
-      return definition ? { ...definition, flow: describeFlow(definition.automation) } : null;
+      if (!definition) return null;
+      // Slice 3-B Task 21: what its write agents can do, on the version each harness runs here as
+      // far as Consola already knows it (opening a card starts nothing).
+      const writes = automations.writesFor(
+        definition.automation,
+        definition.agents,
+        cliVersionsOf(runStore.get(runId as string)?.attribution.workspaceId, definition.agents),
+      );
+      return {
+        ...definition,
+        flow: describeFlow(definition.automation),
+        ...(writes ? { writes } : {}),
+      };
     },
   );
   ipcMain.handle(

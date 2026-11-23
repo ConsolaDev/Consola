@@ -792,6 +792,28 @@ describe('agentHarnessView and the host, for a write agent (slice 3-B Task 17)',
     );
   });
 
+  it("carries the version its harness's CLI runs, for the approval card, on a write agent only (Task 21)", () => {
+    const asked: Array<string | undefined> = [];
+    const view = (agent: AgentHarnessQuery, version: string | undefined) =>
+      agentHarnessView({
+        harnesses: HARNESSES,
+        defaultHarnessId: 'default',
+        agent,
+        host: () => HOST,
+        cliVersion: (harness) => {
+          asked.push(harness?.id);
+          return version;
+        },
+      });
+    expect(view(WRITE_AGENT, '2.1.331').cliVersion).toBe('2.1.331');
+    expect(asked).toEqual(['claude-work']);
+    expect(view(WRITE_AGENT, undefined)).not.toHaveProperty('cliVersion');
+    expect(view(WRITE_AGENT, 'unknown')).not.toHaveProperty('cliVersion');
+    const { tools: _tools, environment: _environment, ...readOnly } = WRITE_AGENT;
+    expect(view({ ...readOnly, checkout: 'item' }, '2.1.331')).not.toHaveProperty('cliVersion');
+    expect(asked).toEqual(['claude-work', 'claude-work', 'claude-work']);
+  });
+
   it('a driver whose compiled grants do not hold the policy is refused as not Claude', () => {
     const loose = {
       ...getDriver('claude'),

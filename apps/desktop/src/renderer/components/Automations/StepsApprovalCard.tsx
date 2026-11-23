@@ -14,6 +14,7 @@ import {
   loopFoot,
 } from './approvalCard';
 import { useIntent } from './parts';
+import { WritesBlock } from './WritesBlock';
 
 type Loaded =
   | { state: 'loading' }
@@ -97,6 +98,7 @@ export function StepsApprovalCard({
               ),
             )}
           </ol>
+          <WritesBlock view={ready} />
           {ready.flow.length > 0 && (
             <div className="automations-approval-flow" role="group" aria-label="How this run flows">
               {ready.flow.map((line) => (

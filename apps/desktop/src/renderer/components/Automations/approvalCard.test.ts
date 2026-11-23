@@ -10,6 +10,7 @@ import {
   dryRunCommands,
   gateChoicesWords,
   loopFoot,
+  writeBlocks,
 } from './approvalCard';
 
 type Step = RunDefinition['automation']['steps'][number];
@@ -314,5 +315,47 @@ describe('approvalSkills (review M4)', () => {
       expect(approvalSkills(gone)).toEqual({
         problem: "Its skills can't be shown from this run's folder.",
       });
+  });
+});
+
+describe('writeBlocks (slice 3-B Task 21)', () => {
+  it("lists the checkout, each agent's head and sentences, the commands and the variables, in that order", () => {
+    expect(
+      writeBlocks({
+        writes: {
+          checkout: 'Cuts `fix/<ticket>` from sprocket/catalog-portal’s default branch.',
+          agents: [
+            {
+              agent: 'ui-bugfixer',
+              head: 'ui-bugfixer · claude-work',
+              sentences: ['One.', 'Two.'],
+            },
+            { agent: 'docs', head: 'docs · claude-work', sentences: ['Three.'] },
+          ],
+          commands: ['`pr` · on host, after ui-bugfixer: …'],
+          variables: 'Passes from your environment: CI.',
+        },
+      }),
+    ).toEqual([
+      {
+        kind: 'checkout',
+        text: 'Cuts `fix/<ticket>` from sprocket/catalog-portal’s default branch.',
+      },
+      { kind: 'head', agent: 'ui-bugfixer', text: 'ui-bugfixer · claude-work' },
+      { kind: 'sentence', agent: 'ui-bugfixer', text: 'One.' },
+      { kind: 'sentence', agent: 'ui-bugfixer', text: 'Two.' },
+      { kind: 'head', agent: 'docs', text: 'docs · claude-work' },
+      { kind: 'sentence', agent: 'docs', text: 'Three.' },
+      { kind: 'command', text: '`pr` · on host, after ui-bugfixer: …' },
+      { kind: 'variables', text: 'Passes from your environment: CI.' },
+    ]);
+  });
+
+  it('shows nothing for a view that writes nothing, and only what a view has', () => {
+    expect(writeBlocks({})).toEqual([]);
+    expect(writeBlocks({ writes: { agents: [], commands: [] } })).toEqual([]);
+    expect(
+      writeBlocks({ writes: { checkout: 'Cuts `x/<run>`.', agents: [], commands: [] } }),
+    ).toEqual([{ kind: 'checkout', text: 'Cuts `x/<run>`.' }]);
   });
 });

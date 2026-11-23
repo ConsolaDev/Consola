@@ -78,6 +78,7 @@ import {
   describeTriggerAsWritten,
   dryRunReports,
   dryRunStarts,
+  describeWrites,
 } from './describeEntry';
 import { describeSchedule } from './describeSchedule';
 import {
@@ -142,6 +143,7 @@ import type {
   TurnOutcome,
   TurnReportView,
   WorkspaceView,
+  WriteBlocks,
 } from './views';
 import type { RunStore } from './RunStore';
 import { AUTOMATION_TEMPLATES, coversAssignedReviews, GITHUB, templateViews } from './templates';
@@ -424,6 +426,17 @@ export interface AutomationServiceDeps {
    * entry: it says so (`NO_WRITE_AGENTS`).
    */
   writeAgents?: true;
+  /**
+   * What the approval card's containment sentences rest on (slice 3-B Task
+   * 21, the canary's verdicts as the host has them): the Claude version
+   * every stop row passed on (`SANDBOX_CHECKED_ON_CLAUDE`, null when none),
+   * whether the file tools read only the checkout (`FILE_TOOLS_DENY_CHECKED`)
+   * and whether they change only it with the sandbox off
+   * (`HOST_EDIT_CHECKED`). Absent, the card says nothing was checked.
+   */
+  sandboxCheckedOn?: string | null;
+  fileToolsChecked?: boolean;
+  hostEditChecked?: boolean;
   /** Whether a session is running in `dir`, launched there or moved in since: a run on that checkout waits for it. */
   checkoutBusy(dir: string): boolean;
   /** Whether a step's working folder (its item's checkout, or its scope's folder) is still there. */
@@ -558,6 +571,8 @@ interface Resolved {
     byHandLabel?: string;
     /** Every skill a step's agent names, from the version it resolved against: what a fired run copies into its folder. */
     skills: Readonly<Record<string, SkillDefinition>>;
+    /** By agent name, the Claude version its harness's answer gave (`AgentHarnessAnswer.cliVersion`): the card's "this Mac runs". */
+    cliVersions?: Readonly<Record<string, string>>;
   };
   /**
    * Where its runs' items come from (roadmap contract 4): the event source,
@@ -2490,6 +2505,35 @@ export class AutomationService {
     void this.pump();
   }
 
+  /**
+   * What a run of these steps writes, for the approval card (slice 3-B Task
+   * 21): `describeWrites` with the agents its definition keeps and the
+   * canary's verdicts as the host passed them.
+   */
+  public writesFor(
+    automation: StepsAutomation,
+    stepAgents: Readonly<Record<string, AgentRequirements>> | undefined,
+    running: Readonly<Record<string, string>> = {},
+  ): WriteBlocks | undefined {
+    const byName: Record<string, AgentRequirements> = {};
+    for (const agent of Object.values(stepAgents ?? {})) byName[agent.name] = agent;
+    return describeWrites(automation, byName, {
+      checkedOn: this.deps.sandboxCheckedOn ?? null,
+      running,
+      hostEditChecked: this.deps.hostEditChecked === true,
+      fileToolsChecked: this.deps.fileToolsChecked === true,
+    });
+  }
+
+  private writesOf(
+    automation: StepsAutomation,
+    steps: Resolved['steps'],
+  ): { writes?: WriteBlocks } {
+    if (!steps) return {};
+    const writes = this.writesFor(automation, steps.definition.agents, steps.cliVersions);
+    return writes ? { writes } : {};
+  }
+
   /** A workspace's automations as its panel and `list_automations` show them. */
   public list(workspaceId: string): AutomationView[] {
     const now = this.deps.now();
@@ -2523,6 +2567,7 @@ export class AutomationService {
           ? {
               steps: describeSteps(automation.steps, entry.agents),
               flow: describeFlow(automation),
+              ...this.writesOf(automation, entry.steps),
             }
           : {}),
         file: automation.file,
@@ -6661,6 +6706,10 @@ export class AutomationService {
       ),
     );
     const firstAgent = steps.find((step): step is AgentStep => step.kind === 'agent');
+    const cliVersions = new Map<string, string>();
+    for (const [name, answer] of answers) {
+      if (answer.cliVersion !== undefined) cliVersions.set(name, answer.cliVersion);
+    }
     return {
       workspaceId,
       automation,
@@ -6703,6 +6752,7 @@ export class AutomationService {
         startsInDryRun: dryRunStarts(automation.steps, agents),
         ...(firstAgent?.action !== undefined ? { byHandLabel: actions[firstAgent.id].name } : {}),
         skills: stepSkills,
+        ...(cliVersions.size > 0 ? { cliVersions: Object.fromEntries(cliVersions) } : {}),
       },
     };
   }

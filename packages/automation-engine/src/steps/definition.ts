@@ -6,6 +6,7 @@ import type {
   StepsAutomation,
 } from '@consola/factory-spec';
 import type { CheckoutKind } from '../ports';
+import type { WriteBlocks } from '../views';
 
 /**
  * What a step's agent requires, as its run's definition keeps it: the agent
@@ -155,7 +156,11 @@ export interface RunDefinition {
  * and its flow lines (`describeFlow`) computed when read, never written to
  * the run folder.
  */
-export type RunDefinitionView = RunDefinition & { flow: string[] };
+export type RunDefinitionView = RunDefinition & {
+  flow: string[];
+  /** What its write agents can change, read, reach and run (`describeWrites`, slice 3-B Task 21); absent when nothing writes. */
+  writes?: WriteBlocks;
+};
 
 /**
  * What a `steps:` run will do, kept on its run as `result`: which steps, and

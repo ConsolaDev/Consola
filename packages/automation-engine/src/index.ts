@@ -25,8 +25,14 @@ export {
   describeFlow,
   describeRun,
   describeTriggerAsWritten,
+  describeWrites,
+  GIT_CLONE_SENTENCE,
+  KEYCHAIN_SENTENCE,
+  NO_LIVE_ATTENTION_SENTENCE,
+  type WriteVersions,
 } from './describeEntry';
 export type {
+  WriteBlocks,
   AutomationView,
   CheckView,
   GateView,

@@ -256,6 +256,12 @@ export function agentHarnessView(input: {
   driverFor?(id?: HarnessDriverId): HarnessDriver;
   /** What a write agent compiles against (`writeAgentHostNow`); absent, a write agent is refused. */
   host?(harness: Harness | undefined): CompileHost;
+  /**
+   * The Claude version the harness runs, when already known
+   * (`HarnessVersions.peek`): a write agent's answer carries it, for the
+   * approval card's "this Mac runs" (slice 3-B Task 21).
+   */
+  cliVersion?(harness: Harness | undefined): string | undefined;
 }): AgentHarnessAnswer {
   const { harnesses, defaultHarnessId, agent, modelsOf } = input;
   const byId = (id: string | undefined) => harnesses.find((candidate) => candidate.id === id);
@@ -289,7 +295,9 @@ export function agentHarnessView(input: {
   const tools = agent.tools ?? 'read-only';
   const writes = tools !== 'read-only';
   const problem = toolPolicyProblem(fields, tools);
+  const version = writes ? input.cliVersion?.(harness) : undefined;
   const answer: AgentHarnessAnswer = {
+    ...(version !== undefined && version !== UNKNOWN_CLI_VERSION ? { cliVersion: version } : {}),
     name,
     problem,
     stepProblem: stepTurnProblem(fields, {

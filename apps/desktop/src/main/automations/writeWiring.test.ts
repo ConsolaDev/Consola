@@ -1,6 +1,10 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { describeWrites, type AgentRequirements } from '@consola/automation-engine';
+import type { StepsAutomation } from '@consola/factory-spec';
 import { describe, expect, it } from 'vitest';
+import { SANDBOX_CHECKED_ON_CLAUDE } from '../../shared/sandboxCheck';
+import { FILE_TOOLS_DENY_CHECKED, HOST_EDIT_CHECKED } from '../drivers/claudeWriteAgent';
 
 /*
  * What main wires for write steps (slice 3-B Task 18), read from its one
@@ -73,4 +77,58 @@ describe("main's wiring of write steps", () => {
       ipc.indexOf('IPC_CHANNELS.WORKSPACE_SESSION_FORK,'),
     );
   });
+
+  it("passes the approval card the canary's three verdicts, its CLI's version, and a run definition's writes (Task 21)", () => {
+    const deps = between('new AutomationService({', '\n  });');
+    expect(deps).toMatch(/\n {4}sandboxCheckedOn: SANDBOX_CHECKED_ON_CLAUDE,\n/);
+    expect(deps).toMatch(/\n {4}fileToolsChecked: FILE_TOOLS_DENY_CHECKED,\n/);
+    expect(deps).toMatch(/\n {4}hostEditChecked: HOST_EDIT_CHECKED,\n/);
+    expect(between('agentHarness: (workspaceId, agent) =>', 'listHarnesses:')).toMatch(
+      /cliVersion: \(harness\) => \{\n {10}const fields = launchFieldsFor\(harness\);\n {10}const known = harnessVersions\.peek\(fields\);/,
+    );
+    const handler = between('IPC_CHANNELS.AUTOMATIONS_GET_RUN_DEFINITION,', '\n  );');
+    expect(handler).toMatch(
+      /const writes = automations\.writesFor\(\n {8}definition\.automation,\n {8}definition\.agents,/,
+    );
+    expect(handler).not.toMatch(/harnessVersions\.get\(/);
+  });
+
+  it("an edit agent on host is worded by HOST_EDIT_CHECKED, as main passes it (the re-check's Minor)", () => {
+    const words = (hostEditChecked: boolean) =>
+      describeWrites(EDIT_ON_HOST.automation, EDIT_ON_HOST.agents, {
+        checkedOn: SANDBOX_CHECKED_ON_CLAUDE,
+        running: {},
+        hostEditChecked,
+        fileToolsChecked: FILE_TOOLS_DENY_CHECKED,
+      })!.agents[0].sentences[0];
+    expect(
+      words(HOST_EDIT_CHECKED).startsWith(
+        HOST_EDIT_CHECKED
+          ? "Changes files only in this run's checkout (no shell)."
+          : "Changes files in this run's checkout (no shell); that it can change nothing else is not yet checked on host.",
+      ),
+    ).toBe(true);
+    expect(words(!HOST_EDIT_CHECKED)).not.toBe(words(HOST_EDIT_CHECKED));
+  });
 });
+
+/** An entry whose one step runs an `edit` agent on `host`. */
+const EDIT_ON_HOST = (() => {
+  const automation = {
+    name: 'edit',
+    checkout: { repo: 'sprocket/catalog-portal', branch: 'fix/{{item.key}}' },
+    steps: [{ id: 'change', kind: 'agent', agent: 'changer' }],
+  } as unknown as StepsAutomation;
+  const agents: Record<string, AgentRequirements> = {
+    changer: {
+      name: 'changer',
+      hash: 'h',
+      body: 'Change it.',
+      mcpServers: [],
+      skills: [],
+      tools: 'edit',
+      environment: { name: 'open', isolation: 'host', network: [], env: [], hash: 'e' },
+    },
+  };
+  return { automation, agents };
+})();

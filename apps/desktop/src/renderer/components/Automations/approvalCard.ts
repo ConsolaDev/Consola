@@ -1,4 +1,4 @@
-import type { RunDefinition, StepDetail } from '../../../shared/automations';
+import type { RunDefinition, StepDetail, WriteBlocks } from '../../../shared/automations';
 import { agentStepHead, serverGrantLine, skillsLine } from './agentGrantWords';
 import { gateChoiceLabel } from './gateCardWords';
 
@@ -141,4 +141,37 @@ export function approvalSkills(
   return {
     texts: detail.skillTexts.map(({ name, text }) => ({ file: `skills/${name}/SKILL.md`, text })),
   };
+}
+
+/** One line of a card's write block: the checkout, an agent's head (bold) or one of its sentences, a command, the environment's variables. */
+export type WriteRow =
+  | { kind: 'checkout'; text: string }
+  | { kind: 'head'; agent: string; text: string }
+  | { kind: 'sentence'; agent: string; text: string }
+  | { kind: 'command'; text: string }
+  | { kind: 'variables'; text: string };
+
+/**
+ * What an entry writes, as both approval cards show it (slice 3-B Task 21):
+ * the checkout it cuts, then each write agent's head and its sentences, then
+ * a line per command that runs after a write step, then what passes from the
+ * person's environment. Every sentence is main's (`describeWrites`); none
+ * when the view has no `writes`.
+ */
+export function writeBlocks(view: { writes?: WriteBlocks }): WriteRow[] {
+  const writes = view.writes;
+  if (!writes) return [];
+  return [
+    ...(writes.checkout !== undefined
+      ? [{ kind: 'checkout' as const, text: writes.checkout }]
+      : []),
+    ...writes.agents.flatMap(({ agent, head, sentences }): WriteRow[] => [
+      { kind: 'head', agent, text: head },
+      ...sentences.map((text): WriteRow => ({ kind: 'sentence', agent, text })),
+    ]),
+    ...writes.commands.map((text): WriteRow => ({ kind: 'command', text })),
+    ...(writes.variables !== undefined
+      ? [{ kind: 'variables' as const, text: writes.variables }]
+      : []),
+  ];
 }

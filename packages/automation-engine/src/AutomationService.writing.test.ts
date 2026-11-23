@@ -8,6 +8,7 @@ import {
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { KEYCHAIN_SENTENCE } from './describeEntry';
 import { fileVersion } from './factory/apply';
 import { inboxItem } from './inboxItems.test-helpers';
 import { INTERRUPTED_WRITE } from './steps/recover';
@@ -1676,5 +1677,62 @@ describe("a run's own checkout that cleanup removed (Task 19)", () => {
       ),
     ).toBe(run.id);
     expect(h.service.runOwningCheckout('/elsewhere/catalog-portal-run-00000000')).toBeNull();
+  });
+});
+
+describe('the approval card says what a write agent can change, read, reach and run (Task 21)', () => {
+  const CLAUDE = { name: 'Claude', problem: null, stepProblem: null, cliVersion: '2.1.331' };
+  const VERDICTS = { sandboxCheckedOn: '2.1.330', fileToolsChecked: true, hostEditChecked: true };
+
+  it("fills an entry's writes from its definition, the host's verdicts and its harness's CLI version", async () => {
+    const h = await harness(WRITE_ENTRY, {
+      files: WRITER,
+      harness: CLAUDE,
+      cardVerdicts: VERDICTS,
+    });
+    const view = h.service.list(WORKSPACE_ID).find((entry) => entry.name === 'write')!;
+    expect(view.writes).toEqual({
+      checkout:
+        "Cuts `fix/<run>` from sprocket/catalog-portal's default branch, in a checkout of its own. Nothing else is written.",
+      agents: [
+        {
+          agent: 'fixer',
+          head: 'fixer · default harness · default model · writes files and runs commands · environment sandboxed (sandbox, enforced on this Mac) · checked on Claude 2.1.330; this Mac runs 2.1.331',
+          sentences: [expect.stringContaining(KEYCHAIN_SENTENCE)],
+        },
+      ],
+      commands: [
+        '`pr` · on host, after fixer: runs code an agent changed, as you, with your logins.',
+      ],
+      variables: 'Passes nothing from your environment.',
+    });
+    expect(view.writes!.agents[0].sentences[0]).toContain(
+      "its file tools read only this run's checkout.",
+    );
+  });
+
+  it('a host that passes no verdicts gets a card that says nothing was checked', async () => {
+    const h = await harness(WRITE_ENTRY, { files: WRITER });
+    const [written] = h.service.list(WORKSPACE_ID).find((entry) => entry.name === 'write')!
+      .writes!.agents;
+    expect(written.head).toMatch(/· not yet checked on any Claude version$/);
+    expect(written.sentences[0]).toContain('its file tools were not checked against that list');
+  });
+
+  it('an entry of commands in its own checkout says what it cuts; one with neither has no writes', async () => {
+    const h = await harness(RUN_OWNED, { cardVerdicts: VERDICTS });
+    expect(h.service.list(WORKSPACE_ID)[0].writes).toEqual({
+      checkout:
+        "Cuts `consola/run-<run>` from sprocket/catalog-portal's default branch, in a checkout of its own. Nothing else is written.",
+      agents: [],
+      commands: [],
+    });
+    const plain = await harness(
+      file(
+        `  - name: plain\n    on: manual\n    mode: auto\n    scope: catalog-portal\n${steps('- id: check\n  run: "true"')}`,
+      ),
+    );
+    expect(plain.service.snapshot(WORKSPACE_ID).issues).toEqual([]);
+    expect(plain.service.list(WORKSPACE_ID)[0]).not.toHaveProperty('writes');
   });
 });

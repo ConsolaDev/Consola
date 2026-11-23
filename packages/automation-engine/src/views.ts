@@ -10,6 +10,23 @@ import type {
 import type { RunFilter } from './runFilter';
 
 /** One automation from a workspace's factory folder, as the app shows it. */
+/**
+ * The approval card's account of what an entry writes (slice 3-B, spec
+ * *Isolation, honestly › What the approval card says*), every sentence
+ * main's: the checkout it cuts, each write agent's head line and what it
+ * can change, read, reach and run, each command that runs after a write
+ * step, and what passes from the person's environment.
+ */
+export interface WriteBlocks {
+  /** The checkout sentence: what branch it cuts from where. */
+  checkout?: string;
+  agents: Array<{ agent: string; head: string; sentences: string[] }>;
+  /** One per command step after a write step: every command runs on host in 3-B (review S4). */
+  commands: string[];
+  /** `Passes from your environment: …`, for the sandboxed agents' environments. */
+  variables?: string;
+}
+
 export interface AutomationView {
   name: string;
   mode: AutomationMode;
@@ -77,6 +94,12 @@ export interface AutomationView {
    * and the automation page say them. Absent for a legacy entry.
    */
   flow?: string[];
+  /**
+   * What its write agents can change, read, reach and run, and its own
+   * checkout (`describeWrites`, slice 3-B): the approval card's write
+   * blocks. Absent for an entry with no write agent and no checkout of its own.
+   */
+  writes?: WriteBlocks;
   /** The file it lives in, relative to the factory folder: `factory.yml` or `automations/<name>.yaml`. */
   file?: string;
   /** 1-based line in its file: an automation file's entry is its line 1. */

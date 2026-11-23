@@ -23,6 +23,15 @@ export const ALLOW_READ_CHECKED = true;
 export const MAX_BUDGET_CHECKED = true;
 
 /**
+ * Row 30's outside half (PASS on 2.1.330, `HOST_EDIT_CHECKED = true` in
+ * the ledger's *3-B Task 2 records*): with the sandbox off (an `edit`
+ * agent on `host`), the file tools changed nothing outside the checkout
+ * (both outside files absent, each named as refused), held by
+ * `--restricted`. The card drops its "not yet checked on host" hedge on it.
+ */
+export const HOST_EDIT_CHECKED = true;
+
+/**
  * Row 44 (PASS): the file tools read nothing the shell's deny list holds, so
  * row 45 did not run. The reason is `--restricted`, not `denyRead`: they
  * refuse every path outside the working directory, and ignore `denyRead`

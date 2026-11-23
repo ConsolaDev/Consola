@@ -202,6 +202,12 @@ export interface StepsHarnessOptions {
    * that cannot launch a write agent.
    */
   writeAgents?: boolean;
+  /** The canary's verdicts the host passes the approval card (slice 3-B Task 21). Default: none. */
+  cardVerdicts?: {
+    sandboxCheckedOn?: string | null;
+    fileToolsChecked?: boolean;
+    hostEditChecked?: boolean;
+  };
 }
 
 /** One call the fake `RunCheckoutPort` was asked, by its name. */
@@ -222,7 +228,12 @@ export interface StepsWorld {
   /** ws-1 was deleted: the host no longer lists it. Set it, then `service.syncWorkspaces()`. */
   workspaceDeleted: boolean;
   /** `stepProblem`: its extra arguments override what a step's turn is launched with. */
-  harness: { name: string; problem: string | null; stepProblem?: string | null };
+  harness: {
+    name: string;
+    problem: string | null;
+    stepProblem?: string | null;
+    cliVersion?: string;
+  };
   /**
    * The answer for an agent naming each harness, by id; an agent naming one
    * not here gets the host's unknown-harness words, and one naming none gets
@@ -849,6 +860,7 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
     folderExists: (dir) => !world.goneFolders.has(dir),
     ...(options.runCheckouts ? { runCheckout: fakeRunCheckout(world) } : {}),
     ...((options.writeAgents ?? options.runCheckouts) ? { writeAgents: true as const } : {}),
+    ...options.cardVerdicts,
   });
 
   const launch = async (): Promise<StepsHarness> => {
