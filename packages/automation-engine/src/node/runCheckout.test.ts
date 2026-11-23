@@ -334,6 +334,117 @@ describe('makeRunClone', () => {
     expect(fs.existsSync(dir)).toBe(false);
   });
 
+  describe("a quit while the checkout was made: made again when the run's record claims it (3-B code review F10)", () => {
+    const RUN = '3f2a91c0aa';
+    const make = (again?: true) =>
+      makeRunClone({
+        source,
+        dir,
+        branch: 'fix/SHOP-42',
+        runId: RUN,
+        fetchEnv: process.env,
+        ...(again ? { again } : {}),
+      });
+    /** What `config --file` says of a key in the git folder's config, '' when unset. */
+    const configured = (key: string) => {
+      try {
+        return git(tmp, 'config', '--file', path.join(runCloneGitDirFor(dir), 'config'), key);
+      } catch {
+        return '';
+      }
+    };
+    /** The pair as a quit at each point of `buildRunClone` leaves it, from a whole one taken back. */
+    const QUIT_AT: Array<[string, () => Promise<void>]> = [
+      [
+        'during the clone: a pointer and part of a git folder',
+        async () => {
+          const gitDir = runCloneGitDirFor(dir);
+          fs.mkdirSync(path.join(gitDir, 'objects', 'pack'), { recursive: true });
+          fs.writeFileSync(path.join(gitDir, 'config'), '[core]\n\trepositoryformatversion = 0\n');
+          fs.mkdirSync(dir, { recursive: true });
+          fs.writeFileSync(path.join(dir, '.git'), `gitdir: ${gitDir}\n`);
+        },
+      ],
+      [
+        'after the clone, the fetch and the branch, before the identity',
+        async () => {
+          await make();
+          const gitDir = runCloneGitDirFor(dir);
+          git(tmp, 'config', '--file', path.join(gitDir, 'config'), '--remove-section', 'consola');
+          fs.rmSync(path.join(gitDir, 'info', 'attributes'));
+          fs.rmSync(`${gitDir}.consola.json`);
+        },
+      ],
+      [
+        'after the identity, before the exclude, the attributes and the record',
+        async () => {
+          await make();
+          const gitDir = runCloneGitDirFor(dir);
+          fs.rmSync(path.join(gitDir, 'info', 'attributes'));
+          fs.rmSync(`${gitDir}.consola.json`);
+        },
+      ],
+      ['once it was made, before the run recorded it', async () => make().then(() => {})],
+      [
+        'a checkout folder only, its git folder never begun',
+        async () => {
+          fs.mkdirSync(dir, { recursive: true });
+          fs.writeFileSync(path.join(dir, '.git'), `gitdir: ${runCloneGitDirFor(dir)}\n`);
+        },
+      ],
+    ];
+
+    it.each(QUIT_AT)('%s', async (_, leave) => {
+      await leave();
+      // As before, a make the record does not vouch for touches none of it.
+      await expect(make()).rejects.toMatchObject({ stage: 'clone' });
+      const { base } = await make(true);
+      expect(base).toBe(git(remote, 'rev-parse', 'main'));
+      expect(gitFolderProblem(dir)).toBeNull();
+      expect(run(dir, 'symbolic-ref', 'HEAD')).toBe('refs/heads/fix/SHOP-42');
+      expect(configured('consola.run')).toBe(RUN);
+      expect(run(dir, 'status', '--porcelain')).toBe('');
+    });
+
+    it('refuses a git folder that names another run, and leaves both folders as they are', async () => {
+      await make();
+      const gitDir = runCloneGitDirFor(dir);
+      git(tmp, 'config', '--file', path.join(gitDir, 'config'), 'consola.run', 'another-run');
+      const before = hashTree(gitDir);
+      await expect(make(true)).rejects.toThrow(/names another run/);
+      expect(hashTree(gitDir)).toEqual(before);
+      expect(fs.existsSync(path.join(dir, '.git'))).toBe(true);
+    });
+
+    it.each<[string, () => string]>([
+      [
+        'the checkout folder',
+        () => {
+          const elsewhere = path.join(tmp, 'elsewhere');
+          fs.mkdirSync(elsewhere);
+          fs.writeFileSync(path.join(elsewhere, 'theirs.txt'), 'keep me');
+          fs.symlinkSync(elsewhere, dir);
+          return path.join(elsewhere, 'theirs.txt');
+        },
+      ],
+      [
+        'the git folder',
+        () => {
+          const elsewhere = path.join(tmp, 'elsewhere.git');
+          fs.mkdirSync(elsewhere);
+          fs.writeFileSync(path.join(elsewhere, 'HEAD'), 'keep me');
+          fs.mkdirSync(path.dirname(runCloneGitDirFor(dir)), { recursive: true });
+          fs.symlinkSync(elsewhere, runCloneGitDirFor(dir));
+          return path.join(elsewhere, 'HEAD');
+        },
+      ],
+    ])('refuses %s when it is a link, and leaves what it leads to', async (_, plant) => {
+      const kept = plant();
+      await expect(make(true)).rejects.toThrow(/is not a folder/);
+      expect(fs.readFileSync(kept, 'utf8')).toBe('keep me');
+    });
+  });
+
   it("leaves the person's clone's refs, packed-refs and HEAD as they were", async () => {
     const watched = () => ({
       refs: hashTree(path.join(source, '.git/refs')),

@@ -305,6 +305,51 @@ describe('a run that owns its checkout makes it before its first step (Task 12)'
     });
   });
 
+  it("a run's first make never vouches for what is at its folder; the make after a restart, or a Retry, of the run's own claim does (3-B code review F10)", async () => {
+    const h = await harness(RUN_OWNED);
+    h.world.runCheckouts.makeGate = new Promise<void>(() => undefined);
+    const run = (await h.service.trigger(WORKSPACE_ID, 'own'))!;
+    await h.flush();
+    expect(makes(h)[0]).not.toHaveProperty('again');
+    h.world.runCheckouts.makeGate = undefined;
+    // Consola quits while the clone is under way; the next start makes it again, vouching for what is there.
+    h.world.runCheckouts.makeFails = new RunCheckoutError('clone', 'still not');
+    const again = await h.relaunch();
+    await again.flush();
+    expect(makes(again)[1]).toMatchObject({ runId: run.id, again: true });
+    expect(runOf(again, run.id).status).toBe('failed');
+    // Retry of the same claim, no commit recorded: the same again.
+    again.world.runCheckouts.makeFails = undefined;
+    await again.service.retry(run.id);
+    await again.flush();
+    expect(makes(again)[2]).toMatchObject({ runId: run.id, again: true });
+    expect(runOf(again, run.id).checkout).toMatchObject({ base: 'b0' });
+  });
+
+  it("a claim that is not the run's own folder, or that another run's record names too, is never vouched for (F10)", async () => {
+    const h = await harness(RUN_OWNED);
+    h.world.runCheckouts.makeFails = new RunCheckoutError('fetch', 'offline');
+    const first = await runNow(h, 'own');
+    const second = await runNow(h, 'own');
+    expect([runOf(h, first.id).status, runOf(h, second.id).status]).toEqual(['failed', 'failed']);
+    // The second's record names a folder that is not its own: it may not vouch for what is there.
+    h.store.update(second.id, {
+      checkout: { ...runOf(h, second.id).checkout!, cwd: '/w/elsewhere' },
+    });
+    await expect(h.service.retry(second.id)).rejects.toThrow(/offline/);
+    expect(makes(h).at(-1)).toMatchObject({ runId: second.id });
+    expect(makes(h).at(-1)).not.toHaveProperty('again');
+    // Now it names the first's folder: neither may vouch for it.
+    h.store.update(second.id, {
+      checkout: { ...runOf(h, second.id).checkout!, cwd: runCheckoutPathFor(first.id, REPO) },
+    });
+    h.world.runCheckouts.makeFails = undefined;
+    await h.service.retry(first.id);
+    await h.flush();
+    expect(makes(h).at(-1)).toMatchObject({ runId: first.id });
+    expect(makes(h).at(-1)).not.toHaveProperty('again');
+  });
+
   it('a restart before the checkout was made makes it then', async () => {
     const h = await harness(RUN_OWNED);
     // The first make never returns: Consola quits while it is under way.

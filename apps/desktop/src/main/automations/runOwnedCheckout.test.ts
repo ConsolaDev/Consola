@@ -125,6 +125,41 @@ describe('the desktop’s run-owned checkout port (slice 3-B Task 18)', () => {
     ).toBe(dir);
   });
 
+  it("makes a half-made checkout again only when the run's record vouches for it, under the folder's lock (3-B code review F10)", async () => {
+    // A quit before the identity: the git folder does not name the run yet.
+    git(
+      tmp,
+      'config',
+      '--file',
+      path.join(runCloneGitDirFor(dir), 'config'),
+      '--remove-section',
+      'consola',
+    );
+    const locked: string[] = [];
+    const port = runOwnedCheckoutPort(
+      deps({
+        underLock: (at, work) => {
+          locked.push(at);
+          return work();
+        },
+      }),
+    );
+    const request = {
+      workspaceId: 'ws-1',
+      runId: '3f2a91c0aabbccdd',
+      automation: 'fix',
+      repo: 'sprocket/catalog-portal',
+      branch: 'fix/SHOP-42',
+    };
+    await expect(port.make(request)).rejects.toMatchObject({ stage: 'clone' });
+    const made = await port.make({ ...request, again: true });
+    expect(made.cwd).toBe(dir);
+    expect(
+      git(tmp, 'config', '--file', path.join(runCloneGitDirFor(dir), 'config'), 'consola.run'),
+    ).toBe('3f2a91c0aabbccdd');
+    expect(locked).toEqual([dir, dir]);
+  });
+
   it("refuses to make a checkout of a repository no scope holds, in slice 1's words", async () => {
     const made = runOwnedCheckoutPort(deps()).make({
       workspaceId: 'ws-1',

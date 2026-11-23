@@ -176,14 +176,19 @@ export function runOwnedCheckoutPort(deps: RunOwnedCheckoutDeps): RunCheckoutPor
       const source = deps.resolveRepo(workspace, request.repo);
       if (!source) throw new RunCheckoutError('resolve', notClonedMessage(request.repo));
       const dir = path.join(deps.root, runOwnedDirName(request.repo, request.runId));
-      const { base } = await makeRunClone({
-        source,
-        dir,
-        branch: request.branch,
-        ...(request.from !== undefined ? { from: request.from } : {}),
-        runId: request.runId,
-        fetchEnv: await deps.fetchEnv(workspace),
-      });
+      const fetchEnv = await deps.fetchEnv(workspace);
+      // Under the folder's lock, as cleanup's removal and rebuild are: a make again (F10) removes first.
+      const { base } = await deps.underLock(dir, () =>
+        makeRunClone({
+          source,
+          dir,
+          branch: request.branch,
+          ...(request.from !== undefined ? { from: request.from } : {}),
+          runId: request.runId,
+          fetchEnv,
+          ...(request.again ? { again: true } : {}),
+        }),
+      );
       return { cwd: dir, scopeId: deps.scopeIdForPath(workspace, source), base };
     },
 

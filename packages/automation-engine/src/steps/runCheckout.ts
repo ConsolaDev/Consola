@@ -19,6 +19,14 @@ export interface RunCheckoutRequest {
   branch: string;
   /** The branch it cuts from; absent, the remote's default branch. */
   from?: string;
+  /**
+   * The run's record claims this, its own folder, with no commit, and no
+   * other run's names it (the 3-B code review's F10): a make the last
+   * Consola started and never finished (a quit, a crash) may have left a
+   * half-made folder and git folder there, which the host makes again when
+   * they are provably this run's. Absent, anything there is refused.
+   */
+  again?: true;
 }
 
 /** What the run records once it is made. */

@@ -162,8 +162,51 @@ export async function makeRunClone(input: {
   from?: string;
   runId: string;
   fetchEnv: NodeJS.ProcessEnv;
+  /**
+   * The run's record claimed `dir` before and records no commit for it (a
+   * quit while it was made, the 3-B code review's F10): what is there is
+   * removed, both folders and the record beside the git folder, when it is
+   * provably this run's (`halfMadeProblem`), then made again. Absent, a
+   * folder that is there and not empty is refused, as always.
+   */
+  again?: boolean;
 }): Promise<{ base: string }> {
+  const { dir, runId } = input;
+  const gitDir = runCloneGitDirFor(dir);
+  if (input.again && (!absentOrEmpty(dir) || !absentOrEmpty(gitDir))) {
+    const problem = halfMadeProblem(dir, gitDir, runId);
+    if (problem) throw new RunCheckoutError('clone', problem);
+    deleteRunClone(dir);
+  }
   return buildRunClone(input, { fetch: input.from });
+}
+
+/**
+ * Why what a quit left at `dir` and its git folder is not provably run
+ * `runId`'s own, or null when it is (F10). The caller's record claimed this
+ * path for the run (derived from its id) with no commit; on top of that,
+ * each folder present must be a real folder (never a link, whose target
+ * Consola would not remove), and the git folder's config, once a make got
+ * that far, must name this run (`consola.run`) and nothing else.
+ */
+function halfMadeProblem(dir: string, gitDir: string, runId: string): string | null {
+  for (const folder of [dir, gitDir]) {
+    const stat = fs.lstatSync(folder, { throwIfNoEntry: false });
+    if (stat && !stat.isDirectory()) return `${folder} is not a folder Consola made`;
+  }
+  const config = path.join(gitDir, 'config');
+  if (!fs.existsSync(config)) return null;
+  let named: string;
+  try {
+    named = execFileSync('git', ['config', '--file', config, '--default', '', 'consola.run'], {
+      encoding: 'utf8',
+      env: { ...plainGit(process.env), GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' },
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+  } catch {
+    return `${gitDir}'s config cannot be read, so Consola can't tell whose it is`;
+  }
+  return named === '' || named === runId ? null : `${gitDir} names another run`;
 }
 
 /**

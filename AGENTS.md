@@ -852,7 +852,11 @@ a sandboxed shell can move the clone's branches; in a git folder of its own it
 could plant replace refs and grafts); the checkout holds only a `.git` pointer
 that neither the sandbox nor the file tools may rewrite (canary rows 47 and
 30). `origin` is the real remote, the branch the one the run cut. Consola
-makes it before the first step (`makeRunClone`), ends the step's own
+makes it before the first step (`makeRunClone`, under the folder's lock; a
+make a quit cut short is made again by the next start or a Retry, `again`,
+only when the run's record claims that very folder with no commit, no other
+run's names it, both folders are real folders and the git folder names no
+other run), ends the step's own
 processes and commits after every agent step, checks commands leave nothing,
 and resets to a step's `before` for a retry (`engine/node/runCheckout.ts`),
 always naming `GIT_DIR` and `GIT_WORK_TREE` for its own git, with no global or

@@ -3083,6 +3083,8 @@ export class AutomationService {
             repo: owned.repo,
             branch,
             ...(owned.from !== undefined ? { from: owned.from } : {}),
+            // A make that was cut short left what it made at the run's own folder (F10).
+            ...(this.claimsOwnFolder(run, owned.repo) ? { again: true as const } : {}),
           })
           .catch((error: unknown) => {
             throw new Error(makeFailedMessage(owned.repo, error));
@@ -3458,7 +3460,8 @@ export class AutomationService {
     const definition = 'definition' in loaded ? loaded.definition : undefined;
     // A run that owns its checkout and quit before it was made makes it now (slice 3-B).
     if (definition && isRunOwnedCheckout(definition.automation.checkout)) {
-      if (run.checkout?.base === undefined) void this.makeRunCheckout(run.id);
+      // Its claim is from before the restart: what that make left there is this run's to make again (F10).
+      if (run.checkout?.base === undefined) void this.makeRunCheckout(run.id, true);
       else this.advance(run.id);
       return;
     }
@@ -3955,7 +3958,7 @@ export class AutomationService {
    * retry), as an item's preparation does; nothing of the checkout but its
    * claim is recorded then. Nothing awaits this, so nothing may escape it.
    */
-  private async makeRunCheckout(runId: string): Promise<void> {
+  private async makeRunCheckout(runId: string, again = false): Promise<void> {
     this.starting.add(runId);
     try {
       const run = this.deps.store.get(runId)!;
@@ -3984,6 +3987,7 @@ export class AutomationService {
           repo: owned.repo,
           branch,
           ...(owned.from !== undefined ? { from: owned.from } : {}),
+          ...(again && this.claimsOwnFolder(run, owned.repo) ? { again: true as const } : {}),
         });
       } catch (error) {
         if (!this.stillRunning(runId)) return;
@@ -4018,6 +4022,23 @@ export class AutomationService {
       if (!this.stillRunning(runId)) this.admitted.delete(runId);
       void this.pump();
     }
+  }
+
+  /**
+   * Whether `run`'s record claims its own folder (`pathFor(run.id, repo)`)
+   * with no commit, and no other run's record names that folder: then what
+   * an earlier make left there, cut short by a quit, is the run's to make
+   * again (the 3-B code review's F10). The host checks the folders too.
+   */
+  private claimsOwnFolder(run: RunRecord, repo: string): boolean {
+    const port = this.deps.runCheckout;
+    const checkout = run.checkout;
+    if (!port || checkout?.kind !== 'run-owned' || checkout.base !== undefined) return false;
+    const own = port.pathFor(run.id, repo);
+    if (checkout.cwd !== own) return false;
+    return !this.deps.store
+      .runs()
+      .some((other) => other.id !== run.id && other.checkout?.cwd === own);
   }
 
   /** The checkout could not be prepared: the run ends before its first step. */
