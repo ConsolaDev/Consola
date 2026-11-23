@@ -119,17 +119,67 @@
 }
 
 /*
- * The guard: the stylesheet's one unlayered rule, with what scopeCss adds after it (the same for
- * each pseudo-element, and every custom property the stylesheet registers). A page's unlayered
- * rules outrank every layer whatever their weight, so without it the desktop's
+ * The floor: the lowest of the chat layer's sublayers (scopeCss moves it below t3's), what each
+ * property of the chat's elements falls to where t3's stylesheet sets nothing. A page's layers
+ * declared before the chat's stylesheet are below the chat's layer, so without it they would fill
+ * every property t3 leaves unset (a Tailwind 4 page's `@layer base` preflight, its
+ * `:focus-visible` outline). `revert` rolls each property back to the browser's own styles, below
+ * every layer of the page's, and t3's sublayers, above it, still win. scopeCss completes it: the
+ * same for each pseudo-element and registered property, and the properties an element's own
+ * attributes set (SVG's `fill` and `stroke`, `hidden`, `dir`, …: the page's origin, which
+ * `revert` would take away), which fall through instead (`ATTRIBUTE_STYLED`).
+ *
+ * The theme element and the popups stand in for t3's document, so they inherit nothing from the
+ * page around them: every property starts at its initial value, as on a document's root, with a
+ * `<div>`'s display and as if marked `dir="ltr"` (t3's own document is). Kept: the root font size
+ * (t3 sizes in `rem`, by design the page's, AGENTS.md), the page's language, and what a page uses
+ * to hide or disable a part of itself (`visibility`, `pointer-events`, `interactivity`).
+ */
+@layer reset {
+  :where(.consola-agent-ui *, .consola-agent-ui-portal, .consola-agent-ui-portal *):where(
+    :not(math, math *)
+  ) {
+    all: revert;
+    direction: revert;
+    unicode-bidi: revert;
+  }
+
+  :where(.consola-agent-ui .consola-agent-ui-theme, .consola-agent-ui-portal) {
+    all: initial;
+    display: block;
+    direction: ltr;
+    unicode-bidi: isolate;
+    font-size: 1rem;
+    -webkit-locale: inherit;
+    visibility: inherit;
+    pointer-events: inherit;
+    interactivity: inherit;
+  }
+}
+
+/*
+ * The guard: the stylesheet's unlayered rules, with what scopeCss adds after the first (the same
+ * for each pseudo-element, and every custom property the stylesheet registers). A page's
+ * unlayered rules outrank every layer whatever their weight, so without it the desktop's
  * `* { margin: 0; padding: 0 }` would undo every spacing utility of t3's. It matches every element
- * of the chat and of its popups, with an ID's weight (build/scopeCss.ts `GUARDED`), and rolls
- * every property back to the layers: whatever a page rule without an ID says there, each
- * property takes its value from this stylesheet, or else the browser's default, as on a page of
- * t3's own. The chat's root is the page's to place, so it is not guarded.
+ * of the chat and of its popups, with three IDs' weight (build/scopeCss.ts `GUARDED`), and rolls
+ * every property back to the layers (`all` leaves out `direction` and `unicode-bidi`, so they are
+ * named): whatever a page rule with fewer IDs says there, each property takes its value from this
+ * stylesheet, or else from the floor above. The chat's root is the page's to place, so only what
+ * keeps the chat in its box is guarded there: `contain: layout`, which places t3's fixed controls
+ * in the chat, and its height.
  */
 :is(.consola-agent-ui *, .consola-agent-ui-portal, .consola-agent-ui-portal *):not(
   #consola-agent-ui-guard
-) {
+):not(#consola-agent-ui-guard):not(#consola-agent-ui-guard) {
   all: revert-layer;
+  direction: revert-layer;
+  unicode-bidi: revert-layer;
+}
+
+.consola-agent-ui:not(#consola-agent-ui-guard):not(#consola-agent-ui-guard):not(
+  #consola-agent-ui-guard
+) {
+  contain: revert-layer;
+  height: revert-layer;
 }

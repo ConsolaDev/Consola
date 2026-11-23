@@ -5,18 +5,21 @@
  * and that they style nothing but the chat. Every rule must be scoped (`build/scopeCss.ts`); what
  * is page-global anyway is a short list of at-rules that style nothing by themselves (AGENTS.md,
  * "What is page-global"). Every rule is in the chat's cascade layer but the guard's, which roll
- * back what a page's rules set inside the chat and set nothing themselves (AGENTS.md, "The page's
- * CSS"). The browser tests import the stylesheet from source, so this is what notices a build
- * that drops it, loses its scope or its layer, or the guard. Run after `pnpm build`.
+ * back what a page's rules set inside the chat and set nothing themselves, and the layer's lowest
+ * sublayer is the floor, which keeps the page's own layers out (AGENTS.md, "The page's CSS"). The
+ * browser tests import the stylesheet from source, so this is what notices a build that drops it,
+ * loses its scope or its layer, the guard or the floor. Run after `pnpm build`.
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import postcss, { type AtRule, type Node, type Rule } from 'postcss';
 import {
   AS_DOCUMENT,
+  ATTRIBUTE_STYLED,
   CHAT_LAYER,
   compact,
   DARK_CLASS,
+  FLOOR,
   GUARDED,
   GUARDED_PSEUDO_ELEMENTS,
   INSIDE,
@@ -24,6 +27,8 @@ import {
   isGuard,
   OWN_DARK,
   PORTAL_CLASS,
+  RESET_LAYER,
+  ROOT_GUARDED,
   SCOPE_CLASS,
 } from './scopeCss.ts';
 
@@ -40,21 +45,41 @@ const OWN_PREFIXES = [
 const TOKEN_RULE = compact(`:where([data-theme]):not(.${SCOPE_CLASS})`);
 const OWN_PROPERTY = /^--consola-agent-ui-/;
 
-const SCOPED_PREFIXES = [compact(INSIDE), compact(AS_DOCUMENT), compact(GUARDED), ...OWN_PREFIXES];
+const SCOPED_PREFIXES = [
+  compact(INSIDE),
+  compact(AS_DOCUMENT),
+  compact(GUARDED),
+  compact(FLOOR),
+  ...OWN_PREFIXES,
+];
 
 /** Whether a layer name is the chat's layer or one of its sublayers (`consola-agent-ui.base`). */
 const isChatLayerName = (name: string) => name === CHAT_LAYER || name.startsWith(`${CHAT_LAYER}.`);
 
-/** Whether a node is inside an `@layer` block of the chat's (a minifier may write its sublayers dotted). */
-const inChatLayer = (node: Node): boolean => {
+/**
+ * The layer a node is in, dotted (`consola-agent-ui.reset`), however a minifier wrote it: nested
+ * blocks, a dotted block, or both. `undefined` outside every layer, or in a block of several names.
+ */
+const layerOf = (node: Node): string | undefined => {
+  const names: string[] = [];
   for (let parent = node.parent; parent !== undefined; parent = parent.parent) {
     if (parent.type === 'atrule' && (parent as AtRule).name.toLowerCase() === 'layer') {
-      const names = (parent as AtRule).params.split(',').map((name) => name.trim());
-      if (parent.parent?.type === 'root') return names.every(isChatLayerName);
+      names.unshift((parent as AtRule).params.trim());
     }
   }
-  return false;
+  return names.length === 0 || names.some((name) => name.includes(','))
+    ? undefined
+    : names.join('.');
 };
+
+/** Whether a node is inside an `@layer` block of the chat's (a minifier may write its sublayers dotted). */
+const inChatLayer = (node: Node): boolean => {
+  const layer = layerOf(node);
+  return layer !== undefined && isChatLayerName(layer);
+};
+
+/** The floor's layer, the chat layer's lowest sublayer. */
+const FLOOR_LAYER = `${CHAT_LAYER}.${RESET_LAYER}`;
 
 /**
  * A guard selector compared as written: CSS 2's pseudo-elements in either spelling (a minifier
@@ -63,19 +88,21 @@ const inChatLayer = (node: Node): boolean => {
 const guardKey = (selector: string) =>
   compact(selector).replace(/(?<!:):(before|after|first-line|first-letter)\b/g, '::$1');
 
-/** The guard's selectors for `pseudo` (`GUARDED_PSEUDO_ELEMENTS`), as scopeCss writes them. */
-const guardSelectors = (pseudo: string) =>
-  pseudo.split(',').map((part) => guardKey(`${GUARDED}${part.trim()}`));
+/** The selectors of the rule for `pseudo` (`GUARDED_PSEUDO_ELEMENTS`) that scopeCss adds after `prefix`'s. */
+const pseudoSelectors = (prefix: string, pseudo: string) =>
+  pseudo.split(',').map((part) => guardKey(`${prefix}${part.trim()}`));
 
-/** What is wrong with a guard rule: it may only roll properties back, never set one. */
-const guardProblems = (rule: Rule): string[] => {
+/**
+ * What is wrong with a rule of the guard's (`revert-layer`) or the floor's (`revert`): it may
+ * only roll properties back, never set one.
+ */
+const rollbackProblems = (rule: Rule, value: string, what: string): string[] => {
   const problems: string[] = [];
   rule.each((node) => {
     if (node.type !== 'decl') return;
-    const rollsBack = node.value.trim() === 'revert-layer' && !node.important;
-    if (!rollsBack || (node.prop !== 'all' && !node.prop.startsWith('--'))) {
+    if (node.value.trim() !== value || node.important) {
       problems.push(
-        `the guard sets ${node.prop}: ${node.value} (${rule.selector}): it may only roll back`,
+        `${what} sets ${node.prop}: ${node.value} (${rule.selector}): it may only roll back`,
       );
     }
   });
@@ -178,10 +205,37 @@ export const checkBuiltCss = (css: string): BuiltCssReport => {
   let theme = false;
   let utility = false;
   let mapping = false;
+  let documentReset = false;
+  /** The rules of the guard's and the floor's, by each selector (a minifier merges them). */
   const guards = new Map<string, Rule[]>();
+  const floors = new Map<string, Rule[]>();
+  const sublayers: string[] = [];
+  const collect = (into: Map<string, Rule[]>, rule: Rule) => {
+    for (const selector of rule.selectors.map(guardKey)) {
+      into.set(selector, [...(into.get(selector) ?? []), rule]);
+    }
+  };
+  const attributeStyled = new Set(
+    ATTRIBUTE_STYLED.map(([attribute]) => compact(`${INSIDE} ${attribute}`)),
+  );
 
   root.walkAtRules((atRule) => {
     const name = atRule.name.toLowerCase();
+    if (name === 'layer') {
+      // The chat layer's sublayers, in the order they are first named, which is their order.
+      const inChat = layerOf(atRule) === CHAT_LAYER;
+      for (const layer of atRule.params.split(',').map((part) => part.trim())) {
+        const sublayer = inChat
+          ? layer
+          : layer.startsWith(`${CHAT_LAYER}.`)
+            ? layer.slice(CHAT_LAYER.length + 1)
+            : '';
+        const top = sublayer.split('.')[0] ?? '';
+        if (top !== '' && (inChat || atRule.parent?.type === 'root') && !sublayers.includes(top)) {
+          sublayers.push(top);
+        }
+      }
+    }
     if (name === 'layer' && atRule.parent?.type === 'root') {
       for (const layer of atRule.params.split(',').map((part) => part.trim())) {
         if (layer === '') continue;
@@ -215,13 +269,27 @@ export const checkBuiltCss = (css: string): BuiltCssReport => {
       // Only the guard is outside the chat's layer, at the top: anything else unlayered would
       // either lose to the guard or fight the page's rules on their weight.
       if (isGuard(rule) && rule.parent?.type === 'root') {
-        // A minifier merges the guard's rules that roll back the same properties into one.
-        for (const selector of rule.selectors.map(guardKey)) {
-          guards.set(selector, [...(guards.get(selector) ?? []), rule]);
-        }
-        problems.push(...guardProblems(rule));
+        collect(guards, rule);
+        problems.push(...rollbackProblems(rule, 'revert-layer', 'the guard'));
       } else {
         problems.push(`outside the ${CHAT_LAYER} layer: ${rule.selector}`);
+      }
+    } else if (layerOf(rule) === FLOOR_LAYER) {
+      // The floor rolls back to the browser's styles, but where an element's attributes style it,
+      // and makes the document stand-ins inherit nothing; it holds nothing else.
+      const selectors = rule.selectors.map(compact);
+      if (selectors.every((selector) => selector.startsWith(compact(FLOOR)))) {
+        collect(floors, rule);
+        problems.push(...rollbackProblems(rule, 'revert', 'the floor'));
+      } else if (selectors.every((selector) => attributeStyled.has(selector))) {
+        collect(floors, rule);
+        problems.push(...rollbackProblems(rule, 'revert-layer', 'the floor'));
+      } else if (selectors.length === 1 && selectors[0] === compact(AS_DOCUMENT)) {
+        documentReset ||= rule.some(
+          (node) => node.type === 'decl' && node.prop === 'all' && node.value === 'initial',
+        );
+      } else {
+        problems.push(`in the floor, not one of its rules: ${rule.selector}`);
       }
     }
     for (const selector of rule.selectors) {
@@ -258,17 +326,43 @@ export const checkBuiltCss = (css: string): BuiltCssReport => {
 
   const rollsBack = (rules: ReadonlyArray<Rule> | undefined, prop: string) =>
     (rules ?? []).some((rule) => rule.some((node) => node.type === 'decl' && node.prop === prop));
-  const guard = guards.get(guardKey(GUARDED));
-  if (!rollsBack(guard, 'all')) {
-    problems.push(`no guard (${GUARDED} { all: revert-layer })`);
-  } else {
-    const unguarded = GUARDED_PSEUDO_ELEMENTS.filter((pseudo) =>
-      guardSelectors(pseudo).some((selector) => !rollsBack(guards.get(selector), 'all')),
+  /** What is missing from the guard or the floor, which roll back from `prefix` with `value`. */
+  const incomplete = (rules: Map<string, Rule[]>, prefix: string, value: string, what: string) => {
+    const element = rules.get(guardKey(prefix));
+    if (!rollsBack(element, 'all')) return [`no ${what} (${prefix} { all: ${value} })`];
+    const missing: string[] = [];
+    const left = GUARDED_PSEUDO_ELEMENTS.filter((pseudo) =>
+      pseudoSelectors(prefix, pseudo).some((selector) => !rollsBack(rules.get(selector), 'all')),
     );
-    if (unguarded.length > 0) problems.push(`no guard for ${unguarded.join(', ')}`);
-    for (const property of properties) {
-      if (!rollsBack(guard, property)) problems.push(`the guard does not roll back ${property}`);
+    if (left.length > 0) missing.push(`no ${what} for ${left.join(', ')}`);
+    for (const property of ['direction', 'unicode-bidi', ...properties]) {
+      if (!rollsBack(element, property)) missing.push(`the ${what} does not roll back ${property}`);
     }
+    return missing;
+  };
+  problems.push(...incomplete(guards, GUARDED, 'revert-layer', 'guard'));
+  const rootGuard = guards.get(guardKey(ROOT_GUARDED));
+  for (const property of ['contain', 'height']) {
+    if (!rollsBack(rootGuard, property)) {
+      problems.push(`the root's guard (${ROOT_GUARDED}) does not roll back ${property}`);
+    }
+  }
+  problems.push(...incomplete(floors, FLOOR, 'revert', 'floor'));
+  const unstyled = ATTRIBUTE_STYLED.filter(
+    ([attribute]) => !floors.has(guardKey(`${INSIDE} ${attribute}`)),
+  );
+  if (unstyled.length > 0) {
+    problems.push(`the floor takes away what ${unstyled.map(([a]) => a).join(', ')} style`);
+  }
+  if (!documentReset) {
+    problems.push(
+      `the floor does not reset the document stand-ins (${AS_DOCUMENT} { all: initial })`,
+    );
+  }
+  if (sublayers[0] !== RESET_LAYER) {
+    problems.push(
+      `the floor is not the chat layer's lowest sublayer (${FLOOR_LAYER}; first: ${sublayers[0] ?? 'none'})`,
+    );
   }
   if (!theme) problems.push(`no t3 theme variable (--background on ${AS_DOCUMENT})`);
   if (!utility) problems.push(`no Tailwind utility (${INSIDE} .flex)`);
@@ -301,6 +395,6 @@ if (isMain) {
   for (const problem of problems) process.stderr.write(`error: ${problem}\n`);
   if (problems.length > 0) process.exit(1);
   process.stdout.write(
-    `dist/agent-ui.css: every rule scoped to the chat and in its layer, under the guard. Page-global: ${pageGlobal.keyframes.length} @keyframes (${pageGlobal.keyframes.join(', ')}), ${pageGlobal.properties.length} @property (--tw-* and --assistant-citation-highlight-opacity), @font-face ${pageGlobal.fontFamilies.join(', ')}, @layer ${pageGlobal.layers.join(', ')}.\n`,
+    `dist/agent-ui.css: every rule scoped to the chat and in its layer, over the floor and under the guard. Page-global: ${pageGlobal.keyframes.length} @keyframes (${pageGlobal.keyframes.join(', ')}), ${pageGlobal.properties.length} @property (--tw-* and --assistant-citation-highlight-opacity), @font-face ${pageGlobal.fontFamilies.join(', ')}, @layer ${pageGlobal.layers.join(', ')}.\n`,
   );
 }
