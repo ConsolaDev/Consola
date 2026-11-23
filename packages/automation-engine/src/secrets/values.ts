@@ -57,14 +57,18 @@ function innerBase64(bytes: Uint8Array, offset: number): string {
 
 /**
  * Every form of `value` Consola masks, longest first, once each: the value;
- * each of its lines; its JSON-escaped form; its percent-encoded form; its
- * base64; and, for each of the three byte alignments, what a longer base64
- * run holding it shows. Each at least 8 characters, but the value itself.
+ * each of its lines, and each without a closing CR (a CRLF value's line as a
+ * program printing that one line shows it, review M3); its JSON-escaped form;
+ * its percent-encoded form; its base64; and, for each of the three byte
+ * alignments, what a longer base64 run holding it shows. Each at least 8
+ * characters, but the value itself.
  */
 export function maskFormsOf(value: string): string[] {
   const bytes = new TextEncoder().encode(value);
+  const lines = value.split('\n');
   const candidates = [
-    ...value.split('\n'),
+    ...lines,
+    ...lines.map((line) => line.replace(/\r$/, '')),
     JSON.stringify(value).slice(1, -1),
     encodeURIComponent(value),
     base64(bytes),

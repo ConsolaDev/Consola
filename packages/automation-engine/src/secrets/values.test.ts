@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { maskSecrets } from '../steps/commandIO';
 import {
   MAX_SECRET_VALUE_BYTES,
   MIN_SECRET_VALUE_CHARS,
@@ -73,6 +74,18 @@ describe('maskFormsOf', () => {
     expect(forms).toContain(JSON.stringify(SEEDED).slice(1, -1));
     expect(forms).toContain(encodeURIComponent(SEEDED));
     expect(forms).toContain(base64(SEEDED));
+  });
+
+  it("masks a CRLF value's lines without their CR, as a program printing one line shows it (review M3)", () => {
+    const value = 'stub-pem-line-one-7f3a\r\nstub-pem-line-two-9c1e\r\nshort\r';
+    const forms = maskFormsOf(value);
+    expect(forms).toContain('stub-pem-line-one-7f3a');
+    expect(forms).toContain('stub-pem-line-one-7f3a\r');
+    expect(forms).toContain('stub-pem-line-two-9c1e');
+    // A line under 8 characters without its CR is still too short to mask.
+    expect(forms).not.toContain('short');
+    expect(forms).not.toContain('short\r');
+    expect(maskSecrets('printed: stub-pem-line-one-7f3a\n', forms)).toBe('printed: ***\n');
   });
 
   it('drops a line under 8 characters', () => {

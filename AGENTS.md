@@ -1021,9 +1021,10 @@ whose check uses it baselines rather than firing every item.
   refused), never a command line. No agent is given a value, and an `env:`
   binding hides nothing from a host agent or from a command that does not
   name it: both start with the whole login environment.
-- **Every value's printed forms** (`maskFormsOf`: raw, its lines, JSON-escaped,
-  percent-encoded, base64 at each alignment) join the mask list every command
-  and check already uses, so logs, `command.json`, outputs, errors and a
+- **Every value's printed forms** (`maskFormsOf`: raw, its lines with and
+  without a closing CR, JSON-escaped, percent-encoded, base64 at each
+  alignment) join the mask list every command and check already uses, so
+  logs, `command.json`, outputs, errors and a
   check's status line are masked by the code that masks the bound account's
   token. Consola rewrites a command's `$CONSOLA_OUTPUT` masked as it ends,
   its step ended or not. One a quit or a crash cut off cannot be masked, as
