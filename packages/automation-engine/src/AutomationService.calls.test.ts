@@ -2304,3 +2304,39 @@ describe("a server's literals on its views, never a value (review S1)", () => {
     await h.flush();
   });
 });
+
+/*
+ * Review M1: a retried call starts with no `call` of the attempt before it,
+ * so a stop before it starts says nothing about a call it never made.
+ */
+describe('a retried call before it starts (review M1)', () => {
+  it("keeps none of the earlier attempt's call, and a stop while it waits says only that it never started", async () => {
+    const { h, run, post } = await posting(
+      slack({
+        answer: () => ({
+          kind: 'answered',
+          isError: true,
+          content: [{ type: 'text', text: 'rate_limited after post' }],
+          bytes: 40,
+        }),
+      }),
+    );
+    expect(post().call?.isError).toBe(true);
+    // The command lane is full, so the retried call waits in line.
+    h.world.maxConcurrentCommands = 0;
+    await h.service.retry(run.id, 'post');
+    await h.flush();
+    expect(post()).toMatchObject({ status: 'queued', attempt: 2 });
+    expect(post().call).toBeUndefined();
+    h.service.stop(run.id);
+    await h.flush();
+    expect(post()).toMatchObject({
+      status: 'failed',
+      error: 'Stopped before post started.',
+      attempt: 2,
+    });
+    expect(post().call).toBeUndefined();
+    // Nothing was sent again.
+    expect(h.world.mcp.calls).toHaveLength(1);
+  });
+});
