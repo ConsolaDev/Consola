@@ -185,6 +185,19 @@ export {
   type AutomationTemplate,
   type TemplateRequirement,
 } from './templates';
+export {
+  PERSONAL_FACTORY,
+  SecretReadError,
+  type SecretBinding,
+  type SecretsPort,
+} from './secrets/secretsPort';
+export {
+  MAX_SECRET_VALUE_BYTES,
+  MIN_SECRET_VALUE_CHARS,
+  maskFormsOf,
+  normalizeSecretValue,
+} from './secrets/values';
+export { readFailure, readSecrets, type SecretsRead } from './secrets/readSecrets';
 export * from './node';
 export {
   readCheckResult,
