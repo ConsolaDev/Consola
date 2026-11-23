@@ -312,9 +312,28 @@ handlers are host glue that calls the helpers `ws.ts` calls
   - Every answer, a `404` included, carries t3's browser API CORS headers
     (`HttpMiddleware.cors` with the lifted `t3/httpCors.ts` lists: any origin,
     no cookies), so a page on another origin can make these calls and read a
-    `404` (t3's HTTP snapshot loaders, `/api/orchestration/shell` and
-    `…/threads/:id/bounded`, then fall back to the socket, as against an older
-    t3 server).
+    `404`.
+  - **The routes t3's client asks that the host does not serve**, found by
+    `@consola/agent-ui`'s `AgentChat.console.browser.test.tsx` (Playwright's
+    console, Effect's warnings and every response of 400 or more):
+    - `GET /api/orchestration/threads/:id/bounded`, the bounded thread
+      snapshot (t3's bounded history windows, which the plan leaves out):
+      silenced through t3's own option. The config says
+      `threadSnapshotPagination: true`, on which t3's client opens a thread
+      over the socket alone (`state/threads.ts`, `socketOnly`), and the
+      socket's snapshot is the whole thread, a window with no older history.
+      Before, every open logged "Could not load the bounded thread snapshot
+      over HTTP" with `RemoteEnvironmentAuthUndeclaredStatusError … 404`, and
+      Chromium a `404`.
+    - `GET /api/orchestration/shell`, the thread list's shell, which t3's
+      client loads over HTTP and then subscribes to (`subscribeShell`, which
+      the host refuses). No t3 option keeps the client from it, so it still
+      retries about once a second: a `404`, Chromium's line for it, "Could
+      not load the environment shell snapshot over HTTP" and "Could not
+      synchronize the environment shell". Quieting it means serving the shell
+      (t3's `ShellStream.ts` composition in `ws.ts`, over the orchestrator's
+      `getShellSnapshot`), which is not done yet: Track B's Task 5 left it
+      open.
   - A failure of the host's own while answering (not a refused pass, which is
     an answer) is logged to stderr, the request's pass taken out of it, and
     answered `500` (`hostHttp.test.ts`).

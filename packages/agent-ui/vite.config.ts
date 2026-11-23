@@ -58,6 +58,23 @@ const withheldDeviceModels = (): Plugin => ({
 /** The address of every WebSocket the tests' page opened since `watchSockets` was first called. */
 const openedSockets: string[] = [];
 let watchingSockets = false;
+/** What the page said in its console, and every request it made that failed, once watched. */
+const pageNoise: string[] = [];
+let watchingNoise = false;
+
+/** The parts of Playwright's page `watchPageNoise` listens to. */
+type NoisyPage = {
+  on(event: 'console', listener: (message: { type(): string; text(): string }) => void): void;
+  on(event: 'pageerror', listener: (error: Error) => void): void;
+  on(
+    event: 'response',
+    listener: (response: {
+      status(): number;
+      url(): string;
+      request(): { method(): string };
+    }) => void,
+  ): void;
+};
 
 /**
  * Vitest's browser mode, as t3 runs its `*.browser.test.tsx` files: Playwright's Chromium. One
@@ -96,6 +113,32 @@ const browser = () => ({
     },
     /** Every address `watchSockets` recorded. */
     openedSockets: () => [...openedSockets],
+    /**
+     * Starts recording what the page's console says at warning level or above (Chromium's own
+     * lines included: a failed request's `404` is one; Effect's logger's, which it prints with
+     * `console.log`, by their level), its uncaught errors, and every response of 400 or more, as
+     * Playwright sees them, which no spy on `console` does. Each console entry is its first line.
+     */
+    watchPageNoise: ({ page }: { page: NoisyPage }) => {
+      if (watchingNoise) return;
+      watchingNoise = true;
+      page.on('console', (message) => {
+        // Effect's logger prints its warnings and errors with `console.log`, as `… WARN (#n): …`.
+        const effectLevel = /^\[[\d:.]+\] (WARN|ERROR|FATAL) /.test(message.text());
+        if (message.type() === 'warning' || message.type() === 'error' || effectLevel) {
+          pageNoise.push(`console.${message.type()}: ${message.text().split('\n')[0]}`);
+        }
+      });
+      page.on('pageerror', (error) => pageNoise.push(`page error: ${error.message}`));
+      page.on('response', (response) => {
+        if (response.status() >= 400) {
+          const path = new URL(response.url()).pathname;
+          pageNoise.push(`${response.status()} ${response.request().method()} ${path}`);
+        }
+      });
+    },
+    /** Everything `watchPageNoise` recorded since it last answered, which it forgets. */
+    takePageNoise: () => pageNoise.splice(0),
   },
 });
 

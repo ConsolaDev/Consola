@@ -488,6 +488,8 @@ describe('serveHost', () => {
           // providers.
           const { initialConfig } = yield* connect();
           expect(initialConfig.environment.environmentId).toBe(spec.sessionId);
+          // Its thread snapshots come over the socket, so t3's client asks no HTTP route for one.
+          expect(initialConfig.threadSnapshotPagination).toBe(true);
           // The session's provider, and no other (the composition hydrates its driver alone).
           expect(initialConfig.providers.map((provider) => provider.instanceId)).toEqual([
             'claudeAgent',

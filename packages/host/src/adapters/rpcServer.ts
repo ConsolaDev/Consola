@@ -358,6 +358,11 @@ const layerHandlers = (
           },
           settings,
           threadResumeCompletionMarker: true,
+          // t3's client opens a thread over the socket alone from a server that says it pages
+          // snapshots (client-runtime `state/threads.ts`, `socketOnly`), and never asks the HTTP
+          // route for a bounded one, which the host does not serve. The host's snapshot is the
+          // whole thread: a window with no older history (no `historyCursor`, `hasMoreHistory`).
+          threadSnapshotPagination: true,
           serverTime: DateTime.formatIso(yield* DateTime.now),
         };
         return config;
