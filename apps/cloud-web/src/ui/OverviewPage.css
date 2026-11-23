@@ -34,8 +34,8 @@
   margin: 0;
   overflow: hidden;
   color: var(--text);
-  font-size: 18px;
-  font-weight: 600;
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-semibold);
   line-height: 1.3;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -48,7 +48,7 @@
   align-items: center;
   color: var(--text-3);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
 }
 
 .overview-facts > * + *::before {
@@ -143,7 +143,7 @@
   margin: 0;
   color: var(--text);
   font-size: 24px;
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   line-height: 1.1;
   letter-spacing: -0.02em;
 }
@@ -151,7 +151,7 @@
 .overview-region-place {
   margin: 4px 0 0;
   color: var(--text-2);
-  font-size: 13px;
+  font-size: var(--font-size-md);
 }
 
 .overview-region-note {
@@ -160,7 +160,7 @@
   margin: auto 0 0;
   padding-top: 16px;
   color: var(--gray-a10);
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   line-height: 1.45;
 }
 
@@ -231,24 +231,24 @@
 
 .overview-you-name {
   color: var(--text);
-  font-size: 13px;
-  font-weight: 500;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-medium);
 }
 
 .overview-you-email {
   color: var(--gray-a10);
-  font-size: 11px;
+  font-size: var(--font-size-sm);
 }
 
 /* Settings' chip: a small outlined tag. A literal radius: Radix's is 0 inside its theme. */
 .overview-role {
   flex-shrink: 0;
   margin: 0;
-  padding: 1px 8px;
+  padding: 2px 10px;
   border: 1px solid var(--gray-a6);
   border-radius: 999px;
   color: var(--gray-a10);
-  font-size: 11px;
+  font-size: var(--font-size-sm);
 }
 
 @media (max-width: 640px) {

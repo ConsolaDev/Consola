@@ -1,0 +1,98 @@
+/* New factory, as the desktop app draws a dialog (`Dialogs/styles.css`: `.dialog-content`): a
+   bordered 8px panel at most 460px wide, 20px inside, over a half-dark backdrop, its title 16px
+   semibold and its close button a 28px square at the corner. It rises in once as it opens, and
+   not at all under reduced motion. Every class here is `factory-dialog*`. */
+
+.factory-dialog {
+  box-sizing: border-box;
+  width: min(480px, calc(100vw - 32px));
+  max-height: 85vh;
+  margin: auto;
+  padding: 24px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--bg-pop);
+  color: var(--text);
+  box-shadow: var(--shadow-6);
+  font-size: var(--font-size-md);
+  animation: factory-dialog-in 150ms ease-out;
+}
+
+.factory-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.factory-dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.factory-dialog-title {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+}
+
+.factory-dialog-close {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  margin: -4px -6px -4px 0;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  transition:
+    background 100ms ease,
+    color 100ms ease;
+}
+
+.factory-dialog-close:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.factory-dialog-close:focus-visible {
+  outline: 1px solid var(--cyan);
+  outline-offset: -1px;
+}
+
+.factory-dialog-intro {
+  margin: 0 0 16px;
+  color: var(--text-3);
+  font-size: var(--font-size-sm);
+}
+
+.factory-dialog-notice {
+  margin: 0 0 20px;
+  padding: 10px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-md);
+}
+
+.factory-dialog .actions {
+  margin-top: 4px;
+}
+
+@keyframes factory-dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.96);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .factory-dialog {
+    animation: none;
+  }
+}

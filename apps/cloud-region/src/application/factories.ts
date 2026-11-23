@@ -4,12 +4,14 @@ import {
   checkFactoryFiles,
   checkFactoryName,
   type Factory,
+  type FactoryChange,
   type FactoryFile,
   type FactoryIssue,
   type FactoryNameProblem,
   type FactoryNotice,
   type FactoryVersion,
   factoriesSeenBy,
+  judgeFactoryChange,
 } from '../domain/factory.js';
 import { actingRole, teamsSeenBy } from '../domain/team.js';
 import type { FactoryStore, TeamStore } from './ports.js';
@@ -19,8 +21,8 @@ import type { FactoryStore, TeamStore } from './ports.js';
  * caller's workspace alone (`caller.workspaceId`), and judges what the caller sees by the lesser
  * of the role their token carries and the role the cell's copy holds (`actingRole`), the way the
  * teams' use cases do: a person sees the factories of the teams they see (`factoriesSeenBy`).
- * Whoever sees a factory may save its files; a factory they do not see is one that is not there
- * (`not-found`), so a member learns nothing of another team's factories.
+ * Whoever sees a factory may save its files and rename it; a factory they do not see is one that
+ * is not there (`not-found`), so a member learns nothing of another team's factories.
  *
  * A use case answers in the order it checks: whether what was sent reads, whether the cell holds
  * the workspace yet, whether the caller sees the team or factory, and only then what the store
@@ -137,6 +139,47 @@ export async function readFactory(
   const version = await factories.version(caller.workspaceId, factory.id, factory.latestVersion);
   if (!version) throw new Error(`factory ${factory.id} has no version ${factory.latestVersion}`);
   return { kind: 'found', factory, version };
+}
+
+export type FactoryChanging =
+  | { kind: 'changed'; factory: Factory }
+  | { kind: 'invalid'; problems: FactoryNameProblem[] }
+  | Pending
+  | { kind: 'not-found' }
+  /** The workspace has no team with that id that the caller sees, to move the factory to. */
+  | { kind: 'team-not-found' }
+  | { kind: 'name-taken' };
+
+/**
+ * Renames a factory the caller sees, moves it to another team they see, or both at once
+ * (`judgeFactoryChange`): any team for owners and admins, a team they are in for a member. Its
+ * versions stay as they are, and so do its latest version and when that was saved. A change that
+ * names neither changes nothing, and answers the factory as it is.
+ */
+export async function changeFactory(
+  teams: TeamStore,
+  factories: FactoryStore,
+  caller: Caller,
+  factoryId: string,
+  input: { name?: string; teamId?: string },
+): Promise<FactoryChanging> {
+  let change: FactoryChange = input.teamId === undefined ? {} : { teamId: input.teamId };
+  if (input.name !== undefined) {
+    const name = checkFactoryName(input.name);
+    if (!name.ok) return { kind: 'invalid', problems: name.problems };
+    change = { ...change, name: name.name };
+  }
+  const { workspaceId } = caller;
+  if (!(await teams.holdsWorkspace(workspaceId))) return WORKSPACE_PENDING;
+  const factory = await factories.get(workspaceId, factoryId);
+  const viewer = await viewerOf(teams, caller);
+  if (!factory || !viewer) return NOT_FOUND;
+  const judged = judgeFactoryChange(viewer, await teams.list(workspaceId), factory, change);
+  if (judged !== 'allowed') return { kind: judged };
+
+  const changed = await factories.change(workspaceId, factory.id, change);
+  if (typeof changed === 'string') return { kind: changed };
+  return { kind: 'changed', factory: changed };
 }
 
 export type FactoryVersionRead =

@@ -27,7 +27,7 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding: 14px 16px;
+  padding: 16px 18px;
   border: 1px solid var(--gray-a6);
   border-radius: 10px;
 }
@@ -37,7 +37,7 @@
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  font-size: 12px;
+  font-size: var(--font-size-md);
 }
 
 .teams-notice p {
@@ -59,8 +59,8 @@
 }
 
 .teams-name {
-  font-size: 13px;
-  font-weight: 600;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
   overflow-wrap: anywhere;
 }
 
@@ -94,14 +94,14 @@
   flex: none;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
+  width: 30px;
+  height: 30px;
   /* A literal radius: Radix's --radius-full is 0 inside its theme. */
   border-radius: 999px;
   background: var(--gray-a3);
   color: var(--gray-11);
-  font-size: 10px;
-  font-weight: 600;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
   object-fit: cover;
 }
 
@@ -115,8 +115,8 @@
 .teams-member-name {
   overflow: hidden;
   color: var(--gray-12);
-  font-size: 12px;
-  font-weight: 500;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-medium);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -124,7 +124,7 @@
 .teams-member-email {
   overflow: hidden;
   color: var(--gray-a10);
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -132,13 +132,13 @@
 .teams-member-role {
   flex: none;
   color: var(--gray-a10);
-  font-size: 11px;
+  font-size: var(--font-size-sm);
 }
 
 .teams-empty {
   margin: 0;
   color: var(--gray-a10);
-  font-size: 11px;
+  font-size: var(--font-size-sm);
 }
 
 .teams-card-footer {
@@ -150,8 +150,8 @@
   flex: none;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
+  width: 30px;
+  height: 30px;
   padding: 0;
   border: 0;
   border-radius: 6px;
@@ -189,7 +189,7 @@
 .teams-add-email {
   margin-left: auto;
   padding-left: 16px;
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   opacity: 0.7;
 }
 
@@ -201,7 +201,7 @@
   border: 1px solid var(--red-a6);
   border-radius: 8px;
   background: var(--red-a2);
-  font-size: 12px;
+  font-size: var(--font-size-md);
 }
 
 .teams-confirm p {
@@ -231,11 +231,11 @@
 .teams-input {
   flex: 1;
   min-width: 160px;
-  font-size: 12px;
+  font-size: var(--font-size-md);
 }
 
 .teams-error {
   margin: 0;
   color: var(--red-11);
-  font-size: 12px;
+  font-size: var(--font-size-sm);
 }

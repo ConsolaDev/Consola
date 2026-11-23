@@ -313,22 +313,29 @@ and the routes in `adapters/http/factories.ts`.
   factories of the teams they see (`factoriesSeenBy`, on `teamsSeenBy` and
   `actingRole`), so owners and admins see every factory, and a member the
   factories of the teams they are in. Whoever sees a factory may save its
-  files, and may make one for any team they see (only who sees was decided).
-  A factory the caller does not see is 404 `factory_not_found`, and a team
-  they do not see 404 `team_not_found`, so a member learns nothing of another
-  team's.
+  files and rename it, and may make one for any team they see, or move one
+  there (`judgeFactoryChange`; only who sees was decided). A factory the
+  caller does not see is 404 `factory_not_found`, and a team they do not see
+  404 `team_not_found`, so a member learns nothing of another team's.
 - **Names** are checked as teams' are (`checkFactoryName`, 400
   `invalid_factory`) and are unique in the workspace whatever their case
   (`factory_name_unique`, on `lower(name)`; 409 `name_taken`).
 - **The order of the checks**: what was sent (the name, or the files), then
   whether the cell holds the workspace (409 `workspace_pending`), then whether
-  the caller sees the team or the factory, then the base version, then what
+  the caller sees the factory, then the team, then the base version, then what
   the store finds. What the caller sees is read just before the write, as the
   teams' role is.
+- **Renaming and moving** is one route, `PATCH /api/factories/{factoryId}`,
+  with a new `name`, a new `teamId`, or both. Both at once is one statement,
+  made whole or not at all. Its versions, its latest version and when that
+  was saved stay as they are. `source` is not changed there.
 - **A team that owns a factory** is not deleted (409 `owns_factories`): the
   factory's foreign key to its team refuses it, and the team store answers
-  `owns-factories`. Moving a factory to another team, or deleting one, comes
-  later.
+  `owns-factories`. The same key checks a move, and holds the team's row
+  until the move is written, so a move and a delete of its team at once never
+  leave a factory on no team: the move finds the team gone (404
+  `team_not_found`), or the delete finds it owns the factory. Deleting a
+  factory comes later.
 
 ## The API's contract
 

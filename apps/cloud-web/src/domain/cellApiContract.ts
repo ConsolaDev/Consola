@@ -1355,7 +1355,131 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Rename a factory, or move it to another team
+         * @description Whoever sees the factory may rename it. Moving it needs the caller to see the team it moves to as well: owners and admins any team, a member a team they are in. Its versions stay as they are.
+         */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    factoryId: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["FactoryChange"];
+                };
+            };
+            responses: {
+                /** @description The factory, changed. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Factory"];
+                    };
+                };
+                /** @description The rules refuse the name, or the body is not what the route takes: neither a name nor a team is one. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["InvalidFactory"] | {
+                            /** @enum {string} */
+                            error: "invalid_request";
+                        };
+                    };
+                };
+                /** @description No bearer token (`token_required`), or one the cell does not accept (`invalid_token`): malformed, forged, expired, or signed by a key cloud-global does not publish. A new token is the fix. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "token_required";
+                        } | {
+                            /** @enum {string} */
+                            error: "invalid_token";
+                        };
+                    };
+                };
+                /** @description The caller sees no such factory (`factory_not_found`), or no such team to move it to (`team_not_found`): none, or one a member is not in. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "factory_not_found";
+                        } | {
+                            /** @enum {string} */
+                            error: "team_not_found";
+                        };
+                    };
+                };
+                /** @description Another factory of the workspace has the name, in any case (`name_taken`), or the cell does not hold the workspace yet (`workspace_pending`). */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "name_taken";
+                        } | {
+                            /** @enum {string} */
+                            error: "workspace_pending";
+                        };
+                    };
+                };
+                /** @description The body is not JSON (`Content-Type: application/json`). */
+                415: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "unsupported_media_type";
+                        };
+                    };
+                };
+                /** @description A good token for a workspace in another region: the cell that answered names its own. The workspace's own cell is the fix. */
+                421: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "wrong_region";
+                            /** @enum {string} */
+                            region: "eu" | "us";
+                        };
+                    };
+                };
+                /** @description The cell cannot get cloud-global's keys just now, so it checks no token. */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "token_check_unavailable";
+                        };
+                    };
+                };
+            };
+        };
         trace?: never;
     };
     "/api/factories/{factoryId}/versions/{version}": {
@@ -1713,6 +1837,13 @@ export interface components {
             path: string;
             /** @description Its text. */
             content: string;
+        };
+        /** @description What changes, at least one of the two: both at once is one change, made whole or not at all. Its files and where they come from are not changed here. */
+        FactoryChange: {
+            /** @description Its new name (trimmed, 1 to 64 characters, no control characters), unique in the workspace whatever its case. */
+            name?: string;
+            /** @description The id of the team that owns it from now on. */
+            teamId?: string;
         };
         /** @description The version saved, and what to know about it. */
         SavedFactoryVersion: {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createApi } from './api';
-import { cellBaseUrl, createTeamsService } from './teams';
+import { createTeamsService } from './teams';
 
 const ACME = { id: 'ws-acme' };
 const general = { id: 't-1', name: 'General', first: true, memberIds: ['p-ada'] };
@@ -77,13 +77,6 @@ function harness(options: {
 }
 
 const listed = { status: 200, body: { teams: [general], canManage: true } };
-
-describe('cellBaseUrl', () => {
-  it("is the region's path on the page's origin", () => {
-    expect(cellBaseUrl('eu')).toBe('/cell/eu');
-    expect(cellBaseUrl('us', 'http://web.test')).toBe('http://web.test/cell/us');
-  });
-});
 
 describe('loadTeams', () => {
   it("reads the teams from the workspace's own cell, with a token, and the members from cloud-global", async () => {

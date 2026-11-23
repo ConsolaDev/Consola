@@ -24,7 +24,14 @@ The app is built in layers, and imports point inward only.
   Connect's results, the services that come later) and their sentences
   (`connectionMessages.ts`); teams (`teams.ts`: `Team`, `WorkspaceMember`,
   `checkTeamName`, `memberOf`, `addableTo`, `TeamsState`, `TeamChange`) and
-  their sentences (`teamMessages.ts`); where the running source is
+  their sentences (`teamMessages.ts`); factories (`factories.ts`: `Factory`,
+  `checkFactoryName`, `checkNewFactory`, `newFactoryDraft`, `owningTeam`,
+  `isMove`, `SOURCE_OPTIONS`, `FactoriesState`, `FactoryChange`,
+  `FactoryRead`, `fileGroups` and `firstFile`), how the sidebar and the
+  address name them (`factoryNav.ts`: `FACTORY_PAGES`, `factoryRouteOfHash`,
+  `hashOfFactoryPage`, `factoryLanding`, the fold rules `isUnfolded` and
+  `withFold`, and a tile's colour, `factoryHue`) and their sentences
+  (`factoryMessages.ts`); where the running source is
   (`source.ts`); and how the address names a dashboard section (`sections.ts`:
   `sectionIdOfHash`, `hashOfSection`, `chooseSection`) and a settings page
   (`settings.ts`: `settingsPageIdOfHash`, `hashOfSettingsPage`). It is plain
@@ -37,27 +44,33 @@ The app is built in layers, and imports point inward only.
   `switchWorkspace`, `setWorkspaceIcon`, `loadConnections`,
   `startGitHubConnect`, `disconnectGitHub`, through `createApi`, an
   `openapi-fetch` client typed by the contract), the workspace's cell
-  (`teams.ts`: `teamsService`, built by `createTeamsService` on
-  `createCellApi`), Better Auth's client (`authClient.ts`: `signInWithGoogle`,
-  `signOut`), the clipboard (`clipboard.ts`: `copyText`) and the address bar
-  (`signInRedirect.ts`: `takeSignInErrorCode`; `address.ts`:
-  `currentSectionId`, `openSection`, `onSectionChange`; `settingsAddress.ts`:
+  (`cell.ts`: `createCellSession`, the token and the address every service
+  of the cell shares, on `createCellApi`; `teams.ts`: `teamsService`;
+  `factories.ts`: `factoriesService`), Better Auth's client
+  (`authClient.ts`: `signInWithGoogle`, `signOut`), the clipboard
+  (`clipboard.ts`: `copyText`) and the address bar
+  (`signInRedirect.ts`: `takeSignInErrorCode`; `address.ts`: `currentHash`,
+  `openHash`, `replaceHash`, `onHashChange`; `settingsAddress.ts`:
   `currentSettingsPageId`, `openSettingsPage`, `onSettingsPageChange`;
-  `gitHubRedirect.ts`: `takeGitHubResult`, `goToGitHub`). A service answers in
-  domain types and sentences, never in a library's own.
+  `gitHubRedirect.ts`: `takeGitHubResult`, `goToGitHub`), and the browser's
+  storage, for a convenience only (`foldStore.ts`: `readUnfolded`,
+  `writeUnfolded`). A service answers in domain types and sentences, never in
+  a library's own.
 - `src/ui/` holds the React screens (`App.tsx` and the cards beside it:
   `SignInCard`, `ProfileCard`, `CreateWorkspaceCard`, and the narrow page's
   topbar with `SignOutButton`), the dashboard (`Dashboard.tsx` with its
   sidebar's workspace menu, `WorkspaceSwitcher`, and `AccountMenu`, its list
-  of sections `sections.tsx`, and each section's page, such as
-  `OverviewPage.tsx` with `RegionMap` and `CopySlug`), Settings
+  of sections `sections.tsx` with each section's page, such as
+  `OverviewPage.tsx` with `RegionMap` and `CopySlug`, and its Factories group
+  `FactoriesNav.tsx` with `FactoryTile`, `useFactories`, `NewFactoryDialog`
+  and a factory's pages, `FactoryView.tsx` with `FactoryDefinitionPage`,
+  `FactorySettingsPage` and `SourceChoice`), Settings
   (`SettingsDialog.tsx`, its pages in `settingsPages.tsx`: `GeneralPage.tsx`
   with `WorkspaceIconPicker`, `ConnectionsPage.tsx`, and `TeamsPage.tsx` with
   `TeamCard.tsx` and `TeamNameForm.tsx`), the pieces they share (`Avatar`,
-  `WorkspaceIcon`, `BrandMark` on the sign-in card, `useSlidingHighlight`)
-  and `styles.css`. A screen asks a
-  service and shows what comes back. It does not fetch, touch the address or
-  know Better Auth.
+  `WorkspaceIcon`, `BrandMark` on the sign-in card) and `styles.css`. A
+  screen asks a service and shows what comes back. It does not fetch, touch
+  the address or know Better Auth.
 - The entry wires the page. `src/main.tsx` mounts `ui/App` inside Radix's
   `Theme` and follows the system's colour scheme, and `src/env.d.ts` declares
   the build constants (`__CONSOLA_COMMIT__`, `__CONSOLA_VERSION__`) that
@@ -149,9 +162,11 @@ in `ui/TeamsPage.css`.
   `CELL_URL_EU` and `CELL_URL_US`, defaulting to 3101 and 3102). So the cell
   needs no CORS, and the page holds no cell address.
 - **Every call to a cell carries a cell token**, as `Authorization: Bearer`,
-  never a cookie. `services/teams.ts` mints it from `cloud-global`
+  never a cookie. `services/cell.ts` mints it from `cloud-global`
   (`POST /api/cell-token`), keeps it until 30 seconds before it expires, and
-  mints it again once when the cell refuses it (401). The answer names the
+  mints it again once when the cell refuses it (401). Calls made at once
+  share one mint, and the page's services of the cell (teams, factories)
+  share one token (`pageCellSession`). The answer names the
   token's workspace and region: a token for another workspace than the page
   shows (another tab switched the session's) is never sent (`switched`), and
   the region picks the cell.
@@ -173,6 +188,75 @@ in `ui/TeamsPage.css`.
 
 The section needs the workspace's cell running (`pnpm dev:cloud-region`) and
 `cloud-global` delivering its outbox there (`CELL_URL_EU` in its `.env`).
+
+## Factories
+
+The workspace's factories live in its regional cell with their files
+(`apps/cloud-region/AGENTS.md`, "Factories"), and the dashboard reaches them
+as Teams does (above: the token, `/cell/<region>`, the states a cell
+answers). They are no section: the sidebar lists them in a group of their
+own, each with its pages under it, as Warp lists its factories, drawn as the
+desktop app draws its sidebar.
+
+- **Read once, for the sidebar and the page alike.** `useFactories`
+  (`Dashboard`) reads `GET /api/factories` and `GET /api/teams` together, so
+  the sidebar's names and the factory page open always agree, and reads them
+  again after any create, rename or move.
+- **The cell decides who sees which factory**: owners and admins every
+  factory, a member the factories of the teams they are in. The page shows
+  the list exactly as it comes and never filters it; nothing on the page
+  reads the person's role.
+- **The teams beside it are the cell's list for the person.** They name
+  each factory's team, and they are the only teams offered to own one, when
+  it is made and when it moves: exactly the teams the cell lets the person
+  make a factory for, or move one to. A team the list does not hold (read
+  between a change and the next load) is "Another team", never an id.
+- **The sidebar's group** (`FactoriesNav`): the heading Factories, with +
+  for New factory; under it every factory, a row of its tile (its initial on
+  a square its id colours, `factoryHue`, so it keeps it when renamed), its
+  name and a chevron. The row opens the factory's first page and unfolds it;
+  the chevron folds or unfolds any factory, the open one included, labelled
+  "Show/Hide <name>'s sections". Arriving at a factory (its row, a link, the
+  address) unfolds it; folded, the factory open marks its own row. Which
+  factories are unfolded is kept per workspace in the browser's storage
+  (`foldStore.ts`), read defensively and only a convenience. What could not
+  be listed is one quiet line under the heading (loading, still being set
+  up, the region not answering, another workspace open, signed out), with
+  Try again where it helps; no factory is "No factories yet", with + still
+  there.
+- **A factory has two pages, and only those**, at
+  `#/factories/<id>/<page>` (`factoryRouteOfHash`, `hashOfFactoryPage`):
+  Factory definition and Settings (`FACTORY_PAGES`). A page comes with its
+  own epic; never list one that does nothing. A factory with no page named,
+  or one this build does not have, opens its definition. `#/factories` alone
+  lands, in place of itself (`replaceHash`), on the first factory's
+  definition, or Overview when there is none (`factoryLanding`).
+- **A factory's page** (`FactoryView`) sets its tile and name over a row of
+  its facts (its team, where its files come from), then the page. A factory
+  the list no longer holds is gone, or now another team's, and the page says
+  so.
+- **Factory definition** (`FactoryDefinitionPage`) reads the factory with
+  its latest version's files (`GET /api/factories/{factoryId}`): "Version N,
+  saved <when>" (`versionLine`), the files as the folder holds them
+  (`fileGroups`: `factory.yml`, then `automations/`, `agents/`, `skills/`),
+  the one chosen beside the list in a read-only monospace field (`FileView`),
+  "No files yet" for none, and a line saying editing comes next. The editor
+  (CON-74) takes `FileView`'s place on this page; nothing else changes.
+- **Settings** (`FactorySettingsPage`): Name, renamed in place; Team, moved
+  to another of the person's teams by Move, which asks first, in place,
+  since it changes who sees the factory; and Files, the source shown and not
+  changeable yet (`SourceChoice`). Whoever sees a factory may rename and move
+  it, so there is no `canManage` to read; each sends
+  `PATCH /api/factories/{factoryId}` with its one field. There is no delete.
+- **New factory** is a dialog over the dashboard (`NewFactoryDialog`, a
+  native modal `<dialog>` drawn as the desktop's dialogs): a name
+  (`checkFactoryName`, the cell's rule), the team that owns it (chosen for
+  the person when they are in one only) and where its files come from:
+  stored by Consola, with a GitHub repository shown as coming later and never
+  chosen. Every problem is said under its field (`messagesForFactoryChange`).
+  Someone the cell lists in no team is told to ask an owner or admin to add
+  them to one. Once made, it closes, the list is read again, and the new
+  factory's definition opens.
 
 ## Workspaces
 
@@ -199,14 +283,15 @@ problem out of step, but not a rule such as a length.
 ## The dashboard
 
 A person with a workspace open sees its dashboard, which has the whole window
-(`.shell`): a sidebar, laid out as the desktop app's, beside the section open.
+(`.shell`): a sidebar, laid out as the desktop app's, beside the page open.
 At its top is the workspace's menu, as the desktop's (`Layout/WorkspaceMenu`):
 its trigger is the workspace's icon and name, and it opens on who the
 workspace is, Workspace settings… (Settings' General page), the person's
-workspaces to switch to and Create workspace…. Under it, the nav of the
-workspace's sections with Settings at its foot, and the person's account,
-which signs them out. On a narrow screen the sidebar
-becomes a bar above the section, its nav a row that scrolls. Sign-in, the
+workspaces to switch to and Create workspace…. Under it, the nav: the
+workspace's sections (Overview), the Factories group (see "Factories") and
+Settings at its foot; then the person's account, which signs them out. On a
+narrow screen the sidebar becomes a bar above the page, its nav a list that
+scrolls in a third of the screen. Sign-in, the
 create form and the notices stay in the narrow column (`.page`, `.main`),
 under a topbar of their own.
 
@@ -219,13 +304,14 @@ under a topbar of their own.
   page is one entry there and files of its own; nothing else in the shell
   changes. The first entry, Overview, is what an address naming no section
   opens.
-- **The address picks the section.** A section is `#/<id>` (`hashOfSection`),
-  so a reload, a shared link and the browser's back and forward land where
-  they point. The nav is plain links, and `Dashboard` follows the hash
-  (`onSectionChange`). An id never changes once a link may hold it: cloud-global
-  sends a person back to `#/settings/connections`. Whatever follows an id in the hash
-  (`/…` or `?…`) is the section's own, and an id this build does not list
-  opens the first section (`chooseSection`).
+- **The address picks the page.** A section is `#/<id>` (`hashOfSection`),
+  and a factory's page `#/factories/<id>/<page>`, so a reload, a shared link
+  and the browser's back and forward land where they point. The nav is plain
+  links, and `Dashboard` follows the hash (`onHashChange`). An id never
+  changes once a link may hold it: cloud-global sends a person back to
+  `#/settings/connections`. Whatever follows an id in the hash (`/…` or
+  `?…`) is the section's own, and an id this build does not list opens the
+  first section (`chooseSection`).
 - **The query string is not the dashboard's.** `address.ts` reads and writes
   the hash only. A page sent back with a result before the hash (sign-in's
   `?error=`, GitHub's `?github=`) reads and clears it in its own service, with
@@ -247,26 +333,49 @@ under a topbar of their own.
   so when the browser refuses); then its region on a map of dots
   (`RegionMap`, from the hand-editable mask in `ui/worldDots.ts`), the
   region's own lit in the accent; then the person, with their role.
+- **The sidebar is the desktop's** (`Sidebar/styles.css`), measure for
+  measure, in `.sidebar`'s own variables: rows 28px tall (`.nav-row`), the
+  rows you start from 30px (`.nav-row-front`, as the desktop's Automations
+  row), 4px by 8px inside, 13px text (14px and medium for Overview), group
+  headings 11px medium in the secondary colour with 20px icon buttons
+  (`.sidebar-group-*`), 14px icons in the secondary colour, 3px corners
+  (Settings' 6px, as the desktop's settings button), the hover fill at 10%
+  and the open row's at 15%, focus drawn 1px inside the row, and the fold a
+  12px chevron that turns 90° in 200ms. A factory's pages sit under its name,
+  past its 18px tile, with the desktop tree's line down the tile's middle.
+  Nothing slides between rows: the open row is told by its fill alone.
 - **Styles are the desktop app's.** `styles.css` declares its tokens on
   `:root` for both schemes, with the desktop themes' own values (`--bg`
   #050505, `--bg-sidebar` #111111, `--bg-pop` #1e1e1e for menus, `--hover`
   and `--active` at 10% and 15%, `--text` at 90/60/40%, `--line`, `--cyan`),
   and points Radix's surfaces and fonts at them, so its menus and Settings
-  match. Its shapes too: 3px rows 30px tall, 6px controls, 12px groups drawn
-  as Connections draws them (`.group`, `.group-label`, `.group-box`). A
-  sidebar icon is never coloured, the open section's row included: it is
-  marked by `--active` alone. Type is Geist for the interface and JetBrains
-  Mono (the desktop's) for what a person would type, both bundled
-  (`@fontsource-variable/*`), so every system shows the same type. The
-  shell's classes (`.shell`, `.sidebar`, `.nav-link`, `.nav-hover`,
-  `.switcher-trigger`, `.workspace-menu`) sit beside the shared ones
-  (`.card`, `.heading`, `.muted`, `.error`, `.button`, `.avatar`,
+  match. Its type is the desktop's scale (`styles/themes/tokens.css`), by
+  the same names (`--font-size-xs` to `--font-size-xl`, the weights and
+  line heights), and every stylesheet sizes text by them, never in pixels:
+  14px (`md`) for what a page says and for every field, button and menu
+  (Radix's root and menus included), 12px (`sm`) for what supports it, 16px
+  or 18px for a page's title, and 11px (`xs`) only for the sidebar's
+  uppercase group labels and the smallest metadata (a monospace fact row, a
+  chip, the footer). Nothing is smaller. The sidebar's rows, and Settings'
+  list of pages, run at the desktop sidebar's 13px (`--sidebar-font-size`).
+  The one size outside the scale is the Overview's region code, 24px. Its
+  shapes too: 3px rows, 6px controls, 12px groups drawn as
+  Connections draws them (`.group`, `.group-label`, `.group-box`). A
+  sidebar icon is never coloured, the open row's included: it is marked by
+  `--active` alone. A factory's tile is the one colour in the sidebar, as
+  its initial's square (`.factory-tile`). Type is Geist for the interface
+  and JetBrains Mono (the desktop's) for what a person would type, both
+  bundled (`@fontsource-variable/*`), so every system shows the same type.
+  The shell's classes (`.shell`, `.sidebar`, `.nav-row`, `.sidebar-group`,
+  `.factory-row`, `.switcher-trigger`, `.workspace-menu`) sit beside the
+  shared ones (`.card`, `.heading`, `.muted`, `.error`, `.button`, `.avatar`,
   `.workspace-icon`). A page's own styles go in a stylesheet beside it
-  (`ui/OverviewPage.css`, `ui/GeneralPage.css`, `ui/ConnectionsPage.css`,
+  (`ui/OverviewPage.css`, `ui/FactoryView.css`, `ui/NewFactoryDialog.css`,
+  `ui/SourceChoice.css`, `ui/GeneralPage.css`, `ui/ConnectionsPage.css`,
   `ui/TeamsPage.css`), imported by the page.
 - **Motion plays once, or answers the person.** The map's region ripples on as
-  the page opens, the nav's hover follows the pointer from row to row
-  (`useSlidingHighlight`), a new icon pops into its tile, the slug's icon
+  the page opens, a factory's chevron turns as it folds, a new icon pops
+  into its tile, the slug's icon
   turns to a check when copied, and the sign-in card's C blinks a cursor when
   pointed at. None of it plays under `prefers-reduced-motion`.
 
@@ -279,7 +388,9 @@ an icon from the same set (`lucide-react`), and the page beside it: a title,
 then options, each a label and a description over its control
 (`ui/SettingsDialog.tsx` and `SettingsDialog.css`, whose `.settings-section`,
 `.settings-option`, `.settings-button` and `.settings-chip` every page uses).
-Sizes and spacing are the desktop's; colours are this app's Radix tokens.
+Its layout and spacing are the desktop's, its type a step larger, on the
+scale above (a page's title 16px, its labels and buttons 14px, its
+descriptions 12px); colours are this app's Radix tokens.
 
 - **It is no section.** The dashboard nav's last link opens it
   (`#/settings`), as does the workspace menu's Workspace settings…

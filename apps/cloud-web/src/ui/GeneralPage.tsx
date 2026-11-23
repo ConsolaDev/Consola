@@ -48,7 +48,7 @@ export function GeneralPage({ workspace, onWorkspaceChanged }: SectionProps) {
           <p className="settings-option-label">
             Region
             <span className="settings-chip">
-              <Lock size={10} aria-hidden="true" /> Fixed
+              <Lock size={12} aria-hidden="true" /> Fixed
             </span>
           </p>
           <p className="settings-option-description">

@@ -109,7 +109,7 @@ export function WorkspaceIconPicker({
           onChange={(event) => setQuery(event.target.value)}
         />
         <Tabs.Root value={tab} onValueChange={(value) => setTab(value as Tab)}>
-          <Tabs.List size="1" aria-label="Icon style">
+          <Tabs.List size="2" aria-label="Icon style">
             <Tabs.Trigger value="emoji">Emojis</Tabs.Trigger>
             <Tabs.Trigger value="icons">Icons</Tabs.Trigger>
           </Tabs.List>
