@@ -148,10 +148,17 @@ const copyrightOf = (dir: string, manifest: Manifest): string | undefined => {
 /** t3code's own notice (`vendor/t3code/LICENSE`), which its copied packages and code carry. */
 const t3Notice = () => readFileSync(join(T3_TREE, 'LICENSE'), 'utf8').trim();
 
+/**
+ * Whether a package folder is one of t3code's copied packages (`vendor/t3code/packages/<name>`),
+ * under t3's notice: not a package one of them installs, which has its own.
+ */
+export const isCopiedT3Package = (dir: string): boolean =>
+  VENDORED_PACKAGE.exec(`${dir}${sep}`)?.[1] === dir;
+
 /** The notice of one package folder, or what keeps it from being written. */
 const packageNotice = (dir: string, problems: string[]): Notice | undefined => {
   const manifest = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')) as Manifest;
-  const fromT3 = `${dir}${sep}`.startsWith(T3_TREE);
+  const fromT3 = isCopiedT3Package(dir);
   const name = manifest.name ?? dir;
   // t3's packages carry no version of their own but `contracts`'; t3 releases them together.
   const version = manifest.version ?? (fromT3 ? T3_APP_VERSION : '0.0.0');

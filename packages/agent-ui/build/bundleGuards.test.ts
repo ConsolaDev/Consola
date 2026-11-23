@@ -8,6 +8,7 @@ import { afterAll, describe, expect, it } from 'vite-plus/test';
 import {
   copiedNoticesFor,
   ENTRY_MARK,
+  isCopiedT3Package,
   noticesFor,
   packageDirOf,
   renderNotices,
@@ -243,6 +244,13 @@ describe('third-party notices', () => {
     expect(() => noticesFor([anonymous])).toThrow(
       /bare-mit@1.2.3 ships no licence text and names no copyright holder/,
     );
+  });
+
+  it("takes only t3code's package folders as its copied packages, not what they install", () => {
+    expect(isCopiedT3Package('/r/vendor/t3code/packages/contracts')).toBe(true);
+    expect(isCopiedT3Package('/r/vendor/t3code/packages/shared/node_modules/effect')).toBe(false);
+    expect(isCopiedT3Package('/r/vendor/t3code/node_modules/.pnpm/x@1/node_modules/x')).toBe(false);
+    expect(isCopiedT3Package('/r/node_modules/react')).toBe(false);
   });
 
   it("gives t3code's copied packages t3's notice and version", () => {
