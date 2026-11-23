@@ -2520,3 +2520,93 @@ describe("a call inside a repeat: loop (the merge with slice 3; the 5a-2 review'
     );
   });
 });
+
+describe('a call where neither branch alone could see it (the merge with slice 3, brief item 4)', () => {
+  const ROUNDS = factory(
+    SLACK,
+    `  - name: rounds\n    on: { cron: "0 9 * * 1-5" }\n    scope: api\n    mode: auto\n    steps:\n      - id: polish\n        repeat: { max: 2, until: "steps.post.ts == 'done'" }\n        steps:\n          - id: post\n            uses: slack#chat_post_message\n            with: { channel: C0SUPPORT1, text: hello }\n            outputs: { ts: string }\n`,
+  );
+  const acceptAll = (h: StepsHarness) => {
+    for (const view of h.service.list(WORKSPACE_ID)) {
+      const version =
+        view.servers?.[0]?.version ?? h.service.entryAgents(WORKSPACE_ID, view.name)?.version;
+      if (version) h.store.accept(`${WORKSPACE_ID} ${view.name}`, version);
+    }
+  };
+
+  it("a quit while a loop's call is in flight fails it at the next start, with its loop, and never calls it again", async () => {
+    const gate = held();
+    const h = await harness({
+      yaml: ROUNDS,
+      mcp: {
+        servers: {
+          slack: slack({
+            answer: async () => {
+              await gate.promise;
+              return POSTED;
+            },
+          }),
+        },
+      },
+    });
+    acceptAll(h);
+    const run = (await h.service.trigger(WORKSPACE_ID, 'rounds'))!;
+    await h.flush();
+    expect(stepOf(h, run.id, 'post').call?.intentAt).toBeDefined();
+    const again = await h.relaunch();
+    gate.release();
+    await again.flush();
+    await again.tick();
+    expect(again.store.get(run.id)).toMatchObject({ status: 'failed', error: INTERRUPTED_CALL });
+    expect(stepOf(again, run.id, 'post')).toMatchObject({
+      status: 'failed',
+      error: INTERRUPTED_CALL,
+    });
+    expect(stepOf(again, run.id, 'polish').status).toBe('failed');
+    expect(again.world.mcp.calls).toHaveLength(1);
+  });
+
+  it('a gate before a call: the parked run holds no server, across a restart, and the answer reads the values again and calls once', async () => {
+    const yaml = factory(
+      SLACK,
+      '  - name: gated\n    on: { cron: "0 9 * * 1-5" }\n    scope: api\n    mode: auto\n    steps:\n      - id: decide\n        gate: { ask: Post it? }\n      - id: post\n        uses: slack#chat_post_message\n        with: { channel: C0SUPPORT1, text: hello }\n',
+    );
+    const h = await harness({ yaml, mcp: { servers: { slack: slack() } } });
+    acceptAll(h);
+    const run = (await h.service.trigger(WORKSPACE_ID, 'gated'))!;
+    await h.flush();
+    expect(h.store.get(run.id)!.status).toBe('waiting');
+    expect(h.world.mcp.launches).toEqual([]);
+    const again = await h.relaunch();
+    await again.tick();
+    expect(again.store.get(run.id)!.status).toBe('waiting');
+    expect(again.world.mcp.launches).toEqual([]);
+    expect(again.world.serverGroups.stored?.groups ?? []).toEqual([]);
+    const reads = again.world.secrets.resolved.length;
+    again.service.answerGate(run.id, 'decide', 'approve');
+    await again.flush();
+    expect(again.world.secrets.resolved.length).toBe(reads + 1);
+    expect(again.world.secrets.resolved.at(-1)).toContain('SLACK_BOT_TOKEN');
+    expect(again.world.mcp.calls).toHaveLength(1);
+    expect(again.store.get(run.id)!.status).toBe('completed');
+    await again.tick();
+    expect(again.world.mcp.calls).toHaveLength(1);
+  });
+
+  it("in a run that owns its checkout, a call's server starts outside it, and only a command's step settles it", async () => {
+    const yaml = `version: 1\nrepos: [sprocket/catalog-portal]\nmcpServers:\n${SLACK}automations:\n  - name: owned\n    on: manual\n    mode: auto\n    checkout: { repo: sprocket/catalog-portal, branch: "consola/run-{{run.id}}" }\n    steps:\n      - id: post\n        uses: slack#chat_post_message\n        with: { channel: C0SUPPORT1, text: hello }\n      - id: check\n        run: "true"\n`;
+    const h = await harness({ yaml, runCheckouts: true, mcp: { servers: { slack: slack() } } });
+    expect(row(h, 'owned').problem).toBeUndefined();
+    acceptAll(h);
+    const run = (await h.service.trigger(WORKSPACE_ID, 'owned'))!;
+    await h.flush();
+    expect(stepOf(h, run.id, 'post').status).toBe('completed');
+    const dir = h.store.get(run.id)!.checkout!.cwd;
+    expect(JSON.stringify(h.world.mcp.launches[0])).not.toContain(dir);
+    const portCalls = () => h.world.runCheckouts.calls.map((call) => Object.keys(call)[0]);
+    expect(portCalls()).not.toContain('settle');
+    await h.world.commands[0].end();
+    expect(portCalls()).toContain('settle');
+    expect(h.store.get(run.id)!.status).toBe('completed');
+  });
+});
