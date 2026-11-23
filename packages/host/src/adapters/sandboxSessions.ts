@@ -237,7 +237,9 @@ export const makeSandboxSessions = (
         const read = readSessionLine(text);
         // The start script prints it before the host runs, never after the host said `ready`.
         if (read.kind === 'clone-failed' && session.ready) {
-          return log(`session ${session.start.sessionId}: a clone-failed line after ready, ignored`);
+          return log(
+            `session ${session.start.sessionId}: a clone-failed line after ready, ignored`,
+          );
         }
         if (read.kind === 'host' && read.line.type === 'ready') {
           return becomeReady(session, sandbox, read.line.port);

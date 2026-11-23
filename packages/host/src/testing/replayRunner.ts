@@ -15,10 +15,6 @@ import { LocalProvider } from './localProvider.ts';
 const stopHangsForTests = process.env.CONSOLA_TEST_SANDBOX_STOP === 'hangs';
 
 runHostProcess(
-  runnerCommand(
-    process.argv.slice(2),
-    process.env,
-    () => new LocalProvider({ stopHangsForTests }),
-  ),
+  runnerCommand(process.argv.slice(2), process.env, () => new LocalProvider({ stopHangsForTests })),
   'runner',
 );

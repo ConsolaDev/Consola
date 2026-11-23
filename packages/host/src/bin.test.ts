@@ -949,7 +949,8 @@ describe('parseRunnerArgs', () => {
     // Every `env.NAME` (or `env['NAME']`) in the host's own source, the harnesses' keys too.
     const read = new Set<string>(Object.values(HARNESS_API_KEYS));
     for (const file of readdirSync(SRC, { recursive: true, encoding: 'utf8' })) {
-      if (!file.endsWith('.ts') || file.endsWith('.test.ts') || file.startsWith('testing')) continue;
+      if (!file.endsWith('.ts') || file.endsWith('.test.ts') || file.startsWith('testing'))
+        continue;
       const source = readFileSync(join(SRC, file), 'utf8');
       for (const match of source.matchAll(/\benv(?:\.|\[['"])([A-Z][A-Z0-9_]*)/g)) {
         if (match[1] !== undefined) read.add(match[1]);
