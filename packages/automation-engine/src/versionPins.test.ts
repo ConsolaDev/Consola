@@ -1,4 +1,12 @@
-import { automationVersion, parseAutomationEntry, stableStringify } from '@consola/factory-spec';
+import {
+  automationVersion,
+  factoryFilesOf,
+  parseAutomationEntry,
+  parseFactory,
+  serverHash,
+  stableStringify,
+  stepsResolvedBody,
+} from '@consola/factory-spec';
 import { describe, expect, it } from 'vitest';
 import { GRAMMAR_EXAMPLES } from './capabilities';
 import { AUTOMATION_TEMPLATES } from './templates';
@@ -131,5 +139,49 @@ describe('versions with secrets', () => {
     expect(versionOf(pollWith)).not.toBe('9387227e150d8b94');
     expect(versionOf(stepsWith)).not.toBe('6dfd57fa0f97c2ff');
     expect(versionOf(pollWith)).not.toBe(versionOf(stepsWith));
+  });
+});
+
+describe('versions with servers (5a-2)', () => {
+  it('a one-step tool hashes as it did, and a call holds its server’s definition', () => {
+    // The GRAMMAR example and the shipped template: their pins above, unmoved.
+    const tool = GRAMMAR_EXAMPLES.find((example) => example.title === 'A tool, on a schedule')!;
+    expect(versionOf(tool.entry)).toBe('5ec4f18deeec55b9');
+    // The spec's §4.3 post, with its brief as a prompt step (no agent file) and the spec's `slack`.
+    const read = parseFactory(
+      factoryFilesOf({
+        'factory.yml': `version: 1
+mcpServers:
+  slack:
+    description: Posts to Sprocket's Slack as the support bot.
+    command: npx
+    args: [-y, "@sprocket/slack-mcp@1.4.2"]
+    secrets: [SLACK_BOT_TOKEN]
+automations:
+  - name: support-briefing
+    on: { cron: "0 8 * * MON" }
+    scope: support-notes
+    mode: auto
+    steps:
+      - id: brief
+        prompt: Write the 2nd-line briefing.
+      - id: post
+        uses: slack#chat_post_message
+        with: { channel: "#support-2nd-line", text: "{{steps.brief.handover}}" }
+        outputs: { ts: string }
+`,
+      }),
+    );
+    expect(read.issues).toEqual([]);
+    const [briefing] = read.automations;
+    const hashes = { slack: serverHash(read.servers.slack) };
+    expect(hashes).toMatchInlineSnapshot(`
+      {
+        "slack": "6efdccd3ce2ca80c",
+      }
+    `);
+    expect(
+      automationVersion(briefing, stepsResolvedBody({}, {}, { servers: hashes })),
+    ).toMatchInlineSnapshot(`"8650032de80a6a0c"`);
   });
 });

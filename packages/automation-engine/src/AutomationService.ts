@@ -6,14 +6,17 @@ import {
   automationFileText,
   automationItemText,
   automationVersion,
+  callArguments,
   factoryFilesOf,
   isStepsEntry,
+  MCP_SERVER_NAME_PATTERN,
   nextCronOccurrence,
   parseAutomationEntry,
   parseFactory,
   parseFactorySpec,
   secretNamesOf,
   secretUsesOf,
+  serverHash,
   skillHash,
   stableStringify,
   STEP_ID_PATTERN,
@@ -30,6 +33,7 @@ import {
   type FactoryNotice,
   type FactoryParseResult,
   type FactorySpecIssue,
+  type McpServerDefinition,
   type PollTrigger,
   type RunItem,
   type RunRecord,
@@ -40,6 +44,7 @@ import {
   type StepRun,
   type StepsAutomation,
   type Trigger,
+  type UsesStep,
 } from '@consola/factory-spec';
 import { describeCapabilities, type AutomationCapabilities } from './capabilities';
 import {
@@ -98,6 +103,7 @@ import type {
   EngineToolResult,
   FactoryFolderHandle,
   LaunchedSession,
+  McpClientPort,
   RunFolderPort,
   WorkItemPort,
   RunningCommand,
@@ -196,6 +202,7 @@ import {
   skillMarkdown,
   withKnownTools,
   type AgentRequirements,
+  type CallView,
   type CommandFile,
   type LogTail,
   type RunDefinition,
@@ -221,6 +228,7 @@ import { RunSecrets } from './secrets/runSecrets';
 import { PERSONAL_FACTORY, type SecretsPort } from './secrets/secretsPort';
 import { buildSecretsView, type SecretBindingView } from './secrets/secretsView';
 import { unboundOf } from './secrets/unbound';
+import { serverFactsOf } from './servers/serverFacts';
 
 /**
  * The runner for personal automations: one `factory.yml` per workspace, whose
@@ -378,6 +386,8 @@ export interface AutomationServiceDeps {
   commandEnv(workspaceId: string): Promise<{ env: NodeJS.ProcessEnv; secrets: string[] }>;
   /** This runner's bindings; absent, an entry naming a secret cannot run. */
   secrets?: SecretsPort;
+  /** This runner's MCP client; absent, an entry calling a factory server cannot run (`uses: consola#…` still can). */
+  mcp?: McpClientPort;
   /** Commands automations may have running at once, across every workspace. */
   maxConcurrentCommands?: number;
 }
@@ -502,6 +512,11 @@ interface Resolved {
   agents?: Readonly<Record<string, AgentDefinition>>;
   /** A `steps:` entry's: the skills of the version it was resolved against, by name (the Allow card's `SKILL.md`s). */
   skills?: Readonly<Record<string, SkillDefinition>>;
+  /**
+   * A `steps:` entry's: the factory servers its calls name, by name, from the version it was resolved against,
+   * problem or not (what Settings › Secrets lists their secrets from); absent when it calls none.
+   */
+  servers?: Readonly<Record<string, McpServerDefinition>>;
   /** What the host said of its agents that stops nothing: a model the harness does not list. */
   warnings?: FactoryNotice[];
 }
@@ -1203,21 +1218,29 @@ export class AutomationService {
     const text = await folder.readText().catch((error: unknown) => {
       throw notSaved([describeError(error)]);
     });
+    // A server's own problem is not the file failing to load: only an entry calling it is refused (Call 2).
     const broken =
-      text === null ? [] : parseFactorySpec(text).issues.filter((issue) => !isEntryIssue(issue));
+      text === null
+        ? []
+        : parseFactorySpec(text).issues.filter(
+            (issue) => !isEntryIssue(issue) && !isServerIssue(issue),
+          );
     if (broken.length > 0) {
       throw notSaved([
         `factory.yml does not load (${broken.map(describeIssue).join('; ')}); fix it by hand first`,
       ]);
     }
     // Against the folder's agents as last read: an agent its steps name must be there, and valid.
-    const troubled = agentWithProblems(automation, factory.read.parse);
+    const troubled =
+      agentWithProblems(automation, factory.read.parse) ??
+      serverWithProblems(automation, factory.read.parse);
     if (troubled) throw notSaved([troubled]);
     const resolved = this.resolve(
       workspaceId,
       automation,
       factory.read.parse.agents,
       factory.read.parse.skills,
+      factory.read.parse.servers,
     );
     // A CLI that could not be asked is no fault of the entry: it is saved, and shows that problem.
     if (resolved.problem && !resolved.unasked) throw notSaved([resolved.problem]);
@@ -1353,7 +1376,20 @@ export class AutomationService {
         });
       }
     }
-    return { version: entry.version, readsItems: entryReadsItems(entry.automation), agents };
+    // The servers and calls the version holds, from its definition: what Allow accepts.
+    const definition = entry.steps?.definition;
+    const servers = Object.values(definition?.servers ?? {});
+    const calls = Object.entries(definition?.calls ?? {}).map(([step, call]) => ({
+      step,
+      ...call,
+    }));
+    return {
+      version: entry.version,
+      readsItems: entryReadsItems(entry.automation),
+      agents,
+      ...(servers.length > 0 ? { servers } : {}),
+      ...(calls.length > 0 ? { calls } : {}),
+    };
   }
 
   /**
@@ -4562,7 +4598,14 @@ export class AutomationService {
       factory.standing = { decision, appliedAt: applied.record.appliedAt };
       const removed = new Set(decision.removed);
       const running = applied.parse.automations.filter((entry) => !removed.has(entry.name));
-      this.resolveAll(workspaceId, factory, running, applied.parse.agents, applied.parse.skills);
+      this.resolveAll(
+        workspaceId,
+        factory,
+        running,
+        applied.parse.agents,
+        applied.parse.skills,
+        applied.parse.servers,
+      );
       return;
     }
     factory.standing = undefined;
@@ -4581,6 +4624,7 @@ export class AutomationService {
       read.parse.automations,
       read.parse.agents,
       read.parse.skills,
+      read.parse.servers,
     );
   }
 
@@ -4640,16 +4684,17 @@ export class AutomationService {
     }
   }
 
-  /** Resolve what runs, each entry against the agents and skills of the version it comes from; their warnings once each. */
+  /** Resolve what runs, each entry against the agents, skills and servers of the version it comes from; their warnings once each. */
   private resolveAll(
     workspaceId: string,
     factory: WorkspaceFactory,
     automations: readonly Automation[],
     agents: Readonly<Record<string, AgentDefinition>>,
     skills: Readonly<Record<string, SkillDefinition>>,
+    servers: Readonly<Record<string, McpServerDefinition>>,
   ): void {
     factory.resolved = automations.map((automation) =>
-      this.resolve(workspaceId, automation, agents, skills),
+      this.resolve(workspaceId, automation, agents, skills, servers),
     );
     const warnings = new Map<string, FactoryNotice>();
     for (const entry of factory.resolved)
@@ -4720,24 +4765,28 @@ export class AutomationService {
   /**
    * What an entry resolves to in its workspace, or why it cannot run. Which
    * tools, actions, scopes, connections and events exist is the runner's to
-   * say; each problem names the one that was asked for. `agents` and
-   * `skills` are the folder's, by name: what a step's `agent:` names, and
-   * what that agent's `skills:` name.
+   * say; each problem names the one that was asked for. `agents`,
+   * `skills` and `servers` are the folder's, by name: what a step's
+   * `agent:` names, what that agent's `skills:` name, and what a `uses:`
+   * step calls.
    */
   private resolve(
     workspaceId: string,
     automation: Automation,
     agents: Readonly<Record<string, AgentDefinition>>,
     skills: Readonly<Record<string, SkillDefinition>>,
+    servers: Readonly<Record<string, McpServerDefinition>>,
   ): Resolved {
     const workspace = this.deps.getWorkspaces().find((candidate) => candidate.id === workspaceId);
     const base = automationVersion(automation);
+    const called = callServersOf(automation, servers);
     const unable = (problem: string): Resolved => ({
       workspaceId,
       automation,
       version: base,
       problem,
       ...(isStepsEntry(automation) ? { agents } : {}),
+      ...(called ? { servers: called } : {}),
     });
     const { trigger } = automation;
 
@@ -4825,11 +4874,16 @@ export class AutomationService {
 
     // The checks above are a steps entry's too; the rest are its own.
     if (isStepsEntry(automation))
-      return this.resolveSteps(workspaceId, automation, agents, skills, source, event);
+      return this.resolveSteps(workspaceId, automation, agents, skills, servers, source, event);
     const { run } = automation;
 
     if (run.kind === 'tool') {
       if (run.namespace !== CONSOLA_NAMESPACE) {
+        // A namespace that could name a factory server: its tool is a `uses:` step's.
+        if (MCP_SERVER_NAME_PATTERN.test(run.namespace))
+          return unable(
+            `\`${run.ref}\` is not one of Consola's tools. An MCP server's tool is a step: \`steps: [{ uses: ${run.ref}, with: … }]\``,
+          );
         return unable(`unknown tool namespace "${run.namespace}"; only consola# tools exist today`);
       }
       const tool = this.deps.registry.get(run.tool);
@@ -4891,24 +4945,29 @@ export class AutomationService {
    * the folder lacks, an action the workspace lacks, then one that does not
    * apply to the items); item fields the connection lacks; `run:` steps on
    * Windows; the default harness, which only an agent step naming no agent
-   * runs on; then each agent's harness, as the host answers for it.
+   * runs on; then each agent's harness, as the host answers for it; then
+   * each call, in file order (`resolveCalls`).
    *
    * A step without `agent:` resolves exactly as in slice 1: its version and
-   * definition are unchanged by the agents a sibling step names.
+   * definition are unchanged by the agents a sibling step names, and so is
+   * an entry that calls no factory server by the servers `factory.yml`
+   * defines.
    */
   private resolveSteps(
     workspaceId: string,
     automation: StepsAutomation,
     agents: Readonly<Record<string, AgentDefinition>>,
     skills: Readonly<Record<string, SkillDefinition>>,
+    servers: Readonly<Record<string, McpServerDefinition>>,
     source: ItemSource | undefined,
     event: EventSource | undefined,
   ): Resolved {
     const workspace = this.deps.getWorkspaces().find((candidate) => candidate.id === workspaceId);
+    const called = callServersOf(automation, servers);
     const unable = (
       problem: string,
       warnings: FactoryNotice[] = [],
-      servers: { recheck?: true; unasked?: true } = {},
+      flags: { recheck?: true; unasked?: true } = {},
     ): Resolved => ({
       workspaceId,
       automation,
@@ -4916,8 +4975,9 @@ export class AutomationService {
       problem,
       agents,
       skills,
+      ...(called ? { servers: called } : {}),
       ...(warnings.length > 0 ? { warnings } : {}),
-      ...servers,
+      ...flags,
     });
     const { steps } = automation;
 
@@ -4995,12 +5055,25 @@ export class AutomationService {
     if (stops.length > 0)
       return unable(stops[0].message, warnings, { recheck: true, unasked: true });
 
+    const resolvedCalls = this.resolveCalls(automation, servers);
+    if ('problem' in resolvedCalls) return unable(resolvedCalls.problem, warnings);
+    const { calls } = resolvedCalls;
+    const usesServers = Object.keys(resolvedCalls.servers).length > 0;
+
     // The bodies live in settings, not the file: editing one asks again. So
-    // does editing an agent file a step names: its hash is in the version.
+    // does editing an agent file a step names: its hash is in the version,
+    // and so is the definition of each server a call names (only then).
     const bodies = Object.fromEntries(
       Object.entries(actions).map(([id, action]) => [id, action.body]),
     );
-    const version = automationVersion(automation, stepsResolvedBody(bodies, agentHashes));
+    const version = automationVersion(
+      automation,
+      stepsResolvedBody(
+        bodies,
+        agentHashes,
+        usesServers ? { servers: resolvedCalls.serverHashes } : undefined,
+      ),
+    );
     const firstAgent = steps.find((step): step is AgentStep => step.kind === 'agent');
     return {
       workspaceId,
@@ -5010,6 +5083,7 @@ export class AutomationService {
       event,
       agents,
       skills,
+      ...(called ? { servers: called } : {}),
       ...(warnings.length > 0 ? { warnings } : {}),
       steps: {
         definition: {
@@ -5038,11 +5112,16 @@ export class AutomationService {
                 ),
               }
             : {}),
+          ...(usesServers ? { servers: { ...resolvedCalls.servers } } : {}),
+          ...(Object.keys(calls).length > 0 ? { calls } : {}),
         },
         ...(scoped.scope ? { scope: scoped.scope } : {}),
         hasAgentStep,
         startsInDryRun:
-          hasAgentStep || steps.some((step) => step.kind === 'run' && step.dryRun === 'run'),
+          hasAgentStep ||
+          steps.some(
+            (step) => (step.kind === 'run' || step.kind === 'uses') && step.dryRun === 'run',
+          ),
         ...(firstAgent?.action !== undefined ? { byHandLabel: actions[firstAgent.id].name } : {}),
         skills: stepSkills,
       },
@@ -5595,7 +5674,13 @@ export class AutomationService {
    */
   private withSecrets(entry: Resolved): Resolved {
     if (entry.problem) return entry;
-    const found = unboundOf(entry.automation, this.deps.secrets, entry.workspaceId);
+    // Its calls' servers as it resolved them: the snapshot a run of it would hold (review Minor 10).
+    const found = unboundOf(
+      entry.automation,
+      this.deps.secrets,
+      entry.workspaceId,
+      entry.steps?.definition.servers,
+    );
     if (!found) return entry;
     const announced = `${automationKey(entry)} ${found.unbound.join(',')}`;
     if (!this.unboundAnnounced.has(announced)) {
@@ -5619,6 +5704,7 @@ export class AutomationService {
       unbound: found.unbound,
       ...(entry.agents ? { agents: entry.agents } : {}),
       ...(entry.skills ? { skills: entry.skills } : {}),
+      ...(entry.servers ? { servers: entry.servers } : {}),
     };
   }
 
@@ -5636,9 +5722,11 @@ export class AutomationService {
     const loaded = this.definitionOf(run);
     // Its step's own start fails the run, as it does today.
     if ('problem' in loaded) return true;
+    // The run's own snapshot of its servers, never the factory's current parse (review Minor 10).
     const names = secretNamesOf(loaded.definition.automation, {
       runOnly: true,
       dryRun: run.dryRun === true,
+      servers: loaded.definition.servers,
     });
     if (names.length === 0) return true;
     const workspaceId = run.attribution.workspaceId!;
@@ -5720,12 +5808,110 @@ export class AutomationService {
       ]),
     );
     return buildSecretsView({
-      uses: resolved.flatMap((entry) => secretUsesOf(entry.automation)),
+      uses: resolved.flatMap((entry) => secretUsesOf(entry.automation, entry.servers)),
       accepted: (automation) => accepted.get(automation) === true,
       bound: port?.boundNames(workspaceId, PERSONAL_FACTORY) ?? new Set(),
       describe: (name) => port?.describe(workspaceId, PERSONAL_FACTORY, name) ?? null,
       fingerprint: (name) => port?.fingerprint(workspaceId, PERSONAL_FACTORY, name) ?? null,
     });
+  }
+
+  /*
+   * 5a-2: `uses:` steps. Resolving a call starts nothing: a server starts only
+   * for a call, once a person allowed the version that names it.
+   */
+
+  /**
+   * Each `uses:` step of the entry, in file order, against this runner's
+   * client and registry: the servers its calls name (and their hashes, for
+   * the version) and each call as its card shows it, or the first problem.
+   * An argument a Consola tool sends to a session (`prompt`) or chooses what
+   * it acts on with (`selector`, and an argument with no role, Call 5) takes
+   * only trusted values (Call 4).
+   */
+  private resolveCalls(
+    automation: StepsAutomation,
+    servers: Readonly<Record<string, McpServerDefinition>>,
+  ):
+    | { problem: string }
+    | {
+        servers: Record<string, McpServerDefinition>;
+        serverHashes: Record<string, string>;
+        calls: Record<string, CallView>;
+      } {
+    const used: Record<string, McpServerDefinition> = {};
+    const serverHashes: Record<string, string> = {};
+    const calls: Record<string, CallView> = {};
+    const entry = {
+      trigger: automation.trigger,
+      appliesTo: automation.appliesTo,
+      steps: automation.steps,
+    };
+    for (const step of automation.steps) {
+      if (step.kind !== 'uses') continue;
+      const args = callArguments(step, entry);
+      const alsoInDryRun = step.dryRun === 'run' ? { alsoInDryRun: true as const } : {};
+      if (step.server !== CONSOLA_NAMESPACE) {
+        const mcp = this.deps.mcp;
+        if (!mcp)
+          return {
+            problem: `this runner can't call MCP servers, so \`uses: ${step.server}#…\` can't run here`,
+          };
+        // `parseFactory` keeps no entry whose server is not valid; this guards an entry saved on its own.
+        if (!Object.prototype.hasOwnProperty.call(servers, step.server))
+          return { problem: noSuchServer(step) };
+        const server = servers[step.server];
+        if (!mcp.transports.includes(server.transport))
+          return {
+            problem: `this runner can't ${server.transport === 'stdio' ? 'start stdio' : 'call Streamable HTTP'} servers, so \`uses: ${step.server}#…\` can't run here`,
+          };
+        used[step.server] = server;
+        serverHashes[step.server] = serverHash(server);
+        calls[step.id] = {
+          ref: step.uses,
+          server: step.server,
+          tool: step.tool,
+          arguments: args,
+          ...alsoInDryRun,
+          facts: serverFactsOf(server),
+        };
+        continue;
+      }
+      const tool = this.deps.registry.get(step.tool);
+      if (!tool) return { problem: `there is no Consola tool named "${step.tool}"` };
+      if (!tool.automatable) return { problem: `${step.uses} cannot be run by an automation` };
+      const known = Object.keys(tool.input);
+      const stranger = Object.keys(step.with).find((name) => !known.includes(name));
+      if (stranger !== undefined)
+        return {
+          problem: `with: \`${stranger}\` is not an argument of \`${step.uses}\` (${known.length > 0 ? `it has: ${known.join(', ')}` : 'it has none'})`,
+        };
+      if (tool.mutating && step.dryRun === 'run')
+        return {
+          problem: `its step \`${step.id}\` calls \`${step.uses}\`, which changes things, so it can't have \`dry_run: run\``,
+        };
+      for (const argument of args) {
+        if (argument.trust !== 'untrusted') continue;
+        const role = roleOf(tool, argument.name);
+        if (role === 'prompt')
+          return {
+            problem: `\`${argument.name}\` is sent to a session as if you typed it; it takes only trusted values`,
+          };
+        if (role === 'selector')
+          return {
+            problem: `\`${argument.name}\` chooses what \`${step.uses}\` acts on; it takes only trusted values`,
+          };
+      }
+      calls[step.id] = {
+        ref: step.uses,
+        server: step.server,
+        tool: step.tool,
+        arguments: args,
+        ...(tool.destructive ? { destructive: true as const } : {}),
+        ...alsoInDryRun,
+      };
+    }
+    return { servers: used, serverHashes, calls };
   }
 
   private broadcast(workspaceId: string): void {
@@ -6117,6 +6303,57 @@ function agentWithProblems(automation: Automation, read: FactoryParseResult): st
       return `its step \`${step.id}\` names the agent \`${step.agent}\`, which has problems of its own in ${file}; save it once they are fixed`;
   }
   return null;
+}
+
+/** A problem with one of `factory.yml`'s servers: an entry calling it is refused, nothing else (Call 2). */
+function isServerIssue(issue: FactorySpecIssue): boolean {
+  return (
+    issue.path === 'mcpServers' ||
+    issue.path.startsWith('mcpServers.') ||
+    issue.path.startsWith('mcpServers[')
+  );
+}
+
+/** An entry's problem when a call names a server `factory.yml` does not define. */
+function noSuchServer(step: Pick<UsesStep, 'id' | 'server'>): string {
+  return `its step \`${step.id}\` calls \`${step.server}\`, and factory.yml defines no such server`;
+}
+
+/**
+ * Why an entry cannot be saved because a call names a factory server with
+ * problems of its own, said as the folder's issues say it, never as a server
+ * that is not there; null when every server it calls is valid, or not there
+ * at all (which `resolveCalls` says, `noSuchServer`).
+ */
+function serverWithProblems(automation: Automation, read: FactoryParseResult): string | null {
+  if (!isStepsEntry(automation)) return null;
+  for (const step of automation.steps) {
+    // A server written `consola` is refused in factory.yml; a call of `consola#…` is still Consola's own.
+    if (step.kind !== 'uses' || step.server === CONSOLA_NAMESPACE) continue;
+    if (!read.brokenServers.includes(step.server)) continue;
+    return `its step \`${step.id}\` calls \`${step.server}\`, which has problems of its own in factory.yml's \`mcpServers:\`; save it once they are fixed`;
+  }
+  return null;
+}
+
+/** The factory servers an entry's calls name, by name, among `servers`; undefined when it names none. */
+function callServersOf(
+  automation: Automation,
+  servers: Readonly<Record<string, McpServerDefinition>>,
+): Record<string, McpServerDefinition> | undefined {
+  if (!isStepsEntry(automation)) return undefined;
+  const called: Record<string, McpServerDefinition> = {};
+  for (const step of automation.steps)
+    if (step.kind === 'uses' && Object.prototype.hasOwnProperty.call(servers, step.server))
+      called[step.server] = servers[step.server];
+  return Object.keys(called).length > 0 ? called : undefined;
+}
+
+/** What a Consola tool's argument does; one its tool gives no role is a `selector`, so it takes only trusted values (Call 5). */
+function roleOf(tool: EngineTool, name: string): 'prompt' | 'selector' | 'data' {
+  const roles = tool.roles;
+  const role = roles && Object.prototype.hasOwnProperty.call(roles, name) ? roles[name] : undefined;
+  return role ?? 'selector';
 }
 
 function notSaved(reasons: string[]): Error {

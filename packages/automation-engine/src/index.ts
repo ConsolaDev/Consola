@@ -82,7 +82,18 @@ export type {
   CommandResult,
   RunningCommand,
   CommandPort,
+  ArgumentRole,
+  ServerGroup,
+  McpTransport,
+  McpAbortReason,
+  McpServerLaunch,
+  McpToolInfo,
+  McpCallOutcome,
+  McpSession,
+  McpConnectResult,
+  McpClientPort,
 } from './ports';
+export { SERVER_ENV_ALLOW_LIST, serverFactsOf, type ServerFacts } from './servers/serverFacts';
 export {
   renderStepPrompt,
   reminderPrompt,
@@ -103,6 +114,7 @@ export {
   MAX_ARTIFACT_BYTES,
   agentRequirements,
   type AgentRequirements,
+  type CallView,
   type CommandFile,
   type LogTail,
   type RunDefinition,

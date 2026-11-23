@@ -1,0 +1,558 @@
+import {
+  automationVersion,
+  parseFactorySpec,
+  serverHash,
+  stepsResolvedBody,
+  type McpServerDefinition,
+} from '@consola/factory-spec';
+import { describe, expect, it } from 'vitest';
+import { z } from 'zod';
+import type { StepsRunPreview } from './steps/definition';
+import { defineTool } from './tools.test-helpers';
+import {
+  BIND_HINT,
+  stepsHarness,
+  WORKSPACE_ID,
+  type StepsHarness,
+  type StepsHarnessOptions,
+} from './steps/steps.test-helpers';
+
+/*
+ * 5a-2: `uses:` steps, as the engine resolves, runs, recovers and checks
+ * them, against the steps harness's fake MCP client (`world.mcp`). Nothing
+ * here starts a server: the fake records every connect, call and close.
+ */
+
+/** The spec's `slack`, with its command an absolute path (nothing runs it: the fake answers). */
+const SLACK_COMMAND = '/opt/sprocket/bin/slack-mcp';
+const SLACK = `  slack:
+    description: Posts to Sprocket's Slack as the support bot.
+    command: ${SLACK_COMMAND}
+    args: [--stdio]
+    env: { SLACK_TEAM_ID: T0SPROCKET }
+    secrets: [SLACK_BOT_TOKEN]
+`;
+const SLACK_DEFINITION: McpServerDefinition = {
+  name: 'slack',
+  transport: 'stdio',
+  description: "Posts to Sprocket's Slack as the support bot.",
+  command: SLACK_COMMAND,
+  args: ['--stdio'],
+  env: { SLACK_TEAM_ID: 'T0SPROCKET' },
+  secrets: ['SLACK_BOT_TOKEN'],
+};
+/** The spec's `tracker`: Streamable HTTP, a header made from a secret. */
+const TRACKER = `  tracker:
+    url: https://mcp.tracker.sprocket.example/mcp
+    headers: { Authorization: "Bearer \${TRACKER_TOKEN}" }
+    secrets: [TRACKER_TOKEN]
+`;
+
+/** A factory.yml with these servers and entries (each a `  - name: …` item). */
+const factory = (servers: string, ...entries: string[]) =>
+  `version: 1\n${servers ? `mcpServers:\n${servers}` : ''}automations:\n${entries.join('')}`;
+
+/** A scheduled steps entry in api: an agent step `triage`, then `steps` (each a `      - …` item). */
+function entry(name: string, steps: string, extra = '    mode: auto\n'): string {
+  return `  - name: ${name}\n    on: { cron: "0 9 * * 1-5" }\n    scope: api\n${extra}    steps:\n      - id: triage\n        prompt: Triage what came in.\n        outputs: { verdict: { enum: [post, skip] }, note: string }\n${steps}`;
+}
+const POST = `      - id: post
+        uses: slack#chat_post_message
+        with: { channel: C0SUPPORT1, text: "{{steps.triage.note}}" }
+        outputs: { ts: string }
+`;
+/** A `uses:` step `id` calling `ref` with `with` (flow YAML). */
+const call = (id: string, ref: string, withYaml: string, extra = '') =>
+  `      - id: ${id}\n        uses: ${ref}\n        with: ${withYaml}\n${extra}`;
+const BRIEF = entry('brief', POST);
+const YAML = factory(SLACK + TRACKER, BRIEF);
+
+const BOT_BINDING = { ref: 'keychain:consola/ws-1/personal/SLACK_BOT_TOKEN' };
+const TRACKER_BINDING = {
+  ref: 'op://Ops/Tracker/credential',
+  kind: '1password' as const,
+  label: '1Password (op://Ops/Tracker/credential)',
+};
+const BOT_VALUE = 'stub-slack-secret-9c1e"\\back%slash';
+const TRACKER_VALUE = 'stub-tracker-secret-4d7a%slash"q';
+const BOUND = {
+  bindings: { SLACK_BOT_TOKEN: BOT_BINDING, TRACKER_TOKEN: TRACKER_BINDING },
+  values: { SLACK_BOT_TOKEN: BOT_VALUE, TRACKER_TOKEN: TRACKER_VALUE },
+};
+
+/*
+ * Consola's tools as a test registry offers them: `cleanup_stale_sessions`
+ * (destructive, its arguments choose what it acts on), `start_chat` (its
+ * `prompt` is sent to a session), `list_things` (changes nothing),
+ * `bare_tool` (automatable, no roles) and `hidden_tool` (not automatable).
+ */
+const CLEAN_UP = defineTool({
+  name: 'cleanup_stale_sessions',
+  description: 'Clean up sessions whose pull requests are done.',
+  input: {
+    pr_states: z.array(z.enum(['merged', 'closed'])).optional(),
+    session_ids: z.array(z.string()).optional(),
+  },
+  roles: { pr_states: 'selector', session_ids: 'selector' },
+  mutating: true,
+  destructive: true,
+  automatable: true,
+  preview: async () => ({ summary: 'Would clean up 2 sessions.', data: { sessions: 2 } }),
+  run: async () => ({ summary: 'Cleaned up 2 sessions.', data: { removed: 2 } }),
+});
+const START_CHAT = defineTool({
+  name: 'start_chat',
+  description: 'Start a chat with a prompt.',
+  input: { prompt: z.string(), channel: z.string().optional() },
+  roles: { prompt: 'prompt', channel: 'data' },
+  mutating: false,
+  automatable: true,
+  run: async () => ({ summary: 'Started.', data: null }),
+});
+const LIST_THINGS = defineTool({
+  name: 'list_things',
+  description: 'List things.',
+  input: { kind: z.string().optional() },
+  roles: { kind: 'data' },
+  mutating: false,
+  automatable: true,
+  run: async () => ({ summary: 'Listed.', data: [] }),
+});
+const BARE_TOOL = defineTool({
+  name: 'bare_tool',
+  description: 'A tool whose host gave its argument no role.',
+  input: { target: z.string() },
+  mutating: false,
+  automatable: true,
+  run: async () => ({ summary: 'Done.', data: null }),
+});
+const HIDDEN_TOOL = defineTool({
+  name: 'hidden_tool',
+  description: 'Not for automations.',
+  input: {},
+  mutating: false,
+  automatable: false,
+  run: async () => ({ summary: 'Done.', data: null }),
+});
+/** A tool with roles for some arguments only, one of them named as `Object.prototype` names a member. */
+const ODD_TOOL = defineTool({
+  name: 'odd_tool',
+  description: 'A tool whose roles leave one argument out.',
+  input: { note: z.string().optional(), constructor: z.string().optional() },
+  roles: { note: 'data' },
+  mutating: false,
+  automatable: true,
+  run: async () => ({ summary: 'Done.', data: null }),
+});
+const TOOLS = [CLEAN_UP, START_CHAT, LIST_THINGS, BARE_TOOL, HIDDEN_TOOL, ODD_TOOL];
+
+const harness = (options: StepsHarnessOptions = {}) =>
+  stepsHarness({ yaml: YAML, tools: TOOLS, secrets: BOUND, ...options });
+
+const row = (h: StepsHarness, name = 'brief') =>
+  h.service.list(WORKSPACE_ID).find((view) => view.name === name)!;
+const problemOf = async (options: StepsHarnessOptions, name = 'brief') =>
+  row(await harness(options), name).problem;
+
+describe('an entry whose steps call a server (5a-2 Task 6)', () => {
+  it('resolves against its server, keeps it in the definition, and starts nothing', async () => {
+    const h = await harness();
+    expect(row(h).problem).toBeUndefined();
+    const run = (await h.service.trigger(WORKSPACE_ID, 'brief'))!;
+    const definition = h.service.getRunDefinition(run.id)!;
+    expect(definition.servers).toEqual({ slack: SLACK_DEFINITION });
+    expect(definition.calls?.post.arguments).toEqual([
+      { name: 'channel', template: 'C0SUPPORT1', trust: 'literal', sources: [] },
+      {
+        name: 'text',
+        template: '{{steps.triage.note}}',
+        trust: 'untrusted',
+        sources: [{ kind: 'output', step: 'triage', name: 'note', trusted: false }],
+      },
+    ]);
+    expect(definition.calls?.post).toMatchObject({
+      ref: 'slack#chat_post_message',
+      server: 'slack',
+      tool: 'chat_post_message',
+      facts: { name: 'slack', transport: 'stdio', target: `${SLACK_COMMAND} --stdio` },
+    });
+    expect((h.store.get(run.id)!.result as StepsRunPreview).steps).toContainEqual({
+      id: 'post',
+      kind: 'uses',
+    });
+    // Resolving and firing start no server: only a call does, once a person allowed its version.
+    expect(h.world.mcp.launches).toEqual([]);
+  });
+
+  it("can't run on a runner with no MCP client, while a call of Consola's own tool still can", async () => {
+    expect(await problemOf({ mcp: 'none' })).toBe(
+      "this runner can't call MCP servers, so `uses: slack#…` can't run here",
+    );
+    const own = factory(
+      SLACK,
+      entry('brief', call('post', 'consola#cleanup_stale_sessions', '{ pr_states: [merged] }')),
+    );
+    expect(await problemOf({ mcp: 'none', yaml: own })).toBeUndefined();
+  });
+
+  it('runs only where the runner offers its server’s transport (review S11)', async () => {
+    const TRACK = entry('track', call('file', 'tracker#create_issue', '{ title: Shipped }'));
+    const tracked = factory(SLACK + TRACKER, BRIEF, TRACK);
+    const httpOnly = await harness({ yaml: tracked, mcp: { transports: ['http'] } });
+    expect(row(httpOnly).problem).toBe(
+      "this runner can't start stdio servers, so `uses: slack#…` can't run here",
+    );
+    expect(row(httpOnly, 'track').problem).toBeUndefined();
+    expect(await problemOf({ yaml: tracked, mcp: { transports: ['stdio'] } }, 'track')).toBe(
+      "this runner can't call Streamable HTTP servers, so `uses: tracker#…` can't run here",
+    );
+  });
+});
+
+describe("a call of Consola's own tools in steps (5a-2 Task 6)", () => {
+  const own = (step: string) => factory(SLACK, entry('tidy', step));
+  const tidy = async (step: string) => problemOf({ yaml: own(step) }, 'tidy');
+
+  it('resolves with its arguments as written, a destructive tool marked so', async () => {
+    const h = await harness({
+      yaml: own(call('clean', 'consola#cleanup_stale_sessions', '{ pr_states: [merged] }')),
+    });
+    expect(row(h, 'tidy').problem).toBeUndefined();
+    const run = (await h.service.trigger(WORKSPACE_ID, 'tidy'))!;
+    const definition = h.service.getRunDefinition(run.id)!;
+    expect(definition.calls?.clean).toEqual({
+      ref: 'consola#cleanup_stale_sessions',
+      server: 'consola',
+      tool: 'cleanup_stale_sessions',
+      arguments: [{ name: 'pr_states', template: ['merged'], trust: 'literal', sources: [] }],
+      destructive: true,
+    });
+    // Consola's own tools are no factory server: nothing is kept for them.
+    expect(definition).not.toHaveProperty('servers');
+  });
+
+  it('takes only trusted values in an argument that chooses what it acts on', async () => {
+    expect(
+      await tidy(
+        call(
+          'clean',
+          'consola#cleanup_stale_sessions',
+          '{ session_ids: ["{{steps.triage.note}}"] }',
+        ),
+      ),
+    ).toBe(
+      '`session_ids` chooses what `consola#cleanup_stale_sessions` acts on; it takes only trusted values',
+    );
+  });
+
+  it('takes only trusted values in an argument sent to a session as typed', async () => {
+    expect(
+      await tidy(call('chat', 'consola#start_chat', '{ prompt: "{{steps.triage.note}}" }')),
+    ).toBe('`prompt` is sent to a session as if you typed it; it takes only trusted values');
+    // An enum output is trusted: it cannot carry instructions.
+    expect(
+      await tidy(call('chat', 'consola#start_chat', '{ prompt: "{{steps.triage.verdict}}" }')),
+    ).toBeUndefined();
+    // A data argument takes anything.
+    expect(
+      await tidy(
+        call('chat', 'consola#start_chat', '{ prompt: Go, channel: "{{steps.triage.note}}" }'),
+      ),
+    ).toBeUndefined();
+  });
+
+  it('reads an argument its tool gives no role as one that chooses (Call 5)', async () => {
+    expect(
+      await tidy(call('aim', 'consola#bare_tool', '{ target: "{{steps.triage.note}}" }')),
+    ).toBe('`target` chooses what `consola#bare_tool` acts on; it takes only trusted values');
+    expect(await tidy(call('aim', 'consola#bare_tool', '{ target: catalog-portal }'))).toBe(
+      undefined,
+    );
+    // A role is the tool's own: a name `Object.prototype` has is no role.
+    expect(
+      await tidy(call('odd', 'consola#odd_tool', '{ constructor: "{{steps.triage.note}}" }')),
+    ).toBe('`constructor` chooses what `consola#odd_tool` acts on; it takes only trusted values');
+  });
+
+  it('refuses an argument the tool does not have, a tool no automation may run, and no tool', async () => {
+    expect(await tidy(call('clean', 'consola#cleanup_stale_sessions', '{ nope: 1 }'))).toBe(
+      'with: `nope` is not an argument of `consola#cleanup_stale_sessions` (it has: pr_states, session_ids)',
+    );
+    expect(await tidy(call('hide', 'consola#hidden_tool', '{}'))).toBe(
+      'consola#hidden_tool cannot be run by an automation',
+    );
+    expect(await tidy(call('gone', 'consola#vanished', '{}'))).toBe(
+      'there is no Consola tool named "vanished"',
+    );
+  });
+
+  it('refuses dry_run: run on a tool that changes things (review Minor 13)', async () => {
+    expect(
+      await tidy(
+        call(
+          'clean',
+          'consola#cleanup_stale_sessions',
+          '{ pr_states: [merged] }',
+          '        dry_run: run\n',
+        ),
+      ),
+    ).toBe(
+      "its step `clean` calls `consola#cleanup_stale_sessions`, which changes things, so it can't have `dry_run: run`",
+    );
+    expect(
+      await tidy(call('look', 'consola#list_things', '{}', '        dry_run: run\n')),
+    ).toBeUndefined();
+  });
+
+  it('resolves on items, where a one-step tool keeps its words (review M5)', async () => {
+    const onItems = (body: string) =>
+      factory('', `  - name: tidy\n    on: manual\n    applies_to: [pr]\n${body}`);
+    const steps = `    steps:\n${call('clean', 'consola#cleanup_stale_sessions', '{ pr_states: [merged] }')}`;
+    expect(await problemOf({ yaml: onItems(steps) }, 'tidy')).toBeUndefined();
+    expect(
+      await problemOf(
+        { yaml: onItems('    run: { tool: consola#cleanup_stale_sessions }\n') },
+        'tidy',
+      ),
+    ).toMatch(/^applies_to gives each run an item, and a tool takes none/);
+  });
+
+  it("says a one-step tool of a server's namespace is a step", async () => {
+    const yaml = factory(
+      SLACK,
+      '  - name: post\n    on: { cron: "0 9 * * 1-5" }\n    run: { tool: slack#chat_post_message }\n    mode: confirm\n',
+    );
+    expect(await problemOf({ yaml }, 'post')).toBe(
+      "`slack#chat_post_message` is not one of Consola's tools. An MCP server's tool is a step: `steps: [{ uses: slack#chat_post_message, with: … }]`",
+    );
+  });
+});
+
+describe('the version of an entry that calls a server (5a-2 Task 6, Task 5’s engine half)', () => {
+  const versionOf = (h: StepsHarness, name = 'brief') =>
+    h.service.entryAgents(WORKSPACE_ID, name)!.version;
+  const QUIET = `  - name: quiet\n    on: { cron: "0 9 * * 1-5" }\n    scope: api\n    mode: auto\n    steps:\n      - id: look\n        run: git log -1\n`;
+
+  it("holds the server's definition, in exactly the entries that call it", async () => {
+    const h = await harness({ yaml: factory(SLACK, BRIEF, QUIET) });
+    const before = { brief: versionOf(h), quiet: versionOf(h, 'quiet') };
+    // The engine's formula: the server's hash under `servers`, beside no action and no agent.
+    const [automation] = parseFactorySpec(factory(SLACK, BRIEF)).automations;
+    expect(before.brief).toBe(
+      automationVersion(
+        automation,
+        stepsResolvedBody({}, {}, { servers: { slack: serverHash(SLACK_DEFINITION) } }),
+      ),
+    );
+    await h.setYaml(factory(SLACK.replace('[--stdio]', '[--stdio, -v]'), BRIEF, QUIET));
+    expect(versionOf(h)).not.toBe(before.brief);
+    expect(versionOf(h, 'quiet')).toBe(before.quiet);
+    await h.setYaml(
+      factory(
+        SLACK.replace('[SLACK_BOT_TOKEN]', '[SLACK_BOT_TOKEN, SLACK_TEAM_TOKEN]'),
+        BRIEF,
+        QUIET,
+      ),
+    );
+    expect(versionOf(h)).not.toBe(before.brief);
+    expect(versionOf(h, 'quiet')).toBe(before.quiet);
+  });
+
+  it('moves with no binding, and holds no server for Consola’s own tools', async () => {
+    const h = await harness();
+    const before = versionOf(h);
+    h.world.secrets.bindings.set('SLACK_BOT_TOKEN', { ref: 'op://Ops/Slack/bot' });
+    await h.service.reload(WORKSPACE_ID);
+    expect(versionOf(h)).toBe(before);
+    const own = await harness({
+      yaml: factory(
+        SLACK,
+        entry('tidy', call('clean', 'consola#cleanup_stale_sessions', '{ pr_states: [merged] }')),
+      ),
+    });
+    const [automation] = parseFactorySpec(
+      factory(
+        SLACK,
+        entry('tidy', call('clean', 'consola#cleanup_stale_sessions', '{ pr_states: [merged] }')),
+      ),
+    ).automations;
+    // No agent, no action, no server: the slice-1 version.
+    expect(versionOf(own, 'tidy')).toBe(automationVersion(automation));
+  });
+
+  it('keeps a one-step tool’s version where factory.yml defines servers', async () => {
+    const h = await harness({
+      yaml: factory(
+        SLACK,
+        '  - name: clean-up-stale-sessions\n    on: { cron: "0 9 * * 1-5" }\n    run: { tool: consola#cleanup_stale_sessions, with: { pr_states: [merged, closed] } }\n    mode: confirm\n',
+      ),
+    });
+    expect(row(h, 'clean-up-stale-sessions').problem).toBeUndefined();
+    // `versionPins.test.ts`' pin for the GRAMMAR example and the shipped template.
+    expect(versionOf(h, 'clean-up-stale-sessions')).toBe('5ec4f18deeec55b9');
+  });
+});
+
+describe('a dry run of an entry that calls a server (5a-2 Task 6, review S11)', () => {
+  const notify = (dryRun: 'run' | 'report') =>
+    factory(
+      SLACK,
+      `  - name: brief\n    on: { cron: "0 9 * * 1-5" }\n    scope: api\n    mode: notify\n    steps:\n${call('post', 'slack#chat_post_message', '{ channel: C0SUPPORT1, text: Weekly. }', `        dry_run: ${dryRun}\n`)}`,
+    );
+
+  it('asks until accepted when its call runs in a dry run, and not when it is reported', async () => {
+    const runs = await harness({ yaml: notify('run') });
+    expect(row(runs).asksFirst).toBe(true);
+    const run = (await runs.service.trigger(WORKSPACE_ID, 'brief'))!;
+    expect(runs.store.get(run.id)).toMatchObject({ status: 'needs-approval' });
+    expect(runs.store.get(run.id)!.summary).toContain(
+      'Approve once to let this new or changed automation run on its own.',
+    );
+    expect(row(await harness({ yaml: notify('report') })).asksFirst).toBeUndefined();
+  });
+});
+
+describe("a call's server's secrets are the entry's (5a-2 Task 6)", () => {
+  it('needs them bound, and Settings › Secrets says where each goes', async () => {
+    const h = await harness({ secrets: {} });
+    expect(row(h)).toMatchObject({
+      problem: `needs \`SLACK_BOT_TOKEN\` bound ${BIND_HINT}`,
+      unbound: ['SLACK_BOT_TOKEN'],
+    });
+    // Unbound, its server's uses are the ones the tab most needs.
+    const use = {
+      automation: 'brief',
+      step: 'post',
+      server: { name: 'slack', transport: 'stdio' },
+    };
+    expect(h.service.secretsView(WORKSPACE_ID)).toEqual([
+      { name: 'SLACK_BOT_TOKEN', uses: [{ ...use, accepted: false }] },
+    ]);
+    h.world.secrets.bindings.set('SLACK_BOT_TOKEN', BOT_BINDING);
+    await h.service.reload(WORKSPACE_ID);
+    expect(row(h).problem).toBeUndefined();
+    expect(h.service.secretsView(WORKSPACE_ID)).toMatchObject([
+      { name: 'SLACK_BOT_TOKEN', uses: [{ ...use, accepted: false }] },
+    ]);
+    // An agent is told the name and whether it is bound: never where.
+    expect(h.service.capabilities(WORKSPACE_ID).secrets).toEqual([
+      { name: 'SLACK_BOT_TOKEN', bound: true },
+    ]);
+  });
+
+  it('lists them for an entry with another problem too', async () => {
+    const h = await harness({ mcp: { transports: ['http'] } });
+    expect(row(h).problem).toBe(
+      "this runner can't start stdio servers, so `uses: slack#…` can't run here",
+    );
+    expect(h.service.secretsView(WORKSPACE_ID)).toMatchObject([
+      {
+        name: 'SLACK_BOT_TOKEN',
+        uses: [
+          { automation: 'brief', step: 'post', server: { name: 'slack', transport: 'stdio' } },
+        ],
+      },
+      { name: 'TRACKER_TOKEN', uses: [] },
+    ]);
+    // A problem with its trigger, found before its steps are looked at.
+    const onEvent = await harness({
+      yaml: factory(
+        SLACK,
+        BRIEF.replace(
+          'on: { cron: "0 9 * * 1-5" }',
+          'on: { github: pull_request.review_requested }',
+        ),
+      ),
+    });
+    expect(row(onEvent).problem).toMatch(/^scope: a github item runs in a worktree/);
+    expect(onEvent.service.secretsView(WORKSPACE_ID)).toMatchObject([
+      { name: 'SLACK_BOT_TOKEN', uses: [{ automation: 'brief', step: 'post' }] },
+      { name: 'TRACKER_TOKEN', uses: [] },
+    ]);
+  });
+
+  it('gives the Allow card its servers and calls', async () => {
+    const h = await harness();
+    expect(h.service.entryAgents(WORKSPACE_ID, 'brief')).toMatchObject({
+      servers: [SLACK_DEFINITION],
+      calls: [{ step: 'post', ref: 'slack#chat_post_message', server: 'slack' }],
+    });
+  });
+});
+
+describe('saving an entry that calls a server (5a-2 Task 6, Call 2)', () => {
+  const lone = (steps: string) =>
+    `- name: post-it\n  on: { cron: "0 9 * * 1-5" }\n  scope: api\n  mode: confirm\n  steps:\n${steps.replace(/^ {4}/gm, '')}`;
+  const BROKEN = SLACK.replace('    secrets:', '    cwd: /tmp\n    secrets:');
+
+  it('refuses one calling a server with problems of its own, or none of that name', async () => {
+    const h = await harness({ yaml: factory(BROKEN, '') });
+    await expect(
+      h.service.saveEntry(
+        WORKSPACE_ID,
+        lone(call('post', 'slack#chat_post_message', '{ channel: C0SUPPORT1 }')),
+        { replace: false },
+      ),
+    ).rejects.toThrow(
+      "Not saved: its step `post` calls `slack`, which has problems of its own in factory.yml's `mcpServers:`; save it once they are fixed.",
+    );
+    await expect(
+      h.service.saveEntry(
+        WORKSPACE_ID,
+        lone(call('post', 'jira#create_issue', '{ title: Shipped }')),
+        { replace: false },
+      ),
+    ).rejects.toThrow(
+      'Not saved: its step `post` calls `jira`, and factory.yml defines no such server.',
+    );
+  });
+
+  it("saves a call of Consola's own tools though factory.yml writes a server called consola", async () => {
+    const h = await harness({
+      yaml: factory(`  consola:\n    command: ${SLACK_COMMAND}\n`, ''),
+    });
+    await expect(
+      h.service.saveEntry(
+        WORKSPACE_ID,
+        lone(call('clean', 'consola#cleanup_stale_sessions', '{ pr_states: [merged] }')),
+        { replace: false },
+      ),
+    ).resolves.toMatchObject({ name: 'post-it' });
+  });
+
+  it("saves one calling nothing though a server is broken, and says the folder doesn't apply", async () => {
+    const h = await harness({ yaml: factory(SLACK, BRIEF) });
+    await h.setYaml(factory(BROKEN, BRIEF));
+    const saved = await h.service.saveEntry(
+      WORKSPACE_ID,
+      lone('      - id: look\n        run: git log -1\n'),
+      { replace: false },
+    );
+    // The server's own issue, and the step it keeps from running: the version before keeps running.
+    expect(saved.notApplied?.issues).toEqual([
+      'factory.yml:8: Consola decides where a server starts, and it is never a checkout',
+      "factory.yml:20: `slack` has problems of its own in factory.yml's `mcpServers:`; this step runs once they are fixed",
+    ]);
+    expect(h.service.list(WORKSPACE_ID).map((view) => view.name)).not.toContain('post-it');
+  });
+});
+
+describe('an entry that calls nothing (5a-2 Task 6)', () => {
+  it('resolves exactly as it does on a runner with no MCP client', async () => {
+    const yaml = factory(
+      '',
+      `  - name: notes\n    on: { cron: "0 9 * * 1-5" }\n    scope: api\n    mode: auto\n    steps:\n      - id: look\n        run: git log -1\n      - id: write\n        prompt: Write the notes.\n`,
+    );
+    const withClient = await harness({ yaml });
+    const without = await harness({ yaml, mcp: 'none' });
+    expect(JSON.stringify(row(withClient, 'notes'))).toBe(JSON.stringify(row(without, 'notes')));
+    const a = (await withClient.service.trigger(WORKSPACE_ID, 'notes'))!;
+    const b = (await without.service.trigger(WORKSPACE_ID, 'notes'))!;
+    expect(JSON.stringify(withClient.service.getRunDefinition(a.id))).toBe(
+      JSON.stringify(without.service.getRunDefinition(b.id)),
+    );
+    // Neither key is written for an entry that calls nothing.
+    expect(withClient.service.getRunDefinition(a.id)).not.toHaveProperty('servers');
+    expect(withClient.service.getRunDefinition(a.id)).not.toHaveProperty('calls');
+  });
+});

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { AgentStep } from '@consola/factory-spec';
+import type { AgentStep, UsesStep } from '@consola/factory-spec';
 import { describeEvery, describeSteps } from './describeEntry';
 
 describe('describeEvery', () => {
@@ -107,5 +107,27 @@ describe('describeSteps', () => {
       agent: 'investigator',
       agentFile: 'agents/investigator.md',
     });
+  });
+
+  it('names a call by its server and tool, and marks one that runs in a dry run (5a-2)', () => {
+    const post = (fields: Partial<UsesStep> = {}): UsesStep => ({
+      id: 'post',
+      named: true,
+      kind: 'uses',
+      uses: 'slack#chat_post_message',
+      server: 'slack',
+      tool: 'chat_post_message',
+      with: {},
+      outputs: {},
+      timeoutMs: 60_000,
+      dryRun: 'report',
+      ...fields,
+    });
+    expect(describeSteps([post()])).toEqual([
+      { id: 'post', kind: 'uses', summary: 'slack#chat_post_message' },
+    ]);
+    expect(describeSteps([post({ dryRun: 'run' })])).toEqual([
+      { id: 'post', kind: 'uses', summary: 'slack#chat_post_message', dryRun: true },
+    ]);
   });
 });

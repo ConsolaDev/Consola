@@ -2,11 +2,13 @@ import type {
   AutomationMode,
   FactoryNotice,
   FactorySpecIssue,
+  McpServerDefinition,
   RunRecord,
   RunStatus,
   StepRunStatus,
 } from '@consola/factory-spec';
 import type { RunFilter } from './runFilter';
+import type { CallView } from './steps/definition';
 import type { SecretBindingView } from './secrets/secretsView';
 
 /** One automation from a workspace's factory folder, as the app shows it. */
@@ -48,7 +50,7 @@ export interface AutomationView {
     id: string;
     kind: 'agent' | 'run' | 'uses';
     if?: string;
-    summary: string /** A command marked `dry_run: run`: it runs when the run only reports. */;
+    summary: string /** A command or a call marked `dry_run: run`: it runs when the run only reports. */;
     dryRun?: true;
     /** The agent it runs as, as its node names it: "investigator · claude-work · opus". */
     agent?: string;
@@ -257,6 +259,10 @@ export interface EntryAgentsView {
   /** Its runs carry an item, text other people wrote (`entryReadsItems`): the Allow card's item line (review B3). */
   readsItems: boolean;
   agents: EntryAgentView[];
+  /** The factory servers its calls use, each once in step order, as the version holds them; absent when none. */
+  servers?: McpServerDefinition[];
+  /** Each `uses:` step's call, in step order; absent when it has none. */
+  calls?: Array<CallView & { step: string }>;
 }
 
 /** A factory folder that does not apply: the last applied version keeps running. */

@@ -15,7 +15,14 @@ export interface SecretBindingView {
    * entry's uses are the ones the tab most needs), in entry order;
    * `accepted`: that entry's current version is.
    */
-  uses: Array<{ automation: string; step?: string; check?: true; accepted: boolean }>;
+  uses: Array<{
+    automation: string;
+    step?: string;
+    check?: true;
+    /** A call's server: the value goes to it, not to a command. */
+    server?: { name: string; transport: 'stdio' | 'http' };
+    accepted: boolean;
+  }>;
   /** Other names bound to the same reference (equal fingerprints), sorted. */
   sameAs?: string[];
 }
@@ -59,6 +66,9 @@ export function buildSecretsView(input: {
           automation: use.automation,
           ...(use.step !== undefined ? { step: use.step } : {}),
           ...(use.check ? { check: true as const } : {}),
+          ...(use.server !== undefined
+            ? { server: { name: use.server.name, transport: use.server.transport } }
+            : {}),
           accepted: input.accepted(use.automation),
         })),
       ...(sameAs.length > 0 ? { sameAs } : {}),

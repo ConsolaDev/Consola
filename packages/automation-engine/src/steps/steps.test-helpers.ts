@@ -26,7 +26,14 @@ import type {
   CommandResult,
   CommandSpec,
   FactoryFolderHandle,
+  McpCallOutcome,
+  McpClientPort,
+  McpServerLaunch,
+  McpSession,
+  McpToolInfo,
+  McpTransport,
   RunningCommand,
+  ServerGroup,
   WorkItemPort,
 } from '../ports';
 import { RunStore, type AutomationStateFile } from '../RunStore';
@@ -184,6 +191,63 @@ export interface StepsHarnessOptions {
   workItems?: WorkItemPort;
   /** This runner's secret bindings and values; `'none'` passes no port. Default: a port that binds nothing. */
   secrets?: { bindings?: Record<string, FakeBinding>; values?: Record<string, string> } | 'none';
+  /** This runner's MCP client: the servers it reaches and the transports it offers; `'none'` passes no port. Default: no server, both transports. */
+  mcp?: { servers?: Record<string, FakeServer>; transports?: McpTransport[] } | 'none';
+}
+
+/** One server the fake MCP client reaches, by its name in the factory. */
+export interface FakeServer {
+  tools: McpToolInfo[];
+  /** Its answer to a call; absent, `{}` as structured content. Raced against the call's signal: an abort answers `stopped`. */
+  answer?(
+    tool: string,
+    args: Record<string, unknown>,
+    signal: AbortSignal,
+  ): McpCallOutcome | Promise<McpCallOutcome>;
+  /** The connect refuses with this, after the group (if any) was handed over. */
+  refuse?: { reason: string; whole?: true };
+  /** The connect waits until its signal aborts, then refuses. */
+  hang?: true;
+  /** What `checkArguments` answers for every call; absent, null (they fit). */
+  argumentsProblem?: string;
+  /** A stdio server's group: handed to `onSpawned` first, as the adapter does once the process exists. */
+  group?: ServerGroup;
+  /** What `close` answers; absent, 0. */
+  survivors?: number;
+}
+
+/** The fake MCP client's state and what it recorded. */
+export interface FakeMcp {
+  transports: McpTransport[];
+  servers: Map<string, FakeServer>;
+  /** Every connect asked for, in order. */
+  launches: McpServerLaunch[];
+  /** Every call sent, in order; each with the running `uses` step's `call.intentAt` and group as the store held them then. */
+  calls: Array<{
+    server: string;
+    tool: string;
+    args: Record<string, unknown>;
+    intentAt?: string;
+    group?: ServerGroup;
+  }>;
+  /** Each call's signal, in the same order. */
+  callSignals: AbortSignal[];
+  /** The server of every session closed, in order. */
+  closes: string[];
+  /** Every group `endOrphan` was handed, in order. */
+  orphans: ServerGroup[];
+  /** What `endOrphan` answers. Default `ended`. */
+  orphanAnswer: 'ended' | 'gone' | 'unknown';
+  /** Every connect waits for this while it is set (or until its signal aborts), after the group was handed over. */
+  connectGate?: Promise<void>;
+}
+
+/** Resolves once `signal` aborts (at once when it has). */
+function abortedOf(signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal.aborted) resolve();
+    else signal.addEventListener('abort', () => resolve(), { once: true });
+  });
 }
 
 /** One name's binding on the fake port: its reference (its fingerprint), and how it reads on a card. */
@@ -326,6 +390,8 @@ export interface StepsWorld {
   broadcasts: string[];
   /** The runner's secrets: what is bound, the values, every read. */
   secrets: FakeSecrets;
+  /** The runner's MCP client: what it reaches, and every connect, call and close. */
+  mcp: FakeMcp;
 }
 
 export interface StepsHarness {
@@ -512,6 +578,18 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
       resolved: [],
       resolvedAt: [],
     },
+    mcp: {
+      transports: [
+        ...(options.mcp === 'none' ? [] : (options.mcp?.transports ?? ['stdio', 'http'])),
+      ],
+      servers: new Map(Object.entries(options.mcp === 'none' ? {} : (options.mcp?.servers ?? {}))),
+      launches: [],
+      calls: [],
+      callSignals: [],
+      closes: [],
+      orphans: [],
+      orphanAnswer: 'ended',
+    },
   };
   const notices: AutomationNotice[] = [];
   // ws-1's factory folder, file by file; every other workspace's is empty.
@@ -694,6 +772,87 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
           },
         };
 
+  // The store now running, which a fake call reads its step's intent from.
+  let currentStore: RunStore;
+  const mcpPort: McpClientPort | undefined =
+    options.mcp === 'none'
+      ? undefined
+      : {
+          get transports() {
+            return world.mcp.transports;
+          },
+          connect: async (launch) => {
+            world.mcp.launches.push(launch);
+            const server = world.mcp.servers.get(launch.name);
+            if (!server) return { ok: false, reason: `nothing answers as ${launch.name}` };
+            if (server.group && launch.onSpawned) {
+              try {
+                await launch.onSpawned(server.group);
+              } catch (error) {
+                return {
+                  ok: false,
+                  reason: error instanceof Error ? error.message : String(error),
+                };
+              }
+            }
+            if (world.mcp.connectGate)
+              await Promise.race([world.mcp.connectGate, abortedOf(launch.signal)]);
+            if (server.hang) await abortedOf(launch.signal);
+            if (launch.signal.aborted) return { ok: false, reason: 'it was stopped' };
+            if (server.refuse) return { ok: false, ...server.refuse };
+            const session: McpSession = {
+              tools: server.tools,
+              checkArguments: () => server.argumentsProblem ?? null,
+              call: async (tool, args, { signal }) => {
+                const running = currentStore
+                  .runs()
+                  .flatMap((run) => run.steps ?? [])
+                  .find((step) => step.kind === 'uses' && step.status === 'running');
+                world.mcp.calls.push({
+                  server: launch.name,
+                  tool,
+                  args: structuredClone({ ...args }),
+                  ...(running?.call?.intentAt !== undefined
+                    ? { intentAt: running.call.intentAt }
+                    : {}),
+                  ...(running?.call?.server !== undefined
+                    ? {
+                        group: {
+                          pgid: running.call.server.pgid,
+                          startedAt: running.call.server.startedAt,
+                        },
+                      }
+                    : {}),
+                });
+                world.mcp.callSignals.push(signal);
+                const stopped: McpCallOutcome = { kind: 'unanswered', why: 'stopped', detail: '' };
+                if (signal.aborted) return stopped;
+                const answered: Promise<McpCallOutcome> = Promise.resolve(
+                  server.answer
+                    ? server.answer(tool, { ...args }, signal)
+                    : {
+                        kind: 'answered',
+                        isError: false,
+                        structuredContent: {},
+                        content: [],
+                        bytes: 2,
+                      },
+                );
+                return Promise.race([answered, abortedOf(signal).then(() => stopped)]);
+              },
+              close: async () => {
+                world.mcp.closes.push(launch.name);
+                return { survivors: server.survivors ?? 0 };
+              },
+            };
+            return { ok: true, session };
+          },
+          endOrphan: async (group) => {
+            world.mcp.orphans.push(group);
+            return world.mcp.orphanAnswer;
+          },
+        };
+
   const deps = (store: RunStore): AutomationServiceDeps => ({
     folderFor,
     appliedStore,
@@ -824,10 +983,12 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
     checkoutBusy: (dir) => world.busyFolders.has(dir),
     folderExists: (dir) => !world.goneFolders.has(dir),
     ...(secretsPort ? { secrets: secretsPort } : {}),
+    ...(mcpPort ? { mcp: mcpPort } : {}),
   });
 
   const launch = async (): Promise<StepsHarness> => {
     const store = new RunStore(stateFile, history);
+    currentStore = store;
     const service = new AutomationService(deps(store));
     current = service;
     await service.start();

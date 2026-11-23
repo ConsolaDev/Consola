@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { CONSOLA_NAMESPACE } from './support';
-import type { EngineToolContext, EngineToolResult, ToolsPort } from './ports';
+import type { ArgumentRole, EngineToolContext, EngineToolResult, ToolsPort } from './ports';
 
 /*
  * A tool registry for tests, with the rules and messages of the desktop's
@@ -16,6 +16,8 @@ export interface TestTool<Shape extends z.ZodRawShape = z.ZodRawShape> {
   destructive?: boolean;
   automatable: boolean;
   fullToolsOnly?: boolean;
+  /** What each argument does, as the desktop's registry requires of an automatable tool; this registry requires none. */
+  roles?: Readonly<Partial<Record<string, ArgumentRole>>>;
   preview?(
     args: z.infer<z.ZodObject<Shape>>,
     context: EngineToolContext,

@@ -1,5 +1,13 @@
-import type { AgentDefinition, Step, StepRun, StepsAutomation } from '@consola/factory-spec';
+import type {
+  AgentDefinition,
+  CallArgument,
+  McpServerDefinition,
+  Step,
+  StepRun,
+  StepsAutomation,
+} from '@consola/factory-spec';
 import type { CheckoutKind } from '../ports';
+import type { ServerFacts } from '../servers/serverFacts';
 
 /**
  * What a step's agent requires, as its run's definition keeps it: the agent
@@ -99,6 +107,25 @@ export interface RunDefinition {
   readsItems?: true;
   /** `skillHash` by name of every skill a step's agent names, as the run's copy must hold it; absent when none does. */
   skills?: Record<string, string>;
+  /** By name, every factory server a `uses:` step names, as approved; absent when none does. */
+  servers?: Record<string, McpServerDefinition>;
+  /** By step id, every `uses:` step's call as its card and its detail show it; absent when there is none. */
+  calls?: Record<string, CallView>;
+}
+
+/** One `uses:` step's call, as the card and the step's detail show it: what it calls, and what each argument carries. */
+export interface CallView {
+  /** `<server>#<tool>` as written. */
+  ref: string;
+  server: string;
+  tool: string;
+  arguments: CallArgument[];
+  /** A destructive Consola tool: it acts on what is true when it runs. */
+  destructive?: true;
+  /** `dry_run: run`. */
+  alsoInDryRun?: true;
+  /** A factory server's facts for the card; absent for `consola`. */
+  facts?: ServerFacts;
 }
 
 /**

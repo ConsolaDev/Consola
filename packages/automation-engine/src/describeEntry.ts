@@ -77,7 +77,9 @@ export function describeSteps(
       id: step.id,
       kind: step.kind,
       ...(step.if !== undefined ? { if: step.if } : {}),
-      ...(step.kind === 'run' && step.dryRun === 'run' ? { dryRun: true as const } : {}),
+      ...((step.kind === 'run' || step.kind === 'uses') && step.dryRun === 'run'
+        ? { dryRun: true as const }
+        : {}),
       summary:
         step.kind === 'uses'
           ? step.uses

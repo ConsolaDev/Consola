@@ -124,6 +124,9 @@ export interface EngineToolResult {
   approvalArgs?: Record<string, unknown>;
 }
 
+/** What a Consola tool's argument does: text sent to a session, a choice of what it acts on, or plain data. */
+export type ArgumentRole = 'prompt' | 'selector' | 'data';
+
 export interface EngineTool {
   name: string;
   description: string;
@@ -133,6 +136,11 @@ export interface EngineTool {
   destructive?: boolean;
   automatable: boolean;
   fullToolsOnly?: boolean;
+  /**
+   * What each argument does; an argument with none is read as a `selector`, so it takes only trusted values
+   * (Call 5). The desktop's registry requires one for every argument of an automatable tool.
+   */
+  roles?: Readonly<Partial<Record<string, ArgumentRole>>>;
 }
 
 export interface ToolsPort {
@@ -419,4 +427,109 @@ export interface RunningCommand {
 /** Runs a step's command. `node/runCommand`'s `startCommand` is the one that spawns. */
 export interface CommandPort {
   start(spec: CommandSpec): RunningCommand;
+}
+
+/*
+ * The engine's MCP client: a session per call. The core sees server
+ * launches, a session's answers and opaque process-group records; it spawns
+ * nothing and opens no socket. `node/mcpClient` is the adapter.
+ */
+
+/** A stdio server's process group as recorded: its id, and its start time as `ps` printed it (`''` when unknown: never signalled). */
+export interface ServerGroup {
+  pgid: number;
+  startedAt: string;
+}
+
+/** The transports an MCP server is reached by: one Consola starts (stdio), or one it calls (Streamable HTTP). */
+export type McpTransport = 'stdio' | 'http';
+
+/** What a call's controller is aborted with: a quit, or a person's (or a run's) stop. */
+export type McpAbortReason = 'quit' | 'stop';
+
+export type McpServerLaunch = {
+  /** The server's name in the factory, for words. */
+  name: string;
+  /** Every value the adapter masks in what it writes (`logPath`) and in the reasons it returns. */
+  masks: readonly string[];
+  /** A stdio server's stderr, masked, at most 1 MB; absent, its last 4 KB are kept for its reason. */
+  logPath?: string;
+  /** Connecting's own budget (Call 8). */
+  timeoutMs: number;
+  /**
+   * Aborting ends the server and answers the connect `It was stopped …`. Its `reason` says how (Call 10, review S5):
+   * `'quit'` sends the group `SIGTERM` before `abort()` returns, and nothing is awaited; `'stop'` (any other)
+   * sends `notifications/cancelled` to a call in flight first, then ends the group as `close` does.
+   */
+  signal: AbortSignal;
+  /** Once, as soon as a stdio server's process exists, before `initialize`; the adapter waits for it, and a rejection ends the server and fails the connect. */
+  onSpawned?(group: ServerGroup): Promise<void> | void;
+} & (
+  | {
+      transport: 'stdio';
+      command: string;
+      args: readonly string[];
+      /** Its `env:` and its secrets' values; the adapter adds the allow-list (`SERVER_ENV_ALLOW_LIST`). */
+      env: Readonly<Record<string, string>>;
+    }
+  | {
+      transport: 'http';
+      url: string;
+      /** Rendered: every `${NAME}` filled in. */
+      headers: Readonly<Record<string, string>>;
+    }
+);
+
+/** One tool as the server listed it. Its annotations decide nothing, so they are not carried. */
+export interface McpToolInfo {
+  name: string;
+  inputSchema?: unknown;
+  outputSchema?: unknown;
+}
+
+export type McpCallOutcome =
+  /** A JSON-RPC error answer is `answered`, `isError: true`, its message the one text block (Call 6, review S2). */
+  | {
+      kind: 'answered';
+      isError: boolean;
+      structuredContent?: unknown;
+      content: readonly unknown[];
+      bytes: number;
+    }
+  | {
+      kind: 'unanswered';
+      why: 'timeout' | 'stopped' | 'closed' | 'too-large' | 'unreadable';
+      detail: string;
+    };
+
+export interface McpSession {
+  readonly tools: readonly McpToolInfo[];
+  /** Whether `args` fit the tool's `inputSchema`: null, or which argument and why. */
+  checkArguments(tool: McpToolInfo, args: Readonly<Record<string, unknown>>): string | null;
+  /** Never rejects; aborting `signal` sends `notifications/cancelled` and answers `stopped`. */
+  call(
+    tool: string,
+    args: Readonly<Record<string, unknown>>,
+    options: { timeoutMs: number; signal: AbortSignal },
+  ): Promise<McpCallOutcome>;
+  /** Never rejects: ends the connection and, for stdio, the group and its descendants. */
+  close(): Promise<{ survivors: number }>;
+}
+
+export type McpConnectResult =
+  | { ok: true; session: McpSession }
+  | {
+      ok: false;
+      reason: string;
+      /** The reason is the whole sentence (a refused redirect). */
+      whole?: true;
+    };
+
+export interface McpClientPort {
+  /** The transports this runner can use (review S11): a desktop on macOS `['stdio', 'http']`, on Windows and in the cloud `['http']`. */
+  readonly transports: readonly McpTransport[];
+  /** Never rejects; `ok: false` means nothing was sent. */
+  connect(launch: McpServerLaunch): Promise<McpConnectResult>;
+  /** A group an earlier start recorded, ended when it is still that process. */
+  endOrphan(group: ServerGroup): Promise<'ended' | 'gone' | 'unknown'>;
 }
