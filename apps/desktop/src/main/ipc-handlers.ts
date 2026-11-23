@@ -149,6 +149,7 @@ import {
 import { entryArgs, openFileArgs, workspaceArg } from './automations/factoryFileArgs';
 import { gateAnswerArgs, gateArgs } from './automations/gateArgs';
 import { openFactoryFile } from './automations/openFactoryFile';
+import { openRunCheckout } from './automations/openRunCheckout';
 import { automationCheckoutPort } from './automations/automationCheckout';
 import { readRunConversation } from './automations/runConversation';
 import { startAuthoring } from './automations/authoring';
@@ -2617,6 +2618,15 @@ export function setupIpcHandlers(): boolean {
       ? automations.readArtifact(runId, { step, name })
       : null;
   });
+  // Open folder: only a run's own checkout, a real folder directly under the root (review M5).
+  ipcMain.handle(
+    IPC_CHANNELS.AUTOMATIONS_OPEN_RUN_CHECKOUT,
+    (_event, runId: unknown): Promise<void> =>
+      openRunCheckout(typeof runId === 'string' ? automations.getRun(runId) : null, {
+        isManagedPath: (dir) => worktrees.isManagedPath(dir),
+        openPath: (dir) => shell.openPath(dir),
+      }),
+  );
   ipcMain.handle(IPC_CHANNELS.AUTOMATIONS_RETRY, (_event, runId: unknown, stepId: unknown) => {
     if (typeof runId !== 'string' || (stepId !== undefined && typeof stepId !== 'string')) {
       throw new Error('Run id, and a step id or none, required.');
@@ -3481,6 +3491,7 @@ export function cleanupIpcHandlers(): void {
   ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_GET_STEP_DETAIL);
   ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_READ_STEP_LOG);
   ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_READ_ARTIFACT);
+  ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_OPEN_RUN_CHECKOUT);
   ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_RETRY);
   ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_GET_GATE);
   ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_ANSWER_GATE);

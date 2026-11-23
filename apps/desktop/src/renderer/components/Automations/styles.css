@@ -2111,6 +2111,18 @@
   overflow-wrap: anywhere;
 }
 
+/* A write agent's step (slice 3-B): what it writes with. */
+.automations-node-chip {
+  align-self: flex-start;
+  margin-top: 4px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  overflow-wrap: anywhere;
+}
+
 .automations-node .automations-node-code {
   align-self: flex-start;
   padding: 1px 6px;
@@ -4439,4 +4451,16 @@
 /* A queued run held by another run's gate on the same item. */
 .automations-held-by {
   margin: 0;
+}
+
+/* A run's own checkout, above its steps (slice 3-B). */
+.automations-run-checkout-line {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  overflow-wrap: anywhere;
+}
+
+.automations-run-checkout-people {
+  margin-top: 8px;
 }

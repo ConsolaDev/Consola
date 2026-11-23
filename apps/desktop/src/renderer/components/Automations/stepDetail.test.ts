@@ -25,6 +25,9 @@ import {
   turnLine,
   variableRows,
   visibleTail,
+  writeRows,
+  artifactTitle,
+  diffMarkdown,
 } from './stepDetail';
 
 const NOW = new Date('2026-11-12T12:00:00.000Z');
@@ -701,5 +704,87 @@ describe('gates, retries and loops in the trace', () => {
       gateRow('waiting', { askedAt: T1 }),
     ];
     expect(stepCounts(steps, false)).toBe('2 steps · 1 waiting for you · 1 waiting to retry');
+  });
+});
+
+describe("a write step's detail (slice 3-B Task 22)", () => {
+  const FIX_STEP = step({
+    id: 'fix',
+    kind: 'agent',
+    agent: 'ui-bugfixer',
+    tools: 'write',
+    environment: {
+      name: 'sandboxed',
+      isolation: 'sandbox',
+      cliVersion: '2.1.330',
+      passed: ['CI'],
+      missing: [],
+    },
+    checkout: {
+      before: 'b0b0b0b0b0b0',
+      after: 'c1c1c1c1c1c1',
+      files: 2,
+      flagged: ['.github/workflows/ci.yml'],
+    },
+  });
+  const FIX_ON_HOST = step({
+    ...FIX_STEP,
+    environment: { name: 'my-machine', isolation: 'host', passed: [], missing: ['CI'] },
+  });
+
+  it("a write step's detail says its environment, version, variables and commits", () =>
+    expect(writeRows(FIX_STEP)).toEqual([
+      ['Environment', 'sandboxed · sandbox, enforced'],
+      ['Claude', '2.1.330'],
+      ['Passed', 'CI'],
+      ['Missing', 'none'],
+      ['Commits', 'b0b0b0b → c1c1c1c · 2 files'],
+      ['Flagged', 'changed .github/workflows/ci.yml'],
+    ]));
+
+  it('host reads as a convention', () =>
+    expect(writeRows(FIX_ON_HOST)[0]).toEqual(['Environment', 'my-machine · host, a convention']));
+
+  it('says what it does not know, and only what was recorded', () => {
+    expect(writeRows(FIX_ON_HOST)).toEqual([
+      ['Environment', 'my-machine · host, a convention'],
+      ['Passed', 'none'],
+      ['Missing', 'CI'],
+      ['Commits', 'b0b0b0b → c1c1c1c · 2 files'],
+      ['Flagged', 'changed .github/workflows/ci.yml'],
+    ]);
+    // Started, nothing committed yet (running, or failed with its changes kept apart).
+    expect(writeRows(step({ kind: 'agent', checkout: { before: 'b0b0b0b0' } }))).toEqual([
+      ['Commits', 'started at b0b0b0b, nothing committed'],
+    ]);
+    // A command in a run's own checkout: its commits, no environment (3-B runs commands on host).
+    expect(
+      writeRows(step({ checkout: { before: 'c1c1c1c1', after: 'c1c1c1c1', files: 0 } })),
+    ).toEqual([['Commits', 'c1c1c1c → c1c1c1c · 0 files']]);
+    expect(writeRows(step())).toEqual([]);
+  });
+});
+
+describe("what a write step's detail opens (slice 3-B Task 22)", () => {
+  it('a kept patch reads as a diff, in a fence no line of it can close', () => {
+    expect(diffMarkdown('-a\n+b\n')).toBe('```diff\n-a\n+b\n```');
+    expect(diffMarkdown('+```js\n+x\n')).toBe('````diff\n+```js\n+x\n````');
+  });
+
+  it('a path artifact is titled with its path', () => {
+    const paths = [{ name: 'notes', path: 'docs/fixes/SHOP-42.md' }];
+    expect(artifactTitle('notes', paths)).toBe('notes · docs/fixes/SHOP-42.md');
+    expect(artifactTitle('handover', paths)).toBe('handover');
+    expect(artifactTitle('notes', undefined)).toBe('notes');
+  });
+
+  it('a running write step is not said to work read-only', () => {
+    const run = { status: 'running' as const, steps: [], startedAt: NOW.toISOString() };
+    expect(stepSummary(step({ kind: 'agent', status: 'running' }), run, NOW)).toBe(
+      'Working in a read-only session',
+    );
+    expect(stepSummary(step({ kind: 'agent', status: 'running', tools: 'write' }), run, NOW)).toBe(
+      "Working in this run's checkout",
+    );
   });
 });

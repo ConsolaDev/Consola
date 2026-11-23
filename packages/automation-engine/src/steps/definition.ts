@@ -223,4 +223,12 @@ export interface StepDetail {
   command?: CommandFile;
   stdout?: LogTail;
   stderr?: LogTail;
+  /**
+   * What a write step's failed attempt changed, kept as its `changes.patch`
+   * (slice 3-B): the latest attempt's that holds one, its last
+   * `MAX_ARTIFACT_BYTES`. Absent when none does.
+   */
+  changes?: LogTail & { attempt: number };
+  /** Its path artifacts (slice 3-B), each path rendered for the run's item, as the run page titles them. Absent when it has none. */
+  paths?: Array<{ name: string; path: string }>;
 }

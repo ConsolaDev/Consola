@@ -137,6 +137,12 @@ export interface AutomationsAPI {
     runId: string,
     ref: { step: string; name: string },
   ) => Promise<{ content: string; bytes: number } | null>;
+  /**
+   * The run page's Open folder (slice 3-B): the run's own checkout in the
+   * file manager. Refused unless the run's record names a run-owned
+   * checkout that is a real folder directly under the worktree root.
+   */
+  openRunCheckout: (runId: string) => Promise<void>;
   /** Retry a failed steps run, from its failed step (the only one a retry accepts); the click is the approval. */
   retry: (runId: string, stepId?: string) => Promise<RunRecord>;
   /** A gate the run asked at (waiting, or answered): its question filled in, its material and its choices; null when there is none. */

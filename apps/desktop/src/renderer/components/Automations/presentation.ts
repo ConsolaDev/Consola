@@ -238,11 +238,16 @@ export const CHECKOUT_WAIT = "waiting for this item's checkout";
  * step, and may wait before any ran), "round 2 of 3 · review" inside a
  * loop, "running · publish", "waiting for a slot before publish", "failed at publish" ("failed before
  * publish" when it failed between steps, and the engine names the step it
- * did not reach), or that it waits for its item's checkout (for another
- * run's gate, `waitingForWords`). Null when there is nothing step-shaped to
+ * did not reach), that it waits for its item's checkout (for another
+ * run's gate, `waitingForWords`), or "waiting for you to close fix" while a
+ * person's session in its own checkout holds it (slice 3-B; the entry names
+ * the session). Null when there is nothing step-shaped to
  * say (a legacy run, a run that finished), so the row keeps `runAbout`.
  */
 export function stepWords(run: RunListEntry): string | null {
+  // A person's session in the run's own checkout holds it (slice 3-B): that is what it waits on.
+  if (run.waitingFor?.session !== undefined)
+    return `waiting for you to close ${run.waitingFor.session}`;
   if (run.status === 'queued' && run.summary === CHECKOUT_WAIT)
     return waitingForWords(run) ?? CHECKOUT_WAIT;
   if (run.status === 'waiting' && run.retryAt !== undefined && run.step?.status !== 'waiting')

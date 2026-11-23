@@ -87,6 +87,12 @@ export interface AutomationView {
     servers?: Array<{ name: string; tools?: string[] }>;
     /** The skills its agent names, by folder name; absent when it names none. */
     skills?: string[];
+    /**
+     * A write agent's step (slice 3-B): the isolation its environment holds
+     * it to, for its node's chip (`ui-bugfixer · writes · sandboxed`).
+     * Absent for any other step, and while the entry does not resolve.
+     */
+    writes?: 'host' | 'sandbox';
   }>;
   /**
    * A `steps:` entry's flow in words (`describeFlow`): its loops, gates,
@@ -100,6 +106,12 @@ export interface AutomationView {
    * blocks. Absent for an entry with no write agent and no checkout of its own.
    */
   writes?: WriteBlocks;
+  /**
+   * Its own checkout (`checkout: { repo, branch }`, slice 3-B), as its
+   * pipeline's checkout node draws it: the repository, and the branch as
+   * the card names it (`fix/<ticket>`). Absent for any other entry.
+   */
+  checkout?: { repo: string; branch: string };
   /** The file it lives in, relative to the factory folder: `factory.yml` or `automations/<name>.yaml`. */
   file?: string;
   /** 1-based line in its file: an automation file's entry is its line 1. */

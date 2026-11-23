@@ -700,6 +700,7 @@ contextBridge.exposeInMainWorld('automationsAPI', {
     ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_READ_STEP_LOG, runId, stepId, stream),
   readArtifact: (runId, ref) =>
     ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_READ_ARTIFACT, runId, ref),
+  openRunCheckout: (runId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_OPEN_RUN_CHECKOUT, runId),
   retry: (runId, stepId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_RETRY, runId, stepId),
   getGate: (runId, stepId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_GET_GATE, runId, stepId),
   answerGate: (runId, stepId, decision) =>

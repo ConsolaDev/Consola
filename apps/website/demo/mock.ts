@@ -901,6 +901,7 @@ export function installMock() {
     getStepDetail: async () => null,
     readStepLog: async () => null,
     readArtifact: async () => null,
+    openRunCheckout: automationsUnavailable,
     retry: automationsUnavailable,
     getGate: async () => null,
     answerGate: automationsUnavailable,

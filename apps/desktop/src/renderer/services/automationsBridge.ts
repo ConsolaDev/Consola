@@ -108,6 +108,10 @@ export const automationsBridge = {
   ): Promise<{ content: string; bytes: number } | null> =>
     getAPI()?.readArtifact(runId, ref) ?? null,
 
+  /** Open the run's own checkout in the file manager; refused for any other folder. */
+  openRunCheckout: async (runId: string): Promise<void> =>
+    (getAPI() ?? unavailable()).openRunCheckout(runId),
+
   /** Retry a failed steps run from its failed step. */
   retry: async (runId: string, stepId?: string): Promise<RunRecord> =>
     (getAPI() ?? unavailable()).retry(runId, stepId),

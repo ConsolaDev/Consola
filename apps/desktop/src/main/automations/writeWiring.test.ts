@@ -110,6 +110,21 @@ describe("main's wiring of write steps", () => {
     ).toBe(true);
     expect(words(!HOST_EDIT_CHECKED)).not.toBe(words(HOST_EDIT_CHECKED));
   });
+
+  it("opens a run's checkout only through openRunCheckout, with the real-path check and shell.openPath, and removes the handler at teardown (Task 22)", () => {
+    const handler = between('IPC_CHANNELS.AUTOMATIONS_OPEN_RUN_CHECKOUT,', '\n  );');
+    expect(handler).toMatch(/openRunCheckout\(/);
+    expect(handler).toMatch(/isManagedPath: \(dir\) => worktrees\.isManagedPath\(dir\)/);
+    expect(handler).toMatch(/openPath: \(dir\) => shell\.openPath\(dir\)/);
+    expect(ipc.match(/IPC_CHANNELS\.AUTOMATIONS_OPEN_RUN_CHECKOUT/g)).toHaveLength(2);
+    expect(ipc).toMatch(/ipcMain\.removeHandler\(IPC_CHANNELS\.AUTOMATIONS_OPEN_RUN_CHECKOUT\)/);
+    // Registered through the guarded wall, as every handler here is.
+    expect(ipc).toMatch(/import \{ guardedIpc as ipcMain \} from '\.\/guardedIpc';/);
+    const preload = fs.readFileSync(path.resolve(__dirname, '../../preload/preload.ts'), 'utf8');
+    expect(preload).toMatch(
+      /openRunCheckout: \(runId\) =>\s+ipcRenderer\.invoke\(IPC_CHANNELS\.AUTOMATIONS_OPEN_RUN_CHECKOUT, runId\)/,
+    );
+  });
 });
 
 /** An entry whose one step runs an `edit` agent on `host`. */

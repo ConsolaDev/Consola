@@ -73,12 +73,14 @@ import {
   describeEvery,
   describeFlow,
   describeKind,
+  describeOwnCheckout,
   describeRun,
   describeSteps,
   describeTriggerAsWritten,
   dryRunReports,
   dryRunStarts,
   describeWrites,
+  withWriteIsolation,
 } from './describeEntry';
 import { describeSchedule } from './describeSchedule';
 import {
@@ -215,7 +217,7 @@ import {
   type StepDetail,
   type StepsRunPreview,
 } from './steps/definition';
-import { isEngineRun, isStepsRun } from './steps/recover';
+import { INTERRUPTED_WRITE, isEngineRun, isStepsRun } from './steps/recover';
 import {
   CHECKOUT_FILES,
   CHECKOUT_MATERIAL_BYTES,
@@ -872,12 +874,16 @@ export class AutomationService {
   }
 
   public async start(): Promise<void> {
-    this.deps.store.load(this.iso());
+    const recovered = this.deps.store.load(this.iso());
     this.sweepRunFolders();
     this.started = true;
     await this.syncWorkspaces();
     // A gate that waited while Consola was closed still waits: say so again, once.
     for (const run of this.deps.store.runs()) if (waitingGateOf(run)) this.noticeGate(run);
+    // A write step this load failed, as Consola quit while it changed the checkout (slice 3-B): say so, once.
+    for (const run of recovered)
+      if (run.status === 'failed' && run.steps?.some((step) => step.error === INTERRUPTED_WRITE))
+        this.notify(`${run.automationId} stopped while it wrote`, INTERRUPTED_WRITE, run.id);
     this.announcingAllows = true;
     this.stopTicking = this.deps.every(this.deps.tickMs ?? TICK_MS, () => void this.tick());
     // Catch up on anything missed while Consola was closed, and resume
@@ -2565,9 +2571,13 @@ export class AutomationService {
         target: automation.run?.ref ?? 'steps',
         ...(isStepsEntry(automation)
           ? {
-              steps: describeSteps(automation.steps, entry.agents),
+              steps: withWriteIsolation(
+                describeSteps(automation.steps, entry.agents),
+                entry.steps?.definition.agents,
+              ),
               flow: describeFlow(automation),
               ...this.writesOf(automation, entry.steps),
+              ...ownCheckoutOf(automation),
             }
           : {}),
         file: automation.file,
@@ -2631,9 +2641,18 @@ export class AutomationService {
     if (step.kind === 'gate') return detail;
     if (step.kind !== 'run') {
       const agent = definition.agents?.[step.id];
+      const written = {
+        ...detail,
+        ...this.keptChanges(workspaceId, run.id, step.id, record.attempt),
+        ...pathsOf(run, step),
+      };
       return agent
-        ? { ...detail, agent, ...this.runSkillTexts(workspaceId, run.id, definition, agent.skills) }
-        : detail;
+        ? {
+            ...written,
+            agent,
+            ...this.runSkillTexts(workspaceId, run.id, definition, agent.skills),
+          }
+        : written;
     }
     const dir = this.deps.runFolder.attemptDir(workspaceId, run.id, step.id, record.attempt);
     const command = this.readCommandFile(`${dir}/command.json`);
@@ -2645,6 +2664,32 @@ export class AutomationService {
       ...(stdout ? { stdout } : {}),
       ...(stderr ? { stderr } : {}),
     };
+  }
+
+  /**
+   * The changes a write step's attempt kept as its `changes.patch` (slice
+   * 3-B: a failed attempt's, or one a Retry reset), the latest attempt's
+   * that holds one, from `attempt` down: its last `MAX_ARTIFACT_BYTES`.
+   * Nothing when none does, or none can be read.
+   */
+  private keptChanges(
+    workspaceId: string,
+    runId: string,
+    stepId: string,
+    attempt: number,
+  ): Pick<StepDetail, 'changes'> {
+    for (let at = attempt; at >= 1; at--) {
+      const dir = this.deps.runFolder.attemptDir(workspaceId, runId, stepId, at);
+      let kept: LogTail | null;
+      try {
+        kept = this.readTail(`${dir}/changes.patch`, MAX_ARTIFACT_BYTES);
+      } catch (error) {
+        console.warn(`Could not read ${stepId}'s changes.patch (attempt ${at}).`, error);
+        return {};
+      }
+      if (kept) return { changes: { ...kept, attempt: at } };
+    }
+    return {};
   }
 
   /**
@@ -7496,6 +7541,27 @@ function writeToolsOf(
     if (tools !== 'read-only') return tools;
   }
   return undefined;
+}
+
+/** An entry's own checkout, for its pipeline's checkout node (slice 3-B Task 22); nothing for any other. */
+function ownCheckoutOf(automation: StepsAutomation): Pick<AutomationView, 'checkout'> {
+  const checkout = describeOwnCheckout(automation);
+  return checkout ? { checkout } : {};
+}
+
+/** A step's path artifacts, each path rendered for the run's item as `keepPathArtifacts` reads it (slice 3-B Task 22); nothing for none. */
+function pathsOf(run: RunRecord, step: Step): Pick<StepDetail, 'paths'> {
+  if (step.kind !== 'agent' || !step.pathArtifacts?.length) return {};
+  return {
+    paths: step.pathArtifacts.map((artifact) => ({
+      name: artifact.name,
+      path: renderBranch(artifact.path, {
+        itemKey: run.trigger.item?.key,
+        itemNumber: run.trigger.item?.number,
+        runId: run.id,
+      }),
+    })),
+  };
 }
 
 /** A step's path artifacts (slice 3-B): the files it writes in its checkout, by name and path as the file says them. */

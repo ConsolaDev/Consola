@@ -142,6 +142,41 @@ export function earlierCosts(step: StepRun): string | null {
   return `Earlier attempts: ${listed.join(', ')}`;
 }
 
+/**
+ * A step in a run's own checkout, as its detail adds it (slice 3-B Task
+ * 22), in this order and each only when recorded: its environment and how
+ * it is held (`sandboxed · sandbox, enforced`, `my-machine · host, a
+ * convention`), the Claude version it ran under, the environment's
+ * variables it got and lacked, the commits it started and ended at with
+ * the files changed, and the paths flagged for a person's look.
+ */
+export function writeRows(step: StepRun): Array<[string, string]> {
+  const rows: Array<[string, string]> = [];
+  const environment = step.environment;
+  if (environment) {
+    const held = environment.isolation === 'sandbox' ? 'sandbox, enforced' : 'host, a convention';
+    rows.push(['Environment', `${environment.name} · ${held}`]);
+    if (environment.cliVersion !== undefined) rows.push(['Claude', environment.cliVersion]);
+    const names = (list: string[] | undefined) =>
+      list && list.length > 0 ? list.join(', ') : 'none';
+    rows.push(['Passed', names(environment.passed)]);
+    rows.push(['Missing', names(environment.missing)]);
+  }
+  const checkout = step.checkout;
+  if (checkout) {
+    const before = checkout.before.slice(0, 7);
+    rows.push([
+      'Commits',
+      checkout.after !== undefined
+        ? `${before} → ${checkout.after.slice(0, 7)} · ${checkout.files ?? 0} files`
+        : `started at ${before}, nothing committed`,
+    ]);
+    if (checkout.flagged && checkout.flagged.length > 0)
+      rows.push(['Flagged', checkout.flagged.map((flagged) => `changed ${flagged}`).join(', ')]);
+  }
+  return rows;
+}
+
 /** The tools the latest attempt's turns were refused: `Denied: mcp__grafana__delete_dashboard, Read`. Null when none was. */
 export function deniedLine(step: StepRun): string | null {
   const denied = step.turn?.deniedTools ?? [];
@@ -358,6 +393,26 @@ export function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+/** An artifact as its button names it: a path artifact (slice 3-B) with its path in the checkout, `notes · docs/fixes/SHOP-42.md`. */
+export function artifactTitle(
+  name: string,
+  paths: ReadonlyArray<{ name: string; path: string }> | undefined,
+): string {
+  const file = paths?.find((artifact) => artifact.name === name);
+  return file ? `${name} · ${file.path}` : name;
+}
+
+/**
+ * A kept `changes.patch` (slice 3-B) as Markdown: one `diff` block, in a
+ * fence longer than any run of backticks in it, so no line of the patch
+ * can close it.
+ */
+export function diffMarkdown(patch: string): string {
+  const longest = Math.max(0, ...(patch.match(/`+/g) ?? []).map((run) => run.length));
+  const fence = '`'.repeat(Math.max(3, longest + 1));
+  return `${fence}diff\n${patch.endsWith('\n') ? patch : `${patch}\n`}${fence}`;
+}
+
 /** What an artifact is for, where its name says: the two every step may write. */
 export function artifactNote(name: string, kind: StepRun['kind']): string | null {
   if (name === 'handover') return 'what it handed to the steps after it';
@@ -399,7 +454,11 @@ export function stepSummary(
     case 'reported':
       return step.note ?? 'A dry run: it was not run';
     case 'running':
-      return step.kind === 'agent' ? 'Working in a read-only session' : null;
+      if (step.kind !== 'agent') return null;
+      // A write step (slice 3-B) works in its run's own checkout, never read-only.
+      return step.tools !== undefined
+        ? "Working in this run's checkout"
+        : 'Working in a read-only session';
     case 'waiting':
     case 'pending':
       return null;

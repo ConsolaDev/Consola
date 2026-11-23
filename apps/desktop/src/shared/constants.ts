@@ -188,6 +188,7 @@ export const IPC_CHANNELS = {
   AUTOMATIONS_GET_STEP_DETAIL: 'automations:get-step-detail', // One step's record, definition, command.json and log tails
   AUTOMATIONS_READ_STEP_LOG: 'automations:read-step-log', // One step log, up to the 1 MB it holds
   AUTOMATIONS_READ_ARTIFACT: 'automations:read-artifact', // One declared artifact of a step's latest attempt
+  AUTOMATIONS_OPEN_RUN_CHECKOUT: 'automations:open-run-checkout', // A run's own checkout in the file manager, only that (slice 3-B)
   AUTOMATIONS_READ_STEP_CONVERSATION: 'automations:read-step-conversation', // A step's part of its transcript, read from disk
   AUTOMATIONS_ALLOW: 'automations:allow', // A person lets a poll entry's check command run, at one version
   AUTOMATIONS_LIST_RUN_TARGETS: 'automations:list-run-targets', // The items Run on… offers an automation

@@ -8,6 +8,7 @@ import {
   Copy,
   ExternalLink,
   FileCode,
+  GitBranch,
   Hand,
   Inbox,
   LoaderCircle,
@@ -26,6 +27,7 @@ import { ipcErrorMessage } from '../../utils/ipcErrorMessage';
 import { agentStepFoot, nodeGrantsLine } from './agentGrantWords';
 import { gateChoicesWords, loopFoot } from './approvalCard';
 import { openFileWords, RUNNING_VERSION_NOTE, triggerNodeWords } from './checkWords';
+import { checkoutNode, writeChip } from './runCheckout';
 import {
   approvalStep,
   commandFoot,
@@ -236,6 +238,7 @@ export function PipelineGraph({
           entry.agent !== undefined && entry.agent !== entry.summary ? entry.agent : undefined
         }
         grants={nodeGrantsLine(entry) ?? undefined}
+        chip={writeChip(entry) ?? undefined}
         code={entry.id}
         edgeLabel={entry.if}
       >
@@ -279,12 +282,19 @@ export function PipelineGraph({
         </PipelineNode>
       );
     });
+    // Its own checkout (slice 3-B), made before its first step: the branch it cuts, from where.
+    const own = checkoutNode(automation.checkout);
+    const checkout = own && (
+      <PipelineNode key="checkout" icon={GitBranch} kicker="Checkout" title={own.title}>
+        A checkout of its own for each run, never pushed by Consola
+      </PipelineNode>
+    );
     return (
       <ol
         className={`automations-pipeline ${gated ? 'automations-pipeline-gated' : ''} ${automation.problem ? 'automations-pipeline-paused' : ''}`}
         aria-label="Pipeline"
       >
-        {[trigger, gate, ...stepNodes]}
+        {[trigger, gate, checkout, ...stepNodes]}
       </ol>
     );
   }
@@ -328,6 +338,7 @@ function PipelineNode({
   title,
   subtitle,
   grants,
+  chip,
   code,
   wrapCode = false,
   edgeLabel,
@@ -344,6 +355,8 @@ function PipelineNode({
   subtitle?: string;
   /** A third line: the servers and skills an agent step's agent names. */
   grants?: string;
+  /** A write agent's step (slice 3-B): what it writes with, `ui-bugfixer · writes · sandboxed`. */
+  chip?: string;
   code?: string;
   /** The code is a command shown in full: it wraps rather than running past the node. */
   wrapCode?: boolean;
@@ -370,6 +383,7 @@ function PipelineNode({
       <div className="automations-node-title">{title}</div>
       {subtitle !== undefined && <div className="automations-node-agent">{subtitle}</div>}
       {grants !== undefined && <div className="automations-node-agent">{grants}</div>}
+      {chip !== undefined && <div className="automations-node-chip">{chip}</div>}
       {code && (
         <code className={`automations-node-code ${wrapCode ? 'automations-node-code-wrap' : ''}`}>
           {code}

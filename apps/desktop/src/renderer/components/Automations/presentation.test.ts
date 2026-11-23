@@ -350,6 +350,31 @@ describe('stepWords', () => {
     );
   });
 
+  it("names the person's session a run waits on, as Activity's row says it (slice 3-B Task 22)", () => {
+    const held = at('running', 'completed', { waitingFor: { session: 'fix' } });
+    expect(stepWords(held)).toBe('waiting for you to close fix');
+    expect(runRowWords({ ...held, trigger: { ...held.trigger, item: undefined } }).about).toBe(
+      'waiting for you to close fix',
+    );
+    // A step waiting out its retry while a session holds the checkout: the session is what it waits on.
+    expect(
+      stepWords(
+        run({
+          status: 'waiting',
+          waitingFor: { session: 'fix' },
+          step: {
+            id: 'fix',
+            status: 'waiting',
+            index: 1,
+            count: 2,
+            kind: 'agent',
+            retryAt: '2026-11-12T12:10:00.000Z',
+          },
+        }),
+      ),
+    ).toBe('waiting for you to close fix');
+  });
+
   it('is null for a legacy run, and for states with nothing to add', () => {
     expect(stepWords(run({ status: 'running' }))).toBeNull();
     expect(stepWords(run({ status: 'queued', summary: 'queued' }))).toBeNull();

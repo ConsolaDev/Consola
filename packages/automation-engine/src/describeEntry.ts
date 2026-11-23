@@ -185,6 +185,37 @@ export function describeSteps(
   );
 }
 
+/**
+ * The steps as `describeSteps` drew them, each write agent's step with the
+ * isolation its environment holds it to, from a run definition's agents by
+ * step id (slice 3-B Task 22: its node's chip). No agents, no change.
+ */
+export function withWriteIsolation(
+  described: NonNullable<AutomationView['steps']>,
+  agents: Readonly<Record<string, AgentRequirements>> | undefined,
+): NonNullable<AutomationView['steps']> {
+  if (agents === undefined) return described;
+  return described.map((step) => {
+    const agent = Object.prototype.hasOwnProperty.call(agents, step.id)
+      ? agents[step.id]
+      : undefined;
+    const isolation = agent?.tools !== undefined ? agent.environment?.isolation : undefined;
+    return isolation !== undefined ? { ...step, writes: isolation } : step;
+  });
+}
+
+/**
+ * An entry's own checkout as its pipeline's checkout node draws it (slice
+ * 3-B Task 22): the repository, and the branch as the card names it.
+ * Undefined for an entry without `checkout: { repo, branch }`.
+ */
+export function describeOwnCheckout(
+  automation: StepsAutomation,
+): { repo: string; branch: string } | undefined {
+  const own = automation.checkout;
+  return isRunOwnedCheckout(own) ? { repo: own.repo, branch: branchWords(own.branch) } : undefined;
+}
+
 /** A loop's own row: its bound, its condition and how it ends; its steps follow it, each with `loop`. */
 function describeLoop(step: RepeatStep): NonNullable<AutomationView['steps']>[number] {
   return {

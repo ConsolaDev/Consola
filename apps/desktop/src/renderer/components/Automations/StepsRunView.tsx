@@ -2,6 +2,7 @@ import { useId, useState, type ReactNode } from 'react';
 import {
   ChevronRight,
   CircleCheck,
+  FolderOpen,
   CircleDashed,
   CircleDot,
   CircleSlash,
@@ -28,6 +29,7 @@ import type { Workspace } from '../../../shared/workspace';
 import { automationsBridge } from '../../services/automationsBridge';
 import { useAutomationsStore } from '../../stores/automationsStore';
 import { RunAgainButton, useIntent } from './parts';
+import { checkoutLines } from './runCheckout';
 import { GateCard } from './GateCard';
 import { StepDetail } from './StepDetailView';
 import { StepsApprovalCard } from './StepsApprovalCard';
@@ -253,6 +255,8 @@ export function StepsRunView({
 
       {stats}
 
+      <CheckoutBlock workspace={workspace} run={run} />
+
       {run.status === 'needs-approval' ? (
         <section className="automations-detail-section" aria-label="Waiting for your approval">
           <h3 className="automations-section-title">Waiting for your approval</h3>
@@ -313,6 +317,82 @@ export function StepsRunView({
         )
       )}
     </div>
+  );
+}
+
+/**
+ * A run's own checkout, above its steps (slice 3-B Task 22): its repository
+ * and branch, the commit it cut from and the one it is at, Open folder,
+ * the commits people's sessions added during the run with their flagged
+ * paths, and the session holding it. Nothing for any other run. Open
+ * folder is the only thing here that does anything, and only when pressed.
+ */
+function CheckoutBlock({ workspace, run }: { workspace: Workspace; run: RunRecord }) {
+  const ids = useId();
+  const { busy, error, act } = useIntent();
+  const names = Object.fromEntries(
+    workspace.sessions.map((session) => [session.id, session.name] as const),
+  );
+  const checkout = checkoutLines(run, names);
+  if (!checkout) return null;
+  return (
+    <section
+      className="automations-detail-section automations-run-checkout"
+      aria-labelledby={`${ids}-checkout`}
+    >
+      <div className="automations-detail-section-head">
+        <h3 id={`${ids}-checkout`} className="automations-section-title">
+          {checkout.heading}
+        </h3>
+        {!run.checkout?.removed && (
+          <button
+            type="button"
+            className="dialog-button-secondary automations-small-button"
+            disabled={busy !== null}
+            onClick={() => void act('open', () => automationsBridge.openRunCheckout(run.id))}
+          >
+            <FolderOpen size={12} aria-hidden="true" />
+            Open folder
+          </button>
+        )}
+      </div>
+      {checkout.lines.map((line) => (
+        <p key={line} className="automations-run-checkout-line">
+          {line}
+        </p>
+      ))}
+      {checkout.held && (
+        <p className="automations-hint automations-held-by" role="status">
+          {checkout.held}
+        </p>
+      )}
+      {checkout.byPerson.length > 0 && (
+        <div className="automations-run-checkout-people">
+          <h4 className="automations-trace-note-title">Changed by you during the run</h4>
+          <ul className="automations-fact-list">
+            {checkout.byPerson.map((commit, index) => (
+              <li key={`${commit.line}-${index}`}>
+                {commit.line}
+                {commit.flagged.length > 0 && (
+                  <ul className="automations-fact-list">
+                    {commit.flagged.map((flagged) => (
+                      <li key={flagged} className="automations-fact-note">
+                        {flagged}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {error && (
+        <p className="automations-error" role="alert">
+          {error}
+        </p>
+      )}
+    </section>
   );
 }
 

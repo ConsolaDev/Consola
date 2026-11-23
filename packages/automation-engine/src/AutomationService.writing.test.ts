@@ -1736,3 +1736,130 @@ describe('the approval card says what a write agent can change, read, reach and 
     expect(plain.service.list(WORKSPACE_ID)[0]).not.toHaveProperty('writes');
   });
 });
+
+describe('the run page, its pipeline and a restart’s notice (Task 22)', () => {
+  const STOPPED = 'write stopped while it wrote';
+  const told = (h: StepsHarness, title: string) =>
+    h.notices.filter((notice) => notice.title === title);
+
+  it('a restart that fails a write step tells the person, once', async () => {
+    const h = await writing(WRITE_ENTRY);
+    const run = await runNow(h, 'write');
+    expect(told(h, STOPPED)).toEqual([]);
+    const again = await h.relaunch();
+    await again.flush();
+    expect(stepOf(again, run.id, 'fix')).toMatchObject({
+      status: 'failed',
+      error: INTERRUPTED_WRITE,
+    });
+    expect(told(again, STOPPED)).toEqual([
+      {
+        title: STOPPED,
+        body: INTERRUPTED_WRITE,
+        runId: run.id,
+        workspaceId: WORKSPACE_ID,
+        needsApproval: false,
+      },
+    ]);
+    // The next start finds it failed already: no second notice.
+    const third = await again.relaunch();
+    await third.flush();
+    expect(told(third, STOPPED)).toHaveLength(1);
+  });
+
+  it('a restart that fails a command, or puts a read-only step back in line, says nothing of writing', async () => {
+    const h = await writing(WRITE_ENTRY);
+    const run = await runNow(h, 'write');
+    await h.world.endTurn('session-1', { exitCode: 0 });
+    // `pr` declared its intent and Consola quit before its result.
+    expect(stepOf(h, run.id, 'pr').status).toBe('running');
+    const again = await h.relaunch();
+    await again.flush();
+    expect(runOf(again, run.id).status).toBe('failed');
+    expect(
+      again.notices.filter((notice) => notice.title.endsWith('stopped while it wrote')),
+    ).toEqual([]);
+  });
+
+  it("a step's detail carries the changes an attempt kept, the latest first, and its path artifacts' paths", async () => {
+    const h = await writing(POLL_WRITE);
+    await check(h, 'poll-write', []);
+    await check(h, 'poll-write', [{ key: 'SHOP-42' }]);
+    const [run] = h.store.runs().filter((candidate) => candidate.automationId === 'poll-write');
+    // Its path, rendered for the run's item: what the run page titles the artifact with.
+    expect(h.service.getStepDetail(run.id, 'fix')!.paths).toEqual([
+      { name: 'notes', path: 'docs/fixes/SHOP-42.md' },
+    ]);
+    expect(h.service.getStepDetail(run.id, 'fix')).not.toHaveProperty('changes');
+    await h.world.endTurn(lastSession(h), { exitCode: 1, lastLine: 'Rate limited.' });
+    expect(stepOf(h, run.id, 'fix').status).toBe('failed');
+    const patch = 'diff --git a/src/app.ts b/src/app.ts\n-broken\n+fixed\n';
+    const dir = h.folder.attemptDir(WORKSPACE_ID, run.id, 'fix', 1);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'changes.patch'), patch);
+    expect(h.service.getStepDetail(run.id, 'fix')!.changes).toEqual({
+      attempt: 1,
+      text: patch,
+      bytes: patch.length,
+      truncated: false,
+    });
+    // After a Retry the step is attempt 2, which kept none yet: attempt 1's is still shown.
+    await h.service.retry(run.id);
+    await h.flush();
+    expect(stepOf(h, run.id, 'fix').attempt).toBe(2);
+    expect(h.service.getStepDetail(run.id, 'fix')!.changes).toMatchObject({ attempt: 1 });
+    // An agent step that writes no file into the checkout has no paths.
+    const plain = await writing(WRITE_ENTRY);
+    const own = await runNow(plain, 'write');
+    expect(plain.service.getStepDetail(own.id, 'fix')).not.toHaveProperty('paths');
+    // A command's detail has neither.
+    const pr = h.service.getStepDetail(run.id, 'pr')!;
+    expect(pr).not.toHaveProperty('changes');
+    expect(pr).not.toHaveProperty('paths');
+  });
+
+  it("lists each write step's isolation and the entry's own checkout, for its pipeline", async () => {
+    const h = await writing(WRITE_ENTRY);
+    const view = h.service.list(WORKSPACE_ID).find((entry) => entry.name === 'write')!;
+    expect(view.checkout).toEqual({ repo: REPO, branch: 'fix/<run>' });
+    expect(view.steps!.map((step) => [step.id, step.writes])).toEqual([
+      ['fix', 'sandbox'],
+      ['pr', undefined],
+    ]);
+    const onHost = await writing(
+      WRITE_ENTRY,
+      {},
+      {
+        'agents/fixer.md': '---\ntools: write\nenvironment: mine\n---\nFix it.\n',
+        'environments/mine.yaml': 'isolation: host\n',
+      },
+    );
+    const hosted = onHost.service.list(WORKSPACE_ID).find((entry) => entry.name === 'write')!;
+    expect(hosted.steps!.find((step) => step.id === 'fix')!.writes).toBe('host');
+    // A read-only agent's step in the same checkout writes nothing: no chip.
+    const mixed = await writing(
+      WRITE_ENTRY.replace(
+        '- id: fix',
+        '- id: look\n        agent: reader\n        prompt: Look.\n      - id: fix',
+      ),
+      {},
+      { ...WRITER, 'agents/reader.md': '---\ndescription: Reads.\n---\nLook.\n' },
+    );
+    const both = mixed.service.list(WORKSPACE_ID).find((entry) => entry.name === 'write')!;
+    expect(both.problem).toBeUndefined();
+    expect(both.steps!.map((step) => [step.id, step.writes])).toEqual([
+      ['look', undefined],
+      ['fix', 'sandbox'],
+      ['pr', undefined],
+    ]);
+    // An entry with neither draws neither.
+    const plain = await harness(
+      file(
+        `  - name: plain\n    on: manual\n    mode: auto\n    scope: catalog-portal\n${steps('- id: check\n  run: "true"')}`,
+      ),
+    );
+    const [only] = plain.service.list(WORKSPACE_ID);
+    expect(only).not.toHaveProperty('checkout');
+    expect(only.steps![0]).not.toHaveProperty('writes');
+  });
+});

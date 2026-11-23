@@ -16,9 +16,11 @@ import { useNow } from './parts';
 import {
   agentFacts,
   artifactNote,
+  artifactTitle,
   attemptsLine,
   conditionValues,
   deniedLine,
+  diffMarkdown,
   earlierCosts,
   failureIsExit,
   formatBytes,
@@ -31,6 +33,7 @@ import {
   turnLine,
   variableRows,
   visibleTail,
+  writeRows,
   type StepTone,
 } from './stepDetail';
 
@@ -144,8 +147,10 @@ export function StepDetail({
               reported={tone === 'reported'}
             />
           ))}
+        <WriteFacts step={record} />
+        <ChangesFact changes={ready?.changes} />
         <OutputsFact step={record} />
-        <ArtifactsFact runId={run.id} step={record} />
+        <ArtifactsFact runId={run.id} step={record} paths={ready?.paths} />
       </dl>
     </div>
   );
@@ -277,6 +282,60 @@ function WouldRun({ definition }: { definition: Definition }) {
         </p>
       ) : (
         <pre className="automations-prompt automations-fact-pre">{definition.prompt ?? ''}</pre>
+      )}
+    </Fact>
+  );
+}
+
+/**
+ * A step in a run's own checkout (slice 3-B): its environment and how it is
+ * held, the Claude version it ran under, the variables it got and lacked,
+ * its commits and flagged paths. Nothing for any other step.
+ */
+function WriteFacts({ step }: { step: StepRun }) {
+  return (
+    <>
+      {writeRows(step).map(([label, value]) => (
+        <Fact key={label} label={label}>
+          <p className="automations-fact-text">{value}</p>
+        </Fact>
+      ))}
+    </>
+  );
+}
+
+/**
+ * What a write step's failed attempt changed, kept as its `changes.patch`
+ * and never committed (slice 3-B): opens in place as a diff, in the
+ * sanitizing renderer. Nothing when no attempt kept one.
+ */
+function ChangesFact({ changes }: { changes: StepDetailData['changes'] }) {
+  const [open, setOpen] = useState(false);
+  if (!changes) return null;
+  return (
+    <Fact label="Changes it made">
+      <button
+        type="button"
+        className="automations-link-button"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+      >
+        changes.patch
+      </button>{' '}
+      <span className="automations-fact-note">
+        {formatBytes(changes.bytes)} · attempt {changes.attempt}, kept and not committed
+        {changes.truncated ? ' · showing its end' : ''}
+      </span>
+      {open && (
+        <div className="automations-step-artifact">
+          <div className="automations-answer">
+            <MarkdownRenderer
+              content={diffMarkdown(changes.text)}
+              enableCommandHighlighting={false}
+              resolveImageSrc={dropImage}
+            />
+          </div>
+        </div>
       )}
     </Fact>
   );
@@ -424,7 +483,11 @@ function AgentFacts({
           ) : (
             <span className="automations-fact-text">Session removed</span>
           )}
-          <span className="automations-fact-note">A read-only session</span>
+          <span className="automations-fact-note">
+            {step.tools === undefined
+              ? 'A read-only session'
+              : `A session that writes, ${step.environment?.isolation === 'sandbox' ? 'sandboxed' : 'on host, a convention'}`}
+          </span>
         </div>
       </Fact>
       <TurnFact step={step} />
@@ -467,7 +530,16 @@ function AgentFacts({
 }
 
 /** Artifacts by name and size, and what each is for; one opens in place, in the sanitizing renderer. */
-function ArtifactsFact({ runId, step }: { runId: string; step: StepRun }) {
+function ArtifactsFact({
+  runId,
+  step,
+  paths,
+}: {
+  runId: string;
+  step: StepRun;
+  /** Its path artifacts' paths (slice 3-B), for their titles. */
+  paths?: StepDetailData['paths'];
+}) {
   const [open, setOpen] = useState<{
     name: string;
     read: Read<{ content: string; bytes: number } | null>;
@@ -513,7 +585,7 @@ function ArtifactsFact({ runId, step }: { runId: string; step: StepRun }) {
                 aria-expanded={open?.name === artifact.name}
                 onClick={() => toggle(artifact.name)}
               >
-                {artifact.name}
+                {artifactTitle(artifact.name, paths)}
               </button>{' '}
               <span className="automations-fact-note">
                 {formatBytes(artifact.bytes)}
