@@ -239,7 +239,10 @@ reruns the live contract.
   `pnpm --filter @consola/sandbox template:build <name>` builds one on the
   account under its folder's name, which `create` then takes as `template`.
   `consola-base` holds git, gh and Node 26; the agent CLIs join it once the
-  runner's spec (21.3) lists them. One template lives elsewhere: the
+  runner's spec (21.3) lists them. E2B's `e2bdev/base` has a Node 20 of its
+  own in `/usr/local`, which the default `PATH` finds before `/usr/bin`, so a
+  template on it removes that Node before installing its own
+  (`templates.test.ts`). One template lives elsewhere: the
   runner's `consola-session`, which holds the host's bundle, is in
   `packages/host/sandbox-template/`, staged and built with `buildE2BTemplate`
   by `pnpm --filter @consola/host template:build`. E2B keeps an `ARG` as a

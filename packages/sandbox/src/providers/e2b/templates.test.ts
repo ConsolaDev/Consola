@@ -1,4 +1,4 @@
-import { readdirSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { e2bTemplateFrom } from './templates';
@@ -25,5 +25,20 @@ describe('the templates', () => {
     } finally {
       warn.mockRestore();
     }
+  });
+
+  // e2bdev/base has Node 20.9.0 (npm 10, corepack, yarn) in /usr/local, which the default PATH
+  // finds before /usr/bin: a Node installed anywhere else would not be the one `node` runs, and
+  // one unpacked over it leaves npm 10's files among the new npm's, which then fails to start.
+  it.each(names)("%s removes E2B's base image's Node before it installs its own", (name) => {
+    const dockerfile = readFileSync(join(TEMPLATES, name, 'Dockerfile'), 'utf8');
+    const install = dockerfile.search(/deb\.nodesource\.com|nodejs\.org\/dist/);
+    if (!/^FROM e2bdev\/base\b/m.test(dockerfile) || install === -1) return;
+    const removal = /^RUN rm -rf \/usr\/local\/lib\/node_modules[^\n]*(?:\n [^\n]*)*/m.exec(
+      dockerfile,
+    );
+    expect(removal?.[0]).toMatch(/\/usr\/local\/bin\/node\b/);
+    expect(removal?.[0]).toMatch(/\/usr\/local\/bin\/npm\b/);
+    expect(removal?.index ?? Number.POSITIVE_INFINITY).toBeLessThan(install);
   });
 });
