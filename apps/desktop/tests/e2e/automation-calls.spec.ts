@@ -49,6 +49,8 @@ const TS = '1700000000.0001';
 
 const UNBOUND = 'needs `SLACK_BOT_TOKEN` bound on this Mac (Settings › Secrets)';
 const STARTED = 'Started for each call and stopped after.';
+/** The server's literal `env:`, as the cards, the page and Check server's dialog show it (review S1). */
+const ENV_LINE = 'env: `SLACK_TEAM_ID=T0SPROCKET`';
 const TRUST_LINE =
   "Where a secret is bound is this Mac's setting, not the file's: changing it does not ask again.";
 const MAY_HAVE_TIMED_OUT =
@@ -330,7 +332,7 @@ function serverLine(calls: Pick<Calls, 'files'>, extraArgs: string[] = []): stri
     calls.files.pids,
     ...extraArgs,
   ].join(' ');
-  return `starts \`${target}\` on this Mac as you, with your files and network, in an empty folder, with HOME, USER, LOGNAME, SHELL, PATH, TERM, LANG, LC_*, TMPDIR and SLACK_BOT_TOKEN`;
+  return `starts \`${target}\` on this Mac as you, with your files and network, in an empty folder, with HOME, USER, LOGNAME, SHELL, PATH, TERM, LANG, LC_*, TMPDIR, SLACK_TEAM_ID and SLACK_BOT_TOKEN`;
 }
 
 /**
@@ -357,6 +359,7 @@ mcpServers:
   slack:
     command: ${JSON.stringify(process.execPath)}
     args: [${args.map((arg) => JSON.stringify(arg)).join(', ')}]
+    env: { SLACK_TEAM_ID: T0SPROCKET }
     secrets: [SLACK_BOT_TOKEN]
 automations:
   - name: support-briefing
@@ -532,6 +535,8 @@ test('Bound, first run asks once: the card shows the server, as you, each argume
     // The server, once, below the steps: what it starts, as you, with what.
     const servers = approval.getByRole('region', { name: 'Servers', exact: true });
     await expect(servers.getByText(serverLine(calls), { exact: true })).toBeVisible();
+    // Its definition in full: the literal env: as written (review S1).
+    await expect(servers.getByText(ENV_LINE, { exact: true })).toBeVisible();
     await expect(servers.getByText(STARTED, { exact: true })).toBeVisible();
     // The post step: a Tool, its arguments as written with their trust, its outputs.
     const post = approval
@@ -782,10 +787,13 @@ test('Check server starts the server once, lists its tools and calls none', asyn
     // The page lists slack with its lines and Check server, though the entry asks before each run.
     const server = panel.getByRole('listitem', { name: 'Server slack', exact: true });
     await expect(server.getByText(serverLine(calls), { exact: true })).toBeVisible();
+    await expect(server.getByText(ENV_LINE, { exact: true })).toBeVisible();
     await expect(server.getByText(STARTED, { exact: true })).toBeVisible();
     await server.getByRole('button', { name: 'Check server', exact: true }).click();
     const dialog = calls.page.getByRole('dialog', { name: 'Check `slack`?', exact: true });
     await expect(dialog.getByText(serverLine(calls), { exact: true })).toBeVisible();
+    // The confirmation shows the server's definition in full (review S1).
+    await expect(dialog.getByText(ENV_LINE, { exact: true })).toBeVisible();
     await expect(
       dialog.getByText('Consola starts it once, lists its tools and stops it. It calls no tool.', {
         exact: true,

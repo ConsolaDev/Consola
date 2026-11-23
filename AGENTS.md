@@ -1065,6 +1065,13 @@ for, which accepts nothing).
   descendants found by parent id, and ended at the next start when it is
   still that process (`endServersLeftRunning`, which compares the `ps` start
   time first).
+- **A card shows a server's definition in full, never a value.** The
+  approval card, the Allow card, the page and Check server's dialog show its
+  literal `env:` pairs and headers as written (`ServerFacts.env`, `headers`),
+  a header made from a secret as its template (`Bearer ${TRACKER_TOKEN}`):
+  the credential heuristic misses some literals, and the person sees them
+  there. `ServerFacts` is made from the definition alone, so a secret's value
+  never enters it, a view or IPC.
 - **A call's order, and its two durable writes.** Render `with:`, reach the
   tool (start or connect, initialize, list, check the arguments and the
   declared outputs), write `call.json`, record the intent, send, record the

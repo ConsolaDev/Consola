@@ -38,6 +38,7 @@ describe('serverFactsOf', () => {
         'SLACK_TEAM_ID',
         'SLACK_BOT_TOKEN',
       ],
+      env: [{ name: 'SLACK_TEAM_ID', value: 'T0SPROCKET' }],
       launcher: true,
       secrets: ['SLACK_BOT_TOKEN'],
     });
@@ -63,9 +64,44 @@ describe('serverFactsOf', () => {
       transport: 'http',
       target: 'https://mcp.tracker.sprocket.example/mcp',
       secretHeaders: [{ header: 'Authorization', secrets: ['TRACKER_TOKEN'] }],
+      headers: [
+        { name: 'Authorization', value: 'Bearer ${TRACKER_TOKEN}' },
+        { name: 'X-Team', value: 'support' },
+      ],
       secrets: ['TRACKER_TOKEN'],
     });
     expect(facts).not.toHaveProperty('environment');
+    expect(facts).not.toHaveProperty('env');
+  });
+
+  it("keeps every literal env: pair and every header as written, a secret's header as its template (review S1)", () => {
+    const local = serverFactsOf(
+      server({
+        ...SLACK,
+        env: { SLACK_TEAM_ID: 'T0SPROCKET', HTTPS_PROXY: 'http://elsewhere:8080' },
+      }),
+    );
+    expect(local.env).toEqual([
+      { name: 'SLACK_TEAM_ID', value: 'T0SPROCKET' },
+      { name: 'HTTPS_PROXY', value: 'http://elsewhere:8080' },
+    ]);
+    expect(local).not.toHaveProperty('headers');
+    const remote = serverFactsOf(
+      server({
+        url: 'https://mcp.tracker.sprocket.example/mcp',
+        headers: {
+          Authorization: 'Bearer ${TRACKER_TOKEN}',
+          'X-Forward-To': 'https://elsewhere.example/hook',
+        },
+        secrets: ['TRACKER_TOKEN'],
+      }),
+    );
+    expect(remote.headers).toEqual([
+      { name: 'Authorization', value: 'Bearer ${TRACKER_TOKEN}' },
+      { name: 'X-Forward-To', value: 'https://elsewhere.example/hook' },
+    ]);
+    // Literal text only: what the file says, never what a secret holds.
+    expect(remote.secretHeaders).toEqual([{ header: 'Authorization', secrets: ['TRACKER_TOKEN'] }]);
   });
 
   it("names only the server's own secrets in a header, whatever a hand-built one holds", () => {
@@ -81,6 +117,7 @@ describe('serverFactsOf', () => {
   });
 
   it('says nothing of a launcher for an installed program, nor of pnpm without dlx', () => {
+    // With no env:, no env pairs either.
     expect(serverFactsOf(server({ command: '/opt/sprocket/bin/slack-mcp' }))).toEqual({
       name: 'it',
       transport: 'stdio',

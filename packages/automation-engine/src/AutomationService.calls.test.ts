@@ -2231,3 +2231,76 @@ describe('the line while a call runs (review B1)', () => {
     expect(escaped).toEqual([]);
   });
 });
+
+/*
+ * Review S1: a server's definition in full on every view a card or Check
+ * server's dialog reads (its literal `env:` and headers, a secret's header
+ * as its template), and never a secret's value.
+ */
+describe("a server's literals on its views, never a value (review S1)", () => {
+  const PROXIED = SLACK.replace(
+    'env: { SLACK_TEAM_ID: T0SPROCKET }',
+    'env: { SLACK_TEAM_ID: T0SPROCKET, HTTPS_PROXY: "http://elsewhere:8080" }',
+  );
+  const FORWARDED = TRACKER.replace(
+    'headers: { Authorization: "Bearer ${TRACKER_TOKEN}" }',
+    'headers: { Authorization: "Bearer ${TRACKER_TOKEN}", X-Forward-To: "https://elsewhere.example/hook" }',
+  );
+  const BOTH = entry(
+    'brief',
+    `${POST}${call('track', 'tracker#create_ticket', '{ title: "{{steps.triage.note}}" }')}`,
+  );
+  const TICKET = { name: 'create_ticket', inputSchema: { type: 'object' as const } };
+
+  it('shows the literals, and no form of a bound value, while a call holds them and after a check', async () => {
+    const gate = held();
+    const answer = async () => {
+      await gate.promise;
+      return POSTED;
+    };
+    const { h, run, post } = await posting(slack({ answer }), {
+      yaml: factory(PROXIED + FORWARDED, BOTH),
+      mcp: {
+        servers: {
+          slack: slack({ answer }),
+          tracker: { tools: [TICKET], answer: () => POSTED },
+        },
+      },
+    });
+    // The call runs: the run holds both values now.
+    expect(post().status).toBe('running');
+    expect(h.world.mcp.launches[0]).toMatchObject({ env: { SLACK_BOT_TOKEN: BOT_VALUE } });
+    const check = await h.service.checkServer(
+      WORKSPACE_ID,
+      'brief',
+      'tracker',
+      h.service.entryAgents(WORKSPACE_ID, 'brief')!.version,
+    );
+    const servers = row(h).servers!;
+    expect(servers.find((server) => server.name === 'slack')?.env).toEqual([
+      { name: 'SLACK_TEAM_ID', value: 'T0SPROCKET' },
+      { name: 'HTTPS_PROXY', value: 'http://elsewhere:8080' },
+    ]);
+    expect(servers.find((server) => server.name === 'tracker')?.headers).toEqual([
+      { name: 'Authorization', value: 'Bearer ${TRACKER_TOKEN}' },
+      { name: 'X-Forward-To', value: 'https://elsewhere.example/hook' },
+    ]);
+    const facts = h.service.entryAgents(WORKSPACE_ID, 'brief')!.calls!.map((call) => call.facts);
+    expect(facts.map((each) => each?.env ?? each?.headers)).toEqual([
+      servers.find((server) => server.name === 'slack')?.env,
+      servers.find((server) => server.name === 'tracker')?.headers,
+    ]);
+    const views = JSON.stringify([
+      h.service.list(WORKSPACE_ID),
+      h.service.snapshot(WORKSPACE_ID),
+      h.service.entryAgents(WORKSPACE_ID, 'brief'),
+      h.service.getRunDefinition(run.id),
+      h.service.getStepDetail(run.id, 'post'),
+      check,
+    ]);
+    for (const form of [...maskFormsOf(BOT_VALUE), ...maskFormsOf(TRACKER_VALUE)])
+      expect(views).not.toContain(form);
+    gate.release();
+    await h.flush();
+  });
+});

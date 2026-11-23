@@ -241,10 +241,24 @@ function serverLine(facts: ServerFacts): string {
   return `starts \`${facts.target}\` on this Mac as you, with your files and network, in an empty folder, with ${andList(facts.environment ?? [])}`;
 }
 
-/** A server's lines (the spec's): what it starts or calls, as you, with what; "Started for each call and stopped after."; the npx note; the unpinned warning. */
+/**
+ * A server's definition in full past its line (review S1): each literal
+ * `env:` pair (`env: \`NAME=value\``) and each header as written (`header:
+ * \`Name: value\``), a header made from a secret as its template. The card
+ * shows every literal, so a credential the file's heuristic missed is seen.
+ */
+function literalLines(facts: ServerFacts): string[] {
+  return [
+    ...(facts.env ?? []).map(({ name, value }) => `env: \`${name}=${value}\``),
+    ...(facts.headers ?? []).map(({ name, value }) => `header: \`${name}: ${value}\``),
+  ];
+}
+
+/** A server's lines (the spec's): what it starts or calls, as you, with what; its literal `env:` and headers; "Started for each call and stopped after."; the npx note; the unpinned warning. */
 export function serverLines(facts: ServerFacts): string[] {
   return [
     serverLine(facts),
+    ...literalLines(facts),
     SERVER_STARTED_LINE,
     ...(facts.launcher ? [LAUNCHER_NOTE] : []),
     ...(facts.unpinned ? [UNPINNED_WARNING] : []),
@@ -254,11 +268,11 @@ export function serverLines(facts: ServerFacts): string[] {
 export const CHECK_DIALOG_SENTENCE =
   'Consola starts it once, lists its tools and stops it. It calls no tool.';
 
-/** Check server's dialog: its question and what it starts. */
+/** Check server's dialog: its question and what it starts, its definition in full (review S1). */
 export function checkDialogLines(facts: ServerFacts): { title: string; lines: string[] } {
   return {
     title: `Check \`${facts.name}\`?`,
-    lines: [serverLine(facts), CHECK_DIALOG_SENTENCE],
+    lines: [serverLine(facts), ...literalLines(facts), CHECK_DIALOG_SENTENCE],
   };
 }
 

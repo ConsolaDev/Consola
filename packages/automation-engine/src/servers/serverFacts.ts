@@ -1,8 +1,11 @@
 /**
  * What a factory server is, as every view says it: what it starts or
- * calls, what its environment holds by name, which headers its secrets make,
- * and whether its package is pinned. The runner's policy lives here, in the
- * core, so the Node adapter and every view read one list.
+ * calls, what its environment holds by name, its literal `env:` and headers
+ * as written (a header made from a secret as its template), which headers
+ * its secrets make, and whether its package is pinned. Never a secret's
+ * value: it is made from the definition alone, which holds none. The
+ * runner's policy lives here, in the core, so the Node adapter and every
+ * view read one list.
  */
 import { unpinnedLauncher, type McpServerDefinition } from '@consola/factory-spec';
 
@@ -31,8 +34,12 @@ export interface ServerFacts {
   target: string;
   /** stdio: its environment by name: the allow-list, its `env:`, its secrets, in that order. */
   environment?: string[];
+  /** stdio: its `env:` as written, every value a literal (review S1: the card shows every literal); absent when it has none. */
+  env?: Array<{ name: string; value: string }>;
   /** http: each header made from a secret, and which. */
   secretHeaders?: Array<{ header: string; secrets: string[] }>;
+  /** http: every header as written: a literal, or a template naming its secrets (`Bearer ${TRACKER_TOKEN}`), never a value; absent when it has none. */
+  headers?: Array<{ name: string; value: string }>;
   /** stdio through `npx`, `uvx`, `bunx`, `pnpm dlx` or `yarn dlx`: the card's dependency note. */
   launcher?: true;
   /** Its package has no exact version: the warning. */
@@ -61,6 +68,13 @@ function referencedSecrets(value: string, secrets: readonly string[]): string[] 
   return names;
 }
 
+/** A mapping's pairs as written, in its order. */
+function pairsOf(
+  mapping: Readonly<Record<string, string>>,
+): Array<{ name: string; value: string }> {
+  return Object.entries(mapping).map(([name, value]) => ({ name, value }));
+}
+
 export function serverFactsOf(definition: McpServerDefinition): ServerFacts {
   const secrets = definition.secrets ?? [];
   const common = {
@@ -74,18 +88,22 @@ export function serverFactsOf(definition: McpServerDefinition): ServerFacts {
       const named = referencedSecrets(value, secrets);
       return named.length > 0 ? [{ header, secrets: named }] : [];
     });
+    const headers = pairsOf(definition.headers);
     return {
       ...common,
       target: definition.url,
       ...(secretHeaders.length > 0 ? { secretHeaders } : {}),
+      ...(headers.length > 0 ? { headers } : {}),
       ...withSecrets,
     };
   }
   const { command, args } = definition;
+  const env = pairsOf(definition.env);
   return {
     ...common,
     target: [command, ...args].join(' '),
     environment: [...SERVER_ENV_ALLOW_LIST, ...Object.keys(definition.env), ...secrets],
+    ...(env.length > 0 ? { env } : {}),
     ...(isLauncher(command, args) ? { launcher: true as const } : {}),
     ...(unpinnedLauncher(command, args) !== null ? { unpinned: true as const } : {}),
     ...withSecrets,

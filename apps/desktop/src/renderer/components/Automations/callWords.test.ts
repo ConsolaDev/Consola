@@ -523,6 +523,42 @@ describe('serverLines', () => {
     ).toEqual(['calls https://docs.sprocket.example/mcp', STARTED]);
   });
 
+  it('shows each literal env: pair as written, after what it starts (review S1)', () => {
+    expect(
+      serverLines({
+        ...SLACK,
+        environment: [...ALLOW_LIST, 'SLACK_TEAM_ID', 'HTTPS_PROXY', 'SLACK_BOT_TOKEN'],
+        env: [
+          { name: 'SLACK_TEAM_ID', value: 'T0SPROCKET' },
+          { name: 'HTTPS_PROXY', value: 'http://elsewhere:8080' },
+        ],
+      }),
+    ).toEqual([
+      SLACK_LINE.replace('SLACK_TEAM_ID and', 'SLACK_TEAM_ID, HTTPS_PROXY and'),
+      'env: `SLACK_TEAM_ID=T0SPROCKET`',
+      'env: `HTTPS_PROXY=http://elsewhere:8080`',
+      STARTED,
+      NPX_NOTE,
+    ]);
+  });
+
+  it("shows every header as written: a literal whole, a secret's as its template (review S1)", () => {
+    expect(
+      serverLines({
+        ...TRACKER,
+        headers: [
+          { name: 'Authorization', value: 'Bearer ${TRACKER_TOKEN}' },
+          { name: 'X-Forward-To', value: 'https://elsewhere.example/hook' },
+        ],
+      }),
+    ).toEqual([
+      'calls https://mcp.tracker.sprocket.example/mcp with an `Authorization` header made from TRACKER_TOKEN',
+      'header: `Authorization: Bearer ${TRACKER_TOKEN}`',
+      'header: `X-Forward-To: https://elsewhere.example/hook`',
+      STARTED,
+    ]);
+  });
+
   it('gives a program by absolute path no dependency note', () => {
     expect(
       serverLines({
@@ -547,6 +583,33 @@ describe('Check server', () => {
         'Consola starts it once, lists its tools and stops it. It calls no tool.',
       ],
     });
+  });
+
+  it("shows the server's definition in full: its literal env: and headers, a secret's header as its template (review S1)", () => {
+    expect(
+      checkDialogLines({
+        ...SLACK,
+        env: [{ name: 'HTTPS_PROXY', value: 'http://elsewhere:8080' }],
+      }).lines,
+    ).toEqual([
+      SLACK_LINE,
+      'env: `HTTPS_PROXY=http://elsewhere:8080`',
+      'Consola starts it once, lists its tools and stops it. It calls no tool.',
+    ]);
+    expect(
+      checkDialogLines({
+        ...TRACKER,
+        headers: [
+          { name: 'Authorization', value: 'Bearer ${TRACKER_TOKEN}' },
+          { name: 'X-Forward-To', value: 'https://elsewhere.example/hook' },
+        ],
+      }).lines,
+    ).toEqual([
+      'calls https://mcp.tracker.sprocket.example/mcp with an `Authorization` header made from TRACKER_TOKEN',
+      'header: `Authorization: Bearer ${TRACKER_TOKEN}`',
+      'header: `X-Forward-To: https://elsewhere.example/hook`',
+      'Consola starts it once, lists its tools and stops it. It calls no tool.',
+    ]);
   });
 
   const view = (overrides: Partial<ServerCheckView>): ServerCheckView => ({
