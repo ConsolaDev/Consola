@@ -892,14 +892,18 @@ consola-host runner --cell-url <wss://…/api/runner, or ws: to loopback> --runn
   the runner's own stop then fail (a stop is asked once). Where the provider
   renews lifetimes (`keepAlive`, as E2B does), a sandbox is leased for
   `SANDBOX_LEASE_SECONDS` (ten minutes) and renewed every
-  `SANDBOX_LEASE_RENEW_SECONDS` (three) while the runner holds the session, a
-  failed renewal logged and the next asked on time; it is never given past the
-  lifetime cap, measured from the session's start (what is left of it, in
-  whole seconds, once that is shorter than the lease; one second at least).
-  With a provider that cannot renew, the sandbox is made with all that is left
-  of the cap. So a sandbox outlives a dead runner by ten minutes at most, and
-  its cap by no more than the second a lifetime is counted in and the time
-  its provider takes to answer.
+  `SANDBOX_LEASE_RENEW_SECONDS` (three) while the runner holds the session, at
+  a fixed rate: each renewal is a fiber of its own, so one that hangs (up to
+  `SANDBOX_CALL_TIMEOUT`) never holds back the next, a failed one is logged,
+  and the lease runs out only after the three asked within it fail in a row.
+  It is never given past the lifetime cap, measured from the session's start
+  (what is left of it, in whole seconds, once that is shorter than the lease;
+  one second at least). With a provider that cannot renew, the sandbox is made
+  with all that is left of the cap. So a sandbox outlives a dead runner by ten
+  minutes at most, and its cap by no more than the second a lifetime is
+  counted in and the time its provider takes to answer. The provider may also
+  stop it up to that second before the cap, so the runner's own stop at the
+  cap comes first (`lifetimeStopAfterMs`, "Backstops").
 - **What a line becomes** (`readSessionLine`, `updateForLine`; stdout arrives in
   chunks, `HostLineBuffer` makes them lines). `ready` exposes the port it names
   (never a fixed 7420) and says `{ status: 'running', hostUrl }` with the
@@ -926,7 +930,14 @@ consola-host runner --cell-url <wss://…/api/runner, or ws: to loopback> --runn
   over the host's 15 s shutdown grace) after the host's `exit` line, at the
   lifetime cap (`--max-session-minutes`), and on SIGTERM or SIGINT, when it says
   each session's end while the socket is still open, then stops every sandbox,
-  then closes the socket (1001) and exits 0. A sandbox's stop is asked once per
+  then closes the socket (1001) and exits 0. Its stop for the cap comes
+  `SANDBOX_STOP_TIMEOUT` (30 s) before it (halfway to a cap under a minute;
+  `lifetimeStopAfterMs`): the provider stops the sandbox at the cap, or up to a
+  second before it, and were it first the session's command would end before
+  the runner's stop, and read as a sandbox that ended by itself (`failed`). So
+  the runner's stop is asked first, and over by the cap, and the session is
+  `stopped` (`sandboxSessions.test.ts`, a provider whose sandboxes end in real
+  time at their lifetime). A sandbox's stop is asked once per
   session, and a stop that fails is asked again (`STOP_ATTEMPTS`, 3, after
   0.5 s then 1 s), each failure logged with its reason; all of it within
   `SANDBOX_STOP_TIMEOUT` (30 s) while running. Once the runner begins to stop,

@@ -460,7 +460,10 @@ export function sandboxEnvFor(
  * the session, so its provider stops it this long after a runner that died last renewed it.
  */
 export const SANDBOX_LEASE_SECONDS = 10 * 60;
-/** How often the runner renews a sandbox's lease: three renewals can fail before it runs out. */
+/**
+ * How often the runner renews a sandbox's lease, at a fixed rate whatever each renewal takes: the
+ * three after a lease's last renewal are asked before it runs out, so three can fail in a row.
+ */
 export const SANDBOX_LEASE_RENEW_SECONDS = 3 * 60;
 
 /**
@@ -474,6 +477,19 @@ export const SANDBOX_LEASE_RENEW_SECONDS = 3 * 60;
 export function sandboxLifetimeSeconds(remainingMs: number, leaseSeconds: number | null): number {
   const remaining = Math.floor(remainingMs / 1_000);
   return Math.max(1, leaseSeconds === null ? remaining : Math.min(leaseSeconds, remaining));
+}
+
+/**
+ * When the runner itself stops a session's sandbox for its lifetime cap, in milliseconds from the
+ * session's start (`maxLifetimeMs` being the cap): `stopTimeoutMs`, the longest its stop may take
+ * (`SANDBOX_STOP_TIMEOUT`), before the cap, or halfway to a cap under twice that. Its provider
+ * stops the sandbox at the cap too (`sandboxLifetimeSeconds`), or up to the second a lifetime is
+ * counted in before it. Were the provider first, the session's command would end before the
+ * runner's stop, and the session read as a sandbox that ended by itself, `failed`; the runner
+ * first, it is `stopped`, and its stop, attempts included, is over by the cap.
+ */
+export function lifetimeStopAfterMs(maxLifetimeMs: number, stopTimeoutMs: number): number {
+  return Math.max(maxLifetimeMs - stopTimeoutMs, maxLifetimeMs / 2);
 }
 
 /** The first wait before dialling the cell again, and the longest. */

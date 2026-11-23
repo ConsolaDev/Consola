@@ -4,10 +4,11 @@
  * the repository and runs `consola-host session` (`AGENTS.md`, "The `runner` command"). What the
  * session's host prints on stdout becomes the cell's `session.update`s (`runnerDecisions.ts`);
  * how its command ends becomes the session's end, said once. Every sandbox is stopped: on the
- * cell's stop, after the host's `exit` line and a grace, at the lifetime cap, when the command
- * ends, as soon as the session's end is said while its command runs on (a failed clone), and when
- * the runner stops (`stopAll`). And its provider stops it should the runner not: each sandbox is
- * leased for `SANDBOX_LEASE_SECONDS` and renewed while the runner holds it, never past the cap.
+ * cell's stop, after the host's `exit` line and a grace, at the lifetime cap (a stop's length
+ * before it), when the command ends, as soon as the session's end is said while its command runs
+ * on (a failed clone), and when the runner stops (`stopAll`). And its provider stops it should
+ * the runner not: each sandbox is leased for `SANDBOX_LEASE_SECONDS` and renewed while the runner
+ * holds it, never past the cap.
  */
 import { isHostUrl, type SessionStart, type SessionUpdate } from '@consola/runner-protocol';
 import type { Sandbox, Sandboxes } from '@consola/sandbox';
@@ -23,6 +24,7 @@ import * as Stream from 'effect/Stream';
 import {
   endOf,
   HostLineBuffer,
+  lifetimeStopAfterMs,
   offerRefusal,
   type RunnerOffer,
   readSessionLine,
@@ -61,7 +63,9 @@ export const SANDBOX_CALL_TIMEOUT = Duration.seconds(60);
 
 /**
  * How long a sandbox's `stop` may take before the runner goes on without it, so that a provider
- * that hangs never keeps a session's end from being said.
+ * that hangs never keeps a session's end from being said. The runner's stop for the lifetime cap
+ * begins this long before it, so it comes before the provider's own and is over by the cap
+ * (`lifetimeStopAfterMs`).
  */
 export const SANDBOX_STOP_TIMEOUT = Duration.seconds(30);
 
@@ -87,11 +91,14 @@ export type SandboxSessionsOptions = {
   readonly secretValues: ReadonlyArray<string>;
   /** The host's idle minutes (`CONSOLA_SESSION_IDLE_MINUTES`). */
   readonly idleMinutes: number;
-  /** The longest a session's sandbox runs: the runner stops it then, whatever it is doing. */
+  /**
+   * The longest a session's sandbox runs. Its provider stops it then; the runner stops it first,
+   * whatever it is doing, a stop's length before (`lifetimeStopAfterMs`).
+   */
   readonly maxLifetime: Duration.Input;
   /** `EXIT_LINE_GRACE` unless a test shortens it. */
   readonly exitLineGrace?: Duration.Input;
-  /** `SANDBOX_STOP_TIMEOUT` unless a test shortens it. */
+  /** `SANDBOX_STOP_TIMEOUT` unless a test shortens it; the lead of the lifetime stop too. */
   readonly stopTimeout?: Duration.Input;
   /** `SHUTDOWN_STOP_TIMEOUT` unless a test shortens it. */
   readonly shutdownStopTimeout?: Duration.Input;
@@ -386,8 +393,9 @@ export const makeSandboxSessions = (
 
     /**
      * Renews the lease of the session's sandbox every `leaseRenewEvery` (never past the cap,
-     * `capAtMs`) until the runner asks it to stop. A renewal that fails is logged; the next is
-     * asked on time, and the lease runs out only after three in a row.
+     * `capAtMs`) until the runner asks it to stop. Each renewal is a fiber of its own, so one
+     * that hangs (up to `callTimeout`) never holds back the next: they are asked at a fixed
+     * rate, and the lease runs out only after three in a row fail. A renewal that fails is logged.
      */
     const renewLease = (session: Held, sandbox: Sandbox, capAtMs: number): Effect.Effect<void> =>
       Effect.gen(function* () {
@@ -405,6 +413,7 @@ export const makeSandboxSessions = (
             Effect.catchTag('SandboxCallFailed', (error) =>
               log(`session ${sessionId}: its sandbox's lease was not renewed: ${error.problem}`),
             ),
+            Effect.forkChild,
           );
         }
       });
@@ -414,8 +423,13 @@ export const makeSandboxSessions = (
       return Effect.gen(function* () {
         const refusal = offerRefusal(options.offer, session.start);
         if (refusal !== null) return yield* failedWith(session, refusal);
-        const capAtMs = (yield* Clock.currentTimeMillis) + Duration.toMillis(options.maxLifetime);
-        yield* Effect.sleep(options.maxLifetime).pipe(
+        const maxLifetimeMs = Duration.toMillis(options.maxLifetime);
+        const capAtMs = (yield* Clock.currentTimeMillis) + maxLifetimeMs;
+        // The runner's own stop comes first, so the session ends `stopped`, never as a sandbox
+        // its provider ended at the cap.
+        yield* Effect.sleep(
+          Duration.millis(lifetimeStopAfterMs(maxLifetimeMs, Duration.toMillis(stopTimeout))),
+        ).pipe(
           Effect.andThen(Deferred.succeed(session.stopSignal, { kind: 'lifetime' })),
           Effect.forkChild,
         );

@@ -102,8 +102,11 @@ the id.
 ## The sandbox's lifetime
 
 The runner leases each sandbox for ten minutes at a time and renews the lease
-every three while it holds the session (`keepAlive`), never past the session's
-lifetime cap (`--max-session-minutes`), so a runner that dies leaves no sandbox
-running for more than ten minutes, and E2B stops one at the cap even should the
-runner's own stop fail. E2B's plan also bounds how long a sandbox may run; a
-session cannot outlast it, whatever the cap says.
+every three while it holds the session (`keepAlive`), at a fixed rate whatever
+each renewal takes, never past the session's lifetime cap
+(`--max-session-minutes`), so a runner that dies leaves no sandbox running for
+more than ten minutes, and E2B stops one at the cap even should the runner's
+own stop fail. The runner stops the sandbox itself 30 seconds before the cap,
+so a session that reaches it ends `stopped`, never as a sandbox E2B ended.
+E2B's plan also bounds how long a sandbox may run; a session cannot outlast it,
+whatever the cap says.
