@@ -253,18 +253,35 @@ const platformArch = (): ExecutionEnvironmentDescriptor['platform']['arch'] =>
   process.arch === 'arm64' || process.arch === 'x64' ? process.arch : 'other';
 
 /**
+ * What the descriptor says for `serverVersion` on a host that names none: t3's schema needs a
+ * value, and t3's client reads it only to show it and to tell one host's builds apart (whether it
+ * can talk to a host is the orchestration protocol's to say).
+ */
+export const GENERIC_SERVER_VERSION = 'unknown';
+
+/**
  * The host as a t3 environment: one per session, so the session id is its environment id (the
  * id a client checks the config against). It advertises no optional capability but the one every
  * protocol-2 server sends: what it does not serve, t3's UI does not offer.
+ *
+ * Anyone who reaches the port reads it, before any pass (`/.well-known/t3/environment`), so a host
+ * bound past loopback (a sandbox's, its port public) names no operating system, architecture or
+ * version to scan for: `unknown`, `other` and `GENERIC_SERVER_VERSION`. On loopback, or as a
+ * `--dev` host, it names its own. The config a pass holder reads carries the same environment.
  */
-const hostEnvironment = (sessionId: string): ExecutionEnvironmentDescriptor => ({
-  environmentId: EnvironmentId.make(sessionId),
-  label: 'Consola host',
-  platform: { os: platformOs(), arch: platformArch() },
-  serverVersion: T3_SERVER_VERSION,
-  orchestrationProtocolVersion: ORCHESTRATION_PROTOCOL_VERSION,
-  capabilities: { repositoryIdentity: false, inlineMessageContext: true },
-});
+export const hostEnvironment = (
+  options: Pick<HostServerOptions, 'sessionId' | 'host' | 'dev'>,
+): ExecutionEnvironmentDescriptor => {
+  const named = options.dev === true || isLoopback(options.host);
+  return {
+    environmentId: EnvironmentId.make(options.sessionId),
+    label: 'Consola host',
+    platform: named ? { os: platformOs(), arch: platformArch() } : { os: 'unknown', arch: 'other' },
+    serverVersion: named ? T3_SERVER_VERSION : GENERIC_SERVER_VERSION,
+    orchestrationProtocolVersion: ORCHESTRATION_PROTOCOL_VERSION,
+    capabilities: { repositoryIdentity: false, inlineMessageContext: true },
+  };
+};
 
 /**
  * t3's `withoutWorkspaceSnapshots` (`ws.ts:484-502`), less its on-demand machine-catalog branches:
@@ -316,7 +333,7 @@ const layerHandlers = (
       const { runtime, sessionId } = options;
       const threadId = ThreadId.make(sessionId);
       const { server } = runtime;
-      const environment = hostEnvironment(sessionId);
+      const environment = hostEnvironment(options);
 
       const loadServerConfig = Effect.fn('host.loadServerConfig')(function* (
         workspaceSnapshotsOnDemand: boolean,
@@ -711,7 +728,7 @@ const app = Effect.fn('host.app')(function* (
   if (url.pathname !== WS_PATH) {
     return yield* serveHostHttp(
       {
-        environment: hostEnvironment(options.sessionId),
+        environment: hostEnvironment(options),
         auth: HOST_AUTH,
         verify: (pass) =>
           Effect.flatMap(Clock.currentTimeMillis, (nowMs) =>

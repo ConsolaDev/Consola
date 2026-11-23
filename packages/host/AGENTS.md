@@ -288,8 +288,14 @@ handlers are host glue that calls the helpers `ws.ts` calls
   opens). The host answers each as t3's handler does, with t3's schemas, and
   the pass is the bearer token, the only credential the host takes:
   - `GET /.well-known/t3/environment`: the descriptor (the config's
-    environment, above), unauthenticated as in t3. It names the session id,
-    `Consola host`, the platform and t3's server version.
+    environment, above), unauthenticated as in t3. It names the session id
+    and `Consola host`. Since anyone who reaches the port reads it, a host
+    bound past loopback (a sandbox's public port) names no platform or
+    version: `os` `unknown`, `arch` `other`, `serverVersion` `unknown`
+    (`GENERIC_SERVER_VERSION`; t3's client only shows it, and whether it can
+    talk to a host is the orchestration protocol's to say). On loopback or
+    with `--dev` it names its own and t3's server version (`hostEnvironment`).
+    The config a pass holder reads carries the same environment.
   - `POST /api/auth/websocket-ticket/rpc` with `Authorization: Bearer <pass>`:
     `{ ticket, expiresAt }`, a new ticket (above), `expiresAt` its own end.
     The pass never reaches the socket's URL.

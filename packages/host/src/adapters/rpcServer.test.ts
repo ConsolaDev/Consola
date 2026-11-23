@@ -66,6 +66,8 @@ import {
   listenHost,
   NOT_OFFERED_BY_HOST,
   SERVED_METHODS,
+  GENERIC_SERVER_VERSION,
+  hostEnvironment,
   T3_SERVER_VERSION,
 } from './rpcServer.ts';
 
@@ -367,6 +369,41 @@ describe('serveHost', () => {
       // The key's own text (a PEM's base64 line) appears nowhere in the error.
       expect(JSON.stringify(error)).not.toContain(publicKeyPem.split('\n')[1] ?? publicKeyPem);
     }
+  });
+
+  it.each(['0.0.0.0', '::', '10.0.0.5', 'sandbox.sprocket.test'])(
+    'names no platform or version in its unauthenticated descriptor when bound to %s',
+    (host) => {
+      const environment = hostEnvironment({ sessionId: 'session-sprocket-env', host });
+      expect(environment.platform).toEqual({ os: 'unknown', arch: 'other' });
+      expect(environment.serverVersion).toBe(GENERIC_SERVER_VERSION);
+      expect(environment.serverVersion).not.toBe(T3_SERVER_VERSION);
+      // What a client needs is still there.
+      expect(environment).toMatchObject({
+        environmentId: 'session-sprocket-env',
+        label: 'Consola host',
+        orchestrationProtocolVersion: 2,
+      });
+    },
+  );
+
+  it.each([
+    ['a loopback bind', { host: '127.0.0.1' }],
+    ['localhost', { host: 'localhost' }],
+    ['a dev host', { host: '127.0.0.1', dev: true }],
+  ])('names its platform and t3 version on %s', (_name, bind) => {
+    const environment = hostEnvironment({ sessionId: 'session-sprocket-env', ...bind });
+    expect(environment.serverVersion).toBe(T3_SERVER_VERSION);
+    expect(environment.platform.os).toBe(
+      process.platform === 'darwin'
+        ? 'darwin'
+        : process.platform === 'linux'
+          ? 'linux'
+          : environment.platform.os,
+    );
+    expect(environment.platform.arch).toBe(
+      process.arch === 'arm64' || process.arch === 'x64' ? process.arch : 'other',
+    );
   });
 
   it('refuses to listen as a dev host anywhere but loopback, so its long pass stays on this machine', async () => {
