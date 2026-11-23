@@ -343,6 +343,51 @@ describe('consola-host session', () => {
   );
 
   it(
+    'exits 1, saying so, when its stop after an idle exit hangs past the grace',
+    () =>
+      Effect.gen(function* () {
+        const host = yield* startHost(
+          REPLAY_ENTRY,
+          [
+            'simple',
+            'full-access',
+            'session',
+            '--dev',
+            '--harness',
+            'claude',
+            '--port',
+            '0',
+            // Three seconds with no client and no turn.
+            '--idle-minutes',
+            '0.05',
+          ],
+          { CONSOLA_TEST_SESSION_STOP: 'hangs' },
+        );
+        expect(yield* host.next).toMatchObject({ type: 'ready' });
+        expect(yield* host.next).toMatchObject({ type: 'dev-pass' });
+        expect(yield* host.next).toEqual({ type: 'exit', reason: 'idle' });
+        const exitedAt = yield* Clock.currentTimeMillis;
+        const exited = yield* host.exited.pipe(
+          Effect.timeoutOrElse({
+            duration: Duration.seconds(40),
+            orElse: () =>
+              Effect.die(
+                new Error(`the host never exited; stderr:\n${host.stderr().slice(-2000)}`),
+              ),
+          }),
+        );
+        expect(exited).toEqual({ code: 1, signal: null });
+        expect(host.stderr()).toContain('consola-host: the session did not stop in time.');
+        // The grace counts from the exit line, not from something later.
+        const tookMs = (yield* Clock.currentTimeMillis) - exitedAt;
+        expect(tookMs).toBeGreaterThan(14_000);
+        expect(tookMs).toBeLessThan(25_000);
+        expectOnlyHostLines(host.printed);
+      }).pipe(Effect.scoped, Effect.runPromise),
+    TEST_TIMEOUT_MS,
+  );
+
+  it(
     'exits 0, not by the signal, on a SIGTERM that comes while it is still loading, before ready',
     () =>
       Effect.gen(function* () {

@@ -301,6 +301,22 @@ const untilIdle = (
     }
   });
 
+/**
+ * What the program does as it begins to stop, whatever stops it (a signal, a replacement, a
+ * failure). Under `runHostProcess` it arms the forced exit, `SHUTDOWN_GRACE` later, so stopping
+ * that hangs (a sandbox's provider, say) cannot keep the process alive; anywhere else (a test
+ * running the program in its own process) it does nothing.
+ */
+export const HostStopping = Context.Reference<Effect.Effect<void>>('@consola/host/HostStopping', {
+  defaultValue: () => Effect.void,
+});
+
+/** Arms what the program does as it begins to stop (`HostStopping`). */
+const beginStopping = Effect.gen(function* () {
+  const stopping = yield* HostStopping;
+  yield* stopping;
+});
+
 /** Builds the session's runtime over its state folder: `ThreadRuntime.layer` in production. */
 export type RuntimeFor = (
   options: ThreadRuntime.ThreadRuntimeOptions,
@@ -310,7 +326,7 @@ export type RuntimeFor = (
  * Runs one session until it is idle: opens its thread on `runtimeFor`'s runtime, serves it, prints
  * `ready` (and, with `--dev`, the pass), then `title` and `status` lines as they change, and
  * `exit` when it is idle. Everything it starts (the server, the thread, the provider session and
- * the CLI it runs) stops when it returns or is interrupted.
+ * the CLI it runs) stops when it returns or is interrupted, `HostStopping` first.
  */
 export const runSession = (
   args: SessionArgs,
@@ -356,7 +372,12 @@ export const runSession = (
     yield* untilIdle(handle, listening, args.idleMinutes);
     yield* Fiber.interrupt(reporting);
     yield* writeHostLine({ type: 'exit', reason: 'idle' });
-  }).pipe(Effect.scoped);
+  }).pipe(
+    // However the session ends (idle, a failure, a signal), the forced exit is armed before
+    // anything it started is closed, so a stop that hangs cannot keep the process alive.
+    Effect.onExit(() => beginStopping),
+    Effect.scoped,
+  );
 
 /** `consola-host session …`: `argv` parsed, then the session run over `runtimeFor`. */
 export const sessionCommand = (
@@ -500,16 +521,6 @@ export type ProviderFor = (env: RunnerEnv) => SandboxProvider | null;
 
 /** Production's providers: none yet (Task 6 adds E2B, from `E2B_API_KEY`). */
 export const productionProvider: ProviderFor = () => null;
-
-/**
- * What the program does as it begins to stop, whatever stops it (a signal, a replacement, a
- * failure). Under `runHostProcess` it arms the forced exit, `SHUTDOWN_GRACE` later, so stopping
- * that hangs (a sandbox's provider, say) cannot keep the process alive; anywhere else (a test
- * running the program in its own process) it does nothing.
- */
-export const HostStopping = Context.Reference<Effect.Effect<void>>('@consola/host/HostStopping', {
-  defaultValue: () => Effect.void,
-});
 
 /**
  * Runs the runner until it is stopped: its sessions (`makeSandboxSessions`) and its socket to the

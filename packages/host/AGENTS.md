@@ -669,7 +669,14 @@ session's thread (`ThreadRuntime.open`), then listens (`listenHost`), so
   `connectedClients()`, whether a turn runs (`working`), and the last activity:
   the thread's (`lastActivityMs`) or the last moment a client was connected,
   whichever is later; becoming ready counts as activity. When it holds, the
-  host prints `exit`, closes the session and exits 0. A pending approval or
+  host prints `exit`, closes the session and exits 0. Closing has the
+  shutdown's grace too: however a session ends (idle, a failure, a signal),
+  `runSession` arms the forced exit (`HostStopping`) before anything it
+  started is closed, so a stop that hangs (a provider session's, say) ends in
+  exit 1 and `consola-host: the session did not stop in time.` 15 seconds
+  later, within the runner's `EXIT_LINE_GRACE` (30 s from the `exit` line;
+  `bin.test.ts`, with `CONSOLA_TEST_SESSION_STOP=hangs`, which
+  `testing/replaySession.ts` reads). A pending approval or
   question (`waiting`) does not hold it: with no page connected and no turn
   running, the host exits once the idle minutes pass, and the request, the
   thread and its history (t3's in-memory SQLite) go with it.
