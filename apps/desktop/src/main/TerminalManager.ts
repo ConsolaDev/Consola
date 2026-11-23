@@ -9,6 +9,7 @@ import {
 import { IPC_CHANNELS } from '../shared/constants';
 import type { HarnessDriverId, TerminalSnapshot, TerminalStatusSnapshot } from '../shared/types';
 import type { TerminalStatus } from '../shared/terminalStatus';
+import type { SessionToolPolicy } from '../shared/workspace';
 import type { AttentionEndpoint } from './attention/AttentionEndpoint';
 import { getDriver, type TurnInit } from './drivers';
 
@@ -123,15 +124,26 @@ export class TerminalManager {
     instanceId: string,
     options: TerminalServiceOptions,
   ): TerminalServiceOptions {
-    const attentionUrl = this.attentionUrlFor(instanceId, options.driverId);
+    const attentionUrl = this.attentionUrlFor(instanceId, options.driverId, options.toolPolicy);
     return attentionUrl ? { ...options, attentionUrl } : options;
   }
 
-  private attentionUrlFor(instanceId: string, driverId: HarnessDriverId | undefined) {
+  private attentionUrlFor(
+    instanceId: string,
+    driverId: HarnessDriverId | undefined,
+    toolPolicy?: SessionToolPolicy,
+  ) {
     const hooks = getDriver(driverId).attentionHooks;
     const endpoint = this.attentionEndpoint;
     if (!hooks || !endpoint) return undefined;
-    return () => endpoint.urlFor(instanceId, (body) => hooks.parse(body));
+    // A write step's `Stop` waits, before it is answered, for its descendants to be recorded (Call 8).
+    const writes = toolPolicy === 'edit' || toolPolicy === 'write';
+    const beforeAnswer = writes
+      ? async (body: unknown) => {
+          if (hooks.endsTurn?.(body)) await this.terminals.get(instanceId)?.recordStepProcesses();
+        }
+      : undefined;
+    return () => endpoint.urlFor(instanceId, (body) => hooks.parse(body), beforeAnswer);
   }
 
   public onWorkingDirectory?: (instanceId: string, cwd: string) => void;

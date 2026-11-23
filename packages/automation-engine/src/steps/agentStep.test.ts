@@ -17,7 +17,7 @@ import {
 } from '@consola/factory-spec';
 import { RunFolder } from '../node/runFolder';
 import { POLL_FENCE_HEADING, runItemSource } from '../sources/itemSource';
-import { agentStepLaunch, endedWithout, stepCap } from './agentStep';
+import { agentStepLaunch, budgetLeft, endedWithout, stepCap } from './agentStep';
 import { agentRequirements, type AgentRequirements, type RunDefinition } from './definition';
 
 const automation = parseFactorySpec(`version: 1
@@ -837,5 +837,16 @@ describe('endedWithout', () => {
       'ended without setting verdict and confidence, and without writing notes',
     );
     expect(endedWithout({ outputs: [], artifacts: [] })).toBeNull();
+  });
+});
+
+describe('budgetLeft (slice 3-B Task 18, Call 15)', () => {
+  const definitionWith = (budget?: { usd: number }): RunDefinition =>
+    ({ automation: { ...automation, ...(budget ? { budget } : {}) } }) as unknown as RunDefinition;
+  it('is the budget less what the run spent, at least a cent; none without a budget', () => {
+    expect(budgetLeft(definitionWith({ usd: 5 }), { ...run({}), costUsd: 1.5 })).toBe(3.5);
+    expect(budgetLeft(definitionWith({ usd: 5 }), run({}))).toBe(5);
+    expect(budgetLeft(definitionWith({ usd: 5 }), { ...run({}), costUsd: 7 })).toBe(0.01);
+    expect(budgetLeft(definitionWith(), { ...run({}), costUsd: 1 })).toBeUndefined();
   });
 });

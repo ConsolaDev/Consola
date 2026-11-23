@@ -198,6 +198,18 @@ export function stepCap(definition: RunDefinition, stepId: string): number | und
  * definition holds them (`skillHashes`), which the host checks what it
  * builds, and every later launch, against (review M1).
  */
+/**
+ * What is left of a run's budget for its next turn (plan Call 15): the
+ * entry's `budget.usd` less what the run has spent, at least a cent; none
+ * for an entry without a budget. The boundary check stays the guarantee;
+ * this only lets a CLI that can stop a turn there stop it.
+ */
+export function budgetLeft(definition: RunDefinition, run: RunRecord): number | undefined {
+  const usd = definition.automation.budget?.usd;
+  if (usd === undefined) return undefined;
+  return Math.max(0.01, usd - (run.costUsd ?? 0));
+}
+
 export function agentStepLaunch(input: {
   workspaceId: string;
   run: RunRecord;
@@ -312,6 +324,7 @@ export function agentStepLaunch(input: {
   const fired = run.trigger.kind === 'event' || run.trigger.kind === 'poll';
   const askByHand = fired && firstAgentStep && action !== undefined && !retried;
   const maxTurns = stepCap(definition, step.id);
+  const maxBudgetUsd = budgetLeft(definition, run);
   return {
     ok: true,
     request: {
@@ -325,8 +338,10 @@ export function agentStepLaunch(input: {
         scopeId: checkout.scopeId,
         name,
         checkout: checkoutKind,
+        ...(checkoutKind === 'run-owned' ? { checkoutPath: checkout.cwd } : {}),
         ...(pluginDir !== undefined ? { pluginDir } : {}),
         ...(maxTurns !== undefined ? { maxTurns } : {}),
+        ...(maxBudgetUsd !== undefined ? { maxBudgetUsd } : {}),
         ...(agent
           ? {
               agent: {
@@ -338,6 +353,17 @@ export function agentStepLaunch(input: {
                   ...(server.tools !== undefined ? { tools: [...server.tools] } : {}),
                 })),
                 skills: [...agent.skills],
+                ...(agent.tools !== undefined ? { tools: agent.tools } : {}),
+                ...(agent.environment
+                  ? {
+                      environment: {
+                        name: agent.environment.name,
+                        isolation: agent.environment.isolation,
+                        network: [...agent.environment.network],
+                        env: [...agent.environment.env],
+                      },
+                    }
+                  : {}),
                 ...(skillsDir !== undefined
                   ? {
                       skillsDir,

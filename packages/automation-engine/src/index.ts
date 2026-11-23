@@ -157,6 +157,7 @@ export {
   noWriteAgents,
   RunCheckoutError,
   runOwnedDirName,
+  sessionHoldsRetry,
 } from './steps/runCheckout';
 export {
   LOG_CAP_BYTES,

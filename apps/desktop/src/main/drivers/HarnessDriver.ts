@@ -352,6 +352,12 @@ export type CompiledAgent =
 export interface AttentionHooks {
   /** Translate one posted payload. Null for an event that says nothing about attention. */
   parse(body: unknown): AttentionSignal | null;
+  /**
+   * Whether a payload is the CLI saying its turn ended (Claude's `Stop`),
+   * while it waits on the answer: when a write step's descendants are
+   * recorded (slice 3-B, Call 8). Absent: never.
+   */
+  endsTurn?(body: unknown): boolean;
 }
 
 /** A driver's usage-limit reporting, asked of the CLI itself. */
@@ -426,6 +432,11 @@ export interface TurnReader {
   push(chunk: string): TurnEvent[];
   /** Whether the stream has said this turn stopped on a usage limit, so far. */
   readonly limitNotice: boolean;
+  /**
+   * Whether the turn's last word (its result) has arrived: the CLI is about
+   * to exit, and its children are not yet reparented. Absent: never said.
+   */
+  readonly resultSeen?: boolean;
   /** At exit: the events of a last line with no newline, and the report (`maxTurns` is the launcher's to add). */
   end(): { events: TurnEvent[]; report: TurnReport };
 }

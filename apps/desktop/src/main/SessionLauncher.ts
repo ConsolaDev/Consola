@@ -78,12 +78,20 @@ export type LaunchSessionFields = NewSessionFields & {
   unattended?: boolean;
   /** Start the session as a fork of this conversation. */
   forkFrom?: string;
+  /** What is left of its run's budget, for the first unattended turn only (slice 3-B, Call 15). */
+  maxBudgetUsd?: number;
 };
 
 /** What one spawn of a recorded session is asked to do. */
 export type SpawnFields = Pick<
   TerminalServiceOptions,
-  'resume' | 'initialPrompt' | 'unattended' | 'forkFrom' | 'launchNotice' | 'turnMaxTurns'
+  | 'resume'
+  | 'initialPrompt'
+  | 'unattended'
+  | 'forkFrom'
+  | 'launchNotice'
+  | 'turnMaxTurns'
+  | 'turnMaxBudgetUsd'
 >;
 
 /**
@@ -179,7 +187,7 @@ export class SessionLauncher {
     if (policyProblem) throw new Error(policyProblem);
 
     // Delivery-only; none of these may reach the record.
-    const { initialPrompt, unattended, forkFrom, ...sessionFields } = fields;
+    const { initialPrompt, unattended, forkFrom, maxBudgetUsd, ...sessionFields } = fields;
     const session = this.workspaces.createSession(workspaceId, sessionFields);
     if (!session) {
       throw new Error(`Workspace ${workspaceId} refused the session record`);
@@ -215,6 +223,7 @@ export class SessionLauncher {
       initialPrompt,
       unattended,
       forkFrom,
+      ...(maxBudgetUsd !== undefined ? { turnMaxBudgetUsd: maxBudgetUsd } : {}),
     });
 
     this.workspaces.updateSession(workspaceId, session.id, { hasStarted: true });

@@ -1,6 +1,6 @@
 import * as http from 'node:http';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { AttentionEndpoint, MAX_BODY_BYTES } from './AttentionEndpoint';
+import { AttentionEndpoint, BEFORE_ANSWER_LIMIT_MS, MAX_BODY_BYTES } from './AttentionEndpoint';
 import type { AttentionSignal } from './hookSignals';
 
 const SIGNAL: AttentionSignal = { kind: 'needs-input', origin: 'menu' };
@@ -132,5 +132,53 @@ describe('AttentionEndpoint', () => {
 
     expect(res.status).toBe(200);
     await vi.waitFor(() => expect(heard).toHaveLength(1));
+  });
+});
+
+describe("AttentionEndpoint, for a write step's session (slice 3-B Task 18, Call 8)", () => {
+  it('answers only once what must be read while the CLI waits has been read, then hears the signal', async () => {
+    const heard: Array<[string, AttentionSignal]> = [];
+    endpoint = new AttentionEndpoint((instanceId, signal) => heard.push([instanceId, signal]));
+    const order: string[] = [];
+    let release!: () => void;
+    const url = (await endpoint.urlFor(
+      'inst-w',
+      () => SIGNAL,
+      async (body) => {
+        order.push(`asked ${(body as { hook_event_name: string }).hook_event_name}`);
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        order.push('recorded');
+      },
+    ))!;
+    let answered = false;
+    const response = post(url, { hook_event_name: 'Stop' }).then((res) => {
+      answered = true;
+      order.push('answered');
+      return res.status;
+    });
+    await vi.waitFor(() => expect(order).toEqual(['asked Stop']));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(answered).toBe(false);
+    release();
+    expect(await response).toBe(200);
+    expect(order).toEqual(['asked Stop', 'recorded', 'answered']);
+    expect(heard).toEqual([['inst-w', SIGNAL]]);
+  });
+
+  it('answers within its bound even when the record never finishes, and once on a body it cannot read', async () => {
+    expect(BEFORE_ANSWER_LIMIT_MS).toBe(3_000);
+    endpoint = new AttentionEndpoint(() => {}, 100);
+    const url = (await endpoint.urlFor(
+      'inst-w',
+      () => SIGNAL,
+      () => new Promise<void>(() => {}),
+    ))!;
+    const started = Date.now();
+    expect((await post(url, { hook_event_name: 'Stop' })).status).toBe(200);
+    expect(Date.now() - started).toBeGreaterThanOrEqual(90);
+    const bad = await fetch(url, { method: 'POST', body: '{ not json' });
+    expect(bad.status).toBe(200);
   });
 });

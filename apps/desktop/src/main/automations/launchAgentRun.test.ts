@@ -10,6 +10,7 @@ import { compileClaudeAgent } from '../drivers/claudeAgent';
 import type { McpServerReport } from '../drivers/HarnessDriver';
 import type { GitProviderDriver } from '../providers/GitProviderDriver';
 import type { LaunchSessionFields } from '../SessionLauncher';
+import { allowedSessionUpdates } from '../state/updateFilters';
 import {
   launchAgentRun,
   launchedWithFullTools,
@@ -818,5 +819,144 @@ describe('worktreeHeld', () => {
     const review = session({ id: 'review', cwd: dir, toolPolicy: 'read-only' });
     const mine = session({ id: 'mine', cwd: dir });
     expect(worktreeHeld([review, mine], dir, nothingRuns)).toBe(true);
+  });
+});
+
+describe('a write step’s launch (slice 3-B Task 18)', () => {
+  const HOST = {
+    platform: 'darwin',
+    denyRead: ['/h/Library/Keychains'],
+    cliVersion: '2.1.330',
+    settingsFiles: [],
+  };
+  const CHECKOUT = '/w/catalog-portal-run-3f2a91c0';
+  const request = (
+    agent: Partial<NonNullable<NonNullable<AgentLaunchRequest['step']>['agent']>> = {},
+  ): AgentLaunchRequest => ({
+    workspaceId: 'ws-1',
+    run: { id: 'run-9', automation: 'fix' },
+    prompt: 'Fix it.',
+    step: {
+      id: 'fix',
+      attempt: 1,
+      cwd: CHECKOUT,
+      scopeId: 'scope-api',
+      name: 'fix · fix',
+      checkout: 'run-owned',
+      checkoutPath: CHECKOUT,
+      maxBudgetUsd: 4.5,
+      agent: {
+        name: 'fixer',
+        mcpServers: [],
+        skills: [],
+        tools: 'write',
+        environment: {
+          name: 'sandboxed',
+          isolation: 'sandbox',
+          network: [],
+          env: ['CI', 'NODE_ENV'],
+        },
+        ...agent,
+      },
+    },
+  });
+
+  it('a write step launches with its policy and grants on the record, and says what it ran under', async () => {
+    const writeAgentHost = vi.fn(async () => HOST);
+    const d = deps({ writeAgentHost, loginEnv: () => ({ HOME: '/h', CI: '1' }) });
+    const session = await launchAgentRun(d, request());
+    const fields = d.launchSession.mock.calls[0][1] as LaunchSessionFields;
+    expect(fields).toMatchObject({
+      toolPolicy: 'write',
+      cwd: CHECKOUT,
+      maxBudgetUsd: 4.5,
+      grants: {
+        tools: 'write',
+        environment: { name: 'sandboxed', isolation: 'sandbox', envNames: ['CI', 'NODE_ENV'] },
+        sandbox: {
+          cliVersion: '2.1.330',
+          settings: { filesystem: { denyWrite: [`${CHECKOUT}/.git`] } },
+        },
+      },
+    });
+    expect(writeAgentHost).toHaveBeenCalledWith(HARNESSES[0]);
+    expect(session.environment).toEqual({
+      cliVersion: '2.1.330',
+      passed: ['CI'],
+      missing: ['NODE_ENV'],
+    });
+    // The record keeps them: no later update replaces the policy or the grants.
+    expect(allowedSessionUpdates({ toolPolicy: 'read-only', grants: undefined } as never)).toEqual(
+      {},
+    );
+  });
+
+  it('an edit agent on host: its policy, no sandbox, and what its environment has', async () => {
+    const d = deps({ writeAgentHost: async () => HOST, loginEnv: () => ({ CI: '1' }) });
+    const session = await launchAgentRun(
+      d,
+      request({
+        tools: 'edit',
+        environment: { name: 'on-host', isolation: 'host', network: [], env: ['CI'] },
+      }),
+    );
+    const fields = d.launchSession.mock.calls[0][1] as LaunchSessionFields;
+    expect(fields.toolPolicy).toBe('edit');
+    expect(fields.grants).toMatchObject({ tools: 'edit' });
+    expect(fields.grants).not.toHaveProperty('sandbox');
+    expect(session.environment).toEqual({ cliVersion: '2.1.330', passed: ['CI'], missing: [] });
+  });
+
+  it('is refused, never launched looser: no host, a harness not on Claude, or a checkout not its own', async () => {
+    await expect(launchAgentRun(deps(), request())).rejects.toThrow(
+      "It did not start: Write agents run on Claude only for now: Work can't hold a write agent to its environment.",
+    );
+    await expect(
+      launchAgentRun(deps({ writeAgentHost: async () => HOST }), request({ harnessId: 'codex-1' })),
+    ).rejects.toThrow('Write agents run on Claude only for now: Codex');
+    const notOwned = request();
+    notOwned.step!.checkout = 'scope';
+    await expect(
+      launchAgentRun(deps({ writeAgentHost: async () => HOST }), notOwned),
+    ).rejects.toThrow(
+      'A write agent changes code only on a branch the run cuts from one of `repos:` (invariant 9)',
+    );
+    await expect(
+      launchAgentRun(
+        deps({ writeAgentHost: async () => ({ ...HOST, platform: 'linux' }) }),
+        request(),
+      ),
+    ).rejects.toThrow(
+      '`isolation: sandbox` is verified on macOS only so far; this machine runs Linux',
+    );
+  });
+
+  it('a driver whose grants do not hold the policy is refused, never launched on them', async () => {
+    const loose = {
+      id: 'claude',
+      compileAgent: () => ({
+        ok: true as const,
+        grants: { driverId: 'claude', servers: [], skills: [], strict: true, allowedTools: [] },
+        warnings: [],
+      }),
+    } as unknown as HarnessDriver;
+    const d = deps({ writeAgentHost: async () => HOST, driverFor: () => loose });
+    await expect(launchAgentRun(d, request())).rejects.toThrow(
+      "Write agents run on Claude only for now: Work can't hold a write agent to its environment.",
+    );
+    expect(d.launchSession).not.toHaveBeenCalled();
+  });
+
+  it('a read-only step’s launch is as it was: read-only, no host asked', async () => {
+    const writeAgentHost = vi.fn(async () => HOST);
+    const d = deps({ writeAgentHost });
+    const readOnly = request();
+    const { tools: _tools, environment: _environment, ...agent } = readOnly.step!.agent!;
+    readOnly.step!.agent = agent;
+    const session = await launchAgentRun(d, readOnly);
+    expect((d.launchSession.mock.calls[0][1] as LaunchSessionFields).toolPolicy).toBe('read-only');
+    expect(d.launchSession.mock.calls[0][1]).not.toHaveProperty('grants');
+    expect(writeAgentHost).not.toHaveBeenCalled();
+    expect(session).not.toHaveProperty('environment');
   });
 });

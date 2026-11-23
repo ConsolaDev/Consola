@@ -56,6 +56,7 @@ import {
   UNATTENDED_TURN_LIMIT_MS,
   bracketedPaste,
   turnSummary,
+  unattendedNotice,
   type TerminalExitInfo,
 } from './TerminalService';
 import { ScreenModel } from './ScreenModel';
@@ -2424,5 +2425,179 @@ describe('TerminalService login environment', () => {
 
     expect(notice).toContain('This session runs without one.');
     expect(notice).not.toContain('auth status');
+  });
+});
+
+describe('a write step’s session (slice 3-B Task 18)', () => {
+  const SANDBOX_GRANTS = {
+    driverId: 'claude' as const,
+    servers: [],
+    skills: [],
+    strict: true,
+    allowedTools: [],
+    tools: 'write' as const,
+    environment: { name: 'sandboxed', isolation: 'sandbox' as const, envNames: ['CI'] },
+    fileDeny: [],
+  };
+  const HOST_GRANTS = {
+    ...SANDBOX_GRANTS,
+    environment: { name: 'on-host', isolation: 'host' as const, envNames: [] },
+  };
+  // A folder that exists: the spawn is faked, but the check before it is real.
+  const CHECKOUT = os.tmpdir();
+
+  async function launched(fields: Record<string, unknown>) {
+    const pty = installFakePty();
+    providerDriverMock.mockReturnValue({ tokenEnvVar: 'GH_TOKEN', token: async () => 'gho_dummy' });
+    const output: string[] = [];
+    const service = new TerminalService({
+      cwd: CHECKOUT,
+      claudeSessionId: 'consola-id',
+      resume: false,
+      providerId: 'github',
+      providerAccountLogin: 'JaviDev',
+      ...fields,
+    });
+    service.on('data', (data) => output.push(data));
+    await service.start();
+    await vi.advanceTimersByTimeAsync(1);
+    return {
+      service,
+      pty,
+      output,
+      env: spawnMock.mock.calls.at(-1)?.[2]?.env as NodeJS.ProcessEnv,
+    };
+  }
+  beforeEach(() => {
+    loginEnv.current = {
+      HOME: '/h',
+      PATH: '/usr/bin',
+      USER: 'alice',
+      CI: '1',
+      GH_TOKEN: 'gh-dummy',
+      AWS_SECRET_ACCESS_KEY: 'aws-dummy',
+      GIT_DIR: '/h/other/.git',
+      GIT_WORK_TREE: '/h/other',
+    };
+  });
+
+  it("a sandboxed write session's environment is the allow-list, on every launch, reopen included", async () => {
+    for (const resume of [false, true]) {
+      const { service, env } = await launched({
+        toolPolicy: 'write',
+        grants: SANDBOX_GRANTS,
+        resume,
+      });
+      expect(env.GH_TOKEN).toBeUndefined();
+      expect(Object.keys(env).sort()).toEqual(
+        [
+          'CI',
+          'HOME',
+          'PATH',
+          'USER',
+          'XDG_CACHE_HOME',
+          'npm_config_cache',
+          'npm_config_store_dir',
+          'YARN_CACHE_FOLDER',
+        ].sort(),
+      );
+      service.destroy();
+    }
+  });
+
+  it('a host write session keeps the login environment, without the token or a git folder variable', async () => {
+    const { service, env } = await launched({ toolPolicy: 'write', grants: HOST_GRANTS });
+    expect(env).toMatchObject({
+      HOME: '/h',
+      PATH: '/usr/bin',
+      USER: 'alice',
+      AWS_SECRET_ACCESS_KEY: 'aws-dummy',
+    });
+    expect(env.GH_TOKEN).toBe('gh-dummy'); // the person's own, as their shell has it; Consola borrows none
+    for (const name of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR'])
+      expect(env).not.toHaveProperty(name);
+    service.destroy();
+  });
+
+  it('a session with no policy keeps its environment exactly as before', async () => {
+    const { service, env } = await launched({});
+    expect(env).toMatchObject({ GIT_DIR: '/h/other/.git', GH_TOKEN: 'gho_dummy' });
+    service.destroy();
+  });
+
+  it('the pane says a write step writes, never read-only', async () => {
+    const { service, output } = await launched({
+      toolPolicy: 'write',
+      grants: SANDBOX_GRANTS,
+      unattended: true,
+      reportTurns: true,
+      initialPrompt: 'Fix it.',
+    });
+    await vi.advanceTimersByTimeAsync(1);
+    expect(output.join('')).toContain(
+      "Consola is running this unattended, writing in this run's checkout, sandboxed. Its progress shows here; its findings are on the run page when it finishes. Press Ctrl+C to stop it.",
+    );
+    expect(output.join('')).not.toContain('read-only');
+    service.destroy();
+    expect(unattendedNotice(true, 'edit', HOST_GRANTS)).toBe(
+      "Consola is running this unattended, writing in this run's checkout, on host, a convention. Its progress shows here; its findings are on the run page when it finishes. Press Ctrl+C to stop it.",
+    );
+  });
+
+  it("records a step's descendants only for a session with a write policy; any other session never runs ps (the re-check's Minor)", async () => {
+    const PS = [
+      '  4242     1  4242 Sun Nov 22 10:00:00 2026',
+      '  4300  4242  4242 Sun Nov 22 10:00:01 2026',
+      '  4301  4300  4301 Sun Nov 22 10:00:02 2026',
+      '  5000     1  5000 Sun Nov 22 09:00:00 2026',
+    ].join('\n');
+    for (const policy of [undefined, 'read-only'] as const) {
+      const listProcesses = vi.fn(async () => PS);
+      const { service } = await launched({
+        ...(policy ? { toolPolicy: policy } : {}),
+        listProcesses,
+      });
+      await service.recordStepProcesses();
+      expect(listProcesses).not.toHaveBeenCalled();
+      expect(service.stepProcesses()).toBeNull();
+      service.destroy();
+    }
+    const listProcesses = vi.fn(async () => PS);
+    const { service } = await launched({ toolPolicy: 'write', grants: HOST_GRANTS, listProcesses });
+    expect(service.stepProcesses()).toEqual({ pgid: 4242, descendants: [] });
+    await service.recordStepProcesses();
+    await service.recordStepProcesses();
+    expect(listProcesses).toHaveBeenCalledTimes(2);
+    expect(service.stepProcesses()).toEqual({
+      pgid: 4242,
+      descendants: [
+        { pid: 4300, pgid: 4242, started: 'Sun Nov 22 10:00:01 2026' },
+        { pid: 4301, pgid: 4301, started: 'Sun Nov 22 10:00:02 2026' },
+      ],
+    });
+    service.destroy();
+  });
+
+  it("records them once when a write step's result line arrives, before the CLI exits", async () => {
+    const listProcesses = vi.fn(async () => '  4300  4242  4242 Sun Nov 22 10:00:01 2026\n');
+    const { service, pty } = await launched({
+      toolPolicy: 'write',
+      grants: SANDBOX_GRANTS,
+      unattended: true,
+      reportTurns: true,
+      initialPrompt: 'Fix it.',
+      listProcesses,
+    });
+    pty.feed(INIT);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(listProcesses).not.toHaveBeenCalled();
+    pty.feed(RESULT_OK);
+    pty.feed(resultLine({}));
+    await vi.advanceTimersByTimeAsync(1);
+    expect(listProcesses).toHaveBeenCalledTimes(1);
+    expect(service.stepProcesses()?.descendants).toEqual([
+      { pid: 4300, pgid: 4242, started: 'Sun Nov 22 10:00:01 2026' },
+    ]);
+    service.destroy();
   });
 });

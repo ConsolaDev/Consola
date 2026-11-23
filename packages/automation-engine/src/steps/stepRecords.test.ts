@@ -65,6 +65,23 @@ describe('withAttemptStarted', () => {
     });
     expect(Object.prototype.hasOwnProperty.call(look, 'agent')).toBe(false);
   });
+
+  it("drops an earlier attempt's launch environment: only this attempt's launch records one (slice 3-B)", () => {
+    const earlier = records().map((record) =>
+      record.id === 'look'
+        ? {
+            ...record,
+            environment: {
+              name: 'sandboxed',
+              isolation: 'sandbox' as const,
+              cliVersion: '2.1.329',
+            },
+          }
+        : record,
+    );
+    const [look] = withAttemptStarted(earlier, 'look', AT);
+    expect(look).not.toHaveProperty('environment');
+  });
 });
 
 // --- slice 3: loops, gates and retry waits (Task 6) ---------------------------

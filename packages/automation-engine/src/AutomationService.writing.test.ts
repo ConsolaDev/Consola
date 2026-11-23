@@ -1525,3 +1525,80 @@ describe('what the version, a dry run and a retry make of a write agent (Tasks 6
     expect(stepOf(host, run.id, 'fix').status).toBe('failed');
   });
 });
+
+describe('a write step launches held to its environment (Task 18)', () => {
+  it('the launch carries the agent’s policy, its environment, the checkout and what is left of the budget', async () => {
+    const yaml = WRITE_ENTRY.replace(
+      '    mode: auto\n',
+      '    mode: auto\n    budget: { usd: 5 }\n',
+    );
+    const h = await writing(
+      yaml,
+      {},
+      {
+        ...WRITER,
+        'environments/sandboxed.yaml':
+          'isolation: sandbox\nnetwork: [registry.npmjs.org]\nenv: [CI]\n',
+      },
+    );
+    const run = await runNow(h, 'write');
+    const step = h.world.launches[0].step!;
+    expect(step).toMatchObject({
+      checkout: 'run-owned',
+      checkoutPath: ownedDir(h, run.id),
+      maxBudgetUsd: 5,
+      agent: {
+        tools: 'write',
+        environment: {
+          name: 'sandboxed',
+          isolation: 'sandbox',
+          network: ['registry.npmjs.org'],
+          env: ['CI'],
+        },
+      },
+    });
+    expect(step.cwd).toBe(step.checkoutPath);
+  });
+
+  it('a write step records its environment, the CLI version it ran under and what was passed', async () => {
+    const h = await writing(
+      WRITE_ENTRY,
+      {},
+      {
+        ...WRITER,
+        'environments/sandboxed.yaml': 'isolation: sandbox\nenv: [CI]\n',
+      },
+    );
+    h.world.onLaunch = (_request, session) =>
+      Object.assign(session, {
+        environment: { cliVersion: '2.1.330', passed: ['CI'], missing: [] },
+      });
+    const run = await runNow(h, 'write');
+    expect(stepOf(h, run.id, 'fix').environment).toEqual({
+      name: 'sandboxed',
+      isolation: 'sandbox',
+      cliVersion: '2.1.330',
+      passed: ['CI'],
+      missing: [],
+    });
+  });
+
+  it('a read-only step records no environment, and its launch carries no write fields', async () => {
+    const h = await writing(
+      WRITE_ENTRY,
+      {},
+      {
+        ...WRITER,
+        'agents/fixer.md': '---\ntools: read-only\n---\nLook.\n',
+      },
+    );
+    const run = await runNow(h, 'write');
+    const step = h.world.launches[0].step!;
+    expect(step.agent).not.toHaveProperty('tools');
+    expect(step.agent).not.toHaveProperty('environment');
+    expect(step).not.toHaveProperty('maxBudgetUsd');
+    expect(stepOf(h, run.id, 'fix')).not.toHaveProperty('environment');
+    // A read-only step in a run's own checkout still names it: the host compiles its servers for it.
+    expect(step.checkoutPath).toBe(ownedDir(h, run.id));
+  });
+});

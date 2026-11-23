@@ -4832,9 +4832,29 @@ export class AutomationService {
         id: session.claudeSessionId,
         cwd: session.cwd ?? cwd,
       };
+      // A write step's environment as it launched (slice 3-B): its isolation, the CLI it ran under, what was passed.
+      const environment = loaded.definition.agents?.[stepId]?.environment;
       this.writeSteps(
         runId,
-        withStep(this.stepsOf(runId), stepId, { sessionId: session.id, conversation }),
+        withStep(this.stepsOf(runId), stepId, {
+          sessionId: session.id,
+          conversation,
+          ...(environment
+            ? {
+                environment: {
+                  name: environment.name,
+                  isolation: environment.isolation,
+                  ...(session.environment
+                    ? {
+                        cliVersion: session.environment.cliVersion,
+                        passed: [...session.environment.passed],
+                        missing: [...session.environment.missing],
+                      }
+                    : {}),
+                },
+              }
+            : {}),
+        }),
       );
       this.broadcastRun(runId);
       this.honourStepStop(runId, stepId, session.id);

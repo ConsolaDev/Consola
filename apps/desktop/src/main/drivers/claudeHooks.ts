@@ -155,4 +155,12 @@ export function parseClaudeHookEvent(body: unknown): AttentionSignal | null {
   }
 }
 
-export const claudeAttentionHooks: AttentionHooks = { parse: parseClaudeHookEvent };
+/** Claude's `Stop`: the turn is over, and the CLI waits on the hook's answer before it exits. */
+export function endsClaudeTurn(body: unknown): boolean {
+  return asRecord(body)?.hook_event_name === 'Stop';
+}
+
+export const claudeAttentionHooks: AttentionHooks = {
+  parse: parseClaudeHookEvent,
+  endsTurn: endsClaudeTurn,
+};

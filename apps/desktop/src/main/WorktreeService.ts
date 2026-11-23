@@ -137,6 +137,11 @@ export class WorktreeService {
     private readonly lock: PathLock = worktreePathLock,
   ) {}
 
+  /** The folder every Consola worktree, and every run's own checkout, is a direct child of. */
+  public get worktreeRoot(): string {
+    return this.root;
+  }
+
   public invalidate(): void {
     this.remoteCache.clear();
   }

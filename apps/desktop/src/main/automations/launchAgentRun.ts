@@ -9,7 +9,7 @@ import { sameWorkItem, workItemKey } from '../../shared/workItems';
 import { launchFieldsFor, type Harness } from '../../shared/harness';
 import { generateSessionInstanceId, type Session, type Workspace } from '../../shared/workspace';
 import { getDriver, type HarnessDriver, toHarnessConfig, toolPolicyProblem } from '../drivers';
-import type { McpServerReport } from '../drivers/HarnessDriver';
+import type { CompileHost, McpServerReport } from '../drivers/HarnessDriver';
 import type { GitProviderDriver } from '../providers/GitProviderDriver';
 import {
   chainWorktreeStep,
@@ -19,7 +19,8 @@ import {
 } from '../providers/launchWorkItem';
 import { withoutGitHooks } from '../gitHooks';
 import type { LaunchSessionFields } from '../SessionLauncher';
-import { agentHarnessRefusal, noAgentGrants } from './agentHarness';
+import { agentHarnessRefusal, noAgentGrants, writeAgentsClaudeOnly } from './agentHarness';
+import { sandboxSessionEnv } from './sandboxEnv';
 import { toWorkItemRef } from './engineViews';
 
 export { withoutGitHooks };
@@ -47,7 +48,18 @@ export interface AgentLaunchDeps {
   serversForLaunch(harness: Harness | undefined): Promise<McpServerReport[]>;
   /** The driver for a harness's driver id; absent, `getDriver`. For tests. */
   driverFor?(id?: HarnessDriverId): HarnessDriver;
+  /**
+   * What a write agent compiles against at launch (`writeAgentHost`): the
+   * platform, the deny list, the CLI version (waited for) and the person's
+   * settings files. Absent: a write step is refused, never launched looser.
+   */
+  writeAgentHost?(harness: Harness | undefined): Promise<CompileHost>;
+  /** The login environment, for what a write step's environment passes; absent, none is said. */
+  loginEnv?(): NodeJS.ProcessEnv;
 }
+
+/** A write step's launch as it was made: the CLI version compiled for, and its `env:` names passed and missing. */
+export type LaunchEnvironment = { cliVersion: string; passed: string[]; missing: string[] };
 
 /** A launch refused in words: one final full stop, whether the words end in one or not. */
 function didNotStart(words: string): Error {
@@ -72,16 +84,33 @@ async function compileForLaunch(
   workspace: Workspace,
   step: NonNullable<AgentLaunchRequest['step']>,
   agent: StepAgent,
-): Promise<AgentGrants> {
+): Promise<{ grants: AgentGrants; environment?: LaunchEnvironment }> {
   const harness = deps
     .harnesses()
     .find((candidate) => candidate.id === (agent.harnessId ?? workspace.defaultHarnessId));
   const fields = launchFieldsFor(harness);
   const name = harness?.name ?? 'Claude';
-  const policy = toolPolicyProblem(fields, 'read-only');
-  if (policy) throw didNotStart(policy);
+  const tools = agent.tools ?? 'read-only';
+  const writes = tools !== 'read-only';
   const driver = (deps.driverFor ?? getDriver)(fields.driverId);
+  // A write agent needs a driver that holds it to its environment, whatever else it says.
+  if (writes && (!driver.compileAgent || driver.agentRefusal !== undefined))
+    throw didNotStart(writeAgentsClaudeOnly(name));
+  const policy = toolPolicyProblem(fields, tools);
+  if (policy) throw didNotStart(policy);
   if (!driver.compileAgent) throw didNotStart(noAgentGrants(name));
+  // A write agent compiles against this machine, its CLI's version waited for (Call 14).
+  let host: CompileHost | undefined;
+  if (writes) {
+    if (!deps.writeAgentHost) throw didNotStart(writeAgentsClaudeOnly(name));
+    try {
+      host = await deps.writeAgentHost(harness);
+    } catch (error) {
+      throw didNotStart(
+        `Couldn't read what this machine holds a write agent to: ${messageOf(error)}`,
+      );
+    }
+  }
   let servers: McpServerReport[] = [];
   if (agent.mcpServers.length > 0) {
     try {
@@ -94,19 +123,24 @@ async function compileForLaunch(
     config: toHarnessConfig(fields),
     harnessName: name,
     agent: {
-      tools: 'read-only',
+      tools,
       mcpServers: agent.mcpServers.map((server) => ({
         name: server.name,
         ...(server.tools ? { tools: [...server.tools] } : {}),
       })),
       skills: [...agent.skills],
+      ...(agent.environment ? { environment: agent.environment } : {}),
     },
     checkout: step.checkout,
     servers,
     ...(step.pluginDir !== undefined ? { pluginDir: step.pluginDir } : {}),
     ...(agent.skillHashes !== undefined ? { skillHashes: agent.skillHashes } : {}),
+    ...(host ? { host } : {}),
+    ...(step.checkoutPath !== undefined ? { checkoutPath: step.checkoutPath } : {}),
   });
   if (!compiled.ok) throw didNotStart(compiled.problem);
+  // Never a write step on grants that do not hold its policy: refused, not launched looser.
+  if (writes && compiled.grants.tools !== tools) throw didNotStart(writeAgentsClaudeOnly(name));
   if (agent.skills.length > 0) {
     if (!driver.stageSkills) throw didNotStart(noAgentGrants(name));
     if (agent.skillsDir === undefined)
@@ -120,7 +154,32 @@ async function compileForLaunch(
       throw didNotStart(messageOf(error));
     }
   }
-  return compiled.grants;
+  if (!writes || !host || !agent.environment) return { grants: compiled.grants };
+  return {
+    grants: compiled.grants,
+    environment: { cliVersion: host.cliVersion, ...passedOf(deps, agent.environment, step.cwd) },
+  };
+}
+
+/**
+ * Which of a write step's `env:` names its session gets (`passed`) and which
+ * the person's environment lacks (`missing`): on `sandbox`, the allow-list's
+ * own answer; on `host`, which are set (it has the whole environment).
+ */
+function passedOf(
+  deps: AgentLaunchDeps,
+  environment: NonNullable<StepAgent['environment']>,
+  cwd: string,
+): { passed: string[]; missing: string[] } {
+  const login = deps.loginEnv?.() ?? {};
+  if (environment.isolation === 'sandbox') {
+    const { passed, missing } = sandboxSessionEnv(login, {}, environment.env, cwd);
+    return { passed, missing };
+  }
+  return {
+    passed: environment.env.filter((name) => login[name] !== undefined),
+    missing: environment.env.filter((name) => login[name] === undefined),
+  };
 }
 
 /**
@@ -273,7 +332,7 @@ export async function prepareItemWorktree(
 export async function launchAgentRun(
   deps: AgentLaunchDeps,
   request: AgentLaunchRequest,
-): Promise<Session> {
+): Promise<Session & { environment?: LaunchEnvironment }> {
   const workspace = deps.getWorkspace(request.workspaceId);
   if (!workspace) throw new Error(`No workspace ${request.workspaceId}.`);
   const { step } = request;
@@ -285,10 +344,14 @@ export async function launchAgentRun(
   if (refused) throw new Error(`It did not start: ${refused}.`);
   // What its agent names is compiled now, at each attempt's launch, and rides
   // on the session's record into every launch of it; never dropped silently.
-  const grants =
-    step && agent && (agent.mcpServers.length > 0 || agent.skills.length > 0)
+  // A write agent always compiles: its grants are what holds it to its environment.
+  const compiled =
+    step &&
+    agent &&
+    (agent.mcpServers.length > 0 || agent.skills.length > 0 || agent.tools !== undefined)
       ? await compileForLaunch(deps, workspace, step, agent)
       : undefined;
+  const grants = compiled?.grants;
   const common = {
     workspaceId: workspace.id,
     instanceId: generateSessionInstanceId(workspace.id),
@@ -296,7 +359,8 @@ export async function launchAgentRun(
     harnessId: agent?.harnessId ?? workspace.defaultHarnessId,
     ...(agent?.model !== undefined ? { model: agent.model } : {}),
     kind: 'interactive' as const,
-    toolPolicy: 'read-only' as const,
+    // A write agent's session writes (slice 3-B); every other run's is read-only.
+    toolPolicy: agent?.tools ?? ('read-only' as const),
     automation: {
       name: request.run.automation,
       runId: request.run.id,
@@ -307,6 +371,8 @@ export async function launchAgentRun(
     ...(step?.maxTurns !== undefined ? { maxTurns: step.maxTurns } : {}),
     // Its agent's grants, on the record the same way: fixed for the session's life.
     ...(grants !== undefined ? { grants } : {}),
+    // What is left of the run's budget, for this first turn only: never on the record.
+    ...(step?.maxBudgetUsd !== undefined ? { maxBudgetUsd: step.maxBudgetUsd } : {}),
     initialPrompt: request.prompt,
     // Nobody is watching: the first turn runs non-interactively, so
     // there is no composer to type into and no trust prompt to stall on.
@@ -314,13 +380,15 @@ export async function launchAgentRun(
   };
 
   if (!request.item) {
-    if (step)
-      return deps.launchSession(workspace.id, {
+    if (step) {
+      const session = await deps.launchSession(workspace.id, {
         ...common,
         name: step.name,
         scopeId: step.scopeId,
         cwd: step.cwd,
       });
+      return compiled?.environment ? { ...session, environment: compiled.environment } : session;
+    }
     const scope = workspace.scopes.find((candidate) => candidate.id === request.scopeId);
     if (!scope) throw new Error('Its scope is no longer in this workspace.');
     return deps.launchSession(workspace.id, {
@@ -358,7 +426,7 @@ export async function launchAgentRun(
         refreshExisting: true, // automations are read-only
       }));
     const groupId = readyGroup(deps, workspace, request.item!.groupId);
-    return deps.launchSession(workspace.id, {
+    const session = await deps.launchSession(workspace.id, {
       ...common,
       name: step?.name ?? title,
       scopeId,
@@ -367,5 +435,6 @@ export async function launchAgentRun(
       workItemAction: label,
       ...(groupId !== undefined ? { groupId } : {}),
     });
+    return compiled?.environment ? { ...session, environment: compiled.environment } : session;
   });
 }

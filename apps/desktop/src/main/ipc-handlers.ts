@@ -53,8 +53,9 @@ import { browserRefusal, closeConnectionsWithoutAccess } from './browser/browser
 import { isolated } from './browser/isolated';
 import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
-import { exec, execFile } from 'node:child_process';
+import { exec, execFile, execFileSync } from 'node:child_process';
 import { TerminalManager } from './TerminalManager';
 import {
   SessionLauncher,
@@ -129,7 +130,13 @@ import {
   harnessesWithServers,
   settledServerTools,
   withKnownTools,
+  writeAgentHost,
+  writeAgentHostNow,
+  type WriteAgentHostDeps,
 } from './automations/agentHarness';
+import { HarnessVersions } from './drivers/harnessVersions';
+import { runCheckoutSpawnRefusal, runOwnedCheckoutPort } from './automations/runOwnedCheckout';
+import { scopeIdForPath } from './providers/launchWorkItem';
 import { McpServersCache } from './automations/mcpServersCache';
 import {
   launchAgentRun,
@@ -1251,6 +1258,9 @@ export function setupIpcHandlers(): boolean {
       located = findSessionByInstanceId(workspaces.getAll(), instanceId);
       if (!located) throw new Error('Session no longer exists.');
     }
+    // Nothing starts in a run's own checkout whose git folder changed (slice 3-B, review NB1).
+    const refused = runCheckoutSpawnRefusal(located.session, worktrees.worktreeRoot);
+    if (refused) throw new Error(refused);
     // Beside the agent, in whichever checkout it works — one it moved
     // itself into included — rather than where it was launched.
     const cwd = checkoutPathForSession(located.workspace, located.session);
@@ -2118,6 +2128,81 @@ export function setupIpcHandlers(): boolean {
     const fields = launchFieldsFor(harness);
     return { driver: getDriver(fields.driverId), config: toHarnessConfig(fields) };
   };
+  // What a write agent compiles against (slice 3-B Task 17): this machine, its deny list,
+  // each harness's CLI version (asked once per launch description), the person's settings files.
+  const harnessVersions = new HarnessVersions((fields) =>
+    getDriver(fields.driverId).probeHealth(toHarnessConfig(fields)),
+  );
+  const writeHostDeps: WriteAgentHostDeps = {
+    harnesses: () => harnesses.getAll(),
+    platform: process.platform,
+    home: os.homedir(),
+    userData: app.getPath('userData'),
+    factoryRoot:
+      process.env.CONSOLA_FACTORY_DIR ?? path.join(os.homedir(), '.consola', 'workspaces'),
+    loginEnv: () => getLoginEnv(),
+    versions: harnessVersions,
+    readSettings: (file) => {
+      try {
+        return fs.readFileSync(file, 'utf8');
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+        throw error;
+      }
+    },
+  };
+  // A run's own checkout (slice 3-B Task 18): made from the person's clone, settled and
+  // committed by the engine's adapter; the step's processes and the sessions there are ours.
+  const runCheckoutProcesses = new ProcessCwdIndex();
+  const runCheckout = runOwnedCheckoutPort({
+    root: worktrees.worktreeRoot,
+    getWorkspace: (id) => workspaces.getAll().find((candidate) => candidate.id === id),
+    resolveRepo: (workspace, repo) => worktrees.resolveRepo(workspace, repo),
+    fetchEnv: async (workspace) => {
+      const provider = workspace.provider;
+      if (!provider) {
+        await loginEnvRetry();
+        return { ...getLoginEnv() };
+      }
+      return composeProviderEnv(getProviderDriver(provider.id), provider.accountLogin);
+    },
+    scopeIdForPath,
+    processes: runCheckoutProcesses,
+    stepProcesses: (sessionId) => automationTerminal(sessionId)?.stepProcesses() ?? null,
+    identify: (pid) => {
+      try {
+        const said = execFileSync('ps', ['-o', 'pgid=,lstart=', '-p', String(pid)], {
+          encoding: 'utf8',
+          timeout: 5_000,
+        });
+        const match = /^\s*(\d+)\s+(.+?)\s*$/.exec(said);
+        return match ? { pgid: Number(match[1]), started: match[2] } : null;
+      } catch {
+        return null;
+      }
+    },
+    liveTerminals: () => {
+      const agents: number[] = [];
+      const shellPids: number[] = [];
+      for (const session of allSessions()) {
+        const agent = manager.get(session.instanceId);
+        const pid = agent && !agent.hasClaudeExited() ? agent.pid() : undefined;
+        const shell = shells.pid(session.instanceId);
+        if (pid !== undefined) agents.push(pid);
+        if (shell !== undefined) shellPids.push(shell);
+      }
+      return { agents, shells: shellPids };
+    },
+    sessions: () =>
+      allSessions().map((session) => ({
+        id: session.id,
+        name: session.name,
+        ...(session.cwd !== undefined ? { cwd: session.cwd } : {}),
+        ...(session.agentCwd !== undefined ? { agentCwd: session.agentCwd } : {}),
+        running: isRunning(session),
+      })),
+    kill: (pid, signal) => process.kill(pid, signal),
+  });
   const automations = new AutomationService({
     folderFor: (workspaceId) => new FactoryFolder(workspaceDataDir(workspaceId)),
     // Each folder's last applied version, in Consola's own state: what keeps running while a file has a problem.
@@ -2190,6 +2275,9 @@ export function setupIpcHandlers(): boolean {
             const { driver, config } = serversOf(harness);
             return mcpServers.get(driver, config);
           },
+          // A write agent's: this machine and its CLI's version, waited for (slice 3-B).
+          writeAgentHost: (harness) => writeAgentHost(writeHostDeps, harness),
+          loginEnv: () => getLoginEnv(),
         },
         request,
       ),
@@ -2219,6 +2307,8 @@ export function setupIpcHandlers(): boolean {
           const { driver, config } = serversOf(harness);
           mcpServers.missing(driver, config, names);
         },
+        // A write agent's machine, at apply: never waits for a CLI version (slice 3-B).
+        host: (harness) => writeAgentHostNow(writeHostDeps, harness),
       });
     },
     // What an agent writing automations may name in an agent file's `harness:`,
@@ -2236,6 +2326,10 @@ export function setupIpcHandlers(): boolean {
       allSessions,
     }),
     checkoutBusy: (dir) => runningIn(allSessions(), dir, isRunning),
+    // From here the desktop makes a run's own checkout and holds a write agent to its
+    // environment (Call 2): its compile (Task 17), its launch and its port (Task 18).
+    runCheckout,
+    writeAgents: true,
     folderExists: (dir) => fs.existsSync(dir),
     // run: steps and poll checks: spawned by the engine's own executor.
     commands: { start: startCommand },
@@ -2658,6 +2752,12 @@ export function setupIpcHandlers(): boolean {
     ) {
       throw new Error('Session was deleted before its terminal started.');
     }
+    // Nothing starts in a run's own checkout whose git folder changed, after any rebuild
+    // (slice 3-B, Call 9, review NB1): a step's session reopened, a continuation in it.
+    const runCheckoutRefusal = record
+      ? runCheckoutSpawnRefusal(record, worktrees.worktreeRoot)
+      : null;
+    if (runCheckoutRefusal) throw new Error(runCheckoutRefusal);
 
     return manager.ensure(
       instanceId,
@@ -2728,6 +2828,12 @@ export function setupIpcHandlers(): boolean {
       const cwd =
         located &&
         (located.session.cwd ?? scopeForSession(located.workspace, located.session)?.path);
+      // Nothing starts in a run's own checkout whose git folder changed (slice 3-B, review NB1).
+      const refused = located && runCheckoutSpawnRefusal(located.session, worktrees.worktreeRoot);
+      if (refused) {
+        manager.get(instanceId)?.notice(`It did not start: ${refused}.`);
+        return;
+      }
       manager.get(instanceId)?.restartClaude(cwd ?? undefined, notice);
     })();
   });
