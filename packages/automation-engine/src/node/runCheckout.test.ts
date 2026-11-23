@@ -1403,6 +1403,17 @@ describe("a removed run's checkout: its keep-ref, its folders, its rebuild (Task
     expect(fs.existsSync(dir)).toBe(true);
   });
 
+  it("fetches into no ref but Consola's own: the person's branches stay where they are (3-B code review F13)", async () => {
+    const main = git(source, 'rev-parse', 'refs/heads/main');
+    for (const keepRef of ['refs/heads/main', 'refs/heads/fix/SHOP-42', 'refs/tags/kept', 'HEAD'])
+      await expect(
+        fetchKeepRef({ source, dir, branch: 'fix/SHOP-42', head, keepRef }),
+      ).rejects.toThrow(`${keepRef} is not a ref Consola keeps`);
+    expect(git(source, 'rev-parse', 'refs/heads/main')).toBe(main);
+    expect(() => git(source, 'rev-parse', '--verify', '-q', 'refs/heads/fix/SHOP-42')).toThrow();
+    expect(() => git(source, 'rev-parse', '--verify', '-q', 'refs/tags/kept')).toThrow();
+  });
+
   it('fetches nothing from a git folder that changed (Call 9)', async () => {
     fs.writeFileSync(path.join(dir, '.git'), `gitdir: ${path.join(source, '.git')}\n`);
     await expect(
