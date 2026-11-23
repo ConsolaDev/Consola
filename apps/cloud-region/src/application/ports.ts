@@ -2,6 +2,16 @@
 
 import type { GitHubEventMessage, WorkspaceRole } from '@consola/cloud-contract';
 import type { Factory, FactoryFile, FactoryVersion } from '../domain/factory.js';
+import type {
+  CheckedRun,
+  Phase,
+  PhaseCounts,
+  RequestFacts,
+  RunCursor,
+  RunSummary,
+  RunTrigger,
+  StepRecord,
+} from '../domain/run.js';
 import type { Team } from '../domain/team.js';
 import type { CopyChange } from '../domain/workspaceCopy.js';
 
@@ -168,4 +178,76 @@ export type FactoryStore = {
     factoryId: string,
     input: { baseVersion: number; files: readonly FactoryFile[]; personId: string },
   ): Promise<FactorySave>;
+};
+
+/**
+ * Which of a workspace's top-level runs the list reads. Only runs of `factoryIds` are ever read:
+ * the use case names the factories the caller sees, narrowed by the query's factory and team.
+ */
+export type RunFilter = {
+  readonly factoryIds: readonly string[];
+  /** Started one of these ways; empty: any way. */
+  readonly triggers: readonly RunTrigger[];
+  /** Automation runs of this name, and requests that started one; null: any. */
+  readonly automation: string | null;
+  /** Started by this person, by global id; null: by anyone or nothing. */
+  readonly startedBy: string | null;
+  /** Held by the title or the automation's name, in any case; null: no such filter. */
+  readonly q: string | null;
+};
+
+/** One page of the list: runs newest first, and where the next page starts, if there is one. */
+export type RunPage = { runs: RunSummary[]; next: RunCursor | null };
+
+/** What recording a run found. */
+export type RunRecording =
+  | 'recorded'
+  /** The workspace holds a newer record of the run (a later `updatedAt`): nothing changed. */
+  | 'stale'
+  /** The workspace has no such factory, or the factory no such version. */
+  | 'factory-not-found'
+  /** The run names a parent the workspace does not hold as a request of the same factory. */
+  | 'parent-not-found'
+  /** The run is held already with another factory, kind or parent, which never change. */
+  | 'identity-changed';
+
+/** One run, with what its page shows beside it. */
+export type RunFound = {
+  run: RunSummary;
+  /** The request that started it: always of the same factory, so seen whenever the run is. */
+  parent: { id: string; title: string } | null;
+  /** As recorded: what each step was asked is the use case's to read. */
+  steps: StepRecord[];
+  request: (RequestFacts & { text: string }) | null;
+  /** A request's runs, in the order it started them. */
+  children: RunSummary[];
+};
+
+/**
+ * A workspace's runs, as its runners record them (`domain/run.ts`). Every call is scoped by the
+ * workspace's id, and a run of another workspace is one the store does not have. Every call
+ * throws when the database does not answer.
+ */
+export type RunStore = {
+  /**
+   * Stores a checked run, or replaces the workspace's record of it unless that one is newer
+   * (`stale`). A request's stored phase rolls up its children's (`requestPhase`), and recording a
+   * child rolls its request's up again, in the same transaction.
+   */
+  record(workspaceId: string, run: CheckedRun): Promise<RunRecording>;
+  /** A page of top-level runs in one of `phases` (empty: any), newest first, after `after`. */
+  list(
+    workspaceId: string,
+    filter: RunFilter,
+    page: { phases: readonly Phase[]; after: RunCursor | null; limit: number },
+  ): Promise<RunPage>;
+  /** How many top-level runs the filter keeps, in each phase. */
+  count(workspaceId: string, filter: RunFilter): Promise<PhaseCounts>;
+  /** The automations the factories' runs ran, children's included: distinct, by name. */
+  automations(
+    workspaceId: string,
+    factoryIds: readonly string[],
+  ): Promise<{ factoryId: string; name: string }[]>;
+  /** One run, or null when the workspace has none with that id. */
+  get(workspaceId: string, runId: string): Promise<RunFound | null>;
 };

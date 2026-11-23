@@ -11,6 +11,7 @@
     "start": "node dist/main.js",
     "test": "vitest run",
     "db:generate": "drizzle-kit generate",
+    "db:seed": "tsx src/seed.ts",
     "openapi:generate": "vitest run src/adapters/http/openapi.test.ts --update",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

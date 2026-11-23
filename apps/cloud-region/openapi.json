@@ -459,6 +459,1050 @@
           "baseVersion",
           "files"
         ]
+      },
+      "RunList": {
+        "type": "object",
+        "properties": {
+          "runs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RunSummary"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The next page's `cursor`; null on the last page."
+          },
+          "counts": {
+            "$ref": "#/components/schemas/PhaseCounts"
+          },
+          "facets": {
+            "type": "object",
+            "properties": {
+              "factories": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "teamId": {
+                      "type": "string"
+                    },
+                    "latestVersion": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name",
+                    "teamId",
+                    "latestVersion"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "teams": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "automations": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "factoryId": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "factoryId",
+                    "name"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "factories",
+              "teams",
+              "automations"
+            ],
+            "additionalProperties": false,
+            "description": "What the filters offer, whatever the query's filters: the factories and teams the caller sees, by name, and the automations their runs ran, children's included."
+          }
+        },
+        "required": [
+          "runs",
+          "nextCursor",
+          "counts",
+          "facets"
+        ],
+        "additionalProperties": false,
+        "description": "Top-level runs (none a request started) the caller sees, newest first: every run for owners and admins, the runs of their teams’ factories for a member."
+      },
+      "RunSummary": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/RunKind"
+          },
+          "title": {
+            "type": "string",
+            "description": "A request: its item's title, else its text's first line; an automation run: its item's title, else its automation's name. At most 120 characters, on one line."
+          },
+          "status": {
+            "$ref": "#/components/schemas/RunStatus"
+          },
+          "phase": {
+            "$ref": "#/components/schemas/Phase"
+          },
+          "waitingOn": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "run",
+              "person",
+              null
+            ],
+            "description": "What a waiting run waits on; set exactly while it is `waiting`."
+          },
+          "factory": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "version": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "version"
+            ],
+            "additionalProperties": false,
+            "description": "Its factory, and the version of it the run executed."
+          },
+          "teamId": {
+            "type": "string",
+            "description": "The team that owns the run's factory now."
+          },
+          "automation": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The automation's name; null exactly for a request."
+          },
+          "parentId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The request that started it, on an automation run one did."
+          },
+          "trigger": {
+            "$ref": "#/components/schemas/RunTrigger"
+          },
+          "triggerDetail": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "What the trigger was: the event's name (`pull_request.opened`), the cron schedule, or the poll's check."
+          },
+          "startedBy": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The global id of the person who started it, who may no longer be a member; null for a run no person started."
+          },
+          "item": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunItem"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "runner": {
+            "type": "string",
+            "description": "Which runner ran it: `cloud` for now."
+          },
+          "progress": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "total": {
+                "type": "integer"
+              },
+              "done": {
+                "type": "integer",
+                "description": "Steps that have ended."
+              },
+              "current": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "The id of the first step running or waiting."
+              }
+            },
+            "required": [
+              "total",
+              "done",
+              "current"
+            ],
+            "additionalProperties": false,
+            "description": "An automation run's steps; null for a request."
+          },
+          "children": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "total": {
+                "type": "integer"
+              },
+              "active": {
+                "type": "integer"
+              },
+              "needsYou": {
+                "type": "integer"
+              },
+              "failed": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "total",
+              "active",
+              "needsYou",
+              "failed"
+            ],
+            "additionalProperties": false,
+            "description": "The automation runs a request started, by phase; null otherwise."
+          },
+          "summary": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "One sentence once it ends."
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "costUsd": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "The CLI's estimate, in dollars; a request's counts its runs too. Null while none was reported."
+          },
+          "createdAt": {
+            "type": "string",
+            "description": "When it was made, as an ISO 8601 time."
+          },
+          "startedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "When it started working, as an ISO 8601 time."
+          },
+          "finishedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "When it ended, as an ISO 8601 time."
+          },
+          "updatedAt": {
+            "type": "string",
+            "description": "When its runner last recorded it, as an ISO 8601 time."
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "title",
+          "status",
+          "phase",
+          "waitingOn",
+          "factory",
+          "teamId",
+          "automation",
+          "parentId",
+          "trigger",
+          "triggerDetail",
+          "startedBy",
+          "item",
+          "runner",
+          "progress",
+          "children",
+          "summary",
+          "error",
+          "costUsd",
+          "createdAt",
+          "startedAt",
+          "finishedAt",
+          "updatedAt"
+        ],
+        "additionalProperties": false
+      },
+      "RunKind": {
+        "type": "string",
+        "enum": [
+          "request",
+          "automation"
+        ],
+        "description": "A `request`, whose one step is its factory’s orchestrator, or an `automation` run, with steps."
+      },
+      "RunStatus": {
+        "type": "string",
+        "enum": [
+          "queued",
+          "running",
+          "needs-approval",
+          "completed",
+          "failed",
+          "rejected",
+          "waiting",
+          "expired",
+          "cancelled"
+        ],
+        "description": "A run's status. The set only grows."
+      },
+      "Phase": {
+        "type": "string",
+        "enum": [
+          "active",
+          "needs-you",
+          "completed",
+          "failed",
+          "stopped"
+        ],
+        "description": "The cell's grouping of a run's status, which the list filters and counts by: `active` (queued, running, waiting on a run), `needs-you` (needs approval, waiting on a person, or a request at work one of whose runs needs someone), `completed`, `failed` (failed, expired) and `stopped` (cancelled, rejected)."
+      },
+      "RunTrigger": {
+        "type": "string",
+        "enum": [
+          "cron",
+          "event",
+          "poll",
+          "manual"
+        ],
+        "description": "How a run was started: a schedule (`cron`), an event, a poll, or someone’s act (`manual`). A run a request started is `manual`."
+      },
+      "RunItem": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "Its page, an https address."
+          },
+          "title": {
+            "type": "string",
+            "description": "Written by its author: text, never markup."
+          },
+          "kind": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "pr",
+              "issue",
+              null
+            ]
+          },
+          "repo": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`owner/name`, when known."
+          },
+          "number": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "url",
+          "title",
+          "kind",
+          "repo",
+          "number"
+        ],
+        "additionalProperties": false,
+        "description": "The pull request or issue a run is about."
+      },
+      "PhaseCounts": {
+        "type": "object",
+        "properties": {
+          "active": {
+            "type": "integer"
+          },
+          "needs-you": {
+            "type": "integer"
+          },
+          "completed": {
+            "type": "integer"
+          },
+          "failed": {
+            "type": "integer"
+          },
+          "stopped": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "active",
+          "needs-you",
+          "completed",
+          "failed",
+          "stopped"
+        ],
+        "additionalProperties": false,
+        "description": "How many runs are in each phase."
+      },
+      "RunDetail": {
+        "type": "object",
+        "properties": {
+          "run": {
+            "$ref": "#/components/schemas/RunSummary"
+          },
+          "parent": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "title"
+            ],
+            "additionalProperties": false,
+            "description": "The request that started it, which whoever sees the run sees."
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StepSummary"
+            },
+            "description": "An automation run's steps, in file order; a request's one `orchestrator` step."
+          },
+          "request": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "text": {
+                "type": "string",
+                "description": "The request as the person gave it. Untrusted (it may be a pasted ticket): show it as plain text only."
+              },
+              "budget": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "usd": {
+                    "type": "number"
+                  },
+                  "runs": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "usd",
+                  "runs"
+                ],
+                "additionalProperties": false
+              },
+              "spent": {
+                "type": "object",
+                "properties": {
+                  "usd": {
+                    "type": "number"
+                  },
+                  "runs": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "usd",
+                  "runs"
+                ],
+                "additionalProperties": false,
+                "description": "Its turns and its runs, as the engine sums them; runs it started."
+              },
+              "question": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "at": {
+                    "type": "string"
+                  },
+                  "until": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "at",
+                  "until"
+                ],
+                "additionalProperties": false,
+                "description": "The orchestrator's open question: when it was asked, and its deadline. Its text is not in the cell."
+              }
+            },
+            "required": [
+              "text",
+              "budget",
+              "spent",
+              "question"
+            ],
+            "additionalProperties": false,
+            "description": "A request's own facts; null for an automation run."
+          },
+          "children": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RunSummary"
+            },
+            "description": "The automation runs a request started, in the order it started them."
+          },
+          "conversation": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "sessionId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "sessionId"
+            ],
+            "additionalProperties": false,
+            "description": "The cloud session holding the orchestrator's conversation, once there is one. Always null for now."
+          }
+        },
+        "required": [
+          "run",
+          "parent",
+          "steps",
+          "request",
+          "children",
+          "conversation"
+        ],
+        "additionalProperties": false
+      },
+      "StepSummary": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The step's id in its automation, or `orchestrator`."
+          },
+          "kind": {
+            "$ref": "#/components/schemas/StepKind"
+          },
+          "status": {
+            "$ref": "#/components/schemas/StepStatus"
+          },
+          "attempt": {
+            "type": "integer",
+            "description": "From 1: the nth time it ran in this run."
+          },
+          "agent": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The agent file it names (`agents/<name>.md`), if any."
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "startedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "finishedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "costUsd": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "skipped": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why it was skipped."
+          },
+          "outputs": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                }
+              ]
+            },
+            "description": "The latest execution's outputs, checked against their types."
+          },
+          "artifacts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "bytes": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "name",
+                "bytes"
+              ],
+              "additionalProperties": false
+            },
+            "description": "The documents it wrote; empty when none."
+          },
+          "turn": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "turns": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "description": "The turns it took."
+              },
+              "maxTurns": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "description": "Its own cap, if any."
+              },
+              "deniedTools": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Tools a turn was refused, each once, in first-seen order."
+              }
+            },
+            "required": [
+              "turns",
+              "maxTurns",
+              "deniedTools"
+            ],
+            "additionalProperties": false,
+            "description": "An agent step's turns, summed over its latest attempt."
+          },
+          "command": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "exitCode": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "signal": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "stdoutBytes": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "stderrBytes": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "truncated": {
+                "type": "boolean",
+                "description": "Whether its output was cut."
+              }
+            },
+            "required": [
+              "exitCode",
+              "signal",
+              "stdoutBytes",
+              "stderrBytes",
+              "truncated"
+            ],
+            "additionalProperties": false,
+            "description": "A command step's result; null for an agent step, or before it ran."
+          },
+          "previous": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "attempt": {
+                  "type": "integer"
+                },
+                "status": {
+                  "$ref": "#/components/schemas/StepStatus"
+                },
+                "error": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "finishedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "costUsd": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "turns": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "attempt",
+                "status",
+                "error",
+                "finishedAt",
+                "costUsd",
+                "turns"
+              ],
+              "additionalProperties": false
+            },
+            "description": "Its earlier attempts in this run, oldest first; empty when none."
+          },
+          "reminded": {
+            "type": "boolean",
+            "description": "Whether Consola reminded the agent to finish its step."
+          },
+          "output": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "stdout": {
+                "type": "string"
+              },
+              "stderr": {
+                "type": "string"
+              },
+              "truncated": {
+                "type": "boolean",
+                "description": "Whether more came before what is kept."
+              }
+            },
+            "required": [
+              "stdout",
+              "stderr",
+              "truncated"
+            ],
+            "additionalProperties": false,
+            "description": "The end of what its latest attempt printed, as its runner last sent it: at most 16 KiB of each. Untrusted: show it as plain text."
+          },
+          "definition": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StepDefinition"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "status",
+          "attempt",
+          "agent",
+          "model",
+          "startedAt",
+          "finishedAt",
+          "costUsd",
+          "error",
+          "skipped",
+          "outputs",
+          "artifacts",
+          "turn",
+          "command",
+          "previous",
+          "reminded",
+          "output",
+          "definition"
+        ],
+        "additionalProperties": false
+      },
+      "StepKind": {
+        "type": "string",
+        "enum": [
+          "agent",
+          "run",
+          "orchestrator"
+        ]
+      },
+      "StepStatus": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "queued",
+          "running",
+          "completed",
+          "failed",
+          "skipped",
+          "reported",
+          "not-run",
+          "waiting"
+        ],
+        "description": "A step's status. The set only grows."
+      },
+      "StepDefinition": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "agent",
+              "run"
+            ]
+          },
+          "prompt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The prompt as written: a template, never rendered."
+          },
+          "action": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "agent": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The agent it runs as (`agents/<name>.md`)."
+          },
+          "run": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The command, as written."
+          },
+          "env": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "value": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "value"
+              ],
+              "additionalProperties": false
+            },
+            "description": "The command's environment, as written (templates)."
+          },
+          "if": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Its condition, as written."
+          },
+          "outputs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "type"
+              ],
+              "additionalProperties": false
+            },
+            "description": "The outputs it declares, each type in words (`one of: a, b`)."
+          },
+          "artifacts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The artifacts it declares."
+          },
+          "maxTurns": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "timeoutMs": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "A command's time limit."
+          },
+          "file": {
+            "type": "string",
+            "description": "The file it is written in, in the factory."
+          },
+          "version": {
+            "type": "integer",
+            "description": "The factory version it was read from."
+          }
+        },
+        "required": [
+          "kind",
+          "prompt",
+          "action",
+          "agent",
+          "run",
+          "env",
+          "if",
+          "outputs",
+          "artifacts",
+          "maxTurns",
+          "timeoutMs",
+          "file",
+          "version"
+        ],
+        "additionalProperties": false,
+        "description": "What a step was asked, as its automation's file says at the factory version the run executed."
       }
     },
     "parameters": {}
@@ -3163,6 +4207,429 @@
                       "type": "string",
                       "enum": [
                         "unsupported_media_type"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "421": {
+            "description": "A good token for a workspace in another region: the cell that answered names its own. The workspace's own cell is the fix.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "wrong_region"
+                      ]
+                    },
+                    "region": {
+                      "type": "string",
+                      "enum": [
+                        "eu",
+                        "us"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "region"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The cell cannot get cloud-global's keys just now, so it checks no token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "token_check_unavailable"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/runs": {
+      "get": {
+        "summary": "The top-level runs the caller sees, newest first",
+        "description": "A request is one run; the automation runs it started are not listed here but in its own answer. Filters combine; the values of one filter are alternatives.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/components/schemas/Phase"
+              },
+              "description": "Only runs in one of these phases. Repeat it for several."
+            },
+            "required": false,
+            "description": "Only runs in one of these phases. Repeat it for several.",
+            "name": "phase",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/components/schemas/RunTrigger"
+              },
+              "description": "Only runs started one of these ways; \"background runs\" are `cron`, `event` and `poll`."
+            },
+            "required": false,
+            "description": "Only runs started one of these ways; \"background runs\" are `cron`, `event` and `poll`.",
+            "name": "trigger",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Only this factory's runs; one the caller does not see gives an empty page."
+            },
+            "required": false,
+            "description": "Only this factory's runs; one the caller does not see gives an empty page.",
+            "name": "factoryId",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Only runs of the factories this team owns now."
+            },
+            "required": false,
+            "description": "Only runs of the factories this team owns now.",
+            "name": "teamId",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Only runs of this automation, and requests that started one, in every factory unless `factoryId` narrows it."
+            },
+            "required": false,
+            "description": "Only runs of this automation, and requests that started one, in every factory unless `factoryId` narrows it.",
+            "name": "automation",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "description": "`true`: only runs the caller started."
+            },
+            "required": false,
+            "description": "`true`: only runs the caller started.",
+            "name": "mine",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "description": "Text the title or the automation's name holds, in any case."
+            },
+            "required": false,
+            "description": "Text the title or the automation's name holds, in any case.",
+            "name": "q",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The page before's `nextCursor`."
+            },
+            "required": false,
+            "description": "The page before's `nextCursor`.",
+            "name": "cursor",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            },
+            "required": false,
+            "name": "limit",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of runs, the counts and what the filters offer.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A phase or trigger the cell does not know, a cursor it did not give, a `limit` out of range or a `q` too long.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "invalid_request"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No bearer token (`token_required`), or one the cell does not accept (`invalid_token`): malformed, forged, expired, or signed by a key cloud-global does not publish. A new token is the fix.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "token_required"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "invalid_token"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The cell does not hold the workspace yet: cloud-global has not delivered its creation. Asking again later helps.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "workspace_pending"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "421": {
+            "description": "A good token for a workspace in another region: the cell that answered names its own. The workspace's own cell is the fix.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "wrong_region"
+                      ]
+                    },
+                    "region": {
+                      "type": "string",
+                      "enum": [
+                        "eu",
+                        "us"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "region"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The cell cannot get cloud-global's keys just now, so it checks no token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "token_check_unavailable"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/runs/{runId}": {
+      "get": {
+        "summary": "One run: its steps, and a request’s facts and the runs it started",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "runId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The run.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No bearer token (`token_required`), or one the cell does not accept (`invalid_token`): malformed, forged, expired, or signed by a key cloud-global does not publish. A new token is the fix.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "token_required"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "invalid_token"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The workspace has no run with that id that the caller sees: none, or one of a factory of a team a member is not in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "run_not_found"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The cell does not hold the workspace yet: cloud-global has not delivered its creation. Asking again later helps.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "workspace_pending"
                       ]
                     }
                   },

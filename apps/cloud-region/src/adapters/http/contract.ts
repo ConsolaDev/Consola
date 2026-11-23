@@ -13,6 +13,18 @@ import {
   FACTORY_NAME_PROBLEMS,
 } from '../../domain/factory.js';
 import { REGIONS } from '../../domain/region.js';
+import {
+  ITEM_KINDS,
+  OUTPUT_TAIL_MAX,
+  PHASES,
+  RUN_KINDS,
+  RUN_STATUSES,
+  RUN_TRIGGERS,
+  STEP_KINDS,
+  STEP_STATUSES,
+  TITLE_MAX,
+  WAITING_ON,
+} from '../../domain/run.js';
 import { TEAM_NAME_MAX, TEAM_PROBLEMS } from '../../domain/team.js';
 
 /**
@@ -617,6 +629,377 @@ export const postFactoryVersion = createRoute({
   },
 });
 
+// Runs: what each factory's runners ran, a request and the automation runs it started among them
+// (`domain/run.ts`). Read only: a runner records runs through the store, never over HTTP.
+
+const iso = (what: string) => z.string().openapi({ description: `${what}, as an ISO 8601 time.` });
+
+export const Phase = z.enum(PHASES).openapi('Phase', {
+  description:
+    "The cell's grouping of a run's status, which the list filters and counts by: `active` (queued, running, waiting on a run), `needs-you` (needs approval, waiting on a person, or a request at work one of whose runs needs someone), `completed`, `failed` (failed, expired) and `stopped` (cancelled, rejected).",
+});
+
+export const RunStatus = z.enum(RUN_STATUSES).openapi('RunStatus', {
+  description: "A run's status. The set only grows.",
+});
+
+export const RunTrigger = z.enum(RUN_TRIGGERS).openapi('RunTrigger', {
+  description:
+    'How a run was started: a schedule (`cron`), an event, a poll, or someone’s act (`manual`). A run a request started is `manual`.',
+});
+
+export const RunKind = z.enum(RUN_KINDS).openapi('RunKind', {
+  description:
+    'A `request`, whose one step is its factory’s orchestrator, or an `automation` run, with steps.',
+});
+
+export const StepKind = z.enum(STEP_KINDS).openapi('StepKind');
+
+export const StepStatus = z.enum(STEP_STATUSES).openapi('StepStatus', {
+  description: "A step's status. The set only grows.",
+});
+
+export const RunItem = z
+  .strictObject({
+    url: z.string().openapi({ description: 'Its page, an https address.' }),
+    title: z.string().openapi({ description: 'Written by its author: text, never markup.' }),
+    kind: z.enum(ITEM_KINDS).nullable(),
+    repo: z.string().nullable().openapi({ description: '`owner/name`, when known.' }),
+    number: z.number().int().nullable(),
+  })
+  .openapi('RunItem', { description: 'The pull request or issue a run is about.' });
+
+export const PhaseCounts = z
+  .strictObject({
+    active: z.number().int(),
+    'needs-you': z.number().int(),
+    completed: z.number().int(),
+    failed: z.number().int(),
+    stopped: z.number().int(),
+  })
+  .openapi('PhaseCounts', { description: 'How many runs are in each phase.' });
+
+export const RunSummary = z
+  .strictObject({
+    id: z.string(),
+    kind: RunKind,
+    title: z.string().openapi({
+      description: `A request: its item's title, else its text's first line; an automation run: its item's title, else its automation's name. At most ${TITLE_MAX} characters, on one line.`,
+    }),
+    status: RunStatus,
+    phase: Phase,
+    waitingOn: z
+      .enum(WAITING_ON)
+      .nullable()
+      .openapi({ description: 'What a waiting run waits on; set exactly while it is `waiting`.' }),
+    factory: z
+      .strictObject({ id: z.string(), name: z.string(), version: z.number().int() })
+      .openapi({ description: 'Its factory, and the version of it the run executed.' }),
+    teamId: z.string().openapi({ description: "The team that owns the run's factory now." }),
+    automation: z
+      .string()
+      .nullable()
+      .openapi({ description: "The automation's name; null exactly for a request." }),
+    parentId: z
+      .string()
+      .nullable()
+      .openapi({ description: 'The request that started it, on an automation run one did.' }),
+    trigger: RunTrigger,
+    triggerDetail: z.string().nullable().openapi({
+      description:
+        "What the trigger was: the event's name (`pull_request.opened`), the cron schedule, or the poll's check.",
+    }),
+    startedBy: z.string().nullable().openapi({
+      description:
+        'The global id of the person who started it, who may no longer be a member; null for a run no person started.',
+    }),
+    item: z.union([RunItem, z.null()]),
+    runner: z.string().openapi({ description: 'Which runner ran it: `cloud` for now.' }),
+    progress: z
+      .strictObject({
+        total: z.number().int(),
+        done: z.number().int().openapi({ description: 'Steps that have ended.' }),
+        current: z
+          .string()
+          .nullable()
+          .openapi({ description: 'The id of the first step running or waiting.' }),
+      })
+      .nullable()
+      .openapi({ description: "An automation run's steps; null for a request." }),
+    children: z
+      .strictObject({
+        total: z.number().int(),
+        active: z.number().int(),
+        needsYou: z.number().int(),
+        failed: z.number().int(),
+      })
+      .nullable()
+      .openapi({ description: 'The automation runs a request started, by phase; null otherwise.' }),
+    summary: z.string().nullable().openapi({ description: 'One sentence once it ends.' }),
+    error: z.string().nullable(),
+    costUsd: z.number().nullable().openapi({
+      description:
+        "The CLI's estimate, in dollars; a request's counts its runs too. Null while none was reported.",
+    }),
+    createdAt: iso('When it was made'),
+    startedAt: iso('When it started working').nullable(),
+    finishedAt: iso('When it ended').nullable(),
+    updatedAt: iso('When its runner last recorded it'),
+  })
+  .openapi('RunSummary');
+
+export const StepDefinition = z
+  .strictObject({
+    kind: z.enum(['agent', 'run']),
+    prompt: z
+      .string()
+      .nullable()
+      .openapi({ description: 'The prompt as written: a template, never rendered.' }),
+    action: z.string().nullable(),
+    agent: z
+      .string()
+      .nullable()
+      .openapi({ description: 'The agent it runs as (`agents/<name>.md`).' }),
+    run: z.string().nullable().openapi({ description: 'The command, as written.' }),
+    env: z
+      .array(z.strictObject({ name: z.string(), value: z.string() }))
+      .openapi({ description: "The command's environment, as written (templates)." }),
+    if: z.string().nullable().openapi({ description: 'Its condition, as written.' }),
+    outputs: z
+      .array(z.strictObject({ name: z.string(), type: z.string() }))
+      .openapi({ description: 'The outputs it declares, each type in words (`one of: a, b`).' }),
+    artifacts: z.array(z.string()).openapi({ description: 'The artifacts it declares.' }),
+    maxTurns: z.number().int().nullable(),
+    timeoutMs: z.number().int().nullable().openapi({ description: "A command's time limit." }),
+    file: z.string().openapi({ description: 'The file it is written in, in the factory.' }),
+    version: z.number().int().openapi({ description: 'The factory version it was read from.' }),
+  })
+  .openapi('StepDefinition', {
+    description:
+      "What a step was asked, as its automation's file says at the factory version the run executed.",
+  });
+
+export const StepSummary = z
+  .strictObject({
+    id: z.string().openapi({ description: "The step's id in its automation, or `orchestrator`." }),
+    kind: StepKind,
+    status: StepStatus,
+    attempt: z.number().int().openapi({ description: 'From 1: the nth time it ran in this run.' }),
+    agent: z
+      .string()
+      .nullable()
+      .openapi({ description: 'The agent file it names (`agents/<name>.md`), if any.' }),
+    model: z.string().nullable(),
+    startedAt: z.string().nullable(),
+    finishedAt: z.string().nullable(),
+    costUsd: z.number().nullable(),
+    error: z.string().nullable(),
+    skipped: z.string().nullable().openapi({ description: 'Why it was skipped.' }),
+    outputs: z
+      .record(z.string(), z.union([z.string(), z.number(), z.boolean()]))
+      .nullable()
+      .openapi({ description: "The latest execution's outputs, checked against their types." }),
+    artifacts: z
+      .array(z.strictObject({ name: z.string(), bytes: z.number().int() }))
+      .openapi({ description: 'The documents it wrote; empty when none.' }),
+    turn: z
+      .strictObject({
+        turns: z.number().int().nullable().openapi({ description: 'The turns it took.' }),
+        maxTurns: z.number().int().nullable().openapi({ description: 'Its own cap, if any.' }),
+        deniedTools: z
+          .array(z.string())
+          .openapi({ description: 'Tools a turn was refused, each once, in first-seen order.' }),
+      })
+      .nullable()
+      .openapi({ description: "An agent step's turns, summed over its latest attempt." }),
+    command: z
+      .strictObject({
+        exitCode: z.number().int().nullable(),
+        signal: z.string().nullable(),
+        stdoutBytes: z.number().int().nullable(),
+        stderrBytes: z.number().int().nullable(),
+        truncated: z.boolean().openapi({ description: 'Whether its output was cut.' }),
+      })
+      .nullable()
+      .openapi({
+        description: "A command step's result; null for an agent step, or before it ran.",
+      }),
+    previous: z
+      .array(
+        z.strictObject({
+          attempt: z.number().int(),
+          status: StepStatus,
+          error: z.string().nullable(),
+          finishedAt: z.string().nullable(),
+          costUsd: z.number().nullable(),
+          turns: z.number().int().nullable(),
+        }),
+      )
+      .openapi({ description: 'Its earlier attempts in this run, oldest first; empty when none.' }),
+    reminded: z
+      .boolean()
+      .openapi({ description: 'Whether Consola reminded the agent to finish its step.' }),
+    output: z
+      .strictObject({
+        stdout: z.string(),
+        stderr: z.string(),
+        truncated: z.boolean().openapi({ description: 'Whether more came before what is kept.' }),
+      })
+      .nullable()
+      .openapi({
+        description: `The end of what its latest attempt printed, as its runner last sent it: at most ${OUTPUT_TAIL_MAX / 1024} KiB of each. Untrusted: show it as plain text.`,
+      }),
+    definition: z.union([StepDefinition, z.null()]),
+  })
+  .openapi('StepSummary');
+
+const Spend = z.strictObject({ usd: z.number(), runs: z.number().int() });
+
+export const RunDetail = z
+  .strictObject({
+    run: RunSummary,
+    parent: z
+      .strictObject({ id: z.string(), title: z.string() })
+      .nullable()
+      .openapi({ description: 'The request that started it, which whoever sees the run sees.' }),
+    steps: z.array(StepSummary).openapi({
+      description: "An automation run's steps, in file order; a request's one `orchestrator` step.",
+    }),
+    request: z
+      .strictObject({
+        text: z.string().openapi({
+          description:
+            'The request as the person gave it. Untrusted (it may be a pasted ticket): show it as plain text only.',
+        }),
+        budget: Spend.nullable(),
+        spent: Spend.openapi({
+          description: 'Its turns and its runs, as the engine sums them; runs it started.',
+        }),
+        question: z.strictObject({ at: z.string(), until: z.string() }).nullable().openapi({
+          description:
+            "The orchestrator's open question: when it was asked, and its deadline. Its text is not in the cell.",
+        }),
+      })
+      .nullable()
+      .openapi({ description: "A request's own facts; null for an automation run." }),
+    children: z.array(RunSummary).openapi({
+      description: 'The automation runs a request started, in the order it started them.',
+    }),
+    conversation: z.strictObject({ sessionId: z.string() }).nullable().openapi({
+      description:
+        "The cloud session holding the orchestrator's conversation, once there is one. Always null for now.",
+    }),
+  })
+  .openapi('RunDetail');
+
+export const RunList = z
+  .strictObject({
+    runs: z.array(RunSummary),
+    nextCursor: z
+      .string()
+      .nullable()
+      .openapi({ description: "The next page's `cursor`; null on the last page." }),
+    // Under every filter but `phase`, `cursor` and `limit`.
+    counts: PhaseCounts,
+    facets: z
+      .strictObject({
+        factories: z.array(
+          z.strictObject({
+            id: z.string(),
+            name: z.string(),
+            teamId: z.string(),
+            latestVersion: z.number().int(),
+          }),
+        ),
+        teams: z.array(z.strictObject({ id: z.string(), name: z.string() })),
+        automations: z.array(z.strictObject({ factoryId: z.string(), name: z.string() })),
+      })
+      .openapi({
+        description:
+          "What the filters offer, whatever the query's filters: the factories and teams the caller sees, by name, and the automations their runs ran, children's included.",
+      }),
+  })
+  .openapi('RunList', {
+    description:
+      'Top-level runs (none a request started) the caller sees, newest first: every run for owners and admins, the runs of their teams’ factories for a member.',
+  });
+
+/** A query parameter that may be given several times; once, it is a string, which is one value. */
+const several = <Schema extends z.ZodType>(schema: Schema) =>
+  z.preprocess((value) => (typeof value === 'string' ? [value] : value), z.array(schema));
+
+export const RUNS_Q_MAX = 200;
+export const RUNS_LIMIT_MAX = 100;
+export const RUNS_LIMIT_DEFAULT = 50;
+
+const RunsQuery = z.object({
+  phase: several(Phase)
+    .optional()
+    .openapi({ description: 'Only runs in one of these phases. Repeat it for several.' }),
+  trigger: several(RunTrigger).optional().openapi({
+    description:
+      'Only runs started one of these ways; "background runs" are `cron`, `event` and `poll`.',
+  }),
+  factoryId: z.string().optional().openapi({
+    description: "Only this factory's runs; one the caller does not see gives an empty page.",
+  }),
+  teamId: z
+    .string()
+    .optional()
+    .openapi({ description: 'Only runs of the factories this team owns now.' }),
+  automation: z.string().optional().openapi({
+    description:
+      'Only runs of this automation, and requests that started one, in every factory unless `factoryId` narrows it.',
+  }),
+  mine: z
+    .enum(['true', 'false'])
+    .optional()
+    .openapi({ description: '`true`: only runs the caller started.' }),
+  q: z
+    .string()
+    .max(RUNS_Q_MAX)
+    .optional()
+    .openapi({ description: "Text the title or the automation's name holds, in any case." }),
+  cursor: z.string().optional().openapi({ description: "The page before's `nextCursor`." }),
+  limit: z.coerce.number().int().min(1).max(RUNS_LIMIT_MAX).default(RUNS_LIMIT_DEFAULT),
+});
+
+const RunId = z.string().openapi({ param: { name: 'runId', in: 'path' } });
+
+export const listRuns = createRoute({
+  method: 'get',
+  path: '/api/runs',
+  summary: 'The top-level runs the caller sees, newest first',
+  description:
+    'A request is one run; the automation runs it started are not listed here but in its own answer. Filters combine; the values of one filter are alternatives.',
+  request: { query: RunsQuery },
+  responses: {
+    200: json(RunList, 'A page of runs, the counts and what the filters offer.'),
+    400: json(
+      failure('invalid_request'),
+      'A phase or trigger the cell does not know, a cursor it did not give, a `limit` out of range or a `q` too long.',
+    ),
+    409: workspacePending,
+    ...tokenFailures,
+  },
+});
+
+export const getRun = createRoute({
+  method: 'get',
+  path: '/api/runs/{runId}',
+  summary: 'One run: its steps, and a request’s facts and the runs it started',
+  request: { params: z.object({ runId: RunId }) },
+  responses: {
+    200: json(RunDetail, 'The run.'),
+    404: json(
+      failure('run_not_found'),
+      'The workspace has no run with that id that the caller sees: none, or one of a factory of a team a member is not in.',
+    ),
+    409: workspacePending,
+    ...tokenFailures,
+  },
+});
+
 /** Every route in the contract, in the order `app.ts` registers them. */
 export const ROUTES = [
   getHealth,
@@ -634,4 +1017,6 @@ export const ROUTES = [
   getFactory,
   getFactoryVersion,
   postFactoryVersion,
+  listRuns,
+  getRun,
 ];

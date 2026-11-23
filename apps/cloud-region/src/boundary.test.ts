@@ -8,8 +8,8 @@ import { describe, expect, it } from 'vitest';
 /**
  * Keeps the dependency rule: imports point inward only. `domain` holds rules and types,
  * `application` the use cases and the ports they need, `adapters/*` what implements those ports
- * with a library, and the composition ring (`compose.ts`, `main.ts`, `startupError.ts`) wires
- * them together. `config.ts` is shared configuration that any adapter may read. `domain` and
+ * with a library, and the composition ring (`compose.ts`, `main.ts`, `startupError.ts`, and
+ * `seed.ts`, the local demo seed's entry) wires them together. `config.ts` is shared configuration that any adapter may read. `domain` and
  * `application` also reach no global that touches the machine (`process`, `fetch`, timers).
  * Test files are exempt from the layer rules, since they wire real pieces together the way the
  * ring does. The cell holds no accounts, so no file, tests included, imports Better Auth. Of the
@@ -55,7 +55,7 @@ const HTTP_LIBRARIES = ['hono', '@hono/*'];
 const TOKEN_LIBRARIES = ['jose'];
 
 const ADAPTERS = ['adapters/persistence', 'adapters/http', 'adapters/token', 'adapters/clock'];
-const RING = ['compose', 'main', 'startupError'];
+const RING = ['compose', 'main', 'startupError', 'seed'];
 
 const LAYERS: Layer[] = [
   {
