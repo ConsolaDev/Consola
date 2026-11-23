@@ -364,8 +364,8 @@ a harness switch leaves them alone.
   any process of the person's can read, so this boundary, between sessions
   and between a workspace with agent access on and one with it off, holds
   against mistakes, not against an agent with a shell that goes looking.
-  `browserRefusal` is the one access rule: no tools for a read-only session
-  or a workspace with agent access off. The server is built when the CLI
+  `browserRefusal` is the one access rule: no tools for a session with a
+  tool policy or a workspace with agent access off. The server is built when the CLI
   connects, so turning access on reaches a session at its next start; every
   call asks again, and again once the page answers (`stillAllowed`). An
   agent's navigation goes through `BrowserService` by the person's address
@@ -779,6 +779,21 @@ and always delete the session.
   branch or one whose pull request is finished, compare-and-swap at the
   commit that was checked.
 
+A run's own checkout is a tree too, recognised by its run record or its git
+folder's `consola.run`, removed with its git folder by `removeRunClone`
+(never `git worktree remove`) after its branch is fetched into the person's
+clone as a keep-ref, recorded on its sessions and its run, and rebuilt from
+it; never while its run is open. Unlike a linked worktree's, its keep-ref
+stays after a rebuild, for as long as the folder exists: a shared clone's own
+refs keep nothing in the person's clone, so without it a `gc` there would
+drop the rebuilt checkout's commits. Its rules are its run's: an ended run
+(`run-finished`), and, off by default, *Remove a run's own checkout once its
+run is no longer in history* (`runForgotten`); Retry, or opening a step's
+session, rebuilds it. Its keep-ref goes only once no session and no run in
+history names the folder and the folder is gone (`releaseRemovedWorktreeWith`;
+`git for-each-ref refs/consola/worktrees` lists them), and its
+`.consola-cache` is regenerable, never a reason to keep it.
+
 ### Never Type Into a Confirmation Menu
 
 Queued prompts are delivered only when the emulated screen shows an *empty*
@@ -792,12 +807,13 @@ has never trusted the folder asks first, and the person answers.
 An automation's session never needs that guard for its first turn: it runs
 non-interactively (Claude's print mode), with its prompt as an argument, so
 there is no composer and no menu to type into. That happens only in a
-read-only session, and each driver refuses it otherwise
+session with a tool policy (`read-only`, `edit` or `write`), every one of
+which launches `--restricted`, and each driver refuses it otherwise
 (`SessionLaunch.unattended`): print mode skips the trust prompt, and
 without `--restricted` it would load the folder's hooks and settings
 unasked. The run lasts until that process exits. Continuing the session
-afterwards is an ordinary interactive resume, still read-only, where the
-trust prompt is the person's to answer. Lifting the restriction means a
+afterwards is an ordinary interactive resume, still under its policy, where
+the trust prompt is the person's to answer. Lifting the restriction means a
 fork the person starts (`SessionLauncher.forkWithFullTools`), never an edit
 of the session's `toolPolicy`.
 
@@ -828,6 +844,29 @@ anywhere else would destroy someone's work. Once a full-tools session was
 launched there, running or not, Consola never moves it again, for the same
 reason an automation's refresh leaves a trusted worktree alone (above).
 
+An entry with `checkout: { repo, branch }` gets a checkout of its own per run
+instead: `~/.consola/worktrees/<repo>-run-<8>/`, a `git clone --shared` of
+the person's clone whose git folder is `~/.consola/run-git/<repo>-run-<8>.git`,
+outside the checkout, so no step's sandbox can write it (in a linked worktree
+a sandboxed shell can move the clone's branches; in a git folder of its own it
+could plant replace refs and grafts); the checkout holds only a `.git` pointer
+that neither the sandbox nor the file tools may rewrite (canary rows 47 and
+30). `origin` is the real remote, the branch the one the run cut. Consola
+makes it before the first step (`makeRunClone`), ends the step's own
+processes and commits after every agent step, checks commands leave nothing,
+and resets to a step's `before` for a retry (`engine/node/runCheckout.ts`),
+always naming `GIT_DIR` and `GIT_WORK_TREE` for its own git, with no global or
+system config, replace refs and grafts off, and `gitFolderProblem` and
+`treeProblem` before every write. Neither variable reaches a step's shell, a
+session or a command (they would make `git clone` refuse and aim git in any
+other repository at the run's clone): a step's git finds the folder through
+the pointer, so `gitFolderProblem` also runs before every spawn there, and a
+changed folder starts nothing. A session open there holds the run before its
+next step. `--shared` borrows the person's objects: a `git gc --prune` in
+their clone can break a run's checkout, most likely one parked at a gate.
+Consola's commit runs no git filter, so a changed Git LFS file is committed
+as its content, not as a pointer.
+
 An agent step's tools (`steps/stepTools.ts`) are scoped by the calling
 session's provenance (run, step and attempt), resolved again on every call and
 never taken from a tool's arguments. Writes are refused once that attempt is
@@ -840,6 +879,42 @@ program run a value (`REFUSED_ENV_NAMES`, `REFUSED_ENV_PREFIXES`). Its intent
 a quit mid-command is known after a restart. Such a command is never re-run
 automatically: the restart fails it as interrupted, and Retry warns before it
 runs again.
+
+### What a Write Step Is Held To
+
+An agent file's `tools: edit | write` needs `environment:`
+(`environments/<name>.yaml`, `host` or `sandbox`) and a run's own checkout.
+`ClaudeDriver` compiles it (`claudeWriteAgent.ts`) into `--restricted` and one
+`--settings` holding `sandbox` and `allowedMcpServers` (attention hooks on
+`host` only: the sandbox's proxy refuses them, canary row 39, so a sandboxed
+step shows no live attention); the session's policy and grants are immutable
+and replayed on every launch. A sandboxed session gets `sandboxSessionEnv`'s
+allow-list, and no session with a policy gets the bound account's token
+(`borrowProviderToken`). The shell may not read `denyReadList`: the credential
+folders, Consola's data (`userData`, the factory root) and every harness's
+effective profile. `sandbox` is refused on a harness whose own or managed
+settings set `sandbox` (`sandboxSettingsProblem`), and off macOS. It is
+checked by `scripts/claude-steps-canary.mjs` rows 29–49 on a CLI version
+change, never at run time.
+
+The sandbox holds the shell only; the file tools are held by `--restricted`
+(they read and write only the checkout and refuse `.claude/agents`,
+`.claude/skills`, `.husky/` and `.git`, rows 30 and 44,
+`FILE_TOOLS_DENY_CHECKED`), and what a step changes among the paths agents and
+CI read (`.claude/`, `.github/`, `CLAUDE.md`, `.gitattributes`…) is flagged on
+the run page (`flaggedPaths`). Not contained: the shell's reads of other
+files, the keychain service (`security` reaches it, row 49), the temporary
+folder all sandboxed Claude shells share (`/tmp/claude-<uid>`), other CLI
+versions and other OSes. `git clone` and `git init` do not work in a sandboxed
+shell (row 37); pnpm does, with its store under `.consola-cache` (row 29).
+Consola ends only a step's own processes (its CLI's group, and the descendants
+recorded as its turn ended, while their start time matches) and never signals
+another; a process an agent backgrounds is in neither (row 48), so it is found
+by its working directory, and any process outside Consola's sessions left in
+the checkout fails the step. A step's full-tools continuation waits for its
+run to end, and an item step's forks into `<repo>-<type>-<n>-continue-<8>`.
+Rerun the canary's rows 29–49 after every CLI upgrade, and record the version
+in `SANDBOX_CHECKED_ON_CLAUDE`.
 
 ### A Run Parks at a Gate
 
@@ -861,7 +936,8 @@ Only what cannot have acted retries by itself (`steps/retry.ts`): the
 validator refuses a step's `on_failure` on a step that may have acted, and an
 entry's `on_failure`, accepted on any `steps:` entry, is decided when its run fails
 (`entryMayRetry`: it starts again only if nothing in it acted). The budget is
-checked at every step boundary; nothing passes `--max-budget-usd` yet.
+checked at every step boundary, and an agent step's first unattended turn in
+a run with a budget gets `--max-budget-usd` for what is left (canary row 40).
 
 ### A Step's Turn Reports Itself
 
@@ -947,8 +1023,8 @@ Two invariants are load-bearing:
   reason: it is replayed on every relaunch, so a later edit would move a
   conversation onto a different model part-way through. Both are kept immutable
   by being absent from `allowedSessionUpdates`, not by validation. So is a
-  session's `toolPolicy` (`read-only` for every session an automation
-  starts): main replays it from the record on every launch, `TERMINAL_CREATE`
+  session's `toolPolicy` (`read-only`, `edit` or `write`, set only on a
+  session an automation starts): main replays it from the record on every launch, `TERMINAL_CREATE`
   included, and each driver enforces it with its CLI's own flags or refuses to
   launch. The one way the harness and model change is a harness switch (see
   below), which gives the session a new conversation on the new harness in

@@ -94,6 +94,10 @@ describe('versions before agents as files', () => {
           "A review loop with a gate, on an event",
           "c1616b18265e1061",
         ],
+        [
+          "A Jira bug to a pull request, in a sandbox",
+          "e7c59dbce05c7185",
+        ],
       ]
     `);
     expect(
