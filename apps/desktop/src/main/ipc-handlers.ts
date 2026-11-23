@@ -38,7 +38,7 @@ import { registerBrowserHandlers } from './browser/browserIpc';
 import { onGuestAttached } from './browser/guestPolicy';
 import { placePopupTab } from './browser/popupPolicy';
 import { installPopupPolicy } from './browser/popupWindows';
-import { exposeToTests, isBackgroundTest } from './test-mode';
+import { exposeToTests, isBackgroundTest, isTest } from './test-mode';
 import { forwardGuestShortcuts } from './browser/guestShortcuts';
 import {
   clearBrowsingData,
@@ -151,6 +151,9 @@ import {
   AutomationService,
   FactoryFolder,
   OPEN_STATUSES,
+  PERSONAL_FACTORY,
+  readKeychainItem,
+  readOnePasswordField,
   RunFolder,
   RunHistoryFiles,
   RunStore,
@@ -180,6 +183,10 @@ import {
   type WorkItemRef,
 } from '../shared/workItems';
 import { JsonStateFile } from './state/JsonStateFile';
+import { BindingsStore, type SecretBindingsFile } from './secrets/BindingsStore';
+import { asSecretReferenceInput, bindSecret, desktopSecretsPort } from './secrets/desktopSecrets';
+import { secretPrograms } from './secrets/programs';
+import type { SecretsList } from '../shared/secrets';
 import { WorkspaceService, type WorkspaceStateFile } from './state/WorkspaceService';
 import { HarnessService, type HarnessStateFile } from './state/HarnessService';
 import {
@@ -2092,6 +2099,26 @@ export function setupIpcHandlers(): boolean {
     ),
     new RunHistoryFiles(path.join(app.getPath('userData'), 'automation-runs')),
   );
+  // Where this Mac binds each secret name: references only, never a value.
+  const bindings = new BindingsStore(
+    new JsonStateFile<SecretBindingsFile>(
+      path.join(app.getPath('userData'), 'secret-bindings.json'),
+    ),
+    () => new Date(),
+  );
+  // Values are read only when a run or a check needs them, by the programs
+  // `secretPrograms` names: in a test run a stub's, or none.
+  const secretDeps = {
+    store: bindings,
+    programs: secretPrograms({ test: isTest }),
+    loginEnv: async () => {
+      await loginEnvRetry();
+      return { ...getLoginEnv() };
+    },
+    readKeychain: readKeychainItem,
+    readOnePassword: readOnePasswordField,
+  };
+  const desktopSecrets = desktopSecretsPort(secretDeps);
   // Runs waiting for a person are rows beside the sessions, and an open run
   // holds the session it uses. Every run change is a broadcast, so that is
   // when the source's answer may differ.
@@ -2232,6 +2259,8 @@ export function setupIpcHandlers(): boolean {
     folderExists: (dir) => fs.existsSync(dir),
     // run: steps and poll checks: spawned by the engine's own executor.
     commands: { start: startCommand },
+    // The names a run or a check needs, read from where this Mac binds them.
+    secrets: desktopSecrets,
     // What both start from: the login env, and the bound account's token, which their logs mask.
     commandEnv: async (workspaceId) => {
       const provider = workspaces
@@ -2252,6 +2281,10 @@ export function setupIpcHandlers(): boolean {
   void automations.start().catch((error) => console.error('Automations failed to start.', error));
   // A workspace's file is read from when it appears, and let go when it is deleted.
   workspaces.onChange(() => void automations.syncWorkspaces());
+  // A deleted workspace's bindings go with it; nothing in the keychain or 1Password is touched.
+  workspaces.onChange(() =>
+    bindings.keepWorkspaces(new Set(workspaces.getAll().map((workspace) => workspace.id))),
+  );
   // An edited harness re-resolves the entries that run on it.
   harnesses.onChange(() => void automations.syncWorkspaces());
   // A laptop asleep at 09:00 wakes into a due run: check right away rather
@@ -2287,6 +2320,49 @@ export function setupIpcHandlers(): boolean {
         throw new Error('Workspace, automation and version required.');
       }
       return automations.allow(workspaceId, name, version);
+    },
+  );
+  // Settings › Secrets, the person's only: no tool an agent can call reaches
+  // these (allowBoundary.test.ts). Names, references and words; never a value.
+  const secretsWorkspace = (workspaceId: unknown): string => {
+    if (
+      typeof workspaceId !== 'string' ||
+      !workspaces.getAll().some((workspace) => workspace.id === workspaceId)
+    )
+      throw new Error('Unknown workspace.');
+    return workspaceId;
+  };
+  ipcMain.handle(
+    IPC_CHANNELS.SECRETS_LIST,
+    async (_event, workspaceId: unknown): Promise<SecretsList> => {
+      const id = secretsWorkspace(workspaceId);
+      // A file that did not read is read again each time the tab opens; once it
+      // does, every workspace re-resolves, so its rows say so too (review S4).
+      if (bindings.retry()) {
+        for (const workspace of workspaces.getAll()) await automations.reload(workspace.id);
+      }
+      return {
+        ...(bindings.problem ? { problem: bindings.problem } : {}),
+        secrets: automations.secretsView(id),
+      };
+    },
+  );
+  ipcMain.handle(
+    IPC_CHANNELS.SECRETS_BIND,
+    async (_event, workspaceId: unknown, name: unknown, reference: unknown) => {
+      const id = secretsWorkspace(workspaceId);
+      if (typeof name !== 'string') throw new Error('Secret name required.');
+      await bindSecret(secretDeps, id, name, asSecretReferenceInput(reference));
+      await automations.reload(id);
+    },
+  );
+  ipcMain.handle(
+    IPC_CHANNELS.SECRETS_UNBIND,
+    async (_event, workspaceId: unknown, name: unknown) => {
+      const id = secretsWorkspace(workspaceId);
+      if (typeof name !== 'string') throw new Error('Secret name required.');
+      bindings.unbind(id, PERSONAL_FACTORY, name);
+      await automations.reload(id);
     },
   );
   ipcMain.handle(
@@ -3206,6 +3282,9 @@ export function cleanupIpcHandlers(): void {
   ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_GET_SNAPSHOT);
   ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_RUN_NOW);
   ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_ALLOW);
+  ipcMain.removeHandler(IPC_CHANNELS.SECRETS_LIST);
+  ipcMain.removeHandler(IPC_CHANNELS.SECRETS_BIND);
+  ipcMain.removeHandler(IPC_CHANNELS.SECRETS_UNBIND);
   ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_LIST_RUN_TARGETS);
   ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_APPROVE);
   ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_DISMISS);

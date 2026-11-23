@@ -63,3 +63,53 @@ describe('no agent-facing code reaches allow', () => {
     }
   });
 });
+
+/**
+ * A secret's binding is the person's too: where a value lives (a label is a
+ * reference: `1Password (op://…)`, `the keychain (<service> · <account>)`)
+ * and how to change it. No code an agent's call reaches may take the secrets
+ * view, the Secrets channels, the bindings store or the desktop's port, or
+ * import the modules that hold them. An agent is told names and flags only
+ * (`capabilities().secrets`), which this does not match.
+ */
+const SECRET_ACCESS =
+  /\b(?:secretsView|buildSecretsView|SECRETS_(?:LIST|BIND|UNBIND)|secretsAPI|BindingsStore|desktopSecretsPort|bindSecret)\b|\bsecrets\/(?:BindingsStore|desktopSecrets|references|programs)\b/;
+
+describe('no agent-facing code reaches a secret’s binding', () => {
+  it('the matcher catches every way of reaching one', () => {
+    for (const code of [
+      'automations.secretsView(workspaceId)',
+      'buildSecretsView({ uses })',
+      'IPC_CHANNELS.SECRETS_LIST',
+      'IPC_CHANNELS.SECRETS_BIND',
+      'IPC_CHANNELS.SECRETS_UNBIND',
+      'window.secretsAPI.list(id)',
+      'new BindingsStore(file, now)',
+      'desktopSecretsPort(deps)',
+      'await bindSecret(deps, id, name, input)',
+      "import { x } from '../secrets/BindingsStore';",
+      "import { x } from '../secrets/desktopSecrets';",
+      "import { x } from '../secrets/references';",
+      "import { x } from '../secrets/programs';",
+    ]) {
+      expect(code).toMatch(SECRET_ACCESS);
+    }
+    for (const code of [
+      'command.secretNames',
+      'secrets: [PAGER_TOKEN]',
+      'step.secrets',
+      'capabilities().secrets',
+      "import { readSecrets } from '../secrets/readSecrets';",
+    ]) {
+      expect(code).not.toMatch(SECRET_ACCESS);
+    }
+  });
+
+  it('touches a binding in none of their source files', () => {
+    for (const dir of agentFacing) {
+      for (const file of sources(dir)) {
+        expect(withoutComments(readFileSync(file, 'utf8')), file).not.toMatch(SECRET_ACCESS);
+      }
+    }
+  });
+});

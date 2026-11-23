@@ -918,6 +918,12 @@ export function installMock() {
     ],
     open: async () => ({ ok: true }),
   };
+  // The demo has no secrets: no automation names one, and nothing is bound.
+  const secretsAPI: Window['secretsAPI'] = {
+    list: async () => ({ secrets: [] }),
+    bind: async () => undefined,
+    unbind: async () => undefined,
+  };
   const browserAPI = browserMock({
     snapshots: browserEvents,
     workspaceOf: (sessionId) =>
@@ -939,6 +945,7 @@ export function installMock() {
     dialogAPI,
     conductorAPI,
     automationsAPI,
+    secretsAPI,
     browserAPI,
     openInAPI,
   };

@@ -200,6 +200,11 @@ export const IPC_CHANNELS = {
   // Personal automations (main -> every renderer)
   AUTOMATIONS_CHANGED: 'automations:changed', // A workspace's fresh AutomationsSnapshot
 
+  // Secrets (renderer -> main): names, references and words; no member carries a value
+  SECRETS_LIST: 'secrets:list', // A workspace's secret names, where each is used and bound; never a value
+  SECRETS_BIND: 'secrets:bind', // Bind a name to a keychain item, a 1Password field or a login-environment variable
+  SECRETS_UNBIND: 'secrets:unbind', // Remove a name's binding
+
   // In-app browser (renderer -> main). Every handler checks the tab belongs to the sender's workspace.
   BROWSER_GET: 'browser:get', // One session's BrowserSessionSnapshot, for the first paint
   BROWSER_OPEN: 'browser:open', // Open a tab in a session

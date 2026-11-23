@@ -55,6 +55,7 @@ import type {
 } from '../shared/types';
 import { IPC_CHANNELS } from '../shared/constants';
 import type { AutomationsAPI } from '../shared/automations';
+import type { SecretsAPI } from '../shared/secrets';
 import type { InboxSection } from '../shared/inboxSections';
 import type { GitProviderId, ProviderProbeResult } from '../shared/providers';
 import type { WorkItemAction } from '../shared/workItemActions';
@@ -715,6 +716,14 @@ contextBridge.exposeInMainWorld('automationsAPI', {
     ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_GET_ENTRY_AGENTS, workspaceId, name),
   onChanged: (callback) => subscribe(IPC_CHANNELS.AUTOMATIONS_CHANGED, callback),
 } satisfies AutomationsAPI);
+
+// Settings › Secrets: names, references and words cross; a value never does.
+contextBridge.exposeInMainWorld('secretsAPI', {
+  list: (workspaceId) => ipcRenderer.invoke(IPC_CHANNELS.SECRETS_LIST, workspaceId),
+  bind: (workspaceId, name, reference) =>
+    ipcRenderer.invoke(IPC_CHANNELS.SECRETS_BIND, workspaceId, name, reference),
+  unbind: (workspaceId, name) => ipcRenderer.invoke(IPC_CHANNELS.SECRETS_UNBIND, workspaceId, name),
+} satisfies SecretsAPI);
 
 contextBridge.exposeInMainWorld('windowAPI', {
   onOpenSettings: (callback: (section?: 'updates') => void) =>
