@@ -61,6 +61,11 @@ package's `tsconfig.json`, and an embedder's checker would then read t3's source
   `pnpm typecheck` when `AgentChatProps` or `AgentChat` differ from `src/index.ts`'s
   (`readonly` and optional modifiers included), or when `src/index.ts` exports a value
   `types/index.d.ts` does not. A change to the props is made in both.
+- **Peers.** `react` and `react-dom` (`^19.2.4`, the page's React renders the chat), and
+  `@types/react` as an optional peer, from 18.2.6: the first to declare `React.JSX`, which
+  `types/index.d.ts` imports by name, so an older one fails an embedder's checker on the
+  package's own declaration (`src/publishedTypes.test.ts`). Optional, since an embedder that
+  does not typecheck needs no types.
 - **The stylesheet has a declaration** (`export {}`), so an embedder that checks side-effect
   imports (`noUncheckedSideEffectImports`) resolves `@consola/agent-ui/styles.css` without
   declaring every `*.css` module. Bundlers do not read the `types` condition; they get
