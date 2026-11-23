@@ -310,7 +310,7 @@ describe('parseUsesStep on its own', () => {
     idAndIf: () => ({ id: 'post', named: true }),
     outputs: () => ({}),
     timeout: () => 1000,
-    then: () => undefined,
+    thenStop: () => undefined,
     retry: () => undefined,
     refusedKey: () => undefined,
   };

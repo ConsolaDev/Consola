@@ -556,7 +556,7 @@ function parseStep(raw: unknown, index: number, fail: Fail, position = index): S
       idAndIf: (given, bad) => parseIdAndIf(given, position, bad),
       outputs: parseOutputs,
       timeout: parseTimeout,
-      then: parseThen,
+      thenStop: parseThen,
       retry: parseRetry,
       refusedKey: (key) =>
         Object.prototype.hasOwnProperty.call(RUN_KEYS_ON_A_STEP, key)

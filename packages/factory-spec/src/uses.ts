@@ -52,7 +52,7 @@ export interface StepReaders {
   outputs(raw: unknown, fail: Fail): Record<string, OutputType> | null;
   timeout(value: unknown, fail: Fail): number | null;
   /** `then:` (slice 3's `parseThen`): `stop`, or undefined once it reported. */
-  then(value: unknown, fail: Fail): true | undefined;
+  thenStop(value: unknown, fail: Fail): true | undefined;
   /** `on_failure:` (slice 3's `parseRetry`): `{ retry }`, or undefined once it reported. */
   retry(value: unknown, fail: Fail): { retry: number } | undefined;
   /**
@@ -211,7 +211,7 @@ export function parseUsesStep(
   }
 
   // Only when written, so a call without them parses, and hashes, as before (slice 3's keys).
-  const stop = 'then' in raw ? readers.then(raw.then, bad) : undefined;
+  const stop = 'then' in raw ? readers.thenStop(raw.then, bad) : undefined;
   const onFailure = 'on_failure' in raw ? readers.retry(raw.on_failure, bad) : undefined;
 
   if (!ok || 'problem' in reference || args === null || timeoutMs === null) return null;
