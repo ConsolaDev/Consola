@@ -106,6 +106,21 @@ export interface RunCheckoutPort {
   holder(dir: string): { sessionId: string; name: string } | null;
 }
 
+/**
+ * The problem of an entry with `checkout: { repo, branch }` on a host that
+ * cannot make a run's own checkout (Call 2): permanent, the words a headless
+ * runner without one says too.
+ */
+export const NO_RUN_CHECKOUTS =
+  "This runner can't make a run's own checkout, so `checkout: { repo, branch }` can't run here.";
+
+/** Why a run's checkout could not be made, as its run fails before its first step. */
+export function makeFailedMessage(repo: string, error: unknown): string {
+  const stage = error instanceof RunCheckoutError ? error.stage : 'clone';
+  const why = (error instanceof Error ? error.message : String(error)).replace(/\.$/, '');
+  return `Couldn't make this run's checkout of ${repo} (${stage}): ${why}. Nothing was changed; retry once it can be made.`;
+}
+
 /** Where making a run's checkout stopped: the words a failed run says, `(<stage>): <why>`. */
 export type RunCheckoutStage =
   | 'resolve'

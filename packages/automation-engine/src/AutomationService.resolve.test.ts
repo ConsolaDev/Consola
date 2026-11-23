@@ -76,12 +76,14 @@ describe('a write agent whose environment a parse lost (slice 3-B)', () => {
   });
 
   it('with its environment the entry gets as far as the write keys the engine does not run yet', async () => {
+    // On a host that makes runs' own checkouts (slice 3-B Task 12), what is left is the write agent.
     const h = await stepsHarness({
       files: WRITING,
       agentHarnesses: { 'claude-work': CLAUDE_WORK },
+      runCheckouts: true,
     });
     expect(h.service.list(WORKSPACE_ID)[0].problem).toBe(
-      '`checkout: { repo, branch }` runs from the next update; this automation does not run yet.',
+      '`tools: write` runs from the next update; this automation does not run yet.',
     );
   });
 

@@ -44,6 +44,12 @@ import type {
   WorkspaceView,
 } from '../views';
 import type { CheckoutRequest } from './checkout';
+import {
+  runOwnedDirName,
+  type RunCheckoutPort,
+  type SettleResult,
+  type StepProcesses,
+} from './runCheckout';
 import { maskSecrets } from './commandIO';
 import type { StepToolAnswer } from './stepTools';
 
@@ -183,7 +189,23 @@ export interface StepsHarnessOptions {
   workItems?: WorkItemPort;
   /** Every declared retry's wait, as the host may set it (Call 7). Default: the engine's backoff. */
   retryBackoffMs?: number;
+  /**
+   * The host makes runs' own checkouts (slice 3-B): the fake `RunCheckoutPort`
+   * (`world.runCheckouts`). Default: none, as a host without one; every
+   * existing test runs without it.
+   */
+  runCheckouts?: boolean;
 }
+
+/** One call the fake `RunCheckoutPort` was asked, by its name. */
+export type RunCheckoutCall =
+  | { make: Parameters<RunCheckoutPort['make']>[0] }
+  | { settle: Parameters<RunCheckoutPort['settle']>[0] }
+  | { settleBetween: Parameters<RunCheckoutPort['settleBetween']>[0] }
+  | { reset: { dir: string; before: string; branch?: string } }
+  | { changes: { dir: string; base: string; head: string; maxBytes: number } }
+  | { showAt: { dir: string; commit: string; path: string; maxBytes: number } }
+  | { endStepProcesses: { dir: string; sessionId?: string } };
 
 /** What the fake host holds and recorded. A test edits the first part to move the world, then resyncs. */
 export interface StepsWorld {
@@ -275,6 +297,34 @@ export interface StepsWorld {
   noTurnToStop?: boolean;
   /** Every broadcast throws this while it is set. */
   broadcastThrows?: unknown;
+  /**
+   * The fake `RunCheckoutPort` (with `runCheckouts: true`): every call but
+   * `folderProblem`'s, in order; each `folderProblem` asked, by folder, apart
+   * (review NB1), so a row that pins `calls` stays as written; the base a
+   * `make` answers; what the next `make` throws; the answers `settle`,
+   * `settleBetween` and `showAt` give, in order (each then its default).
+   */
+  runCheckouts: {
+    calls: RunCheckoutCall[];
+    folderChecks: string[];
+    base: string;
+    makeFails?: unknown;
+    /** Every `make` waits for this while it is set, after recording the call. */
+    makeGate?: Promise<void>;
+    settleAnswers: SettleResult[];
+    betweenAnswers: Array<SettleResult | null>;
+    showAnswers: Array<
+      { ok: true; text: string } | { ok: false; reason: 'missing' | 'not-a-file' | 'too-large' }
+    >;
+  };
+  /** What the port's `endStepProcesses` answers. Default: clear. */
+  processes: { end: StepProcesses };
+  /** The session the port's `holder` names for a folder, by folder. */
+  holders: Map<string, { sessionId: string; name: string }>;
+  /** What the port's `folderProblem` answers. Default: none. */
+  folderProblem: (dir: string) => string | null;
+  /** Whether a repository is cloned in a workspace, as `repoCloned` answers. Default: yes. */
+  repoCloned: (workspaceId: string, repo: string) => boolean;
   /** Called inside the fake launch, once its session is on the workspace's record and before it resolves. */
   onLaunch?: (request: AgentLaunchRequest, session: SessionView) => void;
   /** A session's unattended turn ended, as the desktop reports it; then whatever that set going. Exit 0 unless told. */
@@ -461,6 +511,18 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
     busyFolders: new Set(),
     goneFolders: new Set(),
     checkouts: { prepared: [], head: CHECKOUT_HEAD },
+    runCheckouts: {
+      calls: [],
+      folderChecks: [],
+      base: 'b0',
+      settleAnswers: [],
+      betweenAnswers: [],
+      showAnswers: [],
+    },
+    processes: { end: { kind: 'clear' } },
+    holders: new Map(),
+    folderProblem: () => null,
+    repoCloned: () => true,
     async endTurn(sessionId, outcome = { exitCode: 0 }) {
       current.turnEnded(sessionId, outcome);
       await flush();
@@ -635,6 +697,7 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
       keyOf: (ref) => `${ref.provider}:${ref.repo.toLowerCase()}:${ref.type}:${ref.number}`,
       urlOf: (ref) => `https://example.test/${ref.repo}/${ref.type}/${ref.number}`,
       inWorkspace: () => true,
+      repoCloned: (workspaceId, repo) => world.repoCloned(workspaceId, repo),
     },
     registry,
     getWorkspaces: () => (world.workspaceDeleted ? [] : [world.workspace]),
@@ -757,6 +820,7 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
     },
     checkoutBusy: (dir) => world.busyFolders.has(dir),
     folderExists: (dir) => !world.goneFolders.has(dir),
+    ...(options.runCheckouts ? { runCheckout: fakeRunCheckout(world) } : {}),
   });
 
   const launch = async (): Promise<StepsHarness> => {
@@ -816,4 +880,56 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
     };
   };
   return launch();
+}
+
+/** A run's own checkout folder, as the fake port places it. */
+export const runCheckoutPathFor = (runId: string, repo: string) =>
+  `/w/${runOwnedDirName(repo, runId)}`;
+
+/** The fake `RunCheckoutPort`: it records every call and answers from the world. */
+function fakeRunCheckout(world: StepsWorld): RunCheckoutPort {
+  const { runCheckouts } = world;
+  return {
+    pathFor: runCheckoutPathFor,
+    make: async (request) => {
+      runCheckouts.calls.push({ make: request });
+      if (runCheckouts.makeGate) await runCheckouts.makeGate;
+      if (runCheckouts.makeFails) throw runCheckouts.makeFails;
+      return {
+        cwd: runCheckoutPathFor(request.runId, request.repo),
+        scopeId: 'scope-catalog-portal',
+        base: runCheckouts.base,
+      };
+    },
+    settle: async (request) => {
+      runCheckouts.calls.push({ settle: request });
+      return runCheckouts.settleAnswers.shift() ?? { ok: true, after: 'c1', files: 2, flagged: [] };
+    },
+    settleBetween: async (request) => {
+      runCheckouts.calls.push({ settleBetween: request });
+      return runCheckouts.betweenAnswers.length > 0 ? runCheckouts.betweenAnswers.shift()! : null;
+    },
+    reset: async (dir, before, branch) => {
+      runCheckouts.calls.push({
+        reset: { dir, before, ...(branch !== undefined ? { branch } : {}) },
+      });
+    },
+    changes: async (dir, base, head, maxBytes) => {
+      runCheckouts.calls.push({ changes: { dir, base, head, maxBytes } });
+      return { text: '', truncated: false, bytes: 0 };
+    },
+    showAt: async (dir, commit, path, maxBytes) => {
+      runCheckouts.calls.push({ showAt: { dir, commit, path, maxBytes } });
+      return runCheckouts.showAnswers.shift() ?? { ok: false, reason: 'missing' };
+    },
+    folderProblem: (dir) => {
+      runCheckouts.folderChecks.push(dir);
+      return world.folderProblem(dir);
+    },
+    endStepProcesses: async (request) => {
+      runCheckouts.calls.push({ endStepProcesses: request });
+      return world.processes.end;
+    },
+    holder: (dir) => world.holders.get(dir) ?? null,
+  };
 }

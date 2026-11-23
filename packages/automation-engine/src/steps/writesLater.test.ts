@@ -11,8 +11,9 @@ import { writesNotYet } from './writesLater';
 
 /*
  * A key the format accepts and the engine does not run yet stops the entry,
- * in words (slice 3-B, Call 2): a checkout the run owns until the engine
- * makes one (Task 12), a write agent until a host holds it (Task 13).
+ * in words (slice 3-B, Call 2): a write agent until a host holds it
+ * (Task 13). A checkout the run owns left the list in Task 12, for a rule
+ * that stays (`NO_RUN_CHECKOUTS`, `AutomationService.writing.test.ts`).
  */
 
 function stepsEntry(
@@ -39,11 +40,6 @@ const agent = (tools: string): AgentDefinition => {
 };
 
 describe('writesNotYet', () => {
-  it('refuses a run-owned checkout until it runs', () =>
-    expect(writesNotYet(stepsEntry(RUN_OWNED), {})).toBe(
-      '`checkout: { repo, branch }` runs from the next update; this automation does not run yet.',
-    ));
-
   it.each(['edit', 'write'])('refuses an agent with tools: %s, in a loop too', (tools) => {
     const steps =
       '    - id: loop\n      repeat: { max: 2, until: steps.fix.done }\n      steps:\n        - id: fix\n          agent: fixer\n          outputs: { done: boolean }\n';
@@ -52,14 +48,8 @@ describe('writesNotYet', () => {
     ).toBe(`\`tools: ${tools}\` runs from the next update; this automation does not run yet.`);
   });
 
-  it('names the checkout first', () =>
-    expect(
-      writesNotYet(stepsEntry(RUN_OWNED, '    - id: fix\n      agent: fixer\n'), {
-        fixer: agent('write'),
-      }),
-    ).toContain('`checkout: { repo, branch }`'));
-
-  it('passes what runs today: an item checkout, a scope, a read-only agent', () => {
+  it('passes what runs today: an item checkout, a scope, a read-only agent, a checkout the run owns', () => {
+    expect(writesNotYet(stepsEntry(RUN_OWNED), {})).toBeNull();
     expect(
       writesNotYet(
         stepsEntry('  on: { github: pull_request.review_requested }\n  checkout: { pr: item }\n'),

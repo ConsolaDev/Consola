@@ -69,4 +69,20 @@ describe('desktopWorkItemPort', () => {
     expect(unbound.inWorkspace('ws-1', ref)).toBe(false);
     expect(cloned.inWorkspace('missing', ref)).toBe(false);
   });
+
+  it("repoCloned follows resolveRepo for the repository it names, whatever the workspace's account (slice 3-B)", () => {
+    const asked: string[] = [];
+    const cloned = port({
+      resolveRepo: (_workspace, repo) => {
+        asked.push(repo);
+        return '/work/catalog-portal';
+      },
+    });
+    expect(cloned.repoCloned('ws-1', 'sprocket/catalog-portal')).toBe(true);
+    expect(asked).toEqual(['sprocket/catalog-portal']);
+    expect(port({ resolveRepo: () => null }).repoCloned('ws-1', 'sprocket/catalog-portal')).toBe(
+      false,
+    );
+    expect(cloned.repoCloned('missing', 'sprocket/catalog-portal')).toBe(false);
+  });
 });

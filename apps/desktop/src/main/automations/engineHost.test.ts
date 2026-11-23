@@ -132,6 +132,7 @@ async function runner(
       keyOf: (ref) => `${ref.provider}:${ref.repo.toLowerCase()}:${ref.type}:${ref.number}`,
       urlOf: (ref) => `https://example.test/${ref.repo}/${ref.type}/${ref.number}`,
       inWorkspace: () => true,
+      repoCloned: () => true,
     },
     registry,
     getWorkspaces: () => [owner],

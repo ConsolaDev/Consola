@@ -8,7 +8,9 @@ import {
   automationVersion,
   factoryFilesOf,
   flatSteps,
+  isRunOwnedCheckout,
   isStepsEntry,
+  renderBranch,
   leafSteps,
   nextCronOccurrence,
   parseAutomationEntry,
@@ -212,6 +214,7 @@ import {
 } from './steps/definition';
 import { isEngineRun, isStepsRun } from './steps/recover';
 import { writesNotYet } from './steps/writesLater';
+import { makeFailedMessage, NO_RUN_CHECKOUTS, type RunCheckoutPort } from './steps/runCheckout';
 import { advanceSteps, type Advance, type Lane, type StepUpdate } from './steps/sequence';
 import {
   closeSteps,
@@ -387,6 +390,12 @@ export interface AutomationServiceDeps {
   platform: NodeJS.Platform;
   /** Where an item run's automation checkout is, and bringing it to the item's head. */
   checkout: CheckoutPort;
+  /**
+   * Making, settling and resetting a run's own checkout (slice 3-B,
+   * `checkout: { repo, branch }`). A host without one cannot run such an
+   * entry: it says so (`NO_RUN_CHECKOUTS`).
+   */
+  runCheckout?: RunCheckoutPort;
   /** Whether a session is running in `dir`, launched there or moved in since: a run on that checkout waits for it. */
   checkoutBusy(dir: string): boolean;
   /** Whether a step's working folder (its item's checkout, or its scope's folder) is still there. */
@@ -1492,11 +1501,16 @@ export class AutomationService {
       // An entry with a problem is paused: its record stays where it
       // was, so fixing it catches up rather than forgetting.
       if (!event || entry.problem) continue;
+      // An entry that owns its checkout fires nothing, and marks nothing, while its repository is not cloned.
+      const cloned = this.runOwnedNotCloned(entry) === null;
       const inSet = new Map<string, SourceItem>();
       for (const item of snapshot.items) {
         // The set, not the filter: a draft is in it, and fires once it is ready.
         if (event.inSet(item))
-          inSet.set(event.keyOf(item), event.toSourceItem(item, event.passesFilter(item)));
+          inSet.set(
+            event.keyOf(item),
+            event.toSourceItem(item, cloned && event.passesFilter(item)),
+          );
       }
       this.fireFromSet(entry, [...inSet.values()], at);
     }
@@ -1715,6 +1729,9 @@ export class AutomationService {
         .find((run) => isRunOf(run, entry) && run.status === 'needs-approval');
       if (pending) return pending;
     }
+    // Refused before anything is marked or started (slice 3-B, pass decision 1).
+    const notCloned = this.runOwnedNotCloned(entry);
+    if (notCloned) throw new Error(notCloned);
     return this.fire(entry, {
       kind: 'manual',
       at: this.iso(),
@@ -1774,6 +1791,9 @@ export class AutomationService {
    */
   private targetItem(entry: Resolved, source: ItemSource, target: ItemTarget): SourceItem {
     const { name } = entry.automation;
+    // A run that owns its checkout needs its repository cloned, whatever the item (slice 3-B, Call 19).
+    const ownNotCloned = this.runOwnedNotCloned(entry);
+    if (ownNotCloned) throw new Error(ownNotCloned);
     const notTaken = () => new Error(`${name} takes ${itemsInWords(source)}.`);
     const lastCheck = () => latestResult(this.checks.get(automationKey(entry)), entry.version);
     const { connection } = source;
@@ -1818,6 +1838,19 @@ export class AutomationService {
     return poll
       ? { ...identity, object: { key, url, repo: ref.repo, number: ref.number, type: ref.type } }
       : identity;
+  }
+
+  /**
+   * Why an entry that owns its checkout cannot start now: its repository
+   * (`checkout.repo`) is cloned in none of the workspace's scopes (slice
+   * 3-B). Null for any other entry, and when it is cloned.
+   */
+  private runOwnedNotCloned(entry: Resolved): string | null {
+    const { checkout } = entry.automation;
+    if (!isRunOwnedCheckout(checkout)) return null;
+    return this.deps.workItems.repoCloned(entry.workspaceId, checkout.repo)
+      ? null
+      : `${checkout.repo} is not cloned in this workspace.`;
   }
 
   /** Why Run on… cannot take a work item: its repository is in none of the workspace's scopes. Null when it can. */
@@ -2398,9 +2431,12 @@ export class AutomationService {
       result: { at, version: entry.version, items },
     });
     let skipped = 0;
+    // An entry that owns its checkout skips every item while its repository is not cloned (slice 3-B, Call 5).
+    const cloned = this.runOwnedNotCloned(entry) === null;
     const current = items.map((item) => {
       const passes =
-        !item.workItem || this.deps.workItems.inWorkspace(entry.workspaceId, item.workItem);
+        cloned &&
+        (!item.workItem || this.deps.workItems.inWorkspace(entry.workspaceId, item.workItem));
       if (!passes) skipped++;
       return polledSourceItem(item, passes);
     });
@@ -2821,7 +2857,50 @@ export class AutomationService {
       throw new Error(`Run ${runId} can be retried only from ${target.id}.`);
 
     let prepared: PreparedCheckout | undefined;
-    const workItem = loaded.definition.automation.scope ? undefined : itemRefOf(run);
+    let made: RunRecord['checkout'] | undefined;
+    const owned = isRunOwnedCheckout(loaded.definition.automation.checkout)
+      ? loaded.definition.automation.checkout
+      : undefined;
+    // A run that owns its checkout keeps it; one whose checkout was never made makes it now (slice 3-B).
+    const workItem = loaded.definition.automation.scope || owned ? undefined : itemRefOf(run);
+    if (owned && run.checkout?.base === undefined) {
+      if (!this.deps.runCheckout) throw new Error(NO_RUN_CHECKOUTS);
+      const dir = this.deps.runCheckout.pathFor(runId, owned.repo);
+      this.retrying.set(runId, { dir });
+      try {
+        const branch = renderBranch(owned.branch, {
+          itemKey: run.trigger.item?.key,
+          itemNumber: run.trigger.item?.number,
+          runId,
+        });
+        const fresh = await this.deps.runCheckout
+          .make({
+            workspaceId: run.attribution.workspaceId!,
+            runId,
+            automation: run.automationId,
+            repo: owned.repo,
+            branch,
+            ...(owned.from !== undefined ? { from: owned.from } : {}),
+          })
+          .catch((error: unknown) => {
+            throw new Error(makeFailedMessage(owned.repo, error));
+          });
+        if (this.deps.store.get(runId)?.status !== 'failed')
+          throw new Error(`Run ${runId} changed while its checkout was made; it was not retried.`);
+        made = {
+          cwd: fresh.cwd,
+          scopeId: fresh.scopeId,
+          kind: 'run-owned',
+          repo: owned.repo,
+          branch,
+          base: fresh.base,
+          head: fresh.base,
+        };
+      } finally {
+        this.retrying.delete(runId);
+        void this.pump();
+      }
+    }
     if (workItem) {
       const workspaceId = run.attribution.workspaceId!;
       const itemKey = run.trigger.item?.key;
@@ -2870,8 +2949,16 @@ export class AutomationService {
       updatedAt: now,
       steps: retrySteps(current.steps ?? [], target.id, now, loaded.definition.automation.steps),
       ...(prepared
-        ? { checkout: { cwd: prepared.cwd, scopeId: prepared.scopeId, head: prepared.head } }
+        ? {
+            checkout: {
+              cwd: prepared.cwd,
+              scopeId: prepared.scopeId,
+              head: prepared.head,
+              kind: 'item' as const,
+            },
+          }
         : {}),
+      ...(made ? { checkout: made } : {}),
     });
     this.broadcastRun(runId);
     this.advance(runId);
@@ -3148,6 +3235,12 @@ export class AutomationService {
   private pickUp(run: RunRecord): void {
     const loaded = this.definitionOf(run);
     const definition = 'definition' in loaded ? loaded.definition : undefined;
+    // A run that owns its checkout and quit before it was made makes it now (slice 3-B).
+    if (definition && isRunOwnedCheckout(definition.automation.checkout)) {
+      if (run.checkout?.base === undefined) void this.makeRunCheckout(run.id);
+      else this.advance(run.id);
+      return;
+    }
     const workItem = definition && !definition.automation.scope ? itemRefOf(run) : undefined;
     if (!definition || !workItem || run.checkout?.head) {
       // A definition that cannot be read fails it there: nothing else would.
@@ -3485,7 +3578,11 @@ export class AutomationService {
   private startStepsRun(run: RunRecord, item: SourceItem | undefined, lane: Lane | null): void {
     const entry = this.entryOf(run)!;
     const { scope, byHandLabel, definition } = entry.steps!;
-    const workItem = lane && !scope ? itemRefOf(run) : undefined;
+    // A checkout the run owns is one per run (slice 3-B): no other run holds it, and no item's is prepared.
+    const owned = isRunOwnedCheckout(definition.automation.checkout)
+      ? definition.automation.checkout
+      : undefined;
+    const workItem = lane && !scope && !owned ? itemRefOf(run) : undefined;
     const dir = workItem ? this.deps.checkout.pathFor(entry.workspaceId, workItem) : undefined;
     if (dir && (this.checkoutHeld(dir, run.trigger.item?.key) || this.deps.checkoutBusy(dir))) {
       this.waitForCheckout(run, dir);
@@ -3527,11 +3624,27 @@ export class AutomationService {
       ...(item ? refreshedTrigger(run, item) : {}),
       // What it waited for is over: it starts.
       ...(run.waitingFor ? { waitingFor: undefined } : {}),
-      ...(lane && scope ? { checkout: { cwd: scope.path, scopeId: scope.id } } : {}),
-      ...(dir ? { checkout: { cwd: dir } } : {}),
+      ...(lane && scope
+        ? { checkout: { cwd: scope.path, scopeId: scope.id, kind: 'scope' as const } }
+        : {}),
+      ...(dir ? { checkout: { cwd: dir, kind: 'item' as const } } : {}),
+      // Its claim: the folder it will make, before anything is awaited.
+      ...(lane && owned && this.deps.runCheckout
+        ? {
+            checkout: {
+              cwd: this.deps.runCheckout.pathFor(run.id, owned.repo),
+              kind: 'run-owned' as const,
+              repo: owned.repo,
+            },
+          }
+        : {}),
     });
     this.broadcastRun(run.id);
     if (lane) this.admitted.set(run.id, lane);
+    if (lane && owned) {
+      void this.makeRunCheckout(run.id);
+      return;
+    }
     if (!lane || !workItem) {
       this.advance(run.id);
       return;
@@ -3592,7 +3705,10 @@ export class AutomationService {
       }
       if (!this.stillRunning(runId)) return;
       const { cwd, scopeId, head } = prepared;
-      this.deps.store.update(runId, { checkout: { cwd, scopeId, head }, updatedAt: this.iso() });
+      this.deps.store.update(runId, {
+        checkout: { cwd, scopeId, head, kind: 'item' },
+        updatedAt: this.iso(),
+      });
       this.broadcastRun(runId);
       this.advance(runId);
     } catch (error) {
@@ -3605,6 +3721,79 @@ export class AutomationService {
     } finally {
       this.doneStarting(runId);
       // An ended run, or one that went with its workspace, holds no slot.
+      if (!this.stillRunning(runId)) this.admitted.delete(runId);
+      void this.pump();
+    }
+  }
+
+  /**
+   * Make a run's own checkout (slice 3-B, *How it is made*) and record it,
+   * then advance: its branch rendered from the run (`renderBranch`), the
+   * host's port making it from the person's clone. A failure fails the run
+   * before its first step, saying which stage (or takes the entry's declared
+   * retry), as an item's preparation does; nothing of the checkout but its
+   * claim is recorded then. Nothing awaits this, so nothing may escape it.
+   */
+  private async makeRunCheckout(runId: string): Promise<void> {
+    this.starting.add(runId);
+    try {
+      const run = this.deps.store.get(runId)!;
+      const loaded = this.definitionOf(run);
+      if ('problem' in loaded) {
+        this.failRun(runId, loaded.problem);
+        return;
+      }
+      const owned = loaded.definition.automation.checkout;
+      if (!isRunOwnedCheckout(owned) || !this.deps.runCheckout) {
+        this.failRun(runId, NO_RUN_CHECKOUTS);
+        return;
+      }
+      let made: { cwd: string; scopeId: string; base: string };
+      let branch: string;
+      try {
+        branch = renderBranch(owned.branch, {
+          itemKey: run.trigger.item?.key,
+          itemNumber: run.trigger.item?.number,
+          runId,
+        });
+        made = await this.deps.runCheckout.make({
+          workspaceId: run.attribution.workspaceId!,
+          runId,
+          automation: run.automationId,
+          repo: owned.repo,
+          branch,
+          ...(owned.from !== undefined ? { from: owned.from } : {}),
+        });
+      } catch (error) {
+        if (!this.stillRunning(runId)) return;
+        if (this.stopRequested.has(runId)) this.advance(runId);
+        else this.checkoutRefused(runId, new Error(makeFailedMessage(owned.repo, error)));
+        return;
+      }
+      if (!this.stillRunning(runId)) return;
+      this.deps.store.update(runId, {
+        checkout: {
+          cwd: made.cwd,
+          scopeId: made.scopeId,
+          kind: 'run-owned',
+          repo: owned.repo,
+          branch,
+          base: made.base,
+          head: made.base,
+        },
+        updatedAt: this.iso(),
+      });
+      this.broadcastRun(runId);
+      this.advance(runId);
+    } catch (error) {
+      console.error(`Run ${runId} could not go on after making its checkout.`, error);
+      try {
+        if (this.stillRunning(runId)) this.failRun(runId, describeError(error));
+      } catch (failing) {
+        console.error(`Run ${runId} could not be recorded as failed.`, failing);
+      }
+    } finally {
+      this.doneStarting(runId);
       if (!this.stillRunning(runId)) this.admitted.delete(runId);
       void this.pump();
     }
@@ -5502,6 +5691,9 @@ export class AutomationService {
     }
     if (stops.length > 0)
       return unable(stops[0].message, warnings, { recheck: true, unasked: true });
+    // A checkout the run owns needs a host that makes one (slice 3-B, Call 2).
+    if (isRunOwnedCheckout(automation.checkout) && !this.deps.runCheckout)
+      return unable(NO_RUN_CHECKOUTS, warnings);
     // A write key the format accepts and the engine does not run yet stops the entry, in words
     // (slice 3-B, Call 2): last, so every other problem the entry has is said first.
     const writes = writesNotYet(automation, agents);

@@ -291,6 +291,8 @@ export interface WorkItemPort {
   urlOf(ref: ItemRef): string;
   /** Whether one of the workspace's scopes holds a clone of the item's repository. */
   inWorkspace(workspaceId: string, ref: ItemRef): boolean;
+  /** Whether one of the workspace's scopes holds a clone of `repo` (`owner/name`): what a run's own checkout is made from (slice 3-B). */
+  repoCloned(workspaceId: string, repo: string): boolean;
 }
 
 /**
