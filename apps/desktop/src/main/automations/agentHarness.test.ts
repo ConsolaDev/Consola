@@ -1,3 +1,6 @@
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type { AgentHarnessQuery, EntryAgentsView } from '@consola/automation-engine';
 import type { Harness } from '../../shared/harness';
@@ -13,6 +16,9 @@ import {
   noAgentGrants,
   settledServerTools,
   withKnownTools,
+  type WriteAgentHostDeps,
+  writeAgentHost,
+  writeAgentHostNow,
 } from './agentHarness';
 import type { McpServersCache, ServersAnswer } from './mcpServersCache';
 
@@ -731,6 +737,173 @@ describe('cachedModels', () => {
         { binaryPath: undefined, configDir: '/home/alice/.claude-work', extraArgs: [] },
       ],
       [getDriver('claude'), { binaryPath: undefined, configDir: undefined, extraArgs: [] }],
+    ]);
+  });
+});
+
+describe('agentHarnessView and the host, for a write agent (slice 3-B Task 17)', () => {
+  const HOST = {
+    platform: 'darwin',
+    denyRead: ['/h/.ssh'],
+    cliVersion: '2.1.330',
+    settingsFiles: [],
+  };
+  const HARNESSES: Harness[] = [
+    harness({ id: 'default', name: 'Claude', isBuiltIn: true }),
+    harness({ id: 'claude-work', name: 'Claude work', configDir: '/h/.claude-work' }),
+    harness({ id: 'codex-work', name: 'codex-work', driverId: 'codex' }),
+    harness({ id: 'antigravity-work', name: 'antigravity-work', driverId: 'antigravity' }),
+  ];
+  const WRITE_AGENT: AgentHarnessQuery = {
+    harnessId: 'claude-work',
+    mcpServers: [],
+    skills: [],
+    checkout: 'run-owned',
+    tools: 'write',
+    environment: { name: 'sandboxed', isolation: 'sandbox', network: [], env: ['CI'] },
+  };
+  const answerFor = (driver: string, agent: AgentHarnessQuery, host: typeof HOST | 'none' = HOST) =>
+    agentHarnessView({
+      harnesses: HARNESSES,
+      defaultHarnessId: 'default',
+      agent: { ...agent, harnessId: driver === 'claude' ? 'claude-work' : `${driver}-work` },
+      ...(host !== 'none' ? { host: () => host } : {}),
+    });
+
+  it.each([['codex'], ['antigravity']])(
+    'a write agent on %s is refused in Consola words',
+    (driver) => {
+      expect(answerFor(driver, WRITE_AGENT).agentProblem).toBe(
+        `Write agents run on Claude only for now: ${driver}-work can't hold a write agent to its environment.`,
+      );
+    },
+  );
+
+  it('a write agent on Claude compiles against the host, and names nothing; one off its run-owned checkout is refused at its harness', () => {
+    expect(answerFor('claude', WRITE_AGENT).agentProblem).toBeNull();
+    expect(answerFor('claude', { ...WRITE_AGENT, checkout: 'scope' }).agentProblem).toBe(
+      'A write agent changes code only on a branch the run cuts from one of `repos:` (invariant 9).',
+    );
+    expect(answerFor('claude', WRITE_AGENT, { ...HOST, platform: 'linux' }).agentProblem).toBe(
+      '`isolation: sandbox` is verified on macOS only so far; this machine runs Linux.',
+    );
+    expect(answerFor('claude', WRITE_AGENT, 'none').agentProblem).toContain(
+      "can't hold a write agent to its environment",
+    );
+  });
+
+  it('a driver whose compiled grants do not hold the policy is refused as not Claude', () => {
+    const loose = {
+      ...getDriver('claude'),
+      compileAgent: () => ({
+        ok: true as const,
+        grants: { driverId: 'claude', servers: [], skills: [], strict: true, allowedTools: [] },
+        warnings: [],
+      }),
+    } as HarnessDriver;
+    const answer = agentHarnessView({
+      harnesses: HARNESSES,
+      defaultHarnessId: 'default',
+      agent: WRITE_AGENT,
+      host: () => HOST,
+      driverFor: () => loose,
+    });
+    expect(answer.agentProblem).toBe(
+      "Write agents run on Claude only for now: Claude work can't hold a write agent to its environment.",
+    );
+  });
+
+  const BUILT_IN = harness({ id: 'default', name: 'Claude', isBuiltIn: true });
+  const deps = (
+    env: NodeJS.ProcessEnv,
+    over: Partial<WriteAgentHostDeps> = {},
+  ): WriteAgentHostDeps => ({
+    harnesses: () => [BUILT_IN],
+    platform: 'darwin',
+    home: '/h',
+    userData: '/h/Library/Application Support/Consola',
+    factoryRoot: '/h/.consola/workspaces',
+    loginEnv: () => env,
+    versions: { get: async () => '2.1.330', peek: () => undefined },
+    readSettings: () => null,
+    ...over,
+  });
+  const hostFor = (
+    record: Harness,
+    env: NodeJS.ProcessEnv,
+    over: Partial<WriteAgentHostDeps> = {},
+  ) => writeAgentHost(deps(env, over), record);
+
+  it("a harness that pins nothing puts its effective profile on the deny list: the login environment's, else ~/.claude (Review Focus 9)", async () => {
+    expect(
+      (await hostFor(BUILT_IN, { CLAUDE_CONFIG_DIR: '/h/.claude-ambient' })).denyRead,
+    ).toContain('/h/.claude-ambient');
+    const ownDefault = path.join(os.homedir(), '.claude');
+    expect((await hostFor(BUILT_IN, {})).denyRead).toContain(
+      fs.existsSync(ownDefault) ? fs.realpathSync.native(ownDefault) : ownDefault,
+    );
+  });
+
+  it('the harness it compiles for is denied even when it is no record (the built-in default)', async () => {
+    const host = await writeAgentHost(
+      deps({ CLAUDE_CONFIG_DIR: '/h/.claude-ambient' }, { harnesses: () => [] }),
+      undefined,
+    );
+    expect(host.denyRead).toContain('/h/.claude-ambient');
+  });
+
+  it('every harness record’s profile is denied, archived ones included', async () => {
+    const archived = harness({ id: 'old', configDir: '/h/.claude-old', archived: true });
+    const codex = harness({ id: 'cx', driverId: 'codex', configDir: '/h/.codex-work' });
+    const host = await hostFor(BUILT_IN, {}, { harnesses: () => [BUILT_IN, archived, codex] });
+    expect(host.denyRead).toEqual(expect.arrayContaining(['/h/.claude-old', '/h/.codex-work']));
+  });
+
+  it('asks the injected HarnessVersions, never a real probe (review M8)', async () => {
+    const get = vi.fn(async () => '2.1.330');
+    const work = harness({ id: 'w', configDir: '/h/.claude-work' });
+    const host = await hostFor(work, {}, { versions: { get, peek: () => undefined } });
+    expect(host.cliVersion).toBe('2.1.330');
+    expect(get).toHaveBeenCalledWith(
+      expect.objectContaining({ configDirOverride: '/h/.claude-work' }),
+    );
+    // At apply it never waits: the version already read, else unknown.
+    expect(
+      writeAgentHostNow(deps({}, { versions: { get, peek: () => undefined } }), work).cliVersion,
+    ).toBe('unknown');
+    expect(
+      writeAgentHostNow(deps({}, { versions: { get, peek: () => '2.1.331' } }), work).cliVersion,
+    ).toBe('2.1.331');
+    expect(get).toHaveBeenCalledTimes(1);
+  });
+
+  it("reads the effective profile's settings.json first: the login environment's CLAUDE_CONFIG_DIR for a harness that pins nothing (review NS6)", async () => {
+    const read = vi.fn((_file: string) => null);
+    await hostFor(BUILT_IN, { CLAUDE_CONFIG_DIR: '/h/.claude-ambient' }, { readSettings: read });
+    expect(read.mock.calls.map(([file]) => file)).toEqual([
+      '/h/.claude-ambient/settings.json',
+      '/Library/Application Support/ClaudeCode/managed-settings.json',
+    ]);
+  });
+
+  it('a settings file that cannot be read is said so, which refuses `sandbox`', async () => {
+    const host = await hostFor(
+      BUILT_IN,
+      {},
+      {
+        readSettings: (file) => {
+          if (file.endsWith('managed-settings.json')) throw new Error('EACCES: permission denied');
+          return '{"model":"sonnet"}';
+        },
+      },
+    );
+    expect(host.settingsFiles).toEqual([
+      { path: path.join(os.homedir(), '.claude', 'settings.json'), text: '{"model":"sonnet"}' },
+      {
+        path: '/Library/Application Support/ClaudeCode/managed-settings.json',
+        text: null,
+        unreadable: 'EACCES: permission denied',
+      },
     ]);
   });
 });

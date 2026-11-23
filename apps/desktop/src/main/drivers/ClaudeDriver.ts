@@ -28,6 +28,7 @@ import {
   probeClaudeMcpServers,
 } from './claudeAgent';
 import { claudeAttentionHooks, claudeSettings } from './claudeHooks';
+import { budgetFlags, writeAgentArgs } from './claudeWriteAgent';
 import { createClaudeTurnReader } from './claudeTurnReader';
 import {
   looseningProblem,
@@ -122,14 +123,25 @@ const OTHER_CLI_GRANTS =
   'These grants were compiled for another CLI, so this session cannot launch on Claude.';
 /**
  * A step that writes (`edit`, `write`, slice 3-B) launches only held to what
- * its agent compiled (Call 14): until the driver compiles a write agent, it
- * refuses every such launch, so no write policy ever launches looser than a
- * read-only one, let alone with full tools.
+ * its agent compiled (Call 14): grants of that same policy, with the file
+ * tools' rules its checkout was compiled with and, on `sandbox`, its
+ * sandbox. Anything less refuses, so no write policy ever launches looser
+ * than it was compiled, let alone with full tools.
  */
 const WRITE_NEEDS_GRANTS = 'A step that writes launches only with the grants its agent compiled.';
 
 const GRANTS_NEED_READ_ONLY =
   "An agent's grants hold only in a read-only session, so this session cannot launch with them.";
+
+/**
+ * Whether `grants` hold all a write agent compiles at launch (Call 14): its
+ * environment, its file tools' rules and, on `sandbox`, its sandbox. That
+ * they are this launch's policy's is `claudeGrants`' check.
+ */
+function compiledWhole(grants: ClaudeAgentGrants | undefined): boolean {
+  if (!grants || !grants.environment || !grants.fileDeny) return false;
+  return grants.environment.isolation !== 'sandbox' || grants.sandbox !== undefined;
+}
 const GRANTS_NEED_CONSOLA =
   "A step whose agent names MCP servers needs Consola's own server too, so it did not start.";
 const SKILLS_GONE = "This step's skills are no longer kept; it continues without them.";
@@ -138,12 +150,18 @@ const SKILLS_CHANGED =
 const SKILLS_UNCHECKED =
   "This step's skills cannot be checked against its run; it continues without them.";
 
-/** The launch's grants, checked: Claude's own, on a read-only session, with Consola's server when they name servers. */
+/**
+ * The launch's grants, checked: Claude's own; a read-only agent's on a
+ * read-only session, a write agent's on a session of its own policy; with
+ * Consola's server when they name servers.
+ */
 function claudeGrants(launch: SessionLaunch): ClaudeAgentGrants | undefined {
   const grants = launch.grants;
   if (!grants) return undefined;
   if ((grants as { driverId: string }).driverId !== 'claude') throw new Error(OTHER_CLI_GRANTS);
-  if (launch.toolPolicy !== 'read-only') throw new Error(GRANTS_NEED_READ_ONLY);
+  if (grants.tools !== undefined) {
+    if (launch.toolPolicy !== grants.tools) throw new Error(WRITE_NEEDS_GRANTS);
+  } else if (launch.toolPolicy !== 'read-only') throw new Error(GRANTS_NEED_READ_ONLY);
   if (grants.servers.length > 0 && !launch.mcpConfigPath) throw new Error(GRANTS_NEED_CONSOLA);
   return grants;
 }
@@ -203,11 +221,11 @@ function denyListFlags(pluginDir: string): string[] {
 /**
  * Print mode never shows the folder-trust prompt and, unless restricted,
  * loads the folder's hooks and settings without asking: an unattended turn
- * is safe only inside the read-only policy, whose `--restricted` shuts them
- * out.
+ * is safe only inside a tool policy, every one of which ends in
+ * `--restricted`, which shuts them out.
  */
-const UNATTENDED_NEEDS_READ_ONLY =
-  'A turn nobody is watching skips Claude’s folder-trust prompt, so Consola runs one only in a read-only session.';
+const UNATTENDED_NEEDS_POLICY =
+  'A turn nobody is watching skips Claude’s folder-trust prompt, so Consola runs one only in a session with a tool policy, which runs --restricted.';
 
 /** Extra args that could widen what a read-only session may do, or what it can reach. */
 const LOOSENING_FLAGS = [
@@ -236,7 +254,7 @@ const LOOSENING_FLAGS = [
  * `--max-turns` the step's cap. `--input-format` is the driver's alone to
  * add, for a later session that takes several turns over stream-json.
  */
-const STEP_TURN_FLAGS = ['--output-format', '--input-format', '--max-turns'];
+const STEP_TURN_FLAGS = ['--output-format', '--input-format', '--max-turns', '--max-budget-usd'];
 
 /**
  * Extra args that would override the servers an agent's grants load: a
@@ -437,6 +455,11 @@ export class ClaudeDriver implements HarnessDriver {
     return copied === 'missing' ? 'missing' : 'carried';
   }
 
+  /** `CLAUDE_CONFIG_DIR`: what it pins, else the login environment's, else `~/.claude` (`resolveConfigDir`). */
+  public profileDir(config: HarnessConfig, loginEnv: NodeJS.ProcessEnv = getLoginEnv()): string {
+    return config.configDir || loginEnv.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
+  }
+
   public resolveBinary(config: HarnessConfig): string {
     if (config.binaryPath) return config.binaryPath;
 
@@ -492,10 +515,10 @@ export class ClaudeDriver implements HarnessDriver {
   ): string[] | Promise<string[]> {
     const problem = this.toolPolicyProblem(config, launch.toolPolicy);
     if (problem) throw new Error(problem);
-    if (launch.toolPolicy === 'edit' || launch.toolPolicy === 'write')
-      throw new Error(WRITE_NEEDS_GRANTS);
-    if (launch.unattended && launch.toolPolicy !== 'read-only')
-      throw new Error(UNATTENDED_NEEDS_READ_ONLY);
+    const writes = launch.toolPolicy === 'edit' || launch.toolPolicy === 'write';
+    if (writes && !compiledWhole(launch.grants)) throw new Error(WRITE_NEEDS_GRANTS);
+    if (launch.unattended && launch.toolPolicy === undefined)
+      throw new Error(UNATTENDED_NEEDS_POLICY);
     if (launch.unattended && !launch.initialPrompt)
       throw new Error('An unattended turn needs the prompt it runs.');
     const grants = claudeGrants(launch);
@@ -529,10 +552,16 @@ export class ClaudeDriver implements HarnessDriver {
     // is refused above.
     // Hooks ride in `--settings`, which adds to the user's own and writes
     // nothing to disk. Under `--restricted` it is one of the only two
-    // sources still loaded, so a read-only turn reports too. A step's
-    // allow-list of servers rides in the same one value.
+    // sources still loaded, so a read-only turn reports too. A write step's
+    // sandbox and a step's allow-list of servers ride in the same one value.
+    // A sandboxed step has no attention hooks: the CLI posts them through
+    // the sandbox's proxy, which refuses Consola's loopback endpoint, and
+    // nothing local joins its network list (the ruling on canary row 39).
+    // Its turn's end and limits come from its report instead.
+    const sandbox = grants?.sandbox?.settings;
     const settingsValue = claudeSettings({
-      attentionUrl: launch.attentionUrl,
+      attentionUrl: sandbox ? undefined : launch.attentionUrl,
+      sandbox,
       allowedMcpServers: grants?.allowedMcpServers,
     });
     const settings = settingsValue ? ['--settings', settingsValue] : [];
@@ -545,8 +574,13 @@ export class ClaudeDriver implements HarnessDriver {
       launch.unattended && launch.maxTurns !== undefined
         ? ['--max-turns', String(launch.maxTurns)]
         : [];
+    // What is left of the run's budget, after the cap, on a reporting turn.
+    const budget = launch.unattended && launch.reportTurn ? budgetFlags(launch.maxBudgetUsd) : [];
     const pluginDir = livePluginDir(grants);
-    const plugin = pluginDir ? ['--plugin-dir', pluginDir, '--add-dir', pluginDir] : [];
+    // Never `--add-dir` for a write step: its file tools could then write the plugin.
+    const plugin = pluginDir
+      ? ['--plugin-dir', pluginDir, ...(writes ? [] : ['--add-dir', pluginDir])]
+      : [];
     // Without its plugin dir a step has none of its skills: no Skill tool, no allow rule.
     const allowed = grants?.allowedTools.filter(
       (rule) =>
@@ -562,7 +596,17 @@ export class ClaudeDriver implements HarnessDriver {
               allowed,
               deny,
             })
-          : [];
+          : writes
+            ? writeAgentArgs({
+                // Checked above (`compiledWhole`, `claudeGrants`): never a write launch without them.
+                tools: grants!.tools!,
+                isolation: grants!.environment!.isolation,
+                strict: grants!.strict,
+                skills: pluginDir !== undefined,
+                allowed,
+                deny: [...grants!.fileDeny!, ...deny],
+              })
+            : [];
       const args = [
         ...base,
         ...model,
@@ -570,6 +614,7 @@ export class ClaudeDriver implements HarnessDriver {
         ...settings,
         ...report,
         ...turns,
+        ...budget,
         ...plugin,
         ...policy,
         ...config.extraArgs,

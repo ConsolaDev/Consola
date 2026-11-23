@@ -101,9 +101,9 @@ describe('Claude read-only launches', () => {
   });
 });
 
-describe('Claude launches of a step that writes (slice 3-B Task 16, Call 14)', () => {
+describe('Claude launches of a step that writes (slice 3-B Tasks 16 and 17, Call 14)', () => {
   it.each([['edit'], ['write']] as const)(
-    'refuses a %s launch, attended or not, until its agent is compiled for it',
+    'refuses a %s launch, attended or not, without the grants its agent compiled',
     (policy) => {
       for (const unattended of [false, true])
         expect(() =>
@@ -176,7 +176,7 @@ describe('Claude unattended and forked launches', () => {
     ).toEqual(['-p', '--resume', 'abc', ...READ_ONLY, '--verbose', '--', 'Go on.']);
   });
 
-  it('refuses an unattended turn without read-only', () => {
+  it('refuses an unattended turn with no tool policy', () => {
     expect(() =>
       claude.buildSessionArgs(config, {
         sessionId: 'abc',
@@ -185,7 +185,7 @@ describe('Claude unattended and forked launches', () => {
         initialPrompt: 'Review it.',
       }),
     ).toThrow(
-      'A turn nobody is watching skips Claude’s folder-trust prompt, so Consola runs one only in a read-only session.',
+      'A turn nobody is watching skips Claude’s folder-trust prompt, so Consola runs one only in a session with a tool policy, which runs --restricted.',
     );
   });
 

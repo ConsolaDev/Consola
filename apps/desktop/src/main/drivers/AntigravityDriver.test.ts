@@ -323,3 +323,11 @@ describe('Antigravity harness', () => {
     expect(offered).toEqual(plain);
   });
 });
+
+describe("Antigravity's profile folder (slice 3-B Task 17, Call 21)", () => {
+  it('is what the harness pins, else ~/.gemini, which holds its data dir and its sign-in', () => {
+    const agy = new AntigravityDriver();
+    expect(agy.profileDir({ configDir: '/h/.agy-work', extraArgs: [] })).toBe('/h/.agy-work');
+    expect(agy.profileDir({ extraArgs: [] })).toBe(path.join(os.homedir(), '.gemini'));
+  });
+});

@@ -15,7 +15,12 @@ import {
   stepPluginProblem,
 } from './claudeAgent';
 import { CLAUDE_SIGN_IN_HINT } from './claudeTurnReader';
-import type { AgentRequirements, CheckoutKind, McpServerReport } from './HarnessDriver';
+import type {
+  AgentRequirements,
+  CheckoutKind,
+  CompileHost,
+  McpServerReport,
+} from './HarnessDriver';
 
 /**
  * The server probe talks to another process, so it runs against real
@@ -1069,5 +1074,151 @@ describe('stepPluginProblem (review M1)', () => {
   it('names a skill it has no hash for', async () => {
     const { pluginDir } = await built();
     expect(stepPluginProblem(pluginDir, ['incident-triage'], {})).toEqual(expect.any(String));
+  });
+});
+
+describe('compileClaudeAgent, for a write agent (slice 3-B Task 17)', () => {
+  const HOST: CompileHost = {
+    platform: 'darwin',
+    denyRead: ['/h/Library/Keychains', '/h/.claude-work'],
+    cliVersion: '2.1.330',
+    settingsFiles: [],
+  };
+  const CHECKOUT = '/w/catalog-portal-run-3f2a91c0';
+  const WRITE_INPUT = {
+    config: { extraArgs: [] },
+    harnessName: 'Claude work',
+    agent: {
+      tools: 'write' as const,
+      mcpServers: [],
+      skills: [],
+      environment: {
+        name: 'sandboxed',
+        isolation: 'sandbox' as const,
+        network: ['registry.npmjs.org'],
+        env: ['CI'],
+      },
+    },
+    checkout: 'run-owned' as CheckoutKind,
+    servers: [] as McpServerReport[],
+    accountFile: '/h/.claude-work/.claude.json',
+    host: HOST as CompileHost | undefined,
+    checkoutPath: CHECKOUT,
+  };
+
+  it.each([
+    [
+      { checkout: 'scope' },
+      'A write agent changes code only on a branch the run cuts from one of `repos:` (invariant 9).',
+    ],
+    [
+      { checkout: 'item' },
+      'A write agent changes code only on a branch the run cuts from one of `repos:` (invariant 9).',
+    ],
+    [
+      { host: { ...HOST, platform: 'linux' } },
+      '`isolation: sandbox` is verified on macOS only so far; this machine runs Linux.',
+    ],
+    [
+      { host: { ...HOST, platform: 'win32' } },
+      '`isolation: sandbox` is verified on macOS only so far; this machine runs Windows.',
+    ],
+    [{ host: undefined }, "can't hold a write agent to its environment"],
+  ] as const)('refuses a sandboxed write agent where %j', (over, words) => {
+    expect(compileClaudeAgent({ ...WRITE_INPUT, ...over })).toEqual({
+      ok: false,
+      problem: expect.stringContaining(words),
+      about: 'agent',
+    });
+  });
+
+  it('an edit agent is refused off its run-owned checkout too, read-only ones never are', () => {
+    const edit = { ...WRITE_INPUT.agent, tools: 'edit' as const };
+    expect(compileClaudeAgent({ ...WRITE_INPUT, agent: edit, checkout: 'scope' })).toMatchObject({
+      ok: false,
+    });
+    expect(
+      compileClaudeAgent({
+        ...WRITE_INPUT,
+        agent: { tools: 'read-only', mcpServers: [], skills: [] },
+        checkout: 'scope',
+        host: undefined,
+      }),
+    ).toMatchObject({ ok: true });
+  });
+
+  it('a write agent on host compiles off macOS: only `sandbox` is verified on macOS alone', () => {
+    const onHost = {
+      ...WRITE_INPUT.agent,
+      environment: { ...WRITE_INPUT.agent.environment, isolation: 'host' as const },
+    };
+    expect(
+      compileClaudeAgent({ ...WRITE_INPUT, agent: onHost, host: { ...HOST, platform: 'linux' } }),
+    ).toMatchObject({ ok: true });
+  });
+
+  it('compiles the grants with the CLI version it was compiled for, its sandbox and its file rules', () => {
+    expect(compileClaudeAgent(WRITE_INPUT)).toMatchObject({
+      ok: true,
+      grants: {
+        tools: 'write',
+        environment: { name: 'sandboxed', isolation: 'sandbox', envNames: ['CI'] },
+        sandbox: {
+          cliVersion: '2.1.330',
+          settings: {
+            network: { allowedDomains: ['registry.npmjs.org'] },
+            filesystem: { denyRead: HOST.denyRead, denyWrite: [`${CHECKOUT}/.git`] },
+          },
+        },
+        fileDeny: [`Edit(/${CHECKOUT}/.git)`, `Write(/${CHECKOUT}/.git)`],
+      },
+    });
+  });
+
+  it('a write agent on host has no sandbox; at apply, with no checkout yet, no sandbox or file rules either', () => {
+    const onHost = {
+      ...WRITE_INPUT.agent,
+      environment: { ...WRITE_INPUT.agent.environment, isolation: 'host' as const },
+    };
+    const host = compileClaudeAgent({ ...WRITE_INPUT, agent: onHost });
+    expect(host.ok && host.grants.sandbox).toBeUndefined();
+    expect(host.ok && host.grants.fileDeny).toEqual([
+      `Edit(/${CHECKOUT}/.git)`,
+      `Write(/${CHECKOUT}/.git)`,
+    ]);
+    const { checkoutPath: _, ...atApply } = WRITE_INPUT;
+    const applied = compileClaudeAgent(atApply);
+    expect(applied).toMatchObject({ ok: true, grants: { tools: 'write' } });
+    expect(applied.ok && [applied.grants.sandbox, applied.grants.fileDeny]).toEqual([
+      undefined,
+      undefined,
+    ]);
+  });
+
+  it("refuses `sandbox` when the harness's own settings set `sandbox`, in Call 24's words (review NS6)", () => {
+    expect(
+      compileClaudeAgent({
+        ...WRITE_INPUT,
+        host: {
+          ...HOST,
+          settingsFiles: [{ path: '/h/.claude-work/settings.json', text: '{"sandbox":{}}' }],
+        },
+      }),
+    ).toEqual({
+      ok: false,
+      problem:
+        "/h/.claude-work/settings.json sets `sandbox`, which Claude may add to this agent's sandbox, and Consola can't check what it changes. Remove it there, or give write agents a harness of their own.",
+      about: 'agent',
+    });
+  });
+
+  it("a read-only agent's grants are what they were: no tools, environment, sandbox or file rules", () => {
+    const compiled = compileClaudeAgent({
+      ...WRITE_INPUT,
+      agent: { tools: 'read-only', mcpServers: [], skills: [] },
+    });
+    expect(compiled.ok && Object.keys(compiled.grants).sort()).toEqual(
+      ['allowedTools', 'driverId', 'servers', 'skills', 'strict'].sort(),
+    );
   });
 });

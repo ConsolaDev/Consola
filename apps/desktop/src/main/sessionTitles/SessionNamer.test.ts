@@ -42,6 +42,7 @@ function makeDriver(): FakeDriver {
     id: 'claude',
     configDirEnvVar: 'CLAUDE_CONFIG_DIR',
     resolveBinary: () => 'claude',
+    profileDir: () => '/home/alice/.claude',
     buildSessionArgs: () => [],
     toolPolicyProblem: () => null,
     composeEnv: (_config, env) => env,

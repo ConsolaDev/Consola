@@ -476,3 +476,16 @@ describe('Codex harness without attention hooks', () => {
     expect(offered.join(' ')).not.toContain('--settings');
   });
 });
+
+describe("Codex's profile folder (slice 3-B Task 17, Call 21)", () => {
+  it('is what the harness pins, else the login environment’s CODEX_HOME, else ~/.codex', () => {
+    const codex = new CodexDriver();
+    expect(
+      codex.profileDir({ configDir: '/h/.codex-work', extraArgs: [] }, { CODEX_HOME: '/h/x' }),
+    ).toBe('/h/.codex-work');
+    expect(codex.profileDir({ extraArgs: [] }, { CODEX_HOME: '/h/.codex-ambient' })).toBe(
+      '/h/.codex-ambient',
+    );
+    expect(codex.profileDir({ extraArgs: [] }, {})).toBe(path.join(os.homedir(), '.codex'));
+  });
+});
