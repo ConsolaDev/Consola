@@ -45,6 +45,7 @@ export {
 } from './flow';
 export { cronError, nextCronOccurrence } from './cron';
 export { parseAutomationFile, type AutomationFileResult } from './automationFile';
+export { automationLines, type AutomationLines, type LineRange } from './lines';
 export {
   appendAutomationEntry,
   automationEntryText,

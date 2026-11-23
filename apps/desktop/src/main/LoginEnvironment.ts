@@ -5,6 +5,7 @@ import {
   type ExecFileSyncOptionsWithStringEncoding,
 } from 'node:child_process';
 import * as os from 'node:os';
+import { keepLaunchClaudeConfigDir } from './test-mode';
 
 /**
  * The ambient environment every spawned process inherits.
@@ -73,7 +74,10 @@ function stripInheritedSession(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return env;
 }
 
-/** Electron's own variables with the login shell's on top, so its PATH wins. */
+/**
+ * Electron's own variables with the login shell's on top, so its PATH wins.
+ * In a test run the launch's `CLAUDE_CONFIG_DIR` stands (`keepLaunchClaudeConfigDir`).
+ */
 function fromLoginShell(raw: string): NodeJS.ProcessEnv {
   const parsed: NodeJS.ProcessEnv = {};
   for (const entry of raw.split('\0')) {
@@ -82,7 +86,7 @@ function fromLoginShell(raw: string): NodeJS.ProcessEnv {
       parsed[entry.slice(0, separator)] = entry.slice(separator + 1);
     }
   }
-  return stripInheritedSession({ ...process.env, ...parsed });
+  return stripInheritedSession(keepLaunchClaudeConfigDir({ ...process.env, ...parsed }));
 }
 
 function describeProbeFailure(shell: string, error: unknown, timeoutMs: number): string {

@@ -22,7 +22,14 @@ function innermostMessage(error: unknown): string | undefined {
 }
 
 function secretsOf(config: CloudConfig): string[] {
-  const secrets = [config.databaseUrl, config.authSecret, config.google.clientSecret];
+  const secrets = [
+    config.databaseUrl,
+    config.authSecret,
+    config.google.clientSecret,
+    config.cellTokenPrivateKey.d,
+    config.github?.clientSecret ?? '',
+    config.githubWebhookSecret ?? '',
+  ];
   try {
     const { password } = new URL(config.databaseUrl);
     if (password) secrets.push(password, decodeURIComponent(password));

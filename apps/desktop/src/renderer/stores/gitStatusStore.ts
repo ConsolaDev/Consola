@@ -117,17 +117,38 @@ export const useGitStatusStore = create<GitStatusState>((set, get) => ({
 }));
 
 /**
- * The uncommitted counts read from `dir`, or undefined while the store
+ * The uncommitted counts git gave for `dir`, or undefined while the store
  * holds none of its own: before its first read lands, while a refresh moves
  * the store over from another checkout (`rootPath` is already `dir`, but
- * `stats` are still the other's), and after a failed read. Git state belongs
- * to the checkout, so it is never another's numbers.
+ * `stats` are still the other's), after a failed read, and for a folder that
+ * is no repository's top (main reads status only where `.git` is, so the
+ * zeros it answers there count nothing). Git state belongs to the checkout,
+ * so it is never another's numbers, and never a `None` git did not say.
  */
 export function statsFor(
-  state: Pick<GitStatusState, 'stats' | 'statsRoot'>,
+  state: Pick<GitStatusState, 'stats' | 'statsRoot' | 'isGitRepo'>,
   dir: string,
 ): GitStats | undefined {
-  return state.statsRoot === dir ? state.stats : undefined;
+  return state.statsRoot === dir && state.isGitRepo ? state.stats : undefined;
+}
+
+/**
+ * What the info panel's Uncommitted row draws for `dir`: git's counts for it
+ * (`statsFor`); `'reading'`, the row with no value, while a read of `dir` is
+ * under way and git has not yet answered for it (a switch from another
+ * checkout), so the rows below it do not jump; or null, no row, when no read
+ * of `dir` is under way and none has landed, or git said it is no
+ * repository's top. A re-read of a folder git already answered for keeps that
+ * answer, so a focus re-read never flashes an empty row. Never a `None` git
+ * did not say.
+ */
+export function uncommittedFor(
+  state: Pick<GitStatusState, 'stats' | 'statsRoot' | 'isGitRepo' | 'rootPath' | 'isLoading'>,
+  dir: string,
+): GitStats | 'reading' | null {
+  const stats = statsFor(state, dir);
+  if (stats) return stats;
+  return state.rootPath === dir && state.isLoading && state.statsRoot !== dir ? 'reading' : null;
 }
 
 /**

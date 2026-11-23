@@ -17,7 +17,9 @@ pnpm run dev:cloud-region # Consola Cloud's regional cell (3101), set up by its 
 pnpm run build            # Production build (all processes)
 pnpm start                # Run production build
 pnpm run test:e2e         # Run Playwright E2E tests
-pnpm test                 # Every package's tests via Turborepo (the website's Playwright suite included)
+pnpm test                 # Every Consola package's tests via Turborepo (the website's Playwright suite included; not vendor/)
+pnpm run test:vendor      # The copied t3code packages' own tests, as CI's vendor job runs them (Linux)
+pnpm run typecheck:vendor # The copied t3code packages' own typecheck, as CI's vendor job runs it
 pnpm --filter @consola/automation-engine test   # Just the engine's tests
 ```
 
@@ -53,10 +55,12 @@ All commands above run from the repository root. The pnpm workspace contains
 (`@consola/cloud-region`), `apps/cloud-web` (`@consola/cloud-web`),
 `packages/factory-spec` (`@consola/factory-spec`, MIT),
 `packages/automation-engine` (`@consola/automation-engine`),
-`packages/sandbox` (`@consola/sandbox`) and `packages/cloud-contract`
-(`@consola/cloud-contract`). Turborepo
-orchestrates builds, tests, and typechecking. Paths below beginning with `src/`,
-`scripts/`, or `dist/` are relative to `apps/desktop`. Use
+`packages/sandbox` (`@consola/sandbox`), `packages/cloud-contract`
+(`@consola/cloud-contract`), `packages/host` (`@consola/host`, AGPL),
+`packages/agent-ui` (`@consola/agent-ui`, MIT) and the copied t3code packages
+under `vendor/t3code/` ("Vendored t3code", below). Turborepo orchestrates
+builds, tests, and typechecking; the root runs leave `vendor/` out. Paths below
+beginning with `src/`, `scripts/`, or `dist/` are relative to `apps/desktop`. Use
 `pnpm --filter consola exec <tool>` for app-specific tools.
 
 Tooling runs on one exact Node version, named in three places that move
@@ -69,6 +73,16 @@ runs pnpm through `npx pnpm@<version>`: keep that version equal to
 `packageManager`. Electron bundles its own Node, so none of this changes the
 app's runtime.
 
+`.env` files are gitignored, so a new git worktree has none, and an app that
+needs one (`apps/cloud-global/.env`, say) will not start there. `pnpm install`
+fixes that: its `postinstall` (`tools/link-worktree-env.mjs`) links every
+`.env` and `.env.*` the main checkout has, at the root or in a package's
+folder, into the worktree, as symbolic links to the main checkout's files. It
+never replaces a file that is there, links only what git ignores, and does
+nothing in the main checkout, in a plain clone (CI) or outside git. Run it by
+hand with `pnpm link-env`. A relative `pglite:` `DATABASE_URL` then gives each
+worktree a database of its own.
+
 ### CI
 
 CI (`.github/workflows/ci.yml`) runs a pull request's checks only where its
@@ -76,11 +90,20 @@ change can fail them. `.github/scripts/ci-scope.mjs` asks Turborepo which
 packages the change affects (`turbo ls --affected`: the changed packages and
 every package that depends on them), and each job runs for those alone, so
 a change to one cloud app never starts the desktop's macOS jobs. A new
-workspace package gets its own job without the workflow naming it. The
-script also holds three rules the package graph cannot see:
+workspace package gets its own job without the workflow naming it, except
+under `vendor/`: the copied t3code packages are checked together, with their
+own scripts, in the `vendor` job. `@consola/agent-ui` has a job of its own,
+like the website, for its browser tests and the checks of its built library.
+The script also holds four rules the package graph cannot see:
 
 - A change to the desktop checks the website too, because the site's demo
   imports the desktop's renderer by path, not as a dependency.
+- A change to the desktop's or cloud-web's CSS that `@consola/agent-ui`'s
+  page tests read as files (`src/testing/embeddingPages.ts`: the desktop's
+  `global.css` and theme tokens, cloud-web's `ui/styles.css`, and the Radix
+  Themes stylesheet its `package.json` or the lockfile installs) checks
+  agent-ui too. `ci-scope.test.mjs` fails when that module reads a file the
+  rule does not name.
 - A change to CI itself, the root `package.json`, `pnpm-workspace.yaml`,
   `turbo.json` or `patches/` checks everything.
 - A push to main checks everything.
@@ -125,13 +148,18 @@ parser and Run record that every runner shares.
 
 `packages/sandbox` (`@consola/sandbox`, AGPL-3.0-only) is the one interface
 every runner uses to start and drive sandboxes: create one from a template,
-run a command and stream its output, read and write files, expose a port,
-stop it. E2B is the first provider behind it, invisible to users. Code holds
-`Sandboxes` from `sandboxesFrom(provider)`, which checks every request before a
-provider sees it, and checks a capability (`pausing`, `snapshots`) by its
-member, never by which provider it has. Its core does no I/O, which its
-`boundary.test.ts` proves; every provider passes its contract
-(`src/contract.test.ts`), and its in-memory `FakeProvider` is what other
+with a lifetime, run a command and stream its output, read and write files,
+expose a port, stop it, and reach it again by its id from another process.
+E2B is the first provider behind it (`@consola/sandbox/e2b`, an entry point
+of its own), invisible to users. Code holds `Sandboxes` from
+`sandboxesFrom(provider)`, which checks every request before a provider sees
+it, and checks a capability (`pausing`, `snapshots`, `keepAlive`) by its
+member, never by which provider it has. A sandbox's lifetime is a hard
+maximum and the only thing that stops one whose runner died, so long work
+renews it (`keepAlive`) rather than setting a long one. Its core does no
+I/O, which its `boundary.test.ts` proves; every provider passes its contract
+(`src/contract.test.ts`, against real E2B when `E2B_API_KEY` is set in
+`packages/sandbox/.env`), and its in-memory `FakeProvider` is what other
 packages' tests use. Before changing it, or adding a provider, read
 `packages/sandbox/AGENTS.md`.
 
@@ -169,18 +197,56 @@ belongs in a regional cell. `apps/cloud-region` (`@consola/cloud-region`, Hono, 
 Postgres) is the regional cell: one copy per region, configured with its
 region, holding what a workspace has there that is not global. It holds no
 accounts (people are referenced by their global id), and every table carries
-the workspace id. Nothing in `apps/desktop` depends on the cloud apps, and none
-imports from the desktop, the website, another app or `packages/*`, with one
-exception: `cloud-global` and `cloud-region` both import
+the workspace id. It trusts only `cloud-global`'s token: every request but its
+health check, the outbox's deliveries and the GitHub webhook events
+`cloud-global` passes on (both signed with the same key) carries a cell token,
+checked with `cloud-global`'s public keys,
+and the person, workspace and role come from that token alone, never from the
+request. Nothing in `apps/desktop` depends on the cloud apps, and none
+imports from the desktop, the website, another app or `packages/*`, with two
+exceptions. `cloud-global` and `cloud-region` both import
 `packages/cloud-contract` (`@consola/cloud-contract`), what the two agree on:
 the regions, the workspace roles, the claims of the token `cloud-global` mints
-for a cell, and the outbox messages it sends one. It does no I/O, so any layer
-of either app may import it; before changing it, read
-`packages/cloud-contract/AGENTS.md`. Setup is in
+for a cell, the outbox messages it sends one and how it delivers them, the
+GitHub events it passes on, and a cell's signed request for a GitHub token. It
+does
+no I/O, so any layer of either app may import it; before changing it, read
+`packages/cloud-contract/AGENTS.md`. And `cloud-region` imports
+`packages/factory-spec` (`@consola/factory-spec`), the factory files' schema
+every runner shares, to check the factory files it stores; it does no I/O
+either, so any layer of the cell may import it. Setup is in
 `apps/cloud-global/README.md` and `apps/cloud-region/README.md`. Before
 changing a cloud app, read its own `AGENTS.md` (`apps/cloud-global/AGENTS.md`,
 `apps/cloud-region/AGENTS.md`, `apps/cloud-web/AGENTS.md`): it holds the layer
 rules and the dependency rule that keeps them apart.
+
+**Every HTTP API a cloud app serves has a contract, and every client calls
+it through types generated from that contract.** This holds for every route,
+in every cloud app, a new app included:
+
+- The routes are declared in Zod with `@hono/zod-openapi`, in the app's
+  `src/adapters/http/contract.ts`, with every status a route answers and its
+  body (strict objects). `app.ts` registers each with `app.openapi`, never
+  `app.get`, `app.post` and the like, and lists it in `ROUTES`.
+- The app's `openapi.json` is generated from them (`openapi:generate`) and
+  committed. `openapi.test.ts` fails while it is stale, and while the app
+  serves a route the contract does not declare (`OUTSIDE_THE_CONTRACT` names
+  the exceptions, such as Better Auth's own routes, each with its reason).
+- The app's HTTP suite checks every answer it reads against the route's
+  schema.
+- A client's types are generated from that `openapi.json`, which it reads as
+  a file and never imports (`cloud-web`'s `domain/apiContract.ts`, by
+  `api:generate`), and it calls the API only through an `openapi-fetch`
+  client typed by them (`createApi`): `cloud-web`'s boundary test refuses
+  `fetch` in its services.
+- The package graph cannot see a file read across apps, so
+  `.github/scripts/ci-scope.mjs` checks the client with every change to the
+  API (`cloud-global` → `cloud-web`), and a new pair is added there.
+
+A cell is no exception: `cloud-region` declares its routes in a contract of its
+own, and a client of the cell gets its own generated types and client, the
+same way. Each app's `AGENTS.md` ("The contract", "The API's contract") holds
+the details and the library's traps.
 
 The browser talks only to the web app's origin. Vite proxies `/api` to the API,
 so the session cookie is first-party and the API needs no CORS. Better Auth
@@ -197,6 +263,19 @@ later rule that limits it to the company lands in `mayJoin` and so gates every
 sign-in (sessions already open when the rule changes are not ended this
 round). The web app's footer links to the source of the commit it runs
 (AGPL §13).
+
+### Vendored t3code
+
+`vendor/t3code/` is t3code's packages and server files, copied byte for byte (MIT, its own
+`LICENSE`). Never edit a copied file there or in `packages/agent-ui/src/t3/`; Biome ignores
+them. A change that cannot be avoided, every file copied and every re-sync are recorded in
+`vendor/t3code/UPSTREAM.md`, in the same commit. Two Consola packages build on it:
+`packages/host` (`@consola/host`, AGPL), which runs t3's orchestration for one session and
+serves t3's RPC behind a session pass, and `packages/agent-ui` (`@consola/agent-ui`, MIT),
+t3's chat view behind `AgentChat`. Read each one's `AGENTS.md` before changing it. The
+copied packages' own checks are not part of `pnpm test` or `pnpm typecheck`: run
+`pnpm run test:vendor` and `pnpm run typecheck:vendor` (CI's `vendor` job, on Linux, where a
+few of t3's tests assume Linux and fail on macOS).
 
 ## Critical Patterns
 
@@ -548,16 +627,34 @@ panel it is view state, kept in the renderer.
   (`openKind`, or `reveal` for a place inside the tab's view, such as the
   pane's merge card, which the view acts on once per `revealRequest.seq`);
   the Folder row copies its path, and its card, on hover or focus, explains
-  the checkout (a worktree's branch, folder and main checkout). Nothing in
+  the checkout (its branch, the session's folder (the path the row copies)
+  and a worktree's main checkout). Under it, "Open in" opens that folder in
+  the app last picked (`settingsStore.openInFavourite`, else the file
+  manager, Finder on a Mac), as ⌘O
+  (Ctrl+Alt+O elsewhere: a bare Ctrl+O is the terminal's) does from
+  anywhere in a session pane; its chevron lists the apps main found
+  (`main/openIn/`, one table), and a pick there or in the palette becomes
+  the favourite. Main opens only an app it found, on the real path an
+  absolute one leads to (links and `..` followed), which must be a folder
+  and not an app's bundle, with argument lists; a test run records instead
+  of opening. No folder (a removed worktree), no button. Nothing in
   the panel navigates or takes the keyboard, on mount or otherwise.
   Visibility rides with the layout (`sidePanelStore.infoVisible`,
   written only under the remember setting, shown when absent); folds sit in
   `settingsStore.infoSectionOpen` and are always kept. While the side panel
-  is open on a session pane narrower than `INFO_PANEL_ROOM_PX` (1010px: 60
-  columns of conversation beside both panels), the panel steps aside
+  is open on a session pane narrower than `INFO_PANEL_ROOM_PX` (1026px: 60
+  columns of conversation beside both panels and their two separators,
+  `PANEL_SEPARATOR_PX`), the panel steps aside
   (`infoPanelShown`, `infoPanel/stepAside.ts`) without writing `infoVisible`,
   everything that asks whether it shows reads that answer, and its toggle
-  shows it anyway until the side panel hides or the pane has room. A folded section
+  shows it anyway until the side panel hides or the pane has room. While all
+  three show on a pane with that room, the conversation's `minSize` is those
+  60 columns (`CONVERSATION_ROOM_PX`, `conversationKeepsRoom`), else 20%: the
+  panels give way before it, and a split saved while the person kept the
+  panel on a narrow pane never restores it narrower on a pane that holds
+  them. That leans on react-resizable-panels, which re-registers a Panel
+  whose `minSize` changes and re-validates its remembered layout, and a saved
+  one as it restores. A folded section
   renders neither its rows nor its heading's actions (`InfoSection`), so
   whatever they read never starts. Showing, hiding or resizing the panel
   only resizes the conversation, which stays `ContentView`'s first child.
@@ -566,26 +663,29 @@ panel it is view state, kept in the renderer.
   panel share its entries (`detailsKey`: workspace, account, item). It reads
   only for an active viewer (`watch`, through `useWorkItemDetails`), one
   read per item at a time, at most once per `INBOX_REFRESH_INTERVAL_MS`
-  unless forced by the person's Refresh or Retry or the re-read after a
-  write. A forced load never takes the answer of a read already in flight,
-  which may predate the write, unless a loud forced load started that read;
-  it waits, then gets one more. The store's own reads (a watch's first load,
-  the re-check once an entry goes stale) are quiet once the entry holds
-  details, so the pane's editors never lock under the person's typing. The
-  mergeability poll is its own: a few quiet reads while `mergeState` is
-  `UNKNOWN`, only while watched (`MERGE_STATE_POLLS`). At most
-  `MAX_UNWATCHED_DETAILS` (20) entries nobody watches keep their details,
-  the least recently read dropped first. A folded section, a hidden panel, a
-  tab behind another and the mark read nothing: `useDetailsEntry` reads the
-  cache and never watches.
+  (a failed read counts as one, quiet or loud) unless forced by the person's
+  Refresh or Retry or the re-read after a write. A forced load never takes
+  the answer of a read already in flight, which may predate the write,
+  unless a loud forced load started that read; it waits, then gets one more.
+  The store's own reads (a watch's first load, the re-check once an entry
+  goes stale) are quiet once the entry holds details, so the pane's editors
+  never lock under the person's typing. The mergeability poll is its own: a
+  few quiet reads while `mergeState` is `UNKNOWN`, only while watched
+  (`MERGE_STATE_POLLS`). At most `MAX_UNWATCHED_DETAILS` (20) entries nobody
+  watches keep their details, the least recently read dropped first. A
+  folded section, a hidden panel, a tab behind another and the mark read
+  nothing: `useDetailsEntry` reads the cache and never watches.
 - **A branch's pull request is found in main** (`BranchPullRequestFinder`),
   for a session linked to none. Main reads the branch from the folder
   (`readBranchIdentity`), so the renderer never sends one; origin is mapped
   by the driver's `repoOfRemote`, and `lookupPullRequests` is asked once per
   provider, account, repo and the branch's name on the remote per interval
-  (`BRANCH_LOOKUP_TTL_MS`), a failure kept as long as an answer, sooner only
-  for Retry or Refresh. It is asked only while someone looks: the info panel
-  shown with Pull request open, or the Pull request tab in front
+  (`BRANCH_LOOKUP_TTL_MS`, counted from the ask, not the answer, less a
+  few seconds' slack, `ASK_SLACK_MS`, so the renderer's re-ask one interval
+  on is not served the old answer), a failure kept as long as an answer,
+  sooner only for Retry or Refresh. It is asked
+  only while someone looks: the info panel shown with Pull request open, or
+  the Pull request tab in front
   (`useBranchPullRequestLookup`, from `ContentView`). It is never written to
   the record; Link writes `workItem`. Every answer names the branch it was
   read for and counts only while the checkout is on it
@@ -594,17 +694,24 @@ panel it is view state, kept in the renderer.
   never ends a lookup (one more is asked), a failed lookup keeps a pull
   request already found for the same branch, and an answer that read no
   branch keeps the asked branch's answer, or fails it so Retry is offered.
-- **Branch facts never fetch** (`readBranchFacts`, with
-  `GIT_NO_LAZY_FETCH=1`, a 10 s timeout and argument lists): every count is
-  against what the clone already has, and what git cannot answer is a line
-  not drawn, never a throw. "vs" compares with the session's pull request's
-  base when its details are cached, else `origin/HEAD`, never a guessed
-  `main`. They are read while the Branch section is open and again after
-  each git status refresh of that checkout (`gitStatusStore.refreshedAt`);
+- **Branch facts never fetch**, on git 2.44 and later (`readBranchFacts`,
+  through `readGit`: `GIT_NO_LAZY_FETCH=1`, which an older git ignores, so a
+  partial clone's diff there fetches what it lacks; `GIT_TERMINAL_PROMPT=0`,
+  a 10 s timeout and argument lists): every count is against what the clone
+  already has, and what git cannot answer is a line not drawn, never a throw.
+  "vs" compares with the session's pull request's base when its details are
+  cached, else `origin/HEAD`, never a guessed `main`. They are read while the
+  Branch section is open and again after each git status refresh of that
+  checkout (`gitStatusStore.refreshedAt`);
   a load during a read gets one more read after it (`branchFactsStore`), so
-  a commit made mid-read is counted. Uncommitted reads the stats of its own
-  checkout (`statsFor`, `statsRoot`), never the last checkout's during a
-  session switch.
+  a commit made mid-read is counted. Uncommitted, like the header's counts,
+  reads the stats git gave for its own checkout (`statsFor`, `statsRoot`),
+  never the last checkout's during a session switch, and says `None` only
+  when git did (`uncommittedFor`): while git reads its checkout for the
+  first time the row stays with no value, so the rows below do not jump;
+  with no read of it under way and none landed (a folder below its
+  repository's top, whose status is never read), or where git said no
+  repository, the row is not drawn.
 - **A kind's mark has a tone** (`agent` or `alert`), and every mark takes
   the same three places (`markPlaces`): its header shortcut; its tab in a
   group on screen, drawn there only while behind another tab, since in
@@ -1254,6 +1361,7 @@ All channel names are defined in `src/shared/constants.ts`. Key patterns:
 - `git:*` - Git status and commit message generation
 - `dialog:*` - Native dialogs
 - `app:*` - The machine Consola runs on: its name (`app:get-computer-name`), read once per run
+- `open-in:*` - "Open in" a session's folder: the apps main found (`open-in:list`), and opening one (`open-in:open`), which main checks first
 - `worktree-cleanup:*` - Cleanup preview, "Clean up now", history, and a deleted session's outcome
 - `browser:*` - In-app browser tabs, page actions and snapshots; every id is checked against the sender's workspace
 
@@ -1275,7 +1383,11 @@ rules follow:
 - **Dependencies must be AGPL-compatible**: MIT, ISC, BSD, Apache-2.0,
   MPL-2.0, LGPL and GPL-3.0 are; GPL-2.0-only is not. CI checks every
   installed dependency's declared licence against the list in
-  `.github/scripts/check-licenses.mjs`.
+  `.github/scripts/check-licenses.mjs`. Its `NOT_SHIPPED` names the few
+  that are not (the Claude Agent SDK and the Cursor SDK, which the copied
+  t3code packages install), each with what keeps it out of everything
+  Consola publishes or releases; a package joins it only when nothing that
+  ships may bundle it.
 
 Outside contributions need a signed CLA (`CLA.md`, checked by
 `.github/workflows/cla.yml`). It is what keeps relicensing — a commercial
@@ -1299,21 +1411,36 @@ license, an MIT carve-out — possible, so never bypass it.
 - Preload: `dist/preload/preload/preload.js`
 - Renderer: `dist/renderer/`
 
-## Research Documents
+## Documents Live in Linear
 
-Implementation plans live in `docs/plans/`.
+Every design, spec, plan, spike and piece of research is a Linear document
+in the Consola workspace, never a file in the repository. Start at the
+[Documents index](https://linear.app/consola/document/documents-index-start-here-63df2a55ce30): it lists every document by area and says
+how to add one. There is no `docs/` folder any more. On 2026-11-22
+everything in it, and the documents that were only in worktrees, moved to
+Linear, and each moved document opens with the path it came from. A
+`docs/...` path in older code, commits, issues or notes names one of them;
+find it in the index.
 
-Architecture decisions are documented in `docs/research/`:
-- `2026-02-05-esm-commonjs-interop-claude-agent-sdk.md` - SDK integration
-- `2026-02-05-git-status-file-explorer.md` - Git feature design
-- `2026-02-03-workspace-feature-architecture.md` - Workspace system
+- **Write every new document in Linear, never as a local file.** This
+  overrides any skill that saves to `docs/` by default (superpowers'
+  brainstorming and writing-plans, this repository's research-codebase).
+  Create it with the Linear MCP tools (`save_document`) and read one with
+  `get_document`. A CLI without them asks the person to add the document.
+- **Attach it to the project it serves**, or to the Consola team when no
+  project fits, and link it from the issues it is for.
+- **Title it `Area · Kind: subject`**, for example
+  `Automations · Spec: Waiting and long runs (slice 4)`. Put the date it was
+  written on its first line, and add it to the index under its section.
+- **Upload images to the document.** Zip HTML mocks and link the zip.
+- **Point code comments and `AGENTS.md` files at Linear** by the document's
+  title and URL, never at a local path.
 
-Direction (where the product is heading, not a spec) lives in `docs/north-star/`.
-`docs/` is gitignored, so it exists only in the main checkout; from a worktree,
-read it there.
-- `docs/north-star/consola-automations.md` - **The north star for automations**: CI-shaped pipelines defined in files, run by desktop, headless and cloud runners. Read its invariants and decisions before designing anything that touches automations, triggers, connections, runs, agents, factory files, environments, runners, or sharing across an org
-- `docs/north-star/consola-automations-roadmap.md` - The slice order toward that north star, what each slice delivers, and the contracts each slice must leave true for later ones. Read a slice's entry and its contracts before writing that slice's spec
-- `docs/north-star/consola-factories.md` - The earlier local + cloud direction ("factories"). Its cloud runner, identity and Run record still stand; its "no workflow engine", "confirm every run" and "org ⊕ repo merge" rules are superseded by the automations north star
+Direction (where the product is heading, not a spec):
+- [North star · Automations](https://linear.app/consola/document/north-star-automations-bba97f65f331) - **The north star for automations**: CI-shaped pipelines defined in files, run by desktop, headless and cloud runners. Read its invariants and decisions before designing anything that touches automations, triggers, connections, runs, agents, factory files, environments, runners, or sharing across an org
+- [North star · Automations roadmap](https://linear.app/consola/document/north-star-automations-roadmap-45cd43ac0bf0) - The slice order toward that north star, what each slice delivers, and the contracts each slice must leave true for later ones. Read a slice's entry and its contracts before writing that slice's spec
+- [North star · Factories (the earlier direction)](https://linear.app/consola/document/north-star-factories-the-earlier-direction-11a3fbefdb39) - The earlier local + cloud direction ("factories"). Its cloud runner, identity and Run record still stand; its "no workflow engine", "confirm every run" and "org ⊕ repo merge" rules are superseded by the automations north star
+- [Cloud roadmap](https://linear.app/consola/document/cloud-roadmap-dbb1abc3c24d) - The plan for Consola Cloud: its projects in order, and which are unblocked
 
 The automations direction in brief:
 - An automation is a trigger plus steps, all in YAML/Markdown files (`factory.yml`, `agents/`, `automations/`, `skills/`, `environments/`). Nothing only the UI can express.

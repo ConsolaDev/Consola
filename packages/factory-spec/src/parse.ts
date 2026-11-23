@@ -1,5 +1,13 @@
 import { LineCounter, parseDocument } from 'yaml';
-import { closestNode, formatPath, nodeAt, toIssue, type FactorySpecIssue } from './issues';
+import {
+  closestNode,
+  formatPath,
+  linesAt,
+  nodeAt,
+  toIssue,
+  type FactorySpecIssue,
+  type LineRange,
+} from './issues';
 import { automationSchema, fileSchema, isStepsEntry, type Automation } from './schema';
 import { flatSteps } from './steps';
 import { documentValue } from './yamlValue';
@@ -17,6 +25,8 @@ export interface FactoryYmlResult extends FactorySpecParseResult {
   unreadable: boolean;
   /** The 1-based line of the node at `path`, or of its nearest ancestor that has one. */
   lineAt(path: Array<string | number>): number | undefined;
+  /** The lines the node at `path` is written on; undefined when there is no node there. */
+  rangeAt(path: Array<string | number>): LineRange | undefined;
   /**
    * Where the entry with this name is in the file, `['automations', <index>]`:
    * the one that loaded, else the first that has the name and failed.
@@ -58,6 +68,7 @@ export function parseFactoryYml(text: string): FactoryYmlResult {
     issues: issues.map((issue) => ({ ...issue, file: FILE })),
     unreadable,
     lineAt,
+    rangeAt: (path) => linesAt(doc, lineOf, path),
     entryPath: (name) => {
       const index = indexes.get(name) ?? named.get(name);
       return index === undefined ? undefined : ['automations', index];

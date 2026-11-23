@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ConfigError, loadConfig } from './config.js';
+import { ConfigError, loadConfig, seedRefusal } from './config.js';
 
 const valid = {
   DATABASE_URL: 'pglite:memory',
@@ -22,7 +22,40 @@ describe('loadConfig', () => {
       databaseUrl: 'pglite:memory',
       region: 'eu',
       port: 3101,
+      cloudGlobalUrl: 'http://127.0.0.1:3100',
     });
+  });
+
+  it("reads CLOUD_GLOBAL_URL as cloud-global's origin", () => {
+    for (const [url, origin] of [
+      ['https://global.sprocket.test', 'https://global.sprocket.test'],
+      ['https://global.sprocket.test/', 'https://global.sprocket.test'],
+      ['https://global.sprocket.test:8443', 'https://global.sprocket.test:8443'],
+      ['http://localhost:3100', 'http://localhost:3100'],
+      ['http://[::1]:3100/', 'http://[::1]:3100'],
+    ] as const) {
+      expect(loadConfig({ ...valid, CLOUD_GLOBAL_URL: url }).cloudGlobalUrl).toBe(origin);
+    }
+  });
+
+  it("takes an empty CLOUD_GLOBAL_URL as unset, so cloud-global's dev address", () => {
+    expect(loadConfig({ ...valid, CLOUD_GLOBAL_URL: '' }).cloudGlobalUrl).toBe(
+      'http://127.0.0.1:3100',
+    );
+  });
+
+  it.each([
+    ['not an address', 'global.sprocket.test'],
+    ['another scheme', 'ftp://global.sprocket.test'],
+    ['a user name and password', 'https://cell:secret@global.sprocket.test'],
+    ['a path', 'https://global.sprocket.test/api'],
+    ['a query', 'https://global.sprocket.test/?keys=1'],
+    ['a fragment', 'https://global.sprocket.test/#keys'],
+    ['plain http off this machine', 'http://global.sprocket.test'],
+  ])('refuses a CLOUD_GLOBAL_URL with %s', (_what, url) => {
+    const failure = failureOf({ ...valid, CLOUD_GLOBAL_URL: url });
+    expect(failure.problems).toEqual([expect.stringMatching(/^CLOUD_GLOBAL_URL: /)]);
+    expect(failure.message).not.toContain('secret');
   });
 
   it('reads REGION', () => {
@@ -72,6 +105,20 @@ describe('loadConfig', () => {
     for (const name of ['DATABASE_URL', 'REGION']) {
       expect(failure.problems.some((p) => p.startsWith(`${name}:`))).toBe(true);
       expect(failure.message).toContain(name);
+    }
+  });
+});
+
+describe('seedRefusal', () => {
+  it('lets the demo seed write to a local PGlite folder only', () => {
+    expect(seedRefusal('pglite:./.data/cell-eu-db')).toBeNull();
+    for (const url of [
+      'postgres://consola@localhost:5432/cell',
+      'postgresql://consola@db.example.com/cell',
+      'pglite:memory',
+      'pglite:',
+    ]) {
+      expect([url, seedRefusal(url)]).toEqual([url, expect.any(String)]);
     }
   });
 });

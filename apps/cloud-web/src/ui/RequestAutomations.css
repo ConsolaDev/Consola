@@ -1,0 +1,310 @@
+/* The automations a request's orchestrator started (its Automations tab): one bordered list, as
+   the step trace is drawn, a row per automation in the order it was started, numbered so. A row
+   is its number, its status, its automation and where it is, then when it started, how long it
+   worked and what it cost; it opens in place onto that run's own trace, with the way to its page.
+   Nothing is drawn between the rows but a hairline: no lines from one automation to the next. */
+
+.automations-list {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  list-style: none;
+}
+
+.automation + .automation {
+  border-top: 1px solid var(--line);
+}
+
+.automation:focus {
+  outline: none;
+}
+
+/* Where the info panel pointed: the row lights once as the eye lands on it. */
+.automation[data-flash] {
+  animation: automation-flash 1300ms var(--ease-out-quart);
+}
+
+@keyframes automation-flash {
+  from {
+    background: color-mix(in srgb, var(--cyan) 18%, transparent);
+  }
+}
+
+.automation-row {
+  display: grid;
+  grid-template-columns: 22px 20px minmax(0, 1fr) auto 14px;
+  align-items: start;
+  column-gap: 10px;
+  width: 100%;
+  padding: 12px 12px 12px 10px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.automation-row:hover {
+  background: var(--hover);
+}
+
+.automation-row:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: -2px;
+}
+
+/* Its place in the order the orchestrator started them. */
+.automation-number {
+  color: var(--text-3);
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
+  line-height: 20px;
+  text-align: right;
+}
+
+.automation-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.automation-name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+  min-width: 0;
+  line-height: 20px;
+}
+
+.automation-title {
+  color: var(--text);
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-medium);
+  overflow-wrap: anywhere;
+}
+
+.automation-kind {
+  color: var(--text-3);
+  font-size: var(--font-size-sm);
+}
+
+.automation-item {
+  padding: 0 6px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  color: var(--text-2);
+  font-size: var(--font-size-xs);
+  line-height: 18px;
+}
+
+/* Where it is: the step it is on, or how it ended. */
+.automation-state {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--text-2);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-normal);
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.automation[data-look="failed"] .automation-state {
+  color: var(--danger);
+}
+
+.automation[data-look="running"] .automation-state {
+  color: var(--text);
+}
+
+.automation-facts {
+  color: var(--text-3);
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
+  line-height: 20px;
+  white-space: nowrap;
+}
+
+.automation-chevron {
+  margin-top: 3px;
+  color: var(--text-3);
+  transition: transform 160ms var(--ease-out-quart);
+}
+
+.automation[data-open] .automation-chevron {
+  transform: rotate(90deg);
+}
+
+/* Open: its trace, under its name, past its number and status. */
+.automation-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 4px 12px 16px 62px;
+  animation: automation-open 220ms var(--ease-out-expo);
+}
+
+@keyframes automation-open {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+}
+
+.automation-body-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+}
+
+.automation-about {
+  min-width: 0;
+  color: var(--text-2);
+  font-size: var(--font-size-sm);
+  overflow-wrap: anywhere;
+}
+
+.automation-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  color: var(--cyan-text);
+  font-size: var(--font-size-md);
+  text-decoration: none;
+}
+
+.automation-open:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.automation-open:focus-visible {
+  border-radius: 2px;
+  outline: 2px solid var(--cyan);
+  outline-offset: 2px;
+}
+
+/* An automation waiting for approval, which its own page answers. */
+.automation-waits {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--warning) 35%, transparent);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--warning) 9%, transparent);
+  color: var(--text);
+  font-size: var(--font-size-sm);
+}
+
+.automation-waits > svg {
+  flex: none;
+  color: var(--warning);
+}
+
+.automation-waits a {
+  color: var(--cyan-text);
+}
+
+.automation-quiet {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin: 0;
+  color: var(--text-3);
+  font-size: var(--font-size-sm);
+}
+
+.automation-quiet p {
+  margin: 0;
+}
+
+.automation-retry {
+  padding: 2px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--font-size-md);
+  cursor: pointer;
+}
+
+.automation-retry:hover {
+  background: var(--hover);
+}
+
+/* Inside a row, the step trace sits on its own, its head a level down. */
+.automation-body .trace-title {
+  font-size: var(--font-size-md);
+}
+
+/* None started yet: a quiet tile and the sentence. */
+.automations-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 48px 16px;
+  color: var(--text-2);
+  font-size: var(--font-size-md);
+  text-align: center;
+}
+
+.automations-empty p {
+  margin: 0;
+}
+
+.automations-empty-tile {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--gray-a5);
+  border-radius: var(--radius-md);
+  background: var(--gray-2);
+  color: var(--text-3);
+}
+
+/* Narrow: a row's facts go under its name, and its trace starts at the row's edge. */
+@media (max-width: 620px) {
+  .automation-row {
+    grid-template-columns: 22px 20px minmax(0, 1fr) 14px;
+  }
+
+  .automation-facts {
+    grid-row: 2;
+    grid-column: 3;
+    white-space: normal;
+  }
+
+  .automation-chevron {
+    grid-row: 1;
+    grid-column: 4;
+  }
+
+  .automation-body {
+    padding-left: 12px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .automation[data-flash],
+  .automation-body {
+    animation: none;
+  }
+
+  .automation-chevron {
+    transition: none;
+  }
+}

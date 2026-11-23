@@ -276,6 +276,8 @@ automations:
     expect(result.entryPath('other')).toBeUndefined();
     expect(result.entryNames).toEqual(['investigate', 'bad']);
     expect(result.lineAt(['automations', 0, 'steps', 0, 'agent'])).toBe(6);
+    expect(result.rangeAt(['automations', 0, 'steps', 0])).toMatchObject({ start: 6 });
+    expect(result.rangeAt(['automations', 2])).toBeUndefined();
   });
 
   it('is unreadable when the YAML does not parse or its envelope fails, not for an entry', () => {

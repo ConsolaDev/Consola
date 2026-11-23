@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { scope } from './ci-scope.mjs';
 
@@ -33,11 +34,19 @@ test('a push to main checks everything', () => {
   );
 });
 
-test('a change to one cloud app checks that app alone, not the desktop', () => {
+test('a change to the cell checks the web app too, whose cell types are generated from it', () => {
   assert.deepEqual(checks(pr(['apps/cloud-region/src/main.ts'], ['@consola/cloud-region'])), {
     desktop: false,
     website: false,
-    packages: ['@consola/cloud-region'],
+    packages: ['@consola/cloud-region', '@consola/cloud-web'],
+  });
+});
+
+test('a change to cloud-global checks the web app too, whose API types are generated from it', () => {
+  assert.deepEqual(checks(pr(['apps/cloud-global/openapi.json'], ['@consola/cloud-global'])), {
+    desktop: false,
+    website: false,
+    packages: ['@consola/cloud-global', '@consola/cloud-web'],
   });
 });
 
@@ -95,4 +104,93 @@ test('a change to no package checks no package', () => {
   const result = pr(['README.md', 'AGENTS.md', '.github/workflows/cla.yml']);
   assert.deepEqual(checks(result), { desktop: false, website: false, packages: [] });
   assert.equal(result.reason, 'This change affects no package.');
+});
+
+// The chat view and the copied t3code packages (vendor/t3code), which have
+// jobs of their own.
+const vendored = ['@t3tools/contracts', 't3'];
+const withOwnJobs = [...all, '@consola/agent-ui', '@consola/host', ...vendored];
+const jobs = ({ agentUi, vendor, packages }) => ({ agentUi, vendor, packages });
+
+test('a push checks the chat view and the vendored packages in their own jobs', () => {
+  assert.deepEqual(
+    jobs(scope({ event: 'push', changedFiles: [], affected: [], all: withOwnJobs, vendored })),
+    { agentUi: true, vendor: true, packages: [...everything.packages, '@consola/host'].sort() },
+  );
+});
+
+test('a change to a vendored package runs the vendor job, never one job per copied package', () => {
+  const result = scope({
+    event: 'pull_request',
+    changedFiles: ['vendor/t3code/packages/contracts/src/index.ts'],
+    affected: ['@consola/agent-ui', '@consola/host', '@t3tools/contracts', 't3'],
+    all: withOwnJobs,
+    vendored,
+  });
+  assert.deepEqual(jobs(result), { agentUi: true, vendor: true, packages: ['@consola/host'] });
+});
+
+test('a change to the chat view alone runs its job and nothing vendored', () => {
+  const result = scope({
+    event: 'pull_request',
+    changedFiles: ['packages/agent-ui/src/AgentChat.tsx'],
+    affected: ['@consola/agent-ui'],
+    all: withOwnJobs,
+    vendored,
+  });
+  assert.deepEqual(jobs(result), { agentUi: true, vendor: false, packages: [] });
+});
+
+// The chat view's page tests read the desktop's and cloud-web's CSS as files
+// (packages/agent-ui/src/testing/embeddingPages.ts), which the graph cannot see.
+const onChatView = (changedFiles, affected) =>
+  scope({ event: 'pull_request', changedFiles, affected, all: withOwnJobs, vendored });
+
+test("a change to the desktop's CSS the chat view's page tests read checks the chat view", () => {
+  for (const file of [
+    'apps/desktop/src/renderer/styles/global.css',
+    'apps/desktop/src/renderer/styles/themes/tokens.css',
+    'apps/desktop/src/renderer/styles/themes/light.css',
+  ]) {
+    const result = onChatView([file], ['consola']);
+    assert.equal(result.agentUi, true, file);
+    assert.equal(result.desktop, true, file);
+  }
+});
+
+test("a change to cloud-web's CSS, or to the Radix Themes it installs, checks the chat view", () => {
+  for (const changedFiles of [
+    ['apps/cloud-web/src/ui/styles.css'],
+    ['apps/cloud-web/package.json', 'pnpm-lock.yaml'],
+    // A lockfile-only update within cloud-web's range moves the Radix Themes stylesheet too.
+    ['pnpm-lock.yaml'],
+  ]) {
+    const result = onChatView(changedFiles, ['@consola/cloud-web']);
+    assert.deepEqual(jobs(result), {
+      agentUi: true,
+      vendor: false,
+      packages: ['@consola/cloud-web'],
+    });
+  }
+});
+
+test("a change to the desktop or cloud-web elsewhere leaves the chat view's job out", () => {
+  assert.equal(onChatView(['apps/desktop/src/main/index.ts'], ['consola']).agentUi, false);
+  assert.equal(onChatView(['apps/cloud-web/src/main.tsx'], ['@consola/cloud-web']).agentUi, false);
+  assert.equal(onChatView(['pnpm-lock.yaml'], ['consola']).agentUi, false);
+});
+
+test("every file of another app the chat view's page tests read is in the rule", () => {
+  const pages = readFileSync(
+    new URL('../../packages/agent-ui/src/testing/embeddingPages.ts', import.meta.url),
+    'utf8',
+  );
+  const read = [...pages.matchAll(/read\('\.\.\/\.\.\/(apps\/[^']+)'\)/g)].map((match) => match[1]);
+  assert.ok(read.length >= 4, `found only ${read.length} reads in embeddingPages.ts`);
+  for (const file of read) {
+    // A file in an app's node_modules is what its package.json (and the lockfile) installs.
+    const changed = file.replace(/^(apps\/[^/]+)\/node_modules\/.*$/, '$1/package.json');
+    const app = changed.startsWith('apps/desktop/') ? 'consola' : '@consola/cloud-web';
+    assert.equal(onChatView([changed], [app]).agentUi, true, `${file} (as ${changed})`);
+  }
 });

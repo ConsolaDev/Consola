@@ -1,3 +1,5 @@
+import '@fontsource-variable/geist';
+import '@fontsource-variable/jetbrains-mono';
 import '@radix-ui/themes/styles.css';
 import { Theme } from '@radix-ui/themes';
 import { StrictMode, useEffect, useState } from 'react';
@@ -18,7 +20,7 @@ function Root() {
   }, []);
 
   return (
-    <Theme appearance={dark ? 'dark' : 'light'} accentColor="cyan" grayColor="slate">
+    <Theme appearance={dark ? 'dark' : 'light'} accentColor="cyan" grayColor="gray">
       <App />
     </Theme>
   );

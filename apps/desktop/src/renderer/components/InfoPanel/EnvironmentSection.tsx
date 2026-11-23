@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import * as Tooltip from '@radix-ui/react-tooltip';
 import { Folder, FolderGit2, GitBranch, Laptop, Lock } from 'lucide-react';
 import { getDriverDescriptor } from '../../../shared/constants';
@@ -14,24 +14,31 @@ import {
 import { useComputerName } from '../../infoPanel/useComputerName';
 import type { TabFacts } from '../../sidePanel/tabKinds';
 import {
+  launchSignature,
   readCapabilities,
   useHarnessCapabilitiesStore,
 } from '../../stores/harnessCapabilitiesStore';
-import { useHarnessStore } from '../../stores/harnessStore';
+import { toLaunchFields, useHarnessStore } from '../../stores/harnessStore';
 import { tildePath } from '../../utils/displayPath';
 import { basename } from '../../utils/fileUtils';
 import { HarnessIcon } from '../HarnessIcon';
 import { InfoRow } from './InfoRow';
 import { InfoSection } from './InfoSection';
+import { OpenInButton } from './OpenInButton';
 
 /** How long "Copied the folder path" stays before the card or title explains again. */
 const COPIED_MS = 1500;
+/** How long the pointer rests on the Folder row before its card opens. */
+const CARD_DELAY_MS = 300;
 /** How much of a folder's path is always drawn: its end, which tells worktrees apart. */
 const PATH_TAIL = 14;
 
 const ICON_SIZE = 14;
 
-/** Where the session runs: the computer, the harness and its account and model, the folder. */
+/**
+ * Where the session runs: the computer, the harness and its account and
+ * model, the folder and what opens it ("Open in").
+ */
 export function EnvironmentSection({ facts }: { facts: TabFacts }) {
   return (
     <InfoSection id="environment" title="Environment">
@@ -55,7 +62,12 @@ function EnvironmentRows({ facts }: { facts: TabFacts }) {
           tone="muted"
         />
       )}
-      {folder?.kind === 'folder' && <FolderRow line={folder} checkout={facts.checkout} />}
+      {folder?.kind === 'folder' && (
+        <>
+          <FolderRow line={folder} checkout={facts.checkout} />
+          <OpenInButton folder={folder.path} />
+        </>
+      )}
       {readOnly && <InfoRow icon={<Lock size={ICON_SIZE} />} label={readOnly} />}
     </>
   );
@@ -76,17 +88,22 @@ function HarnessRow({ session }: { session: Session }) {
   const healthAccount = useHarnessStore((state) =>
     harness ? state.statuses[harness.id]?.account : undefined,
   );
-  const capabilities = useHarnessCapabilitiesStore((state) =>
-    harness ? readCapabilities(state.get(harness.id)) : undefined,
+  const entry = useHarnessCapabilitiesStore((state) =>
+    harness ? state.get(harness.id) : undefined,
   );
+  const capabilities = entry && readCapabilities(entry);
   const driver = getDriverDescriptor(harness?.driverId);
   const line = harnessLine({
     driverLabel: driver.label,
     harnessName: harness?.name,
-    capabilityAccount: capabilities?.account,
+    signature: harness && launchSignature(toLaunchFields(harness)),
+    answer: capabilities && {
+      signature: entry?.signature,
+      account: capabilities.account,
+      models: capabilities.models,
+    },
     healthAccount,
     model: session.model,
-    models: capabilities?.models,
   });
   const title = [
     line.label,
@@ -122,6 +139,12 @@ function HarnessRow({ session }: { session: Session }) {
  * A folder outside git, or one git has not answered for yet, keeps the title.
  * The card opens to the row's left, over the conversation, so it never covers
  * the row or the panel's other rows.
+ *
+ * "Copied" is said of the path that was copied, so it never carries over to
+ * another session's folder, or to where the agent moved. And a card git
+ * answers for while the pointer already rests on the row opens after the
+ * same delay a hover waits, never at once, and not at all once the pointer
+ * has left.
  */
 function FolderRow({
   line,
@@ -130,18 +153,32 @@ function FolderRow({
   line: Extract<FolderLine, { kind: 'folder' }>;
   checkout: CheckoutInfo | undefined;
 }) {
-  const [copied, setCopied] = useState(false);
+  const [copiedPath, setCopiedPath] = useState<string | null>(null);
+  // What the pointer or the keyboard asked for, whether or not there is a card yet.
   const [cardOpen, setCardOpen] = useState(false);
+  const rowRef = useRef<HTMLButtonElement>(null);
+  const copied = copiedPath === line.path;
 
   useEffect(() => {
-    if (!copied) return;
-    const timer = setTimeout(() => setCopied(false), COPIED_MS);
+    if (copiedPath === null) return;
+    const timer = setTimeout(() => setCopiedPath(null), COPIED_MS);
     return () => clearTimeout(timer);
-  }, [copied]);
+  }, [copiedPath]);
 
   const shown = tildePath(line.path);
   const [head, tail] = splitForMiddle(shown, PATH_TAIL);
   const card = checkout && checkout.kind !== 'none' ? checkout : undefined;
+  const cardReady = useHeldFor(card !== undefined, CARD_DELAY_MS);
+  const cardShown = card !== undefined && cardReady && cardOpen;
+  // Radix asks to open while there is no card yet, and never takes it back:
+  // when the pointer leaves, it only clears its open timer (its card closes
+  // on leaving the card's grace area, which a card not drawn has none of),
+  // and on blur its close of a card that is not open changes nothing, so it
+  // never says so. The pointer or the keyboard leaving the row takes the ask
+  // back, or a late answer from git would open a card nobody points at.
+  const withdraw = () => {
+    if (!cardShown) setCardOpen(false);
+  };
   const isWorktree = line.label === 'Worktree';
   const icon = isWorktree ? (
     <FolderGit2 size={ICON_SIZE} className="info-icon-worktree" />
@@ -149,12 +186,18 @@ function FolderRow({
     <Folder size={ICON_SIZE} />
   );
   const copy = () => {
-    navigator.clipboard.writeText(line.path).then(
+    const copiedNow = line.path;
+    navigator.clipboard.writeText(copiedNow).then(
       () => {
-        setCopied(true);
+        setCopiedPath(copiedNow);
         // The row's own pointer-down closes the card; reopen it so the
-        // confirmation is seen where the click happened.
-        setCardOpen(true);
+        // confirmation is seen where the click happened, but only while the
+        // pointer or the keyboard is still on the row: a card opened after
+        // the pointer left has no grace area to close it by.
+        const row = rowRef.current;
+        if (row && (row.matches(':hover') || row === document.activeElement)) {
+          setCardOpen(true);
+        }
       },
       () => {
         // Clipboard refused (no focus); the card or title keeps offering the copy.
@@ -165,9 +208,9 @@ function FolderRow({
   // One trigger whatever the folder is, so the row is never remounted (and
   // its keyboard focus lost) when git answers or the agent moves.
   return (
-    <Tooltip.Provider delayDuration={300}>
-      <Tooltip.Root open={card !== undefined && cardOpen} onOpenChange={setCardOpen}>
-        <Tooltip.Trigger asChild>
+    <Tooltip.Provider delayDuration={CARD_DELAY_MS}>
+      <Tooltip.Root open={cardShown} onOpenChange={setCardOpen}>
+        <Tooltip.Trigger asChild ref={rowRef} onPointerLeave={withdraw} onBlur={withdraw}>
           <InfoRow
             icon={icon}
             label={
@@ -197,7 +240,7 @@ function FolderRow({
               sideOffset={6}
               collisionPadding={8}
             >
-              <CheckoutCard checkout={card} copied={copied} />
+              <CheckoutCard checkout={card} folder={line.path} copied={copied} />
               <Tooltip.Arrow className="tooltip-arrow" />
             </Tooltip.Content>
           </Tooltip.Portal>
@@ -208,17 +251,39 @@ function FolderRow({
 }
 
 /**
+ * True once `value` has held for `ms`, and false again the moment it does
+ * not: a card that comes to exist waits as long as a hover would.
+ */
+function useHeldFor(value: boolean, ms: number): boolean {
+  const [held, setHeld] = useState(false);
+  useEffect(() => {
+    if (!value) {
+      setHeld(false);
+      return;
+    }
+    const timer = setTimeout(() => setHeld(true), ms);
+    return () => clearTimeout(timer);
+  }, [value, ms]);
+  return value && held;
+}
+
+/**
  * What the Folder row's card says about a checkout. A repository's own
  * checkout is the folder you opened. A linked worktree spells out the three
  * things people mix up, the branch, the worktree's folder and the main
  * checkout it belongs to, as labelled rows, because the folder name is
  * generated and never matches the branch.
+ *
+ * Its Folder is the session's own (`folder`), the path the row copies, even
+ * where that is below the checkout's top.
  */
 function CheckoutCard({
   checkout,
+  folder,
   copied,
 }: {
   checkout: Exclude<CheckoutInfo, { kind: 'none' }>;
+  folder: string;
   copied: boolean;
 }) {
   const isWorktree = checkout.kind === 'worktree';
@@ -253,7 +318,7 @@ function CheckoutCard({
             ) : (
               <Folder size={12} aria-hidden="true" />
             )}
-            {tildePath(checkout.root)}
+            {tildePath(folder)}
           </span>
           {isWorktree && (
             <span className="checkout-tooltip-note">

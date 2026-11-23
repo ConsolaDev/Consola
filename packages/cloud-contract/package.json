@@ -2,7 +2,7 @@
   "name": "@consola/cloud-contract",
   "version": "0.0.0",
   "private": true,
-  "description": "What cloud-global and a regional cell agree on: the regions, the workspace roles, the claims of the token cloud-global mints for a cell, and the outbox messages it sends one.",
+  "description": "What cloud-global and a regional cell agree on: the regions, the workspace roles, the claims of the token cloud-global mints for a cell, the outbox messages it sends one and how it delivers them, the GitHub events it passes on, and a cell's signed request for a GitHub token.",
   "license": "AGPL-3.0-only",
   "type": "module",
   "exports": {

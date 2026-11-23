@@ -13,6 +13,30 @@ export {
   readCellTokenClaims,
 } from './cellToken.js';
 export {
+  GITHUB_EVENT_ANSWER,
+  GITHUB_EVENT_DELIVERY_MAX_BYTES,
+  GITHUB_EVENT_DELIVERY_MEDIA_TYPE,
+  GITHUB_EVENT_DELIVERY_PATH,
+  GITHUB_EVENT_TYPE,
+  GITHUB_PAYLOAD_MAX_BYTES,
+  type GitHubEventMessage,
+  isGitHubDeliveryId,
+  isGitHubEventName,
+  readGitHubEventMessage,
+} from './gitHubEvent.js';
+export {
+  GITHUB_TOKEN_PURPOSES,
+  GITHUB_TOKEN_REQUEST_AUDIENCE,
+  GITHUB_TOKEN_REQUEST_LIFETIME_SECONDS,
+  GITHUB_TOKEN_REQUEST_TYPE,
+  type GitHubTokenAsk,
+  type GitHubTokenPurpose,
+  type GitHubTokenRequest,
+  gitHubTokenRequest,
+  isGitHubTokenPurpose,
+  readGitHubTokenRequest,
+} from './gitHubTokenRequest.js';
+export {
   FIRST_SEQUENCE,
   isWorkspaceChangeType,
   type OutboxMessage,
@@ -21,6 +45,14 @@ export {
   type WorkspaceChange,
   type WorkspaceChangeType,
 } from './outbox.js';
+export {
+  OUTBOX_ANSWER,
+  OUTBOX_DELIVERY_MEDIA_TYPE,
+  OUTBOX_DELIVERY_PATH,
+  OUTBOX_MESSAGE_TYPE,
+  type OutOfOrderAnswer,
+  readOutOfOrderAnswer,
+} from './outboxDelivery.js';
 export type { ReadResult } from './read.js';
 export { isRegion, REGIONS, type Region } from './region.js';
 export { isWorkspaceRole, WORKSPACE_ROLES, type WorkspaceRole } from './workspaceRole.js';

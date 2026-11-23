@@ -71,6 +71,50 @@ const ALWAYS_GLOBAL: Record<string, { holds: string; columns: string[] }> = {
       'inviter_id',
     ],
   },
+  outbox_message: {
+    holds:
+      "The outbox: each change a workspace's cell must hear about, as workspace ids, its region, person ids and roles, and how its delivery went",
+    columns: [
+      'organization_id',
+      'sequence',
+      'region',
+      'change_type',
+      'person_id',
+      'role',
+      'created_at',
+      'attempts',
+      'last_attempt_at',
+      'last_error',
+      'next_attempt_at',
+      'delivered_at',
+    ],
+  },
+  github_installation: {
+    holds: 'App installs: which GitHub App installation belongs to which workspace',
+    columns: [
+      'installation_id',
+      'organization_id',
+      'account_id',
+      'account_login',
+      'account_type',
+      'connected_by',
+      'connected_at',
+    ],
+  },
+  github_token_mint: {
+    holds:
+      'App installs: each token minted from the GitHub App, as its workspace, installation, purpose, repository ids, permissions and times, never the token or a repository name',
+    columns: [
+      'id',
+      'organization_id',
+      'installation_id',
+      'purpose',
+      'repository_ids',
+      'permissions',
+      'minted_at',
+      'expires_at',
+    ],
+  },
 };
 
 const WHERE_THE_LIST_IS =

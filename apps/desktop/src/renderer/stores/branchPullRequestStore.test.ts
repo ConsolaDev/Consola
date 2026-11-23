@@ -1,6 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { BranchPullRequestAnswer } from '../../shared/branchPullRequest';
-import type { WorkItemRef } from '../../shared/workItems';
+import type { CheckoutInfo } from '../../shared/sessionCheckout';
+import { INBOX_REFRESH_INTERVAL_MS, type WorkItemRef } from '../../shared/workItems';
+import { createSessionRecord, createWorkspaceRecord, type Workspace } from '../../shared/workspace';
+import type { RemovedWorktree } from '../../shared/worktreeCleanup';
+import {
+  defaultLayout,
+  openKind,
+  setVisible,
+  splitWithTab,
+  toggleMaximize,
+} from '../sidePanel/layout';
 
 vi.mock('../services/providerBridge', () => ({
   providerBridge: { findBranchPullRequest: vi.fn() },
@@ -8,9 +18,13 @@ vi.mock('../services/providerBridge', () => ({
 
 import { providerBridge } from '../services/providerBridge';
 import {
+  type BranchLookupAsk,
   type BranchPullRequestEntry,
+  branchLookupAsk,
   branchLookupKey,
   foundPullRequestOf,
+  keepAsking,
+  looksAtPullRequest,
   useBranchPullRequestStore,
 } from './branchPullRequestStore';
 import { useCheckoutStore } from './checkoutStore';
@@ -65,6 +79,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -173,6 +188,30 @@ describe('branchPullRequestStore', () => {
     expect(entry().answer).toEqual(found('feat/search-pagination'));
   });
 
+  it('a lookup waiting for the one running keeps its branch when a later find names none', async () => {
+    const answerRunning = heldAnswer();
+    void find('w1', '/repos/catalog-portal', { branch: 'feat/search-pagination' });
+    // The branch changed while main looked: one more lookup waits, for the new branch.
+    const queued = find('w1', '/repos/catalog-portal', { branch: 'spike/other' });
+    // The person's Retry, with the checkout not read again yet, names none.
+    const retry = find('w1', '/repos/catalog-portal', { force: true });
+    expect(findBranchPullRequest).toHaveBeenCalledTimes(1);
+
+    findBranchPullRequest.mockResolvedValueOnce({ kind: 'none', branch: null });
+    answerRunning(found('feat/search-pagination'));
+    await Promise.all([queued, retry]);
+    expect(findBranchPullRequest).toHaveBeenCalledTimes(2);
+    expect(findBranchPullRequest).toHaveBeenLastCalledWith('w1', '/repos/catalog-portal', {
+      force: true,
+    });
+    // Main read no branch: the branch the lookup waited for failed, so Retry is offered.
+    expect(entry().answer).toEqual({
+      kind: 'failed',
+      branch: 'spike/other',
+      error: 'git could not read the branch',
+    });
+  });
+
   it('a find main cannot answer is a failed lookup of the branch it asked about', async () => {
     findBranchPullRequest.mockRejectedValueOnce(new Error('ipc closed'));
     await find('w1', '/repos/catalog-portal', { branch: 'feat/search-pagination', force: true });
@@ -249,5 +288,101 @@ describe('branchPullRequestStore', () => {
       foundPullRequestOf({ loading: true, askedAt: 1 }, 'feat/search-pagination'),
     ).toBeUndefined();
     expect(foundPullRequestOf(undefined, 'feat/search-pagination')).toBeUndefined();
+  });
+});
+
+describe('useBranchPullRequestLookup', () => {
+  const noAccount = createWorkspaceRecord(
+    'catalog-portal',
+    '/repos/catalog-portal',
+    true,
+    'default',
+  );
+  const workspace: Workspace = {
+    ...noAccount,
+    provider: { id: 'github', accountLogin: 'JaviDev', org: 'sprocket' },
+  };
+  const session = createSessionRecord({
+    name: 'Paginate the catalog search',
+    workspaceId: workspace.id,
+    instanceId: 'i1',
+    harnessId: 'default',
+    scopeId: workspace.scopes[0].id,
+  });
+  const onBranch: CheckoutInfo = {
+    kind: 'main',
+    root: '/repos/catalog-portal',
+    mainCheckout: '/repos/catalog-portal',
+    branch: 'feat/search-pagination',
+  };
+  const removedWorktree: RemovedWorktree = {
+    path: '/tmp/wt',
+    mainRepo: '/repos/catalog-portal',
+    commit: 'a'.repeat(40),
+    branch: 'feat/search-pagination',
+    keepRef: 'refs/consola/worktrees/wt',
+    trigger: 'settled',
+    removedAt: 0,
+  };
+  const ask: BranchLookupAsk = {
+    workspaceId: workspace.id,
+    accountLogin: 'JaviDev',
+    dir: '/repos/catalog-portal',
+    branch: 'feat/search-pagination',
+  };
+
+  it('asks for an unlinked session with an account, a checkout path and a branch, while someone looks', () => {
+    expect(branchLookupAsk(workspace, session, onBranch, true)).toEqual(ask);
+    // Nobody looks.
+    expect(branchLookupAsk(workspace, session, onBranch, false)).toBeNull();
+    // Linked: the session's own item is read, and no branch is looked up.
+    expect(branchLookupAsk(workspace, { ...session, workItem: pr51 }, onBranch, true)).toBeNull();
+    // No account to ask with.
+    expect(branchLookupAsk(noAccount, session, onBranch, true)).toBeNull();
+    // No branch: a detached HEAD, a folder outside git, a checkout not read yet.
+    const detached: CheckoutInfo = { ...onBranch, branch: undefined, head: 'abc1234' };
+    expect(branchLookupAsk(workspace, session, detached, true)).toBeNull();
+    expect(branchLookupAsk(workspace, session, { kind: 'none' }, true)).toBeNull();
+    expect(branchLookupAsk(workspace, session, undefined, true)).toBeNull();
+    // No checkout path: the worktree is removed.
+    expect(
+      branchLookupAsk(workspace, { ...session, cwd: '/tmp/wt', removedWorktree }, onBranch, true),
+    ).toBeNull();
+    // Nothing yet to ask about.
+    expect(branchLookupAsk(undefined, session, onBranch, true)).toBeNull();
+    expect(branchLookupAsk(workspace, undefined, onBranch, true)).toBeNull();
+  });
+
+  it('someone looks while the info panel shows the Pull request section, or the Pull request tab is in front on screen', () => {
+    const opened = (...kinds: string[]) => kinds.reduce(openKind, defaultLayout());
+    expect(looksAtPullRequest(true, defaultLayout())).toBe(true);
+    expect(looksAtPullRequest(false, opened('changes', 'pull-request'))).toBe(true);
+    expect(looksAtPullRequest(false, defaultLayout())).toBe(false);
+    // A Pull request tab behind another, or in a hidden side panel, is not looked at.
+    expect(looksAtPullRequest(false, opened('pull-request', 'changes'))).toBe(false);
+    expect(looksAtPullRequest(false, setVisible(opened('pull-request'), false))).toBe(false);
+    // In a group of its own, in front there, it counts until Maximize hides that group.
+    const split = splitWithTab(opened('changes', 'pull-request'), 'g1', 'pull-request', 'bottom');
+    expect(looksAtPullRequest(false, split)).toBe(true);
+    expect(looksAtPullRequest(false, toggleMaximize(split, 'g1'))).toBe(false);
+  });
+
+  it('asks at once, then every interval, until it stops', async () => {
+    vi.useFakeTimers();
+    findBranchPullRequest.mockResolvedValue(found('feat/search-pagination'));
+    const stop = keepAsking(ask);
+    expect(findBranchPullRequest).toHaveBeenCalledTimes(1);
+    expect(findBranchPullRequest).toHaveBeenCalledWith(workspace.id, '/repos/catalog-portal', {
+      force: false,
+    });
+
+    await vi.advanceTimersByTimeAsync(INBOX_REFRESH_INTERVAL_MS - 1);
+    expect(findBranchPullRequest).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(findBranchPullRequest).toHaveBeenCalledTimes(2);
+
+    stop();
+    await vi.advanceTimersByTimeAsync(3 * INBOX_REFRESH_INTERVAL_MS);
+    expect(findBranchPullRequest).toHaveBeenCalledTimes(2);
   });
 });

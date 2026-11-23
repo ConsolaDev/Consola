@@ -1,5 +1,48 @@
 {
   "version": "7",
   "dialect": "postgresql",
-  "entries": []
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1795361667961,
+      "tag": "0000_workspace_copy",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1795377805207,
+      "tag": "0001_teams",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1795387535816,
+      "tag": "0002_factories",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1795391299153,
+      "tag": "0003_github_event",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1795393802817,
+      "tag": "0004_runs",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1795421616017,
+      "tag": "0005_run_approval",
+      "breakpoints": true
+    }
+  ]
 }

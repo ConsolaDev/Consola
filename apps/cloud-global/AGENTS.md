@@ -14,30 +14,71 @@ The service is built in rings, and imports point inward only.
   (`mayJoin`), what a new workspace needs (`checkNewWorkspace`) and who owns it
   (`CREATOR_ROLE`), which workspace a new session opens
   (`defaultActiveWorkspace`), the regions a workspace can be in (`REGIONS` and
-  `isRegion`, which `region.ts` takes from the contract), and `Workspace`,
-  `MyWorkspace`, `Person` and `SignedIn`. It is plain TypeScript, with no I/O,
-  and no package but the contract (below).
+  `isRegion`, which `region.ts` takes from the contract), how long the outbox
+  waits before it delivers a message again (`retryDelayMs`), who may change
+  how a workspace looks (`mayManageWorkspace`) and the icons it may wear
+  (`WORKSPACE_ICONS`, `checkWorkspaceIcon` in `workspaceIcon.ts`), who may
+  connect another service (`mayManageConnections`) and whether a Connect's
+  state finishes in this session (`checkInstallState`), what a webhook
+  delivery's headers name and the installation its payload came through
+  (`readDeliveryHeaders`, `installationOfEvent`, in `webhooks.ts`), what
+  each GitHub token's purpose may have and whether GitHub granted it
+  (`TOKEN_PURPOSES`, `scopeFor`, `grantedAsAsked`, in `gitHubTokens.ts`), and
+  `Workspace`, `MyWorkspace`, `Person`, `SignedIn` and the GitHub types
+  (`connections.ts`). It is plain TypeScript, with no I/O, and no package but
+  the contract (below).
 - `src/application/` holds the use cases (`createWorkspace`,
-  `listMyWorkspaces`, `setActiveWorkspace`, `workspaceForNewSession`,
-  `mayCreateAccount`, `mayStartSession`, `describeMe`, `checkHealth`) and, in
-  `ports.ts`, the stores and probes they need. A use case is a plain function
-  that takes its ports first.
+  `listMyWorkspaces`, `setActiveWorkspace`, `setWorkspaceIcon`,
+  `listActiveWorkspaceMembers`, `workspaceForNewSession`,
+  `mayCreateAccount`, `mayStartSession`, `describeMe`, `mintCellToken`,
+  `cellTokenKeys`, `deliverOutbox`, `listConnections`, `startGitHubInstall`,
+  `finishGitHubInstall`, `disconnectGitHub`, `receiveGitHubWebhook`,
+  `mintGitHubToken`, `checkHealth`) and, in `ports.ts`, the stores, probes,
+  signers, the cell, the GitHub App and its webhook signatures they need. A
+  use case is a plain function that takes its ports first, and is handed the
+  time when it needs it (`mintCellToken`'s `issuedAt`, `deliverOutbox`'s
+  `now`).
 - `src/adapters/` implements the ports with a library, one folder each:
   - `persistence/` is Drizzle on PGlite or Postgres: the database, the schema,
-    and one store per port, which `stores.ts` builds together;
+    and one store per port, which `stores.ts` builds together. Its one writer
+    of what a cell must hear about is `writeWorkspaceChange` (below);
   - `auth/` is Better Auth (`betterAuth.ts`). Its hooks call use cases and run
     no query of their own;
-  - `http/` is the Hono routes (`app.ts`). Each route asks a use case and maps
-    its answer to a status and a body.
+  - `http/` is the Hono routes. `contract.ts` declares every route but
+    sign-in, with what it takes and every answer it gives, in Zod
+    (`@hono/zod-openapi`); `app.ts` implements them, and TypeScript checks
+    each handler's answers against the route's (see "The contract"). Each
+    route asks a use case and maps its answer to a status and a body;
+  - `cellToken/` is `jose` (`cellTokenSigner.ts`): it signs the cell token,
+    outbox messages and GitHub's events with the configured private key and
+    publishes the public key (below). It is the only code that holds the
+    private key. It also checks what a cell signs, with each region's cell's
+    public key (`cellRequestVerifier.ts`, "GitHub tokens");
+  - `outbox/` makes the requests to a cell: the outbox's (`cellDelivery.ts`,
+    with `fetch`) and the worker's loop and timers (`outboxWorker.ts`), which
+    runs `deliverOutbox` (below), and the GitHub events passed on
+    (`eventDelivery.ts`, "Webhooks");
+  - `github/` is GitHub's REST API over `fetch`, and `node:crypto`: the app
+    (`gitHubApp.ts`, which reads the app's `.pem` with `loadGitHubAppKey`),
+    the signed state of a Connect (`installStateSigner.ts`) and the webhook
+    signature check (`webhookSignatures.ts`). It is the only code that holds
+    the GitHub App's private key, client secret and webhook secret.
 - The composition ring wires them together. `src/compose.ts` is the one place
   adapters are built and handed the ports they need (`composeApi`), and the one
-  place a startup step would live (there is none today). Adapters call use
-  cases themselves; what they never do is build another adapter. The one
+  place a startup step would live (there is none today). `composeApi` is
+  async, because building the cell token's signer and reading the GitHub App's
+  key are. A configured key that is not a key pair, or a GitHub key file that
+  cannot be read or holds no RSA private key, fails there as a `ConfigError`,
+  which `main.ts` reports like any other configuration problem. It builds the
+  outbox's worker and wakes it from the stores, but never starts it. Adapters
+  call use cases themselves; what they never do is build another adapter. The one
   exception is `src/adapters/auth/cli-config.ts`, which builds the stores and
   `createAuth` for the schema CLI: it is tooling, and never runs in the
   service.
   `src/main.ts` loads the environment, opens and migrates the database, calls
-  `compose.ts` and serves, and `src/startupError.ts` words a failure to start.
+  `compose.ts` and serves; once it listens, it starts the outbox's worker, and
+  it stops the worker before it closes the database. `src/startupError.ts`
+  words a failure to start.
   `src/config.ts` parses the environment. It is shared configuration that any
   adapter may read, so it stays a pure parser that imports no other file and no
   I/O.
@@ -53,22 +94,33 @@ The service is built in rings, and imports point inward only.
 - An adapter imports `domain`, `application`, its own folder and
   `src/config.ts`, and never the composition ring. Beyond that:
   - `adapters/http` never imports `better-auth`, `drizzle-orm`,
-    `@electric-sql/pglite`, `pg`, `adapters/persistence` or `adapters/auth`.
-    Sign-in reaches it as `handleAuth` and `currentSession`, which
-    `compose.ts` passes in;
-  - `adapters/persistence` never imports `hono`, `better-auth` or another
-    adapter;
-  - `adapters/auth` never imports `hono`, `adapters/http` or a database
-    library (`drizzle-orm`, `pg`, `@electric-sql/pglite`): its hooks call use
-    cases, and the stores run the queries. It may import
+    `@electric-sql/pglite`, `pg`, `jose`, `adapters/persistence`,
+    `adapters/auth` or `adapters/cellToken`. Sign-in reaches it as
+    `handleAuth` and `currentSession`, and signing as the `CellTokenSigner`
+    port, which `compose.ts` passes in;
+  - `adapters/persistence` never imports `hono`, `better-auth`, `jose` or
+    another adapter;
+  - `adapters/auth` never imports `hono`, `jose`, `adapters/http` or a
+    database library (`drizzle-orm`, `pg`, `@electric-sql/pglite`): its hooks
+    call use cases, and the stores run the queries. It may import
     `adapters/persistence`, because Better Auth's Drizzle adapter needs the
-    database and its schema.
+    database and its schema;
+  - `adapters/cellToken` never imports `hono`, `better-auth`, a database
+    library or another adapter. It is the only one that imports `jose`;
+  - `adapters/outbox` never imports `hono`, `better-auth`, a database library,
+    `jose` or another adapter: the store and the signer reach it as ports,
+    which `compose.ts` passes in;
+  - `adapters/github` never imports `hono`, `better-auth`, a database
+    library, `jose` or another adapter. It signs its app token with
+    `node:crypto`, and reaches the routes only as the `GitHubApp` and
+    `InstallStateSigner` ports.
 - No file, tests included, imports another app or a workspace package
   (`@consola/*`, or `consola`, the desktop), with one exception:
   `@consola/cloud-contract` (`packages/cloud-contract`), the contract
   `cloud-global` shares with the cells. It holds the regions, the workspace
-  roles, the claims of the token `cloud-global` mints for a cell, and the
-  outbox messages it sends one. It does no I/O, which its own boundary test
+  roles, the claims of the token `cloud-global` mints for a cell, the outbox
+  messages it sends one, the GitHub events it passes on, and a cell's signed
+  request for a GitHub token. It does no I/O, which its own boundary test
   proves, so any layer may import it, `domain` and `application` included.
   Only its entry point counts: a path inside it is refused. Before changing
   it, read `packages/cloud-contract/AGENTS.md`.
@@ -90,9 +142,15 @@ contract is refused, so a new package is covered without being named.
 1. A rule or a type goes in `domain`.
 2. A use case goes in `application`, with any port it needs in `ports.ts`.
 3. An adapter implements the port. For the database, that is a store in
-   `adapters/persistence`, added to `createDrizzleStores`.
+   `adapters/persistence`, added to `createDrizzleStores`. A store that
+   changes a workspace or its members does it through `writeWorkspaceChange`,
+   in its own transaction ("The outbox").
 4. A route in `adapters/http`, or a hook in `adapters/auth`, calls the use
-   case.
+   case. A route is declared in `contract.ts` first, with every answer it
+   gives, and added to `ROUTES`; `app.ts` registers it with `app.openapi`,
+   never `app.get` or `app.post`, which `openapi.test.ts` refuses. Then
+   `openapi:generate` rewrites `openapi.json`, and `cloud-web`'s
+   `api:generate` its types, in the same change ("The contract").
 5. `compose.ts` builds the adapter and hands it its ports, and nothing else
    does. A startup step, if one is ever needed, goes there too.
 
@@ -111,7 +169,25 @@ between them.
 - `PUT /api/me/workspace` `{ workspaceId }`: makes one of the person's
   workspaces active (`setActiveWorkspace`); one they are not in is 404, like
   one that does not exist;
-- `GET /api/workspaces`: the person's workspaces, in the order they joined;
+- `PUT /api/me/workspace/icon` `{ icon }`: sets the active workspace's icon,
+  or takes it off (null) (`setWorkspaceIcon`). Only an owner or an admin may
+  (`mayManageWorkspace`; anyone else is 403 `not_allowed`), read from the
+  database, never the request. An icon is one of `WORKSPACE_ICONS`, the
+  desktop app's own ids (`workspaceIcon.test.ts` reads its
+  `shared/workspaceIcons.ts` and fails when the two differ), so a workspace
+  known to both wears the same icon; anything else is 400 `icon_unknown`.
+  It writes the icon alone, into Better Auth's `organization.logo`, which
+  reads back as no icon when it holds anything else (`iconOf`);
+- `GET /api/me/workspace/members`: the active workspace's members, each with
+  their global id, name, email, image and role, in the order they joined
+  (`listActiveWorkspaceMembers`). Every member may list them: a cell names
+  people by global id only, so this is how the web app puts a name to them
+  (8.2, Teams). No workspace open is 409 `no_active_workspace`; one the person
+  is not in is 403 `not_a_member`;
+- `GET /api/workspaces`: the person's workspaces, in the order they joined.
+  Every workspace an answer names carries its `icon` and `canManage`, whether
+  the person may change it (`mayManageWorkspace`), so the web app shows its
+  controls by what the server says, never by reading the role;
 - `POST /api/workspaces` `{ name, slug, region }`: makes one
   (`createWorkspace`). The creator is its owner and their session opens it. A
   request `checkNewWorkspace` refuses is 400 with every problem named; a slug
@@ -129,8 +205,8 @@ session's `active_organization_id`), and every route it brings is closed:
 - the rules are domain functions a use case calls, never a hook threaded
   through Better Auth's routes, its error shapes or its role checks;
 - a workspace and its first member are written in one transaction
-  (`WorkspaceStore.create`), which is where the cell's "workspace created"
-  message (epic 6) can join them;
+  (`WorkspaceStore.create`), with the cell's `workspace.created` and
+  `member.added` messages (6.1, "The outbox");
 - one way to make, list or switch workspaces, so the web app and later
   clients never have two to choose from.
 
@@ -138,7 +214,8 @@ A member's role is one of the contract's `WORKSPACE_ROLES` (`owner`, `admin`,
 `member`), and the stores read back only a listed one (`roleOf`). Membership
 comes only from making a workspace for now, as its `owner` (`CREATOR_ROLE`):
 signing in joins nothing. Invites, roles and removal (3.2) are routes of Consola's own too, on
-Better Auth's `member` and `invitation` tables. A new session starts in the
+Better Auth's `member` and `invitation` tables, and change `member` only
+through `writeWorkspaceChange`, so the cell hears of each. A new session starts in the
 workspace `defaultActiveWorkspace` picks (the one last active, else the first
 joined, else none). `SessionStore` writes the active workspace on the
 `session` row itself, which is right only while Better Auth's cookie cache
@@ -148,6 +225,10 @@ A request that changes something (`POST`, `PUT`, `PATCH`, `DELETE`) must come
 from the web app's origin (`PUBLIC_URL`), or it is 403 `bad_origin`, as Better
 Auth requires of its own routes: the session cookie is SameSite=Lax, which
 another site on the same host, any other localhost port, would still be sent.
+Two routes are the exception, registered before the origin check because no
+cookie authorises them: a cell's `POST /api/github/tokens` ("GitHub tokens"),
+and GitHub's webhook deliveries, `POST /api/github/webhooks`, which carry no
+cookie and no Origin, and whose signature is what is checked ("Webhooks").
 `src/app.test.ts` pins the route list, so a new route is added there on
 purpose.
 
@@ -162,13 +243,33 @@ list belongs in a regional cell, never here.
   yet.
 - **Proposed**, after Linear's published list of what it keeps global, and not
   yet confirmed:
-  - the workspace list: id, name, slug and region (`organization`, with Better
-    Auth's own `logo`, `created_at` and `metadata`);
+  - the workspace list: id, name, slug, region and icon (`organization`, with
+    Better Auth's own `logo`, which holds the icon's id, `created_at` and
+    `metadata`). The icon is global because the switcher shows every
+    workspace's, whatever its region;
   - membership: who is in which workspace, their workspace-level role, and
     pending invites (`member`, `invitation`);
-  - app installs: which installation belongs to which workspace, the GitHub
-    App's key and the tokens minted from it (no table yet);
-  - webhook intake, with the bodies dropped (no table yet).
+  - app installs: which installation belongs to which workspace
+    (`github_installation`: the installation, its workspace, the GitHub
+    account it is on, who connected it and when), the GitHub App's key and the
+    tokens minted from it (`github_token_mint`: each mint's workspace,
+    installation, purpose, repositories by their GitHub ids, permissions,
+    and when it was minted and expires; never the token, and never a
+    repository's name). The repositories an installation covers are not kept:
+    they are company information, and GitHub is asked for them each time;
+  - webhook intake (14.2, CON-70), which stores nothing: each delivery is
+    checked, passed on to the cell of the workspace that holds its
+    installation, and dropped. What an event says is company content, so the
+    cell keeps it, and it is the cell that records a delivery once by its id.
+    Only the routing it needs is read here, from what is already on this
+    list (`github_installation`, `organization`);
+  - the outbox (6.1, CON-52): each change a workspace's cell must hear
+    about, and how its delivery went (`outbox_message`). It may live here
+    because it holds nothing that is not already on this list: a workspace's
+    id and region (`organization`), and a person's id and role in it
+    (`member`), never an email or a name: it has no column for one, and its
+    checks hold each row to the contract's shape. Its delivery columns hold
+    times, a count and a status or the contract's reason, never a body.
 - **Billing** joins the list if decision D6 puts it in the global part.
 
 `src/adapters/persistence/alwaysGlobal.test.ts` pins the list. Its
@@ -187,15 +288,386 @@ afterwards:
 
 - `WorkspaceStore.create` writes it only when it makes the row, and every
   store reads back only a listed region (`regionOf`);
-- no route changes a workspace: Consola's routes make and switch, and Better
-  Auth's are closed. Its organisation plugin also declares the region with
-  `input: false`, so nothing it would accept carries one;
+- no route moves a workspace: Consola's routes make and switch, and set an
+  icon, which writes `logo` alone; Better Auth's are closed. Its organisation
+  plugin also declares the region with `input: false`, so nothing it would
+  accept carries one;
 - a new route or hook that writes `organization` must leave `region` alone, and
   `src/app.test.ts` checks that no route moves it.
 
 Every organisation made before regions existed is in `eu`: migration `0001`
 fills them. The deployment's one organisation from before workspaces carries
 on as an ordinary workspace, with its members and their roles.
+
+## The cell token
+
+`cloud-global` checks the browser's sign-in and membership, then mints a
+short-lived token a regional cell trusts. It stands in for the signed header a
+future edge router will add, so a cell's check does not change when the router
+arrives. The contract fixes its shape (`packages/cloud-contract/AGENTS.md`,
+"The cell token"): a JWT signed with Ed25519, whose header is `alg`
+(`CELL_TOKEN_ALGORITHM`, `EdDSA`) and the key's `kid`, and whose payload is
+exactly what `cellTokenClaims` returns, living `CELL_TOKEN_LIFETIME_SECONDS`.
+No other claim is added: a cell's reader refuses one it does not know.
+
+**Proposed** (5.3, CON-50), not yet confirmed:
+
+- **The mint route.** `POST /api/cell-token`, with no body, answers the token
+  for the session's active workspace as
+  `{ token, expiresAt, workspaceId, region }`, where `expiresAt` is the
+  token's `exp` (whole seconds since the epoch), with
+  `Cache-Control: no-store`. `workspaceId` and `region` say whose token it
+  is and which cell takes it, so the web app never reads the token itself: it
+  checks the workspace is the one it shows (another tab can switch the
+  session's) and sends the token to that region's cell. It is a change, so it sits under the origin check
+  (403 `bad_origin`): a token is worth as much as the session that mints it.
+  Signed out is 401 `signed_out`; a session with no active workspace is 409
+  `no_active_workspace`; one whose active workspace the person is not in (any
+  more, or ever) is 403 `not_a_member`, and no token is minted.
+- **Membership is read when the token is minted.** `mintCellToken` reads the
+  membership, the role and the region through `MembershipStore.workspaceFor`,
+  from the database, never from the request: whatever its body says is
+  ignored. So someone removed from a workspace gets no new token, and a
+  changed role is in the next one. A stored role that is not exactly one of
+  the contract's (Better Auth's `admin,member`) mints nothing: `roleOf` refuses
+  it, and the request fails rather than guess a role.
+- **The layers.** Signing is the `CellTokenSigner` port, implemented with
+  `jose` in `adapters/cellToken` (`createCellTokenSigner`). `mintCellToken`
+  takes the time it mints at (`issuedAt`, whole seconds) from its route and
+  reads no clock.
+- **The keys.** `GET /api/cell-token/keys` (`CELL_TOKEN_KEYS_PATH`) publishes
+  the public key as a JSON Web Key Set, with no sign-in:
+  `{ keys: [{ kty, crv, x, kid, alg: 'EdDSA', use: 'sig' }] }`. The public key
+  is derived from the private key itself, so it always checks what is signed,
+  and its `kid` is its JWK thumbprint (RFC 7638). It never carries `d`.
+- **The private key** is `CELL_TOKEN_PRIVATE_KEY`, an Ed25519 private JWK on
+  one line, and it is required. `config.ts` refuses one that is not JSON, not
+  Ed25519 or has no `d`, or whose `x` or `d` is not 32 bytes in base64url, and
+  keeps only `kty`, `crv`, `x` and `d`; the signer refuses one whose `x` is
+  not the public key of its `d`, as a `ConfigError`. No problem quotes the
+  value, `describeStartupFailure` hides its `d`, and nothing logs it, which
+  `src/app.test.ts` checks against every console call along the way.
+  `pnpm --filter @consola/cloud-global cell-key:generate` prints a new one.
+- **One key at a time.** Rotating it the contract's way, the new key published
+  beside the old until the old one's tokens expire, needs a second setting
+  that holds only public keys. It waits until a deployment needs it.
+
+## The outbox
+
+A workspace's cell holds no accounts and reads nothing from here, so
+`cloud-global` tells it what it must know: that the workspace was made, and who
+is in it with which role. The contract fixes the messages and how they are
+delivered (`packages/cloud-contract/AGENTS.md`, "The outbox messages" and
+"Delivering a message"). This is how `cloud-global` keeps its side.
+
+**A change and its message commit together, or not at all.** This is the
+rule. Every change a cell must hear about is written by `writeWorkspaceChange`
+(`adapters/persistence/workspaceChanges.ts`), in the transaction that makes
+it, with its message: making a workspace (`workspace.created`), adding a
+member (`member.added`), changing a member's role (`member.role-changed`) and
+removing one (`member.removed`). So the outbox holds every change that
+committed, and none that did not. Nothing else writes `organization` or
+`member`: a new store that changes either calls it inside its own
+transaction, then tells `messageWritten` once that commits, so the worker
+wakes. The one exception is `WorkspaceStore.setIcon`, which writes
+`organization.logo` alone: no cell holds an icon, so there is no message to
+commit with it. A change a cell must hear about never goes that way.
+
+**Proposed** (6.1, CON-52), not yet confirmed:
+
+- **Where changes happen today.** Only `WorkspaceStore.create`, for a
+  workspace and its owner: messages 1 and 2. Adding, changing and removing
+  members have no routes yet (epic 3), and their stores will call
+  `writeWorkspaceChange` too. Better Auth writes neither table: its
+  organisation routes are closed, signing in joins nothing, and its
+  `delete-user` route stays off (Better Auth's default). Deleting an account
+  would take its `member` rows with it and past the outbox, so turning that on
+  means writing each `member.removed` first.
+- **Sequences.** A message's `sequence` is one more than its workspace's
+  last, from 1, with no gaps, in commit order. A change to a workspace that
+  exists locks its `organization` row (`for no key update`) before it writes
+  anything, so a second change to it waits for the first to commit or roll
+  back, then counts from it. The primary key (`organization_id`, `sequence`)
+  backs it. A change that changes nothing (a member already there, or not
+  there, or already in the role) writes nothing. `workspaceChanges.test.ts`
+  races changes against each other, on PGlite always and on a real Postgres
+  when `CLOUD_GLOBAL_TEST_POSTGRES_URL` names a server's maintenance database
+  (the test makes a database there and drops it); without the lock, the
+  Postgres run fails on the primary key.
+- **A row** (`outbox_message`, hand-written in `outboxSchema.ts`) holds the
+  message's fields and its delivery: attempts, the last attempt and its
+  error, when the next is due, and when the cell confirmed it. Checks hold it
+  to the contract's shape. A message is kept once delivered. There is no
+  foreign key: a message outlives what it speaks of.
+- **The backfill.** Migration `0002` gives every workspace already there the
+  messages a new one gets: its `workspace.created`, then one `member.added`
+  per member, in the order they joined, all due at once. A role the contract
+  does not list (Better Auth's `admin,member`; nothing here writes one) stops
+  the migration, naming the workspace's slug, rather than being guessed. Set
+  the row's role, then start again.
+- **Signing.** The signer that mints cell tokens signs each message
+  (`signOutboxMessage`), as the contract says: its JSON as the payload of a
+  compact JWS, with `alg`, the key's `kid` and `typ` in the protected header.
+- **Delivering** is one pass of `deliverOutbox`. Each workspace's first
+  undelivered message is read with the contract's reader, signed and posted to
+  its region's cell; a 2xx confirms it, and the next goes at once. Any other
+  status, a redirect (never followed), no connection and no answer within
+  `DELIVERY_TIMEOUT_MS` (10 s) fail, and the message is tried again after
+  `retryDelayMs`: 1 s, doubling, never more than 5 minutes. A message is
+  never skipped, a workspace's next waits for its current one, and workspaces
+  go side by side, so one that is stuck holds up only itself. A stored
+  message the reader refuses is never sent: it fails with the reader's
+  reason. A 409 is retried like any refusal; a cell that lost what it applied
+  is 6.3's to reconcile (CON-57).
+- **What is recorded** for each try: `attempts`, `last_attempt_at`,
+  `last_error` (`status 503 (unavailable)`,
+  `status 409 (outOfOrder): the cell applies sequence 3 next`,
+  `no connection (ECONNREFUSED)`, `no answer within 10000 ms`: a status, the
+  contract's answer and reason, never a body), `next_attempt_at` and
+  `delivered_at`.
+- **Where cells are.** `CELL_URL_EU` and `CELL_URL_US`, one optional origin
+  per region in `REGIONS` (`cellUrlVariable`), read like `PUBLIC_URL`. A region
+  with none keeps its messages untouched, and the worker says so once.
+- **The worker** (`createOutboxWorker`) runs in this process: a pass when
+  `main.ts` starts it (after the migrations, once the API listens and so
+  publishes the keys a cell checks with), on a wake from a change that
+  wrote a message, when the earliest retry is due, and otherwise every
+  `OUTBOX_POLL_MS` (10 s); never two at once. `composeApi` builds it and never
+  starts it, so building the service sends nothing. Stopping it abandons a
+  delivery in flight without recording it, so the message goes again; the
+  cell takes a message it has applied as confirmed. It logs ids and statuses
+  only, never a message, its signature or the key.
+- **One process.** The worker assumes it is the only one: one `cloud-global`
+  process delivers the outbox, on localhost. Two would send each workspace's
+  messages twice over and record over each other's tries. Running more than
+  one needs a claim on each workspace's first message first (a lease, or
+  `for update skip locked`).
+
+## The contract
+
+`src/adapters/http/contract.ts` is the API's contract, and `openapi.json` is
+generated from it (`pnpm --filter @consola/cloud-global openapi:generate`;
+`openapi.test.ts` fails while it is stale). The web app's types are generated
+from `openapi.json`, which it reads as a file, so a change here reaches it
+through that file, and CI checks the web app with every change to this app
+(`.github/scripts/ci-scope.mjs`).
+
+- **A route is added to the contract first**, then implemented in `app.ts`
+  and added to `ROUTES`. Every status a route can answer is declared, with its
+  body: TypeScript refuses a handler answer the route does not declare, a
+  missing field or a wrong literal, but not an extra field. That one the HTTP
+  suite catches: `app.test.ts` checks every answer it reads against the
+  route's schema, and answers are strict objects (a private key's `d` in the
+  key set fails it, for one).
+- **The app serves nothing the contract does not declare.** `openapi.test.ts`
+  compares what `app.routes` serves with `ROUTES`, so a route registered with
+  `app.get` and the like, or with `app.openapi` but left out of `ROUTES`,
+  fails it. `OUTSIDE_THE_CONTRACT` names the only exceptions, each with its
+  reason: Better Auth's `/api/auth/*` and the origin check's `app.use`.
+  Adding to it needs a reason as good: no client calls the route through the
+  contract.
+- **A request schema checks shape, never rules.** It is never stricter than
+  the domain rule behind it, and a route whose rules name problems hands a
+  body of the wrong shape to them in its hook (`POST /api/workspaces` calls
+  `checkNewWorkspace`), so every problem is still named. Any other wrong shape
+  is 400 `invalid_request` (the app's `defaultHook`), never the validator's own
+  answer.
+- **A body that is not JSON is refused before any route sees it**: 400
+  `invalid_request` if it does not parse, 415 `unsupported_media_type` without
+  a JSON content type (`onError`). A session check runs before the body is
+  read (route `middleware`), so a signed-out request is 401 whatever it sends.
+- **A schema used both alone and nullable is a union at the nullable use**
+  (`z.union([MyWorkspace, z.null()])`): `.nullable()` on a named schema makes
+  every use of the name nullable. `openapi.test.ts` checks no named schema is.
+
+## Connections
+
+A workspace connects GitHub by installing Consola's one GitHub App (decided
+2026-11-21) on a GitHub account or organisation (14.1, CON-67). Every member
+sees what is connected; owners and admins connect and disconnect
+(`mayManageConnections`). The app's four settings are optional together
+(`config.ts`, `readGitHubApp`): with none set, `github` is null, the routes
+say so, and the service still starts. Every route below is in the contract
+(`getConnections`, `postGitHubInstall`, `getGitHubCallback`,
+`deleteGitHubInstallation`), the callback too: it answers only a redirect, and
+`CALLBACK_RESULT` (`app.ts`) names each way a Connect ends as the contract
+lists them (`GITHUB_CALLBACK_RESULTS`).
+
+- `GET /api/connections`: the active workspace's installations, each with its
+  account, when it was connected, its settings page on GitHub (`settingsUrl`)
+  and its repositories as GitHub says now (`listed`, `gone` or
+  `unavailable`), plus `canManage` and whether the app is `configured`. The
+  repositories are company information, so they are asked of GitHub (an
+  installation token for metadata read, kept in memory until five minutes
+  before it expires) and never stored here. An answer is reused for a minute,
+  so a member reloading the page cannot spend the installation's rate limit.
+- `POST /api/connections/github/install`: the address that installs the app,
+  `{ url }`, carrying a signed state (below). Members get 403 `not_allowed`;
+  an unconfigured app is 503 `github_not_configured`.
+- `GET /api/github/callback`: the app's callback URL, where GitHub sends the
+  person back (with "Request user authorization (OAuth) during installation"
+  on). It always redirects to
+  `<PUBLIC_URL>/?github=<result>#/settings/connections`, where `<result>` is
+  `finishGitHubInstall`'s outcome in snake case (`connected`, `taken`,
+  `not_installer`, …) or `signed_out`. The web app's Settings, on its
+  Connections page, reads it once and clears it. That address is the web
+  app's (`CONNECTIONS_PAGE` in `app.ts`), so the two change together.
+- `DELETE /api/connections/github/installations/{installationId}`: removes the
+  workspace's record. The app stays installed on GitHub until someone
+  uninstalls it there. One the workspace does not hold, another's included,
+  is 404 `installation_not_found`.
+
+What makes a callback connect, in the order `finishGitHubInstall` checks it,
+each before anything trusts the redirect:
+
+1. **The state is this session's own.** `startGitHubInstall` signs the
+   workspace, the person and the session with HMAC-SHA256 under a key derived
+   from `BETTER_AUTH_SECRET` (HKDF, for this purpose only), for
+   `INSTALL_STATE_LIFETIME_SECONDS`. A state from another session, another
+   person's above all, is `bad-state`, and the code is never spent: a link
+   someone else made cannot connect a workspace through you.
+2. **The person is still an owner or admin** of the workspace the Connect was
+   for, read from the database. That workspace is the one recorded, whatever
+   the session has active by then.
+3. **GitHub says this person administers the installation's account.** The
+   `installation_id` in the redirect can be forged, so the one-time `code` is
+   exchanged for the person's GitHub token, which is revoked once read and
+   never stored or logged. `GET /user/installations` must list that id, and
+   that alone is not enough: it lists an installation for anyone who can read
+   one of its repositories, every member of an organisation included. So
+   `checkInstaller` also needs the person to own the account: an active
+   `admin` of the organisation (`GET /user/memberships/orgs/{org}`, which
+   needs the app's Members organisation permission, read), or, for a
+   personal installation, the person it is on (`GET /user`). Otherwise it is
+   `not-account-admin`.
+4. **No other workspace holds it.** `github_installation` is keyed by the
+   installation id, so a second workspace's claim is `taken`, even at the
+   same moment.
+
+No token, code, client secret or key is ever logged: a failed call logs what
+it was and GitHub's status. `describeStartupFailure` hides the client secret.
+
+## Webhooks
+
+The GitHub App's webhooks reach `POST /api/github/webhooks` (14.2, CON-70;
+`postGitHubWebhook` in the contract, `adapters/http/webhooks.ts`). In
+development a Cloudflare tunnel brings them to this machine (decided
+2026-11-22; `README.md`, "Receive GitHub's webhooks"). Nothing is deployed.
+
+- **In the contract, not outside it.** GitHub is the only caller, and it
+  calls through no generated client, but every answer the route gives is
+  Consola's own, so it is declared, typed and checked like any other route,
+  as the callback is. `OUTSIDE_THE_CONTRACT` stays for what Consola does not
+  answer itself. The request is declared only in words (`description`): a
+  body or header schema would make the library parse them before the
+  signature is checked.
+- **The signature comes first.** `GITHUB_WEBHOOK_SECRET` is optional, at
+  least 32 characters, and never logged (`describeStartupFailure` hides it);
+  with none set, every delivery is 503 `webhooks_not_configured`. A body over
+  `GITHUB_PAYLOAD_MAX_BYTES` (GitHub's own cap) is 413 `too_large` before it
+  is read. Then `receiveGitHubWebhook` checks `X-Hub-Signature-256`, the
+  HMAC-SHA256 of the body's bytes as they arrived, compared in constant time
+  (`timingSafeEqual`, `webhookSignatures.ts`), before it reads a header or
+  parses the body: unsigned, mis-signed or changed is 401 `bad_signature`.
+  GitHub's SHA-1 `X-Hub-Signature` is never read.
+- **Then, in order:** the headers and the body (400 `invalid_delivery`: no
+  `X-GitHub-Event` or `X-GitHub-Delivery`, ones GitHub does not write, or a
+  body that is no JSON object); GitHub's `ping`, answered 200 `pong` and passed
+  to no cell; the installation the payload names (`installationOfEvent`) and
+  the workspace that holds it (`InstallationStore.holderOf`), where an event
+  through none, or through one no workspace holds (installed on GitHub but
+  never connected, or disconnected), is dropped and logged, 422
+  `no_installation` or `unknown_installation`; and the workspace's region's
+  cell (503 `cell_not_configured` without one).
+- **Passed on, never kept.** The event goes to the cell signed like an outbox
+  message, typed `GITHUB_EVENT_TYPE` (`signGitHubEvent`,
+  `createCellEventDelivery`; `packages/cloud-contract`, "Passing on a GitHub
+  event"), while GitHub waits: `EVENT_DELIVERY_TIMEOUT_MS` (8 s) of GitHub's
+  10. Nothing of it is written here, so there is nothing to retry from: a cell
+  that does not take it is 502 `cell_unavailable`, and GitHub's Redeliver,
+  which keeps the delivery's id, sends it again.
+- **A delivery is recorded once, by the cell.** It keys each event by the
+  workspace and `X-GitHub-Delivery`, so a delivery it has already (GitHub's
+  Redeliver after a success, or a captured delivery replayed) changes
+  nothing, and the route answers 409 `duplicate_delivery`. GitHub signs the
+  body only, not its headers, so a captured body replayed under a new
+  delivery id would check; TLS on the tunnel is what keeps a delivery from
+  being captured.
+- **What is logged** is one line per delivery (`webhookLine`): ids, the
+  event's name, the installation, the workspace and the cell's status. A
+  delivery's id and event are logged only once its signature checks. Never
+  the body, a signature or the secret.
+
+## GitHub tokens
+
+`cloud-global` holds the GitHub App's key, so it alone mints installation
+tokens, and each one is narrowed to the repositories and permissions it is
+needed for (decided 2026-11-21; 14.3, CON-71). The cell holds the work a token
+is for, a factory pulled from a repository (9.4) or saved to one (37.2), or a
+run (epic 21), so the cell asks. The request's shape is the contract's
+(`packages/cloud-contract/AGENTS.md`, "A cell's request for a GitHub token").
+
+**Proposed** (14.3, CON-71), not yet confirmed:
+
+- **The route.** `POST /api/github/tokens` `{ request }`, where `request` is
+  the cell's signed request, answers 201
+  `{ token, expiresAt, repositories, permissions }` with
+  `Cache-Control: no-store`: `expiresAt` in whole seconds, `repositories` as
+  `{ id, fullName }` (GitHub's names now, which the cell uses to call GitHub),
+  and `permissions` exactly the purpose's, plus the metadata read GitHub gives
+  every token. A cell calls it, never a browser, so it is registered before
+  the origin check and reads no session.
+- **A cell signs with a key of its own.** Each region's cell has an Ed25519
+  key pair. Its public half is `CELL_PUBLIC_KEY_<REGION>` here
+  (`cellKeyVariable`), a JWK on one line, optional like `CELL_URL_<REGION>`:
+  a region with none can ask for nothing. `config.ts` refuses a key with a
+  private part (`d`), one key for two cells, and `cloud-global`'s own cell
+  token key, so nothing `cloud-global` signs passes for a cell's request.
+  `cellRequestVerifier.ts` picks the key by `kid` (its thumbprint), allows
+  `EdDSA` alone and only the request's `typ`, and the key that checks says
+  which region's cell asked. Its private half is the cell's, configured there
+  when the cell first asks (9.4).
+- **The purposes fix the permissions** (`TOKEN_PURPOSES`): `review-run`,
+  contents read and pull requests write, for at most 10 repositories;
+  `factory-pull`, contents read, and `factory-save`, contents write, each for
+  exactly one. The request names a purpose, never permissions. Pulling a
+  factory gets a read-only token: only saving writes.
+- **What is checked, in order, before anything is minted**
+  (`mintGitHubToken`): the signature (401 `unsigned`); the contract's reader,
+  times included (400 `unreadable`, its reason logged); the purpose's rules:
+  at least one repository, never a whole installation, no more than it
+  allows, none twice (400 `invalid_token_request`, every problem named); the
+  workspace holds the installation, read from `github_installation`, so one
+  workspace never gets a token for another's installation, even in the same
+  region (404 `installation_not_found`); the workspace is in the signing
+  cell's region (403 `other_region`); this server has the app (503
+  `github_not_configured`); GitHub still has the installation (410
+  `installation_gone`); and the installation covers every repository, as
+  GitHub lists it (the list `GET /api/connections` reads, reused for a minute)
+  (403 `repository_not_covered`, naming each by id).
+- **GitHub's answer is checked too.** The mint asks for `repository_ids` and
+  `permissions` (`mintToken`), and a token is handed out only when GitHub
+  says it carries exactly those repositories and permissions, plus metadata
+  read (`grantedAsAsked`). Anything else is revoked (`DELETE
+  /installation/token`) and answered 503 `github_unavailable`. GitHub refusing
+  the scope (422: a permission the app lacks, or a repository it stopped
+  covering) is 403 `scope_refused`. Each token is a new one: never kept, never
+  reused, never the one the repositories are listed with.
+- **Every token handed out is recorded first** (`github_token_mint`): the
+  workspace, installation, purpose, repository ids, permissions, and when it
+  was minted and expires. One that cannot be recorded is revoked, and the
+  request fails. Repositories are recorded by id: their names are the
+  company's, and stay on GitHub and in the cell. There is no foreign key: a
+  record outlives the installation and the workspace it speaks of.
+- **Checked against GitHub** on 2026-11-22 with the development app: a token
+  narrowed to one repository read it (200) and got 404 for another private
+  repository of the same installation, listed one repository, could not write
+  with read (403), and was 401 once revoked; a repository of another
+  installation was 422. The HTTP suite replays those answers.
+- **What this does not do yet.** A signed request can be used again within
+  its minute, and mints another token for the same scope: single use would
+  need its id recorded. The cell that asks says nothing of who or what asked
+  (a person, a factory, a run): that stays in the cell, beside the work.
 
 ## Tests
 
@@ -204,10 +676,22 @@ A test sits beside its module and is named after it (`membershipStore.ts`,
 cases are tested on a migrated `pglite:memory` database through the real
 Drizzle stores: the database is never mocked. `src/app.test.ts` is the HTTP
 suite, end to end. It builds the service through `compose.ts`
-(`composeApi`), as `main.ts` does, so it tests the wiring that runs.
+(`composeApi`), as `main.ts` does, so it tests the wiring that runs, and it
+checks every answer against the contract.
+
+PGlite runs one transaction at a time, so a test of what concurrent
+transactions do proves something only on a real Postgres. Such a test runs
+there too when `CLOUD_GLOBAL_TEST_POSTGRES_URL` is set (to a server's
+maintenance database, `postgres://…/postgres`), and is skipped otherwise.
 
 ## Generated files
 
+- `openapi.json` is the contract (above), written by
+  `pnpm --filter @consola/cloud-global openapi:generate`. Never edit it by
+  hand; Biome leaves it alone, since it is compared byte for byte.
+- `src/adapters/persistence/outboxSchema.ts` is Consola's own table, written
+  by hand, and never by `auth:generate`. `drizzle.config.ts` reads it beside
+  `auth-schema.ts`, and `schema.ts` puts the two together.
 - `src/adapters/persistence/auth-schema.ts` holds Better Auth's tables,
   written by `pnpm --filter @consola/cloud-global auth:generate` from
   `src/adapters/auth/cli-config.ts`. Never edit it by hand. The CLI drops the
@@ -219,5 +703,6 @@ suite, end to end. It builds the service through `compose.ts`
   rows, drizzle-kit writes `ADD COLUMN … NOT NULL`, which fails on those rows:
   edit the generated SQL to add the column, fill it and then require it, as
   `0001_organization_region.sql` does, and test it from a database migrated
-  only that far (`database.test.ts`, `migrateUpTo`). `db:generate` should then
-  report no schema changes.
+  only that far (`database.test.ts`, `migrateUpTo`). A backfill goes in the
+  same migration, after the SQL drizzle-kit wrote, as `0002_outbox_message.sql`
+  does. `db:generate` should then report no schema changes.

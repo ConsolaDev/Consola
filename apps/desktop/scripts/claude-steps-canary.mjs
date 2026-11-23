@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
- * The real-CLI canary for automation steps (spec: docs/superpowers/specs/
- * 2026-11-15-agents-as-files-design.md, *Testing › Real-CLI canary*).
+ * The real-CLI canary for automation steps (spec: "Automations · Spec: Agents
+ * as files (slice 2)", a Linear document, *Testing › Real-CLI canary*:
+ * https://linear.app/consola/document/automations-spec-agents-as-files-slice-2-87c7346bfbd4).
  *
  * Consola's tests drive a stub `claude`, so none of them notices the real CLI
  * changing something agent steps rely on: the shape of its stream-json in a

@@ -1,11 +1,20 @@
-/** A workspace as the person signed in sees it: with their role in it. */
-export type MyWorkspace = { id: string; name: string; slug: string; region: string; role: string };
+import type { components } from './apiContract';
 
 /** Who is signed in, and the workspace their session has active, if any. */
-export type Me = {
-  user: { id: string; name: string; email: string; image: string | null };
-  workspace: MyWorkspace | null;
-};
+export type Me = components['schemas']['Me'];
+
+/**
+ * What stands in for a person's picture when they have none: the first letters of their first
+ * two words, capitalised, or `?` for a name with no letters.
+ */
+export function initialsOf(name: string): string {
+  const letters = name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((word) => Array.from(word)[0]?.toUpperCase() ?? '');
+  return letters.join('') || '?';
+}
 
 export type MeState =
   | { kind: 'signed-in'; me: Me }

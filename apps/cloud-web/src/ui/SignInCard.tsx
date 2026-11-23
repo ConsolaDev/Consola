@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { signInWithGoogle } from '../services/authClient';
+import { BrandMark } from './BrandMark';
 
 export function SignInCard({ error }: { error: string | null }) {
   const [pending, setPending] = useState(false);
@@ -19,13 +20,22 @@ export function SignInCard({ error }: { error: string | null }) {
 
   return (
     <section className="card">
+      <span className="brand sign-in-mark">
+        <BrandMark />
+      </span>
       <h1 className="heading">Sign in to Consola Cloud</h1>
+      <p className="muted">Open your workspaces, or create your first one.</p>
       {shown && (
         <p className="error" role="alert">
           {shown}
         </p>
       )}
-      <button type="button" className="button" disabled={pending} onClick={() => void start()}>
+      <button
+        type="button"
+        className="button primary"
+        disabled={pending}
+        onClick={() => void start()}
+      >
         Continue with Google
       </button>
     </section>

@@ -1,0 +1,242 @@
+/* A run that waits for approval (the design mock's approval card): a card edged in the one
+   yellow, since it waits for a person; its title and the cell's reason beside a shield; what it
+   will run, each command in the monospace and each agent with its prompt's first line; then who
+   may answer and, for them, Approve and Dismiss on a quiet foot. Answered, it is one line: a check
+   that draws itself, once, as the person's own answer lands, or a slash for a dismissal. */
+
+.approval-card {
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--warning) 45%, var(--line));
+  border-radius: var(--radius-group);
+  background: var(--bg);
+}
+
+.approval-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 14px 16px 0;
+}
+
+.approval-head > svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--warning);
+}
+
+.approval-title {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+}
+
+.approval-reason {
+  max-width: 68ch;
+  margin: 2px 0 0;
+  color: var(--text-2);
+  font-size: var(--font-size-md);
+  line-height: var(--line-height-normal);
+}
+
+.approval-part {
+  padding: 12px 16px 0 42px;
+}
+
+.approval-part-title {
+  margin: 0 0 6px;
+  color: var(--text-2);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+}
+
+.approval-will {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.approval-will li {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+  color: var(--text);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-normal);
+}
+
+.approval-will li > svg {
+  margin-top: 3px;
+  color: var(--text-3);
+}
+
+.approval-will-text {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+  min-width: 0;
+}
+
+/* A step's id, as the file spells it. */
+.approval-step {
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+}
+
+.approval-command {
+  min-width: 0;
+  padding: 0 4px;
+  border-radius: var(--radius-sm);
+  background: var(--hover);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  font-variant-ligatures: none;
+  overflow-wrap: anywhere;
+}
+
+.approval-asked {
+  color: var(--text-2);
+}
+
+.approval-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-top: 14px;
+  padding: 12px 16px 12px 42px;
+  border-top: 1px solid var(--line);
+  background: color-mix(in srgb, var(--hover) 30%, transparent);
+}
+
+.approval-who {
+  margin: 0;
+  color: var(--text-2);
+  font-size: var(--font-size-sm);
+}
+
+.approval-buttons {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.approval-buttons .button {
+  padding: 6px 14px;
+}
+
+.approval-buttons .button[data-tone="danger"] {
+  border-color: color-mix(in srgb, var(--danger) 55%, var(--line));
+  color: var(--danger);
+}
+
+.approval-buttons .button[data-tone="danger"]:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+}
+
+/* Dismiss asks once, in place of the foot's line: a fieldset, with none of a fieldset's frame. */
+.approval-ask {
+  display: flex;
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.approval-ask p {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--font-size-md);
+}
+
+.approval-failure {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--danger);
+  font-size: var(--font-size-sm);
+}
+
+/* ---- Answered ---- */
+
+.approval-receipt {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-group);
+  background: var(--bg);
+}
+
+.approval-receipt p {
+  margin: 0;
+  color: var(--text-2);
+  font-size: var(--font-size-md);
+}
+
+.approval-receipt > svg {
+  flex: none;
+}
+
+.approval-receipt[data-decision="dismissed"] > svg {
+  color: var(--text-3);
+}
+
+.approval-check {
+  width: 18px;
+  height: 18px;
+}
+
+.approval-check circle {
+  fill: color-mix(in srgb, var(--success) 16%, transparent);
+}
+
+.approval-check path {
+  fill: none;
+  stroke: var(--success);
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* The person's own answer, as it lands: the check draws itself, once. */
+.approval-check[data-drawn] path {
+  stroke-dasharray: 14;
+  stroke-dashoffset: 14;
+  animation: approval-draw 420ms 80ms var(--ease-out-quart) forwards;
+}
+
+@keyframes approval-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@media (max-width: 620px) {
+  .approval-part,
+  .approval-actions {
+    padding-left: 16px;
+  }
+
+  .approval-buttons {
+    margin-left: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .approval-check[data-drawn] path {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+}

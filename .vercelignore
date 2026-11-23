@@ -1,8 +1,17 @@
 *
 !vercel.json
+# vercel.json's ignoreCommand runs this script, which reads this file to learn what the site is
+# built from, and skips a deployment when none of those files changed (a preview counts only the
+# website's own).
+!.vercelignore
+!tools
+!tools/vercel-ignore.mjs
 !package.json
 !pnpm-lock.yaml
 !pnpm-workspace.yaml
+# pnpm opens every patch pnpm-workspace.yaml names before it installs anything.
+!patches
+!patches/**
 !apps
 !apps/website
 !apps/website/package.json

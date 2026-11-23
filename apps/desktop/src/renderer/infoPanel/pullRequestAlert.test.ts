@@ -60,6 +60,16 @@ describe('pullRequestAlert', () => {
     ).toBeNull();
   });
 
+  it('read at the same moment, the cached details decide', () => {
+    const failingInInbox = listed({ ciStatus: 'failing', reviewDecision: 'changes-requested' });
+    expect(
+      pullRequestAlert({ details: green, detailsAt: 10, item: failingInInbox, itemAt: 10 }),
+    ).toBeNull();
+    expect(
+      pullRequestAlert({ details: details51, detailsAt: 10, item: listed({}), itemAt: 10 }),
+    ).toEqual({ failingChecks: true, changesRequested: true });
+  });
+
   it('only an open pull request alerts', () => {
     expect(
       pullRequestAlert({ details: { ...details51, state: 'merged' }, detailsAt: 10, itemAt: 0 }),

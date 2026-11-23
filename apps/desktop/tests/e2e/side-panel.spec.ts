@@ -2064,26 +2064,22 @@ test.describe('side panel', () => {
         return !!kept?.isConnected && document.querySelector('.git-review-panel') === kept;
       });
 
-    // The info panel hidden by its button: only the conversation resizes.
-    // Hidden, it also leaves the side panel's steps below the width they
-    // measure, and their edge drags land on the conversation.
+    // Shown, the side panel takes its width from the conversation, which
+    // only resizes. On this window the info panel steps aside for it
+    // (`stepAside.ts`), which only resizes the conversation too, so every
+    // step below has the pane to itself, and the side panel's edge drag
+    // lands on the conversation.
     const infoPanel = page.getByTestId('info-panel');
     await expect(infoPanel).toBeVisible();
     const withInfo = await width();
-    await page.getByRole('button', { name: 'Hide info panel', exact: true }).click();
-    await expect(infoPanel).toHaveCount(0);
-    await expect.poll(width).toBeGreaterThan(withInfo + 200);
-    await untouched('the info panel hidden');
-
-    // Shown, the side panel takes its width from the conversation, which
-    // only resizes.
-    const alone = await width();
+    const pane = (await page.locator('.workspace-view-content').boundingBox())?.width ?? 0;
     await sidePanelToggle().click();
     await expect(newTabList()).toBeFocused();
-    await untouched('the side panel shown');
+    await expect(infoPanel).toHaveCount(0);
+    await untouched('the side panel shown, the info panel stepped aside');
     await newTabList().getByRole('option', { name: 'Changes' }).click();
     await expect(sidePanelTab('Changes')).toHaveAttribute('aria-selected', 'true');
-    await expect.poll(width).toBeLessThan(alone - 100);
+    await expect.poll(width).toBeLessThan(pane - 100);
     await untouched('Changes chosen');
 
     // Files, Terminal and Browser, each opened in the same group.
@@ -2184,12 +2180,18 @@ test.describe('side panel', () => {
     await page.getByRole('button', { name: 'Close Browser tab', exact: true }).click();
     await expect(page.getByTestId('side-panel')).toHaveCount(0);
     await untouched('Browser closed, and the side panel with it');
-    // The whole width again.
-    await expect.poll(width).toBeGreaterThan(alone - 2);
-    await untouched('the whole width again');
+    // The width it had beside the info panel again, which is back.
+    await expect(infoPanel).toBeVisible();
+    await expect.poll(width).toBeGreaterThan(withInfo - 2);
+    await untouched('the info panel back');
 
-    // The info panel shown again by ⌥⌘J, then its edge dragged 40px into
-    // the conversation: each only resizes it.
+    // The info panel hidden by its button, shown again by ⌥⌘J, then its edge
+    // dragged 40px into the conversation: each only resizes it.
+    await page.getByRole('button', { name: 'Hide info panel', exact: true }).click();
+    await expect(infoPanel).toHaveCount(0);
+    await expect.poll(width).toBeGreaterThan(withInfo + 200);
+    await untouched('the info panel hidden');
+    const alone = await width();
     await conversation().focus();
     await page.keyboard.press(infoPanelChord());
     await expect(infoPanel).toBeVisible();

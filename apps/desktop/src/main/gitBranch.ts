@@ -1,37 +1,22 @@
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 import type { BranchFacts } from '../shared/branchFacts';
-import { resolveSshRemote } from './sshRemote';
+import { readGit as git } from './gitRead';
+import { resolveSshRemoteAsync } from './sshRemote';
 
 /**
  * A checkout's branch as the clone already knows it: what it has to push or
  * pull, how far it has come from the branch it merges into, and the names its
  * pull request is found by.
  *
- * These reads never fetch. Every count compares with the remote-tracking refs
- * the clone kept from its last fetch, so nothing here reaches the remote or
- * waits on it. `GIT_NO_LAZY_FETCH=1` keeps that true in a partial clone, where
- * git would otherwise fetch, unasked, a blob the diff needs from the remote it
- * was cloned from; there the diff fails instead, and its line is not drawn.
+ * Every count compares with the remote-tracking refs the clone kept from its
+ * last fetch. On git 2.44 and later nothing here reaches the remote or waits
+ * on it: in a partial clone git would otherwise fetch, unasked, a blob the
+ * diff needs from the remote it was cloned from, and `GIT_NO_LAZY_FETCH=1`
+ * (`readGit`'s) makes the diff fail instead, so its line is not drawn. An
+ * older git ignores that variable and fetches.
+ *
+ * A read git cannot answer (it failed, timed out, is missing, or wrote more
+ * than its buffer) is null, and the fact it was for is not drawn.
  */
-
-const execFileAsync = promisify(execFile);
-
-/** A hung git (a stale lock on a network drive) must not hold the panel hostage. */
-const GIT_TIMEOUT_MS = 10_000;
-
-/** stdout, or null when git fails, which here only ever means "no such fact". */
-async function git(dir: string, args: string[]): Promise<string | null> {
-  try {
-    const { stdout } = await execFileAsync('git', ['-C', dir, ...args], {
-      timeout: GIT_TIMEOUT_MS,
-      env: { ...process.env, GIT_NO_LAZY_FETCH: '1' },
-    });
-    return stdout.trim();
-  } catch {
-    return null;
-  }
-}
 
 /**
  * A branch name that can follow `origin/` in an argument: no leading dash, so
@@ -81,9 +66,14 @@ function lineCount(field: string | undefined): number {
   return Number.isInteger(count) ? count : 0;
 }
 
+/** Room for tens of thousands of changed files' numstat lines, as WorktreeService gives its diffs. */
+const NUMSTAT_MAX_BUFFER = 10 * 1024 * 1024;
+
 /** HEAD against its merge base with `ref`, or null when the two share no history. */
 async function compareWith(dir: string, ref: string): Promise<BranchFacts['base']> {
-  const numstat = await git(dir, ['diff', '--numstat', `${ref}...HEAD`, '--']);
+  const numstat = await git(dir, ['diff', '--numstat', `${ref}...HEAD`, '--'], {
+    maxBuffer: NUMSTAT_MAX_BUFFER,
+  });
   if (numstat === null) return null;
   const lines = numstat.split('\n').filter(Boolean);
   let additions = 0;
@@ -120,19 +110,22 @@ export interface BranchIdentity {
 /** The names a branch's pull request is found by, or null outside git. */
 export async function readBranchIdentity(
   dir: string,
-  resolveRemote: (url: string) => string = resolveSshRemote,
+  resolveRemote: (url: string) => Promise<string> = resolveSshRemoteAsync,
 ): Promise<BranchIdentity | null> {
   if ((await git(dir, ['rev-parse', '--git-dir'])) === null) return null;
   const [branch, originUrl] = await Promise.all([
     git(dir, ['symbolic-ref', '--quiet', '--short', 'HEAD']),
     git(dir, ['remote', 'get-url', 'origin']),
   ]);
-  const merge = branch ? await git(dir, ['config', '--get', `branch.${branch}.merge`]) : null;
+  const [merge, resolvedOrigin] = await Promise.all([
+    branch ? git(dir, ['config', '--get', `branch.${branch}.merge`]) : null,
+    originUrl ? resolveRemote(originUrl) : null,
+  ]);
   return {
     branch: branch || null,
     remoteBranch: merge?.startsWith('refs/heads/')
       ? merge.slice('refs/heads/'.length)
       : branch || null,
-    originUrl: originUrl ? resolveRemote(originUrl) : null,
+    originUrl: resolvedOrigin,
   };
 }

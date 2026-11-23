@@ -26,7 +26,10 @@ type TriggerProps = Omit<
 
 /**
  * One line of an info panel section. A plain fact is a `<div>`; a row with
- * something behind it is a `<button>`, which is what takes the hover.
+ * something behind it is a `<button>`, which is what takes the hover. The
+ * `<div>` drops every button prop (a trigger's ref, handlers, state and
+ * description, and `ariaLabel`): only a row that does something takes them,
+ * so a Radix trigger must wrap a row with `onActivate`.
  */
 export function InfoRow({
   icon,

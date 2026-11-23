@@ -320,8 +320,9 @@
 
 /* The top of a session's pane. Everything on it changes with the session.
    When it runs out of room, the session's name (and its scope) give way
-   first, down to their minimum; only then the snooze chip's words. The
-   counts, the refresh and the controls never do. */
+   first, down to their minimum; only then the snooze chip's words and a
+   folder outside git's path. The counts, the refresh and the controls never
+   do. */
 .workspace-view-header {
   display: flex;
   flex: none;
@@ -455,7 +456,9 @@
   margin-top: var(--space-2);
 }
 
-/* Resize handle for split panels */
+/* Resize handle for split panels. Its width is `PANEL_SEPARATOR_PX`
+   (infoPanel/stepAside.ts), which the session pane's room for all three
+   panels counts twice: change both. */
 .resize-handle {
   width: 8px;
   background: transparent;
@@ -570,6 +573,16 @@
   flex: 1 0 auto;
 }
 
+/* A folder outside git prints its path, which gives way once the name is
+   down to its minimum: it is cut with an ellipsis (`.workspace-view-path`),
+   so the controls after it stay on screen. Only this container shrinks: one
+   holding just the counts and the refresh would be squeezed under the
+   controls, which would take their clicks. */
+.path-display-container[data-path] {
+  flex-shrink: 1;
+  min-width: 0;
+}
+
 .path-display-text {
   /* Inherits styling from className prop */
 }
@@ -641,9 +654,10 @@
 
 /* A kind's mark (`markPlaces`): on a header shortcut, on the side panel toggle, or on a tab in
    the side panel's bar. An agent's (it used a page the person has not seen) is the accent dot,
-   `::after`; an alert (a pull request's failing check) is the red one, `::before`. One rule
-   draws both for all three places, so a dot cannot differ between them; only a tab places it
-   apart. A literal radius: var(--radius-full) resolves to 0 inside .radix-themes. */
+   `::after`; an alert (a pull request's failing check, or changes requested on it) is the red
+   one, `::before`. One rule draws both for all three places, so a dot cannot differ between
+   them; only a tab places it apart. A literal radius: var(--radius-full) resolves to 0 inside
+   .radix-themes. */
 .path-display-toggle[data-agent-dot],
 .path-display-toggle[data-alert-dot],
 .side-panel-tab-trigger[data-agent-dot],

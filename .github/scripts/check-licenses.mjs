@@ -52,6 +52,30 @@ export const ALLOWED = new Set([
  */
 export const REVIEWED = {};
 
+const CURSOR_PLATFORM_BINARY =
+  "The Cursor SDK's binary for one platform, installed with `@cursor/sdk` (above), under the same licence and kept out the same way.";
+
+/**
+ * Packages whose licence Consola cannot ship under, installed only to run the
+ * copied t3code packages on the person's own machine and in tests: nothing
+ * Consola publishes or releases may bundle them. Keyed by name, with what
+ * installs each and what keeps it out of what ships.
+ */
+export const NOT_SHIPPED = {
+  '@anthropic-ai/claude-agent-sdk':
+    "Anthropic's own terms (SEE LICENSE IN README.md). Installed by the copied `@t3tools/provider-claude` and the lifted t3 server, which `@consola/host` runs. Nothing that bundles it is published or released until its licence is settled (CON-21), and the `Agent UI` job fails if it reaches `@consola/agent-ui`'s bundle.",
+  '@cursor/sdk':
+    "Cursor's own licence (SEE LICENSE IN LICENSE.md). Installed by the copied `@t3tools/provider-cursor`, and never bundled into anything Consola builds: the `Agent UI` job fails if it reaches `@consola/agent-ui`'s bundle.",
+  '@cursor/sdk-darwin-arm64': CURSOR_PLATFORM_BINARY,
+  '@cursor/sdk-darwin-x64': CURSOR_PLATFORM_BINARY,
+  '@cursor/sdk-linux-arm64': CURSOR_PLATFORM_BINARY,
+  '@cursor/sdk-linux-x64': CURSOR_PLATFORM_BINARY,
+  '@cursor/sdk-win32-x64': CURSOR_PLATFORM_BINARY,
+};
+
+// SPDX matches identifiers without regard to case: `apache-2.0` is `Apache-2.0`.
+const ALLOWED_IDS = new Set([...ALLOWED].map((id) => id.toLowerCase()));
+
 /** Whether an SPDX expression lets Consola ship the package. */
 export function allows(expression) {
   const alternatives = expression
@@ -61,8 +85,8 @@ export function allows(expression) {
   return alternatives.some((alternative) =>
     alternative
       .split(/\s+AND\s+/i)
-      .map((id) => id.trim().replace(/\+$/, '-or-later'))
-      .every((id) => ALLOWED.has(id)),
+      .map((id) => id.trim().replace(/\+$/, '-or-later').toLowerCase())
+      .every((id) => ALLOWED_IDS.has(id)),
   );
 }
 
@@ -75,7 +99,7 @@ export function refusals(report) {
   for (const [license, packages] of Object.entries(report)) {
     if (allows(license)) continue;
     for (const pkg of packages) {
-      if (pkg.name in REVIEWED) continue;
+      if (pkg.name in REVIEWED || pkg.name in NOT_SHIPPED) continue;
       refused.push({ name: pkg.name, versions: pkg.versions, license });
     }
   }
@@ -93,7 +117,15 @@ function main() {
   const count = Object.values(report).reduce((sum, packages) => sum + packages.length, 0);
   const refused = refusals(report);
   if (refused.length === 0) {
-    console.log(`All ${count} dependencies declare an AGPL-3.0-compatible licence.`);
+    const notShipped = Object.entries(report)
+      .filter(([license]) => !allows(license))
+      .flatMap(([, packages]) => packages)
+      .filter((pkg) => pkg.name in NOT_SHIPPED).length;
+    console.log(
+      notShipped === 0
+        ? `All ${count} dependencies declare an AGPL-3.0-compatible licence.`
+        : `All ${count} dependencies declare an AGPL-3.0-compatible licence, but ${notShipped} that nothing Consola ships may bundle (NOT_SHIPPED).`,
+    );
     return;
   }
   for (const { name, versions, license } of refused) {

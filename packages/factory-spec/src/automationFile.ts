@@ -5,7 +5,7 @@
  * its own with no change but removing `name:`.
  */
 import { LineCounter, parseDocument } from 'yaml';
-import { closestNode, toIssue, type FactorySpecIssue } from './issues';
+import { closestNode, linesAt, toIssue, type FactorySpecIssue, type LineRange } from './issues';
 import { AUTOMATION_NAME_PATTERN } from './names';
 import { automationSchema, type Automation } from './schema';
 import { documentValue } from './yamlValue';
@@ -19,6 +19,11 @@ export interface AutomationFileResult {
   unreadable: boolean;
   /** The 1-based line of the node at `path` (from the file's root), or of its nearest ancestor. */
   lineAt(path: Array<string | number>): number | undefined;
+  /**
+   * The lines the node at `path` (from the file's root) is written on, `['steps', 0]` for the
+   * first step; undefined when there is no node there.
+   */
+  rangeAt(path: Array<string | number>): LineRange | undefined;
 }
 
 const ROOT =
@@ -43,6 +48,7 @@ export function parseAutomationFile(fileName: string, text: string): AutomationF
       ],
       unreadable: false,
       lineAt: () => undefined,
+      rangeAt: () => undefined,
     };
   }
 
@@ -51,6 +57,7 @@ export function parseAutomationFile(fileName: string, text: string): AutomationF
   const lineOf = (offset: number | undefined) =>
     offset === undefined ? undefined : lineCounter.linePos(offset).line;
   const lineAt = (path: Array<string | number>) => lineOf(closestNode(doc, path)?.range?.[0]);
+  const rangeAt = (path: Array<string | number>) => linesAt(doc, lineOf, path);
   const ours = (issue: FactorySpecIssue): FactorySpecIssue => ({
     ...issue,
     file,
@@ -68,6 +75,7 @@ export function parseAutomationFile(fileName: string, text: string): AutomationF
       ),
       unreadable: true,
       lineAt,
+      rangeAt,
     };
   }
   const value = documentValue(doc);
@@ -76,11 +84,17 @@ export function parseAutomationFile(fileName: string, text: string): AutomationF
       issues: [ours({ message: value.message, path: '', line: 1 })],
       unreadable: true,
       lineAt,
+      rangeAt,
     };
   }
   const root: unknown = value.value;
   if (!isRecord(root)) {
-    return { issues: [ours({ message: ROOT, path: '', line: 1 })], unreadable: true, lineAt };
+    return {
+      issues: [ours({ message: ROOT, path: '', line: 1 })],
+      unreadable: true,
+      lineAt,
+      rangeAt,
+    };
   }
 
   const issues: FactorySpecIssue[] = [];
@@ -94,7 +108,13 @@ export function parseAutomationFile(fileName: string, text: string): AutomationF
     for (const issue of parsed.error.issues) issues.push(toIssue(issue, [], doc, lineOf));
   }
   if (issues.length > 0 || !parsed.success) {
-    return { issues: issues.map(ours), unreadable: false, lineAt };
+    return { issues: issues.map(ours), unreadable: false, lineAt, rangeAt };
   }
-  return { automation: { ...parsed.data, file, line: 1 }, issues: [], unreadable: false, lineAt };
+  return {
+    automation: { ...parsed.data, file, line: 1 },
+    issues: [],
+    unreadable: false,
+    lineAt,
+    rangeAt,
+  };
 }
