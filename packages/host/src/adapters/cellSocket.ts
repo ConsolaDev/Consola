@@ -143,7 +143,7 @@ export const makeCellSocket = (options: CellSocketOptions): Effect.Effect<CellSo
         const live = handlers.live();
         const endedSessions = ends.forHello();
         const ended = new Set(endedSessions.map((end) => end.sessionId));
-        const hello: RunnerHello = {
+        let hello: RunnerHello = {
           type: 'hello',
           runnerId: options.runnerId,
           repositories: [...options.offer.repositories],
@@ -151,6 +151,14 @@ export const makeCellSocket = (options: CellSocketOptions): Effect.Effect<CellSo
           runningSessionIds: live.sessionIds.filter((sessionId) => !ended.has(sessionId)),
           endedSessions,
         };
+        // Within the cell's frame limit: past it, the ends go without their messages (the cell
+        // then records `runner_failed` for a failure), rather than the cell closing the socket.
+        if (Buffer.byteLength(encode(hello)) > CELL_FRAME_LIMIT_BYTES) {
+          hello = {
+            ...hello,
+            endedSessions: endedSessions.map(({ sessionId, status }) => ({ sessionId, status })),
+          };
+        }
         open.ws.send(encode(hello));
         ends.sent([...ended], open.id, nowMs);
         for (const state of live.states) {
@@ -228,7 +236,25 @@ export const makeCellSocket = (options: CellSocketOptions): Effect.Effect<CellSo
       Effect.gen(function* () {
         let failures = 0;
         while (!closing) {
-          const closed = yield* connectOnce(handlers);
+          const closed = yield* connectOnce(handlers).pipe(
+            // A failure of the runner's own while connected must not end the dialling for good.
+            Effect.catchDefect((defect) =>
+              Effect.gen(function* () {
+                const nowMs = yield* Clock.currentTimeMillis;
+                latest?.terminate();
+                if (current !== null) ends.closed(current.id, nowMs);
+                current = null;
+                const lost: Closed = {
+                  code: 1006,
+                  reason: '',
+                  opened: false,
+                  heldMs: 0,
+                  error: defect instanceof Error ? defect.message : String(defect),
+                };
+                return lost;
+              }),
+            ),
+          );
           if (closing) break;
           if (closed.code === REPLACED_CLOSE_CODE) {
             yield* options.log(

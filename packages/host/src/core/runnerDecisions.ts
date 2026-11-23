@@ -86,6 +86,9 @@ export function cellUrlProblem(cellUrl: string): string | null {
   if (url.username !== '' || url.password !== '') {
     return '--cell-url must not carry credentials: the runner sends its secret in a header.';
   }
+  if (url.search !== '' || url.hash !== '') {
+    return '--cell-url must not carry a query or a fragment: the runner logs it, and sends its secret in a header.';
+  }
   if (url.protocol === 'wss:') return null;
   if (url.protocol === 'ws:') {
     return isLoopbackHostname(url.hostname)

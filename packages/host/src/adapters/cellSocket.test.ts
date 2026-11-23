@@ -113,7 +113,11 @@ type Runner = {
 };
 
 /** A runner's socket to `cell`, dialling again after `delayMs`, closed with the test's scope. */
-const runnerOf = (cell: FakeCell, delayMs = 50): Effect.Effect<Runner, never, Scope.Scope> =>
+const runnerOf = (
+  cell: FakeCell,
+  delayMs = 50,
+  onMessage?: (message: CellMessage) => Effect.Effect<void>,
+): Effect.Effect<Runner, never, Scope.Scope> =>
   Effect.gen(function* () {
     const received = yield* Queue.unbounded<CellMessage, Cause.Done>();
     const logged: string[] = [];
@@ -131,7 +135,8 @@ const runnerOf = (cell: FakeCell, delayMs = 50): Effect.Effect<Runner, never, Sc
     const runner: Runner = { socket, received, logged, live: { sessionIds: [], states: [] } };
     yield* socket.connect({
       live: () => runner.live,
-      onMessage: (message) => Effect.sync(() => Queue.offerUnsafe(received, message)),
+      onMessage:
+        onMessage ?? ((message) => Effect.sync(() => Queue.offerUnsafe(received, message))),
     });
     return runner;
   });
@@ -275,6 +280,43 @@ describe('makeCellSocket', () => {
           runningSessionIds: [],
           endedSessions: [{ sessionId: 'session-acme-7', status: 'stopped' }],
         });
+      }),
+    ));
+
+  it("keeps a hello within the cell's frame limit, dropping the ends' messages when it must", () =>
+    run(
+      Effect.gen(function* () {
+        const cell = yield* fakeCell();
+        const runner = yield* runnerOf(cell);
+        for (let each = 0; each < 32; each += 1) {
+          yield* runner.socket.send({
+            type: 'session.update',
+            sessionId: `session-acme-long-${each}`,
+            status: 'failed',
+            error: '€'.repeat(1_000),
+          });
+        }
+        const connection = yield* cell.next;
+        const hello = yield* connection.next;
+        expect(Buffer.byteLength(json(hello))).toBeLessThanOrEqual(CELL_FRAME_LIMIT_BYTES);
+        expect(hello.endedSessions).toHaveLength(32);
+        expect(hello.endedSessions).toContainEqual({
+          sessionId: 'session-acme-long-0',
+          status: 'failed',
+        });
+      }),
+    ));
+
+  it('keeps dialling after a failure of its own while connected', () =>
+    run(
+      Effect.gen(function* () {
+        const cell = yield* fakeCell();
+        yield* runnerOf(cell, 20, () => Effect.die(new Error('the runner broke')));
+        const first = yield* cell.next;
+        yield* first.next;
+        first.socket.send(json({ type: 'session.stop', sessionId: 'session-acme-9' }));
+        const second = yield* cell.next;
+        expect(yield* second.next).toMatchObject({ type: 'hello' });
       }),
     ));
 

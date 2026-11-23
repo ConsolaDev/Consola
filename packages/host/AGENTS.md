@@ -705,8 +705,8 @@ consola-host runner --cell-url <wss://…/api/runner, or ws: to loopback> --runn
   `OPENAI_API_KEY` codex. The E2B provider (Task 6) adds `E2B_API_KEY`.
 - **Start failures** follow the session command's: `consola-host: …` on stderr,
   exit 1, nothing on stdout. A bad flag (with the usage), a `--cell-url` that is
-  not `wss:` or is `ws:` to a host that is not loopback, or carries user info
-  (`cellUrlProblem`), no secret, a repository `isRepository` refuses, no API key
+  not `wss:` or is `ws:` to a host that is not loopback, or carries user info,
+  a query or a fragment (it is logged; `cellUrlProblem`), no secret, a repository `isRepository` refuses, no API key
   (no harness to offer), and no sandbox provider. No message quotes a secret.
 - **The provider.** `runnerCommand(argv, env, providerFor)` takes the provider
   from a factory of the environment (`ProviderFor`). Production's
@@ -721,7 +721,8 @@ consola-host runner --cell-url <wss://…/api/runner, or ws: to loopback> --runn
   `CONSOLA_SESSION_IDLE_MINUTES`, `GIT_TOKEN` and the API key of that harness
   alone (`sandboxEnvFor`), and runs `consola-session-start`, its output only
   listened to (`keepOutput: false`). A second start for a session held is
-  ignored.
+  ignored; a start once the runner is stopping is `failed`, with no sandbox,
+  since nothing would stop it.
 - **What a line becomes** (`readSessionLine`, `updateForLine`; stdout arrives in
   chunks, `HostLineBuffer` makes them lines). `ready` exposes the port it names
   (never a fixed 7420) and says `{ status: 'running', hostUrl }` with the
@@ -752,14 +753,16 @@ consola-host runner --cell-url <wss://…/api/runner, or ws: to loopback> --runn
   that went on a socket it replaced. An update while the socket is down is not
   queued; an end is held for the next `hello` (`EndedSessions`), and goes again
   when the connection it went on closed within `END_CONFIRM_MS` (5 s) of it; an
-  id is never listed as running and ended at once. A drop is dialled again
+  id is never listed as running and ended at once. A `hello` over the cell's
+  64 KiB frame limit sends its ends without their messages. A drop is dialled again
   after a jittered wait doubling to 30 s (`reconnectDelayMs`), starting over
   once a connection has held 10 s. A close with 4000 means another process with
   this secret said hello and replaced this one: it stops its sandboxes, stops
   dialling and exits 1, so two runners sharing a secret never take the socket
   from each other in a loop. Frames over 64 KiB close the socket (1009); a frame
-  `readCellMessage` refuses is logged with its reason and dropped. There is no
-  heartbeat yet, on either side.
+  `readCellMessage` refuses is logged with its reason and dropped. A failure of
+  the runner's own while connected ends that connection, never the dialling.
+  There is no heartbeat yet, on either side.
 - **Secrets.** It never logs its environment. Its log lines (stderr, `consola-host
   runner: …`) and every update are scrubbed of the runner secret, the git token
   and the API keys (`scrubSecrets`, as they are and URL-encoded), errors and

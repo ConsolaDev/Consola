@@ -98,6 +98,8 @@ describe('cellUrlProblem', () => {
     ['http:', 'https://eu.cells.sprocket.test/api/runner', /wss:/],
     ['no address at all', 'sprocket', /--cell-url/],
     ['user info', 'wss://runner:secret@eu.cells.sprocket.test/api/runner', /credentials/],
+    ['a query', 'wss://eu.cells.sprocket.test/api/runner?token=sprocket', /query/],
+    ['a fragment', 'wss://eu.cells.sprocket.test/api/runner#sprocket', /fragment/],
   ])('refuses %s', (_case, url, problem) => {
     expect(cellUrlProblem(url)).toMatch(problem);
   });

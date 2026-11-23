@@ -130,6 +130,8 @@ export const makeSandboxSessions = (
 ): Effect.Effect<SandboxSessions> =>
   Effect.sync(() => {
     const held = new Map<string, Held>();
+    /** Set once `stopAll` began: a start after it would make a sandbox nothing stops. */
+    let stopping = false;
     const exitLineGrace = options.exitLineGrace ?? EXIT_LINE_GRACE;
     const log = (message: string) => options.log(scrubSecrets(message, options.secretValues));
 
@@ -362,6 +364,14 @@ export const makeSandboxSessions = (
 
     const sessions: SandboxSessions = {
       start: Effect.fn('SandboxSessions.start')(function* (start: SessionStart) {
+        if (stopping) {
+          return yield* options.report({
+            type: 'session.update',
+            sessionId: start.sessionId,
+            status: 'failed',
+            error: 'The runner is stopping, so it started no sandbox for the session.',
+          });
+        }
         if (held.has(start.sessionId)) {
           return yield* log(`session ${start.sessionId}: started already; the start is ignored`);
         }
@@ -390,6 +400,7 @@ export const makeSandboxSessions = (
       live: Effect.sync(liveNow),
       liveNow,
       stopAll: Effect.gen(function* () {
+        stopping = true;
         const all = [...held.values()];
         yield* Effect.forEach(
           all,

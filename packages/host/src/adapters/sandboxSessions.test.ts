@@ -533,6 +533,19 @@ describe('makeSandboxSessions', () => {
       }),
     ));
 
+  it('starts no sandbox for a start that comes once the runner is stopping', () =>
+    run(
+      Effect.gen(function* () {
+        const h = yield* harness({
+          fake: { programs: { 'consola-session-start': readyUntilStopped() } },
+        });
+        yield* h.sessions.stopAll;
+        yield* h.sessions.start(startOf('session-acme-late'));
+        expect(yield* h.next).toMatchObject({ sessionId: 'session-acme-late', status: 'failed' });
+        expect(h.fake.sandboxes).toHaveLength(0);
+      }),
+    ));
+
   it('takes a second start for a session it holds as the same session', () =>
     run(
       Effect.gen(function* () {
