@@ -183,7 +183,26 @@ import {
   type CheckoutRequest,
   type PreparedCheckout,
 } from './steps/checkout';
-import { describeFailure, LOG_CAP_BYTES, maskSecrets, utf8Bytes } from './steps/commandIO';
+import {
+  clipText,
+  describeFailure,
+  formatDuration,
+  LOG_CAP_BYTES,
+  maskSecrets,
+  utf8Bytes,
+} from './steps/commandIO';
+import {
+  CALL_RESULT_CAP_BYTES,
+  callFileOf,
+  callOutputs,
+  invokeInProcess,
+  maskDeep,
+  reachedOf,
+  renderCallArguments,
+  withCallIntent,
+  withCallResult,
+  withCallStarted,
+} from './steps/usesStep';
 import {
   commandOutcome,
   commandOutputFile,
@@ -199,11 +218,15 @@ import {
 } from './steps/commandStep';
 import {
   agentRequirements,
+  MAX_ARTIFACT_BYTES,
   skillMarkdown,
   withKnownTools,
   type AgentRequirements,
+  type CallFile,
+  type CallResultFile,
   type CallView,
   type CommandFile,
+  type RenderedArgument,
   type LogTail,
   type RunDefinition,
   type StepDetail,
@@ -391,6 +414,39 @@ export interface AutomationServiceDeps {
   /** Commands automations may have running at once, across every workspace. */
   maxConcurrentCommands?: number;
 }
+
+/** What a stop, a quit or a deleted workspace reaches of a running step: a command's process group, or a call (Call 10). */
+type RunningStep = { stop(): void };
+
+/** A `uses:` step about to call, once its `with:` rendered: everything the next part needs. */
+interface PreparedCall {
+  runId: string;
+  stepId: string;
+  attempt: number;
+  workspaceId: string;
+  automation: string;
+  step: UsesStep;
+  /** Its server as the run's definition holds it, or Consola's own tools. */
+  target: McpServerDefinition | 'consola';
+  args: Record<string, unknown>;
+  rendered: RenderedArgument[];
+}
+
+/** Resolves once `signal` aborts (at once when it has). */
+function abortedOf(signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal.aborted) resolve();
+    else signal.addEventListener('abort', () => resolve(), { once: true });
+  });
+}
+
+/** What a call that may have landed is settled with: it was sent, and no clean answer was recorded. */
+function mayHaveHappened(why: string): string {
+  return `It may or may not have happened: ${why}. Check, then retry.`;
+}
+
+/** The most a tool's own error text is repeated in the step's error. */
+const CALL_ERROR_CHARS = 300;
 
 /** A `steps:` entry's problem on a host whose platform is `win32`. */
 const NO_POSIX_SHELL = 'run: steps need a POSIX shell, which Windows does not have';
@@ -724,12 +780,12 @@ export class AutomationService {
    * first step takes that slot: no other run can take it meanwhile.
    */
   private readonly admitted = new Map<string, Lane>();
-  /** Each run's command now running, from its spawn until its step settles: what a stop or a quit reaches. */
-  private readonly runningCommands = new Map<string, RunningCommand>();
+  /** Each run's command or call now running, until its step settles: what a stop, a quit or a deleted workspace reaches. */
+  private readonly runningCommands = new Map<string, RunningStep>();
   /** Each working run's secret values, read before the step that needs them: memory only, dropped as it stops working. */
   private readonly runSecrets = new RunSecrets();
-  /** Commands a quit let go of: whatever they report afterwards is dropped, so their steps keep their intent. */
-  private readonly abandoned = new WeakSet<RunningCommand>();
+  /** Commands and calls a quit let go of: whatever they report afterwards is dropped, so their steps keep their intent. */
+  private readonly abandoned = new WeakSet<RunningStep>();
   /**
    * Failed item runs whose retry is preparing their checkout: each claims its
    * folder and item (`checkoutHeld`) until it is done, while the run itself
@@ -2092,12 +2148,12 @@ export class AutomationService {
       run.id,
       async () => {
         const args = run.approval?.args ?? entry.args;
-        const result = await this.deps.registry.invoke(
-          entry.tool!.name,
+        const result = await invokeInProcess(this.deps.registry, {
+          tool: entry.tool!.name,
           args,
-          this.contextFor(entry),
-          'run',
-        );
+          context: this.contextFor(entry),
+          mode: 'run',
+        });
         this.finish(run.id, 'completed', { result });
         // Checked now, not at approval: a save may have landed while it ran.
         this.acceptApproved(key, entry, run);
@@ -2555,6 +2611,7 @@ export class AutomationService {
     if (!found) return null;
     const { run, workspaceId, definition, step, record } = found;
     const detail: StepDetail = { runId, step, record };
+    if (step.kind === 'uses') return this.callDetail(detail, workspaceId);
     if (step.kind !== 'run') {
       const agent = definition.agents?.[step.id];
       return agent
@@ -3046,6 +3103,9 @@ export class AutomationService {
       if (this.stepsOf(run.id).find((step) => step.id === stepId)?.sessionId)
         await this.resumeStep(run.id, stepId);
       else if (!this.secretsReady(run, stepId)) return;
+      // After the gate: a call's server's secrets are read before it starts.
+      else if (this.stepsOf(run.id).find((step) => step.id === stepId)?.kind === 'uses')
+        await this.startUsesStep(run.id, stepId);
       else if (lane === 'agent') await this.startAgentStep(run.id, stepId);
       else await this.startCommandStep(run.id, stepId);
       return;
@@ -4317,7 +4377,10 @@ export class AutomationService {
   private settleStep(
     runId: string,
     stepId: string,
-    end: { status: 'completed' | 'reported' } | { status: 'failed'; error: string },
+    end:
+      | { status: 'completed' | 'reported' }
+      | { status: 'failed'; error: string }
+      | { status: 'skipped'; skipped: string },
     options: { quiet?: boolean; also?: Partial<StepRun> } = {},
   ): void {
     this.writeSteps(
@@ -4342,7 +4405,7 @@ export class AutomationService {
       running.map((step): StepUpdate => ({ id: step.id, status: 'failed', error })),
     );
     for (const step of running) {
-      if (step.kind === 'run') this.runningCommands.get(runId)?.stop();
+      if (step.kind === 'run' || step.kind === 'uses') this.runningCommands.get(runId)?.stop();
       else if (step.sessionId) this.endOrphanTurn(step.sessionId);
     }
     if (!options.quiet)
@@ -5203,12 +5266,22 @@ export class AutomationService {
         const context = this.contextFor(entry);
         if (mode === 'auto') {
           this.deps.store.update(run.id, { startedAt: this.iso() });
-          const result = await this.deps.registry.invoke(toolName, entry.args, context, 'run');
+          const result = await invokeInProcess(this.deps.registry, {
+            tool: toolName,
+            args: entry.args,
+            context,
+            mode: 'run',
+          });
           this.finish(run.id, 'completed', { result });
           if ((result.actionable ?? 1) > 0) this.notify(automation.name, result.summary, run.id);
           return;
         }
-        const preview = await this.deps.registry.invoke(toolName, entry.args, context, 'preview');
+        const preview = await invokeInProcess(this.deps.registry, {
+          tool: toolName,
+          args: entry.args,
+          context,
+          mode: 'preview',
+        });
         if (mode === 'notify' || preview.actionable === 0) {
           this.finish(run.id, 'completed', { result: preview });
           if (mode === 'notify' && (preview.actionable ?? 1) > 0) {
@@ -5914,6 +5987,407 @@ export class AutomationService {
     return { servers: used, serverHashes, calls };
   }
 
+  /**
+   * A `uses:` step at its turn, in the spec's order: its definition, its
+   * item, `with:` rendered (a path with no value skips it, a render that
+   * fails says nothing was sent); then a dry run's report, Consola's own
+   * tool in process, or the factory server's call. Its server's secrets were
+   * read by `startWaiting`'s gate before it got here.
+   */
+  private async startUsesStep(runId: string, stepId: string): Promise<void> {
+    const run = this.deps.store.get(runId)!;
+    const loaded = this.definitionOf(run);
+    if ('problem' in loaded) {
+      this.failRun(runId, loaded.problem);
+      return;
+    }
+    const { definition } = loaded;
+    const fail = (error: string) => this.settleStep(runId, stepId, { status: 'failed', error });
+    const step = definition.automation.steps.find((candidate) => candidate.id === stepId);
+    const record = this.stepsOf(runId).find((candidate) => candidate.id === stepId);
+    if (step?.kind !== 'uses' || !record) {
+      fail(`Its definition has no call step ${stepId}. Nothing was sent.`);
+      return;
+    }
+    const workspaceId = run.attribution.workspaceId!;
+    const itemOf = this.runItemOf(run, definition);
+    if ('error' in itemOf) {
+      fail(`${itemOf.error}. Nothing was sent.`);
+      return;
+    }
+    let rendered: ReturnType<typeof renderCallArguments>;
+    try {
+      rendered = renderCallArguments({
+        run,
+        definition,
+        step,
+        ...itemOf,
+        previous: run.previous,
+        workspaceId,
+        folder: this.deps.runFolder,
+      });
+    } catch (error) {
+      fail(
+        `Its with: could not be read from the run folder (${describeReason(error)}). Nothing was sent.`,
+      );
+      return;
+    }
+    if ('skip' in rendered) {
+      // It settles without calling: the slot its run was let in with is free.
+      this.admitted.delete(runId);
+      this.settleStep(runId, stepId, { status: 'skipped', skipped: rendered.skip });
+      return;
+    }
+    if (!rendered.ok) {
+      fail(`${rendered.error}. Nothing was sent.`);
+      return;
+    }
+    const target =
+      step.server === CONSOLA_NAMESPACE
+        ? ('consola' as const)
+        : definition.servers &&
+            Object.prototype.hasOwnProperty.call(definition.servers, step.server)
+          ? definition.servers[step.server]
+          : undefined;
+    if (!target) {
+      fail(`Its definition holds no server \`${step.server}\`. Nothing was sent.`);
+      return;
+    }
+    const call: PreparedCall = {
+      runId,
+      stepId,
+      attempt: record.attempt,
+      workspaceId,
+      automation: run.automationId,
+      step,
+      target,
+      args: rendered.args,
+      rendered: rendered.rendered,
+    };
+    if (run.dryRun && step.dryRun === 'report') await this.reportCall(call);
+    else if (target === 'consola') await this.callInProcess(call);
+    else await this.callServer(call, target);
+  }
+
+  /** The masks of every value the run holds: what each string a call writes is masked with. */
+  private masksOf(runId: string): string[] {
+    return this.runSecrets.held(runId)?.masks ?? [];
+  }
+
+  /** A Consola tool's context in a run: as the automation, on its workspace, never on the run's own sessions (review Minor 14). */
+  private callContextOf(call: PreparedCall, signal?: AbortSignal): EngineToolContext {
+    const excludeSessionIds = this.stepsOf(call.runId).flatMap((record) =>
+      record.sessionId ? [record.sessionId] : [],
+    );
+    return {
+      caller: { kind: 'automation', automation: call.automation },
+      scope: { workspaceIds: [call.workspaceId], excludeSessionIds },
+      ...(signal ? { signal } : {}),
+    };
+  }
+
+  /**
+   * A dry run's call: reported, never sent. `call.json` says what it would
+   * have sent; for a Consola tool that changes things, its preview (which
+   * changes nothing, by its contract) is kept as `result.json`.
+   */
+  private async reportCall(call: PreparedCall): Promise<void> {
+    const { runId, stepId, attempt, workspaceId, step, target } = call;
+    const fail = (error: string) => this.settleStep(runId, stepId, { status: 'failed', error });
+    let preview: EngineToolResult | undefined;
+    if (target === 'consola') {
+      const tool = this.deps.registry.get(step.tool);
+      if (!tool) {
+        fail(`there is no Consola tool named "${step.tool}". Nothing was sent.`);
+        return;
+      }
+      const validated = this.deps.registry.validate(tool, call.args);
+      if (!validated.ok) {
+        fail(`with: ${validated.error}. Nothing was sent.`);
+        return;
+      }
+      if (tool.mutating) {
+        try {
+          preview = await invokeInProcess(this.deps.registry, {
+            tool: step.tool,
+            args: validated.args,
+            context: this.callContextOf(call),
+            mode: 'preview',
+          });
+        } catch (error) {
+          if (this.started && this.stepWaiting(runId, stepId, attempt))
+            fail(
+              `\`${step.uses}\`'s preview failed: ${clipText(maskSecrets(describeReason(error), this.masksOf(runId)), CALL_ERROR_CHARS)}. Nothing was sent.`,
+            );
+          return;
+        }
+        if (!this.started || !this.stepWaiting(runId, stepId, attempt)) return;
+      }
+    }
+    const masks = this.masksOf(runId);
+    const dir = this.deps.runFolder.attemptDir(workspaceId, runId, stepId, attempt);
+    try {
+      this.deps.runFolder.writeJson(
+        dir,
+        'call.json',
+        callFileOf(
+          {
+            server: step.server,
+            reached: reachedOf(target),
+            tool: step.tool,
+            rendered: call.rendered,
+            wouldHave: true,
+          },
+          masks,
+        ),
+      );
+      if (preview)
+        this.deps.runFolder.writeJson(dir, 'result.json', inProcessResultFile(preview, masks));
+    } catch (error) {
+      fail(`Could not record what it would send (${describeReason(error)}). Nothing was sent.`);
+      return;
+    }
+    // It settles without calling: the slot its run was let in with is free.
+    this.admitted.delete(runId);
+    this.settleStep(runId, stepId, { status: 'reported' });
+  }
+
+  /**
+   * A Consola tool, called in process: the step running (it holds a command
+   * slot from now), its handle where a stop, a quit or a deleted workspace
+   * reaches it, its arguments validated, `call.json`, the intent on disk,
+   * then the call, bounded by its `timeout:` (Call 27). A stop or the
+   * timeout after the intent settles it at once as may-or-may-not, and what
+   * the tool returns later is dropped. After every await nothing is written
+   * unless the step still runs (review S3); a quit records nothing more.
+   */
+  private async callInProcess(call: PreparedCall): Promise<void> {
+    const { runId, stepId, attempt, workspaceId, step } = call;
+    const controller = new AbortController();
+    const handle: RunningStep = {
+      stop: () => controller.abort(this.abandoned.has(handle) ? 'quit' : 'stop'),
+    };
+    const letGo = () => {
+      if (this.runningCommands.get(runId) === handle) this.runningCommands.delete(runId);
+    };
+    const fail = (error: string) => {
+      letGo();
+      this.settleStep(runId, stepId, { status: 'failed', error });
+    };
+    this.writeSteps(runId, withCallStarted(this.stepsOf(runId), stepId, this.iso()));
+    // The running step now holds the slot its run was let in with.
+    this.admitted.delete(runId);
+    this.runningCommands.set(runId, handle);
+    this.broadcastRun(runId);
+    const tool = this.deps.registry.get(step.tool);
+    if (!tool) {
+      fail(`there is no Consola tool named "${step.tool}". Nothing was sent.`);
+      return;
+    }
+    const validated = this.deps.registry.validate(tool, call.args);
+    if (!validated.ok) {
+      fail(`with: ${validated.error}. Nothing was sent.`);
+      return;
+    }
+    const masks = this.masksOf(runId);
+    const dir = this.deps.runFolder.attemptDir(workspaceId, runId, stepId, attempt);
+    try {
+      this.deps.runFolder.writeJson(
+        dir,
+        'call.json',
+        callFileOf(
+          {
+            server: step.server,
+            reached: reachedOf('consola'),
+            tool: step.tool,
+            rendered: call.rendered,
+          },
+          masks,
+        ),
+      );
+    } catch (error) {
+      fail(`Could not record what it would send (${describeReason(error)}). Nothing was sent.`);
+      return;
+    }
+    try {
+      this.deps.store.updateDurably(runId, {
+        steps: withCallIntent(this.stepsOf(runId), stepId, this.iso()),
+        updatedAt: this.iso(),
+      });
+    } catch (error) {
+      fail(
+        `Could not record that it was about to call (${describeReason(error)}). Nothing was sent.`,
+      );
+      return;
+    }
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort('timeout');
+    }, step.timeoutMs);
+    let outcome: { result: EngineToolResult } | { error: unknown } | 'aborted';
+    try {
+      outcome = await Promise.race([
+        invokeInProcess(this.deps.registry, {
+          tool: step.tool,
+          args: validated.args,
+          context: this.callContextOf(call, controller.signal),
+          mode: 'run',
+        }).then(
+          (result) => ({ result }),
+          (error: unknown) => ({ error }),
+        ),
+        abortedOf(controller.signal).then(() => 'aborted' as const),
+      ]);
+    } finally {
+      clearTimeout(timer);
+    }
+    letGo();
+    // A quit let go of it: its step keeps its intent, for the next start to fail as interrupted.
+    if (this.abandoned.has(handle)) return;
+    if (!this.started || !this.stepRunning(runId, stepId, attempt)) return;
+    const recorded = () => this.stepsOf(runId).find((record) => record.id === stepId)?.call;
+    // From the intent on, one try (Call 28): whatever throws says what may have happened, never that nothing was sent.
+    let answered = false;
+    let end: { status: 'completed' } | { status: 'failed'; error: string };
+    let also: Partial<StepRun> = {};
+    try {
+      if (outcome === 'aborted') {
+        end = {
+          status: 'failed',
+          error: mayHaveHappened(
+            timedOut
+              ? `the call timed out after ${formatDuration(step.timeoutMs)}`
+              : 'it was stopped while the call ran',
+          ),
+        };
+      } else if ('error' in outcome) {
+        const text = clipText(maskSecrets(describeReason(outcome.error), masks), CALL_ERROR_CHARS);
+        this.deps.store.updateDurably(runId, {
+          steps: withCallResult(this.stepsOf(runId), stepId, this.iso(), {
+            isError: true,
+            bytes: utf8Bytes(text),
+          }),
+          updatedAt: this.iso(),
+        });
+        answered = true;
+        this.deps.runFolder.writeJson(dir, 'result.json', {
+          isError: true,
+          bytes: utf8Bytes(text),
+          summary: text,
+        } satisfies CallResultFile);
+        end = { status: 'failed', error: `\`${step.uses}\` failed: ${text}` };
+        also = { call: recorded() };
+      } else {
+        const { result } = outcome;
+        const file = inProcessResultFile(result, masks);
+        this.deps.store.updateDurably(runId, {
+          steps: withCallResult(this.stepsOf(runId), stepId, this.iso(), {
+            isError: false,
+            bytes: file.bytes,
+          }),
+          updatedAt: this.iso(),
+        });
+        answered = true;
+        this.deps.runFolder.writeJson(dir, 'result.json', file);
+        const data = maskDeep(result.data, masks);
+        const read = callOutputs(
+          step.outputs,
+          typeof data === 'object' && data !== null && !Array.isArray(data)
+            ? (data as Record<string, unknown>)
+            : null,
+        );
+        const output = data === undefined ? undefined : JSON.stringify(data);
+        const artifact =
+          output !== undefined && utf8Bytes(output) <= MAX_ARTIFACT_BYTES
+            ? this.deps.runFolder.writeArtifact(
+                workspaceId,
+                runId,
+                stepId,
+                attempt,
+                'output',
+                output,
+                'json',
+              )
+            : undefined;
+        const landed = { call: { ...recorded(), landed: true as const } };
+        if (read.ok) {
+          end = { status: 'completed' };
+          also = {
+            ...landed,
+            ...(Object.keys(read.outputs).length > 0 ? { outputs: read.outputs } : {}),
+            ...(artifact ? { artifacts: [{ name: 'output', bytes: artifact.bytes }] } : {}),
+          };
+        } else {
+          end = { status: 'failed', error: read.error };
+          also = landed;
+        }
+      }
+    } catch (error) {
+      const reason = maskSecrets(describeReason(error), masks);
+      end = {
+        status: 'failed',
+        error: answered
+          ? `It happened, but Consola could not record its result (${reason}).`
+          : mayHaveHappened(reason),
+      };
+      also = answered ? { call: { ...recorded(), landed: true as const } } : {};
+    }
+    this.settleCall(runId, stepId, end, also);
+  }
+
+  /** A call's last write: how it ended. One that throws fails the run, as `commandSettled`'s fallback does. */
+  private settleCall(
+    runId: string,
+    stepId: string,
+    end: { status: 'completed' } | { status: 'failed'; error: string },
+    also: Partial<StepRun>,
+  ): void {
+    try {
+      this.settleStep(runId, stepId, end, { also });
+    } catch (error) {
+      console.error(`Run ${runId} could not record how its call ended.`, error);
+      try {
+        if (this.stillRunning(runId)) this.failRun(runId, describeError(error));
+      } catch (failing) {
+        console.error(`Run ${runId} could not be recorded as failed.`, failing);
+      }
+    }
+  }
+
+  /** A factory server's call: Task 8's. Until then nothing is sent. */
+  private async callServer(call: PreparedCall, _server: McpServerDefinition): Promise<void> {
+    this.settleStep(call.runId, call.stepId, {
+      status: 'failed',
+      error: "this runner can't call MCP servers yet. Nothing was sent.",
+    });
+  }
+
+  /** A call's latest attempt: what it sent (`call.json`), what came back (`result.json`) and its server's stderr; each absent when its file is. */
+  private callDetail(detail: StepDetail, workspaceId: string): StepDetail {
+    const { runId, record } = detail;
+    const dir = this.deps.runFolder.attemptDir(workspaceId, runId, record.id, record.attempt);
+    const readJson = <T>(file: string, cap: number): T | undefined => {
+      try {
+        const text = this.deps.runFolder.readText(`${dir}/${file}`, cap);
+        return text === null ? undefined : (JSON.parse(text) as T);
+      } catch (error) {
+        console.error(`Run ${runId} could not read ${record.id}'s ${file}.`, error);
+        return undefined;
+      }
+    };
+    const call = readJson<CallFile>('call.json', LOG_CAP_BYTES);
+    // Its cut text is escaped once more in the file: at most twice its size, and a little.
+    const result = readJson<CallResultFile>('result.json', 2 * CALL_RESULT_CAP_BYTES + 64 * 1024);
+    const serverLog = this.readTail(`${dir}/server.log`, STEP_TAIL_BYTES);
+    return {
+      ...detail,
+      ...(call ? { call } : {}),
+      ...(result ? { result } : {}),
+      ...(serverLog ? { serverLog } : {}),
+    };
+  }
+
   private broadcast(workspaceId: string): void {
     if (this.factories.has(workspaceId))
       this.deps.broadcast(workspaceId, this.snapshot(workspaceId));
@@ -6303,6 +6777,19 @@ function agentWithProblems(automation: Automation, read: FactoryParseResult): st
       return `its step \`${step.id}\` names the agent \`${step.agent}\`, which has problems of its own in ${file}; save it once they are fixed`;
   }
   return null;
+}
+
+/** A Consola tool's answer as `result.json` keeps it: masked, then serialised, then cut at 1 MB. */
+function inProcessResultFile(result: EngineToolResult, masks: readonly string[]): CallResultFile {
+  const summary = maskSecrets(result.summary, masks);
+  const data = maskDeep(result.data, masks);
+  const text = JSON.stringify(data ?? null);
+  const bytes = utf8Bytes(text);
+  if (bytes <= CALL_RESULT_CAP_BYTES) return { isError: false, bytes, summary, result: data };
+  const cut = new TextDecoder().decode(
+    new TextEncoder().encode(text).subarray(0, CALL_RESULT_CAP_BYTES),
+  );
+  return { isError: false, bytes, summary, cut };
 }
 
 /** A problem with one of `factory.yml`'s servers: an entry calling it is refused, nothing else (Call 2). */

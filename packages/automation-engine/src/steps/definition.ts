@@ -1,5 +1,6 @@
 import type {
   AgentDefinition,
+  ArgumentTrust,
   CallArgument,
   McpServerDefinition,
   Step,
@@ -170,6 +171,37 @@ export interface CommandFile {
   secrets?: Array<{ name: string; bound?: string }>;
 }
 
+/** One argument of a call, as `call.json` keeps it: its name, what the file says, what it rendered to, and its trust. */
+export interface RenderedArgument {
+  name: string;
+  template: unknown;
+  value: unknown;
+  trust: ArgumentTrust;
+}
+
+/** `call.json`: what was (or would have been) sent, every string masked. */
+export interface CallFile {
+  server: string;
+  /** How the tool was reached: "started `…` on this Mac", "called <url>", "Consola's own tool, in process". */
+  reached: string;
+  tool: string;
+  arguments: RenderedArgument[];
+  /** A dry run's: what it would have sent. */
+  wouldHave?: true;
+}
+
+/** `result.json`: what came back, masked; cut at 1 MB. */
+export interface CallResultFile {
+  isError: boolean;
+  bytes: number;
+  /** A Consola tool's summary. */
+  summary?: string;
+  /** What came back, whole when it fits. */
+  result?: unknown;
+  /** The first 1 MB of its serialised text when it does not. */
+  cut?: string;
+}
+
 /** One step's latest attempt, as the run folder holds it. Tails are the last 64 KB. */
 export interface StepDetail {
   runId: string;
@@ -190,4 +222,8 @@ export interface StepDetail {
   command?: CommandFile;
   stdout?: LogTail;
   stderr?: LogTail;
+  /** A call's `call.json`, `result.json` and its server's stderr (`server.log`). */
+  call?: CallFile;
+  result?: CallResultFile;
+  serverLog?: LogTail;
 }

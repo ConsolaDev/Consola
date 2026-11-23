@@ -116,7 +116,8 @@ export function parseOutputFile(
 }
 
 /** A duration as a `timeout:` writes it: `10m`, `30s`, `1h`, or `300ms` below a second. */
-function formatDuration(ms: number): string {
+/** A duration as a step's words say it: `30s`, `10m`, `2h`, else milliseconds. */
+export function formatDuration(ms: number): string {
   if (ms >= 3_600_000 && ms % 3_600_000 === 0) return `${ms / 3_600_000}h`;
   if (ms >= 60_000 && ms % 60_000 === 0) return `${ms / 60_000}m`;
   if (ms >= 1000 && ms % 1000 === 0) return `${ms / 1000}s`;

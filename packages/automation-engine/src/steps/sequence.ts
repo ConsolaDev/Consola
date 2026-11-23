@@ -5,6 +5,7 @@ import {
   parseExpression,
   parseReadRef,
   templatePaths,
+  usesTexts,
   type ExprValue,
   type Step,
   type StepRun,
@@ -118,7 +119,7 @@ function dependenciesOf(
   }
   const texts =
     step.kind === 'uses'
-      ? []
+      ? usesTexts(step).map(({ text }) => text)
       : step.kind === 'agent'
         ? step.prompt === undefined
           ? []
@@ -279,6 +280,8 @@ export function advanceSteps(input: {
       }
     }
 
+    // A call whose `with:` lacks a value skips, naming the path; a command fails the run (Call 15).
+    const call = step.kind === 'uses';
     const lacking = deps.templates.find(
       (ref) => recorded(now.get(ref.step), ref.name ?? '', ref.file === true) === undefined,
     );
@@ -288,11 +291,21 @@ export function advanceSteps(input: {
         skip(dryRunReason(lacking.step));
         continue;
       }
-      return failStep(step.id, noValue(lacking.path, lacking.step, producer));
+      const why = noValue(lacking.path, lacking.step, producer);
+      if (call) {
+        skip(`with: ${why}`);
+        continue;
+      }
+      return failStep(step.id, why);
     }
     const itemMissing = deps.item.find((field) => itemValue?.(field) === undefined);
     if (itemMissing !== undefined) {
-      return failStep(step.id, `item.${itemMissing} has no value: this run has no such item field`);
+      const why = `item.${itemMissing} has no value: this run has no such item field`;
+      if (call) {
+        skip(`with: ${why}`);
+        continue;
+      }
+      return failStep(step.id, why);
     }
 
     return { kind: 'start', stepId: step.id, lane: laneOf(step), updates };

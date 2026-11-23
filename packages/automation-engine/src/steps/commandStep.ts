@@ -145,16 +145,27 @@ function valueAt(
   if (path.file) {
     if (!written) return { missing: `${path.step} completed without it` };
     const producer = definition.automation.steps.find((step) => step.id === path.step);
-    const format = path.name === 'output' && producer?.kind === 'run' ? producer.stdout : undefined;
-    const file = folder.artifactPath(
-      workspaceId,
-      run.id,
-      path.step,
-      record.attempt,
-      path.name,
-      format,
-    );
-    return folder.exists(file) ? { value: file } : { missing: GONE };
+    // A command's `output` is kept in its declared format; a call's as JSON or as text, which its file says (review S6).
+    const formats: ReadonlyArray<'json' | 'text' | undefined> =
+      path.name !== 'output'
+        ? [undefined]
+        : producer?.kind === 'run'
+          ? [producer.stdout]
+          : producer?.kind === 'uses'
+            ? ['json', 'text']
+            : [undefined];
+    for (const format of formats) {
+      const file = folder.artifactPath(
+        workspaceId,
+        run.id,
+        path.step,
+        record.attempt,
+        path.name,
+        format,
+      );
+      if (folder.exists(file)) return { value: file };
+    }
+    return { missing: GONE };
   }
   if (record.outputs && own(record.outputs, path.name))
     return { value: String(record.outputs[path.name]) };

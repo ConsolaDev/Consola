@@ -115,6 +115,8 @@ export interface EngineToolScope {
 export interface EngineToolContext {
   caller: EngineToolCaller;
   scope: EngineToolScope;
+  /** Aborted when the step is stopped or its `timeout:` passes; a tool may ignore it, and its late result is dropped (Call 27). */
+  signal?: AbortSignal;
 }
 
 export interface EngineToolResult {
@@ -356,7 +358,11 @@ export interface RunFolderPort {
     attempt: number,
     name: string,
   ): string | null;
-  writeJson(dir: string, file: 'command.json' | 'outputs.json', value: unknown): void;
+  writeJson(
+    dir: string,
+    file: 'command.json' | 'outputs.json' | 'call.json' | 'result.json',
+    value: unknown,
+  ): void;
   /** Atomic: `runs/<run>/<step>/<attempt>/turn.json` gains `turn` at the end of its `turns`. */
   appendTurn(
     workspaceId: string,

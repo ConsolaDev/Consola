@@ -76,6 +76,19 @@ describe('RunFolder', () => {
     expect(JSON.parse(fs.readFileSync(path.join(dir, 'outputs.json'), 'utf8'))).toEqual({ a: 1 });
   });
 
+  it("writes a call's call.json and result.json beside them (5a-2)", () => {
+    const dir = folder.attemptDir('ws', 'r1', 'post', 1);
+    folder.writeJson(dir, 'call.json', { tool: 'chat_post_message' });
+    folder.writeJson(dir, 'result.json', { isError: false });
+    expect(JSON.parse(fs.readFileSync(path.join(dir, 'call.json'), 'utf8'))).toEqual({
+      tool: 'chat_post_message',
+    });
+    expect(JSON.parse(fs.readFileSync(path.join(dir, 'result.json'), 'utf8'))).toEqual({
+      isError: false,
+    });
+    expect(() => folder.writeJson(dir, 'server.log' as 'call.json', {})).toThrow(/Not a run file/);
+  });
+
   describe('turn.json', () => {
     const turn = (exitCode: number): StepTurnFile => ({
       endedAt: '2026-11-16T09:05:00.000Z',
@@ -199,6 +212,8 @@ describe('RunFolder', () => {
       (p) => folder.ensureEmptyFile(p),
       (p) => folder.exists(p),
       (p) => folder.writeJson(p, 'command.json', {}),
+      (p) => folder.writeJson(p, 'call.json', {}),
+      (p) => folder.writeJson(p, 'result.json', {}),
       (p) => folder.writeText(p, 'x'),
     ];
     for (const call of calls) {

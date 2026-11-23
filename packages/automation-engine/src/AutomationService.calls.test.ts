@@ -5,10 +5,13 @@ import {
   stepsResolvedBody,
   type McpServerDefinition,
 } from '@consola/factory-spec';
-import { describe, expect, it } from 'vitest';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
+import type { EngineToolContext } from './ports';
 import type { StepsRunPreview } from './steps/definition';
-import { defineTool } from './tools.test-helpers';
+import { defineTool, type TestTool } from './tools.test-helpers';
 import {
   BIND_HINT,
   stepsHarness,
@@ -554,5 +557,517 @@ describe('an entry that calls nothing (5a-2 Task 6)', () => {
     // Neither key is written for an entry that calls nothing.
     expect(withClient.service.getRunDefinition(a.id)).not.toHaveProperty('servers');
     expect(withClient.service.getRunDefinition(a.id)).not.toHaveProperty('calls');
+  });
+});
+
+/*
+ * Task 7: the executor, in process.
+ */
+
+function held(): { promise: Promise<void>; release: () => void } {
+  let release!: () => void;
+  const promise = new Promise<void>((resolve) => (release = resolve));
+  return { promise, release };
+}
+
+/** What a spied `cleanup_stale_sessions` was asked, and how it answers. */
+interface Spy {
+  runs: Array<{ args: unknown; context: EngineToolContext; atCall?: RunRecordLike }>;
+  previews: unknown[];
+  /** Its `run` waits for this while it is set. */
+  gate?: Promise<void>;
+  /** Its `run` throws this (after the gate). */
+  throws?: unknown;
+  /** What its `run` answers as `data`. */
+  data?: unknown;
+  /** Read at each `run`, before anything else: what the store holds then. */
+  atCall?: () => RunRecordLike;
+}
+type RunRecordLike = ReturnType<StepsHarness['store']['get']>;
+
+function spied(spy: Spy): TestTool {
+  return defineTool({
+    ...CLEAN_UP,
+    preview: async (args) => {
+      spy.previews.push(args);
+      return { summary: 'Would clean up 2 sessions.', data: { sessions: 2 } };
+    },
+    run: async (args, context) => {
+      spy.runs.push({ args, context, atCall: spy.atCall?.() });
+      if (spy.gate) await spy.gate;
+      if (spy.throws) throw spy.throws;
+      return { summary: 'Cleaned up 2 sessions.', data: spy.data ?? { removed: 2 } };
+    },
+  });
+}
+const newSpy = (): Spy => ({ runs: [], previews: [] });
+const others = TOOLS.filter((tool) => tool.name !== 'cleanup_stale_sessions');
+
+/** One `uses: consola#cleanup_stale_sessions` step `clean`, then `steps` after it, on a schedule. */
+const tidy = (
+  mode: 'auto' | 'notify',
+  withYaml = '{ pr_states: [merged] }',
+  after = '',
+  extra = '',
+) =>
+  factory(
+    '',
+    `  - name: tidy\n    on: { cron: "0 9 * * 1-5" }\n    scope: api\n    mode: ${mode}\n    steps:\n${call('clean', 'consola#cleanup_stale_sessions', withYaml, extra)}${after}`,
+  );
+
+/** A harness over `yaml` with the spy's tool, every entry's version accepted. */
+async function accepted(yaml: string, spy: Spy, options: StepsHarnessOptions = {}) {
+  const h = await harness({ yaml, tools: [spied(spy), ...others], ...options });
+  for (const view of h.service.list(WORKSPACE_ID)) {
+    const version = h.service.entryAgents(WORKSPACE_ID, view.name)?.version;
+    if (version) h.store.accept(`${WORKSPACE_ID} ${view.name}`, version);
+  }
+  spy.atCall = () => structuredClone(h.store.runs()[0]);
+  return h;
+}
+const attemptFile = (h: StepsHarness, runId: string, step: string, file: string) =>
+  path.join(h.folder.attemptDir(WORKSPACE_ID, runId, step, 1), file);
+const readJson = (file: string) => JSON.parse(fs.readFileSync(file, 'utf8'));
+const stepOf = (h: StepsHarness, runId: string, step: string) =>
+  h.store.get(runId)!.steps!.find((record) => record.id === step)!;
+
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
+
+describe("a step calling Consola's own tool (5a-2 Task 7)", () => {
+  it('calls it once, as the automation, with its intent on disk first, and keeps what it said', async () => {
+    const spy = newSpy();
+    const h = await accepted(tidy('auto'), spy);
+    const run = (await h.service.trigger(WORKSPACE_ID, 'tidy'))!;
+    await h.flush();
+    expect(spy.runs).toHaveLength(1);
+    expect(spy.runs[0].args).toEqual({ pr_states: ['merged'] });
+    expect(spy.runs[0].context.caller).toEqual({ kind: 'automation', automation: 'tidy' });
+    expect(spy.runs[0].context.scope.workspaceIds).toEqual([WORKSPACE_ID]);
+    // Its intent was on the record before the tool was called.
+    const atCall = spy.runs[0].atCall!.steps!.find((record) => record.id === 'clean')!;
+    expect(atCall).toMatchObject({ kind: 'uses', status: 'running' });
+    expect(atCall.call?.intentAt).toBeDefined();
+    expect(h.store.get(run.id)).toMatchObject({ status: 'completed' });
+    const record = stepOf(h, run.id, 'clean');
+    expect(record).toMatchObject({
+      kind: 'uses',
+      status: 'completed',
+      artifacts: [{ name: 'output', bytes: 13 }],
+      call: { intentAt: atCall.call?.intentAt, landed: true, resultBytes: 13 },
+    });
+    expect(record.call?.resultAt).toBeDefined();
+    expect(readJson(attemptFile(h, run.id, 'clean', 'output.json'))).toEqual({ removed: 2 });
+    const detail = h.service.getStepDetail(run.id, 'clean')!;
+    expect(detail.call).toEqual({
+      server: 'consola',
+      reached: "Consola's own tool, in process",
+      tool: 'cleanup_stale_sessions',
+      arguments: [{ name: 'pr_states', template: ['merged'], value: ['merged'], trust: 'literal' }],
+    });
+    expect(detail.result).toEqual({
+      isError: false,
+      bytes: 13,
+      summary: 'Cleaned up 2 sessions.',
+      result: { removed: 2 },
+    });
+  });
+
+  it('in a dry run, previews it and calls nothing', async () => {
+    const spy = newSpy();
+    const h = await accepted(tidy('notify'), spy);
+    const run = (await h.service.trigger(WORKSPACE_ID, 'tidy'))!;
+    await h.flush();
+    expect(spy.runs).toEqual([]);
+    expect(spy.previews).toEqual([{ pr_states: ['merged'] }]);
+    expect(stepOf(h, run.id, 'clean')).toMatchObject({ status: 'reported' });
+    expect(stepOf(h, run.id, 'clean').call).toBeUndefined();
+    expect(readJson(attemptFile(h, run.id, 'clean', 'call.json'))).toMatchObject({
+      wouldHave: true,
+      reached: "Consola's own tool, in process",
+    });
+    expect(readJson(attemptFile(h, run.id, 'clean', 'result.json'))).toMatchObject({
+      summary: 'Would clean up 2 sessions.',
+    });
+  });
+
+  it('fails with what the tool said when it throws, and says it may have acted', async () => {
+    const spy = newSpy();
+    spy.throws = new Error('boom');
+    const h = await accepted(tidy('auto'), spy);
+    const run = (await h.service.trigger(WORKSPACE_ID, 'tidy'))!;
+    await h.flush();
+    expect(stepOf(h, run.id, 'clean')).toMatchObject({
+      status: 'failed',
+      error: '`consola#cleanup_stale_sessions` failed: boom',
+      call: { isError: true },
+    });
+  });
+
+  it('refuses at run time a rendered value its tool does not take, and sends nothing', async () => {
+    const spy = newSpy();
+    const yaml = factory(
+      '',
+      entry(
+        'sort',
+        call(
+          'clean',
+          'consola#cleanup_stale_sessions',
+          '{ pr_states: ["{{steps.triage.verdict}}"] }',
+        ),
+      ),
+    );
+    const h = await accepted(yaml, spy);
+    const run = (await h.service.trigger(WORKSPACE_ID, 'sort'))!;
+    await h.flush();
+    h.world.setOutputs('session-1', { verdict: 'post', note: 'n' });
+    await h.world.endTurn('session-1');
+    const record = stepOf(h, run.id, 'clean');
+    expect(record.status).toBe('failed');
+    expect(record.error).toMatch(/^with: pr_states\.0: .+\. Nothing was sent\.$/);
+    expect(record.call?.intentAt).toBeUndefined();
+    expect(spy.runs).toEqual([]);
+  });
+});
+
+describe('a dry run of a call marked dry_run: run (5a-2 Task 7)', () => {
+  it('runs it for real, as a dry run starts its marked commands', async () => {
+    const listed: unknown[] = [];
+    const lister = defineTool({
+      ...LIST_THINGS,
+      run: async (args) => {
+        listed.push(args);
+        return { summary: 'Listed.', data: { things: [] } };
+      },
+    });
+    const yaml = factory(
+      '',
+      `  - name: look\n    on: { cron: "0 9 * * 1-5" }\n    scope: api\n    mode: notify\n    steps:\n${call('look', 'consola#list_things', '{ kind: open }', '        dry_run: run\n')}`,
+    );
+    const h = await harness({
+      yaml,
+      tools: [lister, ...TOOLS.filter((tool) => tool.name !== 'list_things')],
+    });
+    h.store.accept(`${WORKSPACE_ID} look`, h.service.entryAgents(WORKSPACE_ID, 'look')!.version);
+    const run = (await h.service.trigger(WORKSPACE_ID, 'look'))!;
+    await h.flush();
+    expect(h.store.get(run.id)?.dryRun).toBe(true);
+    expect(listed).toEqual([{ kind: 'open' }]);
+    expect(stepOf(h, run.id, 'look')).toMatchObject({
+      status: 'completed',
+      call: { landed: true },
+    });
+  });
+});
+
+describe('a dry run of a server call (5a-2 Task 7)', () => {
+  it('reports what it would send, with each argument’s trust, and starts nothing', async () => {
+    const h = await harness({ yaml: factory(SLACK, entry('brief', POST, '    mode: notify\n')) });
+    h.store.accept(`${WORKSPACE_ID} brief`, h.service.entryAgents(WORKSPACE_ID, 'brief')!.version);
+    const run = (await h.service.trigger(WORKSPACE_ID, 'brief'))!;
+    await h.flush();
+    h.world.setOutputs('session-1', { verdict: 'post', note: 'Ship it.' });
+    await h.world.endTurn('session-1');
+    expect(stepOf(h, run.id, 'post')).toMatchObject({ status: 'reported' });
+    expect(readJson(attemptFile(h, run.id, 'post', 'call.json'))).toEqual({
+      server: 'slack',
+      reached: `started \`${SLACK_COMMAND} --stdio\` on this Mac`,
+      tool: 'chat_post_message',
+      arguments: [
+        { name: 'channel', template: 'C0SUPPORT1', value: 'C0SUPPORT1', trust: 'literal' },
+        { name: 'text', template: '{{steps.triage.note}}', value: 'Ship it.', trust: 'untrusted' },
+      ],
+      wouldHave: true,
+    });
+    expect(h.world.mcp.launches).toEqual([]);
+    // A dry run reads only what a `dry_run: run` step needs: none here.
+    expect(h.world.secrets.resolved.flat()).not.toContain('SLACK_BOT_TOKEN');
+  });
+});
+
+describe('run: { tool }, on the same executor (5a-2 Task 7, M4)', () => {
+  it('runs with its with: exactly as written, and records as it did', async () => {
+    const seen: unknown[] = [];
+    const echo = defineTool({
+      name: 'echo_args',
+      description: 'Answers with its arguments.',
+      input: { note: z.string() },
+      mutating: false,
+      automatable: true,
+      run: async (args) => {
+        seen.push(args);
+        return { summary: 'Echoed.', data: args };
+      },
+    });
+    const yaml = factory(
+      '',
+      '  - name: echo\n    on: { cron: "0 9 * * 1-5" }\n    run: { tool: consola#echo_args, with: { note: "{{item.key}}" } }\n    mode: auto\n',
+    );
+    const h = await harness({ yaml, tools: [echo] });
+    h.store.accept(`${WORKSPACE_ID} echo`, h.service.entryAgents(WORKSPACE_ID, 'echo')!.version);
+    const run = (await h.service.trigger(WORKSPACE_ID, 'echo'))!;
+    await h.flush();
+    expect(seen).toEqual([{ note: '{{item.key}}' }]);
+    const record = h.store.get(run.id)!;
+    expect(record).toMatchObject({ status: 'completed', actionName: 'consola#echo_args' });
+    expect(record.steps).toBeUndefined();
+    expect(record.result).toEqual({ note: '{{item.key}}' });
+  });
+});
+
+describe("a call's slot, stop, quit and timeout (5a-2 Task 7, Calls 10, 21, 27)", () => {
+  const QUIET = `  - name: quiet\n    on: { cron: "0 9 * * 1-5" }\n    scope: api\n    mode: auto\n    steps:\n      - id: look\n        run: git log -1\n`;
+
+  it('holds the command slot while it runs', async () => {
+    const spy = newSpy();
+    const gate = held();
+    spy.gate = gate.promise;
+    const h = await accepted(factory('', tidy('auto').split('automations:\n')[1], QUIET), spy, {
+      maxConcurrentCommands: 1,
+    });
+    const first = (await h.service.trigger(WORKSPACE_ID, 'tidy'))!;
+    await h.flush();
+    expect(stepOf(h, first.id, 'clean').status).toBe('running');
+    await h.service.trigger(WORKSPACE_ID, 'quiet');
+    await h.flush();
+    expect(h.world.commands).toEqual([]);
+    gate.release();
+    await h.flush();
+    expect(stepOf(h, first.id, 'clean').status).toBe('completed');
+    expect(h.world.commands).toHaveLength(1);
+  });
+
+  it('a stop aborts its signal and settles it at once; what it returns later is dropped', async () => {
+    const spy = newSpy();
+    const gate = held();
+    spy.gate = gate.promise;
+    const h = await accepted(tidy('auto'), spy);
+    const run = (await h.service.trigger(WORKSPACE_ID, 'tidy'))!;
+    await h.flush();
+    h.service.stop(run.id);
+    await h.flush();
+    const signal = spy.runs[0].context.signal!;
+    expect(signal.aborted).toBe(true);
+    expect(signal.reason).toBe('stop');
+    expect(stepOf(h, run.id, 'clean')).toMatchObject({
+      status: 'failed',
+      error:
+        'It may or may not have happened: it was stopped while the call ran. Check, then retry.',
+    });
+    const ended = structuredClone(h.store.get(run.id));
+    const lines = h.history.appends.length;
+    gate.release();
+    await h.flush();
+    expect(h.store.get(run.id)).toEqual(ended);
+    expect(h.history.appends).toHaveLength(lines);
+    expect(fs.existsSync(attemptFile(h, run.id, 'clean', 'result.json'))).toBe(false);
+    expect(fs.existsSync(attemptFile(h, run.id, 'clean', 'output.json'))).toBe(false);
+  });
+
+  it('its timeout aborts it, and says how long it waited', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const spy = newSpy();
+    spy.gate = held().promise;
+    const h = await accepted(
+      tidy('auto', '{ pr_states: [merged] }', '', '        timeout: 1s\n'),
+      spy,
+    );
+    const run = (await h.service.trigger(WORKSPACE_ID, 'tidy'))!;
+    await h.flush();
+    expect(stepOf(h, run.id, 'clean').status).toBe('running');
+    await vi.advanceTimersByTimeAsync(1000);
+    await h.flush();
+    expect(spy.runs[0].context.signal!.aborted).toBe(true);
+    expect(stepOf(h, run.id, 'clean')).toMatchObject({
+      status: 'failed',
+      error: 'It may or may not have happened: the call timed out after 1s. Check, then retry.',
+    });
+  });
+
+  it('a quit aborts it with quit, and records nothing more: its intent stays', async () => {
+    const spy = newSpy();
+    const gate = held();
+    spy.gate = gate.promise;
+    const h = await accepted(tidy('auto'), spy);
+    const run = (await h.service.trigger(WORKSPACE_ID, 'tidy'))!;
+    await h.flush();
+    const lines = h.history.appends.length;
+    h.service.shutdown();
+    expect(spy.runs[0].context.signal!.reason).toBe('quit');
+    gate.release();
+    await h.flush();
+    expect(h.history.appends).toHaveLength(lines);
+    expect(stepOf(h, run.id, 'clean')).toMatchObject({ status: 'running' });
+    expect(stepOf(h, run.id, 'clean').call?.intentAt).toBeDefined();
+  });
+
+  it('writes nothing once its run ended, or its workspace went (review S3)', async () => {
+    const spy = newSpy();
+    let gate = held();
+    spy.gate = gate.promise;
+    const h = await accepted(tidy('auto'), spy);
+    const run = (await h.service.trigger(WORKSPACE_ID, 'tidy'))!;
+    await h.flush();
+    fs.rmSync(path.join(h.folder.runDir(WORKSPACE_ID, run.id), 'definition.json'));
+    await h.service.syncWorkspaces();
+    expect(h.store.get(run.id)?.status).toBe('failed');
+    expect(spy.runs[0].context.signal!.aborted).toBe(true);
+    const ended = structuredClone(h.store.get(run.id));
+    const lines = h.history.appends.length;
+    gate.release();
+    await h.flush();
+    expect(h.store.get(run.id)).toEqual(ended);
+    expect(h.history.appends).toHaveLength(lines);
+    expect(fs.existsSync(attemptFile(h, run.id, 'clean', 'result.json'))).toBe(false);
+
+    const other = newSpy();
+    gate = held();
+    other.gate = gate.promise;
+    const deleted = await accepted(tidy('auto'), other);
+    const gone = (await deleted.service.trigger(WORKSPACE_ID, 'tidy'))!;
+    await deleted.flush();
+    deleted.world.workspaceDeleted = true;
+    await deleted.service.syncWorkspaces();
+    expect(other.runs[0].context.signal!.aborted).toBe(true);
+    gate.release();
+    await deleted.flush();
+    expect(deleted.store.get(gone.id)).toBeUndefined();
+  });
+});
+
+describe('a write that fails before the intent (5a-2 Task 7)', () => {
+  it('says nothing was sent, and calls nothing', async () => {
+    const spy = newSpy();
+    const h = await accepted(tidy('auto'), spy);
+    const write = h.folder.writeJson.bind(h.folder);
+    const once = vi.spyOn(h.folder, 'writeJson').mockImplementation((dir, file, value) => {
+      if (file === 'call.json') throw new Error('read-only folder');
+      write(dir, file, value);
+    });
+    const run = (await h.service.trigger(WORKSPACE_ID, 'tidy'))!;
+    await h.flush();
+    expect(stepOf(h, run.id, 'clean')).toMatchObject({
+      status: 'failed',
+      error: 'Could not record what it would send (read-only folder). Nothing was sent.',
+    });
+    once.mockRestore();
+    const intent = await accepted(tidy('auto'), spy);
+    const durably = intent.store.updateDurably.bind(intent.store);
+    vi.spyOn(intent.store, 'updateDurably').mockImplementation((runId, changes) => {
+      if (changes.steps?.some((record) => record.call?.intentAt)) throw new Error('disk full');
+      return durably(runId, changes);
+    });
+    const second = (await intent.service.trigger(WORKSPACE_ID, 'tidy'))!;
+    await intent.flush();
+    expect(stepOf(intent, second.id, 'clean')).toMatchObject({
+      status: 'failed',
+      error: 'Could not record that it was about to call (disk full). Nothing was sent.',
+    });
+    expect(spy.runs).toEqual([]);
+  });
+});
+
+describe('a throw after the intent (5a-2 Task 7, review S4)', () => {
+  it('says it may have happened when the answer could not be recorded', async () => {
+    const spy = newSpy();
+    const h = await accepted(tidy('auto'), spy);
+    const durably = h.store.updateDurably.bind(h.store);
+    vi.spyOn(h.store, 'updateDurably').mockImplementation((runId, changes) => {
+      if (changes.steps?.some((record) => record.call?.resultAt)) throw new Error('disk full');
+      return durably(runId, changes);
+    });
+    const run = (await h.service.trigger(WORKSPACE_ID, 'tidy'))!;
+    await h.flush();
+    expect(stepOf(h, run.id, 'clean')).toMatchObject({
+      status: 'failed',
+      error: 'It may or may not have happened: disk full. Check, then retry.',
+    });
+    expect(spy.runs).toHaveLength(1);
+  });
+
+  it('says it happened when only its result file could not be written', async () => {
+    const spy = newSpy();
+    const h = await accepted(tidy('auto'), spy);
+    const write = h.folder.writeJson.bind(h.folder);
+    vi.spyOn(h.folder, 'writeJson').mockImplementation((dir, file, value) => {
+      if (file === 'result.json') throw new Error('read-only folder');
+      write(dir, file, value);
+    });
+    const run = (await h.service.trigger(WORKSPACE_ID, 'tidy'))!;
+    await h.flush();
+    const record = stepOf(h, run.id, 'clean');
+    expect(record).toMatchObject({
+      status: 'failed',
+      error: 'It happened, but Consola could not record its result (read-only folder).',
+      call: { landed: true },
+    });
+    expect(record.call?.resultAt).toBeDefined();
+    expect(record.error).not.toContain('Nothing was sent');
+  });
+});
+
+describe('a call whose with: has no value yet (5a-2 Task 7, review Minor 5)', () => {
+  it('skips it on a first run, and the run goes on', async () => {
+    const yaml = factory(
+      '',
+      `  - name: notes\n    on: { cron: "0 9 * * 1-5" }\n    scope: api\n    mode: auto\n    steps:\n      - id: brief\n        prompt: Write it.\n${call('look', 'consola#list_things', '{ kind: "{{previous.brief.handover}}" }')}      - id: tail\n        run: git log -1\n`,
+    );
+    const h = await accepted(yaml, newSpy());
+    const run = (await h.service.trigger(WORKSPACE_ID, 'notes'))!;
+    await h.flush();
+    h.world.writeArtifact('session-1', 'handover', 'Notes.');
+    await h.world.endTurn('session-1');
+    expect(stepOf(h, run.id, 'look')).toMatchObject({
+      status: 'skipped',
+      skipped:
+        'with: previous.brief.handover has no value: There is no earlier run of this automation on this item.',
+    });
+    expect(h.world.commands).toHaveLength(1);
+  });
+});
+
+describe('an in-run Consola tool beside its run (5a-2 Task 7, review Minor 14)', () => {
+  it("never acts on the run's own sessions", async () => {
+    const spy = newSpy();
+    const yaml = factory(
+      '',
+      `  - name: tidy-pr\n    on: manual\n    applies_to: [pr]\n    steps:\n      - id: triage\n        prompt: Triage it.\n${call('clean', 'consola#cleanup_stale_sessions', '{ pr_states: [merged] }')}`,
+    );
+    const h = await accepted(yaml, spy);
+    const run = (await h.service.trigger(
+      WORKSPACE_ID,
+      'tidy-pr',
+      {},
+      {
+        workItem: { repo: 'sprocket/catalog-portal', number: 51, type: 'pr' },
+      },
+    ))!;
+    // A run on an item a person picks asks first (`confirm`).
+    await h.service.approve(run.id);
+    await h.flush();
+    await h.world.endTurn('session-1');
+    expect(spy.runs).toHaveLength(1);
+    expect(spy.runs[0].context.scope.excludeSessionIds).toContain('session-1');
+  });
+});
+
+describe("a command reading a call's output (5a-2 Task 7, review S6)", () => {
+  it('gets its text, and its file', async () => {
+    const spy = newSpy();
+    const yaml = tidy(
+      'auto',
+      '{ pr_states: [merged] }',
+      '      - id: after\n        run: echo "$OUT" "$OUT_FILE"\n        env: { OUT: "{{steps.clean.output}}", OUT_FILE: "{{steps.clean.output.file}}" }\n',
+    );
+    const h = await accepted(yaml, spy);
+    const run = (await h.service.trigger(WORKSPACE_ID, 'tidy'))!;
+    await h.flush();
+    expect(h.world.commands).toHaveLength(1);
+    expect(h.world.commands[0].spec.env.OUT).toBe('{"removed":2}');
+    expect(h.world.commands[0].spec.env.OUT_FILE).toBe(
+      attemptFile(h, run.id, 'clean', 'output.json'),
+    );
   });
 });

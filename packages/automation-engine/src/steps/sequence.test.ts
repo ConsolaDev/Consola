@@ -6,6 +6,7 @@ import {
   type Step,
   type StepRun,
   type StepRunStatus,
+  type UsesStep,
 } from '@consola/factory-spec';
 import { advanceSteps, laneOf, notRunAfter, runSummary, type Advance } from './sequence';
 
@@ -649,5 +650,89 @@ describe('runSummary', () => {
       record(b, 'completed', { outputs: { verdict: 'approve' } }),
     ];
     expect(runSummary([a, b], rec)).toBe('a → b (y, approve)');
+  });
+});
+
+describe('advanceSteps: a call whose with: lacks a value (5a-2 Task 7, Call 15)', () => {
+  const a: CommandStep = {
+    ...fresh,
+    id: 'a',
+    outputs: { note: { type: 'string', maxLength: 100 } },
+  };
+  const call = (withArgs: Record<string, unknown>): UsesStep => ({
+    kind: 'uses',
+    id: 'post',
+    named: true,
+    uses: 'slack#chat_post_message',
+    server: 'slack',
+    tool: 'chat_post_message',
+    with: withArgs,
+    outputs: {},
+    timeoutMs: 60_000,
+    dryRun: 'report',
+  });
+  const tail: CommandStep = { ...fresh, id: 'tail', outputs: {} };
+
+  it('skips it, naming the path, and the run goes on', () => {
+    const steps: Step[] = [a, call({ text: 'Note: {{steps.a.note}}' }), tail];
+    expect(advance(steps, records(steps, { a: 'skipped' }))).toEqual({
+      kind: 'start',
+      stepId: 'tail',
+      lane: 'command',
+      updates: [
+        {
+          id: 'post',
+          status: 'skipped',
+          skipped: 'with: steps.a.note has no value: a was skipped',
+        },
+      ],
+    });
+  });
+
+  it('skips it as a dry run left its producer unrun', () => {
+    const steps: Step[] = [a, call({ text: '{{steps.a.note}}' })];
+    expect(advance(steps, records(steps, { a: 'reported' }), { dryRun: true })).toMatchObject({
+      kind: 'complete',
+      updates: [{ id: 'post', status: 'skipped', skipped: 'dry run: `a` was not run' }],
+    });
+  });
+
+  it('skips it on an item that lacks a field, where a command naming one fails', () => {
+    const steps: Step[] = [call({ ts: '{{item.nope}}' })];
+    expect(
+      advanceSteps({
+        steps,
+        records: records(steps, {}),
+        dryRun: false,
+        itemValue: () => undefined,
+        untypedItem: true,
+      }),
+    ).toMatchObject({
+      kind: 'complete',
+      updates: [
+        {
+          id: 'post',
+          status: 'skipped',
+          skipped: 'with: item.nope has no value: this run has no such item field',
+        },
+      ],
+    });
+    const command: CommandStep = { ...fresh, env: { TS: '{{item.nope}}' } };
+    expect(
+      advanceSteps({
+        steps: [command],
+        records: records([command], {}),
+        dryRun: false,
+        itemValue: () => undefined,
+        untypedItem: true,
+      }),
+    ).toMatchObject({
+      kind: 'fail',
+      error: 'item.nope has no value: this run has no such item field',
+    });
+  });
+
+  it('starts it in the command lane', () => {
+    expect(laneOf(call({}))).toBe('command');
   });
 });
