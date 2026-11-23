@@ -8,6 +8,7 @@ import {
   parseFactory,
   REFUSED_ENV_NAMES,
   REFUSED_ENV_PREFIXES,
+  TRUSTED_ITEM_FIELDS as SPEC_TRUSTED_ITEM_FIELDS,
 } from '@consola/factory-spec';
 import { connectionCatalog } from './connections';
 import {
@@ -167,6 +168,10 @@ describe('what an agent writing an entry is told', () => {
     }
     expect(line).toContain("(GH_TOKEN and GH_HOST are the bound account's: Consola sets them)");
     expect(line).not.toContain('are allowed');
+  });
+
+  it("re-exports factory-spec's trusted item fields, one list (review Minor 16)", () => {
+    expect(TRUSTED_ITEM_FIELDS).toBe(SPEC_TRUSTED_ITEM_FIELDS);
   });
 
   it('the trusted list in the prose is the one the validator enforces', async () => {

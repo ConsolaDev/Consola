@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { parseAutomationEntry } from './entry';
 import { MAX_IF_LENGTH } from './expression';
 import { isStepsEntry } from './schema';
+import { callArguments, interpretedNotice, usesNotices, type CallArgument } from './callArguments';
 import { secretTemplateReason } from './secrets';
 import { laterKeyMessage, type Step } from './steps';
 import {
@@ -39,9 +40,10 @@ const PINNED = 'Pinned references arrive with shared factories.';
 
 describe('a uses: step', () => {
   it('parses a server, a tool, its arguments, its outputs and its timeout', () => {
-    const [step] = stepsOf(
-      call(
-        '  with: { channel: C0SUPPORT1, text: "{{steps.brief.handover}}" }\n  outputs: { ts: string }\n  timeout: 30s',
+    const [, step] = stepsOf(
+      entry(
+        '- id: brief\n  prompt: Brief it.',
+        '- id: post\n  uses: slack#chat_post_message\n  with: { channel: C0SUPPORT1, text: "{{steps.brief.handover}}" }\n  outputs: { ts: string }\n  timeout: 30s',
       ),
     );
     expect(step).toEqual({
@@ -115,9 +117,10 @@ describe('a uses: step', () => {
   });
 
   it('keeps with: as written, of every YAML kind', () => {
-    const [step] = stepsOf(
-      call(
-        '  with:\n    limit: 20\n    unfurl: false\n    thread: null\n    tags: [a, 2]\n    blocks: [{ type: section, text: { kind: mrkdwn, body: "*Brief:* {{steps.brief.handover}}" } }]',
+    const [, step] = stepsOf(
+      entry(
+        '- id: brief\n  prompt: Brief it.',
+        '- id: post\n  uses: slack#chat_post_message\n  with:\n    limit: 20\n    unfurl: false\n    thread: null\n    tags: [a, 2]\n    blocks: [{ type: section, text: { kind: mrkdwn, body: "*Brief:* {{steps.brief.handover}}" } }]',
       ),
     );
     expect((step as UsesStep).with).toEqual({
@@ -288,5 +291,254 @@ describe('uses: on an entry', () => {
     const result = parseAutomationEntry(`${HEAD}  - prompt: hi\nuses: slack#post\n`);
     expect(issuesOf(result)).toEqual([{ message: ENTRY_USES_REASON, path: 'uses' }]);
     expect(ENTRY_USES_REASON).toBe('`uses:` is a step: put it under `steps:`.');
+  });
+});
+
+// --- Task 4: a call's paths, its arguments' trust, and the interpreted-argument notice ---------------
+
+const TRIAGE = `- id: triage
+  prompt: Triage it.
+  outputs:
+    verdict: { enum: [page, ignore] }
+    count: integer
+    note: string`;
+const BRIEF = '- id: brief\n  prompt: Brief it.';
+/** An entry on `on`, whose `post` call takes `withYaml` (one line, a flow mapping) after `triage` and `brief`. */
+function callEntry(withYaml: string, on = '{ github: pull_request.review_requested }', extra = '') {
+  return parseAutomationEntry(
+    `name: a\non: ${on}\n${extra}steps:\n${[
+      TRIAGE,
+      BRIEF,
+      `- id: post\n  uses: slack#chat_post_message\n  with: ${withYaml}`,
+    ]
+      .map((item) => `  ${item.replace(/\n/g, '\n  ')}`)
+      .join('\n')}\n`,
+  );
+}
+function argumentsOf(result: ReturnType<typeof entry>): CallArgument[] {
+  if (!result.ok) throw new Error(JSON.stringify(result.issues));
+  const automation = result.automation;
+  if (!isStepsEntry(automation)) throw new Error('not a steps entry');
+  const step = automation.steps.find((candidate) => candidate.kind === 'uses') as UsesStep;
+  return callArguments(step, {
+    trigger: automation.trigger,
+    appliesTo: automation.appliesTo,
+    steps: automation.steps,
+  });
+}
+const one = (name: string, value: string, on?: string, extra?: string) =>
+  argumentsOf(callEntry(`{ ${name}: ${value} }`, on, extra))[0];
+
+describe('callArguments: each argument’s trust, from its paths', () => {
+  it('labels a literal, with no sources', () => {
+    expect(one('channel', 'C0SUPPORT1')).toEqual({
+      name: 'channel',
+      template: 'C0SUPPORT1',
+      trust: 'literal',
+      sources: [],
+    });
+    expect(one('limit', '20')).toMatchObject({ template: 20, trust: 'literal', sources: [] });
+  });
+
+  it('labels the handover untrusted, naming it', () => {
+    expect(one('text', '"{{steps.brief.handover}}"')).toEqual({
+      name: 'text',
+      template: '{{steps.brief.handover}}',
+      trust: 'untrusted',
+      sources: [{ kind: 'artifact', step: 'brief', name: 'handover' }],
+    });
+  });
+
+  it('trusts enum, integer, number and boolean outputs, and no string output', () => {
+    expect(one('count', '"{{steps.triage.count}}"')).toMatchObject({
+      trust: 'trusted',
+      sources: [{ kind: 'output', step: 'triage', name: 'count', trusted: true }],
+    });
+    expect(one('verdict', '"{{steps.triage.verdict}}"')).toMatchObject({ trust: 'trusted' });
+    expect(one('note', '"{{steps.triage.note}}"')).toMatchObject({
+      trust: 'untrusted',
+      sources: [{ kind: 'output', step: 'triage', name: 'note', trusted: false }],
+    });
+  });
+
+  it('trusts a work item’s identity, and nothing of a keyed poll’s item', () => {
+    const KEYED = '{ poll: { every: 5m, run: "echo []", key: .ts } }';
+    expect(one('thread_ts', '"{{item.ts}}"', KEYED, 'scope: ops\n')).toMatchObject({
+      trust: 'untrusted',
+      sources: [{ kind: 'item', field: 'ts', trusted: false }],
+    });
+    // On a keyed poll even an identity field's name came from the check command's output.
+    expect(one('key', '"{{item.key}}"', KEYED, 'scope: ops\n')).toMatchObject({
+      trust: 'untrusted',
+      sources: [{ kind: 'item', field: 'key', trusted: false }],
+    });
+    expect(one('url', '"{{item.url}}"', 'manual', 'applies_to: [pr]\n')).toMatchObject({
+      trust: 'trusted',
+      sources: [{ kind: 'item', field: 'url', trusted: true }],
+    });
+    expect(one('title', '"{{item.title}}"')).toMatchObject({
+      trust: 'untrusted',
+      sources: [{ kind: 'item', field: 'title', trusted: false }],
+    });
+  });
+
+  it('labels what the last run wrote untrusted', () => {
+    expect(one('prior', '"{{previous.brief.handover}}"')).toEqual({
+      name: 'prior',
+      template: '{{previous.brief.handover}}',
+      trust: 'untrusted',
+      sources: [{ kind: 'previous', step: 'brief', name: 'handover' }],
+    });
+  });
+
+  it('reads nested and mixed arguments whole (Review Focus 5)', () => {
+    expect(one('blocks', '[{ type: section, text: "*Brief:* {{steps.brief.handover}}" }]')).toEqual(
+      {
+        name: 'blocks',
+        template: [{ type: 'section', text: '*Brief:* {{steps.brief.handover}}' }],
+        trust: 'untrusted',
+        sources: [{ kind: 'artifact', step: 'brief', name: 'handover' }],
+      },
+    );
+    expect(one('mixed', '"{{steps.triage.count}} of {{steps.brief.handover}}"')).toMatchObject({
+      trust: 'untrusted',
+      sources: [
+        { kind: 'output', step: 'triage', name: 'count', trusted: true },
+        { kind: 'artifact', step: 'brief', name: 'handover' },
+      ],
+    });
+    // Each path once, in order.
+    expect(
+      one('twice', '["{{steps.triage.count}}", "{{steps.triage.count}} again"]').sources,
+    ).toEqual([{ kind: 'output', step: 'triage', name: 'count', trusted: true }]);
+  });
+
+  it('gives each argument only its own paths', () => {
+    const [text, count] = argumentsOf(
+      callEntry('{ text: "{{steps.brief.handover}}", count: "{{steps.triage.count}}" }'),
+    );
+    expect(text).toMatchObject({
+      name: 'text',
+      trust: 'untrusted',
+      sources: [{ kind: 'artifact', step: 'brief', name: 'handover' }],
+    });
+    expect(count).toMatchObject({
+      name: 'count',
+      trust: 'trusted',
+      sources: [{ kind: 'output', step: 'triage', name: 'count', trusted: true }],
+    });
+  });
+
+  it('lists the top-level arguments in the order written', () => {
+    expect(
+      argumentsOf(callEntry('{ text: "{{steps.brief.handover}}", channel: C0SUPPORT1 }')).map(
+        (argument) => argument.name,
+      ),
+    ).toEqual(['text', 'channel']);
+  });
+});
+
+describe('a call’s paths, checked as a command’s env: values are', () => {
+  it.each([
+    ['{ t: "{{steps.nope.x}}" }', '`{{steps.nope.x}}`: there is no step `nope`', 'steps[2].with.t'],
+    [
+      '{ t: "{{steps.post.ts}}" }',
+      "`{{steps.post.ts}}`: `post` is not before this step: it is this step, so it has not run when this one's turn comes",
+      'steps[2].with.t',
+    ],
+    [
+      '{ b: [{ t: "{{steps.triage.nope}}" }] }',
+      '`{{steps.triage.nope}}`: `triage` has no output or artifact `nope` (it has: verdict, count, note, handover)',
+      'steps[2].with.b[0].t',
+    ],
+  ])('refuses %s', (withYaml, message, path) => {
+    const result = callEntry(withYaml);
+    expect(issuesOf(result)).toEqual([{ message, path }]);
+  });
+
+  it('refuses an item on a schedule, as env: does', () => {
+    const result = callEntry('{ t: "{{item.title}}" }', '{ cron: "0 9 * * 1-5" }', 'scope: ops\n');
+    expect(issuesOf(result)).toEqual([
+      {
+        message: '`{{item.title}}`: a schedule has no item, so there is no `item` to read',
+        path: 'steps[2].with.t',
+      },
+    ]);
+  });
+
+  it('takes any path env: takes: an untrusted one is not refused in with:', () => {
+    expect(issuesOf(callEntry('{ t: "{{item.title}}", n: "{{steps.triage.note}}" }'))).toEqual([]);
+  });
+
+  it('makes a handover it reads required', () => {
+    const result = callEntry('{ t: "{{steps.brief.handover}}" }');
+    if (!result.ok || !isStepsEntry(result.automation)) throw new Error('did not parse');
+    expect(result.automation.steps[1]).toMatchObject({ id: 'brief', handover: 'required' });
+  });
+});
+
+describe('interpretedNotice', () => {
+  const QUERY = (name: string) =>
+    `\`${name}\` gets text someone else wrote; a tool may run it as a query or open what it names. Check that this is what you mean.`;
+  it.each([
+    ['query', QUERY('query')],
+    ['jql', QUERY('jql')],
+    ['sql', QUERY('sql')],
+    ['search_query', QUERY('search_query')],
+    ['JQL', QUERY('JQL')],
+    [
+      'command',
+      '`command` gets text someone else wrote; a tool may run it as code or open what it names. Check that this is what you mean.',
+    ],
+    [
+      'script',
+      '`script` gets text someone else wrote; a tool may run it as code or open what it names. Check that this is what you mean.',
+    ],
+    [
+      'code',
+      '`code` gets text someone else wrote; a tool may run it as code or open what it names. Check that this is what you mean.',
+    ],
+    [
+      'prompt',
+      '`prompt` gets text someone else wrote; a tool may run it as instructions or open what it names. Check that this is what you mean.',
+    ],
+    [
+      'instructions',
+      '`instructions` gets text someone else wrote; a tool may run it as instructions or open what it names. Check that this is what you mean.',
+    ],
+    [
+      'url',
+      '`url` gets text someone else wrote; a tool may open what it names. Check that this is what you mean.',
+    ],
+    [
+      'file_path',
+      '`file_path` gets text someone else wrote; a tool may open what it names. Check that this is what you mean.',
+    ],
+  ])('words %s', (name, message) => {
+    expect(interpretedNotice(name)).toBe(message);
+  });
+
+  it.each([['text'], ['channel'], ['queryless'], ['subquery'], ['paths'], ['url_text']])(
+    'gives %s none',
+    (name) => {
+      expect(interpretedNotice(name)).toBeNull();
+    },
+  );
+
+  it('is given only to an argument fed something someone else wrote', () => {
+    expect(one('query', '"{{steps.brief.handover}}"').notice).toBe(QUERY('query'));
+    expect(one('query', 'literal')).not.toHaveProperty('notice');
+    expect(one('query', '"{{steps.triage.count}}"')).not.toHaveProperty('notice');
+    expect(one('text', '"{{steps.brief.handover}}"')).not.toHaveProperty('notice');
+  });
+
+  it('is listed per call, at its argument', () => {
+    const result = callEntry(
+      '{ query: "{{steps.brief.handover}}", text: "{{steps.brief.handover}}" }',
+    );
+    if (!result.ok) throw new Error('did not parse');
+    expect(usesNotices(result.automation)).toEqual([
+      { message: QUERY('query'), path: ['steps', 2, 'with', 'query'] },
+    ]);
   });
 });

@@ -12,7 +12,9 @@ import {
 } from './secrets';
 import { describe, expect, it } from 'vitest';
 import { parseAutomationEntry } from './entry';
-import type { Automation } from './schema';
+import { isStepsEntry, type Automation } from './schema';
+import type { McpServerDefinition } from './servers';
+import type { Step } from './steps';
 
 const PATTERN = 'Use uppercase letters, digits and underscores, e.g. PAGERDUTY_TOKEN.';
 const IDENTITY =
@@ -227,6 +229,86 @@ describe('the names an entry uses', () => {
     expect(secretNamesOf(WATCH, { runOnly: true })).toEqual(['PAGER_TOKEN', 'TRACKER_TOKEN']);
     expect(secretNamesOf(WATCH, { runOnly: true, dryRun: true })).toEqual(['TRACKER_TOKEN']);
     expect(secretNamesOf(checkOnly, { runOnly: true, dryRun: true })).toEqual([]);
+  });
+
+  describe("a call's server", () => {
+    const CALLS = entry(
+      [
+        '- name: brief',
+        '  on: { cron: "0 9 * * 1-5" }',
+        '  scope: api',
+        '  steps:',
+        '    - id: page',
+        '      run: page "$PAGER_TOKEN"',
+        '      secrets: [PAGER_TOKEN]',
+        '    - id: post',
+        '      uses: slack#chat_post_message',
+        '    - id: clean',
+        '      uses: consola#cleanup_stale_sessions',
+      ].join('\n'),
+    );
+    const SERVERS: Record<string, McpServerDefinition> = {
+      slack: {
+        name: 'slack',
+        transport: 'stdio',
+        command: 'npx',
+        args: [],
+        env: {},
+        secrets: ['SLACK_BOT_TOKEN'],
+      },
+    };
+    const postRuns = (): Automation => {
+      if (!isStepsEntry(CALLS)) throw new Error('steps');
+      return {
+        ...CALLS,
+        steps: CALLS.steps.map((step) =>
+          step.kind === 'uses' && step.id === 'post' ? { ...step, dryRun: 'run' } : step,
+        ),
+      } as Automation;
+    };
+
+    it("lists a call's server's names after the step's place, naming the server", () => {
+      expect(secretUsesOf(CALLS, SERVERS)).toEqual([
+        { name: 'PAGER_TOKEN', automation: 'brief', step: 'page' },
+        {
+          name: 'SLACK_BOT_TOKEN',
+          automation: 'brief',
+          step: 'post',
+          server: { name: 'slack', transport: 'stdio' },
+        },
+      ]);
+      // Without the factory's servers, 5a-1's callers see what they saw.
+      expect(secretUsesOf(CALLS)).toEqual([
+        { name: 'PAGER_TOKEN', automation: 'brief', step: 'page' },
+      ]);
+    });
+
+    it("reads a call's server's names in a run, and in a dry run only a dry_run: run call's", () => {
+      expect(secretNamesOf(CALLS, { runOnly: true, servers: SERVERS })).toEqual([
+        'PAGER_TOKEN',
+        'SLACK_BOT_TOKEN',
+      ]);
+      expect(secretNamesOf(CALLS, { servers: SERVERS })).toEqual([
+        'PAGER_TOKEN',
+        'SLACK_BOT_TOKEN',
+      ]);
+      expect(secretNamesOf(CALLS, { runOnly: true, dryRun: true, servers: SERVERS })).toEqual([]);
+      expect(secretNamesOf(postRuns(), { runOnly: true, dryRun: true, servers: SERVERS })).toEqual([
+        'SLACK_BOT_TOKEN',
+      ]);
+      expect(secretNamesOf(CALLS, { runOnly: true })).toEqual(['PAGER_TOKEN']);
+    });
+
+    it('names nothing for consola#, nor for a server the factory does not define', () => {
+      expect(secretUsesOf(CALLS, {}).map((use) => use.name)).toEqual(['PAGER_TOKEN']);
+      expect(secretNamesOf(CALLS, { servers: {} })).toEqual(['PAGER_TOKEN']);
+      // A name Object.prototype has is no server of the factory's.
+      const constructorCall = {
+        ...CALLS,
+        steps: [{ ...(CALLS as { steps: Step[] }).steps[1], server: 'constructor' }],
+      } as Automation;
+      expect(secretUsesOf(constructorCall, {})).toEqual([]);
+    });
   });
 
   it('is empty for an entry that names none', () => {

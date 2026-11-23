@@ -161,6 +161,7 @@ export {
   stepItemFieldProblems,
   stepItemFields,
   stepsSchema,
+  TRUSTED_ITEM_FIELDS,
   type AgentStep,
   type CommandStep,
   type ItemField,
@@ -168,6 +169,14 @@ export {
   type Step,
   type UsesStep,
 } from './steps';
+export {
+  callArguments,
+  interpretedNotice,
+  usesNotices,
+  type ArgumentTrust,
+  type CallArgument,
+  type ValueSource,
+} from './callArguments';
 export {
   DEFAULT_CALL_TIMEOUT_MS,
   ENTRY_USES_REASON,

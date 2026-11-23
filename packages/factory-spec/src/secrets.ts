@@ -17,7 +17,8 @@ import {
   REFUSED_ENV_PREFIXES,
 } from './envNames';
 import type { Automation } from './schema';
-import type { CommandStep } from './steps';
+import type { McpServerDefinition } from './servers';
+import type { CommandStep, UsesStep } from './steps';
 import { secretPathProblem } from './template';
 
 export const MAX_SECRET_NAME_LENGTH = 64;
@@ -115,25 +116,54 @@ export function parseSecretNames(
   return ok ? names : null;
 }
 
-/** One place an entry names a secret: a command step's, or its poll's check command's. */
+/** One place an entry names a secret: a command step's, a call's server's, or its poll's check command's. */
 export interface SecretUse {
   name: string;
   automation: string;
   step?: string;
   check?: true;
+  /** A call's server: the value goes to it, not to a command. */
+  server?: { name: string; transport: 'stdio' | 'http' };
 }
 
-/** The entry's command steps. On `main` an entry's steps are flat; slice 3's nested steps walk `leafSteps` here. */
-function commandSteps(automation: Automation): CommandStep[] {
-  return (automation.steps ?? []).filter((step): step is CommandStep => step.kind === 'run');
+type Servers = Readonly<Record<string, McpServerDefinition>>;
+
+/** The entry's command steps and calls. On `main` an entry's steps are flat; slice 3's nested steps walk `leafSteps` here. */
+function commandsAndCalls(automation: Automation): Array<CommandStep | UsesStep> {
+  return (automation.steps ?? []).filter(
+    (step): step is CommandStep | UsesStep => step.kind === 'run' || step.kind === 'uses',
+  );
 }
 
-/** Every place an entry names a secret, in file order: each command step's, then its check's. */
-export function secretUsesOf(automation: Automation): SecretUse[] {
+/** The factory server a call names, when `servers` defines it (`consola` and an unknown name: none). */
+function serverOf(step: UsesStep, servers: Servers | undefined): McpServerDefinition | undefined {
+  return servers && Object.prototype.hasOwnProperty.call(servers, step.server)
+    ? servers[step.server]
+    : undefined;
+}
+
+/**
+ * Every place an entry names a secret, in file order: each command step's and each call's server's (only
+ * with the factory's `servers`), then its check's.
+ */
+export function secretUsesOf(automation: Automation, servers?: Servers): SecretUse[] {
   const uses: SecretUse[] = [];
-  for (const step of commandSteps(automation))
-    for (const name of step.secrets ?? [])
-      uses.push({ name, automation: automation.name, step: step.id });
+  for (const step of commandsAndCalls(automation)) {
+    if (step.kind === 'run') {
+      for (const name of step.secrets ?? [])
+        uses.push({ name, automation: automation.name, step: step.id });
+      continue;
+    }
+    const server = serverOf(step, servers);
+    if (!server) continue;
+    for (const name of server.secrets ?? [])
+      uses.push({
+        name,
+        automation: automation.name,
+        step: step.id,
+        server: { name: step.server, transport: server.transport },
+      });
+  }
   if (automation.trigger.kind === 'poll')
     for (const name of automation.trigger.secrets ?? [])
       uses.push({ name, automation: automation.name, check: true });
@@ -143,16 +173,19 @@ export function secretUsesOf(automation: Automation): SecretUse[] {
 /**
  * The distinct names an entry uses, sorted. `runOnly`: what a run reads, so
  * not its check's; `dryRun`: what a dry run reads, only the names of its
- * `dry_run: run` commands (a check is no part of a run either way).
+ * `dry_run: run` commands and calls (a check is no part of a run either way);
+ * `servers`: the factory's, whose secrets a call's server needs.
  */
 export function secretNamesOf(
   automation: Automation,
-  options: { runOnly?: boolean; dryRun?: boolean } = {},
+  options: { runOnly?: boolean; dryRun?: boolean; servers?: Servers } = {},
 ): string[] {
   const names = new Set<string>();
-  for (const step of commandSteps(automation))
-    if (!options.dryRun || step.dryRun === 'run')
-      for (const name of step.secrets ?? []) names.add(name);
+  for (const step of commandsAndCalls(automation)) {
+    if (options.dryRun && step.dryRun !== 'run') continue;
+    const secrets = step.kind === 'run' ? step.secrets : serverOf(step, options.servers)?.secrets;
+    for (const name of secrets ?? []) names.add(name);
+  }
   if (!options.runOnly && !options.dryRun && automation.trigger.kind === 'poll')
     for (const name of automation.trigger.secrets ?? []) names.add(name);
   return [...names].sort();

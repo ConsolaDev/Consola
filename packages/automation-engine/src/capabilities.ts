@@ -9,6 +9,7 @@ import {
   MAX_SKILL_FILES,
   REFUSED_ENV_NAMES,
   REFUSED_ENV_PREFIXES,
+  TRUSTED_ITEM_FIELDS,
   type AutomationMode,
 } from '@consola/factory-spec';
 import { assignedReviewsEntry, reReviewEntry } from './factoryTemplates';
@@ -110,8 +111,8 @@ export interface CapabilitiesInput {
   secrets?: Array<{ name: string; bound: boolean }>;
 }
 
-/** The item fields a prompt may template: the ones every connection gives and nobody else wrote. */
-export const TRUSTED_ITEM_FIELDS: readonly string[] = ['key', 'url', 'repo', 'number', 'type'];
+/** The item fields a prompt may template: the ones every connection gives and nobody else wrote (factory-spec's list). */
+export { TRUSTED_ITEM_FIELDS };
 
 /** The keys a later slice owns, grouped by what each arrives with, as the validator refuses them. */
 const REFUSED_KEYS = Object.entries(

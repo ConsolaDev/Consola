@@ -2,12 +2,14 @@
  * The factory folder, parsed whole: `factory.yml`, `automations/<name>.yaml`,
  * `agents/<name>.md` and `skills/<name>/`. Every check of each file runs,
  * then the references across files: each step's `agent:` names a valid agent
- * file, each agent's `skills:` a valid skill folder, and no automation name is
+ * file, each call's `uses:` a valid server of `factory.yml`'s (or `consola`),
+ * each agent's `skills:` a valid skill folder, and no automation name is
  * defined twice. The texts come in already read (a runner's adapter reads the
  * folder), so this does no I/O and every runner parses a folder alike.
  */
 import { agentHash, parseAgentFile, type AgentDefinition } from './agents';
 import { parseAutomationFile } from './automationFile';
+import { usesNotices } from './callArguments';
 import { formatPath, type FactorySpecIssue } from './issues';
 import { AUTOMATION_NAME_PATTERN } from './names';
 import { parseFactoryYml } from './parse';
@@ -309,6 +311,49 @@ export function parseFactory(files: FactoryFiles): FactoryParseResult {
     return kept;
   });
 
+  // Each call's server must be one factory.yml defines, valid, or its entry is not kept.
+  const servers = yml?.servers ?? {};
+  const brokenServers = yml?.brokenServers ?? [];
+  candidates = candidates.filter((candidate) => {
+    const { automation } = candidate;
+    if (!isStepsEntry(automation)) return true;
+    let kept = true;
+    automation.steps.forEach((step, index) => {
+      if (step.kind !== 'uses' || step.server === 'consola' || own(servers, step.server)) return;
+      kept = false;
+      const path = candidate.pathTo(['steps', index, 'uses']);
+      const line = candidate.lineAt(path);
+      const broken = brokenServers.includes(step.server);
+      issues.push({
+        message: broken
+          ? `\`${step.server}\` has problems of its own in factory.yml's \`mcpServers:\`; this step runs once they are fixed.`
+          : `\`${step.server}\` is not a server here: factory.yml's \`mcpServers:\` has none of that name.`,
+        file: candidate.file,
+        path: formatPath(path),
+        ...(line !== undefined ? { line } : {}),
+        automation: automation.name,
+        ...(broken ? { cause: 'factory.yml' } : {}),
+      });
+    });
+    return kept;
+  });
+
+  // Two namespaces: an agent's servers are its harness's, whatever factory.yml defines.
+  const factoryServerNames = [...Object.keys(servers), ...brokenServers];
+  for (const name of sortedKeys(agents)) {
+    const agent = agents[name];
+    // An agent that names servers always names its harness (`parseAgentFile`).
+    if (agent.harness === undefined) continue;
+    for (const server of agent.mcpServers) {
+      if (!factoryServerNames.includes(server.name)) continue;
+      notices.push({
+        message: `\`${server.name}\` is also a server in factory.yml; this agent gets \`${agent.harness}\`'s \`${server.name}\`, because agents use their harness's servers.`,
+        file: `agents/${name}.md`,
+        ...(agent.lines.mcpServers !== undefined ? { line: agent.lines.mcpServers } : {}),
+      });
+    }
+  }
+
   // A dry run's agents may name no server: naming one grants all its tools, writes included.
   candidates = candidates.filter((candidate) => {
     const { automation } = candidate;
@@ -333,6 +378,14 @@ export function parseFactory(files: FactoryFiles): FactoryParseResult {
     });
     return false;
   });
+
+  // A call's argument a tool may run or open, fed text someone else wrote: said, never refused.
+  for (const candidate of candidates) {
+    for (const { message, path } of usesNotices(candidate.automation)) {
+      const line = candidate.lineAt(candidate.pathTo(path));
+      notices.push({ message, file: candidate.file, ...(line !== undefined ? { line } : {}) });
+    }
+  }
 
   for (const path of files.stray)
     issues.push({ message: strayMessage(path), file: path, path: '' });
@@ -366,8 +419,8 @@ export function parseFactory(files: FactoryFiles): FactoryParseResult {
     notices,
     present,
     unreadable,
-    servers: yml?.servers ?? {},
-    brokenServers: yml?.brokenServers ?? [],
+    servers,
+    brokenServers,
   };
 }
 

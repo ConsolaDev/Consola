@@ -1570,4 +1570,25 @@ describe('stepItemFieldProblems', () => {
       { step: 'b', field: 'key', where: 'prompt' },
     ]);
   });
+
+  it("reads a call's with: as env: is read, at any depth", () => {
+    const POLL_KEY =
+      '    on:\n      poll:\n        every: 30m\n        run: ./list-messages\n        key: .ts\n    scope: app\n';
+    const automation = entry(
+      [
+        '- id: post\n  uses: slack#chat_post_message\n  with: { thread_ts: "{{item.ts}}", blocks: [{ text: "{{item.title}}" }] }',
+      ],
+      POLL_KEY,
+    ).result.automations[0];
+    if (!automation || !isStepsEntry(automation)) throw new Error('steps');
+    expect(stepItemFields(automation.steps)).toEqual([
+      { step: 'post', field: 'ts', where: 'env' },
+      { step: 'post', field: 'title', where: 'env' },
+    ]);
+    expect(
+      problems('- id: post\n  uses: slack#chat_post_message\n  with: { thread_ts: "{{item.ts}}" }'),
+    ).toEqual([
+      '`item.ts`: github items have no field `ts` (they have: key, url, repo, title, author, number, type)',
+    ]);
+  });
 });

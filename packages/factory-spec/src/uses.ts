@@ -10,7 +10,7 @@
  */
 import type { OutputType } from './outputs';
 import { MCP_SERVER_NAME_PATTERN } from './servers';
-import { parseTemplate } from './template';
+import { parseTemplate, templatePaths, type TemplatePath } from './template';
 
 export const USES_REF_PATTERN = /^([a-z][a-z0-9-]{0,63})#([A-Za-z0-9._-]{1,128})$/;
 export const DEFAULT_CALL_TIMEOUT_MS = 60_000;
@@ -220,4 +220,22 @@ export function usesTexts(step: UsesStep): Array<{ text: string; path: Array<str
   const texts: Array<{ text: string; path: Array<string | number> }> = [];
   walk(step.with, ['with'], { text: (text, path) => texts.push({ text, path }) });
   return texts;
+}
+
+/**
+ * One call's paths, checked as a command's `env:` values are (`templateProblem` is `checkSteps`' own closure
+ * for this step, asked with `'env'`): an unknown step or output is the same issue, at `with.<…>`.
+ */
+export function checkUsesStep(
+  step: UsesStep,
+  templateProblem: (ref: TemplatePath) => string | undefined,
+  at: (...rest: Array<string | number>) => Array<string | number>,
+  fail: (message: string, path: Array<string | number>) => void,
+): void {
+  for (const { text, path } of usesTexts(step)) {
+    for (const ref of templatePaths(text)) {
+      const problem = templateProblem(ref);
+      if (problem) fail(problem, at(...path));
+    }
+  }
 }

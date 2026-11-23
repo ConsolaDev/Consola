@@ -466,6 +466,165 @@ automations:
     expect(step).not.toHaveProperty('cause');
   });
 
+  describe("a call's server (5a-2)", () => {
+    const SLACK =
+      '  slack:\n    command: npx\n    args: [-y, "@sprocket/slack-mcp@1.4.2"]\n    secrets: [SLACK_BOT_TOKEN]\n';
+    const BROKEN_SLACK = '  slack:\n    command: npx\n    cwd: /Users/alice/catalog-portal\n';
+    /** factory.yml with `servers` under mcpServers: (none when empty) and one entry whose steps are `steps`. */
+    const yml = (servers: string, ...steps: string[]) =>
+      `version: 1\n${servers ? `mcpServers:\n${servers}` : ''}automations:\n  - name: brief\n    on: { cron: "0 9 * * 1-5" }\n    scope: ops\n    steps:\n${steps
+        .map((step) => `      ${step.replace(/\n/g, '\n      ')}`)
+        .join('\n')}\n`;
+    const POST = '- id: post\n  uses: slack#chat_post_message\n  with: { channel: C0SUPPORT1 }';
+
+    it('applies an entry whose call names a server factory.yml defines', () => {
+      const result = parseFactory(files({ factoryYml: yml(SLACK, POST) }));
+      expect(result.issues).toEqual([]);
+      expect(names(result)).toEqual(['brief']);
+    });
+
+    it("leaves out an entry whose call's server has problems of its own, pointing at the call", () => {
+      const result = parseFactory(files({ factoryYml: yml(BROKEN_SLACK, POST) }));
+      expect(names(result)).toEqual([]);
+      expect(result.issues).toEqual([
+        {
+          message: 'Consola decides where a server starts, and it is never a checkout.',
+          path: 'mcpServers.slack.cwd',
+          line: 5,
+          file: 'factory.yml',
+        },
+        {
+          message:
+            "`slack` has problems of its own in factory.yml's `mcpServers:`; this step runs once they are fixed.",
+          file: 'factory.yml',
+          path: 'automations[0].steps[0].uses',
+          line: 12,
+          automation: 'brief',
+          cause: 'factory.yml',
+        },
+      ]);
+    });
+
+    it('leaves out an entry whose call names a server factory.yml does not define', () => {
+      const result = parseFactory(files({ factoryYml: yml('', POST) }));
+      expect(names(result)).toEqual([]);
+      expect(result.issues).toEqual([
+        {
+          message:
+            "`slack` is not a server here: factory.yml's `mcpServers:` has none of that name.",
+          file: 'factory.yml',
+          path: 'automations[0].steps[0].uses',
+          line: 8,
+          automation: 'brief',
+        },
+      ]);
+      // A name Object.prototype has is no server either.
+      const inherited = parseFactory(files({ factoryYml: yml('', '- uses: constructor#x') }));
+      expect(inherited.issues.map((issue) => issue.message)).toEqual([
+        "`constructor` is not a server here: factory.yml's `mcpServers:` has none of that name.",
+      ]);
+    });
+
+    it("needs no server for Consola's own tools", () => {
+      const result = parseFactory(
+        files({ factoryYml: yml('', '- uses: consola#cleanup_stale_sessions') }),
+      );
+      expect(result.issues).toEqual([]);
+      expect(names(result)).toEqual(['brief']);
+    });
+
+    it('checks a call in an automation file against factory.yml’s servers', () => {
+      const result = parseFactory(
+        files({
+          factoryYml: `version: 1\nmcpServers:\n${SLACK}`,
+          automations: {
+            brief: `on: { cron: "0 9 * * 1-5" }\nscope: ops\nsteps:\n  - uses: slack#chat_post_message\n  - uses: tracker#create_issue\n`,
+          },
+        }),
+      );
+      expect(names(result)).toEqual([]);
+      expect(result.issues).toEqual([
+        {
+          message:
+            "`tracker` is not a server here: factory.yml's `mcpServers:` has none of that name.",
+          file: 'automations/brief.yaml',
+          path: 'steps[1].uses',
+          line: 5,
+          automation: 'brief',
+        },
+      ]);
+    });
+
+    it('gives an interpreted argument fed outside text a notice at its line, and applies the entry', () => {
+      const result = parseFactory(
+        files({
+          factoryYml: yml(
+            '  tracker:\n    url: https://mcp.tracker.sprocket.example/mcp\n',
+            '- id: brief\n  prompt: Brief it.',
+            '- id: find\n  uses: tracker#search\n  with:\n    jql: "{{steps.brief.handover}}"\n    limit: 5',
+          ),
+        }),
+      );
+      expect(result.issues).toEqual([]);
+      expect(names(result)).toEqual(['brief']);
+      expect(result.notices).toEqual([
+        {
+          message:
+            '`jql` gets text someone else wrote; a tool may run it as a query or open what it names. Check that this is what you mean.',
+          file: 'factory.yml',
+          line: 15,
+        },
+      ]);
+    });
+
+    it("tells an agent naming a factory server's name that it gets its harness's", () => {
+      const BRIEFER =
+        '---\ndescription: Briefs.\nharness: claude-work\nmcpServers: [slack]\n---\nBrief it.\n';
+      const result = parseFactory(
+        files({
+          factoryYml: yml(SLACK, '- id: brief\n  agent: briefer', POST),
+          agents: { briefer: BRIEFER },
+        }),
+      );
+      expect(result.issues).toEqual([]);
+      expect(names(result)).toEqual(['brief']);
+      expect(Object.keys(result.agents)).toEqual(['briefer']);
+      expect(result.notices).toEqual([
+        {
+          message:
+            "`slack` is also a server in factory.yml; this agent gets `claude-work`'s `slack`, because agents use their harness's servers.",
+          file: 'agents/briefer.md',
+          line: 4,
+        },
+      ]);
+      // A broken factory server's name is a factory server's name too.
+      const broken = parseFactory(
+        files({ factoryYml: yml(BROKEN_SLACK, '- agent: briefer'), agents: { briefer: BRIEFER } }),
+      );
+      expect(broken.notices.map((notice) => notice.file)).toEqual(['agents/briefer.md']);
+      // No notice for a server factory.yml does not define.
+      const elsewhere = parseFactory(
+        files({ factoryYml: yml('', '- agent: briefer'), agents: { briefer: BRIEFER } }),
+      );
+      expect(elsewhere.notices).toEqual([]);
+    });
+
+    it("lets a later step read a call's outputs and its output artifact", () => {
+      const result = parseFactory(
+        files({
+          factoryYml: yml(
+            SLACK,
+            '- id: post\n  uses: slack#chat_post_message\n  outputs: { ts: string }',
+            '- id: follow\n  run: echo "$TS"\n  env: { TS: "{{steps.post.ts}}", BODY: "{{steps.post.output}}" }',
+            '- id: tell\n  prompt: Say what was posted.\n  reads: [post.output]',
+          ),
+        }),
+      );
+      expect(result.issues).toEqual([]);
+      expect(names(result)).toEqual(['brief']);
+    });
+  });
+
   describe('a file that links outside the folder (review S3)', () => {
     const OUTSIDE = (path: string) =>
       `\`${path}\` links outside the factory folder; Consola reads only files inside it.`;

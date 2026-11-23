@@ -29,7 +29,7 @@ import type { OutputType } from './outputs';
 import type { Trigger } from './schema';
 import { AGENT_SECRETS_REASON, parseSecretNames, secretTemplateReason } from './secrets';
 import { hasTemplateBraces, parseTemplate, templatePaths, type TemplatePath } from './template';
-import { parseUsesStep, type UsesStep } from './uses';
+import { checkUsesStep, parseUsesStep, usesTexts, type UsesStep } from './uses';
 
 export const STEP_ID_PATTERN = /^[a-z][a-z0-9-]{0,31}$/;
 export const OUTPUT_NAME_PATTERN = /^[a-z][a-z0-9_]{0,31}$/;
@@ -710,7 +710,7 @@ export type ItemFieldTable = Record<string, ItemField>;
  * A work item's identity, which every connection gives: the item fields a
  * prompt may template without asking, when the entry's items are work items.
  */
-const TRUSTED_ITEM_FIELDS = ['key', 'url', 'repo', 'number', 'type'];
+export const TRUSTED_ITEM_FIELDS: readonly string[] = ['key', 'url', 'repo', 'number', 'type'];
 
 /**
  * What a run of an entry knows of its item, by trigger: `none` (a schedule, or
@@ -719,9 +719,9 @@ const TRUSTED_ITEM_FIELDS = ['key', 'url', 'repo', 'number', 'type'];
  * poll with `item:`), or `untrusted` (a poll with `key:`, where every field,
  * the key too, came from the check command's output).
  */
-type ItemKind = 'none' | 'identity' | 'untrusted';
+export type ItemKind = 'none' | 'identity' | 'untrusted';
 
-function itemKindOf(trigger: Trigger, appliesTo: readonly string[] | undefined): ItemKind {
+export function itemKindOf(trigger: Trigger, appliesTo: readonly string[] | undefined): ItemKind {
   switch (trigger.kind) {
     case 'cron':
       return 'none';
@@ -763,9 +763,9 @@ function exprTypeOf(type: OutputType, step: string, name: string): ExprType {
   }
 }
 
-/** The documents a step writes: its declared artifacts and handover, or a command's stdout. */
+/** The documents a step writes: its declared artifacts and handover, a command's stdout, or a call's result. */
 function artifactsOf(step: Step): string[] {
-  if (step.kind === 'uses') return [];
+  if (step.kind === 'uses') return ['output'];
   return step.kind === 'agent' ? ['handover', ...step.artifacts] : step.stdout ? ['output'] : [];
 }
 
@@ -807,9 +807,10 @@ function previousProblem(steps: Step[], id: string, name: string): string | unde
 }
 
 /**
- * Everything that looks across steps: each `if:`, `reads:`, `env:` value and
- * prompt is resolved against the steps before it, and a `previous` reference
- * against every named step. What `item.*` may be used where follows the
+ * Everything that looks across steps: each `if:`, `reads:`, `env:` value,
+ * call's `with:` string and prompt is resolved against the steps before it,
+ * and a `previous` reference against every named step (a call's `with:` by
+ * `env:`'s rules). What `item.*` may be used where follows the
  * entry's trigger (`itemKindOf`). Also sets a handover `required` when a later
  * step, or a later run through `previous`, uses it. Issues are reported at
  * `path`, the `steps` key, so they land on the line of the node.
@@ -937,6 +938,7 @@ export function checkSteps(
       for (const [name, value] of Object.entries(step.env))
         checkText(value, 'env', at('env', name));
     }
+    if (step.kind === 'uses') checkUsesStep(step, (ref) => templateProblem(ref, 'env'), at, fail);
   });
 }
 
@@ -956,7 +958,7 @@ export function stepItemFields(
     }
     const texts: Array<[string, 'prompt' | 'env']> =
       step.kind === 'uses'
-        ? []
+        ? usesTexts(step).map(({ text }): [string, 'env'] => [text, 'env'])
         : step.kind === 'run'
           ? Object.values(step.env).map((value): [string, 'env'] => [value, 'env'])
           : step.prompt !== undefined
@@ -1066,7 +1068,7 @@ export function stepItemFieldProblems(
     }
     const texts: Array<[string, 'prompt' | 'env']> =
       step.kind === 'uses'
-        ? []
+        ? usesTexts(step).map(({ text }): [string, 'env'] => [text, 'env'])
         : step.kind === 'run'
           ? Object.values(step.env).map((value): [string, 'env'] => [value, 'env'])
           : step.prompt !== undefined
