@@ -1,5 +1,5 @@
+import { messageForCellRefusal } from './cell';
 import { type TeamChange, TEAM_NAME_MAX, type TeamProblem, type TeamsState } from './teams';
-import { regionName } from './workspace';
 
 /** What the Teams page says, for each rule and each answer. */
 
@@ -30,16 +30,7 @@ export function messageForTeamsState(
   state: Exclude<TeamsState, { kind: 'listed' }>,
   workspace: { name: string; region: string },
 ): string {
-  switch (state.kind) {
-    case 'pending':
-      return `${workspace.name} is still being set up in its region. Try again in a moment.`;
-    case 'switched':
-      return 'Your session has another workspace open now, perhaps from another tab. Reload to see it.';
-    case 'signed-out':
-      return 'You’ve been signed out. Reload to sign in again.';
-    case 'unavailable':
-      return `The ${regionName(workspace.region)} region isn’t answering. Start it with pnpm dev:cloud-region and try again.`;
-  }
+  return messageForCellRefusal(state, workspace);
 }
 
 /** What a change that did not go through says, or null for one that did. */

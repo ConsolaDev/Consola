@@ -1,5 +1,6 @@
 import createClient, { type Client } from 'openapi-fetch';
 import type { paths } from '../domain/cellApiContract';
+import type { CellRefusal } from '../domain/cell';
 import { type Api, createApi } from './api';
 
 /*
@@ -41,14 +42,8 @@ export function createCellApi(options: { token: string; baseUrl: string; fetch?:
   return client;
 }
 
-/** Why a call never reached the cell, or came to nothing the page can use. */
-export type CellRefusal =
-  /** The cell does not hold the workspace yet: `cloud-global` is still telling it. */
-  | { kind: 'pending' }
-  /** The session's workspace is not the one the page shows: another tab switched it. */
-  | { kind: 'switched' }
-  | { kind: 'signed-out' }
-  | { kind: 'unavailable' };
+/** Why a call never reached the cell, or came to nothing the page can use: the domain's, which every page of a cell says the same way. */
+export type { CellRefusal };
 
 export const UNAVAILABLE = { kind: 'unavailable' } as const;
 export const SWITCHED = { kind: 'switched' } as const;

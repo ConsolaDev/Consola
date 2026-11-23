@@ -58,6 +58,29 @@ export function nodeAt(doc: Document, path: Array<string | number>): RangedNode 
   return node && typeof node === 'object' ? node : undefined;
 }
 
+/** Lines of a file, from 1, both ends included. */
+export interface LineRange {
+  start: number;
+  end: number;
+}
+
+/**
+ * The lines the node at `path` is written on, from its first character to its last: a mapping's
+ * trailing blank lines and comments are not its own. Undefined when there is no node at `path`
+ * (never its ancestor's lines, as `closestNode` would give).
+ */
+export function linesAt(
+  doc: Document,
+  lineOf: (offset: number | undefined) => number | undefined,
+  path: Array<string | number>,
+): LineRange | undefined {
+  const range = nodeAt(doc, path)?.range;
+  if (!range) return undefined;
+  const start = lineOf(range[0]);
+  const end = lineOf(Math.max(range[0], range[1] - 1));
+  return start === undefined || end === undefined ? undefined : { start, end };
+}
+
 /** The node at `path`, or its nearest existing ancestor — a missing key has no node of its own. */
 export function closestNode(doc: Document, path: Array<string | number>): RangedNode | undefined {
   for (let length = path.length; length >= 0; length--) {

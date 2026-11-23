@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ConfigError, loadConfig } from './config.js';
+import { ConfigError, loadConfig, seedRefusal } from './config.js';
 
 const valid = {
   DATABASE_URL: 'pglite:memory',
@@ -176,5 +176,19 @@ describe('loadConfig, the runner and its passes', () => {
     const failure = failureOf({ ...valid, ...runner, PASS_PRIVATE_KEY: key });
     expect(failure.problems).toEqual([expect.stringMatching(/^PASS_PRIVATE_KEY: /)]);
     expect(failure.message).not.toContain('d-of-the-key');
+  });
+});
+
+describe('seedRefusal', () => {
+  it('lets the demo seed write to a local PGlite folder only', () => {
+    expect(seedRefusal('pglite:./.data/cell-eu-db')).toBeNull();
+    for (const url of [
+      'postgres://consola@localhost:5432/cell',
+      'postgresql://consola@db.example.com/cell',
+      'pglite:memory',
+      'pglite:',
+    ]) {
+      expect([url, seedRefusal(url)]).toEqual([url, expect.any(String)]);
+    }
   });
 });

@@ -10,6 +10,7 @@ import type {
   FactoryStore,
   GitHubEventStore,
   HealthProbe,
+  RunStore,
   TeamStore,
   TokenVerifier,
   WorkspaceCopies,
@@ -21,6 +22,7 @@ import { getHealth, getMe } from './contract.js';
 import { factoryRoutes } from './factories.js';
 import { gitHubEventRoutes } from './gitHubEvents.js';
 import { outboxRoutes } from './outbox.js';
+import { runRoutes } from './runs.js';
 import { teamRoutes } from './teams.js';
 
 /** What the OpenAPI document says about the cell, beside its routes. */
@@ -66,6 +68,7 @@ export function createApp(deps: {
   gitHubEvents: GitHubEventStore;
   teams: TeamStore;
   factories: FactoryStore;
+  runs: RunStore;
   clock: Clock;
   cloudSessions: CloudSessionPorts;
   /** The runner's socket route, which checks the runner's secret itself. */
@@ -82,6 +85,7 @@ export function createApp(deps: {
     gitHubEvents,
     teams,
     factories,
+    runs,
     clock,
     cloudSessions,
   } = deps;
@@ -110,6 +114,7 @@ export function createApp(deps: {
 
   teamRoutes(app, teams);
   factoryRoutes(app, teams, factories);
+  runRoutes(app, teams, factories, runs);
 
   cloudSessionRoutes(app, cloudSessions);
 

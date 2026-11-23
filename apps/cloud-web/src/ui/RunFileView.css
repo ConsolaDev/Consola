@@ -1,0 +1,270 @@
+/* The file behind a run, as an editor shows it (the design mock's File view): a head with the
+   file's path, its version against the latest and Copy; the steps it holds by name; then the file,
+   numbered, shaded as YAML, the automation's own lines whole and the rest of a `factory.yml`
+   quieter. The chosen step's lines are lit in the accent; lines a "View in file" points at light
+   once. Nothing is drawn between the steps. */
+
+.file-view {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--gray-2);
+}
+
+.file-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--text-3);
+  font-size: var(--font-size-sm);
+}
+
+.file-path {
+  min-width: 0;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  overflow-wrap: anywhere;
+}
+
+/* The version as a tag; warm when the run used an older one than the factory has now. */
+.file-version {
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--hover);
+  color: var(--text-2);
+  font-size: var(--font-size-xs);
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+.file-version[data-older] {
+  background: color-mix(in srgb, var(--warning) 16%, transparent);
+  color: var(--text);
+}
+
+.file-own {
+  color: var(--text-3);
+}
+
+.file-tools {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.file-tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--font-size-md);
+  cursor: pointer;
+}
+
+.file-tool:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.file-tool:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: -2px;
+}
+
+.file-copy {
+  width: 24px;
+  justify-content: center;
+  padding: 0;
+}
+
+/* Copied: the icon turns to a check, once, and back when the button is left. */
+.file-copy[data-copied] {
+  color: var(--success);
+}
+
+.file-copy[data-copied] svg {
+  animation: file-copied 260ms var(--ease-out-expo);
+}
+
+@keyframes file-copied {
+  from {
+    transform: scale(0.6);
+    opacity: 0;
+  }
+}
+
+/* The steps the file holds, by name: the keyboard's way to a step's lines. */
+.file-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
+}
+
+.file-step {
+  padding: 1px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: none;
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-md);
+  line-height: 20px;
+  cursor: pointer;
+}
+
+.file-step:hover {
+  border-color: var(--line-strong);
+  color: var(--text);
+}
+
+.file-step[aria-pressed="true"] {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--cyan) 16%, transparent);
+  color: var(--text);
+}
+
+.file-step:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: 1px;
+}
+
+/* ---- The file ---- */
+
+.file-scroll {
+  max-height: min(72vh, 760px);
+  overflow: auto;
+}
+
+.file-scroll:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: -2px;
+}
+
+.file-code {
+  margin: 0;
+  padding: 8px 0;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  font-variant-ligatures: none;
+  line-height: 20px;
+  tab-size: 2;
+}
+
+.file-code > code {
+  display: block;
+  min-width: max-content;
+}
+
+.file-line {
+  display: grid;
+  grid-template-columns: 3.6em max-content;
+  padding-right: 16px;
+  opacity: 0.5;
+  transition: background 160ms var(--ease-out-quart);
+}
+
+/* The automation's own lines are whole; the rest of a factory.yml stays quieter. */
+.file-line[data-own] {
+  opacity: 1;
+}
+
+.file-line[data-step] {
+  cursor: pointer;
+}
+
+.file-line[data-step]:hover {
+  background: color-mix(in srgb, var(--cyan) 6%, transparent);
+}
+
+.file-line[data-chosen] {
+  background: color-mix(in srgb, var(--cyan) 12%, transparent);
+}
+
+.file-line[data-chosen]:hover {
+  background: color-mix(in srgb, var(--cyan) 15%, transparent);
+}
+
+.file-num {
+  padding-right: 12px;
+  color: var(--text-3);
+  text-align: right;
+  user-select: none;
+}
+
+.file-line[data-chosen] .file-num {
+  color: var(--cyan-text);
+}
+
+.file-src {
+  white-space: pre;
+}
+
+/* Where "View in file" pointed: the lines light once as the eye lands on them. */
+.file-line[data-flash] {
+  animation: file-flash 1300ms var(--ease-out-quart);
+}
+
+@keyframes file-flash {
+  from {
+    background: color-mix(in srgb, var(--cyan) 30%, transparent);
+  }
+}
+
+/* The YAML's shading: keys in the accent, strings green, numbers and literals warm, the rest
+   quiet. */
+.y-key {
+  color: var(--cyan-text);
+}
+
+.y-dash,
+.y-colon,
+.y-punct {
+  color: var(--text-3);
+}
+
+.y-plain {
+  color: var(--text);
+}
+
+.y-string {
+  color: var(--success);
+}
+
+.y-number,
+.y-literal {
+  color: var(--warning);
+}
+
+.y-comment {
+  color: var(--text-3);
+  font-style: italic;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .file-line,
+  .file-copy[data-copied] svg {
+    transition: none;
+    animation: none;
+  }
+
+  .file-line[data-flash] {
+    animation: none;
+  }
+}

@@ -1,5 +1,6 @@
 import type { WorkspaceRole } from '@consola/cloud-contract';
 import {
+  type Automation,
   type FactoryFiles,
   type FactoryNotice,
   type FactorySpecIssue,
@@ -265,4 +266,13 @@ export function judgeFactoryChange(
   if (!seen.has(factory.teamId)) return 'not-found';
   if (change.teamId !== undefined && !seen.has(change.teamId)) return 'team-not-found';
   return 'allowed';
+}
+
+/**
+ * The automations a stored version's files define, wherever each is written (`factory.yml` or
+ * `automations/<name>.yaml`, named in its `file`), as factory-spec's parser reads the folder.
+ * A version was stored only once it parsed clean, so this finds what was checked then.
+ */
+export function automationsOf(files: readonly FactoryFile[]): Automation[] {
+  return parseFactory(folderOf(files)).automations;
 }
