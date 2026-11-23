@@ -281,16 +281,37 @@ browser's own style (or, where the element's attributes style it, theirs).
   pseudo-elements to `revert` (`all`, `direction`, `unicode-bidi` and the registered properties),
   which rolls it back to the browser's own styles, below every author layer; t3's sublayers,
   above it, still win.
-  - `revert` also takes away what an element's own attributes style: Chromium puts those
+  - `revert` also takes away what an element's own attributes style: browsers put those
     presentational hints in the page's origin, below every layer. So where an element carries
     such an attribute, the floor lets the properties it sets fall through instead
     (`revert-layer`, `ATTRIBUTE_STYLED`): SVG's presentation attributes, each named as its
     property (lucide's `fill="none"`, `stroke`, `stroke-width`, a path's `d`), and HTML's
     `hidden`, `dir`, `lang`, `contenteditable`, `draggable`, `width`/`height`, `align`, `valign`,
-    `nowrap`, `wrap`, `bgcolor`, `background`, `border`, `frameborder`, `cellspacing` and a
-    list's `type` (the list is what `all: revert` was measured to take from each). MathML is not
-    floored at all: its attributes style it, and KaTeX renders it only for screen readers, out of
-    sight.
+    `nowrap`, `wrap`, `bgcolor`, `background`, `border`, `frameborder`, `cellspacing`, a list's
+    `type`, and a table cell's padding, which Chromium gives every `td` and `th` from its table
+    (`cellpadding`, 1px without one), though the cell carries no attribute for it.
+  - **The list is measured in Chromium**, on what t3 renders. `src/floor.browser.test.tsx` puts
+    a fixture under the floor alone (a lucide icon, `dir="auto"` and `dir="rtl"`, an `img` with
+    `width`, `height`, `align` and `border`, a table cell with `nowrap`, both `contenteditable`s,
+    `textarea wrap`, `details`, `inert`, `ol start`, `li value`, and an element for every HTML
+    entry, which it checks), and expects each element's every computed property, `::marker` and
+    box to be as without the floor: a Chromium update that styles an attribute another way fails
+    it. Two entries are Gecko's, harmless in Chromium, which reads those attributes itself:
+    `ol[start]` and `ol[reversed]` (`counter-reset`), and `li[value]` (`counter-set`). Without
+    them every numbered list in Firefox would start at 1, a markdown list resumed after a code
+    block (`<ol start="3">`) too. No other hint of Gecko's or WebKit's was measured.
+  - **Knowingly left out**, though the floor takes them too (measured): `<font>`'s `size` and
+    `face`, `hr`'s `color`, `noshade` and `size`, `br[clear]`, `embed[hidden]`, `<marquee>`'s
+    `nowrap`, `img`'s `hspace` and `vspace`, and what a table's `border` or `rules` gives its
+    cells (their borders, `border-collapse`). t3's components render none of them, and a
+    markdown answer cannot bring them: t3's renderer shows raw HTML as text
+    (`components/chat/markdownRenderer.ts:62-68`). Every entry is also a way in for a lower page
+    layer ("What still reaches the chat"), so the list holds only what t3 renders.
+  - MathML is not floored at all, since its attributes style it, so a lower page layer's rules
+    on MathML elements reach t3's. Most of it is KaTeX's copy for screen readers, out of sight,
+    but a Mermaid diagram's math labels are visible MathML (`components/chat/MermaidDiagram.tsx:
+    67-70`, KaTeX's `output: "mathml"`, inside the diagram's `<foreignObject>`), and t3 sizes
+    them in a probe outside the chat ("What still touches the page").
   - **The document stand-ins.** The theme element and the popups stand in for t3's document, so
     they inherit nothing from the page around them: the floor gives them `all: initial`, as a
     document's root has, with a `<div>`'s `display: block` and, as if marked `dir="ltr"`,
@@ -327,10 +348,16 @@ browser's own style (or, where the element's attributes style it, theirs).
   list that hides its scrollbar, which no list of t3's does today). So while a chat is mounted,
   `src/injectedStyles.ts` copies each into the chat's layer, right after it, without its
   `!important`s (an important declaration outranks the guard, so the original's still applies).
-  Inside the chat the copy applies as the original does on t3's own page; outside it the
-  original outranks its copy, which says the same. The copies go when the last chat unmounts. A
-  new injector is not known until it is added to `INJECTED_STYLES`; the test below notices one
-  that styles what it renders.
+  Inside the chat the copy applies as the original does on t3's own page. Its rules are nested
+  in `:where(.consola-agent-ui, .consola-agent-ui-portal)` (`INSIDE_CHAT`), so they keep the
+  original's specificity and match nothing outside the chat, even where a page rolls its own
+  unlayered rules back to its layers. Nesting rather than `@scope`, which would do the same but
+  reached Firefox only in 146, nesting in 117. The copies are made in a layout effect, before
+  the chat's first paint, and a `MutationObserver` on `<head>` copies a later injection before
+  the next one (Tiptap's comes when the composer is created). They go when the last chat
+  unmounts (`src/injectedStyles.browser.test.tsx`: two chats, one unmounted at a time, a later
+  injection, a page's rollback outside). A new injector is not known until it is added to
+  `INJECTED_STYLES`; the bare-page test below notices one that styles what it renders.
 - **Why not the alternatives.**
   - *Raising the scope's weight* (`.consola-agent-ui` instead of `:where(…)`) keeps t3's order,
     but does nothing against an unlayered page rule while t3's rules are layered.
@@ -357,13 +384,23 @@ browser's own style (or, where the element's attributes style it, theirs).
     the chat is in.
   - A page rule with three IDs or more, or with `!important`, outweighs the guard.
   - A page layer named after the chat's stylesheet has loaded outranks the chat's layer, so it
-    reaches in, as on any page. A page's global CSS usually loads first, below it.
-  - Where an element of t3's carries an attribute that styles it (an icon's `fill`, a `dir`), a
-    page layer below the chat's can still set the properties that attribute sets, as it would on
-    the attribute's own element anywhere; and anything on t3's MathML, out of sight.
+    reaches in, as on any page. A page's global CSS usually loads first, below it. A page whose
+    CSS may load in either order (a lazily loaded route's stylesheet, a CSS-in-JS layer) keeps
+    its layers below the chat's by naming the order first, before any stylesheet:
+    `@layer theme, base, components, utilities, consola-agent-ui;` (a Tailwind 4 page's layers,
+    then the chat's). A layer's place is fixed where its name first appears, so whatever loads
+    later, the chat's layer stays above those.
+  - Where an element of t3's carries an attribute that styles it (an icon's `fill`, a `dir`, a
+    table cell's padding), a page layer below the chat's can still set the properties that
+    attribute sets, as it would on the attribute's own element anywhere; and anything on t3's
+    MathML, a Mermaid diagram's visible math labels included (above).
   - `::selection`: Chromium's highlight pseudo-elements inherit from the parent element's, so
     where t3 sets none the page's selection colour shows in the chat (the desktop's accent).
     And a page's `::first-line` and `::first-letter` rules (above).
+  - The pseudo-elements neither the guard nor the floor names (`GUARDED_PSEUDO_ELEMENTS`):
+    `::details-content`, `::target-text`, `::spelling-error` and `::grammar-error`,
+    `::highlight()`, `::checkmark`, `::picker-icon`, and any other not on that list. A page's
+    rule for one, in no layer or in a layer below, reaches the chat's elements.
   - A custom property t3 uses but does not register, if the page sets it on every element
     (`* { --x }`, in no layer or in a layer below). t3 defines its variables on the theme
     element, so a page's own on an ancestor (`:root`, `.radix-themes`) do not reach in.
@@ -371,12 +408,14 @@ browser's own style (or, where the element's attributes style it, theirs).
     height are guarded.
 - **Cost.** The guard puts `all` (and the registered properties) into every element's cascade,
   and `revert-layer` looks each property up again in the layers below; the floor adds `all` once
-  more, at the bottom. In Chromium a style recalculation of 20,000 elements styled by this
-  stylesheet took 1.6 to 1.9 times as long with the guard as without it, almost all of it `all`
-  (measured on a loaded machine, before the floor, so only the ratio means much). The chat
-  itself is a few hundred elements to a few thousand (t3 virtualises its message list). The
-  guard and the floor add about 24 KB to the stylesheet, most of it the registered properties
-  and the attributes' exceptions.
+  more, at the bottom. In Chromium 151, a full style recalculation of 17,160 elements styled by
+  this stylesheet took about 230 ms with neither, about 344 ms with the guard alone and about
+  460 ms with both, roughly 27 µs per element (one loaded machine, so the ratios mean more than
+  the times). The chat itself is a few hundred elements to a few thousand (t3 virtualises its
+  message list), so a theme switch, which restyles all of them, costs about 50 to 80 ms, while
+  an incremental restyle, of the few elements a change touches, stays under 1 ms. The guard
+  and the floor add about 24 KB to the stylesheet, most of it the registered properties and the
+  attributes' exceptions.
 
 `AgentChat.pageCss.browser.test.tsx` mounts the chat inside each embedder's element, with its
 real stylesheets (`src/testing/embeddingPages.ts`): the desktop's tokens and `global.css`,
@@ -430,12 +469,15 @@ after the chat shows its thread.
 **What still touches the page**, and why it is left:
 
 - `<head>` gains, while a chat is mounted, a layered copy of each stylesheet t3's dependencies
-  injected there (Tiptap's; "The page's CSS"). It styles nothing the original does not already.
+  injected there (Tiptap's; "The page's CSS"). It styles nothing outside the chat.
 - `<body>` gains children t3 puts there while the chat is used: Base UI's popup portals (marked
   as the chat's, above), the hidden sprite of file icons (`pierre-icons.ts`, when an icon
   renders), an `aria-live` region for t3's announcements (`lib/announce.ts`), and a probe span
   that measures fonts and is removed at once (`appearanceFonts.ts`). Each styles nothing
-  outside itself.
+  outside itself. The first Mermaid diagram with math adds a hidden probe `<div>` that sizes its
+  labels (`components/chat/MermaidDiagram.tsx:60-64`), off screen and never removed: the page's
+  CSS applies there, outside the chat, so a page rule on MathML can change the labels' measured
+  size.
 - `<html lang>` would become t3's language if t3 activated one other than English
   (`i18n/runtime.ts` `activateLocale`). t3 takes its language from its saved setting, whose
   default is `"en"` whatever the system's language, and nothing `AgentChat` mounts changes it
