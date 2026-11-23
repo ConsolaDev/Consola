@@ -190,9 +190,10 @@ export class ThreadRuntime extends Context.Service<
 
 /**
  * Each `open` builds t3's production orchestration (`layerOrchestration`) for the session's
- * harness in the caller's scope, points t3's thread titles at the session's provider, files the
- * session's folder as its project, and creates its thread. Closing the scope stops the provider
- * session and drops the thread. t3's logs go to stderr.
+ * harness in the caller's scope (the open's, never the layer's: `Layer.succeed` holds no
+ * resource), points t3's thread titles at the session's provider, files the session's folder as
+ * its project, and creates its thread. Closing that scope stops the provider session, the stream
+ * that keeps the snapshot current and the thread (t3's in-memory store). t3's logs go to stderr.
  */
 const make = (
   options: ThreadRuntimeOptions,
@@ -345,7 +346,9 @@ const make = (
 
 /**
  * The host's thread runtime: each session on its harness's guarded driver alone, every thread in
- * `HOST_RUNTIME_MODE`.
+ * `HOST_RUNTIME_MODE`. The layer holds nothing of its own, so providing it starts nothing and
+ * building it twice costs nothing: each `open` builds its session's orchestration in the scope of
+ * whoever calls it (`runSession`'s), and closing that scope, not the layer's, stops the session.
  */
 export const layer = (options: ThreadRuntimeOptions): Layer.Layer<ThreadRuntime> =>
   make(options, HOST_RUNTIME_MODE, layerOrchestration);

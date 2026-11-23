@@ -207,7 +207,9 @@ handlers are host glue that calls the helpers `ws.ts` calls
   everyone in silence.
 - **The pass first, then a ticket.** `GET /ws` is the socket, and the three
   calls t3's client makes before it are answered over HTTP (`hostHttp.ts`,
-  below); any other method or path gets a `404` before anything is looked at.
+  below); any other method or path gets a `404` before anything is looked at,
+  and a request whose target no URL can be made of (`GET // HTTP/1.1`) a
+  `400`.
   The pass travels only in the `Authorization: Bearer` header of those calls,
   where it is verified (`verifyPassWith`) before anything else is answered:
   a compact JWS signed with EdDSA by the cell's key (jose, `algorithms:
@@ -695,7 +697,9 @@ session's thread (`ThreadRuntime.open`), then listens (`listenHost`), so
   `runtimeRequests[].status`) is `waiting`, an active run (t3's own
   `isActiveRun`) is `working`, anything else `idle`; the title is the
   projection's `thread.title`. A line is printed only on a change from what was
-  last said, and `ready` says idle and the thread's first title. t3 titles a
+  last said, and `ready` says idle and the thread's first title, read before
+  `ready` is written (`reportSession`'s `said`), so a retitle in between is
+  said too. t3 titles a
   thread twice on its first message, from the message's title seed and then
   with its generated title, so both are lines.
 - **Idle exit.** Each second the host asks `isIdle` with the server's

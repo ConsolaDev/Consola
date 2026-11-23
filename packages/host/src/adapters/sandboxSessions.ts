@@ -201,7 +201,13 @@ export const makeSandboxSessions = (
       late: (value: A) => Effect.Effect<void> = () => Effect.void,
     ): Effect.Effect<A, SandboxCallFailed> =>
       Effect.suspend(() => {
-        const pending = call();
+        // Called once, whether it answers in time or late; one that throws fails as it rejects.
+        let pending: Promise<A>;
+        try {
+          pending = call();
+        } catch (error) {
+          pending = Promise.reject(error);
+        }
         return attempt(() => pending).pipe(
           Effect.timeoutOrElse({
             duration: callTimeout,

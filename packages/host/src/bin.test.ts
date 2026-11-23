@@ -3,11 +3,13 @@ import { type ChildProcess, execFileSync, spawn } from 'node:child_process';
 import { generateKeyPairSync, type KeyObject } from 'node:crypto';
 import {
   chmodSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from 'node:fs';
 import { get } from 'node:http';
@@ -15,12 +17,14 @@ import { type AddressInfo, createServer, type Server } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ORCHESTRATION_V2_WS_METHODS } from '@t3tools/contracts';
+import { CommandId, ORCHESTRATION_V2_WS_METHODS, ThreadId } from '@t3tools/contracts';
 import type * as Cause from 'effect/Cause';
 import * as Clock from 'effect/Clock';
 import * as Duration from 'effect/Duration';
 import * as Effect from 'effect/Effect';
+import * as Option from 'effect/Option';
 import * as Queue from 'effect/Queue';
+import * as Stream from 'effect/Stream';
 import { decodeJwt } from 'jose';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
 import { type WebSocket, WebSocketServer } from 'ws';
@@ -34,6 +38,7 @@ import {
   parseRunnerArgs,
   parseSessionArgs,
   StartFailed,
+  temporaryStateDir,
   UsageError,
 } from './bin.ts';
 import {
@@ -337,6 +342,73 @@ describe('consola-host session', () => {
 
         host.signal('SIGTERM');
         expect(yield* host.exited).toEqual({ code: 0, signal: null });
+        expectOnlyHostLines(host.printed);
+      }).pipe(Effect.scoped, Effect.runPromise),
+    TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'stays up while a turn runs with no client connected, past its idle minutes',
+    () =>
+      Effect.gen(function* () {
+        const { variant, text } = yield* loadReplay('turn_interrupt');
+        const sessionId = 'session-sprocket-turn';
+        const host = yield* startHost(REPLAY_ENTRY, [
+          'turn_interrupt',
+          'full-access',
+          'session',
+          '--dev',
+          '--session-id',
+          sessionId,
+          '--harness',
+          'claude',
+          '--port',
+          '0',
+          // Three seconds with no client and no turn.
+          '--idle-minutes',
+          '0.05',
+        ]);
+        const ready = yield* host.next;
+        const devPass = yield* host.next;
+        // The fixture's turn runs until it is interrupted; the client that started it goes.
+        yield* Effect.scoped(
+          Effect.gen(function* () {
+            const { client } = yield* connectHost(ready.port as number, devPass.pass as string);
+            yield* client[ORCHESTRATION_V2_WS_METHODS.dispatchCommand](
+              sendMessage({ sessionId, harness: 'claude', cwd: '' }, text, variant.modelSelection),
+            );
+          }),
+        );
+        yield* waitFor(
+          () => host.printed.some((line) => line === '{"type":"status","status":"working"}'),
+          'the turn to run',
+        );
+        // Over twice the idle minutes with no client: the running turn keeps the host up.
+        yield* Effect.sleep(Duration.seconds(7));
+        expect(typesOf(host.printed)).not.toContain('exit');
+
+        // Interrupted, the turn ends, and the host is idle again: it exits on its own.
+        yield* Effect.scoped(
+          Effect.gen(function* () {
+            const { client } = yield* connectHost(ready.port as number, devPass.pass as string);
+            const first = yield* client[ORCHESTRATION_V2_WS_METHODS.subscribeThread]({
+              threadId: ThreadId.make(sessionId),
+            }).pipe(Stream.runHead);
+            const runId =
+              Option.isSome(first) && first.value.kind === 'snapshot'
+                ? first.value.projection.runs[0]?.id
+                : undefined;
+            if (runId === undefined) return yield* Effect.die(new Error('no run to interrupt'));
+            yield* client[ORCHESTRATION_V2_WS_METHODS.dispatchCommand]({
+              type: 'run.interrupt',
+              commandId: CommandId.make(`command:${sessionId}:interrupt-1`),
+              threadId: ThreadId.make(sessionId),
+              runId,
+            });
+          }),
+        );
+        expect(yield* host.exited).toEqual({ code: 0, signal: null });
+        expect(typesOf(host.printed).at(-1)).toBe('exit');
         expectOnlyHostLines(host.printed);
       }).pipe(Effect.scoped, Effect.runPromise),
     TEST_TIMEOUT_MS,
@@ -650,6 +722,21 @@ describe('consola-host session', () => {
       }).pipe(Effect.scoped, Effect.runPromise),
     TEST_TIMEOUT_MS,
   );
+});
+
+describe('temporaryStateDir', () => {
+  it('is a folder of its own while the session runs, and is gone once it stops', () =>
+    Effect.gen(function* () {
+      const stateDir = yield* Effect.scoped(
+        Effect.gen(function* () {
+          const made = yield* temporaryStateDir;
+          expect(statSync(made).isDirectory()).toBe(true);
+          writeFileSync(join(made, 'left-behind.json'), '{}');
+          return made;
+        }),
+      );
+      expect(existsSync(stateDir)).toBe(false);
+    }).pipe(Effect.runPromise));
 });
 
 describe('parseSessionArgs', () => {

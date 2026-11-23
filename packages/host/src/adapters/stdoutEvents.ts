@@ -33,18 +33,23 @@ export function sessionStatusOf(
   return 'idle';
 }
 
+/** What the runner was last told of the session: `ready` says idle and the thread's title. */
+export type SaidOfSession = { readonly status: SessionStatus; readonly title: string };
+
 /**
- * Follows the thread's projection (`handle.snapshots()`) and writes a `status` line when the
- * session's status changes and a `title` line when t3 retitles the thread, each only on a change
- * from what was last said: `ready` said idle and the thread's title when this starts.
+ * Follows the thread's projection (`handle.snapshots()`, which starts with the current one) and
+ * writes a `status` line when the session's status changes and a `title` line when t3 retitles
+ * the thread, each only on a change from what was last said, starting from `said`: what `ready`
+ * said, read before it was written, so a change in between is said too.
  */
 export const reportSession = (
   handle: ThreadHandle,
   write: (line: HostLine) => Effect.Effect<void>,
+  said: SaidOfSession,
 ): Effect.Effect<void> =>
   Effect.gen(function* () {
-    let status: SessionStatus = 'idle';
-    let title = handle.snapshot().thread.title;
+    let status: SessionStatus = said.status;
+    let title = said.title;
     yield* handle.snapshots().pipe(
       Stream.runForEach((projection) =>
         Effect.gen(function* () {

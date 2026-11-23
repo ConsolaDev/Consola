@@ -1,14 +1,18 @@
 // @effect-diagnostics nodeBuiltinImport:off - Each test makes its own pass keys with node:crypto.
 import { generateKeyPairSync, type KeyObject } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { connect } from 'node:net';
 import {
   CommandId,
   type ModelSelection,
   ORCHESTRATION_V2_WS_METHODS,
   type OrchestrationV2Command,
   type OrchestrationV2ThreadStreamItem,
+  ProviderInstanceId,
   RunId,
+  serverProviderDeltas,
   ThreadId,
+  TurnItemId,
   WS_METHODS,
 } from '@t3tools/contracts';
 import * as Cause from 'effect/Cause';
@@ -17,7 +21,7 @@ import * as Duration from 'effect/Duration';
 import * as Effect from 'effect/Effect';
 import * as Exit from 'effect/Exit';
 import * as Queue from 'effect/Queue';
-import type * as Scope from 'effect/Scope';
+import * as Scope from 'effect/Scope';
 import * as Tracer from 'effect/Tracer';
 import * as Stream from 'effect/Stream';
 import * as FetchHttpClient from 'effect/http/FetchHttpClient';
@@ -69,6 +73,7 @@ import {
   GENERIC_SERVER_VERSION,
   hostEnvironment,
   T3_SERVER_VERSION,
+  withProviderStatusDeltas,
 } from './rpcServer.ts';
 
 /** Every test runs on a machine of its own, with fake CLIs (`../testing/machine.ts`). */
@@ -164,6 +169,21 @@ const openedSocketAt = Effect.fn('openedSocketAt')(function* (url: string) {
   const closedAt = yield* Clock.currentTimeMillis;
   return { openedAt, closedAt, code: event.code, reason: event.reason };
 });
+
+/** The status line a host on this machine answers `requestLine` with, sent as it is. */
+const statusLineFor = (port: number, requestLine: string) =>
+  Effect.callback<string>((resume) => {
+    const socket = connect(port, '127.0.0.1', () => {
+      socket.write(`${requestLine}\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n`);
+    });
+    let answer = '';
+    socket.setEncoding('utf8');
+    socket.on('data', (chunk: string) => {
+      answer += chunk;
+    });
+    socket.on('close', () => resume(Effect.succeed(answer.split('\r\n')[0] ?? '')));
+    socket.on('error', (error) => resume(Effect.die(error)));
+  });
 
 /** The close code a plain WebSocket at `url` ends with. */
 const closeCodeAt = (url: string) =>
@@ -421,6 +441,105 @@ describe('serveHost', () => {
       'A --dev host listens only on loopback, not on 0.0.0.0.',
     );
   });
+
+  it(
+    "refuses another thread and another folder with t3's own errors, and sends provider changes as deltas",
+    () =>
+      withServedReplay('simple', ({ spec, handle, prompt, connect }) =>
+        Effect.gen(function* () {
+          const { client, initialConfig } = yield* connect();
+          const other = ThreadId.make('session-sprocket-other');
+          const subscribed = yield* client[ORCHESTRATION_V2_WS_METHODS.subscribeThread]({
+            threadId: other,
+          }).pipe(Stream.runHead, Effect.flip);
+          expect(subscribed).toMatchObject({ _tag: 'OrchestrationV2GetThreadProjectionError' });
+          const dispatched = yield* client[ORCHESTRATION_V2_WS_METHODS.dispatchCommand]({
+            type: 'run.interrupt',
+            commandId: CommandId.make(`command:${spec.sessionId}:interrupt-other`),
+            threadId: other,
+            runId: RunId.make('run:sprocket:other'),
+          }).pipe(Effect.flip);
+          expect(dispatched).toMatchObject({ _tag: 'OrchestrationV2DispatchCommandError' });
+          const output = yield* client[ORCHESTRATION_V2_WS_METHODS.subscribeCommandOutput]({
+            threadId: other,
+            itemId: TurnItemId.make('item:sprocket:other'),
+          }).pipe(Stream.runHead, Effect.flip);
+          expect(output).toMatchObject({ _tag: 'OrchestrationV2CommandOutputError' });
+          const elsewhere = yield* client[WS_METHODS.serverRefreshProviders]({
+            instanceId: ProviderInstanceId.make('claudeAgent'),
+            cwd: '/srv/sprocket/elsewhere',
+          }).pipe(Effect.flip);
+          expect(elsewhere).toMatchObject({ _tag: 'ProviderSetupError', operation: 'refresh' });
+
+          // t3's `withProviderStatusDeltas`: a snapshot passes, provider lists become deltas
+          // from the list the client last received.
+          const providers = initialConfig.providers;
+          const changed = providers.map((provider) => ({
+            ...provider,
+            enabled: !provider.enabled,
+          }));
+          const sent = yield* Stream.make({
+            version: 1 as const,
+            type: 'providerStatuses' as const,
+            payload: { providers: changed },
+          }).pipe(withProviderStatusDeltas(providers), Stream.runCollect);
+          expect(Array.from(sent)).toEqual([
+            {
+              version: 1,
+              type: 'providerStatusDeltas',
+              payload: { providers: serverProviderDeltas(providers, changed) },
+            },
+          ]);
+          yield* runTheTurn(handle, prompt);
+        }),
+      ),
+    REPLAY_TIMEOUT_MS,
+  );
+
+  it(
+    'closes, with a client still connected, as soon as its scope closes',
+    () =>
+      withServedReplay('simple', ({ spec, handle, keys, prompt }) =>
+        Effect.gen(function* () {
+          const scope = yield* Scope.make();
+          const { port, connectedClients } = yield* listenHost({
+            port: 0,
+            host: '127.0.0.1',
+            sessionId: spec.sessionId,
+            publicKeyPem: keys.publicKeyPem,
+            runtime: handle,
+          }).pipe(Scope.provide(scope));
+          // The client lives on past the server's scope.
+          yield* signPass(keys, spec.sessionId).pipe(
+            Effect.flatMap((pass) => connectHost(port, pass)),
+          );
+          expect(connectedClients()).toBe(1);
+          yield* Scope.close(scope, Exit.void).pipe(
+            Effect.timeoutOrElse({
+              duration: Duration.seconds(10),
+              orElse: () =>
+                Effect.die(new Error('the server did not close with a client connected')),
+            }),
+          );
+          expect(yield* closeCodeAt(hostSocketUrl(port))).toBe(1006);
+          yield* runTheTurn(handle, prompt);
+        }),
+      ),
+    REPLAY_TIMEOUT_MS,
+  );
+
+  it(
+    'answers 400 to a request whose target is no URL, and 404 to any method on the socket but GET',
+    () =>
+      withServedReplay('simple', ({ handle, prompt, port }) =>
+        Effect.gen(function* () {
+          expect(yield* statusLineFor(port, 'GET // HTTP/1.1')).toBe('HTTP/1.1 400 Bad Request');
+          expect(yield* statusLineFor(port, 'POST /ws HTTP/1.1')).toBe('HTTP/1.1 404 Not Found');
+          yield* runTheTurn(handle, prompt);
+        }),
+      ),
+    REPLAY_TIMEOUT_MS,
+  );
 
   it(
     'answers a command t3 refuses with t3’s own words, in message and detail, as t3’s server does',

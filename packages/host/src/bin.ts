@@ -265,7 +265,7 @@ export const folderWarning = (cwd: string): string =>
   `refs (refs/t3/orchestration-v2/checkpoints) and objects into its git repository.`;
 
 /** A state folder of the session's own, removed when the session stops. */
-const temporaryStateDir = Effect.acquireRelease(
+export const temporaryStateDir = Effect.acquireRelease(
   Effect.sync(() => mkdtempSync(join(tmpdir(), 'consola-host-state-'))),
   (stateDir) => Effect.sync(() => rmSync(stateDir, { recursive: true, force: true })),
 );
@@ -363,6 +363,8 @@ export const runSession = (
       ),
     );
 
+    // What `ready` says, read before it is written: a retitle after it is the report's to say.
+    const said = { status: 'idle' as const, title: handle.snapshot().thread.title };
     yield* writeHostLine({ type: 'ready', port: listening.port });
     if (access.devPass !== null) {
       yield* writeHostLine({
@@ -371,7 +373,7 @@ export const runSession = (
         expiresInSeconds: access.devPass.expiresInSeconds,
       });
     }
-    const reporting = yield* reportSession(handle, writeHostLine).pipe(Effect.forkScoped);
+    const reporting = yield* reportSession(handle, writeHostLine, said).pipe(Effect.forkScoped);
     // Idle, or a thread whose snapshot would go stale (`ended`): the session fails, exit 1.
     yield* Effect.raceFirst(untilIdle(handle, listening, args.idleMinutes), handle.ended);
     yield* Fiber.interrupt(reporting);

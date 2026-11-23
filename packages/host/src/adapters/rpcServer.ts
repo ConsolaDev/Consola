@@ -294,7 +294,7 @@ const withoutWorkspaceSnapshots = (providers: ReadonlyArray<ServerProvider>): Se
  * t3's `withProviderStatusDeltas` (`ws.ts:504-525`, reproduced): provider changes as deltas from
  * the list this client last received.
  */
-const withProviderStatusDeltas =
+export const withProviderStatusDeltas =
   (sent: ReadonlyArray<ServerProvider>) =>
   <E, R>(updates: Stream.Stream<ServerConfigStreamEvent, E, R>) =>
     updates.pipe(
@@ -727,7 +727,9 @@ const app = Effect.fn('host.app')(function* (
   connections: { open: number },
 ) {
   const request = yield* HttpServerRequest.HttpServerRequest;
-  const url = new URL(request.url, 'http://consola-host.invalid');
+  // A request line no URL can be made of (`GET http://[ HTTP/1.1`) is the client's error.
+  const url = URL.parse(request.url, 'http://consola-host.invalid');
+  if (url === null) return HttpServerResponse.empty({ status: 400 });
   const lifetime: PassLifetime = options.dev === true ? 'dev' : 'cell';
   // Everything but the socket: t3's calls before it, and a CORS-readable `404` for the rest.
   if (url.pathname !== WS_PATH) {
@@ -745,9 +747,7 @@ const app = Effect.fn('host.app')(function* (
       url.pathname,
     );
   }
-  if (request.method !== 'GET' || url.pathname !== WS_PATH) {
-    return HttpServerResponse.empty({ status: 404 });
-  }
+  if (request.method !== 'GET') return HttpServerResponse.empty({ status: 404 });
   // The socket opens with a ticket alone, used once (`socketTickets.ts`); never with a pass.
   const redeemed = tickets.redeem(
     url.searchParams.get(WS_TICKET_QUERY_PARAM) ?? '',
