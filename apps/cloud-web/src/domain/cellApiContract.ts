@@ -1748,6 +1748,231 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The top-level runs the caller sees, newest first
+         * @description A request is one run; the automation runs it started are not listed here but in its own answer. Filters combine; the values of one filter are alternatives.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    /** @description Only runs in one of these phases. Repeat it for several. */
+                    phase?: components["schemas"]["Phase"][];
+                    /** @description Only runs started one of these ways; "background runs" are `cron`, `event` and `poll`. */
+                    trigger?: components["schemas"]["RunTrigger"][];
+                    /** @description Only this factory's runs; one the caller does not see gives an empty page. */
+                    factoryId?: string;
+                    /** @description Only runs of the factories this team owns now. */
+                    teamId?: string;
+                    /** @description Only runs of this automation, and requests that started one, in every factory unless `factoryId` narrows it. */
+                    automation?: string;
+                    /** @description `true`: only runs the caller started. */
+                    mine?: "true" | "false";
+                    /** @description Text the title or the automation's name holds, in any case. */
+                    q?: string;
+                    /** @description The page before's `nextCursor`. */
+                    cursor?: string;
+                    limit?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description A page of runs, the counts and what the filters offer. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["RunList"];
+                    };
+                };
+                /** @description A phase or trigger the cell does not know, a cursor it did not give, a `limit` out of range or a `q` too long. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "invalid_request";
+                        };
+                    };
+                };
+                /** @description No bearer token (`token_required`), or one the cell does not accept (`invalid_token`): malformed, forged, expired, or signed by a key cloud-global does not publish. A new token is the fix. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "token_required";
+                        } | {
+                            /** @enum {string} */
+                            error: "invalid_token";
+                        };
+                    };
+                };
+                /** @description The cell does not hold the workspace yet: cloud-global has not delivered its creation. Asking again later helps. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "workspace_pending";
+                        };
+                    };
+                };
+                /** @description A good token for a workspace in another region: the cell that answered names its own. The workspace's own cell is the fix. */
+                421: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "wrong_region";
+                            /** @enum {string} */
+                            region: "eu" | "us";
+                        };
+                    };
+                };
+                /** @description The cell cannot get cloud-global's keys just now, so it checks no token. */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "token_check_unavailable";
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/runs/{runId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One run: its steps, and a request’s facts and the runs it started */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    runId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The run. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["RunDetail"];
+                    };
+                };
+                /** @description No bearer token (`token_required`), or one the cell does not accept (`invalid_token`): malformed, forged, expired, or signed by a key cloud-global does not publish. A new token is the fix. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "token_required";
+                        } | {
+                            /** @enum {string} */
+                            error: "invalid_token";
+                        };
+                    };
+                };
+                /** @description The workspace has no run with that id that the caller sees: none, or one of a factory of a team a member is not in. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "run_not_found";
+                        };
+                    };
+                };
+                /** @description The cell does not hold the workspace yet: cloud-global has not delivered its creation. Asking again later helps. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "workspace_pending";
+                        };
+                    };
+                };
+                /** @description A good token for a workspace in another region: the cell that answered names its own. The workspace's own cell is the fix. */
+                421: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "wrong_region";
+                            /** @enum {string} */
+                            region: "eu" | "us";
+                        };
+                    };
+                };
+                /** @description The cell cannot get cloud-global's keys just now, so it checks no token. */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "token_check_unavailable";
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1890,6 +2115,269 @@ export interface components {
                 path: string;
                 content: string;
             }[];
+        };
+        /** @description Top-level runs (none a request started) the caller sees, newest first: every run for owners and admins, the runs of their teams’ factories for a member. */
+        RunList: {
+            runs: components["schemas"]["RunSummary"][];
+            /** @description The next page's `cursor`; null on the last page. */
+            nextCursor: string | null;
+            counts: components["schemas"]["PhaseCounts"];
+            /** @description What the filters offer, whatever the query's filters: the factories and teams the caller sees, by name, and the automations their runs ran, children's included. */
+            facets: {
+                factories: {
+                    id: string;
+                    name: string;
+                    teamId: string;
+                    latestVersion: number;
+                }[];
+                teams: {
+                    id: string;
+                    name: string;
+                }[];
+                automations: {
+                    factoryId: string;
+                    name: string;
+                }[];
+            };
+        };
+        RunSummary: {
+            id: string;
+            kind: components["schemas"]["RunKind"];
+            /** @description A request: its item's title, else its text's first line; an automation run: its item's title, else its automation's name. At most 120 characters, on one line. */
+            title: string;
+            status: components["schemas"]["RunStatus"];
+            phase: components["schemas"]["Phase"];
+            /**
+             * @description What a waiting run waits on; set exactly while it is `waiting`.
+             * @enum {string|null}
+             */
+            waitingOn: "run" | "person" | null;
+            /** @description Its factory, and the version of it the run executed. */
+            factory: {
+                id: string;
+                name: string;
+                version: number;
+            };
+            /** @description The team that owns the run's factory now. */
+            teamId: string;
+            /** @description The automation's name; null exactly for a request. */
+            automation: string | null;
+            /** @description The request that started it, on an automation run one did. */
+            parentId: string | null;
+            trigger: components["schemas"]["RunTrigger"];
+            /** @description What the trigger was: the event's name (`pull_request.opened`), the cron schedule, or the poll's check. */
+            triggerDetail: string | null;
+            /** @description The global id of the person who started it, who may no longer be a member; null for a run no person started. */
+            startedBy: string | null;
+            item: components["schemas"]["RunItem"] | null;
+            /** @description Which runner ran it: `cloud` for now. */
+            runner: string;
+            /** @description An automation run's steps; null for a request. */
+            progress: {
+                total: number;
+                /** @description Steps that have ended. */
+                done: number;
+                /** @description The id of the first step running or waiting. */
+                current: string | null;
+            } | null;
+            /** @description The automation runs a request started, by phase; null otherwise. */
+            children: {
+                total: number;
+                active: number;
+                needsYou: number;
+                failed: number;
+            } | null;
+            /** @description One sentence once it ends. */
+            summary: string | null;
+            error: string | null;
+            /** @description The CLI's estimate, in dollars; a request's counts its runs too. Null while none was reported. */
+            costUsd: number | null;
+            /** @description When it was made, as an ISO 8601 time. */
+            createdAt: string;
+            /** @description When it started working, as an ISO 8601 time. */
+            startedAt: string | null;
+            /** @description When it ended, as an ISO 8601 time. */
+            finishedAt: string | null;
+            /** @description When its runner last recorded it, as an ISO 8601 time. */
+            updatedAt: string;
+        };
+        /**
+         * @description A `request`, whose one step is its factory’s orchestrator, or an `automation` run, with steps.
+         * @enum {string}
+         */
+        RunKind: "request" | "automation";
+        /**
+         * @description A run's status. The set only grows.
+         * @enum {string}
+         */
+        RunStatus: "queued" | "running" | "needs-approval" | "completed" | "failed" | "rejected" | "waiting" | "expired" | "cancelled";
+        /**
+         * @description The cell's grouping of a run's status, which the list filters and counts by: `active` (queued, running, waiting on a run), `needs-you` (needs approval, waiting on a person, or a request at work one of whose runs needs someone), `completed`, `failed` (failed, expired) and `stopped` (cancelled, rejected).
+         * @enum {string}
+         */
+        Phase: "active" | "needs-you" | "completed" | "failed" | "stopped";
+        /**
+         * @description How a run was started: a schedule (`cron`), an event, a poll, or someone’s act (`manual`). A run a request started is `manual`.
+         * @enum {string}
+         */
+        RunTrigger: "cron" | "event" | "poll" | "manual";
+        /** @description The pull request or issue a run is about. */
+        RunItem: {
+            /** @description Its page, an https address. */
+            url: string;
+            /** @description Written by its author: text, never markup. */
+            title: string;
+            /** @enum {string|null} */
+            kind: "pr" | "issue" | null;
+            /** @description `owner/name`, when known. */
+            repo: string | null;
+            number: number | null;
+        };
+        /** @description How many runs are in each phase. */
+        PhaseCounts: {
+            active: number;
+            "needs-you": number;
+            completed: number;
+            failed: number;
+            stopped: number;
+        };
+        RunDetail: {
+            run: components["schemas"]["RunSummary"];
+            /** @description The request that started it, which whoever sees the run sees. */
+            parent: {
+                id: string;
+                title: string;
+            } | null;
+            /** @description An automation run's steps, in file order; a request's one `orchestrator` step. */
+            steps: components["schemas"]["StepSummary"][];
+            /** @description A request's own facts; null for an automation run. */
+            request: {
+                /** @description The request as the person gave it. Untrusted (it may be a pasted ticket): show it as plain text only. */
+                text: string;
+                budget: {
+                    usd: number;
+                    runs: number;
+                } | null;
+                /** @description Its turns and its runs, as the engine sums them; runs it started. */
+                spent: {
+                    usd: number;
+                    runs: number;
+                };
+                /** @description The orchestrator's open question: when it was asked, and its deadline. Its text is not in the cell. */
+                question: {
+                    at: string;
+                    until: string;
+                } | null;
+            } | null;
+            /** @description The automation runs a request started, in the order it started them. */
+            children: components["schemas"]["RunSummary"][];
+            /** @description The cloud session holding the orchestrator's conversation, once there is one. Always null for now. */
+            conversation: {
+                sessionId: string;
+            } | null;
+        };
+        StepSummary: {
+            /** @description The step's id in its automation, or `orchestrator`. */
+            id: string;
+            kind: components["schemas"]["StepKind"];
+            status: components["schemas"]["StepStatus"];
+            /** @description From 1: the nth time it ran in this run. */
+            attempt: number;
+            /** @description The agent file it names (`agents/<name>.md`), if any. */
+            agent: string | null;
+            model: string | null;
+            startedAt: string | null;
+            finishedAt: string | null;
+            costUsd: number | null;
+            error: string | null;
+            /** @description Why it was skipped. */
+            skipped: string | null;
+            /** @description The latest execution's outputs, checked against their types. */
+            outputs: {
+                [key: string]: string | number | boolean;
+            } | null;
+            /** @description The documents it wrote; empty when none. */
+            artifacts: {
+                name: string;
+                bytes: number;
+            }[];
+            /** @description An agent step's turns, summed over its latest attempt. */
+            turn: {
+                /** @description The turns it took. */
+                turns: number | null;
+                /** @description Its own cap, if any. */
+                maxTurns: number | null;
+                /** @description Tools a turn was refused, each once, in first-seen order. */
+                deniedTools: string[];
+            } | null;
+            /** @description A command step's result; null for an agent step, or before it ran. */
+            command: {
+                exitCode: number | null;
+                signal: string | null;
+                stdoutBytes: number | null;
+                stderrBytes: number | null;
+                /** @description Whether its output was cut. */
+                truncated: boolean;
+            } | null;
+            /** @description Its earlier attempts in this run, oldest first; empty when none. */
+            previous: {
+                attempt: number;
+                status: components["schemas"]["StepStatus"];
+                error: string | null;
+                finishedAt: string | null;
+                costUsd: number | null;
+                turns: number | null;
+            }[];
+            /** @description Whether Consola reminded the agent to finish its step. */
+            reminded: boolean;
+            /** @description The end of what its latest attempt printed, as its runner last sent it: at most 16 KiB of each. Untrusted: show it as plain text. */
+            output: {
+                stdout: string;
+                stderr: string;
+                /** @description Whether more came before what is kept. */
+                truncated: boolean;
+            } | null;
+            definition: components["schemas"]["StepDefinition"] | null;
+        };
+        /** @enum {string} */
+        StepKind: "agent" | "run" | "orchestrator";
+        /**
+         * @description A step's status. The set only grows.
+         * @enum {string}
+         */
+        StepStatus: "pending" | "queued" | "running" | "completed" | "failed" | "skipped" | "reported" | "not-run" | "waiting";
+        /** @description What a step was asked, as its automation's file says at the factory version the run executed. */
+        StepDefinition: {
+            /** @enum {string} */
+            kind: "agent" | "run";
+            /** @description The prompt as written: a template, never rendered. */
+            prompt: string | null;
+            action: string | null;
+            /** @description The agent it runs as (`agents/<name>.md`). */
+            agent: string | null;
+            /** @description The command, as written. */
+            run: string | null;
+            /** @description The command's environment, as written (templates). */
+            env: {
+                name: string;
+                value: string;
+            }[];
+            /** @description Its condition, as written. */
+            if: string | null;
+            /** @description The outputs it declares, each type in words (`one of: a, b`). */
+            outputs: {
+                name: string;
+                type: string;
+            }[];
+            /** @description The artifacts it declares. */
+            artifacts: string[];
+            maxTurns: number | null;
+            /** @description A command's time limit. */
+            timeoutMs: number | null;
+            /** @description The file it is written in, in the factory. */
+            file: string;
+            /** @description The factory version it was read from. */
+            version: number;
         };
     };
     responses: never;

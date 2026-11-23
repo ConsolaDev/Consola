@@ -22,6 +22,7 @@ const app = createApp({
   gitHubEvents: unreachable as never,
   teams: unreachable as never,
   factories: unreachable as never,
+  runs: unreachable as never,
   clock: unreachable as never,
   report: () => {},
 });

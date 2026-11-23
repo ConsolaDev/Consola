@@ -40,6 +40,7 @@ export function composeCell(deps: {
     gitHubEvents: stores.gitHubEvents,
     teams: stores.teams,
     factories: stores.factories,
+    runs: stores.runs,
     clock: systemClock,
   });
   return { app };

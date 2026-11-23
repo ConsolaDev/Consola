@@ -1,0 +1,631 @@
+/* The Runs list, after Warp's: a title with the search beside it, a row of pill chips (the
+   desktop's filter chips: an accent tint once pressed), then the runs, one hairline apart, each a
+   44px row of status, title and its facts. A request opens to the automations it started,
+   hung from a thread under its status. Motion answers what happened: a run that arrives washes
+   in, one that ends draws its check, a request's chevron turns as it opens. */
+
+.runs {
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 28px clamp(16px, 4vw, 48px) 48px;
+}
+
+.runs-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 16px;
+}
+
+.runs-title {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+}
+
+/* ---- Search ---- */
+
+.runs-search {
+  display: flex;
+  flex: 0 1 280px;
+  align-items: center;
+  gap: 8px;
+  min-width: 180px;
+  height: 30px;
+  padding: 0 6px 0 9px;
+  box-sizing: border-box;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-md);
+  color: var(--text-3);
+  cursor: text;
+}
+
+.runs-search:focus-within {
+  border-color: var(--cyan);
+  box-shadow: 0 0 0 2px var(--cyan-muted);
+}
+
+.runs-search-input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--font-size-md);
+}
+
+.runs-search-input::placeholder {
+  color: var(--text-3);
+}
+
+.runs-search-input::-webkit-search-cancel-button {
+  display: none;
+}
+
+/* `/` puts the keyboard here: said by the key itself, until something is typed. */
+.runs-search-key {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  box-sizing: border-box;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+}
+
+/* ---- The chips ---- */
+
+/* A fieldset, for the group's name, with none of a fieldset's own frame. */
+.runs-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-inline-size: 0;
+  margin: 16px 0 0;
+  padding: 0 0 12px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.runs-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  box-sizing: border-box;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-medium);
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background 100ms ease,
+    border-color 100ms ease,
+    color 100ms ease;
+}
+
+.runs-chip:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+/* Pressed, or a menu's chip with something picked in it. */
+.runs-chip[aria-pressed="true"],
+.runs-chip[data-active] {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--cyan) 16%, transparent);
+  color: var(--text);
+}
+
+.runs-chip[aria-pressed="true"]:hover,
+.runs-chip[data-active]:hover {
+  background: color-mix(in srgb, var(--cyan) 26%, transparent);
+}
+
+.runs-chip:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: 1px;
+}
+
+.runs-chip > svg {
+  flex: none;
+  color: var(--text-3);
+}
+
+.runs-chip[aria-pressed="true"] > svg,
+.runs-chip[data-active] > svg {
+  color: var(--cyan-text);
+}
+
+.runs-chip-count {
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.runs-chip[aria-pressed="true"] .runs-chip-count,
+.runs-chip[data-active] .runs-chip-count {
+  color: var(--text-2);
+}
+
+/* Runs waiting for someone: the one count that asks for a look. */
+.runs-chip[data-tone="needs-you"] .runs-chip-count {
+  color: var(--warning);
+  font-weight: var(--font-weight-semibold);
+}
+
+.runs-picker {
+  padding-left: 9px;
+  padding-right: 8px;
+}
+
+.runs-picker-label {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.runs-chips-rule {
+  width: 1px;
+  height: 16px;
+  margin: 0 2px;
+  background: var(--line-strong);
+}
+
+.runs-chips-end {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.runs-filter {
+  padding-left: 9px;
+}
+
+.runs-clear {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--font-size-md);
+  cursor: pointer;
+}
+
+.runs-clear:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.runs-clear:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: 1px;
+}
+
+/* The menus: the desktop's rows, with a quiet hint at each row's end. */
+.runs-menu {
+  min-width: 220px;
+  max-width: min(320px, calc(100vw - 24px));
+}
+
+.runs-menu .rt-BaseMenuItem {
+  gap: 8px;
+  min-height: 30px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-md);
+}
+
+.runs-menu .rt-BaseMenuLabel {
+  font-size: var(--font-size-sm);
+}
+
+.runs-menu-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.runs-menu-hint {
+  flex: none;
+  max-width: 140px;
+  margin-left: auto;
+  padding-left: 12px;
+  overflow: hidden;
+  color: var(--gray-a10);
+  font-size: var(--font-size-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.runs-menu-note {
+  margin: 0;
+  padding: 6px 12px;
+  color: var(--gray-a10);
+  font-size: var(--font-size-sm);
+}
+
+/* ---- States ---- */
+
+.runs-stale {
+  margin: 10px 0 0;
+  color: var(--text-3);
+  font-size: var(--font-size-sm);
+}
+
+.runs-notice {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  margin-top: 20px;
+  padding: 16px 18px;
+  border: 1px solid var(--gray-a5);
+  border-radius: var(--radius-group);
+  background: var(--gray-2);
+  font-size: var(--font-size-md);
+}
+
+.runs-notice p {
+  margin: 0;
+}
+
+/* An empty list teaches what fills it: a tile, a title, a sentence, and what to do. */
+.runs-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 64px 16px 56px;
+  text-align: center;
+}
+
+.runs-empty-tile {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  margin-bottom: 8px;
+  box-sizing: border-box;
+  border: 1px solid var(--gray-a5);
+  border-radius: var(--radius-md);
+  background: var(--gray-2);
+  color: var(--text-2);
+}
+
+.runs-empty-title {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+}
+
+.runs-empty-words {
+  max-width: 46ch;
+  margin: 0 0 10px;
+  color: var(--text-2);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-normal);
+}
+
+/* The list's shape while its first answer comes: still, as product pages load, never shimmering. */
+.runs-skeleton {
+  display: flex;
+  flex-direction: column;
+}
+
+.runs-skeleton-row {
+  display: grid;
+  grid-template-columns: 22px 20px minmax(0, 1fr) 120px;
+  align-items: center;
+  gap: 10px;
+  height: 44px;
+  padding-right: 8px;
+}
+
+.runs-skeleton-row + .runs-skeleton-row {
+  border-top: 1px solid var(--line);
+}
+
+.runs-skeleton-dot {
+  grid-column: 2;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--hover);
+}
+
+.runs-skeleton-bar {
+  height: 10px;
+  border-radius: 5px;
+  background: var(--hover);
+}
+
+.runs-skeleton-meta {
+  opacity: 0.6;
+}
+
+/* ---- The rows ---- */
+
+.runs-list,
+.runs-children-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.runs-entry + .runs-entry {
+  border-top: 1px solid var(--line);
+}
+
+.runs-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  align-items: center;
+  border-radius: var(--radius-md);
+}
+
+.runs-row:hover {
+  background: var(--row-hover-solid);
+}
+
+.runs-row:hover .run-status {
+  --badge-ring: var(--row-hover-solid);
+}
+
+/* A run a refresh brought washes in once, in the accent, and settles to the list's colour. */
+.runs-row[data-arrived] {
+  animation: runs-arrive 1.6s var(--ease-out-quart) both;
+}
+
+@keyframes runs-arrive {
+  from {
+    background: var(--cyan-muted);
+  }
+}
+
+.runs-disclosure {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-3);
+  cursor: pointer;
+}
+
+span.runs-disclosure {
+  cursor: default;
+}
+
+button.runs-disclosure:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+button.runs-disclosure:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: -2px;
+}
+
+.runs-disclosure > svg {
+  transition: transform 150ms var(--ease-out-quart);
+}
+
+.runs-disclosure[aria-expanded="true"] > svg {
+  transform: rotate(90deg);
+}
+
+.runs-row-link {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  height: 44px;
+  padding: 0 8px 0 4px;
+  border-radius: var(--radius-md);
+  color: var(--text);
+  text-decoration: none;
+}
+
+.runs-row-link:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: -2px;
+}
+
+.runs-row-title {
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.runs-row-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-3);
+  font-size: var(--font-size-sm);
+  white-space: nowrap;
+}
+
+/* A fact about a run, set apart: its item, its factory. */
+.runs-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 170px;
+  height: 22px;
+  padding: 0 7px;
+  box-sizing: border-box;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  color: var(--text-2);
+  font-size: var(--font-size-xs);
+}
+
+.runs-tag > svg {
+  flex: none;
+  color: var(--text-3);
+}
+
+.runs-tag-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.runs-row-time {
+  min-width: 56px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* ---- A request's automations, hung from a thread under its status ---- */
+
+.runs-children {
+  margin: -2px 0 8px 35px;
+  padding: 2px 0 2px 13px;
+  border-left: 1px solid var(--line-strong);
+}
+
+.runs-children-note {
+  margin: 0;
+  padding: 6px 8px;
+  color: var(--text-3);
+  font-size: var(--font-size-sm);
+}
+
+.runs-child {
+  display: grid;
+  grid-template-columns: 20px auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 8px 0 4px;
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: var(--font-size-md);
+  text-decoration: none;
+}
+
+.runs-child:hover {
+  background: var(--row-hover-solid);
+}
+
+.runs-child:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: -2px;
+}
+
+.runs-child-name {
+  font-weight: var(--font-weight-medium);
+  white-space: nowrap;
+}
+
+.runs-child-where {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-3);
+  font-size: var(--font-size-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.runs-child-where[data-tone="error"] {
+  color: var(--danger);
+}
+
+.runs-child-time {
+  color: var(--text-3);
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- Load more ---- */
+
+.runs-more {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 20px 0 4px;
+}
+
+.runs-more-failed {
+  margin: 0;
+  color: var(--danger);
+  font-size: var(--font-size-sm);
+}
+
+/* Narrow: the facts give way first, the factory before the item; the chips' end wraps. */
+@media (max-width: 900px) {
+  .runs-tag-factory {
+    display: none;
+  }
+}
+
+@media (max-width: 620px) {
+  .runs .runs-tag {
+    display: none;
+  }
+
+  .runs-search {
+    flex-basis: 100%;
+  }
+
+  .runs-chips-end {
+    margin-left: 0;
+  }
+
+  .runs-search-key {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .runs-row[data-arrived] {
+    animation: none;
+  }
+
+  .runs-chip,
+  .runs-disclosure > svg {
+    transition: none;
+  }
+}

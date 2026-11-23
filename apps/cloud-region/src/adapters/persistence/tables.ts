@@ -6,13 +6,16 @@
 // checks both.
 
 import type { WorkspaceRole } from '@consola/cloud-contract';
-import { sql } from 'drizzle-orm';
+import { type SQLWrapper, sql } from 'drizzle-orm';
 import {
   bigint,
   boolean,
+  check,
+  doublePrecision,
   foreignKey,
   index,
   integer,
+  jsonb,
   pgTable,
   primaryKey,
   text,
@@ -21,6 +24,21 @@ import {
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
 import type { FactorySource } from '../../domain/factory.js';
+import {
+  PHASES,
+  type Phase,
+  RUN_KINDS,
+  RUN_STATUSES,
+  RUN_TRIGGERS,
+  type RequestFacts,
+  type RunItem,
+  type RunKind,
+  type RunStatus,
+  type RunTrigger,
+  type StepRecord,
+  WAITING_ON,
+  type WaitingOn,
+} from '../../domain/run.js';
 
 /**
  * The cell's copy of each workspace in its region, kept from cloud-global's outbox messages: a row
@@ -207,5 +225,101 @@ export const gitHubEvents = pgTable(
   (table) => [
     primaryKey({ columns: [table.workspaceId, table.deliveryId] }),
     index('github_event_received_idx').on(table.workspaceId, table.receivedAt),
+  ],
+);
+
+/** A run's time, to the millisecond, as runners write it: a cursor holding one finds it again. */
+const runTime = (name: string) => timestamp(name, { withTimezone: true, precision: 3 });
+
+/** `column in (…)`, for a check: the words are the domain's own constants, written as literals. */
+const oneOf = (column: SQLWrapper, words: readonly string[]) =>
+  sql`${column} in (${sql.raw(words.map((word) => `'${word}'`).join(', '))})`;
+
+/**
+ * A workspace's runs (`domain/run.ts`), each as its runner last recorded it, keyed by the
+ * runner's id. A run points at the version of its factory it ran, so its factory and version are
+ * always the workspace's own. A run a request started points at the request through the
+ * request's factory too, so a child is always of its request's factory, and whoever sees the
+ * child sees the request. `title` and `phase` are the cell's, stored when the run is recorded so
+ * the list filters, searches and counts by them; a request's phase rolls up its children's. The
+ * item, the steps and a request's facts are JSON; a request's text, which only its page reads, is
+ * a column of its own. The checks hold the domain's rules on the row as a backstop to
+ * `checkRun`.
+ */
+export const runs = pgTable(
+  'run',
+  {
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.workspaceId),
+    runId: text('run_id').notNull(),
+    factoryId: text('factory_id').notNull(),
+    factoryVersion: integer('factory_version').notNull(),
+    parentRunId: text('parent_run_id'),
+    parentMove: integer('parent_move'),
+    kind: text('kind').$type<RunKind>().notNull(),
+    automation: text('automation'),
+    title: text('title').notNull(),
+    status: text('status').$type<RunStatus>().notNull(),
+    waitingOn: text('waiting_on').$type<WaitingOn>(),
+    phase: text('phase').$type<Phase>().notNull(),
+    trigger: text('trigger').$type<RunTrigger>().notNull(),
+    triggerDetail: text('trigger_detail'),
+    startedBy: text('started_by_person_id'),
+    item: jsonb('item').$type<RunItem>(),
+    runner: text('runner').notNull(),
+    steps: jsonb('steps').$type<StepRecord[]>().notNull(),
+    request: jsonb('request').$type<RequestFacts>(),
+    requestText: text('request_text'),
+    summary: text('summary'),
+    error: text('error'),
+    costUsd: doublePrecision('cost_usd'),
+    createdAt: runTime('created_at').notNull(),
+    startedAt: runTime('started_at'),
+    finishedAt: runTime('finished_at'),
+    updatedAt: runTime('updated_at').notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.workspaceId, table.runId] }),
+    // What a child's row points at, so a child is always of its request's factory.
+    unique('run_factory_run_unique').on(table.workspaceId, table.factoryId, table.runId),
+    foreignKey({
+      name: 'run_factory_version_fk',
+      columns: [table.workspaceId, table.factoryId, table.factoryVersion],
+      foreignColumns: [
+        factoryVersions.workspaceId,
+        factoryVersions.factoryId,
+        factoryVersions.version,
+      ],
+    }),
+    foreignKey({
+      name: 'run_parent_fk',
+      columns: [table.workspaceId, table.factoryId, table.parentRunId],
+      foreignColumns: [table.workspaceId, table.factoryId, table.runId],
+    }),
+    // The list: a workspace's top-level runs, newest first.
+    index('run_list_idx')
+      .on(table.workspaceId, table.createdAt.desc(), table.runId.desc())
+      .where(sql`${table.parentRunId} is null`),
+    // A request's runs, in the order it started them.
+    index('run_children_idx')
+      .on(table.workspaceId, table.parentRunId, table.parentMove)
+      .where(sql`${table.parentRunId} is not null`),
+    check('run_kind_check', oneOf(table.kind, RUN_KINDS)),
+    check('run_status_check', oneOf(table.status, RUN_STATUSES)),
+    check('run_phase_check', oneOf(table.phase, PHASES)),
+    check('run_trigger_check', oneOf(table.trigger, RUN_TRIGGERS)),
+    check(
+      'run_waiting_on_check',
+      sql`(${table.status} = 'waiting') = (${table.waitingOn} is not null) and (${table.waitingOn} is null or ${oneOf(table.waitingOn, WAITING_ON)})`,
+    ),
+    check(
+      'run_request_check',
+      sql`(${table.kind} = 'request') = (${table.automation} is null) and (${table.kind} = 'request') = (${table.request} is not null) and (${table.kind} = 'request') = (${table.requestText} is not null)`,
+    ),
+    check(
+      'run_parent_check',
+      sql`(${table.parentRunId} is null) = (${table.parentMove} is null) and (${table.parentRunId} is null or ${table.kind} = 'automation')`,
+    ),
   ],
 );

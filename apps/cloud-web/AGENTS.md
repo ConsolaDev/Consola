@@ -22,16 +22,22 @@ The app is built in layers, and imports point inward only.
   slug, a failed switch, an icon not set and the create form's hints;
   connections (`connections.ts`: the answers of `/api/connections`, a
   Connect's results, the services that come later) and their sentences
-  (`connectionMessages.ts`); teams (`teams.ts`: `Team`, `WorkspaceMember`,
-  `checkTeamName`, `memberOf`, `addableTo`, `TeamsState`, `TeamChange`) and
-  their sentences (`teamMessages.ts`); factories (`factories.ts`: `Factory`,
-  `checkFactoryName`, `checkNewFactory`, `newFactoryDraft`, `owningTeam`,
-  `isMove`, `SOURCE_OPTIONS`, `FactoriesState`, `FactoryChange`,
-  `FactoryRead`, `fileGroups` and `firstFile`), how the sidebar and the
-  address name them (`factoryNav.ts`: `FACTORY_PAGES`, `factoryRouteOfHash`,
-  `hashOfFactoryPage`, `factoryLanding`, the fold rules `isUnfolded` and
-  `withFold`, and a tile's colour, `factoryHue`) and their sentences
-  (`factoryMessages.ts`); where the running source is
+  (`connectionMessages.ts`); why a cell could not be read, and its sentence
+  (`cell.ts`: `CellRefusal`, `messageForCellRefusal`); teams (`teams.ts`:
+  `Team`, `WorkspaceMember`, `checkTeamName`, `memberOf`, `addableTo`,
+  `TeamsState`, `TeamChange`) and their sentences (`teamMessages.ts`);
+  factories (`factories.ts`: `Factory`, `checkFactoryName`, `checkNewFactory`,
+  `newFactoryDraft`, `owningTeam`, `isMove`, `SOURCE_OPTIONS`,
+  `FactoriesState`, `FactoryChange`, `FactoryRead`, `fileGroups` and
+  `firstFile`), how the sidebar and the address name them (`factoryNav.ts`:
+  `FACTORY_PAGES`, `factoryRouteOfHash`, `hashOfFactoryPage`,
+  `factoryLanding`, the fold rules `isUnfolded` and `withFold`, and a tile's
+  colour, `factoryHue`) and their sentences (`factoryMessages.ts`); runs
+  (`runs.ts`: the contract's run types, `PHASES`, `mergeRefresh`, the poll
+  delays, `starterOf`, `safeItemUrl`, `RunsAnswer`, `RunAnswer`), the list's
+  filters (`runFilters.ts`), where the section is (`runsRoute.ts`), how a run
+  is said (`runWords.ts`), how a step is traced (`stepTrace.ts`) and the
+  pages' sentences (`runMessages.ts`; see "Runs"); where the running source is
   (`source.ts`); and how the address names a dashboard section (`sections.ts`:
   `sectionIdOfHash`, `hashOfSection`, `chooseSection`) and a settings page
   (`settings.ts`: `settingsPageIdOfHash`, `hashOfSettingsPage`). It is plain
@@ -46,31 +52,35 @@ The app is built in layers, and imports point inward only.
   `openapi-fetch` client typed by the contract), the workspace's cell
   (`cell.ts`: `createCellSession`, the token and the address every service
   of the cell shares, on `createCellApi`; `teams.ts`: `teamsService`;
-  `factories.ts`: `factoriesService`), Better Auth's client
-  (`authClient.ts`: `signInWithGoogle`, `signOut`), the clipboard
-  (`clipboard.ts`: `copyText`) and the address bar
+  `factories.ts`: `factoriesService`; `runs.ts`: `runsService`), Better
+  Auth's client (`authClient.ts`: `signInWithGoogle`, `signOut`), the
+  clipboard (`clipboard.ts`: `copyText`) and the address bar
   (`signInRedirect.ts`: `takeSignInErrorCode`; `address.ts`: `currentHash`,
   `openHash`, `replaceHash`, `onHashChange`; `settingsAddress.ts`:
   `currentSettingsPageId`, `openSettingsPage`, `onSettingsPageChange`;
-  `gitHubRedirect.ts`: `takeGitHubResult`, `goToGitHub`), and the browser's
-  storage, for a convenience only (`foldStore.ts`: `readUnfolded`,
-  `writeUnfolded`). A service answers in domain types and sentences, never in
-  a library's own.
+  `gitHubRedirect.ts`: `takeGitHubResult`, `goToGitHub`; `runsAddress.ts`:
+  `currentRunsHash`, `onRunsAddressChange`, `showRunsFilters`), whether the
+  page is in view (`pageVisibility.ts`), and the browser's storage, for a
+  convenience only (`foldStore.ts`: `readUnfolded`, `writeUnfolded`;
+  `runPagePrefs.ts`, what this browser keeps of a run's page). A service
+  answers in domain types and sentences, never in a library's own.
 - `src/ui/` holds the React screens (`App.tsx` and the cards beside it:
   `SignInCard`, `ProfileCard`, `CreateWorkspaceCard`, and the narrow page's
   topbar with `SignOutButton`), the dashboard (`Dashboard.tsx` with its
   sidebar's workspace menu, `WorkspaceSwitcher`, and `AccountMenu`, its list
   of sections `sections.tsx` with each section's page, such as
-  `OverviewPage.tsx` with `RegionMap` and `CopySlug`, and its Factories group
+  `OverviewPage.tsx` with `RegionMap` and `CopySlug`, and `RunsSection.tsx`
+  with the list and a run's page (see "Runs"), and its Factories group
   `FactoriesNav.tsx` with `FactoryTile`, `useFactories`, `NewFactoryDialog`
   and a factory's pages, `FactoryView.tsx` with `FactoryDefinitionPage`,
   `FactorySettingsPage` and `SourceChoice`), Settings
   (`SettingsDialog.tsx`, its pages in `settingsPages.tsx`: `GeneralPage.tsx`
   with `WorkspaceIconPicker`, `ConnectionsPage.tsx`, and `TeamsPage.tsx` with
   `TeamCard.tsx` and `TeamNameForm.tsx`), the pieces they share (`Avatar`,
-  `WorkspaceIcon`, `BrandMark` on the sign-in card) and `styles.css`. A
-  screen asks a service and shows what comes back. It does not fetch, touch
-  the address or know Better Auth.
+  `WorkspaceIcon`, `BrandMark` on the sign-in card) and `styles.css`. A hook
+  goes beside them (`usePoll.ts`: `usePoll`, `useNow`). A screen asks a
+  service and shows what comes back. It does not fetch, touch the address or
+  know Better Auth.
 - The entry wires the page. `src/main.tsx` mounts `ui/App` inside Radix's
   `Theme` and follows the system's colour scheme, and `src/env.d.ts` declares
   the build constants (`__CONSOLA_COMMIT__`, `__CONSOLA_VERSION__`) that
@@ -258,6 +268,103 @@ desktop app draws its sidebar.
   them to one. Once made, it closes, the list is read again, and the new
   factory's definition opens.
 
+## Runs
+
+The Runs section (`#/runs`, `ui/RunsSection.tsx`, a `wide` entry of
+`SECTIONS` after Overview) shows the workspace's runs, which live in its
+regional cell (`apps/cloud-region/AGENTS.md`, "Runs"), through `runsService`
+(`services/runs.ts`) on the page's cell session (`pageCellSession`), as Teams and
+Factories are. The cell decides
+everything: which runs a person sees (a member, those of their teams'
+factories), each run's phase (a request rolls up to `needs-you` while one of
+its automations does), the chips' counts and what the menus offer
+(`facets`). The page never derives a phase. A request is a run whose step is
+the factory's orchestrator; the automations it starts are its children.
+
+- **The address holds the place.** The list is `#/runs`, its filters after
+  `?` (`runFilters.ts`: `filtersOfQuery`, `queryOfFilters`, one order for one
+  set, `background=1` for the three background triggers, an unknown value
+  dropped); a run is `#/runs/<id>` (`runsRoute.ts`). A run opens as a new
+  history entry (its row is a link); a filter replaces the list's entry
+  (`showRunsFilters`, which tells its listeners, since `replaceState` fires
+  no `hashchange`). The run's page leads back to the list as the section last
+  showed it.
+- **Filters**: the factory picker (every factory, a team's, or one, under
+  their teams: `factoriesByTeam`), My runs, a chip per phase with the cell's
+  count (Running, Complete, Failed, Blocked for `needs-you`, Cancelled for
+  `stopped`; several at once are any of them), Background runs, the Filter
+  menu (an automation, how runs were started) and search, which the list
+  follows once typing settles (`/` puts the keyboard there). My runs and
+  Background runs exclude each other; an automation is sent with its factory,
+  since the cell matches its name in every factory otherwise.
+- **The list reads itself again** (`usePoll`): every 5 s while a run shown,
+  the opened requests' automations included, can change, every 30 s once none
+  can, never while the tab is hidden (`pageVisibility.ts`), and at once when
+  it shows again. One read at a time; a new filter starts again, and a read
+  for the old one is never shown. A refresh asks for the newest runs, as many
+  as are shown (`refreshLimit`, up to 100), and `mergeRefresh` lays them over
+  the rows, keeping any pushed past its end, so Load more goes on after them.
+  A refresh that fails keeps the rows and says when they were read.
+- **A row** is Warp's: the status (a request's with a badge counting the
+  automations it started, coloured by the one most worth a look), the title,
+  the item and factory as tags, who started it (a member's picture, someone
+  who left, or a schedule, event or poll's mark: `starterOf`) and when. A
+  request's chevron opens its automations under it, read from its run's
+  answer and again with the list while they can change.
+- **A run's page** is the desktop's session: its header ("Runs / request /
+  name", the name in the accent, a status chip, the item's link and the info
+  panel's toggle), the main pane, and the info panel (`ui/InfoPanel.tsx`, the
+  desktop's sections, rows and folds, redrawn; `ui/RunInfoPanel.tsx`). A
+  request's sections are Request, Automations (each live, each a link to its
+  own page) and Budget; an automation run's is Run, linking its request. It
+  reads the run again every 3 s while it or an automation it started works,
+  every 15 s while it waits on someone, and not at all once nothing can change.
+  Whether the panel shows and which sections are folded are kept in this
+  browser (`runPagePrefs.ts`).
+- **An automation run's steps are the desktop's trace** (`ui/StepTrace.tsx`,
+  its words in `domain/stepTrace.ts`, after the desktop's `StepsRunView`,
+  `StepDetailView` and `stepDetail.ts`): the steps in the file's order, each a
+  row of its status, id, kind, a line of what it did (`stepSummary`: what it
+  set or wrote, what it printed, its error, why it did not run, a running
+  command's last line) and its time and facts (`rowFacts`), opening in place.
+  A step that failed, runs or waits opens by itself and stays open; the
+  person's choice wins, and Expand all and Collapse all set every step. Open,
+  a step shows what it was asked (the prompt or action, or the command and its
+  env, as written in the factory version the run executed, and the file it is
+  in), what it is doing or did (turns against the cap, model, denied tools,
+  the attempts line; a command's result and the end of its output, kept
+  scrolled to its end while the person has not scrolled up) and what it
+  produced (the error, outputs, artifacts by name and size). A failed run's
+  note says where it broke, and the step's name opens it, scrolls to it and
+  lights it once. What a command printed is cleaned of the terminal's codes
+  (`cleanOutput`: every escape sequence, every control character but a
+  newline and a tab, and the characters that reorder text; a carriage return
+  redraws its line). Nothing opens a session or an artifact's content yet,
+  and an agent step says its conversation comes later.
+- **The conversation comes later.** A request's pane is where `AgentChat`
+  (`@consola/agent-ui`) will mount once requests run in cloud sessions; this
+  app imports no workspace package yet. Until then (`conversation === null`)
+  it shows the request as the person gave it and says what will join it. An
+  open question's words are not in the cell, so the page says when it was
+  asked and its deadline. Nothing on the pages changes a run yet.
+- **Text a run carries is untrusted** (a request may be a pasted ticket): it
+  is shown as text, never markup, and an item's address is a link only on
+  `https:` (`safeItemUrl`), which the cell also holds it to.
+- **Type is the scale's** (`--font-size-xs` to `--font-size-xl`, the weights
+  and line heights in `styles.css`), never pixels: 14px for titles, names,
+  fields, buttons and chips, 12px for what supports them (meta lines, the
+  info panel's rows), 11px only for tags, the steps' model and a status's
+  count badge.
+- **States** are the cell's, as Teams has them (`messageForCellRefusal`),
+  with `invalid` (filters the cell could not read: Clear filters) and a run
+  not found (none, or one of another team's factories: the cell says the
+  same of both). An empty list says what fills it; one empty for its filters
+  offers to clear them.
+
+The section needs the workspace's cell running (`pnpm dev:cloud-region`);
+`pnpm --filter @consola/cloud-region db:seed` writes demo runs into a local
+cell's database.
+
 ## Workspaces
 
 The API is `cloud-global`'s (its `AGENTS.md`, "Workspaces"), and it is the
@@ -297,7 +404,9 @@ under a topbar of their own.
 
 - **One list of sections.** `ui/sections.tsx` holds `SECTIONS`, in the nav's
   order. A section is `{ id, label, icon, View }` (the icon from the
-  desktop's set, `lucide-react`), and its `View` gets `SectionProps`: the
+  desktop's set, `lucide-react`), with `layout: 'wide'` for a page that
+  takes the whole space beside the sidebar and lays itself out (Runs), where
+  any other sits in the 880px reading column; its `View` gets `SectionProps`: the
   person (`Me`), the workspace open (never null) and `onWorkspaceChanged`,
   which a page calls once it has changed the workspace, so the page loads
   again and the sidebar and the menu catch up. A new
@@ -347,7 +456,9 @@ under a topbar of their own.
 - **Styles are the desktop app's.** `styles.css` declares its tokens on
   `:root` for both schemes, with the desktop themes' own values (`--bg`
   #050505, `--bg-sidebar` #111111, `--bg-pop` #1e1e1e for menus, `--hover`
-  and `--active` at 10% and 15%, `--text` at 90/60/40%, `--line`, `--cyan`),
+  and `--active` at 10% and 15%, `--text` at 90/60/40%, `--line`, `--cyan`,
+  and the status colours `--success`, `--warning` and `--danger`, yellow
+  only for what waits on a person),
   and points Radix's surfaces and fonts at them, so its menus and Settings
   match. Its type is the desktop's scale (`styles/themes/tokens.css`), by
   the same names (`--font-size-xs` to `--font-size-xl`, the weights and
@@ -372,12 +483,15 @@ under a topbar of their own.
   `.workspace-icon`). A page's own styles go in a stylesheet beside it
   (`ui/OverviewPage.css`, `ui/FactoryView.css`, `ui/NewFactoryDialog.css`,
   `ui/SourceChoice.css`, `ui/GeneralPage.css`, `ui/ConnectionsPage.css`,
-  `ui/TeamsPage.css`), imported by the page.
+  `ui/TeamsPage.css`, `ui/RunsList.css`), imported by the page.
 - **Motion plays once, or answers the person.** The map's region ripples on as
   the page opens, a factory's chevron turns as it folds, a new icon pops
   into its tile, the slug's icon
   turns to a check when copied, and the sign-in card's C blinks a cursor when
-  pointed at. None of it plays under `prefers-reduced-motion`.
+  pointed at. A run's status moves only as the run does (its pie fills to
+  where it is now, its check draws itself as it ends, a run that arrives
+  washes in), and nothing loops: a run at work is a pie, not a spinner.
+  None of it plays under `prefers-reduced-motion`.
 
 ## Settings
 

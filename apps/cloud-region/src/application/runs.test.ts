@@ -1,0 +1,415 @@
+import { cellTokenClaims, type WorkspaceRole } from '@consola/cloud-contract';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { type Database, migrateDatabase, openDatabase } from '../adapters/persistence/database.js';
+import { createDrizzleStores } from '../adapters/persistence/stores.js';
+import { admitClaims, type Caller } from '../domain/caller.js';
+import type { Factory } from '../domain/factory.js';
+import { NO_RUNS, NO_STEP_DETAIL, type RunWrite, type StepRecord } from '../domain/run.js';
+import type { Team } from '../domain/team.js';
+import type { FactoryStore, RunStore, TeamStore, WorkspaceCopies } from './ports.js';
+import { listRuns, type RunsQuery, readRun, recordRun } from './runs.js';
+
+let db: Database;
+let close: () => Promise<void>;
+let teams: TeamStore;
+let factories: FactoryStore;
+let runs: RunStore;
+let workspaceCopies: WorkspaceCopies;
+
+beforeEach(async () => {
+  ({ db, close } = openDatabase('pglite:memory'));
+  await migrateDatabase(db);
+  ({ teams, factories, runs, workspaceCopies } = createDrizzleStores(db));
+});
+
+afterEach(async () => {
+  await close();
+});
+
+/** Who a checked cell token names: only `admitClaims` makes a caller. */
+function caller(personId: string, role: WorkspaceRole, workspaceId = 'acme'): Caller {
+  const now = Math.floor(Date.now() / 1000);
+  const claims = cellTokenClaims({ personId, workspaceId, role, region: 'eu', issuedAt: now });
+  const admitted = admitClaims(claims, now, 'eu');
+  if (admitted.kind !== 'accepted') throw new Error('the token was not accepted');
+  return admitted.caller;
+}
+
+const dana = () => caller('person-dana', 'owner');
+const eli = () => caller('person-eli', 'admin');
+const fay = () => caller('person-fay', 'member');
+const gus = () => caller('person-gus', 'member');
+
+/** Applies `changes` to a workspace's copy in order, the way the outbox does. */
+async function apply(
+  workspaceId: string,
+  changes: Parameters<WorkspaceCopies['applyAfter']>[0]['change'][],
+) {
+  for (const [index, change] of changes.entries()) {
+    const sequence = index + 1;
+    await workspaceCopies.applyAfter({
+      workspaceId,
+      sequence,
+      after: index === 0 ? null : index,
+      change,
+    });
+  }
+}
+
+type Acme = { general: Team; platform: Team; site: Factory; infra: Factory };
+
+/**
+ * Acme: Dana (owner), Eli (admin), Fay and Gus (members), all in General; Platform holds only
+ * Fay. General owns the Site factory, Platform the Infra factory.
+ */
+async function acme(): Promise<Acme> {
+  await apply('acme', [
+    { kind: 'open-workspace' },
+    { kind: 'put-member', personId: 'person-dana', role: 'owner' },
+    { kind: 'put-member', personId: 'person-eli', role: 'admin' },
+    { kind: 'put-member', personId: 'person-fay', role: 'member' },
+    { kind: 'put-member', personId: 'person-gus', role: 'member' },
+  ]);
+  const platform = await teams.create('acme', 'Platform');
+  if (platform === 'name-taken') throw new Error('Platform was taken');
+  await teams.addMember('acme', platform.id, 'person-fay');
+  const [general] = await teams.list('acme');
+  if (!general) throw new Error('Acme has no first team');
+  const site = await factories.create('acme', { name: 'Site', teamId: general.id, personId: 'p' });
+  const infra = await factories.create('acme', {
+    name: 'Infra',
+    teamId: platform.id,
+    personId: 'p',
+  });
+  if (typeof site === 'string' || typeof infra === 'string') throw new Error('not made');
+  return { general, platform, site, infra };
+}
+
+const at = (minutes: number) => new Date(Date.UTC(2026, 10, 20, 10, minutes)).toISOString();
+
+const step = (id: string, kind: StepRecord['kind'] = 'agent'): StepRecord => ({
+  id,
+  kind,
+  status: 'running',
+  attempt: 1,
+  agent: null,
+  model: null,
+  startedAt: null,
+  finishedAt: null,
+  costUsd: null,
+  error: null,
+  skipped: null,
+  ...NO_STEP_DETAIL,
+});
+
+const automationRun = (id: string, factoryId: string, overrides: Partial<RunWrite> = {}) =>
+  ({
+    id,
+    factoryId,
+    factoryVersion: 1,
+    parent: null,
+    automation: 'nightly',
+    status: 'running',
+    waitingOn: null,
+    trigger: 'cron',
+    triggerDetail: '0 3 * * *',
+    startedBy: null,
+    item: null,
+    runner: 'cloud',
+    steps: [step('build')],
+    request: null,
+    summary: null,
+    error: null,
+    costUsd: null,
+    createdAt: at(0),
+    startedAt: null,
+    finishedAt: null,
+    updatedAt: at(0),
+    ...overrides,
+  }) satisfies RunWrite;
+
+const request = (id: string, factoryId: string, overrides: Partial<RunWrite> = {}) =>
+  automationRun(id, factoryId, {
+    automation: null,
+    trigger: 'manual',
+    triggerDetail: null,
+    steps: [step('orchestrator', 'orchestrator')],
+    request: { text: `Do ${id}.`, budget: null, spent: { usd: 0, runs: 0 }, question: null },
+    ...overrides,
+  });
+
+async function recorded(workspaceId: string, run: RunWrite) {
+  const answer = await recordRun(runs, workspaceId, run);
+  if (answer.kind !== 'recorded') throw new Error(`${run.id} was not recorded: ${answer.kind}`);
+}
+
+const query = (overrides: Partial<RunsQuery> = {}): RunsQuery => ({
+  phases: [],
+  triggers: [],
+  factoryId: null,
+  teamId: null,
+  automation: null,
+  mine: false,
+  q: null,
+  cursor: null,
+  limit: 50,
+  ...overrides,
+});
+
+async function listedBy(who: Caller, overrides: Partial<RunsQuery> = {}) {
+  const answer = await listRuns(teams, factories, runs, who, query(overrides));
+  if (answer.kind !== 'listed') throw new Error(`not listed: ${answer.kind}`);
+  return answer;
+}
+
+const idsListedBy = async (who: Caller, overrides: Partial<RunsQuery> = {}) =>
+  (await listedBy(who, overrides)).runs.map((run) => run.id);
+
+/** Acme with a run of each factory, Infra's a request with one run of its own, made by Fay. */
+async function acmeWithRuns(): Promise<Acme> {
+  const made = await acme();
+  await recorded('acme', automationRun('site-nightly', made.site.id, { createdAt: at(1) }));
+  await recorded(
+    'acme',
+    request('infra-ask', made.infra.id, { createdAt: at(2), startedBy: 'person-fay' }),
+  );
+  await recorded(
+    'acme',
+    automationRun('infra-child', made.infra.id, {
+      parent: { runId: 'infra-ask', move: 1 },
+      trigger: 'manual',
+      triggerDetail: null,
+      automation: 'migrate',
+      status: 'needs-approval',
+      createdAt: at(3),
+    }),
+  );
+  return made;
+}
+
+describe('listRuns', () => {
+  it("shows owners and admins every factory's runs, and a member their teams' only", async () => {
+    await acmeWithRuns();
+    expect(await idsListedBy(dana())).toEqual(['infra-ask', 'site-nightly']);
+    expect(await idsListedBy(eli())).toEqual(['infra-ask', 'site-nightly']);
+    expect(await idsListedBy(fay())).toEqual(['infra-ask', 'site-nightly']);
+    expect(await idsListedBy(gus())).toEqual(['site-nightly']);
+  });
+
+  it('counts and offers only what the caller sees', async () => {
+    const { general, platform, site, infra } = await acmeWithRuns();
+    const forGus = await listedBy(gus());
+    expect(forGus.counts).toEqual({ ...NO_RUNS, active: 1 });
+    expect(forGus.facets).toEqual({
+      factories: [{ id: site.id, name: 'Site', teamId: general.id, latestVersion: 1 }],
+      teams: [{ id: general.id, name: general.name }],
+      automations: [{ factoryId: site.id, name: 'nightly' }],
+    });
+    const forDana = await listedBy(dana());
+    // The request rolls its run's approval up: it needs someone.
+    expect(forDana.counts).toEqual({ ...NO_RUNS, active: 1, 'needs-you': 1 });
+    expect(forDana.facets.teams.map((team) => team.id)).toEqual([general.id, platform.id]);
+    expect(forDana.facets.automations).toEqual([
+      { factoryId: infra.id, name: 'migrate' },
+      { factoryId: site.id, name: 'nightly' },
+    ]);
+  });
+
+  it('narrows to a factory or team, and to nothing for one the caller does not see', async () => {
+    const { platform, site, infra } = await acmeWithRuns();
+    expect(await idsListedBy(dana(), { factoryId: site.id })).toEqual(['site-nightly']);
+    expect(await idsListedBy(dana(), { teamId: platform.id })).toEqual(['infra-ask']);
+    const hidden = await listedBy(gus(), { factoryId: infra.id });
+    expect(hidden.runs).toEqual([]);
+    expect(hidden.counts).toEqual(NO_RUNS);
+    expect(await idsListedBy(gus(), { teamId: platform.id })).toEqual([]);
+    expect(await idsListedBy(dana(), { factoryId: 'no-such-factory' })).toEqual([]);
+  });
+
+  it("lists the caller's own runs for `mine`, and filters by phase and text", async () => {
+    await acmeWithRuns();
+    expect(await idsListedBy(fay(), { mine: true })).toEqual(['infra-ask']);
+    expect(await idsListedBy(dana(), { mine: true })).toEqual([]);
+    expect(await idsListedBy(dana(), { phases: ['needs-you'] })).toEqual(['infra-ask']);
+    expect(await idsListedBy(dana(), { q: '  NIGHT ' })).toEqual(['site-nightly']);
+    expect(await idsListedBy(dana(), { automation: 'migrate' })).toEqual(['infra-ask']);
+  });
+
+  it('pages with a cursor it handed out, and refuses one it did not', async () => {
+    await acmeWithRuns();
+    const first = await listedBy(dana(), { limit: 1 });
+    expect(first.runs.map((run) => run.id)).toEqual(['infra-ask']);
+    expect(first.nextCursor).toEqual(expect.any(String));
+    const second = await listedBy(dana(), { limit: 1, cursor: first.nextCursor });
+    expect(second.runs.map((run) => run.id)).toEqual(['site-nightly']);
+    expect(second.nextCursor).toBeNull();
+    expect(await listRuns(teams, factories, runs, dana(), query({ cursor: 'nope!' }))).toEqual({
+      kind: 'invalid-cursor',
+    });
+  });
+
+  it('is pending while the cell does not hold the workspace, and empty for someone it does not hold', async () => {
+    expect(await listRuns(teams, factories, runs, dana(), query())).toEqual({
+      kind: 'workspace-pending',
+    });
+    await acmeWithRuns();
+    expect(await listedBy(caller('person-stranger', 'owner'))).toEqual({
+      kind: 'listed',
+      runs: [],
+      nextCursor: null,
+      counts: NO_RUNS,
+      facets: { factories: [], teams: [], automations: [] },
+    });
+  });
+});
+
+describe('readRun', () => {
+  it('reads a run the caller sees, with its request or its runs', async () => {
+    await acmeWithRuns();
+    const ask = await readRun(teams, factories, runs, fay(), 'infra-ask');
+    expect(ask.kind === 'found' && ask.children.map((run) => run.id)).toEqual(['infra-child']);
+    const child = await readRun(teams, factories, runs, dana(), 'infra-child');
+    expect(child.kind === 'found' && child.parent).toEqual({
+      id: 'infra-ask',
+      title: 'Do infra-ask.',
+    });
+  });
+
+  it("finds no run of a factory the caller does not see, nor another workspace's", async () => {
+    await acmeWithRuns();
+    expect(await readRun(teams, factories, runs, gus(), 'infra-ask')).toEqual({
+      kind: 'not-found',
+    });
+    expect(await readRun(teams, factories, runs, gus(), 'infra-child')).toEqual({
+      kind: 'not-found',
+    });
+    expect(await readRun(teams, factories, runs, gus(), 'site-nightly')).toEqual(
+      expect.objectContaining({ kind: 'found' }),
+    );
+
+    await apply('globex', [
+      { kind: 'open-workspace' },
+      { kind: 'put-member', personId: 'person-dana', role: 'owner' },
+    ]);
+    const [globexTeam] = await teams.list('globex');
+    const globexFactory = await factories.create('globex', {
+      name: 'Globex',
+      teamId: globexTeam?.id ?? '',
+      personId: 'p',
+    });
+    if (typeof globexFactory === 'string') throw new Error('not made');
+    await recorded('globex', automationRun('globex-run', globexFactory.id));
+    expect(await readRun(teams, factories, runs, dana(), 'globex-run')).toEqual({
+      kind: 'not-found',
+    });
+    expect(
+      await readRun(teams, factories, runs, caller('person-dana', 'owner', 'globex'), 'globex-run'),
+    ).toEqual(expect.objectContaining({ kind: 'found' }));
+  });
+
+  it('is pending while the cell does not hold the workspace', async () => {
+    expect(await readRun(teams, factories, runs, dana(), 'any')).toEqual({
+      kind: 'workspace-pending',
+    });
+  });
+});
+
+describe('recordRun', () => {
+  it('records a run only once checkRun finds nothing wrong with it', async () => {
+    const { site } = await acme();
+    expect(
+      await recordRun(runs, 'acme', automationRun('bad', site.id, { status: 'waiting' })),
+    ).toEqual({
+      kind: 'invalid',
+      problems: [{ field: 'waitingOn', message: expect.any(String) }],
+    });
+    expect(await recordRun(runs, 'acme', automationRun('good', site.id))).toEqual({
+      kind: 'recorded',
+    });
+    expect(await recordRun(runs, 'acme', automationRun('good', 'nope'))).toEqual({
+      kind: 'identity-changed',
+    });
+  });
+});
+
+describe("readRun's steps", () => {
+  const NIGHTLY = `on: { cron: "0 3 * * *" }
+scope: storefront
+steps:
+  - id: build
+    run: pnpm build
+    timeout: 10m
+  - id: report
+    prompt: Summarise the build.
+    max_turns: 4
+`;
+
+  /** Acme, with the Site factory's version 2 defining `nightly` in a file of its own. */
+  async function acmeWithNightly() {
+    const made = await acme();
+    const saved = await factories.save('acme', made.site.id, {
+      baseVersion: 1,
+      files: [
+        { path: 'factory.yml', content: 'version: 1\n' },
+        { path: 'automations/nightly.yaml', content: NIGHTLY },
+      ],
+      personId: 'person-dana',
+    });
+    if (saved.kind !== 'saved') throw new Error(`not saved: ${saved.kind}`);
+    return made;
+  }
+
+  const definitionsOf = async (runId: string) => {
+    const read = await readRun(teams, factories, runs, dana(), runId);
+    if (read.kind !== 'found') throw new Error(`not found: ${read.kind}`);
+    return Object.fromEntries(read.steps.map((s) => [s.id, s.definition]));
+  };
+
+  it('say what each step was asked, from the factory version the run executed', async () => {
+    const { site } = await acmeWithNightly();
+    await recorded(
+      'acme',
+      automationRun('nightly-v2', site.id, {
+        factoryVersion: 2,
+        steps: [step('build', 'run'), step('report'), step('gone')],
+      }),
+    );
+    expect(await definitionsOf('nightly-v2')).toEqual({
+      build: {
+        kind: 'run',
+        prompt: null,
+        action: null,
+        agent: null,
+        run: 'pnpm build',
+        env: [],
+        if: null,
+        outputs: [],
+        artifacts: [],
+        maxTurns: null,
+        timeoutMs: 600_000,
+        file: 'automations/nightly.yaml',
+        version: 2,
+      },
+      report: expect.objectContaining({
+        kind: 'agent',
+        prompt: 'Summarise the build.',
+        maxTurns: 4,
+      }),
+      // A step the version does not define has no definition.
+      gone: null,
+    });
+  });
+
+  it('have none on a version without the automation, nor for a request', async () => {
+    const { site } = await acmeWithNightly();
+    await recorded('acme', automationRun('nightly-v1', site.id, { factoryVersion: 1 }));
+    await recorded(
+      'acme',
+      automationRun('other-v2', site.id, { factoryVersion: 2, automation: 'other' }),
+    );
+    await recorded('acme', request('ask', site.id, { factoryVersion: 2 }));
+    expect(await definitionsOf('nightly-v1')).toEqual({ build: null });
+    expect(await definitionsOf('other-v2')).toEqual({ build: null });
+    expect(await definitionsOf('ask')).toEqual({ orchestrator: null });
+  });
+});

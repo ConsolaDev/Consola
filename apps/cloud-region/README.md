@@ -8,9 +8,9 @@ cloud sessions need. Accounts are not here: they are global, in
 
 Today the cell keeps a copy of each workspace in its region and its members
 (ids and roles only), from `cloud-global`'s outbox, the workspace's teams, its
-factories with their files, versioned, and the GitHub events
-`cloud-global` passes on for it. It answers a health route to anyone, takes
-the outbox's and the GitHub events' signed deliveries, and
+factories with their files, versioned, the runs of those factories, and the
+GitHub events `cloud-global` passes on for it. It answers a health route to
+anyone, takes the outbox's and the GitHub events' signed deliveries, and
 answers everything else only with a cell token `cloud-global` minted. Every
 route is in `openapi.json`, generated from the routes themselves.
 
@@ -136,6 +136,32 @@ A save is refused with every problem the factory schema finds, each naming its
 file (400 `invalid_files`), and when `baseVersion` is no longer the latest
 (409 `version_moved`, with the latest). The tables are `factory`,
 `factory_version` and `factory_file`.
+
+## Runs
+
+What each factory's runners ran, read only: no route writes a run (a runner
+will record them; until then, the demo seed below does). A **request** is a
+run a person starts with text, whose orchestrator starts automation runs of
+its own; those are listed under it, not on their own. Who sees a run follows
+its factory, as factories do.
+
+| Route | Does |
+| --- | --- |
+| `GET /api/runs` | the top-level runs the caller sees, newest first, with the counts per phase and what the filters offer; filters `phase` and `trigger` (repeatable), `factoryId`, `teamId`, `automation`, `mine`, `q`; pages by `cursor` and `limit` |
+| `GET /api/runs/{runId}` | one run: its steps, a request's text and facts and the runs it started, a run's request |
+
+To see the pages with something in them, seed demo runs into every workspace
+the cell holds, with the cell stopped (PGlite takes one process per folder):
+
+```bash
+pnpm --filter @consola/cloud-region db:seed
+```
+
+It writes only to a local PGlite folder (`DATABASE_URL=pglite:<folder>`) and
+refuses while a cell answers on `PORT`. Each team gets a demo factory
+(`Demo · <team>`), and its runs cover every status, a request with several
+runs, background runs and each member's own. Seeding again refreshes the same
+runs. The table is `run`.
 
 By default the data is PGlite (Postgres in-process) in
 `apps/cloud-region/.data/cell-eu-db`. Deleting that folder resets it.
