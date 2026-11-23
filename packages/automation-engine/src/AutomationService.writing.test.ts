@@ -876,6 +876,79 @@ describe("every step in a run's checkout ends with Consola's checks and commit (
   });
 });
 
+describe("a reminder and a resume start a step's CLI in its run's checkout: the git folder is checked first (Task 13 review)", () => {
+  /** `fix` writes and must set `done`, then `pr` a command. */
+  const OUTPUT_WRITE = file(
+    `  - name: write\n    on: manual\n    mode: auto\n${owned('fix/{{run.id}}')}${steps('- id: fix\n  agent: fixer\n  prompt: Fix it.\n  outputs: { done: boolean }', '- id: pr\n  run: "true"')}`,
+  );
+  /** `look` a read-only agent in the run's checkout, then `pr` a command. */
+  const READ_ENTRY = file(
+    `  - name: read\n    on: manual\n    mode: auto\n${owned('look/{{run.id}}')}${steps('- id: look\n  agent: reader\n  prompt: Look.', '- id: pr\n  run: "true"')}`,
+  );
+  const READER = { ...WRITER, 'agents/reader.md': 'Read it.\n' };
+  const CHANGED =
+    "the git folder of this run's checkout changed (`config` changed), so Consola will not start anything in it";
+
+  it('a step that ended without its outputs is reminded once the git folder is as made', async () => {
+    const h = await writing(OUTPUT_WRITE);
+    const run = await runNow(h, 'write');
+    await h.world.endTurn('session-1', { exitCode: 0 });
+    expect(h.world.reminders).toHaveLength(1);
+    expect(h.world.runCheckouts.folderChecks).toEqual([ownedDir(h, run.id), ownedDir(h, run.id)]);
+  });
+
+  it('a changed git folder fails the step instead of reminding it, and keeps what it left uncommitted', async () => {
+    const h = await writing(OUTPUT_WRITE);
+    const run = await runNow(h, 'write');
+    h.world.folderProblem = () => '`config` changed';
+    await h.world.endTurn('session-1', { exitCode: 0 });
+    expect(h.world.reminders).toEqual([]);
+    expect(stepOf(h, run.id, 'fix')).toMatchObject({ status: 'failed', error: CHANGED });
+    expect(stepOf(h, run.id, 'pr').status).toBe('not-run');
+    // Its processes ended first, then its patch kept: nothing committed.
+    expect(callNames(h)).toEqual(['make', 'endStepProcesses', 'settle']);
+    expect(settles(h)[0]).toMatchObject({ commit: null, keepOnly: true });
+  });
+
+  it('a path artifact missing at its commit is reminded only while the git folder is as made', async () => {
+    const h = await writing(POLL_WRITE);
+    h.world.runCheckouts.showAnswers = [{ ok: false, reason: 'missing' }];
+    await check(h, 'poll-write', []);
+    await check(h, 'poll-write', [{ key: 'SHOP-42' }]);
+    const [run] = h.store.runs().filter((candidate) => candidate.automationId === 'poll-write');
+    h.world.folderProblem = () => '`config` changed';
+    await h.world.endTurn(lastSession(h), { exitCode: 0 });
+    expect(h.world.reminders).toEqual([]);
+    expect(stepOf(h, run.id, 'fix')).toMatchObject({ status: 'failed', error: CHANGED });
+  });
+
+  it('a read-only step a quit cut off resumes in its session once the git folder is as made', async () => {
+    const h = await writing(READ_ENTRY, {}, READER);
+    const run = await runNow(h, 'read');
+    expect(stepOf(h, run.id, 'look').status).toBe('running');
+    const again = await h.relaunch();
+    await again.flush();
+    expect(again.world.resumes).toEqual([{ sessionId: 'session-1', prompt: expect.any(String) }]);
+    expect(again.world.runCheckouts.folderChecks).toEqual([
+      ownedDir(h, run.id),
+      ownedDir(h, run.id),
+    ]);
+  });
+
+  it('a changed git folder fails it instead of resuming it, and starts nothing there', async () => {
+    const h = await writing(READ_ENTRY, {}, READER);
+    const run = await runNow(h, 'read');
+    h.world.folderProblem = () => '`config` changed';
+    const again = await h.relaunch();
+    await again.flush();
+    expect(again.world.resumes).toEqual([]);
+    expect(again.world.launches).toHaveLength(1);
+    expect(stepOf(again, run.id, 'look')).toMatchObject({ status: 'failed', error: CHANGED });
+    expect(stepOf(again, run.id, 'pr').status).toBe('not-run');
+    expect(stepCommands(again)).toEqual([]);
+  });
+});
+
 describe('a host says whether its launch holds a write agent (Call 2, Task 13)', () => {
   const LOOP = file(
     `  - name: loop\n    on: manual\n    mode: auto\n${owned('fix/{{run.id}}')}${steps('- id: polish\n  repeat: { max: 2, until: steps.fix.done }\n  steps:\n    - id: fix\n      agent: fixer\n      prompt: Fix it.\n      outputs: { done: boolean }')}`,

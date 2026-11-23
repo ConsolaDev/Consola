@@ -3868,6 +3868,21 @@ export class AutomationService {
   }
 
   /**
+   * Why nothing may start in a run's own checkout now (Call 9, review NB1):
+   * no port, a checkout never made, or a git folder that is not as Consola
+   * made it; null for an item's or a scope's checkout, and for one as made.
+   * Asked right before a step's CLI starts there again (a reminder, a
+   * resume), as `startAgentStep` and `startCommandStep` ask before theirs.
+   */
+  private ownedFolderRefusal(run: RunRecord): string | null {
+    const owned = this.ownedCheckout(run);
+    if (!owned) return null;
+    if ('problem' in owned) return owned.problem;
+    const changed = owned.port.folderProblem(owned.dir);
+    return changed ? folderChangedMessage(changed) : null;
+  }
+
+  /**
    * What a step left in its run's own checkout, checked and committed by
    * Consola (slice 3-B, *Commits, and the checks between steps*). First the
    * step's own processes are ended (an agent's by its session; a command's
@@ -4512,6 +4527,12 @@ export class AutomationService {
       await this.runStepAgain(runId, stepId, session ? RESUME_SESSION_OPENED : RESUME_SESSION_GONE);
       return;
     }
+    // A resume starts its CLI again in the checkout: in a run's own, its git folder is checked first (Call 9).
+    const refused = this.ownedFolderRefusal(run);
+    if (refused) {
+      this.settleStep(runId, stepId, { status: 'failed', error: refused });
+      return;
+    }
     const { attempt } = record;
     // Running before the resume, as before a launch: its CLI asks for its step tools as it starts.
     this.writeSteps(runId, withStep(this.stepsOf(runId), stepId, { status: 'running' }));
@@ -5097,6 +5118,12 @@ export class AutomationService {
         status: 'failed',
         error: 'Its session was closed before it finished.',
       });
+      return;
+    }
+    // A reminder starts its CLI again in the checkout: in a run's own, its git folder is checked first (Call 9).
+    const refused = this.ownedFolderRefusal(run);
+    if (refused) {
+      void this.failOwnedStep(run, record, refused);
       return;
     }
     this.writeSteps(run.id, withStep(this.stepsOf(run.id), record.id, { reminded: true }));
