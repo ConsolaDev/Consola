@@ -39,6 +39,18 @@ export const HOST_EDIT_CHECKED = true;
  */
 export const FILE_TOOLS_DENY_CHECKED = true;
 
+/**
+ * Row 50 (the 3-B code review's F6): whether the file tools read through a
+ * symbolic link inside the checkout that leads out of it (absolute, `../`, a
+ * link to a link, a linked folder, one the sandboxed shell made). Not
+ * observed: the row's first run, on 2.1.330 (2026-11-23), got no turn, as the
+ * canary's profile had hit its weekly limit ("resets Nov 26"). Until it
+ * passes, the card says so (`FILE_TOOL_LINKS_HEDGE`); Consola refuses to
+ * commit such a link whatever it finds (`node/runCheckout.ts`), so none
+ * reaches a later step.
+ */
+export const FILE_TOOLS_LINKS_CHECKED = false;
+
 /** Row 44 passed, so no `Read(…)` deny rule is compiled for the deny list (Call 22). */
 export const FILE_TOOL_RULES_NEEDED = false;
 

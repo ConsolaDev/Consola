@@ -1711,6 +1711,17 @@ describe('the approval card says what a write agent can change, read, reach and 
     );
   });
 
+  it('says whether the file tools follow a link out of the checkout as the host passes it (3-B code review F6)', async () => {
+    const hedge = 'Whether its file tools follow a link out of the checkout is not yet checked.';
+    const sentence = async (cardVerdicts: typeof VERDICTS & { fileToolLinksChecked?: boolean }) => {
+      const h = await harness(WRITE_ENTRY, { files: WRITER, harness: CLAUDE, cardVerdicts });
+      return h.service.list(WORKSPACE_ID).find((entry) => entry.name === 'write')!.writes!.agents[0]
+        .sentences[0];
+    };
+    expect(await sentence(VERDICTS)).toContain(hedge);
+    expect(await sentence({ ...VERDICTS, fileToolLinksChecked: true })).not.toContain(hedge);
+  });
+
   it('a host that passes no verdicts gets a card that says nothing was checked', async () => {
     const h = await harness(WRITE_ENTRY, { files: WRITER });
     const [written] = h.service.list(WORKSPACE_ID).find((entry) => entry.name === 'write')!

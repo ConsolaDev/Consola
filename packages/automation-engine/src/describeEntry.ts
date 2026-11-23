@@ -322,6 +322,8 @@ export interface WriteVersions {
   hostEditChecked: boolean;
   /** Canary row 44 (or 45): the file tools read only the checkout (`FILE_TOOLS_DENY_CHECKED`, by `--restricted`). */
   fileToolsChecked: boolean;
+  /** Canary row 50: the file tools read nothing through a link inside the checkout that leads out of it (`FILE_TOOLS_LINKS_CHECKED`). */
+  fileToolLinksChecked: boolean;
 }
 
 /** A branch template as the card names it: each placeholder as the part it stands for. */
@@ -337,6 +339,15 @@ const joined = (names: readonly string[]) => names.join(', ');
 /** The keychain, as canary row 49 found it (`KEYCHAIN_SERVICE_BLOCKED = false`): the sandbox does not hold it. */
 export const KEYCHAIN_SENTENCE =
   'Its shell can ask macOS for your keychain items through `security` (macOS may or may not ask you first).';
+/**
+ * Until canary row 50 passes (the 3-B code review's F6): whether the file
+ * tools, held to the checkout by `--restricted`, read through a link inside
+ * it that leads out of it was never observed. Consola refuses to commit such
+ * a link (`node/runCheckout.ts`), so it reaches no later step; the same
+ * step's file tools are what this sentence is about.
+ */
+export const FILE_TOOL_LINKS_HEDGE =
+  'Whether its file tools follow a link out of the checkout is not yet checked.';
 /** The conductor's ruling on canary row 37: the CLI refuses `.git/config` and `.git/hooks` in every folder its shell writes. */
 export const GIT_CLONE_SENTENCE = '`git clone` and `git init` do not work in its shell.';
 /** The conductor's ruling on canary row 39: no attention hooks under the sandbox. */
@@ -385,6 +396,9 @@ function writeSentences(
   const connectors =
     agent.mcpServers.length > 0 ? joined(agent.mcpServers.map((s) => s.name)) : 'none';
   const sandbox = environment?.isolation === 'sandbox';
+  // Said only where the file tools were checked at all: otherwise their sentence already says not.
+  const linkHedge =
+    versions.fileToolsChecked && !versions.fileToolLinksChecked ? [FILE_TOOL_LINKS_HEDGE] : [];
   if (agent.tools === 'write' && !sandbox) {
     return [
       'Has a shell with your logins, your network and your files: it can change anything you can. Blocking `git push` and `gh` is a convention it can go around.',
@@ -401,7 +415,11 @@ function writeSentences(
         ? "Its file tools read only this run's checkout"
         : "Its file tools read only this run's checkout, by the same `--restricted` (seen with the sandbox on)";
     return [
-      `${changes} ${reads}, and what it reads can end up in the branch a later step pushes. Its connectors: ${connectors}.`,
+      [
+        `${changes} ${reads}, and what it reads can end up in the branch a later step pushes.`,
+        ...linkHedge,
+        `Its connectors: ${connectors}.`,
+      ].join(' '),
     ];
   }
   const where = checkout
@@ -427,6 +445,7 @@ function writeSentences(
       `Can reach ${reach} from its shell; its connectors: ${connectors}.`,
       gets,
       `Its shell cannot read your SSH, cloud or Git credentials, other Claude profiles or Consola's data${fileTools}.`,
+      ...linkHedge,
       KEYCHAIN_SENTENCE,
       `Its shell can read other files on this Mac, and send them ${sendsTo}.`,
       GIT_CLONE_SENTENCE,

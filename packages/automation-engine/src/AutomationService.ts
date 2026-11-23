@@ -432,12 +432,15 @@ export interface AutomationServiceDeps {
    * What the approval card's containment sentences rest on (slice 3-B Task
    * 21, the canary's verdicts as the host has them): the Claude version
    * every stop row passed on (`SANDBOX_CHECKED_ON_CLAUDE`, null when none),
-   * whether the file tools read only the checkout (`FILE_TOOLS_DENY_CHECKED`)
-   * and whether they change only it with the sandbox off
-   * (`HOST_EDIT_CHECKED`). Absent, the card says nothing was checked.
+   * whether the file tools read only the checkout (`FILE_TOOLS_DENY_CHECKED`),
+   * whether they read nothing through a link out of it
+   * (`FILE_TOOLS_LINKS_CHECKED`, canary row 50) and whether they change only
+   * it with the sandbox off (`HOST_EDIT_CHECKED`). Absent, the card says
+   * nothing was checked.
    */
   sandboxCheckedOn?: string | null;
   fileToolsChecked?: boolean;
+  fileToolLinksChecked?: boolean;
   hostEditChecked?: boolean;
   /** Whether a session is running in `dir`, launched there or moved in since: a run on that checkout waits for it. */
   checkoutBusy(dir: string): boolean;
@@ -2528,6 +2531,7 @@ export class AutomationService {
       running,
       hostEditChecked: this.deps.hostEditChecked === true,
       fileToolsChecked: this.deps.fileToolsChecked === true,
+      fileToolLinksChecked: this.deps.fileToolLinksChecked === true,
     });
   }
 

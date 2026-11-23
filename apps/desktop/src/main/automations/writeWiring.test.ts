@@ -4,7 +4,11 @@ import { describeWrites, type AgentRequirements } from '@consola/automation-engi
 import type { StepsAutomation } from '@consola/factory-spec';
 import { describe, expect, it } from 'vitest';
 import { SANDBOX_CHECKED_ON_CLAUDE } from '../../shared/sandboxCheck';
-import { FILE_TOOLS_DENY_CHECKED, HOST_EDIT_CHECKED } from '../drivers/claudeWriteAgent';
+import {
+  FILE_TOOLS_DENY_CHECKED,
+  FILE_TOOLS_LINKS_CHECKED,
+  HOST_EDIT_CHECKED,
+} from '../drivers/claudeWriteAgent';
 
 /*
  * What main wires for write steps (slice 3-B Task 18), read from its one
@@ -82,6 +86,8 @@ describe("main's wiring of write steps", () => {
     const deps = between('new AutomationService({', '\n  });');
     expect(deps).toMatch(/\n {4}sandboxCheckedOn: SANDBOX_CHECKED_ON_CLAUDE,\n/);
     expect(deps).toMatch(/\n {4}fileToolsChecked: FILE_TOOLS_DENY_CHECKED,\n/);
+    // Canary row 50 (the 3-B code review's F6): whether the file tools follow a link out of the checkout.
+    expect(deps).toMatch(/\n {4}fileToolLinksChecked: FILE_TOOLS_LINKS_CHECKED,\n/);
     expect(deps).toMatch(/\n {4}hostEditChecked: HOST_EDIT_CHECKED,\n/);
     expect(between('agentHarness: (workspaceId, agent) =>', 'listHarnesses:')).toMatch(
       /cliVersion: \(harness\) => \{\n {10}const fields = launchFieldsFor\(harness\);\n {10}const known = harnessVersions\.peek\(fields\);/,
@@ -100,6 +106,7 @@ describe("main's wiring of write steps", () => {
         running: {},
         hostEditChecked,
         fileToolsChecked: FILE_TOOLS_DENY_CHECKED,
+        fileToolLinksChecked: FILE_TOOLS_LINKS_CHECKED,
       })!.agents[0].sentences[0];
     expect(
       words(HOST_EDIT_CHECKED).startsWith(

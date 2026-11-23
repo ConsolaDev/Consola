@@ -135,7 +135,11 @@ import {
   type WriteAgentHostDeps,
 } from './automations/agentHarness';
 import { HarnessVersions, UNKNOWN_CLI_VERSION } from './drivers/harnessVersions';
-import { FILE_TOOLS_DENY_CHECKED, HOST_EDIT_CHECKED } from './drivers/claudeWriteAgent';
+import {
+  FILE_TOOLS_DENY_CHECKED,
+  FILE_TOOLS_LINKS_CHECKED,
+  HOST_EDIT_CHECKED,
+} from './drivers/claudeWriteAgent';
 import { SANDBOX_CHECKED_ON_CLAUDE } from '../shared/sandboxCheck';
 import { runCheckoutSpawnRefusal, runOwnedCheckoutPort } from './automations/runOwnedCheckout';
 import { scopeIdForPath } from './providers/launchWorkItem';
@@ -2436,6 +2440,7 @@ export function setupIpcHandlers(): boolean {
     // What the approval card's containment sentences rest on: the canary's verdicts (Task 21).
     sandboxCheckedOn: SANDBOX_CHECKED_ON_CLAUDE,
     fileToolsChecked: FILE_TOOLS_DENY_CHECKED,
+    fileToolLinksChecked: FILE_TOOLS_LINKS_CHECKED,
     hostEditChecked: HOST_EDIT_CHECKED,
     folderExists: (dir) => fs.existsSync(dir),
     // run: steps and poll checks: spawned by the engine's own executor.

@@ -17,6 +17,7 @@ import {
   dryRunReports,
   dryRunStarts,
   describeWrites,
+  FILE_TOOL_LINKS_HEDGE,
   KEYCHAIN_SENTENCE,
   type WriteVersions,
 } from './describeEntry';
@@ -575,6 +576,7 @@ automations:
     running: { 'ui-bugfixer': '2.1.331' },
     hostEditChecked: true,
     fileToolsChecked: true,
+    fileToolLinksChecked: true,
   };
   const LINE = (id: string) =>
     `\`${id}\` · on host, after ui-bugfixer: runs code an agent changed, as you, with your logins.`;
@@ -615,6 +617,26 @@ automations:
     expect(KEYCHAIN_SENTENCE).toBe(
       'Its shell can ask macOS for your keychain items through `security` (macOS may or may not ask you first).',
     );
+  });
+
+  it('until canary row 50 passes, the card says whether the file tools follow a link out of the checkout is not yet checked (3-B code review F6)', () => {
+    const { automation, agents } = parsed(ENTRY_41, AGENTS_41);
+    const HEDGE = 'Whether its file tools follow a link out of the checkout is not yet checked.';
+    expect(FILE_TOOL_LINKS_HEDGE).toBe(HEDGE);
+    const unchecked = { ...V, fileToolLinksChecked: false };
+    expect(describeWrites(automation, agents, unchecked)!.agents[0].sentences[0]).toContain(
+      `Consola's data; its file tools read only this run's checkout. ${HEDGE} Its shell can ask macOS`,
+    );
+    for (const isolation of ['host', 'sandbox'] as const)
+      expect(
+        blockFor('edit', isolation, { fileToolLinksChecked: false }).agents[0].sentences[0],
+      ).toContain(`a later step pushes. ${HEDGE} Its connectors: none.`);
+    // Once it passed, no hedge; and none where the file tools were not checked at all (that sentence says so).
+    expect(JSON.stringify(describeWrites(automation, agents, V))).not.toContain(HEDGE);
+    expect(
+      describeWrites(automation, agents, { ...unchecked, fileToolsChecked: false })!.agents[0]
+        .sentences[0],
+    ).not.toContain(HEDGE);
   });
 
   it('until rows 44/45 pass, the card names the shell only (review B1)', () => {

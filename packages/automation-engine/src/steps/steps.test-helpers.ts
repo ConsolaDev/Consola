@@ -206,6 +206,7 @@ export interface StepsHarnessOptions {
   cardVerdicts?: {
     sandboxCheckedOn?: string | null;
     fileToolsChecked?: boolean;
+    fileToolLinksChecked?: boolean;
     hostEditChecked?: boolean;
   };
 }
