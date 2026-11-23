@@ -730,8 +730,9 @@ consola-host runner --cell-url <wss://…/api/runner, or ws: to loopback> --runn
   provider's address, once it is an origin the cell takes (`isHostUrl`); an
   address that cannot be had fails the session and stops its sandbox. `title`
   says the title. The start script's `clone-failed` says `failed` with its
-  message. `status`, `dev-pass`, the host's `exit` and anything unreadable say
-  nothing.
+  message, and is read only before `ready` (the script prints it before the
+  host runs). `status`, `dev-pass`, the host's `exit` and anything unreadable
+  say nothing. Once a session's end is said, a later `ready` exposes nothing.
 - **What an end becomes** (`updateForExit`), said once, the cell's stop always
   `stopped`. Before `ready`, any end the cell did not ask for is `failed` (the
   cell keeps a starting session starting on a `stopped`), with the last line on
@@ -741,8 +742,11 @@ consola-host runner --cell-url <wss://…/api/runner, or ws: to loopback> --runn
   ended."), and so is exit 0 with no `exit` line, since the host ends that way
   only when something in the sandbox stopped it. A provider's failure (quota, a
   missing template's `not-found`) is `failed` with its message.
-- **Backstops.** The sandbox is stopped whenever its session ends, and the
-  runner stops it itself on the cell's `session.stop`, `EXIT_LINE_GRACE` (30 s,
+- **Backstops.** The sandbox is stopped whenever its session ends: when its
+  command ends, and at once when the session fails while its command runs on
+  (a failed clone, a port that cannot be exposed), since an ended session is
+  in no `hello` and the cell could never ask for that stop. The
+  runner also stops it on the cell's `session.stop`, `EXIT_LINE_GRACE` (30 s,
   over the host's 15 s shutdown grace) after the host's `exit` line, at the
   lifetime cap (`--max-session-minutes`), and on SIGTERM or SIGINT, when it stops
   every sandbox and says each end while the socket is still open, then closes

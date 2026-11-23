@@ -54,9 +54,17 @@ type Harnessed = {
   readonly sent: ReadonlyArray<SessionUpdate>;
   /** Every line logged so far. */
   readonly logged: ReadonlyArray<string>;
+  /**
+   * Waits for the session's own path to finish (its "ended" log, which comes once its end is
+   * said and its sandbox stopped); dies when it does not in time. Never `stopAll`, which would
+   * stop the sandbox anyway.
+   */
+  readonly untilEnded: (sessionId: string) => Effect.Effect<void>;
 };
 
 const UPDATE_TIMEOUT = Duration.seconds(10);
+/** Under the test's own 5 s, so a session that never ends fails with what it logged. */
+const ENDED_TIMEOUT = Duration.seconds(4);
 
 /** Sessions over a fake provider with `programs`, reporting into a queue a test reads. */
 const harness = Effect.fn('harness')(function* (
@@ -99,6 +107,18 @@ const harness = Effect.fn('harness')(function* (
     ),
     sent,
     logged,
+    untilEnded: (sessionId) =>
+      Effect.gen(function* () {
+        while (!logged.includes(`session ${sessionId}: ended`)) {
+          yield* Effect.sleep(Duration.millis(10));
+        }
+      }).pipe(
+        Effect.timeoutOrElse({
+          duration: ENDED_TIMEOUT,
+          orElse: () =>
+            Effect.die(new Error(`session ${sessionId} did not end; logged ${logged.join(' | ')}`)),
+        }),
+      ),
   };
   return harnessed;
 });
@@ -268,7 +288,7 @@ describe('makeSandboxSessions', () => {
           sessionId: 'session-acme-4',
           status: 'stopped',
         });
-        yield* h.sessions.stopAll;
+        yield* h.untilEnded('session-acme-4');
         expect(h.fake.sandboxes[0]?.state).toBe('stopped');
         expect(finalsOf(h.sent, 'session-acme-4')).toHaveLength(1);
         expect((yield* h.sessions.live).sessionIds).toEqual([]);
@@ -367,10 +387,74 @@ describe('makeSandboxSessions', () => {
           status: 'failed',
           error: 'Repository not found',
         });
-        yield* h.sessions.stopAll;
+        yield* h.untilEnded('session-acme-8');
         expect(finalsOf(h.sent, 'session-acme-8')).toHaveLength(1);
         expect(h.fake.sandboxes[0]?.state).toBe('stopped');
         expectNoSecret(h);
+      }),
+    ));
+
+  it('stops the sandbox of a session whose clone failed while its command runs on, and exposes no port for it', () =>
+    run(
+      Effect.gen(function* () {
+        const h = yield* harness({
+          fake: {
+            programs: {
+              'consola-session-start': async (child) => {
+                child.stdout(
+                  line({ type: 'exit', reason: 'clone-failed', message: 'Repository not found' }),
+                );
+                child.stdout(line({ type: 'ready', port: 4100 }));
+                await child.killed;
+              },
+            },
+          },
+        });
+        yield* h.sessions.start(startOf('session-acme-17'));
+        expect(yield* h.next).toEqual({
+          type: 'session.update',
+          sessionId: 'session-acme-17',
+          status: 'failed',
+          error: 'Repository not found',
+        });
+        // The session's own path stops it: no stopAll, no lifetime cap (eight hours here).
+        yield* h.untilEnded('session-acme-17');
+        expect(h.fake.sandboxes[0]?.state).toBe('stopped');
+        expect(h.fake.sandboxes[0]?.exposedPorts).toEqual([]);
+        expect(h.sent).toHaveLength(1);
+      }),
+    ));
+
+  it("reads the start script's clone-failed only before ready", () =>
+    run(
+      Effect.gen(function* () {
+        const h = yield* harness({
+          fake: {
+            programs: {
+              'consola-session-start': async (child) => {
+                child.stdout(line({ type: 'ready', port: 4100 }));
+                child.stdout(
+                  line({ type: 'exit', reason: 'clone-failed', message: 'Repository not found' }),
+                );
+                child.stdout(line({ type: 'title', title: 'Sprocket catalog' }));
+                await child.killed;
+              },
+            },
+          },
+        });
+        yield* h.sessions.start(startOf('session-acme-18'));
+        expect(yield* h.next).toMatchObject({ status: 'running' });
+        expect(yield* h.next).toEqual({
+          type: 'session.update',
+          sessionId: 'session-acme-18',
+          title: 'Sprocket catalog',
+        });
+        expect((yield* h.sessions.live).sessionIds).toEqual(['session-acme-18']);
+        expect(h.fake.sandboxes[0]?.state).toBe('running');
+        yield* h.sessions.stop('session-acme-18');
+        expect(finalsOf(h.sent, 'session-acme-18')).toEqual([
+          { type: 'session.update', sessionId: 'session-acme-18', status: 'stopped' },
+        ]);
       }),
     ));
 
@@ -397,7 +481,7 @@ describe('makeSandboxSessions', () => {
           status: 'failed',
           error: 'consola-host: Cannot listen on 0.0.0.0:7420: EADDRINUSE ([redacted]).',
         });
-        yield* h.sessions.stopAll;
+        yield* h.untilEnded('session-acme-9');
         expect(h.fake.sandboxes[0]?.state).toBe('stopped');
       }),
     ));
@@ -426,7 +510,7 @@ describe('makeSandboxSessions', () => {
           status: 'failed',
           error: 'no route to port (token [redacted])',
         });
-        yield* h.sessions.stopAll;
+        yield* h.untilEnded('session-acme-10');
         expect(h.fake.sandboxes[0]?.state).toBe('stopped');
         expect(finalsOf(h.sent, 'session-acme-10')).toHaveLength(1);
       }),

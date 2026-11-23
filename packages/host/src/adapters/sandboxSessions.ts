@@ -5,7 +5,8 @@
  * session's host prints on stdout becomes the cell's `session.update`s (`runnerDecisions.ts`);
  * how its command ends becomes the session's end, said once. Every sandbox is stopped: on the
  * cell's stop, after the host's `exit` line and a grace, at the lifetime cap, when the command
- * ends, and when the runner stops (`stopAll`).
+ * ends, as soon as the session's end is said while its command runs on (a failed clone), and when
+ * the runner stops (`stopAll`).
  */
 import { isHostUrl, type SessionStart, type SessionUpdate } from '@consola/runner-protocol';
 import type { Sandbox, Sandboxes } from '@consola/sandbox';
@@ -103,7 +104,8 @@ const attempt = <A>(call: () => Promise<A>): Effect.Effect<A, SandboxCallFailed>
 
 /** Why the runner stops a session's sandbox, the first to come. */
 type StopReason =
-  | { readonly kind: 'cell' | 'lifetime' | 'exit-line' | 'shutdown' }
+  /** `ended`: the session's end was said while its command ran on (a failed clone, say). */
+  | { readonly kind: 'cell' | 'lifetime' | 'exit-line' | 'shutdown' | 'ended' }
   /** Something the runner needs failed (exposing the port): the session fails with `error`. */
   | { readonly kind: 'failed'; readonly error: string };
 
@@ -135,13 +137,23 @@ export const makeSandboxSessions = (
     const exitLineGrace = options.exitLineGrace ?? EXIT_LINE_GRACE;
     const log = (message: string) => options.log(scrubSecrets(message, options.secretValues));
 
-    /** Says `update` to the cell, unless the session's end was said; an end is said once. */
+    /**
+     * Says `update` to the cell, unless the session's end was said; an end is said once. An end
+     * said while the session's command still runs stops its sandbox: once ended, the session is in
+     * no `hello`, so the cell could never ask for that stop.
+     */
     const send = (session: Held, update: SessionUpdate): Effect.Effect<void> =>
       Effect.suspend(() => {
         if (session.ended) return Effect.void;
-        if (endOf(update) !== null) session.ended = true;
+        const isEnd = endOf(update) !== null;
+        if (isEnd) session.ended = true;
         if (update.title !== undefined) session.title = update.title;
-        return options.report(scrubUpdate(update, options.secretValues));
+        const said = options.report(scrubUpdate(update, options.secretValues));
+        if (!isEnd || session.ending) return said;
+        return said.pipe(
+          Effect.andThen(Deferred.succeed(session.stopSignal, { kind: 'ended' })),
+          Effect.asVoid,
+        );
       });
 
     const failedWith = (session: Held, error: string) =>
@@ -165,7 +177,8 @@ export const makeSandboxSessions = (
     /** `ready`: the port it names is exposed, and the cell told the session runs there. */
     const becomeReady = (session: Held, sandbox: Sandbox, port: number): Effect.Effect<void> =>
       Effect.gen(function* () {
-        if (session.ready) return;
+        // An ended session is not exposed: its sandbox is stopping.
+        if (session.ready || session.ended) return;
         const refuse = (error: string) =>
           // Once the command has ended the session's end says what happened; nothing to stop.
           session.ending
@@ -195,6 +208,10 @@ export const makeSandboxSessions = (
     const onLine = (session: Held, sandbox: Sandbox, text: string): Effect.Effect<void> =>
       Effect.suspend(() => {
         const read = readSessionLine(text);
+        // The start script prints it before the host runs, never after the host said `ready`.
+        if (read.kind === 'clone-failed' && session.ready) {
+          return log(`session ${session.start.sessionId}: a clone-failed line after ready, ignored`);
+        }
         if (read.kind === 'host' && read.line.type === 'ready') {
           return becomeReady(session, sandbox, read.line.port);
         }
