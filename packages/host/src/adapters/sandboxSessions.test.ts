@@ -72,6 +72,15 @@ const UPDATE_TIMEOUT = Duration.seconds(10);
 /** Under the test's own 5 s, so a session that never ends fails with what it logged. */
 const ENDED_TIMEOUT = Duration.seconds(4);
 
+/**
+ * The fake's own `attach` and `stop` by id, for a test's provider that changes only how a sandbox
+ * is made: a provider answers both (`SandboxProvider`).
+ */
+const byId = (fake: FakeProvider): Pick<SandboxProvider, 'attach' | 'stop'> => ({
+  attach: (sandboxId) => fake.attach(sandboxId),
+  stop: (sandboxId) => fake.stop(sandboxId),
+});
+
 /** Sessions over a fake provider with `programs`, reporting into a queue a test reads. */
 const harness = Effect.fn('harness')(function* (
   options: {
@@ -506,6 +515,7 @@ describe('makeSandboxSessions', () => {
         const h = yield* harness({
           fake: { programs: { 'consola-session-start': readyUntilStopped() } },
           provider: (fake) => ({
+            ...byId(fake),
             create: async (options) => {
               const sandbox = await fake.create(options);
               return {
@@ -560,6 +570,7 @@ describe('makeSandboxSessions', () => {
             stopTimeout: Duration.millis(200),
             fake: { programs: { 'consola-session-start': readyUntilStopped() } },
             provider: (fake) => ({
+              ...byId(fake),
               create: async (options) => {
                 const sandbox = await fake.create(options);
                 return { ...sandbox, stop: () => new Promise<void>(() => undefined) };
@@ -593,6 +604,7 @@ describe('makeSandboxSessions', () => {
           shutdownStopTimeout: Duration.millis(300),
           fake: { programs: { 'consola-session-start': readyUntilStopped() } },
           provider: (fake) => ({
+            ...byId(fake),
             create: async (options) => {
               const sandbox = await fake.create(options);
               return { ...sandbox, stop: () => new Promise<void>(() => undefined) };
@@ -626,12 +638,13 @@ describe('makeSandboxSessions', () => {
   it.each<[string, (fake: FakeProvider) => SandboxProvider, RegExp]>([
     [
       'its sandbox is never made',
-      () => ({ create: () => new Promise(() => undefined) }),
+      (fake) => ({ ...byId(fake), create: () => new Promise(() => undefined) }),
       /^The sandbox was not made within 0\.3 s\.$/,
     ],
     [
       'its start command never starts',
       (fake) => ({
+        ...byId(fake),
         create: async (options) => {
           const sandbox = await fake.create(options);
           return { ...sandbox, start: () => new Promise(() => undefined) };
@@ -642,6 +655,7 @@ describe('makeSandboxSessions', () => {
     [
       'its port is never exposed',
       (fake) => ({
+        ...byId(fake),
         create: async (options) => {
           const sandbox = await fake.create(options);
           return { ...sandbox, exposePort: () => new Promise(() => undefined) };
@@ -675,6 +689,7 @@ describe('makeSandboxSessions', () => {
         const h = yield* harness({
           callTimeout: Duration.millis(200),
           provider: (fake) => ({
+            ...byId(fake),
             create: (options) =>
               new Promise((resolve) => {
                 resolveCreate = () => resolve(fake.create(options));
@@ -701,6 +716,7 @@ describe('makeSandboxSessions', () => {
           fake: { programs: { 'consola-session-start': readyUntilStopped() } },
           // Made a second after it was asked for, a sandbox whose stop never returns.
           provider: (fake) => ({
+            ...byId(fake),
             create: async (options) => {
               await delay(Duration.seconds(1));
               const sandbox = await fake.create(options);
@@ -736,6 +752,7 @@ describe('makeSandboxSessions', () => {
           fake: { programs: { 'consola-session-start': readyUntilStopped() } },
           // The sandbox stops, but its command never says it ended.
           provider: (fake) => ({
+            ...byId(fake),
             create: async (options) => {
               const sandbox = await fake.create(options);
               return {
@@ -777,6 +794,7 @@ describe('makeSandboxSessions', () => {
         const h = yield* harness({
           fake: { programs: { 'consola-session-start': readyUntilStopped() } },
           provider: (fake) => ({
+            ...byId(fake),
             create: async (options) => {
               const sandbox = await fake.create(options);
               return {

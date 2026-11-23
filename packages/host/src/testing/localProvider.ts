@@ -86,6 +86,8 @@ export type LocalProviderOptions = {
 export class LocalProvider implements SandboxProvider {
   readonly sandboxes: LocalSandboxRecord[] = [];
   private readonly options: LocalProviderOptions;
+  /** The handle each sandbox was made with, by its id, for `attach` and `stop` by id. */
+  private readonly handles = new Map<string, LocalSandbox>();
 
   constructor(options: LocalProviderOptions = {}) {
     this.options = options;
@@ -103,7 +105,27 @@ export class LocalProvider implements SandboxProvider {
       stopped: false,
     };
     this.sandboxes.push(record);
-    return new LocalSandbox(record, { ...options.env }, this.options.stopHangsForTests === true);
+    const sandbox = new LocalSandbox(
+      record,
+      { ...options.env },
+      this.options.stopHangsForTests === true,
+    );
+    this.handles.set(record.id, sandbox);
+    return sandbox;
+  }
+
+  /** The handle `create` made: a local sandbox's processes are this process's children. */
+  async attach(sandboxId: string): Promise<ProviderSandbox> {
+    const sandbox = this.handles.get(sandboxId);
+    if (sandbox === undefined || sandbox.stopped) {
+      throw new SandboxError('not-found', `There is no sandbox ${sandboxId} to attach to.`);
+    }
+    return sandbox;
+  }
+
+  /** Stops it through the handle `create` made; one it never made, or stopped, is nothing. */
+  async stop(sandboxId: string): Promise<void> {
+    await this.handles.get(sandboxId)?.stop();
   }
 }
 
@@ -130,6 +152,10 @@ class LocalSandbox implements ProviderSandbox {
     this.record = record;
     this.env = env;
     this.stopHangs = stopHangs;
+  }
+
+  get stopped(): boolean {
+    return this.record.stopped;
   }
 
   private ensureRunning(): void {
