@@ -640,13 +640,13 @@ type RunItemOf =
 /** The check a `CheckState` says is running: what its result is matched against when it lands. */
 type CheckRunning = NonNullable<CheckState['running']>;
 
-/** How a check ended: with items, failed and why (masked), or dropped before it spawned, its entry no longer the one it was started for. */
 /**
  * Who a view is for. Only the person's panel is told where a secret is
  * bound; an agent, and anyone else, is told a name and whether it is bound.
  */
 type Reader = 'person' | 'agent';
 
+/** How a check ended: with items, failed and why (masked), or dropped before it spawned, its entry no longer the one it was started for. */
 type CheckEnd =
   | { ok: true; items: PolledItem[] }
   /** `told`: what an agent is told instead of `error` (review S1). */
