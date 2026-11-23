@@ -29,7 +29,10 @@ const GIT_FOLDER_NAMES = new Set(['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR'])
  * runs on the ambient profile); each of `names` present in `login` (never
  * one `looksLikeCredential` matches); the caches under
  * `<checkout>/.consola-cache/` (`XDG_CACHE_HOME`, `npm_config_cache`,
- * `npm_config_store_dir`, `YARN_CACHE_FOLDER`, review S10). Never `GIT_DIR`,
+ * `npm_config_store_dir` for pnpm 10, `pnpm_config_store_dir` for pnpm 11
+ * on, `YARN_CACHE_FOLDER`, review S10). A sandboxed shell reads no
+ * `~/.npmrc` (it is on the deny list): pnpm and npm fall back to their
+ * defaults. Never `GIT_DIR`,
  * `GIT_WORK_TREE` or `GIT_COMMON_DIR`, not even the login environment's
  * (review NB1: the session's git finds the run clone's folder through the
  * checkout's pointer, which Consola checks before the spawn; exported, they
@@ -71,6 +74,8 @@ export function sandboxSessionEnv(
   env.XDG_CACHE_HOME = cache;
   env.npm_config_cache = path.join(cache, 'npm');
   env.npm_config_store_dir = path.join(cache, 'pnpm-store');
+  // pnpm 11 on reads its own name and ignores npm's (pnpm 12.21.0 seen, the 3-B code review's F12).
+  env.pnpm_config_store_dir = path.join(cache, 'pnpm-store');
   env.YARN_CACHE_FOLDER = path.join(cache, 'yarn');
   return { env, passed, missing };
 }

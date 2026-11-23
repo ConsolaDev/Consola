@@ -2498,6 +2498,7 @@ describe('a write step’s session (slice 3-B Task 18)', () => {
           'XDG_CACHE_HOME',
           'npm_config_cache',
           'npm_config_store_dir',
+          'pnpm_config_store_dir',
           'YARN_CACHE_FOLDER',
         ].sort(),
       );

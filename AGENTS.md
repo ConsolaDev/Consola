@@ -913,7 +913,14 @@ the run page (`flaggedPaths`). Not contained: the shell's reads of other
 files, the keychain service (`security` reaches it, row 49), the temporary
 folder all sandboxed Claude shells share (`/tmp/claude-<uid>`), other CLI
 versions and other OSes. `git clone` and `git init` do not work in a sandboxed
-shell (row 37); pnpm does, with its store under `.consola-cache` (row 29).
+shell (row 37). Its package managers read no `~/.npmrc` (denied): pnpm and npm
+fall back to their defaults, so a private registry needs an `.npmrc` in the
+checkout and its host in the environment's `network:`. Their caches sit under
+`.consola-cache` (`npm_config_store_dir` for pnpm 10, `pnpm_config_store_dir`
+from 11), but pnpm 12 locks its store in `/tmp/pnpm-store-operation-locks-<uid>`,
+outside what the sandbox lets the shell write, so its `install` fails there.
+That was seen with `sandbox-exec` (pnpm 10.28.2 and 12.21.0), not yet through
+the CLI's own sandbox, which row 29 asks.
 Consola ends only a step's own processes (its CLI's group, and the descendants
 recorded as its turn ended, while their start time matches) and never signals
 another; a process an agent backgrounds is in neither (row 48), so it is found

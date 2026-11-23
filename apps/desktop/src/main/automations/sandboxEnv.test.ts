@@ -33,6 +33,8 @@ describe("a sandboxed write step's environment (slice 3-B Task 18)", () => {
       XDG_CACHE_HOME: c,
       npm_config_cache: `${c}/npm`,
       npm_config_store_dir: `${c}/pnpm-store`,
+      // pnpm 11 on reads its own name, not npm's (3-B code review F12: pnpm 12.21.0, seen).
+      pnpm_config_store_dir: `${c}/pnpm-store`,
       YARN_CACHE_FOLDER: `${c}/yarn`,
     });
     for (const name of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR'])

@@ -2398,12 +2398,55 @@ function noProbe(result, facts) {
   };
 }
 
+/** The caches `sandboxSessionEnv` gives a sandboxed write session, under `<checkout>/.consola-cache/`. */
+function sandboxCaches(checkout) {
+  const cache = path.join(checkout, '.consola-cache');
+  return {
+    XDG_CACHE_HOME: cache,
+    npm_config_cache: path.join(cache, 'npm'),
+    npm_config_store_dir: path.join(cache, 'pnpm-store'),
+    pnpm_config_store_dir: path.join(cache, 'pnpm-store'),
+    YARN_CACHE_FOLDER: path.join(cache, 'yarn'),
+  };
+}
+
+/**
+ * Row 29: a write agent's shell writes only its checkout; and, under
+ * Consola's real deny list and caches (the 3-B code review's F12), what pnpm
+ * and npm do with a `~/.npmrc` the shell may not read (a fake home's, holding
+ * a dummy registry), and whether `pnpm install` of one small package works
+ * with only the registry allowed. The writes are the stop row; the package
+ * managers' lines are recorded (INFO in the line) for the guide.
+ */
 async function row29() {
   const base = rowBase(29);
   const run29 = runClone(base);
   const outside = path.join(base, 'outside');
   fs.mkdirSync(outside, { recursive: true });
   const hasPnpm = spawnSync('sh', ['-c', 'command -v pnpm'], { env: baseEnv() }).status === 0;
+  // A home whose `.npmrc` names a registry nobody has, denied as Consola denies the person's own.
+  const fakeHomeDir = path.join(base, 'home');
+  write(
+    path.join(fakeHomeDir, '.npmrc'),
+    'registry=https://registry.example.invalid/\n//registry.example.invalid/:_authToken=DUMMY-NOT-A-SECRET\n',
+  );
+  const list = [
+    ...denyReadListFor({
+      home: os.homedir(),
+      userData: path.join(os.homedir(), 'Library', 'Application Support', 'Consola'),
+      factoryRoot: path.join(os.homedir(), '.consola', 'workspaces'),
+      profiles: [opts.profile],
+      realpath,
+    }),
+    ...denyReadListFor({
+      home: fakeHomeDir,
+      userData: path.join(fakeHomeDir, 'Library', 'Application Support', 'Consola'),
+      factoryRoot: path.join(fakeHomeDir, '.consola', 'workspaces'),
+      profiles: [],
+      realpath,
+    }),
+  ];
+  const inFake = `HOME='${fakeHomeDir}'`;
   const probe = probeScript(base, 'probe-29', [
     ['outside-sh', `sh -c 'echo x > ${outside}/w-sh.txt'`],
     ['outside-node', `node -e "require('fs').writeFileSync('${outside}/w-node.txt','x')"`],
@@ -2416,27 +2459,28 @@ async function row29() {
       'w:.claude/skills/x/SKILL.md',
       'mkdir -p .claude/skills/x && echo x > .claude/skills/x/SKILL.md',
     ],
+    ['npmrc', `cat '${fakeHomeDir}/.npmrc'`],
     ...(hasPnpm
       ? [
+          ['pnpm-version', 'pnpm --version'],
+          ['pnpm-store-path', 'pnpm store path'],
+          ['pnpm-registry', `${inFake} pnpm config get registry`],
           [
-            'pnpm-store-path',
-            'npm_config_store_dir=$PWD/.consola-cache/pnpm-store XDG_CACHE_HOME=$PWD/.consola-cache pnpm store path',
-          ],
-          [
-            'pnpm-store-write',
-            'd=$(npm_config_store_dir=$PWD/.consola-cache/pnpm-store XDG_CACHE_HOME=$PWD/.consola-cache pnpm store path) && mkdir -p "$d" && echo x > "$d/probe.txt"',
+            'pnpm-install',
+            `mkdir -p pkg && printf '{"name":"p","version":"1.0.0","dependencies":{"is-number":"7.0.0"}}' > pkg/package.json && cd pkg && ${inFake} pnpm install --ignore-scripts && ls node_modules`,
           ],
         ]
       : []),
+    ['npm-registry', `${inFake} npm config get registry`],
   ]);
   const result = await writeTurn(
     writeAgentFlags({
       tools: 'write',
-      settings: { sandbox: S(run29.checkout) },
+      settings: { sandbox: S(run29.checkout, ['registry.npmjs.org'], list) },
       deny: pointerRules(run29.checkout),
     }),
     runProbePrompt(probe),
-    { cwd: run29.checkout },
+    { cwd: run29.checkout, env: { ...profileEnv(), ...sandboxCaches(run29.checkout) } },
   );
   const facts = turnFacts(result);
   const lines = probeLines(facts.events);
@@ -2451,15 +2495,29 @@ async function row29() {
     'w:.mcp.json',
     'w:.claude/settings.json',
     'w:.claude/skills/x/SKILL.md',
+    'npmrc',
   ])
     if (!refused(lines.get(name)))
       problems.push(`${name} was not refused (${short(lines.get(name)?.out ?? 'no line', 80)})`);
   const left = fs.readdirSync(outside);
   if (left.length) problems.push(`outside/ holds ${left.join(', ')}`);
-  const pnpm = hasPnpm
-    ? `pnpm store path exit=${lines.get('pnpm-store-path')?.exit}, a write there exit=${lines.get('pnpm-store-write')?.exit}${lines.get('pnpm-store-write')?.exit === 0 ? '' : ` (${short(lines.get('pnpm-store-write')?.out, 80)}: the guide says only npm is checked)`}`
-    : 'INFO no pnpm';
-  const saw = `CLI ${facts.init?.claude_code_version ?? 'unknown'}; ${lineWords(lines)}; ${pnpm}; outside/ ${left.length ? 'not empty' : 'empty'}; ${money(facts.cost)}`;
+  const said = (name, max = 120) =>
+    `${name} exit=${lines.get(name)?.exit ?? 'none'} (${short(lines.get(name)?.out ?? 'no line', max)})`;
+  const installed =
+    lines.get('pnpm-install')?.exit === 0 && /is-number/.test(lines.get('pnpm-install')?.out ?? '');
+  const managers = [
+    ...(hasPnpm
+      ? [
+          said('pnpm-version', 20),
+          said('pnpm-store-path'),
+          said('pnpm-registry'),
+          said('pnpm-install', 200),
+          `PNPM_INSTALL_WORKS = ${installed}`,
+        ]
+      : ['INFO no pnpm']),
+    said('npm-registry'),
+  ].join('; ');
+  const saw = `CLI ${facts.init?.claude_code_version ?? 'unknown'}; ${list.length} denied; ${lineWords(lines)}; ${managers}; outside/ ${left.length ? 'not empty' : 'empty'}; ${money(facts.cost)}`;
   return problems.length
     ? { status: 'FAIL', why: `${problems.join('; ')}; ${saw}` }
     : { status: 'PASS', why: saw };
@@ -2820,7 +2878,6 @@ const CLI_OWN_NAMES = [
 async function row37() {
   const base = rowBase(37);
   const r = runClone(base);
-  const cache = path.join(r.checkout, '.consola-cache');
   const given = {
     HOME: os.homedir(),
     PATH: process.env.PATH ?? '/usr/bin:/bin:/usr/sbin:/sbin',
@@ -2832,10 +2889,7 @@ async function row37() {
     LOGNAME: os.userInfo().username,
     CLAUDE_CONFIG_DIR: opts.profile,
     DUMMY_NAMED: '1',
-    XDG_CACHE_HOME: cache,
-    npm_config_cache: path.join(cache, 'npm'),
-    npm_config_store_dir: path.join(cache, 'pnpm-store'),
-    YARN_CACHE_FOLDER: path.join(cache, 'yarn'),
+    ...sandboxCaches(r.checkout),
   };
   const cloneBranch = git(['rev-parse', '--abbrev-ref', 'HEAD'], r.clone);
   const probe = probeScript(base, 'probe-37', [
@@ -3837,7 +3891,12 @@ const ROWS = [
     needs: 'tokens',
     run: row28,
   },
-  { id: '29', name: "a write agent's shell writes only its checkout", needs: 'tokens', run: row29 },
+  {
+    id: '29',
+    name: "a write agent's shell writes only its checkout; pnpm and npm under Consola's deny list",
+    needs: 'tokens',
+    run: row29,
+  },
   {
     id: '30',
     name: 'the file tools are confined with the sandbox off (edit on host), and cannot rewrite the .git pointer',
