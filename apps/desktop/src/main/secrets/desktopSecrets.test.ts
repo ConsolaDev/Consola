@@ -282,6 +282,37 @@ describe('desktopSecretsPort', () => {
     });
   });
 
+  it('names the secret whose read threw, whatever threw (review M1)', async () => {
+    bindAll();
+    // The login environment fails once the first name is read: the second is the one that failed.
+    let asked = 0;
+    const { all } = deps({
+      loginEnv: vi.fn(async (): Promise<NodeJS.ProcessEnv> => {
+        asked += 1;
+        if (asked > 1) throw new Error('the login shell did not answer.');
+        return { PATH: '/usr/bin:/bin' };
+      }),
+    });
+    const error = await readError(
+      desktopSecretsPort(all).resolve(WS, P, ['PAGER_TOKEN', 'SLACK_BOT_TOKEN']),
+    );
+    expect(error.secret).toBe('SLACK_BOT_TOKEN');
+    expect(error.reason).toBe('the login shell did not answer');
+    // The engine words it with that secret's label, as it does a reader's failure.
+    const failing = deps({
+      loginEnv: vi.fn(async (): Promise<NodeJS.ProcessEnv> => {
+        throw new Error('the login shell did not answer.');
+      }),
+    });
+    await expect(
+      readSecrets(desktopSecretsPort(failing.all), WS, ['PAGER_TOKEN']),
+    ).resolves.toMatchObject({
+      ok: false,
+      error:
+        "Couldn't read `PAGER_TOKEN` from the keychain (consola/ws-1/personal · PAGER_TOKEN): the login shell did not answer",
+    });
+  });
+
   it('refuses a name that is not bound', async () => {
     const error = await readError(desktopSecretsPort(deps().all).resolve(WS, P, ['PAGER_TOKEN']));
     expect(error.reason).toBe('it is not bound on this Mac (Settings › Secrets)');

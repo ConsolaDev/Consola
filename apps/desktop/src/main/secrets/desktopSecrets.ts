@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import {
+  describeError,
   PERSONAL_FACTORY,
   type SecretBinding,
   SecretReadError,
@@ -94,8 +95,10 @@ export function desktopSecretsPort(deps: DesktopSecretsDeps): SecretsPort {
         }
       }
     } catch (error) {
+      if (error instanceof SecretReadError) throw error;
       if (error instanceof SecretReaderFailure) throw new SecretReadError(name, error.reason);
-      throw error;
+      // Anything else (the login environment, say) failed this name's read too: it says so, not the first's (review M1).
+      throw new SecretReadError(name, describeError(error).trim().replace(/\.$/, ''));
     }
   };
 

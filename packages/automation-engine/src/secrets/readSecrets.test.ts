@@ -104,14 +104,14 @@ describe('readSecrets', () => {
     });
   });
 
-  it('names the first secret for any other failure', async () => {
+  it('names no secret for any other failure, since it cannot tell which (review M1)', async () => {
     const { port } = fakePort(
       { A_TOKEN: A_VALUE, B_TOKEN: B_VALUE },
       { reject: new Error('boom.') },
     );
     expect(await read(port, 'ws-1', ['A_TOKEN', 'B_TOKEN'])).toEqual({
       ok: false,
-      error: `Couldn't read \`A_TOKEN\` from ${LABELS.A_TOKEN}: boom`,
+      error: "Couldn't read its secrets: boom",
       told: "Couldn't read its secrets from their bindings on this Mac (Settings › Secrets)",
     });
   });

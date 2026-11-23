@@ -67,9 +67,10 @@ export async function readSecrets(
     raw = await port.resolve(workspaceId, PERSONAL_FACTORY, names);
   } catch (error) {
     if (error instanceof SecretReadError) return failed(error.secret, error.reason);
+    // Not a read error: which name failed is unknown, so none is named (review M1).
     return {
       ok: false,
-      error: readFailure(names[0], labels[names[0]], describeReason(error)),
+      error: `Couldn't read its secrets: ${describeReason(error)}`,
       told: toldFailure(null, port.bindHint),
     };
   }
