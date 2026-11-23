@@ -1,55 +1,43 @@
 // Review Focus 2: the CSS of the page that embeds the chat does not reach inside it. Each page's
 // own stylesheets (`src/testing/embeddingPages.ts`, read from the files those pages load) go on
-// and off around one mounted chat, and every element of the chat and its popups must compute the
-// same spacing, fonts, sizes, colours, link styles, focus ring and scrollbars with them as
-// without them.
+// and off around one mounted chat, and every element of the chat and its popups must compute
+// every property alike with them and without them, at rest, hovered and focused, and its root
+// keep its containment. And on a page with no CSS, the guard and the floor that keep the page's
+// CSS out change nothing of t3's own.
 import { beforeAll, expect, it } from 'vite-plus/test';
 import { userEvent } from 'vite-plus/test/browser';
 import {
+  barePage,
   cloudWebPage,
   desktopPage,
   type EmbeddingPage,
+  reachingPage,
+  tailwind4Page,
   tailwindPage,
 } from './testing/embeddingPages.ts';
 import { addToPage, answerOf, forgetStoredThreads, host, mountChat } from './testing/render.tsx';
 
 beforeAll(forgetStoredThreads);
 
-/** What each element of the chat must compute alike on the page and on a bare one. */
-const PROPERTIES = [
-  'margin-top',
-  'margin-right',
-  'margin-bottom',
-  'margin-left',
-  'padding-top',
-  'padding-right',
-  'padding-bottom',
-  'padding-left',
-  'border-top-width',
-  'border-right-width',
-  'border-bottom-width',
-  'border-left-width',
-  'border-top-style',
-  'border-top-color',
-  'box-sizing',
+/**
+ * The computed properties not compared, because they are not the same from one reading to the
+ * next on any page: none yet. Custom properties are not compared either (a page's own inherit
+ * in, and t3 reads only its own); what t3 computes from its registered ones is.
+ */
+const UNCOMPARED = new Set<string>([]);
+
+/** The root's own properties that are the chat's, not the page's: what keeps the chat in its box. */
+const ROOT_PROPERTIES = ['contain', 'height'] as const;
+
+/** What a popup's portal computes from its size, which the page's layout sets (above). */
+const PORTAL_SIZED = [
   'width',
   'height',
-  'display',
-  'font-family',
-  'font-size',
-  'font-weight',
-  'font-style',
-  'line-height',
-  'letter-spacing',
-  'color',
-  'background-color',
-  'text-decoration-line',
-  'box-shadow',
-  'outline-style',
-  'outline-width',
-  'outline-color',
-  'outline-offset',
-] as const;
+  'block-size',
+  'inline-size',
+  'perspective-origin',
+  'transform-origin',
+];
 
 /** The pseudo-elements a reset reaches (Tailwind's `*, ::before, ::after`, `::placeholder`). */
 const PSEUDO_ELEMENTS = ['::before', '::after', '::placeholder'] as const;
@@ -69,25 +57,39 @@ const nameOf = (element: Element, index: number) =>
 
 type Styles = Record<string, string>;
 
+/** Every computed property of an element, but `UNCOMPARED` and custom properties. */
 const stylesOf = (element: Element, pseudo?: string): Styles => {
   const computed = getComputedStyle(element, pseudo);
-  return Object.fromEntries(PROPERTIES.map((name) => [name, computed.getPropertyValue(name)]));
+  const styles: Styles = {};
+  for (let index = 0; index < computed.length; index++) {
+    const name = computed.item(index);
+    if (!name.startsWith('--') && !UNCOMPARED.has(name)) {
+      styles[name] = computed.getPropertyValue(name);
+    }
+  }
+  return styles;
 };
 
 /**
  * What the chat computes, element by element: its styles, each pseudo-element's that is there
- * (`content` other than `none`, or an input's placeholder), and the width of its scrollbars. A
- * popup's portal is a block in the page's `<body>`, so its own size is the page's layout (a
- * `body { margin: 0 }` widens it); what is in it is the chat's.
+ * (`content` other than `none`, or an input's placeholder), and the width of its scrollbars; and
+ * the root's containment and height. A popup's portal is a block in the page's `<body>`, so its
+ * own size is the page's layout (a `body { margin: 0 }` widens it); what is in it is the chat's.
  */
 const readChat = (): Record<string, Styles> => {
   const read: Record<string, Styles> = {};
+  const root = document.querySelector('.consola-agent-ui');
+  if (root === null) throw new Error("no chat's root on the page");
+  const rootStyle = getComputedStyle(root);
+  read.root = Object.fromEntries(
+    ROOT_PROPERTIES.map((name) => [name, rootStyle.getPropertyValue(name)]),
+  );
   chatElements().forEach((element, index) => {
     const name = nameOf(element, index);
     const box = getComputedStyle(element);
     const borders =
       Number.parseFloat(box.borderLeftWidth) + Number.parseFloat(box.borderRightWidth);
-    const laidOutByPage = element.matches('[data-base-ui-portal]') ? ['width', 'height'] : [];
+    const laidOutByPage = element.matches('[data-base-ui-portal]') ? PORTAL_SIZED : [];
     read[name] = {
       ...Object.fromEntries(
         Object.entries(stylesOf(element)).filter(([property]) => !laidOutByPage.includes(property)),
@@ -223,16 +225,40 @@ const compareStates = (bare: States, embedded: States) => ({
 const NONE = { count: 0, first: [] };
 const UNCHANGED = { rest: NONE, hovered: NONE, composerFocused: NONE, buttonFocused: NONE };
 
+/** How many times the three readings are taken at most, while t3 changes what it shows. */
+const ATTEMPTS = 5;
+
+/**
+ * Reads the chat without a change, with it, and without it again. A reading with it counts only
+ * between two without it that agree, so that nothing but the change changed in between (t3 may
+ * still change what it shows; then the three are read again, and the test says how often).
+ */
+const compareReadings = async (readings: {
+  readonly without: () => Promise<States>;
+  readonly with: () => Promise<States>;
+}) => {
+  for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
+    await quietChat();
+    const before = await readings.without();
+    const changed = await readings.with();
+    const after = await readings.without();
+    const drift = compareStates(before, after);
+    if (JSON.stringify(drift) === JSON.stringify(UNCHANGED)) {
+      if (attempt > 1) console.warn(`the chat read alike on attempt ${attempt} of ${ATTEMPTS}`);
+      return compareStates(before, changed);
+    }
+    console.warn(
+      `attempt ${attempt} of ${ATTEMPTS}: t3's chat changed between two readings: ${JSON.stringify(drift).slice(0, 600)}`,
+    );
+  }
+  throw new Error("t3's chat changed between every two readings without the change");
+};
+
 /**
  * Mounts the chat inside the page's element (a box of a fixed size, so the page's own layout
- * does not resize it), then reads it without the page's rules, with them, and without them again.
- * A reading with them counts only between two without that agree, so that nothing but the page's
- * CSS changed in between (t3 may still change what it shows; then the three are read again). The
- * page's root font size is held in every reading: t3 sizes in `rem` and measures
- * `document.documentElement` (`ComposerCommandMenuLayer.tsx`, `useTallEnoughToFold.ts`), so the
- * chat follows the root size a page picks (the desktop's 14px), as t3 follows it in its own window.
+ * does not resize it), with the page's tokens, and adds a popup.
  */
-const compareOn = async (page: EmbeddingPage) => {
+const mountOn = async (page: EmbeddingPage) => {
   const { hostUrl, pass, sessionId, assistantText } = host();
   for (const style of styleElements(page.tokens)) addToPage(style);
   const around = document.createElement('div');
@@ -241,41 +267,118 @@ const compareOn = async (page: EmbeddingPage) => {
   addToPage(around);
   await mountChat({ hostUrl, pass, sessionId }, { parent: around });
   await expect.element(answerOf(assistantText)).toBeVisible();
-  const popup = addPopup();
+  return addPopup();
+};
 
+/**
+ * Compares the chat on `page` with its rules and without them, where they load (before the chat's
+ * stylesheet or after it). The page's root font size is held in every reading: t3 sizes in `rem`
+ * and measures `document.documentElement` (`ComposerCommandMenuLayer.tsx`,
+ * `useTallEnoughToFold.ts`), so the chat follows the root size a page picks (the desktop's 14px),
+ * as t3 follows it in its own window.
+ */
+const compareOn = async (page: EmbeddingPage) => {
+  const popup = await mountOn(page);
   const html = document.documentElement;
   const inline = html.style.fontSize;
   const rules = styleElements(page.rules);
-  document.head.append(...rules);
+  const load = () =>
+    page.first === true ? document.head.prepend(...rules) : document.head.append(...rules);
+  load();
   const rootFontSize = getComputedStyle(html).fontSize;
   for (const style of rules) style.remove();
 
-  const readBare = async () => {
-    html.style.fontSize = rootFontSize;
-    try {
-      return await readStates(popup);
-    } finally {
-      html.style.fontSize = inline;
-    }
-  };
-  const readEmbedded = async () => {
-    document.head.append(...rules);
-    try {
-      return await readStates(popup);
-    } finally {
-      for (const style of rules) style.remove();
-    }
-  };
+  return compareReadings({
+    without: async () => {
+      html.style.fontSize = rootFontSize;
+      try {
+        return await readStates(popup);
+      } finally {
+        html.style.fontSize = inline;
+      }
+    },
+    with: async () => {
+      load();
+      try {
+        return await readStates(popup);
+      } finally {
+        for (const style of rules) style.remove();
+      }
+    },
+  });
+};
 
-  for (let attempt = 0; attempt < 5; attempt++) {
-    await quietChat();
-    const before = await readBare();
-    const embedded = await readEmbedded();
-    const after = await readBare();
-    const drift = compareStates(before, after);
-    if (JSON.stringify(drift) === JSON.stringify(UNCHANGED)) return compareStates(before, embedded);
+/** Whether a stylesheet is the chat's: its rules are in the chat's layer. */
+const isChatSheet = (sheet: CSSStyleSheet) =>
+  [...sheet.cssRules].some(
+    (rule) => rule instanceof CSSLayerBlockRule && rule.name === 'consola-agent-ui',
+  );
+
+/**
+ * Turns the page's CSS into t3's own cascade, as on a page of t3's, and returns what turns it
+ * back. The guard's rules (the chat's unlayered ones) and the floor's (its layer's `reset`
+ * sublayer) go. So does every other stylesheet on this page without CSS of its own, which t3's
+ * dependencies injected (Tiptap's): on t3's own page it is unlayered beside t3's unlayered rules,
+ * which here are the chat layer's own, so it goes into the chat layer too, as it is
+ * (`AgentChat`'s copies of it go, with the guard they are for).
+ */
+const t3sOwnCascade = () => {
+  const undo: Array<() => void> = [];
+  const take = (parent: CSSStyleSheet | CSSGroupingRule, test: (rule: CSSRule) => boolean) => {
+    const taken = [...parent.cssRules].flatMap((rule, index) =>
+      test(rule) ? [{ index, text: rule.cssText }] : [],
+    );
+    for (const { index } of [...taken].reverse()) parent.deleteRule(index);
+    undo.push(() => {
+      for (const { index, text } of taken) parent.insertRule(text, index);
+    });
+    return taken.length;
+  };
+  let guards = 0;
+  let floors = 0;
+  for (const element of document.querySelectorAll<HTMLStyleElement | HTMLLinkElement>(
+    'style, link[rel="stylesheet"]',
+  )) {
+    const sheet = element.sheet;
+    if (sheet === null) continue;
+    if (element.hasAttribute('data-consola-agent-ui-copy')) {
+      sheet.disabled = true;
+      undo.push(() => {
+        sheet.disabled = false;
+      });
+    } else if (isChatSheet(sheet)) {
+      guards += take(
+        sheet,
+        (rule) =>
+          rule instanceof CSSStyleRule && rule.selectorText.includes('#consola-agent-ui-guard'),
+      );
+      for (const rule of sheet.cssRules) {
+        if (!(rule instanceof CSSLayerBlockRule) || rule.name !== 'consola-agent-ui') continue;
+        for (const sublayer of rule.cssRules) {
+          if (sublayer instanceof CSSLayerBlockRule && sublayer.name === 'reset') {
+            floors += take(sublayer, () => true);
+          }
+        }
+      }
+    } else {
+      const layered = document.createElement('style');
+      layered.textContent = `@layer consola-agent-ui {\n${[...sheet.cssRules].map((rule) => rule.cssText).join('\n')}\n}`;
+      element.after(layered);
+      sheet.disabled = true;
+      undo.push(() => {
+        layered.remove();
+        sheet.disabled = false;
+      });
+    }
   }
-  throw new Error("t3's chat changed between every two readings without the page's CSS");
+  const back = () => {
+    for (const step of undo.reverse()) step();
+  };
+  if (guards === 0 || floors === 0) {
+    back();
+    throw new Error(`the chat's stylesheet has ${guards} guard rules and ${floors} floor rules`);
+  }
+  return back;
 };
 
 /** Three readings of every element of the chat, five times over at worst, on a loaded machine. */
@@ -297,4 +400,34 @@ it("keeps the chat as on a bare page under Tailwind's unlayered resets", {
   timeout: TIMEOUT,
 }, async () => {
   expect(await compareOn(await tailwindPage())).toEqual(UNCHANGED);
+});
+
+it("keeps the chat as on a bare page under a Tailwind 4 page's layers, and its container's inherited properties", {
+  timeout: TIMEOUT,
+}, async () => {
+  expect(await compareOn(await tailwind4Page())).toEqual(UNCHANGED);
+});
+
+it("keeps the chat as on a bare page under rules with IDs, a page's direction, and rules on the root's containment", {
+  timeout: TIMEOUT,
+}, async () => {
+  expect(await compareOn(await reachingPage())).toEqual(UNCHANGED);
+});
+
+it("changes nothing of t3's own with the guard and the floor, on a page without CSS", {
+  timeout: TIMEOUT,
+}, async () => {
+  const popup = await mountOn(barePage);
+  const result = await compareReadings({
+    without: async () => {
+      const restore = t3sOwnCascade();
+      try {
+        return await readStates(popup);
+      } finally {
+        restore();
+      }
+    },
+    with: () => readStates(popup),
+  });
+  expect(result).toEqual(UNCHANGED);
 });
