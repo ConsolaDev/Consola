@@ -86,25 +86,7 @@ export function createApp(deps: {
     cloudSessions,
   } = deps;
   const report = deps.report ?? ((line: string) => console.error(line));
-  // A body of the wrong shape is 400 `invalid_request`, never the validator's own answer, which
-  // is not in the contract.
-  const app = new OpenAPIHono<CellEnv>({
-    defaultHook: (result, c) =>
-      result.success ? undefined : c.json({ error: 'invalid_request' } as const, 400),
-  });
-
-  // Hono's validator throws on a body that is not JSON, before any route's hook sees it.
-  app.onError((error, c) => {
-    if (error instanceof HTTPException && error.status === 400) {
-      return c.json({ error: 'invalid_request' }, 400);
-    }
-    if (error instanceof HTTPException && error.status === 415) {
-      return c.json({ error: 'unsupported_media_type' }, 415);
-    }
-    if (error instanceof HTTPException) return error.getResponse();
-    console.error(error);
-    return c.text('Internal Server Error', 500);
-  });
+  const app = createRouter();
 
   // Open, for whatever probes cells. The region says which cell answered, so whatever routes to
   // cells can check it reached the one it meant. It says nothing a workspace holds.
@@ -129,9 +111,36 @@ export function createApp(deps: {
   teamRoutes(app, teams);
   factoryRoutes(app, teams, factories);
 
-  // A person's cloud sessions.
-  app.route('/', cloudSessionRoutes(cloudSessions));
+  cloudSessionRoutes(app, cloudSessions);
 
+  return app;
+}
+
+/**
+ * An empty `OpenAPIHono` that answers a request's body as every route of the cell does: one of
+ * the wrong shape is 400 `invalid_request`, never the validator's own answer, which is not in the
+ * contract; one that is not JSON 400 too, and one without a JSON content type 415
+ * `unsupported_media_type`. `createApp` builds on it, and so does a test that mounts one set of
+ * routes alone.
+ */
+export function createRouter(): OpenAPIHono<CellEnv> {
+  const app = new OpenAPIHono<CellEnv>({
+    defaultHook: (result, c) =>
+      result.success ? undefined : c.json({ error: 'invalid_request' } as const, 400),
+  });
+
+  // Hono's validator throws on a body that is not JSON, before any route's hook sees it.
+  app.onError((error, c) => {
+    if (error instanceof HTTPException && error.status === 400) {
+      return c.json({ error: 'invalid_request' }, 400);
+    }
+    if (error instanceof HTTPException && error.status === 415) {
+      return c.json({ error: 'unsupported_media_type' }, 415);
+    }
+    if (error instanceof HTTPException) return error.getResponse();
+    console.error(error);
+    return c.text('Internal Server Error', 500);
+  });
   return app;
 }
 

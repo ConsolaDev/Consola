@@ -14,7 +14,7 @@ sandboxes. It answers a health route to anyone, takes the outbox's and the
 GitHub events' signed deliveries and the runner's socket (behind the runner's
 secret), and answers everything else only with a cell token `cloud-global`
 minted. Every route is in `openapi.json`, generated from the routes
-themselves.
+themselves, but the runner's socket, a WebSocket upgrade.
 
 ## Run
 

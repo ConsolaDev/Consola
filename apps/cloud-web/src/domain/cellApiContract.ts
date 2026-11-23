@@ -1748,6 +1748,550 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/cloud-sessions/options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** What the workspace's runner offers a new session */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description What the connected runner offers. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CloudSessionOptions"];
+                    };
+                };
+                /** @description No bearer token (`token_required`), or one the cell does not accept (`invalid_token`): malformed, forged, expired, or signed by a key cloud-global does not publish. A new token is the fix. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "token_required";
+                        } | {
+                            /** @enum {string} */
+                            error: "invalid_token";
+                        };
+                    };
+                };
+                /** @description A good token for a workspace in another region: the cell that answered names its own. The workspace's own cell is the fix. */
+                421: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "wrong_region";
+                            /** @enum {string} */
+                            region: "eu" | "us";
+                        };
+                    };
+                };
+                /** @description No runner is configured or connected for the workspace (`no_runner`). Or the cell cannot get cloud-global's keys just now, so it checks no token (`token_check_unavailable`). */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "no_runner";
+                        } | {
+                            /** @enum {string} */
+                            error: "token_check_unavailable";
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/cloud-sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The caller's own cloud sessions in their workspace, newest first */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The sessions. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CloudSession"][];
+                    };
+                };
+                /** @description No bearer token (`token_required`), or one the cell does not accept (`invalid_token`): malformed, forged, expired, or signed by a key cloud-global does not publish. A new token is the fix. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "token_required";
+                        } | {
+                            /** @enum {string} */
+                            error: "invalid_token";
+                        };
+                    };
+                };
+                /** @description A good token for a workspace in another region: the cell that answered names its own. The workspace's own cell is the fix. */
+                421: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "wrong_region";
+                            /** @enum {string} */
+                            region: "eu" | "us";
+                        };
+                    };
+                };
+                /** @description The cell cannot get cloud-global's keys just now, so it checks no token. */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "token_check_unavailable";
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        /**
+         * Start a cloud session on the workspace’s runner
+         * @description Nothing is recorded or sent unless the connected runner offers both the repository and the harness. The session starts as `starting`; the runner moves it on.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["NewCloudSession"];
+                };
+            };
+            responses: {
+                /** @description The session, recorded and handed to the runner. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CloudSession"];
+                    };
+                };
+                /** @description The runner does not offer the repository (`repository_not_offered`) or the harness (`harness_not_offered`), or the body is not exactly `{ repository, harness }`, each valid (`invalid_request`). */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "repository_not_offered";
+                        } | {
+                            /** @enum {string} */
+                            error: "harness_not_offered";
+                        } | {
+                            /** @enum {string} */
+                            error: "invalid_request";
+                        };
+                    };
+                };
+                /** @description No bearer token (`token_required`), or one the cell does not accept (`invalid_token`): malformed, forged, expired, or signed by a key cloud-global does not publish. A new token is the fix. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "token_required";
+                        } | {
+                            /** @enum {string} */
+                            error: "invalid_token";
+                        };
+                    };
+                };
+                /** @description The body is not JSON (`Content-Type: application/json`). */
+                415: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "unsupported_media_type";
+                        };
+                    };
+                };
+                /** @description A good token for a workspace in another region: the cell that answered names its own. The workspace's own cell is the fix. */
+                421: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "wrong_region";
+                            /** @enum {string} */
+                            region: "eu" | "us";
+                        };
+                    };
+                };
+                /** @description No runner is configured or connected for the workspace (`no_runner`): nothing was recorded. Or the cell cannot get cloud-global's keys just now, so it checks no token (`token_check_unavailable`). */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "no_runner";
+                        } | {
+                            /** @enum {string} */
+                            error: "token_check_unavailable";
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/cloud-sessions/{sessionId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One of the caller’s own cloud sessions */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    sessionId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The session. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CloudSession"];
+                    };
+                };
+                /** @description No bearer token (`token_required`), or one the cell does not accept (`invalid_token`): malformed, forged, expired, or signed by a key cloud-global does not publish. A new token is the fix. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "token_required";
+                        } | {
+                            /** @enum {string} */
+                            error: "invalid_token";
+                        };
+                    };
+                };
+                /** @description The caller has no such session: none, another person's or another workspace's, as if it did not exist. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "not_found";
+                        };
+                    };
+                };
+                /** @description A good token for a workspace in another region: the cell that answered names its own. The workspace's own cell is the fix. */
+                421: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "wrong_region";
+                            /** @enum {string} */
+                            region: "eu" | "us";
+                        };
+                    };
+                };
+                /** @description The cell cannot get cloud-global's keys just now, so it checks no token. */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "token_check_unavailable";
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/cloud-sessions/{sessionId}/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stop one of the caller’s own cloud sessions
+         * @description The session ends at once, whether or not its runner is connected; the runner is told when it is. Stopping an ended session changes nothing.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    sessionId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The session, ended: `stopped`, or the end it had already. */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CloudSession"];
+                    };
+                };
+                /** @description No bearer token (`token_required`), or one the cell does not accept (`invalid_token`): malformed, forged, expired, or signed by a key cloud-global does not publish. A new token is the fix. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "token_required";
+                        } | {
+                            /** @enum {string} */
+                            error: "invalid_token";
+                        };
+                    };
+                };
+                /** @description The caller has no such session: none, another person's or another workspace's, as if it did not exist. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "not_found";
+                        };
+                    };
+                };
+                /** @description A good token for a workspace in another region: the cell that answered names its own. The workspace's own cell is the fix. */
+                421: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "wrong_region";
+                            /** @enum {string} */
+                            region: "eu" | "us";
+                        };
+                    };
+                };
+                /** @description The cell cannot get cloud-global's keys just now, so it checks no token. */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "token_check_unavailable";
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/cloud-sessions/{sessionId}/pass": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * A pass to one of the caller’s own running sessions
+         * @description The pass lasts five minutes (the runner protocol's cap); ask for another when it runs out. No answer of the route is kept by a cache (`Cache-Control: no-store`) but the token check's.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    sessionId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The pass, and the host it opens. */
+                200: {
+                    headers: {
+                        /** @description Never kept by a cache. */
+                        "Cache-Control"?: "no-store";
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CloudSessionPass"];
+                    };
+                };
+                /** @description No bearer token (`token_required`), or one the cell does not accept (`invalid_token`): malformed, forged, expired, or signed by a key cloud-global does not publish. A new token is the fix. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "token_required";
+                        } | {
+                            /** @enum {string} */
+                            error: "invalid_token";
+                        };
+                    };
+                };
+                /** @description The caller has no such running session whose host has an address: none, one still starting or ended, another person's or another workspace's. */
+                404: {
+                    headers: {
+                        /** @description Never kept by a cache. */
+                        "Cache-Control"?: "no-store";
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "not_found";
+                        };
+                    };
+                };
+                /** @description A good token for a workspace in another region: the cell that answered names its own. The workspace's own cell is the fix. */
+                421: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "wrong_region";
+                            /** @enum {string} */
+                            region: "eu" | "us";
+                        };
+                    };
+                };
+                /** @description The cell has no pass key, and so no runner (`no_runner`). Or the cell cannot get cloud-global's keys just now, so it checks no token (`token_check_unavailable`). */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "no_runner";
+                        } | {
+                            /** @enum {string} */
+                            error: "token_check_unavailable";
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1890,6 +2434,65 @@ export interface components {
                 path: string;
                 content: string;
             }[];
+        };
+        /** @description What the workspace's connected runner offers: where a session can start, and with what. */
+        CloudSessionOptions: {
+            /** @description Each as `owner/name`. */
+            repositories: string[];
+            harnesses: ("claude" | "codex")[];
+        };
+        /** @description A person's cloud session: a sandbox the workspace's runner runs for them. */
+        CloudSession: {
+            id: string;
+            workspaceId: string;
+            /** @description The global id of the person who started it, the only one who sees it. */
+            personId: string;
+            /** @description The repository, as `owner/name`. */
+            repository: string;
+            /**
+             * @description The agent CLI the session runs.
+             * @enum {string}
+             */
+            harness: "claude" | "codex";
+            /**
+             * @description `starting` goes to `running` or `failed`, and `running` to `stopped` or `failed`; `stopped` and `failed` are ends.
+             * @enum {string}
+             */
+            status: "starting" | "running" | "stopped" | "failed";
+            title: string | null;
+            /** @description The origin the session's host listens on, once the runner reported it. */
+            hostUrl: string | null;
+            /** @description The message the runner reported for a failure (its provider’s or its start script’s), shown as it came. A failed session has this or `errorCode`, never both. */
+            error: string | null;
+            /**
+             * @description A failure the cell decided itself, which the web app words: the runner restarted, could not be reached, or failed without a message.
+             * @enum {string|null}
+             */
+            errorCode: "runner_restarted" | "runner_unreachable" | "runner_failed" | null;
+            /** @description The runner the start was handed to. */
+            runnerId: string;
+            /** @description When it was started, in epoch seconds. */
+            createdAt: number;
+            /** @description When it ended, in epoch seconds; null while it lives. */
+            endedAt: number | null;
+        };
+        /** @description Exactly these two fields: a body naming anything else, a workspace above all, is refused. */
+        NewCloudSession: {
+            /** @description One the runner offers, as `owner/name`; its name may not start with a dot. */
+            repository: string;
+            /**
+             * @description The agent CLI the session runs.
+             * @enum {string}
+             */
+            harness: "claude" | "codex";
+        };
+        CloudSessionPass: {
+            /** @description The session pass, a compact JWS signed with the cell's own key, which the session's host checks. */
+            pass: string;
+            /** @description The origin the session's host listens on. */
+            hostUrl: string;
+            /** @description When the pass expires, in epoch seconds: its `exp`. */
+            expiresAt: number;
         };
     };
     responses: never;

@@ -63,12 +63,18 @@ import type { CellEnv } from './adapters/http/caller.js';
 import {
   deleteTeam,
   deleteTeamMember,
+  getCloudSession,
+  getCloudSessionOptions,
   getFactory,
   getFactoryVersion,
+  listCloudSessions,
   listFactories,
   listTeams,
   patchFactory,
   patchTeam,
+  postCloudSession,
+  postCloudSessionPass,
+  postCloudSessionStop,
   postFactory,
   postFactoryVersion,
   postGitHubEventDelivery,
@@ -1791,41 +1797,63 @@ describe('a delivery sent as a cell token', () => {
 });
 
 describe('cloud sessions, with no runner connected (the channel when no runner socket is set up)', () => {
-  const json = async (token: string, path: string, init: RequestInit = {}) =>
-    app.request(path, {
-      ...init,
-      headers: { ...bearer(token), 'content-type': 'application/json' },
-    });
+  const start = { repository: 'sprocket/catalog-portal', harness: 'claude' };
 
   it('answers 503 {"error":"no_runner"} to a start and records nothing', async () => {
-    const token = await mint();
-    const response = await json(token, '/api/cloud-sessions', {
+    const response = await app.request('/api/cloud-sessions', {
       method: 'POST',
-      body: JSON.stringify({ repository: 'sprocket/catalog-portal', harness: 'claude' }),
+      headers: { ...bearer(await mint()), 'content-type': 'application/json' },
+      body: JSON.stringify(start),
     });
     expect(response.status).toBe(503);
+    expect(await answerOf(postCloudSession, response.clone())).toEqual({ error: 'no_runner' });
     expect(await response.text()).toBe('{"error":"no_runner"}');
     expect(await db.select().from(cloudSessions)).toEqual([]);
   });
 
   it('answers 503 no_runner to the options', async () => {
-    const response = await json(await mint(), '/api/cloud-sessions/options');
-    expect(response.status).toBe(503);
-    expect(await response.json()).toEqual({ error: 'no_runner' });
+    expect(await ask(getCloudSessionOptions, '/api/cloud-sessions/options', {})).toEqual({
+      status: 503,
+      body: { error: 'no_runner' },
+    });
   });
 
   it('lists none, and holds no session by any id', async () => {
-    const token = await mint();
-    expect(await (await json(token, '/api/cloud-sessions')).json()).toEqual([]);
-    expect((await json(token, '/api/cloud-sessions/session-1')).status).toBe(404);
-    expect(
-      (await json(token, '/api/cloud-sessions/session-1/stop', { method: 'POST' })).status,
-    ).toBe(404);
+    expect(await ask(listCloudSessions, '/api/cloud-sessions', {})).toEqual({
+      status: 200,
+      body: [],
+    });
+    expect(await ask(getCloudSession, '/api/cloud-sessions/session-1', {})).toEqual({
+      status: 404,
+      body: { error: 'not_found' },
+    });
+    expect(await ask(postCloudSessionStop, '/api/cloud-sessions/session-1/stop', {})).toEqual({
+      status: 404,
+      body: { error: 'not_found' },
+    });
+  });
+
+  it('checks the token before the body', async () => {
+    expect(await ask(postCloudSession, '/api/cloud-sessions', {}, { body: '{nope' })).toEqual({
+      status: 400,
+      body: { error: 'invalid_request' },
+    });
+    const response = await app.request('/api/cloud-sessions', {
+      method: 'POST',
+      headers: { 'content-type': 'text/plain' },
+      body: '{nope',
+    });
+    expect(response.status).toBe(401);
+    expect(await answerOf(postCloudSession, response)).toEqual({ error: 'token_required' });
   });
 
   it('needs a token', async () => {
-    expect((await app.request('/api/cloud-sessions')).status).toBe(401);
-    expect((await app.request('/api/cloud-sessions', { method: 'POST' })).status).toBe(401);
+    const listed = await app.request('/api/cloud-sessions');
+    expect(listed.status).toBe(401);
+    expect(await answerOf(listCloudSessions, listed)).toEqual({ error: 'token_required' });
+    const started = await app.request('/api/cloud-sessions', { method: 'POST' });
+    expect(started.status).toBe(401);
+    expect(await answerOf(postCloudSession, started)).toEqual({ error: 'token_required' });
   });
 });
 
@@ -1889,7 +1917,11 @@ describe('a runner and its passes', () => {
     });
     expect(response.status).toBe(200);
     expect(response.headers.get('cache-control')).toBe('no-store');
-    const body = (await response.json()) as { pass: string; hostUrl: string; expiresAt: number };
+    const body = (await answerOf(postCloudSessionPass, response)) as {
+      pass: string;
+      hostUrl: string;
+      expiresAt: number;
+    };
     expect(Object.keys(body).sort()).toEqual(['expiresAt', 'hostUrl', 'pass']);
     expect(body.hostUrl).toBe('https://3000-sandbox.e2b.example');
     expect(Number.isInteger(body.expiresAt)).toBe(true);
@@ -1933,7 +1965,7 @@ describe('a runner and its passes', () => {
       });
       expect([id, response.status]).toEqual([id, 404]);
       expect(response.headers.get('cache-control')).toBe('no-store');
-      expect(await response.json()).toEqual({ error: 'not_found' });
+      expect(await answerOf(postCloudSessionPass, response)).toEqual({ error: 'not_found' });
     }
     expect(logs()).not.toContain(String(passJwk.d));
     await cell.close();
@@ -1946,7 +1978,8 @@ describe('a runner and its passes', () => {
       headers: bearer(await mint()),
     });
     expect(response.status).toBe(503);
-    expect(await response.json()).toEqual({ error: 'no_runner' });
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(await answerOf(postCloudSessionPass, response)).toEqual({ error: 'no_runner' });
   });
 
   it("starts a session on the runner's socket, wired as main.ts wires it", async () => {
@@ -1999,6 +2032,10 @@ describe('a runner and its passes', () => {
         headers: bearer(token),
       });
       expect(options.status).toBe(200);
+      expect(await answerOf(getCloudSessionOptions, options)).toEqual({
+        repositories: ['sprocket/catalog-portal'],
+        harnesses: ['claude'],
+      });
     });
 
     const started = await cell.app.request('/api/cloud-sessions', {
@@ -2007,7 +2044,7 @@ describe('a runner and its passes', () => {
       body: JSON.stringify({ repository: 'sprocket/catalog-portal', harness: 'claude' }),
     });
     expect(started.status).toBe(201);
-    const session = (await started.json()) as { id: string; status: string };
+    const session = (await answerOf(postCloudSession, started)) as { id: string; status: string };
     expect(session.status).toBe('starting');
     await waitFor(() => expect(received).toHaveLength(1));
     expect(received[0]).toMatchObject({
@@ -2032,6 +2069,18 @@ describe('a runner and its passes', () => {
         headers: bearer(token),
       });
       expect(pass.status).toBe(200);
+      expect(await answerOf(postCloudSessionPass, pass)).toMatchObject({
+        hostUrl: 'https://3000-sandbox.e2b.example',
+      });
+    });
+    const reread = await cell.app.request(`/api/cloud-sessions/${session.id}`, {
+      headers: bearer(token),
+    });
+    expect(await answerOf(getCloudSession, reread)).toMatchObject({
+      id: session.id,
+      status: 'running',
+      hostUrl: 'https://3000-sandbox.e2b.example',
+      runnerId: 'runner-1',
     });
 
     expect(logs()).not.toContain(RUNNER_SECRET);

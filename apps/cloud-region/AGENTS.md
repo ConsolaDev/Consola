@@ -353,12 +353,24 @@ built the way `cloud-global`'s contract is
 
 - **Answers are strict objects** (`z.strictObject`); request bodies are
   checked for their shape only (`z.object`), never for the domain's rules.
-  The HTTP suite reads every teams and factories answer with the schema its
-  route declares for its status (`answerOf`), so an undeclared status or a
-  field the contract does not name fails a test.
+  The one strict request body is a cloud session's start (`NewCloudSession`),
+  because its rule is exactly `{ repository, harness }` (`readStartRequest`),
+  so the schema is no stricter than the rule. The HTTP suite reads every
+  teams, factories and cloud sessions answer with the schema its route
+  declares for its status (`answerOf`), and so does the cloud sessions'
+  route test, so an undeclared status or a field the contract does not name
+  fails a test.
 - **The token check's answers** (401 `token_required`/`invalid_token`, 421
   `wrong_region`, 503 `token_check_unavailable`) are declared once
-  (`tokenFailures`) and spread into every route behind the check.
+  (`tokenFailures`) and spread into every route behind the check. A route
+  that answers a 503 of its own (the cloud sessions' `no_runner`) declares
+  its 503 after the spread, as one union with `token_check_unavailable`,
+  since a status holds one answer.
+- **Outside the contract** (`OUTSIDE_THE_CONTRACT` in `openapi.test.ts`) are
+  only the token check's `ALL /*` and the runner's socket, `GET /api/runner`:
+  a WebSocket upgrade OpenAPI does not describe, behind the runner's secret,
+  which no client calls through the contract (its messages are
+  `@consola/runner-protocol`'s).
 - **A body** of the wrong shape is 400 `invalid_request` (`defaultHook`); one
   that is not JSON is 400 too, and one without a JSON content type 415
   `unsupported_media_type` (`onError`, since the validator throws before any
@@ -403,8 +415,9 @@ The service is built in rings, and imports point inward only.
   - `http/` is the contract (`contract.ts`), the Hono routes (`app.ts`), the
     token check in front of them (`caller.ts`), the outbox's route
     (`outbox.ts`), GitHub's events' (`gitHubEvents.ts`), the teams'
-    (`teams.ts`) and the factories' (`factories.ts`). Each route asks a use
-    case and maps its answer to a status and a body;
+    (`teams.ts`), the factories' (`factories.ts`) and the cloud sessions'
+    (`cloudSessions.ts`). Each route asks a use case and maps its answer to a
+    status and a body;
   - `token/` is jose: the `TokenVerifier` and where its keys come from
     (`cellTokens.ts`), the `DeliveryVerifier`, on the same keys, for the
     outbox and for GitHub's events (`outboxDeliveries.ts`), and the
@@ -493,14 +506,21 @@ sandbox a workspace's runner runs for them. The cell records it, checks that
 the connected runner offers the repository and the harness, and hands the start
 or stop to the runner through the `RunnerChannel` port.
 
-- **Routes** (`adapters/http/cloudSessions.ts`, behind `requireCaller`):
-  `GET /api/cloud-sessions/options`, `POST /api/cloud-sessions`,
-  `GET /api/cloud-sessions`, `GET /api/cloud-sessions/:id`,
-  `POST /api/cloud-sessions/:id/stop` (202) and
-  `POST /api/cloud-sessions/:id/pass` (below, "Passes"). They answer codes:
-  `no_runner` (503), `repository_not_offered`, `harness_not_offered` and
-  `invalid_request` (400), `not_found` (404). The body is exactly
-  `{ repository, harness }`.
+- **Routes** (declared in `adapters/http/contract.ts`, registered by
+  `cloudSessionRoutes` in `adapters/http/cloudSessions.ts`, behind
+  `requireCaller`): `GET /api/cloud-sessions/options`
+  (`getCloudSessionOptions`), `POST /api/cloud-sessions` (`postCloudSession`,
+  201), `GET /api/cloud-sessions` (`listCloudSessions`, an array),
+  `GET /api/cloud-sessions/{sessionId}` (`getCloudSession`),
+  `POST /api/cloud-sessions/{sessionId}/stop` (`postCloudSessionStop`, 202)
+  and `POST /api/cloud-sessions/{sessionId}/pass` (`postCloudSessionPass`,
+  below, "Passes"). They answer codes: `no_runner` (503),
+  `repository_not_offered`, `harness_not_offered` and `invalid_request`
+  (400), `not_found` (404), and a start's body not sent as JSON 415
+  `unsupported_media_type`, as every route that takes JSON. The body is
+  exactly `{ repository, harness }`: the contract's strict schema checks its
+  shape, and `readStartRequest` the repository's form. The options are
+  registered before the session by id, so `options` is never read as an id.
 - **Whose.** A session is visible only to the person who started it, in the
   workspace of their token: another person's, or another workspace's, is
   `not_found`, never 403.
@@ -535,11 +555,12 @@ or stop to the runner through the `RunnerChannel` port.
   again, up to three looks (a status moves at most twice), so a title or a
   host address is never lost to a status that moved meanwhile, and is dropped
   only once the row has ended.
-- **Passes** (`POST /api/cloud-sessions/:id/pass`, `issuePass`) answer
-  `{ pass, hostUrl, expiresAt }` for the caller's own `running` session whose
-  host has reported its address; anything else is 404 `not_found`, and a cell
-  with no pass key is 503 `no_runner`. Every answer is
-  `Cache-Control: no-store`. The pass is a compact JWS, EdDSA, `typ`
+- **Passes** (`POST /api/cloud-sessions/{sessionId}/pass`, `issuePass`)
+  answer `{ pass, hostUrl, expiresAt }` for the caller's own `running`
+  session whose host has reported its address; anything else is 404
+  `not_found`, and a cell with no pass key is 503 `no_runner`. Every answer
+  the route gives is `Cache-Control: no-store` (the contract declares the
+  header); the token check's answers come before it. The pass is a compact JWS, EdDSA, `typ`
   `PASS_TYPE`, over the protocol's `passClaims` (`aud` `PASS_AUDIENCE`, `sub`
   the person, `ws`, `sid`, `iat`, `exp`), for `PASS_LIFETIME_SECONDS` (the
   protocol's cap, 300 s); `expiresAt` is its `exp`, in whole seconds. It is

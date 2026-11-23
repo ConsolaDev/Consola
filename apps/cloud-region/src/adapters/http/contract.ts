@@ -5,7 +5,9 @@ import {
   OUTBOX_DELIVERY_PATH,
   WORKSPACE_ROLES,
 } from '@consola/cloud-contract';
+import { HARNESSES } from '@consola/runner-protocol';
 import { createRoute, z } from '@hono/zod-openapi';
+import { CELL_FAILURE_CODES, CLOUD_SESSION_STATUSES } from '../../domain/cloudSession.js';
 import {
   FACTORY_BYTES_MAX,
   FACTORY_FILES_MAX,
@@ -676,6 +678,210 @@ export const postFactoryVersion = createRoute({
   },
 });
 
+// Cloud sessions: a person's sandboxes, run by the workspace's runner (`domain/cloudSession.ts`).
+
+const sessionNotFound = json(
+  failure('not_found'),
+  "The caller has no such session: none, another person's or another workspace's, as if it did not exist.",
+);
+
+/**
+ * A route's 503s: the token check's, and `no_runner` from the route itself. One status holds
+ * one answer in the contract, so the two are one union, which replaces `tokenFailures`' 503.
+ */
+const noRunner = (description: string) => ({
+  content: {
+    'application/json': {
+      schema: z.union([failure('no_runner'), failure('token_check_unavailable')]),
+    },
+  },
+  description: `${description} Or the cell cannot get cloud-global's keys just now, so it checks no token (\`token_check_unavailable\`).`,
+});
+
+const SessionId = z.string().openapi({ param: { name: 'sessionId', in: 'path' } });
+const sessionParams = z.object({ sessionId: SessionId });
+
+const Harness = z.enum(HARNESSES).openapi({ description: 'The agent CLI the session runs.' });
+
+export const CloudSession = z
+  .strictObject({
+    id: z.string(),
+    workspaceId: z.string(),
+    personId: z.string().openapi({
+      description: 'The global id of the person who started it, the only one who sees it.',
+    }),
+    repository: z.string().openapi({ description: 'The repository, as `owner/name`.' }),
+    harness: Harness,
+    status: z.enum(CLOUD_SESSION_STATUSES).openapi({
+      description:
+        '`starting` goes to `running` or `failed`, and `running` to `stopped` or `failed`; `stopped` and `failed` are ends.',
+    }),
+    title: z.string().nullable(),
+    hostUrl: z.string().nullable().openapi({
+      description: "The origin the session's host listens on, once the runner reported it.",
+    }),
+    error: z.string().nullable().openapi({
+      description:
+        'The message the runner reported for a failure (its provider’s or its start script’s), shown as it came. A failed session has this or `errorCode`, never both.',
+    }),
+    errorCode: z.enum(CELL_FAILURE_CODES).nullable().openapi({
+      description:
+        'A failure the cell decided itself, which the web app words: the runner restarted, could not be reached, or failed without a message.',
+    }),
+    runnerId: z.string().openapi({ description: 'The runner the start was handed to.' }),
+    createdAt: z.number().int().openapi({ description: 'When it was started, in epoch seconds.' }),
+    endedAt: z
+      .number()
+      .int()
+      .nullable()
+      .openapi({ description: 'When it ended, in epoch seconds; null while it lives.' }),
+  })
+  .openapi('CloudSession', {
+    description: "A person's cloud session: a sandbox the workspace's runner runs for them.",
+  });
+
+export const CloudSessionOptions = z
+  .strictObject({
+    repositories: z.array(z.string()).openapi({ description: 'Each as `owner/name`.' }),
+    harnesses: z.array(Harness),
+  })
+  .openapi('CloudSessionOptions', {
+    description:
+      "What the workspace's connected runner offers: where a session can start, and with what.",
+  });
+
+export const NewCloudSession = z
+  .strictObject({
+    repository: z.string().openapi({
+      description: 'One the runner offers, as `owner/name`; its name may not start with a dot.',
+    }),
+    harness: Harness,
+  })
+  .openapi('NewCloudSession', {
+    description:
+      'Exactly these two fields: a body naming anything else, a workspace above all, is refused.',
+  });
+
+export const CloudSessionPass = z
+  .strictObject({
+    pass: z.string().openapi({
+      description:
+        "The session pass, a compact JWS signed with the cell's own key, which the session's host checks.",
+    }),
+    hostUrl: z.string().openapi({ description: "The origin the session's host listens on." }),
+    expiresAt: z
+      .number()
+      .int()
+      .openapi({ description: 'When the pass expires, in epoch seconds: its `exp`.' }),
+  })
+  .openapi('CloudSessionPass');
+
+/** A pass is a credential: no answer of its route is kept by a cache. */
+const noStore = {
+  'Cache-Control': {
+    schema: { type: 'string' as const, enum: ['no-store'] },
+    description: 'Never kept by a cache.',
+  },
+};
+
+export const getCloudSessionOptions = createRoute({
+  method: 'get',
+  path: '/api/cloud-sessions/options',
+  summary: "What the workspace's runner offers a new session",
+  responses: {
+    200: json(CloudSessionOptions, 'What the connected runner offers.'),
+    ...tokenFailures,
+    503: noRunner('No runner is configured or connected for the workspace (`no_runner`).'),
+  },
+});
+
+export const postCloudSession = createRoute({
+  method: 'post',
+  path: '/api/cloud-sessions',
+  summary: 'Start a cloud session on the workspace’s runner',
+  description:
+    'Nothing is recorded or sent unless the connected runner offers both the repository and the harness. The session starts as `starting`; the runner moves it on.',
+  request: body(NewCloudSession),
+  responses: {
+    201: json(CloudSession, 'The session, recorded and handed to the runner.'),
+    400: {
+      content: {
+        'application/json': {
+          schema: z.union([
+            failure('repository_not_offered'),
+            failure('harness_not_offered'),
+            failure('invalid_request'),
+          ]),
+        },
+      },
+      description:
+        'The runner does not offer the repository (`repository_not_offered`) or the harness (`harness_not_offered`), or the body is not exactly `{ repository, harness }`, each valid (`invalid_request`).',
+    },
+    415: unsupportedMediaType,
+    ...tokenFailures,
+    503: noRunner(
+      'No runner is configured or connected for the workspace (`no_runner`): nothing was recorded.',
+    ),
+  },
+});
+
+export const listCloudSessions = createRoute({
+  method: 'get',
+  path: '/api/cloud-sessions',
+  summary: "The caller's own cloud sessions in their workspace, newest first",
+  responses: {
+    200: json(z.array(CloudSession), 'The sessions.'),
+    ...tokenFailures,
+  },
+});
+
+export const getCloudSession = createRoute({
+  method: 'get',
+  path: '/api/cloud-sessions/{sessionId}',
+  summary: 'One of the caller’s own cloud sessions',
+  request: { params: sessionParams },
+  responses: {
+    200: json(CloudSession, 'The session.'),
+    404: sessionNotFound,
+    ...tokenFailures,
+  },
+});
+
+export const postCloudSessionStop = createRoute({
+  method: 'post',
+  path: '/api/cloud-sessions/{sessionId}/stop',
+  summary: 'Stop one of the caller’s own cloud sessions',
+  description:
+    'The session ends at once, whether or not its runner is connected; the runner is told when it is. Stopping an ended session changes nothing.',
+  request: { params: sessionParams },
+  responses: {
+    202: json(CloudSession, 'The session, ended: `stopped`, or the end it had already.'),
+    404: sessionNotFound,
+    ...tokenFailures,
+  },
+});
+
+export const postCloudSessionPass = createRoute({
+  method: 'post',
+  path: '/api/cloud-sessions/{sessionId}/pass',
+  summary: 'A pass to one of the caller’s own running sessions',
+  description:
+    "The pass lasts five minutes (the runner protocol's cap); ask for another when it runs out. No answer of the route is kept by a cache (`Cache-Control: no-store`) but the token check's.",
+  request: { params: sessionParams },
+  responses: {
+    200: { ...json(CloudSessionPass, 'The pass, and the host it opens.'), headers: noStore },
+    404: {
+      ...json(
+        failure('not_found'),
+        "The caller has no such running session whose host has an address: none, one still starting or ended, another person's or another workspace's.",
+      ),
+      headers: noStore,
+    },
+    ...tokenFailures,
+    503: noRunner('The cell has no pass key, and so no runner (`no_runner`).'),
+  },
+});
+
 /** Every route in the contract, in the order `app.ts` registers them. */
 export const ROUTES = [
   getHealth,
@@ -694,4 +900,10 @@ export const ROUTES = [
   patchFactory,
   getFactoryVersion,
   postFactoryVersion,
+  getCloudSessionOptions,
+  postCloudSession,
+  listCloudSessions,
+  getCloudSession,
+  postCloudSessionStop,
+  postCloudSessionPass,
 ];

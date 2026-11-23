@@ -17,6 +17,7 @@ import {
 import type {
   CloudSessionChanges,
   CloudSessionPorts,
+  Offer,
   RunnerIdentity,
   RunnerUpdatePorts,
 } from './ports.js';
@@ -25,7 +26,7 @@ export { readStartRequest };
 
 /** What the connected runner offers the caller's workspace. */
 export type OptionsAnswer =
-  | { kind: 'ok'; repositories: string[]; harnesses: string[] }
+  | { kind: 'ok'; repositories: Offer['repositories']; harnesses: Offer['harnesses'] }
   | { kind: 'no_runner' };
 
 export function sessionOptions(ports: CloudSessionPorts, caller: Caller): OptionsAnswer {

@@ -78,4 +78,8 @@ const OUTSIDE_THE_CONTRACT = [
   // The token check in front of every route after the open ones (`requireCaller`): it answers
   // nothing of its own but the token failures each of those routes declares.
   'ALL /*',
+  // The runner's socket (`adapters/runner`): a WebSocket upgrade, which OpenAPI does not
+  // describe, behind the runner's secret rather than a cell token. No client calls it through the
+  // contract: only a runner opens it, and what it says over it is `@consola/runner-protocol`'s.
+  'GET /api/runner',
 ];
