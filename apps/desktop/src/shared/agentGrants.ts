@@ -33,6 +33,11 @@ export interface ClaudeAgentGrants {
    * only while it still holds exactly them (review M1).
    */
   skillHashes?: Record<string, string>;
+  /**
+   * A write step's environment (slice 3-B): what its agent file names, its
+   * isolation, and the variables it passes. Absent on a read-only step's.
+   */
+  environment?: { name: string; isolation: 'host' | 'sandbox'; envNames: string[] };
 }
 
 /** A step's grants, tagged by the driver that compiled them. Only Claude's today. */

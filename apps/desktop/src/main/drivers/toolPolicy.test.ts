@@ -101,6 +101,27 @@ describe('Claude read-only launches', () => {
   });
 });
 
+describe('Claude launches of a step that writes (slice 3-B Task 16, Call 14)', () => {
+  it.each([['edit'], ['write']] as const)(
+    'refuses a %s launch, attended or not, until its agent is compiled for it',
+    (policy) => {
+      for (const unattended of [false, true])
+        expect(() =>
+          claude.buildSessionArgs(
+            { extraArgs: [] },
+            {
+              sessionId: 'abc',
+              resume: false,
+              toolPolicy: policy,
+              unattended,
+              initialPrompt: 'Fix it.',
+            },
+          ),
+        ).toThrow('A step that writes launches only with the grants its agent compiled.');
+    },
+  );
+});
+
 describe('Claude unattended and forked launches', () => {
   const config: HarnessConfig = { extraArgs: ['--verbose'] };
   const READ_ONLY = [

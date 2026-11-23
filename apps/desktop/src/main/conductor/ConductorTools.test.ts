@@ -187,6 +187,38 @@ describe('tool handlers enforce the group boundary', () => {
       expect(deps.queuePrompt).toHaveBeenCalledWith('inst-w1', 'continue');
     });
 
+    it.each([
+      ['read-only', true],
+      ['edit', true],
+      ['write', false],
+    ] as const)(
+      'refuses to prompt a %s session first, live terminal %s (slice 3-B, review M7)',
+      (policy, live) => {
+        deps.queuePrompt = vi.fn(() => live);
+        deps.getWorkspaces = vi.fn(() => [
+          makeWorkspace({
+            sessions: [
+              makeSession(),
+              makeSession({
+                id: 'step',
+                name: 'write · fix',
+                instanceId: 'inst-step',
+                kind: 'interactive',
+                toolPolicy: policy,
+              }),
+            ],
+          }),
+        ]);
+        control = new ConductorTools(deps);
+        expect(() =>
+          control.handleSendPrompt('cond-1', { sessionId: 'step', prompt: 'push it' }),
+        ).toThrow(
+          "A conductor can't prompt an automation's step: open it yourself, or continue it with full tools once the run ends.",
+        );
+        expect(deps.queuePrompt).not.toHaveBeenCalled();
+      },
+    );
+
     it('rejects a session outside the group', () => {
       expect(() => control.handleSendPrompt('cond-1', { sessionId: 'f-1', prompt: 'hi' })).toThrow(
         /not in your group/,

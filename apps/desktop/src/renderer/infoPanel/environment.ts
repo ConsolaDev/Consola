@@ -65,12 +65,28 @@ export function harnessLine(input: {
   };
 }
 
-/** The read-only line, naming the automation that started the session; null for a session with full tools. */
-export function readOnlyLine(session: Session): string | null {
-  if (session.toolPolicy !== 'read-only') return null;
-  return session.automation?.name
-    ? `Read-only · started by ${session.automation.name}`
-    : 'Read-only';
+/**
+ * What a session with a policy may do, naming the automation that started
+ * it: `Read-only`, or for a write step (slice 3-B) `writes · sandboxed` or
+ * `writes · host, a convention`, as its grants' environment says (the
+ * weaker claim when they name none); null for a session with full tools.
+ * The sidebar's row, the content view's bar and the info panel all read it.
+ */
+export function policyLine(
+  session: Pick<Session, 'toolPolicy' | 'automation' | 'grants'>,
+): string | null {
+  const policy = session.toolPolicy;
+  if (policy === undefined) return null;
+  const by = session.automation?.name ? ` · started by ${session.automation.name}` : '';
+  if (policy === 'read-only') return `Read-only${by}`;
+  const where =
+    session.grants?.environment?.isolation === 'sandbox' ? 'sandboxed' : 'host, a convention';
+  return `writes · ${where}${by}`;
+}
+
+/** Whether the work item's pane may paste a fix into this session: only one with full tools. */
+export function offersFixInSession(session: Pick<Session, 'toolPolicy'>): boolean {
+  return session.toolPolicy === undefined;
 }
 
 /**

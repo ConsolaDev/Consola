@@ -14,6 +14,7 @@ import {
 } from '../../stores/branchPullRequestStore';
 import { isInFront } from '../../sidePanel/layout';
 import { tabFactsFor } from '../../sidePanel/tabKinds';
+import { policyLine } from '../../infoPanel/environment';
 import { TerminalPanel } from '../Terminal';
 import { InfoPanel } from '../InfoPanel/InfoPanel';
 import { SidePanel } from '../SidePanel/SidePanel';
@@ -52,6 +53,8 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
   // show, but the terminal still launches where the session belongs: main
   // rebuilds the worktree there before it spawns.
   const terminalCwd = cwd || (session?.removedWorktree ? (session.cwd ?? scope?.path ?? '') : '');
+  // What a session with a policy may do, as the sidebar and the info panel say it (slice 3-B).
+  const policyNote = session ? policyLine(session) : null;
   // What the side panel's tabs read: `useTabFacts`, split around the early
   // return below, since hooks cannot wait for the session to be found.
   const checkout = useCheckout(cwd || null);
@@ -155,9 +158,9 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
               instanceId={instanceId}
               workspaceId={workspaceId}
               sessionId={session.id}
-              readOnly={
-                session.toolPolicy === 'read-only'
-                  ? { startedBy: session.automation?.name }
+              policy={
+                policyNote !== null
+                  ? { line: policyNote, readOnly: session.toolPolicy === 'read-only' }
                   : undefined
               }
               cwd={terminalCwd}

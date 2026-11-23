@@ -266,8 +266,8 @@ export class SessionLauncher {
   /**
    * The one reminder turn of an automation's step: its session's turn has
    * ended, and its conversation is resumed once more, unattended, to say
-   * what it forgot. Only a read-only session, and only a terminal whose CLI
-   * has exited (relaunched in place, so a pane showing it keeps streaming)
+   * what it forgot. Only a session with a policy (read-only, or a write
+   * step's, slice 3-B), and only a terminal whose CLI has exited (relaunched in place, so a pane showing it keeps streaming)
    * or none at all (spawned): a CLI still running is the person's, and a
    * second process on one conversation would fork it. It never refreshes
    * the checkout — the step is reviewing that very commit —
@@ -283,8 +283,9 @@ export class SessionLauncher {
     const workspace = this.workspaces.getAll().find((candidate) => candidate.id === workspaceId);
     const session = workspace?.sessions.find((candidate) => candidate.id === sessionId);
     if (!workspace || !session) throw new Error('Its session was closed.');
-    if (session.toolPolicy !== 'read-only')
-      throw new Error('Consola resumes a turn unattended only in a read-only session.');
+    // Any policy (slice 3-B): a write step is reminded as a read-only one is, under its own policy.
+    if (session.toolPolicy === undefined)
+      throw new Error('Consola reminds a step only in a session it started for that step.');
     const opened = () => {
       if (this.terminals.has(session.instanceId))
         throw new Error('You opened its session before Consola could remind it.');

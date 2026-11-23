@@ -120,6 +120,14 @@ const SKILL_TOOLS = 'Read,Grep,Glob,Skill';
 
 const OTHER_CLI_GRANTS =
   'These grants were compiled for another CLI, so this session cannot launch on Claude.';
+/**
+ * A step that writes (`edit`, `write`, slice 3-B) launches only held to what
+ * its agent compiled (Call 14): until the driver compiles a write agent, it
+ * refuses every such launch, so no write policy ever launches looser than a
+ * read-only one, let alone with full tools.
+ */
+const WRITE_NEEDS_GRANTS = 'A step that writes launches only with the grants its agent compiled.';
+
 const GRANTS_NEED_READ_ONLY =
   "An agent's grants hold only in a read-only session, so this session cannot launch with them.";
 const GRANTS_NEED_CONSOLA =
@@ -484,6 +492,8 @@ export class ClaudeDriver implements HarnessDriver {
   ): string[] | Promise<string[]> {
     const problem = this.toolPolicyProblem(config, launch.toolPolicy);
     if (problem) throw new Error(problem);
+    if (launch.toolPolicy === 'edit' || launch.toolPolicy === 'write')
+      throw new Error(WRITE_NEEDS_GRANTS);
     if (launch.unattended && launch.toolPolicy !== 'read-only')
       throw new Error(UNATTENDED_NEEDS_READ_ONLY);
     if (launch.unattended && !launch.initialPrompt)

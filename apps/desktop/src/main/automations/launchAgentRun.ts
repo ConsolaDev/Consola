@@ -132,7 +132,8 @@ export function launchedWithFullTools(
   session: Pick<Session, 'cwd' | 'toolPolicy'>,
   dir: string,
 ): boolean {
-  return session.cwd === dir && session.toolPolicy !== 'read-only';
+  // Any policy is not full tools: a write step's session included (slice 3-B).
+  return session.cwd === dir && session.toolPolicy === undefined;
 }
 
 /**

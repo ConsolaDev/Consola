@@ -147,6 +147,27 @@ const workspaces = () => [
       }),
     ],
   }),
+  // Sessions whose policy writes (slice 3-B): Consola's server treats them as it does r-1.
+  makeWorkspace({
+    id: 'ws-4',
+    name: 'Writing',
+    sessions: [
+      makeSession({
+        id: 'e-1',
+        workspaceId: 'ws-4',
+        instanceId: 'inst-e1',
+        kind: 'interactive',
+        toolPolicy: 'edit',
+      }),
+      makeSession({
+        id: 'wr-1',
+        workspaceId: 'ws-4',
+        instanceId: 'inst-wr1',
+        kind: 'interactive',
+        toolPolicy: 'write',
+      }),
+    ],
+  }),
 ];
 
 /** One agent step that decides a verdict. */
@@ -340,6 +361,19 @@ describe('MCP surface (in-memory)', () => {
     expect(toolDeps.workItemContext).toHaveBeenCalledWith('r-1');
     await client.close();
   });
+
+  it.each([['edit'], ['write']])(
+    'gives a %s session (a step that writes) no mutating or full-tools-only tool, the same as a read-only one (slice 3-B)',
+    async (policy) => {
+      const names = async (sessionId: string) => {
+        const client = await clientFor(sessionId);
+        const listed = (await client.listTools()).tools.map((tool) => tool.name).sort();
+        await client.close();
+        return listed;
+      };
+      expect(await names(policy === 'edit' ? 'e-1' : 'wr-1')).toEqual(await names('r-1'));
+    },
+  );
 
   it('gives a step session the step tools, and only a step session', async () => {
     const readOnly = [

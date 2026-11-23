@@ -994,9 +994,10 @@ export class TerminalService extends EventEmitter {
   private async borrowProviderToken(): Promise<{ envVar: string; token: string } | null> {
     const { providerId, providerAccountLogin: login } = this.options;
     if (!providerId || !login) return null;
-    // A read-only session acts as nobody on the provider: what it needs
-    // of the item, main fetches with the token for it.
-    if (this.options.toolPolicy === 'read-only') return null;
+    // A session with a policy acts as nobody on the provider, a write step's
+    // included (slice 3-B): what it needs of the item, main fetches with the
+    // token for it.
+    if (this.options.toolPolicy !== undefined) return null;
     try {
       const driver = getProviderDriver(providerId);
       return { envVar: driver.tokenEnvVar, token: await driver.token(login) };

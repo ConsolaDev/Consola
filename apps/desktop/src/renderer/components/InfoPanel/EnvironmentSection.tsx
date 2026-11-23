@@ -7,7 +7,7 @@ import type { Session } from '../../../shared/workspace';
 import {
   folderLine,
   harnessLine,
-  readOnlyLine,
+  policyLine,
   splitForMiddle,
   type FolderLine,
 } from '../../infoPanel/environment';
@@ -43,7 +43,7 @@ export function EnvironmentSection({ facts }: { facts: TabFacts }) {
 function EnvironmentRows({ facts }: { facts: TabFacts }) {
   const computer = useComputerName() ?? 'This Mac';
   const folder = folderLine(facts);
-  const readOnly = readOnlyLine(facts.session);
+  const readOnly = policyLine(facts.session);
   return (
     <>
       <InfoRow icon={<Laptop size={ICON_SIZE} />} label={computer} />

@@ -349,6 +349,9 @@ export class HarnessSwitcher {
   /** Why this session cannot switch to any harness right now, or null. */
   private sessionRefusal(session: Session): string | null {
     if (session.kind !== 'interactive') return 'Conductor sessions stay on their harness.';
+    // A switch drops grants, and a write session cannot launch without them (Call 16).
+    if (session.toolPolicy === 'edit' || session.toolPolicy === 'write')
+      return 'A step that writes stays on its harness: its sandbox and environment were compiled for it.';
     // Its run's next turn (a reminder, a retry) must run on the harness the
     // accepted version names, grants or not; the session's own record says
     // which run, the engine's whether it is still open (review N1).

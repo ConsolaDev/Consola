@@ -737,6 +737,42 @@ describe('SessionLauncher', () => {
       ).toBe(false);
     });
 
+    it.each([['edit'], ['write']] as const)(
+      'runs the reminder in a %s session, and never resumes one unattended (slice 3-B)',
+      async (policy) => {
+        const session = sessionFixture({
+          toolPolicy: policy,
+          hasStarted: true,
+          automation: STEP,
+          cwd: targetDir,
+        });
+        const { launcher, workspaces, terminals } = buildLauncher(session);
+        workspaces.getAll.mockReturnValue([{ ...workspaceFixture(), sessions: [session] }]);
+        terminals.get.mockReturnValue({ ...existingTerminal(), hasClaudeExited: () => true });
+        await expect(
+          launcher.relaunchUnattended('ws-1', 'session-1', 'You ended without: notes'),
+        ).resolves.toBeUndefined();
+        expect(terminals.relaunch).toHaveBeenCalledWith(
+          'instance-1',
+          expect.objectContaining({ prompt: 'You ended without: notes', unattended: true }),
+        );
+        await expect(launcher.resumeUnattended('ws-1', 'session-1', 'go on')).rejects.toThrow(
+          'Consola resumes a turn unattended only in a read-only session.',
+        );
+      },
+    );
+
+    it('reminds a step only in a session Consola started for it', async () => {
+      const session = sessionFixture({ hasStarted: true, cwd: targetDir });
+      const { launcher, workspaces, terminals } = buildLauncher(session);
+      workspaces.getAll.mockReturnValue([{ ...workspaceFixture(), sessions: [session] }]);
+      terminals.get.mockReturnValue({ ...existingTerminal(), hasClaudeExited: () => true });
+      await expect(launcher.relaunchUnattended('ws-1', 'session-1', 'remind')).rejects.toThrow(
+        'Consola reminds a step only in a session it started for that step.',
+      );
+      expect(terminals.relaunch).not.toHaveBeenCalled();
+    });
+
     it('a reminder in a live terminal leaves its grants as the terminal has them', async () => {
       const session = sessionFixture({
         toolPolicy: 'read-only',
@@ -1061,10 +1097,11 @@ describe('SessionLauncher', () => {
       expect(terminals.startHeadless).not.toHaveBeenCalled();
     });
 
-    it('refuses a session that is not read-only, or that is gone', async () => {
+    it('refuses a session with no policy, or that is gone', async () => {
       const { launcher, terminals } = setup({ toolPolicy: undefined }, exited);
+      // A write step's session is reminded too (slice 3-B): only a session with no policy is refused, in these words.
       await expect(launcher.relaunchUnattended('ws-1', 'session-1', 'x')).rejects.toThrow(
-        'Consola resumes a turn unattended only in a read-only session.',
+        'Consola reminds a step only in a session it started for that step.',
       );
       await expect(launcher.relaunchUnattended('ws-1', 'gone', 'x')).rejects.toThrow(
         'Its session was closed.',

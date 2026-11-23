@@ -196,12 +196,17 @@ export function switchOpening(
 }
 
 /**
- * `read-only`: the agent may read files and the change it is about, and run
- * nothing that could execute the item's code, load its hooks or act on the
- * provider as the person. What every automation-started session gets; each
- * harness driver maps it to its CLI's own enforcement, or refuses the launch.
+ * What an automation-started session may do; each harness driver maps it to
+ * its CLI's own enforcement, or refuses the launch. `read-only`: the agent
+ * may read files and the change it is about, and run nothing that could
+ * execute the item's code, load its hooks or act on the provider as the
+ * person. `edit` and `write` (slice 3-B): a write step's session, changing
+ * files in its run's own checkout (`write` also through a shell), held to
+ * the environment its agent compiled (its grants). Every policy, not only
+ * `read-only`, means "not full tools": no provider token, none of Consola's
+ * mutating tools, no browser, no conductor's prompt.
  */
-export type SessionToolPolicy = 'read-only';
+export type SessionToolPolicy = 'read-only' | 'edit' | 'write';
 
 export interface SessionProvenance {
   /** The automation's name in its workspace's factory.yml. */

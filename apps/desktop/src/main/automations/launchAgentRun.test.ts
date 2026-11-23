@@ -12,6 +12,7 @@ import type { GitProviderDriver } from '../providers/GitProviderDriver';
 import type { LaunchSessionFields } from '../SessionLauncher';
 import {
   launchAgentRun,
+  launchedWithFullTools,
   prepareItemWorktree,
   worktreeHeld,
   type AgentLaunchDeps,
@@ -788,6 +789,16 @@ describe('worktreeHeld', () => {
     const movedIn = session({ cwd: '/code/api', agentCwd: dir });
     expect(worktreeHeld([movedIn], dir, running('one'))).toBe(true);
   });
+
+  it.each([['read-only'], ['edit'], ['write']] as const)(
+    'a %s session is not full tools, so it holds no worktree once stopped (slice 3-B)',
+    (policy) => {
+      expect(launchedWithFullTools({ cwd: dir, toolPolicy: policy }, dir)).toBe(false);
+      expect(worktreeHeld([session({ cwd: dir, toolPolicy: policy })], dir, nothingRuns)).toBe(
+        false,
+      );
+    },
+  );
 
   it('frees it once only stopped read-only sessions, or sessions elsewhere, are left', () => {
     expect(worktreeHeld([session({ cwd: dir, toolPolicy: 'read-only' })], dir, nothingRuns)).toBe(

@@ -2378,6 +2378,39 @@ describe('TerminalService login environment', () => {
     return output.join('');
   }
 
+  async function spawnedEnv(fields: Record<string, unknown>) {
+    installFakePty();
+    const token = vi.fn(async () => 'gho_abc123');
+    providerDriverMock.mockReturnValue({ tokenEnvVar: 'GH_TOKEN', token });
+    const service = new TerminalService({
+      cwd: os.tmpdir(),
+      claudeSessionId: 'consola-id',
+      resume: false,
+      providerId: 'github',
+      providerAccountLogin: 'JaviDev',
+      ...fields,
+    });
+    await service.start();
+    await vi.advanceTimersByTimeAsync(1);
+    service.destroy();
+    return { token, env: spawnMock.mock.calls.at(-1)?.[2]?.env as NodeJS.ProcessEnv | undefined };
+  }
+
+  it("borrows the bound account's token for a session with full tools", async () => {
+    const { token, env } = await spawnedEnv({});
+    expect(token).toHaveBeenCalledWith('JaviDev');
+    expect(env?.GH_TOKEN).toBe('gho_abc123');
+  });
+
+  it.each([['read-only'], ['edit'], ['write']])(
+    'borrows no provider token for a %s session (slice 3-B)',
+    async (policy) => {
+      const { token, env } = await spawnedEnv({ toolPolicy: policy });
+      expect(token).not.toHaveBeenCalled();
+      expect(env?.GH_TOKEN).toBeUndefined();
+    },
+  );
+
   it('points at the sign-in when a token cannot be borrowed', async () => {
     expect(await borrowNotice()).toContain(
       'This session runs without one — check `gh auth status`.',

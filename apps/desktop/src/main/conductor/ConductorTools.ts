@@ -10,6 +10,10 @@ import {
 } from '../../shared/workspace';
 import { asToolResult } from '../mcp/toolResult';
 
+/** A conductor never prompts a session with a policy: an automation's step, whatever it may change (slice 3-B). */
+const STEP_PROMPT_REFUSAL =
+  "A conductor can't prompt an automation's step: open it yourself, or continue it with full tools once the run ends.";
+
 /**
  * The tools a conductor drives its group with: spawn, prompt, observe.
  *
@@ -167,6 +171,10 @@ export class ConductorTools {
     args: { sessionId: string; prompt: string },
   ): { queued: true } {
     const { workspace, groupId } = this.resolveConductor(conductorSessionId);
+    // First, whatever its group or terminal (slice 3-B, review M7): a step's
+    // session is the run's, and what it is told comes from its run.
+    const named = workspace.sessions.find((session) => session.id === args.sessionId);
+    if (named?.toolPolicy !== undefined) throw new Error(STEP_PROMPT_REFUSAL);
     const target = this.groupMembers(workspace, groupId).find((s) => s.id === args.sessionId);
     if (!target) throw new Error(`Session ${args.sessionId} is not in your group.`);
 

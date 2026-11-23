@@ -503,7 +503,8 @@ export interface SessionView {
   /** The host's key for the item the session is about. */
   workItemKey?: string;
   workItemAction?: string;
-  toolPolicy?: 'read-only';
+  /** Any policy is not full tools (slice 3-B adds `edit` and `write`). */
+  toolPolicy?: 'read-only' | 'edit' | 'write';
 }
 
 export interface WorkspaceView {
