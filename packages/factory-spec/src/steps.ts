@@ -390,7 +390,7 @@ function parseIdAndIf(
 function parseStep(raw: unknown, index: number, fail: Fail): Step | null {
   const failAt: Fail = (message, path = []) => fail(message, [index, ...path]);
   if (!isRecord(raw)) {
-    failAt('Expected a step: a mapping with one of `prompt`, `action`, `agent` or `run`.');
+    failAt('Expected a step: a mapping with one of `prompt`, `action`, `agent`, `run` or `uses`.');
     return null;
   }
   if ('uses' in raw)
@@ -422,7 +422,7 @@ function parseStep(raw: unknown, index: number, fail: Fail): Step | null {
   if (present.length > 1 || (present.length === 0 && !('agent' in raw))) {
     bad(
       present.length === 0
-        ? 'A step has one of `prompt`, `action`, `agent` or `run`.'
+        ? 'A step has one of `prompt`, `action`, `agent`, `run` or `uses`.'
         : `A step names one thing to do; got ${present.join(' and ')}.`,
     );
     return null;
