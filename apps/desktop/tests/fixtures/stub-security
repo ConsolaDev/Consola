@@ -1,0 +1,44 @@
+#!/bin/sh
+# Canned `security` for tests: what `CONSOLA_E2E_SECURITY` names in a test
+# run (`src/main/secrets/programs.ts`), so a keychain binding is read without
+# ever reaching a keychain. It answers only the one call Consola makes,
+#
+#   find-generic-password -s <service> -a <account> -w
+#
+# printing the value `STUB_SECURITY_ITEMS` holds for "<service>/<account>"
+# and a newline, as `security` does, or exiting 44 (the keychain has no such
+# item) when it holds none. Anything else exits 2.
+#
+# Env knobs:
+#   STUB_SECURITY_ITEMS=path   a JSON file of { "<service>/<account>": "<value>" },
+#                              read on every call, so a test can write it late
+#   STUB_SECURITY_LOG=path     append one line per call: its argv, joined by spaces
+exec /usr/bin/perl -MJSON::PP -e '
+  use strict;
+  use warnings;
+  if (defined $ENV{STUB_SECURITY_LOG} && $ENV{STUB_SECURITY_LOG} ne "") {
+    open(my $log, ">>", $ENV{STUB_SECURITY_LOG}) or die "$ENV{STUB_SECURITY_LOG}: $!";
+    syswrite($log, join(" ", @ARGV) . "\n") or die "$ENV{STUB_SECURITY_LOG}: $!";
+  }
+  my ($command, @rest) = @ARGV;
+  exit 2 unless defined $command && $command eq "find-generic-password";
+  my ($service, $account, $print);
+  while (@rest) {
+    my $flag = shift @rest;
+    if ($flag eq "-s") { $service = shift @rest; }
+    elsif ($flag eq "-a") { $account = shift @rest; }
+    elsif ($flag eq "-w") { $print = 1; }
+    else { exit 2; }
+  }
+  exit 2 unless defined $service && defined $account && $print;
+  my $file = $ENV{STUB_SECURITY_ITEMS};
+  exit 44 unless defined $file && -f $file;
+  open(my $in, "<", $file) or exit 44;
+  local $/;
+  my $items = JSON::PP->new->utf8->decode(<$in>);
+  my $value = $items->{"$service/$account"};
+  exit 44 unless defined $value;
+  binmode(STDOUT, ":encoding(UTF-8)");
+  print $value, "\n";
+  exit 0;
+' -- "$@"
