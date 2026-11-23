@@ -1,8 +1,14 @@
-import { execFile } from 'node:child_process';
+import { execFile, execFileSync, spawn } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { withoutGitHooks, withoutRepositoryOverrides } from '../gitEnv';
-import { RunCheckoutError, type RunCheckoutStage } from '../steps/runCheckout';
+import {
+  flaggedPaths,
+  RunCheckoutError,
+  type RunCheckoutStage,
+  type SettleRequest,
+  type SettleResult,
+} from '../steps/runCheckout';
 
 /*
  * A run's own checkout against real git (slice 3-B, *The run-owned
@@ -51,20 +57,45 @@ function git(args: string[], options: { cwd: string; env: NodeJS.ProcessEnv }): 
 /** `env` with git's hooks off and no repository a login shell aimed it at. */
 const plainGit = (env: NodeJS.ProcessEnv) => withoutGitHooks(withoutRepositoryOverrides(env));
 
-/** `env` for Consola's own git in the run clone while it is made: the folder pair named, no global or system config, no fsmonitor. */
-function cloneGit(gitDir: string, dir: string, env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  const base = plainGit(env);
-  const count = Number(base.GIT_CONFIG_COUNT ?? '0');
-  return {
-    ...base,
+/** Settings every git Consola runs for a run clone gives on its command line, which beat any file's. */
+const HARDENED: ReadonlyArray<[string, string]> = [
+  ['core.fsmonitor', 'false'],
+  ['commit.gpgsign', 'false'],
+  ['core.untrackedCache', 'false'],
+  // A borrowed (`--shared`) clone is never repacked behind Consola's back.
+  ['gc.auto', '0'],
+];
+
+/**
+ * Call 9's environment for every git Consola runs for the run clone at
+ * `dir`: its git folder (`runCloneGitDirFor(dir)`) and work tree named, never
+ * discovered from the checkout (and `GIT_COMMON_DIR`, so no `commondir`
+ * file is read); hooks off; no global or system config, so a
+ * `.gitattributes` a step wrote cannot name a filter or diff driver the
+ * person configured; replace refs and grafts ignored (`GIT_NO_REPLACE_OBJECTS`
+ * alone leaves grafts on); no fsmonitor, signing, untracked cache or auto gc.
+ * Consola's own git only: no step is ever given these variables (review NB1).
+ */
+export function runCloneGitEnv(dir: string, base: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const gitDir = runCloneGitDirFor(dir);
+  const env: NodeJS.ProcessEnv = {
+    ...plainGit(base),
     GIT_DIR: gitDir,
     GIT_WORK_TREE: dir,
+    GIT_COMMON_DIR: gitDir,
     GIT_CONFIG_NOSYSTEM: '1',
     GIT_CONFIG_GLOBAL: '/dev/null',
-    GIT_CONFIG_COUNT: String(count + 1),
-    [`GIT_CONFIG_KEY_${count}`]: 'core.fsmonitor',
-    [`GIT_CONFIG_VALUE_${count}`]: 'false',
+    GIT_NO_REPLACE_OBJECTS: '1',
+    GIT_GRAFT_FILE: '/dev/null',
   };
+  let count = Number(env.GIT_CONFIG_COUNT ?? '0');
+  for (const [key, value] of HARDENED) {
+    env[`GIT_CONFIG_KEY_${count}`] = key;
+    env[`GIT_CONFIG_VALUE_${count}`] = value;
+    count += 1;
+  }
+  env.GIT_CONFIG_COUNT = String(count);
+  return env;
 }
 
 /** Whether `target` is absent or an empty folder: the only things `makeRunClone` takes. */
@@ -106,7 +137,7 @@ export async function makeRunClone(input: {
   try {
     const source = fs.realpathSync(input.source);
     const sourceGit = { cwd: source, env: plainGit(fetchEnv) };
-    const local = { cwd: dir, env: cloneGit(gitDir, dir, fetchEnv) };
+    const local = { cwd: dir, env: runCloneGitEnv(dir, fetchEnv) };
     // The fetch keeps the person's global config: their credential helper is there.
     const remote = {
       cwd: dir,
@@ -116,7 +147,7 @@ export async function makeRunClone(input: {
     fs.mkdirSync(path.dirname(gitDir), { recursive: true });
     fs.mkdirSync(path.dirname(dir), { recursive: true });
     // No template: a template folder's hooks would land in the clone (`init.templateDir`).
-    const { GIT_DIR: _dir, GIT_WORK_TREE: _tree, ...cloning } = local.env;
+    const { GIT_DIR: _dir, GIT_WORK_TREE: _tree, GIT_COMMON_DIR: _common, ...cloning } = local.env;
     await git(
       [
         'clone',
@@ -189,4 +220,413 @@ export async function makeRunClone(input: {
     }
     throw error instanceof RunCheckoutError ? error : new RunCheckoutError(stage, describe(error));
   }
+}
+
+// --- checking, committing and resetting (Task 11) ----------------------------------
+
+/**
+ * git in the run clone at `dir`, with `runCloneGitEnv`: its
+ * whole stdout; a failure rejects with git's own last line. The module's one
+ * runner, exported for its tests only: called directly it skips
+ * `gitFolderProblem`, which every function below asks first.
+ */
+export function runCloneGit(dir: string, args: string[]): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFile(
+      'git',
+      args,
+      {
+        cwd: dir,
+        env: runCloneGitEnv(dir, process.env),
+        maxBuffer: 64 * 1024 * 1024,
+      },
+      (error, stdout, stderr) => {
+        if (!error) {
+          resolve(stdout);
+          return;
+        }
+        const said = `${stderr}`.trim().split('\n').filter(Boolean);
+        reject(new Error(said.length > 0 ? said[said.length - 1] : error.message));
+      },
+    );
+  });
+}
+
+/** Whether `args` succeed: git's yes-or-no questions (`merge-base --is-ancestor`, `diff --quiet`). */
+const answers = (dir: string, args: string[]) =>
+  runCloneGit(dir, args).then(
+    () => true,
+    () => false,
+  );
+
+/** The words a settle or a reset fails with when the git folder or its pointer changed. */
+const changedFolder = (what: string) =>
+  `the step changed this checkout's git folder (${what}), so Consola will not commit in it`;
+
+/** The first symbolic link under `root`, by its path inside it, or null. */
+function firstLink(root: string, relative = ''): string | null {
+  for (const entry of fs.readdirSync(path.join(root, relative), { withFileTypes: true })) {
+    const inside = relative === '' ? entry.name : `${relative}/${entry.name}`;
+    if (entry.isSymbolicLink()) return inside;
+    if (entry.isDirectory()) {
+      const found = firstLink(root, inside);
+      if (found !== null) return found;
+    }
+  }
+  return null;
+}
+
+/** Whether the git folder holds a replace ref, loose or packed. */
+function holdsReplaceRef(gitDir: string): boolean {
+  const loose = path.join(gitDir, 'refs', 'replace');
+  if (fs.existsSync(loose) && fs.readdirSync(loose, { recursive: true }).length > 0) return true;
+  const packed = path.join(gitDir, 'packed-refs');
+  return (
+    fs.existsSync(packed) && /^[0-9a-f]+ refs\/replace\//m.test(fs.readFileSync(packed, 'utf8'))
+  );
+}
+
+/** What `makeRunClone` wrote as the alternates, from the git folder's own config; null when unreadable. */
+function recordedAlternates(gitDir: string): string | null {
+  try {
+    return execFileSync(
+      'git',
+      ['config', '--file', path.join(gitDir, 'config'), 'consola.alternates'],
+      {
+        encoding: 'utf8',
+        env: { ...plainGit(process.env), GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' },
+        stdio: ['ignore', 'pipe', 'ignore'],
+      },
+    ).trim();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Call 9's folder check, of the checkout's pointer and the run clone's git
+ * folder: null when both are as Consola made them, else what changed. The
+ * pointer is a regular file holding exactly what Consola wrote; the git
+ * folder a real directory with no link under it, no `commondir` or `gitdir`
+ * file, no replace ref (loose or packed), no `info/grafts`, and its
+ * alternates byte for byte what Consola recorded. A sandboxed step can write
+ * none of these (canary rows 32, 47); only a `host` step, or something
+ * outside every sandbox, could: a tripwire. Asked before every spawn in a
+ * run-owned checkout and at every boundary (review NB1).
+ */
+export function gitFolderProblem(dir: string): string | null {
+  const gitDir = runCloneGitDirFor(dir);
+  const pointer = path.join(dir, '.git');
+  const pointerStat = fs.lstatSync(pointer, { throwIfNoEntry: false });
+  if (!pointerStat?.isFile() || fs.readFileSync(pointer, 'utf8') !== pointerText(gitDir))
+    return ".git in the checkout is not Consola's pointer";
+  if (!fs.lstatSync(gitDir, { throwIfNoEntry: false })?.isDirectory())
+    return 'the git folder is not a folder';
+  const link = firstLink(gitDir);
+  if (link !== null) return `\`${link}\` in it is a link`;
+  for (const name of ['commondir', 'gitdir'])
+    if (fs.existsSync(path.join(gitDir, name))) return `it holds \`${name}\``;
+  if (holdsReplaceRef(gitDir)) return '`refs/replace/` holds a ref';
+  if (fs.existsSync(path.join(gitDir, 'info', 'grafts'))) return 'it holds `info/grafts`';
+  const alternates = path.join(gitDir, 'objects', 'info', 'alternates');
+  const written = fs.existsSync(alternates) ? fs.readFileSync(alternates, 'utf8').trim() : '';
+  if (written !== recordedAlternates(gitDir)) return '`objects/info/alternates` changed';
+  return null;
+}
+
+/** The paths `git status --porcelain=v1 -z` lists, a rename's original left out. */
+function statusPaths(listed: string): string[] {
+  const tokens = listed.split('\0');
+  const paths: string[] = [];
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
+    if (token.length < 4) continue;
+    paths.push(token.slice(3));
+    if (token[0] === 'R' || token[0] === 'C') i += 1;
+  }
+  return paths;
+}
+
+/** Every changed or untracked path in the checkout, as git lists them (nothing staged, nothing written). */
+async function changedPaths(dir: string): Promise<string[]> {
+  return statusPaths(
+    await runCloneGit(dir, ['status', '--porcelain=v1', '-z', '--untracked-files=all']),
+  );
+}
+
+const WALK_CUT_SHORT =
+  "Consola couldn't finish checking this run's checkout for repositories inside it; nothing was committed";
+
+/**
+ * Call 9's tree check, before anything is staged (review B5): a changed or
+ * untracked regular file with more than one link (a hard link lets
+ * Consola's unsandboxed read commit a file the sandbox denies), then a
+ * repository inside the checkout (any entry named `.git`, case aside, below
+ * its root, whose config would run in any git started there). The walk
+ * follows no link and is bounded, as cleanup's is: cut short it fails as
+ * unknown (fail closed). Null when neither.
+ */
+export async function treeProblem(
+  dir: string,
+  step: string,
+  limits: { directories: number; deadlineMs: number } = {
+    directories: 200_000,
+    deadlineMs: 20_000,
+  },
+): Promise<string | null> {
+  for (const file of await changedPaths(dir)) {
+    const stat = fs.lstatSync(path.join(dir, file), { throwIfNoEntry: false });
+    if (stat?.isFile() && stat.nlink > 1)
+      return `\`${step}\` left \`${file}\` hard-linked to another file; Consola commits only the checkout's own files`;
+  }
+  const started = Date.now();
+  const folders = [''];
+  let visited = 0;
+  while (folders.length > 0) {
+    const relative = folders.pop()!;
+    visited += 1;
+    if (visited > limits.directories || Date.now() - started >= limits.deadlineMs)
+      return WALK_CUT_SHORT;
+    for (const entry of fs.readdirSync(path.join(dir, relative), { withFileTypes: true })) {
+      const inside = relative === '' ? entry.name : `${relative}/${entry.name}`;
+      if (entry.name.toLowerCase() === '.git' && relative !== '')
+        return `\`${step}\` left a repository inside the checkout (\`${inside}\`); Consola commits only the checkout's own files`;
+      if (entry.isDirectory()) folders.push(inside);
+    }
+  }
+  return null;
+}
+
+/** HEAD on `branch`, and `branch` still descending from `before` (replace refs and grafts off): the words when not. */
+async function headProblem(dir: string, branch: string, before: string): Promise<string | null> {
+  const head = await runCloneGit(dir, ['symbolic-ref', '-q', 'HEAD']).then(
+    (said) => said.trim(),
+    () => '',
+  );
+  if (head !== `refs/heads/${branch}`) return `the step moved \`HEAD\` off ${branch}`;
+  if (!(await answers(dir, ['merge-base', '--is-ancestor', before, `refs/heads/${branch}`])))
+    return `the step moved ${branch} off the commit it started from (${before.slice(0, 7)})`;
+  return null;
+}
+
+/** The paths that differ between `from` and `to` (the working tree when `to` is absent). */
+async function namesBetween(dir: string, from: string, to?: string): Promise<string[]> {
+  const listed = await runCloneGit(dir, ['diff', '--name-only', '-z', from, ...(to ? [to] : [])]);
+  return listed.split('\0').filter(Boolean);
+}
+
+/** `<a>, <b>, …` for at most ten, then `and <n> more`. */
+function namedAtMostTen(paths: string[]): string {
+  const shown = paths.slice(0, 10).join(', ');
+  return paths.length > 10 ? `${shown} and ${paths.length - 10} more` : shown;
+}
+
+/**
+ * Steps 2–6 of *Commits, and the checks between steps*, for one step: the
+ * folder; `HEAD` on the branch; the branch descending from `before`; the
+ * tree; then, for an agent step, `git add -A` and Consola's commit (none
+ * when nothing is left; an agent's own commit on `host` is kept), for a
+ * command step the leftovers refusal, and for a failed attempt
+ * (`keepOnly`) nothing committed; `changes.patch` in the attempt folder
+ * (`before` to `after`, or to the working tree, untracked included, for a
+ * failed one). A problem fails the step, in the Global Constraints' words,
+ * and commits nothing.
+ */
+export async function settleRunClone(request: SettleRequest): Promise<SettleResult> {
+  const { dir, branch, before, step, commit, attemptDir, keepOnly } = request;
+  const folder = gitFolderProblem(dir);
+  if (folder) return { ok: false, error: changedFolder(folder) };
+  try {
+    const moved = await headProblem(dir, branch, before);
+    if (moved) return { ok: false, error: moved };
+    const tree = await treeProblem(dir, step);
+    if (tree) return { ok: false, error: tree };
+    if (keepOnly) {
+      // Untracked files join the patch as intent-to-add, and leave the index as they came.
+      await runCloneGit(dir, ['add', '-A', '-N']);
+      const patch = await runCloneGit(dir, [
+        'diff',
+        '--no-ext-diff',
+        '--no-textconv',
+        '--binary',
+        before,
+      ]);
+      const names = await namesBetween(dir, before);
+      await runCloneGit(dir, ['reset', '-q']);
+      writePatch(attemptDir, patch);
+      const after = (await runCloneGit(dir, ['rev-parse', 'HEAD'])).trim();
+      return { ok: true, after, files: names.length, flagged: flaggedPaths(names) };
+    }
+    if (commit) {
+      await runCloneGit(dir, ['add', '-A']);
+      if (!(await answers(dir, ['diff', '--cached', '--quiet'])))
+        await runCloneGit(dir, ['commit', '-q', '--no-verify', '-m', commit.message]);
+    } else {
+      const left = await changedPaths(dir);
+      if (left.length > 0)
+        return { ok: false, error: `\`${step}\` left files changed: ${namedAtMostTen(left)}` };
+    }
+    const after = (await runCloneGit(dir, ['rev-parse', 'HEAD'])).trim();
+    const names = await namesBetween(dir, before, after);
+    if (commit)
+      writePatch(
+        attemptDir,
+        await runCloneGit(dir, [
+          'diff',
+          '--no-ext-diff',
+          '--no-textconv',
+          '--binary',
+          before,
+          after,
+        ]),
+      );
+    return { ok: true, after, files: names.length, flagged: flaggedPaths(names) };
+  } catch (error) {
+    return {
+      ok: false,
+      error: `Consola couldn't settle \`${step}\`'s checkout: ${describe(error)}`,
+    };
+  }
+}
+
+function writePatch(attemptDir: string, patch: string): void {
+  fs.mkdirSync(attemptDir, { recursive: true });
+  fs.writeFileSync(path.join(attemptDir, 'changes.patch'), patch);
+}
+
+/**
+ * Between steps: what a person's session left (never ending a process),
+ * committed apart with `message`. The folder is checked first, so a pointer
+ * rewritten between steps fails the boundary even when nothing else
+ * changed (review NB1); then `HEAD` and the branch, as after a step. Null
+ * when nothing changed and `HEAD` is still `before`.
+ */
+export async function settleBetweenSteps(request: {
+  dir: string;
+  branch: string;
+  base: string;
+  before: string;
+  message: string;
+  /** The session the run last saw holding the checkout, for a refusal's words; absent, `a session`. */
+  session?: string;
+}): Promise<SettleResult | null> {
+  const { dir, branch, before, message } = request;
+  const folder = gitFolderProblem(dir);
+  if (folder) return { ok: false, error: changedFolder(folder) };
+  try {
+    const moved = await headProblem(dir, branch, before);
+    if (moved) return { ok: false, error: moved };
+    // Before the look for changes: git lists no change for a repository planted inside the checkout.
+    const tree = await treeProblem(dir, request.session ?? 'a session');
+    if (tree) return { ok: false, error: tree };
+    const left = await changedPaths(dir);
+    const head = (await runCloneGit(dir, ['rev-parse', 'HEAD'])).trim();
+    if (left.length === 0 && head === before) return null;
+    if (left.length > 0) {
+      await runCloneGit(dir, ['add', '-A']);
+      await runCloneGit(dir, ['commit', '-q', '--no-verify', '-m', message]);
+    }
+    const after = (await runCloneGit(dir, ['rev-parse', 'HEAD'])).trim();
+    const names = await namesBetween(dir, before, after);
+    return { ok: true, after, files: names.length, flagged: flaggedPaths(names) };
+  } catch (error) {
+    return { ok: false, error: `Consola couldn't check this run's checkout: ${describe(error)}` };
+  }
+}
+
+/** Throws the folder check's words, for a reset, a diff or a read, which nothing must run on a changed folder. */
+function assertFolder(dir: string): void {
+  const folder = gitFolderProblem(dir);
+  if (folder) throw new Error(changedFolder(folder));
+}
+
+/**
+ * Back to `before` for a retry: the working tree, the index and, given
+ * `branch`, the branch with `HEAD` on it (an agent may have moved either);
+ * every untracked and ignored file goes but `.consola-cache/` and the
+ * pointer. After the folder check.
+ */
+export async function resetRunClone(dir: string, before: string, branch?: string): Promise<void> {
+  assertFolder(dir);
+  if (branch !== undefined) await runCloneGit(dir, ['checkout', '-q', '-f', '-B', branch, before]);
+  else await runCloneGit(dir, ['reset', '-q', '--hard', before]);
+  await runCloneGit(dir, ['clean', '-q', '-ffdx', '-e', '.consola-cache']);
+}
+
+/** `base..head`'s diff as text, cut at `maxBytes` on a character's edge; `bytes` is its whole size. */
+export async function runCloneChanges(
+  dir: string,
+  base: string,
+  head: string,
+  maxBytes: number,
+): Promise<{ text: string; truncated: boolean; bytes: number }> {
+  assertFolder(dir);
+  const { kept, bytes } = await streamGit(
+    dir,
+    ['diff', '--no-ext-diff', '--no-textconv', base, head],
+    maxBytes,
+  );
+  let cut = Math.min(kept.length, maxBytes);
+  // Back off to the start of a character, so the text never ends in half of one.
+  while (cut > 0 && cut < kept.length && (kept[cut] & 0xc0) === 0x80) cut -= 1;
+  return { text: kept.subarray(0, cut).toString('utf8'), truncated: bytes > maxBytes, bytes };
+}
+
+/** git's stdout, keeping at most `keep` bytes (and one more, to find a character's edge) and counting the rest. */
+function streamGit(
+  dir: string,
+  args: string[],
+  keep: number,
+): Promise<{ kept: Buffer; bytes: number }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn('git', args, {
+      cwd: dir,
+      env: runCloneGitEnv(dir, process.env),
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    const chunks: Buffer[] = [];
+    let held = 0;
+    let bytes = 0;
+    let stderr = '';
+    child.stdout.on('data', (chunk: Buffer) => {
+      bytes += chunk.length;
+      if (held <= keep) {
+        chunks.push(chunk);
+        held += chunk.length;
+      }
+    });
+    child.stderr.on('data', (chunk: Buffer) => {
+      stderr += chunk.toString('utf8');
+    });
+    child.once('error', reject);
+    child.once('close', (code) => {
+      if (code === 0) resolve({ kept: Buffer.concat(chunks), bytes });
+      else reject(new Error(stderr.trim().split('\n').pop() || `git exited ${code}`));
+    });
+  });
+}
+
+/**
+ * A path artifact's file at `commit` (*Artifacts with a `path:`*): its text
+ * when it is a regular file of at most `maxBytes`; else why not. The path is
+ * literal, never a pattern.
+ */
+export async function runCloneShowAt(
+  dir: string,
+  commit: string,
+  file: string,
+  maxBytes: number,
+): Promise<
+  { ok: true; text: string } | { ok: false; reason: 'missing' | 'not-a-file' | 'too-large' }
+> {
+  assertFolder(dir);
+  // `ls-tree` takes a path, never a pattern; the entry must name `file` exactly.
+  const listed = await runCloneGit(dir, ['ls-tree', '-z', commit, '--', file]);
+  const entry = listed.split('\0').find((line) => line.endsWith(`\t${file}`));
+  if (!entry) return { ok: false, reason: 'missing' };
+  const [mode, type, object] = entry.slice(0, entry.indexOf('\t')).split(' ');
+  if (type !== 'blob' || mode === '120000') return { ok: false, reason: 'not-a-file' };
+  const size = Number((await runCloneGit(dir, ['cat-file', '-s', object])).trim());
+  if (size > maxBytes) return { ok: false, reason: 'too-large' };
+  return { ok: true, text: await runCloneGit(dir, ['cat-file', 'blob', object]) };
 }

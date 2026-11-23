@@ -74,7 +74,8 @@ export interface RunCheckoutPort {
     message: string;
     session?: string;
   }): Promise<SettleResult | null>;
-  reset(dir: string, before: string): Promise<void>;
+  /** Back to `before` for a retry, `HEAD` on `branch` again when it is given (a step may have moved either). */
+  reset(dir: string, before: string, branch?: string): Promise<void>;
   changes(
     dir: string,
     base: string,
